@@ -113,8 +113,10 @@ jobs:
               && mv "package.tmp" "package.json"
             echo "package.json (root) synced to $VERSION"
           fi
-          # Then every publishable workspace package.
-          for pkg in packages/contracts packages/paths packages/core packages/caamp packages/lafs packages/cant packages/nexus packages/brain packages/runtime packages/adapters packages/cleo packages/cleo-os packages/agents packages/skills packages/playbooks packages/worktree packages/git-shim packages/mcp-adapter packages/studio packages/animations; do
+          # Then every publishable workspace package, including the
+          # @cleocode/worktree-napi root and its 5 per-triple wrapper
+          # packages (T10178 — fixes global-install resolution gap).
+          for pkg in packages/contracts packages/paths packages/core packages/caamp packages/lafs packages/cant packages/nexus packages/brain packages/runtime packages/adapters packages/cleo packages/cleo-os packages/agents packages/skills packages/playbooks packages/worktree packages/git-shim packages/mcp-adapter packages/studio packages/animations crates/worktree-napi packages/worktree-napi-linux-x64-gnu packages/worktree-napi-linux-arm64-gnu packages/worktree-napi-darwin-x64 packages/worktree-napi-darwin-arm64 packages/worktree-napi-win32-x64-msvc; do
             if [[ -f "$pkg/package.json" ]]; then
               jq --arg v "$VERSION" '.version = $v' "$pkg/package.json" > "$pkg/package.tmp" \
                 && mv "$pkg/package.tmp" "$pkg/package.json"
@@ -479,6 +481,69 @@ jobs:
             SHA256SUMS
           echo "GitHub release v${VERSION} published"
 
+      # ── worktree-napi prebuilt binaries ──────────────────────────────────────
+      # T10178: Download the 5 per-triple .node binaries produced by
+      # .github/workflows/worktree-napi-prebuild.yml so the per-triple
+      # @cleocode/worktree-napi-<triple> packages can be packed with their
+      # binary payload before publish. If the prebuild workflow hasn't
+      # completed yet (e.g. very fast back-to-back tag pushes) the step
+      # falls back to building linux-x64-gnu locally so the release runner
+      # at least publishes its own native triple. The other 4 triples will
+      # publish empty in that edge case — consumers without a matching
+      # binary will fall back to the loader's descriptive error, identical
+      # to today's behaviour, just without the file:../../crates regression.
+      - name: Download worktree-napi prebuilt binaries
+        id: napi-binaries
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          # Pick the most-recent successful prebuild run for this commit.
+          # Prefer a run matching the tag's commit SHA so we publish exactly
+          # the binaries that match the code being released. Falls back to
+          # the most-recent successful run if no SHA match is found (e.g.
+          # the prebuild hasn't completed yet for this tag).
+          WORKFLOW=".github/workflows/worktree-napi-prebuild.yml"
+          TAG_SHA=$(git rev-parse HEAD)
+          RUN_ID=$(gh run list \
+            --workflow "$WORKFLOW" \
+            --status success \
+            --limit 10 \
+            --json databaseId,headSha \
+            --jq "[.[] | select(.headSha == \"$TAG_SHA\")] | .[0].databaseId // empty")
+          if [[ -z "$RUN_ID" ]]; then
+            echo "::warning::No SHA-matched prebuild run for $TAG_SHA — falling back to most-recent successful run."
+            RUN_ID=$(gh run list \
+              --workflow "$WORKFLOW" \
+              --status success \
+              --limit 1 \
+              --json databaseId \
+              --jq '.[0].databaseId // empty')
+          fi
+          if [[ -z "$RUN_ID" ]]; then
+            echo "::warning::No successful worktree-napi-prebuild run found — per-triple packages will publish without .node binaries."
+            echo "downloaded=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Found worktree-napi-prebuild run: $RUN_ID"
+          mkdir -p /tmp/worktree-napi-artifacts
+          gh run download "$RUN_ID" \
+            --dir /tmp/worktree-napi-artifacts \
+            --pattern 'worktree-napi-*'
+          # Copy each artifact into its matching per-triple package directory.
+          for triple in linux-x64-gnu linux-arm64-gnu darwin-x64 darwin-arm64 win32-x64-msvc; do
+            ART="/tmp/worktree-napi-artifacts/worktree-napi-${triple}"
+            DEST="packages/worktree-napi-${triple}"
+            if [[ -d "$ART" ]] && [[ -d "$DEST" ]]; then
+              cp "$ART"/worktree-napi.*.node "$DEST/" 2>/dev/null || true
+              ls -lh "$DEST/" || true
+            else
+              echo "::warning::Missing artifact $ART or dest $DEST for triple $triple"
+            fi
+          done
+          echo "downloaded=true" >> "$GITHUB_OUTPUT"
+
       # ── npm Publish (OIDC Trusted Publishing) ─────────────────────────────────
       # Publish in dependency order so downstream packages can resolve workspace:*
       # refs correctly when pnpm replaces them with real version numbers.
@@ -506,18 +571,30 @@ jobs:
           }
 
           publish_pkg() {
-            # $1 = directory name under packages/
-            # $2 = npm name without @cleocode/ prefix (defaults to $1 when the
-            #      directory and npm name match; pass explicitly when they
-            #      differ, e.g. packages/cleo-git-shim → @cleocode/git-shim).
+            # $1 = directory name under packages/ (or an explicit relative path
+            #      when it contains a slash, e.g. "crates/worktree-napi" —
+            #      added by T10178 so we can publish the napi root from its
+            #      crates/ home instead of forcing a copy into packages/).
+            # $2 = npm name without @cleocode/ prefix (defaults to the last
+            #      path segment when the directory and npm name match; pass
+            #      explicitly when they differ, e.g. packages/cleo-git-shim →
+            #      @cleocode/git-shim).
             local pkg_dir="$1"
-            local npm_name="${2:-$1}"
-            echo "--- Publishing @cleocode/$npm_name (from packages/$pkg_dir) ---"
-            if [[ ! -d "packages/$pkg_dir" ]]; then
-              echo "SKIP: packages/$pkg_dir does not exist"
+            local resolved_dir
+            if [[ "$pkg_dir" == */* ]]; then
+              # Explicit path (e.g. crates/worktree-napi).
+              resolved_dir="$pkg_dir"
+            else
+              resolved_dir="packages/$pkg_dir"
+            fi
+            local default_name="${pkg_dir##*/}"
+            local npm_name="${2:-$default_name}"
+            echo "--- Publishing @cleocode/$npm_name (from $resolved_dir) ---"
+            if [[ ! -d "$resolved_dir" ]]; then
+              echo "SKIP: $resolved_dir does not exist"
               return 0
             fi
-            if [[ "$pkg_dir" == "adapters" ]] && [[ ! -d "packages/$pkg_dir/dist" ]]; then
+            if [[ "$pkg_dir" == "adapters" ]] && [[ ! -d "$resolved_dir/dist" ]]; then
               echo "SKIP: no dist (may be type-only)"
               return 0
             fi
@@ -525,7 +602,7 @@ jobs:
               echo "✓ SKIP: @cleocode/$npm_name@$VERSION already on npm (idempotent re-run)"
               return 0
             fi
-            pushd "packages/$pkg_dir" > /dev/null
+            pushd "$resolved_dir" > /dev/null
             # GitHub Actions runs with `bash -eo pipefail`; if pnpm publish
             # exits non-zero inside a `$(...)` substitution, the whole step
             # aborts and the graceful-failure branches below become
@@ -587,6 +664,30 @@ jobs:
           # so npm consumers can resolve the dep at install time. (T1882)
           publish_pkg paths
           publish_pkg lafs
+          # worktree-napi per-triple prebuilt wrappers + the napi root.
+          # MUST publish BEFORE @cleocode/worktree because worktree declares
+          # "@cleocode/worktree-napi": "workspace:*" — pnpm publish rewrites
+          # workspace:* to the concrete version, but the result is only
+          # resolvable once the napi root is on npm. The per-triple wrappers
+          # ship as optionalDependencies of the napi root so they must land
+          # first. (T10178 — fixes the file:../../crates/worktree-napi
+          # global-install regression introduced in v2026.5.101.)
+          #
+          # The `.node` binary files for each triple are produced by
+          # .github/workflows/worktree-napi-prebuild.yml and downloaded into
+          # the per-triple packages/ directories in the
+          # "Download worktree-napi prebuilt binaries" step earlier in this
+          # job. If any artifact is missing the per-triple package will be
+          # published with no binary which is intentional — the optionalDep
+          # mechanism simply falls back to the next available triple on
+          # consumer install. The napi loader emits a descriptive error if
+          # the platform isn't supported at all.
+          publish_pkg packages/worktree-napi-linux-x64-gnu
+          publish_pkg packages/worktree-napi-linux-arm64-gnu
+          publish_pkg packages/worktree-napi-darwin-x64
+          publish_pkg packages/worktree-napi-darwin-arm64
+          publish_pkg packages/worktree-napi-win32-x64-msvc
+          publish_pkg crates/worktree-napi
           # worktree + git-shim depend on contracts (+ paths for worktree) —
           # publish early so packages/core (which consumes @cleocode/worktree)
           # can resolve them at install time on npm.

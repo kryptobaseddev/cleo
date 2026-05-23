@@ -175,3 +175,10 @@ temp/
 .cleo/agent-outputs/T-POMODORO-BENCH-2026-04-16/cleo/.cleo/
 
 .gsd/
+
+# napi-rs prebuilt binaries — built by .github/workflows/worktree-napi-prebuild.yml
+# (CI) or `cargo build --release -p worktree-napi` (locally) and copied into
+# the matching per-triple package directory before publish. Never committed.
+# (T10178 — global-install resolution fix for @cleocode/worktree-napi.)
+crates/worktree-napi/worktree-napi.*.node
+packages/worktree-napi-*/worktree-napi.*.node

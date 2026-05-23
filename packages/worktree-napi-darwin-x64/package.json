@@ -1,7 +1,6 @@
 {
   "name": "@cleocode/worktree-napi-darwin-x64",
-  "version": "0.0.0-prerelease",
-  "private": false,
+  "version": "2026.5.101",
   "description": "macOS x86_64 prebuilt for @cleocode/worktree-napi",
   "license": "MIT",
   "os": [
@@ -13,5 +12,13 @@
   "main": "worktree-napi.darwin-x64.node",
   "files": [
     "worktree-napi.darwin-x64.node"
-  ]
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kryptobaseddev/cleo",
+    "directory": "packages/worktree-napi-darwin-x64"
+  }
 }
