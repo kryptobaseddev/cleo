@@ -272,6 +272,15 @@ export type {
   TaskQueryFilters,
   TransactionAccessor,
 } from './data-accessor.js';
+// === Database Inventory (Saga T10281 / Epic T10282 / Task T10305 — SG-BRAIN-DB-RESILIENCE) ===
+export type {
+  DbConcurrency,
+  DbInventoryEntry,
+  DbPrivacy,
+  DbRole,
+  DbTier,
+} from './db-inventory.js';
+export { DB_INVENTORY } from './db-inventory.js';
 // === Dependency Registry Contracts ===
 export type {
   DependencyCategory,
