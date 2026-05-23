@@ -244,7 +244,7 @@ function assertTagExists(version: string, projectRoot: string): EngineResult<str
     const listed = runGit(['tag', '-l', version], projectRoot);
     if (!listed) {
       return engineError('E_TAG_NOT_FOUND', `Git tag '${version}' does not exist in this repo`, {
-        fix: `Fetch tags with 'git fetch --tags origin' or run 'cleo release ship' first.`,
+        fix: `Fetch tags with 'git fetch --tags origin' or run the canonical release flow ('cleo release plan' + 'cleo release open') first.`,
         details: { version },
       });
     }

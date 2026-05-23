@@ -53,10 +53,14 @@ describe('Operation Registry', () => {
       expect(stage?.domain).toBe('pipeline');
       expect(stage?.operation).toBe('stage.validate');
 
-      const release = resolve('mutate', 'pipeline', 'release.ship');
+      // T9540 removed `release.ship`; T10103 deleted the deprecation shim
+      // outright. The sub-domain prefix resolution we want to exercise here
+      // is now `release.list` (query) — same dotted-prefix path through the
+      // pipeline domain.
+      const release = resolve('query', 'pipeline', 'release.list');
       expect(release).toBeDefined();
       expect(release?.domain).toBe('pipeline');
-      expect(release?.operation).toBe('release.ship');
+      expect(release?.operation).toBe('release.list');
     });
 
     it('should resolve memory domain operations', () => {

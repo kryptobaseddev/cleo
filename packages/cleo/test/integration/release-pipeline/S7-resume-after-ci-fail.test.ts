@@ -7,8 +7,9 @@
  * Acceptance criteria covered:
  *
  * - A10: a release plan whose `status` is `pr-opened` and that has a non-null
- *   `prUrl` MUST be resumable by `cleo release ship --resume` without
- *   re-running the plan step.
+ *   `prUrl` MUST be resumable by re-running `cleo release open <ver>` without
+ *   re-running the plan step. (The deprecated `cleo release ship --resume`
+ *   alias was deleted in T10103.)
  *
  * The test asserts:
  *
@@ -69,7 +70,7 @@ describe('S7 — Resume after CI failure [forensics: F8]', () => {
   });
 
   it.skipIf(!hasReleasePlanImpl)(
-    'AC10: cleo release ship --resume picks up from pr-opened checkpoint (real verb)',
+    'AC10: re-running cleo release open <ver> picks up from pr-opened checkpoint (real verb)',
     () => {
       // Activated once T9525 lands. The real verb MUST detect a plan in
       // `pr-opened` state and skip the plan + open phases entirely.

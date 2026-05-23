@@ -961,7 +961,7 @@ function buildStageGuidance(protocol: string, rcasdDir: string, outputDir: strin
       '- Bump monorepo + package versions (CalVer YYYY.MM.patch)',
       '- CHANGELOG.md entry under the new version',
       '- Tag via `git tag v<version>` and push with `--tags`',
-      '- CI must be GREEN before `npm publish` (`cleo release ship`)',
+      '- CI must be GREEN before `npm publish` — use `cleo release plan` + `cleo release open` (the canonical 4-verb pipeline)',
       '- Do NOT force-push or bypass hooks',
     ].join('\n'),
     contribution: [

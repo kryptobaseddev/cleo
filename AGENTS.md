@@ -596,9 +596,14 @@ full atom grammar and tool-resolution rules.
 - `gh` CLI must be authenticated (`gh auth status`)
 - Branch model is configurable: `cleo config set release.branchModel feat-to-main`
 - To check in-flight PR CI status: `cleo release pr-status <version>`
-- `cleo release ship` is **[DEPRECATED]** — it forwards to `plan` + `open`
-  but emits a deprecation warning and will be removed no earlier than the
-  third release cycle after T9498. Prefer the explicit two-verb invocation.
+- The deprecated `cleo release ship` shim was **deleted in T10103** (Saga
+  T10099). Use the explicit two-verb invocation: `cleo release plan` then
+  `cleo release open`. The full verb-to-state map is in
+  `docs/release/verb-matrix.md`.
+- One-shot end-to-end smoke: `cleo release ship-e2e-smoke <version> --epic
+  <id>` walks plan → open → wait-for-PR → wait-for-tag →
+  verify-npm-published. Dry-run by default; add `--execute` to perform
+  real mutations. Idempotent and resumable from any failure point.
 
 ### Branch Protection
 
