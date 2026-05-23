@@ -23,6 +23,7 @@
  */
 
 import type { Task } from '@cleocode/contracts';
+import { renderTree, renderWaves, setTreeContext } from '@cleocode/core';
 import { formatTree, formatWaves } from '@cleocode/core/formatters';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { computeWaves, getEnrichedWaves } from '../../../../../core/src/orchestration/waves.js';
@@ -32,8 +33,6 @@ import {
   type TestDbEnv,
 } from '../../../../../core/src/store/__tests__/test-db-helper.js';
 import { coreTaskTree } from '../../../../../core/src/tasks/task-ops.js';
-import { setTreeContext } from '../../tree-context.js';
-import { renderTree, renderWaves } from '../system.js';
 
 // ---------------------------------------------------------------------------
 // Fixture task graph

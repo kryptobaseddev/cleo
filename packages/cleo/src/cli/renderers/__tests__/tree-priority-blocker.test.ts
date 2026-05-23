@@ -13,8 +13,8 @@
  * @epic T1187
  */
 
+import { renderTree } from '@cleocode/core';
 import { describe, expect, it } from 'vitest';
-import { renderTree } from '../system.js';
 
 // ---------------------------------------------------------------------------
 // Helpers: build minimal FlatTreeNode-shaped objects

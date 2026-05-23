@@ -9,9 +9,9 @@
  * @epic T1691
  */
 
+import { renderAuditReconstruct } from '@cleocode/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { setFormatContext } from '../../format-context.js';
-import { renderAuditReconstruct } from '../../renderers/system.js';
 
 // ---------------------------------------------------------------------------
 // Test lifecycle
