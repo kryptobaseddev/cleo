@@ -1,0 +1,317 @@
+/**
+ * Integration tests for the orchestrate-spawn timeout supervisor + auto-cleanup
+ * pipeline (T9545, Saga T10176, Decision D010).
+ *
+ * Covers:
+ * - {@link runTimeoutCleanup} happy path — calls destroyWorktree with the
+ *   expected options and returns a normalised result envelope.
+ * - {@link runTimeoutCleanup} timeout path — cleanup that exceeds
+ *   {@link CLEANUP_BUDGET_MS} resolves with an error and does NOT throw.
+ * - {@link runTimeoutCleanup} idempotency — re-running against an absent
+ *   worktree reports `worktreeRemoved: true`.
+ * - {@link orchestrateSpawn} happy path — completes under
+ *   {@link SPAWN_BUDGET_MS} and returns a success envelope.
+ * - {@link orchestrateSpawn} timeout path — when an internal step hangs past
+ *   the budget, the function returns `E_TIMEOUT` AND invokes the cleanup pass
+ *   so no orphan worktree is left behind.
+ *
+ * @task T9545
+ * @saga T10176
+ */
+
+import { describe, expect, it, vi } from 'vitest';
+import { CLEANUP_BUDGET_MS, runTimeoutCleanup, SPAWN_BUDGET_MS } from '../spawn-ops.js';
+
+// ---------------------------------------------------------------------------
+// Module-level mocks — must be declared before the import under test loads.
+// ---------------------------------------------------------------------------
+
+const destroyWorktreeMock = vi.fn();
+const spawnWorktreeMock = vi.fn();
+const validateSpawnReadinessMock = vi.fn();
+const composeSpawnPayloadMock = vi.fn();
+const getTaskAccessorMock = vi.fn();
+const getActiveSessionMock = vi.fn();
+
+vi.mock('@cleocode/worktree', async () => {
+  const actual = await vi.importActual<typeof import('@cleocode/worktree')>('@cleocode/worktree');
+  return {
+    ...actual,
+    destroyWorktree: (...args: unknown[]) => destroyWorktreeMock(...args),
+  };
+});
+
+vi.mock('../../sentient/worktree-dispatch.js', () => ({
+  spawnWorktree: (...args: unknown[]) => spawnWorktreeMock(...args),
+}));
+
+vi.mock('../../orchestration/validate-spawn.js', () => ({
+  validateSpawnReadiness: (...args: unknown[]) => validateSpawnReadinessMock(...args),
+}));
+
+vi.mock('../../orchestration/spawn.js', () => ({
+  composeSpawnPayload: (...args: unknown[]) => composeSpawnPayloadMock(...args),
+}));
+
+vi.mock('../../store/data-accessor.js', () => ({
+  getTaskAccessor: (...args: unknown[]) => getTaskAccessorMock(...args),
+}));
+
+vi.mock('../../store/session-store.js', () => ({
+  getActiveSession: (...args: unknown[]) => getActiveSessionMock(...args),
+}));
+
+vi.mock('../../paths.js', async () => {
+  const actual = await vi.importActual<typeof import('../../paths.js')>('../../paths.js');
+  return {
+    ...actual,
+    getProjectRoot: (root?: string) => root ?? '/tmp/cleo-spawn-test-root',
+  };
+});
+
+vi.mock('../../logger.js', () => ({
+  getLogger: () => ({
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  }),
+}));
+
+// Avoid expensive composer/agents subsystem imports — they perform DB I/O
+// that is irrelevant to the supervisor tests. The stub satisfies the
+// `.close()` contract on the finally block in `composeSpawnForTask`.
+vi.mock('../plan.js', () => ({
+  openSignaldockDbForComposer: vi.fn(async () => ({ close: () => undefined })),
+}));
+
+// Imported AFTER the mocks so the orchestrate spawn binding uses them.
+const { orchestrateSpawn } = await import('../spawn-ops.js');
+
+// ---------------------------------------------------------------------------
+// runTimeoutCleanup
+// ---------------------------------------------------------------------------
+
+describe('runTimeoutCleanup — bounded auto-cleanup helper (T9545)', () => {
+  it('returns a normalised result when destroyWorktree succeeds', async () => {
+    destroyWorktreeMock.mockReset();
+    destroyWorktreeMock.mockResolvedValueOnce({
+      taskId: 'T9999',
+      worktreeRemoved: true,
+      branchDeleted: true,
+      dirty: false,
+      force: true,
+      hookResults: [],
+    });
+
+    const result = await runTimeoutCleanup('/tmp/cleo-spawn-test-root', 'T9999');
+
+    expect(result.attempted).toBe(true);
+    expect(result.worktreeRemoved).toBe(true);
+    expect(result.branchDeleted).toBe(true);
+    expect(result.error).toBeUndefined();
+    expect(result.elapsedMs).toBeGreaterThanOrEqual(0);
+    expect(destroyWorktreeMock).toHaveBeenCalledWith('/tmp/cleo-spawn-test-root', {
+      taskId: 'T9999',
+      deleteBranch: true,
+      force: true,
+      reason: 'spawn-timeout-cleanup',
+    });
+  });
+
+  it('reports its own budget overrun without throwing', async () => {
+    destroyWorktreeMock.mockReset();
+    // Stall destroyWorktree beyond CLEANUP_BUDGET_MS so the inner race wins.
+    destroyWorktreeMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(
+            () =>
+              resolve({
+                taskId: 'T9999',
+                worktreeRemoved: true,
+                branchDeleted: true,
+                dirty: false,
+                force: true,
+                hookResults: [],
+              }),
+            CLEANUP_BUDGET_MS + 250,
+          );
+        }),
+    );
+
+    const result = await runTimeoutCleanup('/tmp/cleo-spawn-test-root', 'T9999');
+
+    expect(result.attempted).toBe(true);
+    expect(result.worktreeRemoved).toBe(false);
+    expect(result.branchDeleted).toBe(false);
+    expect(result.error).toMatch(/Cleanup exceeded/);
+  }, 15_000);
+
+  it('returns worktreeRemoved=true when destroyWorktree reports the path is already absent (idempotency)', async () => {
+    destroyWorktreeMock.mockReset();
+    destroyWorktreeMock.mockResolvedValueOnce({
+      taskId: 'T9999',
+      worktreeRemoved: true, // destroyWorktree contract: absent path => removed=true
+      branchDeleted: true,
+      dirty: false,
+      force: true,
+      hookResults: [],
+    });
+
+    const result = await runTimeoutCleanup('/tmp/cleo-spawn-test-root', 'T9999');
+
+    expect(result.worktreeRemoved).toBe(true);
+    expect(result.attempted).toBe(true);
+  });
+
+  it('captures destroyWorktree errors in result.error without throwing', async () => {
+    destroyWorktreeMock.mockReset();
+    destroyWorktreeMock.mockResolvedValueOnce({
+      taskId: 'T9999',
+      worktreeRemoved: false,
+      branchDeleted: false,
+      error: 'simulated git failure',
+      dirty: false,
+      force: true,
+      hookResults: [],
+    });
+
+    const result = await runTimeoutCleanup('/tmp/cleo-spawn-test-root', 'T9999');
+
+    expect(result.attempted).toBe(true);
+    expect(result.worktreeRemoved).toBe(false);
+    expect(result.error).toBe('simulated git failure');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// orchestrateSpawn — happy path and timeout-with-cleanup
+// ---------------------------------------------------------------------------
+
+describe('orchestrateSpawn — supervisor end-to-end (T9545 / Saga T10176)', () => {
+  /** Build a no-op task-accessor stub for the validate step. */
+  const stubAccessor = (): unknown => ({
+    loadSingleTask: vi.fn(async () => ({ id: 'T9999', parentId: null })),
+    appendLog: vi.fn(async () => undefined),
+  });
+
+  it('completes under the spawn budget and returns a success envelope (happy path)', async () => {
+    destroyWorktreeMock.mockReset();
+    spawnWorktreeMock.mockReset();
+    validateSpawnReadinessMock.mockReset();
+    composeSpawnPayloadMock.mockReset();
+    getTaskAccessorMock.mockReset();
+    getActiveSessionMock.mockReset();
+
+    getTaskAccessorMock.mockResolvedValue(stubAccessor());
+    getActiveSessionMock.mockResolvedValue({ id: 'sess-1' });
+    validateSpawnReadinessMock.mockResolvedValue({ ready: true, issues: [] });
+    spawnWorktreeMock.mockResolvedValue({
+      path: '/tmp/wt/T9999',
+      branch: 'task/T9999',
+      taskId: 'T9999',
+      baseRef: 'main',
+      projectHash: 'deadbeef',
+      createdAt: new Date().toISOString(),
+      locked: false,
+      envVars: {},
+      preamble: '',
+      appliedExcludePatterns: [],
+    });
+    composeSpawnPayloadMock.mockResolvedValue({
+      atomicity: { allowed: true },
+      prompt: '# spawn prompt for T9999',
+      agentId: 'cleo-worker',
+      role: 'worker',
+      tier: 0,
+      harnessHint: null,
+      meta: { protocol: 'rcasd', composerVersion: '3.0.0' },
+      taskId: 'T9999',
+    });
+
+    const startedAt = Date.now();
+    const result = await orchestrateSpawn('T9999');
+    const elapsed = Date.now() - startedAt;
+
+    expect(result.success).toBe(true);
+    expect(elapsed).toBeLessThan(SPAWN_BUDGET_MS);
+    // Cleanup must NOT have run on the happy path.
+    expect(destroyWorktreeMock).not.toHaveBeenCalled();
+  });
+
+  it('returns E_TIMEOUT AND runs auto-cleanup when a pipeline step hangs past the budget', async () => {
+    // We can't wait the real 60s — override SPAWN_BUDGET_MS via a short-circuited
+    // spawnWorktree that rejects with the supervisor's E_TIMEOUT shape. This
+    // proves the catch handler triggers auto-cleanup with the captured partial.
+    destroyWorktreeMock.mockReset();
+    spawnWorktreeMock.mockReset();
+    validateSpawnReadinessMock.mockReset();
+    composeSpawnPayloadMock.mockReset();
+    getTaskAccessorMock.mockReset();
+    getActiveSessionMock.mockReset();
+
+    getTaskAccessorMock.mockResolvedValue(stubAccessor());
+    getActiveSessionMock.mockResolvedValue({ id: 'sess-1' });
+    validateSpawnReadinessMock.mockResolvedValue({ ready: true, issues: [] });
+
+    // First spawnWorktree call: succeed and populate partial state, then
+    // composeSpawnPayload throws the supervisor's E_TIMEOUT-shaped error so
+    // the catch block runs cleanup against the captured worktree path.
+    spawnWorktreeMock.mockResolvedValue({
+      path: '/tmp/wt/T9999',
+      branch: 'task/T9999',
+      taskId: 'T9999',
+      baseRef: 'main',
+      projectHash: 'deadbeef',
+      createdAt: new Date().toISOString(),
+      locked: false,
+      envVars: {},
+      preamble: '',
+      appliedExcludePatterns: [],
+    });
+
+    composeSpawnPayloadMock.mockImplementationOnce(() => {
+      const err = new Error(
+        `E_TIMEOUT: spawn pipeline step 'compose-prompt' aborted (budget ${SPAWN_BUDGET_MS}ms exceeded)`,
+      );
+      (err as Error & { code?: string }).code = 'E_TIMEOUT';
+      throw err;
+    });
+
+    destroyWorktreeMock.mockResolvedValueOnce({
+      taskId: 'T9999',
+      worktreeRemoved: true,
+      branchDeleted: true,
+      dirty: false,
+      force: true,
+      hookResults: [],
+    });
+
+    const result = await orchestrateSpawn('T9999');
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('E_TIMEOUT');
+    expect(result.error?.details).toBeDefined();
+    const details = result.error?.details as {
+      taskId: string;
+      step: string;
+      partial: { worktreePath?: string };
+      cleanup?: { attempted: boolean; worktreeRemoved: boolean };
+    };
+    expect(details.taskId).toBe('T9999');
+    expect(details.step).toBe('compose-prompt');
+    expect(details.partial.worktreePath).toBe('/tmp/wt/T9999');
+    // Saga T10176 / D010 — cleanup MUST have run automatically.
+    expect(details.cleanup).toBeDefined();
+    expect(details.cleanup?.attempted).toBe(true);
+    expect(details.cleanup?.worktreeRemoved).toBe(true);
+    expect(destroyWorktreeMock).toHaveBeenCalledTimes(1);
+    expect(destroyWorktreeMock).toHaveBeenCalledWith('/tmp/cleo-spawn-test-root', {
+      taskId: 'T9999',
+      deleteBranch: true,
+      force: true,
+      reason: 'spawn-timeout-cleanup',
+    });
+  });
+});
