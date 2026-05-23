@@ -114,6 +114,13 @@ export default defineConfig({
         '../../packages/core/src/store/nexus-schema.ts',
         import.meta.url,
       ).pathname,
+      // T10304: backup-recover-brain SSoT (Saga T10281 Epic T10286) — used by
+      // `cleo backup recover brain` CLI verb. vi.mock against this subpath needs
+      // an alias so source-tree resolution wins under vitest.
+      '@cleocode/core/store/backup-recover-brain.js': new URL(
+        '../../packages/core/src/store/backup-recover-brain.ts',
+        import.meta.url,
+      ).pathname,
       // T946 sentient daemon consumes these subpath exports at runtime.
       '@cleocode/core/sdk': new URL('../../packages/core/src/cleo.ts', import.meta.url).pathname,
       '@cleocode/core/tasks': new URL(

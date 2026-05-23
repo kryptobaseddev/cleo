@@ -140,10 +140,12 @@ export type {
 export { BOUNDARY_REGISTRY } from './boundary.js';
 // === Brain/Memory Types ===
 export type {
+  BackupRecoverBrainResult,
   BrainCognitiveType,
   BrainEntryRef,
   BrainEntrySummary,
   BrainMemoryTier,
+  BrainRecoveredRowCounts,
   BrainRecoveryResult,
   BrainSourceConfidence,
   ContradictionDetail,
