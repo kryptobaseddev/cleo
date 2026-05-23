@@ -286,6 +286,168 @@ export interface SagaAuditResult {
   driftCount: number;
 }
 
+// ============================================================================
+// DB-Substrate Survey (T10307 — Saga T10281 SG-BRAIN-DB-RESILIENCE / Epic T10282)
+// ============================================================================
+
+/**
+ * Per-database substrate-audit findings.
+ *
+ * Produced by `surveyProjectDbSubstrate` for every entry in the
+ * `DB_INVENTORY` SSoT. Fields that depend on the file existing on disk
+ * (`integrityOK`, `rowCounts`, `lastWriteMs`, `sizeBytes`) are `null` when
+ * the file is missing. `error` is non-null when integrity_check or the
+ * open / row-count round-trip threw — corrupt DBs surface here so the
+ * envelope's `summary.corrupt` counter increments.
+ *
+ * `suggestedFix` is a stable, machine-readable repair command (typically
+ * `cleo backup recover <role>` — the verb introduced by T10304). Always
+ * populated when `integrityOK === false` so the operator has a one-line
+ * remediation path.
+ *
+ * @task T10307
+ * @epic T10282
+ * @saga T10281
+ */
+export interface DbSubstrateEntry {
+  /** Absolute on-disk path the inventory template resolved to. */
+  filePath: string;
+  /** `true` iff the file currently exists on disk. */
+  exists: boolean;
+  /**
+   * Result of `PRAGMA integrity_check`. `true` when the pragma returned
+   * exactly one `'ok'` row; `false` when it returned anything else or
+   * the call threw; `null` when the file did not exist (no integrity
+   * check attempted).
+   */
+  integrityOK: boolean | null;
+  /**
+   * Row counts for up to 3 representative tables (alphabetically first
+   * non-meta tables). `null` when the file is missing or the count
+   * round-trip threw.
+   */
+  rowCounts: Readonly<Record<string, number>> | null;
+  /** `fs.statSync(filePath).mtimeMs`, or `null` when the file is missing. */
+  lastWriteMs: number | null;
+  /** `fs.statSync(filePath).size`, or `null` when the file is missing. */
+  sizeBytes: number | null;
+  /**
+   * Stable error string surfaced from a failed integrity_check or open.
+   * `null` when the survey succeeded (including when the file simply
+   * does not exist — that is `exists: false`, not an error).
+   */
+  error: string | null;
+  /**
+   * Suggested repair command when `integrityOK === false`. `null`
+   * otherwise. Typically `cleo backup recover <role>` per T10304.
+   */
+  suggestedFix: string | null;
+}
+
+/**
+ * Warning kinds surfaced by `surveyDbSubstrate` via `envelope.meta.warnings`.
+ *
+ * @remarks
+ * Surfacing as warnings (not violations) means they do NOT drive a
+ * non-zero exit code on their own — operators should review and remediate,
+ * but the substrate is otherwise healthy.
+ *
+ * - `orphan-project-root` — a `.cleo/` directory found at a project-PARENT
+ *   path (e.g. `/mnt/projects/.cleo/`). Regression class T9550.
+ * - `nested-nexus-duplicate` — `~/.local/share/cleo/nexus/{nexus,signaldock}.db`
+ *   exists alongside the canonical flat `nexus.db` / `signaldock.db` files,
+ *   indicating a structural duplicate from an older XDG-path resolution.
+ *
+ * @task T10307
+ */
+export type DbSubstrateWarningKind = 'orphan-project-root' | 'nested-nexus-duplicate';
+
+/**
+ * One warning entry surfaced in the envelope's `meta.warnings` list.
+ *
+ * @task T10307
+ */
+export interface DbSubstrateWarning {
+  /** Machine-readable warning class. */
+  kind: DbSubstrateWarningKind;
+  /** Absolute path of the offending file or directory. */
+  path: string;
+  /**
+   * `fs.statSync(path).mtimeMs` for the offending file/directory.
+   * `null` when stat() threw (e.g. ephemeral race during scan).
+   */
+  lastWriteMs: number | null;
+}
+
+/**
+ * Survey result for one CLEO project (i.e. one `.cleo/` directory) plus
+ * the global tier of databases owned by it.
+ *
+ * @remarks
+ * `dbs` is keyed by the canonical role names from `DB_INVENTORY`. Every
+ * entry is populated regardless of whether the file exists — the caller
+ * can iterate every role and decide how to surface absent rows.
+ *
+ * @task T10307
+ */
+export interface DbSubstrateProjectSurvey {
+  /** Absolute path to the project root that was surveyed. */
+  projectRoot: string;
+  /**
+   * Stable identifier for the project — currently the `base64url(path)`
+   * truncated to 32 chars, matching the convention used by `cleo nexus`
+   * project resolution.
+   */
+  projectId: string;
+  /** Per-role survey result, keyed by canonical role name. */
+  dbs: Readonly<Record<string, DbSubstrateEntry>>;
+}
+
+/**
+ * Aggregate counters surfaced in `envelope.data.summary`.
+ *
+ * @task T10307
+ */
+export interface DbSubstrateSummary {
+  /** Total inventory entries surveyed across all projects + global tier. */
+  totalDbs: number;
+  /** Entries where `exists && integrityOK === true`. */
+  healthy: number;
+  /** Entries where `!exists`. */
+  missing: number;
+  /** Entries where `exists && integrityOK === false`. */
+  corrupt: number;
+}
+
+/**
+ * Top-level result payload returned by `surveyDbSubstrate`.
+ *
+ * @remarks
+ * `scope === 'project'` means the survey covered exactly one project plus
+ * the global tier. `scope === 'fleet'` means the survey walked every
+ * `.cleo/` directory discoverable from a fleet-root search path.
+ *
+ * Carried as the `data` field of the LAFS envelope; the corresponding
+ * `meta` field carries `meta.warnings` per `DbSubstrateWarning` and the
+ * canonical `operation: 'doctor.db-substrate.run'` identifier.
+ *
+ * @task T10307
+ */
+export interface DbSubstrateAuditResult {
+  /** Survey scope. `'project'` = current project; `'fleet'` = many projects. */
+  scope: 'project' | 'fleet';
+  /** Per-project surveys. One entry for `scope='project'`; ≥1 for `scope='fleet'`. */
+  projects: DbSubstrateProjectSurvey[];
+  /** Aggregate counters across all surveyed entries. */
+  summary: DbSubstrateSummary;
+  /**
+   * Structural warnings the survey detected outside of any inventory
+   * entry — orphan project-root `.cleo/` directories, nested-nexus
+   * duplicates, etc. ALWAYS present (may be empty).
+   */
+  warnings: DbSubstrateWarning[];
+}
+
 /**
  * One line appended to `.cleo/audit/worktree-prune.jsonl` per prune
  * operation. Extends the existing audit-log schema (timestamp +
