@@ -50,12 +50,14 @@ demotion per §1.3.
 
 ### §1.1 Tier Table
 
-| Tier    | Prefix (display) | Storage encoding                                | Scope-of-change (what it modifies)                                | Owner (orchestration role, ADR-070) | Sizing                                                              |
-|---------|------------------|-------------------------------------------------|--------------------------------------------------------------------|--------------------------------------|----------------------------------------------------------------------|
-| Saga    | `SG-`            | `type='epic'` AND `label='saga'`                | Strategic theme grouping ≥2 Epics across ≥2 releases               | Orchestrator (read-only rollup)      | ≥2 child Epics; unbounded above                                     |
-| Epic    | `E-`             | `type='epic'`                                   | One releasable slice; ≥1 PR merged to `main`; ships in one release | Orchestrator (HITL-facing)           | 4–10 child Tasks; single release per project's scheme               |
-| Task    | `T-`             | `type='task'`                                   | One atomic PR-sized change; one well-defined capability            | Phase Lead                           | 1–7 child Subtasks (or leaf); single PR; single wave                |
-| Subtask | (implicit)       | `type='subtask'`                                | One focused commit; ≤2 files OR one module boundary                | Worker (leaf)                        | 1 commit; contributes to parent Task's single PR; fits one Worker context |
+> **AMENDED 2026-05-23 (ADR-083):** The `Owner` column originally conflated *role* (the actor) with *scope* (the work-unit) on a single axis. ADR-083 §2.2–§2.3 splits these into two orthogonal axes: **scope** is the tier (column 4 here), **role** is the actor (Orchestrator/Lead/Worker per ADR-083 §2.2). The `Primary actor` column below reflects ADR-083's locked role mapping. **Storage encoding for Saga changes** in the migration filed by ADR-083 §2.5 + Epic `E-SAGA-TYPE-MIGRATION` — Saga becomes `type='saga'` (not `type='epic' + label='saga'`). Until that migration ships, the legacy storage encoding shown below remains the runtime contract.
+
+| Tier    | Prefix (display) | Storage encoding (current → post-migration)              | Scope-of-change (what it modifies)                                | Primary actor (role per ADR-083 §2.2) | Sizing                                                              |
+|---------|------------------|-----------------------------------------------------------|--------------------------------------------------------------------|---------------------------------------|----------------------------------------------------------------------|
+| Saga    | `SG-`            | `type='epic' AND label='saga'` → `type='saga'`            | Strategic theme grouping ≥2 Epics across ≥2 releases               | Orchestrator (Cleo at root)           | ≥2 child Epics; unbounded above                                     |
+| Epic    | `E-`             | `type='epic'`                                             | One releasable slice; ≥1 PR merged to `main`; ships in one release | Orchestrator                          | 4–10 child Tasks; single release per project's scheme               |
+| Task    | `T-`             | `type='task'`                                             | One atomic PR-sized change; one well-defined capability            | Lead                                  | 1–7 child Subtasks (or leaf); single PR; single wave                |
+| Subtask | (implicit)       | `type='subtask'`                                          | One focused commit; ≤2 files OR one module boundary                | Worker                                | 1 commit; contributes to parent Task's single PR; fits one Worker context |
 
 **Note on "release":** CLEO is release-scheme-agnostic. The project's
 `release.scheme` config (`calver | semver | calver-suffix`, per ADR-065 +
