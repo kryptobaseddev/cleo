@@ -41,8 +41,19 @@ export type AcceptanceItem = string | AcceptanceGate;
 /** Task priority levels. */
 export type TaskPriority = 'critical' | 'high' | 'medium' | 'low';
 
-/** Task type in hierarchy. */
-export type TaskType = 'epic' | 'task' | 'subtask';
+/**
+ * Task type in hierarchy.
+ *
+ * Per ADR-083 §2.5, `'saga'` is a first-class tier discriminator above
+ * Epic — a Saga groups N Epics across multiple releases. Hierarchy is now
+ * Saga (depth 0) → Epic (1) → Task (2) → Subtask (3), with `maxDepth=3`
+ * preserved under each Saga member.
+ *
+ * @adr ADR-083 §2.5
+ * @saga T10326
+ * @task T10328
+ */
+export type TaskType = 'saga' | 'epic' | 'task' | 'subtask';
 
 /**
  * Task kind axis — orthogonal to {@link TaskType}, describes the intent of work.
