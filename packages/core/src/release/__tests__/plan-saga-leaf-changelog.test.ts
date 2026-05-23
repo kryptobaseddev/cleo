@@ -588,9 +588,11 @@ describe('releasePlan writes CHANGELOG.md (T9838 Fix 3)', () => {
     expect(existsSync(result.data.changelogPath)).toBe(false);
   });
 
-  it('skips the CHANGELOG write when aggregated release notes are empty', async () => {
-    // No `.changeset/` entries → aggregated.markdown is empty → CHANGELOG
-    // remains untouched even with writeChangelog=true (default).
+  it('writes a placeholder CHANGELOG section when aggregated release notes are empty (T10105)', async () => {
+    // No `.changeset/` entries → aggregated.markdown is empty. Per T10105
+    // (Saga T10099 AC2/AC3) the section MUST still be written with a
+    // placeholder body — the pre-T10105 silent-skip caused the v2026.5.100
+    // ship to drop CHANGELOG entries for v5.100/v5.101/v5.103.
     await seedEpicWithChildren('T9999', 1);
 
     const result = await releasePlan({
@@ -602,8 +604,11 @@ describe('releasePlan writes CHANGELOG.md (T9838 Fix 3)', () => {
     });
     expect(result.success).toBe(true);
     if (!result.success) throw new Error('unreachable');
-    expect(result.data.changelogWritten).toBe(false);
-    expect(existsSync(result.data.changelogPath)).toBe(false);
+    expect(result.data.changelogWritten).toBe(true);
+    expect(existsSync(result.data.changelogPath)).toBe(true);
+    const body = readFileSync(result.data.changelogPath, 'utf8');
+    expect(body).toMatch(/^## \[2026\.6\.0\] \(\d{4}-\d{2}-\d{2}\)/m);
+    expect(body).toMatch(/No changeset entries parsed for this release/);
   });
 
   it('preserves unrelated sections when inserting the new ## [version] block', async () => {

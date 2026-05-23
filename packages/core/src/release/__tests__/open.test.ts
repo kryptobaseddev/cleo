@@ -248,7 +248,12 @@ describe('releaseOpen — happy path', () => {
     const dispatched = runner.calls.find((c) => c.args[0] === 'workflow' && c.args[1] === 'run');
     expect(dispatched).toBeDefined();
     expect(dispatched?.args).toContain(`version=${version}`);
-    expect(dispatched?.args.some((a) => a.startsWith('plan-blob-sha256='))).toBe(true);
+    // T10105: `plan-blob-sha256` is NO LONGER passed as a workflow field
+    // because the release-prepare.yml workflow_dispatch.inputs block does
+    // not declare it (GitHub returns HTTP 422 for unknown fields). The
+    // sha256 is still computed and returned in the result envelope for
+    // downstream provenance tracking — see `planBlobSha256` assertion above.
+    expect(dispatched?.args.some((a) => a.startsWith('plan-blob-sha256='))).toBe(false);
 
     // releases row updated
     const db = await getDb(testDir);

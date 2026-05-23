@@ -17,8 +17,51 @@
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { type ChangesetEntry, ChangesetEntrySchema } from '@cleocode/contracts';
+import {
+  type ChangesetEntry,
+  ChangesetEntrySchema,
+  ChangesetYamlInvalidError,
+} from '@cleocode/contracts';
 import { parse as parseYaml } from 'yaml';
+
+// ─── YAML error introspection (T10105) ───────────────────────────────────────
+
+/**
+ * Extract the 1-based line number from a `yaml@2.x` YAMLParseError.
+ *
+ * The error carries `linePos: [{line, col}, ...]` when the parser localised
+ * the failure; returns `null` for non-localised errors or non-YAMLParseError
+ * exceptions.
+ *
+ * @internal
+ * @task T10105
+ */
+function extractYamlLine(err: unknown): number | null {
+  if (err === null || typeof err !== 'object') return null;
+  const linePos = (err as { linePos?: unknown }).linePos;
+  if (!Array.isArray(linePos) || linePos.length === 0) return null;
+  const first = linePos[0];
+  if (first === null || typeof first !== 'object') return null;
+  const line = (first as { line?: unknown }).line;
+  return typeof line === 'number' ? line : null;
+}
+
+/**
+ * Extract a short snippet (≤ 120 chars) of the offending line for surface
+ * in CLI output. Returns `undefined` when the line is out of range so the
+ * error envelope omits the field rather than carrying an empty string.
+ *
+ * @internal
+ * @task T10105
+ */
+function extractSnippet(frontmatter: string, line: number): string | undefined {
+  const lines = frontmatter.split(/\r?\n/);
+  // YAML line numbers are 1-based; arrays are 0-based.
+  const target = lines[line - 1];
+  if (target === undefined) return undefined;
+  const trimmed = target.length > 120 ? `${target.slice(0, 117)}...` : target;
+  return trimmed;
+}
 
 // ─── Frontmatter splitting ────────────────────────────────────────────────────
 
@@ -98,8 +141,22 @@ export function parseChangesetFile(path: string): ChangesetEntry {
   try {
     frontmatterData = parseYaml(split.frontmatter);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    throw new Error(`${path}:${split.frontmatterStartLine} invalid YAML frontmatter: ${msg}`);
+    const parserMessage = err instanceof Error ? err.message : String(err);
+    // T10105: surface the offending line. yaml@2.x sets `linePos[0].line` on
+    // YAMLParseError; fall back to the frontmatter opening fence (line 1)
+    // when the parser did not localize the failure.
+    const yamlLine = extractYamlLine(err);
+    // Frontmatter starts on line AFTER the opening `---` fence. The reported
+    // YAML line is relative to the frontmatter substring; add the offset so
+    // the surfaced line number matches the actual file line.
+    const line = yamlLine !== null ? split.frontmatterStartLine + yamlLine : null;
+    const snippet = yamlLine !== null ? extractSnippet(split.frontmatter, yamlLine) : undefined;
+    throw new ChangesetYamlInvalidError({
+      file: path,
+      line,
+      ...(snippet !== undefined ? { snippet } : {}),
+      parserMessage,
+    });
   }
 
   if (frontmatterData === null || typeof frontmatterData !== 'object') {

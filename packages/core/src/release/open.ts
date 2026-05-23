@@ -115,7 +115,14 @@ export interface ReleaseOpenResult {
   watching: boolean;
   /** True iff this invocation was a no-op because status was already `pr-opened`. */
   idempotent?: boolean;
-  /** Plan file sha256, supplied as `plan-blob-sha256` field to the workflow dispatch. */
+  /**
+   * Plan file sha256, computed for downstream provenance tracking and
+   * returned in the result envelope. Per T10105 this is NO LONGER passed
+   * as a `--field` to `gh workflow run`, because the
+   * `release-prepare.yml workflow_dispatch.inputs` block does not declare
+   * the field and the GitHub Actions API rejected the dispatch with
+   * HTTP 422 "Unexpected inputs provided" during the v2026.5.100 ship.
+   */
   planBlobSha256: string;
 }
 
@@ -532,20 +539,18 @@ export async function releaseOpen(
     }
   }
 
-  // ── R-060: dispatch the workflow ──────────────────────────────────────
+  // ── R-060 / T10105: dispatch the workflow ─────────────────────────────
+  // Canonical input schema for `release-prepare.yml workflow_dispatch.inputs`:
+  //   - `version` (string, required) — CalVer release version with v-prefix
+  //
+  // The pre-T10105 implementation also passed `plan-blob-sha256` which is
+  // NOT declared in the workflow's `inputs:` block; `gh workflow run`
+  // tolerated it locally but the GitHub Actions API rejected it with
+  // HTTP 422 "Unexpected inputs provided" on at least one ship attempt.
+  // Keep this `--field` set in lockstep with the YAML inputs declaration
+  // and the `release-open-field-schema.test.ts` parity check.
   try {
-    runner.runGh(
-      [
-        'workflow',
-        'run',
-        workflow,
-        '--field',
-        `version=${opts.version}`,
-        '--field',
-        `plan-blob-sha256=${planBlobSha256}`,
-      ],
-      projectRoot,
-    );
+    runner.runGh(['workflow', 'run', workflow, '--field', `version=${opts.version}`], projectRoot);
   } catch (err) {
     return engineError<ReleaseOpenResult>(
       E_GH_NOT_AUTHENTICATED,
