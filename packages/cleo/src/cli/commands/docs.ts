@@ -47,6 +47,7 @@ import {
 } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { assertKnownFlags, UnknownFlagError } from '../lib/strict-args.js';
 import { cliError, cliOutput, humanInfo } from '../renderers/index.js';
 import { docsViewerSubcommands } from './docs-viewer.js';
 
@@ -169,13 +170,44 @@ async function runGapCheck(_projectRoot: string, filterId?: string): Promise<Gap
 /**
  * cleo docs add <ownerId> [<file>] [--url <url>] — attach a local file or remote URL.
  */
+/**
+ * `cleo docs add` — strict flag validation (T10359 · closes T10238).
+ *
+ * citty 0.2.1 silently absorbs unknown flags as positionals (parseArgs is
+ * called with `strict: false` internally — no public knob exposed). Prior
+ * to T10359, `cleo docs add T123 path.md --title 'X'` accepted `--title`
+ * as a positional argument and dropped the value, masking typos that the
+ * agent caller had no way to detect.
+ *
+ * The handler runs {@link assertKnownFlags} BEFORE dispatching to surface
+ * `E_UNKNOWN_FLAG` with Levenshtein-ranked did-you-mean suggestions and
+ * exit code 6 (`VALIDATION_ERROR`). The `--help` description below
+ * enumerates the full positional + named shape so agents discover the
+ * accepted surface without trial and error.
+ *
+ * @task T10359
+ * @epic T10291
+ * @saga T10288
+ * @closes T10238
+ */
 const addCommand = defineCommand({
   meta: {
     name: 'add',
     description:
       'Attach a local file or remote URL to a CLEO entity (task, session, observation). ' +
       'Owner type is inferred from the ID prefix: T### → task, ses_* → session, O-* → observation. ' +
-      'Use --slug to set a human-friendly alias (unique per project) (T9636).',
+      'Use --slug to set a human-friendly alias (unique per project) (T9636).\n\n' +
+      'Positional arguments:\n' +
+      '  <owner-id>             Owner entity ID (T###, ses_*, O-*) — required\n' +
+      '  [file]                 Local file path to attach — optional when --url is set\n\n' +
+      'Named arguments:\n' +
+      '  --url <url>            Remote URL to attach (instead of a local file)\n' +
+      '  --desc <text>          Free-text description of this attachment\n' +
+      '  --labels <csv>         Comma-separated labels (e.g. rfc,spec)\n' +
+      '  --attached-by <name>   Agent identity that created the attachment (default: "human")\n' +
+      '  --slug <kebab>         Human-friendly alias, unique per project (T9636)\n' +
+      '  --type <kind>          Taxonomy classification — run `cleo docs list-types` for kinds\n\n' +
+      'Unknown flags are rejected with E_UNKNOWN_FLAG + did-you-mean suggestions (T10359).',
   },
   args: {
     'owner-id': {
@@ -216,7 +248,25 @@ const addCommand = defineCommand({
         'Taxonomy classification — run `cleo docs list-types` to enumerate registered kinds (T9637 / T9788)',
     },
   },
-  async run({ args }) {
+  async run({ args, rawArgs }) {
+    // T10359 — pre-parse strict flag validation. citty's underlying
+    // parseArgs has `strict: false` hard-coded with no public knob, so
+    // unknown flags would otherwise be silently absorbed as positionals.
+    try {
+      assertKnownFlags(rawArgs, addCommand.args, 'docs add');
+    } catch (err) {
+      if (err instanceof UnknownFlagError) {
+        cliError(err.message, ExitCode.VALIDATION_ERROR, {
+          name: err.code,
+          fix: err.fix,
+          alternatives: err.suggestions.map((s) => ({ action: s, command: s })),
+          details: { flag: err.flag, knownFlags: err.knownFlags },
+        });
+        process.exit(ExitCode.VALIDATION_ERROR);
+      }
+      throw err;
+    }
+
     const ownerId = args['owner-id'];
     const fileArg = args.file ?? undefined;
     const url = args.url ?? undefined;
