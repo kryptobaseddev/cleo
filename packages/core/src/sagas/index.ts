@@ -41,6 +41,15 @@ export {
   type SagaMembersResult,
   sagaMembers,
 } from './members.js';
+export {
+  type ReconcileResult,
+  type ReconcileSagaParams,
+  reconcileSaga,
+  SAGA_RECONCILE_AUDIT_FILE,
+  SAGA_RECONCILE_CLOSE_REASON,
+  type SagaReconcileAction,
+  type SagaReconcileEntry,
+} from './reconcile.js';
 export { type RepairSagaParams, type RepairSagaResult, repairSaga } from './repair.js';
 export { type SagaRollupParams, type SagaRollupResult, sagaRollup } from './rollup.js';
 export {
