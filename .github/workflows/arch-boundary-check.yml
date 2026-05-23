@@ -53,3 +53,29 @@ jobs:
           node-version: '24'
       - name: Lint defineCommand SSoT boundary
         run: node scripts/lint-no-raw-define-command.mjs --check
+
+  stdout-discipline:
+    # T10135 · Epic T10114 (E11-HUMAN-RENDER-CONTRACT) · Saga T9855 · ADR-077
+    #
+    # Enforces that `process.stdout.write` is only called from the canonical
+    # render SSoT (`packages/core/src/render/**`), the animations primitives
+    # (`packages/animations/**`), the cleo animation bridge + thin dispatcher,
+    # the top-level CLI entry, scripts, and test files.
+    #
+    # Runs in baseline mode: fails only when NEW violation identities appear
+    # vs the committed baseline (scripts/.lint-stdout-discipline-baseline.json).
+    # Existing pre-B6/B7/B8 debt is tracked but not blocked.
+    #
+    # To update the baseline after migrating a callsite to the render SSoT:
+    #   node scripts/lint-stdout-discipline.mjs --update-baseline
+    #   git add scripts/.lint-stdout-discipline-baseline.json && git commit
+    name: Stdout Discipline Lint (T10135)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Lint stdout discipline (baseline mode)
+        run: node scripts/lint-stdout-discipline.mjs
