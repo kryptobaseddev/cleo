@@ -299,6 +299,9 @@ export function normalizeSlug(input: string): string {
  * @returns Discriminated union: `{ ok: true }` or `{ ok: false, code, suggestions }`.
  * @task T10392
  */
+// SSoT-EXEMPT: reserveSlug() pre-dates the ADR-057 uniform (projectRoot, params)
+// convention; T10396 will refactor the signature + every call site in one
+// dedicated PR so this exemption is a single-line block, not a sweep. (T10396)
 export async function reserveSlug(
   kind: BuiltinDocKind | string,
   slug: string,
