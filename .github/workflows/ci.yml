@@ -240,6 +240,25 @@ jobs:
       - name: Lint raw git-worktree shell-outs in packages/
         run: node scripts/lint-no-raw-git-worktree.mjs
 
+  saga-symbol-leakage-lint:
+    # T10120 / E-SAGAS-CORE-MODULE / Saga T10113 — enforce
+    # `packages/core/src/sagas/` as the SOLE source of SAGA_LABEL,
+    # SAGA_GROUPS_RELATION, and resolveSagaMemberIds. Re-defining or
+    # hand-rolling any of these outside the new SSoT (and the single
+    # compat shim at packages/core/src/tasks/list.ts) is a Package-
+    # Boundary Check violation per AGENTS.md.
+    # Pure static analysis of checked-in source — no untrusted input.
+    name: Saga Symbol Leakage Lint (T10120)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Lint saga symbol leakage in packages/
+        run: node scripts/lint-saga-symbol-leakage.mjs
+
   json-stream-hygiene-lint:
     # T9775 / T-JH-8 — last task of T9763 (JSON stream hygiene saga).
     # Rejects NEW `process.stderr.write` / `console.warn` / `console.error`

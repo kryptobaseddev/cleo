@@ -96,6 +96,12 @@ export default defineConfig({
         '../../packages/core/src/tasks/index.ts',
         import.meta.url,
       ).pathname,
+      // T10124 / Saga T10113 — sagas core module hosts the pure-business
+      // saga ops (create/add/list/members/rollup) used by the dispatch layer.
+      '@cleocode/core/sagas': new URL(
+        '../../packages/core/src/sagas/index.ts',
+        import.meta.url,
+      ).pathname,
       // T997/T1004: precompact-flush subpath export used by memory dispatch domain
       '@cleocode/core/memory/precompact-flush.js': new URL(
         '../../packages/core/src/memory/precompact-flush.ts',
