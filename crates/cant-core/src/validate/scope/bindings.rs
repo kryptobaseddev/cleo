@@ -399,8 +399,8 @@ fn check_binding_order_in_stmts(stmts: &[Statement], diags: &mut Vec<Diagnostic>
     for (i, stmt) in stmts.iter().enumerate() {
         let refs = collect_name_refs_from_stmt(stmt);
         for (name, ref_span) in refs {
-            if let Some((def_idx, def_span)) = binding_positions.get(&name) {
-                if i < *def_idx {
+            if let Some((def_idx, def_span)) = binding_positions.get(&name)
+                && i < *def_idx {
                     diags.push(Diagnostic::error(
                         "S08",
                         format!(
@@ -410,7 +410,6 @@ fn check_binding_order_in_stmts(stmts: &[Statement], diags: &mut Vec<Diagnostic>
                         ref_span,
                     ));
                 }
-            }
         }
     }
 }

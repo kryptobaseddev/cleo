@@ -93,10 +93,8 @@ fn main() {
 /// contents. Avoids bumping mtimes (and triggering downstream rebuilds) when
 /// the generator produces byte-identical output across runs.
 fn write_if_changed(path: &Path, contents: &str) {
-    if let Ok(existing) = fs::read_to_string(path) {
-        if existing == contents {
-            return;
-        }
+    if fs::read_to_string(path).is_ok_and(|existing| existing == contents) {
+        return;
     }
     if let Err(e) = fs::write(path, contents) {
         eprintln!(
@@ -129,13 +127,13 @@ fn format_with_rustfmt(source: &str) -> String {
         }
     };
 
-    if let Some(mut stdin) = child.stdin.take() {
-        if let Err(e) = stdin.write_all(source.as_bytes()) {
-            println!(
-                "cargo:warning=cant-core build.rs: failed to pipe source into rustfmt ({e}); emitting unformatted events.rs"
-            );
-            return source.to_string();
-        }
+    if let Some(mut stdin) = child.stdin.take()
+        && let Err(e) = stdin.write_all(source.as_bytes())
+    {
+        println!(
+            "cargo:warning=cant-core build.rs: failed to pipe source into rustfmt ({e}); emitting unformatted events.rs"
+        );
+        return source.to_string();
     }
 
     let output = match child.wait_with_output() {

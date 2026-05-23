@@ -156,8 +156,8 @@ fn check_comparison_expr(expr: &Expression, diags: &mut Vec<Diagnostic>) {
             let right_type = infer_expr_type(&cmp.right);
 
             // If both types are known and different, flag incompatibility
-            if let (Some(lt), Some(rt)) = (&left_type, &right_type) {
-                if lt != rt {
+            if let (Some(lt), Some(rt)) = (&left_type, &right_type)
+                && lt != rt {
                     // Ordering comparisons on non-numeric types are always invalid
                     let is_ordering = matches!(
                         cmp.op,
@@ -174,7 +174,6 @@ fn check_comparison_expr(expr: &Expression, diags: &mut Vec<Diagnostic>) {
                         ));
                     }
                 }
-            }
 
             // Recurse into sub-expressions
             check_comparison_expr(&cmp.left, diags);
@@ -252,8 +251,8 @@ fn check_interp_in_expr(expr: &Expression, diags: &mut Vec<Diagnostic>) {
     match expr {
         Expression::String(s) => {
             for seg in &s.segments {
-                if let StringSegment::Interpolation(inner) = seg {
-                    if !is_stringifiable(inner) {
+                if let StringSegment::Interpolation(inner) = seg
+                    && !is_stringifiable(inner) {
                         diags.push(Diagnostic::warning(
                             "T03",
                             format!(
@@ -263,7 +262,6 @@ fn check_interp_in_expr(expr: &Expression, diags: &mut Vec<Diagnostic>) {
                             s.span,
                         ));
                     }
-                }
             }
         }
         Expression::Interpolation(interp) => {
