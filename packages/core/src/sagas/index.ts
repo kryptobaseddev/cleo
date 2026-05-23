@@ -16,6 +16,13 @@ export { type SagaAddParams, type SagaAddResult, sagaAdd } from './add.js';
 export { LIST_BINDING_SAGA_GROUPS, SAGA_GROUPS_RELATION, SAGA_LABEL } from './constants.js';
 export { type SagaCreateParams, sagaCreate } from './create.js';
 export {
+  type DetachResult,
+  type DetachSagaMemberParams,
+  detachSagaMember,
+  SAGA_DETACH_AUDIT_FILE,
+  SAGA_DETACH_DEFAULT_REASON,
+} from './detach.js';
+export {
   assertSagaInvariantI3,
   assertSagaInvariantI5,
   assertSagaInvariantI7,
