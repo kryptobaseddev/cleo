@@ -2485,6 +2485,7 @@ dependencies = [
  "reflink-copy",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror",
  "walkdir",
