@@ -144,6 +144,7 @@ export type {
   BrainEntryRef,
   BrainEntrySummary,
   BrainMemoryTier,
+  BrainRecoveryResult,
   BrainSourceConfidence,
   ContradictionDetail,
   SupersededEntry,

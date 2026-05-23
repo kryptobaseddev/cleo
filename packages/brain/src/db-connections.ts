@@ -138,19 +138,46 @@ export function getSignaldockDb(): DatabaseSync | null {
 // ---------------------------------------------------------------------------
 
 /**
+ * Detect the brain.db malformation signature (T10303) without taking a
+ * dependency on `@cleocode/core`. The reader side does NOT auto-recover —
+ * recovery is owned by the writer side in `@cleocode/core/store/memory-sqlite.ts`.
+ * Reader-side detection returns `null` so substrate adapters degrade
+ * gracefully (matches the existing "DB doesn't exist" semantics).
+ *
+ * @internal — brain-package-local.
+ * @task T10303
+ */
+function isMalformationError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const code = (err as Error & { code?: string; errcode?: number }).code;
+  const errcode = (err as Error & { errcode?: number }).errcode;
+  if (code === 'ERR_SQLITE_ERROR' && errcode === 11) return true;
+  return /malformed/i.test(err.message ?? '');
+}
+
+/**
  * Opens a connection to brain.db for the given project context.
  *
  * Each call opens a fresh DatabaseSync against the path stored in `ctx`.
- * Returns null when brain.db does not exist for the project.
+ * Returns null when brain.db does not exist for the project OR when the
+ * file is detected as malformed (T10303). Reader-side malformation is
+ * handled by returning null — recovery is owned by the writer side in
+ * `@cleocode/core/store/memory-sqlite.ts:getBrainDb`, which runs the
+ * `recoverMalformedBrainDb()` pipeline before the next process re-opens.
  *
  * @param ctx - The active project context.
  */
 export function getBrainDb(ctx: ProjectContext): DatabaseSync | null {
   const path = ctx.brainDbPath;
   if (!existsSync(path)) return null;
-  const __db = new DatabaseSync(path, { open: true });
-  applyBrainPragmas(__db); // T9045
-  return __db;
+  try {
+    const __db = new DatabaseSync(path, { open: true });
+    applyBrainPragmas(__db); // T9045
+    return __db;
+  } catch (err) {
+    if (isMalformationError(err)) return null;
+    throw err;
+  }
 }
 
 /**
