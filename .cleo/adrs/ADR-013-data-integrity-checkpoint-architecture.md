@@ -237,6 +237,57 @@ Cross-machine sync of `brain.db` via git is no longer supported (and was always 
 - **T4873, T4874** — original VACUUM INTO implementation
 - **T5188** — runtime detection warning
 
+### Legacy backup retention (T10309 — Saga T10281 SG-BRAIN-DB-RESILIENCE / Epic T10282)
+
+Beyond the four currently-tracked runtime files, the historical migration pipeline left ~40 legacy backup artefacts on disk across:
+
+- `<projectRoot>/.cleo/quarantine/` — timestamped quarantine sweeps (`lafs-*`, `studio-*`, `adapters-*`, `runtime-*`, `core-*`, `cleo-os-*`, `brain-malformed-*`)
+- `<projectRoot>/.cleo/backups/safety/` — T5158 pre-untrack siblings (`*.pre-untrack-*`)
+- `<projectRoot>/.cleo/backups/snapshot/` — `cleo backup add` snapshot overflow (`*.snapshot-*`)
+- `<projectRoot>/.cleo/backups/sqlite/` — `vacuumIntoBackupAll` rotation overflow (older than the 10-snapshot cap)
+- `<cleoHome>/` — pre-cleo→cleo SDK migration backups (`tasks-pre-cleo.db.bak`, `brain-pre-cleo.db.bak`, `nexus-pre-cleo.db.bak`)
+- `<cleoHome>/nexus/` — nested-nexus duplicates of the global-tier pre-cleo backups
+
+#### Retention policy
+
+| Path / pattern                                              | Soft window (≤ N days) | Hard window (≥ N days) | Auto-prune behaviour                            |
+|-------------------------------------------------------------|------------------------|------------------------|-------------------------------------------------|
+| `*-pre-cleo.db.bak`                                         | 30 (keep)              | 90 (delete)            | `cleo doctor legacy-backups --prune --no-dry-run` |
+| `brain.db.PRE-DUP-FIX-*`                                    | 30 (keep)              | 90 (delete)            | same                                            |
+| `*.pre-untrack-*`                                           | 30 (keep)              | 90 (delete)            | same                                            |
+| `.cleo/backups/sqlite/<prefix>-<timestamp>.db` (overflow)   | 30 (keep)              | 90 (delete)            | same                                            |
+| `.cleo/backups/snapshot/*.snapshot-*`                       | 30 (keep)              | 90 (delete)            | same                                            |
+| `.cleo/quarantine/**`                                       | always keep            | always keep            | NEVER auto-pruned — operators must run quarantine sweep manually |
+| `.cleo/quarantine/brain-malformed-*/**`                     | always keep            | always keep            | NEVER auto-pruned — forensic incident evidence  |
+
+Files in the 30-90 day range are reported as `compress` candidates — the verb does not yet compress, but the recommendation surfaces so a future task can add the compressor without re-walking the tree.
+
+#### CLI surface
+
+```bash
+# Read-only scan — reports path, sizeBytes, mtimeMs, originHint, recommendation.
+cleo doctor legacy-backups
+
+# Preview prune — exactly the files that --no-dry-run would delete.
+cleo doctor legacy-backups --prune
+
+# Actually delete delete-recommended files. --dry-run defaults to TRUE; this
+# flag is required to physically remove anything.
+cleo doctor legacy-backups --prune --no-dry-run
+
+# Override retention thresholds (must be positive integers).
+cleo doctor legacy-backups --soft-retention-days 14 --hard-retention-days 60
+```
+
+The verb writes a LAFS envelope under `doctor.legacy-backups.run`. Quarantine artefacts are always carried in `entries` but never in `pruned`. Operator confirmation for hard-window deletions is enforced via the `--no-dry-run` opt-in — the verb defaults to dry-run under all conditions, matching the ADR-013 §1 safety posture.
+
+#### Related tasks
+
+- **T10309** — this subsection (`cleo doctor legacy-backups` walker + retention policy)
+- **T10282** — parent epic (E1-DB-INVENTORY)
+- **T10281** — parent saga (SG-BRAIN-DB-RESILIENCE)
+- **T10307** — sibling DB-substrate walker (`cleo doctor db-substrate`)
+
 ---
 
 ## 10. Canonical Backup Path — 2026-05-23 (T10315 · Saga T10281 · Epic T10284)

@@ -28,6 +28,7 @@ import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
 import { createDoctorProgress } from '../progress.js';
 import { cliError, cliOutput, humanLine } from '../renderers/index.js';
 import { doctorDbSubstrateCommand } from './doctor-db-substrate.js';
+import { doctorLegacyBackupsCommand } from './doctor-legacy-backups.js';
 import { runDoctorProjects } from './doctor-projects.js';
 import { readMigrationConflicts } from './migrate-agents-v2.js';
 
@@ -207,6 +208,8 @@ export const doctorCommand = defineCommand({
   subCommands: {
     // T10307 / Saga T10281 / Epic T10282 — DB-substrate walker
     'db-substrate': doctorDbSubstrateCommand,
+    // T10309 / Saga T10281 / Epic T10282 — Legacy-backup walker
+    'legacy-backups': doctorLegacyBackupsCommand,
   },
   args: {
     detailed: {
