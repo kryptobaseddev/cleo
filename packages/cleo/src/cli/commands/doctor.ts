@@ -24,8 +24,10 @@ import {
 } from '@cleocode/core/system/rogue-cleo-detector.js';
 import { defineCommand } from 'citty';
 import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
+import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
 import { createDoctorProgress } from '../progress.js';
 import { cliError, cliOutput, humanLine } from '../renderers/index.js';
+import { doctorDbSubstrateCommand } from './doctor-db-substrate.js';
 import { runDoctorProjects } from './doctor-projects.js';
 import { readMigrationConflicts } from './migrate-agents-v2.js';
 
@@ -202,6 +204,10 @@ function renderHookMatrixHuman(data: HookMatrixResult): void {
  */
 export const doctorCommand = defineCommand({
   meta: { name: 'doctor', description: 'Run system diagnostics and health checks' },
+  subCommands: {
+    // T10307 / Saga T10281 / Epic T10282 — DB-substrate walker
+    'db-substrate': doctorDbSubstrateCommand,
+  },
   args: {
     detailed: {
       type: 'boolean',
@@ -374,7 +380,12 @@ export const doctorCommand = defineCommand({
       description: 'Suppress non-essential output',
     },
   },
-  async run({ args }) {
+  async run({ args, cmd, rawArgs }) {
+    // T10307: when a registered subcommand (e.g. `db-substrate`) is being
+    // dispatched, citty fires the parent's `run()` AFTER the child runs.
+    // Early-return so the child's envelope is the only output on stdout.
+    if (isSubCommandDispatch(rawArgs, cmd.subCommands)) return;
+
     const isHuman = args.human === true || (!!process.stdout.isTTY && args.json !== true);
     const progress = createDoctorProgress(isHuman);
 

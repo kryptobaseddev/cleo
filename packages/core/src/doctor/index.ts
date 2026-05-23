@@ -18,6 +18,18 @@
  * @epic T9808
  */
 
+// T10307 — DB-substrate survey (Saga T10281 SG-BRAIN-DB-RESILIENCE / Epic T10282)
+export {
+  computeSubstrateProjectId,
+  detectNestedNexusDuplicates,
+  detectOrphanProjectRootWarning,
+  inspectDbFile,
+  resolveInventoryFilePath,
+  summarizeSubstrateSurveys,
+  surveyDbSubstrate,
+  surveyFleetDbSubstrate,
+  surveyProjectDbSubstrate,
+} from './db-substrate.js';
 export { auditSagaHierarchy } from './saga-audit.js';
 export type { PruneOptions, ScanOptions } from './worktree-orphans.js';
 export {
