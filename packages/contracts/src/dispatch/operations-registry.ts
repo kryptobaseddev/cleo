@@ -2396,6 +2396,39 @@ export const OPERATIONS: OperationDef[] = [
     ] satisfies ParamDef[],
   },
   {
+    gateway: 'mutate',
+    domain: 'tasks',
+    operation: 'saga.detach',
+    description:
+      'tasks.saga.detach (mutate) — remove a Saga member relation (task_relations type=groups); idempotent; appends to .cleo/audit/saga-detach.jsonl (T10118)',
+    tier: 0,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['sagaId', 'memberId'],
+    params: [
+      {
+        name: 'sagaId',
+        type: 'string',
+        required: true,
+        description: 'Saga task ID',
+        cli: { positional: true },
+      },
+      {
+        name: 'memberId',
+        type: 'string',
+        required: true,
+        description: 'Member task ID to detach from the Saga',
+        cli: { positional: true },
+      },
+      {
+        name: 'reason',
+        type: 'string',
+        required: false,
+        description: 'Human-readable reason recorded in the audit log entry',
+      },
+    ] satisfies ParamDef[],
+  },
+  {
     gateway: 'query',
     domain: 'tasks',
     operation: 'saga.list',

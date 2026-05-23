@@ -1170,6 +1170,8 @@ export type {
   TasksSagaAddResult,
   TasksSagaCreateParams,
   TasksSagaCreateResult,
+  TasksSagaDetachParams,
+  TasksSagaDetachResult,
   TasksSagaListParams,
   TasksSagaListResult,
   TasksSagaMembersParams,
