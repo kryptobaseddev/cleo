@@ -1048,6 +1048,41 @@ export interface TasksSagaAddResult {
   added: boolean;
 }
 
+/**
+ * Params for `tasks.saga.detach` — remove a Saga member relation
+ * (`task_relations.type='groups'`). Idempotent.
+ *
+ * @task T10118
+ * @see ADR-073-above-epic-naming.md §1.2 invariant I7
+ */
+export interface TasksSagaDetachParams {
+  /** Saga task ID (the `from` side of the groups relation). */
+  sagaId: string;
+  /** Member task ID (the `to` side of the groups relation). */
+  memberId: string;
+  /** Optional human-readable reason recorded in the audit log entry. */
+  reason?: string;
+}
+
+/**
+ * Result of `tasks.saga.detach` — relation removal confirmation + audit
+ * record (always appended even on idempotent no-op).
+ *
+ * @task T10118
+ */
+export interface TasksSagaDetachResult {
+  /** Saga task ID. */
+  sagaId: string;
+  /** Member task ID that was detached. */
+  memberId: string;
+  /** True when a row was actually removed; false on idempotent no-op. */
+  removed: boolean;
+  /** Reason recorded in the audit log entry. */
+  reason: string;
+  /** ISO 8601 timestamp recorded in the audit log entry. */
+  timestamp: string;
+}
+
 /** Params for `tasks.saga.list` — list all Sagas. */
 export type TasksSagaListParams = Record<string, never>;
 
@@ -1227,6 +1262,7 @@ export type TasksOps = {
   // Saga sub-domain ops (ADR-073)
   readonly 'saga.create': readonly [TasksSagaCreateParams, TasksSagaCreateResult];
   readonly 'saga.add': readonly [TasksSagaAddParams, TasksSagaAddResult];
+  readonly 'saga.detach': readonly [TasksSagaDetachParams, TasksSagaDetachResult];
   readonly 'saga.list': readonly [TasksSagaListParams, TasksSagaListResult];
   readonly 'saga.members': readonly [TasksSagaMembersParams, TasksSagaMembersResult];
   readonly 'saga.rollup': readonly [TasksSagaRollupParams, TasksSagaRollupResult];

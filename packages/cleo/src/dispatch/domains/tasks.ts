@@ -6,7 +6,8 @@
  * current, add, update, complete, delete, archive, restore, reparent,
  * promote, reorder, relates.add, relates.remove, start, stop,
  * sync.reconcile, sync.links, sync.links.remove,
- * saga.create, saga.add, saga.list, saga.members, saga.rollup.
+ * saga.create, saga.add, saga.detach, saga.list, saga.members, saga.rollup,
+ * saga.repair.
  *
  * Query operations delegate to task-engine; start/stop/current delegate
  * to session-engine (which hosts task-work functions).
@@ -27,9 +28,11 @@ import { getLogger, getProjectRoot } from '@cleocode/core';
 import { createAttachmentStore } from '@cleocode/core/internal';
 // Saga core ops — pure business logic moved out of dispatch in T10124.
 // T10117 adds `sagaRepair` (`saga.repair`) for I5 violation cleanup.
+// T10118 adds the `detach` op for repair of nested-saga relations.
 import {
   sagaAdd as coreSagaAdd,
   sagaCreate as coreSagaCreate,
+  detachSagaMember as coreSagaDetach,
   sagaList as coreSagaList,
   sagaMembers as coreSagaMembers,
   repairSaga as coreSagaRepair,
@@ -664,6 +667,8 @@ const MUTATE_OPS = new Set<string>([
   'saga.add',
   // T10117 — repair an I5-violating saga (detach parentId, write groups edge).
   'saga.repair',
+  // T10118 — repair verb for ADR-073 §1.2 I7 violations (detach saga member).
+  'saga.detach',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -692,6 +697,22 @@ async function sagaAdd(params: Record<string, unknown>): Promise<LafsEnvelope<un
   const sagaId = typeof params.sagaId === 'string' ? params.sagaId : '';
   const epicId = typeof params.epicId === 'string' ? params.epicId : '';
   return wrapCoreResult(await coreSagaAdd(getProjectRoot(), { sagaId, epicId }), 'saga.add');
+}
+
+/**
+ * saga.detach — remove a `task_relations.type='groups'` row between a saga
+ * and a member. Idempotent + audit-logged. See `core/sagas/detach.ts`.
+ *
+ * @task T10118
+ */
+async function sagaDetach(params: Record<string, unknown>): Promise<LafsEnvelope<unknown>> {
+  const sagaId = typeof params.sagaId === 'string' ? params.sagaId : '';
+  const memberId = typeof params.memberId === 'string' ? params.memberId : '';
+  const reason = typeof params.reason === 'string' ? params.reason : undefined;
+  return wrapCoreResult(
+    await coreSagaDetach(getProjectRoot(), { sagaId, memberId, reason }),
+    'saga.detach',
+  );
 }
 
 /** saga.list — list all top-level Sagas. See `core/sagas/list.ts`. */
@@ -863,6 +884,16 @@ export class TasksHandler implements DomainHandler {
           startTime,
         );
       }
+      if (operation === 'saga.detach') {
+        const envelope = await sagaDetach(params ?? {});
+        return wrapResult(
+          envelopeToEngineResult(envelope),
+          'mutate',
+          'tasks',
+          operation,
+          startTime,
+        );
+      }
     } catch (error) {
       getLogger('domain:tasks').error(
         { gateway: 'mutate', domain: 'tasks', operation, err: error },
@@ -944,6 +975,8 @@ export class TasksHandler implements DomainHandler {
         'saga.add',
         // T10117 — repair an I5-violating saga.
         'saga.repair',
+        // T10118 — repair verb for ADR-073 §1.2 I7 violations
+        'saga.detach',
       ],
     };
   }

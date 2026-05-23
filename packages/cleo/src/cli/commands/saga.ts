@@ -8,6 +8,7 @@
  * Commands:
  *   cleo saga create --title <t> [--description <d>] [--acceptance <a>]
  *   cleo saga add <sagaId> <epicId>
+ *   cleo saga detach <sagaId> <memberId> [--reason "..."]
  *   cleo saga list
  *   cleo saga members <sagaId>
  *   cleo saga rollup <sagaId>
@@ -16,7 +17,9 @@
  * @see ADR-073 — Above-Epic Naming (Saga, prefix SG-)
  * @task T9521
  * @task T10117 — saga repair verb
+ * @task T10118 — `detach` verb wired for ADR-073 §1.2 I7 repair
  * @epic T9518
+ * @epic T10209 — E-SAGA-ENFORCEMENT
  */
 
 import { parseAcceptanceCriteria } from '@cleocode/core';
@@ -89,6 +92,48 @@ const addCommand = defineCommand({
       'saga.add',
       { sagaId: args.sagaId, epicId: args.epicId },
       { command: 'saga', operation: 'tasks.saga.add' },
+    );
+  },
+});
+
+/**
+ * cleo saga detach <sagaId> <memberId> — remove a single groups relation.
+ * Idempotent (no-op if already removed). Always appends to
+ * `.cleo/audit/saga-detach.jsonl`. Primary use case: repair an ADR-073 §1.2
+ * I7 violation where a saga was linked as a member of another saga.
+ *
+ * @task T10118
+ */
+const detachCommand = defineCommand({
+  meta: {
+    name: 'detach',
+    description:
+      'Remove a Saga member relation (task_relations type=groups) — idempotent, audit-logged',
+  },
+  args: {
+    sagaId: {
+      type: 'positional',
+      description: 'Saga task ID',
+      required: true,
+    },
+    memberId: {
+      type: 'positional',
+      description: 'Member task ID to detach from the Saga',
+      required: true,
+    },
+    reason: {
+      type: 'string',
+      description: 'Human-readable reason recorded in the audit log entry',
+      required: false,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'tasks',
+      'saga.detach',
+      { sagaId: args.sagaId, memberId: args.memberId, reason: args.reason },
+      { command: 'saga', operation: 'tasks.saga.detach' },
     );
   },
 });
@@ -198,6 +243,7 @@ export const sagaCommand = defineCommand({
   subCommands: {
     create: createCommand,
     add: addCommand,
+    detach: detachCommand,
     list: listCommand,
     members: membersCommand,
     rollup: rollupCommand,
