@@ -12,6 +12,10 @@ import { type EngineResult, engineError, engineSuccess } from '../engine-result.
 import { CleoError } from '../errors.js';
 import { getIvtrState, type IvtrPhase } from '../lifecycle/ivtr-loop.js';
 import { getLogger } from '../logger.js';
+import {
+  type AutoCompleteWorktreeResult,
+  maybeAutoCompleteWorktreeForTask,
+} from '../orchestrate/worktree-complete.js';
 import { getProjectRoot, resolveOrCwd } from '../paths.js';
 import { buildSagaAutoCloseEvidence, findSagasGroupingTask } from '../sagas/storage.js';
 import { wrapWithAgentSession } from '../sessions/agent-session-adapter.js';
@@ -859,6 +863,17 @@ type CompleteEngineResult = EngineResult<{
   task: TaskRecord;
   autoCompleted?: string[];
   unblockedTasks?: Array<{ id: string; title: string }>;
+  /**
+   * T9548 — Auto-invoke worktree-complete diagnostic envelope.
+   *
+   * Populated when `cleo complete <taskId>` runs and the auto-invoke hook
+   * either runs the worktree-integration SDK or short-circuits (no worktree
+   * exists, `CLEO_NO_AUTO_WORKTREE_COMPLETE=1`, or SDK threw). Absent when
+   * task completion itself failed (no auto-merge is attempted on failure).
+   *
+   * @task T9548
+   */
+  worktreeAutoComplete?: AutoCompleteWorktreeResult;
 }>;
 
 /**
@@ -936,10 +951,29 @@ export async function taskComplete(
       // Provenance write failure is non-fatal.
     }
 
+    // T9548 — auto-invoke worktree-complete after a successful completion.
+    //
+    // The wrapper is best-effort and idempotent:
+    //  - Skips when CLEO_NO_AUTO_WORKTREE_COMPLETE=1 is set.
+    //  - Skips when no CLEO worktree exists for the task.
+    //  - Re-running on an already-integrated worktree returns outcome='noop'
+    //    courtesy of the audit-log idempotency check inside the SDK.
+    //  - Throws are caught and surfaced as outcome='sdk-threw' — they never
+    //    derail the task completion (which has already landed in the DB).
+    //
+    // Audit-log entries are written ONLY by the inner SDK and ONLY when a
+    // real lifecycle event occurs. The env-disabled and no-worktree paths
+    // are pure no-ops with no on-disk side effects.
+    const worktreeAutoComplete: AutoCompleteWorktreeResult = maybeAutoCompleteWorktreeForTask(
+      taskId,
+      projectRoot,
+    );
+
     return engineSuccess({
       task: result.task as TaskRecord,
       ...(result.autoCompleted && { autoCompleted: result.autoCompleted }),
       ...(result.unblockedTasks && { unblockedTasks: result.unblockedTasks }),
+      worktreeAutoComplete,
     });
   } catch (err: unknown) {
     const e = err as { message?: string };

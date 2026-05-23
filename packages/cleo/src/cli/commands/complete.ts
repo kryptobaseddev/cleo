@@ -92,6 +92,14 @@ export const completeCommand = defineCommand({
     if (Array.isArray(unblockedTasks) && unblockedTasks.length > 0) {
       output['unblockedTasks'] = unblockedTasks;
     }
+    // T9548 — surface auto-invoke worktree-complete diagnostics on the CLI
+    // envelope so the operator can see what happened to the worktree (merged,
+    // noop, env-disabled, conflict, etc.). The field is always present when
+    // task completion succeeded; it's omitted on failure paths.
+    const worktreeAutoComplete = data?.worktreeAutoComplete;
+    if (worktreeAutoComplete && typeof worktreeAutoComplete === 'object') {
+      output['worktreeAutoComplete'] = worktreeAutoComplete;
+    }
 
     cliOutput(output, { command: 'complete', operation: 'tasks.complete' });
   },

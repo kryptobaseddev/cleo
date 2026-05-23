@@ -2142,11 +2142,17 @@ export {
 export { nexusWiki } from './nexus/wiki-index.js';
 // Worktree completion SDK (T9548)
 export type {
+  AutoCompleteWorktreeResult,
   CompleteWorktreeForTaskOpts,
   CompleteWorktreeForTaskResult,
   WorktreeCompleteResolveMode,
 } from './orchestrate/worktree-complete.js';
-export { completeWorktreeForTask } from './orchestrate/worktree-complete.js';
+export {
+  AUTO_WORKTREE_COMPLETE_ENV,
+  completeWorktreeForTask,
+  isAutoWorktreeCompleteDisabled,
+  maybeAutoCompleteWorktreeForTask,
+} from './orchestrate/worktree-complete.js';
 export type { DependencyAnalysis } from './orchestration/analyze.js';
 export { analyzeDependencies as orchestrationAnalyzeDependencies } from './orchestration/analyze.js';
 export { getCriticalPath as orchestrationGetCriticalPath } from './orchestration/critical-path.js';
