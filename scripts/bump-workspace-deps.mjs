@@ -171,9 +171,7 @@ export async function bumpWorkspaceDeps({ version, root, dryRun = false }) {
     try {
       pkg = await readJson(pkgPath);
     } catch (err) {
-      throw new Error(
-        `Failed to read ${pkgPath}: ${err && err.message ? err.message : String(err)}`,
-      );
+      throw new Error(`Failed to read ${pkgPath}: ${err?.message ? err.message : String(err)}`);
     }
     const relPath = path.relative(root, pkgPath);
     const sections = ['dependencies', 'devDependencies', 'peerDependencies'];
@@ -215,7 +213,7 @@ async function main() {
   try {
     report = await bumpWorkspaceDeps({ version, root, dryRun });
   } catch (err) {
-    process.stderr.write(`ERROR: ${err && err.message ? err.message : String(err)}\n`);
+    process.stderr.write(`ERROR: ${err?.message ? err.message : String(err)}\n`);
     process.exit(2);
   }
 
