@@ -1,14 +1,51 @@
 # Worktree Lifecycle Specification
 
-> **Task:** T9549 — replaces `docs/spec/worktree-lifecycle-stub.md` (T9548).
-> **Epic:** T9515 — Worktree Lifecycle (5 of 5, closes the epic).
-> **Status:** Canonical contract — supersedes all prior worktree lifecycle prose.
+> **Task:** T9549 — closes the E1 5-task chain.
+> **Epic:** T10192 — Worktree Lifecycle (5 of 5).
+> **Saga:** T10176 (`SG-BOUNDARY-REGISTRY`) — Decision D010.
+> **Status:** Stable. Canonical contract — supersedes all prior worktree lifecycle prose.
+> **Scope:** Applies to all CLEO-spawned worktrees AND adopted worktrees
+> registered via `cleo worktree adopt`.
+> **Routing:** Published via `cleo docs add` per ADR-076 (Canonical Docs SSoT).
+> Slug: `worktree-lifecycle-spec`.
 
 This document is the canonical contract for how CLEO provisions, manages,
 inspects, completes, and recovers git worktrees used by spawned agent
 workers. Every command, audit action, and recovery procedure described here
-maps to source that has already landed on `main` (T9545, T9546, T9547) or is
-in PR (T9548).
+maps to source that has already landed on `main`.
+
+### Implementing PRs (T10176 chain)
+
+| Task  | Topic                                          | T10176 PR  | Prior PR    |
+|-------|------------------------------------------------|------------|-------------|
+| T9545 | Spawn supervisor — bounded timeout + cleanup    | [#505](https://github.com/kryptobaseddev/cleo/pull/505) | [#229](https://github.com/kryptobaseddev/cleo/pull/229) |
+| T9546 | `cleo worktree list` with structured envelope   | [#512](https://github.com/kryptobaseddev/cleo/pull/512) | [#230](https://github.com/kryptobaseddev/cleo/pull/230) |
+| T9547 | `cleo worktree prune` + `force-unlock`          | [#523](https://github.com/kryptobaseddev/cleo/pull/523) | [#237](https://github.com/kryptobaseddev/cleo/pull/237) |
+| T9548 | Auto-invoke worktree-complete post-success      | [#527](https://github.com/kryptobaseddev/cleo/pull/527) | [#242](https://github.com/kryptobaseddev/cleo/pull/242) |
+| T9549 | This document                                   | _under T10176_ | [#244](https://github.com/kryptobaseddev/cleo/pull/244) |
+
+The May-18 PRs (#229, #230, #237, #242, #244) landed the E1 chain under the
+original T9515 epic. The May-23 PRs (#505, #512, #523, #527) re-shipped the
+same surface area under the boundary-registry saga (T10176), bringing the
+implementation up to the current contract.
+
+## 0. Definitions
+
+| Term                     | Definition                                                                                       |
+|--------------------------|--------------------------------------------------------------------------------------------------|
+| **Canonical worktree**   | A worktree under `<cleoHome>/worktrees/<projectHash>/<taskId>/`. ADR-055 forbids any other location. |
+| **Owning task**          | The task ID extracted from the worktree's branch (`task/T####` pattern) or `null` for non-task branches. |
+| **`source`**             | Provenance of the worktree. One of `cleo-spawn` (created by `cleo orchestrate spawn`), `claude-agent` (created by Claude Code Agent `isolation:worktree`, adopted post-hoc), or `manual` (operator-created, adopted explicitly). |
+| **`statusCategory`**     | Mutually-exclusive classification computed by `cleo worktree list`. One of `active`, `stale`, `merged`, `orphan`, `locked`. |
+| **`lockState`**          | Whether the worktree is locked at the porcelain level (`git worktree lock <path>`) and/or has a wedged `.git/index.lock`. |
+| **Audit log**            | `.cleo/audit/worktree-lifecycle.jsonl` — append-only JSONL, one record per lifecycle action. |
+| **Integration log**      | `.cleo/audit/worktree-integration.jsonl` — append-only JSONL written by `completeAgentWorktreeIntegration`. Records the actual `git merge --no-ff` outcome. |
+| **Sentinel index**       | `.cleo/worktrees.json` — per-project, advisory sentinel for adopted worktrees (council D009 hybrid). |
+| **`projectHash`**        | `sha256(<projectRoot>).slice(0, 16)`. Stable per project root, unique across machines and clones. |
+| **`bindingSource`**      | Hint for downstream consumers that a worktree was bound via the `saga.groups` mechanism (the relation_type='groups' edge in `task_relations` per ADR-073). |
+| **`CLEANUP_BUDGET_MS`**  | 5000 ms ceiling for the spawn supervisor's partial-state unwind path (T9545). |
+| **`SPAWN_BUDGET_MS`**    | 60000 ms ceiling for the entire `cleo orchestrate spawn` flow (T9545). |
+| **`GIT_TIMEOUT_MS`**     | 60000 ms ceiling for each git subprocess in `list.ts`, `prune.ts`, `force-unlock.ts`. |
 
 ## 1. Overview
 
@@ -403,30 +440,206 @@ cleo worktree list --status orphan       # if T4 was cancelled, it's here
 cleo worktree prune --orphaned           # cleanup
 ```
 
-## 9. Cross-References
+## 9. Adoption Flow (Adopted Worktrees)
 
+Claude Code Agent spawns with `isolation:worktree` create directories under
+`.claude/worktrees/<sessionId>/` **outside** the CLEO SSoT. These bypass
+`cleo orchestrate spawn` entirely. To bring them into the lifecycle contract,
+operators (or the agent itself) MUST adopt them post-hoc.
+
+```bash
+# Register a Claude Code Agent worktree in the CLEO SSoT
+cleo worktree adopt .claude/worktrees/<sessionId>
+
+# With explicit source classification
+cleo worktree adopt .claude/worktrees/<sessionId> --source claude-agent
+
+# With explicit task ID association
+cleo worktree adopt /path/to/worktree --source manual --task-id T9549
+```
+
+After adoption:
+
+- The worktree appears in `cleo worktree list` tagged with the chosen
+  `source` value.
+- An audit entry is appended to `.cleo/audit/worktree-lifecycle.jsonl`.
+- The worktree is subject to the same auto-cleanup rules as
+  CLEO-spawned worktrees.
+- The adoption is recorded in `.cleo/worktrees.json` (advisory sentinel —
+  integrity does NOT depend on this file; the porcelain remains the source
+  of truth).
+
+Adopted worktrees are still subject to the canonical-path requirement
+(§1, §10.MUST-1): if the adopted path is outside the canonical XDG root,
+`cleo worktree adopt` MUST fail with a clear error so the operator can move
+the directory before retrying.
+
+## 10. Normative Requirements (RFC 2119)
+
+The following requirements use [RFC 2119][rfc2119] terms: MUST, MUST NOT,
+SHOULD, SHOULD NOT, MAY. Any implementation that claims to follow this
+specification MUST satisfy every MUST and MUST NOT.
+
+[rfc2119]: https://datatracker.ietf.org/doc/html/rfc2119
+
+### Provisioning (`cleo orchestrate spawn`)
+
+- **MUST-1.** Every CLEO-spawned worktree MUST live under
+  `<cleoHome>/worktrees/<projectHash>/<taskId>/`. Implementations MUST
+  reject any other path with `E_WT_LOCATION_FORBIDDEN` BEFORE invoking
+  `git worktree add`. (ADR-055 / D009.)
+- **MUST-2.** The branch name MUST follow the `task/<taskId>` convention
+  (e.g. `task/T9549`). The branch MUST be created from the project's
+  default branch tip (typically `origin/main`).
+- **MUST-3.** The spawn flow MUST be bounded by `SPAWN_BUDGET_MS = 60_000`
+  ms. On timeout, the implementation MUST attempt cleanup of any
+  partially-created state within `CLEANUP_BUDGET_MS = 5_000` ms.
+- **MUST-4.** On spawn timeout or non-cleanup failure, the returned error
+  envelope MUST carry `E_TIMEOUT` (or a similarly explicit code) and SHOULD
+  include the resolved worktree path so the operator can inspect partial
+  state.
+- **MUST-5.** A successful spawn MUST issue `git worktree lock <path>` so
+  the worktree is not accidentally pruned by `git worktree prune`.
+- **SHOULD-1.** The spawn implementation SHOULD record provisioning success
+  via an audit entry in `.cleo/audit/worktree-lifecycle.jsonl`.
+
+### Listing (`cleo worktree list`)
+
+- **MUST-6.** `cleo worktree list` MUST return a structured envelope. Every
+  entry MUST include `path`, `branch`, `taskId` (nullable),
+  `statusCategory`, `isLocked`, `isOrphan`, `isMerged`, `isStale`, and
+  `source`.
+- **MUST-7.** `statusCategory` MUST be exactly one of `active`, `stale`,
+  `merged`, `orphan`, `locked`. The resolution order (locked → orphan →
+  merged → stale → active) MUST be honored — implementations MUST NOT
+  reorder it.
+- **MUST-8.** When a worktree was bound via the saga `groups` relation,
+  the entry MUST surface `bindingSource: 'saga.groups'` so downstream
+  consumers can distinguish task-parented worktrees from saga-grouped
+  worktrees.
+- **MAY-1.** Implementations MAY accept `--status`, `--stale-days`, and
+  `--source` filters on the CLI surface. They MUST NOT alter the
+  classification rules.
+
+### Prune (`cleo worktree prune --orphaned`)
+
+- **MUST-9.** Prune MUST only remove worktrees whose `statusCategory` is
+  `orphan` or `merged`. Prune MUST NOT touch `active`, `stale`, or
+  `locked` worktrees.
+- **MUST-10.** Prune MUST support a `--dry-run` mode that lists candidates
+  without mutating state.
+- **MUST-11.** Without `--yes`, prune MUST prompt for confirmation per
+  orphan and MUST honor a per-orphan N response by skipping that
+  worktree only.
+- **MUST-12.** For `orphan-cancelled` worktrees, prune MUST preserve the
+  local `task/<id>` branch tip. For `merged` worktrees, prune MUST delete
+  the local `task/<id>` branch.
+- **MUST-13.** Prune MUST append one audit entry per acted-on worktree to
+  `.cleo/audit/worktree-lifecycle.jsonl` with `action: 'prune'`.
+
+### Force-unlock (`cleo worktree force-unlock`)
+
+- **MUST-14.** Force-unlock MUST be idempotent — re-invoking on an
+  already-unlocked worktree MUST succeed with a `reason` indicating no
+  action was needed.
+- **MUST-15.** Force-unlock MUST remove `.git/index.lock` from BOTH the
+  in-worktree proxy path AND the admin path resolved via
+  `git rev-parse --git-dir`.
+- **MUST-16.** Force-unlock MUST NOT delete uncommitted changes in the
+  worktree. When uncommitted changes exist, the audit entry MUST include
+  `uncommitted-changes-preserved` in the `reason` field.
+- **MUST-17.** Force-unlock MUST NOT kill running git processes. Operators
+  are responsible for terminating runaway processes BEFORE invoking
+  force-unlock.
+
+### Auto-complete (`cleo orchestrate worktree-complete`)
+
+- **MUST-18.** When `exitCode === 0` AND `opts.autoComplete !== false`,
+  the spawn flow MUST attempt `completeWorktreeForTask` post-success.
+- **MUST-19.** When the environment variable `CLEO_NO_AUTO_WORKTREE_COMPLETE=1`
+  is set, the spawn flow MUST skip auto-completion AND append a
+  `complete-skip` audit entry with `reason: 'env-override'`.
+- **MUST-20.** Auto-completion MUST be idempotent. Implementations MUST
+  scan `.cleo/audit/worktree-integration.jsonl` for a prior entry with
+  the same `taskId` AND `merged === true` BEFORE attempting the merge.
+  When found, the implementation MUST return `outcome: 'noop'` and append
+  `complete-skip` to the lifecycle audit log.
+- **MUST-21.** Integration MUST use `git merge --no-ff task/<taskId>`
+  against the default branch. Implementations MUST NOT use
+  `git cherry-pick` for this path (ADR-062).
+- **MUST-22.** On merge conflict, implementations MUST preserve the
+  worktree on disk and MUST append a `complete-conflict` audit entry.
+  The worktree MUST NOT be pruned.
+- **MUST-23.** The `--resolve manual` flag MUST skip the automatic merge
+  attempt entirely and MUST append `complete-manual` to the audit log.
+- **MUST-24.** Auto-completion MUST be best-effort with respect to the
+  spawn envelope — a failure in the completion SDK import or invocation
+  MUST NOT block the spawn envelope from returning to the caller.
+
+### Audit + Adoption
+
+- **MUST-25.** Every lifecycle action (`prune`, `force-unlock`,
+  `complete`, `complete-skip`, `complete-manual`, `complete-conflict`,
+  `adopt`) MUST append exactly one line to
+  `.cleo/audit/worktree-lifecycle.jsonl`. The file MUST be append-only.
+- **MUST-26.** Audit entries MUST be valid JSON Lines (one object per
+  line, no embedded newlines).
+- **MUST-27.** `cleo worktree adopt` MUST reject paths outside the
+  canonical XDG worktree root with a clear error (per MUST-1).
+- **SHOULD-2.** Adoption SHOULD record the adopted path in the sentinel
+  index `.cleo/worktrees.json`. Implementations MUST treat the sentinel
+  as advisory — porcelain (`git worktree list --porcelain`) remains the
+  source of truth.
+
+### Operator Behavior
+
+- **MUST-28.** Agents that use `isolation:worktree` MUST call
+  `cleo worktree adopt` if they want the worktree to surface in
+  `cleo worktree list` and receive lifecycle cleanup hooks.
+- **SHOULD-3.** Operators SHOULD run `cleo worktree list` before declaring
+  any release cycle "clean".
+- **SHOULD-4.** Operators SHOULD prefer `cleo worktree prune --orphaned`
+  to manual `git worktree remove` invocations so that audit traceability
+  is preserved.
+- **MAY-2.** Operators MAY manage non-task worktrees (e.g. `main`, release
+  branches) directly with plain `git worktree`. Lifecycle commands MUST
+  NOT touch worktrees with `taskId === null`.
+
+## 11. Cross-References
+
+- **ADR-055** (`.cleo/adrs/ADR-055-agents-architecture-and-meta-agents.md`) —
+  worktree-by-default agent isolation. Establishes the canonical XDG
+  worktree location and the `E_WT_LOCATION_FORBIDDEN` guard.
 - **ADR-062** (`.cleo/adrs/ADR-062-worktree-merge-not-cherry-pick.md`) —
   canonical `git merge --no-ff` integration strategy. Supersedes the
   cherry-pick guidance from T1118.
-- **ADR-055** — worktree-by-default agent isolation.
+- **ADR-076** — Canonical Docs SSoT. This document is routed via
+  `cleo docs add --type spec --slug worktree-lifecycle-spec`.
 - **ADR-041** (`.cleo/adrs/ADR-041-worktree-handle-spawn-contract.md`) —
   worktree protocol: agents never touch the primary directory.
 - **T9501** (`packages/core/src/release/engine-ops.ts`) — `runGitWithLockRetry`
   60-second timeout pattern that the worktree-lifecycle commands mirror.
 - **T9545** (`packages/core/src/orchestrate/spawn-ops.ts`) — spawn pipeline
-  timeout supervisor (`SPAWN_BUDGET_MS = 60_000`).
+  timeout supervisor (`SPAWN_BUDGET_MS = 60_000`). PR
+  [#505](https://github.com/kryptobaseddev/cleo/pull/505).
 - **T9546** (`packages/core/src/worktree/list.ts`) — `cleo worktree list`
-  + status classifier (`classifyStatus`).
+  + status classifier (`classifyStatus`). PR
+  [#512](https://github.com/kryptobaseddev/cleo/pull/512).
 - **T9547** (`packages/core/src/worktree/prune.ts`,
   `packages/core/src/worktree/force-unlock.ts`) — `cleo worktree prune`
-  + `force-unlock`.
+  + `force-unlock`. PR
+  [#523](https://github.com/kryptobaseddev/cleo/pull/523).
 - **T9548** (`packages/core/src/orchestrate/worktree-complete.ts`) —
   auto-invoke worktree-complete post-success + idempotency + manual
-  resolve mode.
+  resolve mode. PR
+  [#527](https://github.com/kryptobaseddev/cleo/pull/527).
+- **T10176** — Saga `SG-BOUNDARY-REGISTRY`. Boundary-registry tracking
+  saga under which the E1 chain re-shipped in May 2026.
+- **T10192** — Epic owning T9549 (this document).
 - **T1118 / T1140** — original worktree-by-default spawn (legacy
   cherry-pick path; superseded by ADR-062).
 
-## 10. FAQ
+## 12. FAQ
 
 ### Q: My worker finished and the worktree is gone. Where did my code go?
 
