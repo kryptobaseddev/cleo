@@ -41,6 +41,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { getLogger } from '../logger.js';
 import type { WorktreeIntegrationResult } from '../spawn/branch-lock.js';
 import {
   completeAgentWorktreeIntegration,
@@ -369,3 +370,164 @@ export function completeWorktreeForTask(
  * @task T9548
  */
 export { WORKTREE_LIFECYCLE_AUDIT_FILE };
+
+// ---------------------------------------------------------------------------
+// Auto-invoke wrapper for cleo complete <taskId> (Saga T10176 · D010)
+// ---------------------------------------------------------------------------
+
+/**
+ * Environment variable that, when set to a truthy value (`'1'`, `'true'`,
+ * any non-empty string other than `'0'` / `'false'`), disables the
+ * auto-invoke wrapper {@link maybeAutoCompleteWorktreeForTask}.
+ *
+ * Use this for manual flows where the operator wants to inspect the worktree
+ * before integration, or for CI smoke tests that exercise `cleo complete`
+ * without touching the agent worktree tree.
+ *
+ * @task T9548
+ */
+export const AUTO_WORKTREE_COMPLETE_ENV = 'CLEO_NO_AUTO_WORKTREE_COMPLETE';
+
+/**
+ * Diagnostic envelope returned by {@link maybeAutoCompleteWorktreeForTask}.
+ *
+ * Surfaced on the `cleo complete` engine result under
+ * `data.worktreeAutoComplete` so the CLI can render an informative summary
+ * to the operator (e.g. "merged 3 commits into main" or "conflict — worktree
+ * preserved at <path>").
+ *
+ * @task T9548
+ */
+export interface AutoCompleteWorktreeResult {
+  /** Whether the integration attempt actually ran. */
+  ran: boolean;
+  /**
+   * Why the wrapper skipped, or what outcome the inner SDK produced:
+   *
+   *  - `'env-disabled'`     — `CLEO_NO_AUTO_WORKTREE_COMPLETE=1` was set.
+   *  - `'no-worktree'`      — no CLEO worktree exists for the task.
+   *  - `'merged'`           — auto-merge succeeded.
+   *  - `'noop'`             — idempotent skip (already integrated).
+   *  - `'manual'`           — `resolve: 'manual'` was passed.
+   *  - `'conflict'`         — merge conflict; worktree preserved.
+   *  - `'sdk-threw'`        — `completeWorktreeForTask` threw — best-effort
+   *                            wrapper caught and surfaced the message here.
+   */
+  outcome: 'env-disabled' | 'no-worktree' | 'merged' | 'noop' | 'manual' | 'conflict' | 'sdk-threw';
+  /** Human-readable explanation of the outcome. */
+  reason: string;
+  /** Underlying SDK envelope when {@link ran} is true. */
+  integration?: CompleteWorktreeForTaskResult;
+}
+
+/**
+ * Read the env-var skip toggle. Treats `'0'`, `'false'`, `''`, and an absent
+ * env-var as opt-in (auto-complete ENABLED). Any other non-empty value is
+ * treated as opt-out (auto-complete DISABLED).
+ *
+ * Centralising the parse here lets callers and tests share one truth-table.
+ *
+ * @task T9548
+ */
+export function isAutoWorktreeCompleteDisabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = env[AUTO_WORKTREE_COMPLETE_ENV];
+  if (raw === undefined || raw === '') return false;
+  const lowered = raw.toLowerCase();
+  if (lowered === '0' || lowered === 'false') return false;
+  return true;
+}
+
+/**
+ * Best-effort wrapper that auto-invokes {@link completeWorktreeForTask} from
+ * the `cleo complete <taskId>` path.
+ *
+ * Behaviour:
+ *
+ * 1. **Env skip** — when {@link AUTO_WORKTREE_COMPLETE_ENV} is set, the
+ *    wrapper returns `outcome: 'env-disabled'` and NEVER touches git or the
+ *    audit log. No `complete` audit row is written.
+ * 2. **Worktree absence** — when no CLEO worktree exists for the task
+ *    (under {@link resolveAgentWorktreeRoot}), the wrapper returns
+ *    `outcome: 'no-worktree'` immediately. Idempotent: re-running a second
+ *    time produces the same envelope. The wrapper writes NO audit row in
+ *    this case — the absence of a worktree is the natural identity element
+ *    for "already complete".
+ * 3. **SDK invoke** — otherwise the wrapper calls
+ *    {@link completeWorktreeForTask} and maps its outcome into the
+ *    diagnostic envelope. The SDK itself owns audit-row emission for every
+ *    real lifecycle event (`complete`, `complete-skip`, `complete-conflict`,
+ *    `complete-manual`).
+ * 4. **Never throw** — the SDK call is wrapped in `try/catch`. A throw is
+ *    surfaced as `outcome: 'sdk-threw'` with the message in `reason`, so the
+ *    parent `cleo complete` envelope is never derailed by an auto-merge
+ *    hiccup. The task completion has already landed — the worktree integration
+ *    is strictly a best-effort post-step.
+ *
+ * @param taskId       - Task ID whose worktree should be integrated.
+ * @param projectRoot  - Absolute path to the project root (canonical, NOT the
+ *                       worktree path — `getProjectRoot()` already walks up
+ *                       from a worktree gitlink to the main repo, see T9092).
+ * @param opts         - Optional pass-through to {@link CompleteWorktreeForTaskOpts}
+ *                       (used by tests to override audit paths + skip fetch).
+ * @returns Diagnostic envelope describing what happened.
+ *
+ * @task T9548
+ */
+export function maybeAutoCompleteWorktreeForTask(
+  taskId: string,
+  projectRoot: string,
+  opts: CompleteWorktreeForTaskOpts = {},
+): AutoCompleteWorktreeResult {
+  const log = getLogger('orchestrate:auto-complete');
+
+  // 1. Env-var skip.
+  if (isAutoWorktreeCompleteDisabled()) {
+    log.debug(
+      { taskId, env: AUTO_WORKTREE_COMPLETE_ENV },
+      'auto-worktree-complete disabled via env-var — skipping',
+    );
+    return {
+      ran: false,
+      outcome: 'env-disabled',
+      reason: `${AUTO_WORKTREE_COMPLETE_ENV} is set — auto-merge skipped`,
+    };
+  }
+
+  // 2. Worktree absence check.
+  const worktreeRoot = resolveAgentWorktreeRoot(projectRoot);
+  const worktreePath = join(worktreeRoot, taskId);
+  if (!existsSync(worktreePath)) {
+    log.debug({ taskId, worktreePath }, 'no CLEO worktree found for task — skipping auto-complete');
+    return {
+      ran: false,
+      outcome: 'no-worktree',
+      reason: `No CLEO worktree at ${worktreePath} — nothing to integrate`,
+    };
+  }
+
+  // 3. Invoke the SDK. Catch any throw so task-completion is never derailed.
+  try {
+    const integration = completeWorktreeForTask(taskId, projectRoot, opts);
+    log.info(
+      { taskId, outcome: integration.outcome, reason: integration.reason },
+      'auto-worktree-complete invoked from cleo complete',
+    );
+    return {
+      ran: true,
+      outcome: integration.outcome,
+      reason: integration.reason,
+      integration,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn(
+      { taskId, err: message },
+      'auto-worktree-complete SDK threw — task completion preserved',
+    );
+    return {
+      ran: false,
+      outcome: 'sdk-threw',
+      reason: `completeWorktreeForTask threw: ${message}`,
+    };
+  }
+}
