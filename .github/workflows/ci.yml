@@ -38,6 +38,7 @@ jobs:
       runtime: ${{ steps.filter.outputs.runtime }}
       skills: ${{ steps.filter.outputs.skills }}
       worktree: ${{ steps.filter.outputs.worktree }}
+      workflows: ${{ steps.filter.outputs.workflows }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -55,6 +56,11 @@ jobs:
             schemas:
               - 'packages/*/schemas/**'
               - 'packages/*/templates/**'
+            workflows:
+              - '.github/workflows/**'
+              - 'packages/*/templates/workflows/**'
+              - 'scripts/lint-deployed-template-parity.mjs'
+              - '.lint-deployed-template-parity-baseline.json'
             core:
               - 'packages/core/**'
             cleo:
@@ -485,6 +491,44 @@ jobs:
         # the cleo CLI requires a live database. The strict mode does not
         # need task verification (it blocks everything unconditionally).
         run: node scripts/lint-no-ssot-exempt.mjs --strict --base origin/main
+
+  deployed-template-parity:
+    # T9860 / Saga T9855 SG-TEMPLATE-CONFIG-SSOT — dogfood gate.
+    # `packages/cleo/templates/workflows/*.yml.tmpl` (being relocated to
+    # `packages/core/templates/workflows/*.yml.tmpl` by T9858) are the canonical
+    # sources for GitHub Actions workflows shipped to consuming projects via
+    # `cleo init --workflows`. The deployed copies under .github/workflows/
+    # here are supposed to BE the rendered output. Today they drift — this
+    # gate establishes a baseline of the accepted drift and fails CI on any
+    # NEW divergence. The drift itself is closed by a SEPARATE follow-up.
+    # Runs whenever workflows, templates, the script, or the baseline change.
+    # Pure static analysis of checked-in source — no untrusted input.
+    name: Deployed Template Parity (T9860)
+    needs: changes
+    if: needs.changes.outputs.code == 'true' || needs.changes.outputs.workflows == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.30.0'
+          run_install: false
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      - run: pnpm install --frozen-lockfile
+      - name: Lint deployed workflows against shipped templates (baseline mode)
+        run: node scripts/lint-deployed-template-parity.mjs
 
   cli-boundary-lint:
     # T10076 / Epic T9837 / Saga T9831 SG-ARCH-SOLID — CLI package boundary gate.
