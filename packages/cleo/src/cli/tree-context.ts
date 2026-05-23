@@ -1,69 +1,19 @@
 /**
- * CLI tree command rendering context.
+ * Re-export shim — tree-rendering context now lives in
+ * `@cleocode/core/render/tree-context`.
  *
- * Singleton that carries per-invocation flags for `cleo tree` and any command
- * that delegates to {@link renderTree}.  Set by the `treeCommand` handler
- * before dispatching; read by `renderTree` in `system.ts`.
+ * Kept as a thin shim so that `packages/cleo/src/cli/commands/deps.ts` and the
+ * tree-visualization e2e test continue to import from this historical
+ * location without B6 needing to coordinate a cross-file rename. Delete this
+ * shim once those callers have been updated to import directly from
+ * `@cleocode/core`.
  *
- * The pattern mirrors {@link format-context.ts} and {@link field-context.ts}:
- * a module-level store set once at command entry and read by the renderer so
- * that the renderer signature (`data`, `quiet`) stays stable.
+ * Migrated by T10131 (B6).
  *
  * @task T1205
  * @task T1206
- * @epic T1187
+ * @task T10131
  */
 
-/**
- * Per-invocation options for tree rendering.
- */
-export interface TreeContext {
-  /**
-   * When `true`, each task in the tree output has its direct dependency chain
-   * inlined below it.  Corresponds to the `--with-deps` CLI flag.
-   *
-   * @defaultValue `false`
-   */
-  withDeps: boolean;
-
-  /**
-   * When `true`, each blocked task in the tree output has its transitive
-   * blocker chain rendered below it.  Corresponds to the `--blockers` CLI flag.
-   *
-   * The data layer must have been called with `withBlockers: true` so that
-   * `blockerChain` and `leafBlockers` fields are present on the nodes.
-   *
-   * @defaultValue `false`
-   */
-  withBlockers: boolean;
-}
-
-/** Module-level singleton — reset on each invocation. */
-let currentContext: TreeContext = {
-  withDeps: false,
-  withBlockers: false,
-};
-
-/**
- * Set the tree rendering context for this CLI invocation.
- *
- * Called by the `treeCommand` handler after parsing `--with-deps` and
- * `--blockers`.
- *
- * @param ctx - Partial context; missing keys keep their defaults.
- */
-export function setTreeContext(ctx: Partial<TreeContext>): void {
-  currentContext = {
-    withDeps: ctx.withDeps ?? false,
-    withBlockers: ctx.withBlockers ?? false,
-  };
-}
-
-/**
- * Get the current tree rendering context.
- *
- * @returns The active {@link TreeContext} for this invocation.
- */
-export function getTreeContext(): TreeContext {
-  return currentContext;
-}
+export type { TreeContext } from '@cleocode/core';
+export { getTreeContext, setTreeContext } from '@cleocode/core';

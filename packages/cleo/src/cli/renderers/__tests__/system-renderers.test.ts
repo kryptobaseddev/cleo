@@ -12,8 +12,8 @@
  * @epic T1188
  */
 
+import { renderBriefing, renderTree } from '@cleocode/core';
 import { describe, expect, it } from 'vitest';
-import { renderBriefing, renderTree } from '../system.js';
 
 // ---------------------------------------------------------------------------
 // T1194: renderTree handles data.waves
