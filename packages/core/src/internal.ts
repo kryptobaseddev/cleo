@@ -1346,6 +1346,14 @@ export {
 export type { RunGatesOptions } from './tasks/gate-runner.js';
 // Gate runner (T813)
 export { extractTypedGates, runGates } from './tasks/gate-runner.js';
+// Generic graph-aware tree walker — parent + groups edges (T10134).
+export type {
+  BuildGenericTreeOptions,
+  GenericTreeEdgeType,
+  GenericTreeMetadata,
+  GenericTreeResult,
+} from './tasks/generic-tree.js';
+export { buildGenericTaskTree } from './tasks/generic-tree.js';
 export { getCriticalPath } from './tasks/graph-ops.js';
 export type { TaskTreeNode } from './tasks/hierarchy.js';
 // Project-agnostic tool resolution + cache + semaphore (T1534 / ADR-061)
