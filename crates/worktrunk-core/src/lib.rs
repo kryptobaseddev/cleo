@@ -23,6 +23,13 @@
 //!   `ignore::gitignore` matcher (correct glob match, not literal `existsSync`).
 //! - [`git_wt`] — minimal `git worktree` primitives (add, remove, list, lock,
 //!   unlock) invoked via `std::process::Command`.
+//! - [`git`] — substitute SDK surface for worktrunk's `git::*` types
+//!   ([`git::BranchDeletionMode`], [`git::RefSnapshot`], [`git::Repo`] trait,
+//!   [`git::ProcessRepo`] default impl). See
+//!   `docs/research/t10219-worktrunk-sdk-interface-audit.md` for rationale.
+//! - [`config`] — field-only SDK projection of worktrunk's
+//!   `config::UserConfig` ([`config::UserConfigDto`],
+//!   [`config::CopyIgnoredConfig`]).
 //! - [`progress`] — opt-in progress reporter; defaults to a zero-cost no-op so
 //!   napi consumers pay nothing.
 //!
@@ -44,13 +51,20 @@
 //! println!("Copied {files} files ({bytes} bytes)");
 //! ```
 
+pub mod config;
 pub mod copy;
+pub mod git;
 pub mod git_wt;
 pub mod path;
 pub mod progress;
 pub mod worktreeinclude;
 
+pub use config::{CopyIgnoredConfig, UserConfigDto};
 pub use copy::{copy_dir_recursive, copy_leaf};
+pub use git::{
+    BranchDeletionMode, BranchRef, ProcessRepo, RefEntry, RefKind, RefSnapshot, RefType,
+    RemovalPlan, Repo,
+};
 pub use git_wt::{
     WorktreeHandle, WorktreeInfo, destroy_worktree, list_worktrees, lock_worktree,
     provision_worktree, unlock_worktree,
