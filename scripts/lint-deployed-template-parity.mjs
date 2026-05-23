@@ -471,3 +471,4 @@ function emitFailureReport(results, totalFindings) {
 }
 
 process.exit(main());
+// re-trigger
