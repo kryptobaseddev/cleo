@@ -1,5 +1,46 @@
 # Changelog
 
+## [v2026.5.106] (2026-05-23)
+
+### Features
+
+- boundary registry schema + types in @cleocode/contracts (SAGA T10176) (T10196) (#495)
+- populate BOUNDARY_REGISTRY (19 crates + 20 packages) (SAGA T10176) (T10197) (#503)
+- boundary-registry CI gate (SAGA T10176) (T10198) (#506)
+- dual-implementation CI gate (SAGA T10176) (T10199) (#509)
+- napi exports for worktrunk-core SDK primitives (SAGA T10176) (T10203) (#536)
+- rewire worktree-prune.ts as thin napi wrapper (closes E3) (SAGA T10176) (T10204) (#541)
+- conduit-core publish=true + criterion bench (SAGA T10176) (T10206) (#504)
+- worktrunk SDK substitute surface (DTO vendor + Repo trait) (SAGA T10176) (T10219) (#507)
+- extract step/* SDK primitives (SAGA T10176) (T10220) (#517)
+- extract lifecycle SDK primitives (SAGA T10176) (T10221) (#518)
+- publish=true + criterion benches for 4 crates (SAGA T10176) (T10224) (#510)
+- cleo worktree list — structured JSON envelope (SAGA T10176) (T9546) (#512)
+- cleo worktree prune --orphaned + force-unlock (SAGA T10176) (T9547) (#523)
+- auto-invoke worktree-complete post-success (SAGA T10176) (T9548) (#527)
+
+### Fixes
+
+- release-prepare.yml scoped to @cleocode/* workspaces (SAGA T10176) (T10177) (#498)
+- @cleocode/worktree-napi resolves under global npm install (SAGA T10176) (T10178) (#500)
+- orchestrate spawn supervisor — bounded timeout + auto-cleanup (SAGA T10176) (T9545) (#505)
+
+### Documentation
+
+- ADR-078 proposed → accepted (closes E2) (SAGA T10176) (T10200) (#513)
+- worktrunk-core API doc + ADR-078 amendment (SAGA T10176) (T10223) (#529)
+- worktree-lifecycle spec — closes E1 chain (SAGA T10176) (T9549) (#532)
+
+### Tests
+
+- parity test suite for worktrunk-core SDK (SAGA T10176) (T10222) (#525)
+
+### Chores
+
+- Executor npm-pack probe + research doc (SAGA T10176) (T10179) (#497)
+- trim dead cleo-find fallback from /orchestrate-saga (SAGA T10176) (T10191) (#496)
+- delete verified-dead cleo-llm-native crate + JS loader (SAGA T10176) (T10205) (#502)
+
 ## [2026.5.105] (2026-05-23)
 
 ### Features
