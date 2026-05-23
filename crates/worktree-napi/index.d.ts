@@ -16,6 +16,75 @@
  */
 export declare function applyInclude(patterns: Array<IncludePatternNapi>, srcDir: string, destDir: string, opts: CopyOpts): CopyResult
 
+/**
+ * Plan + execute the [copy-ignored] step in one call.
+ *
+ * Wraps [`worktrunk_core::step::copy_ignored::plan_copy_ignored`] followed
+ * by [`worktrunk_core::step::copy_ignored::run_copy_ignored`]. The returned
+ * outcome embeds the plan so callers can inspect what was copied.
+ *
+ * # Errors
+ *
+ * Returns a [`napi::Error`] from listing/filtering ignored entries or from
+ * the recursive copy engine.
+ */
+export declare function copyIgnored(opts: CopyIgnoredOpts): CopyIgnoredOutcomeNapi
+
+/** JS-facing copy-ignored plan entry: `[relative_path, is_dir]`. */
+export interface CopyIgnoredEntryNapi {
+  /** Source-relative path of the entry. */
+  path: string
+  /** Whether the entry is a directory (and therefore copied recursively). */
+  isDir: boolean
+}
+
+/** Options for [`copy_ignored`]. */
+export interface CopyIgnoredOpts {
+  /** Source worktree path (absolute). */
+  source: string
+  /** Destination worktree path (absolute). */
+  destination: string
+  /**
+   * Tag string used in SDK errors to identify the caller's intent
+   * (e.g. `"step::copy_ignored"`). Passed through opaque to `list_and_filter_ignored_entries`.
+   */
+  sourceContext: string
+  /**
+   * Absolute paths of OTHER worktrees in the repo — entries that resolve
+   * to one of these paths are skipped (nested-worktree avoidance).
+   */
+  worktreePaths: Array<string>
+  /** `[copy-ignored.exclude]` glob patterns to skip (relative to `source`). */
+  excludePatterns: Array<string>
+  /** When `true`, leaf files overwrite existing destination files. */
+  force: boolean
+}
+
+/** JS-facing copy-ignored outcome (counts only). */
+export interface CopyIgnoredOutcomeNapi {
+  /** Number of leaf files successfully copied. */
+  files: number
+  /** Total bytes copied. Capped at `u32::MAX` for napi compatibility. */
+  bytes: number
+  /** The plan the executor consumed (echoed back for inspection). */
+  plan: CopyIgnoredPlanNapi
+}
+
+/** JS-facing copy-ignored plan. */
+export interface CopyIgnoredPlanNapi {
+  /** Source worktree path. */
+  source: string
+  /** Destination worktree path. */
+  destination: string
+  /** Entries the plan would copy. */
+  entries: Array<CopyIgnoredEntryNapi>
+  /**
+   * When `true`, source and destination resolved to the same path; the
+   * plan is a no-op.
+   */
+  sameWorktree: boolean
+}
+
 /** Options for [`copy_paths_parallel`] and [`apply_include`]. */
 export interface CopyOpts {
   /** Overwrite existing entries at the destination. */
@@ -123,6 +192,46 @@ export interface ListOpts {
 export declare function listWorktrees(opts: ListOpts): Array<WorktreeInfoNapi>
 
 /**
+ * Build a promote plan for swapping `opts.target_branch` into the main
+ * worktree slot.
+ *
+ * Wraps [`worktrunk_core::step::promote::plan_promote`]. Read-only — no git
+ * state is mutated. Executing the swap (the four-step `git switch --detach`
+ * dance) is the caller's responsibility because it needs interactive policy
+ * (HITL approval, hook firing) that does NOT belong in the SDK.
+ *
+ * # Errors
+ *
+ * Returns a [`napi::Error`] when the repo cannot be opened, when the
+ * worktree list is empty, when the main worktree has detached HEAD, when
+ * the repo is bare, or when no worktree currently checks out
+ * `opts.target_branch`.
+ */
+export declare function promoteBranch(opts: PromoteOpts): PromotePlanNapi
+
+/** Options for [`promote_branch`]. */
+export interface PromoteOpts {
+  /** Absolute path to the git repository whose worktrees we plan to swap. */
+  repoRoot: string
+  /** The branch to promote into the main worktree slot. */
+  targetBranch: string
+}
+
+/** JS-facing promote plan. */
+export interface PromotePlanNapi {
+  /** Main worktree root. */
+  mainPath: string
+  /** Main worktree's current branch. */
+  mainBranch: string
+  /** Target worktree root (the one to promote into main). */
+  targetPath: string
+  /** Branch currently in `target_path`. */
+  targetBranch: string
+  /** `true` when no swap is needed because target is already in main. */
+  alreadyInMain: boolean
+}
+
+/**
  * Options for [`provision_worktree`].
  *
  * Mirrors the arguments of [`worktrunk_core::git_wt::provision_worktree`]
@@ -157,6 +266,53 @@ export interface ProvisionOpts {
  */
 export declare function provisionWorktree(opts: ProvisionOpts): WorktreeHandleNapi
 
+/** JS-facing prune candidate (worktree or branch eligible for removal). */
+export interface PruneCandidateNapi {
+  /** Branch name (`None` for detached HEAD worktrees). */
+  branch?: string
+  /** Display label (branch name or `(detached <short>)`). */
+  label: string
+  /** Worktree path (`None` for branch-only candidates). */
+  path?: string
+  /** Candidate kind: `"current" | "worktree" | "branch_only"`. */
+  kind: string
+  /** Human-readable integration reason from `Repo::integration_reason`. */
+  reason: string
+}
+
+/** Options for [`prune_worktrees`]. */
+export interface PruneOpts {
+  /** Absolute path to the git repository whose worktrees we plan to prune. */
+  repoRoot: string
+  /**
+   * The integration target branch (e.g. `"main"` or `"master"`) the
+   * candidates are tested against for "is this merged in?".
+   */
+  integrationTarget: string
+}
+
+/** JS-facing prune plan. */
+export interface PrunePlanNapi {
+  /** The default branch this plan was computed against. */
+  integrationTarget: string
+  /** Candidates eligible for removal, in deterministic discovery order. */
+  candidates: Array<PruneCandidateNapi>
+}
+
+/**
+ * Build a prune plan for `opts.repo_root` against `opts.integration_target`.
+ *
+ * Wraps [`worktrunk_core::step::prune::build_prune_plan`] with a
+ * [`worktrunk_core::git::ProcessRepo`] constructed from `opts.repo_root`.
+ * Read-only — no worktrees are removed.
+ *
+ * # Errors
+ *
+ * Returns a [`napi::Error`] when the repo cannot be opened, refs cannot be
+ * captured, or worktrees cannot be listed.
+ */
+export declare function pruneWorktrees(opts: PruneOpts): PrunePlanNapi
+
 /**
  * Read and parse `<repo_root>/.worktreeinclude`.
  *
@@ -168,6 +324,253 @@ export declare function provisionWorktree(opts: ProvisionOpts): WorktreeHandleNa
  * Returns a [`napi::Error`] when the file exists but cannot be read.
  */
 export declare function readWorktreeInclude(repoRoot: string): Array<IncludePatternNapi>
+
+/** JS-facing relocate candidate. */
+export interface RelocateCandidateNapi {
+  /** Branch name. */
+  branch: string
+  /** Where the worktree currently lives. */
+  currentPath: string
+  /** Where the worktree SHOULD live per the layout template. */
+  expectedPath: string
+  /** HEAD commit at the time of plan construction. */
+  head: string
+}
+
+/** JS-facing cycle-break instruction for a worktree relocation. */
+export interface RelocateCycleBreakNapi {
+  /** Index into `RelocatePlanNapi.candidates`. */
+  candidateIndex: number
+  /** Temporary path the worktree should be moved to first. */
+  tempPath: string
+}
+
+/**
+ * Options for [`relocate_worktree`].
+ *
+ * `expected_paths_branches` and `expected_paths_targets` are parallel arrays
+ * (napi-rs does not expose `HashMap` directly to JS, so the caller passes
+ * two equal-length arrays which the binding zips into a `HashMap` before
+ * calling the SDK).
+ */
+export interface RelocateOpts {
+  /** Absolute path to the git repository. */
+  repoRoot: string
+  /** Branch names to consider for relocation. */
+  expectedPathsBranches: Array<string>
+  /** Expected absolute paths for the branches above (same length). */
+  expectedPathsTargets: Array<string>
+}
+
+/** JS-facing relocate plan. */
+export interface RelocatePlanNapi {
+  /** All candidates flagged for relocation. */
+  candidates: Array<RelocateCandidateNapi>
+  /** Subset of candidates that participate in cycles and need a temp move. */
+  cycleBreaks: Array<RelocateCycleBreakNapi>
+  /**
+   * Subset of candidate indices whose expected target is occupied by a
+   * non-worktree path.
+   */
+  blockedIndices: Array<number>
+}
+
+/**
+ * Build a worktree-relocation plan for `opts.repo_root`.
+ *
+ * Wraps [`worktrunk_core::step::relocate::build_relocation_plan`]. Read-only
+ * — no worktrees are moved. The SDK detects:
+ *
+ * - Worktrees whose current path doesn't match the expected path.
+ * - Cycles (A wants where B is, B wants where A is — needs a temp move).
+ * - Blocked targets (expected path is occupied by a non-worktree filesystem
+ *   entry).
+ *
+ * # Errors
+ *
+ * Returns a [`napi::Error`] when the repo cannot be opened, when
+ * `expected_paths_branches` and `expected_paths_targets` have different
+ * lengths, or when worktrees cannot be listed.
+ */
+export declare function relocateWorktree(opts: RelocateOpts): RelocatePlanNapi
+
+/**
+ * Recursively remove a directory tree using
+ * [`worktrunk_core::remove_dir::remove_dir_with_progress`].
+ *
+ * Best-effort — read/unlink/rmdir errors are silently skipped (the SDK runs
+ * this as the "trash-cleanup phase" after a worktree has already been
+ * pruned from git). The result reports what was actually removed.
+ *
+ * # Errors
+ *
+ * Currently never returns an error from the SDK — the napi return type is
+ * `Result` for forward compatibility.
+ */
+export declare function removeDir(opts: RemoveDirOpts): RemoveDirResult
+
+/** Options for [`remove_dir`]. */
+export interface RemoveDirOpts {
+  /** Absolute path to the directory tree to remove. */
+  path: string
+}
+
+/** JS-facing result of a `remove_dir` call. */
+export interface RemoveDirResult {
+  /** Number of leaf files unlinked. */
+  files: number
+  /** Total bytes unlinked. Capped at `u32::MAX` for napi compatibility. */
+  bytes: number
+}
+
+/**
+ * Generic step dispatcher.
+ *
+ * Routes `opts.kind` to the matching SDK primitive. Returns a [`RunStepResult`]
+ * envelope with exactly one result field populated. This is a convenience
+ * for JS callers that already have a step-kind discriminant in their
+ * pipeline state and want to dispatch without a `switch` on the JS side.
+ *
+ * The function performs NO business logic beyond routing — every branch
+ * delegates to one of the dedicated napi exports above.
+ *
+ * # Errors
+ *
+ * Returns a [`napi::Error`] when:
+ * - The option field matching `opts.kind` is `None`.
+ * - The underlying SDK primitive errors (forwarded as-is).
+ */
+export declare function runStep(opts: RunStepOpts): RunStepResult
+
+/**
+ * Options for [`run_step`].
+ *
+ * Only the field matching `kind` is consulted; the rest are ignored. This
+ * shape keeps the napi binding side-effect-free: JS callers compose an
+ * envelope and the binding routes it to the right SDK primitive without
+ * dynamic loading.
+ */
+export interface RunStepOpts {
+  /** Which step to run. */
+  kind: StepKind
+  /** Options for `StepKind::Prune`. */
+  prune?: PruneOpts
+  /** Options for `StepKind::Promote`. */
+  promote?: PromoteOpts
+  /** Options for `StepKind::Relocate`. */
+  relocate?: RelocateOpts
+  /** Options for `StepKind::CopyIgnored`. */
+  copyIgnored?: CopyIgnoredOpts
+  /** Options for `StepKind::RemoveDir`. */
+  removeDir?: RemoveDirOpts
+  /** Options for `StepKind::Sync`. */
+  sync?: SyncWorktreeOpts
+}
+
+/**
+ * Result of [`run_step`]. Exactly one field corresponding to the dispatched
+ * kind is populated.
+ */
+export interface RunStepResult {
+  /** Which step ran (echoed for caller convenience). */
+  kind: StepKind
+  /** Result of `StepKind::Prune` (populated when `kind == Prune`). */
+  prune?: PrunePlanNapi
+  /** Result of `StepKind::Promote` (populated when `kind == Promote`). */
+  promote?: PromotePlanNapi
+  /** Result of `StepKind::Relocate` (populated when `kind == Relocate`). */
+  relocate?: RelocatePlanNapi
+  /** Result of `StepKind::CopyIgnored` (populated when `kind == CopyIgnored`). */
+  copyIgnored?: CopyIgnoredOutcomeNapi
+  /** Result of `StepKind::RemoveDir` (populated when `kind == RemoveDir`). */
+  removeDir?: RemoveDirResult
+  /** Result of `StepKind::Sync` (populated when `kind == Sync`). */
+  sync?: SyncWorktreeResult
+}
+
+/**
+ * Discriminator for [`run_step`]'s `kind` field.
+ *
+ * Each variant routes to the matching SDK primitive. The JSON-tagged variant
+ * pattern keeps the napi binding strictly typed at the boundary while
+ * reusing the per-step option / result structs above.
+ */
+export declare const enum StepKind {
+  /** Routes to [`prune_worktrees`]. */
+  Prune = 'Prune',
+  /** Routes to [`promote_branch`]. */
+  Promote = 'Promote',
+  /** Routes to [`relocate_worktree`]. */
+  Relocate = 'Relocate',
+  /** Routes to [`copy_ignored`]. */
+  CopyIgnored = 'CopyIgnored',
+  /** Routes to [`remove_dir`]. */
+  RemoveDir = 'RemoveDir',
+  /** Routes to [`sync_worktree`]. */
+  Sync = 'Sync'
+}
+
+/**
+ * Sync `opts.destination` from `opts.source` using the source's
+ * `.worktreeinclude` file (if any).
+ *
+ * Reads `<source>/.worktreeinclude` patterns, filters the source tree
+ * against them, and copies the survivors into `destination`. When the
+ * include file is absent or empty, the full subtree is copied via
+ * [`worktrunk_core::copy::copy_dir_recursive`].
+ *
+ * This binding is the canonical "sync from main into a freshly provisioned
+ * worktree" call — it composes the SDK primitives without adding any
+ * business logic.
+ *
+ * # Errors
+ *
+ * Returns a [`napi::Error`] from include parsing, walk traversal, matcher
+ * construction, or the copy engine.
+ */
+export declare function syncWorktree(opts: SyncWorktreeOpts): SyncWorktreeResult
+
+/**
+ * Options for [`sync_worktree`].
+ *
+ * "Sync" composes two SDK primitives:
+ *
+ * 1. Read `<source>/.worktreeinclude` via
+ *    [`worktrunk_core::worktreeinclude::read_include_patterns`].
+ * 2. Walk + filter + copy matching files via
+ *    [`worktrunk_core::worktreeinclude::apply_include_matcher`] and
+ *    [`worktrunk_core::copy::copy_leaf`].
+ *
+ * This is the thin composition `cleo orchestrate spawn` performs after a
+ * new worktree is provisioned to seed it from the project root.
+ */
+export interface SyncWorktreeOpts {
+  /** Source root (typically the main worktree / project root). */
+  source: string
+  /** Destination worktree to seed. */
+  destination: string
+  /** Overwrite existing entries at the destination. */
+  force: boolean
+  /** When set, every destination must resolve inside this root. */
+  rootGuard?: string
+}
+
+/** JS-facing sync result. */
+export interface SyncWorktreeResult {
+  /** Number of leaves successfully copied. */
+  copiedCount: number
+  /** Number of leaves skipped because they already existed at the destination. */
+  skippedCount: number
+  /** Paths that failed to copy (relative to the source) — typically empty. */
+  failedPaths: Array<string>
+  /** Total bytes copied. Capped at `u32::MAX` for napi compatibility. */
+  totalBytes: number
+  /**
+   * Number of `.worktreeinclude` patterns that drove the filter
+   * (`0` means "no filter applied, full subtree copy").
+   */
+  patternsApplied: number
+}
 
 /**
  * JS-facing handle returned from [`provision_worktree`].
