@@ -7,7 +7,11 @@
  *   - pagerFooter visibility rules (suppresses 1-of-1, fires on pagination/filter)
  *   - metaFooter surfaces _nexus + deprecated + duration_ms
  *
+ * Migrated from `packages/cleo/src/cli/renderers/__tests__/format-helpers.test.ts`
+ * alongside the helpers themselves (T10129 · pure structural move).
+ *
  * @task T9393
+ * @task T10129
  */
 
 import { describe, expect, it } from 'vitest';
@@ -20,7 +24,7 @@ import {
   truncated,
   truncateVisible,
   visibleLength,
-} from '../format-helpers.js';
+} from '../helpers.js';
 
 describe('visibleLength', () => {
   it('ignores ANSI color escapes', () => {

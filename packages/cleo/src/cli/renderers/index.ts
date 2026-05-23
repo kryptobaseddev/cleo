@@ -26,13 +26,18 @@ function generateRequestId(): string {
  * @epic T4663
  */
 
-import { drainWarnings, type FormatOptions, formatSuccess } from '@cleocode/core';
+import {
+  drainWarnings,
+  type FormatOptions,
+  formatSuccess,
+  metaFooter,
+  pagerFooter,
+} from '@cleocode/core';
 import type { CliEnvelope, CliMeta, Warning } from '@cleocode/lafs';
 import { applyFieldFilter, extractFieldFromResult } from '@cleocode/lafs';
 import type { DispatchResponseMeta } from '../../dispatch/types.js';
 import { getFieldContext } from '../field-context.js';
 import { getFormatContext } from '../format-context.js';
-import { metaFooter, pagerFooter } from './format-helpers.js';
 import { emitLafsViolation, LafsViolationError, validateLafsShape } from './lafs-validator.js';
 import { normalizeForHuman } from './normalizer.js';
 // System renderers
