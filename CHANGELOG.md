@@ -1,5 +1,30 @@
 # Changelog
 
+## [2026.5.103] (2026-05-23)
+
+### Features
+
+- **Saga first-class tier with ADR-073 runtime invariant gates (Saga T10113, Epic T10113 E10-SAGA-FIRST-CLASS)**
+
+  Promotes Saga from label-overlay to first-class tier with runtime-enforced ADR-073 invariants. Eliminates the T10090 auto-close bug, the T9831 nested-saga violation, and the silent 10-of-15 sagaList filter in a single coordinated release.
+
+  - **packages/core/src/sagas/ module** — new SSoT for saga semantics (constants, storage, create, add, list, members, rollup). Replaces ~166 LOC of scattered `labels.includes('saga')` string-compare sites previously living in `packages/cleo/src/dispatch/domains/tasks.ts:671-836` and `packages/core/src/tasks/list.ts:27-46`. CLI dispatch shrinks to thin pass-throughs per AGENTS.md Package-Boundary Check. (T10120 #499 + subtasks T10123/T10124/T10125)
+  - **packages/core/src/sagas/enforcement.ts** — three pure-function gates `assertSagaInvariantI3/I5/I7`. Throw `SagaInvariantViolationError` with typed `.code` (`E_SAGA_INVARIANT_VIOLATION_I3 | I5 | I7`) and structured `.diag` payload (NOT generic `Error`). Foundation for sagaAdd wiring and doctor audit. (T10115 #508)
+  - **sagaList returns ALL sagas** — silent `!parentId` filter replaced with loud-include + structured `E_SAGA_INVARIANT_VIOLATION_I5` warnings in the LAFS envelope. The 5 historically-hidden sagas (T9855/T9862/T9863/T9977/T10099) now appear. New `cleo saga repair <sagaId>` verb detaches the parent edge and re-attaches via `task_relations.type='groups'`. (T10117 #511)
+  - **I7 wired into sagaAdd** — `cleo saga add` rejects any candidate whose labels include `'saga'` with `E_SAGA_INVARIANT_VIOLATION_I7`. New `cleo saga detach <sagaId> <memberId>` repair verb. Detaches T9831 from T9799 in dogfood. (T10118 #516)
+  - **cleo doctor saga-depth audit** — `cleo doctor` includes a Saga Hierarchy section that walks every saga and reports I5/I7 violations + depth-ladder overflow + auto-close drift. Each line names offending IDs + repair command. Non-zero exit on any invariant failure — CI-gateable. (T10119 #515)
+  - **Saga auto-close in completeTask()** — mirror of the epic auto-close pattern in `packages/core/src/tasks/complete.ts`, but uses `task_relations.type='groups'` for member resolution. Root-cause fix for T10090. T9787/T9800/T9831 auto-close on next member mutation. (T10116 #520)
+  - **cleo saga reconcile [<sagaId>]** — idempotent + cron-safe periodic safety net for state changed outside of `completeTask` (bulk SQL repair, crash recovery). Per-saga advisory lock; every decision logged to `.cleo/audit/saga-reconcile.jsonl`. Supersedes T10098 standalone scope. (T10121 #524)
+
+### Bug fixes
+
+- Closes T10090 (saga auto-close drift) at the root via T10116, superseding the T10098 standalone reconcile workaround.
+- Closes T9831 nesting violation via T10118 dogfood (detached from T9799).
+
+### Documentation
+
+- ADR-076 (saga-first-class) attached to T10113 via `cleo docs add` (canonical SSoT).
+
 ## [2026.5.102] (2026-05-23)
 
 ### BREAKING CHANGES
