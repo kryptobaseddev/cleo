@@ -1,5 +1,8 @@
 ---
-"@cleocode/cleo": minor
+id: t9987-validation-close
+tasks: [T9987]
+kind: feat
+summary: "saga T9977 validation + closure (E10-VALIDATION+CLOSE)"
 ---
 
 feat(T9987): saga T9977 validation + closure (E10-VALIDATION+CLOSE)

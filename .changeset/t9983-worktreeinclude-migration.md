@@ -1,5 +1,8 @@
 ---
-"@cleocode/cleo": minor
+id: t9983-worktreeinclude-migration
+tasks: [T9983]
+kind: feat
+summary: ".worktreeinclude at repo root is canonical (E6-WORKTREEINCLUDE-MIGRATION)"
 ---
 
 feat(T9983): .worktreeinclude at repo root is canonical (E6-WORKTREEINCLUDE-MIGRATION)

@@ -1,5 +1,8 @@
 ---
-"@cleocode/cleo": patch
+id: t10177-release-prepare-fix
+tasks: [T10177]
+kind: feat
+summary: "fix(T10177)!: release-prepare.yml scoped to @cleocode/* workspaces (SAGA T10176)"
 ---
 
 fix(T10177)!: release-prepare.yml scoped to @cleocode/* workspaces (SAGA T10176)

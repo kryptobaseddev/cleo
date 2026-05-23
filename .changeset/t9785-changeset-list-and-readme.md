@@ -2,7 +2,7 @@
 id: t9785-changeset-list-and-readme
 tasks: [T9785]
 kind: chore
-summary: cleo changeset list verb + README pointing at canonical writer
+summary: "cleo changeset list verb + README pointing at canonical writer"
 ---
 
 Saga T9782 — the T9793 dual-write writer is now the only changesets author path.

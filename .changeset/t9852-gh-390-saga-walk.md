@@ -2,7 +2,7 @@
 id: t9852-gh-390-saga-walk
 tasks: [T9852, T9839]
 kind: fix
-summary: orchestrate ready/waves traverse saga 'groups' relation (+ --via flag)
+summary: "orchestrate ready/waves traverse saga 'groups' relation (+ --via flag)"
 prs: [422]
 ---
 

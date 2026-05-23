@@ -1,6 +1,8 @@
 ---
-"@cleocode/cleo": minor
-"@cleocode/core": minor
+id: t9985-cli-layering
+tasks: [T9985]
+kind: feat
+summary: "packages/cleo is dispatch-only (E8-CLI-LAYERING)"
 ---
 
 feat(T9985): packages/cleo is dispatch-only (E8-CLI-LAYERING)

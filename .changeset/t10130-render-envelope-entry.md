@@ -1,5 +1,8 @@
 ---
-"@cleocode/core": minor
+id: t10130-render-envelope-entry
+tasks: [T10130]
+kind: feat
+summary: "renderEnvelopeForHuman() public API + registry (B5)"
 ---
 
 feat(T10130): renderEnvelopeForHuman() public API + registry (B5)

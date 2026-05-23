@@ -1,5 +1,8 @@
 ---
-"@cleocode/cleo": patch
+id: t10206-conduit-core-publish
+tasks: [T10206]
+kind: feat
+summary: "conduit-core publish=true + criterion serde round-trip bench (SAGA T10176)"
 ---
 
 feat(T10206): conduit-core publish=true + criterion serde round-trip bench (SAGA T10176)

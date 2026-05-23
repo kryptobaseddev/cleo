@@ -1,6 +1,8 @@
 ---
-"@cleocode/cleo": patch
-"@cleocode/core": minor
+id: t10132-nexus-renderers-migration
+tasks: [T10132]
+kind: feat
+summary: "decompose nexus.ts (1055 LOC) into packages/core/src/render/nexus/{graph,contracts,audit}/ (B7)"
 ---
 
 refactor(T10132): decompose nexus.ts (1055 LOC) into packages/core/src/render/nexus/{graph,contracts,audit}/ (B7)

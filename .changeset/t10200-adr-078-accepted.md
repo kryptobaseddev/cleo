@@ -1,5 +1,8 @@
 ---
-"@cleocode/cleo": patch
+id: t10200-adr-078-accepted
+tasks: [T10200]
+kind: feat
+summary: "ADR-078 status transition proposed → accepted (SAGA T10176, closes E2)"
 ---
 
 docs(T10200): ADR-078 status transition proposed → accepted (SAGA T10176, closes E2)

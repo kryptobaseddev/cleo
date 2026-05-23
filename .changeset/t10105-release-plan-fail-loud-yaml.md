@@ -2,7 +2,7 @@
 id: t10105-release-plan-fail-loud-yaml
 tasks: [T10105, T9780]
 kind: feat
-summary: cleo release plan now aborts on changeset YAML parse with E_CHANGESET_YAML_INVALID + always writes the CHANGELOG section (placeholder if zero entries) + aligns gh workflow run input schema with release open field set
+summary: "cleo release plan now aborts on changeset YAML parse with E_CHANGESET_YAML_INVALID + always writes the CHANGELOG section (placeholder if zero entries) + aligns gh workflow run input schema with release open field set"
 prs: [539]
 ---
 

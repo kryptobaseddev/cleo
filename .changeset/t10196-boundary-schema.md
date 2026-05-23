@@ -1,5 +1,8 @@
 ---
-"@cleocode/contracts": minor
+id: t10196-boundary-schema
+tasks: [T10196]
+kind: feat
+summary: "boundary registry schema + types in @cleocode/contracts (SAGA T10176 · ADR-078)"
 ---
 
 feat(T10196): boundary registry schema + types in @cleocode/contracts (SAGA T10176 · ADR-078)

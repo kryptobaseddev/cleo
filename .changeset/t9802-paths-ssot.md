@@ -3,7 +3,7 @@ id: t9802-paths-ssot
 tasks: [T9802]
 kind: feat
 prs: []
-summary: Paths SSoT CI gate (lint-paths-ssot.mjs) + resolveWorktreeIndexPath helper (D009 sentinel)
+summary: "Paths SSoT CI gate (lint-paths-ssot.mjs) + resolveWorktreeIndexPath helper (D009 sentinel)"
 ---
 
 Phase 1 of T9802 / E-WT-PATHS-SSOT (Saga T9800 SG-WORKTREE-CANON, Council verdict D009):

@@ -1,6 +1,8 @@
 ---
-"@cleocode/cleo": minor
-"@cleocode/core": minor
+id: t9547-worktree-prune
+tasks: [T9547]
+kind: feat
+summary: "cleo worktree prune --orphaned + force-unlock (SAGA T10176)"
 ---
 
 feat(T9547): cleo worktree prune --orphaned + force-unlock (SAGA T10176)

@@ -2,7 +2,7 @@
 id: t9852-gh-401-severity-rca
 tasks: [T9852, T9839]
 kind: fix
-summary: RCA + persist severity/kind/scope on task UPDATE
+summary: "RCA + persist severity/kind/scope on task UPDATE"
 prs: [425]
 ---
 

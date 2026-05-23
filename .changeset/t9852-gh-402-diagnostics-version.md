@@ -2,7 +2,7 @@
 id: t9852-gh-402-diagnostics-version
 tasks: [T9852, T9839]
 kind: fix
-summary: cleo issue diagnostics reads CLEO version from package.json SSoT
+summary: "cleo issue diagnostics reads CLEO version from package.json SSoT"
 prs: [411]
 ---
 

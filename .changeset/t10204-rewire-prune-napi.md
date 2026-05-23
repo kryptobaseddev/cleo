@@ -1,5 +1,8 @@
 ---
-"@cleocode/worktree": minor
+id: t10204-rewire-prune-napi
+tasks: [T10204]
+kind: feat
+summary: "packages/worktree/src/worktree-prune.ts now a thin napi wrapper (SAGA T10176)"
 ---
 
 feat(T10204): packages/worktree/src/worktree-prune.ts now a thin napi wrapper (SAGA T10176)

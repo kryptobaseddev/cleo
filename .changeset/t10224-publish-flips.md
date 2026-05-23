@@ -1,5 +1,8 @@
 ---
-"@cleocode/cleo": patch
+id: t10224-publish-flips
+tasks: [T10224]
+kind: feat
+summary: "publish=true + criterion benches for cant-{core,router,runtime} + lafs-core (SAGA T10176)"
 ---
 
 feat(T10224): publish=true + criterion benches for cant-{core,router,runtime} + lafs-core (SAGA T10176)

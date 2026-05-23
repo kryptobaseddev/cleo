@@ -1,5 +1,8 @@
 ---
-"@cleocode/animations": minor
+id: t10128-animations-render-primitives
+tasks: [T10128]
+kind: feat
+summary: "static UI primitives — Tree, Table, Section, Badge, Legend (B3)"
 ---
 
 feat(T10128): static UI primitives — Tree, Table, Section, Badge, Legend (B3)

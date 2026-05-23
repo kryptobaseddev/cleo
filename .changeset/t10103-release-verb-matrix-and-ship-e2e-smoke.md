@@ -1,5 +1,8 @@
 ---
-"@cleocode/cleo": minor
+id: t10103-release-verb-matrix-and-ship-e2e-smoke
+tasks: [T10103]
+kind: feat
+summary: "release verb matrix + remove ship verb + ship-e2e-smoke"
 ---
 
 feat(T10103): release verb matrix + remove ship verb + ship-e2e-smoke

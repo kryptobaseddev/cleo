@@ -3,7 +3,7 @@ id: t9806-db-isolation-guards
 tasks: [T9806]
 kind: feat
 prs: []
-summary: DB chokepoint refuses opens when the resolved `.cleo/` resides inside a git worktree — defense-in-depth on top of T9803.
+summary: "DB chokepoint refuses opens when the resolved `.cleo/` resides inside a git worktree — defense-in-depth on top of T9803."
 ---
 
 After T9803 closed the orphan `.cleo/` synthesis vector at the path-resolution

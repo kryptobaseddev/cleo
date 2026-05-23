@@ -1,6 +1,8 @@
 ---
-"@cleocode/cleo": minor
-"@cleocode/core": minor
+id: t9548-worktree-complete-auto
+tasks: [T9548]
+kind: feat
+summary: "auto-invoke worktree-complete from `cleo complete <taskId>` (SAGA T10176)"
 ---
 
 feat(T9548): auto-invoke worktree-complete from `cleo complete <taskId>` (SAGA T10176)

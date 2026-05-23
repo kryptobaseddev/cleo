@@ -1,5 +1,8 @@
 ---
-"@cleocode/cleo": patch
+id: t10018-napi-unit-tests
+tasks: [T10018]
+kind: feat
+summary: "unit tests for crates/worktree-napi adapter layer"
 ---
 
 test(T10018): unit tests for crates/worktree-napi adapter layer

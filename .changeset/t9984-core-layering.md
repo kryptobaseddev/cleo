@@ -1,6 +1,8 @@
 ---
-"@cleocode/core": minor
-"@cleocode/worktree": minor
+id: t9984-core-layering
+tasks: [T9984]
+kind: feat
+summary: "packages/core consumes packages/worktree exclusively (no raw git-worktree shell-outs)"
 ---
 
 feat(T9984): packages/core consumes packages/worktree exclusively (no raw git-worktree shell-outs)

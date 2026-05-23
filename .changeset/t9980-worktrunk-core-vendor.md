@@ -1,5 +1,8 @@
 ---
-"@cleocode/cleo": patch
+id: t9980-worktrunk-core-vendor
+tasks: [T9980]
+kind: feat
+summary: "vendor worktrunk as crates/worktrunk-core (own outright)"
 ---
 
 feat(T9980): vendor worktrunk as crates/worktrunk-core (own outright)

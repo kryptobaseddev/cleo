@@ -2,7 +2,7 @@
 id: t9852-gh-docs-bundle
 tasks: [T9852, T9839]
 kind: docs
-summary: CLI help-text hardening bundle (gh-392 #394 #399 #403 #405)
+summary: "CLI help-text hardening bundle (gh-392 #394 #399 #403 #405)"
 prs: [426]
 ---
 

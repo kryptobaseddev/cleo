@@ -2,7 +2,7 @@
 id: t9852-gh-391-sqlite-busy-retry
 tasks: [T9852, T9839]
 kind: fix
-summary: SQLITE_BUSY retry on parallel task writes (CORE SDK with-retry primitive)
+summary: "SQLITE_BUSY retry on parallel task writes (CORE SDK with-retry primitive)"
 prs: [413]
 ---
 

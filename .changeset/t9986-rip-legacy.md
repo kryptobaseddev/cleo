@@ -1,5 +1,8 @@
 ---
-"@cleocode/cleo": minor
+id: t9986-rip-legacy
+tasks: [T9986]
+kind: feat
+summary: "RIP legacy worktree code (E9-RIP-LEGACY)"
 ---
 
 feat(T9986): RIP legacy worktree code (E9-RIP-LEGACY)

@@ -1,6 +1,8 @@
 ---
-"@cleocode/cleo": patch
-"@cleocode/core": minor
+id: t10129-format-helpers-migration
+tasks: [T10129]
+kind: feat
+summary: "migrate format-helpers (kvBlock, dataTable, truncated) from packages/cleo → packages/core/render (B4"
 ---
 
 refactor(T10129): migrate format-helpers (kvBlock, dataTable, truncated) from packages/cleo → packages/core/render (B4)

@@ -2,7 +2,7 @@
 id: t10178-napi-global-resolution
 tasks: [T10178]
 kind: fix
-summary: @cleocode/worktree-napi resolves under global npm install — rayon hot-path active on installed binaries, not just dev fallback (SAGA T10176)
+summary: "@cleocode/worktree-napi resolves under global npm install — rayon hot-path active on installed binaries, not just dev fallback (SAGA T10176)"
 ---
 
 Closes the install-path gap discovered after v2026.5.101 shipped the worktrunk

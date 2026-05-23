@@ -1,5 +1,8 @@
 ---
-"@cleocode/contracts": minor
+id: t10126-render-contracts
+tasks: [T10126]
+kind: feat
+summary: "typed render contracts — TreeResponse, TableResponse, ListResponse, RenderableEnvelope (B1)"
 ---
 
 feat(T10126): typed render contracts — TreeResponse, TableResponse, ListResponse, RenderableEnvelope (B1)
