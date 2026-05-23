@@ -15,7 +15,8 @@
 import { createAnimateContext } from '@cleocode/animations';
 import type { FlatTreeNode, TreeResponse } from '@cleocode/contracts';
 import type { GenericTreeMetadata, GenericTreeResult } from '@cleocode/core/internal';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { setFormatContext } from '../../format-context.js';
 import { renderGenericTree } from '../generic-tree.js';
 
 /**
@@ -222,5 +223,62 @@ describe('renderGenericTree (T10134)', () => {
     expect(lines[1]).toBe('E-MEM-01');
     expect(lines[2]).toBe('T-CHILD-01');
     expect(lines).toHaveLength(15);
+  });
+
+  describe('T10352 — non-TTY --human regression', () => {
+    const originalNoColor = process.env['NO_COLOR'];
+
+    beforeEach(() => {
+      delete process.env['NO_COLOR'];
+      setFormatContext({ format: 'human', source: 'flag', quiet: false });
+    });
+
+    afterEach(() => {
+      if (originalNoColor === undefined) {
+        delete process.env['NO_COLOR'];
+      } else {
+        process.env['NO_COLOR'] = originalNoColor;
+      }
+      setFormatContext({ format: 'json', source: 'default', quiet: false });
+    });
+
+    it('renders non-empty output for format=human even when stdout is not a TTY', () => {
+      // No `ctx` override — the renderer resolves the context from
+      // getFormatContext(), exercising the production path that was broken
+      // (animation gate silenced static render in non-TTY).
+      const out = renderGenericTree(sagaFixture(), {
+        withDeps: false,
+        withBlockers: false,
+        quiet: false,
+      });
+      expect(out.length).toBeGreaterThan(0);
+      // Saga root MUST appear in the rendered body.
+      expect(out).toContain('SG-TEMPLATE-CONFIG-SSOT');
+    });
+
+    it('returns empty string when format is json', () => {
+      setFormatContext({ format: 'json', source: 'flag', quiet: false });
+      const out = renderGenericTree(sagaFixture(), {
+        withDeps: false,
+        withBlockers: false,
+        quiet: false,
+      });
+      expect(out).toBe('');
+    });
+
+    it('falls back to ASCII glyphs when NO_COLOR is set but still renders', () => {
+      process.env['NO_COLOR'] = '1';
+      const out = renderGenericTree(sagaFixture(), {
+        withDeps: false,
+        withBlockers: false,
+        quiet: false,
+      });
+      expect(out.length).toBeGreaterThan(0);
+      expect(out).toContain('SG-TEMPLATE-CONFIG-SSOT');
+      // ASCII tree connectors per @cleocode/animations CONNECTOR_ASCII —
+      // NOT the Unicode `├─` / `└─` / `│  ` box-drawing forms.
+      expect(out).toContain('+- ');
+      expect(out).not.toContain('├─');
+    });
   });
 });

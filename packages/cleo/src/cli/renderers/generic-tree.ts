@@ -64,12 +64,23 @@ export function renderGenericTree(
   result: GenericTreeResult,
   opts: RenderGenericTreeOptions,
 ): string {
+  const explicitCtx = opts.ctx !== undefined;
   const ctx = opts.ctx ?? resolveAnimateContext();
   if (!ctx.enabled) return '';
 
   if (opts.quiet) return renderQuiet(result);
 
-  const useAscii = ctx.inputs.noColor;
+  // ASCII fallback decision:
+  //  - Explicit-ctx callers (tests, programmatic usage) decide via
+  //    `ctx.inputs.noColor` — `NO_COLOR=1` in CI must not override an
+  //    opt-in Unicode render.
+  //  - Production callers resolve via {@link resolveAnimateContext}, which
+  //    force-sets `noColor=false` so the gate stays enabled in non-TTY
+  //    `--human` runs (T10352). For these, fall back to ASCII when
+  //    `NO_COLOR` is set in the environment.
+  const useAscii = explicitCtx
+    ? ctx.inputs.noColor
+    : ctx.inputs.noColor || process.env['NO_COLOR'] != null;
   const lines: string[] = [];
 
   // Ancestor banner — strict parent_id chain UPWARD from the rendered root.
@@ -79,9 +90,12 @@ export function renderGenericTree(
   }
 
   // Tree body — transform titles so groups-edge nodes carry the `⊂` prefix
-  // before delegating to the canonical box-drawing primitive.
+  // before delegating to the canonical box-drawing primitive. Forward
+  // `asciiBoxDrawing` explicitly so the connector glyphs match the ancestor
+  // banner — `renderTree` otherwise derives ASCII purely from
+  // `ctx.inputs.noColor`, which T10352's force-enabled context zeroes out.
   const treeWithGlyphs = decorateGroupsEdges(result.tree, useAscii);
-  const body = renderTree(treeWithGlyphs, { ctx });
+  const body = renderTree(treeWithGlyphs, { ctx, asciiBoxDrawing: useAscii });
   if (body) lines.push(body);
 
   // Optional annotations beneath each node.
@@ -187,7 +201,25 @@ function kindIconOf(kind: FlatTreeNode<GenericTreeMetadata>['kind']): KindIcon {
  * Mirrors `animation-bridge.ts` — `getFormatContext()` always returns a
  * sensible default (JSON, no quiet) when the preAction hook has not run, so
  * tests and direct callers inherit a silent context without extra branching.
+ *
+ * T10352: when format is human, force `isTTY=true` + `noColor=false` so the
+ * static render path is not silenced in non-TTY contexts (pipes, redirects,
+ * CI logs). The TTY / NO_COLOR gates in {@link createAnimateContext} are
+ * correct for animation primitives — spinners must not flicker in pipes —
+ * but a static tree render explicitly requested via `--human` should always
+ * emit. Forcing `noColor=false` keeps the gate enabled; the
+ * NO_COLOR-aware ASCII fallback inside {@link renderGenericTree} reads
+ * `process.env.NO_COLOR` directly so the box-drawing degrades to ASCII
+ * without going silent.
  */
 function resolveAnimateContext(): AnimateContext {
-  return createAnimateContext({ flagResolution: getFormatContext() });
+  const fmt = getFormatContext();
+  if (fmt.format !== 'human') {
+    return createAnimateContext({ flagResolution: fmt });
+  }
+  return createAnimateContext({
+    flagResolution: fmt,
+    isTTY: true,
+    noColor: false,
+  });
 }
