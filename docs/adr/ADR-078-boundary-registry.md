@@ -7,11 +7,13 @@ status: accepted
 stage: implementation
 acceptedAt: 2026-05-23
 acceptedBy: T10200
+amendedAt: 2026-05-23
+amendedBy: T10223
 ---
 
 # ADR — Boundary Registry as SSoT for Rust/TS layering
 
-**Status**: Accepted (2026-05-23 via T10200 — E2 epic T10193 landed in saga T10176)
+**Status**: Accepted (amended 2026-05-23 by T10223 — SoC refactor recording)
 **Saga**: T10176 SG-BOUNDARY-REGISTRY
 **Decision lineage**: D010 (vendor worktrunk → crates/worktrunk-core); Council verdict run-dir `20260522T230811Z-22ea1898`; owner clarification 2026-05-22 (intent-driven, dynamic, central SSoT, static-with-amendment)
 
@@ -159,39 +161,115 @@ Tier-0 invariants that **cannot** be amended without a new ADR:
 
 Tracked under T10176 SG-BOUNDARY-REGISTRY saga acceptance criteria.
 
-## Implementation (E2 epic T10193 — landed 2026-05-23)
-
-The Boundary Registry pattern shipped end-to-end as the **E2-BOUNDARY-REGISTRY-CORE** epic
-under saga T10176. Four child PRs delivered the full contract; this ADR transitions to
-`accepted` on landing of T10200 (E2 finisher):
-
-| Task   | PR    | Deliverable                                                                                                                                                  |
-|--------|-------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| T10196 | #495  | **Schema + types** — `WorkloadIntent`, `PerfBudget`, `SafetyBudget`, `BoundaryEntry` exported from `packages/contracts/src/boundary.ts`.                      |
-| T10197 | #503  | **Registry data** — 39 `BoundaryEntry` literals populated (19 Rust crates + 20 TS packages) covering the full cleocode monorepo surface.                     |
-| T10198 | #506  | **`scripts/lint-boundary-registry.mjs`** — registry-vs-filesystem CI gate. 0 orphans on first run, 9 poison tests pass. Workflow: `.github/workflows/boundary-registry-lint.yml`. |
-| T10199 | #509  | **`scripts/lint-dual-implementation.mjs`** — dual-implementation detector CI gate. 22 vitest cases, 5 documented false-positive allowlists.                   |
-| T10200 | (this PR) | **ADR status transition** — `proposed` → `accepted` + implementation links recorded.                                                                       |
-
-### Status history
-
-- **2026-05-23** — `proposed` → `accepted` (T10200; closes E2 epic T10193). Pattern is now
-  the canonical SSoT for per-module Rust/TS layering decisions across cleocode. Three CI
-  gates (registry lint, dual-impl detector, perf-budget bench gate) enforce the contract.
-
-### Tier-0 invariants (locked at acceptance)
-
-The following invariants are now locked and cannot be amended without a successor ADR:
-
-1. **Two-axis intent system** — workload shape + perf/safety budgets.
-2. **Static-with-amendment policy** — registry changes require ADR amendment + PR.
-3. **Dual-implementation detector cannot be disabled** — `scripts/lint-dual-implementation.mjs`
-   is a required CI gate.
-
 ## Related decisions
 
 - D010 (vendor worktrunk → crates/worktrunk-core) — first reference impl
 - Council verdict run-dir `20260522T230811Z-22ea1898` — pattern stress-tested by 5 advisors
 - ADR-077 worktreeinclude canonical location — first per-module decision under this pattern (file location)
 - Parallel saga T10180 SG-SIGNALDOCK-EXTRACT — uses registry to declare signaldock-* as `migrated-out`
+
+---
+
+## Amendments
+
+### 2026-05-23 — SoC refactor: `worktrunk-core` SDK extraction (Epic T10218 / E3-PREREQ)
+
+**Subject**: Separation-of-concerns refactor of vendored worktrunk into a
+pure SDK shape suitable for napi consumers, closing the first concrete
+reference implementation of the boundary-registry pattern declared in this ADR.
+
+**Decision summary**: the initial literal-vendor strategy that shipped under
+T9977 SG-WORKTRUNK-OWN had pulled in `command_approval`, `commit`, `hooks`,
+`hook_plan`, `repository_ext`, `template_vars`, `context`, `styling`,
+`shell_exec`, and `output` modules alongside the actual worktree primitives.
+Two early-T10219/T10201 attempts at a literal vendor of `worktrunk`'s
+`Repository` god-object halted: the type carries 45+ methods spanning git
+plumbing, worktree management, config integration, shell exec, and
+high-level workflows — far beyond what the SDK consumers (`worktree-napi`,
+`packages/worktree/`, the spawn pipeline) actually call.
+
+The hybrid strategy adopted instead, and recorded here as the canonical
+shape for any future Rust-core extraction:
+
+1. **Data-DTO vendor** for pure-data types (`BranchDeletionMode`,
+   `RefSnapshot` / `RefEntry` / `RefKind`, a field-only `UserConfigDto`,
+   `CopyIgnoredConfig`, `RemovalPlan`, `BranchRef`, `RefType`). No
+   `Repository` dependency — these are byte-equivalent data shapes the
+   donor used.
+2. **`Repo` trait + `ProcessRepo` default impl** as the substitute for
+   the `Repository` god-object. The trait enumerates the audited
+   surface; default-method bodies return `Err(unimplemented_in_sdk(...))`
+   so individual impls only materialize the methods their consumer
+   actually calls. `ProcessRepo` ships the `std::process::Command`-backed
+   default impl that the napi consumer needs today.
+3. **Step-level primitives as plan-then-execute pure functions** —
+   `step::{prune, promote, squash, copy_ignored, relocate}` each ship a
+   planner returning a plan struct, plus an executor that runs against
+   `&dyn Repo`. CLI callers can call the planner alone for dry-run.
+4. **CLI-binary-only modules deliberately NOT vendored**:
+   `worktrunk::priority` (re-nices the host process — unsafe for SDK
+   consumers) and `worktrunk::signal_forwarder` (installs POSIX pgroup
+   signal handlers — unsafe to re-install from a library). Both stay in
+   the upstream `worktrunk` CLI binary. Documented in
+   `crates/worktrunk-core/src/lib.rs` and the `README.md`.
+
+100% functional parity verified by the T10222 parity test suite (61 tests
+spanning 9 primitives). Cumulative ~1352 LOC vendored into
+`crates/worktrunk-core` versus the original ~1553 LOC literal-vendor — the
+delta is exactly the CLI-binary-only modules dropped by this refactor.
+
+**SDK API contract**: see
+[`crates/worktrunk-core/README.md`](../../crates/worktrunk-core/README.md)
+for the complete per-module catalogue. The README is the canonical SDK
+contract; future Rust-core extractions under this ADR's pattern should
+ship an equivalent README.
+
+**Implementation PR chain**:
+
+- **T10219 (PR #507)** — substrate: `Repo` trait + `ProcessRepo` impl +
+  pure-data DTOs (`BranchDeletionMode`, `RefSnapshot` / `RefEntry` /
+  `RefKind`, `CopyIgnoredConfig`, `UserConfigDto`).
+- **T10220 (PR #517)** — step-level primitives: `step::{shared,
+  copy_ignored, promote, squash, prune, relocate}` +
+  `worktrunk_core::paths::compute_project_hash` (SSoT-compatible with
+  `@cleocode/paths`).
+- **T10221 (PR #518)** — lifecycle primitives: `cache::*`,
+  `remove_dir::remove_dir_with_progress`, `sync::Semaphore`, `diff::*`.
+- **T10222 (PR #525)** — 61-test parity suite across 9 primitives;
+  confirms byte-equivalent behavior against the upstream donor.
+- **T10223 (this amendment)** — public API surface doc
+  (`crates/worktrunk-core/README.md`) + ADR-078 amendment recording the
+  SoC decision + boundary registry entry verification.
+
+**CLI separation**: `priority.rs` + `signal_forwarder.rs` remain in the
+`worktrunk` CLI binary. The `crates/worktrunk-core/src/lib.rs` crate-level
+documentation enumerates this separation explicitly (lines 50–78) so any
+future contributor reading the crate root immediately learns what IS NOT in
+scope for the SDK.
+
+**Boundary registry entry (post-refactor)**: the `worktrunk-core` entry in
+`packages/contracts/src/boundary.ts` is verified to reflect this refactor:
+
+- `intent: 'cpu-bound'` — confirmed; the rayon-driven parallel copy,
+  ignore-crate matcher, and `git worktree` plumbing are CPU- and FS-bound
+  hot paths. The 5/50ms p50/p99 budgets are the napi-consumer envelope.
+- `safetyBudget.panic_unwind: 'forbidden'` — enforced by the crate's
+  `#![forbid(unsafe_code)]` at the top of `lib.rs` plus the standard
+  clippy gates.
+- `safetyBudget.root_escape: 'forbidden'` — enforced by
+  `copy::ensure_path_within_root` rejecting `..` escapes and the
+  `git_wt::*` primitives delegating to `git worktree` which enforces its
+  own root semantics.
+- `amendments: ['adr-077-worktreeinclude', 'adr-078-boundary-registry']` —
+  updated to include this amendment slug.
+- `rationale` — refreshed to: "Refactored SoC per ADR-078 amendment
+  2026-05-23. Worktree primitives core (1,352 LOC) vendored from
+  /mnt/projects/worktrunk per D010, consumed by worktree-napi. Reference
+  implementation of the boundary-registry pattern. Full SDK surface in
+  `crates/worktrunk-core/README.md`. Internal-only today; `publish=true`
+  is a future option if external worktree-tooling emerges."
+
+This amendment closes Epic T10218 (E3-PREREQ-SDK-REFACTOR), which in turn
+unblocks the dependent epics T10203 (E1 — registry impl + CI gates) and
+T10204 (E2 — parity tests + bench gates) under Saga T10176.
 
