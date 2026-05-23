@@ -327,6 +327,7 @@ export { createPage, paginate } from './pagination.js';
 // Paths
 export {
   assertProjectInitialized,
+  detectStrayCleoDb,
   getCanonicalTemplatesTildePath,
   getCleoCacheDir,
   getCleoCantWorkflowsDir,
@@ -347,8 +348,11 @@ export {
   isProjectInitialized,
   resolveOrCwd,
   resolveProjectPath,
+  resolveWorktreeFilePath,
+  resolveWorktreeRouting,
   runWithWorktreeScopeFromEnv,
   validateProjectRoot,
+  type WorktreeRouting,
 } from './paths.js';
 export type { Platform, SystemInfo } from './platform.js';
 // Platform
