@@ -96,3 +96,43 @@ export interface SupersededEntry {
   /** Topic or category grouping these entries together. */
   grouping: string;
 }
+
+// ============================================================
+// T10303 — Brain.db auto-recovery (Saga T10281 / Epic T10286)
+// ============================================================
+
+/**
+ * Result of a brain.db auto-recovery attempt.
+ *
+ * Returned by `recoverMalformedBrainDb()` (T10303) when the chokepoint
+ * detects malformation via `ERR_SQLITE_ERROR errcode=11` or a failing
+ * `PRAGMA integrity_check`/`PRAGMA quick_check`. The corrupt DB has been
+ * moved to a quarantine directory and the freshest validated snapshot has
+ * been copied to `.cleo/brain.db`.
+ *
+ * Consumers (the brain.db open chokepoint, telemetry, the upcoming T10302
+ * regression test) read this structure to decide whether to re-attempt the
+ * open and to emit user-facing diagnostics with the data-loss window.
+ */
+export interface BrainRecoveryResult {
+  /** Absolute path to the snapshot that was restored, or null if recovery failed. */
+  restoredFrom: string | null;
+  /**
+   * Approximate hours between the snapshot's timestamp and the recovery
+   * event. `null` when the snapshot timestamp could not be parsed.
+   * Used in the recovery warning to make the data-loss window legible.
+   */
+  dataLossWindowHours: number | null;
+  /**
+   * Number of `brain_observations` rows in the restored DB. Best-effort —
+   * `null` when the count query failed (table missing, FK violation, …).
+   */
+  observationsRecovered: number | null;
+  /** `true` if the restored DB passes `PRAGMA quick_check`. */
+  integrityOK: boolean;
+  /**
+   * Absolute path to the quarantine directory where the corrupt DB plus
+   * its `-wal`/`-shm` sidecars were moved before restore.
+   */
+  quarantineDir: string | null;
+}
