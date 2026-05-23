@@ -27,6 +27,7 @@ import {
 } from '../paths.js';
 import { cliOutput, humanInfo } from '../renderers/index.js';
 import { backupInspectSubCommand } from './backup-inspect.js';
+import { backupRecoverSubCommand } from './backup-recover.js';
 
 // ---------------------------------------------------------------------------
 // Internal helper — passphrase prompt (TTY only; agents use env var)
@@ -532,6 +533,7 @@ export const backupCommand = defineCommand({
     export: exportCommand,
     import: importCommand,
     inspect: backupInspectSubCommand,
+    recover: backupRecoverSubCommand,
   },
   async run({ cmd, rawArgs }) {
     // Parent run() fires after subcommand per citty@0.2.x — skip default
