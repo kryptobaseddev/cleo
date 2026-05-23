@@ -34,15 +34,21 @@ export const TASK_PRIORITIES = ['critical', 'high', 'medium', 'low'] as const;
 /**
  * Task types matching DB CHECK constraint on tasks.type.
  *
- * Per ADR-083 §2.5, `'saga'` is a first-class tier discriminator above Epic.
- * The DB CHECK-constraint migration to accept `'saga'` is tracked separately
- * under Saga T10326 W1.B (T10329); this constant array mirrors the contracts
- * SSoT (`packages/contracts/src/task.ts` line 45) so Drizzle's row-type
- * narrowing stays aligned across the codebase.
+ * Per ADR-083 §2.5, `'saga'` is a first-class tier discriminator above
+ * Epic. The contracts SSoT (`packages/contracts/src/task.ts` line 45)
+ * was widened to include `'saga'` by T10328; this constant mirrors it
+ * so Drizzle's row-type narrowing stays aligned across the codebase.
+ *
+ * The DB-layer CHECK constraint enforcing this enum (plus the ADR-073
+ * §1.2 I5 invariant `CHECK (type != 'saga' OR parent_id IS NULL)`) is
+ * installed by `20260523213708_t10277-saga-tasktype/migration.sql`
+ * (T10329, Saga T10326 W1.B).
  *
  * @adr ADR-083 §2.5
+ * @adr ADR-073 §1.2 I5
  * @saga T10326
  * @task T10328
+ * @task T10329
  */
 export const TASK_TYPES = ['saga', 'epic', 'task', 'subtask'] as const;
 
