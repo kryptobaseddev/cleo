@@ -1,0 +1,23 @@
+{
+  "gate": "deployed-template-parity",
+  "task": "T9860",
+  "saga": "T9855",
+  "total": 8,
+  "generatedAt": "2026-05-23T15:16:10.679Z",
+  "results": [
+    {
+      "template": "packages/core/templates/workflows/release-prepare.yml.tmpl",
+      "deployed": ".github/workflows/release-prepare.yml",
+      "findings": [
+        "on: triggers/inputs differ — expected {\"workflow_dispatch\":{\"inputs\":[\"channel\",\"epic\",\"plan-blob-sha256\",\"version\"]}}, got {\"workflow_dispatch\":{\"inputs\":[\"version\"]}}",
+        "permissions: differ — expected {\"contents\":\"write\",\"id-token\":\"write\",\"pull-requests\":\"write\"}, got {\"contents\":\"write\",\"pull-requests\":\"write\"}",
+        "jobs.cleanup-on-failure: missing in deployed",
+        "jobs.preflight: missing in deployed",
+        "jobs.prepare.steps: missing 10 run-step(s) — [\"BRANCH=\\\"release/${{ inputs.version }}\\\" git checkout -b \\\"$BRANCH\\\" echo \\\"name=$...\", \"PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo \\\"\\\") if [ -n \\\"$P...\", \"cleo version-bump --version \\\"${{ inputs.version }}\\\"\"] (+7 more)",
+        "jobs.prepare.steps: extra 12 run-step(s) — [\"# All publishable workspace packages -- keep in sync with release.yml PACKAGE...\", \"# Only @cleocode/* numeric pins move -- external deps (tree-sitter, # drizzle...\", \"PLAN_FILE=\\\".cleo/release/${VERSION_BARE}.plan.json\\\" if [[ -f \\\"$PLAN_FILE\\\" ]];...\"] (+9 more)",
+        "jobs.prepare.uses: missing [\"actions/checkout@v4.1\",\"actions/setup-node@v4.0\"]",
+        "jobs.prepare.uses: extra [\"actions/checkout@v4\",\"actions/setup-node@v4\",\"pnpm/action-setup@v4\"]"
+      ]
+    }
+  ]
+}

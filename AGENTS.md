@@ -471,6 +471,55 @@ async function buildChangelogSection(tasks: Task[]): Promise<string> {
 **Current mode:** baseline (fails on increase; count decreases always pass).
 Flip to `--strict` after E-CLI-BOUNDARY (T9833) fully closes.
 
+## Dogfood: Deployed Template Parity (T9860 · Saga T9855)
+
+`packages/cleo/templates/workflows/*.yml.tmpl` (being relocated to
+`packages/core/templates/workflows/*.yml.tmpl` by T9858) are the canonical
+sources for the GitHub Actions workflows shipped to consuming projects via
+`cleo init --workflows`. The deployed copies in `.github/workflows/` of *this*
+repo are supposed to BE the rendered output. Today the deployed
+`release-prepare.yml` has drifted: it lacks the SPEC-T9345 R-200/R-260
+preflight job, hardcodes its node version + install command + branch prefix,
+and skips the canonical placeholder substitution pass entirely.
+
+This gate doesn't fix the drift — it pins the current state as a baseline and
+prevents NEW divergence from creeping in. Closing the drift itself is a
+separate follow-up.
+
+| Command | What it does |
+|---|---|
+| `node scripts/lint-deployed-template-parity.mjs` | Default (baseline) — fails when finding count exceeds `.lint-deployed-template-parity-baseline.json` |
+| `node scripts/lint-deployed-template-parity.mjs --strict` | Zero-tolerance — any divergence fails |
+| `node scripts/lint-deployed-template-parity.mjs --update-baseline` | Regenerate the baseline JSON to accept the current state |
+
+The script renders each template's `{{KEY}}` placeholders using project-context
+defaults (NODE_VERSION=24, INSTALL_CMD=`pnpm install --frozen-lockfile`,
+LINT_CMD=`pnpm biome check .`, TYPECHECK_CMD=`pnpm run typecheck`,
+TEST_CMD=`pnpm run test`, BUILD_CMD=`pnpm run build`, BRANCH_PREFIX=`release`,
+PR_LABEL=`release`), parses both the rendered template and the deployed YAML,
+and compares structurally — `on:` triggers + inputs, `permissions`, and per-job
+`runs-on`/`run`-step set/`uses`-step set. Whitespace, comment order, and
+re-ordering of independent steps with the same `run:` body do not register as
+divergence.
+
+### Adding a new template → deployed pair
+
+Edit `PARITY_MAP` in `scripts/lint-deployed-template-parity.mjs`:
+
+```js
+const PARITY_MAP = [
+  {
+    template: 'packages/core/templates/workflows/<name>.yml.tmpl',
+    deployed: '.github/workflows/<name>.yml',
+    fallbackTemplate: 'packages/cleo/templates/workflows/<name>.yml.tmpl', // optional
+  },
+];
+```
+
+Then run `--update-baseline` to capture the new entry's accepted drift.
+
+CI gate: `Deployed Template Parity (T9860)` job in `.github/workflows/ci.yml`.
+
 ## Package-Boundary Check (MANDATORY)
 
 Before creating or relocating ANY source file, verify the correct package by the
