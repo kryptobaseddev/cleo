@@ -92,7 +92,8 @@ cleo docs add T1234 docs/drafts/feature-x.md \
 - `--type` MUST be one of `spec | adr | research | handoff | note | llm-readme`.
   Pick the type by the document's purpose, not its filename.
 - `--slug` is the human-friendly retrieval handle (kebab-case). If taken the
-  CLI returns `E_SLUG_TAKEN` with 3 alternatives — pick one, do not overwrite.
+  CLI returns `E_SLUG_RESERVED` (legacy alias `E_SLUG_TAKEN`) with 3
+  alternatives — pick one, do not overwrite.
 - The owner ID (`T1234` above) auto-classifies the attachment by prefix:
   `T###` → task, `ses_*` → session, `O-*` → observation.
 
@@ -125,6 +126,30 @@ The accepted positional + named surface is enumerated in
 `cleo docs add --help` — agents MUST consult `--help` rather than guessing
 flag names. Use the `--flag=value` form (`--type=spec`) or
 `--flag value` (`--type spec`) — both are recognised.
+
+#### Slug allocation goes through ONE chokepoint (T10392 · Saga T10288)
+
+Every code path that writes an attachment with a slug — `cleo docs add`,
+`cleo changeset add`, and any future writer — MUST first call the central
+allocator at `packages/core/src/docs/slug-allocator.ts:reserveSlug` BEFORE
+invoking `attachmentStore.put({ slug })`. The allocator:
+
+1. Normalises the slug to canonical kebab-case (lowercase, trim, single
+   hyphens).
+2. Acquires a per-slug in-process Mutex so concurrent reservations
+   serialise.
+3. Returns `{ ok: false, code: 'E_SLUG_RESERVED', suggestions }` when the
+   slug is taken — uniform shape across both writers.
+
+The `attachmentStore.put` chokepoint enforces this via a runtime assert
+(`SlugNotReservedByAllocatorError`) when `CLEO_STRICT_SLUG_ALLOCATOR=1`
+is set. Strict mode becomes default once `cleo docs add` (T10386) and
+`cleo changeset add` (T10388) finish wiring through the allocator.
+
+Slugs share a GLOBAL namespace across all DocKinds — `reserveSlug('changeset',
+'foo')` followed by `reserveSlug('research', 'foo')` collides (decision
+T10390 / E1.5). Matches the `uniq_attachments_slug` partial UNIQUE INDEX in
+migration `20260519000001`.
 
 ### Publish to a git-tracked path (when the doc must live on disk)
 
