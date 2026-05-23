@@ -11,10 +11,15 @@ name: Release Pipeline Matrix
 #
 # Job count: 10 × 3 + 1 + 1 = 32 matrix jobs.
 #
-# Triggers:
-#   - pull_request labeled `release-pipeline` (synchronize keeps it running on
-#     subsequent pushes once the label is set)
+# Triggers (T10274 — parity fix):
+#   - pull_request to main affecting the fixtures or scenarios themselves
 #   - push to main affecting the fixtures or scenarios themselves
+#
+# The previous label-gated trigger (`types: [labeled, synchronize]` + label
+# `release-pipeline`) was removed in T10274 for PR/main parity. Path filters
+# alone keep this 32-job matrix from running on unrelated PRs, while ensuring
+# every PR that touches fixtures or scenarios runs the gate without depending
+# on a maintainer remembering to apply a label.
 #
 # References:
 #   - .cleo/rcasd/T9345/research/test-matrix-T9345.md §3 (CI matrix configuration)
@@ -23,7 +28,7 @@ name: Release Pipeline Matrix
 
 on:
   pull_request:
-    types: [labeled, synchronize]
+    branches: [main]
     paths:
       - 'packages/cleo/test/fixtures/release-test-**'
       - 'packages/cleo/test/integration/release-pipeline/**'
@@ -47,9 +52,8 @@ concurrency:
 jobs:
   matrix-gate:
     name: Build matrix
-    # On pull_request, only run when the release-pipeline label is present.
-    # On push events the conditional is a no-op (true).
-    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'release-pipeline')
+    # T10274: label gate removed for PR/main parity. Path filters at the
+    # workflow level are now the sole admission control.
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
