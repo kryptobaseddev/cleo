@@ -9,6 +9,7 @@ name: Identity Pollution Check
 
 on:
   pull_request:
+    branches: [main]
   push:
     branches: [main]
 
