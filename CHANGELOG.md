@@ -1,5 +1,11 @@
 # Changelog
 
+## [2026.5.109] (2026-05-23)
+
+### Fixes
+
+- cleo tree --human emits canonical box-drawn tree in non-TTY (was empty) (T10352)
+
 ## [2026.5.108] (2026-05-23)
 
 ### Features
