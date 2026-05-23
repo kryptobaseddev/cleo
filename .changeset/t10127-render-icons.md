@@ -1,11 +1,15 @@
 ---
-"@cleocode/contracts": minor
+id: t10127-render-icons
+tasks: [T10127]
+kind: feat
+summary: "B2 typed icon enums — StatusIcon, KindIcon, BadgeIcon, RelationIcon with ASCII fallback"
+prs: [543]
 ---
 
-feat(T10127): typed icon enums (B2) — StatusIcon, KindIcon, BadgeIcon, RelationIcon with ASCII fallback
+Codifies emoji symbols hard-coded across 12+ renderer files into typed
+enums with NO_COLOR-safe ASCII fallbacks. `pickIcon()` helper honors
+`NO_COLOR=1`. Note: `BadgeIcon.ORPHAN='👻'` (changed from ADR-077's
+proposed `'🚪'` to avoid a runtime collision with
+`StatusIcon.BLOCKED='🚪'` — TypeScript string enums dedupe at runtime).
 
-Single source of truth for the visual language used across renderers. Each enum exposes `ascii()` for NO_COLOR / non-UTF8 terminals. Part of Epic T10114, ADR-077.
-
-ADR deviation: `BadgeIcon.ORPHAN` ships as `'👻'` (not `'🚪'` as ADR-077 §2 originally specified) because TypeScript string enums share runtime values and `StatusIcon.BLOCKED` already owns `'🚪'`. ADR amendment lands in T10137 (B12).
-
-Closes T10127. Epic: T10114. ADR: adr-077-human-render-contract.
+Foundation for B3 animations primitives + B5 core entry point.

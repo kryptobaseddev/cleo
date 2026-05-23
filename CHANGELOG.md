@@ -1,126 +1,33 @@
 # Changelog
 
-## [2026.5.107] (2026-05-23)
-
-### BREAKING CHANGES
-
-- Unify releases tables — drop release_manifests + releases_view, hard-rename to canonical 'releases'. (T9686-B2) (#328)
-
-  Migration:
-
-  `release_manifests` is dropped and `releases_view` is removed. Readers that
-  previously queried either name must switch to the canonical `releases`
-  table. The migration handles the data move in-place; consumers that touch
-  the SQLite schema directly (e.g. raw queries outside the DataAccessor) need
-  to update their statements.
+## [2026.5.108] (2026-05-23)
 
 ### Features
 
-- Agent unification + Conduit architecture — unified cleo agent CLI, AgentRegistry with encrypted credentials, Conduit transport layer. (T170)
-- WASM bindings for the CANT ecosystem — cant-core, lafs-core, conduit-core, signaldock-core compile to WASM with TypeScript SDK integration. (T9738)
-- unit tests for crates/worktree-napi adapter layer (T10018)
-- release verb matrix + remove ship verb + ship-e2e-smoke (T10103)
-- cleo release plan now aborts on changeset YAML parse with E_CHANGESET_YAML_INVALID + always writes the CHANGELOG section (placeholder if zero entries) + aligns gh workflow run input schema with release open field set (T10105) (T9780) (#539)
-- saga enforcement runtime gates (I3/I5/I7) (T10115)
-- saga auto-close integrated into completeTask (T10116)
-- wire I7 gate into sagaAdd + cleo saga detach verb (T10118)
-- cleo doctor saga-depth audit (I5/I7/depth/auto-close drift) (T10119)
-- extract saga ops to packages/core/src/sagas/ (T10120)
-- cleo saga reconcile — idempotent cron-safe auto-close repair (T10121)
-- typed render contracts — TreeResponse, TableResponse, ListResponse, RenderableEnvelope (B1) (T10126)
-- typed icon enums (B2) — StatusIcon, KindIcon, BadgeIcon, RelationIcon with ASCII fallback (T10127)
-- static UI primitives — Tree, Table, Section, Badge, Legend (B3) (T10128)
-- migrate format-helpers (kvBlock, dataTable, truncated) from packages/cleo → packages/core/render (B4 (T10129)
-- renderEnvelopeForHuman() public API + registry (B5) (T10130)
-- decompose system.ts (1302 LOC) into packages/core/src/render/{session,orchestration,brain}/ (B6) (T10131)
-- decompose nexus.ts (1055 LOC) into packages/core/src/render/nexus/{graph,contracts,audit}/ (B7) (T10132)
-- decompose tasks.ts (371 LOC) into packages/core/src/render/tasks/ (B8) (T10133)
-- generic `cleo tree <id>` — walks parent + groups edges to full depth, KindIcon + RelationIcon prefix (T10134)
-- renderEnvelopeForHuman perf contract — 100/1000/10000 rows + 100/1000 nodes (B11) (T10136)
-- finalize ADR-077, update ct-cleo skill, add render contract to CLEO-INJECTION (B12) (T10137)
-- fix(T10177)!: release-prepare.yml scoped to @cleocode/* workspaces (SAGA T10176) (T10177)
-- Executor npm-pack probe (SAGA T10176) (T10179)
-- Saga T10180 W0: signaldock repo restructured as proper Cargo workspace (PR #7). (T10181)
-- drop unused cleo-conduit-core dep from cant-core (saga T10180). (T10185)
-- T10185 (saga T10180 W4 phase 1): rename `conduit-core` → `cleo-conduit-core`. The `conduit-core` nam (T10185)
-- Saga T10180: delete 7 signaldock-* crates from cleocode workspace (-17k LOC). SignalDock cloud server now lives at signaldock repo. (T10187) (T10181) (#514) (#501)
-- T10189 (saga T10180 SG-SIGNALDOCK-EXTRACT closure): scrubs AGENTS.md (T10189)
-- remove dead cleo-find fallback from /orchestrate-saga slash command (SAGA T10176) (T10191)
-- boundary registry schema + types in @cleocode/contracts (SAGA T10176 · ADR-078) (T10196)
-- populate BOUNDARY_REGISTRY with all 19 crates + 20 packages (SAGA T10176) (T10197)
-- boundary-registry CI gate (SAGA T10176, ADR-078) (T10198)
-- dual-implementation CI gate (SAGA T10176, ADR-078) (T10199)
-- ADR-078 status transition proposed → accepted (SAGA T10176, closes E2) (T10200)
-- napi exports for worktrunk-core SDK step primitives (SAGA T10176) (T10203)
-- packages/worktree/src/worktree-prune.ts now a thin napi wrapper (SAGA T10176) (T10204)
-- delete verified-dead cleo-llm-native crate + JS loader (SAGA T10176) (T10205)
-- conduit-core publish=true + criterion serde round-trip bench (SAGA T10176) (T10206)
-- worktrunk SDK substitute surface in worktrunk-core (hybrid DTO + git2 wrapper, SAGA T10176) (T10219)
-- extract step/* SDK primitives into worktrunk-core (SAGA T10176, T10218) (T10220)
-- extract lifecycle SDK primitives into worktrunk-core (SAGA T10176, T10218) (T10221)
-- parity test suite for worktrunk-core SDK primitives (SAGA T10176, T10218) (T10222)
-- worktrunk-core public API doc + ADR-078 amendment (SAGA T10176, closes E3-PREREQ) (T10223)
-- publish=true + criterion benches for cant-{core,router,runtime} + lafs-core (SAGA T10176) (T10224)
-- T10254 (saga T10180 W4 prep): adopt cargo-release for atomic Rust workspace (T10254)
-- orchestrate spawn supervisor — bounded timeout + auto-cleanup (SAGA T10176) (T9545)
-- cleo worktree list — structured JSON for all CLEO-managed worktrees (SAGA T10176) (T9546)
-- cleo worktree prune --orphaned + force-unlock (SAGA T10176) (T9547)
-- auto-invoke worktree-complete from `cleo complete <taskId>` (SAGA T10176) (T9548)
-- worktree-lifecycle spec — closes E1 chain (SAGA T10176) (T9549)
-- cleo doctor gains --audit-worktree-orphans and --prune-worktree-orphans for the T9550/T9580 SSoT-bug fallout. (T9790)
-- Execute cleo docs import across all 5 legacy doc sources (2388 files) — closes T9625 validation gate. (T9791)
-- cleo docs list defaults to project scope, supports --limit + --orderBy, and surfaces a narrowing hint. (T9792)
-- Saga T9787 closing Epic — 9-step E2E real-world validation + agent-accountability harness (canon-lint). (T9797)
-- Paths SSoT CI gate (lint-paths-ssot.mjs) + resolveWorktreeIndexPath helper (D009 sentinel) (T9802)
-- cleo worktree adopt + multi-source list (Claude Code Agent isolation bridge) (T9804)
-- worktree lifecycle audit log + auto-cleanup GHA workflow (T9805)
-- DB chokepoint refuses opens when the resolved `.cleo/` resides inside a git worktree — defense-in-depth on top of T9803. (T9806)
-- cleo doctor --audit-worktree-orphans comprehensive scan + isolation lint + saga closure report (T9808)
-- Ban worktrees outside canonical XDG location + CI lint gate + migration tool. (T9809)
-- Saga SG-ARCH-SOLID complete: SOLID/DRY architecture restoration across 6 epics, 17 sub-task PRs (T9831) (T9832) (T9833) (T9834) (T9835) (T9836) (T9837) (T10060) (T10061) (T10062) (T10063) (T10064) (T10065) (T10066) (T10067) (T10068) (T10069) (T10070) (T10071) (T10072) (T10073) (T10074) (T10075) (T10076) (#462) (#463) (#464) (#465) (#466) (#467) (#468) (#469) (#470) (#471) (#472) (#473) (#474) (#475) (#476) (#477) (#478)
-- E-ORIENT-V2: multi-agent orientation surface — docs fetch/show fixes, briefing diet + scope, focus macro, per-agent sessions, worktree destroy dispatch, auto-emit memory observation (T9965) (T9966) (T9967) (T9968) (T9973) (T9974) (T9975) (T9976)
-- bump Rust toolchain to 1.94 workspace-wide (T9979)
-- vendor worktrunk as crates/worktrunk-core (own outright) (T9980)
-- crates/worktree-napi — napi-rs binding for worktrunk-core (T9981)
-- packages/worktree rewired to @cleocode/worktree-napi (T9982)
-- .worktreeinclude at repo root is canonical (E6-WORKTREEINCLUDE-MIGRATION) (T9983)
-- packages/core consumes packages/worktree exclusively (no raw git-worktree shell-outs) (T9984)
-- packages/cleo is dispatch-only (E8-CLI-LAYERING) (T9985)
-- RIP legacy worktree code (E9-RIP-LEGACY) (T9986)
-- saga T9977 validation + closure (E10-VALIDATION+CLOSE) (T9987)
-
-### Fixes
-
-- sagaList includes all sagas + cleo saga repair verb (T10117)
-- @cleocode/worktree-napi resolves under global npm install — rayon hot-path active on installed binaries, not just dev fallback (SAGA T10176) (T10178)
-- Four dispatch/envelope bugs in the release pipeline — worktree help text, pr-status routing, reconcile double-wrap, changelog envelope. (T9686-A) (#324)
-- releaseShow + releaseList read from releases_view SSoT — eliminates dual-table split between releases and release_manifests. (T9686-B) (#323)
-- Provenance backfill — tag enumeration, --since empty handling, foreign-key insertion order. (T9686-C) (#325)
-- Root-cause fix for orphan-`.cleo/` synthesis — `getCleoDirAbsolute` now THROWS when `getProjectRoot` fails unless caller passes `{ bootstrap: true }`. (T9803)
-- bound worktree include-pattern apply loop + optional sparse-checkout scope (T9807)
-- orchestrate ready/waves traverse saga 'groups' relation (+ --via flag) (T9852) (T9839) (#422)
-- SQLITE_BUSY retry on parallel task writes (CORE SDK with-retry primitive) (T9852) (T9839) (#413)
-- RCA + persist severity/kind/scope on task UPDATE (T9852) (T9839) (#425)
-- cleo issue diagnostics reads CLEO version from package.json SSoT (T9852) (T9839) (#411)
-- Bracket+quote-aware acceptance tokenizer + DRY collapse of 3 duplicate split impls (T9852) (T9839) (#412)
-- Route getDb() through worktree-isolation guard (defense-in-depth for ~61 direct core callers) (T9961)
-- Add width-budget + timeout to doctor worktree-orphan audit to prevent 60s+ hang on large corpora (T9962)
+- B1 typed render contracts — TreeResponse, TableResponse, ListResponse, RenderableEnvelope (T10126) (T10138) (T10139) (T10140) (T10141) (#531)
+- B2 typed icon enums — StatusIcon, KindIcon, BadgeIcon, RelationIcon with ASCII fallback (T10127) (#543)
+- B3 static UI primitives — Tree, Table, Section, Badge, Legend in @cleocode/animations/render (T10128) (T10142) (T10143) (T10144) (T10145) (T10146) (#549)
+- B5 renderEnvelopeForHuman() public API + (command, kind) → renderer registry + generic fallback (T10130) (#544)
+- B9 generic cleo tree — walks parent + groups edges to full depth, KindIcon + ⊂ relation prefix (T10134) (#563)
 
 ### Refactors
 
-- Promote 17 provenance/job unions + 6 task-axis enum constants from core/store/tasks-schema.ts to @cleocode/contracts (Phase 0c · T9832). (T9955)
-- Promote 15 BRAIN memory wire-shapes from `@cleocode/core` to `@cleocode/contracts/memory` (Phase 0e of SG-ARCH-SOLID). (T9956)
+- B4 migrate format-helpers (kvBlock, dataTable, truncated) from packages/cleo to packages/core/render (T10129) (#540)
+- B6 decompose system.ts (1302 LOC) into packages/core/src/render/{session,orchestration,brain} (T10131) (T10147) (T10148) (T10149) (#560)
+- B7 decompose nexus.ts (1055 LOC) into packages/core/src/render/nexus/{graph,contracts,audit} (T10132) (T10150) (T10151) (T10152) (#551)
+- B8 decompose tasks.ts (371 LOC) into packages/core/src/render/tasks (T10133) (#556)
 
 ### Documentation
 
-- Worktree prune main-dir protection + AGENTS.md release docs aligned to SPEC-T9345 4-verb pipeline. (T9686-D) (T9686-E) (#320)
-- CLI help-text hardening bundle (gh-392 #394 #399 #403 #405) (T9852) (T9839) (#426)
+- B12 finalize ADR-077, update ct-cleo skill (Tier-0), add Human Render Contract to CLEO-INJECTION (T10137) (#561)
+
+### Tests
+
+- B11 renderEnvelopeForHuman perf contract — 100/1000/10000 rows + 100/1000 nodes (T10136) (#559)
 
 ### Chores
 
-- cleo changeset list verb + README pointing at canonical writer (T9785)
-- biome lint hotfixes — unblock CI after T9797 saga-T9787 file landed (T9852) (T9839) (#427)
-- v5.99 ships T9964 E-ORIENT-V2 follow-ups — real briefing diet ≤1000 tokens, ferrous-forge fixture compliance, release-prepare.yml workflow (T9964) (#459)
+- B10 CI gate 'Stdout Discipline Lint' — prevents render logic leaking back into packages/cleo (T10135) (#569)
 
 ## [v2026.5.106] (2026-05-23)
 
