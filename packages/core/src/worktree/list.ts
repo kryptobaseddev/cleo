@@ -40,7 +40,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import { join, resolve as resolvePath } from 'node:path';
+import { basename, join, resolve as resolvePath } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import {
   type EngineResult,
@@ -150,6 +150,16 @@ export async function listWorktrees(
   // project root.
   const primaryWorktreePath = resolvePrimaryWorktreePath(projectRoot);
 
+  // Pre-resolve the git common dir so `createdAt` can stat the per-worktree
+  // admin file `<gitCommonDir>/worktrees/<basename(path)>/HEAD`, which is
+  // written exactly once by `git worktree add` and therefore acts as a stable
+  // creation-timestamp proxy. Null on failure → callers fall back to dir mtime.
+  const gitCommonDir = resolveGitCommonDir(projectRoot);
+  // Build a sentinel-path → adoptedAt lookup so adopted entries that ARE in
+  // git porcelain (i.e. registered both ways) report the sentinel timestamp
+  // as their createdAt — the adopt time is the canonical "tracked by CLEO" moment.
+  const sentinelAdoptedAtByPath = new Map(sentinelEntries.map((e) => [e.path, e.adoptedAt]));
+
   // --- Build WorktreeInfo entries from git-native porcelain output ---
   const worktrees: WorktreeInfo[] = porcelainEntries.map((entry) => {
     const taskId = branchToTaskId.get(entry.branch) ?? null;
@@ -185,13 +195,26 @@ export async function listWorktrees(
     const sentinelSource = sentinelByPath.get(entry.path)?.source;
     const source: WorktreeSource = sentinelSource ?? 'cleo-spawn';
 
+    // T9546 AC4: createdAt — resolved from the per-worktree git admin file
+    // when available, then sentinel adoptedAt, then dir mtime. The git admin
+    // HEAD is set exactly once at `git worktree add` time, so its mtime is the
+    // best available creation-time proxy for git-native entries.
+    const createdAt = resolveCreatedAt({
+      worktreePath: entry.path,
+      gitCommonDir,
+      primaryWorktreePath,
+      sentinelAdoptedAt: sentinelAdoptedAtByPath.get(entry.path),
+    });
+
     return {
       path: entry.path,
       branch: entry.branch,
       taskId,
       owningAgent,
       lastActivity,
+      createdAt,
       isLocked: entry.locked,
+      lockState: entry.locked ? 'locked' : 'unlocked',
       isStale,
       isMerged,
       owningTaskStatus,
@@ -232,7 +255,12 @@ export async function listWorktrees(
       taskId,
       owningAgent: null,
       lastActivity,
+      // For sentinel-only entries the canonical creation moment is the
+      // adopt time (the directory may have been mtime-touched arbitrarily
+      // since registration).
+      createdAt: sentinel.adoptedAt,
       isLocked: false,
+      lockState: 'unlocked',
       isStale,
       isMerged: false,
       owningTaskStatus,
@@ -516,6 +544,85 @@ function resolveMainBranch(projectRoot: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Resolve the absolute path to the repository's `.git` common directory.
+ *
+ * For the primary worktree this is `<projectRoot>/.git`. For linked worktrees
+ * this is also the primary's `.git` (the common dir is shared across all
+ * worktrees — each linked worktree only owns its admin subdirectory under
+ * `.git/worktrees/<name>/`).
+ *
+ * Returns null on failure — callers degrade gracefully to dir-mtime for the
+ * `createdAt` field.
+ *
+ * @param projectRoot - Project root for the git invocation.
+ * @returns Absolute path to the `.git` common directory, or null.
+ * @internal Exported for tests only.
+ */
+export function resolveGitCommonDir(projectRoot: string): string | null {
+  try {
+    const out = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
+      cwd: projectRoot,
+      encoding: 'utf-8',
+      timeout: GIT_TIMEOUT_MS,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+    return out.length > 0 ? out : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve the `createdAt` ISO timestamp for a worktree entry (T9546 AC4).
+ *
+ * Resolution order:
+ *  1. Per-worktree admin file `<gitCommonDir>/worktrees/<basename(path)>/HEAD`.
+ *     Git writes this exactly once at `git worktree add` time; its mtime is the
+ *     most reliable proxy for worktree creation time.
+ *  2. For the primary worktree (which has no per-worktree admin dir), the
+ *     mtime of the `.git` common dir itself — set when the repo was created
+ *     or cloned.
+ *  3. Sentinel index `adoptedAt`, when the entry was registered via
+ *     `cleo worktree adopt`.
+ *  4. Fallback — `mtime` of the worktree directory.
+ *
+ * @internal Exported for tests only.
+ */
+export function resolveCreatedAt(input: {
+  worktreePath: string;
+  gitCommonDir: string | null;
+  primaryWorktreePath: string | null;
+  sentinelAdoptedAt: string | undefined;
+}): string {
+  // Primary worktree: stat the .git common dir itself.
+  if (
+    input.gitCommonDir !== null &&
+    isPrimaryWorktree(input.worktreePath, input.primaryWorktreePath)
+  ) {
+    try {
+      return new Date(statSync(input.gitCommonDir).mtimeMs).toISOString();
+    } catch {
+      // Fall through to other resolvers.
+    }
+  }
+  // Linked worktree: stat the per-worktree admin HEAD file.
+  if (input.gitCommonDir !== null) {
+    const adminHead = join(input.gitCommonDir, 'worktrees', basename(input.worktreePath), 'HEAD');
+    if (existsSync(adminHead)) {
+      try {
+        return new Date(statSync(adminHead).mtimeMs).toISOString();
+      } catch {
+        // Fall through.
+      }
+    }
+  }
+  // Sentinel adopted entry that also lives in git porcelain.
+  if (input.sentinelAdoptedAt !== undefined) return input.sentinelAdoptedAt;
+  // Final fallback — worktree dir mtime.
+  return new Date(mtimeMs(input.worktreePath)).toISOString();
 }
 
 /**
