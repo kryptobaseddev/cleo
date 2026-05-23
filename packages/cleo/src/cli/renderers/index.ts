@@ -49,6 +49,7 @@ import {
   renderCurrent,
   renderDoctor,
   renderGeneric,
+  renderNext,
   // Nexus renderers — migrated to @cleocode/core/render/nexus per ADR-077 (T10132 / B7).
   renderNexusAnalyze,
   renderNexusBrainAnchors,
@@ -84,7 +85,6 @@ import {
   renderNexusTaskSymbols,
   renderNexusWhy,
   renderNexusWiki,
-  renderNext,
   renderPlan,
   renderSchemaCommand,
   renderSession,
