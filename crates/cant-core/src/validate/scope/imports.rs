@@ -19,8 +19,8 @@ pub fn check_import_path_traversal(doc: &CantDocument) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
 
     for section in &doc.sections {
-        if let Section::Import(imp) = section {
-            if path_escapes_root(&imp.path) {
+        if let Section::Import(imp) = section
+            && path_escapes_root(&imp.path) {
                 diags.push(Diagnostic::error(
                     "S09",
                     format!(
@@ -30,7 +30,6 @@ pub fn check_import_path_traversal(doc: &CantDocument) -> Vec<Diagnostic> {
                     imp.span,
                 ));
             }
-        }
     }
 
     diags

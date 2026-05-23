@@ -178,11 +178,10 @@ pub fn completions_for_context(line_text: &str, doc: Option<&CantDocument>) -> V
     }
 
     // After `@` (but not `@import`) -> agent references from document
-    if trimmed.starts_with('@') {
-        if let Some(doc) = doc {
+    if trimmed.starts_with('@')
+        && let Some(doc) = doc {
             return agent_name_completions(doc);
         }
-    }
 
     // Indented context (inside a block) -> property keys + body keywords
     if line_text.starts_with("  ") || line_text.starts_with('\t') {
