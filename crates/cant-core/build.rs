@@ -51,8 +51,20 @@ fn main() {
             process::exit(1);
         }
     };
-    let json_path =
+    // Canonical source — the TypeScript-owned hook-mappings file in the
+    // workspace. Preferred when present (in-tree builds).
+    let workspace_path =
         Path::new(&manifest_dir).join("../../packages/caamp/providers/hook-mappings.json");
+    // Vendored fallback — a byte-identical copy inside the crate directory so
+    // `cargo publish` (which packages only the crate dir) still builds. Parity
+    // with the workspace canonical is enforced at CI time by
+    // `scripts/lint-cant-core-hook-mappings-parity.mjs` (T10224).
+    let vendored_path = Path::new(&manifest_dir).join("vendor/caamp/hook-mappings.json");
+    let json_path = if workspace_path.exists() {
+        workspace_path
+    } else {
+        vendored_path
+    };
 
     // Rerun if either the source of truth or the generator itself changes.
     println!("cargo:rerun-if-changed={}", json_path.display());

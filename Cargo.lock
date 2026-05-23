@@ -281,6 +281,7 @@ name = "cant-core"
 version = "2026.5.99"
 dependencies = [
  "conduit-core",
+ "criterion",
  "nom",
  "serde",
  "serde_json",
@@ -316,6 +317,7 @@ dependencies = [
 name = "cant-router"
 version = "2026.5.99"
 dependencies = [
+ "criterion",
  "serde",
  "serde_json",
 ]
@@ -325,6 +327,7 @@ name = "cant-runtime"
 version = "2026.5.99"
 dependencies = [
  "cant-core",
+ "criterion",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -1628,6 +1631,7 @@ name = "lafs-core"
 version = "2026.5.99"
 dependencies = [
  "chrono",
+ "criterion",
  "jsonschema",
  "serde",
  "serde_json",

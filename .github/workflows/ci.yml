@@ -279,6 +279,30 @@ jobs:
       - name: Lint JSON stream hygiene in cli/commands + core JSON paths
         run: node scripts/lint-json-stream-hygiene.mjs
 
+  rust-vendor-parity-lint:
+    # T10224 / SG-BOUNDARY-REGISTRY (T10176) — enforce parity between
+    # TypeScript canonical sources and the Rust vendored copies that allow
+    # cant-core + lafs-core to ship to crates.io. `cargo publish` rejects
+    # `include_str!` / build-script paths that traverse outside the crate
+    # directory, so the canonical schema (`packages/lafs/schemas/v1/...`)
+    # and hook-mappings (`packages/caamp/providers/hook-mappings.json`) are
+    # mirrored into `crates/lafs-core/schemas/v1/` and
+    # `crates/cant-core/vendor/caamp/` respectively. Drift between the TS
+    # canonical and the Rust vendor is a wire-protocol regression vector.
+    # Pure static analysis of checked-in files — no untrusted input.
+    name: Rust Vendor Parity Lint (T10224)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Enforce LAFS schema parity (TS canonical <-> lafs-core vendor)
+        run: node scripts/lint-lafs-schema-parity.mjs --exit-on-fail
+      - name: Enforce hook-mappings parity (TS canonical <-> cant-core vendor)
+        run: node scripts/lint-cant-core-hook-mappings-parity.mjs --exit-on-fail
+
   contracts-dep-lint:
     name: Contracts Dep Lint
     runs-on: ubuntu-latest
