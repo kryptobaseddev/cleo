@@ -34,18 +34,14 @@
  * @see ADR-073-above-epic-naming.md §1.2
  */
 
-import type {
-  SagaAuditEntry,
-  SagaAuditResult,
-  SagaAuditViolation,
-  Task,
-} from '@cleocode/contracts';
+import type { SagaAuditEntry, SagaAuditResult, SagaAuditViolation } from '@cleocode/contracts';
 import {
   assertSagaInvariantI5,
   assertSagaInvariantI7,
   isSagaInvariantViolationError,
   SAGA_GROUPS_RELATION,
   SAGA_LABEL,
+  type SagaTask,
 } from '../sagas/index.js';
 import { taskList } from '../tasks/list.js';
 import { taskShow } from '../tasks/show.js';
@@ -172,13 +168,19 @@ export async function auditSagaHierarchy(projectRoot: string): Promise<SagaAudit
 
     // --- I5 check (sagaRow.parentId IS NULL) ---
     // Reuse the runtime guard so audit + runtime share one definition.
+    // Cast to SagaTask: audit only iterates rows already known to be sagas
+    // (returned by `taskList({ label: 'saga' })` upstream), so the dual-shape
+    // window guarantee in SagaTask holds. T10330 retyped the gate; this
+    // cast is the audit's pre-narrowing handshake (T10331 callsite sweep
+    // will replace with explicit isSagaShape narrowing on a typed task row).
     try {
       assertSagaInvariantI5({
         id: sagaRow.id,
         labels: sagaRow.labels ?? [],
         parentId: sagaRow.parentId ?? null,
         depends: sagaRow.depends ?? [],
-      } as unknown as Task);
+        type: 'epic',
+      } as unknown as SagaTask);
     } catch (err) {
       if (isSagaInvariantViolationError(err) && err.diag.invariant === 'I5') {
         violations.push({

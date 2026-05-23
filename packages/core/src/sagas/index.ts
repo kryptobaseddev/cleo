@@ -26,13 +26,16 @@ export {
   assertSagaInvariantI3,
   assertSagaInvariantI5,
   assertSagaInvariantI7,
+  assertSagaInvariantI7Typed,
   E_SAGA_INVARIANT_VIOLATION_I3,
   E_SAGA_INVARIANT_VIOLATION_I5,
   E_SAGA_INVARIANT_VIOLATION_I7,
   isSagaInvariantViolationError,
+  isSagaShape,
   type SagaInvariantCode,
   type SagaInvariantDiag,
   SagaInvariantViolationError,
+  type SagaTask,
 } from './enforcement.js';
 export { type SagaInvariantI5Warning, type SagaListResult, sagaList } from './list.js';
 export {
