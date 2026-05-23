@@ -512,7 +512,7 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
     },
     amendments: ['adr-077-worktreeinclude', 'adr-078-boundary-registry'],
     rationale:
-      'Worktree primitives core (1,352 LOC) vendored from /mnt/projects/worktrunk per D010, consumed by worktree-napi. Reference implementation of the boundary-registry pattern. Internal-only today; publish=true is a future option if external worktree-tooling emerges.',
+      'Refactored SoC per ADR-078 amendment 2026-05-23. Worktree primitives core (1,352 LOC) vendored from /mnt/projects/worktrunk per D010, consumed by worktree-napi. Reference implementation of the boundary-registry pattern. Full SDK surface documented in crates/worktrunk-core/README.md (T10223). Internal-only today; publish=true is a future option if external worktree-tooling emerges.',
   },
 
   // ============================================================
