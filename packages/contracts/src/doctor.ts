@@ -491,3 +491,152 @@ export interface PruneAuditEntry {
   /** Whether this entry represents a dry-run plan (no actual removal). */
   dryRun: boolean;
 }
+
+// ============================================================================
+// Legacy-Backup Walker (T10309 — Saga T10281 SG-BRAIN-DB-RESILIENCE / Epic T10282)
+// ============================================================================
+
+/**
+ * Origin hint inferred from a legacy backup file's name.
+ *
+ * Identifies which legacy migration produced the file. Used by the operator
+ * to decide whether the artefact is safe to delete. Derived purely from the
+ * filename (and parent-directory name) — no DB inspection is performed.
+ *
+ * Codes:
+ * - `pre-cleo-migration` — `*-pre-cleo.db.bak` files written by the
+ *   pre-cleo→cleo migration when the SDK still used legacy file shapes.
+ * - `brain-dup-fix` — `brain.db.PRE-DUP-FIX-*` written by the BRAIN
+ *   dedup repair (T7xxx series).
+ * - `pre-untrack` — `*.pre-untrack-*` written by T5158 when the four
+ *   runtime files were `git rm --cached`-ed in 2026-04-07.
+ * - `quarantine-snapshot` — files captured under
+ *   `<projectRoot>/.cleo/quarantine/` by historical quarantine sweeps
+ *   (lafs-, studio-, adapters-, core-, runtime-, cleo-os- timestamped
+ *   directories). NEVER auto-pruned (may be active forensic artefacts).
+ * - `brain-malformed` — files under `.cleo/quarantine/brain-malformed-*`
+ *   (2026-05-23 P0 brain.db malformation incident). Treated as
+ *   `quarantine-snapshot` for retention.
+ * - `db-backup-rotation` — files under `.cleo/backups/sqlite/` older
+ *   than the 10-snapshot rotation cap (overflow candidates).
+ * - `unknown` — file matches the suffix pattern but no specific origin
+ *   could be inferred from the path. Defaults to safe retention.
+ *
+ * @task T10309
+ */
+export type LegacyBackupOriginHint =
+  | 'pre-cleo-migration'
+  | 'brain-dup-fix'
+  | 'pre-untrack'
+  | 'quarantine-snapshot'
+  | 'brain-malformed'
+  | 'db-backup-rotation'
+  | 'unknown';
+
+/**
+ * Retention recommendation for one legacy backup file.
+ *
+ * `keep` — file is younger than the soft retention window (default 30
+ * days), OR the file lives under a path that is unconditionally
+ * preserved (quarantine artefacts).
+ *
+ * `compress` — file is 30-90 days old and large enough that gzip-ing it
+ * reduces disk pressure. The current implementation surfaces this
+ * recommendation but the `--prune` flag does NOT compress (it only
+ * deletes); a future T10311+ task will wire the compressor.
+ *
+ * `delete` — file is older than the hard retention window (default 90
+ * days) AND does NOT live under `.cleo/quarantine/`. The `--prune`
+ * verb removes these (or simulates removal in dry-run mode).
+ *
+ * @task T10309
+ */
+export type LegacyBackupRecommendation = 'keep' | 'compress' | 'delete';
+
+/**
+ * One legacy backup artefact discovered by the walker.
+ *
+ * Carries enough provenance for the operator to act without re-reading
+ * the file from disk. `ageDays` is rounded DOWN to match the retention
+ * window semantics (a file exactly 30.5 days old is `30` days, still
+ * inside the keep window).
+ *
+ * @task T10309
+ */
+export interface LegacyBackupEntry {
+  /** Absolute path to the legacy backup file. */
+  path: string;
+  /** `fs.statSync(path).size`. */
+  sizeBytes: number;
+  /** `fs.statSync(path).mtimeMs`. */
+  mtimeMs: number;
+  /** Whole-day age of the file at scan time (`floor((now - mtimeMs) / 86_400_000)`). */
+  ageDays: number;
+  /** Inferred origin (which legacy migration created this artefact). */
+  originHint: LegacyBackupOriginHint;
+  /** Retention verdict for this file. */
+  recommendation: LegacyBackupRecommendation;
+  /**
+   * Free-form reason explaining the recommendation. Stable enough to
+   * surface to operators; do NOT machine-parse — switch on
+   * `originHint` + `recommendation` instead.
+   */
+  reason: string;
+}
+
+/**
+ * Result returned by the legacy-backup walker (T10309).
+ *
+ * Lists every discovered artefact plus aggregate counters. When
+ * `--prune` was requested the `pruned` and `kept` arrays partition the
+ * total set; otherwise both arrays are empty and `entries` is the only
+ * populated list.
+ *
+ * @remarks
+ * `softRetentionDays` and `hardRetentionDays` echo the configured
+ * retention thresholds back to the operator so the envelope is
+ * self-documenting.
+ *
+ * @task T10309
+ */
+export interface LegacyBackupScanResult {
+  /** Absolute path to the project root that was scanned. */
+  projectRoot: string;
+  /** Absolute path to the CLEO home (`<projectRoot>/../.local/share/cleo` style) that was scanned. */
+  cleoHome: string;
+  /** All artefacts discovered, sorted by `path` ascending. */
+  entries: LegacyBackupEntry[];
+  /** Total bytes across `entries`. */
+  totalBytes: number;
+  /** Soft retention window in days (files younger than this are always `keep`). */
+  softRetentionDays: number;
+  /** Hard retention window in days (files older than this are `delete`). */
+  hardRetentionDays: number;
+  /**
+   * `true` when this result represents a `--prune` invocation; `false`
+   * when it is a pure scan. Drives whether `pruned`/`kept` are
+   * populated.
+   */
+  prune: boolean;
+  /**
+   * `true` when `--prune` was requested but `--dry-run` was active
+   * (the implementation defaults `--prune` to dry-run). `false` for
+   * actual deletions or when `prune === false`.
+   */
+  dryRun: boolean;
+  /**
+   * Entries that were (or would be) deleted. Always empty when
+   * `prune === false`.
+   */
+  pruned: LegacyBackupEntry[];
+  /**
+   * Entries the prune operation skipped (recommendation !== 'delete'
+   * or path under quarantine). Always empty when `prune === false`.
+   */
+  kept: LegacyBackupEntry[];
+  /**
+   * Errors encountered while removing pruneable files. Empty in
+   * dry-run mode and on pure scans.
+   */
+  errors: Array<{ path: string; error: string }>;
+}
