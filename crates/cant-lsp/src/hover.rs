@@ -24,9 +24,10 @@ pub fn hover_for_word(
     // Directive verb (stripped of leading `/`)
     let directive_word = word.strip_prefix('/').unwrap_or(word);
     if (word.starts_with('/') || (line_text.trim_start().starts_with('/') && !word.is_empty()))
-        && let Some(info) = directive_hover(directive_word) {
-            return Some(info);
-        }
+        && let Some(info) = directive_hover(directive_word)
+    {
+        return Some(info);
+    }
 
     // Canonical event name (provider + domain)
     if let Some(info) = event_hover(word) {
@@ -46,9 +47,10 @@ pub fn hover_for_word(
     // Agent name reference (with or without @)
     let agent_name = word.strip_prefix('@').unwrap_or(word);
     if let Some(doc) = doc
-        && let Some(info) = agent_ref_hover(agent_name, doc) {
-            return Some(info);
-        }
+        && let Some(info) = agent_ref_hover(agent_name, doc)
+    {
+        return Some(info);
+    }
 
     None
 }
@@ -208,27 +210,28 @@ fn keyword_hover(word: &str) -> Option<HoverInfo> {
 fn agent_ref_hover(name: &str, doc: &CantDocument) -> Option<HoverInfo> {
     for section in &doc.sections {
         if let Section::Agent(agent) = section
-            && agent.name.value == name {
-                let mut desc = format!("**@{name}** -- Agent definition");
+            && agent.name.value == name
+        {
+            let mut desc = format!("**@{name}** -- Agent definition");
 
-                // Add model info if present
-                for prop in &agent.properties {
-                    if prop.key.value == "model" {
-                        desc.push_str(&format!("\n\nModel: `{}`", prop_value_preview(&prop.value)));
-                    }
-                    if prop.key.value == "prompt" {
-                        let preview = prop_value_preview(&prop.value);
-                        let truncated = if preview.len() > 80 {
-                            format!("{}...", &preview[..77])
-                        } else {
-                            preview
-                        };
-                        desc.push_str(&format!("\n\nPrompt: \"{truncated}\""));
-                    }
+            // Add model info if present
+            for prop in &agent.properties {
+                if prop.key.value == "model" {
+                    desc.push_str(&format!("\n\nModel: `{}`", prop_value_preview(&prop.value)));
                 }
-
-                return Some(HoverInfo { contents: desc });
+                if prop.key.value == "prompt" {
+                    let preview = prop_value_preview(&prop.value);
+                    let truncated = if preview.len() > 80 {
+                        format!("{}...", &preview[..77])
+                    } else {
+                        preview
+                    };
+                    desc.push_str(&format!("\n\nPrompt: \"{truncated}\""));
+                }
             }
+
+            return Some(HoverInfo { contents: desc });
+        }
     }
     None
 }

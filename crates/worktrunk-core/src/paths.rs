@@ -93,7 +93,8 @@ mod tests {
         let h = compute_project_hash("/some/path");
         assert_eq!(h.len(), PROJECT_HASH_LENGTH);
         assert!(
-            h.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+            h.chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
             "hash {h} should be lowercase hex"
         );
     }

@@ -204,16 +204,17 @@ fn parse_primary(
     if input.len() >= 2 {
         let last = input.as_bytes()[input.len() - 1];
         if matches!(last, b's' | b'm' | b'h' | b'd')
-            && let Ok(amount) = input[..input.len() - 1].parse::<u64>() {
-                let unit = match last {
-                    b's' => DurationUnit::Seconds,
-                    b'm' => DurationUnit::Minutes,
-                    b'h' => DurationUnit::Hours,
-                    b'd' => DurationUnit::Days,
-                    _ => unreachable!(),
-                };
-                return Ok(Expression::Duration(DurationExpr { amount, unit, span }));
-            }
+            && let Ok(amount) = input[..input.len() - 1].parse::<u64>()
+        {
+            let unit = match last {
+                b's' => DurationUnit::Seconds,
+                b'm' => DurationUnit::Minutes,
+                b'h' => DurationUnit::Hours,
+                b'd' => DurationUnit::Days,
+                _ => unreachable!(),
+            };
+            return Ok(Expression::Duration(DurationExpr { amount, unit, span }));
+        }
     }
 
     // Number

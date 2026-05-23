@@ -206,9 +206,14 @@ mod tests {
         let dst = TempDir::new().unwrap();
         fs::create_dir_all(dst.path()).unwrap();
 
-        let plan =
-            plan_copy_ignored(src.path(), dst.path(), "test", &[src.path().to_path_buf()], &[])
-                .unwrap();
+        let plan = plan_copy_ignored(
+            src.path(),
+            dst.path(),
+            "test",
+            &[src.path().to_path_buf()],
+            &[],
+        )
+        .unwrap();
         assert!(!plan.same_worktree);
         assert!(plan.entries.iter().any(|(p, is_dir)| {
             *is_dir && p.file_name().and_then(|n| n.to_str()) == Some("build")
@@ -229,11 +234,7 @@ mod tests {
         let src = init_repo_with_ignored();
         // Add a second ignored leaf that the exclude list will skip.
         fs::write(src.path().join("scratch.log"), "noise").unwrap();
-        fs::write(
-            src.path().join(".gitignore"),
-            "build/\nscratch.log\n",
-        )
-        .unwrap();
+        fs::write(src.path().join(".gitignore"), "build/\nscratch.log\n").unwrap();
         // re-init the index
         Command::new("git")
             .args(["add", ".gitignore"])
@@ -253,10 +254,10 @@ mod tests {
         )
         .unwrap();
         assert!(
-            !plan.entries.iter().any(|(p, _)| p
-                .file_name()
-                .and_then(|n| n.to_str())
-                == Some("scratch.log"))
+            !plan
+                .entries
+                .iter()
+                .any(|(p, _)| p.file_name().and_then(|n| n.to_str()) == Some("scratch.log"))
         );
     }
 }

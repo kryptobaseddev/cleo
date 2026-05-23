@@ -106,9 +106,9 @@ pub fn classify_squash_with_limit(
     inputs: SquashInputs<'_>,
     subject_limit: usize,
 ) -> Result<SquashClassification> {
-    let merge_base = repo
-        .merge_base("HEAD", inputs.target_ref)?
-        .ok_or_else(|| anyhow::anyhow!("no common ancestor with target ref {}", inputs.target_ref))?;
+    let merge_base = repo.merge_base("HEAD", inputs.target_ref)?.ok_or_else(|| {
+        anyhow::anyhow!("no common ancestor with target ref {}", inputs.target_ref)
+    })?;
 
     let range = format!("{merge_base}..HEAD");
     let commit_count = repo.count_commits(&range)?;
@@ -130,7 +130,9 @@ pub fn classify_squash_with_limit(
 
     // Squash-eligible. Fetch subjects + diff stats.
     let subjects = repo.commit_subjects(&range, subject_limit)?;
-    let diff_summary = repo.diff_stats_summary(&merge_base, "HEAD").unwrap_or_default();
+    let diff_summary = repo
+        .diff_stats_summary(&merge_base, "HEAD")
+        .unwrap_or_default();
     Ok(SquashClassification::Squashable {
         target: inputs.target_ref.to_string(),
         merge_base,

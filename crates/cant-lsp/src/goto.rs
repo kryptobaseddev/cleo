@@ -41,12 +41,13 @@ pub fn find_definition(word: &str, doc: &CantDocument) -> Option<DefinitionLocat
             Section::Import(import) => {
                 // If the word matches an import alias, jump to the imported file.
                 if let Some(alias) = &import.alias
-                    && alias == name {
-                        return Some(DefinitionLocation {
-                            span: import.span,
-                            file_path: Some(import.path.clone()),
-                        });
-                    }
+                    && alias == name
+                {
+                    return Some(DefinitionLocation {
+                        span: import.span,
+                        file_path: Some(import.path.clone()),
+                    });
+                }
                 // If the word matches the import path basename without extension
                 let basename = import
                     .path

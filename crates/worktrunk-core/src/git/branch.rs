@@ -69,7 +69,10 @@ mod tests {
 
     #[test]
     fn default_is_safe_delete() {
-        assert_eq!(BranchDeletionMode::default(), BranchDeletionMode::SafeDelete);
+        assert_eq!(
+            BranchDeletionMode::default(),
+            BranchDeletionMode::SafeDelete
+        );
     }
 
     #[test]
