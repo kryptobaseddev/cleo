@@ -2446,6 +2446,28 @@ export const OPERATIONS: OperationDef[] = [
     ] satisfies ParamDef[],
   },
   {
+    // T10117 — detach I5-violating parentId and re-attach via task_relations
+    // type=groups (ADR-073 §1.2 invariant I5). Idempotent.
+    gateway: 'mutate',
+    domain: 'tasks',
+    operation: 'saga.repair',
+    description:
+      'tasks.saga.repair (mutate) — detach I5-violating parentId and re-attach via task_relations type=groups; idempotent',
+    tier: 0,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['sagaId'],
+    params: [
+      {
+        name: 'sagaId',
+        type: 'string',
+        required: true,
+        description: 'Saga task ID (must have label=saga)',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
+  },
+  {
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'start',

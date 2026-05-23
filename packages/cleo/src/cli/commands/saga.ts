@@ -11,9 +11,11 @@
  *   cleo saga list
  *   cleo saga members <sagaId>
  *   cleo saga rollup <sagaId>
+ *   cleo saga repair <sagaId>
  *
  * @see ADR-073 — Above-Epic Naming (Saga, prefix SG-)
  * @task T9521
+ * @task T10117 — saga repair verb
  * @epic T9518
  */
 
@@ -126,6 +128,38 @@ const membersCommand = defineCommand({
   },
 });
 
+/**
+ * cleo saga repair <sagaId> — detach an I5-violating `parentId` from a Saga
+ * and re-attach the former parent via `task_relations.type='groups'`.
+ * Idempotent.
+ *
+ * @task T10117
+ * @see ADR-073-above-epic-naming.md §1.2 — invariant I5
+ */
+const repairCommand = defineCommand({
+  meta: {
+    name: 'repair',
+    description:
+      "Detach an I5-violating parentId from a Saga and re-attach via task_relations.type='groups' (ADR-073 §1.2). Idempotent.",
+  },
+  args: {
+    sagaId: {
+      type: 'positional',
+      description: 'Saga task ID (must have label=saga)',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'tasks',
+      'saga.repair',
+      { sagaId: args.sagaId },
+      { command: 'saga', operation: 'tasks.saga.repair' },
+    );
+  },
+});
+
 /** cleo saga rollup <sagaId> — aggregate status counts across all member Epics */
 const rollupCommand = defineCommand({
   meta: {
@@ -167,6 +201,7 @@ export const sagaCommand = defineCommand({
     list: listCommand,
     members: membersCommand,
     rollup: rollupCommand,
+    repair: repairCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
