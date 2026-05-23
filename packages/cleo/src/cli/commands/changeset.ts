@@ -29,9 +29,8 @@ import {
   type ChangesetKind,
   ExitCode,
 } from '@cleocode/contracts';
-import { changesets, getProjectRoot } from '@cleocode/core';
+import { changesets, dataTable, getProjectRoot } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
-import { dataTable } from '../renderers/format-helpers.js';
 import { cliError, cliOutput, humanInfo, humanLine, isHumanOutput } from '../renderers/index.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
