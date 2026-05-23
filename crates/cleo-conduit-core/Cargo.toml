@@ -1,5 +1,5 @@
 [package]
-name = "conduit-core"
+name = "cleo-conduit-core"
 version.workspace = true
 edition = "2024"
 rust-version = "1.94"

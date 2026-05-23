@@ -305,6 +305,9 @@ mod tests {
             &[d.path().to_path_buf()],
             &["**/.cache/**".to_string()],
         );
-        assert!(res.is_ok(), "well-formed pattern should be accepted: {res:?}");
+        assert!(
+            res.is_ok(),
+            "well-formed pattern should be accepted: {res:?}"
+        );
     }
 }

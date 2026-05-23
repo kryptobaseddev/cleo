@@ -72,8 +72,7 @@ fn copy_and_remove(src: &Path, dest: &Path, is_dir: bool) -> Result<()> {
             .with_context(|| format!("removing source directory {}", src.display()))?;
     } else {
         copy_leaf(src, dest, None, true)?;
-        fs::remove_file(src)
-            .with_context(|| format!("removing source file {}", src.display()))?;
+        fs::remove_file(src).with_context(|| format!("removing source file {}", src.display()))?;
     }
     Ok(())
 }
@@ -233,7 +232,8 @@ where
         ),
     ];
     for (root, args, label) in steps {
-        run_in_worktree(root, args).with_context(|| format!("branch exchange failed at: {label}"))?;
+        run_in_worktree(root, args)
+            .with_context(|| format!("branch exchange failed at: {label}"))?;
     }
     Ok(())
 }
@@ -372,8 +372,8 @@ mod tests {
         assert!(!a.join("from-a.txt").exists());
         assert!(!b.join("from-b.txt").exists());
 
-        let distributed = distribute_staged_files(&staging_dir, &a, &entries_a, &b, &entries_b)
-            .unwrap();
+        let distributed =
+            distribute_staged_files(&staging_dir, &a, &entries_a, &b, &entries_b).unwrap();
         assert_eq!(distributed, 2);
         // After distribute: A has B's file, B has A's file
         assert_eq!(fs::read_to_string(a.join("from-b.txt")).unwrap(), "from-b");
@@ -391,10 +391,16 @@ mod tests {
         fs::create_dir_all(&target).unwrap();
 
         let mut log: Vec<String> = Vec::new();
-        exchange_branches(&main, "main-branch", &target, "target-branch", |root, args| {
-            log.push(format!("{} {:?}", root.display(), args));
-            Ok(())
-        })
+        exchange_branches(
+            &main,
+            "main-branch",
+            &target,
+            "target-branch",
+            |root, args| {
+                log.push(format!("{} {:?}", root.display(), args));
+                Ok(())
+            },
+        )
         .unwrap();
         assert_eq!(log.len(), 4);
         // Step order: detach target, detach main, switch main, switch target

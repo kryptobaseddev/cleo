@@ -47,7 +47,7 @@ pub use relocate::{
     RelocateCandidate, RelocateCycleBreak, RelocatePlan, build_relocation_plan, expected_path_for,
 };
 pub use shared::{
-    BUILTIN_COPY_IGNORED_EXCLUDES, filter_ignored_entries, list_ignored_entries,
-    list_and_filter_ignored_entries,
+    BUILTIN_COPY_IGNORED_EXCLUDES, filter_ignored_entries, list_and_filter_ignored_entries,
+    list_ignored_entries,
 };
 pub use squash::{SquashClassification, SquashInputs, classify_squash};
