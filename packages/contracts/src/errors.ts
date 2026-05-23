@@ -234,6 +234,67 @@ export class LeadBypassDetectedError extends Error {
 }
 
 /**
+ * LAFS error code emitted when a saga-labeled epic carries forbidden parent or
+ * `depends` edges — ADR-073 §1.2 invariant **I3** violation.
+ *
+ * Sagas MUST link to member Epics exclusively via
+ * `task_relations.type='groups'`; a parent or depends edge re-introduces the
+ * depth-budget consumption the saga tier was created to avoid.
+ *
+ * Runtime guard: `assertSagaInvariantI3` (in `@cleocode/core` saga module).
+ *
+ * @task T10115
+ * @saga T10113
+ * @see ADR-073-above-epic-naming.md §1.2
+ */
+export const E_SAGA_INVARIANT_VIOLATION_I3 = 'E_SAGA_INVARIANT_VIOLATION_I3' as const;
+
+/**
+ * LAFS error code emitted when a saga-labeled row has a non-null `parentId` —
+ * ADR-073 §1.2 invariant **I5** violation.
+ *
+ * Sagas are top-level groupings; they do not nest under any task. A non-null
+ * `parentId` on a saga-labeled row indicates storage corruption or a faulty
+ * import path.
+ *
+ * Runtime guard: `assertSagaInvariantI5` (in `@cleocode/core` saga module).
+ *
+ * @task T10115
+ * @saga T10113
+ * @see ADR-073-above-epic-naming.md §1.2
+ */
+export const E_SAGA_INVARIANT_VIOLATION_I5 = 'E_SAGA_INVARIANT_VIOLATION_I5' as const;
+
+/**
+ * LAFS error code emitted when a saga-member candidate is itself a saga —
+ * ADR-073 §1.2 invariant **I7** violation (no nested sagas).
+ *
+ * Nested sagas would re-introduce the multi-release grouping depth the tier
+ * was created to flatten.
+ *
+ * Runtime guard: `assertSagaInvariantI7` (in `@cleocode/core` saga module).
+ *
+ * @task T10115
+ * @saga T10113
+ * @see ADR-073-above-epic-naming.md §1.2
+ */
+export const E_SAGA_INVARIANT_VIOLATION_I7 = 'E_SAGA_INVARIANT_VIOLATION_I7' as const;
+
+/**
+ * Union of saga-invariant LAFS error codes (I3 / I5 / I7).
+ *
+ * Useful for narrowing thrown error codes from
+ * `assertSagaInvariantI{3,5,7}` in dispatch handlers.
+ *
+ * @task T10115
+ * @saga T10113
+ */
+export type SagaInvariantErrorCode =
+  | typeof E_SAGA_INVARIANT_VIOLATION_I3
+  | typeof E_SAGA_INVARIANT_VIOLATION_I5
+  | typeof E_SAGA_INVARIANT_VIOLATION_I7;
+
+/**
  * Normalize any thrown value into a standardized error object.
  *
  * Handles:
