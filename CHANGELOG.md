@@ -1,5 +1,15 @@
 # Changelog
 
+## [2026.5.105] (2026-05-23)
+
+### Features
+
+- **Release verb matrix + DELETE `cleo release ship` + new `cleo release ship-e2e-smoke` (Saga T10099, Epic T10103)** — `docs/release/verb-matrix.md` is now the SSoT mapping every release state transition to its owning verb. The deprecated `cleo release ship` monolith (post-T9540 follow-up) is REMOVED (not just deprecated). New `cleo release ship-e2e-smoke <version> --epic <id> [--execute]` one-shot walker covers plan → open → wait-PR → wait-tag → verify-npm-published; dry-run by default, idempotent, resumable. SSoT `defineCommand` factory landed at `packages/cleo/src/cli/lib/define-cli-command.ts` (T10072 enablement, raw-citty baseline 139→138). `ct-release-orchestrator` SKILL.md rewritten — was describing the deleted 12-step shipv monolith (canonical Saga T9799 skill-drift example). AGENTS.md Release section + user-facing fix strings in `core/{engine-ops, reconcile, release-manifest, spawn-prompt}` updated. Bonus: fixed pre-existing main breakage at `packages/cleo/src/dispatch/__tests__/registry.test.ts:56` (asserted `release.ship` resolves; was removed in T9540 but test never updated). (#538)
+
+### Bug fixes
+
+- **`cleo release plan` fail-loud YAML + always-write CHANGELOG section + gh schema parity (Saga T10099, Epic T10105 + child T9780)** — v5.100 silent-skip bug class permanently closed. Parser now throws new `ChangesetYamlInvalidError` (`E_CHANGESET_YAML_INVALID`) with `{file, line, snippet, parserMessage}` payload on any malformed `.changeset/*.md` instead of logging WARN and silently dropping ALL entries. `cleo release plan` ALWAYS writes the `## [<version>] (<date>)` CHANGELOG section — placeholder body + WARN log when zero changesets parsed, never silently skips. `cleo release open` no longer passes `plan-blob-sha256` to `gh workflow run` — workflow's `inputs:` block only declares `version`; new `release-open-field-schema.test.ts` parity test asserts the key-sets match (extras + missing detection). New vitest fixtures cover the v5.100 unquoted-colon-in-summary reproduction. Closes T9780 (skip+warn approach superseded by user-mandated fail-loud). (#539)
+
 ## [2026.5.104] (2026-05-23)
 
 ### Fixes
