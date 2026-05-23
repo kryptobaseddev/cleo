@@ -32,12 +32,7 @@ packages/cleo/src/cli/commands/llm-login.ts *
 packages/cleo/src/cli/commands/auth/migrate-project-secrets.ts 1
 packages/cleo/src/cli/commands/auth/remove.ts 2
 packages/cleo/src/cli/commands/backup.ts 8
-packages/cleo/src/cli/commands/briefing.ts 3
-packages/cleo/src/cli/commands/check.ts 1
-packages/cleo/src/cli/commands/llm-stream.ts 3
-packages/cleo/src/cli/commands/llm.ts 6
-packages/cleo/src/cli/commands/nexus.ts 1
-packages/cleo/src/cli/commands/release.ts 1
+packages/cleo/src/cli/commands/check.ts 10
 packages/cleo/src/cli/commands/session.ts 3
 packages/cleo/src/cli/commands/setup.ts 2
 packages/cleo/src/cli/commands/web.ts 5
@@ -49,7 +44,6 @@ packages/core/src/memory/brain-page-nodes.ts 6
 packages/core/src/memory/brain-purge.ts 1
 packages/core/src/memory/brain-reasoning.ts 1
 packages/core/src/memory/brain-reconciler.ts 1
-packages/core/src/memory/brain-retrieval.ts 1
 packages/core/src/memory/brain-stdp.ts 2
 packages/core/src/memory/brain-sweep-executor.ts 3
 packages/core/src/memory/dream-cycle.ts 1
@@ -64,7 +58,11 @@ packages/core/src/memory/surprisal-tree.ts 2
 packages/core/src/memory/surprisal.ts 3
 packages/core/src/memory/temporal-supersession.ts 1
 
+# core/memory/retrieval — T9963 refactor long-tail
+packages/core/src/memory/retrieval/build-retrieval-bundle.ts 1
+
 # core/nexus
+packages/core/src/nexus/analyze-orchestrator.ts 1
 packages/core/src/nexus/living-brain.ts 14
 packages/core/src/nexus/wiki-index.ts 2
 
