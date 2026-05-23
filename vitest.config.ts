@@ -280,6 +280,12 @@ export default defineConfig({
       'packages/skills/vitest.config.ts',
       'packages/studio/vitest.config.ts',
       'packages/worktree/vitest.config.ts',
+      // T10177: scripts/__tests__/*.test.mjs unit tests (bump-workspace-deps,
+      // commit-msg-release-lint, lint-cli-package-boundary, etc.) re-attached
+      // to the workspace as a dedicated `scripts` project. The root-level
+      // `include` field is ignored once `projects:` is set, so without this
+      // entry these tests silently stopped running in CI shards.
+      'scripts/vitest.config.ts',
     ],
   },
 });

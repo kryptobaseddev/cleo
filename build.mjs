@@ -52,6 +52,9 @@ const SUBPATH_DIRS = [
   'doctor',
   'memory',
   'tasks',
+  // T10124 / Saga T10113 — packages/core/src/sagas/ hosts the saga ops
+  // (create/add/list/members/rollup) imported by the CLI dispatch handler.
+  'sagas',
   'sessions',
   'setup',
   'status',
