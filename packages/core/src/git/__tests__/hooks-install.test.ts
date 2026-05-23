@@ -27,17 +27,13 @@ import {
 /**
  * Repo-source templates dir. We pass this explicitly so tests don't
  * depend on the default-resolution walk.
+ *
+ * T9858 relocated the git-hook templates from
+ * `packages/cleo/templates/hooks/` to `packages/core/templates/git-hooks/`
+ * per the Package-Boundary Check, so this resolver now walks UP to
+ * `packages/core/` and DOWN into `templates/git-hooks/`.
  */
-const REPO_TEMPLATES_DIR = path.resolve(
-  __dirname,
-  '..',
-  '..',
-  '..',
-  '..',
-  'cleo',
-  'templates',
-  'hooks',
-);
+const REPO_TEMPLATES_DIR = path.resolve(__dirname, '..', '..', '..', 'templates', 'git-hooks');
 
 let tmpRoot: string;
 

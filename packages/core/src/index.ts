@@ -306,6 +306,8 @@ export type {
   WorkflowName,
 } from './init/scaffold-workflows.js';
 export {
+  getGitHookTemplatesDir,
+  getWorkflowTemplatesDir,
   listAvailableWorkflowTemplates,
   scaffoldWorkflows,
 } from './init/scaffold-workflows.js';

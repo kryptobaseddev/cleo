@@ -27,6 +27,8 @@ export type {
 } from './scaffold-workflows.js';
 export {
   DEFAULT_WORKFLOW_TEMPLATES,
+  getGitHookTemplatesDir,
+  getWorkflowTemplatesDir,
   listAvailableWorkflowTemplates,
   scaffoldWorkflows,
 } from './scaffold-workflows.js';

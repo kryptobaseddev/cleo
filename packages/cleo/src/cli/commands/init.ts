@@ -25,11 +25,12 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   CleoError,
   formatError,
+  getWorkflowTemplatesDir as getCoreWorkflowTemplatesDir,
   type InitOptions,
   initProject,
   scaffoldWorkflows,
@@ -70,21 +71,20 @@ export function getGitignoreTemplate(): string {
  * @epic T4663
  */
 /**
- * Resolve the absolute path to the `@cleocode/cleo` package's
- * `templates/workflows/` directory. Works in both monorepo development
- * (`packages/cleo/templates/...`) and installed npm package
- * (`node_modules/@cleocode/cleo/templates/...`) layouts.
+ * Resolve the absolute path to the `@cleocode/core` package's
+ * `templates/workflows/` directory.
  *
- * Exposed for `scaffoldWorkflows` consumers that need to point at the
- * shipped templates without hard-coding the path.
+ * Re-exported from `@cleocode/core` for backwards compatibility with
+ * callers that imported this helper from `init.ts` (notably
+ * `packages/cleo/src/cli/commands/upgrade.ts`). T9858 relocated the
+ * workflow templates from `packages/cleo/templates/` to
+ * `packages/core/templates/` per the Package-Boundary Check.
  *
  * @task T9531
+ * @task T9858
  */
 export function getWorkflowTemplatesDir(): string {
-  const thisFile = fileURLToPath(import.meta.url);
-  // dist/cli/commands/init.js → up four levels → packages/cleo
-  const packageRoot = resolve(dirname(thisFile), '..', '..', '..', '..');
-  return join(packageRoot, 'templates', 'workflows');
+  return getCoreWorkflowTemplatesDir();
 }
 
 export const initCommand = defineCommand({
