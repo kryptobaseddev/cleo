@@ -36,6 +36,11 @@
       "import": "./dist/tasks/index.js",
       "require": "./dist/tasks/index.js"
     },
+    "./sagas": {
+      "types": "./dist/sagas/index.d.ts",
+      "import": "./dist/sagas/index.js",
+      "require": "./dist/sagas/index.js"
+    },
     "./agents": {
       "types": "./dist/agents/index.d.ts",
       "import": "./dist/agents/index.js",
