@@ -14,7 +14,6 @@
  * @epic T1691
  */
 
-import { describe, expect, it } from 'vitest';
 import {
   renderBrainBackfill,
   renderBrainExport,
@@ -22,7 +21,8 @@ import {
   renderBrainPlasticityStats,
   renderBrainPurge,
   renderBrainQuality,
-} from '../system.js';
+} from '@cleocode/core';
+import { describe, expect, it } from 'vitest';
 
 // ---------------------------------------------------------------------------
 // renderBrainMaintenance
