@@ -132,7 +132,7 @@ describe('renderTree', () => {
     expect(lines).toHaveLength(51);
     expect(lines[0]).toBe('📋 Big epic 🚧');
     expect(lines[49]).toBe('├─ • Task 49 ⏳');
-    expect(lines[50]).toBe('└─ … and 11 more tasks (run cleo tree E-BIG --depth +1 to expand)');
+    expect(lines[50]).toBe('└─ … and 11 more tasks (run cleo tree E-BIG to expand)');
   });
 
   it('renders nothing when the root cannot be resolved', () => {

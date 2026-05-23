@@ -190,7 +190,7 @@ function emitChildren<T>(
     const sampleKind = children[0]?.kind ?? 'task';
     const label = KIND_LABEL[sampleKind];
     out.push(
-      `${ancestorPrefix}${connectors.leaf}… and ${hidden} more ${label} (run cleo tree ${parentId} --depth +1 to expand)`,
+      `${ancestorPrefix}${connectors.leaf}… and ${hidden} more ${label} (run cleo tree ${parentId} to expand)`,
     );
   }
 }
