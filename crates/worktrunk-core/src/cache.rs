@@ -22,7 +22,7 @@
 //!
 //! Writes use a plain [`fs::write`], not temp-file-plus-rename. A crash in
 //! the middle of a write produces a truncated file at the expected path,
-//! which [`read_json`] rejects as corrupt JSON — indistinguishable from a
+//! which [`read_json_at`] rejects as corrupt JSON — indistinguishable from a
 //! cache miss from the caller's perspective. Two concurrent writers for the
 //! same key produce the same value for content-addressed caches (benign)
 //! and the last writer wins for TTL-based ones (benign — the next read
@@ -30,10 +30,10 @@
 //!
 //! # Error policy
 //!
-//! - [`read_json`] returns `None` on any failure (missing file, I/O error,
+//! - [`read_json_at`] returns `None` on any failure (missing file, I/O error,
 //!   corrupt JSON) — callers treat all three as a cache miss. Corrupt JSON
 //!   is logged at debug.
-//! - [`write_json`] degrades silently. Callers never observe cache write
+//! - [`write_json_at`] degrades silently. Callers never observe cache write
 //!   failures because a failed write just means the next access re-computes.
 //! - [`clear_one`] and [`clear_json_files`] propagate non-`NotFound` I/O
 //!   errors so cache-clear CLI commands can report truthfully when they
@@ -62,7 +62,7 @@ pub fn cache_dir_at(wt_dir: &Path, kind: &str) -> PathBuf {
 ///
 /// Returns `None` on any failure. Corrupt JSON is logged at debug — a torn
 /// write is indistinguishable from a cache miss at this layer.
-pub fn read_json<T: DeserializeOwned>(path: &Path) -> Option<T> {
+pub fn read_json_at<T: DeserializeOwned>(path: &Path) -> Option<T> {
     let json = fs::read_to_string(path).ok()?;
     match serde_json::from_str::<T>(&json) {
         Ok(value) => Some(value),
@@ -83,7 +83,7 @@ pub fn read_json<T: DeserializeOwned>(path: &Path) -> Option<T> {
 /// Degrades silently on any failure — parent dir creation, serialization,
 /// or the write itself. A failed write just means the next access
 /// re-computes; callers must never observe the error.
-pub fn write_json<T: Serialize>(path: &Path, value: &T) {
+pub fn write_json_at<T: Serialize>(path: &Path, value: &T) {
     if let Some(parent) = path.parent()
         && let Err(e) = fs::create_dir_all(parent)
     {
@@ -118,13 +118,13 @@ pub fn write_json<T: Serialize>(path: &Path, value: &T) {
 /// layout. Returns `None` on any failure (missing file, I/O error, corrupt
 /// JSON).
 pub fn read<T: DeserializeOwned>(wt_dir: &Path, kind: &str, key: &str) -> Option<T> {
-    read_json(&cache_dir_at(wt_dir, kind).join(key))
+    read_json_at(&cache_dir_at(wt_dir, kind).join(key))
 }
 
 /// Write a JSON entry at `<wt_dir>/cache/<kind>/<key>`, then sweep the kind
 /// directory so it holds at most `max_entries` top-level `.json` files.
 ///
-/// Combines [`write_json`] with [`sweep_lru`] — the "write + bound" pattern
+/// Combines [`write_json_at`] with [`sweep_lru`] — the "write + bound" pattern
 /// every `sha_cache` `put_*` function repeats. Degrades silently on write
 /// failure; the sweep runs regardless so a torn write still triggers the
 /// size bound check.
@@ -136,7 +136,7 @@ pub fn write_with_lru<T: Serialize>(
     max_entries: usize,
 ) {
     let dir = cache_dir_at(wt_dir, kind);
-    write_json(&dir.join(key), value);
+    write_json_at(&dir.join(key), value);
     sweep_lru(&dir, max_entries);
 }
 
@@ -291,11 +291,11 @@ mod tests {
         let path = tmp.path().join("sub/entry.json");
 
         // Missing file is a miss.
-        assert!(read_json::<V>(&path).is_none());
+        assert!(read_json_at::<V>(&path).is_none());
 
         // Write creates parent dirs and round-trips.
-        write_json(&path, &V { x: 42 });
-        assert_eq!(read_json::<V>(&path), Some(V { x: 42 }));
+        write_json_at(&path, &V { x: 42 });
+        assert_eq!(read_json_at::<V>(&path), Some(V { x: 42 }));
     }
 
     #[test]
@@ -303,14 +303,14 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let path = tmp.path().join("bad.json");
         fs::write(&path, "not json {{").unwrap();
-        assert!(read_json::<V>(&path).is_none());
+        assert!(read_json_at::<V>(&path).is_none());
     }
 
     #[test]
     fn read_at_kind_key_resolves_subpath() {
         let tmp = TempDir::new().unwrap();
         let wt = tmp.path();
-        write_json(&cache_dir_at(wt, "k").join("a"), &V { x: 7 });
+        write_json_at(&cache_dir_at(wt, "k").join("a"), &V { x: 7 });
         assert_eq!(read::<V>(wt, "k", "a"), Some(V { x: 7 }));
         assert!(read::<V>(wt, "k", "missing").is_none());
     }
