@@ -16,8 +16,8 @@
  * @saga T10099
  */
 
-import type { ShipE2eSmokeParams } from '@cleocode/contracts';
-import { createDefaultSmokeEnvironment, runShipE2eSmoke } from '@cleocode/core';
+import type { ShipE2eSmokeParams, ShipE2eSmokeResult, ShipE2eSmokeStep } from '@cleocode/contracts';
+import { release } from '@cleocode/core';
 import { defineCommand } from '../../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../../renderers/index.js';
 
@@ -69,14 +69,14 @@ export const shipE2eSmokeCommand = defineCommand({
       ...(totalTimeoutMs !== undefined ? { totalTimeoutMs } : {}),
     };
 
-    const env = createDefaultSmokeEnvironment();
-    const result = await runShipE2eSmoke(params, env);
+    const env = release.createDefaultSmokeEnvironment();
+    const result: ShipE2eSmokeResult = await release.runShipE2eSmoke(params, env);
 
     if (result.success) {
       cliOutput(result, { command: 'release', operation: 'release.ship-e2e-smoke' });
       return;
     }
-    const failed = result.steps.find((s) => s.status === 'failed');
+    const failed = result.steps.find((s: ShipE2eSmokeStep) => s.status === 'failed');
     cliError(
       `ship-e2e-smoke step "${failed?.name ?? 'unknown'}" failed: ${failed?.error ?? 'see envelope'}`,
       'E_SHIP_E2E_SMOKE_FAILED',
