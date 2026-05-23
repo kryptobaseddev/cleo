@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/worktree",
-  "version": "2026.5.103",
+  "version": "2026.5.104",
   "private": false,
   "type": "module",
   "description": "Native CLEO worktree backend SDK — createWorktree, destroyWorktree, listWorktrees, pruneWorktrees with XDG path canon and declarative hooks (T1161)",
@@ -36,7 +36,9 @@
   "license": "MIT",
   "dependencies": {
     "@cleocode/contracts": "workspace:*",
-    "@cleocode/paths": "workspace:*",
+    "@cleocode/paths": "workspace:*"
+  },
+  "optionalDependencies": {
     "@cleocode/worktree-napi": "workspace:*"
   },
   "devDependencies": {

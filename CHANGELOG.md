@@ -1,5 +1,12 @@
 # Changelog
 
+## [2026.5.104] (2026-05-23)
+
+### Fixes
+
+- **Global install unblocked (T9343 partial workaround)** — `@cleocode/worktree-napi` moved to `optionalDependencies` of `@cleocode/worktree`. `npm i -g @cleocode/cleo@2026.5.104` now succeeds even when the napi prebuild publish step fails in CI. Runtime falls back to the JS path with a single deprecation warning (existing behavior). The underlying napi publish bug remains owner-action (T9343).
+- **sagaList returns all sagas (T10236)** — `cleo saga list` now passes `limit: 1000` to the underlying `taskList`, fixing the silent default-limit truncation that hid 9 sagas in a 19-saga repo. Closes the last gap in T10117's loud-include fix. Saga T10113 closeout.
+
 ## [2026.5.103] (2026-05-23)
 
 ### Features
