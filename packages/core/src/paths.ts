@@ -1440,3 +1440,186 @@ export function getClaudeAgentsDir(): string {
 export function getClaudeMemDbPath(): string {
   return process.env['CLAUDE_MEM_DB'] ?? join(homedir(), '.claude-mem', 'claude-mem.db');
 }
+
+// ============================================================================
+// Worktree-aware CLI routing helpers (T10389 / ADR-068 amendment §3.1)
+// ============================================================================
+
+/**
+ * Result of {@link resolveWorktreeRouting}.
+ *
+ * Encodes the canonical project root + caller cwd + whether routing kicked in
+ * so CLI verbs can emit a single, consistent log line and pre-resolve file
+ * paths against the worktree's cwd before dispatch reaches the canonical-root-
+ * anchored sanitizer.
+ *
+ * @public
+ * @task T10389
+ */
+export interface WorktreeRouting {
+  /** Caller's `process.cwd()` (or the override passed to the helper). */
+  readonly cwd: string;
+  /** Canonical project root as returned by {@link getProjectRoot}. */
+  readonly canonicalRoot: string;
+  /**
+   * True when `cwd` is inside a git worktree whose canonical root resolves to
+   * a different directory (i.e. `.git` is a gitlink FILE pointing back to a
+   * different repo).
+   *
+   * False when running directly from the canonical project root OR from a
+   * subdirectory that walks up to the same project root.
+   */
+  readonly isWorktree: boolean;
+  /**
+   * Absolute path to the worktree directory when `isWorktree` is true,
+   * otherwise `undefined`. Equal to the closest ancestor of `cwd` that
+   * carries `.git` as a FILE (the gitlink).
+   */
+  readonly worktreePath?: string;
+}
+
+/**
+ * Detect whether the caller is operating from inside a git worktree whose
+ * canonical project root resolves to a DIFFERENT directory than `cwd`.
+ *
+ * The resolver walks ancestors from `cwd` looking for `.git`. When `.git` is
+ * a FILE it is a worktree gitlink; the canonical root is the main repo (the
+ * resolver in {@link getProjectRoot} already parses this case correctly).
+ *
+ * Used by CLI verbs that need to resolve user-supplied file paths against
+ * the worktree's cwd (not the canonical root) BEFORE dispatching to the
+ * sanitizer middleware, which enforces canonical-root anchoring.
+ *
+ * @param cwdOverride - Override for `process.cwd()`; used by tests.
+ *
+ * @returns A {@link WorktreeRouting} envelope describing the detected routing.
+ *
+ * @public
+ * @task T10389
+ */
+export function resolveWorktreeRouting(cwdOverride?: string): WorktreeRouting {
+  const cwd = resolve(cwdOverride ?? process.cwd());
+  const home = homedir();
+
+  // Walk ancestors from cwd looking for `.git` (as either FILE for a worktree
+  // gitlink OR DIRECTORY for a real repo root). The closest ancestor with a
+  // `.git` FILE is the worktree directory. We do this discovery FIRST — before
+  // delegating to `getProjectRoot` — because the existing `getProjectRoot`
+  // gitlink branch only fires when the START dir itself carries the gitlink.
+  // From a subdirectory of a worktree (e.g. `<worktree>/docs/`), the ancestor
+  // gitlink would be missed and `getProjectRoot` would throw `E_NO_PROJECT`
+  // instead of routing back to the main repo.
+  let worktreePath: string | undefined;
+  let current = cwd;
+  while (current !== home && current !== '/' && current !== '') {
+    const gitPath = join(current, '.git');
+    try {
+      if (existsSync(gitPath)) {
+        const stat = statSync(gitPath);
+        if (stat.isFile()) {
+          worktreePath = current;
+          break;
+        }
+        if (stat.isDirectory()) {
+          // Real `.git/` directory found — `current` is the canonical project
+          // root itself, not a worktree. Stop walking.
+          break;
+        }
+      }
+    } catch {
+      /* fall through to ancestor walk */
+    }
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+
+  // Resolve the canonical root. When we discovered a worktree gitlink, use
+  // its directory as the cwd argument so `getProjectRoot`'s own gitlink branch
+  // walks back to the main repo (this is the path `getProjectRoot` already
+  // handles correctly when start carries the gitlink).
+  let canonicalRoot: string;
+  try {
+    canonicalRoot = getProjectRoot(worktreePath ?? cwd);
+  } catch {
+    // No project root resolvable — return a non-worktree shape so callers
+    // fall through to their existing dispatch path and let it raise the
+    // underlying error.
+    return { cwd, canonicalRoot: cwd, isWorktree: false };
+  }
+
+  if (worktreePath !== undefined && worktreePath !== canonicalRoot) {
+    return { cwd, canonicalRoot, isWorktree: true, worktreePath };
+  }
+
+  return { cwd, canonicalRoot, isWorktree: false };
+}
+
+/**
+ * Resolve a user-supplied file path against the calling worktree's cwd when
+ * applicable, returning an absolute path suitable for I/O.
+ *
+ * Behaviour:
+ *   - When the caller is NOT in a worktree (or `routing` is not provided),
+ *     returns `resolve(filePath)` (the historic behaviour).
+ *   - When the caller IS in a worktree, resolves relative paths against the
+ *     worktree's cwd (`routing.cwd`). Absolute paths pass through unchanged.
+ *
+ * The returned absolute path may be OUTSIDE the canonical project root — that
+ * is the whole point of worktree routing. Callers that pass this path through
+ * the dispatch sanitizer MUST exempt the operation (see
+ * `packages/core/src/security/input-sanitization.ts` `allowExternalPath`).
+ *
+ * @param filePath - Raw file path as supplied by the user.
+ * @param routing  - Detected routing envelope (from {@link resolveWorktreeRouting}).
+ *
+ * @returns Absolute file path resolved against the worktree's cwd.
+ *
+ * @public
+ * @task T10389
+ */
+export function resolveWorktreeFilePath(filePath: string, routing: WorktreeRouting): string {
+  if (!routing.isWorktree || routing.worktreePath === undefined) {
+    return resolve(filePath);
+  }
+  // Relative paths resolve against the worktree's cwd (not the canonical root).
+  return resolve(routing.cwd, filePath);
+}
+
+/**
+ * Detect a stray `.cleo/tasks.db` SQLite handle inside a worktree directory.
+ *
+ * Background: CLEO worktrees are advised to keep their `.cleo/` empty so
+ * every DB open routes through `openCleoDb()` against the canonical project
+ * root (T9806 / ADR-068). A leaked `.cleo/tasks.db` inside a worktree
+ * indicates a pre-T9803 install OR a misbehaving agent that wrote to the
+ * worktree instead of routing to the canonical root.
+ *
+ * When this helper detects a stray DB, CLI verbs should emit an actionable
+ * error BEFORE invoking the dispatch chain so the user sees clear
+ * remediation steps rather than the lower-level `E_WT_DB_ISOLATION_VIOLATION`
+ * thrown from inside the DB chokepoint.
+ *
+ * @param routing - Detected routing envelope (from {@link resolveWorktreeRouting}).
+ *
+ * @returns The absolute path to the stray `tasks.db` when present, otherwise
+ *   `undefined`. The presence of `.cleo/` alone (without `tasks.db`) is NOT
+ *   a stray — intentional caches may legitimately live there.
+ *
+ * @public
+ * @task T10389
+ */
+export function detectStrayCleoDb(routing: WorktreeRouting): string | undefined {
+  if (!routing.isWorktree || routing.worktreePath === undefined) {
+    return undefined;
+  }
+  const tasksDbPath = join(routing.worktreePath, '.cleo', 'tasks.db');
+  try {
+    if (existsSync(tasksDbPath) && statSync(tasksDbPath).isFile()) {
+      return tasksDbPath;
+    }
+  } catch {
+    /* fall through */
+  }
+  return undefined;
+}
