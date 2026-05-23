@@ -17,3 +17,20 @@ export * from './nexus/index.js';
 export * from './registry.js';
 export * from './render-envelope.js';
 export * from './types.js';
+
+// Side-effect import: registers task-family renderers into the registry on
+// module load (T10133 / B8). Re-export the named renderers for direct callers
+// (CLI dispatcher, tests) that haven't migrated to `renderEnvelopeForHuman`.
+import './tasks/index.js';
+
+export {
+  renderAdd,
+  renderArchive,
+  renderComplete,
+  renderDelete,
+  renderFind,
+  renderList,
+  renderRestore,
+  renderShow,
+  renderUpdate,
+} from './tasks/index.js';
