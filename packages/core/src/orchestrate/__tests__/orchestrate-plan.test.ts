@@ -91,13 +91,17 @@ const EPIC_TASKS: Array<Record<string, unknown>> = [
 ];
 
 // Non-epic task (for E_VALIDATION test).
+// T10329: `type` value must be a canonical TaskType (saga|epic|task|subtask)
+// to satisfy the SQL CHECK constraint added by 20260523213708_t10277-saga-tasktype.
+// 'task' is a non-epic value and still triggers the E_VALIDATION path under
+// orchestratePlan because the planner only accepts epics.
 const LEAF_TASK: Record<string, unknown> = {
   id: 'T610',
   title: 'Leaf task',
   description: 'No children, not an epic',
   status: 'pending',
   priority: 'medium',
-  type: 'feature',
+  type: 'task',
   files: ['packages/core/src/c.ts'],
   createdAt: ISO,
   updatedAt: ISO,
