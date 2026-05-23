@@ -1044,4 +1044,29 @@ mod tests {
         let t = repo.detect_ref_type("main").unwrap();
         assert_eq!(t, RefType::LocalBranch);
     }
+
+    #[test]
+    fn diff_stats_summary_returns_shortstat_parseable_by_sdk() {
+        let d = init_repo();
+        let repo = ProcessRepo::at(d.path()).unwrap();
+
+        // Add a second commit so we have a range to diff.
+        std::fs::write(d.path().join("a.txt"), "alpha\nbeta\ngamma\n").unwrap();
+        Command::new("git")
+            .args(["add", "a.txt"])
+            .current_dir(d.path())
+            .status()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-q", "-m", "second"])
+            .current_dir(d.path())
+            .status()
+            .unwrap();
+
+        let shortstat = repo.diff_stats_summary("HEAD~1", "HEAD").unwrap();
+        let stats = crate::diff::DiffStats::from_shortstat(&shortstat);
+        assert_eq!(stats.files, 1, "exactly one file changed");
+        assert_eq!(stats.insertions, 3, "three lines inserted");
+        assert_eq!(stats.deletions, 0, "no deletions");
+    }
 }
