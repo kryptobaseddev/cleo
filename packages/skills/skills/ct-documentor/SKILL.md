@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Coordinates ct-docs-lookup, ct-docs-write, ct-docs-review, ct-spec-writer, and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.1.0
+version: 3.2.0
 tier: 3
 core: false
 category: specialist
@@ -95,6 +95,36 @@ cleo docs add T1234 docs/drafts/feature-x.md \
   CLI returns `E_SLUG_TAKEN` with 3 alternatives — pick one, do not overwrite.
 - The owner ID (`T1234` above) auto-classifies the attachment by prefix:
   `T###` → task, `ses_*` → session, `O-*` → observation.
+
+### Strict flag validation (T10359 · closes T10238)
+
+`cleo docs add` rejects unknown flags with `E_UNKNOWN_FLAG` + Levenshtein
+"did you mean" suggestions and exits with code `6` (`VALIDATION_ERROR`).
+This closes the silent-absorption footgun where citty's underlying
+`parseArgs({ strict: false })` accepted typo'd flags (e.g. `--titel`,
+`--title`) as positional values.
+
+```bash
+# Typo → E_UNKNOWN_FLAG with suggestion
+$ cleo docs add T123 file.md --titel "X"
+{
+  "success": false,
+  "error": {
+    "code": 6,
+    "codeName": "E_UNKNOWN_FLAG",
+    "message": "E_UNKNOWN_FLAG: unknown flag '--titel' for 'docs add'. Did you mean: --type, --slug?",
+    "fix": "Try one of: --type, --slug. Run `cleo docs add --help` for the full flag list.",
+    "alternatives": [{ "action": "--type", "command": "--type" }, { "action": "--slug", "command": "--slug" }],
+    "details": { "flag": "--titel", "knownFlags": [...] }
+  },
+  "meta": { ... }
+}
+```
+
+The accepted positional + named surface is enumerated in
+`cleo docs add --help` — agents MUST consult `--help` rather than guessing
+flag names. Use the `--flag=value` form (`--type=spec`) or
+`--flag value` (`--type spec`) — both are recognised.
 
 ### Publish to a git-tracked path (when the doc must live on disk)
 
