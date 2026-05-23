@@ -387,7 +387,7 @@ if (MODE_STRICT) {
     process.stderr.write(`\n`);
     process.stderr.write(`=============================================================\n`);
     process.stderr.write(
-      `CLI-BOUNDARY VIOLATION — ${violations.length} helper function(s) > ${LOC_THRESHOLD} LOC\n`,
+      `CLI-BOUNDARY VIOLATION (strict mode) — ${violations.length} helper function(s) > ${LOC_THRESHOLD} LOC\n`,
     );
     process.stderr.write(`=============================================================\n\n`);
 
