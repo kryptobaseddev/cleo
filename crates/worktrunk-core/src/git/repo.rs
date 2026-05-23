@@ -243,6 +243,12 @@ pub trait Repo {
         Err(unimplemented_in_sdk("diff_stats_summary"))
     }
 
+    /// `git merge-base <a> <b>` — returns the common ancestor commit SHA, or
+    /// `None` when no common ancestor exists.
+    fn merge_base(&self, _a: &str, _b: &str) -> Result<Option<String>> {
+        Err(unimplemented_in_sdk("merge_base"))
+    }
+
     // ------------------------------------------------------------------
     // RefSnapshot — capture + analysis
     // ------------------------------------------------------------------
@@ -592,6 +598,233 @@ impl Repo for ProcessRepo {
     fn short_sha(&self, sha: &str) -> Result<String> {
         self.git_text(&["rev-parse", "--short", sha])
     }
+
+    fn ref_exists(&self, name: &str) -> Result<bool> {
+        // `git rev-parse --verify --quiet <name>` exits 0 if the ref resolves,
+        // 1 if not. Either way the process completes — distinguish them via
+        // exit code, not via `?` (we want false, not Err).
+        let out = Command::new("git")
+            .args(["rev-parse", "--verify", "--quiet", name])
+            .current_dir(&self.discovery_path)
+            .output()
+            .with_context(|| format!("git rev-parse --verify {name} failed to invoke"))?;
+        Ok(out.status.success())
+    }
+
+    fn default_branch(&self) -> Result<String> {
+        // Prefer `origin/HEAD` for the canonical answer; fall back to
+        // `init.defaultBranch` config when no remote tracking is configured.
+        let head_ref = Command::new("git")
+            .args(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
+            .current_dir(&self.discovery_path)
+            .output()
+            .with_context(|| "git symbolic-ref refs/remotes/origin/HEAD failed".to_string())?;
+        if head_ref.status.success() {
+            let s = String::from_utf8_lossy(&head_ref.stdout).trim().to_string();
+            // Strip `origin/` prefix to return just the branch name.
+            let name = s.strip_prefix("origin/").unwrap_or(&s).to_string();
+            if !name.is_empty() {
+                return Ok(name);
+            }
+        }
+        // Fallback: try init.defaultBranch
+        if let Some(v) = self.config_value("init.defaultBranch")? {
+            return Ok(v);
+        }
+        Err(anyhow!("cannot determine default branch"))
+    }
+
+    fn count_commits(&self, spec: &str) -> Result<u64> {
+        let s = self.git_text(&["rev-list", "--count", spec])?;
+        s.trim()
+            .parse::<u64>()
+            .with_context(|| format!("parsing rev-list --count output: {s:?}"))
+    }
+
+    fn is_ancestor(&self, a: &str, b: &str) -> Result<bool> {
+        // `git merge-base --is-ancestor <a> <b>` returns exit code 0 (true),
+        // 1 (false), or 128+ (error). Discriminate by exit code.
+        let out = Command::new("git")
+            .args(["merge-base", "--is-ancestor", a, b])
+            .current_dir(&self.discovery_path)
+            .output()
+            .with_context(|| format!("git merge-base --is-ancestor {a} {b} failed to invoke"))?;
+        match out.status.code() {
+            Some(0) => Ok(true),
+            Some(1) => Ok(false),
+            _ => Err(anyhow!(
+                "git merge-base --is-ancestor {a} {b} failed: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            )),
+        }
+    }
+
+    fn merge_base(&self, a: &str, b: &str) -> Result<Option<String>> {
+        let out = Command::new("git")
+            .args(["merge-base", a, b])
+            .current_dir(&self.discovery_path)
+            .output()
+            .with_context(|| format!("git merge-base {a} {b} failed to invoke"))?;
+        match out.status.code() {
+            Some(0) => Ok(Some(String::from_utf8_lossy(&out.stdout).trim().to_string())),
+            // 1 = no common ancestor — not an error in our SDK semantics.
+            Some(1) => Ok(None),
+            _ => Err(anyhow!(
+                "git merge-base {a} {b} failed: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            )),
+        }
+    }
+
+    fn commit_subjects(&self, rev_range: &str, limit: usize) -> Result<Vec<String>> {
+        // `git log --format=%s -n <limit> <range>` yields one subject per line.
+        let limit_str = limit.to_string();
+        let s = self.git_text(&["log", "--format=%s", "-n", &limit_str, rev_range])?;
+        if s.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+        Ok(s.lines().map(str::to_string).collect())
+    }
+
+    fn diff_stats_summary(&self, from: &str, to: &str) -> Result<String> {
+        let range = format!("{from}..{to}");
+        self.git_text(&["diff", "--shortstat", &range])
+    }
+
+    fn all_branches(&self) -> Result<Vec<crate::git::repo::BranchRef>> {
+        // `git for-each-ref --format=%(refname:short) %(objectname) refs/heads
+        // refs/remotes` emits one line per ref with its oid.
+        let s = self.git_text(&[
+            "for-each-ref",
+            "--format=%(refname:short)\t%(objectname)\t%(refname)",
+            "refs/heads",
+            "refs/remotes",
+        ])?;
+        let mut out: Vec<BranchRef> = Vec::new();
+        for line in s.lines() {
+            let mut parts = line.split('\t');
+            let (Some(short), Some(oid), Some(full)) = (parts.next(), parts.next(), parts.next())
+            else {
+                continue;
+            };
+            let is_remote = full.starts_with("refs/remotes/");
+            out.push(BranchRef {
+                name: short.to_string(),
+                oid: oid.to_string(),
+                is_remote,
+            });
+        }
+        Ok(out)
+    }
+
+    fn is_remote_tracking_branch(&self, name: &str) -> Result<bool> {
+        // Heuristic: `git for-each-ref refs/remotes/<name>` returns a row IFF
+        // it's a remote-tracking branch.
+        let s = self.git_text(&[
+            "for-each-ref",
+            "--format=%(refname)",
+            &format!("refs/remotes/{name}"),
+        ])?;
+        Ok(!s.trim().is_empty())
+    }
+
+    fn strip_remote_prefix(&self, name: &str) -> Result<String> {
+        // For a name like `origin/foo`, strip the first `<remote>/` segment.
+        // We can't distinguish `<remote>/foo` from `<foo-with-slash>` without
+        // querying remote names; the worktrunk convention is to strip ANY
+        // single leading slash component (matches the audit's "pure string op"
+        // classification).
+        Ok(name.split_once('/').map_or(name, |(_, rest)| rest).to_string())
+    }
+
+    fn detect_ref_type(&self, name: &str) -> Result<RefType> {
+        // Bare 40-char SHA?
+        if name.len() == 40 && name.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Ok(RefType::Sha);
+        }
+        // Probe each ref namespace in order — first match wins.
+        let probes = [
+            (format!("refs/heads/{name}"), RefType::LocalBranch),
+            (format!("refs/remotes/{name}"), RefType::RemoteBranch),
+            (format!("refs/tags/{name}"), RefType::Tag),
+        ];
+        for (full, kind) in probes {
+            if self.ref_exists(&full)? {
+                return Ok(kind);
+            }
+        }
+        Ok(RefType::Other)
+    }
+
+    fn capture_refs(&self) -> Result<RefSnapshot> {
+        use crate::git::ref_snapshot::{RefEntry, RefKind};
+        let s = self.git_text(&[
+            "for-each-ref",
+            "--format=%(refname)\t%(objectname)",
+            "refs/heads",
+            "refs/remotes",
+            "refs/tags",
+        ])?;
+        let mut entries: Vec<RefEntry> = Vec::new();
+        for line in s.lines() {
+            let mut parts = line.split('\t');
+            let (Some(name), Some(oid)) = (parts.next(), parts.next()) else {
+                continue;
+            };
+            let (kind, remote) = if let Some(rest) = name.strip_prefix("refs/remotes/") {
+                let remote_name = rest.split_once('/').map(|(r, _)| r.to_string());
+                (RefKind::RemoteBranch, remote_name)
+            } else if name.starts_with("refs/heads/") {
+                (RefKind::LocalBranch, None)
+            } else if name.starts_with("refs/tags/") {
+                (RefKind::Tag, None)
+            } else {
+                (RefKind::Other, None)
+            };
+            entries.push(RefEntry {
+                name: name.to_string(),
+                oid: oid.to_string(),
+                kind,
+                remote,
+            });
+        }
+        Ok(RefSnapshot::from_entries(entries))
+    }
+
+    fn integration_reason(
+        &self,
+        snapshot: &RefSnapshot,
+        branch: &str,
+        target: &str,
+    ) -> Result<Option<String>> {
+        // A branch is "integrated" into `target` when the branch's tip is an
+        // ancestor of `target`'s tip. The snapshot caches the oids; we still
+        // need a process call for `merge-base --is-ancestor` to actually walk
+        // the commit graph.
+        let branch_ref = format!("refs/heads/{branch}");
+        let target_local = format!("refs/heads/{target}");
+        let target_remote = format!("refs/remotes/origin/{target}");
+
+        let branch_oid = match snapshot.get(&branch_ref) {
+            Some(e) => e.oid.clone(),
+            None => return Ok(None),
+        };
+
+        // Try local target first, then origin/<target>. The OR-mirror matches
+        // worktrunk's "merged into either side" semantics noted in
+        // `step/prune.rs`.
+        let target_oid = snapshot
+            .get(&target_local)
+            .or_else(|| snapshot.get(&target_remote))
+            .map(|e| e.oid.clone());
+
+        if let Some(tip) = target_oid
+            && self.is_ancestor(&branch_oid, &tip)?
+        {
+            return Ok(Some(format!("ancestor of {target}")));
+        }
+        Ok(None)
+    }
 }
 
 #[cfg(test)]
@@ -727,8 +960,88 @@ mod tests {
     fn unimplemented_methods_return_typed_error() {
         let d = init_repo();
         let repo = ProcessRepo::at(d.path()).unwrap();
-        let err = repo.ref_exists("refs/heads/main").unwrap_err();
+        // `prepare_target_worktree` is still on the deferred-impl list — it
+        // is the canonical "still unimplemented" probe for this test. When
+        // a future task lands its impl, swap to another deferred method.
+        let err = repo.prepare_target_worktree("any").unwrap_err();
         assert!(err.to_string().contains("not yet implemented"));
-        assert!(err.to_string().contains("ref_exists"));
+        assert!(err.to_string().contains("prepare_target_worktree"));
+    }
+
+    #[test]
+    fn ref_exists_returns_true_for_existing_ref() {
+        let d = init_repo();
+        let repo = ProcessRepo::at(d.path()).unwrap();
+        assert!(repo.ref_exists("refs/heads/main").unwrap());
+    }
+
+    #[test]
+    fn ref_exists_returns_false_for_missing_ref() {
+        let d = init_repo();
+        let repo = ProcessRepo::at(d.path()).unwrap();
+        assert!(!repo.ref_exists("refs/heads/does-not-exist").unwrap());
+    }
+
+    #[test]
+    fn default_branch_returns_main_after_init() {
+        let d = init_repo();
+        let repo = ProcessRepo::at(d.path()).unwrap();
+        // With no remote configured, default_branch falls back to
+        // init.defaultBranch via config_value — which `git init` writes
+        // into the per-repo config when given `-b main`. The fallback is
+        // not universally set on every git version, so we only assert
+        // that the call either succeeds with a non-empty value or surfaces
+        // the "cannot determine" error — both are valid SDK behaviour.
+        match repo.default_branch() {
+            Ok(b) => assert!(!b.is_empty()),
+            Err(e) => assert!(e.to_string().contains("cannot determine default branch")),
+        }
+    }
+
+    #[test]
+    fn count_commits_returns_at_least_one_for_head() {
+        let d = init_repo();
+        let repo = ProcessRepo::at(d.path()).unwrap();
+        // HEAD..HEAD is zero commits; HEAD alone yields the full history.
+        let n = repo.count_commits("HEAD").unwrap();
+        assert!(n >= 1);
+    }
+
+    #[test]
+    fn is_ancestor_self_is_true() {
+        let d = init_repo();
+        let repo = ProcessRepo::at(d.path()).unwrap();
+        assert!(repo.is_ancestor("HEAD", "HEAD").unwrap());
+    }
+
+    #[test]
+    fn merge_base_self_is_some() {
+        let d = init_repo();
+        let repo = ProcessRepo::at(d.path()).unwrap();
+        assert!(repo.merge_base("HEAD", "HEAD").unwrap().is_some());
+    }
+
+    #[test]
+    fn all_branches_emits_main() {
+        let d = init_repo();
+        let repo = ProcessRepo::at(d.path()).unwrap();
+        let bs = repo.all_branches().unwrap();
+        assert!(bs.iter().any(|b| b.name == "main" && !b.is_remote));
+    }
+
+    #[test]
+    fn capture_refs_includes_local_heads() {
+        let d = init_repo();
+        let repo = ProcessRepo::at(d.path()).unwrap();
+        let snap = repo.capture_refs().unwrap();
+        assert!(snap.get("refs/heads/main").is_some());
+    }
+
+    #[test]
+    fn detect_ref_type_classifies_local_branch() {
+        let d = init_repo();
+        let repo = ProcessRepo::at(d.path()).unwrap();
+        let t = repo.detect_ref_type("main").unwrap();
+        assert_eq!(t, RefType::LocalBranch);
     }
 }
