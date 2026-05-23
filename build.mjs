@@ -415,6 +415,17 @@ const cleoBuildOptions = {
       // Inline its source so the published CLI works without a separately built
       // animations dist/ — mirrors the same pattern used for @cleocode/playbooks.
       '@cleocode/animations': resolve(__dirname, 'packages/animations/src/index.ts'),
+      // T10134: the `./render` subpath ships the static B3 primitives
+      // (renderTree, renderTable, renderBadge, etc.) consumed by
+      // `cleo tree` and the broader Human Render Contract. Same inline
+      // rationale as the bare-package alias above — without this entry,
+      // esbuild treats `@cleocode/animations/render` as external and the
+      // published CLI breaks at runtime when the animations dist/ is not
+      // physically present alongside the cleo bundle.
+      '@cleocode/animations/render': resolve(
+        __dirname,
+        'packages/animations/src/render/index.ts',
+      ),
     }),
   ],
 };

@@ -8,14 +8,21 @@
  * @task T4464
  * @epic T4454
  * @task T1857 — deps validate + deps tree subcommands (T1855 guardrails)
+ * @task T10134 — `cleo tree <id>` walks parent + groups edges to full depth.
+ * @epic T10114 — E11-HUMAN-RENDER-CONTRACT (ADR-077).
  */
 
 import { ExitCode } from '@cleocode/contracts';
-import { depsCriticalPath, resolveProjectRoot } from '@cleocode/core/internal';
+import {
+  buildGenericTaskTree,
+  depsCriticalPath,
+  resolveProjectRoot,
+} from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { isJsonFormat, isQuiet } from '../format-context.js';
+import { renderGenericTree } from '../renderers/generic-tree.js';
 import { cliError, cliOutput } from '../renderers/index.js';
-import { setTreeContext } from '../tree-context.js';
 
 /** cleo deps overview — overview of all dependencies */
 const overviewCommand = defineCommand({
@@ -257,44 +264,72 @@ export const depsCommand = defineCommand({
 });
 
 /**
- * Standalone tree command — task hierarchy tree visualization.
+ * Standalone tree command — generic task-graph visualization (T10134).
  *
  * @remarks
- * Kept as a separate export so that index.ts can wire it to `cleo tree`.
+ * Walks the task graph rooted at the given `<id>` through BOTH `parent_id`
+ * edges AND `task_relations.relation_type='groups'` edges, recursively to
+ * full depth. Also surfaces the upward parent-chain ancestors so the user
+ * sees where the rendered root sits in the broader hierarchy.
  *
- * Flags:
- * - `--with-deps`  — inline each task's direct dependency chain below the task line.
- * - `--blockers`   — render transitive blocker chain + leaf blockers for every
- *                    blocked task in the tree.
+ * Node-kind discrimination uses the canonical `KindIcon` enum (🌲 saga, 📋
+ * epic, • task, ◦ subtask). Groups-edge rows are additionally prefixed with
+ * `RelationIcon.GROUPS` (⊂) so the user can distinguish a parent-edge child
+ * from a saga-membership child at a glance.
+ *
+ * Args:
+ * - `<id>`         — required positional task ID. The root the tree walks from.
+ * - `--withDeps`   — append the direct `depends` list below each annotated node.
+ * - `--blockers`   — append the transitive blocker chain + leaf-blocker summary.
+ *
+ * The obsolete `--root`/`--depth`/`--kinds` flags were removed per ADR-077:
+ * the full graph IS the default behaviour, and re-rooting is achieved by
+ * passing a different `<id>`.
+ *
+ * @epic T10114
+ * @task T10134
  */
 export const treeCommand = defineCommand({
   meta: { name: 'tree', description: 'Task hierarchy tree visualization' },
   args: {
     rootId: {
       type: 'positional',
-      description: 'Root task ID (optional)',
-      required: false,
+      description: 'Root task ID — walks parent + groups edges from here',
+      required: true,
     },
     withDeps: {
       type: 'boolean',
-      description: 'Inline dependency chain below each task that has deps',
+      description: 'Append direct depends chain below each task that has deps',
       default: false,
     },
     blockers: {
       type: 'boolean',
-      description: 'Render transitive blocker chain and leaf blockers below each blocked task',
+      description: 'Append transitive blocker chain and leaf blockers below each blocked task',
       default: false,
     },
   },
   async run({ args }) {
-    // Store flags in the tree context so renderTree can read them.
-    setTreeContext({ withDeps: args.withDeps, withBlockers: args.blockers });
-    await dispatchFromCli(
-      'query',
-      'tasks',
-      'tree',
-      { taskId: args.rootId, withBlockers: args.blockers },
-      { command: 'tree', operation: 'tasks.tree' },
-    );
+    const cwd = resolveProjectRoot();
+    try {
+      const result = await buildGenericTaskTree(cwd, args.rootId, {
+        withBlockers: args.blockers,
+      });
+
+      if (isJsonFormat()) {
+        cliOutput(result, { command: 'tree', operation: 'tasks.graphTree' });
+        return;
+      }
+
+      const text = renderGenericTree(result, {
+        withDeps: args.withDeps,
+        withBlockers: args.blockers,
+        quiet: isQuiet(),
+      });
+      if (text) process.stdout.write(`${text}\n`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      cliError(`tree: ${msg}`, ExitCode.NOT_FOUND, { name: 'E_NOT_FOUND' });
+      process.exit(ExitCode.NOT_FOUND);
+    }
   },
 });

@@ -1,6 +1,10 @@
 ---
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
+metadata:
+  version: 2.1.0
+  lastReviewed: 2026-05-23
+  stability: stable
 ---
 
 # CLEO Protocol Guide
@@ -51,6 +55,49 @@ Full charter (8 invariants + lifecycle decision table + prefix registry) lives i
 CLEO-INJECTION.md `task-creation` section (`cleo briefing inject --section task-creation`).
 
 For full decision trees and operation reference tables, emit sections above.
+
+## Human Render Contract (ADR-077)
+
+Every CLI command emits a typed `RenderableEnvelope<T>` from `@cleocode/contracts`.
+Agents can route their own rendering off `envelope.data.kind` without re-parsing
+the payload shape. Canonical patterns:
+
+| Goal | Command |
+|------|---------|
+| Show one task (typed envelope; human render via core registry) | `cleo show T<id>` |
+| Force human render when JSON is the default | `cleo show T<id> --human` |
+| Generic hierarchy walker from any root (B9 / T10134) | `cleo tree T<id>` |
+
+`cleo tree <id>` walks both `parent` and `task_relations.relation_type='groups'`
+edges to full depth — useful for Saga → Epic → Task → Subtask snapshots from
+any starting node.
+
+### `RenderableEnvelope<T>` discriminator
+
+`envelope.data.kind` is one of:
+
+| `kind` | Payload shape | Renderer family |
+|--------|---------------|-----------------|
+| `'tree'` | `TreeResponse<T>` (flat-node form) | `renderTree` |
+| `'table'` | `TableResponse<T>` (rows + schema) | `renderTable` |
+| `'list'` | `ListResponse<T>` | `renderList` |
+| `'grouped-list'` | `GroupedListResponse<T>` | `renderGroupedList` |
+| `'section'` | `{icon, header, items}` | `renderSection` |
+| `'single'` | single-record detail | per-command renderer |
+| `'generic'` | fallback `Record<string, unknown>` | kv-block helper |
+
+### Where the rendering lives
+
+All rendering logic — registry, families, primitives — lives under
+`packages/core/src/render/`. `packages/cleo/src/cli/renderers/index.ts` is a
+~20-LOC thin dispatcher. Static UI primitives (Tree, Table, Section, Badge,
+Legend) live under `packages/animations/render/`. Typed icon enums
+(`StatusIcon`, `KindIcon`, `BadgeIcon`, `RelationIcon`) live in
+`@cleocode/contracts/render/icon.ts`. Family renderers self-register at
+module load via `registerRenderer(command, kind, fn)` — importing
+`@cleocode/core/render` populates every slot via side-effect re-exports.
+
+Full architecture + invariants: see `cleo docs fetch adr-077-human-render-contract`.
 
 ## Decomposing an epic into N tasks
 
