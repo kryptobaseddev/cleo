@@ -27,7 +27,7 @@
  * @see ADR-068 — CLEO Database Charter
  */
 
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
   DB_INVENTORY,
@@ -260,17 +260,118 @@ export function surveyProjectDbSubstrate(projectRoot: string): DbSubstrateProjec
 }
 
 /**
+ * Decide whether the `.cleo/` directory at `cleoDirPath` belongs to a
+ * legitimate CLEO project root.
+ *
+ * @remarks
+ * The legitimacy heuristic (T10308 AC2):
+ *
+ *   "If `<dir>/.cleo/` exists AND `<dir>/.cleo/project-info.json` AND
+ *    `<dir>/.cleo/tasks.db` BOTH exist, the directory IS a legitimate
+ *    project root. Otherwise it's an orphan."
+ *
+ * Both markers must be present for legitimacy — `project-info.json` is
+ * written by `cleo init`, and `tasks.db` is the canonical SQLite store.
+ * A `.cleo/` directory missing EITHER one is treated as an orphan
+ * (regression class T9550: stray `.cleo/.context-state.json` writes
+ * from sibling workspaces).
+ *
+ * @param cleoDirPath - Absolute path to a `.cleo/` directory (i.e. the
+ *   directory under suspicion, NOT its parent).
+ * @returns `true` when both legitimacy markers exist; `false` otherwise.
+ *
+ * @task T10308
+ */
+export function isLegitimateCleoProjectRoot(cleoDirPath: string): boolean {
+  return (
+    existsSync(join(cleoDirPath, 'project-info.json')) && existsSync(join(cleoDirPath, 'tasks.db'))
+  );
+}
+
+/**
+ * Best-effort read of the `workspace` field from
+ * `<cleoDirPath>/.context-state.json`.
+ *
+ * @remarks
+ * The 2026-05-23 audit found that `/mnt/projects/.cleo/.context-state.json`
+ * carried `{ workspace: '/mnt/projects/awesome-skills' }` — irrefutable
+ * evidence that the orphan was being written by the `awesome-skills`
+ * workspace via mis-resolved cwd. This helper surfaces that attribution
+ * so operators can identify the offending workspace and patch it.
+ *
+ * Any failure mode (missing file, unparseable JSON, missing field, wrong
+ * type) returns `null` — never throws.
+ *
+ * @param cleoDirPath - Absolute path to the `.cleo/` directory under
+ *   investigation.
+ * @returns The `workspace` field when present and a string; `null`
+ *   otherwise.
+ *
+ * @task T10308
+ */
+export function readParentWorkspace(cleoDirPath: string): string | null {
+  const statePath = join(cleoDirPath, '.context-state.json');
+  if (!existsSync(statePath)) return null;
+  try {
+    const raw = readFileSync(statePath, 'utf8');
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      parsed !== null &&
+      typeof parsed === 'object' &&
+      'workspace' in parsed &&
+      typeof (parsed as { workspace: unknown }).workspace === 'string'
+    ) {
+      return (parsed as { workspace: string }).workspace;
+    }
+    return null;
+  } catch {
+    // Parse error, IO error — surface as "no attribution available".
+    return null;
+  }
+}
+
+/**
+ * Build a fully-populated orphan-project-root warning for a `.cleo/`
+ * directory that has been confirmed as an orphan.
+ *
+ * @param cleoDirPath - Absolute path to the orphan `.cleo/` directory.
+ * @returns A populated {@link DbSubstrateWarning} of kind
+ *   `'orphan-project-root'`.
+ *
+ * @task T10308
+ */
+function buildOrphanWarning(cleoDirPath: string): DbSubstrateWarning {
+  let lastWriteMs: number | null = null;
+  try {
+    lastWriteMs = statSync(cleoDirPath).mtimeMs;
+  } catch {
+    // Ignore — leave null.
+  }
+  return {
+    kind: 'orphan-project-root',
+    path: cleoDirPath,
+    lastWriteMs,
+    parentWorkspace: readParentWorkspace(cleoDirPath),
+  };
+}
+
+/**
  * Detect orphan project-root `.cleo/` directories at the PARENT of a
  * known project root.
  *
  * @remarks
  * The T9550 regression class wrote `.cleo/` at a project's parent path
  * (e.g. `/mnt/projects/.cleo/`) when `cwd` resolution miscascaded. This
- * helper checks the parent for a `.cleo/` directory and, if found,
- * surfaces it as a warning.
+ * helper checks the parent for a `.cleo/` directory and, if found AND
+ * the parent is NOT itself a legitimate CLEO project root (per
+ * {@link isLegitimateCleoProjectRoot}), surfaces it as a warning.
+ *
+ * T10308 strengthens the original T10307 implementation with the
+ * legitimacy check + `.context-state.json` attribution.
  *
  * @param projectRoot - Absolute path to one project root.
- * @returns A warning if `<parent>/.cleo/` exists; otherwise `null`.
+ * @returns A warning if `<parent>/.cleo/` exists AND is not itself a
+ *   legitimate project root; otherwise `null`.
  */
 export function detectOrphanProjectRootWarning(projectRoot: string): DbSubstrateWarning | null {
   const parent = dirname(projectRoot);
@@ -278,21 +379,17 @@ export function detectOrphanProjectRootWarning(projectRoot: string): DbSubstrate
     // We're at the filesystem root — no parent to scan.
     return null;
   }
-  const orphanCleoPath = join(parent, '.cleo');
-  if (!existsSync(orphanCleoPath)) {
+  const parentCleoPath = join(parent, '.cleo');
+  if (!existsSync(parentCleoPath)) {
     return null;
   }
-  let lastWriteMs: number | null = null;
-  try {
-    lastWriteMs = statSync(orphanCleoPath).mtimeMs;
-  } catch {
-    // Ignore — leave null.
+  // Legitimacy heuristic (T10308 AC2): if the parent has BOTH
+  // project-info.json and tasks.db, it's a real CLEO project root —
+  // surveying the child was the misuse, not the parent's existence.
+  if (isLegitimateCleoProjectRoot(parentCleoPath)) {
+    return null;
   }
-  return {
-    kind: 'orphan-project-root',
-    path: orphanCleoPath,
-    lastWriteMs,
-  };
+  return buildOrphanWarning(parentCleoPath);
 }
 
 /**
@@ -457,21 +554,13 @@ export function surveyFleetDbSubstrate(fleetRoot: string): DbSubstrateAuditResul
     }
   }
 
-  // Fleet-wide warnings: orphan project-root .cleo/ at fleetRoot itself,
-  // plus per-project parent-orphan detection, plus nested-nexus.
+  // Fleet-wide warnings: orphan project-root .cleo/ at fleetRoot itself
+  // (subject to the same legitimacy heuristic as the single-project case
+  // — T10308 AC2), plus nested-nexus.
   const warnings: DbSubstrateWarning[] = [];
-  if (existsSync(join(fleetRoot, '.cleo'))) {
-    let lastWriteMs: number | null = null;
-    try {
-      lastWriteMs = statSync(join(fleetRoot, '.cleo')).mtimeMs;
-    } catch {
-      // Ignore — leave null.
-    }
-    warnings.push({
-      kind: 'orphan-project-root',
-      path: join(fleetRoot, '.cleo'),
-      lastWriteMs,
-    });
+  const fleetRootCleoPath = join(fleetRoot, '.cleo');
+  if (existsSync(fleetRootCleoPath) && !isLegitimateCleoProjectRoot(fleetRootCleoPath)) {
+    warnings.push(buildOrphanWarning(fleetRootCleoPath));
   }
   warnings.push(...detectNestedNexusDuplicates());
 

@@ -366,6 +366,7 @@ export type DbSubstrateWarningKind = 'orphan-project-root' | 'nested-nexus-dupli
  * One warning entry surfaced in the envelope's `meta.warnings` list.
  *
  * @task T10307
+ * @task T10308 — added `parentWorkspace` for orphan-project-root attribution.
  */
 export interface DbSubstrateWarning {
   /** Machine-readable warning class. */
@@ -377,6 +378,16 @@ export interface DbSubstrateWarning {
    * `null` when stat() threw (e.g. ephemeral race during scan).
    */
   lastWriteMs: number | null;
+  /**
+   * For `orphan-project-root` warnings only: the `workspace` field read
+   * from `<path>/.context-state.json` when present. Identifies which
+   * outside workspace last wrote into this orphan `.cleo/` directory
+   * (audit trail for the T9550 regression class). `null` when the
+   * file is absent, unreadable, or carries no `workspace` field.
+   *
+   * @task T10308
+   */
+  parentWorkspace?: string | null;
 }
 
 /**
