@@ -62,7 +62,7 @@ import {
   getProjectRoot,
   memoryObserve,
   releaseReservedSlug,
-  reserveSlug,
+  reserveSlugForDispatch,
   resolveAttachmentBackend,
   SlugCollisionError,
 } from '@cleocode/core/internal';
@@ -900,7 +900,10 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     // consumers grepping for the legacy code can match
     // `details.aliases: ['E_SLUG_TAKEN']` until E2 deprecates the alias.
     if (slug !== undefined) {
-      const reservation = await reserveSlug(type ?? '', slug);
+      const reservation = await reserveSlugForDispatch(getProjectRoot(), {
+        kind: type ?? '',
+        slug,
+      });
       if (!reservation.ok) {
         return {
           success: false,
