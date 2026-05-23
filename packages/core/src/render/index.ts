@@ -10,4 +10,9 @@
  * @task T10129
  */
 
+export * from './ansi.js';
+export * from './fallback.js';
 export * from './helpers.js';
+export * from './registry.js';
+export * from './render-envelope.js';
+export * from './types.js';
