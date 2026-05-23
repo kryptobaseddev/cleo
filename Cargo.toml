@@ -8,28 +8,14 @@ members = [
     "crates/conduit-core",
     "crates/lafs-core",
     "crates/lafs-napi",
-    "crates/signaldock-core",
-    "crates/signaldock-protocol",
-    "crates/signaldock-storage",
-    "crates/signaldock-transport",
-    "crates/signaldock-runtime",
-    "crates/signaldock-sdk",
-    "crates/signaldock-payments",
     "crates/worktree-napi",
     "crates/worktrunk-core",
     "crates/integration-tests",
 ]
 
-# Client-side / local CLEO crates — built and tested by default when you run
-# `cargo build --workspace` or `cargo test --workspace`. These power the local
-# CLEO install and do NOT require libpq / PostgreSQL client libraries.
-#
-# The signaldock-storage / signaldock-sdk / signaldock-transport /
-# signaldock-runtime / signaldock-payments crates are the **SignalDock cloud
-# server** implementation. They link libpq (PostgreSQL) for the cloud DB path.
-# If you are deploying or developing the cloud server, build them explicitly:
-#   cargo build -p signaldock-storage -p signaldock-sdk -p signaldock-runtime
-# Requires: libpq-dev / postgresql-client installed locally.
+# All crates listed above are built and tested by default.
+# SignalDock cloud server crates have moved to /mnt/projects/signaldock
+# and are published on crates.io (saga T10180).
 default-members = [
     "crates/cant-core",
     "crates/cant-lsp",
@@ -39,8 +25,6 @@ default-members = [
     "crates/conduit-core",
     "crates/lafs-core",
     "crates/lafs-napi",
-    "crates/signaldock-core",
-    "crates/signaldock-protocol",
     "crates/worktree-napi",
     "crates/worktrunk-core",
     "crates/integration-tests",
@@ -58,19 +42,11 @@ tokio = { version = "1", features = ["full"] }
 async-trait = "0.1"
 futures = "0.3"
 
-# Web framework
-axum = { version = "0.8", features = ["ws"] }
-tower = { version = "0.5", features = ["full"] }
-tower-http = { version = "0.6", features = ["cors", "trace"] }
+# HTTP
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
-tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
-h2 = "0.4"
 
 # Database
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "postgres", "uuid", "chrono", "migrate"] }
-diesel = { version = "2.3", features = ["sqlite", "postgres", "chrono", "uuid", "serde_json"] }
-diesel-async = { version = "0.8", features = ["postgres", "sqlite", "deadpool"] }
-diesel_migrations = "2"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
@@ -83,22 +59,11 @@ thiserror = "2"
 anyhow = "1"
 
 # Crypto
-hmac = "0.12"
 sha2 = "0.10"
-hex = "0.4"
-rand = "0.8"
-base64 = "0.22"
-jsonwebtoken = "9"
 
 # Observability
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-
-# Data structures
-dashmap = "6"
-
-# Optional
-redis = { version = "0.27", features = ["tokio-comp", "aio"] }
 
 # napi-rs bindings
 napi = { version = "3", features = ["napi4"] }
@@ -115,13 +80,6 @@ cant-core = { path = "crates/cant-core" }
 cant-lsp = { path = "crates/cant-lsp" }
 cant-napi = { path = "crates/cant-napi" }
 cant-runtime = { path = "crates/cant-runtime" }
-signaldock-core = { path = "crates/signaldock-core" }
-signaldock-protocol = { path = "crates/signaldock-protocol" }
-signaldock-storage = { path = "crates/signaldock-storage" }
-signaldock-transport = { path = "crates/signaldock-transport" }
-signaldock-runtime = { path = "crates/signaldock-runtime" }
-signaldock-sdk = { path = "crates/signaldock-sdk" }
-signaldock-payments = { path = "crates/signaldock-payments" }
 worktrunk-core = { path = "crates/worktrunk-core" }
 
 [workspace.lints.rust]

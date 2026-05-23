@@ -91,9 +91,9 @@ pub(super) fn check_p02_no_discretion(pipe: &PipelineDef) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
     for step in &pipe.steps {
         for prop in &step.properties {
-            if prop.key.value == "condition" {
-                if let Value::String(sv) = &prop.value {
-                    if sv.raw.starts_with("**") && sv.raw.ends_with("**") {
+            if prop.key.value == "condition"
+                && let Value::String(sv) = &prop.value
+                    && sv.raw.starts_with("**") && sv.raw.ends_with("**") {
                         diags.push(Diagnostic::error(
                             "P02",
                             format!(
@@ -103,8 +103,6 @@ pub(super) fn check_p02_no_discretion(pipe: &PipelineDef) -> Vec<Diagnostic> {
                             prop.span,
                         ));
                     }
-                }
-            }
         }
     }
     diags
@@ -250,9 +248,9 @@ pub(super) fn check_p07_command_allowlist(
     let mut diags = Vec::new();
     for step in &pipe.steps {
         for prop in &step.properties {
-            if prop.key.value == "command" {
-                if let Some(cmd) = extract_command_name(&prop.value) {
-                    if !ctx.command_allowlist.iter().any(|a| a == &cmd) {
+            if prop.key.value == "command"
+                && let Some(cmd) = extract_command_name(&prop.value)
+                    && !ctx.command_allowlist.iter().any(|a| a == &cmd) {
                         diags.push(Diagnostic::warning(
                             "P07",
                             format!(
@@ -262,8 +260,6 @@ pub(super) fn check_p07_command_allowlist(
                             prop.span,
                         ));
                     }
-                }
-            }
         }
     }
     diags

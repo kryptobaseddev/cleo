@@ -278,7 +278,7 @@ pub fn cant_validate_document(content: String) -> JsValidateResult {
 
 /// An extracted agent profile from a `.cant` file.
 ///
-/// This is the bridge type that maps a CANT AgentDef AST node
+/// This is the bridge type that maps a CANT `AgentDef` AST node
 /// into a flat structure suitable for insertion into the `agent_profiles` table.
 #[napi(object)]
 pub struct JsAgentProfile {
@@ -423,7 +423,7 @@ fn format_duration_unit(unit: &cant_core::dsl::ast::DurationUnit) -> &'static st
 /// Prompt feature vector extracted from a raw prompt string, exposed to JavaScript.
 ///
 /// Maps to [`cant_router::PromptFeatures`]. Fields follow napi-rs camelCase
-/// conversion from the snake_case Rust names.
+/// conversion from the `snake_case` Rust names.
 #[napi(object)]
 pub struct JsPromptFeatures {
     /// Whitespace-delimited token count of the prompt.
