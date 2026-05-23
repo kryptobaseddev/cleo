@@ -12,5 +12,15 @@
  * @see ADR-073-above-epic-naming.md
  */
 
+export { type SagaAddParams, type SagaAddResult, sagaAdd } from './add.js';
 export { LIST_BINDING_SAGA_GROUPS, SAGA_GROUPS_RELATION, SAGA_LABEL } from './constants.js';
+export { type SagaCreateParams, sagaCreate } from './create.js';
+export { type SagaListResult, sagaList } from './list.js';
+export {
+  type SagaMemberEntry,
+  type SagaMembersParams,
+  type SagaMembersResult,
+  sagaMembers,
+} from './members.js';
+export { type SagaRollupParams, type SagaRollupResult, sagaRollup } from './rollup.js';
 export { resolveSagaMemberIds } from './storage.js';
