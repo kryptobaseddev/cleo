@@ -51,6 +51,7 @@ import { parseChangesetDir } from '../changesets/index.js';
 import { getLogger } from '../logger.js';
 import { getCleoDirAbsolute, getProjectRoot } from '../paths.js';
 import { getProjectInfoSync } from '../project-info.js';
+import { SAGA_GROUPS_RELATION, SAGA_LABEL } from '../sagas/constants.js';
 import { atomicWrite } from '../store/atomic.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { getDb } from '../store/sqlite.js';
@@ -65,11 +66,6 @@ import { resolveToolCommand } from '../tasks/tool-resolver.js';
 import { aggregateChangesetsForRelease } from './changesets-aggregator.js';
 import { runGitWithLockRetry } from './engine-ops.js';
 import { loadReleaseConfig } from './release-config.js';
-
-/** Saga label literal — Epics with this label in `labels[]` are Sagas (ADR-073). */
-const SAGA_LABEL = 'saga' as const;
-/** Relation type linking a Saga to its member Epics (ADR-073 §1.3 / I3). */
-const SAGA_GROUPS_RELATION = 'groups' as const;
 
 const log = getLogger('release:plan');
 

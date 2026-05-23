@@ -23,10 +23,10 @@ import { validateSpawnReadiness } from '../orchestration/validate-spawn.js';
 import type { EnrichedWave } from '../orchestration/waves.js';
 import { getEnrichedWaves } from '../orchestration/waves.js';
 import { getProjectRoot } from '../paths.js';
+import { SAGA_GROUPS_RELATION, SAGA_LABEL } from '../sagas/constants.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import type { DepGraphIssue } from '../tasks/dep-graph-validator.js';
 import { runValidation } from '../tasks/dep-graph-validator.js';
-import { SAGA_GROUPS_RELATION, SAGA_LABEL } from '../tasks/list.js';
 
 // ---------------------------------------------------------------------------
 // Constants

@@ -25,6 +25,14 @@ import type { LafsEnvelope, TaskShowAttachmentEntry, TasksShowResult } from '@cl
 import type { tasks as coreTasks } from '@cleocode/core';
 import { getLogger, getProjectRoot } from '@cleocode/core';
 import { createAttachmentStore } from '@cleocode/core/internal';
+// Saga core ops — pure business logic moved out of dispatch in T10124.
+import {
+  sagaAdd as coreSagaAdd,
+  sagaCreate as coreSagaCreate,
+  sagaList as coreSagaList,
+  sagaMembers as coreSagaMembers,
+  sagaRollup as coreSagaRollup,
+} from '@cleocode/core/sagas';
 import {
   defineTypedHandler,
   lafsError,
@@ -655,184 +663,48 @@ const MUTATE_OPS = new Set<string>([
 ]);
 
 // ---------------------------------------------------------------------------
-// Saga sub-domain handlers (ADR-073 — T9521)
+// Saga sub-domain handlers (ADR-073 — T9521; T10125 dispatch shrink)
 //
-// Thin composites over tasks.add + tasks.relates.add + tasks.list/relates
-// queries. Implemented as standalone async functions to avoid touching the
-// typed-handler's OpsFromCore inference (which runs from dist, not src).
+// THIN PASS-THROUGHS: every op delegates to the corresponding pure-business
+// function in `packages/core/src/sagas/` and wraps the EngineResult in a
+// LAFS envelope. NO business logic in this file.
+//
+// Saga T10113 (SG-SAGA-FIRST-CLASS) / Epic T10208 (E-SAGAS-CORE-MODULE).
 // ---------------------------------------------------------------------------
 
-/**
- * saga.create — create a labeled top-level Epic as a Saga.
- *
- * @task T9521
- * @see ADR-073
- */
+/** saga.create — create a labeled top-level Epic. See `core/sagas/create.ts`. */
 async function sagaCreate(params: Record<string, unknown>): Promise<LafsEnvelope<unknown>> {
-  const projectRoot = getProjectRoot();
   const title = typeof params.title === 'string' ? params.title : '';
   const description = typeof params.description === 'string' ? params.description : undefined;
   const acceptance = Array.isArray(params.acceptance) ? (params.acceptance as string[]) : undefined;
   return wrapCoreResult(
-    await addTaskWithSessionScope(projectRoot, {
-      title,
-      description,
-      labels: ['saga'],
-      type: 'epic',
-      acceptance,
-    }),
+    await coreSagaCreate(getProjectRoot(), { title, description, acceptance }),
     'saga.create',
   );
 }
 
-/**
- * saga.add — link a member Epic to a Saga via task_relations type='groups'.
- *
- * Validates: sagaId must have label='saga', epicId must have type='epic'.
- *
- * @task T9521
- * @see ADR-073
- */
+/** saga.add — link an Epic to a Saga. See `core/sagas/add.ts`. */
 async function sagaAdd(params: Record<string, unknown>): Promise<LafsEnvelope<unknown>> {
-  const projectRoot = getProjectRoot();
   const sagaId = typeof params.sagaId === 'string' ? params.sagaId : '';
   const epicId = typeof params.epicId === 'string' ? params.epicId : '';
-  if (!sagaId || !epicId) {
-    return lafsError('E_INVALID_INPUT', 'sagaId and epicId are required', 'saga.add');
-  }
-  // Validate: sagaId must have label='saga'
-  const sagaResult = await taskShow(projectRoot, sagaId);
-  if (!sagaResult.success || !sagaResult.data) {
-    return lafsError('E_NOT_FOUND', `Saga not found: ${sagaId}`, 'saga.add');
-  }
-  const sagaTask = sagaResult.data.task as { labels?: string[] } | undefined;
-  const sagaLabels: string[] = sagaTask?.labels ?? [];
-  if (!sagaLabels.includes('saga')) {
-    return lafsError('E_INVALID_INPUT', `Task ${sagaId} does not have label='saga'`, 'saga.add');
-  }
-  // Validate: epicId must have type='epic'
-  const epicResult = await taskShow(projectRoot, epicId);
-  if (!epicResult.success || !epicResult.data) {
-    return lafsError('E_NOT_FOUND', `Epic not found: ${epicId}`, 'saga.add');
-  }
-  const epicType = (epicResult.data.task as { type?: string } | undefined)?.type;
-  if (epicType !== 'epic') {
-    return lafsError(
-      'E_INVALID_INPUT',
-      `Task ${epicId} has type='${String(epicType)}', expected type='epic'`,
-      'saga.add',
-    );
-  }
-  const relResult = await taskRelatesAdd(projectRoot, sagaId, epicId, 'groups', undefined);
-  if (!relResult.success) {
-    return lafsError(
-      'E_GENERAL',
-      relResult.error?.message ?? 'Failed to link Epic to Saga',
-      'saga.add',
-    );
-  }
-  return lafsSuccess({ sagaId, epicId, added: relResult.data?.added ?? true }, 'saga.add');
+  return wrapCoreResult(await coreSagaAdd(getProjectRoot(), { sagaId, epicId }), 'saga.add');
 }
 
-/**
- * saga.list — list all Sagas (labeled top-level Epics).
- *
- * @task T9521
- * @see ADR-073
- */
+/** saga.list — list all top-level Sagas. See `core/sagas/list.ts`. */
 async function sagaList(): Promise<LafsEnvelope<unknown>> {
-  const projectRoot = getProjectRoot();
-  const result = await taskList(projectRoot, { type: 'epic', label: 'saga' });
-  if (!result.success) {
-    return lafsError('E_GENERAL', result.error?.message ?? 'Failed to list Sagas', 'saga.list');
-  }
-  const tasks = result.data?.tasks ?? [];
-  // Filter to top-level only (no parent)
-  const topLevel = tasks.filter((t) => {
-    const parentId = (t as { parentId?: string | null }).parentId;
-    return !parentId;
-  });
-  return lafsSuccess({ sagas: topLevel, total: topLevel.length }, 'saga.list');
+  return wrapCoreResult(await coreSagaList(getProjectRoot()), 'saga.list');
 }
 
-/**
- * saga.members — list member Epics linked to a Saga via type='groups'.
- *
- * @task T9521
- * @see ADR-073
- */
+/** saga.members — list member Epics for a Saga. See `core/sagas/members.ts`. */
 async function sagaMembers(params: Record<string, unknown>): Promise<LafsEnvelope<unknown>> {
-  const projectRoot = getProjectRoot();
   const sagaId = typeof params.sagaId === 'string' ? params.sagaId : '';
-  if (!sagaId) {
-    return lafsError('E_INVALID_INPUT', 'sagaId is required', 'saga.members');
-  }
-  const result = await taskRelates(projectRoot, sagaId);
-  if (!result.success) {
-    return lafsError(
-      'E_GENERAL',
-      result.error?.message ?? 'Failed to list Saga members',
-      'saga.members',
-    );
-  }
-  const relations = result.data?.relations ?? [];
-  const members = relations.filter((r) => r.type === 'groups');
-  return lafsSuccess(
-    {
-      sagaId,
-      members: members.map((r) => ({ epicId: r.taskId, type: r.type, reason: r.reason })),
-      total: members.length,
-    },
-    'saga.members',
-  );
+  return wrapCoreResult(await coreSagaMembers(getProjectRoot(), { sagaId }), 'saga.members');
 }
 
-/**
- * saga.rollup — aggregate member Epic statuses for a Saga.
- *
- * @task T9521
- * @see ADR-073
- */
+/** saga.rollup — aggregate member Epic statuses. See `core/sagas/rollup.ts`. */
 async function sagaRollup(params: Record<string, unknown>): Promise<LafsEnvelope<unknown>> {
-  const projectRoot = getProjectRoot();
   const sagaId = typeof params.sagaId === 'string' ? params.sagaId : '';
-  if (!sagaId) {
-    return lafsError('E_INVALID_INPUT', 'sagaId is required', 'saga.rollup');
-  }
-  const relResult = await taskRelates(projectRoot, sagaId);
-  if (!relResult.success) {
-    return lafsError(
-      'E_GENERAL',
-      relResult.error?.message ?? 'Failed to fetch Saga members for rollup',
-      'saga.rollup',
-    );
-  }
-  const members = (relResult.data?.relations ?? []).filter((r) => r.type === 'groups');
-  const total = members.length;
-  if (total === 0) {
-    return lafsSuccess(
-      { sagaId, total: 0, done: 0, active: 0, blocked: 0, pending: 0, completionPct: 0 },
-      'saga.rollup',
-    );
-  }
-  const shows = await Promise.all(members.map((m) => taskShow(projectRoot, m.taskId)));
-  let done = 0;
-  let active = 0;
-  let blocked = 0;
-  let pending = 0;
-  for (const r of shows) {
-    if (!r.success) continue;
-    const status = (r.data?.task as { status?: string } | undefined)?.status ?? 'pending';
-    if (status === 'done') done++;
-    else if (status === 'active') active++;
-    else if (status === 'blocked') blocked++;
-    else pending++;
-  }
-  const completionPct = total > 0 ? Math.round((done / total) * 100) : 0;
-  return lafsSuccess(
-    { sagaId, total, done, active, blocked, pending, completionPct },
-    'saga.rollup',
-  );
+  return wrapCoreResult(await coreSagaRollup(getProjectRoot(), { sagaId }), 'saga.rollup');
 }
 
 // ---------------------------------------------------------------------------
