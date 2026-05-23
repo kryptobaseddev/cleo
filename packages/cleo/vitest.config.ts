@@ -60,6 +60,30 @@ export default defineConfig({
         '../../packages/contracts/src/provenance.ts',
         import.meta.url,
       ).pathname,
+      // T10134: render subpath aliases — animations/render imports these via
+      // `@cleocode/contracts/render/*.js`. Without explicit aliases the
+      // bare-package alias below rewrites the subpath to
+      // `index.ts/render/icon.js` and Node's loader errors with ENOTDIR.
+      '@cleocode/contracts/render/icon.js': new URL(
+        '../../packages/contracts/src/render/icon.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/contracts/render/tree.js': new URL(
+        '../../packages/contracts/src/render/tree.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/contracts/render/table.js': new URL(
+        '../../packages/contracts/src/render/table.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/contracts/render/list.js': new URL(
+        '../../packages/contracts/src/render/list.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/contracts/render/envelope.js': new URL(
+        '../../packages/contracts/src/render/envelope.ts',
+        import.meta.url,
+      ).pathname,
       '@cleocode/contracts': new URL('../../packages/contracts/src/index.ts', import.meta.url)
         .pathname,
       '@cleocode/core/internal': new URL('../../packages/core/src/internal.ts', import.meta.url)
