@@ -11,8 +11,8 @@
  */
 
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { getCleoHome } from '@cleocode/paths';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -185,9 +185,7 @@ interface ResolveTargetRootOpts {
 
 function resolveTargetRoot(opts: ResolveTargetRootOpts): string {
   if (opts.isGlobal) {
-    const home = homedir();
-    const xdgData = process.env['XDG_DATA_HOME'] ?? join(home, '.local', 'share');
-    return join(xdgData, 'cleo', 'cant', 'agents');
+    return join(getCleoHome(), 'cant', 'agents');
   }
   if (!opts.projectRoot) {
     throw new Error('projectRoot is required for non-global agent scaffold');
