@@ -8,7 +8,15 @@ task: T9796
 saga: SG-DOCS-CANON-CLOSURE (T9787)
 supersedes: ADR-028
 supersededBy: null
-linkedTasks: [T9788, T9791, T9793, T9794, T9795]
+linkedTasks: [T9788, T9791, T9793, T9794, T9795, T10390, T10392]
+amendments:
+  - id: AMD-001
+    date: 2026-05-23
+    task: T10390
+    saga: SG-DOCS-INTEGRITY (T10288)
+    epic: E1-DOCS-SLUG-NAMESPACE (T10289)
+    section: "§6 Global Slug Namespace"
+    summary: "Records the decision to keep slug uniqueness GLOBAL across all DocKinds (no migration to per-(kind, slug) index)."
 ---
 
 # ADR-076: Canonical Docs SSoT
@@ -198,6 +206,156 @@ live behind the SSoT — direct `CHANGELOG.md` writes go through
 - T9795 — `.cleo/deprecations.yml` registry pattern
 - `packages/contracts/src/docs-taxonomy.ts` — DocKindRegistry source
 - `packages/cleo/src/dispatch/domains/check/canon-docs.ts` — gate engine
+
+---
+
+## 6. Amendment AMD-001 — Global Slug Namespace (T10390, Saga T10288)
+
+**Added**: 2026-05-23 · **Task**: T10390 (E1.5) · **Epic**: T10289
+E1-DOCS-SLUG-NAMESPACE · **Saga**: T10288 SG-DOCS-INTEGRITY · **Status**:
+Accepted.
+
+### 6.1 Background
+
+Saga T10288 SG-DOCS-INTEGRITY post-mortemed the T10294 slug-collision class
+(two CLI verbs — `cleo docs add` and `cleo changeset add` — writing through
+distinct code paths but landing on the same `attachments.slug` UNIQUE INDEX).
+T10392 (PR #587) introduced the central allocator at
+`packages/core/src/docs/slug-allocator.ts:reserveSlug()` as the chokepoint.
+
+A natural follow-up question emerged: should the slug namespace remain
+**GLOBAL** (one slug per attachment row across all DocKinds, as the existing
+`uniq_attachments_slug` partial UNIQUE INDEX enforces), or should it migrate
+to **PER-KIND** (`UNIQUE (kind, slug)`)?
+
+This amendment records the decision to **keep the namespace GLOBAL**.
+
+### 6.2 Decision
+
+Slug uniqueness is enforced GLOBALLY across all DocKinds via the
+`uniq_attachments_slug` partial unique index (migration
+`20260519000001`) on the `attachments` table. The
+`packages/core/src/docs/slug-allocator.ts:reserveSlug()` chokepoint
+acquires per-slug locks keyed on the bare slug (NOT `(kind, slug)`),
+matching the index shape.
+
+A `reserveSlug('changeset', 'foo')` followed by
+`reserveSlug('research', 'foo')` MUST return
+`{ ok: false, code: 'E_SLUG_RESERVED' }` for the second call. The `kind`
+argument to `reserveSlug` is retained for future per-kind suggestion
+derivation but does NOT partition the namespace.
+
+### 6.3 Three-Point Evidence
+
+#### Evidence 1 — Human-memorable global lookup contract
+
+`cleo docs fetch <slug>` does NOT accept a `--type` / `--kind`
+disambiguator. The retrieval contract treats slugs as globally addressable
+handles — agents and humans both invoke `cleo docs fetch
+my-doc-slug` and the SSoT returns the unique row. Partitioning slugs by
+DocKind would break this contract (every fetch would need a kind hint, and
+the agent would need out-of-band knowledge of the kind to retrieve the doc
+by slug).
+
+#### Evidence 2 — DocKind-distinct prefix conventions
+
+Existing slug conventions (codified in `ct-documentor` SKILL.md §"Routing
+matrix") already prefix slugs by DocKind:
+
+- `adr` → `adr-NNN-<rest>` (e.g. `adr-076-canonical-docs-ssot`)
+- `spec` → `spec-<feature>` (e.g. `spec-worktree-lifecycle`)
+- `research` → `research-<topic>` (e.g. `research-rcasd-rfc-2119`)
+- `handoff` → `handoff-<context>`
+- `changeset` → `t<id>-<slug>` (e.g. `t10390-e1-slug-namespace-policy`)
+- `release-note` → `release-vX.Y.Z`
+- `plan` → `plan-<initiative>`
+- `note` → `<kebab-topic>` (free-form, lowest collision class)
+
+Cross-kind collisions are STRUCTURALLY near-impossible under these
+conventions. The only realistic collision risk is `note` ↔ another kind
+when a free-form note slug accidentally matches a structured slug — which
+is exactly the case the chokepoint's E_SLUG_RESERVED envelope catches with
+3-suggestion repair output.
+
+#### Evidence 3 — Backward compatibility cost of per-kind migration
+
+Migrating to `UNIQUE (kind, slug)` would require:
+
+1. **Backfilling `kind`** on every existing `attachments` row where the
+   value is currently NULL or implicit. The historical changesets imported
+   by T10179 and T10203 do not have a `type` column populated under the
+   newer schema. Backfilling them touches the same migration surface E5
+   (T10293 E5-DOCS-RETROACTIVE-NORMALIZE) is already pulling apart — but
+   the new constraint would block the migration itself (the first row to
+   backfill would violate the new index before T10293 has finished
+   normalising siblings).
+2. **Re-deriving the partial UNIQUE INDEX** under a different key shape
+   without an online-rebuild path in `node:sqlite`. The current partial
+   index migration (`20260519000001`) is a single-statement
+   `CREATE UNIQUE INDEX IF NOT EXISTS uniq_attachments_slug ON attachments
+   (slug) WHERE slug IS NOT NULL`. Switching to `(kind, slug)` would
+   require dropping the existing index, validating no NULL `kind` rows
+   exist, and recreating. None of these steps are reversible without a
+   schema-snapshot restore.
+3. **Updating every caller of `attachmentStore.put()`** that passes a
+   `slug` to also pass an authoritative `kind` BEFORE the row reaches
+   `put`. This is a global type-system change to the writer surface
+   (currently `kind` flows through `attachmentMetadata` and is
+   independent of `slug`).
+
+The cost is large, the migration is irreversible without backup
+restoration, and the value (collision-resistance) is already provided by
+the prefix conventions in Evidence 2.
+
+### 6.4 Counterfactual Analysis
+
+If the namespace were migrated to per-`(kind, slug)`:
+
+- `cleo docs fetch <slug>` would either require a `--type` flag (breaking
+  human-memorable contract) or fan-out across kinds and surface
+  `E_AMBIGUOUS` envelopes (introducing a new error class with no current
+  consumer).
+- Slug suggestion derivation (`deriveSlugSuggestionsForAllocator`) would
+  need a `kind` filter — but `kind` already prefixes most slugs, so the
+  derived suggestions would be near-identical regardless of the filter.
+- The `uniq_attachments_slug` partial UNIQUE INDEX shape would change,
+  forcing every consumer of the `attachments` table to re-derive its
+  conflict-detection query.
+- The migration itself would block on T10293 E5
+  (RETROACTIVE-NORMALIZE) and pull E1's critical path under E5 — inverting
+  the saga's stated dependency order.
+
+The counterfactual yields no measurable benefit (collisions are already
+prevented by prefix conventions) and an unmeasurably-large cost (every
+writer, reader, and migration step must change). The decision is therefore
+to KEEP GLOBAL.
+
+### 6.5 Implementation Evidence
+
+- `packages/core/src/docs/slug-allocator.ts` — module-level docblock
+  §"Global namespace" records the policy and references this amendment.
+- `packages/core/src/docs/__tests__/slug-allocator.test.ts` —
+  the `treats slugs as a GLOBAL namespace across DocKinds (per E1.5
+  decision T10390)` test confirms `reserveSlug('changeset', 'cross-kind')`
+  followed by `reserveSlug('research', 'cross-kind')` returns
+  `E_SLUG_RESERVED`.
+- `packages/skills/skills/ct-documentor/SKILL.md` §"Slug allocation goes
+  through ONE chokepoint" — agent-facing reference to the policy.
+
+### 6.6 Revisit Triggers
+
+This decision SHOULD be revisited if any of the following become true:
+
+1. A DocKind is introduced whose slug convention legitimately COLLIDES
+   with another kind's (e.g. two free-form kinds with the same generative
+   slug shape).
+2. The `cleo docs fetch <slug>` contract is replaced by a typed lookup
+   surface (`cleo docs fetch --type adr --slug <s>`) for unrelated
+   reasons.
+3. The `uniq_attachments_slug` partial UNIQUE INDEX is dropped or
+   restructured for performance or schema-evolution reasons.
+
+Absent any of the above, the decision stands.
 
 ---
 
