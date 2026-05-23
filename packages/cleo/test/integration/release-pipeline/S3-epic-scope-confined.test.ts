@@ -6,8 +6,9 @@
  *
  * Acceptance criteria covered:
  *
- * - A5: `cleo release ship --epic <id>` evaluates completeness ONLY against
+ * - A5: `cleo release plan --epic <id>` evaluates completeness ONLY against
  *   that epic's transitive children, never the full open-task set.
+ *   (Replaces the deprecated `cleo release ship` alias deleted in T10103.)
  *
  * The test asserts:
  *

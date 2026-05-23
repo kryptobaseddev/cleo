@@ -96,7 +96,7 @@ const autoSuggestFullResult = {
     taskId: TASK_ID,
     epicId: EPIC_ID,
     epicFullyReleased: true,
-    suggestedCommand: `cleo release ship <version> --epic ${EPIC_ID}`,
+    suggestedCommand: `cleo release plan <version> --epic ${EPIC_ID} && cleo release open <version>`,
     message: `All tasks in epic ${EPIC_ID} have reached IVTR released phase.`,
   },
 };
@@ -212,7 +212,7 @@ describe('ReleaseHandler', () => {
 
       const data = result.data as Record<string, unknown>;
       expect(data['epicFullyReleased']).toBe(true);
-      expect(data['suggestedCommand']).toMatch(/cleo release ship/);
+      expect(data['suggestedCommand']).toMatch(/cleo release plan .* && cleo release open/);
       expect(releaseIvtrAutoSuggest).toHaveBeenCalledWith(TASK_ID, '/mock/project');
     });
 

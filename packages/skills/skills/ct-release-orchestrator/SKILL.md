@@ -1,143 +1,120 @@
 ---
 name: ct-release-orchestrator
-description: "Orchestrates the full release pipeline: version bump, then changelog, then commit, then tag, then conditionally forks to artifact-publish and provenance based on release config. Parent protocol that composes ct-artifact-publisher and ct-provenance-keeper as sub-protocols: not every release publishes artifacts (source-only releases skip it), and artifact publishers delegate signing and attestation to provenance. Use when shipping a new version, running cleo release ship, or promoting a completed epic to released status."
+description: "Orchestrates the canonical 4-verb release pipeline introduced by SPEC-T9345: cleo release plan, then cleo release open, then PR + GHA tag workflow, then cleo release reconcile. The deprecated cleo release ship monolith was deleted in T10103 — do not invoke it. Use ship-e2e-smoke to validate the full pipeline end-to-end (dry-run by default). The full verb-to-state map is in docs/release/verb-matrix.md. Use when shipping a new version, validating the release pipeline end-to-end, or promoting a completed epic to released status."
 protocol: release
 loomStage: release
 adrRefs:
   - ADR-053
   - ADR-063
   - ADR-065
+metadata:
+  version: 3.0.0
+  lastReviewed: 2026-05-22
+  stability: stable
 ---
 
 # Release Orchestrator
 
 ## Overview
 
-Owns the top of the release pipeline: semver bump, changelog, release commit, and git tag. Composes two sub-protocols conditionally — ct-artifact-publisher when the release config has enabled artifacts, and ct-provenance-keeper when signing or attestation is required. Source-only releases (docs, spec changes) stop after the tag and skip both sub-protocols.
+Owns the canonical 4-verb release pipeline established by SPEC-T9345 and finalised when T9540 deleted the legacy `start` / `verify` / `publish` verbs (and the 12-step `releaseShip` monolith) plus T10103 deleted the deprecated `ship` shim. The current verb surface is documented in `docs/release/verb-matrix.md` — that file is the SSoT for verb-to-state mapping. This skill is the agent-facing entry point and references the matrix instead of redefining it.
 
 ## Core Principle
 
-> Release is the parent protocol; artifact-publish and provenance are conditional sub-protocols.
+> Each verb owns exactly one state transition. No verb performs more than one mutation. Multi-step orchestration uses `ship-e2e-smoke` (validator) — never compose the verbs into a custom script.
+
+## Canonical Pipeline
+
+| Step | Verb / Workflow | Owns transition | Notes |
+|-----:|------------------|------------------|-------|
+| 1 | `cleo release plan <ver> --epic <id>` | _(none)_ → `planned` | Builds the Release Plan envelope; auto-writes `CHANGELOG.md` (T10105 closes the silent-skip gap) |
+| 2 | `cleo release open <ver>` | `planned` → `pr-opened` | Dispatches `release-prepare.yml`; the workflow cuts the branch + opens the PR |
+| 3 | _(GHA)_ `release-prepare.yml` → PR merge | `pr-opened` → `pr-merged` | Owned by CI; verify via `cleo release pr-status <ver>` |
+| 4 | _(GHA)_ `auto-tag-on-release-merge.yml` (T10104) | `pr-merged` → `tag-pushed` | Auto-tag on merge — no manual `git tag` needed |
+| 5 | `cleo release reconcile <ver>` | `tag-pushed` → `published` | Backfills 11 provenance tables; idempotent |
+
+Optional validators (read-only / dry-run):
+
+| Verb | Use |
+|------|-----|
+| `cleo release ship-e2e-smoke <ver> --epic <id>` | One-shot end-to-end smoke. Dry-run by default; `--execute` performs real mutations. T10103. |
+| `cleo release pr-status <ver>` | Poll release PR CI checks while waiting |
+| `cleo release list` / `show <ver>` | Read-only inspection |
 
 ## Immutable Constraints
 
 | ID | Rule | Enforcement |
 |----|------|-------------|
-| RLSE-001 | Version MUST follow semantic versioning (`v{major}.{minor}.{patch}`). | `validateReleaseProtocol` rejects non-semver strings; exit 53. |
-| RLSE-002 | Changelog MUST be updated with all changes before the tag. | `hasChangelog: false` fails validation unless `--no-changelog` is explicit. |
-| RLSE-003 | All validation gates MUST pass before the release proceeds. | Ship halts on any gate failure; exit 54. |
-| RLSE-004 | Release MUST be tagged in version control. | Missing tag fails validation; exit 56. |
-| RLSE-005 | Breaking changes MUST be documented with a migration path. | Required section in the changelog entry. |
-| RLSE-006 | Version MUST be consistent across all files listed in `release.versionBump`. | Mismatched files fail validation; exit 55. |
-| RLSE-007 | Manifest entry MUST set `agent_type: "documentation"`. | Validator rejects any other value. |
-| RLSE-008 | Parent protocol MUST hand off to artifact-publish when `release.artifacts` is non-empty. | Composition invariant from ARTP-005. |
-| RLSE-009 | Provenance chain MUST be recorded for every signed release. | Composition invariant from PROV-005. |
-
-## Composition Pipeline
-
-The release parent protocol composes with the artifact-publish and provenance sub-protocols via explicit handoffs:
-
-```
-Release Protocol                        Artifact Publish Protocol
----                                     ---
-1.  Version bump
-2.  Changelog generation
-3.  Validation gates
-4.  Git commit + tag
-5.  ---- HANDOFF ------------------> 6.  Load artifact config
-                                     7.  Pre-validate all artifacts
-                                     8.  Build all artifacts
-                                     9.  ---- HANDOFF ----> Provenance Protocol
-                                                             10. Compute digests
-                                                             11. Generate in-toto attestation
-                                                             12. Sign (sigstore keyless)
-                                                             13. Record chain in releases.json
-                                     14. <--- RETURN ----
-                                     15. Publish signed artifacts
-                                     16. Record provenance to releases.json
-17. <--- RETURN ---------------------- 
-18. Push to remote
-19. Update release status to "released"
-```
-
-Each handoff uses a distinct exit code:
-
-| Edge | Exit code | Meaning |
-|------|-----------|---------|
-| Release → artifact-publish | 65 (`HANDOFF_REQUIRED`) | Parent yields control to the sub-protocol |
-| artifact-publish → provenance | 65 (`HANDOFF_REQUIRED`) | Sub-protocol delegates signing |
-| provenance → artifact-publish | 0 on success | Return to parent sub-protocol |
-| artifact-publish → release | 0 on success, 88 on publish fail | Return to parent with result |
-| release → tag push | 0 on success, 56 on tag fail | Final commit |
-
-Partial-failure rollback semantics are documented in [references/composition.md](references/composition.md).
-
-## Conditional Trigger Matrix
-
-Not every release needs both sub-protocols. The parent decides based on `release.artifacts` and `release.security.provenance.enabled`:
-
-| Release type | Needs artifact-publish | Needs provenance |
-|--------------|:---------------------:|:----------------:|
-| `source-only` (docs, spec changes, code-only merges without a package) | no | no |
-| `npm-package` | yes | yes (SLSA L3 via npm `--provenance`) |
-| `docker-image` | yes | yes (cosign keyless attestation) |
-| `cargo-crate` | yes | yes (GPG or sigstore) |
-| `github-tarball` | yes | optional (MAY sign via cosign) |
-| `multi-artifact` (npm + docker + tarball combo) | yes | yes |
-
-The parent skill inspects `.cleo/config.json#release.artifacts[]`. If the array is empty or all entries are disabled, the release is `source-only` and the pipeline stops after the tag.
-
-## CI Integration
-
-The existing `.github/workflows/release.yml` uses `npm publish --provenance` with the repository's OIDC trust configuration, producing SLSA L3 keyless attestations automatically. This skill's responsibility is to ensure the resulting chain is recorded in the manifest entry and in `.cleo/releases.json`, not to re-implement the signing step. When CI has already produced an attestation, the skill MUST read its reference from the workflow output and record it verbatim.
+| RLSE-001 | Version MUST be CalVer (`YYYY.MM.patch`) per ADR-065 — never SemVer. | `cleo release plan` rejects non-CalVer; exit 53. |
+| RLSE-002 | `CHANGELOG.md` MUST be updated before the tag — always-write is the default behaviour of `cleo release plan` (T9784 deleted the manual changelog verb). | Plan envelope refuses to advance to `pr-opened` if the changeset directory is unparseable (T10105). |
+| RLSE-003 | All per-task evidence gates MUST be recorded via `cleo verify <task> --gate <g> --evidence …` BEFORE `cleo complete`. The legacy `cleo release verify` batch verb was deleted in T9540. | ADR-051 per-task evidence ritual. |
+| RLSE-004 | The release MUST be tagged via the auto-tag GHA workflow — not a manual `git tag`. | T10104 closes the auto-tag gap. |
+| RLSE-005 | Direct pushes to `main` are prohibited. Every release ships via a PR cut by `release-prepare.yml`. | ADR-065 + branch protection (see `docs/release/branch-protection-setup.md`). |
+| RLSE-006 | Version MUST be consistent across all workspace targets resolved by `resolveVersionBumpTargets` (root package.json + every workspace package + Cargo workspace). | Version-bump preflight in `release-prepare.yml`. |
+| RLSE-007 | Provenance reconcile MUST run within the release-publish workflow — never as a manual followup. | Invoked by `release-publish.yml`. |
 
 ## Integration
 
-Invoke the parent pipeline via `cleo release ship`, then validate with `cleo check protocol`:
+Use the explicit two-verb invocation. **Do not** invoke `cleo release ship` — it was deleted in T10103.
 
 ```bash
-# Kick off the release pipeline.
-cleo release ship v2026.4.5 \
-  --epic T260 \
-  --bump-version \
-  --create-tag \
-  --push
+# 1. Plan — build the canonical Release Plan envelope.
+cleo release plan v2026.6.0 --epic T10099
 
-# Validate the parent protocol entry.
-cleo check protocol \
-  --protocolType release \
-  --taskId T4900 \
-  --version v2026.4.5 \
-  --hasChangelog true
+# 2. Open — dispatch release-prepare workflow.
+cleo release open v2026.6.0
+
+# 3. (Optional) Poll PR + CI status while the workflow runs.
+cleo release pr-status v2026.6.0
+
+# 4. Reconcile — runs automatically inside release-publish.yml.
+#    Run manually only if backfilling a historical release.
+cleo release reconcile v2026.6.0
 ```
 
-Exit code 0 = release complete. Exit code 50 = release not found. Exit code 54 = validation gate failed. Exit code 55 = version bump failed. Exit code 56 = tag creation failed. Exit code 88 = artifact publish failed (bubbled from sub-protocol). Exit code 94 = attestation invalid (bubbled from provenance).
+To validate the whole pipeline end-to-end without shipping a real release:
 
-For source-only releases, pass `--no-artifacts` to skip the artifact-publish handoff. Every other release type leaves the default behavior alone.
+```bash
+# Dry-run preview — no side effects.
+cleo release ship-e2e-smoke v2026.6.0 --epic T10099
+
+# Execute mode — runs plan + open, then polls for PR merge, tag push,
+# and npm publish (default 30-min wall-clock budget).
+cleo release ship-e2e-smoke v2026.6.0 --epic T10099 --execute
+```
+
+Exit codes (canonical):
+
+- `0` — success.
+- `53` — version validation failed (e.g. not CalVer).
+- `54` — release-prepare workflow gate failed.
+- `56` — tag creation failed (auto-tag workflow).
+- `82` — `E_PLAN_NOT_FOUND` (plan envelope missing for the requested version).
+- `83` — `E_IVTR_INCOMPLETE` (per-task IVTR loops not released).
+- `88` — artifact publish failed.
 
 ## Anti-Patterns
 
 | Pattern | Problem | Solution |
 |---------|---------|----------|
-| Publishing artifacts before running validation gates | Can't roll back a successful publish on a failed build | Follow the pipeline order: gates → commit → tag → publish |
-| Pushing the git tag before publishing artifacts | Tag points to a commit whose packages never shipped | Push the tag after artifacts are live, or use the same job |
-| Skipping the dry-run phase | Irreversible registry state on first real attempt | ARTP-002 requires dry-run; the parent skill refuses to skip it |
-| Source-only releases triggering artifact-publish | Wasted CI time, false SLSA attestations | Check `release.artifacts` before handoff; skip if empty |
-| Not recording the provenance chain in releases.json | Canon loses the commit → build → artifact → attestation link | Parent MUST record even when CI generated the attestation |
-| Overusing `--force` to bypass epic completeness | Ships partial epics without review | Use the guard mode `warn` and address gaps explicitly |
-| Mutating a `released` entry after the fact | Canon must be immutable once shipped | Create a new release entry for the hotfix |
-| Running ship on a dirty worktree | Commits scoop up unrelated changes | Require a clean worktree before step 1 |
+| Running `cleo release ship` | The verb was deleted in T10103 — the command will exit with `Unknown command`. | Use `cleo release plan` + `cleo release open`. |
+| Manually invoking `gh workflow run release-prepare.yml` | Bypasses the plan envelope; `releases.status` stays at `planned`. | Always go through `cleo release open <ver>` — it tracks state in the `releases` table. |
+| Manually `git tag v<ver> && git push --tags` | Bypasses the auto-tag workflow (T10104) and skips provenance backfill. | Let `auto-tag-on-release-merge.yml` create the tag on PR merge. |
+| Hand-editing `CHANGELOG.md` for the new version | Drift between the changeset directory and the changelog. | `cleo release plan` always auto-writes the section (T10105). Use `cleo changeset add` to author entries. |
+| Pasting one verb into another's workflow file | Multi-step orchestration belongs in `ship-e2e-smoke`. | Use `cleo release ship-e2e-smoke … --execute` for end-to-end validation. |
+| Running the pipeline on a dirty worktree | Release commit scoops up unrelated changes. | The clean-tree gate refuses to advance. |
+| Skipping `cleo release reconcile` after a successful tag push | 11 provenance tables stay empty; canon drift. | `release-publish.yml` runs reconcile automatically — verify it ran via `cleo release show <ver>`. |
 
 ## Critical Rules Summary
 
-1. Version MUST be valid semver; the parent skill refuses non-semver strings.
-2. The changelog MUST be updated before the tag — no exceptions beyond explicit `--no-changelog`.
-3. All validation gates MUST pass before the commit step.
-4. The pipeline composes with artifact-publish and provenance only when the release config calls for it.
-5. Exit codes bubble up unchanged: 88 from artifact-publish and 94 from provenance surface at the parent.
-6. `released` entries are immutable; hotfixes go into new entries.
-7. Manifest entry MUST set `agent_type: "documentation"` and record the full chain via `record_release()`.
-8. Always validate via `cleo check protocol --protocolType release` before declaring the release done.
+1. The 4-verb pipeline — `plan`, `open`, `reconcile`, `rollback` — is the ONLY way to ship.
+2. The deprecated `cleo release ship` shim was DELETED in T10103. Do not invoke it.
+3. CalVer (`YYYY.MM.patch`) is the only valid version scheme.
+4. `cleo release plan` always writes the CHANGELOG section unless `--no-changelog`.
+5. The tag is created by `auto-tag-on-release-merge.yml`, not by hand.
+6. Provenance reconcile is invoked by `release-publish.yml`, not manually (unless backfilling).
+7. Per-task evidence gates use `cleo verify --gate --evidence` per ADR-051 — not the deleted batch verb.
+8. Use `cleo release ship-e2e-smoke` to validate the full pipeline before a real ship.
 
 ## CI Job Inventory
 
@@ -155,8 +132,10 @@ Consult the inventory whenever:
 
 This skill binds to the **release** LOOM lifecycle stage. Governing ADRs:
 
-- [ADR-053 — project-agnostic release pipeline](../../../../.cleo/adrs/ADR-053-project-agnostic-release-pipeline.md) — defines the language-agnostic version bump → changelog → tag flow.
-- [ADR-063 — release pipeline](../../../../.cleo/adrs/ADR-063-release-pipeline.md) — defines the 12-step `cleo release ship` integration with CI.
-- [ADR-065 — PR-required release flow](../../../../.cleo/adrs/ADR-065-pr-required-release-flow.md) — defines the PR-gated path; direct pushes to `main` are prohibited.
+- [ADR-053 — project-agnostic release pipeline](../../../../.cleo/adrs/ADR-053-project-agnostic-release-pipeline.md) — language-agnostic version bump → changelog → tag flow.
+- [ADR-063 — release pipeline](../../../../.cleo/adrs/ADR-063-release-pipeline.md) — original 12-step pipeline (historical; superseded by SPEC-T9345 §4).
+- [ADR-065 — PR-required release flow](../../../../.cleo/adrs/ADR-065-pr-required-release-flow.md) — direct pushes to `main` are prohibited.
+
+Live verb matrix: [docs/release/verb-matrix.md](../../../../docs/release/verb-matrix.md) — the single source of truth for verb-to-state mapping.
 
 LOOM coverage matrix: [docs/skills/loom-coverage-matrix.md](../../../../docs/skills/loom-coverage-matrix.md).

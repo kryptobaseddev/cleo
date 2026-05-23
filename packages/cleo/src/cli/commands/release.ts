@@ -7,16 +7,20 @@
  *   cleo release reconcile <version>         — post-publish provenance backfill
  *   cleo release rollback <version>          — roll back a shipped release
  *
- * Deprecated (kept for the migration window — see SPEC-T9345 §12):
- *   cleo release ship    — alias that ALWAYS forwards to plan + open (T9540
- *                          removed the `--workflow=false` legacy fallback)
+ * One-shot end-to-end smoke (dry-run by default — see ship-e2e-smoke.ts):
+ *   cleo release ship-e2e-smoke <version> --epic <id> [--execute]
  *
  * Read-only helpers:
  *   cleo release list / show / cancel / pr-status / channel
  *
+ * The legacy `ship` deprecation shim was deleted in T10103 (post-T9540
+ * cleanup). The replacement surface is the explicit `plan` + `open` flow
+ * documented in `docs/release/verb-matrix.md`. The new
+ * `ship-e2e-smoke` verb replaces `ship` for end-to-end validation use
+ * cases (it actually waits for PR + tag + npm publish before returning).
+ *
  * @task T4467
  * @task T820
- * @task T9538 — ship deprecation shim
  * @task T9540 — Phase 6 cleanup: remove legacy start/verify/publish CLI verbs
  *               + `--workflow=false` escape hatch (their backing functions
  *               in pipeline.ts and releaseShip in engine-ops.ts were
@@ -25,115 +29,17 @@
  *               ops in favor of the canonical `cleo changeset add` +
  *               `cleo release plan` flow (Saga T9782 — single canonical
  *               system, no deprecation window)
+ * @task T10103 — delete the deprecated `ship` shim + add `ship-e2e-smoke`
+ *                (Saga T10099 release audit v2)
  * @epic T9498 — release v2 cutover
  * @epic T9499 — Phase 6 cleanup epic
  */
 
-import { pushWarning, release } from '@cleocode/core';
-import { defineCommand, showUsage } from 'citty';
+import { release } from '@cleocode/core';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { defineCommand, showUsage } from '../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../renderers/index.js';
-
-/**
- * Deprecation notice emitted to stderr by {@link shipCommand} per
- * SPEC-T9345 §12 R-420 / R-431. The notice MUST include the replacement
- * invocation and the target removal release per R-431.
- *
- * @task T9538
- * @task T9540 — removed `--workflow=false` escape hatch from the notice
- *               (legacy `releaseShip` monolith was deleted; no fallback exists)
- * @spec SPEC-T9345 §12 R-420
- */
-export const SHIP_DEPRECATION_NOTICE =
-  '[DEPRECATED] `cleo release ship` is a deprecated alias and will be removed no earlier than the third release cycle after T9498. ' +
-  'Use `cleo release plan <version> --epic <id>` followed by `cleo release open <version>`; publish runs via GHA workflow. ' +
-  'Docs: T9345-CHILD-1.';
-
-/**
- * cleo release ship — DEPRECATED alias per SPEC-T9345 §12 R-420.
- *
- * Emits {@link SHIP_DEPRECATION_NOTICE} to stderr and forwards to the new
- * 4-verb pipeline by calling `release.plan` then `release.open` via
- * dispatch. Publish happens through the GHA `release-prepare.yml` workflow
- * dispatched by `release.open`, so the CLI returns once the workflow has
- * been triggered.
- *
- * The deprecation warning is written to **stderr** (NOT stdout) so JSON
- * envelope output on stdout stays parseable for downstream tooling.
- *
- * Historical note: prior to T9540, this shim accepted `--workflow=false`
- * as an emergency escape hatch that ran the legacy 12-step `releaseShip`
- * monolith locally. T9540 (Phase 6 of T9499) deleted that monolith — the
- * flag and its audit hook are removed because no legacy fallback exists.
- *
- * @task T9538
- * @task T9540 — removed `--workflow=false` + audit hook
- * @spec SPEC-T9345 §12 R-420 / R-441 (escape-hatch removal)
- */
-const shipCommand = defineCommand({
-  meta: {
-    name: 'ship',
-    description: '[DEPRECATED] Forwards to `release plan` + `release open`',
-  },
-  args: {
-    version: {
-      type: 'positional',
-      description: 'Version string (e.g. 2026.4.77)',
-      required: true,
-    },
-    epic: {
-      type: 'string',
-      description: 'Epic task ID (forwarded to release plan / release open)',
-      required: true,
-    },
-    'dry-run': {
-      type: 'boolean',
-      description: 'Preview all actions without writing anything (plan dry-run only)',
-    },
-  },
-  async run({ args }) {
-    // R-420 (T9772): deprecation now surfaces through `meta.warnings[]` in the
-    // LAFS envelope instead of polluting stderr — keeps stdout parseable AND
-    // makes the deprecation discoverable to JSON-only consumers.
-    pushWarning({
-      code: 'W_DEPRECATED_COMMAND',
-      message: SHIP_DEPRECATION_NOTICE,
-      deprecated: 'cleo release ship',
-      replacement: 'cleo release plan <version> --epic <id> && cleo release open <version>',
-    });
-
-    // T9540: --workflow=false escape hatch and the legacy releaseShip
-    // monolith were removed. Ship ALWAYS forwards to the new 4-verb
-    // pipeline: plan, then open. Publish runs in the dispatched GHA
-    // workflow.
-    await dispatchFromCli(
-      'mutate',
-      'release',
-      'plan',
-      {
-        version: args.version,
-        epicId: args.epic,
-        dryRun: args['dry-run'] === true,
-      },
-      { command: 'release' },
-    );
-    if (args['dry-run'] === true) {
-      // Match the new-verb semantics: dry-run stops after plan with no side
-      // effects, so don't trip the open workflow when the operator asked
-      // for a preview.
-      return;
-    }
-    await dispatchFromCli(
-      'mutate',
-      'release',
-      'open',
-      {
-        version: args.version,
-      },
-      { command: 'release' },
-    );
-  },
-});
+import { shipE2eSmokeCommand } from './release/ship-e2e-smoke.js';
 
 /** cleo release list — list all releases */
 const listCommand = defineCommand({
@@ -267,7 +173,8 @@ const rollbackFullCommand = defineCommand({
  *
  * Resolves the open PR for the release branch `release/v<version>` and returns
  * the current GitHub CI check statuses.  Useful for manual polling when
- * `cleo release ship` is interrupted or times out.
+ * `cleo release open` is dispatched and the operator wants to track CI
+ * health while waiting for the release PR to go green.
  *
  * @task T9095
  */
@@ -509,18 +416,17 @@ const reconcileCommand = defineCommand({
  * Root release command group — release lifecycle management.
  *
  * Surfaces the SPEC-T9345 4-verb pipeline (`plan`, `open`, `reconcile`,
- * `rollback`) as the canonical entry points. The `ship` alias is the only
- * remaining deprecated verb (kept for the migration window — R-420); it
- * forwards to `plan` + `open`. The legacy `start`, `verify`, `publish`
- * verbs and the `--workflow=false` legacy fallback were deleted in T9540
- * (Phase 6 of T9499) along with the backing functions in
- * `packages/core/src/release/pipeline.ts` and the `releaseShip` monolith
- * in `engine-ops.ts`.
+ * `rollback`) as the canonical entry points, plus the `ship-e2e-smoke`
+ * one-shot walker that validates the full plan → open → wait-PR →
+ * wait-tag → verify-npm flow (dry-run by default; `--execute` to run for
+ * real). The legacy `start`, `verify`, `publish`, and `ship` shim verbs
+ * were deleted (T9540 + T10103); see `docs/release/verb-matrix.md` for
+ * the post-cleanup state-transition map.
  *
  * Dispatches to `release.*` for the new verbs.
  *
- * @task T9538
  * @task T9540 — Phase 6 cleanup
+ * @task T10103 — deleted ship shim + added ship-e2e-smoke
  * @spec SPEC-T9345 §12
  */
 export const releaseCommand = defineCommand({
@@ -528,15 +434,17 @@ export const releaseCommand = defineCommand({
     name: 'release',
     description:
       'Release lifecycle management — 4-verb pipeline: plan → open → reconcile / rollback. ' +
-      'Deprecated: ship (forwards to plan + open; see SPEC-T9345 §12).',
+      'Use `ship-e2e-smoke` for end-to-end validation (dry-run by default).',
   },
   subCommands: {
     // Canonical SPEC-T9345 4-verb pipeline — list these first so `--help`
-    // surfaces them as the documented default (T9538 / R-420).
+    // surfaces them as the documented default.
     plan: planCommand,
     open: openCommand,
     reconcile: reconcileCommand,
     rollback: rollbackCommand,
+    // End-to-end smoke walker — see docs/release/verb-matrix.md.
+    'ship-e2e-smoke': shipE2eSmokeCommand,
     // Read-only helpers — not deprecated.
     list: listCommand,
     show: showCommand,
@@ -544,9 +452,6 @@ export const releaseCommand = defineCommand({
     'pr-status': prStatusCommand,
     channel: channelCommand,
     'rollback-full': rollbackFullCommand,
-    // Deprecated verbs (kept for the migration window — SPEC-T9345 §12).
-    // R-420: ship → plan + open
-    ship: shipCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));

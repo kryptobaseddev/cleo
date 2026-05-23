@@ -930,7 +930,7 @@ export async function runReleaseGates(
     name: 'branch_protection',
     status: 'passed',
     message: requiresPR
-      ? `Branch '${expectedBranch}' is protected — release.ship will create a PR`
+      ? `Branch '${expectedBranch}' is protected — release-prepare workflow will create a PR`
       : `Branch '${expectedBranch}' allows direct push`,
   });
 
