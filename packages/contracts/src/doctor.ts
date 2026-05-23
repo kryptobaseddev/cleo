@@ -202,6 +202,90 @@ export interface OrphanScanResult {
   softWarnMessage?: string;
 }
 
+// ============================================================================
+// Saga Hierarchy Audit (T10119 — ADR-073 §1.2 invariant + drift detection)
+// ============================================================================
+
+/**
+ * Stable invariant identifiers surfaced by the saga hierarchy audit
+ * (ADR-073 §1.2). `I5` and `I7` mirror the runtime guards in
+ * `packages/core/src/sagas/enforcement.ts`. `depth` covers the I5/I7 depth
+ * ladder (saga → member-Epic → Task → Subtask = 3 hops max). `auto-close-drift`
+ * is a soft-drift detector (no invariant strictly broken — the saga is
+ * structurally valid, but every member is done while the saga still says
+ * pending; T10116 fixes the root cause).
+ */
+export type SagaAuditViolationKind = 'I5' | 'I7' | 'depth' | 'auto-close-drift';
+
+/**
+ * One violation surfaced by {@link auditSagaHierarchy}.
+ *
+ * Each violation is actionable: the `repairCommand` field names the
+ * canonical `cleo` invocation an operator should run to resolve it.
+ */
+export interface SagaAuditViolation {
+  /** Stable violation identifier (`I5`, `I7`, `depth`, `auto-close-drift`). */
+  kind: SagaAuditViolationKind;
+  /** Saga task ID where the violation was detected. */
+  sagaId: string;
+  /**
+   * The offending member task ID. Equal to `sagaId` for I5 violations
+   * (the saga row itself is the offender). For I7 violations, the
+   * nested-saga candidate. For `auto-close-drift`, equal to `sagaId`.
+   */
+  offendingId: string;
+  /** Human-readable message naming both IDs and the repair command. */
+  message: string;
+  /** Canonical `cleo` command an operator should run to resolve. */
+  repairCommand: string;
+}
+
+/**
+ * Per-saga audit summary returned by {@link auditSagaHierarchy}.
+ *
+ * Carries enough context for the doctor CLI to render a one-line summary
+ * (`Saga T#### · status=… · 4/5 members done · 0 violations`) without a
+ * second database round-trip.
+ */
+export interface SagaAuditEntry {
+  /** Saga task ID. */
+  sagaId: string;
+  /** Saga title (for human-readable rendering). */
+  title: string;
+  /** Saga status (`pending`, `active`, `done`, …). */
+  status: string;
+  /** Total member-Epic count. */
+  memberCount: number;
+  /** Member-Epics with `status='done'`. */
+  doneCount: number;
+  /**
+   * Violations attributable to this saga. Always returned (possibly
+   * empty) so callers can render a stable rows-then-violations layout.
+   */
+  violations: SagaAuditViolation[];
+}
+
+/**
+ * Aggregated result returned by {@link auditSagaHierarchy}.
+ *
+ * `count` is the total number of `I5`/`I7`/`depth` invariant violations
+ * across all sagas — the doctor CLI uses this to decide whether to set
+ * a non-zero exit code (`auto-close-drift` is a soft warning and does
+ * NOT alone trigger exit≠0; tests pass with drift but no I-invariant
+ * failure).
+ *
+ * `driftCount` is the number of `auto-close-drift` warnings (kept
+ * separate so CI gates can opt-in to treating drift as failure).
+ */
+export interface SagaAuditResult {
+  /** All sagas audited, sorted by `sagaId` ascending. */
+  sagas: SagaAuditEntry[];
+  /** Total I5/I7/depth invariant violations across all sagas. */
+  count: number;
+  /** Total auto-close-drift warnings across all sagas. */
+  driftCount: number;
+}
+
 /**
  * One line appended to `.cleo/audit/worktree-prune.jsonl` per prune
  * operation. Extends the existing audit-log schema (timestamp +

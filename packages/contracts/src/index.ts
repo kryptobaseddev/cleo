@@ -312,12 +312,17 @@ export {
   DocKindRegistry,
 } from './docs-taxonomy.js';
 // === Doctor: Worktree-Orphan Audit + Prune Types (T9790, T9808, T9962) ===
+// === Doctor: Saga Hierarchy Audit (T10119 — ADR-073 §1.2) ===
 export type {
   ComprehensiveAuditResult,
   OrphanEntry,
   OrphanScanResult,
   PruneAuditEntry,
   PruneResult,
+  SagaAuditEntry,
+  SagaAuditResult,
+  SagaAuditViolation,
+  SagaAuditViolationKind,
   WorktreeAnomaly,
   WorktreeAnomalyKind,
 } from './doctor.js';
