@@ -1,5 +1,6 @@
 name: Dual Implementation Lint
 
+# @task T10199
 # T10199 · Saga T10176 SG-BOUNDARY-REGISTRY · ADR-078 · Decision D010
 #
 # Detects Rust+TS duplicate implementations of the same primitive.

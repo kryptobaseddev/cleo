@@ -1,5 +1,9 @@
 name: worktree-napi prebuild
 
+# @task T10178
+# 5-triple cross-platform prebuild of the worktree-napi addon. Consumed by
+# .github/workflows/release.yml during the npm publish step (T10178).
+
 on:
   push:
     branches: [main]
