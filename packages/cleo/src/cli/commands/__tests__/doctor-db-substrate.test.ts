@@ -33,6 +33,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 // uses the same approach).
 import {
   detectOrphanProjectRootWarning,
+  isLegitimateCleoProjectRoot,
+  readParentWorkspace,
   resolveInventoryFilePath,
   surveyDbSubstrate,
   surveyFleetDbSubstrate,
@@ -289,6 +291,134 @@ describe('doctor db-substrate (T10307)', () => {
     expect(resolveInventoryFilePath(nexusEntry, projectRoot)).toBe(
       join(cleoHomeOverride, 'nexus.db'),
     );
+  });
+
+  it('T10308: orphan warning suppressed when parent .cleo/ is a legitimate project (project-info.json + tasks.db)', async () => {
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    // Parent has a fully-legitimate CLEO project root — both markers
+    // present. T10308 AC2 says we MUST NOT flag this as an orphan even
+    // though `<parent>/.cleo/` exists.
+    const parentCleoDir = join(fleetRoot, '.cleo');
+    mkdirSync(parentCleoDir, { recursive: true });
+    writeFileSync(join(parentCleoDir, 'project-info.json'), JSON.stringify({ name: 'parent' }));
+    seedHealthyDb(join(parentCleoDir, 'tasks.db'));
+
+    const childProjectRoot = createProjectWithTasksDb('child');
+
+    expect(isLegitimateCleoProjectRoot(parentCleoDir)).toBe(true);
+    expect(detectOrphanProjectRootWarning(childProjectRoot)).toBeNull();
+
+    const result = surveyDbSubstrate(childProjectRoot);
+    const orphans = result.warnings.filter((w) => w.kind === 'orphan-project-root');
+    expect(orphans.length).toBe(0);
+  });
+
+  it('T10308: orphan warning still fires when parent .cleo/ has project-info.json BUT NO tasks.db', () => {
+    // Half-legitimate state — `cleo init` was started but the SQLite
+    // store never materialised, OR a stray writer dropped only
+    // project-info.json. Either case is an orphan per AC2.
+    const parentCleoDir = join(fleetRoot, '.cleo');
+    mkdirSync(parentCleoDir, { recursive: true });
+    writeFileSync(join(parentCleoDir, 'project-info.json'), JSON.stringify({ name: 'half' }));
+
+    const childProjectRoot = createProjectWithTasksDb('child');
+
+    expect(isLegitimateCleoProjectRoot(parentCleoDir)).toBe(false);
+    const warning = detectOrphanProjectRootWarning(childProjectRoot);
+    expect(warning).not.toBeNull();
+    expect(warning?.path).toBe(parentCleoDir);
+  });
+
+  it('T10308: orphan warning still fires when parent .cleo/ has tasks.db BUT NO project-info.json', () => {
+    // The other half-legitimate state — DB was opened first via an
+    // import path that bypassed `cleo init`. Still orphan per AC2.
+    const parentCleoDir = join(fleetRoot, '.cleo');
+    mkdirSync(parentCleoDir, { recursive: true });
+    seedHealthyDb(join(parentCleoDir, 'tasks.db'));
+
+    const childProjectRoot = createProjectWithTasksDb('child');
+
+    expect(isLegitimateCleoProjectRoot(parentCleoDir)).toBe(false);
+    const warning = detectOrphanProjectRootWarning(childProjectRoot);
+    expect(warning).not.toBeNull();
+    expect(warning?.path).toBe(parentCleoDir);
+  });
+
+  it('T10308: orphan warning attributes parentWorkspace from .context-state.json', () => {
+    // The 2026-05-23 live regression case: /mnt/projects/.cleo/ being
+    // written from /mnt/projects/awesome-skills/. Verifies the
+    // `parentWorkspace` field round-trips correctly.
+    const parentCleoDir = join(fleetRoot, '.cleo');
+    mkdirSync(parentCleoDir, { recursive: true });
+    writeFileSync(
+      join(parentCleoDir, '.context-state.json'),
+      JSON.stringify({ workspace: '/mnt/projects/awesome-skills' }),
+    );
+
+    const childProjectRoot = createProjectWithTasksDb('child');
+
+    const warning = detectOrphanProjectRootWarning(childProjectRoot);
+    expect(warning).not.toBeNull();
+    expect(warning?.kind).toBe('orphan-project-root');
+    expect(warning?.path).toBe(parentCleoDir);
+    expect(warning?.parentWorkspace).toBe('/mnt/projects/awesome-skills');
+
+    // Round-trips through surveyDbSubstrate too.
+    const result = surveyDbSubstrate(childProjectRoot);
+    const surveyWarning = result.warnings.find((w) => w.kind === 'orphan-project-root');
+    expect(surveyWarning?.parentWorkspace).toBe('/mnt/projects/awesome-skills');
+  });
+
+  it('T10308: parentWorkspace=null when .context-state.json is absent', () => {
+    const parentCleoDir = join(fleetRoot, '.cleo');
+    mkdirSync(parentCleoDir, { recursive: true });
+    // No .context-state.json — orphan still fires, but parentWorkspace=null.
+
+    const childProjectRoot = createProjectWithTasksDb('child');
+
+    const warning = detectOrphanProjectRootWarning(childProjectRoot);
+    expect(warning).not.toBeNull();
+    expect(warning?.parentWorkspace).toBeNull();
+  });
+
+  it('T10308: parentWorkspace=null when .context-state.json is unparseable', () => {
+    const parentCleoDir = join(fleetRoot, '.cleo');
+    mkdirSync(parentCleoDir, { recursive: true });
+    writeFileSync(join(parentCleoDir, '.context-state.json'), '{ malformed json');
+
+    const childProjectRoot = createProjectWithTasksDb('child');
+
+    expect(readParentWorkspace(parentCleoDir)).toBeNull();
+    const warning = detectOrphanProjectRootWarning(childProjectRoot);
+    expect(warning?.parentWorkspace).toBeNull();
+  });
+
+  it('T10308: parentWorkspace=null when workspace field is missing or non-string', () => {
+    const parentCleoDir = join(fleetRoot, '.cleo');
+    mkdirSync(parentCleoDir, { recursive: true });
+    writeFileSync(
+      join(parentCleoDir, '.context-state.json'),
+      JSON.stringify({ workspace: 42, other: 'data' }),
+    );
+
+    expect(readParentWorkspace(parentCleoDir)).toBeNull();
+  });
+
+  it('T10308: fleet mode suppresses orphan when fleetRoot itself is a legitimate project', () => {
+    // Fleet-mode mirror of the single-project legitimacy check. If the
+    // fleetRoot directory itself looks like a real CLEO project, we
+    // should NOT flag its .cleo/ as orphan.
+    const fleetCleoDir = join(fleetRoot, '.cleo');
+    mkdirSync(fleetCleoDir, { recursive: true });
+    writeFileSync(join(fleetCleoDir, 'project-info.json'), JSON.stringify({ name: 'root' }));
+    seedHealthyDb(join(fleetCleoDir, 'tasks.db'));
+    createProjectWithTasksDb('child-project');
+
+    const result = surveyFleetDbSubstrate(fleetRoot);
+    const orphans = result.warnings.filter((w) => w.kind === 'orphan-project-root');
+    expect(orphans.length).toBe(0);
   });
 
   it('aggregates summary counters across all inventory entries', async () => {
