@@ -193,11 +193,13 @@ pub fn parse_header(header: &str) -> Vec<HeaderElement> {
         }
 
         if let Ok((rest, task)) = parse_task_ref(remaining)
-            && task.len() > 1 && is_task_ref_boundary(rest) {
-                elements.push(HeaderElement::TaskRef(task.to_string()));
-                remaining = rest;
-                continue;
-            }
+            && task.len() > 1
+            && is_task_ref_boundary(rest)
+        {
+            elements.push(HeaderElement::TaskRef(task.to_string()));
+            remaining = rest;
+            continue;
+        }
 
         if let Ok((rest, tag)) = parse_tag(remaining) {
             elements.push(HeaderElement::Tag(tag.to_string()));
@@ -233,11 +235,13 @@ pub fn parse_body(body: &str) -> (Vec<String>, Vec<String>, Vec<String>) {
         }
 
         if let Ok((rest, task)) = parse_task_ref(remaining)
-            && task.len() > 1 && is_task_ref_boundary(rest) {
-                task_refs.push(task.to_string());
-                remaining = rest;
-                continue;
-            }
+            && task.len() > 1
+            && is_task_ref_boundary(rest)
+        {
+            task_refs.push(task.to_string());
+            remaining = rest;
+            continue;
+        }
 
         if let Ok((rest, tag)) = parse_tag(remaining) {
             tags.push(tag.to_string());

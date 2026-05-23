@@ -124,19 +124,20 @@ fn check_timeout_in_stmts(stmts: &[Statement], max_seconds: u64, diags: &mut Vec
 fn check_timeout_in_props(props: &[Property], max_seconds: u64, diags: &mut Vec<Diagnostic>) {
     for prop in props {
         if prop.key.value == "timeout"
-            && let crate::dsl::ast::Value::Duration(dv) = &prop.value {
-                let total_seconds = duration_to_seconds(dv.amount, dv.unit);
-                if total_seconds > max_seconds {
-                    diags.push(Diagnostic::error(
-                        "W08",
-                        format!(
-                            "Timeout value of {}s at line {} exceeds the maximum of {}s.",
-                            total_seconds, prop.span.line, max_seconds
-                        ),
-                        prop.span,
-                    ));
-                }
+            && let crate::dsl::ast::Value::Duration(dv) = &prop.value
+        {
+            let total_seconds = duration_to_seconds(dv.amount, dv.unit);
+            if total_seconds > max_seconds {
+                diags.push(Diagnostic::error(
+                    "W08",
+                    format!(
+                        "Timeout value of {}s at line {} exceeds the maximum of {}s.",
+                        total_seconds, prop.span.line, max_seconds
+                    ),
+                    prop.span,
+                ));
             }
+        }
     }
 }
 

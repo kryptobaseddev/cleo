@@ -59,7 +59,11 @@ mod tests {
         let merged = a.merged_with(&b);
         assert_eq!(
             merged.exclude,
-            vec!["**/*.log".to_string(), "tmp/".into(), "node_modules/".into()]
+            vec![
+                "**/*.log".to_string(),
+                "tmp/".into(),
+                "node_modules/".into()
+            ]
         );
     }
 

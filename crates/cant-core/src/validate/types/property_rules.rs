@@ -157,14 +157,15 @@ fn check_comparison_expr(expr: &Expression, diags: &mut Vec<Diagnostic>) {
 
             // If both types are known and different, flag incompatibility
             if let (Some(lt), Some(rt)) = (&left_type, &right_type)
-                && lt != rt {
-                    // Ordering comparisons on non-numeric types are always invalid
-                    let is_ordering = matches!(
-                        cmp.op,
-                        ComparisonOp::Gt | ComparisonOp::Lt | ComparisonOp::Ge | ComparisonOp::Le
-                    );
-                    if is_ordering || lt != rt {
-                        diags.push(Diagnostic::warning(
+                && lt != rt
+            {
+                // Ordering comparisons on non-numeric types are always invalid
+                let is_ordering = matches!(
+                    cmp.op,
+                    ComparisonOp::Gt | ComparisonOp::Lt | ComparisonOp::Ge | ComparisonOp::Le
+                );
+                if is_ordering || lt != rt {
+                    diags.push(Diagnostic::warning(
                             "T02",
                             format!(
                                 "Comparison at line {} compares {} with {} operands. Ensure operands are type-compatible.",
@@ -172,8 +173,8 @@ fn check_comparison_expr(expr: &Expression, diags: &mut Vec<Diagnostic>) {
                             ),
                             cmp.span,
                         ));
-                    }
                 }
+            }
 
             // Recurse into sub-expressions
             check_comparison_expr(&cmp.left, diags);
@@ -252,8 +253,9 @@ fn check_interp_in_expr(expr: &Expression, diags: &mut Vec<Diagnostic>) {
         Expression::String(s) => {
             for seg in &s.segments {
                 if let StringSegment::Interpolation(inner) = seg
-                    && !is_stringifiable(inner) {
-                        diags.push(Diagnostic::warning(
+                    && !is_stringifiable(inner)
+                {
+                    diags.push(Diagnostic::warning(
                             "T03",
                             format!(
                                 "String interpolation at line {} contains a non-stringifiable expression (e.g., array or boolean). Ensure the interpolated value is a string, number, or name.",
@@ -261,7 +263,7 @@ fn check_interp_in_expr(expr: &Expression, diags: &mut Vec<Diagnostic>) {
                             ),
                             s.span,
                         ));
-                    }
+                }
             }
         }
         Expression::Interpolation(interp) => {

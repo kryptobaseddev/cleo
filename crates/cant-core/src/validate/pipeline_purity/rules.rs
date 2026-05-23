@@ -93,8 +93,10 @@ pub(super) fn check_p02_no_discretion(pipe: &PipelineDef) -> Vec<Diagnostic> {
         for prop in &step.properties {
             if prop.key.value == "condition"
                 && let Value::String(sv) = &prop.value
-                    && sv.raw.starts_with("**") && sv.raw.ends_with("**") {
-                        diags.push(Diagnostic::error(
+                && sv.raw.starts_with("**")
+                && sv.raw.ends_with("**")
+            {
+                diags.push(Diagnostic::error(
                             "P02",
                             format!(
                                 "Pipeline '{}' step '{}' contains a discretion condition at line {}. Pipelines MUST NOT use AI-evaluated conditions.",
@@ -102,7 +104,7 @@ pub(super) fn check_p02_no_discretion(pipe: &PipelineDef) -> Vec<Diagnostic> {
                             ),
                             prop.span,
                         ));
-                    }
+            }
         }
     }
     diags
@@ -250,8 +252,9 @@ pub(super) fn check_p07_command_allowlist(
         for prop in &step.properties {
             if prop.key.value == "command"
                 && let Some(cmd) = extract_command_name(&prop.value)
-                    && !ctx.command_allowlist.iter().any(|a| a == &cmd) {
-                        diags.push(Diagnostic::warning(
+                && !ctx.command_allowlist.iter().any(|a| a == &cmd)
+            {
+                diags.push(Diagnostic::warning(
                             "P07",
                             format!(
                                 "Pipeline '{}' step '{}' uses command '{}' which is not in the configured allowlist at line {}.",
@@ -259,7 +262,7 @@ pub(super) fn check_p07_command_allowlist(
                             ),
                             prop.span,
                         ));
-                    }
+            }
         }
     }
     diags

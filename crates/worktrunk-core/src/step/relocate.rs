@@ -301,10 +301,8 @@ mod tests {
         let mut expected = HashMap::new();
         expected.insert("foo".into(), PathBuf::from("/wt/new"));
         // /wt/new exists but is not another worktree's current path.
-        let plan = build_relocation_plan(&worktrees, &expected, |p| {
-            p == Path::new("/wt/new")
-        })
-        .unwrap();
+        let plan =
+            build_relocation_plan(&worktrees, &expected, |p| p == Path::new("/wt/new")).unwrap();
         assert_eq!(plan.blocked_indices, vec![0]);
     }
 

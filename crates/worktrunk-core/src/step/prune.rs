@@ -304,12 +304,9 @@ mod tests {
         let worktrees = repo.list_worktrees().unwrap();
         let plan = build_prune_plan(&repo, &worktrees, &snapshot, "main").unwrap();
         assert_eq!(plan.integration_target, "main");
-        assert!(
-            plan.candidates
-                .iter()
-                .any(|c| c.branch.as_deref() == Some("feat")
-                    && c.kind == PruneCandidateKind::BranchOnly)
-        );
+        assert!(plan.candidates.iter().any(
+            |c| c.branch.as_deref() == Some("feat") && c.kind == PruneCandidateKind::BranchOnly
+        ));
     }
 
     #[test]

@@ -56,9 +56,7 @@ fn make_error_envelope() -> LafsEnvelope {
         suggested_action: Some(
             "Run `cleo verify T10224 --gate testsPassed --evidence \"tool:test\"`".to_string(),
         ),
-        doc_url: Some(
-            "https://lafs.dev/errors/E_EVIDENCE_MISSING".to_string(),
-        ),
+        doc_url: Some("https://lafs.dev/errors/E_EVIDENCE_MISSING".to_string()),
     };
     LafsEnvelope::error(error, meta)
 }
@@ -67,10 +65,10 @@ fn bench_success_roundtrip(c: &mut Criterion) {
     let envelope = make_success_envelope();
     c.bench_function("lafs_envelope_success_roundtrip", |b| {
         b.iter(|| {
-            let serialized = serde_json::to_string(black_box(&envelope))
-                .expect("serialize success envelope");
-            let deserialized: LafsEnvelope = serde_json::from_str(black_box(&serialized))
-                .expect("deserialize success envelope");
+            let serialized =
+                serde_json::to_string(black_box(&envelope)).expect("serialize success envelope");
+            let deserialized: LafsEnvelope =
+                serde_json::from_str(black_box(&serialized)).expect("deserialize success envelope");
             black_box(deserialized);
         });
     });
@@ -80,10 +78,10 @@ fn bench_error_roundtrip(c: &mut Criterion) {
     let envelope = make_error_envelope();
     c.bench_function("lafs_envelope_error_roundtrip", |b| {
         b.iter(|| {
-            let serialized = serde_json::to_string(black_box(&envelope))
-                .expect("serialize error envelope");
-            let deserialized: LafsEnvelope = serde_json::from_str(black_box(&serialized))
-                .expect("deserialize error envelope");
+            let serialized =
+                serde_json::to_string(black_box(&envelope)).expect("serialize error envelope");
+            let deserialized: LafsEnvelope =
+                serde_json::from_str(black_box(&serialized)).expect("deserialize error envelope");
             black_box(deserialized);
         });
     });
