@@ -814,12 +814,16 @@ export {
 } from './otel/index.js';
 // Paths (additional)
 export {
+  detectStrayCleoDb,
   getAgentOutputsAbsolute,
   getAgentsHome,
   getCleoGlobalCantAgentsDir,
   getProjectRoot,
   resolveOrCwd,
+  resolveWorktreeFilePath,
+  resolveWorktreeRouting,
   runWithWorktreeScopeFromEnv,
+  type WorktreeRouting,
 } from './paths.js';
 // Phases — dependency graph (taskId-scoped critical path; distinct from tasks/graph-ops getCriticalPath)
 export type { CriticalPathResult as DepsCriticalPathResult } from './phases/deps.js';

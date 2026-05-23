@@ -193,6 +193,35 @@ retrieval becomes impossible. Migrate every doc-type write to
 
 ---
 
+## Worktree-Aware Routing (T10389 / ADR-068 amendment §3.1)
+
+When running from an agent-spawned worktree (e.g. under
+`~/.local/share/cleo/worktrees/<hash>/<task>/`), `cleo docs add` and
+`cleo changeset add` automatically route the SSoT write back to the
+canonical project root. The bytes land in the MAIN repo's SSoT — never
+inside the worktree.
+
+You can pass file paths relative to the worktree cwd as usual:
+
+```bash
+cd ~/.local/share/cleo/worktrees/<hash>/<task>/
+cleo docs add T10389 docs/note.md --slug t10389-investigation --type note
+# stderr: [T10389] routing SSoT write from worktree cwd <...> → canonical project root <...>
+```
+
+The verbs detect a stray `.cleo/tasks.db` inside the worktree
+(pre-T9803 leak or rogue write) and emit `E_STRAY_WORKTREE_DB` BEFORE
+invoking the DB chokepoint, so the user gets actionable remediation
+(`rm -rf <worktree>/.cleo`) instead of the deeper
+`E_WT_DB_ISOLATION_VIOLATION` exception.
+
+Suppress the routing log line with `CLEO_QUIET=1` if you need clean
+stderr in automation. The fix-pack closes T10353 + T10354 + T10294's
+3-guard collision class (`E_PATH_TRAVERSAL` + `E_FILE_ERROR` +
+`E_WT_DB_ISOLATION_VIOLATION`).
+
+---
+
 ## Core Principle: MAINTAIN, DON'T DUPLICATE
 
 ```

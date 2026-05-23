@@ -28,6 +28,7 @@ import {
   CleoError,
   CounterMismatchError,
   createAttachmentStoreDocsAccessor,
+  detectStrayCleoDb,
   exportDocument,
   getAgentOutputsAbsolute,
   getProjectRoot,
@@ -39,6 +40,8 @@ import {
   rankDocs,
   readJson,
   recordPublication,
+  resolveWorktreeFilePath,
+  resolveWorktreeRouting,
   runDocsImport,
   searchAllProjectDocs,
   searchDocs,
@@ -279,13 +282,61 @@ const addCommand = defineCommand({
       process.exit(6);
     }
 
+    // T10389 / ADR-068 amendment §3.1 — worktree-aware file routing.
+    //
+    // When invoked from a git worktree (e.g. an orchestrator-spawned agent
+    // running under `~/.local/share/cleo/worktrees/<hash>/<task>/`), the
+    // canonical project root resolves to the MAIN repo (via the gitlink in
+    // `getProjectRoot`). A user-supplied relative file path MUST be
+    // resolved against the WORKTREE'S cwd, not against the canonical root,
+    // before it reaches the dispatch sanitizer — otherwise the sanitizer
+    // throws `E_PATH_TRAVERSAL` ("outside project root") OR the dispatch
+    // op fails with `E_FILE_ERROR: Cannot read file` because it looked in
+    // the wrong directory.
+    //
+    // The dispatch sanitizer is exempted for `docs.add` in
+    // `packages/core/src/security/input-sanitization.ts` so the absolute
+    // path computed here passes through unchanged.
+    let resolvedFile: string | undefined;
+    if (fileArg) {
+      const routing = resolveWorktreeRouting();
+
+      // Defensive: detect a stray `.cleo/tasks.db` inside the worktree
+      // BEFORE invoking dispatch. The DB chokepoint's worktree-isolation
+      // guard (T9806) would otherwise raise the harder-to-act-on
+      // `E_WT_DB_ISOLATION_VIOLATION` later in the chain.
+      const strayDb = detectStrayCleoDb(routing);
+      if (strayDb) {
+        cliError(
+          `stray .cleo/tasks.db detected inside worktree at ${routing.worktreePath}. ` +
+            'This is a leaked CLEO state directory.',
+          6,
+          {
+            name: 'E_STRAY_WORKTREE_DB',
+            fix: `Remove it with: rm -rf ${routing.worktreePath}/.cleo — then retry. See ADR-068 §3 for the worktree DB isolation rationale.`,
+          },
+        );
+        process.exit(6);
+      }
+
+      if (routing.isWorktree && process.env['CLEO_QUIET'] !== '1') {
+        // Emit to stderr so JSON consumers reading stdout never see chrome.
+        // This fires BEFORE dispatch sets up the WarningCollector ALS, so
+        // `pushWarning` would no-op — direct stderr is the correct surface.
+        const routingLog = `[T10389] routing SSoT write from worktree cwd ${routing.cwd} → canonical project root ${routing.canonicalRoot}\n`;
+        process.stderr.write(routingLog); // json-stream-hygiene-allowed: pre-dispatch routing UX (T10389)
+      }
+
+      resolvedFile = resolveWorktreeFilePath(String(fileArg), routing);
+    }
+
     await dispatchFromCli(
       'mutate',
       'docs',
       'add',
       {
         ownerId,
-        ...(fileArg ? { file: fileArg } : {}),
+        ...(resolvedFile ? { file: resolvedFile } : {}),
         ...(url ? { url } : {}),
         ...(args.desc ? { desc: args.desc } : {}),
         ...(args.labels ? { labels: args.labels } : {}),

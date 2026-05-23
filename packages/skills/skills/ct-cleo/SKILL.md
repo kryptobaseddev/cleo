@@ -2,7 +2,7 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.1.0
+  version: 2.2.0
   lastReviewed: 2026-05-23
   stability: stable
 ---
@@ -163,3 +163,38 @@ input JSON — `cleo show <epicId>` acceptance criteria → tasks array → `cle
 
 - Saga/Epic workflow: `cleo briefing inject --section task-creation`
 - Single task: `cleo add --type task --parent <id> --acceptance "..." --title "..."`
+
+---
+
+## Worktree-Aware CLI Routing (T10389 / ADR-068 amendment §3.1)
+
+Two CLI verbs auto-route their writes back to the canonical project
+root when invoked from inside an agent-spawned worktree:
+
+- `cleo docs add <ownerId> <file> --type <kind> --slug <slug>` — the
+  blob lands in the MAIN repo's `tasks.db`. The file path is resolved
+  against the WORKTREE cwd (not the canonical root) before dispatch,
+  so relative paths like `docs/note.md` work as expected from inside
+  the worktree.
+- `cleo changeset add --slug <slug> --tasks <ids> --kind <kind> --summary <text>` —
+  dual-writes to `<canonical-root>/.changeset/<slug>.md` AND the SSoT
+  blob store. The `.changeset/` file lands in the MAIN repo, never
+  the worktree.
+
+Both verbs detect stray `.cleo/tasks.db` inside the worktree
+(pre-T9803 leak or rogue write) and emit `E_STRAY_WORKTREE_DB` with a
+clear `rm -rf <worktree>/.cleo` remediation BEFORE the deeper DB
+chokepoint guard fires.
+
+```bash
+# from ~/.local/share/cleo/worktrees/<hash>/T10389/
+cleo docs add T10389 ./investigation.md --type research --slug t10389-research
+# stderr: [T10389] routing SSoT write from worktree cwd ... → canonical project root ...
+# row lands in main repo's tasks.db, retrievable via `cleo docs fetch t10389-research`
+```
+
+If you see `E_PATH_TRAVERSAL`, `E_FILE_ERROR: Cannot read file`, or
+`E_WT_DB_ISOLATION_VIOLATION` when calling either verb, update to a
+build that ships the T10389 fix-pack (closes T10353 + T10354 + T10294
++ T10365). Suppress the routing log with `CLEO_QUIET=1` for clean
+stderr in automation.
