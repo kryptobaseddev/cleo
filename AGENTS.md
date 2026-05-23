@@ -308,7 +308,7 @@ exceptional cases (e.g. non-CLEO-metadata graph DBs like nexus per-project files
 | `packages/core/src/memory/claude-mem-migration.ts` | One-shot memory migration |
 | `packages/core/src/memory/graph-memory-bridge.ts` | Hot-path conduit open |
 | `packages/core/src/conduit/**` | Core-owned conduit infrastructure |
-| `packages/core/src/upgrade.ts` | One-shot signaldock migration |
+| `packages/core/src/upgrade.ts` | One-shot historical migration (legacy reference — signaldock SDK extracted to /mnt/projects/signaldock + crates.io per saga T10180) |
 | `packages/core/src/init.ts` | Bootstrap before chokepoint is available |
 | `packages/core/src/agents/seed-install.ts` | One-shot global install |
 | `packages/core/src/orchestration/classify.ts` | JSDoc @example blocks only |
