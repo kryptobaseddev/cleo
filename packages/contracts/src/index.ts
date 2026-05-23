@@ -1483,6 +1483,15 @@ export {
   TASK_KIND,
   TaskKindSchema,
 } from './release/plan.js';
+// === Release ship-e2e-smoke (T10103) ===
+export type {
+  ShipE2eSmokeFinalState,
+  ShipE2eSmokeParams,
+  ShipE2eSmokeResult,
+  ShipE2eSmokeStep,
+  ShipE2eSmokeStepName,
+  ShipE2eSmokeStepStatus,
+} from './release/ship-e2e-smoke.js';
 // === Release Version Bump ===
 export type {
   BumpResult,

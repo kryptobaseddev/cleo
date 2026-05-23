@@ -606,7 +606,7 @@ export async function releaseIvtrAutoSuggest(
     const epicFullyReleased = blocked.length === 0 && unchecked.length === 0;
 
     const suggestedCommand = epicFullyReleased
-      ? `cleo release ship <version> --epic ${epicId}`
+      ? `cleo release plan <version> --epic ${epicId} && cleo release open <version>`
       : null;
 
     const stillBlocked = blocked.length + unchecked.length;
@@ -970,15 +970,15 @@ export async function releasePush(
       return engineError(
         'E_PROTOCOL_RELEASE',
         `Agent protocol violation: no release manifest entry for '${version}'. ` +
-          'Use the full release.ship workflow to ensure provenance tracking. ' +
+          'Use the canonical `cleo release plan` + `cleo release open` flow to ensure provenance tracking. ' +
           'Direct release.push is not allowed in agent context without a manifest entry.',
         {
           exitCode: 66,
-          fix: `ct release ship ${version} --epic T####`,
+          fix: `cleo release plan ${version} --epic T#### && cleo release open ${version}`,
           alternatives: [
             {
-              action: 'Use full ship workflow',
-              command: `ct release ship ${version} --epic T####`,
+              action: 'Use canonical release flow',
+              command: `cleo release plan ${version} --epic T#### && cleo release open ${version}`,
             },
           ],
         },

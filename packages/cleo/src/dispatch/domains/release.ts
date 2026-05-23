@@ -6,7 +6,7 @@
  * QUERY operations:
  *   gate           — check all IVTR loops in a release epic are `released`
  *   ivtr-suggest   — query whether all sibling tasks in an epic are
- *                    released and emit a `cleo release ship` suggestion
+ *                    released and emit a `cleo release plan` + `cleo release open` suggestion
  *
  * MUTATE operations:
  *   gate           — same semantics as query.gate; safe in both gateways
@@ -133,7 +133,7 @@ export class ReleaseHandler implements DomainHandler {
    *
    * Supported operations:
    * - `gate`         — check IVTR phase state for all tasks in a release epic
-   * - `ivtr-suggest` — check if all epic tasks are released and suggest `release ship`
+   * - `ivtr-suggest` — check if all epic tasks are released and suggest `cleo release plan` + `cleo release open`
    *
    * The legacy `verify` query (run gates + audit child tasks) was removed
    * in T9540 — use `cleo verify <task> --gate X --evidence …` per

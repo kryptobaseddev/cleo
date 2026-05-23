@@ -208,6 +208,10 @@ export {
   showRelease,
   tagRelease,
 } from './release-manifest.js';
+// T10103 — ship-e2e-smoke walker (one-shot release lifecycle validator)
+export type { SmokeEnvironment } from './ship-e2e-smoke.js';
+export { runShipE2eSmoke } from './ship-e2e-smoke.js';
+export { createDefaultSmokeEnvironment } from './ship-e2e-smoke-default-env.js';
 // T9529 — provenance verify verb (Phase 2 of T9493). READ-ONLY audit of the
 // 11 provenance tables for a release (or N most-recent releases).
 export type {
