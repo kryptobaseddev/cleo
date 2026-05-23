@@ -37,6 +37,10 @@
       "types": "./dist/src/spinner-handle.d.ts",
       "import": "./dist/src/spinner-handle.js"
     },
+    "./render": {
+      "types": "./dist/src/render/index.d.ts",
+      "import": "./dist/src/render/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -74,6 +78,9 @@
   "license": "MIT",
   "engines": {
     "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "@cleocode/contracts": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",

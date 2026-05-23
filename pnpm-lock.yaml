@@ -155,6 +155,10 @@ importers:
   packages/agents: {}
 
   packages/animations:
+    dependencies:
+      '@cleocode/contracts':
+        specifier: workspace:*
+        version: link:../contracts
     devDependencies:
       '@types/node':
         specifier: ^24.3.0
