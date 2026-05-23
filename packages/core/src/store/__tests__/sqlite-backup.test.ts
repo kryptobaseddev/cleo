@@ -12,6 +12,8 @@
  *
  * @task T4874
  * @task T5158 — extended to cover brain.db + vacuumIntoBackupAll
+ * @task T10316 — eager-open openers mocked to keep the unit-layer guard
+ *               passing under the new SnapshotTarget.openDb contract
  * @epic T4867
  */
 
@@ -27,18 +29,41 @@ describe('sqlite-backup', () => {
   });
 
   it('is non-fatal when getNativeDb() returns null', async () => {
-    vi.doMock('../sqlite.js', () => ({ getNativeDb: () => null }));
-    vi.doMock('../memory-sqlite.js', () => ({ getBrainNativeDb: () => null }));
-    vi.doMock('../../paths.js', () => ({ getCleoDir: () => tmpdir() }));
+    // T10316: stub the eager-open paths too so they don't throw when the
+    // singleton lookup returns null. The unit-layer contract is preserved —
+    // both fast-path and eager-open returning null is still a clean skip.
+    vi.doMock('../sqlite.js', () => ({ getNativeDb: () => null, getDb: async () => null }));
+    vi.doMock('../memory-sqlite.js', () => ({
+      getBrainNativeDb: () => null,
+      getBrainDb: async () => null,
+    }));
+    vi.doMock('../conduit-sqlite.js', () => ({
+      getConduitNativeDb: () => null,
+      ensureConduitDb: () => ({ action: 'exists', path: '' }),
+    }));
+    vi.doMock('../../paths.js', () => ({
+      getCleoDir: () => tmpdir(),
+      resolveOrCwd: (cwd?: string) => cwd ?? tmpdir(),
+    }));
 
     const { vacuumIntoBackup } = await import('../sqlite-backup.js');
     await expect(vacuumIntoBackup({ force: true })).resolves.not.toThrow();
   });
 
   it('is non-fatal when getBrainNativeDb() returns null', async () => {
-    vi.doMock('../sqlite.js', () => ({ getNativeDb: () => null }));
-    vi.doMock('../memory-sqlite.js', () => ({ getBrainNativeDb: () => null }));
-    vi.doMock('../../paths.js', () => ({ getCleoDir: () => tmpdir() }));
+    vi.doMock('../sqlite.js', () => ({ getNativeDb: () => null, getDb: async () => null }));
+    vi.doMock('../memory-sqlite.js', () => ({
+      getBrainNativeDb: () => null,
+      getBrainDb: async () => null,
+    }));
+    vi.doMock('../conduit-sqlite.js', () => ({
+      getConduitNativeDb: () => null,
+      ensureConduitDb: () => ({ action: 'exists', path: '' }),
+    }));
+    vi.doMock('../../paths.js', () => ({
+      getCleoDir: () => tmpdir(),
+      resolveOrCwd: (cwd?: string) => cwd ?? tmpdir(),
+    }));
 
     const { vacuumIntoBackupAll } = await import('../sqlite-backup.js');
     await expect(vacuumIntoBackupAll({ force: true })).resolves.not.toThrow();
@@ -46,10 +71,23 @@ describe('sqlite-backup', () => {
 
   it('calls PRAGMA wal_checkpoint(TRUNCATE) before VACUUM INTO for tasks.db', async () => {
     const execMock = vi.fn();
-    vi.doMock('../sqlite.js', () => ({ getNativeDb: () => ({ exec: execMock }) }));
-    vi.doMock('../memory-sqlite.js', () => ({ getBrainNativeDb: () => null }));
+    vi.doMock('../sqlite.js', () => ({
+      getNativeDb: () => ({ exec: execMock }),
+      getDb: async () => null,
+    }));
+    vi.doMock('../memory-sqlite.js', () => ({
+      getBrainNativeDb: () => null,
+      getBrainDb: async () => null,
+    }));
+    vi.doMock('../conduit-sqlite.js', () => ({
+      getConduitNativeDb: () => null,
+      ensureConduitDb: () => ({ action: 'exists', path: '' }),
+    }));
     const tempDir = join(tmpdir(), `cleo-test-wal-${Date.now()}`);
-    vi.doMock('../../paths.js', () => ({ getCleoDir: () => tempDir }));
+    vi.doMock('../../paths.js', () => ({
+      getCleoDir: () => tempDir,
+      resolveOrCwd: (cwd?: string) => cwd ?? tempDir,
+    }));
 
     const { vacuumIntoBackup } = await import('../sqlite-backup.js');
     await vacuumIntoBackup({ force: true });
@@ -63,12 +101,25 @@ describe('sqlite-backup', () => {
 
   it('enforces maximum 10 tasks.db snapshots via rotation', async () => {
     const execMock = vi.fn();
-    vi.doMock('../sqlite.js', () => ({ getNativeDb: () => ({ exec: execMock }) }));
-    vi.doMock('../memory-sqlite.js', () => ({ getBrainNativeDb: () => null }));
+    vi.doMock('../sqlite.js', () => ({
+      getNativeDb: () => ({ exec: execMock }),
+      getDb: async () => null,
+    }));
+    vi.doMock('../memory-sqlite.js', () => ({
+      getBrainNativeDb: () => null,
+      getBrainDb: async () => null,
+    }));
+    vi.doMock('../conduit-sqlite.js', () => ({
+      getConduitNativeDb: () => null,
+      ensureConduitDb: () => ({ action: 'exists', path: '' }),
+    }));
     const tempDir = join(tmpdir(), `cleo-test-rot-${Date.now()}`);
     const backupDir = join(tempDir, 'backups', 'sqlite');
     mkdirSync(backupDir, { recursive: true });
-    vi.doMock('../../paths.js', () => ({ getCleoDir: () => tempDir }));
+    vi.doMock('../../paths.js', () => ({
+      getCleoDir: () => tempDir,
+      resolveOrCwd: (cwd?: string) => cwd ?? tempDir,
+    }));
 
     // Seed 11 fake snapshot files with valid YYYYMMDD-HHMMSS format
     for (let i = 0; i < 11; i++) {
@@ -88,12 +139,25 @@ describe('sqlite-backup', () => {
   it('enforces rotation independently per prefix (tasks + brain)', async () => {
     const tasksExec = vi.fn();
     const brainExec = vi.fn();
-    vi.doMock('../sqlite.js', () => ({ getNativeDb: () => ({ exec: tasksExec }) }));
-    vi.doMock('../memory-sqlite.js', () => ({ getBrainNativeDb: () => ({ exec: brainExec }) }));
+    vi.doMock('../sqlite.js', () => ({
+      getNativeDb: () => ({ exec: tasksExec }),
+      getDb: async () => null,
+    }));
+    vi.doMock('../memory-sqlite.js', () => ({
+      getBrainNativeDb: () => ({ exec: brainExec }),
+      getBrainDb: async () => null,
+    }));
+    vi.doMock('../conduit-sqlite.js', () => ({
+      getConduitNativeDb: () => null,
+      ensureConduitDb: () => ({ action: 'exists', path: '' }),
+    }));
     const tempDir = join(tmpdir(), `cleo-test-rot-prefix-${Date.now()}`);
     const backupDir = join(tempDir, 'backups', 'sqlite');
     mkdirSync(backupDir, { recursive: true });
-    vi.doMock('../../paths.js', () => ({ getCleoDir: () => tempDir }));
+    vi.doMock('../../paths.js', () => ({
+      getCleoDir: () => tempDir,
+      resolveOrCwd: (cwd?: string) => cwd ?? tempDir,
+    }));
 
     // Seed 11 tasks.db and 11 brain.db stale snapshots.
     for (let i = 0; i < 11; i++) {
@@ -115,10 +179,23 @@ describe('sqlite-backup', () => {
   it('vacuumIntoBackupAll snapshots both tasks.db and brain.db', async () => {
     const tasksExec = vi.fn();
     const brainExec = vi.fn();
-    vi.doMock('../sqlite.js', () => ({ getNativeDb: () => ({ exec: tasksExec }) }));
-    vi.doMock('../memory-sqlite.js', () => ({ getBrainNativeDb: () => ({ exec: brainExec }) }));
+    vi.doMock('../sqlite.js', () => ({
+      getNativeDb: () => ({ exec: tasksExec }),
+      getDb: async () => null,
+    }));
+    vi.doMock('../memory-sqlite.js', () => ({
+      getBrainNativeDb: () => ({ exec: brainExec }),
+      getBrainDb: async () => null,
+    }));
+    vi.doMock('../conduit-sqlite.js', () => ({
+      getConduitNativeDb: () => null,
+      ensureConduitDb: () => ({ action: 'exists', path: '' }),
+    }));
     const tempDir = join(tmpdir(), `cleo-test-both-${Date.now()}`);
-    vi.doMock('../../paths.js', () => ({ getCleoDir: () => tempDir }));
+    vi.doMock('../../paths.js', () => ({
+      getCleoDir: () => tempDir,
+      resolveOrCwd: (cwd?: string) => cwd ?? tempDir,
+    }));
 
     const { vacuumIntoBackupAll } = await import('../sqlite-backup.js');
     await vacuumIntoBackupAll({ force: true });
@@ -135,10 +212,23 @@ describe('sqlite-backup', () => {
 
   it('debounce skips second call within debounce window (tasks prefix)', async () => {
     const execMock = vi.fn();
-    vi.doMock('../sqlite.js', () => ({ getNativeDb: () => ({ exec: execMock }) }));
-    vi.doMock('../memory-sqlite.js', () => ({ getBrainNativeDb: () => null }));
+    vi.doMock('../sqlite.js', () => ({
+      getNativeDb: () => ({ exec: execMock }),
+      getDb: async () => null,
+    }));
+    vi.doMock('../memory-sqlite.js', () => ({
+      getBrainNativeDb: () => null,
+      getBrainDb: async () => null,
+    }));
+    vi.doMock('../conduit-sqlite.js', () => ({
+      getConduitNativeDb: () => null,
+      ensureConduitDb: () => ({ action: 'exists', path: '' }),
+    }));
     const tempDir = join(tmpdir(), `cleo-test-debounce-${Date.now()}`);
-    vi.doMock('../../paths.js', () => ({ getCleoDir: () => tempDir }));
+    vi.doMock('../../paths.js', () => ({
+      getCleoDir: () => tempDir,
+      resolveOrCwd: (cwd?: string) => cwd ?? tempDir,
+    }));
 
     const { vacuumIntoBackup } = await import('../sqlite-backup.js');
     // First call with force sets _lastBackupEpoch
@@ -150,14 +240,67 @@ describe('sqlite-backup', () => {
     expect(execMock.mock.calls.length).toBe(callCountAfterFirst);
   });
 
+  // T10316 regression: when getBrainNativeDb() returns null (brain.db not
+  // opened earlier in this process), vacuumIntoBackupAll MUST still produce
+  // a brain.db snapshot by eagerly opening brain via the canonical opener.
+  // The mock-based unit guard exercises the SnapshotTarget.openDb contract;
+  // the real-process variant lives in sqlite-backup-real-process.test.ts.
+  it('vacuumIntoBackupAll calls openDb for brain when getBrainNativeDb is null (T10316)', async () => {
+    const tasksExec = vi.fn();
+    const brainExec = vi.fn();
+    const getBrainDbMock = vi.fn(async () => null); // resolves; native handle below
+    vi.doMock('../sqlite.js', () => ({
+      getNativeDb: () => ({ exec: tasksExec }),
+      getDb: async () => null,
+    }));
+    // First call to getBrainNativeDb returns null (fast path miss). The
+    // openDb fallback awaits getBrainDb then re-queries getBrainNativeDb,
+    // which returns the live handle on the second call.
+    let brainCallCount = 0;
+    vi.doMock('../memory-sqlite.js', () => ({
+      getBrainNativeDb: () => {
+        brainCallCount += 1;
+        return brainCallCount === 1 ? null : { exec: brainExec };
+      },
+      getBrainDb: getBrainDbMock,
+    }));
+    vi.doMock('../conduit-sqlite.js', () => ({
+      getConduitNativeDb: () => null,
+      ensureConduitDb: () => ({ action: 'exists', path: '' }),
+    }));
+    const tempDir = join(tmpdir(), `cleo-test-eager-${Date.now()}`);
+    vi.doMock('../../paths.js', () => ({
+      getCleoDir: () => tempDir,
+      resolveOrCwd: (cwd?: string) => cwd ?? tempDir,
+    }));
+
+    const { vacuumIntoBackupAll } = await import('../sqlite-backup.js');
+    await vacuumIntoBackupAll({ force: true });
+
+    expect(getBrainDbMock).toHaveBeenCalledTimes(1);
+    // After eager-open, the brain VACUUM INTO must have executed.
+    const brainCalls = brainExec.mock.calls.map((c) => c[0] as string);
+    expect(brainCalls.some((c) => c.includes('wal_checkpoint'))).toBe(true);
+    expect(brainCalls.some((c) => c.includes('VACUUM INTO'))).toBe(true);
+  });
+
   it('listSqliteBackups and listBrainBackups return prefix-specific entries newest-first', async () => {
-    vi.doMock('../sqlite.js', () => ({ getNativeDb: () => null }));
-    vi.doMock('../memory-sqlite.js', () => ({ getBrainNativeDb: () => null }));
-    vi.doMock('../conduit-sqlite.js', () => ({ getConduitNativeDb: () => null }));
+    vi.doMock('../sqlite.js', () => ({ getNativeDb: () => null, getDb: async () => null }));
+    vi.doMock('../memory-sqlite.js', () => ({
+      getBrainNativeDb: () => null,
+      getBrainDb: async () => null,
+    }));
+    vi.doMock('../conduit-sqlite.js', () => ({
+      getConduitNativeDb: () => null,
+      ensureConduitDb: () => ({ action: 'exists', path: '' }),
+    }));
     const tempDir = join(tmpdir(), `cleo-test-list-${Date.now()}`);
     const backupDir = join(tempDir, 'backups', 'sqlite');
     mkdirSync(backupDir, { recursive: true });
-    vi.doMock('../../paths.js', () => ({ getCleoDir: () => tempDir }));
+    vi.doMock('../../paths.js', () => ({
+      getCleoDir: () => tempDir,
+      resolveOrCwd: (cwd?: string) => cwd ?? tempDir,
+    }));
 
     // Write files then explicitly set mtimes so the listing sort (by mtime
     // descending) is deterministic regardless of filesystem timestamp
