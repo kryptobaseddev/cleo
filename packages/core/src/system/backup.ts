@@ -9,10 +9,10 @@
  *     snapshot a WAL-mode SQLite database while it is open — raw filesystem
  *     copies can capture torn writes or stale WAL frames.
  *
- *   - JSON files: atomic tmp-then-rename via {@link atomicWrite} so a partial
- *     write can never corrupt the backup target.
+ *   - JSON files: atomic tmp-then-rename via {@link atomicWriteSync} so a
+ *     partial write can never corrupt the backup target.
  *
- * Snapshots are recorded under `.cleo/backups/{type}/` with a JSON sidecar
+ * Snapshots are recorded under `.cleo/backups/sqlite/` with a JSON sidecar
  * (`{backupId}.meta.json`) enumerating which files were captured and how.
  * Restores read the same sidecars and materialize each file back into the
  * live `.cleo/` directory.
@@ -20,8 +20,30 @@
  * This is the backing store for the `cleo backup` and `cleo restore backup`
  * CLI verbs (see packages/cleo/src/cli/commands/backup.ts and restore.ts).
  *
+ * ## Canonical backup path (T10315 · ADR-013 §10 · Saga T10281 / Epic T10284)
+ *
+ * Both this module and {@link ../store/sqlite-backup.ts} (the auto session-end
+ * snapshotter) write to the SAME directory: `.cleo/backups/sqlite/`. The two
+ * producers use distinguishable filename schemes that coexist:
+ *
+ *   - `vacuumIntoBackupAll` writes `tasks-YYYYMMDD-HHmmss.db` /
+ *     `brain-YYYYMMDD-HHmmss.db` (no sidecar).
+ *   - `createBackup` writes `<file>.<backupId>` + `<backupId>.meta.json`,
+ *     where `backupId = <type>-YYYYMMDD-HHmmss` (matching the same local-time
+ *     timestamp format).
+ *
+ * The legacy `.cleo/backups/snapshot/` directory is retained as a read-only
+ * fallthrough for one deprecation window — `listSystemBackups` enumerates
+ * both directories and tags legacy entries via `legacy: true`, and
+ * `restoreBackup` searches the legacy directory if no candidate is found in
+ * the canonical directory. A one-time `DeprecationWarning` fires when the
+ * legacy directory is consulted.
+ *
  * @task T4783
  * @task T5158 — extended to use VACUUM INTO for .db files and atomicWrite for JSON
+ * @task T10315 — ratified `.cleo/backups/sqlite/` as the single canonical path
+ *                (ADR-013 §10). The previous `.cleo/backups/snapshot/` is now
+ *                a deprecated read-only fallthrough for one release.
  */
 
 import {
@@ -45,16 +67,100 @@ import { getNativeDb } from '../store/sqlite.js';
 const DEFAULT_MAX_SNAPSHOTS = 10;
 
 /**
+ * Canonical backup directory name (relative to `.cleo/`). All new backups
+ * write here; reads fall through to the legacy directory below for one
+ * deprecation window.
+ *
+ * @task T10315
+ */
+const CANONICAL_BACKUP_SUBDIR = 'sqlite';
+
+/**
+ * Legacy backup directory name (relative to `.cleo/`). Retained read-only
+ * for one release after T10315 (ADR-013 §10 deprecation window).
+ *
+ * @task T10315
+ */
+const LEGACY_BACKUP_SUBDIR = 'snapshot';
+
+/**
+ * Module-level flag: have we already emitted the legacy-directory
+ * DeprecationWarning during this process? Used to ensure the warning fires
+ * exactly once per process even when both `listSystemBackups` and
+ * `restoreBackup` consult the legacy directory.
+ *
+ * @task T10315
+ */
+let _legacyWarningEmitted = false;
+
+/**
+ * Emit the legacy-directory deprecation warning exactly once per process.
+ *
+ * @task T10315
+ */
+function emitLegacyDeprecationWarning(): void {
+  if (_legacyWarningEmitted) return;
+  _legacyWarningEmitted = true;
+  // Node's emitWarning de-duplicates by (message, code) pair within a single
+  // process, so even if a downstream consumer calls this we won't double-warn.
+  process.emitWarning(
+    'Reading SQLite backups from `.cleo/backups/snapshot/` — this path is ' +
+      'deprecated and will be removed in the release after T10315. New ' +
+      'backups now write to `.cleo/backups/sqlite/`. See ADR-013 §10.',
+    {
+      type: 'DeprecationWarning',
+      code: 'CLEO_BACKUP_LEGACY_SNAPSHOT_DIR',
+    },
+  );
+}
+
+/** Internal: reset the once-flag (test seam). */
+export function _resetLegacyWarningOnce(): void {
+  _legacyWarningEmitted = false;
+}
+
+/**
+ * Format a Date as `YYYYMMDD-HHmmss` (local time) — mirrors the helper of
+ * the same name in `sqlite-backup.ts` so both auto-snapshot and manual
+ * snapshot files in `.cleo/backups/sqlite/` share one timestamp convention.
+ *
+ * @task T10315 — unified with `sqlite-backup.ts:formatTimestamp`.
+ */
+function formatTimestamp(d: Date): string {
+  const pad = (n: number, len = 2): string => String(n).padStart(len, '0');
+  return (
+    `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}` +
+    `-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
+  );
+}
+
+/**
  * Rotate backups in a directory: delete the oldest files until
  * fewer than `maxSnapshots` non-meta files remain.
+ *
+ * Only rotates files matching the `createBackup` filename scheme
+ * (`<file>.<type>-YYYYMMDD-HHmmss` for the canonical timestamp shape OR
+ * `<file>.<type>-<iso-with-dashes>` for backward compatibility) so it never
+ * touches files produced by `vacuumIntoBackupAll` in the same directory.
  * Non-fatal — filesystem errors are silently swallowed.
  *
  * @task T9194
+ * @task T10315 — added scoping predicate so rotation never reaches
+ *                vacuum-snapshot files that share `.cleo/backups/sqlite/`.
  */
-function rotateBackupDir(backupDir: string, maxSnapshots: number): void {
+function rotateBackupDir(backupDir: string, maxSnapshots: number, backupType: string): void {
   try {
+    // Match `<anything>.${backupType}-<timestamp>` where timestamp is either
+    // canonical (`YYYYMMDD-HHmmss`) or legacy-ISO (`YYYY-MM-DDTHH-MM-SS-mmmZ`).
+    // Excludes:
+    //   - `.meta.json` sidecars (filtered explicitly below)
+    //   - `.tmp` partial writes
+    //   - vacuum-snapshot files (`tasks-YYYYMMDD-HHmmss.db`, `brain-...`) —
+    //     those start with the prefix, not `.<file>.${backupType}-`.
+    const escapedType = backupType.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const ownedPattern = new RegExp(`\\.${escapedType}-`);
     const files = readdirSync(backupDir)
-      .filter((f) => !f.endsWith('.meta.json') && !f.endsWith('.tmp'))
+      .filter((f) => !f.endsWith('.meta.json') && !f.endsWith('.tmp') && ownedPattern.test(f))
       .map((f) => ({
         name: f,
         path: join(backupDir, f),
@@ -67,7 +173,7 @@ function rotateBackupDir(backupDir: string, maxSnapshots: number): void {
       if (!oldest) break;
       try {
         unlinkSync(oldest.path);
-        // Also delete the corresponding .meta.json sidecar if it exists
+        // Also delete the corresponding .meta.json sidecar if it exists.
         const metaPath = `${oldest.path}.meta.json`;
         if (existsSync(metaPath)) unlinkSync(metaPath);
       } catch {
@@ -143,8 +249,14 @@ export interface RestoreResult {
  * Create a backup of the canonical CLEO data files.
  *
  * Produces safe copies via VACUUM INTO (for SQLite) and atomicWrite
- * (for JSON) into `.cleo/backups/{type}/`. Writes a `{backupId}.meta.json`
+ * (for JSON) into `.cleo/backups/sqlite/`. Writes a `{backupId}.meta.json`
  * sidecar describing the snapshot.
+ *
+ * The backup file naming uses the unified `YYYYMMDD-HHmmss` local-time format
+ * (matching `sqlite-backup.ts:formatTimestamp`) so all snapshot files in
+ * `.cleo/backups/sqlite/` share one timestamp convention. The `type` field
+ * (`snapshot` by default) is embedded in the `backupId` to distinguish manual
+ * snapshots from auto-snapshots and from `safety`/`migration` backups.
  *
  * Opens both `tasks.db` and `brain.db` through their canonical drizzle
  * accessors before snapshotting so that the native DB handles are live
@@ -153,6 +265,9 @@ export interface RestoreResult {
  *
  * Async because opening the database engines requires async migration
  * reconciliation (ADR-012). The CLI dispatch layer awaits this result.
+ *
+ * @task T10315 — write target moved from `.cleo/backups/snapshot/` to
+ *                `.cleo/backups/sqlite/` per ADR-013 §10.
  */
 export async function createBackup(
   projectRoot: string,
@@ -171,9 +286,13 @@ export async function createBackup(
 ): Promise<BackupResult> {
   const cleoDir = join(projectRoot, '.cleo');
   const btype = opts?.type || 'snapshot';
-  const timestamp = new Date().toISOString();
-  const backupId = `${btype}-${timestamp.replace(/[:.]/g, '-')}`;
-  const backupDir = join(cleoDir, 'backups', btype);
+  const now = new Date();
+  const timestamp = now.toISOString();
+  // Unified `YYYYMMDD-HHmmss` local-time stamp — matches
+  // `sqlite-backup.ts:formatTimestamp`. The `type` discriminates manual
+  // snapshots from auto-VACUUM-INTO files in the SAME directory.
+  const backupId = `${btype}-${formatTimestamp(now)}`;
+  const backupDir = join(cleoDir, 'backups', CANONICAL_BACKUP_SUBDIR);
 
   if (!existsSync(backupDir)) {
     mkdirSync(backupDir, { recursive: true });
@@ -262,9 +381,11 @@ export async function createBackup(
     // non-fatal
   }
 
-  // T9194: Rotate oldest backups when the cap is exceeded.
+  // T9194: Rotate oldest backups when the cap is exceeded. Scoped to the
+  // current `backupType` so vacuum-snapshot files in the same dir are never
+  // touched.
   const maxSnapshots = opts?.maxSnapshots ?? DEFAULT_MAX_SNAPSHOTS;
-  rotateBackupDir(backupDir, maxSnapshots);
+  rotateBackupDir(backupDir, maxSnapshots, btype);
 
   return { backupId, path: backupDir, timestamp, type: btype, files: backedUp };
 }
@@ -281,47 +402,103 @@ export interface BackupEntry {
   note?: string;
   /** File names captured in this backup. */
   files: string[];
+  /**
+   * `true` when this entry was discovered under the deprecated legacy
+   * `.cleo/backups/snapshot/` directory. Surfaces in the `cleo backup list`
+   * envelope so the operator knows the entry is read-only and will become
+   * unreachable in the release following T10315.
+   *
+   * @task T10315
+   */
+  legacy?: boolean;
 }
 
 /**
- * List all available system backups (snapshot, safety, migration types).
- * Reads `.meta.json` sidecar files written by createBackup.
- * This is a pure read operation — it does not modify any files.
+ * Read all `.meta.json` sidecars from a single directory, tagging each
+ * entry with the supplied `legacy` flag. Skips malformed/unreadable
+ * sidecars silently. Used by {@link listSystemBackups} to enumerate
+ * canonical + legacy backup dirs without duplicating the scan logic.
+ *
+ * @task T10315 — extracted from `listSystemBackups` to share between the
+ *                canonical `sqlite/` and the legacy `snapshot/` dirs.
+ */
+function readMetaSidecarsFromDir(
+  backupDir: string,
+  fallbackType: string,
+  legacy: boolean,
+): BackupEntry[] {
+  if (!existsSync(backupDir)) return [];
+  const out: BackupEntry[] = [];
+  try {
+    const files = readdirSync(backupDir).filter((f) => f.endsWith('.meta.json'));
+    for (const metaFile of files) {
+      try {
+        const raw = readFileSync(join(backupDir, metaFile), 'utf-8');
+        const meta = JSON.parse(raw) as Partial<BackupEntry>;
+        if (meta.backupId && meta.timestamp) {
+          const entry: BackupEntry = {
+            backupId: meta.backupId,
+            type: meta.type ?? fallbackType,
+            timestamp: meta.timestamp,
+            files: meta.files ?? [],
+          };
+          if (meta.note !== undefined) entry.note = meta.note;
+          if (legacy) entry.legacy = true;
+          out.push(entry);
+        }
+      } catch {
+        // skip malformed meta files
+      }
+    }
+  } catch {
+    // skip unreadable backup directories
+  }
+  return out;
+}
+
+/**
+ * List all available system backups (`snapshot`, `safety`, `migration`).
+ *
+ * Reads `.meta.json` sidecar files written by {@link createBackup}. Walks
+ * both the canonical `.cleo/backups/sqlite/` directory AND the deprecated
+ * `.cleo/backups/snapshot/` directory (ADR-013 §10 read-side deprecation
+ * window). Entries discovered under the legacy directory are tagged with
+ * `legacy: true` so callers can surface a warning.
+ *
+ * This is a pure read operation — it does not modify any files. A one-time
+ * `DeprecationWarning` is emitted via `process.emitWarning` when the legacy
+ * directory yields ≥1 entry.
+ *
  * @task T4783
+ * @task T10315 — added canonical-dir scan + legacy-dir read fallthrough.
  */
 export function listSystemBackups(projectRoot: string): BackupEntry[] {
   const cleoDir = join(projectRoot, '.cleo');
-  const backupTypes = ['snapshot', 'safety', 'migration'];
+  const legacyTypes = ['snapshot', 'safety', 'migration'] as const;
   const entries: BackupEntry[] = [];
 
-  for (const btype of backupTypes) {
-    const backupDir = join(cleoDir, 'backups', btype);
-    if (!existsSync(backupDir)) continue;
-    try {
-      const files = readdirSync(backupDir).filter((f) => f.endsWith('.meta.json'));
-      for (const metaFile of files) {
-        try {
-          const raw = readFileSync(join(backupDir, metaFile), 'utf-8');
-          const meta = JSON.parse(raw) as Partial<BackupEntry>;
-          if (meta.backupId && meta.timestamp) {
-            entries.push({
-              backupId: meta.backupId,
-              type: meta.type ?? btype,
-              timestamp: meta.timestamp,
-              note: meta.note,
-              files: meta.files ?? [],
-            });
-          }
-        } catch {
-          // skip malformed meta files
-        }
-      }
-    } catch {
-      // skip unreadable backup directories
-    }
-  }
+  // 1. Canonical directory: `.cleo/backups/sqlite/` — contains entries of
+  //    every type (`snapshot`/`safety`/`migration`). Sidecars carry their
+  //    own `type` field so we don't need to discriminate by sub-directory.
+  const canonicalDir = join(cleoDir, 'backups', CANONICAL_BACKUP_SUBDIR);
+  entries.push(...readMetaSidecarsFromDir(canonicalDir, 'snapshot', /* legacy */ false));
 
-  // Sort newest first
+  // 2. Legacy directory: `.cleo/backups/snapshot/` — read-only fallthrough
+  //    for one deprecation window (ADR-013 §10). Tag each entry as legacy.
+  //
+  //    Historically the legacy directory was organized as `snapshot/`,
+  //    `safety/`, `migration/` siblings under `.cleo/backups/`. We enumerate
+  //    all three so existing installs surface every pre-T10315 entry.
+  let legacyFound = false;
+  for (const btype of legacyTypes) {
+    const legacyDir = join(cleoDir, 'backups', btype);
+    const found = readMetaSidecarsFromDir(legacyDir, btype, /* legacy */ true);
+    if (found.length > 0) legacyFound = true;
+    entries.push(...found);
+  }
+  if (legacyFound) emitLegacyDeprecationWarning();
+
+  // Sort newest first.
   return entries.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
 }
 
@@ -336,6 +513,12 @@ export function listSystemBackups(projectRoot: string): BackupEntry[] {
  *
  * JSON files are restored via `atomicWrite` (tmp-then-rename) so a crash
  * mid-restore cannot produce a truncated config.
+ *
+ * Search order (T10315 / ADR-013 §10): canonical `.cleo/backups/sqlite/`
+ * first, then legacy `.cleo/backups/{snapshot,safety,migration}/` as a
+ * read-only fallthrough (emits a one-time DeprecationWarning if used).
+ *
+ * @task T10315
  */
 export function restoreBackup(
   projectRoot: string,
@@ -346,15 +529,25 @@ export function restoreBackup(
   }
 
   const cleoDir = join(projectRoot, '.cleo');
-  const backupTypes = ['snapshot', 'safety', 'migration'];
+
+  // Search order: canonical first, then legacy siblings.
+  const searchOrder: Array<{ dir: string; legacy: boolean }> = [
+    { dir: join(cleoDir, 'backups', CANONICAL_BACKUP_SUBDIR), legacy: false },
+    { dir: join(cleoDir, 'backups', LEGACY_BACKUP_SUBDIR), legacy: true },
+    { dir: join(cleoDir, 'backups', 'safety'), legacy: true },
+    { dir: join(cleoDir, 'backups', 'migration'), legacy: true },
+  ];
+
   let metaPath: string | null = null;
   let backupDir: string | null = null;
+  let foundInLegacy = false;
 
-  for (const btype of backupTypes) {
-    const candidateMeta = join(cleoDir, 'backups', btype, `${params.backupId}.meta.json`);
+  for (const { dir, legacy } of searchOrder) {
+    const candidateMeta = join(dir, `${params.backupId}.meta.json`);
     if (existsSync(candidateMeta)) {
       metaPath = candidateMeta;
-      backupDir = join(cleoDir, 'backups', btype);
+      backupDir = dir;
+      foundInLegacy = legacy;
       break;
     }
   }
@@ -362,6 +555,8 @@ export function restoreBackup(
   if (!metaPath || !backupDir) {
     throw new CleoError(ExitCode.NOT_FOUND, `Backup not found: ${params.backupId}`);
   }
+
+  if (foundInLegacy) emitLegacyDeprecationWarning();
 
   let meta: { files: string[]; timestamp: string };
   try {
