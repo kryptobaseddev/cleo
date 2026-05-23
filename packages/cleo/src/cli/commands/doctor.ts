@@ -299,6 +299,21 @@ export const doctorCommand = defineCommand({
         'Audit orphaned CLEO-generated temp directories and report what cleo gc --temp would remove (T9043)',
     },
     /**
+     * T10119: audit every Saga (`type='epic'` + `label='saga'`) for
+     * ADR-073 §1.2 invariant violations (I5/I7 + depth ladder) and
+     * auto-close drift. Read-only; non-zero exit when any I-invariant
+     * fails so the check is CI-gateable.
+     *
+     * @task T10119
+     * @saga T10113
+     * @epic T10209
+     */
+    'audit-sagas': {
+      type: 'boolean',
+      description:
+        'Audit every Saga for ADR-073 §1.2 invariant violations (I5/I7/depth) + auto-close drift (T10119)',
+    },
+    /**
      * T9983: migrate the worktree-include file location from
      * `<root>/.cleo/worktree-include` (legacy) to `<root>/.worktreeinclude`
      * (canonical, matches Claude Code Desktop + worktrunk-core). Backs the
@@ -803,6 +818,22 @@ export const doctorCommand = defineCommand({
         ) {
           process.exitCode = 2;
         }
+      } else if (args['audit-sagas']) {
+        // T10119: ADR-073 §1.2 saga-hierarchy audit (I5/I7/depth + drift).
+        progress.step(0, 'Auditing Saga hierarchy for ADR-073 invariants');
+        const { auditSagaHierarchy } = await import('@cleocode/core/doctor/saga-audit.js');
+        const projectRoot = getProjectRoot();
+        const result = await auditSagaHierarchy(projectRoot);
+
+        const summary =
+          `Saga audit complete — ${result.sagas.length} saga(s) inspected, ` +
+          `${result.count} invariant violation(s), ${result.driftCount} drift warning(s)`;
+        progress.complete(summary);
+
+        cliOutput(result, { command: 'doctor', operation: 'doctor.audit-sagas' });
+        if (result.count > 0 && (process.exitCode === undefined || process.exitCode === 0)) {
+          process.exitCode = 2;
+        }
       } else {
         progress.step(0, 'Checking CLEO directory');
         await dispatchFromCli(
@@ -844,6 +875,45 @@ export const doctorCommand = defineCommand({
           }
         } catch {
           progress.complete('Health check complete');
+        }
+
+        // Saga Hierarchy audit — runs on every default `cleo doctor` invocation
+        // so ADR-073 §1.2 I5/I7/depth violations and auto-close drift surface
+        // without requiring `--audit-sagas`. Any hard invariant violation
+        // raises the exit code to 2; auto-close drift is a soft warning.
+        // @task T10119 @saga T10113 @epic T10209
+        try {
+          const projectRoot = getProjectRoot();
+          const { auditSagaHierarchy } = await import('@cleocode/core/doctor/saga-audit.js');
+          const sagaAudit = await auditSagaHierarchy(projectRoot);
+
+          if (sagaAudit.sagas.length === 0) {
+            humanLine('\nSaga Hierarchy: no sagas found in tasks.db');
+          } else {
+            const header =
+              `\nSaga Hierarchy (${sagaAudit.sagas.length} saga(s), ` +
+              `${sagaAudit.count} violation(s), ${sagaAudit.driftCount} drift warning(s)):`;
+            humanLine(header);
+            for (const s of sagaAudit.sagas) {
+              const violationSuffix =
+                s.violations.length > 0 ? `, ${s.violations.length} violation(s)` : '';
+              humanLine(
+                `  ${s.sagaId} · status=${s.status} · ${s.doneCount}/${s.memberCount} members done${violationSuffix}`,
+              );
+              for (const v of s.violations) {
+                humanLine(`    [${v.kind}] ${v.message}`);
+              }
+            }
+          }
+
+          if (sagaAudit.count > 0 && (process.exitCode === undefined || process.exitCode === 0)) {
+            process.exitCode = 2;
+          }
+        } catch (err) {
+          // Audit must never crash the default doctor run; surface as a
+          // soft warning instead.
+          const msg = err instanceof Error ? err.message : String(err);
+          humanLine(`\nSaga Hierarchy: audit skipped (${msg})`);
         }
       }
     } catch (err) {
