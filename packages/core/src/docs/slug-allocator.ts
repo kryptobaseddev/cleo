@@ -85,21 +85,36 @@
  *      the global write lock is acquired — a cheap set lookup, no lock
  *      escalation.
  *
- * ## Global namespace (per E1.5 decision T10390)
+ * ## Slug Namespace Policy (ADR-076 §6 amendment AMD-001, T10390)
  *
- * Slugs are allocated in a GLOBAL namespace across all DocKinds. The
- * `uniq_attachments_slug` partial UNIQUE INDEX (migration
- * `20260519000001`) keys on `slug` alone — NOT `(kind, slug)`. The
- * allocator matches that: `reserveSlug('changeset', 'foo')` followed by
- * `reserveSlug('research', 'foo')` returns `E_SLUG_RESERVED` for the
- * second call. The `kind` argument is retained for future per-kind
- * extensions (and for richer suggestion derivation) but does NOT
+ * Slugs are GLOBAL across all DocKinds. The advisory lock + SQLite
+ * partial UNIQUE INDEX (`uniq_attachments_slug`, migration
+ * `20260519000001`) keys on `slug` alone — NOT `(kind, slug)`. Cross-kind
+ * same-slug collisions return `E_SLUG_RESERVED`. The `kind` argument is
+ * retained for future per-kind suggestion derivation but does NOT
  * partition the namespace.
  *
- * @task T10392
+ * Decision evidence (full counterfactual analysis lives in ADR-076 §6):
+ *
+ *   1. Human-memorable global lookup — `cleo docs fetch <slug>` has no
+ *      kind disambiguator. Slugs are globally addressable handles.
+ *   2. DocKind-distinct prefix conventions (adr-NNN-*, t<id>-*, spec-*)
+ *      make cross-kind collisions structurally near-impossible.
+ *   3. Per-kind migration would break historical type=NULL rows
+ *      (T10179 / T10203 changesets) and invert E1's dependency on E5
+ *      (T10293 retroactive normalisation).
+ *
+ * Adversarial test (`slug-allocator.test.ts:treats slugs as a GLOBAL
+ * namespace across DocKinds`) confirms `reserveSlug('changeset', 'foo')`
+ * + `reserveSlug('research', 'foo')` → `E_SLUG_RESERVED`.
+ *
+ * See ADR-076 §6 (slug `adr-076-canonical-docs-ssot`, amendment AMD-001)
+ * for the full record, including revisit triggers.
+ *
+ * @task T10392, T10390
  * @epic T10289
  * @saga T10288
- * @adr ADR-076 (canon routing), ADR-083 (Cleo persona)
+ * @adr ADR-076 §6 (slug namespace policy), ADR-083 (Cleo persona)
  */
 
 import type { BuiltinDocKind } from '@cleocode/contracts';
@@ -289,7 +304,8 @@ export async function reserveSlug(
   slug: string,
   opts?: ReserveSlugOptions,
 ): Promise<SlugReserveResult> {
-  void kind; // Reserved for future per-kind suggestion derivation (T10390).
+  void kind; // Retained for future per-kind suggestion derivation. Does NOT
+  //          partition the namespace — see ADR-076 §6 (T10390 amendment).
   const normalizedSlug = normalizeSlug(slug);
 
   // Acquire the per-slug Mutex. Released inside the try/finally below.
