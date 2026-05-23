@@ -26,12 +26,29 @@ function generateRequestId(): string {
  * @epic T4663
  */
 
+// System + nexus renderers — migrated from `./system.js` (T10131 / B6) and
+// `./nexus.js` (T10132 / B7) into `@cleocode/core/render`. Importing the
+// family barrels via the core entry point also triggers their side-effect
+// `registerRenderer` calls so the B5 registry is populated before the
+// dispatcher hands off to it.
 import {
   drainWarnings,
   type FormatOptions,
   formatSuccess,
   metaFooter,
   pagerFooter,
+  renderAuditReconstruct,
+  renderBlockers,
+  renderBrainBackfill,
+  renderBrainExport,
+  renderBrainMaintenance,
+  renderBrainPlasticityStats,
+  renderBrainPurge,
+  renderBrainQuality,
+  renderBriefing,
+  renderCurrent,
+  renderDoctor,
+  renderGeneric,
   // Nexus renderers — migrated to @cleocode/core/render/nexus per ADR-077 (T10132 / B7).
   renderNexusAnalyze,
   renderNexusBrainAnchors,
@@ -67,28 +84,6 @@ import {
   renderNexusTaskSymbols,
   renderNexusWhy,
   renderNexusWiki,
-} from '@cleocode/core';
-import type { CliEnvelope, CliMeta, Warning } from '@cleocode/lafs';
-import { applyFieldFilter, extractFieldFromResult } from '@cleocode/lafs';
-import type { DispatchResponseMeta } from '../../dispatch/types.js';
-import { getFieldContext } from '../field-context.js';
-import { getFormatContext } from '../format-context.js';
-import { emitLafsViolation, LafsViolationError, validateLafsShape } from './lafs-validator.js';
-import { normalizeForHuman } from './normalizer.js';
-// System renderers
-import {
-  renderAuditReconstruct,
-  renderBlockers,
-  renderBrainBackfill,
-  renderBrainExport,
-  renderBrainMaintenance,
-  renderBrainPlasticityStats,
-  renderBrainPurge,
-  renderBrainQuality,
-  renderBriefing,
-  renderCurrent,
-  renderDoctor,
-  renderGeneric,
   renderNext,
   renderPlan,
   renderSchemaCommand,
@@ -99,9 +94,16 @@ import {
   renderTree,
   renderVersion,
   renderWaves,
-} from './system.js';
+} from '@cleocode/core';
+import type { CliEnvelope, CliMeta, Warning } from '@cleocode/lafs';
+import { applyFieldFilter, extractFieldFromResult } from '@cleocode/lafs';
+import type { DispatchResponseMeta } from '../../dispatch/types.js';
+import { getFieldContext } from '../field-context.js';
+import { getFormatContext } from '../format-context.js';
+import { emitLafsViolation, LafsViolationError, validateLafsShape } from './lafs-validator.js';
+import { normalizeForHuman } from './normalizer.js';
 
-export type { RenderWavesMode, RenderWavesOptions } from './system.js';
+export type { RenderWavesMode, RenderWavesOptions } from '@cleocode/core';
 export { renderWaves };
 
 // Task renderers

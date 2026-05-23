@@ -18,8 +18,8 @@
  * @epic T1187
  */
 
+import { renderTree, renderWaves } from '@cleocode/core';
 import { describe, expect, it } from 'vitest';
-import { renderTree, renderWaves } from '../system.js';
 
 // ---------------------------------------------------------------------------
 // Sample wave data
