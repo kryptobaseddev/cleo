@@ -26,6 +26,15 @@ export interface RenderOptions {
   readonly width?: number;
   /** When `true`, presenters MAY emit extended detail. */
   readonly verbose?: boolean;
+  /**
+   * When `true`, presenters MUST emit the most compact representation —
+   * typically one line per item with no chrome, headers, or descriptions.
+   * Mirrors the `--quiet` CLI flag the legacy `(data, quiet)` renderers
+   * accepted as their second argument.
+   *
+   * @task T10133
+   */
+  readonly quiet?: boolean;
 }
 
 /**

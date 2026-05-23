@@ -104,7 +104,11 @@ import {
 export type { RenderWavesMode, RenderWavesOptions } from './system.js';
 export { renderWaves };
 
-// Task renderers
+// Task renderers — migrated to @cleocode/core/render/tasks per ADR-077
+// (T10133 / B8). The import also triggers the B5 registry side-effect that
+// registers each renderer under `(command, 'generic')` so
+// `renderEnvelopeForHuman` can route to them once commands emit typed
+// envelopes.
 import {
   renderAdd,
   renderArchive,
@@ -115,7 +119,7 @@ import {
   renderRestore,
   renderShow,
   renderUpdate,
-} from './tasks.js';
+} from '@cleocode/core';
 
 // ---------------------------------------------------------------------------
 // Renderer registry: maps command name to human renderer function
