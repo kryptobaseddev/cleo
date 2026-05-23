@@ -389,8 +389,12 @@ impl LafsEnvelope {
 use std::sync::OnceLock;
 
 /// The embedded LAFS envelope JSON Schema, compiled into the binary.
-static LAFS_ENVELOPE_SCHEMA: &str =
-    include_str!("../../../packages/lafs/schemas/v1/envelope.schema.json");
+///
+/// Vendored from `packages/lafs/schemas/v1/envelope.schema.json` (the TypeScript
+/// canonical SSoT) into `crates/lafs-core/schemas/v1/envelope.schema.json` so the
+/// crate is publishable to crates.io. Parity is enforced at CI time by
+/// `scripts/lint-lafs-schema-parity.mjs` (T10224).
+static LAFS_ENVELOPE_SCHEMA: &str = include_str!("../schemas/v1/envelope.schema.json");
 
 /// Lazily compiled schema validator (compiled once, shared across calls).
 static COMPILED_VALIDATOR: OnceLock<jsonschema::Validator> = OnceLock::new();

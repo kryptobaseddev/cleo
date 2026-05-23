@@ -1,0 +1,497 @@
+{
+  "$schema": "./hook-mappings.schema.json",
+  "version": "2.0.0",
+  "lastUpdated": "2026-04-06",
+  "description": "CAAMP canonical hook event mappings to provider-native event names. The top-level `canonicalEvents` block is the CAAMP taxonomy that all providers translate to/from. The sibling `piEventCatalog` block is Pi's native lifecycle catalog, consulted when a provider's `capabilities.hooks.nativeEventCatalog` is `\"pi\"`.",
+  "canonicalEvents": {
+    "SessionStart": {
+      "category": "session",
+      "source": "provider",
+      "description": "Session begins, resumes, or is cleared",
+      "canBlock": false
+    },
+    "SessionEnd": {
+      "category": "session",
+      "source": "provider",
+      "description": "Session terminates or exits",
+      "canBlock": false
+    },
+    "PromptSubmit": {
+      "category": "prompt",
+      "source": "provider",
+      "description": "User submits a prompt, before agent processes it",
+      "canBlock": true
+    },
+    "ResponseComplete": {
+      "category": "prompt",
+      "source": "provider",
+      "description": "Agent finishes responding to a turn",
+      "canBlock": false
+    },
+    "PreToolUse": {
+      "category": "tool",
+      "source": "provider",
+      "description": "Before a tool call executes (can block/modify)",
+      "canBlock": true
+    },
+    "PostToolUse": {
+      "category": "tool",
+      "source": "provider",
+      "description": "After a tool call succeeds",
+      "canBlock": false
+    },
+    "PostToolUseFailure": {
+      "category": "tool",
+      "source": "provider",
+      "description": "After a tool call fails or times out",
+      "canBlock": false
+    },
+    "PermissionRequest": {
+      "category": "tool",
+      "source": "provider",
+      "description": "Permission dialog appears for a tool action",
+      "canBlock": true
+    },
+    "SubagentStart": {
+      "category": "agent",
+      "source": "provider",
+      "description": "A subagent is spawned",
+      "canBlock": true
+    },
+    "SubagentStop": {
+      "category": "agent",
+      "source": "provider",
+      "description": "A subagent finishes execution",
+      "canBlock": false
+    },
+    "PreModel": {
+      "category": "agent",
+      "source": "provider",
+      "description": "Before sending a request to the LLM",
+      "canBlock": true
+    },
+    "PostModel": {
+      "category": "agent",
+      "source": "provider",
+      "description": "After receiving an LLM response",
+      "canBlock": false
+    },
+    "PreCompact": {
+      "category": "context",
+      "source": "provider",
+      "description": "Before context window compaction",
+      "canBlock": false
+    },
+    "PostCompact": {
+      "category": "context",
+      "source": "provider",
+      "description": "After context window compaction completes",
+      "canBlock": false
+    },
+    "Notification": {
+      "category": "context",
+      "source": "provider",
+      "description": "System notification or alert is emitted",
+      "canBlock": false
+    },
+    "ConfigChange": {
+      "category": "context",
+      "source": "provider",
+      "description": "Configuration file changes during a session",
+      "canBlock": false
+    },
+    "TaskCreated": {
+      "category": "task",
+      "source": "domain",
+      "description": "A CLEO task has been created via tasks.add",
+      "canBlock": false
+    },
+    "TaskStarted": {
+      "category": "task",
+      "source": "domain",
+      "description": "A CLEO task has been started via tasks.start",
+      "canBlock": false
+    },
+    "TaskCompleted": {
+      "category": "task",
+      "source": "domain",
+      "description": "A CLEO task has been marked complete via tasks.complete",
+      "canBlock": false
+    },
+    "TaskBlocked": {
+      "category": "task",
+      "source": "domain",
+      "description": "A CLEO task has been blocked",
+      "canBlock": false
+    },
+    "MemoryObserved": {
+      "category": "memory",
+      "source": "domain",
+      "description": "An observation has been recorded to brain.db via memory.observe",
+      "canBlock": false
+    },
+    "MemoryPatternStored": {
+      "category": "memory",
+      "source": "domain",
+      "description": "A pattern has been stored via memory.pattern.store",
+      "canBlock": false
+    },
+    "MemoryLearningStored": {
+      "category": "memory",
+      "source": "domain",
+      "description": "A learning has been stored via memory.learning.store",
+      "canBlock": false
+    },
+    "MemoryDecisionStored": {
+      "category": "memory",
+      "source": "domain",
+      "description": "A decision has been stored via memory.decision.store",
+      "canBlock": false
+    },
+    "PipelineStageCompleted": {
+      "category": "pipeline",
+      "source": "domain",
+      "description": "A LOOM lifecycle gate has passed validation",
+      "canBlock": false
+    },
+    "PipelineManifestAppended": {
+      "category": "pipeline",
+      "source": "domain",
+      "description": "A manifest entry has been appended to `pipeline_manifest` (`SQLite` table per ADR-027)",
+      "canBlock": false
+    },
+    "SessionStarted": {
+      "category": "session",
+      "source": "domain",
+      "description": "A CLEO session has been started via session.start",
+      "canBlock": false
+    },
+    "SessionEnded": {
+      "category": "session",
+      "source": "domain",
+      "description": "A CLEO session has ended via session.end",
+      "canBlock": false
+    },
+    "ApprovalRequested": {
+      "category": "session",
+      "source": "domain",
+      "description": "A workflow approval gate has fired, awaiting human approval",
+      "canBlock": false
+    },
+    "ApprovalGranted": {
+      "category": "session",
+      "source": "domain",
+      "description": "A workflow approval has been granted via /approve token",
+      "canBlock": false
+    },
+    "ApprovalExpired": {
+      "category": "session",
+      "source": "domain",
+      "description": "A workflow approval token has expired without response",
+      "canBlock": false
+    }
+  },
+  "domainSources": {
+    "cleo": {
+      "version": "1.0.0",
+      "description": "CLEO task management, memory, and session system",
+      "categories": ["task", "memory", "pipeline", "session"],
+      "operationMapping": {
+        "TaskCreated":             { "domain": "tasks",    "operation": "add",      "phase": "post" },
+        "TaskStarted":             { "domain": "tasks",    "operation": "start",    "phase": "post" },
+        "TaskCompleted":           { "domain": "tasks",    "operation": "complete", "phase": "post" },
+        "TaskBlocked":             { "domain": "tasks",    "operation": "update",   "phase": "post" },
+        "MemoryObserved":          { "domain": "memory",   "operation": "observe",  "phase": "post" },
+        "MemoryPatternStored":     { "domain": "memory",   "operation": "store",    "phase": "post" },
+        "MemoryLearningStored":    { "domain": "memory",   "operation": "store",    "phase": "post" },
+        "MemoryDecisionStored":    { "domain": "memory",   "operation": "store",    "phase": "post" },
+        "PipelineStageCompleted":  { "domain": "pipeline", "operation": "validate", "phase": "post" },
+        "PipelineManifestAppended":{ "domain": "pipeline", "operation": "append",   "phase": "post" },
+        "SessionStarted":          { "domain": "session",  "operation": "start",    "phase": "post" },
+        "SessionEnded":            { "domain": "session",  "operation": "end",      "phase": "post" },
+        "ApprovalRequested":       { "domain": "session",  "operation": "suspend",  "phase": "post" },
+        "ApprovalGranted":         { "domain": "session",  "operation": "resume",   "phase": "post" },
+        "ApprovalExpired":         { "domain": "session",  "operation": "suspend",  "phase": "post" }
+      }
+    }
+  },
+  "providerMappings": {
+    "claude-code": {
+      "hookSystem": "config",
+      "hookConfigPath": "$HOME/.claude/settings.json",
+      "hookFormat": "json",
+      "handlerTypes": ["command", "http", "prompt", "agent"],
+      "experimental": false,
+      "mappings": {
+        "SessionStart": { "nativeName": "SessionStart", "supported": true },
+        "SessionEnd": { "nativeName": "SessionEnd", "supported": true },
+        "PromptSubmit": { "nativeName": "UserPromptSubmit", "supported": true },
+        "ResponseComplete": { "nativeName": "Stop", "supported": true },
+        "PreToolUse": { "nativeName": "PreToolUse", "supported": true },
+        "PostToolUse": { "nativeName": "PostToolUse", "supported": true },
+        "PostToolUseFailure": { "nativeName": "PostToolUseFailure", "supported": true },
+        "PermissionRequest": { "nativeName": "PermissionRequest", "supported": true },
+        "SubagentStart": { "nativeName": "SubagentStart", "supported": true },
+        "SubagentStop": { "nativeName": "SubagentStop", "supported": true },
+        "PreModel": { "nativeName": null, "supported": false },
+        "PostModel": { "nativeName": null, "supported": false },
+        "PreCompact": { "nativeName": "PreCompact", "supported": true },
+        "PostCompact": { "nativeName": "PostCompact", "supported": true },
+        "Notification": { "nativeName": "Notification", "supported": true },
+        "ConfigChange": { "nativeName": "ConfigChange", "supported": true }
+      },
+      "providerOnlyEvents": [
+        "StopFailure",
+        "TeammateIdle",
+        "TaskCompleted",
+        "InstructionsLoaded",
+        "WorktreeCreate",
+        "WorktreeRemove",
+        "Elicitation",
+        "ElicitationResult"
+      ]
+    },
+    "cursor": {
+      "hookSystem": "config",
+      "hookConfigPath": ".cursor/hooks.json",
+      "hookFormat": "json",
+      "handlerTypes": ["command", "prompt"],
+      "experimental": true,
+      "mappings": {
+        "SessionStart": { "nativeName": "sessionStart", "supported": true },
+        "SessionEnd": { "nativeName": "sessionEnd", "supported": true },
+        "PromptSubmit": { "nativeName": "beforeSubmitPrompt", "supported": true },
+        "ResponseComplete": { "nativeName": "stop", "supported": true },
+        "PreToolUse": { "nativeName": "preToolUse", "supported": true },
+        "PostToolUse": { "nativeName": "postToolUse", "supported": true },
+        "PostToolUseFailure": { "nativeName": "postToolUseFailure", "supported": true },
+        "PermissionRequest": { "nativeName": null, "supported": false },
+        "SubagentStart": { "nativeName": "subagentStart", "supported": true },
+        "SubagentStop": { "nativeName": "subagentStop", "supported": true },
+        "PreModel": { "nativeName": null, "supported": false },
+        "PostModel": { "nativeName": null, "supported": false },
+        "PreCompact": { "nativeName": "preCompact", "supported": true },
+        "PostCompact": { "nativeName": null, "supported": false },
+        "Notification": { "nativeName": null, "supported": false },
+        "ConfigChange": { "nativeName": null, "supported": false }
+      },
+      "providerOnlyEvents": [
+        "beforeShellExecution",
+        "afterShellExecution",
+        "beforeMCPExecution",
+        "afterMCPExecution",
+        "beforeReadFile",
+        "afterFileEdit",
+        "afterAgentResponse",
+        "afterAgentThought",
+        "beforeTabFileRead",
+        "afterTabFileEdit"
+      ]
+    },
+    "gemini-cli": {
+      "hookSystem": "config",
+      "hookConfigPath": "$HOME/.gemini/settings.json",
+      "hookFormat": "json",
+      "handlerTypes": ["command"],
+      "experimental": false,
+      "mappings": {
+        "SessionStart": { "nativeName": "SessionStart", "supported": true },
+        "SessionEnd": { "nativeName": "SessionEnd", "supported": true },
+        "PromptSubmit": { "nativeName": "BeforeAgent", "supported": true },
+        "ResponseComplete": { "nativeName": "AfterAgent", "supported": true },
+        "PreToolUse": { "nativeName": "BeforeTool", "supported": true },
+        "PostToolUse": { "nativeName": "AfterTool", "supported": true },
+        "PostToolUseFailure": { "nativeName": null, "supported": false },
+        "PermissionRequest": { "nativeName": null, "supported": false },
+        "SubagentStart": { "nativeName": null, "supported": false },
+        "SubagentStop": { "nativeName": null, "supported": false },
+        "PreModel": { "nativeName": "BeforeModel", "supported": true },
+        "PostModel": { "nativeName": "AfterModel", "supported": true },
+        "PreCompact": { "nativeName": "PreCompress", "supported": true },
+        "PostCompact": { "nativeName": null, "supported": false },
+        "Notification": { "nativeName": "Notification", "supported": true },
+        "ConfigChange": { "nativeName": null, "supported": false }
+      },
+      "providerOnlyEvents": [
+        "BeforeToolSelection"
+      ]
+    },
+    "codex": {
+      "hookSystem": "config",
+      "hookConfigPath": ".codex/hooks.json",
+      "hookFormat": "json",
+      "handlerTypes": ["command"],
+      "experimental": true,
+      "mappings": {
+        "SessionStart": { "nativeName": "SessionStart", "supported": true },
+        "SessionEnd": { "nativeName": null, "supported": false },
+        "PromptSubmit": { "nativeName": "UserPromptSubmit", "supported": true },
+        "ResponseComplete": { "nativeName": "Stop", "supported": true },
+        "PreToolUse": { "nativeName": null, "supported": false },
+        "PostToolUse": { "nativeName": null, "supported": false },
+        "PostToolUseFailure": { "nativeName": null, "supported": false },
+        "PermissionRequest": { "nativeName": null, "supported": false },
+        "SubagentStart": { "nativeName": null, "supported": false },
+        "SubagentStop": { "nativeName": null, "supported": false },
+        "PreModel": { "nativeName": null, "supported": false },
+        "PostModel": { "nativeName": null, "supported": false },
+        "PreCompact": { "nativeName": null, "supported": false },
+        "PostCompact": { "nativeName": null, "supported": false },
+        "Notification": { "nativeName": null, "supported": false },
+        "ConfigChange": { "nativeName": null, "supported": false }
+      },
+      "providerOnlyEvents": []
+    },
+    "opencode": {
+      "hookSystem": "plugin",
+      "hookConfigPath": ".opencode/plugins/",
+      "hookFormat": "javascript",
+      "handlerTypes": ["plugin"],
+      "experimental": false,
+      "mappings": {
+        "SessionStart": { "nativeName": "event:session.created", "supported": true, "notes": "Via bus event subscriber" },
+        "SessionEnd": { "nativeName": "event:session.deleted", "supported": true, "notes": "Via bus event subscriber" },
+        "PromptSubmit": { "nativeName": "chat.message", "supported": true },
+        "ResponseComplete": { "nativeName": "event:session.idle", "supported": true, "notes": "Via bus event subscriber" },
+        "PreToolUse": { "nativeName": "tool.execute.before", "supported": true },
+        "PostToolUse": { "nativeName": "tool.execute.after", "supported": true },
+        "PostToolUseFailure": { "nativeName": null, "supported": false },
+        "PermissionRequest": { "nativeName": "permission.ask", "supported": true },
+        "SubagentStart": { "nativeName": null, "supported": false },
+        "SubagentStop": { "nativeName": null, "supported": false },
+        "PreModel": { "nativeName": "chat.params", "supported": true, "notes": "Modify LLM params before request" },
+        "PostModel": { "nativeName": null, "supported": false },
+        "PreCompact": { "nativeName": "experimental.session.compacting", "supported": true },
+        "PostCompact": { "nativeName": "event:session.compacted", "supported": true, "notes": "Via bus event subscriber" },
+        "Notification": { "nativeName": null, "supported": false },
+        "ConfigChange": { "nativeName": null, "supported": false }
+      },
+      "providerOnlyEvents": [
+        "chat.headers",
+        "shell.env",
+        "tool.definition",
+        "command.execute.before",
+        "experimental.chat.messages.transform",
+        "experimental.chat.system.transform",
+        "experimental.text.complete"
+      ]
+    },
+    "kimi": {
+      "hookSystem": "none",
+      "hookConfigPath": null,
+      "hookFormat": null,
+      "handlerTypes": [],
+      "experimental": false,
+      "mappings": {
+        "SessionStart": { "nativeName": null, "supported": false },
+        "SessionEnd": { "nativeName": null, "supported": false },
+        "PromptSubmit": { "nativeName": null, "supported": false },
+        "ResponseComplete": { "nativeName": null, "supported": false },
+        "PreToolUse": { "nativeName": null, "supported": false },
+        "PostToolUse": { "nativeName": null, "supported": false },
+        "PostToolUseFailure": { "nativeName": null, "supported": false },
+        "PermissionRequest": { "nativeName": null, "supported": false },
+        "SubagentStart": { "nativeName": null, "supported": false },
+        "SubagentStop": { "nativeName": null, "supported": false },
+        "PreModel": { "nativeName": null, "supported": false },
+        "PostModel": { "nativeName": null, "supported": false },
+        "PreCompact": { "nativeName": null, "supported": false },
+        "PostCompact": { "nativeName": null, "supported": false },
+        "Notification": { "nativeName": null, "supported": false },
+        "ConfigChange": { "nativeName": null, "supported": false }
+      },
+      "providerOnlyEvents": []
+    },
+    "pi": {
+      "hookSystem": "extension",
+      "hookConfigPath": "$PI_CODING_AGENT_DIR/extensions/",
+      "hookFormat": "typescript",
+      "handlerTypes": ["extension"],
+      "experimental": false,
+      "notes": "Pi is CAAMP's first-class primary harness (ADR-035). Events use snake_case. Extensions live at ~/.pi/agent/extensions/ (global) or <projectDir>/.pi/extensions/ (project).",
+      "nativeEventCatalog": "pi",
+      "mappings": {
+        "SessionStart":        { "nativeName": "session_start",            "supported": true },
+        "SessionEnd":          { "nativeName": "session_shutdown",         "supported": true },
+        "PromptSubmit":        { "nativeName": "input",                    "supported": true },
+        "ResponseComplete":    { "nativeName": null,                       "supported": false },
+        "PreToolUse":          { "nativeName": "tool_call",                "supported": true },
+        "PostToolUse":         { "nativeName": "tool_result",              "supported": true },
+        "PostToolUseFailure":  { "nativeName": null,                       "supported": false },
+        "PermissionRequest":   { "nativeName": null,                       "supported": false },
+        "SubagentStart":       { "nativeName": "before_agent_start",       "supported": true },
+        "SubagentStop":        { "nativeName": "agent_end",                "supported": true },
+        "PreModel":            { "nativeName": "before_provider_request",  "supported": true },
+        "PostModel":           { "nativeName": null,                       "supported": false },
+        "PreCompact":          { "nativeName": "context",                  "supported": true, "notes": "Pi's context assembly event is the closest proxy for pre-compaction" },
+        "PostCompact":         { "nativeName": null,                       "supported": false },
+        "Notification":        { "nativeName": "turn_end",                 "supported": true, "notes": "Pi emits turn_end when the assistant turn completes, which is the best proxy for a notification event" },
+        "ConfigChange":        { "nativeName": null,                       "supported": false }
+      },
+      "providerOnlyEvents": [
+        "session_switch",
+        "session_fork",
+        "agent_start",
+        "turn_start",
+        "message_start",
+        "message_update",
+        "message_end",
+        "tool_execution_start",
+        "tool_execution_end",
+        "user_bash",
+        "model_select",
+        "resources_discover"
+      ]
+    },
+    "antigravity": {
+      "hookSystem": "none",
+      "hookConfigPath": null,
+      "hookFormat": null,
+      "handlerTypes": [],
+      "experimental": false,
+      "mappings": {
+        "SessionStart": { "nativeName": null, "supported": false },
+        "SessionEnd": { "nativeName": null, "supported": false },
+        "PromptSubmit": { "nativeName": null, "supported": false },
+        "ResponseComplete": { "nativeName": null, "supported": false },
+        "PreToolUse": { "nativeName": null, "supported": false },
+        "PostToolUse": { "nativeName": null, "supported": false },
+        "PostToolUseFailure": { "nativeName": null, "supported": false },
+        "PermissionRequest": { "nativeName": null, "supported": false },
+        "SubagentStart": { "nativeName": null, "supported": false },
+        "SubagentStop": { "nativeName": null, "supported": false },
+        "PreModel": { "nativeName": null, "supported": false },
+        "PostModel": { "nativeName": null, "supported": false },
+        "PreCompact": { "nativeName": null, "supported": false },
+        "PostCompact": { "nativeName": null, "supported": false },
+        "Notification": { "nativeName": null, "supported": false },
+        "ConfigChange": { "nativeName": null, "supported": false }
+      },
+      "providerOnlyEvents": []
+    }
+  },
+  "piEventCatalog": {
+    "session_start":            { "canonicalEquivalent": "SessionStart",  "category": "session", "description": "Pi session created" },
+    "session_shutdown":         { "canonicalEquivalent": "SessionEnd",    "category": "session", "description": "Pi session ended" },
+    "session_switch":           { "canonicalEquivalent": null,             "category": "session", "description": "User switched between sessions in interactive mode" },
+    "session_fork":             { "canonicalEquivalent": null,             "category": "session", "description": "User forked a session" },
+    "before_agent_start":       { "canonicalEquivalent": null,             "category": "agent",   "description": "Pi agent loop is about to start a new turn" },
+    "agent_start":              { "canonicalEquivalent": null,             "category": "agent",   "description": "Pi agent loop started a new turn" },
+    "agent_end":                { "canonicalEquivalent": null,             "category": "agent",   "description": "Pi agent loop finished a turn" },
+    "turn_start":               { "canonicalEquivalent": null,             "category": "agent",   "description": "Conversation turn started" },
+    "turn_end":                 { "canonicalEquivalent": null,             "category": "agent",   "description": "Conversation turn ended" },
+    "message_start":            { "canonicalEquivalent": null,             "category": "agent",   "description": "Streaming message started" },
+    "message_update":           { "canonicalEquivalent": null,             "category": "agent",   "description": "Streaming message chunk received" },
+    "message_end":              { "canonicalEquivalent": null,             "category": "agent",   "description": "Streaming message ended" },
+    "context":                  { "canonicalEquivalent": null,             "category": "context", "description": "Context (system prompt + history) is being assembled" },
+    "before_provider_request":  { "canonicalEquivalent": "PreModel",       "category": "agent",   "description": "About to call the LLM provider" },
+    "tool_call":                { "canonicalEquivalent": "PreToolUse",    "category": "tool",    "description": "Tool is about to be called" },
+    "tool_result":              { "canonicalEquivalent": "PostToolUse",   "category": "tool",    "description": "Tool result received" },
+    "tool_execution_start":     { "canonicalEquivalent": "PreToolUse",    "category": "tool",    "description": "Tool execution started (separate from tool_call)" },
+    "tool_execution_end":       { "canonicalEquivalent": "PostToolUse",   "category": "tool",    "description": "Tool execution ended" },
+    "input":                    { "canonicalEquivalent": "PromptSubmit",  "category": "prompt",  "description": "User submitted input" },
+    "user_bash":                { "canonicalEquivalent": null,             "category": "tool",    "description": "User ran a bash command directly" },
+    "model_select":             { "canonicalEquivalent": null,             "category": "agent",   "description": "User changed the active model" },
+    "resources_discover":       { "canonicalEquivalent": null,             "category": "context", "description": "Pi is discovering skills/extensions/themes" }
+  }
+}
