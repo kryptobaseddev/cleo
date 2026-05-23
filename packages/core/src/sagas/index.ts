@@ -15,6 +15,18 @@
 export { type SagaAddParams, type SagaAddResult, sagaAdd } from './add.js';
 export { LIST_BINDING_SAGA_GROUPS, SAGA_GROUPS_RELATION, SAGA_LABEL } from './constants.js';
 export { type SagaCreateParams, sagaCreate } from './create.js';
+export {
+  assertSagaInvariantI3,
+  assertSagaInvariantI5,
+  assertSagaInvariantI7,
+  E_SAGA_INVARIANT_VIOLATION_I3,
+  E_SAGA_INVARIANT_VIOLATION_I5,
+  E_SAGA_INVARIANT_VIOLATION_I7,
+  isSagaInvariantViolationError,
+  type SagaInvariantCode,
+  type SagaInvariantDiag,
+  SagaInvariantViolationError,
+} from './enforcement.js';
 export { type SagaListResult, sagaList } from './list.js';
 export {
   type SagaMemberEntry,

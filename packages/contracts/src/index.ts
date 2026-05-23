@@ -344,12 +344,16 @@ export {
   TASK_SEVERITIES,
   TASK_SIZES,
 } from './enums.js';
+export type { SagaInvariantErrorCode } from './errors.js';
 // === Error Utilities ===
 export {
   ClassifierUnregisteredAgentError,
   createErrorResult,
   createSuccessResult,
   DecisionValidatorFailedError,
+  E_SAGA_INVARIANT_VIOLATION_I3,
+  E_SAGA_INVARIANT_VIOLATION_I5,
+  E_SAGA_INVARIANT_VIOLATION_I7,
   formatError,
   getErrorMessage,
   isErrorResult,
