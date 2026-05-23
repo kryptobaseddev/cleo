@@ -284,9 +284,6 @@ export function normalizeSlug(input: string): string {
  * @returns Discriminated union: `{ ok: true }` or `{ ok: false, code, suggestions }`.
  * @task T10392
  */
-// SSoT-EXEMPT: reserveSlug() pre-dates the ADR-057 uniform (projectRoot, params)
-// convention; T10396 will refactor the signature + every call site in one
-// dedicated PR so this exemption is a single-line block, not a sweep. (T10396)
 export async function reserveSlug(
   kind: BuiltinDocKind | string,
   slug: string,
@@ -340,4 +337,52 @@ export async function reserveSlug(
  */
 export function releaseReservedSlug(slug: string): void {
   reservedSlugs.delete(normalizeSlug(slug));
+}
+
+// ─── ADR-057-compliant dispatch entry-point wrapper ───────────────────────────
+
+/**
+ * Params for {@link reserveSlugForDispatch} — ADR-057 uniform signature.
+ *
+ * @task T10386
+ */
+export interface ReserveSlugForDispatchParams {
+  /** DocKind requesting the slug (or empty string when --type is omitted). */
+  readonly kind: BuiltinDocKind | string;
+  /** Raw slug — normalised inside the allocator. */
+  readonly slug: string;
+}
+
+/**
+ * Result of {@link reserveSlugForDispatch} — opaque pass-through of
+ * {@link SlugReserveResult} so the dispatch caller can pattern-match on
+ * `ok` without importing the underlying discriminated-union shape twice.
+ *
+ * @task T10386
+ */
+export type ReserveSlugForDispatchResult = SlugReserveResult;
+
+/**
+ * Dispatch entry-point wrapper around {@link reserveSlug} conforming to the
+ * ADR-057 uniform `(projectRoot, params)` signature.
+ *
+ * The wrapper exists so the `cleo docs add` dispatch handler can `await
+ * reserveSlugForDispatch(projectRoot, params)` without tripping the
+ * `lint-contracts-core-ssot` L1 rule. `projectRoot` is forwarded to
+ * `reserveSlug` as the `cwd` option for path resolution; the rest of the
+ * params object is the kind + slug pair.
+ *
+ * T10396 will collapse this wrapper back into a single signature once
+ * `reserveSlug` itself is refactored to the canonical ADR-057 shape.
+ *
+ * @param projectRoot - Working directory for `.cleo/` resolution.
+ * @param params - The DocKind + raw slug pair.
+ * @returns Same discriminated union as {@link reserveSlug}.
+ * @task T10386
+ */
+export async function reserveSlugForDispatch(
+  projectRoot: string,
+  params: ReserveSlugForDispatchParams,
+): Promise<ReserveSlugForDispatchResult> {
+  return reserveSlug(params.kind, params.slug, { cwd: projectRoot });
 }
