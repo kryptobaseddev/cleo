@@ -236,3 +236,86 @@ Cross-machine sync of `brain.db` via git is no longer supported (and was always 
 - **T4867** — parent epic
 - **T4873, T4874** — original VACUUM INTO implementation
 - **T5188** — runtime detection warning
+
+---
+
+## 10. Canonical Backup Path — 2026-05-23 (T10315 · Saga T10281 · Epic T10284)
+
+**Status**: RATIFIED. `.cleo/backups/sqlite/` is the SINGLE canonical destination
+for ALL SQLite backups, auto-snapshot AND manual snapshot alike. The legacy
+`.cleo/backups/snapshot/` directory is DEPRECATED for writes — readers MUST
+fall through to it for one (1) release as a deprecation window.
+
+### Why this decision
+
+The T9685 + T10286 audits surfaced two parallel SQLite backup directories
+produced by two separate write paths:
+
+| Producer                                                    | Trigger                          | Directory                  | Filename shape                                   |
+|-------------------------------------------------------------|----------------------------------|----------------------------|--------------------------------------------------|
+| `vacuumIntoBackupAll` in `packages/core/src/store/sqlite-backup.ts` | Auto session-end hook + safety   | `.cleo/backups/sqlite/`    | `tasks-YYYYMMDD-HHmmss.db` / `brain-YYYYMMDD-HHmmss.db` |
+| `createBackup` in `packages/core/src/system/backup.ts`      | `cleo backup add` (manual)       | `.cleo/backups/snapshot/`  | `tasks.db.<backupId>` + `<backupId>.meta.json`    |
+
+This was the canonical example of the T10316 "missing brain snapshots" class
+of bug: on a fresh project both producers exist independently, but the
+recovery pipeline in `packages/core/src/store/recover-brain-db.ts` enumerates
+both dirs and ranks the freshest validated candidate — meaning recovery
+behaviour drifts whenever the producers disagree. AGENTS.md §"Runtime Data
+Safety" already documents `.cleo/backups/sqlite/` as the auto path, and the
+recovery code already treats it as a first-class snapshot source.
+
+### What the canonical state looks like
+
+1. **Writers**: Both `vacuumIntoBackupAll` and `createBackup` write to
+   `.cleo/backups/sqlite/`.
+2. **Filename shapes coexist**:
+   - VACUUM INTO snapshots match `^(tasks|brain|conduit)-\d{8}-\d{6}\.db$` —
+     rotated independently by `vacuumIntoBackup{,All}`'s per-prefix rotation
+     (`MAX_SNAPSHOTS = 10`).
+   - System-backup snapshots match `^<file>\.<backupId>$` plus a
+     `<backupId>.meta.json` sidecar — rotated by `createBackup`'s
+     `rotateBackupDir(...)` against the same directory.
+   - The two rotation algorithms are scoped by filename pattern so they NEVER
+     collide on each other's files.
+3. **`createBackup` filename timestamp**: uses the same `YYYYMMDD-HHmmss`
+   local-time format as `sqlite-backup.ts:formatTimestamp` so all backup
+   filenames inside `.cleo/backups/sqlite/` use a single timestamp convention.
+4. **`listSystemBackups` (the backing surface for `cleo backup list`)**:
+   enumerates both `.cleo/backups/sqlite/` (canonical) AND
+   `.cleo/backups/snapshot/` (legacy). Entries from the legacy directory are
+   marked with `legacy: true` so the CLI surface can warn the operator.
+5. **`restoreBackup`**: looks in `.cleo/backups/sqlite/` first, then falls
+   through to `.cleo/backups/snapshot/` (read-only). A one-time
+   `process.emitWarning('DeprecationWarning', 'CLEO_BACKUP_LEGACY_SNAPSHOT_DIR')`
+   fires when the legacy directory is consulted.
+6. **`recoverMalformedBrainDb`**: unchanged — already enumerates both
+   directories, ranks by timestamp, prefers fresher. With this ratification
+   the `system-snapshot` source class collapses into the same physical dir as
+   `vacuum-snapshot` over time; both terms remain in the diagnostic-source
+   taxonomy for forensic clarity.
+7. **Deprecation window**: ONE release. The next major after T10315 deletes
+   the read-side fallthrough; `.cleo/backups/snapshot/` files written before
+   then remain on disk but become inert.
+
+### Migration semantics for existing installs
+
+No on-disk migration is performed automatically. Existing
+`.cleo/backups/snapshot/*.meta.json` files remain readable by `cleo backup
+list` and `cleo restore backup` for the deprecation window. Operators MAY
+delete the directory by hand once they have confirmed they no longer need
+historical pre-T10315 snapshots; CLEO never touches the legacy dir other
+than to read from it.
+
+### CI/lint enforcement
+
+This decision is non-enforceable at lint-time because the legacy path is
+referenced from the existing recover-brain-db pipeline and the integration
+tests' fixtures. Forward-only enforcement lands in the deprecation-window
+follow-up task that deletes the read-side fallthrough.
+
+### Related tasks
+
+- **T10315** — this decision (canonical-path ratification + refactor)
+- **T10316** — sibling: brain snapshot was missing entirely (closed in parallel)
+- **T10286** — parent epic (E3-BACKUP-RECOVERY)
+- **T10281** — saga (SG-BRAIN-DB-RESILIENCE)
