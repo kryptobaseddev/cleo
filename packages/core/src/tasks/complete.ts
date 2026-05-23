@@ -13,6 +13,7 @@ import { CleoError } from '../errors.js';
 import { getIvtrState, type IvtrPhase } from '../lifecycle/ivtr-loop.js';
 import { getLogger } from '../logger.js';
 import { getProjectRoot, resolveOrCwd } from '../paths.js';
+import { buildSagaAutoCloseEvidence, findSagasGroupingTask } from '../sagas/storage.js';
 import { wrapWithAgentSession } from '../sessions/agent-session-adapter.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor } from '../store/data-accessor.js';
@@ -595,6 +596,82 @@ export async function completeTask(
             }
           }
         }
+      }
+
+      // T10116: Saga auto-close (mirrors epic auto-close lines ~480-541).
+      //
+      // Sagas (`label='saga'` epics, ADR-073 §1.2) link to their member
+      // Epics via `task_relations.type='groups'` instead of `parentId`. The
+      // existing epic + coordination-parent branches above only walk the
+      // `parentId` column, so a saga whose member just completed would stay
+      // `pending` forever — the T10090 drift bug class (T9787, T9800,
+      // T9831 all manifested this way).
+      //
+      // This branch fires whenever the completing task is a member of one
+      // or more sagas. For each saga that groups this task:
+      //   1. Skip if the saga is already terminal (idempotency).
+      //   2. Skip if we have already queued it on this `completeTask` call.
+      //   3. Resolve member IDs via the saga's populated `relates` array.
+      //   4. Auto-close only when EVERY non-cancelled member is terminal
+      //      (`done` or `cancelled`), treating the current task as `done`
+      //      because its DB write happens immediately after this branch.
+      //   5. Synthesize a verification envelope citing the closing event,
+      //      the member rollup digest, and ADR-073 (AC4).
+      //
+      // The saga loop runs after the coordination-parent branch so a task
+      // that is BOTH a coordination-parent child AND a saga member rolls
+      // both up in a single call. Each saga is appended to the same
+      // `autoCompletedTasks` list so the transaction below upserts every
+      // synthesized close in one commit.
+      const sagasGroupingThisTask = await findSagasGroupingTask(acc, task.id);
+      for (const saga of sagasGroupingThisTask) {
+        if (saga.status === 'done' || saga.status === 'cancelled') continue;
+        if (autoCompleted.includes(saga.id)) continue;
+
+        // Resolve member IDs directly from the saga's populated `relates`
+        // array — `findSagasGroupingTask` already loaded it via
+        // `queryTasks`, so we avoid an extra `resolveSagaMemberIds` call.
+        const memberIds: string[] = [];
+        const seen = new Set<string>();
+        for (const relation of saga.relates ?? []) {
+          if (relation.type !== 'groups') continue;
+          if (seen.has(relation.taskId)) continue;
+          seen.add(relation.taskId);
+          memberIds.push(relation.taskId);
+        }
+        if (memberIds.length === 0) continue;
+
+        const memberTasks = await acc.loadTasks(memberIds);
+        // Overlay the current task as `done` so the rollup check sees the
+        // post-write state without a DB round-trip — same approach used by
+        // the epic auto-close branch above.
+        const allMembersTerminal = memberTasks.every((m) => {
+          if (m.id === task.id) return true;
+          return m.status === 'done' || m.status === 'cancelled';
+        });
+        // Guard: require we actually loaded every member ID we expected.
+        // A member ID present on the saga's `relates` but missing from
+        // the DB (cascade-orphan) MUST block auto-close until reconciled.
+        if (memberTasks.length !== memberIds.length) continue;
+        if (!allMembersTerminal) continue;
+
+        // Synthesize evidence + flip the saga to terminal. The saga write
+        // joins `autoCompletedTasks` so the transaction below upserts it
+        // alongside the current task and any epic / coordination-parent
+        // that also rolled up.
+        const terminalMemberIds = memberTasks
+          .filter((m) => m.id === task.id || m.status === 'done' || m.status === 'cancelled')
+          .map((m) => m.id);
+        saga.verification = buildSagaAutoCloseEvidence(saga.id, terminalMemberIds, now);
+        saga.status = 'done';
+        saga.completedAt = now;
+        saga.updatedAt = now;
+        // T871: keep `pipelineStage` aligned with `status='done'`.
+        if (!isTerminalPipelineStage(saga.pipelineStage)) {
+          saga.pipelineStage = 'contribution';
+        }
+        autoCompleted.push(saga.id);
+        autoCompletedTasks.push(saga);
       }
 
       // Wrap writes in a transaction for TOCTOU safety (T023)
