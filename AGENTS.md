@@ -600,6 +600,19 @@ full atom grammar and tool-resolution rules.
   but emits a deprecation warning and will be removed no earlier than the
   third release cycle after T9498. Prefer the explicit two-verb invocation.
 
+### Auto-Tag on Release Merge
+
+`.github/workflows/auto-tag-on-release-merge.yml` (audit annotation
+`# @task T10104`) fires when a release-ship PR merges to `main` and the
+title matches `^release: ship v<version>` (e.g.
+`release: ship v2026.5.104`). The workflow extracts `vX.Y.Z` from the title,
+tags the PR's merge commit, and pushes the tag — which then triggers the
+downstream `release.yml` (build + npm publish + GitHub Release). This
+removes the manual `git tag -a vX.Y.Z && git push origin vX.Y.Z` step the
+orchestrator used to run after every release merge. The tag step is
+idempotent: if `vX.Y.Z` already exists locally or on `origin`, the workflow
+exits successfully without re-tagging.
+
 ### Branch Protection
 
 Owner runs once to enforce protection at the GitHub level:

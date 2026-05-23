@@ -1,0 +1,88 @@
+# @task T10104
+name: Auto-Tag on Release Merge
+
+# Fires when a release-ship PR (title `release: ship vX.Y.Z`) merges to main.
+# Tags the merge commit `vX.Y.Z` and pushes the tag, which then triggers the
+# downstream `release.yml` workflow (build + npm publish + GitHub release).
+#
+# Eliminates the manual `git tag -a vX.Y.Z && git push origin vX.Y.Z` step
+# the release orchestrator previously had to run by hand after every merge.
+#
+# Trigger contract:
+#   - PR was merged (NOT just closed)
+#   - PR base branch = main
+#   - PR title matches `^release: ship v<semver-or-calver>`
+#
+# See AGENTS.md "Release & Branching (ADR-065) → Auto-Tag on Release Merge".
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  auto-tag:
+    name: Tag merge commit
+    runs-on: ubuntu-latest
+    # Only run when the PR was merged AND the title matches the release pattern.
+    # `startsWith` plus a regex check inside the run step gives us the strictest
+    # filter without pulling in extra actions.
+    if: >
+      github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.title, 'release: ship v')
+
+    steps:
+      - name: Extract version from PR title
+        id: version
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+          # Match `release: ship v<MAJOR>.<MINOR>.<PATCH>[-suffix]` at the start
+          # of the title. Anything past the version is ignored (trailing notes
+          # like "(saga T10099)" are fine).
+          if [[ ! "$PR_TITLE" =~ ^release:[[:space:]]+ship[[:space:]]+v([0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?) ]]; then
+            echo "::error::PR title '$PR_TITLE' did not match ^release: ship v<version>"
+            exit 1
+          fi
+          TAG="v${BASH_REMATCH[1]}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Resolved tag from PR title: $TAG"
+
+      - name: Checkout merge commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+      - name: Tag and push
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          set -euo pipefail
+          # Idempotent: if the tag already exists locally OR on origin (e.g. an
+          # owner ran the historical manual flow), exit success without pushing
+          # a duplicate. The downstream release.yml workflow only fires on
+          # tag creation, so a re-run from this workflow is harmless in that
+          # case but emitting a clear log line saves debugging cycles.
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists locally — skipping create+push."
+            exit 0
+          fi
+          if git ls-remote --tags --exit-code origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists on origin — skipping create+push."
+            exit 0
+          fi
+          git tag -a "$TAG" "$MERGE_SHA" -m "Release $TAG (PR #$PR_NUMBER)"
+          git push origin "$TAG"
+          echo "Pushed tag $TAG → $MERGE_SHA"
