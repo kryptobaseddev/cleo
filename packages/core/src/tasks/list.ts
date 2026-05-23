@@ -10,40 +10,20 @@ import { type EngineResult, engineSuccess } from '../engine-result.js';
 import type { NextDirectives } from '../mvi-helpers.js';
 import { taskListItemNext } from '../mvi-helpers.js';
 import { paginate } from '../pagination.js';
-import type { DataAccessor, TaskQueryFilters } from '../store/data-accessor.js';
-import { getTaskAccessor } from '../store/data-accessor.js';
+// T10123: Saga constants + member resolver moved to `../sagas/` (Saga T10113 /
+// Epic T10208). Re-exported below for backwards-compat with consumers that
+// still import them from this module — new code should import from
+// `@cleocode/core` (which re-exports via `../sagas/index.ts`).
+import { LIST_BINDING_SAGA_GROUPS, SAGA_GROUPS_RELATION, SAGA_LABEL } from '../sagas/constants.js';
+import { resolveSagaMemberIds } from '../sagas/storage.js';
+import type { TaskQueryFilters } from '../store/data-accessor.js';
+import { type DataAccessor, getTaskAccessor } from '../store/data-accessor.js';
 import { tasksToRecords } from './engine-converters.js';
 
-/**
- * Label that elevates an Epic to a Saga (ADR-073 §1, invariant I1).
- *
- * Sagas are stored as `type='epic'` rows with this label and link to their
- * member Epics through `task_relations.type='groups'` edges instead of the
- * `parentId` column.
- *
- * @see ADR-073-above-epic-naming.md §1 — Task Hierarchy Charter
- * @task T9658
- */
-export const SAGA_LABEL = 'saga' as const;
-
-/**
- * Relation type that links a Saga to its member Epics (ADR-073 §1).
- *
- * Written by `tasks.saga.add` and read by `tasks.saga.members`.
- *
- * @task T9658
- */
-export const SAGA_GROUPS_RELATION = 'groups' as const;
-
-/**
- * Binding-source tag used in `ListTasksResult.bindingSource` (and propagated
- * upstream into LAFS envelope meta by the dispatch layer) whenever
- * `listTasks` resolved children via the Saga `task_relations.type='groups'`
- * path instead of the default `parentId` filter.
- *
- * @task T9658
- */
-export const LIST_BINDING_SAGA_GROUPS = 'saga.groups' as const;
+// Re-export saga constants for backwards-compat (T10123).
+// Test fixtures and external consumers historically imported these from
+// `./list.js`; the canonical home is now `../sagas/constants.ts`.
+export { LIST_BINDING_SAGA_GROUPS, SAGA_GROUPS_RELATION, SAGA_LABEL };
 
 const TASK_LIST_DEFAULT_LIMIT = 10;
 
@@ -132,44 +112,6 @@ export interface ListTasksResult {
    * @task T9658
    */
   bindingSource?: typeof LIST_BINDING_SAGA_GROUPS;
-}
-
-/**
- * Resolve Saga member Epic IDs through `task_relations.type='groups'` edges.
- *
- * Sagas (Epics with `labels` containing `'saga'`) hold their member Epics via
- * `task_relations.type='groups'` rows, not via the `parentId` column. This
- * helper loads the saga task, walks its populated `relates` array, and
- * returns the member task IDs in stable order.
- *
- * Reused by {@link listTasks} when `--parent` targets a Saga to mirror the
- * resolution `tasks.saga.members` performs at the dispatch layer (ADR-073).
- *
- * @param accessor - Data accessor backing the lookup.
- * @param sagaId - The Saga task ID (must have `labels.includes('saga')`).
- * @returns Member Epic IDs (deduplicated, insertion-order stable). Empty if
- *          the saga has no `groups` edges. `null` if no task with `sagaId`
- *          exists or the task is not labeled `'saga'`.
- *
- * @task T9658
- * @see ADR-073-above-epic-naming.md §1
- */
-async function resolveSagaMemberIds(
-  accessor: DataAccessor,
-  sagaId: string,
-): Promise<string[] | null> {
-  const sagaTask = await accessor.loadSingleTask(sagaId);
-  if (!sagaTask) return null;
-  if (!(sagaTask.labels ?? []).includes(SAGA_LABEL)) return null;
-  const seen = new Set<string>();
-  const memberIds: string[] = [];
-  for (const relation of sagaTask.relates ?? []) {
-    if (relation.type !== SAGA_GROUPS_RELATION) continue;
-    if (seen.has(relation.taskId)) continue;
-    seen.add(relation.taskId);
-    memberIds.push(relation.taskId);
-  }
-  return memberIds;
 }
 
 /**
