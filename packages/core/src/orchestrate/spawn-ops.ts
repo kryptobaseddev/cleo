@@ -5,7 +5,7 @@
  * and private spawn helpers migrated from
  * packages/cleo/src/dispatch/engines/orchestrate-engine.ts.
  *
- * # T9545 — Spawn hang root cause + timeout supervisor
+ * # T9545 — Spawn hang root cause + timeout supervisor + auto-cleanup
  *
  * **Root cause (file:line evidence):**
  * The spawn pipeline invokes git/`cp` subprocesses through helpers in
@@ -21,7 +21,13 @@
  * {@link spawnWorktree} forever, silently wedging `orchestrateSpawn`. The
  * parent CLI exited without surfacing the hang.
  *
- * **Fix (T9545):**
+ * Additionally, the original T9545 supervisor (v2026.5.99) **preserved**
+ * partially-provisioned worktrees on timeout, requiring callers to manually
+ * run `cleo orchestrate worktree.prune` to recover. The Saga T10176 / D010
+ * verdict reversed that decision: orphan worktrees compound across parallel
+ * agent waves, so spawn timeouts now auto-cleanup.
+ *
+ * **Fix (T9545 — Saga T10176):**
  * 1. Every subprocess call in the spawn pipeline now has an explicit
  *    `timeout` option (`DEFAULT_GIT_TIMEOUT_MS = 60_000` in
  *    `packages/worktree/src/git.ts`).
@@ -31,9 +37,13 @@
  * 3. Progress logs (`engine:orchestrate`) emit at each major step:
  *    `validate-readiness`, `provision-worktree`, `compose-prompt`,
  *    `persist-state` — giving the orchestrator observability.
- * 4. On timeout the partial worktree is **preserved** (NOT deleted) — the
- *    `cleo worktree prune` lifecycle handles orphan cleanup so we never lose
- *    work the agent might have committed before the parent gave up.
+ * 4. **(Saga T10176 / D010 — reversed)** On timeout the supervisor invokes
+ *    {@link destroyWorktree} with its own bounded budget
+ *    ({@link CLEANUP_BUDGET_MS}) so any partial worktree is automatically
+ *    unwound (unlock + remove + branch delete + audit log + sentinel index
+ *    eviction). Cleanup is idempotent — re-invocation against an absent
+ *    worktree succeeds silently. Cleanup failures are captured in
+ *    `error.details.cleanup` and never overwrite the original timeout cause.
  *
  * Pattern mirrors {@link runGitWithLockRetry} from
  * `packages/core/src/release/engine-ops.ts:86-182` (T9501).
@@ -54,7 +64,7 @@ import type {
   CLEOSpawnContext,
   WorktreeHook,
 } from '@cleocode/contracts';
-import { runWorktreeHooks } from '@cleocode/worktree';
+import { destroyWorktree, runWorktreeHooks } from '@cleocode/worktree';
 import { findLeastLoadedAgent } from '../agents/capacity.js';
 import { substituteCantAgentBody } from '../agents/variable-substitution.js';
 import { type EngineResult, engineError } from '../engine-result.js';
@@ -94,6 +104,20 @@ export type { EngineResult };
 export const SPAWN_BUDGET_MS = 60_000;
 
 /**
+ * Bounded budget for the timeout-cleanup pass (Saga T10176 / D010). Cleanup
+ * itself must not be allowed to hang — if `destroyWorktree` fails to return
+ * within this window the timeout envelope reports the cleanup error in
+ * `error.details.cleanup` and the caller falls back to `cleo worktree prune`.
+ *
+ * 5s is intentionally aggressive: `destroyWorktree` only runs a handful of
+ * fast `git` commands (`unlock`, `remove --force`, `branch -D`) plus a
+ * filesystem rm fallback.
+ *
+ * @task T9545
+ */
+export const CLEANUP_BUDGET_MS = 5_000;
+
+/**
  * Step name emitted in spawn-pipeline progress logs. Used by the integration
  * test harness to assert each major step is announced.
  *
@@ -105,6 +129,85 @@ export type SpawnPipelineStep =
   | 'compose-prompt'
   | 'persist-state'
   | 'budget-exceeded';
+
+/**
+ * Result shape returned by {@link runTimeoutCleanup}. Surfaced on the
+ * `E_TIMEOUT` envelope under `error.details.cleanup` so callers can verify
+ * the orphan-worktree state was actually unwound.
+ *
+ * @task T9545
+ */
+export interface TimeoutCleanupResult {
+  /** True when `destroyWorktree` completed (or there was nothing to clean). */
+  attempted: boolean;
+  /** True when the worktree was successfully removed (or already absent). */
+  worktreeRemoved: boolean;
+  /** True when the task branch was deleted (or already absent). */
+  branchDeleted: boolean;
+  /** Captured error message when cleanup failed or exceeded its own budget. */
+  error?: string;
+  /** Milliseconds the cleanup pass took. */
+  elapsedMs: number;
+}
+
+/**
+ * Best-effort, bounded cleanup of a partially-provisioned worktree after the
+ * spawn supervisor fires. Idempotent: re-running against an absent worktree
+ * returns `worktreeRemoved: true` without erroring. Wrapped in its own
+ * `setTimeout` so cleanup itself can never wedge the timeout envelope.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param taskId      - Task ID whose worktree is being cleaned up.
+ * @returns Structured cleanup outcome (never throws).
+ * @task T9545
+ */
+export async function runTimeoutCleanup(
+  projectRoot: string,
+  taskId: string,
+): Promise<TimeoutCleanupResult> {
+  const startedAt = Date.now();
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    const result = await Promise.race<TimeoutCleanupResult>([
+      destroyWorktree(projectRoot, {
+        taskId,
+        deleteBranch: true,
+        force: true,
+        reason: 'spawn-timeout-cleanup',
+      }).then<TimeoutCleanupResult>((r) => ({
+        attempted: true,
+        worktreeRemoved: r.worktreeRemoved,
+        branchDeleted: r.branchDeleted,
+        ...(r.error !== undefined ? { error: r.error } : {}),
+        elapsedMs: Date.now() - startedAt,
+      })),
+      new Promise<TimeoutCleanupResult>((resolve) => {
+        timer = setTimeout(
+          () =>
+            resolve({
+              attempted: true,
+              worktreeRemoved: false,
+              branchDeleted: false,
+              error: `Cleanup exceeded ${CLEANUP_BUDGET_MS}ms budget — orphan may remain`,
+              elapsedMs: Date.now() - startedAt,
+            }),
+          CLEANUP_BUDGET_MS,
+        );
+      }),
+    ]);
+    return result;
+  } catch (err) {
+    return {
+      attempted: true,
+      worktreeRemoved: false,
+      branchDeleted: false,
+      error: err instanceof Error ? err.message : String(err),
+      elapsedMs: Date.now() - startedAt,
+    };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 /**
  * Race a promise against an `AbortSignal`. Resolves with the promise's value
@@ -879,15 +982,54 @@ export async function orchestrateSpawn(
   const spawnLogger = getLogger('engine:orchestrate');
   const spawnStartedAt = Date.now();
 
-  /** Persist a partial-state breadcrumb on timeout so callers can recover. */
-  const buildTimeoutEnvelope = (
-    step: SpawnPipelineStep,
-    partial: { worktreePath?: string; worktreeBranch?: string },
-  ): EngineResult => {
+  /**
+   * Partial-state tracker — populated as the pipeline provisions resources.
+   * The timeout envelope reads from this on abort so cleanup can target the
+   * exact worktree that was being built when the budget blew.
+   *
+   * @task T9545
+   */
+  const partialState: { worktreePath?: string; worktreeBranch?: string; rootResolved?: string } =
+    {};
+
+  /**
+   * Build the E_TIMEOUT envelope AND run bounded auto-cleanup on the
+   * partially-provisioned worktree (Saga T10176 / D010). The original T9545
+   * supervisor preserved orphan worktrees; the saga reversed that decision
+   * so spawn timeouts now self-heal.
+   */
+  const buildTimeoutEnvelope = async (step: SpawnPipelineStep): Promise<EngineResult> => {
+    const partial = {
+      ...(partialState.worktreePath ? { worktreePath: partialState.worktreePath } : {}),
+      ...(partialState.worktreeBranch ? { worktreeBranch: partialState.worktreeBranch } : {}),
+    };
     spawnLogger.error(
       { taskId, step, elapsedMs: Date.now() - spawnStartedAt, partial },
-      `T9545 spawn budget (${SPAWN_BUDGET_MS}ms) exceeded at step '${step}' — preserving partial state`,
+      `T9545 spawn budget (${SPAWN_BUDGET_MS}ms) exceeded at step '${step}' — running auto-cleanup`,
     );
+
+    // Run bounded cleanup ONLY when a worktree was actually provisioned —
+    // skip otherwise so we don't churn against absent state. destroyWorktree
+    // is idempotent (returns worktreeRemoved=true when the path is already
+    // gone) so repeated invocations are safe.
+    let cleanup: TimeoutCleanupResult | undefined;
+    if (partialState.worktreePath && partialState.rootResolved) {
+      try {
+        cleanup = await runTimeoutCleanup(partialState.rootResolved, taskId);
+        spawnLogger.info({ taskId, cleanup }, 'T9545 auto-cleanup completed after spawn timeout');
+      } catch (cleanupErr) {
+        // runTimeoutCleanup never throws, but guard anyway so the envelope
+        // construction can never fail.
+        cleanup = {
+          attempted: true,
+          worktreeRemoved: false,
+          branchDeleted: false,
+          error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+          elapsedMs: 0,
+        };
+      }
+    }
+
     return engineError(
       'E_TIMEOUT',
       `Spawn pipeline exceeded ${SPAWN_BUDGET_MS}ms budget at step '${step}'`,
@@ -897,17 +1039,20 @@ export async function orchestrateSpawn(
           step,
           budgetMs: SPAWN_BUDGET_MS,
           elapsedMs: Date.now() - spawnStartedAt,
-          // Partial worktree is intentionally NOT removed — the
-          // `cleo orchestrate worktree.prune` lifecycle handles orphans.
           partial,
+          ...(cleanup ? { cleanup } : {}),
         },
-        fix: 'Run `cleo orchestrate worktree.prune --taskId <id>` if a stale worktree was left behind, then retry the spawn.',
+        fix:
+          cleanup && !cleanup.worktreeRemoved
+            ? 'Auto-cleanup did not remove the worktree — run `cleo worktree prune --taskId <id>` to force-remove the orphan, then retry the spawn.'
+            : 'Auto-cleanup removed the partial worktree — safe to retry the spawn directly.',
       },
     );
   };
 
   try {
     const root = getProjectRoot(projectRoot);
+    partialState.rootResolved = root;
     spawnLogger.info(
       { taskId, tier, noWorktree, budgetMs: SPAWN_BUDGET_MS },
       'T9545 spawn pipeline started',
@@ -1038,6 +1183,10 @@ export async function orchestrateSpawn(
         );
         worktreePath = sdkWorktreeResult.path;
         worktreeBranch = sdkWorktreeResult.branch;
+        // T9545 — record for the timeout supervisor so auto-cleanup can target
+        // this exact worktree if a later pipeline step blows the budget.
+        partialState.worktreePath = worktreePath;
+        partialState.worktreeBranch = worktreeBranch;
         const extResult =
           sdkWorktreeResult as import('@cleocode/contracts').CreateWorktreeResult & {
             appliedExcludePatterns?: string[];
@@ -1171,15 +1320,15 @@ export async function orchestrateSpawn(
     const code = (err as { code?: string }).code ?? 'E_GENERAL';
     // T9545 — when our budget supervisor aborts a step, the helper throws
     // an Error with `code === 'E_TIMEOUT'`. Surface a structured envelope
-    // that preserves partial state (worktree path NOT removed) so callers
-    // can decide whether to prune-and-retry or resume from the leftover.
+    // AND run bounded auto-cleanup on the partial worktree (Saga T10176 /
+    // D010 — reversed the original "preserve partial state" decision).
     if (code === 'E_TIMEOUT') {
       // Best-effort: extract the step name from the message so the envelope
       // tells the caller exactly which step blew the budget.
       const message = (err as Error).message;
       const stepMatch = /step '([^']+)'/.exec(message);
       const step = (stepMatch?.[1] ?? 'budget-exceeded') as SpawnPipelineStep;
-      return buildTimeoutEnvelope(step, {});
+      return await buildTimeoutEnvelope(step);
     }
     return engineError(code, (err as Error).message);
   } finally {
