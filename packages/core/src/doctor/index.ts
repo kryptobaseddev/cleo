@@ -30,6 +30,18 @@ export {
   surveyFleetDbSubstrate,
   surveyProjectDbSubstrate,
 } from './db-substrate.js';
+// T10309 — Legacy-backup walker (Saga T10281 SG-BRAIN-DB-RESILIENCE / Epic T10282)
+export type { LegacyBackupPruneOptions, LegacyBackupScanOptions } from './legacy-backups.js';
+export {
+  classifyLegacyBackup,
+  DEFAULT_HARD_RETENTION_DAYS,
+  DEFAULT_SOFT_RETENTION_DAYS,
+  isLegacyBackupFilename,
+  legacyBackupSearchRoots,
+  pruneLegacyBackups,
+  recommendForBackup,
+  scanLegacyBackups,
+} from './legacy-backups.js';
 export { auditSagaHierarchy } from './saga-audit.js';
 export type { PruneOptions, ScanOptions } from './worktree-orphans.js';
 export {
