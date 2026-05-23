@@ -1490,6 +1490,8 @@ export type {
   VersionBumpTarget,
   VersionBumpTargetSource,
 } from './release/version-bump.js';
+// === Human Render Contract (Epic T10114, ADR-077) ===
+export * from './render/index.js';
 // === Result Types (Dashboard, Stats, Log, Context, Sequence, Analysis, Deps) ===
 export type {
   BottleneckTask,
@@ -1806,6 +1808,4 @@ export type {
   WarpLink,
   WarpStage,
 } from './warp-chain.js';
-// === Human Render Contract (Epic T10114, ADR-077) ===
-export * from './render/index.js';
 // === WASM SDK (Rust crate bindings) ===
