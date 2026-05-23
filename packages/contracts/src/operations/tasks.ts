@@ -24,7 +24,7 @@ import type { TaskAnalysisResult, TaskRef } from '../results.js';
  * Common task types (API contract — matches CLI src/types/task.ts)
  */
 import type { TaskStatus } from '../status-registry.js';
-import type { TaskPriority } from '../task.js';
+import type { TaskPriority, TaskType } from '../task.js';
 import type { TaskRecord } from '../task-record.js';
 import type { ExternalTask, ExternalTaskLink, ReconcileResult } from '../task-sync.js';
 import type {
@@ -725,7 +725,8 @@ export interface TasksAddBatchParams {
     depends?: string[];
     priority?: string;
     labels?: string[];
-    type?: string; // SSoT-EXEMPT:kind≠type — 'type' is hierarchy(epic|task|subtask), 'kind' is intent(work|bug|...) — separate axes T944
+    // SSoT-EXEMPT:kind≠type — 'type' is hierarchy(saga|epic|task|subtask), 'kind' is intent(work|bug|...) — separate axes T944 (ADR-083 §2.5)
+    type?: TaskType;
     acceptance?: string[];
     phase?: string;
     size?: string;
@@ -768,7 +769,8 @@ export interface TasksAddParams {
   depends?: string[];
   priority?: string;
   labels?: string[];
-  type?: string; // SSoT-EXEMPT:kind≠type — 'type' is hierarchy(epic|task|subtask), 'kind' is intent(work|bug|...) — separate axes T944
+  // SSoT-EXEMPT:kind≠type — 'type' is hierarchy(saga|epic|task|subtask), 'kind' is intent(work|bug|...) — separate axes T944 (ADR-083 §2.5)
+  type?: TaskType;
   acceptance?: string[];
   phase?: string;
   size?: string;
@@ -824,7 +826,8 @@ export interface TasksUpdateQueryParams {
   acceptance?: string[];
   /** Canonical wire field for parent task ID. @see ADR-057 D2 */
   parent?: string | null;
-  type?: string; // SSoT-EXEMPT:kind≠type — 'type' is hierarchy(epic|task|subtask), 'kind' is intent(work|bug|...) — separate axes T944
+  // SSoT-EXEMPT:kind≠type — 'type' is hierarchy(saga|epic|task|subtask), 'kind' is intent(work|bug|...) — separate axes T944 (ADR-083 §2.5)
+  type?: TaskType;
   size?: string;
   files?: string[];
   /** Add files incrementally (mirrors --add-labels pattern). @task T9242 */
