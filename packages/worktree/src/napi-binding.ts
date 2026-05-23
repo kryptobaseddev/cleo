@@ -64,6 +64,70 @@ interface WorktreeInfoNapi {
 }
 
 /**
+ * Options for the napi `pruneWorktrees` binding (T10203).
+ *
+ * Mirrors `crates/worktree-napi`'s `PruneOpts` — see ADR-078 for the
+ * worktrunk-core SDK boundary contract.
+ */
+interface PruneOptsNapi {
+  /** Absolute path to the git repository whose worktrees we plan to prune. */
+  repoRoot: string;
+  /**
+   * The integration target branch (e.g. `"main"`) the candidates are tested
+   * against for "is this merged in?".
+   */
+  integrationTarget: string;
+}
+
+/**
+ * Single prune candidate returned by the napi `pruneWorktrees` plan (T10203).
+ */
+interface PruneCandidateNapi {
+  /** Branch name (`undefined` for detached HEAD worktrees). */
+  branch?: string;
+  /** Display label (branch name or `(detached <short>)`). */
+  label: string;
+  /** Worktree path (`undefined` for branch-only candidates). */
+  path?: string;
+  /** Candidate kind: `"current" | "worktree" | "branch_only"`. */
+  kind: string;
+  /** Human-readable integration reason. */
+  reason: string;
+}
+
+/**
+ * Read-only prune plan returned by the napi `pruneWorktrees` binding (T10203).
+ */
+interface PrunePlanNapi {
+  /** The default branch this plan was computed against. */
+  integrationTarget: string;
+  /** Candidates eligible for removal, in deterministic discovery order. */
+  candidates: PruneCandidateNapi[];
+}
+
+/**
+ * Options for the napi `removeDir` binding (T10203).
+ *
+ * Recursively removes a directory tree using
+ * `worktrunk_core::remove_dir::remove_dir_with_progress`. Best-effort —
+ * read/unlink/rmdir errors are silently skipped on the SDK side.
+ */
+interface RemoveDirOptsNapi {
+  /** Absolute path to the directory tree to remove. */
+  path: string;
+}
+
+/**
+ * Result of a napi `removeDir` call (T10203).
+ */
+interface RemoveDirResultNapi {
+  /** Number of leaf files unlinked. */
+  files: number;
+  /** Total bytes unlinked. Capped at `u32::MAX` for napi compatibility. */
+  bytes: number;
+}
+
+/**
  * Shape of the native module exported by `@cleocode/worktree-napi`.
  *
  * Mirrors the napi-rs `index.d.ts` but mapped into TS-friendly types that
@@ -88,6 +152,8 @@ interface WorktreeNapiModule {
     opts: CopyOptsNapi,
   ): CopyResultNapi;
   listWorktrees(opts: ListOptsNapi): WorktreeInfoNapi[];
+  pruneWorktrees(opts: PruneOptsNapi): PrunePlanNapi;
+  removeDir(opts: RemoveDirOptsNapi): RemoveDirResultNapi;
 }
 
 /**
@@ -129,6 +195,11 @@ export const applyInclude: WorktreeNapiModule['applyInclude'] = (patterns, srcDi
 export const listWorktrees: WorktreeNapiModule['listWorktrees'] = (opts) =>
   getNative().listWorktrees(opts);
 
+export const pruneWorktrees: WorktreeNapiModule['pruneWorktrees'] = (opts) =>
+  getNative().pruneWorktrees(opts);
+
+export const removeDir: WorktreeNapiModule['removeDir'] = (opts) => getNative().removeDir(opts);
+
 export type {
   CopyOptsNapi,
   CopyResultNapi,
@@ -136,5 +207,10 @@ export type {
   DestroyResultNapi,
   IncludePatternNapi,
   ListOptsNapi,
+  PruneCandidateNapi,
+  PruneOptsNapi,
+  PrunePlanNapi,
+  RemoveDirOptsNapi,
+  RemoveDirResultNapi,
   WorktreeInfoNapi,
 };
