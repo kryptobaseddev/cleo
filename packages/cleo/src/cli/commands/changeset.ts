@@ -213,9 +213,11 @@ const addCommand = defineCommand({
       process.exit(ExitCode.VALIDATION_ERROR);
     }
     if (routing.isWorktree && process.env['CLEO_QUIET'] !== '1') {
-      process.stderr.write(
-        `[T10389] routing SSoT write from worktree cwd ${routing.cwd} → canonical project root ${routing.canonicalRoot}\n`,
-      );
+      // Pre-dispatch UX: this fires before the writer wraps the call in a
+      // WarningCollector ALS, so `pushWarning` would no-op. Direct stderr
+      // is the correct surface for this routing announcement.
+      const routingLog = `[T10389] routing SSoT write from worktree cwd ${routing.cwd} → canonical project root ${routing.canonicalRoot}\n`;
+      process.stderr.write(routingLog); // json-stream-hygiene-allowed: pre-dispatch routing UX (T10389)
     }
 
     // ── 5. Dispatch to the dual-write transaction. ──────────────────────────

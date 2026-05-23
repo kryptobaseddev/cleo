@@ -321,9 +321,10 @@ const addCommand = defineCommand({
 
       if (routing.isWorktree && process.env['CLEO_QUIET'] !== '1') {
         // Emit to stderr so JSON consumers reading stdout never see chrome.
-        process.stderr.write(
-          `[T10389] routing SSoT write from worktree cwd ${routing.cwd} → canonical project root ${routing.canonicalRoot}\n`,
-        );
+        // This fires BEFORE dispatch sets up the WarningCollector ALS, so
+        // `pushWarning` would no-op — direct stderr is the correct surface.
+        const routingLog = `[T10389] routing SSoT write from worktree cwd ${routing.cwd} → canonical project root ${routing.canonicalRoot}\n`;
+        process.stderr.write(routingLog); // json-stream-hygiene-allowed: pre-dispatch routing UX (T10389)
       }
 
       resolvedFile = resolveWorktreeFilePath(String(fileArg), routing);
