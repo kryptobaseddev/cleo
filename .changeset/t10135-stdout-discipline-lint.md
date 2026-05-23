@@ -1,9 +1,17 @@
 ---
-"@cleocode/cleo": patch
+id: t10135-stdout-discipline-lint
+tasks: [T10135]
+kind: chore
+summary: "B10 CI gate 'Stdout Discipline Lint' — prevents render logic leaking back into packages/cleo"
+prs: [569]
 ---
 
-ci(T10135): stdout-discipline lint gate — prevents render logic leaking back into packages/cleo (B10)
+Adds `scripts/lint-stdout-discipline.mjs` + the `Stdout Discipline Lint`
+CI job. Allowlists `packages/core/src/render/`, `packages/animations/`,
+the cleo `animation-bridge.ts`, the thin `renderers/index.ts`
+dispatcher, the top-level CLI entry, `scripts/`, and test files.
+Baseline mode default (75 pre-existing violations locked in); `--strict`
+flips to zero-tolerance after follow-up sweeps. Regression test fixture
+asserts a deliberate violation in `packages/contracts/` fails the gate.
 
-Adds scripts/lint-stdout-discipline.mjs + CI job 'Stdout Discipline Lint (T10135)'. Allowlists packages/core/src/render/, packages/animations/, the cleo animation-bridge, the thin renderers/index.ts dispatcher, the top-level CLI entry, scripts/, and test files. Baseline-regression mode by default (fails only on net-new violations vs scripts/.lint-stdout-discipline-baseline.json); --strict for zero-tolerance.
-
-Closes T10135 (final B-task of E11-HUMAN-RENDER-CONTRACT). Epic: T10114. ADR: adr-077-human-render-contract.
+Final B-task of E11-HUMAN-RENDER-CONTRACT.

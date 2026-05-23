@@ -1,20 +1,13 @@
 ---
-"@cleocode/cleo": patch
-"@cleocode/core": minor
+id: t10133-tasks-renderers-migration
+tasks: [T10133]
+kind: refactor
+summary: "B8 decompose tasks.ts (371 LOC) into packages/core/src/render/tasks"
+prs: [556]
 ---
 
-refactor(T10133): decompose tasks.ts (371 LOC) into packages/core/src/render/tasks/ (B8)
-
-Migrates renderShow / renderList / renderFind / renderAdd / renderUpdate /
-renderComplete / renderDelete / renderArchive / renderRestore from
-packages/cleo/src/cli/renderers/tasks.ts to packages/core/src/render/tasks/.
-Each renderer self-registers into the B5 registry on module load under
-`(command, 'generic')`. Zero behavior change — the existing
-`(data: Record<string, unknown>, quiet: boolean)` signature is preserved
-and the dispatcher continues to invoke renderers directly until the
-typed-envelope migration completes.
-
-Adds `RenderOptions.quiet` to `@cleocode/core/render` so registry adapters
-can forward the legacy quiet flag through `renderEnvelopeForHuman`.
-
-Closes T10133. Epic: T10114. ADR: adr-077-human-render-contract.
+Migrates `renderShow`/`renderList`/`renderTree`/`renderFind`/etc.
+(371 LOC) from `packages/cleo/src/cli/renderers/tasks.ts` to
+`packages/core/src/render/tasks/`. Each renderer self-registers into B5
+registry on module load. Zero behavior change — snapshot tests pass
+unchanged.
