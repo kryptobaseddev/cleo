@@ -725,8 +725,7 @@ export interface TasksAddBatchParams {
     depends?: string[];
     priority?: string;
     labels?: string[];
-    // SSoT-EXEMPT:kind≠type — 'type' is hierarchy(saga|epic|task|subtask), 'kind' is intent(work|bug|...) — separate axes T944 (ADR-083 §2.5)
-    type?: TaskType;
+    type?: TaskType; // SSoT-EXEMPT:kind≠type — 'type' is hierarchy(saga|epic|task|subtask), 'kind' is intent(work|bug|...) — separate axes T944 // ssot-exempt-ok: pre-existing exempt, narrowed string→TaskType (T10328)
     acceptance?: string[];
     phase?: string;
     size?: string;
@@ -769,8 +768,7 @@ export interface TasksAddParams {
   depends?: string[];
   priority?: string;
   labels?: string[];
-  // SSoT-EXEMPT:kind≠type — 'type' is hierarchy(saga|epic|task|subtask), 'kind' is intent(work|bug|...) — separate axes T944 (ADR-083 §2.5)
-  type?: TaskType;
+  type?: TaskType; // SSoT-EXEMPT:kind≠type — 'type' is hierarchy(saga|epic|task|subtask), 'kind' is intent(work|bug|...) — separate axes T944 // ssot-exempt-ok: pre-existing exempt, narrowed string→TaskType (T10328)
   acceptance?: string[];
   phase?: string;
   size?: string;
@@ -826,8 +824,7 @@ export interface TasksUpdateQueryParams {
   acceptance?: string[];
   /** Canonical wire field for parent task ID. @see ADR-057 D2 */
   parent?: string | null;
-  // SSoT-EXEMPT:kind≠type — 'type' is hierarchy(saga|epic|task|subtask), 'kind' is intent(work|bug|...) — separate axes T944 (ADR-083 §2.5)
-  type?: TaskType;
+  type?: TaskType; // SSoT-EXEMPT:kind≠type — 'type' is hierarchy(saga|epic|task|subtask), 'kind' is intent(work|bug|...) — separate axes T944 // ssot-exempt-ok: pre-existing exempt, narrowed string→TaskType (T10328)
   size?: string;
   files?: string[];
   /** Add files incrementally (mirrors --add-labels pattern). @task T9242 */
