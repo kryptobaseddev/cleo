@@ -31,8 +31,20 @@ import { SESSION_STATUSES, TASK_STATUSES } from '../status-registry.js';
 /** Task priorities matching DB CHECK constraint on tasks.priority. */
 export const TASK_PRIORITIES = ['critical', 'high', 'medium', 'low'] as const;
 
-/** Task types matching DB CHECK constraint on tasks.type. */
-export const TASK_TYPES = ['epic', 'task', 'subtask'] as const;
+/**
+ * Task types matching DB CHECK constraint on tasks.type.
+ *
+ * Per ADR-083 §2.5, `'saga'` is a first-class tier discriminator above Epic.
+ * The DB CHECK-constraint migration to accept `'saga'` is tracked separately
+ * under Saga T10326 W1.B (T10329); this constant array mirrors the contracts
+ * SSoT (`packages/contracts/src/task.ts` line 45) so Drizzle's row-type
+ * narrowing stays aligned across the codebase.
+ *
+ * @adr ADR-083 §2.5
+ * @saga T10326
+ * @task T10328
+ */
+export const TASK_TYPES = ['saga', 'epic', 'task', 'subtask'] as const;
 
 /**
  * Union types for the promoted task-axis constants — re-exported here so
