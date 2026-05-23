@@ -73,10 +73,11 @@ napi-build = "1"
 # LSP
 tower-lsp = "0.20"
 
-# Local workspace crates
-lafs-core = { path = "crates/lafs-core" }
+# Local workspace crates (publish=true ones have versions kept in sync
+# by cargo-release pre-release-replacements — see release.toml)
+lafs-core = { path = "crates/lafs-core", version = "=2026.5.105" }
 cleo-conduit-core = { path = "crates/cleo-conduit-core", version = "=2026.5.105" }
-cant-core = { path = "crates/cant-core" }
+cant-core = { path = "crates/cant-core", version = "=2026.5.105" }
 cant-lsp = { path = "crates/cant-lsp" }
 cant-napi = { path = "crates/cant-napi" }
 cant-runtime = { path = "crates/cant-runtime" }
