@@ -1052,15 +1052,36 @@ export interface TasksSagaAddResult {
 export type TasksSagaListParams = Record<string, never>;
 
 /**
+ * A single I5-violation warning entry returned by `tasks.saga.list` when a
+ * saga row carries a non-null `parentId` (ADR-073 §1.2 invariant I5).
+ *
+ * @task T10117
+ */
+export interface TasksSagaInvariantI5Warning {
+  /** Fixed warning code. */
+  code: 'E_SAGA_INVARIANT_VIOLATION_I5';
+  /** Saga task ID whose `parentId` violates invariant I5. */
+  sagaId: string;
+  /** The non-null `parentId` value found on the saga row. */
+  offendingParentId: string;
+}
+
+/**
  * Result of `tasks.saga.list` — all labeled top-level Epics.
  *
  * @task T9521
+ * @task T10117 — added optional `warnings` array for I5 violations
  */
 export interface TasksSagaListResult {
   /** Array of Saga task records. */
   sagas: TaskRecord[];
   /** Total count. */
   total: number;
+  /**
+   * One entry per saga with a non-null `parentId`. Omitted entirely when no
+   * violations were observed (pre-T10117 envelope shape preserved).
+   */
+  warnings?: TasksSagaInvariantI5Warning[];
 }
 
 /** Params for `tasks.saga.members` — list member Epics linked to a Saga. */
@@ -1081,6 +1102,43 @@ export interface TasksSagaMembersResult {
   members: Array<{ epicId: string; type: string; reason?: string }>;
   /** Total count. */
   total: number;
+}
+
+/**
+ * Params for `tasks.saga.repair` — detach an I5-violating `parentId` from a
+ * Saga and re-attach via `task_relations.type='groups'`.
+ *
+ * @task T10117
+ * @see ADR-073-above-epic-naming.md §1.2 — invariant I5
+ */
+export interface TasksSagaRepairParams {
+  /** Saga task ID (must have `label='saga'`). */
+  sagaId: string;
+}
+
+/**
+ * Result of `tasks.saga.repair` — idempotent detach + re-attach.
+ *
+ * @task T10117
+ */
+export interface TasksSagaRepairResult {
+  /** Saga task ID that was inspected. */
+  sagaId: string;
+  /** `true` when the call performed a state change; `false` for no-op. */
+  repaired: boolean;
+  /** The detached `parentId` value, or `null` when no detach was needed. */
+  detachedParentId: string | null;
+  /**
+   * The `groups` edge that was written, or `null` for the idempotent no-op
+   * and the missing-former-parent edge case.
+   */
+  attachedRelation: {
+    from: string;
+    to: string;
+    type: 'groups';
+  } | null;
+  /** Free-form notes the CLI renderer can surface alongside the result. */
+  note?: string;
 }
 
 /** Params for `tasks.saga.rollup` — aggregate member Epic statuses. */
@@ -1172,4 +1230,6 @@ export type TasksOps = {
   readonly 'saga.list': readonly [TasksSagaListParams, TasksSagaListResult];
   readonly 'saga.members': readonly [TasksSagaMembersParams, TasksSagaMembersResult];
   readonly 'saga.rollup': readonly [TasksSagaRollupParams, TasksSagaRollupResult];
+  /** T10117 — repair an I5-violating saga. */
+  readonly 'saga.repair': readonly [TasksSagaRepairParams, TasksSagaRepairResult];
 };
