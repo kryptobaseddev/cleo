@@ -1,11 +1,14 @@
-# ADR-XXX: CleoOS Sentient Harness — Architecture Design (CORRECTED v2)
+# ADR-084: CleoOS Sentient Harness — Cleo Persona Substrate
 
-**Status:** Draft  
-**Author:** Cleo Agent  
-**Date:** 2026-05-04  
-**Target:** `packages/cleo-os/` (runtime harness), `packages/core/` (SDK extensions), `packages/contracts/` (type extensions)  
-**Scope:** Gateway + Daemon Runtime layer ON TOP of existing CLEO SDK  
-**Supersedes:** Previous draft that incorrectly proposed rebuilding core capabilities  
+**Status:** Accepted (numbered + accepted 2026-05-23 per owner directive; superseded-in-part by ADR-083 §2 for persona/role naming)
+**Author:** Cleo Agent
+**Date:** 2026-05-04 (drafted) / 2026-05-23 (numbered + accepted)
+**Target:** `packages/cleo-os/` (runtime harness), `packages/core/` (SDK extensions), `packages/contracts/` (type extensions)
+**Scope:** Gateway + Daemon Runtime layer ON TOP of existing CLEO SDK; carries the persistent **Cleo** persona (per ADR-083)
+**Supersedes:** Previous draft that incorrectly proposed rebuilding core capabilities
+**Related:** ADR-083 (Cleo Persona + Hierarchy Reconciliation — locks the names used here)
+
+> **Cross-reference (2026-05-23):** Where this ADR uses "Orchestrator agent", "Cleo Agent", or other ad-hoc names, the canonical persona is **Cleo** (singleton root Orchestrator) per ADR-083 §2.1. The 51-task plan in §3 below predates the saga-first-class shipping (ADR-076 / T10113) — review each task before dispatching; some may be stale, superseded, or duplicate work already shipped.
 
 ---
 
