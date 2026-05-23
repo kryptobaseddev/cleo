@@ -139,6 +139,18 @@ For source-only releases, pass `--no-artifacts` to skip the artifact-publish han
 7. Manifest entry MUST set `agent_type: "documentation"` and record the full chain via `record_release()`.
 8. Always validate via `cleo check protocol --protocolType release` before declaring the release done.
 
+## CI Job Inventory
+
+The authoritative reference for every job that runs in this repo's GitHub Actions pipeline — including which jobs run on PR-to-main vs push-to-main vs tag-push, branch-protection cross-check, and documented divergences — lives at:
+
+- [docs/release/job-inventory.md](../../../../docs/release/job-inventory.md) (T10106 · Saga T10099)
+
+Consult the inventory whenever:
+
+1. A release verb fails CI and you need to know which gate is blocking.
+2. Branch-protection required status checks need to be reconciled against actual workflow jobs.
+3. A new workflow is added or an existing trigger changes — regenerate the matrix per the "How this document is maintained" section at the bottom of the inventory.
+
 ## See also / References
 
 This skill binds to the **release** LOOM lifecycle stage. Governing ADRs:
