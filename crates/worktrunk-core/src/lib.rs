@@ -56,7 +56,9 @@ pub mod copy;
 pub mod git;
 pub mod git_wt;
 pub mod path;
+pub mod paths;
 pub mod progress;
+pub mod step;
 pub mod worktreeinclude;
 
 pub use config::{CopyIgnoredConfig, UserConfigDto};
@@ -70,5 +72,6 @@ pub use git_wt::{
     provision_worktree, unlock_worktree,
 };
 pub use path::{canonicalize_with_parents, format_path_for_display, paths_match};
+pub use paths::{compute_project_hash, resolve_task_worktree_path, resolve_worktree_root_for_hash};
 pub use progress::Progress;
 pub use worktreeinclude::{IncludePattern, apply_include_matcher, read_include_patterns};
