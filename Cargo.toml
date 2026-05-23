@@ -8,13 +8,7 @@ members = [
     "crates/conduit-core",
     "crates/lafs-core",
     "crates/lafs-napi",
-    "crates/signaldock-core",
-    "crates/signaldock-protocol",
-    "crates/signaldock-storage",
-    "crates/signaldock-transport",
     "crates/signaldock-runtime",
-    "crates/signaldock-sdk",
-    "crates/signaldock-payments",
     "crates/worktree-napi",
     "crates/worktrunk-core",
     "crates/integration-tests",
@@ -24,12 +18,9 @@ members = [
 # `cargo build --workspace` or `cargo test --workspace`. These power the local
 # CLEO install and do NOT require libpq / PostgreSQL client libraries.
 #
-# The signaldock-storage / signaldock-sdk / signaldock-transport /
-# signaldock-runtime / signaldock-payments crates are the **SignalDock cloud
-# server** implementation. They link libpq (PostgreSQL) for the cloud DB path.
-# If you are deploying or developing the cloud server, build them explicitly:
-#   cargo build -p signaldock-storage -p signaldock-sdk -p signaldock-runtime
-# Requires: libpq-dev / postgresql-client installed locally.
+# signaldock-runtime stays here (saga T10180 — only T10184 moves it later).
+# The 6 SDK crates (core/protocol/storage/transport/sdk/payments) moved to
+# /mnt/projects/signaldock/crates/ in T10182.
 default-members = [
     "crates/cant-core",
     "crates/cant-lsp",
@@ -39,8 +30,6 @@ default-members = [
     "crates/conduit-core",
     "crates/lafs-core",
     "crates/lafs-napi",
-    "crates/signaldock-core",
-    "crates/signaldock-protocol",
     "crates/worktree-napi",
     "crates/worktrunk-core",
     "crates/integration-tests",
@@ -115,13 +104,8 @@ cant-core = { path = "crates/cant-core" }
 cant-lsp = { path = "crates/cant-lsp" }
 cant-napi = { path = "crates/cant-napi" }
 cant-runtime = { path = "crates/cant-runtime" }
-signaldock-core = { path = "crates/signaldock-core" }
-signaldock-protocol = { path = "crates/signaldock-protocol" }
-signaldock-storage = { path = "crates/signaldock-storage" }
-signaldock-transport = { path = "crates/signaldock-transport" }
 signaldock-runtime = { path = "crates/signaldock-runtime" }
-signaldock-sdk = { path = "crates/signaldock-sdk" }
-signaldock-payments = { path = "crates/signaldock-payments" }
+# signaldock-core/protocol/storage/transport/sdk/payments moved to signaldock repo (T10182)
 worktrunk-core = { path = "crates/worktrunk-core" }
 
 [workspace.lints.rust]
