@@ -267,6 +267,19 @@ export const E_PLAN_NOT_FOUND = 'E_PLAN_NOT_FOUND' as const;
 /** Generic release-plan validation failure (e.g. schema). Exit code 6. */
 export const E_RELEASE_PLAN_INVALID = 'E_RELEASE_PLAN_INVALID' as const;
 /**
+ * `cleo release plan` (or the lint script) encountered a `.changeset/*.md`
+ * file whose YAML frontmatter cannot be parsed. Exit code 6 (VALIDATION_ERROR).
+ *
+ * Replaces the pre-T10105 silent-skip that caused the v2026.5.100 ship to
+ * lose v5.100/v5.101/v5.103 CHANGELOG entries when a single changeset had
+ * an unquoted colon in `summary:`.
+ *
+ * @task T10105
+ * @epic E-RELEASE-PLAN-CHANGELOG
+ * @saga T10099
+ */
+export const E_CHANGESET_YAML_INVALID = 'E_CHANGESET_YAML_INVALID' as const;
+/**
  * Release row exists but is not in the status FSM state required by the
  * caller (R-051 — `cleo release open` requires status='planned'). Exit code 6.
  * `error.details.currentStatus` MUST report the actual status; `error.details.expectedStatus`

@@ -8,6 +8,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { ChangesetYamlInvalidError } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parseChangesetDir, parseChangesetFile } from '../parser.js';
 
@@ -180,6 +181,46 @@ describe('parseChangesetFile', () => {
     );
 
     expect(() => parseChangesetFile(path)).toThrow(/does not match filename slug/);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // T10105 — fail-loud YAML parse (v2026.5.100 silent-skip repro)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  it('throws ChangesetYamlInvalidError when summary has an unquoted colon (v5.100 repro)', () => {
+    const path = writeEntry(
+      'v5100-repro.md',
+      [
+        '---',
+        'id: v5100-repro',
+        'tasks: [T1]',
+        'kind: feat',
+        'summary: feat(T1): unquoted colon eats the entry',
+        '---',
+      ].join('\n'),
+    );
+
+    let captured: unknown;
+    try {
+      parseChangesetFile(path);
+    } catch (err) {
+      captured = err;
+    }
+    expect(captured).toBeInstanceOf(ChangesetYamlInvalidError);
+    const e = captured as ChangesetYamlInvalidError;
+    expect(e.code).toBe('E_CHANGESET_YAML_INVALID');
+    expect(e.details.file).toBe(path);
+    expect(e.details.line).toBeTypeOf('number');
+    expect(e.details.line).toBeGreaterThan(0);
+    expect(e.details.parserMessage).toMatch(/.+/);
+    expect(e.message).toMatch(/v5100-repro\.md/);
+    expect(e.message).toMatch(/invalid YAML frontmatter/);
+  });
+
+  it('throws ChangesetYamlInvalidError when frontmatter is structurally broken YAML', () => {
+    const path = writeEntry('broken-yaml.md', ['---', '  [unmatched: bracket', '---'].join('\n'));
+
+    expect(() => parseChangesetFile(path)).toThrow(ChangesetYamlInvalidError);
   });
 });
 

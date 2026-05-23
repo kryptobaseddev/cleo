@@ -151,16 +151,16 @@ describe('readChangesetsSsotFirst', () => {
     expect(aggregated).toEqual([]);
   });
 
-  it('tolerates a malformed file in the directory by skipping the whole file batch', async () => {
-    // Write one valid file alongside one structurally-broken file.
+  it('propagates parser failures (T10105 fail-loud)', async () => {
+    // Write one valid file alongside one structurally-broken file. Per
+    // T10105 (Saga T10099) the aggregator NO LONGER silently swallows
+    // parse errors — they propagate so `cleo release plan` can abort
+    // with `E_CHANGESET_YAML_INVALID` instead of dropping CHANGELOG
+    // entries the way the v2026.5.100 ship did.
     writeFileOnly('t9793-valid', renderMinimal('t9793-valid', ['T9793'], 'Survives.'));
     writeFileOnly('t9793-broken', '--- this is not a valid YAML frontmatter document at all');
 
-    // The aggregator MUST not throw. It skips the whole file batch on
-    // parser failure (the lint gate surfaces specific errors at PR time)
-    // and returns whatever SSoT had (here: empty).
-    const aggregated = await readChangesetsSsotFirst(projectRoot);
-    expect(Array.isArray(aggregated)).toBe(true);
+    await expect(readChangesetsSsotFirst(projectRoot)).rejects.toThrow();
   });
 });
 

@@ -349,9 +349,10 @@ export {
   TASK_SEVERITIES,
   TASK_SIZES,
 } from './enums.js';
-export type { SagaInvariantErrorCode } from './errors.js';
+export type { ChangesetYamlInvalidDetails, SagaInvariantErrorCode } from './errors.js';
 // === Error Utilities ===
 export {
+  ChangesetYamlInvalidError,
   ClassifierUnregisteredAgentError,
   createErrorResult,
   createSuccessResult,
@@ -397,6 +398,8 @@ export {
 } from './evidence-record-schema.js';
 // === Exit Codes ===
 export {
+  // T10105 / Saga T10099 — fail-loud changeset parse
+  E_CHANGESET_YAML_INVALID,
   // SPEC-T9345 release pipeline v2 error code names (T9525)
   E_CHANNEL_MISMATCH,
   E_DIRTY_TREE,
