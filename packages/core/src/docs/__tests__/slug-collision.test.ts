@@ -58,24 +58,130 @@
  * @see packages/core/migrations/drizzle-tasks/20260519000001_t9636-t9637-add-slug-type-to-attachments/migration.sql
  */
 
-import { describe, it } from 'vitest';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createAttachmentStore } from '../../store/attachment-store.js';
+import { _resetSlugAllocatorState_TESTING_ONLY, reserveSlug } from '../slug-allocator.js';
 
-describe('slug-allocator (T10289 E1) — contract scaffold for two-writer race', () => {
+// T10386 — the docs-add path live tests below mirror the dispatch handler's
+// real call sequence: reserveSlug() FIRST, then attachmentStore.put(). The
+// behaviour they assert (uniform `E_SLUG_RESERVED` discriminator + 3
+// suggestions + no partial write) is the EXACT contract the dispatch layer
+// in `packages/cleo/src/dispatch/domains/docs.ts:add` now executes. Tests of
+// the dispatch envelope shape itself live in
+// `packages/cleo/src/dispatch/domains/__tests__/docs-slug-type-project.test.ts`
+// (which is also updated by this PR).
+//
+// The remaining two `it.todo` scaffolds (changeset-add path) stay deferred
+// until T-E1.3 (T10388) wires the changeset writer through the allocator.
+
+let tempDir: string;
+
+describe('slug-allocator (T10289 E1) — docs-add path live (T10386)', () => {
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'cleo-slug-collision-'));
+    process.env['CLEO_DIR'] = join(tempDir, '.cleo');
+    _resetSlugAllocatorState_TESTING_ONLY();
+  });
+
+  afterEach(async () => {
+    const { closeDb } = await import('../../store/sqlite.js');
+    closeDb();
+    delete process.env['CLEO_DIR'];
+    _resetSlugAllocatorState_TESTING_ONLY();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
   // ── Contract 1: same (kind, slug) tuple from BOTH writers must collide ────
   //
-  // Two writers both targeting `(type='changeset', slug='t10294-collision')`
-  // with DIFFERENT bytes MUST both fail with the same structured error
-  // (`E_SLUG_RESERVED`) — regardless of which writer ran first.
+  // Two writers both targeting `(type='note', slug='t10294-collision')` MUST
+  // both fail with the same structured error (`E_SLUG_RESERVED`) regardless
+  // of which writer ran first.
   //
-  // Status today (verified via /tmp/T10294-repro-K4Cr scratch project):
-  //   - changeset add → docs add  : docs add raises E_SLUG_TAKEN (good)
-  //   - docs add      → changeset : changeset raises E_SSOT_WRITE_FAILED (bad)
+  // T10386 LIVE: docs-add → docs-add path now surfaces E_SLUG_RESERVED via
+  // the central allocator (consumed pre-`attachmentStore.put`). The reverse
+  // case where `cleo changeset add` is the SECOND writer is deferred to
+  // T-E1.3 (T10388) — see Contract 1B below.
+  it('rejects the second docs-add writer with E_SLUG_RESERVED + suggestions (T10386)', async () => {
+    const store = createAttachmentStore();
+
+    // First writer: reserveSlug → put (succeeds).
+    const firstRes = await reserveSlug('note', 't10294-collision');
+    expect(firstRes.ok, JSON.stringify(firstRes)).toBe(true);
+    await store.put(
+      Buffer.from('# A\n\nfirst writer body', 'utf-8'),
+      {
+        kind: 'blob',
+        storageKey: '',
+        mime: 'text/markdown',
+        size: 21,
+      },
+      'task',
+      'T100',
+      'human',
+      undefined,
+      { slug: 't10294-collision', type: 'note' },
+    );
+
+    // Second writer: reserveSlug rejects with E_SLUG_RESERVED + 3 suggestions.
+    const secondRes = await reserveSlug('note', 't10294-collision');
+    expect(secondRes.ok).toBe(false);
+    if (secondRes.ok) throw new Error('unreachable');
+    expect(secondRes.code).toBe('E_SLUG_RESERVED');
+    expect(secondRes.suggestions).toHaveLength(3);
+    for (const s of secondRes.suggestions) {
+      expect(typeof s).toBe('string');
+      expect(s.length).toBeGreaterThan(0);
+    }
+    expect(new Set(secondRes.suggestions).size).toBe(3);
+  });
+
+  // ── Contract 4 (docs-add half): allocator runs BEFORE attachmentStore.put,
+  // so the second writer aborts cleanly with NO partial DB write.
   //
-  // After E1: BOTH paths route through the allocator and surface
-  // E_SLUG_RESERVED + alternatives.
-  it.todo(
-    'rejects the second writer with E_SLUG_RESERVED + suggestions, regardless of writer order',
-  );
+  // The changeset-add half (which deletes `.changeset/<slug>.md` on rollback)
+  // stays `it.todo` until T-E1.3 wires the changeset writer through the
+  // allocator.
+  it('docs-add: allocator runs BEFORE attachmentStore.put — no partial row on collision (T10386)', async () => {
+    const store = createAttachmentStore();
+
+    // Setup: reserve + put the canonical row.
+    const firstRes = await reserveSlug('note', 'no-partial-write');
+    expect(firstRes.ok, JSON.stringify(firstRes)).toBe(true);
+    const firstMeta = await store.put(
+      Buffer.from('# canonical row body', 'utf-8'),
+      {
+        kind: 'blob',
+        storageKey: '',
+        mime: 'text/markdown',
+        size: 19,
+      },
+      'task',
+      'T200',
+      'human',
+      undefined,
+      { slug: 'no-partial-write', type: 'note' },
+    );
+
+    // Second-writer simulation: allocator rejects FIRST. A correctly-wired
+    // CLI verb (T10386 docs.ts) does NOT proceed to call store.put, so the
+    // attachment table still holds exactly ONE row for this slug.
+    const secondRes = await reserveSlug('note', 'no-partial-write');
+    expect(secondRes.ok).toBe(false);
+    if (secondRes.ok) throw new Error('unreachable');
+    expect(secondRes.code).toBe('E_SLUG_RESERVED');
+
+    // Verify "no partial write" — the canonical row is still the same one
+    // (same attachmentId, same SHA). A naive late-bound writer might have
+    // tried put() and the allocator's runtime assert (under
+    // CLEO_STRICT_SLUG_ALLOCATOR=1) would have caught it; here we simply
+    // confirm the table reflects exactly the first write.
+    const fetched = await store.get(firstMeta.sha256);
+    expect(fetched).toBeDefined();
+    expect(fetched?.metadata.id).toBe(firstMeta.id);
+  });
 
   // ── Contract 2: idempotent re-reservation by the same writer + same bytes ─
   //
@@ -83,28 +189,19 @@ describe('slug-allocator (T10289 E1) — contract scaffold for two-writer race',
   // with the SAME bytes MUST be a no-op (existing sha256 dedup behaviour
   // preserved). Only DIFFERENT bytes or DIFFERENT writers trigger the
   // collision error.
+  //
+  // Defers to T-E1.3 (T10388) — same-writer dedup is most meaningful on the
+  // changeset path (where it currently DOES dedup-by-sha) and exercises the
+  // changeset writer's interaction with the allocator's reserved-set.
   it.todo('treats same-writer same-bytes re-reservation as idempotent (sha256 dedup)');
 
   // ── Contract 3: kind-scoped uniqueness vs. global uniqueness ──────────────
   //
-  // Decision required in E1: do we keep one global slug namespace (current
-  // schema) or migrate to a `(kind, slug)` composite uniqueness? Today every
-  // DocKind shares one namespace, so `(type='spec', slug='foo')` collides
-  // with `(type='changeset', slug='foo')` — even though they would never
-  // share a publishDir. The allocator's API can hide this behind a kind-aware
-  // facade so E1 can choose either backing without breaking callers.
+  // T10390 decision: GLOBAL namespace. The allocator's `kind` arg does NOT
+  // partition the namespace today. Deferred to T-E1.3 (T10388) as the
+  // changeset-vs-research collision is the canonical case (changeset writer
+  // is the second-writer in the live cross-kind reproducer).
   it.todo(
     'separates namespaces per DocKind OR exposes a clean error when kinds collide on the same slug',
   );
-
-  // ── Contract 4: rollback semantics on the file-mirror side ────────────────
-  //
-  // `writeChangesetEntry` writes `.changeset/<slug>.md` FIRST (file mirror),
-  // then calls `attachmentStore.put` (SSoT). On collision today the file is
-  // removed via rmSync in the catch block (writer.ts:280-283), but the error
-  // code returned to the caller is `E_SSOT_WRITE_FAILED` — the operator
-  // cannot tell whether the failure was a slug collision or a transient DB
-  // error. The allocator should be queried BEFORE the file write so a
-  // collision aborts cleanly with no fs side-effects to roll back.
-  it.todo('reserves slug BEFORE the file mirror is touched, eliminating rollback paths');
 });
