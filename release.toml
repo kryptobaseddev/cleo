@@ -1,0 +1,45 @@
+# cargo-release configuration for cleocode Rust workspace (T10254, saga T10180 W4)
+#
+# Purpose: keep in-workspace [workspace.dependencies] version pins for
+# publish=true crates auto-synced with workspace.package.version on every
+# `cargo release version` invocation. Replaces hand-edited per-pin
+# updates (PR #548 attempted, owner correctly rejected as maintenance
+# liability).
+#
+# Owner flow (FUTURE releases):
+#   cargo release version <next-calver> --workspace --execute
+#   cargo release publish --workspace --execute
+#
+# This file documents the SSoT for Rust release config — do not duplicate
+# elsewhere.
+
+# All publish=true crates share workspace.package.version (CalVer).
+shared-version = true
+
+# Only allow release flow from main or release branches.
+allow-branch = ["main", "release/*"]
+
+# cleocode uses gh PRs for everything; never push directly.
+push = false
+sign-commit = false
+sign-tag = false
+
+# Skip git tag creation — cleocode/release pipeline owns tagging
+# via release-publish.yml (per T9540 + ADR-065). cargo-release just
+# handles publish.
+tag = false
+
+# Run cargo verify before publish (cargo publish does this anyway,
+# but explicit).
+verify = true
+
+# Pre-release replacements: keep [workspace.dependencies] pins
+# aligned with workspace.package.version automatically.
+# {{version}} = the new version cargo-release is bumping to.
+pre-release-replacements = [
+  # cleocode/Cargo.toml workspace.dependencies pins for in-workspace
+  # publishable crates.
+  { file = "Cargo.toml", search = "(lafs-core\\s*=\\s*\\{[^}]*version\\s*=\\s*)\"=?[^\"]+\"", replace = "$1\"={{version}}\"", min = 0 },
+  { file = "Cargo.toml", search = "(cleo-conduit-core\\s*=\\s*\\{[^}]*version\\s*=\\s*)\"=?[^\"]+\"", replace = "$1\"={{version}}\"", min = 0 },
+  { file = "Cargo.toml", search = "(cant-core\\s*=\\s*\\{[^}]*version\\s*=\\s*)\"=?[^\"]+\"", replace = "$1\"={{version}}\"", min = 0 },
+]
