@@ -1,6 +1,7 @@
 # Worktree Auto-Cleanup Workflow (T9805 AC1)
 #
-# Triggers on PR merge events and destroys the associated agent worktree.
+# Triggers on PR-merge events AND direct pushes to main, then destroys any
+# agent worktree whose branch corresponds to the merged/pushed commits.
 # The worktree path is resolved from the task ID encoded in the PR branch name
 # (e.g. `task/T9805` → task ID `T9805`).
 #
@@ -8,7 +9,14 @@
 # `destroyWorktree`, which removes the sentinel index entry and appends an
 # audit-log record to `.cleo/audit/worktree-lifecycle.jsonl`.
 #
+# T10106 (Saga T10099 E-CI-PARITY-AUDIT) — added `push: branches: [main]`
+# trigger so direct main-branch pushes (release branches, admin merges,
+# hotfix force-pushes) also exercise the cleanup. Previously this workflow
+# was PR-only and never ran on main, leaving the worktree audit log blind
+# to non-PR merges. See docs/release/job-inventory.md §Divergences D1.
+#
 # @task T9805
+# @task T10106
 # @epic T9800
 # @saga SG-WORKTREE-CANON
 name: Worktree Cleanup
@@ -16,12 +24,16 @@ name: Worktree Cleanup
 on:
   pull_request:
     types: [closed]
+  push:
+    branches: [main]
 
 jobs:
   cleanup:
     name: Destroy merged worktree
-    # Only run when the PR was actually merged (not just closed/abandoned).
-    if: github.event.pull_request.merged == true
+    # Only run when:
+    #   - PR was actually merged (not just closed/abandoned), OR
+    #   - The event is a direct push to main (no merged-flag exists in that case).
+    if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.merged == true) || github.event_name == 'push' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -61,28 +73,58 @@ jobs:
         env:
           CLEO_PROJECT_ROOT: ${{ github.workspace }}
 
-      - name: Destroy worktree for merged PR
-        # cleo worktree destroy --pr <num> looks up the task branch associated
-        # with the PR and tears down its XDG worktree + audit-logs the action.
-        # Exit 0 even when no worktree is found (idempotent).
+      - name: Destroy worktree for merged PR or push-to-main
+        # Resolves the task ID either from the merged PR's head branch
+        # (`pull_request` event) or by scanning the pushed commits' messages
+        # for `T####` task IDs (`push` event). Then tears down each XDG
+        # worktree + audit-logs the action. Exit 0 in all idempotent paths.
         run: |
-          PR_NUMBER="${{ github.event.pull_request.number }}"
-          PR_BRANCH="${{ github.event.pull_request.head.ref }}"
-          echo "PR #${PR_NUMBER} merged (branch: ${PR_BRANCH})"
+          set -u
+          declare -a TASK_IDS=()
 
-          # Derive the task ID from the branch name if it follows the
-          # `task/T####` or `feat/T####-*` convention.
-          TASK_ID=$(echo "${PR_BRANCH}" | grep -oP '(?<=/)T\d+' | head -1 || true)
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+            PR_BRANCH="${{ github.event.pull_request.head.ref }}"
+            echo "PR #${PR_NUMBER} merged (branch: ${PR_BRANCH})"
 
-          if [ -z "${TASK_ID}" ]; then
-            echo "No task ID found in branch name '${PR_BRANCH}' — skipping worktree cleanup."
+            # Derive the task ID from the branch name if it follows the
+            # `task/T####` or `feat/T####-*` convention.
+            TID=$(echo "${PR_BRANCH}" | grep -oP '(?<=/)T\d+' | head -1 || true)
+            if [ -n "${TID}" ]; then
+              TASK_IDS+=("${TID}")
+            fi
+          else
+            # push to main: extract task IDs from the pushed commit subjects.
+            # github.event.before -> github.event.after spans the new commits.
+            BEFORE="${{ github.event.before }}"
+            AFTER="${{ github.event.after }}"
+            echo "push to main: ${BEFORE}..${AFTER}"
+            if [ "${BEFORE}" = "0000000000000000000000000000000000000000" ] || [ -z "${BEFORE}" ]; then
+              # First push to a new ref — only inspect HEAD to avoid scanning
+              # the full history.
+              RANGE="${AFTER}^..${AFTER}"
+            else
+              RANGE="${BEFORE}..${AFTER}"
+            fi
+
+            # Collect unique T#### IDs across all pushed commit subjects.
+            while IFS= read -r TID; do
+              [ -n "${TID}" ] && TASK_IDS+=("${TID}")
+            done < <(git log --format=%s "${RANGE}" 2>/dev/null \
+                       | grep -oE 'T[0-9]+' | sort -u || true)
+          fi
+
+          if [ "${#TASK_IDS[@]}" -eq 0 ]; then
+            echo "No task IDs derived from event — skipping worktree cleanup."
             exit 0
           fi
 
-          echo "Destroying worktree for task ${TASK_ID} (PR #${PR_NUMBER})"
-          cleo worktree destroy "${TASK_ID}" --reason "pr-merged" --json 2>/dev/null \
-            || pnpm dlx @cleocode/cleo worktree destroy "${TASK_ID}" --reason "pr-merged" --json 2>/dev/null \
-            || echo "No worktree registered for ${TASK_ID} — nothing to clean up."
+          for TID in "${TASK_IDS[@]}"; do
+            echo "Destroying worktree for task ${TID}"
+            cleo worktree destroy "${TID}" --reason "${{ github.event_name }}-merged" --json 2>/dev/null \
+              || pnpm dlx @cleocode/cleo worktree destroy "${TID}" --reason "${{ github.event_name }}-merged" --json 2>/dev/null \
+              || echo "No worktree registered for ${TID} — nothing to clean up."
+          done
         env:
           CLEO_PROJECT_ROOT: ${{ github.workspace }}
           CLEO_AGENT_ID: github-actions
