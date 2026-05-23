@@ -69,7 +69,7 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          BASE_VERSION="${VERSION%%-*}"
+          BASE_VERSION="${VERSION#v}"; BASE_VERSION="${BASE_VERSION%%-*}"
           TAG_YEAR="${BASE_VERSION%%.*}"
           TAG_MONTH="${BASE_VERSION#*.}"; TAG_MONTH="${TAG_MONTH%%.*}"
           CURRENT_YEAR=$(date -u +%Y)
