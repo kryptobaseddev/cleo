@@ -1,11 +1,13 @@
 {
   "name": "@cleocode/worktree-napi",
-  "version": "0.0.0-prerelease",
-  "private": true,
+  "version": "2026.5.101",
   "description": "napi-rs bindings for worktrunk-core: parallel git-worktree provisioning + .worktreeinclude",
   "license": "MIT",
   "main": "index.cjs",
   "types": "index.d.ts",
+  "publishConfig": {
+    "access": "public"
+  },
   "napi": {
     "binaryName": "worktree-napi",
     "targets": [
@@ -22,10 +24,15 @@
     "worktree-napi.*.node"
   ],
   "optionalDependencies": {
-    "@cleocode/worktree-napi-linux-x64-gnu": "0.0.0-prerelease",
-    "@cleocode/worktree-napi-linux-arm64-gnu": "0.0.0-prerelease",
-    "@cleocode/worktree-napi-darwin-x64": "0.0.0-prerelease",
-    "@cleocode/worktree-napi-darwin-arm64": "0.0.0-prerelease",
-    "@cleocode/worktree-napi-win32-x64-msvc": "0.0.0-prerelease"
+    "@cleocode/worktree-napi-linux-x64-gnu": "workspace:*",
+    "@cleocode/worktree-napi-linux-arm64-gnu": "workspace:*",
+    "@cleocode/worktree-napi-darwin-x64": "workspace:*",
+    "@cleocode/worktree-napi-darwin-arm64": "workspace:*",
+    "@cleocode/worktree-napi-win32-x64-msvc": "workspace:*"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kryptobaseddev/cleo",
+    "directory": "crates/worktree-napi"
   }
 }
