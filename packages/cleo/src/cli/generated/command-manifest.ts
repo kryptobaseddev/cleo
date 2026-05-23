@@ -121,6 +121,13 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
       (await import('../commands/backup-inspect.js')).backupInspectSubCommand as CommandDef,
   },
   {
+    exportName: 'backupRecoverSubCommand',
+    name: 'recover',
+    description: 'Recover a malformed CLEO database from snapshot',
+    load: async () =>
+      (await import('../commands/backup-recover.js')).backupRecoverSubCommand as CommandDef,
+  },
+  {
     exportName: 'backupCommand',
     name: 'backup',
     description: 'Add backup of todo files or list available backups',

@@ -136,3 +136,77 @@ export interface BrainRecoveryResult {
    */
   quarantineDir: string | null;
 }
+
+// ============================================================
+// T10304 — `cleo backup recover brain` CLI verb (Saga T10281 / Epic T10286)
+// ============================================================
+
+/**
+ * Per-table row counts probed from the restored brain.db.
+ *
+ * Best-effort — any individual count may be `null` when the table is
+ * missing (very old snapshot predating that schema rev) or when the count
+ * query throws. The values feed both the `cleo backup recover brain`
+ * envelope and the recovery runbook's user-facing diagnostics.
+ *
+ * @task T10304
+ * @epic T10286
+ * @saga T10281
+ */
+export interface BrainRecoveredRowCounts {
+  /** `brain_observations` row count, or `null` when the count failed. */
+  observations: number | null;
+  /** `brain_decisions` row count, or `null` when the count failed. */
+  decisions: number | null;
+  /** `brain_learnings` row count, or `null` when the count failed. */
+  learnings: number | null;
+}
+
+/**
+ * Envelope payload returned by `cleo backup recover brain`.
+ *
+ * The CLI verb (T10304) wraps {@link BrainRecoveryResult} from
+ * {@link recoverMalformedBrainDb} (T10303) and enriches it with per-table
+ * row counts plus the operator-friendly snapshot/quarantine paths required
+ * by the AC envelope shape.
+ *
+ * Surfaces:
+ * - `--dry-run` plan envelopes (with `restoredFrom` being the snapshot that
+ *   *would* be restored and `quarantinedTo` being the directory the corrupt
+ *   DB *would* be moved to).
+ * - Real-recovery envelopes after the pipeline has executed.
+ *
+ * @task T10304
+ * @epic T10286
+ * @saga T10281
+ */
+export interface BackupRecoverBrainResult {
+  /**
+   * Absolute path to the snapshot that was (or would be) restored. Empty
+   * string when no snapshot was available — the envelope's caller surfaces
+   * that as a failure mode.
+   */
+  restoredFrom: string;
+  /** Per-table row counts probed from the restored DB. */
+  rowsRecovered: BrainRecoveredRowCounts;
+  /**
+   * Approximate hours between the snapshot's timestamp and the recovery
+   * event. `null` when the snapshot timestamp could not be parsed (e.g.
+   * legacy `brain.db.PRE-DUP-FIX-*` fallback artifact).
+   */
+  dataLossWindowHours: number | null;
+  /** `true` when the restored DB passes `PRAGMA quick_check`. */
+  integrityOK: boolean;
+  /**
+   * Absolute path to the quarantine directory where the corrupt DB plus
+   * its `-wal`/`-shm` sidecars were moved. Empty string in `--dry-run`
+   * mode where no files were touched.
+   */
+  quarantinedTo: string;
+  /**
+   * `true` when invoked with `--dry-run` — indicates the envelope is a
+   * plan, NOT a record of mutations performed. Consumers MUST check this
+   * before treating `restoredFrom` as a post-condition.
+   */
+  dryRun: boolean;
+}
