@@ -20,7 +20,14 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -46,7 +53,11 @@ interface Fixture {
  * pipeline. Real `git worktree add` calls are issued from each test body.
  */
 function makeFixture(): Fixture {
-  const tmp = mkdtempSync(join(tmpdir(), 'cleo-worktree-list-it-'));
+  // macOS resolves `/var/folders/...` (the OS tmpdir) through a symlink to
+  // `/private/var/folders/...`. Git porcelain emits the realpath, so we
+  // canonicalise the tmp root here to keep path comparisons portable across
+  // macOS + Linux runners.
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-worktree-list-it-')));
   const projectRoot = join(tmp, 'project');
   const worktreesRoot = join(tmp, 'worktrees');
   mkdirSync(worktreesRoot, { recursive: true });
