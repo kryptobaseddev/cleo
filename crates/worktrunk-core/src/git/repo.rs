@@ -567,7 +567,9 @@ impl Repo for ProcessRepo {
             .output()
             .with_context(|| format!("git config --get {key} failed"))?;
         if out.status.success() {
-            Ok(Some(String::from_utf8_lossy(&out.stdout).trim().to_string()))
+            Ok(Some(
+                String::from_utf8_lossy(&out.stdout).trim().to_string(),
+            ))
         } else if out.status.code() == Some(1) {
             // `git config --get` returns 1 when key not found — that's not
             // a real error in our SDK semantics.
@@ -666,7 +668,9 @@ impl Repo for ProcessRepo {
             .output()
             .with_context(|| format!("git merge-base {a} {b} failed to invoke"))?;
         match out.status.code() {
-            Some(0) => Ok(Some(String::from_utf8_lossy(&out.stdout).trim().to_string())),
+            Some(0) => Ok(Some(
+                String::from_utf8_lossy(&out.stdout).trim().to_string(),
+            )),
             // 1 = no common ancestor — not an error in our SDK semantics.
             Some(1) => Ok(None),
             _ => Err(anyhow!(
@@ -734,7 +738,10 @@ impl Repo for ProcessRepo {
         // querying remote names; the worktrunk convention is to strip ANY
         // single leading slash component (matches the audit's "pure string op"
         // classification).
-        Ok(name.split_once('/').map_or(name, |(_, rest)| rest).to_string())
+        Ok(name
+            .split_once('/')
+            .map_or(name, |(_, rest)| rest)
+            .to_string())
     }
 
     fn detect_ref_type(&self, name: &str) -> Result<RefType> {

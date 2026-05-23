@@ -25,7 +25,10 @@ use criterion::{Criterion, black_box, criterion_group, criterion_main};
 fn make_simple_env() -> (StepEnv, Vec<String>) {
     let mut env = StepEnv::new();
     env.set("target_branch", "main");
-    (env, vec!["--branch".to_string(), "{target_branch}".to_string()])
+    (
+        env,
+        vec!["--branch".to_string(), "{target_branch}".to_string()],
+    )
 }
 
 fn make_full_pipeline_env() -> (StepEnv, Vec<String>) {

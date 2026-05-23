@@ -400,8 +400,9 @@ fn check_binding_order_in_stmts(stmts: &[Statement], diags: &mut Vec<Diagnostic>
         let refs = collect_name_refs_from_stmt(stmt);
         for (name, ref_span) in refs {
             if let Some((def_idx, def_span)) = binding_positions.get(&name)
-                && i < *def_idx {
-                    diags.push(Diagnostic::error(
+                && i < *def_idx
+            {
+                diags.push(Diagnostic::error(
                         "S08",
                         format!(
                             "Reference to '{}' at line {} before its definition at line {}. Move the 'let' binding above this reference.",
@@ -409,7 +410,7 @@ fn check_binding_order_in_stmts(stmts: &[Statement], diags: &mut Vec<Diagnostic>
                         ),
                         ref_span,
                     ));
-                }
+            }
         }
     }
 }

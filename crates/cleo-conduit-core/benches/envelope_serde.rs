@@ -18,7 +18,7 @@
 
 #![allow(missing_docs)]
 
-use conduit_core::{CantMetadata, CantOperation, ConduitMessage};
+use cleo_conduit_core::{CantMetadata, CantOperation, ConduitMessage};
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 
 /// Minimal canonical envelope — all optional fields `None`.

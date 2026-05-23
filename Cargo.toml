@@ -5,7 +5,7 @@ members = [
     "crates/cant-napi",
     "crates/cant-router",
     "crates/cant-runtime",
-    "crates/conduit-core",
+    "crates/cleo-conduit-core",
     "crates/lafs-core",
     "crates/lafs-napi",
     "crates/worktree-napi",
@@ -22,7 +22,7 @@ default-members = [
     "crates/cant-napi",
     "crates/cant-router",
     "crates/cant-runtime",
-    "crates/conduit-core",
+    "crates/cleo-conduit-core",
     "crates/lafs-core",
     "crates/lafs-napi",
     "crates/worktree-napi",
@@ -75,7 +75,7 @@ tower-lsp = "0.20"
 
 # Local workspace crates
 lafs-core = { path = "crates/lafs-core" }
-conduit-core = { path = "crates/conduit-core" }
+cleo-conduit-core = { path = "crates/cleo-conduit-core", version = "=2026.5.104" }
 cant-core = { path = "crates/cant-core" }
 cant-lsp = { path = "crates/cant-lsp" }
 cant-napi = { path = "crates/cant-napi" }

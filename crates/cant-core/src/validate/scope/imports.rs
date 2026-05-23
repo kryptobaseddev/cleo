@@ -20,8 +20,9 @@ pub fn check_import_path_traversal(doc: &CantDocument) -> Vec<Diagnostic> {
 
     for section in &doc.sections {
         if let Section::Import(imp) = section
-            && path_escapes_root(&imp.path) {
-                diags.push(Diagnostic::error(
+            && path_escapes_root(&imp.path)
+        {
+            diags.push(Diagnostic::error(
                     "S09",
                     format!(
                         "Import path '{}' escapes the project root. Imports MUST resolve within the project directory.",
@@ -29,7 +30,7 @@ pub fn check_import_path_traversal(doc: &CantDocument) -> Vec<Diagnostic> {
                     ),
                     imp.span,
                 ));
-            }
+        }
     }
 
     diags

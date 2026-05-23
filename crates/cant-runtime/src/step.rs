@@ -204,11 +204,12 @@ pub async fn execute_step(
     if let Some(ref source) = stdin_source {
         let source_key = format!("{source}.stdout");
         if let Some(data) = env.get(&source_key)
-            && let Some(mut stdin) = child.stdin.take() {
-                use tokio::io::AsyncWriteExt;
-                let _ = stdin.write_all(data.as_bytes()).await;
-                drop(stdin); // Close stdin to signal EOF
-            }
+            && let Some(mut stdin) = child.stdin.take()
+        {
+            use tokio::io::AsyncWriteExt;
+            let _ = stdin.write_all(data.as_bytes()).await;
+            drop(stdin); // Close stdin to signal EOF
+        }
     }
 
     // Read stdout/stderr concurrently using helper tasks to avoid deadlocks.

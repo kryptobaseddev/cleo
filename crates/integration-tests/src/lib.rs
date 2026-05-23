@@ -7,7 +7,7 @@
 #[cfg(test)]
 mod tests {
     use cant_core::parse;
-    use conduit_core::{CantMetadata, ConduitMessage};
+    use cleo_conduit_core::{CantMetadata, ConduitMessage};
     use lafs_core::{LafsEnvelope, LafsMeta, LafsTransport};
 
     #[test]
