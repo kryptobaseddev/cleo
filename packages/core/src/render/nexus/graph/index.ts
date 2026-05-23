@@ -1,30 +1,27 @@
 /**
- * Human-readable renderers for nexus CLI subcommands.
+ * Human-readable renderers for the **graph** family of nexus subcommands.
  *
- * Each renderer function accepts the structured data from the dispatch result
- * and returns a formatted multi-line string for --human output.
+ * Covers structural / query / traversal surfaces:
+ * - status, setup, refresh-bridge
+ * - clusters, flows, route-map, shape-check
+ * - context, impact, impact-full, why, full-context
+ * - analyze, query, search-code
+ * - hot-paths, hot-nodes
+ * - projects-list, projects-register, projects-remove, projects-scan,
+ *   projects-clean, projects-clean-preview
  *
- * All renderers follow the `HumanRenderer` contract:
- *   (data: Record<string, unknown>, quiet: boolean) => string
+ * Each renderer follows the legacy `(data, quiet) => string` shape. The
+ * shape stays stable until the consumer-side dispatcher migrates to the
+ * typed envelope path (B5 `renderEnvelopeForHuman`).
  *
- * Data shape for each renderer mirrors the dispatch result shape.
+ * Subtask: T10150 (B7.1). Migrated verbatim from the deleted file
+ * `packages/cleo/src/cli/renderers/nexus.ts` per ADR-077.
  *
- * @task T1720
- * @epic T1691
+ * @epic T10114
+ * @task T10132
  */
 
-/** Format a string field or fall back to a default. */
-function str(v: unknown, fallback = '—'): string {
-  if (v === null || v === undefined) return fallback;
-  return String(v);
-}
-
-/** Format a number with optional padding. */
-function num(v: unknown, width = 0, fallback = '—'): string {
-  if (v === null || v === undefined) return fallback;
-  const s = String(Number(v));
-  return width > 0 ? s.padStart(width) : s;
-}
+import { num, str } from '../_format.js';
 
 // ---------------------------------------------------------------------------
 // nexus status
@@ -433,38 +430,15 @@ export function renderNexusRefreshBridge(data: Record<string, unknown>, quiet: b
 }
 
 // ---------------------------------------------------------------------------
-// nexus diff
-// ---------------------------------------------------------------------------
-
-/**
- * Render `cleo nexus diff` human output.
- */
-export function renderNexusDiff(data: Record<string, unknown>, quiet: boolean): string {
-  if (quiet) return '';
-  const changedFiles = (data['changedFiles'] as string[]) ?? [];
-  const regressions = (data['regressions'] as string[]) ?? [];
-  const lines: string[] = [
-    `[nexus] Diff: ${str(data['beforeSha'])}..${str(data['afterSha'])}\n` +
-      `  Changed files: ${changedFiles.length > 0 ? changedFiles.join(', ') : 'n/a'}\n` +
-      `  Nodes:     before=${str(data['nodesBefore'])}  after=${str(data['nodesAfter'])}  new=+${str(data['newNodes'])}  removed=-${str(data['removedNodes'])}\n` +
-      `  Relations: before=${str(data['relationsBefore'])}  after=${str(data['relationsAfter'])}  new=+${str(data['newRelations'])}  removed=-${str(data['removedRelations'])}\n` +
-      `  Health:    ${str(data['healthStatus'])}`,
-  ];
-  if (regressions.length > 0) {
-    lines.push('\n  REGRESSIONS:');
-    for (const reg of regressions) lines.push(`    - ${reg}`);
-  } else {
-    lines.push('  No regressions detected.');
-  }
-  return lines.join('\n');
-}
-
-// ---------------------------------------------------------------------------
 // nexus route-map
 // ---------------------------------------------------------------------------
 
 /**
  * Render `cleo nexus route-map` human output.
+ *
+ * TODO(T10128 B3 primitive ready): collapse the inline markdown table into
+ * the B3 table primitive once B3 lands. Today the table is hand-rolled
+ * because B3 (animations primitives) is not yet merged.
  */
 export function renderNexusRouteMap(data: Record<string, unknown>, quiet: boolean): string {
   if (quiet) return '';
@@ -502,6 +476,9 @@ export function renderNexusRouteMap(data: Record<string, unknown>, quiet: boolea
 
 /**
  * Render `cleo nexus shape-check` human output.
+ *
+ * TODO(T10128 B3 primitive ready): collapse the inline markdown table into
+ * the B3 table primitive once B3 lands.
  */
 export function renderNexusShapeCheck(data: Record<string, unknown>, quiet: boolean): string {
   if (quiet) return '';
@@ -611,89 +588,6 @@ export function renderNexusFullContext(data: Record<string, unknown>, quiet: boo
 }
 
 // ---------------------------------------------------------------------------
-// nexus task-footprint
-// ---------------------------------------------------------------------------
-
-/**
- * Render `cleo nexus task-footprint` human output.
- */
-export function renderNexusTaskFootprint(data: Record<string, unknown>, quiet: boolean): string {
-  if (quiet) return '';
-  const files = (data['files'] as string[]) ?? [];
-  const symbols = (data['symbols'] as Array<Record<string, unknown>>) ?? [];
-  const blastRadius = (data['blastRadius'] as Record<string, unknown>) ?? {};
-  const brainObservations = (data['brainObservations'] as Array<Record<string, unknown>>) ?? [];
-  const decisions = (data['decisions'] as Array<Record<string, unknown>>) ?? [];
-  const durationMs = Number(data['_durationMs'] ?? 0);
-
-  const lines: string[] = [
-    `\n## Task Code Impact: ${str(data['taskId'])}`,
-    '',
-    `**Risk Score**: ${str(data['riskScore'])}`,
-    `**Files** (${files.length}): ${files.slice(0, 10).join(', ') || '—'}`,
-    '',
-    `### Symbols (${symbols.length})`,
-  ];
-  for (const s of symbols.slice(0, 20)) {
-    lines.push(
-      `  [${str(s['riskLevel'])}] ${str(s['label'])} (${str(s['kind'])})  d1=${str(s['directCallers'])}  total=${str(s['totalAffected'])}`,
-    );
-  }
-  if (symbols.length === 0)
-    lines.push(`  (none — run 'cleo nexus analyze' or link task to symbols first)`);
-  lines.push('\n### Blast Radius');
-  lines.push(
-    `  analyzed=${str(blastRadius['symbolsAnalyzed'])}  total_affected=${str(blastRadius['totalAffected'])}  max_risk=${str(blastRadius['maxRisk'])}`,
-  );
-  lines.push(`\n### Brain Observations (${brainObservations.length})`);
-  for (const o of brainObservations.slice(0, 5))
-    lines.push(`  [${str(o['nodeType'])}] ${str(o['label']).slice(0, 80)}`);
-  lines.push(`\n### Decisions (${decisions.length})`);
-  for (const d of decisions.slice(0, 5))
-    lines.push(`  [${str(d['linkType'])}] ${str(d['decision']).slice(0, 80)}`);
-  lines.push(`\n(${durationMs}ms)`);
-  return lines.join('\n');
-}
-
-// ---------------------------------------------------------------------------
-// nexus brain-anchors
-// ---------------------------------------------------------------------------
-
-/**
- * Render `cleo nexus brain-anchors` human output.
- */
-export function renderNexusBrainAnchors(data: Record<string, unknown>, quiet: boolean): string {
-  if (quiet) return '';
-  const nexusNodes = (data['nexusNodes'] as Array<Record<string, unknown>>) ?? [];
-  const tasksForNodes = (data['tasksForNodes'] as Array<Record<string, unknown>>) ?? [];
-  const durationMs = Number(data['_durationMs'] ?? 0);
-
-  const lines: string[] = [
-    `\n## Brain Code Anchors: ${str(data['entryId'])}`,
-    '',
-    `**Plasticity Signal**: ${Number(data['plasticitySignal'] ?? 0).toFixed(2)}`,
-    '',
-    `### Nexus Nodes (${nexusNodes.length})`,
-  ];
-  for (const n of nexusNodes.slice(0, 20)) {
-    lines.push(
-      `  [${str(n['kind'])}] ${str(n['label'])}  file=${str(n['filePath'], '—')}  edge=${str(n['edgeType'])}  w=${Number(n['weight'] ?? 0).toFixed(2)}`,
-    );
-  }
-  if (nexusNodes.length === 0) lines.push(`  (none)`);
-  lines.push(`\n### Tasks for Nodes (${tasksForNodes.length} nodes with task links)`);
-  for (const entry of tasksForNodes.slice(0, 10)) {
-    const tList = ((entry['tasks'] as Array<{ taskId: string }>) ?? [])
-      .map((t) => t.taskId)
-      .join(', ');
-    lines.push(`  ${str(entry['nexusNodeId'])}: ${tList}`);
-  }
-  if (tasksForNodes.length === 0) lines.push(`  (none)`);
-  lines.push(`\n(${durationMs}ms)`);
-  return lines.join('\n');
-}
-
-// ---------------------------------------------------------------------------
 // nexus why
 // ---------------------------------------------------------------------------
 
@@ -774,45 +668,6 @@ export function renderNexusImpactFull(data: Record<string, unknown>, quiet: bool
 }
 
 // ---------------------------------------------------------------------------
-// nexus conduit-scan
-// ---------------------------------------------------------------------------
-
-/**
- * Render `cleo nexus conduit-scan` human output.
- */
-export function renderNexusConduitScan(data: Record<string, unknown>, quiet: boolean): string {
-  if (quiet) return '';
-  const durationMs = Number(data['_durationMs'] ?? 0);
-  return `[nexus] conduit-scan complete: scanned=${str(data['scanned'])} linked=${str(data['linked'])} (${durationMs}ms)`;
-}
-
-// ---------------------------------------------------------------------------
-// nexus task-symbols
-// ---------------------------------------------------------------------------
-
-/**
- * Render `cleo nexus task-symbols` human output.
- */
-export function renderNexusTaskSymbols(data: Record<string, unknown>, quiet: boolean): string {
-  if (quiet) return '';
-  const taskId = str(data['taskId']);
-  const symbols = (data['symbols'] as Array<Record<string, unknown>>) ?? [];
-  const durationMs = Number(data['_durationMs'] ?? 0);
-
-  if (symbols.length === 0) {
-    return `[nexus] No symbols found for task ${taskId}.\n  Run 'cleo nexus analyze' and ensure git history is available.`;
-  }
-  const lines: string[] = [`[nexus] Symbols touched by ${taskId} (${symbols.length} total):`, ''];
-  for (const s of symbols) {
-    lines.push(
-      `  [${str(s['kind']).padEnd(12)}] ${str(s['label']).padEnd(50)}  w=${Number(s['weight'] ?? 0).toFixed(2)}  via=${str(s['matchStrategy'])}`,
-    );
-  }
-  lines.push('', `(${durationMs}ms)`);
-  return lines.join('\n');
-}
-
-// ---------------------------------------------------------------------------
 // nexus query (CTE)
 // ---------------------------------------------------------------------------
 
@@ -828,108 +683,16 @@ export function renderNexusQuery(data: Record<string, unknown>, quiet: boolean):
 }
 
 // ---------------------------------------------------------------------------
-// nexus contracts sync
+// nexus search-code (timing only, dispatch handles output)
 // ---------------------------------------------------------------------------
 
 /**
- * Render `cleo nexus contracts sync` human output.
+ * Render `cleo nexus search-code` human output timing line.
  */
-export function renderNexusContractsSync(data: Record<string, unknown>, quiet: boolean): string {
+export function renderNexusSearchCode(data: Record<string, unknown>, quiet: boolean): string {
   if (quiet) return '';
   const durationMs = Number(data['_durationMs'] ?? 0);
-  return (
-    `[nexus] Contracts extracted from ${str(data['projectId'])}:\n` +
-    `  HTTP:  ${str(data['http'])}\n` +
-    `  gRPC:  ${str(data['grpc'])}\n` +
-    `  Topic: ${str(data['topic'])}\n` +
-    `  Total: ${str(data['totalCount'])}\n` +
-    `  (${durationMs}ms)`
-  );
-}
-
-// ---------------------------------------------------------------------------
-// nexus contracts show
-// ---------------------------------------------------------------------------
-
-/**
- * Render `cleo nexus contracts show` human output.
- */
-export function renderNexusContractsShow(data: Record<string, unknown>, quiet: boolean): string {
-  if (quiet) return '';
-  const projectA = str(data['_projectA'] ?? data['projectAId']);
-  const projectB = str(data['_projectB'] ?? data['projectBId']);
-  const matches = (data['matches'] as Array<Record<string, unknown>>) ?? [];
-  const durationMs = Number(data['_durationMs'] ?? 0);
-
-  if (matches.length === 0) {
-    return `[nexus] No contract matches found between ${projectA} and ${projectB}.\n  Run 'cleo nexus contracts sync' on both projects first.`;
-  }
-  const lines: string[] = [
-    `[nexus] Contract compatibility: ${projectA} ↔ ${projectB}\n` +
-      `  Compatible: ${str(data['compatibleCount'])}  Incompatible: ${str(data['incompatibleCount'])}  Partial: ${str(data['partialCount'])}\n` +
-      `  Overall: ${str(data['overallCompatibility'])}%`,
-    '',
-  ];
-  for (const m of matches.slice(0, 20)) {
-    const contractA = (m['contractA'] as { id: string }) ?? { id: '—' };
-    const contractB = (m['contractB'] as { id: string }) ?? { id: '—' };
-    lines.push(
-      `  [${str(m['compatibility']).toUpperCase().padEnd(12)}] ${contractA.id} ↔ ${contractB.id}  score=${Number(m['score'] ?? 0).toFixed(2)}`,
-    );
-  }
-  if (matches.length > 20) lines.push(`  (showing 20 of ${matches.length} matches)`);
-  lines.push('', `(${durationMs}ms)`);
-  return lines.join('\n');
-}
-
-// ---------------------------------------------------------------------------
-// nexus contracts link-tasks
-// ---------------------------------------------------------------------------
-
-/**
- * Render `cleo nexus contracts link-tasks` human output.
- */
-export function renderNexusContractsLinkTasks(
-  data: Record<string, unknown>,
-  quiet: boolean,
-): string {
-  if (quiet) return '';
-  const durationMs = Number(data['_durationMs'] ?? 0);
-  return (
-    `[nexus] contracts link-tasks:\n` +
-    `  Commits processed: ${str(data['commitsProcessed'])}\n` +
-    `  Tasks found:       ${str(data['tasksFound'])}\n` +
-    `  Edges linked:      ${str(data['linked'])}\n` +
-    `  Last commit:       ${str(data['lastCommitHash'], '—')}\n` +
-    `  (${durationMs}ms)`
-  );
-}
-
-// ---------------------------------------------------------------------------
-// nexus wiki
-// ---------------------------------------------------------------------------
-
-/**
- * Render `cleo nexus wiki` human output.
- */
-export function renderNexusWiki(data: Record<string, unknown>, quiet: boolean): string {
-  if (quiet) return '';
-  const outputDir = str(data['_outputDir'] ?? '');
-  const durationMs = Number(data['_durationMs'] ?? 0);
-  const skippedCommunities = (data['skippedCommunities'] as string[]) ?? [];
-  const skippedNote =
-    skippedCommunities.length > 0
-      ? `\n  Skipped:     ${skippedCommunities.length} unchanged communities`
-      : '';
-  const loomNote = data['loomEnabled'] ? ' (LOOM narratives enabled)' : ' (scaffold mode)';
-  return (
-    `[nexus] wiki generated${loomNote}:\n` +
-    `  Communities: ${str(data['communityCount'])}\n` +
-    `  Files:       ${str(data['fileCount'])}\n` +
-    `  Output:      ${outputDir}` +
-    skippedNote +
-    `\n  (${durationMs}ms)`
-  );
+  return `(${durationMs}ms)`;
 }
 
 // ---------------------------------------------------------------------------
@@ -938,6 +701,9 @@ export function renderNexusWiki(data: Record<string, unknown>, quiet: boolean): 
 
 /**
  * Render `cleo nexus hot-paths` human output.
+ *
+ * TODO(T10128 B3 primitive ready): collapse the inline markdown table into
+ * the B3 table primitive once B3 lands.
  */
 export function renderNexusHotPaths(data: Record<string, unknown>, quiet: boolean): string {
   if (quiet) return '';
@@ -969,6 +735,9 @@ export function renderNexusHotPaths(data: Record<string, unknown>, quiet: boolea
 
 /**
  * Render `cleo nexus hot-nodes` human output.
+ *
+ * TODO(T10128 B3 primitive ready): collapse the inline markdown table into
+ * the B3 table primitive once B3 lands.
  */
 export function renderNexusHotNodes(data: Record<string, unknown>, quiet: boolean): string {
   if (quiet) return '';
@@ -991,65 +760,4 @@ export function renderNexusHotNodes(data: Record<string, unknown>, quiet: boolea
   }
   lines.push(`\n${count} node(s) shown.`);
   return lines.join('\n');
-}
-
-// ---------------------------------------------------------------------------
-// nexus cold-symbols
-// ---------------------------------------------------------------------------
-
-/**
- * Render `cleo nexus cold-symbols` human output.
- */
-export function renderNexusColdSymbols(data: Record<string, unknown>, quiet: boolean): string {
-  if (quiet) return '';
-  const symbols = (data['symbols'] as Array<Record<string, unknown>>) ?? [];
-  const count = Number(data['count'] ?? 0);
-  const thresholdDays = Number(data['thresholdDays'] ?? 30);
-  const note = data['note'] as string | undefined;
-
-  const lines: string[] = [];
-  if (note) lines.push(`[nexus] Note: ${note}`);
-  if (symbols.length === 0) {
-    lines.push(`[nexus] No cold symbols found (threshold: ${thresholdDays} days, weight < 0.1).`);
-    return lines.join('\n');
-  }
-  lines.push('| Symbol | Last Accessed | Weight | File |\n| --- | --- | --- | --- |');
-  for (const s of symbols) {
-    const lastAccessed = str(s['lastAccessed'], '(never)');
-    const file = str(s['filePath'], '(unknown)');
-    lines.push(
-      `| ${str(s['label'])} | ${lastAccessed} | ${Number(s['maxWeight'] ?? 0).toFixed(4)} | ${file} |`,
-    );
-  }
-  lines.push(`\n${count} cold symbol(s) found (threshold: ${thresholdDays} days).`);
-  return lines.join('\n');
-}
-
-// ---------------------------------------------------------------------------
-// nexus search-code (timing only, dispatch handles output)
-// ---------------------------------------------------------------------------
-
-/**
- * Render `cleo nexus search-code` human output timing line.
- */
-export function renderNexusSearchCode(data: Record<string, unknown>, quiet: boolean): string {
-  if (quiet) return '';
-  const durationMs = Number(data['_durationMs'] ?? 0);
-  return `(${durationMs}ms)`;
-}
-
-// ---------------------------------------------------------------------------
-// nexus export (handled separately — raw file output)
-// ---------------------------------------------------------------------------
-
-/**
- * Render `cleo nexus export` confirmation human output.
- */
-export function renderNexusExport(data: Record<string, unknown>, quiet: boolean): string {
-  if (quiet) return '';
-  if (data['outputFile']) {
-    return `[nexus] Exported to ${str(data['outputFile'])} (${str(data['nodeCount'])} nodes, ${str(data['edgeCount'])} edges)`;
-  }
-  // stdout export: raw content is handled separately
-  return '';
 }

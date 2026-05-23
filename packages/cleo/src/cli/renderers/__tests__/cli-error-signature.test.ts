@@ -37,9 +37,53 @@ vi.mock('@cleocode/lafs', () => ({
   extractFieldFromResult: vi.fn(),
   getCurrentWarningCollector: vi.fn(() => undefined),
 }));
-vi.mock('@cleocode/core', () => ({
-  formatSuccess: vi.fn(() => '{}'),
-}));
+vi.mock('@cleocode/core', () => {
+  // T10132/B7: dispatcher now also imports renderNexus* from @cleocode/core.
+  // Provide minimal stubs — these tests only exercise cliError(), so the
+  // renderer functions are never invoked but must exist on the mock so the
+  // dispatcher module loads.
+  const noopRenderer = vi.fn(() => '');
+  return {
+    formatSuccess: vi.fn(() => '{}'),
+    drainWarnings: vi.fn(() => undefined),
+    metaFooter: vi.fn(() => ''),
+    pagerFooter: vi.fn(() => ''),
+    renderNexusAnalyze: noopRenderer,
+    renderNexusBrainAnchors: noopRenderer,
+    renderNexusClusters: noopRenderer,
+    renderNexusColdSymbols: noopRenderer,
+    renderNexusConduitScan: noopRenderer,
+    renderNexusContext: noopRenderer,
+    renderNexusContractsLinkTasks: noopRenderer,
+    renderNexusContractsShow: noopRenderer,
+    renderNexusContractsSync: noopRenderer,
+    renderNexusDiff: noopRenderer,
+    renderNexusExport: noopRenderer,
+    renderNexusFlows: noopRenderer,
+    renderNexusFullContext: noopRenderer,
+    renderNexusHotNodes: noopRenderer,
+    renderNexusHotPaths: noopRenderer,
+    renderNexusImpact: noopRenderer,
+    renderNexusImpactFull: noopRenderer,
+    renderNexusProjectsClean: noopRenderer,
+    renderNexusProjectsCleanPreview: noopRenderer,
+    renderNexusProjectsList: noopRenderer,
+    renderNexusProjectsRegister: noopRenderer,
+    renderNexusProjectsRemove: noopRenderer,
+    renderNexusProjectsScan: noopRenderer,
+    renderNexusQuery: noopRenderer,
+    renderNexusRefreshBridge: noopRenderer,
+    renderNexusRouteMap: noopRenderer,
+    renderNexusSearchCode: noopRenderer,
+    renderNexusSetup: noopRenderer,
+    renderNexusShapeCheck: noopRenderer,
+    renderNexusStatus: noopRenderer,
+    renderNexusTaskFootprint: noopRenderer,
+    renderNexusTaskSymbols: noopRenderer,
+    renderNexusWhy: noopRenderer,
+    renderNexusWiki: noopRenderer,
+  };
+});
 
 describe('cliError signature compatibility (T4808 regression)', () => {
   beforeEach(() => {
