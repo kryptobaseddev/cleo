@@ -248,6 +248,21 @@ export {
   tempWorktreeDirForSlug,
   validatePublishSlug,
 } from './docs/publish-pr.js';
+// Central slug allocator chokepoint (T10392 / Saga T10288 / Epic T10289)
+export type {
+  ReserveSlugOptions,
+  SlugReserveErr,
+  SlugReserveOk,
+  SlugReserveResult,
+} from './docs/slug-allocator.js';
+export {
+  _resetSlugAllocatorState_TESTING_ONLY,
+  consumeReservedSlug,
+  isSlugReserved,
+  normalizeSlug,
+  releaseReservedSlug,
+  reserveSlug,
+} from './docs/slug-allocator.js';
 // Git hooks (T1588) — project-agnostic POSIX commit-msg + pre-push T-ID enforcement
 export type {
   CleoHookName,
@@ -1115,6 +1130,7 @@ export {
   AttachmentIntegrityError,
   createAttachmentStore,
   SlugCollisionError,
+  SlugNotReservedByAllocatorError,
 } from './store/attachment-store.js';
 // Attachment store v2 — unified llmtxt/legacy wrapper (T947 Wave B)
 export type {
