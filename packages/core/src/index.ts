@@ -521,6 +521,8 @@ export {
 } from './mvi-helpers.js';
 // Reconciliation
 export { reconcile } from './reconciliation/index.js';
+// Render — shared --human formatting primitives (T10129)
+export * from './render/index.js';
 export type {
   BootstrapDaemonOptions,
   StudioStatus,

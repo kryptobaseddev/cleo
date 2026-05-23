@@ -8,7 +8,7 @@
  * Design goals:
  *   - Terminal-width aware (truncate cells instead of overflowing)
  *   - Zero new runtime dependencies (no `cli-table` etc.) — uses only ANSI
- *     escapes from {@link ./colors.ts}.
+ *     escapes from {@link ./ansi.ts}.
  *   - Pure: every helper returns a string; no stdout writes.
  *   - LAFS-aware: {@link metaFooter} surfaces decorator-stamped
  *     `meta._nexus`, `meta.deprecated`, and `meta.duration_ms` chrome that
@@ -16,10 +16,15 @@
  *   - Pagination-aware: {@link pagerFooter} formats the `page.{limit,offset,
  *     hasMore,total}` block so users know a list is windowed.
  *
+ * Originally lived under `packages/cleo/src/cli/renderers/format-helpers.ts`.
+ * Migrated to `@cleocode/core/render` per AGENTS.md Package-Boundary Check —
+ * rendering logic belongs in core, not the CLI thin shell.
+ *
  * @task T9393
+ * @task T10129
  */
 
-import { BOLD, DIM, NC } from './colors.js';
+import { BOLD, DIM, NC } from './ansi.js';
 
 // ---------------------------------------------------------------------------
 // Terminal width detection
