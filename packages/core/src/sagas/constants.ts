@@ -22,6 +22,22 @@
  * member Epics through `task_relations.type='groups'` edges instead of the
  * `parentId` column.
  *
+ * @deprecated Since Wave 1 of Saga T10326 (Epic T10277) — saga is now a
+ *   first-class {@link TaskType} value. Migrated rows carry `type='saga'`
+ *   directly and no longer require this label (ADR-083 §2.5). The constant
+ *   is retained during the deprecation window so legacy `type='epic' AND
+ *   label='saga'` rows in long-lived sessions remain detectable via
+ *   {@link isSagaShape}. Removal is gated to W3.C T10334 once the cutover
+ *   metric confirms no live system still emits the legacy shape.
+ *
+ * Sweeps in W2.B (T10331) migrated production READ callsites to
+ * {@link isSagaShape}; the SAGA_LABEL identifier remains referenced only by
+ * (1) the saga write/repair paths that intentionally emit the label as a
+ * migration-shim, (2) the I7 audit comparison string, and (3) tests that
+ * exercise the deprecation-window dual-shape acceptance.
+ *
+ * @see ADR-083-saga-as-tasktype.md §2.5
+ * @see ADR-073-above-epic-naming.md §1.2 — invariant I3 (label is migration-only)
  * @see ADR-073-above-epic-naming.md §1 — Task Hierarchy Charter
  */
 export const SAGA_LABEL = 'saga' as const;

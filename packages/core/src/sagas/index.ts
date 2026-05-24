@@ -37,6 +37,7 @@ export {
   SagaInvariantViolationError,
   type SagaTask,
 } from './enforcement.js';
+export { isSagaType } from './is-saga-type.js';
 export { type SagaInvariantI5Warning, type SagaListResult, sagaList } from './list.js';
 export {
   type SagaMemberEntry,
