@@ -37,6 +37,7 @@ on:
     paths:
       - 'packages/cleo/test/fixtures/release-test-**'
       - 'packages/cleo/test/integration/release-pipeline/**'
+  merge_group:
 
 permissions:
   contents: read
