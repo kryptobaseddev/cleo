@@ -22,9 +22,30 @@
         }
       },
       "additionalProperties": false
+    },
+    "similarity": {
+      "$ref": "#/$defs/SimilarityConfig"
     }
   },
   "$defs": {
+    "SimilarityConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional configuration for the docs-add slug similarity check (T10361). When omitted, defaults are warnThreshold=0.85 and mode=warn.",
+      "properties": {
+        "warnThreshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Normalised Levenshtein score in [0, 1]. Scores >= threshold (and < 1.0) trigger the warn or block. Default 0.85."
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["warn", "block"],
+          "description": "Policy on hit. 'warn' prints the hint and continues. 'block' exits E_SLUG_SIMILARITY unless --allow-similar is supplied. Default 'warn'."
+        }
+      }
+    },
     "CanonKindEntry": {
       "type": "object",
       "additionalProperties": false,

@@ -50,6 +50,20 @@ export {
 export type { ExportDocumentOptions, ExportDocumentResult } from './export-document.js';
 export { exportDocument } from './export-document.js';
 
+// ── T10361 — slug similarity warn at docs add write-time ────────────────────
+export type {
+  CheckSlugSimilarityOptions,
+  SimilarityCheckResult,
+  SimilarityConfig,
+  SimilarityMode,
+} from './similarity-check.js';
+export {
+  checkSlugSimilarity,
+  DEFAULT_SIMILARITY_MODE,
+  DEFAULT_SIMILARITY_THRESHOLD,
+  parseSimilarityConfig,
+} from './similarity-check.js';
+
 // ── T9639 — cleo docs import (legacy .md migration) ─────────────────────────
 
 // T9791 — AttachmentStore-backed DocsAccessor for the production import path.
