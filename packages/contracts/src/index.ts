@@ -415,6 +415,31 @@ export {
   normalizeError,
   ThinAgentViolationError,
 } from './errors.js';
+// === ADR-051 Evidence Atom Grammar (T10337 — Saga T10326) ===
+export type {
+  EvidenceAtom as EvidenceAtomInput,
+  EvidenceAtomKind,
+  EvidenceValidationResult,
+  GateEvidenceRequirement,
+} from './evidence-atom-schema.js';
+export {
+  callsiteCoverageAtomSchema,
+  commitAtomSchema,
+  decisionAtomSchema,
+  EvidenceAtomSchema,
+  EvidenceParseError,
+  filesAtomSchema,
+  formatGateRequirement,
+  GATE_EVIDENCE_REQUIREMENTS,
+  locDropAtomSchema,
+  noteAtomSchema,
+  parseEvidenceString,
+  prAtomSchema,
+  testRunAtomSchema,
+  toolAtomSchema,
+  urlAtomSchema,
+  validateEvidenceForGate,
+} from './evidence-atom-schema.js';
 // === Evidence Record Types (IVTR typed proof artifacts) ===
 export type {
   CommandOutputRecord,

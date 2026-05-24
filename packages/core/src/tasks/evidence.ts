@@ -26,8 +26,19 @@ import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve as resolvePath } from 'node:path';
 
-import type { EvidenceAtom, GateEvidence, VerificationGate } from '@cleocode/contracts';
-import { ExitCode } from '@cleocode/contracts';
+import type {
+  EvidenceAtom,
+  GateEvidence,
+  EvidenceAtomInput as ParsedEvidenceAtom,
+  VerificationGate,
+} from '@cleocode/contracts';
+import {
+  EvidenceParseError,
+  ExitCode,
+  GATE_EVIDENCE_REQUIREMENTS,
+  parseEvidenceString,
+  validateEvidenceForGate,
+} from '@cleocode/contracts';
 
 import { CleoError } from '../errors.js';
 import { getEffectiveHead } from '../worktree/effective-head.js';
@@ -91,67 +102,28 @@ export const TOOL_COMMANDS: Record<string, { cmd: string; args: string[] }> = Ob
  * - Alternatives are modeled as separate sets — if ANY set is satisfied the
  *   evidence is accepted.
  *
- * ## `implemented` gate alternatives
- *
- * Two valid evidence sets exist for the `implemented` gate:
- *
- * 1. `[commit, files]` — standard: commit SHA + list of modified files.
- *    Use this when the implementation added or modified files.
- * 2. `[commit, note]` — deletion-safe: commit SHA + descriptive note.
- *    Use this when the implementation deleted files (no files remain to
- *    anchor the evidence, e.g. `note:deleted src/legacy.ts`).
- *
- * Example (deletion task):
- * ```bash
- * cleo verify T### --gate implemented \
- *   --evidence "commit:<sha>;note:deleted packages/legacy/src/old-module.ts"
- * ```
+ * **Source of truth (T10337):** the underlying spec now lives in
+ * {@link GATE_EVIDENCE_REQUIREMENTS} in `@cleocode/contracts`. This export
+ * is the legacy projection — `Record<gate, kind[][]>` — kept for back-
+ * compat with consumers that hard-coded the nested-array shape. New code
+ * SHOULD use {@link validateEvidenceForGate} from `@cleocode/contracts`
+ * directly.
  *
  * @task T832
  * @task T1515
+ * @task T10337
  * @adr ADR-051 §2.3
  */
-export const GATE_EVIDENCE_MINIMUMS: Record<VerificationGate, EvidenceAtom['kind'][][]> = {
-  implemented: [
-    ['commit', 'files'],
-    ['commit', 'note'],
-    // Decision-only tasks: a brain_decisions row + files pointing to research note
-    // satisfies the implemented gate without requiring a commit.
-    // Eliminates CLEO_OWNER_OVERRIDE for pure-decision tasks (T1875).
-    ['decision', 'files'],
-    // Decision-only tasks with no research file: a brain_decisions row + note
-    // satisfies the implemented gate.
-    ['decision', 'note'],
-    // pr atom (T9838) — a merged PR with a real mergeCommitSha IS the proof
-    // that the implementation landed on main. The resolver only succeeds
-    // when state === 'MERGED' and mergeCommitSha is non-null, so the merged
-    // PR's merge commit is the canonical landing commit. Eliminates the
-    // manual `commit:<sha>;files:...` backfill ritual that
-    // v5.91 - v5.93 ships were stuck in.
-    ['pr'],
-  ],
-  // pr atom (T9764) — a merged PR with all required-workflow checks green
-  // satisfies BOTH testsPassed and qaPassed simultaneously.
-  // T9838 extends the same atom to satisfy `implemented` (see above).
-  testsPassed: [['test-run'], ['tool'], ['pr']],
-  qaPassed: [['tool'], ['pr']],
-  documented: [['files'], ['url']],
-  securityPassed: [['tool'], ['note']],
-  cleanupDone: [['note']],
-  /**
-   * nexusImpact gate accepts `tool:nexus-impact-full` or a `note:` waiver.
-   *
-   * `tool:nexus-impact-full` runs `reasonImpactOfChange()` across all symbols
-   * in the task's files list and fails if any symbol has risk=CRITICAL.
-   *
-   * A `note:` waiver is accepted when nexus is not available or the gate
-   * is disabled via `CLEO_NEXUS_IMPACT_GATE` not being set to '1'.
-   *
-   * @task T1073
-   * @epic T1042
-   */
-  nexusImpact: [['tool'], ['note']],
-};
+export const GATE_EVIDENCE_MINIMUMS: Record<VerificationGate, EvidenceAtom['kind'][][]> =
+  Object.freeze(
+    Object.fromEntries(
+      (
+        Object.entries(GATE_EVIDENCE_REQUIREMENTS) as Array<
+          [VerificationGate, { oneOf: ReadonlyArray<ReadonlyArray<ParsedEvidenceAtom['kind']>> }]
+        >
+      ).map(([gate, spec]) => [gate, spec.oneOf.map((set) => [...set])] as const),
+    ),
+  ) as Record<VerificationGate, EvidenceAtom['kind'][][]>;
 
 /**
  * Minimum LOC reduction percentage required when the `engine-migration` label
@@ -227,8 +199,14 @@ export type ParsedAtom =
  *   payload for files: comma-separated paths
  *   payload for everything else: opaque string until next ';'
  *
+ * Delegates the syntactic parse to
+ * {@link parseEvidenceString} in `@cleocode/contracts` (T10337) and wraps the
+ * `EvidenceParseError` in the legacy `CleoError(VALIDATION_ERROR, ...)`
+ * envelope so existing CLI surfaces continue to receive the expected exit
+ * code and `fix:` hint.
+ *
  * @param raw - Raw CLI string from `--evidence`
- * @returns Parsed atoms ready for {@link validateEvidence}
+ * @returns Parsed atoms ready for {@link validateAtom}
  * @throws CleoError(VALIDATION_ERROR) for malformed input
  *
  * @example
@@ -238,206 +216,18 @@ export type ParsedAtom =
  * ```
  *
  * @task T832
+ * @task T10337
  */
 export function parseEvidence(raw: string): ParsedEvidence {
-  if (!raw || typeof raw !== 'string') {
-    throw new CleoError(ExitCode.VALIDATION_ERROR, 'Evidence string is empty', {
-      fix: "Pass evidence like '--evidence commit:<sha>;files:<path>;...'",
-    });
-  }
-  const chunks = raw
-    .split(';')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (chunks.length === 0) {
-    throw new CleoError(ExitCode.VALIDATION_ERROR, 'Evidence string contained no atoms', {
-      fix: "Pass evidence like '--evidence commit:<sha>;files:<path>;...'",
-    });
-  }
-
-  const atoms: ParsedAtom[] = [];
-  for (const chunk of chunks) {
-    const colon = chunk.indexOf(':');
-    if (colon < 1 || colon === chunk.length - 1) {
-      throw new CleoError(
-        ExitCode.VALIDATION_ERROR,
-        `Malformed evidence atom: "${chunk}" (expected <kind>:<payload>)`,
-        {
-          fix: 'Each atom must be of form "<kind>:<payload>" separated by ";".',
-        },
-      );
+  try {
+    const atoms = parseEvidenceString(raw);
+    return { atoms: atoms as ParsedAtom[] };
+  } catch (err) {
+    if (err instanceof EvidenceParseError) {
+      throw new CleoError(ExitCode.VALIDATION_ERROR, err.message, { fix: err.fix });
     }
-    const kind = chunk.slice(0, colon).trim();
-    const payload = chunk.slice(colon + 1).trim();
-    switch (kind) {
-      case 'commit':
-        atoms.push({ kind: 'commit', sha: payload });
-        break;
-      case 'files':
-        atoms.push({
-          kind: 'files',
-          paths: payload
-            .split(',')
-            .map((p) => p.trim())
-            .filter(Boolean),
-        });
-        break;
-      case 'test-run':
-        atoms.push({ kind: 'test-run', path: payload });
-        break;
-      case 'tool':
-        atoms.push({ kind: 'tool', tool: payload });
-        break;
-      case 'url':
-        atoms.push({ kind: 'url', url: payload });
-        break;
-      case 'note':
-        atoms.push({ kind: 'note', note: payload });
-        break;
-      case 'loc-drop': {
-        // Format: loc-drop:<fromLines>:<toLines>
-        const firstColon = payload.indexOf(':');
-        if (firstColon < 1 || firstColon === payload.length - 1) {
-          throw new CleoError(
-            ExitCode.VALIDATION_ERROR,
-            `Malformed loc-drop atom: "${chunk}" (expected loc-drop:<fromLines>:<toLines>)`,
-            {
-              fix: 'Use format: loc-drop:<fromLines>:<toLines> e.g. loc-drop:1200:800',
-            },
-          );
-        }
-        const fromRaw = payload.slice(0, firstColon).trim();
-        const toRaw = payload.slice(firstColon + 1).trim();
-        const fromLines = Number(fromRaw);
-        const toLines = Number(toRaw);
-        if (!Number.isInteger(fromLines) || fromLines < 0) {
-          throw new CleoError(
-            ExitCode.VALIDATION_ERROR,
-            `loc-drop: fromLines must be a non-negative integer, got "${fromRaw}"`,
-            { fix: 'Use format: loc-drop:<fromLines>:<toLines> e.g. loc-drop:1200:800' },
-          );
-        }
-        if (!Number.isInteger(toLines) || toLines < 0) {
-          throw new CleoError(
-            ExitCode.VALIDATION_ERROR,
-            `loc-drop: toLines must be a non-negative integer, got "${toRaw}"`,
-            { fix: 'Use format: loc-drop:<fromLines>:<toLines> e.g. loc-drop:1200:800' },
-          );
-        }
-        atoms.push({ kind: 'loc-drop', fromLines, toLines });
-        break;
-      }
-      case 'callsite-coverage': {
-        // Format: callsite-coverage:<symbolName>:<relativeSourcePath>
-        const colonIdx = payload.indexOf(':');
-        if (colonIdx < 1 || colonIdx === payload.length - 1) {
-          throw new CleoError(
-            ExitCode.VALIDATION_ERROR,
-            `Malformed callsite-coverage atom: "${chunk}" (expected callsite-coverage:<symbolName>:<relativeSourcePath>)`,
-            {
-              fix: 'Use format: callsite-coverage:<symbolName>:<relativeSourcePath> e.g. callsite-coverage:myFn:packages/core/src/myFn.ts',
-            },
-          );
-        }
-        const symbolName = payload.slice(0, colonIdx).trim();
-        const relativeSourcePath = payload.slice(colonIdx + 1).trim();
-        if (!symbolName) {
-          throw new CleoError(
-            ExitCode.VALIDATION_ERROR,
-            `callsite-coverage: symbolName must not be empty in "${chunk}"`,
-            {
-              fix: 'Use format: callsite-coverage:<symbolName>:<relativeSourcePath>',
-            },
-          );
-        }
-        if (!relativeSourcePath) {
-          throw new CleoError(
-            ExitCode.VALIDATION_ERROR,
-            `callsite-coverage: relativeSourcePath must not be empty in "${chunk}"`,
-            {
-              fix: 'Use format: callsite-coverage:<symbolName>:<relativeSourcePath>',
-            },
-          );
-        }
-        atoms.push({ kind: 'callsite-coverage', symbolName, relativeSourcePath });
-        break;
-      }
-      case 'decision': {
-        // Format: decision:<decisionId>
-        if (!payload) {
-          throw new CleoError(
-            ExitCode.VALIDATION_ERROR,
-            `decision atom requires a non-empty decision ID in "${chunk}"`,
-            {
-              fix: 'Use format: decision:<decisionId> e.g. decision:D-arch-001',
-            },
-          );
-        }
-        atoms.push({ kind: 'decision', decisionId: payload });
-        break;
-      }
-      case 'pr': {
-        // Format: pr:<positive integer>  (T9764)
-        const prNumber = Number(payload);
-        if (!Number.isInteger(prNumber) || prNumber <= 0) {
-          throw new CleoError(
-            ExitCode.VALIDATION_ERROR,
-            `pr atom requires a positive integer PR number, got "${payload}" in "${chunk}"`,
-            {
-              fix: 'Use format: pr:<number> e.g. pr:357',
-            },
-          );
-        }
-        atoms.push({ kind: 'pr', prNumber });
-        break;
-      }
-      case 'state': {
-        // T9838: optional explicit-form modifier for the preceding pr: atom.
-        // Format: pr:<num>;state:MERGED  (only "MERGED" is currently meaningful).
-        // The resolver ALWAYS requires state === 'MERGED' regardless, so this
-        // modifier is intent-documenting — it asserts the caller knows the
-        // contract, and rejects nonsensical pairings early.
-        if (payload !== 'MERGED') {
-          throw new CleoError(
-            ExitCode.VALIDATION_ERROR,
-            `state atom only accepts "MERGED", got "${payload}" in "${chunk}"`,
-            {
-              fix: 'Use format: pr:<num>;state:MERGED (state is only meaningful paired with a pr: atom)',
-            },
-          );
-        }
-        // Must follow a pr: atom in the same evidence string. Locate the
-        // most recent pr: atom and tag it as explicitly-asserted-MERGED.
-        // Since the resolver already enforces state === 'MERGED', no extra
-        // runtime check is needed — we just validate the pairing here.
-        const lastPrIdx = atoms.length - 1;
-        const lastAtom = atoms[lastPrIdx];
-        if (!lastAtom || lastAtom.kind !== 'pr') {
-          throw new CleoError(
-            ExitCode.VALIDATION_ERROR,
-            `state:MERGED must immediately follow a pr:<num> atom in the same evidence string ` +
-              `(got "${chunk}" with no preceding pr: atom)`,
-            {
-              fix: 'Use format: --evidence "pr:357;state:MERGED" (state modifier requires a pr: predecessor)',
-            },
-          );
-        }
-        // Modifier consumed — no new atom emitted. The pr: atom already carries
-        // the prNumber; the merge-state assertion is handled by the resolver.
-        break;
-      }
-      default:
-        throw new CleoError(
-          ExitCode.VALIDATION_ERROR,
-          `Unknown evidence kind: "${kind}" in atom "${chunk}"`,
-          {
-            fix: 'Valid kinds: commit, files, test-run, tool, url, note, loc-drop, callsite-coverage, decision, pr, state',
-          },
-        );
-    }
+    throw err;
   }
-
-  return { atoms };
 }
 
 // ---------------------------------------------------------------------------
@@ -1465,18 +1255,22 @@ export function checkGateEvidenceMinimum(
   gate: VerificationGate,
   atoms: EvidenceAtom[],
 ): string | null {
-  const minimums = GATE_EVIDENCE_MINIMUMS[gate];
-  if (!minimums) return null;
-  // Each entry in `minimums` is an alternative — satisfy ANY of them.
-  for (const required of minimums) {
-    const satisfied = required.every((kind) => atoms.some((a) => a.kind === kind));
-    if (satisfied) return null;
+  // Delegate to the SSoT in @cleocode/contracts (T10337). validateEvidenceForGate
+  // only inspects `.kind`; the post-validation EvidenceAtom union includes the
+  // `override` kind which is never present here (override-evidence flows skip
+  // the minimum check entirely in engine-ops.ts). Project to the parsed-atom
+  // kind set, dropping any `override` entry so the schema's narrower
+  // discriminator is satisfied without a wider cast on the call site.
+  const projected: Array<{ kind: ParsedEvidenceAtom['kind'] }> = [];
+  for (const atom of atoms) {
+    if (atom.kind === 'override') continue;
+    // The narrowing above eliminates the 'override' literal — the remaining
+    // kinds match ParsedEvidenceAtom['kind'] one-for-one.
+    const kind: ParsedEvidenceAtom['kind'] = atom.kind;
+    projected.push({ kind });
   }
-  const alternatives = minimums
-    .map((set) => set.join(' AND '))
-    .map((s) => `[${s}]`)
-    .join(' OR ');
-  return `Gate '${gate}' requires evidence: ${alternatives}`;
+  const result = validateEvidenceForGate(gate, projected);
+  return result.ok ? null : result.message;
 }
 
 /**
