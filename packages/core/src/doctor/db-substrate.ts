@@ -28,7 +28,7 @@
  * @see ADR-068 — CLEO Database Charter
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import {
   DB_INVENTORY,
@@ -40,6 +40,7 @@ import {
   type DbSubstrateMigrationOrphan,
   type DbSubstrateProjectSurvey,
   type DbSubstrateSummary,
+  type DbSubstrateSurveyOptions,
   type DbSubstrateWarning,
   type PragmaDriftItem,
 } from '@cleocode/contracts';
@@ -65,6 +66,125 @@ const REPRESENTATIVE_TABLE_LIMIT = 3;
  * one-row-per-migration metadata which is also not informative.
  */
 const ROW_COUNT_TABLE_BLOCKLIST = new Set<string>(['__drizzle_migrations', '__cleo_migrations']);
+
+/**
+ * Default wall-clock budget for one `PRAGMA integrity_check` call.
+ *
+ * 60 seconds matches the operator-facing "60 s default, configurable via flag"
+ * acceptance criterion of T10312. The check itself runs to completion because
+ * `node:sqlite` is synchronous; the timer is consulted AFTER the call returns
+ * and a DB that exceeded the budget is flagged via `timedOut: true`.
+ */
+const DEFAULT_INTEGRITY_CHECK_TIMEOUT_MS = 60_000;
+
+/**
+ * Upper bound on errors reported by a single `PRAGMA integrity_check(N)`
+ * call. Capping the work done by SQLite is the only knob available to us
+ * — `node:sqlite` has no progress_handler or interrupt() — so we cap to
+ * 50 error rows. A clean DB always returns one `'ok'` row regardless of
+ * this bound; a malformed DB returns at most 50 error rows, bounding
+ * the maximum latency to roughly the cost of detecting a single
+ * malformation plus the cap.
+ *
+ * The single-arg form `PRAGMA integrity_check(50)` is supported by every
+ * SQLite version CLEO ships against (>= 3.42).
+ *
+ * @task T10312
+ */
+const INTEGRITY_CHECK_ERROR_CAP = 50;
+
+/**
+ * Resolve the canonical quarantine root for a project. Matches the
+ * convention used by `recover-brain-db.ts`: `<projectRoot>/.cleo/quarantine/`.
+ *
+ * @remarks
+ * The doctor survey uses the **directory containing the DB file** to
+ * derive the quarantine root. For project-tier DBs that's `<projectRoot>/.cleo/`;
+ * for global-tier DBs (e.g. `<cleoHome>/nexus.db`) that's `<cleoHome>/`.
+ * Either way the quarantine sits next to the DB, never crossing
+ * filesystem boundaries — atomic `renameSync` works in both cases.
+ *
+ * @param dbFilePath - Absolute path to the corrupt DB file.
+ * @returns Absolute path to the quarantine root directory (not created yet).
+ *
+ * @task T10312
+ */
+function resolveQuarantineRoot(dbFilePath: string): string {
+  return join(dirname(dbFilePath), 'quarantine');
+}
+
+/**
+ * Move the corrupt DB plus any sidecar `-wal` / `-shm` files into a
+ * fresh quarantine directory and return the directory path.
+ *
+ * @remarks
+ * Naming: `<quarantineRoot>/<role>-malformed-<iso>/` per T10312 AC2.
+ * The corrupt DB lands at `<quarantineDir>/<basename>.malformed`, and
+ * sidecar moves are best-effort (a missing or already-gone sidecar is
+ * NOT fatal to the quarantine).
+ *
+ * Uses `renameSync` for atomicity on the same filesystem. Cross-fs
+ * renames throw EXDEV — we bubble that up so the caller surfaces the
+ * quarantine failure rather than silently leaving the corrupt DB in place.
+ *
+ * @param dbFilePath - Absolute path to the corrupt DB.
+ * @param role - Canonical role name from `DB_INVENTORY` (e.g. `'brain'`).
+ * @param now - Epoch ms used to stamp the quarantine directory; injectable
+ *   for testability.
+ * @returns Absolute path to the newly-created quarantine directory.
+ *
+ * @task T10312
+ */
+function quarantineSubstrateDb(dbFilePath: string, role: string, now: number = Date.now()): string {
+  const quarantineRoot = resolveQuarantineRoot(dbFilePath);
+  const isoStamp = new Date(now).toISOString().replace(/[:.]/g, '-');
+  const quarantineDir = join(quarantineRoot, `${role}-malformed-${isoStamp}`);
+  mkdirSync(quarantineDir, { recursive: true });
+
+  const dbBaseName = basename(dbFilePath);
+  const dest = join(quarantineDir, `${dbBaseName}.malformed`);
+  renameSync(dbFilePath, dest);
+
+  // Move WAL + SHM sidecars; their state matters for any forensic post-mortem.
+  for (const suffix of ['-wal', '-shm']) {
+    const sidecarSrc = dbFilePath + suffix;
+    if (existsSync(sidecarSrc)) {
+      const sidecarDest = join(quarantineDir, `${dbBaseName}.malformed${suffix}`);
+      try {
+        renameSync(sidecarSrc, sidecarDest);
+      } catch {
+        // Sidecar move failure is non-fatal — the main file is already
+        // safely quarantined.
+      }
+    }
+  }
+
+  return quarantineDir;
+}
+
+/**
+ * Build the operator-facing `suggestedFix` string when a DB is corrupt.
+ *
+ * @remarks
+ * The hard recovery command is always `cleo backup recover <role>`
+ * (introduced by T10318 — uses the `recoverMalformedBrainDb` pipeline
+ * from T10303). When auto-quarantine fired, we ALSO surface the
+ * quarantine path inline so the operator can locate forensic state
+ * without poking through the envelope's structured fields. The
+ * machine-readable path stays available at {@link DbSubstrateEntry.quarantinedTo}.
+ *
+ * @param role - Canonical role name from `DB_INVENTORY`.
+ * @param quarantineDir - Absolute quarantine path, or `null` when no
+ *   quarantine happened (e.g. `autoQuarantine: false`).
+ * @returns A one-line machine-readable repair command.
+ *
+ * @task T10312
+ */
+function composeSuggestedFix(role: string, quarantineDir: string | null): string {
+  const cmd = `cleo backup recover ${role}`;
+  if (quarantineDir === null) return cmd;
+  return `${cmd} (corrupt DB quarantined to ${quarantineDir})`;
+}
 
 /**
  * Compute the stable project-id used to identify a project in
@@ -361,16 +481,33 @@ export function computeMigrationCoverage(
  * Performs:
  * 1. `fs.statSync` for size + mtime + existence check.
  * 2. `openCleoDbSnapshot` (read-only) for integrity_check + row counts.
- * 3. Returns a fully-populated {@link DbSubstrateEntry} — all `null`
+ *    The integrity_check call is bounded by
+ *    {@link DbSubstrateSurveyOptions.integrityCheckTimeoutMs} (default 60 s)
+ *    — wall-clock measured; SQLite work capped via
+ *    `PRAGMA integrity_check({@link INTEGRITY_CHECK_ERROR_CAP})`.
+ * 3. On failure (integrity_check returned non-`'ok'`, open threw, OR
+ *    elapsed exceeded the timeout) AND `autoQuarantine !== false`,
+ *    moves the corrupt DB plus `-wal`/`-shm` sidecars into
+ *    `<projectRoot>/.cleo/quarantine/<role>-malformed-<iso>/` (T10312).
+ * 4. Returns a fully-populated {@link DbSubstrateEntry} — all `null`
  *    fields are explicit rather than absent.
  *
  * Snapshot handle is always closed before returning, even on error.
  *
  * @param entry - The `DB_INVENTORY` row being inspected.
  * @param filePath - The resolved absolute path to the DB file.
+ * @param options - Tuning knobs for timeout + quarantine behaviour.
+ *   Defaults: `integrityCheckTimeoutMs=60000`, `autoQuarantine=true`.
  * @returns A populated {@link DbSubstrateEntry}.
  */
-export function inspectDbFile(entry: DbInventoryEntry, filePath: string): DbSubstrateEntry {
+export function inspectDbFile(
+  entry: DbInventoryEntry,
+  filePath: string,
+  options: DbSubstrateSurveyOptions = {},
+): DbSubstrateEntry {
+  const timeoutMs = options.integrityCheckTimeoutMs ?? DEFAULT_INTEGRITY_CHECK_TIMEOUT_MS;
+  const autoQuarantine = options.autoQuarantine ?? true;
+
   if (!existsSync(filePath)) {
     return {
       filePath,
@@ -383,6 +520,9 @@ export function inspectDbFile(entry: DbInventoryEntry, filePath: string): DbSubs
       suggestedFix: null,
       migrationCoverage: null,
       pragmaDrift: null,
+      quarantinedTo: null,
+      integrityCheckMs: null,
+      timedOut: false,
     };
   }
 
@@ -398,13 +538,22 @@ export function inspectDbFile(entry: DbInventoryEntry, filePath: string): DbSubs
   }
 
   let snapshot: ReturnType<typeof openCleoDbSnapshot> | null = null;
+  let integrityCheckMs: number | null = null;
   try {
     snapshot = openCleoDbSnapshot(filePath, { readOnly: true, applyPragmas: false });
 
-    // PRAGMA integrity_check returns rows with column `integrity_check`.
+    // PRAGMA integrity_check(N) caps SQLite's work at N error rows.
+    // Wall-clock measured to flag slow DBs via `timedOut`.
     type IntegrityRow = { integrity_check: string };
-    const integrityRows = snapshot.db.prepare('PRAGMA integrity_check').all() as IntegrityRow[];
-    const integrityOK = integrityRows.length === 1 && integrityRows[0]?.integrity_check === 'ok';
+    const t0 = Date.now();
+    const integrityRows = snapshot.db
+      .prepare(`PRAGMA integrity_check(${INTEGRITY_CHECK_ERROR_CAP})`)
+      .all() as IntegrityRow[];
+    integrityCheckMs = Date.now() - t0;
+    const rawOk = integrityRows.length === 1 && integrityRows[0]?.integrity_check === 'ok';
+    // `timeoutMs <= 0` disables the timeout (operator opt-out).
+    const timedOut = timeoutMs > 0 && integrityCheckMs > timeoutMs;
+    const integrityOK = rawOk && !timedOut;
 
     let rowCounts: Record<string, number> | null = null;
     let pragmaDrift: PragmaDriftItem[] | null = null;
@@ -426,37 +575,80 @@ export function inspectDbFile(entry: DbInventoryEntry, filePath: string): DbSubs
       pragmaDrift = walkPragmaDrift(snapshot.db);
     }
 
-    // Migration coverage cross-check (T10311). Only attempted when the
-    // inventory declares a non-null `migrationsDir` AND the DB passed
-    // integrity_check — there's no point cross-referencing a corrupt
-    // journal against the file system.
-    let migrationCoverage: DbSubstrateMigrationCoverage | null = null;
-    if (integrityOK && entry.migrationsDir !== null) {
+    if (integrityOK) {
+      // Migration coverage cross-check (T10311). Only attempted when the
+      // inventory declares a non-null `migrationsDir` AND the DB passed
+      // integrity_check — there's no point cross-referencing a corrupt
+      // journal against the file system.
+      let migrationCoverage: DbSubstrateMigrationCoverage | null = null;
+      if (entry.migrationsDir !== null) {
+        try {
+          const migrationsFolderPath = resolveInventoryMigrationsFolder(entry.migrationsDir);
+          migrationCoverage = computeMigrationCoverage(snapshot.db, migrationsFolderPath);
+        } catch {
+          // Resolver threw (e.g. @cleocode/core not findable from this
+          // module — should never happen at runtime). Leave coverage as
+          // null; the rest of the substrate audit still surfaces.
+          migrationCoverage = null;
+        }
+      }
+
+      return {
+        filePath,
+        exists: true,
+        integrityOK: true,
+        rowCounts,
+        lastWriteMs,
+        sizeBytes,
+        error: null,
+        suggestedFix: null,
+        migrationCoverage,
+        pragmaDrift,
+        quarantinedTo: null,
+        integrityCheckMs,
+        timedOut: false,
+      };
+    }
+
+    // ── Failure path ───────────────────────────────────────────────
+    // Close the handle BEFORE quarantine so the rename can take the file
+    // without contention from the open snapshot.
+    snapshot.close();
+    snapshot = null;
+
+    let quarantinedTo: string | null = null;
+    let quarantineErr: string | null = null;
+    if (autoQuarantine) {
       try {
-        const migrationsFolderPath = resolveInventoryMigrationsFolder(entry.migrationsDir);
-        migrationCoverage = computeMigrationCoverage(snapshot.db, migrationsFolderPath);
-      } catch {
-        // Resolver threw (e.g. @cleocode/core not findable from this
-        // module — should never happen at runtime). Leave coverage as
-        // null; the rest of the substrate audit still surfaces.
-        migrationCoverage = null;
+        quarantinedTo = quarantineSubstrateDb(filePath, entry.role);
+      } catch (qErr) {
+        // Quarantine failure is non-fatal — surface as an addendum to
+        // the error string so the operator knows the corrupt DB is
+        // still in place.
+        quarantineErr = qErr instanceof Error ? qErr.message : String(qErr);
       }
     }
 
-    return {
-      filePath,
-      exists: true,
-      integrityOK,
-      rowCounts,
-      lastWriteMs,
-      sizeBytes,
-      error: null,
-      suggestedFix: integrityOK ? null : `cleo backup recover ${entry.role}`,
-      migrationCoverage,
-      pragmaDrift,
-    };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const errParts: string[] = [];
+    if (timedOut) {
+      errParts.push(`integrity_check exceeded timeout: ${integrityCheckMs}ms > ${timeoutMs}ms`);
+    }
+    if (!rawOk) {
+      const offending = integrityRows
+        .map((r) => r.integrity_check)
+        .filter((v) => v !== 'ok')
+        .slice(0, 5)
+        .join('; ');
+      errParts.push(
+        offending.length > 0
+          ? `integrity_check reported: ${offending}`
+          : 'integrity_check did not return ok',
+      );
+    }
+    if (quarantineErr !== null) {
+      errParts.push(`auto-quarantine failed: ${quarantineErr}`);
+    }
+
     return {
       filePath,
       exists: true,
@@ -464,10 +656,49 @@ export function inspectDbFile(entry: DbInventoryEntry, filePath: string): DbSubs
       rowCounts: null,
       lastWriteMs,
       sizeBytes,
-      error: message,
-      suggestedFix: `cleo backup recover ${entry.role}`,
+      error: errParts.length > 0 ? errParts.join(' | ') : null,
+      suggestedFix: composeSuggestedFix(entry.role, quarantinedTo),
       migrationCoverage: null,
       pragmaDrift: null,
+      quarantinedTo,
+      integrityCheckMs,
+      timedOut,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    // Close the snapshot if it managed to open before throwing on pragma.
+    snapshot?.close();
+    snapshot = null;
+
+    let quarantinedTo: string | null = null;
+    let quarantineErr: string | null = null;
+    if (autoQuarantine && existsSync(filePath)) {
+      try {
+        quarantinedTo = quarantineSubstrateDb(filePath, entry.role);
+      } catch (qErr) {
+        quarantineErr = qErr instanceof Error ? qErr.message : String(qErr);
+      }
+    }
+
+    const errParts: string[] = [message];
+    if (quarantineErr !== null) {
+      errParts.push(`auto-quarantine failed: ${quarantineErr}`);
+    }
+
+    return {
+      filePath,
+      exists: true,
+      integrityOK: false,
+      rowCounts: null,
+      lastWriteMs,
+      sizeBytes,
+      error: errParts.join(' | '),
+      suggestedFix: composeSuggestedFix(entry.role, quarantinedTo),
+      migrationCoverage: null,
+      pragmaDrift: null,
+      quarantinedTo,
+      integrityCheckMs,
+      timedOut: false,
     };
   } finally {
     snapshot?.close();
@@ -485,13 +716,17 @@ export function inspectDbFile(entry: DbInventoryEntry, filePath: string): DbSubs
  * absence as healthy.
  *
  * @param projectRoot - Absolute path to the project root to survey.
+ * @param options - Tuning knobs forwarded to {@link inspectDbFile}.
  * @returns One {@link DbSubstrateProjectSurvey} keyed by canonical role.
  */
-export function surveyProjectDbSubstrate(projectRoot: string): DbSubstrateProjectSurvey {
+export function surveyProjectDbSubstrate(
+  projectRoot: string,
+  options: DbSubstrateSurveyOptions = {},
+): DbSubstrateProjectSurvey {
   const dbs: Record<string, DbSubstrateEntry> = {};
   for (const entry of DB_INVENTORY) {
     const filePath = resolveInventoryFilePath(entry, projectRoot);
-    dbs[entry.role] = inspectDbFile(entry, filePath);
+    dbs[entry.role] = inspectDbFile(entry, filePath, options);
   }
   return {
     projectRoot,
@@ -702,10 +937,14 @@ export function summarizeSubstrateSurveys(
  * the global tier of databases.
  *
  * @param projectRoot - Absolute path to the project root.
+ * @param options - Tuning knobs forwarded to {@link inspectDbFile}.
  * @returns The full {@link DbSubstrateAuditResult} with `scope='project'`.
  */
-export function surveyDbSubstrate(projectRoot: string): DbSubstrateAuditResult {
-  const projectSurvey = surveyProjectDbSubstrate(projectRoot);
+export function surveyDbSubstrate(
+  projectRoot: string,
+  options: DbSubstrateSurveyOptions = {},
+): DbSubstrateAuditResult {
+  const projectSurvey = surveyProjectDbSubstrate(projectRoot, options);
   const warnings: DbSubstrateWarning[] = [];
   const orphan = detectOrphanProjectRootWarning(projectRoot);
   if (orphan) {
@@ -731,9 +970,13 @@ export function surveyDbSubstrate(projectRoot: string): DbSubstrateAuditResult {
  *
  * @param fleetRoot - Absolute path whose immediate children are
  *   candidate project roots (e.g. `/mnt/projects/`).
+ * @param options - Tuning knobs forwarded to {@link inspectDbFile}.
  * @returns A {@link DbSubstrateAuditResult} with `scope='fleet'`.
  */
-export function surveyFleetDbSubstrate(fleetRoot: string): DbSubstrateAuditResult {
+export function surveyFleetDbSubstrate(
+  fleetRoot: string,
+  options: DbSubstrateSurveyOptions = {},
+): DbSubstrateAuditResult {
   const projectRoots: string[] = [];
   try {
     const entries = readdirSync(fleetRoot, { withFileTypes: true });
@@ -759,7 +1002,7 @@ export function surveyFleetDbSubstrate(fleetRoot: string): DbSubstrateAuditResul
   const projectSurveys: DbSubstrateProjectSurvey[] = [];
   let firstProjectGlobalEntries: Map<string, DbSubstrateEntry> | null = null;
   for (const projectRoot of projectRoots) {
-    const survey = surveyProjectDbSubstrate(projectRoot);
+    const survey = surveyProjectDbSubstrate(projectRoot, options);
     if (firstProjectGlobalEntries === null) {
       firstProjectGlobalEntries = new Map<string, DbSubstrateEntry>();
       for (const inventoryEntry of DB_INVENTORY) {
