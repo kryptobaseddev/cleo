@@ -217,21 +217,31 @@ a hybrid. The Council reached 5/5 unanimous PASS across all four gate dimensions
 
 ---
 
-## §4 Storage Shape (preserved from 2026-05-17)
+## §4 Storage Shape
 
-**Saga is NOT a new `TaskType` enum value.** It is a labeled role that a
-top-level Epic plays. Concretely:
+> **AMENDED 2026-05-23 (T10333 under Saga T10326 SG-SUBSTRATE-RECONCILIATION):**
+> The original §4 stance — "Saga is NOT a new `TaskType` enum value" — has
+> been **RETIRED**. ADR-083 §2.5 (2026-05-23, "Saga as TaskType discriminator")
+> elevated Saga to a first-class `TaskType` value after six months of dogfood
+> exposed the structural fragility of the label-overlay encoding (90
+> `labels.includes('saga')` sites, ambiguous-transition risk during
+> reparenting, untyped vectorized traversal). The canonical post-migration
+> storage encoding is `type='saga'`; the legacy `type='epic' AND label='saga'`
+> encoding remains accepted during the deprecation window via the dual-shape
+> predicate `isSagaShape` (`packages/core/src/sagas/enforcement.ts`).
+>
+> **Canon for the type/label question lives in ADR-083 §2.5.** This section
+> is preserved as historical context (see §8 Change Log for the verbatim
+> original text). §4.1 (Wire mechanism) and §4.2 (Gating dependency) below
+> remain in force unchanged — the `task_relations.type='groups'` membership
+> edge and the T9514 writer-fix dependency are orthogonal to the type/label
+> encoding decision and survive the migration intact.
 
-- A Saga is an existing `type='epic'` task with `label='saga'` set via
-  `cleo update --label saga` (or created directly via `cleo saga create`).
-- The `TaskType` enum remains `{subtask, task, epic}` per ADR-066. No schema
-  migration is required.
-- Saga-level grouping is expressed through `task_relations.type='groups'` edges
-  (implemented in T9519) that link the Saga-labeled Epic to its child Epics.
-
-This protects against future drift where someone proposes adding `saga` to the
-`TaskType` enum. If such a proposal surfaces, it MUST reference this clause and
-provide a full migration path for every existing Saga.
+The migration filed by ADR-083 §2.5 (Epic `E-SAGA-TYPE-MIGRATION`, T10277,
+under Saga T10326) is the canonical source for the cutover semantics. Until
+the W3.C cutover (T10334) closes, runtime code MUST accept both shapes via
+`isSagaShape`. After cutover, the `'saga'` label is dropped from
+`labels[]` and `isSagaType(task.type)` becomes the single-source check.
 
 ### §4.1 Wire mechanism
 
@@ -304,3 +314,52 @@ cannot be reliably read back.
 
 - **2026-05-17** — Initial ADR. Saga tier adopted (`SG-`). Prefix registry created with `SG-`, `SD-`, `ADR-`, `D-`.
 - **2026-05-18** — Amended under T9624. Added §0 SSoT boundary, §1 Hierarchy Charter (4-tier table + 8 invariants including I8 Subtask-to-PR aggregation rule + lifecycle decision table), §2 Prefix Registry expanded with `T-`, `E-`, and explicit display/import-only semantics. Release-scheme-agnostic wording (project's `release.scheme` config governs, not hierarchy). Original Saga decision content preserved verbatim as §3–§6. Charter now covers all 4 tiers as canonical SSoT, not only Saga.
+
+### 2026-05-23 — Amendment under T10333 (Saga T10326 SG-SUBSTRATE-RECONCILIATION)
+
+ADR-083 §2.5 (accepted 2026-05-23, "Saga as TaskType discriminator —
+T10122/A8 REVERSED to ACCEPT") elevates Saga to a first-class
+`TaskType` value. §4 above is amended in place to retire the
+"Saga is NOT a new `TaskType` enum value" prohibition and forward-point
+to ADR-083 §2.5 as the canonical source for the type/label question.
+§4.1 (Wire mechanism — `task_relations.type='groups'`) and §4.2 (Gating
+dependency — T9514 writer fix) are preserved unchanged: they are
+orthogonal to the type/label encoding decision.
+
+The migration path (`type='epic' AND label='saga'` → `type='saga'`,
+drop `'saga'` from `labels[]`) is implemented under Epic
+`E-SAGA-TYPE-MIGRATION` (T10277) inside Saga T10326. During the
+deprecation window, runtime code uses `isSagaShape`
+(`packages/core/src/sagas/enforcement.ts`) to accept BOTH the legacy
+label-encoded and canonical type-encoded shapes. The W3.C cutover
+(T10334) drops the legacy shape.
+
+§1.1 was already amended in place on the same date to reflect ADR-083
+§2.2–§2.5 (role/scope axis split + storage encoding migration). This
+amendment closes the textual contradiction between §4 and the
+§1.1 amendment note + ADR-083 §2.5.
+
+**Original §4 text (2026-05-17, preserved for historical context):**
+
+> **§4 Storage Shape (preserved from 2026-05-17)**
+>
+> **Saga is NOT a new `TaskType` enum value.** It is a labeled role that
+> a top-level Epic plays. Concretely:
+>
+> - A Saga is an existing `type='epic'` task with `label='saga'` set via
+>   `cleo update --label saga` (or created directly via `cleo saga
+>   create`).
+> - The `TaskType` enum remains `{subtask, task, epic}` per ADR-066. No
+>   schema migration is required.
+> - Saga-level grouping is expressed through `task_relations.type='groups'`
+>   edges (implemented in T9519) that link the Saga-labeled Epic to its
+>   child Epics.
+>
+> This protects against future drift where someone proposes adding `saga`
+> to the `TaskType` enum. If such a proposal surfaces, it MUST reference
+> this clause and provide a full migration path for every existing Saga.
+
+The 2026-05-23 amendment is itself the proposal anticipated by the final
+sentence above — ADR-083 §2.5 + the W1.A/W1.B migration shipped under
+Epic T10277 supply the "full migration path for every existing Saga"
+the original clause required.
