@@ -96,6 +96,11 @@
       "import": "./dist/setup/*.js",
       "require": "./dist/setup/*.js"
     },
+    "./config/registry": {
+      "types": "./dist/config/registry.d.ts",
+      "import": "./dist/config/registry.js",
+      "require": "./dist/config/registry.js"
+    },
     "./gc": {
       "types": "./dist/gc/index.d.ts",
       "import": "./dist/gc/index.js",
