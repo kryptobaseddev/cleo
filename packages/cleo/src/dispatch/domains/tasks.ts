@@ -24,7 +24,7 @@
 
 import type { LafsEnvelope, TaskShowAttachmentEntry, TasksShowResult } from '@cleocode/contracts';
 import type { tasks as coreTasks } from '@cleocode/core';
-import { getLogger, getProjectRoot } from '@cleocode/core';
+import { getLogger, getProjectRoot, TASKS_SUGGESTED_NEXT_BUILDERS } from '@cleocode/core';
 import { createAttachmentStore } from '@cleocode/core/internal';
 // Saga core ops — pure business logic moved out of dispatch in T10124.
 // T10117 adds `sagaRepair` (`saga.repair`) for I5 violation cleanup.
@@ -772,6 +772,61 @@ async function sagaReconcile(params: Record<string, unknown>): Promise<LafsEnvel
 }
 
 // ---------------------------------------------------------------------------
+// suggestedNext auto-population (T9921 — Saga T9855 / E8.2)
+//
+// After a successful dispatch, look up the per-op suggestion builder in
+// `TASKS_SUGGESTED_NEXT_BUILDERS` and stamp the result onto
+// `response.meta.suggestedNext`. Failures (no builder, builder throws,
+// empty result) leave the response untouched — `suggestedNext` is purely
+// additive metadata and must never destabilise the dispatch path.
+//
+// The local `pickDecoratorMetaExtensionsLocal` in renderers/index.ts
+// forwards `suggestedNext` from `response.meta` onto the emitted
+// `CliEnvelope.meta` so agents see the hints in the JSON envelope.
+// ---------------------------------------------------------------------------
+
+/**
+ * Stamp `meta.suggestedNext` onto a successful tasks-domain dispatch response.
+ *
+ * Pure transformer — returns a new response object with `suggestedNext`
+ * merged into `meta`. The original response is never mutated. Errors,
+ * unsupported ops, and ops with no registered builder pass through
+ * unchanged.
+ *
+ * @param response  - The original dispatch response (may be success or error).
+ * @param operation - The tasks operation key (e.g. `'add'`, `'add-batch'`).
+ * @param params    - Raw params passed to the handler.
+ * @returns A new `DispatchResponse` with `meta.suggestedNext` populated
+ *   when a builder is registered and produces a non-empty array; otherwise
+ *   returns the input unchanged.
+ *
+ * @task T9921
+ */
+function stampSuggestedNext(
+  response: DispatchResponse,
+  operation: string,
+  params: Record<string, unknown>,
+): DispatchResponse {
+  if (!response.success) return response;
+  const builder = TASKS_SUGGESTED_NEXT_BUILDERS[operation];
+  if (!builder) return response;
+  let suggestions: string[];
+  try {
+    suggestions = builder(params, response.data);
+  } catch {
+    return response;
+  }
+  if (suggestions.length === 0) return response;
+  return {
+    ...response,
+    meta: {
+      ...response.meta,
+      suggestedNext: suggestions,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // TasksHandler — DomainHandler-compatible wrapper for the registry
 // ---------------------------------------------------------------------------
 
@@ -851,7 +906,14 @@ export class TasksHandler implements DomainHandler {
         operation as keyof TasksOps & string,
         params ?? {},
       );
-      return wrapResult(envelopeToEngineResult(envelope), 'query', 'tasks', operation, startTime);
+      const response = wrapResult(
+        envelopeToEngineResult(envelope),
+        'query',
+        'tasks',
+        operation,
+        startTime,
+      );
+      return stampSuggestedNext(response, operation, params ?? {});
     } catch (error) {
       getLogger('domain:tasks').error(
         { gateway: 'query', domain: 'tasks', operation, err: error },
@@ -947,7 +1009,14 @@ export class TasksHandler implements DomainHandler {
         operation as keyof TasksOps & string,
         params ?? {},
       );
-      return wrapResult(envelopeToEngineResult(envelope), 'mutate', 'tasks', operation, startTime);
+      const response = wrapResult(
+        envelopeToEngineResult(envelope),
+        'mutate',
+        'tasks',
+        operation,
+        startTime,
+      );
+      return stampSuggestedNext(response, operation, params ?? {});
     } catch (error) {
       getLogger('domain:tasks').error(
         { gateway: 'mutate', domain: 'tasks', operation, err: error },
