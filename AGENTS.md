@@ -586,12 +586,36 @@ prohibited. The current pipeline uses the 4-verb model — `plan` → `open` →
 `reconcile` (or `rollback`) — introduced by SPEC-T9345 and finalized when
 T9540 removed the legacy `start` / `verify` / `publish` verbs.
 
+### Merge Queue & Zero-Admin-Merge Policy
+
+This repository uses **GitHub Merge Queue** for all PRs targeting `main`.
+Merge queue guarantees that every commit on `main` has passed CI on the
+*exact* merge commit (not just the PR branch tip), eliminating the
+"green PR + stale main" race condition.
+
+**Zero-admin-merge policy**: No human clicks "Merge". Once a PR is
+approved and CI-green, the author (or any collaborator) adds it to the
+merge queue. The queue:
+1. Builds the temporary merge commit (`gh-readonly-queue/<branch>`).
+2. Runs the full CI matrix (all workflows that declare `merge_group:`).
+3. On success, fast-forwards `main` and closes the PR automatically.
+
+All 12 PR-gated workflows declare `merge_group:` in their `on:` block.
+The five non-PR workflows (`release-prepare.yml`, `release.yml`,
+`freshness-sentinel.yml`, `skills-council.yml`, `skills-grade.yml`) do
+not need `merge_group:` because they are triggered by `workflow_dispatch`,
+tag push, or cron — never by a PR merge event.
+
+See `docs/release/merge-queue-runbook.md` for setup, operator commands,
+and troubleshooting.
+
 ### Branch Conventions
 
 - **Feature work**: `feat/T####-<slug>` or `task/T####-<slug>` branches
 - **Release branches**: cut by the `release-prepare` GitHub Actions workflow
   (dispatched by `cleo release open`) as `release/v<version>`
-- **Main branch**: receives merges only from reviewed, CI-green PRs
+- **Main branch**: receives merges only from reviewed, CI-green PRs via
+  the merge queue
 
 ### Shipping a Release
 
