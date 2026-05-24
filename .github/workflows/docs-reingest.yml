@@ -38,6 +38,7 @@ name: Docs Re-ingest (PR merge)
 on:
   pull_request:
     types: [closed]
+  merge_group:
 
 permissions:
   contents: write

@@ -23,6 +23,7 @@ on:
     branches: [main]
     paths:
       - 'packages/skills/skills/**'
+  merge_group:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
