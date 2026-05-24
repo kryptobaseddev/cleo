@@ -9,13 +9,16 @@
  *   cleo schema tasks.add
  *   cleo schema tasks.add --format human
  *   cleo schema tasks.add --include-examples
+ *   cleo schema tasks.add-batch --input
+ *   cleo schema tasks.add-batch --examples
  *
  * All output routes through cliOutput() — no raw console.log / stdout writes.
  *
- * @task T340, T1729
- * @epic T335, T1691
+ * @task T340, T1729, T9918
+ * @epic T335, T1691, T9855
  */
 
+import { getInputContract } from '@cleocode/core';
 import { describeOperation, type OperationSchema } from '@cleocode/lafs';
 import { defineCommand, showUsage } from 'citty';
 import type { OperationDef } from '../../dispatch/registry.js';
@@ -95,6 +98,18 @@ export const schemaCommand = defineCommand({
       description: 'Include usage examples in output (default: false)',
       default: false,
     },
+    input: {
+      type: 'boolean',
+      description:
+        'Return the JSON Schema (draft-07) for the operation input payload, from OperationInputContract.schema (T9918)',
+      default: false,
+    },
+    examples: {
+      type: 'boolean',
+      description:
+        "Return canned example payloads from OperationInputContract.examples — pipeline: `cleo schema <op> --examples | jq '.examples[0].value' | cleo <verb> --params -` (T9918)",
+      default: false,
+    },
   },
   async run({ args, cmd }) {
     if (!args.operation) {
@@ -104,6 +119,8 @@ export const schemaCommand = defineCommand({
     const format = args.format ?? 'json';
     const includeGates = args['include-gates'] !== false;
     const includeExamples = args['include-examples'] === true;
+    const wantInput = args.input === true;
+    const wantExamples = args.examples === true;
 
     // Apply --format flag to the global format context so cliOutput routes correctly.
     if (format === 'human') {
@@ -122,6 +139,66 @@ export const schemaCommand = defineCommand({
         },
       );
       process.exit(4);
+      return;
+    }
+
+    // --input / --examples — schema-first surface (T9918 / E7.5 / Saga T9855).
+    // Routes to the OperationInputContract registry seeded in
+    // packages/core/src/dispatch/contracts/input-contracts.ts. When no
+    // contract is registered for the op, return a structured "no contract"
+    // payload with a hint pointing at the flag-based fallback — never error.
+    if (wantInput || wantExamples) {
+      const contract = getInputContract(args.operation);
+      if (contract === null) {
+        cliOutput(
+          {
+            operation: args.operation,
+            schema: null,
+            examples: [],
+          },
+          {
+            command: 'schema',
+            operation: `schema.${args.operation}`,
+            message: `No OperationInputContract registered for ${args.operation}`,
+            extensions: {
+              hint: `No OperationInputContract registered for ${args.operation}. Use plain flag-based invocation.`,
+            },
+          },
+        );
+        return;
+      }
+
+      if (wantInput) {
+        cliOutput(
+          {
+            operation: contract.operation,
+            schema: contract.schema,
+          },
+          {
+            command: 'schema',
+            operation: `schema.${args.operation}`,
+            message: `Input schema for ${contract.operation}`,
+          },
+        );
+        return;
+      }
+
+      // wantExamples — return the canned examples list.
+      cliOutput(
+        {
+          operation: contract.operation,
+          examples: contract.examples.map((ex) => ({
+            name: ex.name,
+            value: ex.value,
+            ...(ex.description !== undefined ? { description: ex.description } : {}),
+          })),
+        },
+        {
+          command: 'schema',
+          operation: `schema.${args.operation}`,
+          message: `Examples for ${contract.operation}`,
+        },
+      );
       return;
     }
 
