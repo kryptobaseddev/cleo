@@ -236,6 +236,8 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
         verbose: params.verbose,
         // T944/T9072: kind filter
         kind: params.kind,
+        // T9905: unified urgency surface
+        urgent: params.urgent,
       }),
       'find',
     );

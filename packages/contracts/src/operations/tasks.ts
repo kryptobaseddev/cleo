@@ -125,6 +125,19 @@ export interface TasksFindParams {
    * @task T9072
    */
   kind?: string;
+  /**
+   * Unified urgency surface (T9905).
+   *
+   * When `true`, the predicate is
+   *
+   *   `priority IN ('critical','high') OR severity IN ('P0','P1')`
+   *
+   * combining the two orthogonal urgency axes (priority + severity) into a
+   * single filter. Composes with other filters via AND.
+   *
+   * @task T9905
+   */
+  urgent?: boolean;
 }
 export type TasksFindResult = MinimalTask[];
 

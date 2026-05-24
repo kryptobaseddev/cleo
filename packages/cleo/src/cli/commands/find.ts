@@ -48,6 +48,21 @@ export const findCommand = defineCommand({
       type: 'string',
       description: 'Filter by kind axis (work|research|experiment|bug|spike|release) — T944',
     },
+    /**
+     * Unified urgency surface (T9905).
+     *
+     * Selects tasks where
+     *   priority IN ('critical','high') OR severity IN ('P0','P1')
+     *
+     * Combines the two orthogonal urgency axes (priority + severity) into a
+     * single filter so agents don't have to query each axis separately.
+     */
+    urgent: {
+      type: 'boolean',
+      description:
+        'Surface urgent work across both axes: priority IN (critical,high) OR severity IN (P0,P1) (T9905)',
+      alias: 'u',
+    },
   },
   async run({ args }) {
     const limit = args.limit !== undefined ? Number.parseInt(args.limit, 10) : undefined;
@@ -65,6 +80,8 @@ export const findCommand = defineCommand({
     if (args.verbose !== undefined) params['verbose'] = args.verbose;
     // T944/T9072: kind filter
     if (args.kind !== undefined) params['kind'] = args.kind;
+    // T9905: unified urgency surface — only forward when the flag was set
+    if (args.urgent !== undefined) params['urgent'] = args.urgent;
     const response = await dispatchRaw('query', 'tasks', 'find', params);
     if (!response.success) {
       handleRawError(response, { command: 'find', operation: 'tasks.find' });
