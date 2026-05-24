@@ -2,7 +2,7 @@
  * Worktree prune operation for @cleocode/worktree.
  *
  * Thin orchestration over the `worktrunk_core` SDK exposed via
- * `@cleocode/worktree-napi` (T10203 / ADR-078). The native binding owns:
+ * `@cleocode/worktree-napi` (T10203 / ADR-087). The native binding owns:
  *
  * - Git-aware prune-plan construction (`napi.pruneWorktrees`) — read-only
  *   discovery of merged-in worktrees + orphan branches.
