@@ -78,6 +78,14 @@ const SCAN_EXTENSIONS = new Set(['.ts', '.tsx', '.mts']);
 const TEST_FILE_SUFFIXES = ['.test.ts', '.test.tsx', '.spec.ts', '.spec.tsx', '.test.mts'];
 
 /**
+ * Sibling lint test suite's fixture (lint-stdout-discipline.test.mjs) — must
+ * be ignored here to prevent cross-contamination when tests run in parallel
+ * (T10360 fix). Our own fixture file (matching this lint's marker) is still
+ * scanned and validated.
+ */
+const SIBLING_FIXTURE_REGEX = /__stdout_violation_fixture(?:_\d+)?\.ts$/;
+
+/**
  * The ONLY paths where `process.stdout.write` is implicitly allowed
  * without a per-line justification. This is intentionally narrower than
  * the T10135 sibling lint — only the renderer SSoT counts.
@@ -136,6 +144,7 @@ function scanFile(absPath) {
 
   if (isRendererSsot(relPath)) return;
   if (isTestFile(relPath)) return;
+  if (SIBLING_FIXTURE_REGEX.test(relPath)) return;
 
   const src = readFileSync(absPath, 'utf-8');
   const lines = src.split('\n');
