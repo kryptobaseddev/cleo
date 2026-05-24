@@ -34,6 +34,10 @@ export default defineConfig({
       // packages/cleo/test/integration/release-pipeline/. They mock gh + git
       // and consume fixtures from packages/cleo/test/fixtures/release-test-*.
       'packages/cleo/test/integration/release-pipeline/**/*.test.ts',
+      // T9928 / Saga T9855 / E9.1: stdout-envelope-only discipline tests.
+      // Spawn the built CLI as a subprocess and assert stdout parses as
+      // a single LAFS envelope with no log-line contamination.
+      'packages/cleo/__tests__/integration/**/*.test.ts',
     ],
     exclude: [
       'node_modules',
