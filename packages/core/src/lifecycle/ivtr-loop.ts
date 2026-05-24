@@ -33,6 +33,7 @@ import { createAttachmentStore } from '../store/attachment-store.js';
 import { getDb } from '../store/sqlite.js';
 import * as schema from '../store/tasks-schema.js';
 import { extractTypedGates, runGates } from '../tasks/gate-runner.js';
+import { buildBlastRadiusTestScopeSection, detectInfrastructureTouch } from './infra-touch.js';
 
 const log = getLogger('lifecycle:ivtr');
 
@@ -569,6 +570,19 @@ function buildValidatePhaseInstruction(
           .join('\n')
       : '(enumerate REQ-IDs from the task specification above and cross-reference the impl-diff sha256 refs in the evidence bundle)';
 
+  // T9842 — Blast-radius infrastructure-touch detection. Aggregate every
+  // `filesChanged` array from the impl-phase evidence bundle and feed it to
+  // the detector. When the impl touched an infrastructure path, the rendered
+  // section instructs the Lead to run full per-package tests rather than the
+  // targeted subset called out in the task spec.
+  const allFilesChanged = evidenceBundle.flatMap((e) => e.filesChanged ?? []);
+  const infraTouch = detectInfrastructureTouch(allFilesChanged);
+  const blastRadiusSection = buildBlastRadiusTestScopeSection(infraTouch);
+  const blastRadiusBlock = blastRadiusSection ? `\n\n${blastRadiusSection}\n` : '';
+  const blastRadiusRejectLine = infraTouch.affected
+    ? '\n- **Infra-test-scope violation (T9842)**: infrastructure paths were touched (see the Blast-Radius Test Scope section above) but no full per-package vitest run was attached. Loop-back reason: `infra-test-scope-violation`.'
+    : '';
+
   return `## Phase: Validate
 You are the Validate agent for task ${taskId}. Read the impl diff + evidence listed in the Implement-Phase Evidence Bundle above. Check spec↔code alignment per each acceptance criterion and REQ-ID.${escalationNote}
 
@@ -598,14 +612,13 @@ You are the Validate agent for task ${taskId}. Read the impl diff + evidence lis
 
 ### Impl-diff attachment refs to review
 
-${implRefHint}
-
+${implRefHint}${blastRadiusBlock}
 ### REJECT criteria — trigger loop-back if ANY of the following are true
 
 - **Spec-code mismatch**: an acceptance criterion or REQ-ID has no traceable code change in the impl diff.
 - **Missing test**: an acceptance criterion that requires test coverage has no corresponding test added or updated in the diff.
 - **Undocumented deviation**: the implementation deviates from the task spec without a documented reason (comment, ADR reference, or inline note in the diff).
-- **Quality gate not run**: the impl-phase evidence does not include proof that \`pnpm biome check\` and \`pnpm run build\` both passed (lint-report or command-output attachment with exit code 0).`;
+- **Quality gate not run**: the impl-phase evidence does not include proof that \`pnpm biome check\` and \`pnpm run build\` both passed (lint-report or command-output attachment with exit code 0).${blastRadiusRejectLine}`;
 }
 
 /**

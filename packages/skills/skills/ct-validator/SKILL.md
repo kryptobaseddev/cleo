@@ -77,6 +77,62 @@ Governance: see **ADR-051** (programmatic gate integrity) which defines the evid
 
 ---
 
+## Blast-Radius Test Scope (MANDATORY · T9842)
+
+When acting as the IVTR Lead in the **Validate** phase (R2), the targeted test
+files named in the task spec are NOT sufficient evidence on their own when the
+Implement phase touched an infrastructure file. Targeted-only test review is
+how cross-package regressions slip past the Lead.
+
+### Precedent — T9814 R2
+
+T9814 swapped `BEGIN IMMEDIATE` for SAVEPOINTs in
+`packages/core/src/store/sqlite-data-accessor.ts` to support nested
+transactions for `add-batch`. Every targeted test passed (6/6 add-batch,
+34/34 add, 9/9 allocate). IVTR Lead R2 approved on the targeted scope. CI
+then surfaced `agent-resolver.test.ts preferTier` failing — the resolver
+depended on the outer `BEGIN IMMEDIATE` semantics that SAVEPOINTs do not
+replicate verbatim. Hotfix commit `baa996d2b` restored the outer-tx case.
+The Lead's targeted-only review missed a regression CI caught seconds later.
+
+### Rule
+
+If ANY file in the impl-phase evidence bundle's `filesChanged` matches a
+canonical infrastructure path, the Lead MUST run the full per-package vitest
+suite for every touched package — NOT the targeted files alone.
+
+### Canonical infrastructure paths
+
+- `packages/core/src/store/**` — DB chokepoint, transactions, migrations
+- `packages/core/src/orchestration/**` — spawn-prompt, dispatch resolution, IVTR
+- `packages/core/src/dispatch/**` and `packages/cleo/src/dispatch/**` — typed dispatch
+- `packages/contracts/src/**` — cross-package types (every consumer rebuilds)
+- `packages/worktree/src/**` — worktree-create / git-shim integration
+- `packages/core/src/migration/**` — schema bootstrapping
+- any path whose basename contains `transaction`, `pragma`, or `migration`
+
+### Required test commands per touched package
+
+```bash
+pnpm --filter @cleocode/<pkg> run test  # for each touched package
+```
+
+Attach the JSON output of each run as evidence
+(`cleo docs add --labels test-output`) and reference the sha256 set in the
+`--next` call. Approving on targeted-only results when infrastructure paths
+are touched is grounds for loop-back with reason `infra-test-scope-violation`.
+
+### Enforcement
+
+The IVTR Lead spawn prompt is auto-enriched by `resolvePhasePrompt()` in
+`packages/core/src/lifecycle/ivtr-loop.ts` — when an infrastructure touch is
+detected via `detectInfrastructureTouch()` (`packages/core/src/lifecycle/infra-touch.ts`),
+a `### Blast-Radius Test Scope — MANDATORY (T9842)` block is appended to
+the Validate-phase Lead prompt, listing the touched packages and the exact
+`pnpm --filter` commands the Lead must run.
+
+---
+
 ## Output Format
 
 ### Validation Report Structure
