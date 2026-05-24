@@ -72,6 +72,31 @@ function pushSubstrateWarnings(result: DbSubstrateAuditResult): void {
       context,
     });
   }
+
+  // T10310 — surface every pragma-drift item as a per-DB warning so
+  // operators see drift in `meta.warnings` even when the per-entry
+  // `pragmaDrift` array is only inspected by structured-output consumers.
+  for (const projectSurvey of result.projects) {
+    for (const [role, entry] of Object.entries(projectSurvey.dbs)) {
+      if (entry.pragmaDrift === null || entry.pragmaDrift.length === 0) continue;
+      for (const drift of entry.pragmaDrift) {
+        pushWarning({
+          code: 'W_DB_SUBSTRATE_PRAGMA_DRIFT',
+          message:
+            `Pragma drift on ${role} (${entry.filePath}): ` +
+            `expected ${drift.pragma}=${drift.expected}, actual=${drift.actual ?? '<unmeasurable>'}`,
+          severity: 'warn',
+          context: {
+            role,
+            filePath: entry.filePath,
+            pragma: drift.pragma,
+            expected: drift.expected,
+            actual: drift.actual,
+          },
+        });
+      }
+    }
+  }
 }
 
 /**

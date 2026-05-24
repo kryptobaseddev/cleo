@@ -40,7 +40,12 @@ import {
   resolveInventoryMigrationsFolder,
   surveyDbSubstrate,
   surveyFleetDbSubstrate,
+  walkPragmaDrift,
 } from '../../../../../core/src/doctor/db-substrate.js';
+import {
+  loadPragmaSsot,
+  normalisePragmaValue,
+} from '../../../../../core/src/doctor/pragma-ssot.js';
 
 const _require = createRequire(import.meta.url);
 const { DatabaseSync: DatabaseSyncCtor } = _require('node:sqlite') as {
@@ -646,5 +651,166 @@ describe('doctor db-substrate (T10307)', () => {
     const withoutSlash = resolveInventoryMigrationsFolder('packages/core/migrations/drizzle-tasks');
     expect(withSlash).toBe(withoutSlash);
     expect(withSlash.endsWith('drizzle-tasks')).toBe(true);
+  });
+
+  // ──────────────────────────────────────────────────────────────────────
+  // T10310 — Per-DB pragma drift detection
+  // ──────────────────────────────────────────────────────────────────────
+
+  it('T10310: pragma SSoT loader resolves canonical entries for every drift pragma', () => {
+    const ssot = loadPragmaSsot();
+    expect(ssot.driftPragmas.length).toBe(6);
+    expect(ssot.driftPragmas).toContain('journal_mode');
+    expect(ssot.driftPragmas).toContain('busy_timeout');
+    expect(ssot.driftPragmas).toContain('foreign_keys');
+    expect(ssot.driftPragmas).toContain('synchronous');
+    expect(ssot.driftPragmas).toContain('page_size');
+    expect(ssot.driftPragmas).toContain('application_id');
+
+    // Every drift pragma MUST resolve to a non-empty expected value.
+    for (const name of ssot.driftPragmas) {
+      const expected = ssot.expectedByName.get(name.toLowerCase());
+      expect(expected).toBeDefined();
+      expect(typeof expected).toBe('string');
+      expect((expected ?? '').length).toBeGreaterThan(0);
+    }
+  });
+
+  it('T10310: normalisePragmaValue resolves integer codes to symbolic names', () => {
+    expect(normalisePragmaValue('synchronous', '1')).toBe('NORMAL');
+    expect(normalisePragmaValue('synchronous', '2')).toBe('FULL');
+    expect(normalisePragmaValue('foreign_keys', '0')).toBe('OFF');
+    expect(normalisePragmaValue('foreign_keys', '1')).toBe('ON');
+    // Non-coded pragmas just upper-case.
+    expect(normalisePragmaValue('journal_mode', 'wal')).toBe('WAL');
+    expect(normalisePragmaValue('page_size', '4096')).toBe('4096');
+  });
+
+  it('T10310: pragmaDrift is null when the DB does not exist', async () => {
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const projectRoot = join(fleetRoot, 'no-db-project');
+    mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
+    // Intentionally do NOT seed tasks.db — survey should produce a missing entry.
+
+    const result = surveyDbSubstrate(projectRoot);
+    const tasks = result.projects[0]?.dbs['tasks'];
+    expect(tasks).toBeDefined();
+    if (!tasks) throw new Error('tasks entry absent');
+    expect(tasks.exists).toBe(false);
+    expect(tasks.pragmaDrift).toBeNull();
+  });
+
+  it('T10310: pragmaDrift is null when the DB is corrupt (integrityOK=false)', async () => {
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const projectRoot = createProjectWithTasksDb('corrupt-pragma-project');
+    seedCorruptDb(join(projectRoot, '.cleo', 'tasks.db'));
+
+    const result = surveyDbSubstrate(projectRoot);
+    const tasks = result.projects[0]?.dbs['tasks'];
+    if (!tasks) throw new Error('tasks entry absent');
+    expect(tasks.integrityOK).toBe(false);
+    expect(tasks.pragmaDrift).toBeNull();
+  });
+
+  it('T10310: pragmaDrift surfaces busy_timeout drift on a freshly-created DB', async () => {
+    // A freshly-created node:sqlite DB defaults to busy_timeout=0, but the
+    // SSoT expects 5000. A raw read-only snapshot (no applyPragmas) will
+    // therefore report drift on `busy_timeout`. Same for `foreign_keys`
+    // (default 0/OFF) and `synchronous` (default 2/FULL). page_size + journal_mode
+    // + application_id will match the SSoT defaults (4096, no-WAL, 0 stamp).
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const projectRoot = createProjectWithTasksDb('drift-project');
+
+    const result = surveyDbSubstrate(projectRoot);
+    const tasks = result.projects[0]?.dbs['tasks'];
+    if (!tasks) throw new Error('tasks entry absent');
+    expect(tasks.integrityOK).toBe(true);
+    expect(tasks.pragmaDrift).not.toBeNull();
+    const drift = tasks.pragmaDrift ?? [];
+    const pragmas = drift.map((d) => d.pragma);
+    // busy_timeout will drift (default 0 vs canonical 5000).
+    expect(pragmas).toContain('busy_timeout');
+    // journal_mode WILL drift on a fresh DB because seedHealthyDb does
+    // not switch the file to WAL — default is `delete`.
+    expect(pragmas).toContain('journal_mode');
+    // The journal_mode drift entry should record the actual on-disk mode.
+    const journalEntry = drift.find((d) => d.pragma === 'journal_mode');
+    expect(journalEntry?.expected).toBe('WAL');
+    expect((journalEntry?.actual ?? '').toLowerCase()).not.toBe('wal');
+  });
+
+  it('T10310: pragmaDrift detects an explicitly overridden persistent pragma', async () => {
+    // Explicitly override journal_mode to `delete` AND application_id to a
+    // non-canonical value on disk, then verify the survey surfaces both as
+    // drift items.
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const projectRoot = createProjectWithTasksDb('override-pragma-project');
+    const dbPath = join(projectRoot, '.cleo', 'tasks.db');
+
+    const writer = new DatabaseSyncCtor(dbPath);
+    try {
+      writer.exec('PRAGMA journal_mode = DELETE');
+      writer.exec('PRAGMA application_id = 12345');
+    } finally {
+      writer.close();
+    }
+
+    const result = surveyDbSubstrate(projectRoot);
+    const tasks = result.projects[0]?.dbs['tasks'];
+    if (!tasks) throw new Error('tasks entry absent');
+    const drift = tasks.pragmaDrift ?? [];
+
+    const journal = drift.find((d) => d.pragma === 'journal_mode');
+    expect(journal).toBeDefined();
+    expect(journal?.expected).toBe('WAL');
+    expect((journal?.actual ?? '').toLowerCase()).toBe('delete');
+
+    const appId = drift.find((d) => d.pragma === 'application_id');
+    expect(appId).toBeDefined();
+    expect(appId?.expected).toBe('0');
+    expect(appId?.actual).toBe('12345');
+  });
+
+  it('T10310: walkPragmaDrift reports zero drift when every queried pragma matches the SSoT', () => {
+    // Construct an in-memory DB and explicitly set every drift pragma to
+    // its canonical value, then assert the walker reports zero drift.
+    const db = new DatabaseSyncCtor(':memory:');
+    try {
+      // page_size MUST be set before any table is created — picked first.
+      db.exec('PRAGMA page_size = 4096');
+      // Apply every canonical pragma the walker checks.
+      db.exec('PRAGMA journal_mode = WAL');
+      db.exec('PRAGMA busy_timeout = 5000');
+      db.exec('PRAGMA foreign_keys = ON');
+      db.exec('PRAGMA synchronous = NORMAL');
+      db.exec('PRAGMA application_id = 0');
+      // Force a write so journal_mode + page_size persist.
+      db.exec('CREATE TABLE t (id INTEGER); INSERT INTO t VALUES (1);');
+
+      const drift = walkPragmaDrift(db);
+      // :memory: has documented quirks:
+      // - journal_mode cannot use WAL — falls back to `memory`.
+      // - busy_timeout via `exec()` may not stick on freshly-opened
+      //   :memory: handles in some node:sqlite builds.
+      // The override-pragma + drift-project tests above cover the
+      // file-backed real-world case. Here we assert that every OTHER
+      // queried pragma (page_size, foreign_keys, synchronous,
+      // application_id) is not flagged as drift after explicit
+      // canonical setup.
+      const drifted = drift
+        .map((d) => d.pragma)
+        .filter((p) => p !== 'journal_mode' && p !== 'busy_timeout');
+      expect(drifted).toEqual([]);
+    } finally {
+      db.close();
+    }
   });
 });
