@@ -64,7 +64,7 @@ describe('docs dispatch — slug/type/project (T9636/T9637/T9638)', () => {
     expect(data.attachmentId).toBeTruthy();
   });
 
-  it('docs.add --slug collision returns E_SLUG_TAKEN with 3 suggestions', async () => {
+  it('docs.add --slug collision returns E_SLUG_RESERVED with 3 suggestions (T10386)', async () => {
     const handler = new DocsHandler();
 
     const first = await handler.mutate('add', {
@@ -81,8 +81,13 @@ describe('docs dispatch — slug/type/project (T9636/T9637/T9638)', () => {
     });
 
     expect(second.success).toBe(false);
-    expect(second.error?.code).toBe('E_SLUG_TAKEN');
-    const details = second.error?.details as { suggestions: string[] } | undefined;
+    // T10386 — `cleo docs add` now flows through the central slug allocator
+    // chokepoint, so collisions surface the uniform E_SLUG_RESERVED envelope
+    // (shared with `cleo changeset add` once T-E1.3 lands).
+    expect(second.error?.code).toBe('E_SLUG_RESERVED');
+    const details = second.error?.details as
+      | { suggestions: string[]; aliases?: string[] }
+      | undefined;
     expect(details).toBeDefined();
     expect(details?.suggestions).toHaveLength(3);
     for (const s of details?.suggestions ?? []) {
@@ -90,6 +95,9 @@ describe('docs dispatch — slug/type/project (T9636/T9637/T9638)', () => {
       expect(s.length).toBeGreaterThan(0);
     }
     expect(new Set(details?.suggestions).size).toBe(3);
+    // Back-compat alias for one release — downstream consumers grepping for
+    // the legacy `E_SLUG_TAKEN` code can still match via `details.aliases`.
+    expect(details?.aliases).toContain('E_SLUG_TAKEN');
   });
 
   it('docs.add --slug with invalid shape returns E_INVALID_SLUG', async () => {

@@ -136,10 +136,28 @@ export async function observeBrain(
     origin,
     provenanceChain,
     _skipGate,
+    _skipQueue,
   } = params;
 
   if (!text?.trim()) {
     throw new Error('Observation text is required');
+  }
+
+  // T10351: route hot-path writes through the single-writer chokepoint.
+  // `_skipQueue` is set ONLY when this function is re-entered from inside
+  // the writer-thread handler — that recursion must execute the row insert
+  // directly (otherwise the worker would post-message itself in a loop).
+  if (!_skipQueue) {
+    const { enqueueBrainWrite } = await import('../brain-writer-thread.js');
+    const result = await enqueueBrainWrite({
+      kind: 'observe',
+      projectRoot,
+      params,
+    });
+    if (result.kind !== 'observe') {
+      throw new Error(`Unexpected writer result kind: ${result.kind}`);
+    }
+    return result.result;
   }
 
   // T992: Route through verifyCandidate gate unless called internally from

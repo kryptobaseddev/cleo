@@ -188,6 +188,14 @@ export class Dispatcher {
       setImmediate(() => {
         // Lazy import to avoid loading the evaluator at startup (it pulls in
         // the Vercel AI SDK and zod which add ~50ms to cold start).
+        //
+        // T10351: ALL brain.db row inserts from this hook now flow through
+        // the single-writer chokepoint (`enqueueBrainWrite`). The hook still
+        // opens a brain handle for the evaluator's reads (RCA confirms WAL
+        // reads are not the race vector), and `applyInsights` internally
+        // calls `observeBrain` — which now auto-routes every write through
+        // the writer queue. Global traits go to nexus.db which is out of
+        // scope for the brain chokepoint.
         Promise.all([
           import('@cleocode/core/memory/dialectic-evaluator.js'),
           import('@cleocode/core/store/nexus-sqlite.js'),
@@ -203,6 +211,13 @@ export class Dispatcher {
             };
 
             const insights = await evaluateDialectic(turn);
+
+            // applyInsights routes peer-insight writes through
+            // `observeBrain → enqueueBrainWrite` automatically. Narrative
+            // delta still uses the direct INSERT path (not in the high-volume
+            // race surface that the T10301 RCA identified — plasticity_events
+            // and weight_history dominate by ~94%). Tracked as a follow-up
+            // refinement; out of scope for T10351 chokepoint.
             const [nexusDb, brainDb] = await Promise.all([getNexusDb(), getBrainDb()]);
             await applyInsights(insights, nexusDb, brainDb, {
               sessionId: capturedSessionId,

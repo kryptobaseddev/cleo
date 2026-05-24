@@ -306,6 +306,8 @@ export interface SagaAuditResult {
  * remediation path.
  *
  * @task T10307
+ * @task T10312 — added `quarantinedTo`, `integrityCheckMs`, `timedOut`
+ *   for auto-quarantine + bounded-timeout behaviour.
  * @epic T10282
  * @saga T10281
  */
@@ -340,6 +342,10 @@ export interface DbSubstrateEntry {
   /**
    * Suggested repair command when `integrityOK === false`. `null`
    * otherwise. Typically `cleo backup recover <role>` per T10304.
+   *
+   * When auto-quarantine fires (T10312) the suggestedFix is augmented
+   * with the quarantine path in the same string for human readability,
+   * while the machine-readable path lives in {@link quarantinedTo}.
    */
   suggestedFix: string | null;
   /**
@@ -356,6 +362,85 @@ export interface DbSubstrateEntry {
    * @task T10311
    */
   migrationCoverage: DbSubstrateMigrationCoverage | null;
+  /**
+   * Pragma drift entries — one per pragma whose actual value (read from
+   * a raw read-only snapshot of this DB, no pragma application) differs
+   * from the SSoT expectation in `specs/sqlite-pragmas.json`.
+   *
+   * @remarks
+   * `null` when the DB does not exist on disk (no snapshot to query) OR
+   * the integrity_check failed (a corrupt DB cannot be reliably queried
+   * for pragmas). Empty array `[]` means the DB matches the canonical
+   * pragma SSoT exactly.
+   *
+   * @task T10310
+   */
+  pragmaDrift: PragmaDriftItem[] | null;
+  /**
+   * Absolute path to the quarantine directory when `inspectDbFile`
+   * auto-quarantined a corrupt DB. `null` when the entry is healthy OR
+   * when auto-quarantine was disabled by the caller.
+   *
+   * Quarantine naming: `<projectRoot>/.cleo/quarantine/<role>-malformed-<iso>/`.
+   * The corrupt DB lands at `<quarantineDir>/<basename>.malformed`, and
+   * any sidecar `-wal` / `-shm` files are preserved alongside it.
+   *
+   * @task T10312
+   */
+  quarantinedTo: string | null;
+  /**
+   * Wall-clock duration of the `PRAGMA integrity_check` call in
+   * milliseconds, or `null` when the file did not exist OR the open
+   * itself threw before the pragma could run.
+   *
+   * @task T10312
+   */
+  integrityCheckMs: number | null;
+  /**
+   * `true` when the integrity_check wall-clock duration exceeded the
+   * configured `integrityCheckTimeoutMs`. Because `node:sqlite` is fully
+   * synchronous and offers no interrupt(), the check itself runs to
+   * completion — `timedOut: true` flags the DB as slow and is treated
+   * as an integrity failure for downstream gating (the entry's
+   * `integrityOK` is forced to `false` and `summary.corrupt` increments).
+   *
+   * @task T10312
+   */
+  timedOut: boolean;
+}
+
+/**
+ * One pragma drift item surfaced in {@link DbSubstrateEntry.pragmaDrift}.
+ *
+ * @remarks
+ * Compared values are normalised to lower-case strings before equality
+ * is asserted, matching SQLite's pragma-output conventions
+ * (`journal_mode` returns `wal` not `WAL`, `synchronous` returns
+ * `2` for `NORMAL`, etc. — see {@link PRAGMA_VALUE_NORMALISERS}).
+ *
+ * The triple `(pragma, expected, actual)` is stable across runs so
+ * downstream consumers can deduplicate / aggregate drift reports.
+ *
+ * @task T10310
+ * @epic T10283
+ * @saga T10281
+ */
+export interface PragmaDriftItem {
+  /** Name of the pragma (e.g. `journal_mode`, `busy_timeout`). */
+  pragma: string;
+  /**
+   * Expected value as declared in `specs/sqlite-pragmas.json`. Always a
+   * string — values are stored as strings in the SSoT so a future
+   * `0x12345` application_id literal does not lose its hex form to a
+   * number cast.
+   */
+  expected: string;
+  /**
+   * Actual value as returned by `PRAGMA <name>` on a raw read-only
+   * snapshot. `null` when the pragma query threw (e.g. an exotic pragma
+   * name not implemented by this SQLite build).
+   */
+  actual: string | null;
 }
 
 /**
@@ -555,6 +640,40 @@ export interface DbSubstrateAuditResult {
    * duplicates, etc. ALWAYS present (may be empty).
    */
   warnings: DbSubstrateWarning[];
+}
+
+/**
+ * Caller-supplied tuning knobs for a substrate survey.
+ *
+ * @remarks
+ * - `integrityCheckTimeoutMs` bounds the wall-clock duration the survey
+ *   will wait for `PRAGMA integrity_check` on a single DB. Because
+ *   `node:sqlite` is fully synchronous, the check cannot be aborted
+ *   mid-flight — the timer is consulted AFTER the call returns, and a
+ *   DB that exceeded the budget is flagged via {@link DbSubstrateEntry.timedOut}.
+ * - `autoQuarantine` (default `true`) controls whether
+ *   `inspectDbFile` moves a corrupt DB and its `-wal`/`-shm` sidecars
+ *   into `<projectRoot>/.cleo/quarantine/<role>-malformed-<iso>/`. Set
+ *   to `false` for read-only diagnostic surveys.
+ *
+ * @task T10312
+ * @epic T10283
+ * @saga T10281
+ */
+export interface DbSubstrateSurveyOptions {
+  /**
+   * Wall-clock budget for the `PRAGMA integrity_check` call on each
+   * DB, in milliseconds. Default: 60000 (60 s).
+   *
+   * Pass `0` to disable the timeout (the survey waits indefinitely).
+   */
+  integrityCheckTimeoutMs?: number;
+  /**
+   * `true` (default) → auto-quarantine corrupt DBs into
+   * `<projectRoot>/.cleo/quarantine/<role>-malformed-<iso>/`.
+   * `false` → leave the corrupt DB in place; only report it.
+   */
+  autoQuarantine?: boolean;
 }
 
 /**

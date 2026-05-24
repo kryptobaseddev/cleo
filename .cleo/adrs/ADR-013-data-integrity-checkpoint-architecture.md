@@ -211,6 +211,22 @@ The safety guards documented in §8 caught new *stages* of the DB files but did 
    - `packages/core/src/system/__tests__/backup.test.ts` (new) — validates VACUUM INTO call ordering, atomic JSON writes, sidecar metadata, and restore behavior.
    - `packages/cleo/src/cli/commands/__tests__/init-gitignore.test.ts` — asserts the template NEVER re-includes `config.json` / `project-info.json` and DOES explicit-deny them.
 
+### Idempotency contract tests (T10314 — Saga T10281 SG-BRAIN-DB-RESILIENCE / Epic T10283 E2-DB-INTEGRITY)
+
+The git-untracked policy resolved the data-loss vector on branch switch, but it left an under-tested invariant: **opening any of the runtime SQLite chokepoints twice + replaying identical writes must not produce side-effects on the second run.** Without that guarantee, agents that re-open `brain.db` / `conduit.db` / `manifest.db` between CLI invocations could silently grow migration journals, double-write schema-version sentinels, or duplicate manifest rows.
+
+T10314 codifies the contract as four sibling test files:
+
+| Test file (absolute path)                                                            | Chokepoint under test                                       | Asserts                                                                                                                |
+|--------------------------------------------------------------------------------------|-------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------|
+| `packages/core/src/store/__tests__/brain-idempotency.test.ts`                        | `getBrainDb(cwd?)` in `memory-sqlite.ts` (canonical writer) | Re-open does not re-run migrations; PRAGMAs stable (WAL/foreign_keys); `INSERT OR IGNORE` on `brain_sticky_notes` is a no-op on second run. |
+| `packages/brain/src/__tests__/brain-idempotency.test.ts`                             | `getBrainDb(ctx)` in `db-connections.ts` (brain-pkg reader) | Reader returns null when file absent; PRAGMAs stable; reader-side `INSERT OR IGNORE` is idempotent.                    |
+| `packages/core/src/store/__tests__/conduit-idempotency.test.ts`                      | `ensureConduitDb(projectRoot)` in `conduit-sqlite.ts`       | First call returns `action: 'created'`, second returns `'exists'` (sentinel fast-path); `_conduit_meta` sentinel row count stable; PRAGMAs stable; `ON CONFLICT DO UPDATE` on `project_agent_refs` does not duplicate. |
+| `packages/core/src/store/__tests__/manifest-idempotency.test.ts`                     | `CleoBlobStore.open` in `llmtxt-blob-adapter.ts`            | `open()` is idempotent within a single instance; close + reopen finds existing `manifest.db` + blob bytes; identical `attach()` calls dedupe by SHA-256 with exactly one file on disk under `.cleo/blobs/blobs/`. |
+| `packages/core/src/store/__tests__/llmtxt-idempotency.test.ts`                       | `openCleoDb('llmtxt', cwd)` in `open-cleo-db.ts` (reserved) | Reserved opener throws `"llmtxt is not yet implemented"` identically on every call (error-stability contract); no `.cleo/llmtxt/` directory leaked to disk by the failed open. |
+
+Each test sandboxes via `mkdtempSync` and never touches the live `.cleo/`. The tasks.db idempotency contract is already covered by the existing `tasks-sqlite.test.ts` + `sqlite.test.ts` suites — T10314 closes the coverage gap for the remaining four DBs.
+
 ### Recovery story (for users affected by corruption or rollback)
 
 All four runtime files are now recoverable via out-of-band mechanisms instead of git:

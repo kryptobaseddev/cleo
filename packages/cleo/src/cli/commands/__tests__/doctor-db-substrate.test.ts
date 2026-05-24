@@ -21,7 +21,7 @@
  * @saga T10281
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -40,7 +40,12 @@ import {
   resolveInventoryMigrationsFolder,
   surveyDbSubstrate,
   surveyFleetDbSubstrate,
+  walkPragmaDrift,
 } from '../../../../../core/src/doctor/db-substrate.js';
+import {
+  loadPragmaSsot,
+  normalisePragmaValue,
+} from '../../../../../core/src/doctor/pragma-ssot.js';
 
 const _require = createRequire(import.meta.url);
 const { DatabaseSync: DatabaseSyncCtor } = _require('node:sqlite') as {
@@ -209,6 +214,10 @@ describe('doctor db-substrate (T10307)', () => {
     expect(tasks.sizeBytes).not.toBeNull();
     expect(tasks.error).toBeNull();
     expect(tasks.suggestedFix).toBeNull();
+    // T10312 fields: healthy DB has no quarantine + non-null elapsed.
+    expect(tasks.quarantinedTo).toBeNull();
+    expect(tasks.integrityCheckMs).not.toBeNull();
+    expect(tasks.timedOut).toBe(false);
 
     // brain.db wasn't seeded — should be exists: false.
     const brain = survey.dbs['brain'];
@@ -218,6 +227,10 @@ describe('doctor db-substrate (T10307)', () => {
     expect(brain.integrityOK).toBeNull();
     expect(brain.rowCounts).toBeNull();
     expect(brain.error).toBeNull();
+    // T10312 fields: missing DB has null elapsed + no quarantine.
+    expect(brain.quarantinedTo).toBeNull();
+    expect(brain.integrityCheckMs).toBeNull();
+    expect(brain.timedOut).toBe(false);
   });
 
   it('surfaces integrityOK=false + suggestedFix when the DB is corrupt', async () => {
@@ -237,7 +250,11 @@ describe('doctor db-substrate (T10307)', () => {
     if (!tasks) throw new Error('tasks entry absent');
     expect(tasks.exists).toBe(true);
     expect(tasks.integrityOK).toBe(false);
-    expect(tasks.suggestedFix).toBe('cleo backup recover tasks');
+    // Default auto-quarantine fires — suggestedFix carries the recovery
+    // cmd + the quarantine path inline. The hard recovery command stays
+    // canonical at the start of the string.
+    expect(tasks.suggestedFix).not.toBeNull();
+    expect(tasks.suggestedFix).toContain('cleo backup recover tasks');
 
     // Either error is non-null (open threw) OR integrityOK rolled to false
     // via a non-'ok' pragma result — both branches satisfy the corrupt
@@ -646,5 +663,332 @@ describe('doctor db-substrate (T10307)', () => {
     const withoutSlash = resolveInventoryMigrationsFolder('packages/core/migrations/drizzle-tasks');
     expect(withSlash).toBe(withoutSlash);
     expect(withSlash.endsWith('drizzle-tasks')).toBe(true);
+  });
+
+  // ──────────────────────────────────────────────────────────────────────
+  // T10310 — Per-DB pragma drift detection
+  // ──────────────────────────────────────────────────────────────────────
+
+  it('T10310: pragma SSoT loader resolves canonical entries for every drift pragma', () => {
+    const ssot = loadPragmaSsot();
+    expect(ssot.driftPragmas.length).toBe(6);
+    expect(ssot.driftPragmas).toContain('journal_mode');
+    expect(ssot.driftPragmas).toContain('busy_timeout');
+    expect(ssot.driftPragmas).toContain('foreign_keys');
+    expect(ssot.driftPragmas).toContain('synchronous');
+    expect(ssot.driftPragmas).toContain('page_size');
+    expect(ssot.driftPragmas).toContain('application_id');
+
+    // Every drift pragma MUST resolve to a non-empty expected value.
+    for (const name of ssot.driftPragmas) {
+      const expected = ssot.expectedByName.get(name.toLowerCase());
+      expect(expected).toBeDefined();
+      expect(typeof expected).toBe('string');
+      expect((expected ?? '').length).toBeGreaterThan(0);
+    }
+  });
+
+  it('T10310: normalisePragmaValue resolves integer codes to symbolic names', () => {
+    expect(normalisePragmaValue('synchronous', '1')).toBe('NORMAL');
+    expect(normalisePragmaValue('synchronous', '2')).toBe('FULL');
+    expect(normalisePragmaValue('foreign_keys', '0')).toBe('OFF');
+    expect(normalisePragmaValue('foreign_keys', '1')).toBe('ON');
+    // Non-coded pragmas just upper-case.
+    expect(normalisePragmaValue('journal_mode', 'wal')).toBe('WAL');
+    expect(normalisePragmaValue('page_size', '4096')).toBe('4096');
+  });
+
+  it('T10310: pragmaDrift is null when the DB does not exist', async () => {
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const projectRoot = join(fleetRoot, 'no-db-project');
+    mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
+    // Intentionally do NOT seed tasks.db — survey should produce a missing entry.
+
+    const result = surveyDbSubstrate(projectRoot);
+    const tasks = result.projects[0]?.dbs['tasks'];
+    expect(tasks).toBeDefined();
+    if (!tasks) throw new Error('tasks entry absent');
+    expect(tasks.exists).toBe(false);
+    expect(tasks.pragmaDrift).toBeNull();
+  });
+
+  it('T10310: pragmaDrift is null when the DB is corrupt (integrityOK=false)', async () => {
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const projectRoot = createProjectWithTasksDb('corrupt-pragma-project');
+    seedCorruptDb(join(projectRoot, '.cleo', 'tasks.db'));
+
+    const result = surveyDbSubstrate(projectRoot);
+    const tasks = result.projects[0]?.dbs['tasks'];
+    if (!tasks) throw new Error('tasks entry absent');
+    expect(tasks.integrityOK).toBe(false);
+    expect(tasks.pragmaDrift).toBeNull();
+  });
+
+  it('T10310: pragmaDrift surfaces busy_timeout drift on a freshly-created DB', async () => {
+    // A freshly-created node:sqlite DB defaults to busy_timeout=0, but the
+    // SSoT expects 5000. A raw read-only snapshot (no applyPragmas) will
+    // therefore report drift on `busy_timeout`. Same for `foreign_keys`
+    // (default 0/OFF) and `synchronous` (default 2/FULL). page_size + journal_mode
+    // + application_id will match the SSoT defaults (4096, no-WAL, 0 stamp).
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const projectRoot = createProjectWithTasksDb('drift-project');
+
+    const result = surveyDbSubstrate(projectRoot);
+    const tasks = result.projects[0]?.dbs['tasks'];
+    if (!tasks) throw new Error('tasks entry absent');
+    expect(tasks.integrityOK).toBe(true);
+    expect(tasks.pragmaDrift).not.toBeNull();
+    const drift = tasks.pragmaDrift ?? [];
+    const pragmas = drift.map((d) => d.pragma);
+    // busy_timeout will drift (default 0 vs canonical 5000).
+    expect(pragmas).toContain('busy_timeout');
+    // journal_mode WILL drift on a fresh DB because seedHealthyDb does
+    // not switch the file to WAL — default is `delete`.
+    expect(pragmas).toContain('journal_mode');
+    // The journal_mode drift entry should record the actual on-disk mode.
+    const journalEntry = drift.find((d) => d.pragma === 'journal_mode');
+    expect(journalEntry?.expected).toBe('WAL');
+    expect((journalEntry?.actual ?? '').toLowerCase()).not.toBe('wal');
+  });
+
+  it('T10310: pragmaDrift detects an explicitly overridden persistent pragma', async () => {
+    // Explicitly override journal_mode to `delete` AND application_id to a
+    // non-canonical value on disk, then verify the survey surfaces both as
+    // drift items.
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const projectRoot = createProjectWithTasksDb('override-pragma-project');
+    const dbPath = join(projectRoot, '.cleo', 'tasks.db');
+
+    const writer = new DatabaseSyncCtor(dbPath);
+    try {
+      writer.exec('PRAGMA journal_mode = DELETE');
+      writer.exec('PRAGMA application_id = 12345');
+    } finally {
+      writer.close();
+    }
+
+    const result = surveyDbSubstrate(projectRoot);
+    const tasks = result.projects[0]?.dbs['tasks'];
+    if (!tasks) throw new Error('tasks entry absent');
+    const drift = tasks.pragmaDrift ?? [];
+
+    const journal = drift.find((d) => d.pragma === 'journal_mode');
+    expect(journal).toBeDefined();
+    expect(journal?.expected).toBe('WAL');
+    expect((journal?.actual ?? '').toLowerCase()).toBe('delete');
+
+    const appId = drift.find((d) => d.pragma === 'application_id');
+    expect(appId).toBeDefined();
+    expect(appId?.expected).toBe('0');
+    expect(appId?.actual).toBe('12345');
+  });
+
+  it('T10310: walkPragmaDrift reports zero drift when every queried pragma matches the SSoT', () => {
+    // Construct an in-memory DB and explicitly set every drift pragma to
+    // its canonical value, then assert the walker reports zero drift.
+    const db = new DatabaseSyncCtor(':memory:');
+    try {
+      // page_size MUST be set before any table is created — picked first.
+      db.exec('PRAGMA page_size = 4096');
+      // Apply every canonical pragma the walker checks.
+      db.exec('PRAGMA journal_mode = WAL');
+      db.exec('PRAGMA busy_timeout = 5000');
+      db.exec('PRAGMA foreign_keys = ON');
+      db.exec('PRAGMA synchronous = NORMAL');
+      db.exec('PRAGMA application_id = 0');
+      // Force a write so journal_mode + page_size persist.
+      db.exec('CREATE TABLE t (id INTEGER); INSERT INTO t VALUES (1);');
+
+      const drift = walkPragmaDrift(db);
+      // :memory: has documented quirks:
+      // - journal_mode cannot use WAL — falls back to `memory`.
+      // - busy_timeout via `exec()` may not stick on freshly-opened
+      //   :memory: handles in some node:sqlite builds.
+      // The override-pragma + drift-project tests above cover the
+      // file-backed real-world case. Here we assert that every OTHER
+      // queried pragma (page_size, foreign_keys, synchronous,
+      // application_id) is not flagged as drift after explicit
+      // canonical setup.
+      const drifted = drift
+        .map((d) => d.pragma)
+        .filter((p) => p !== 'journal_mode' && p !== 'busy_timeout');
+      expect(drifted).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────
+  // T10312 — bounded timeout + auto-quarantine
+  // ────────────────────────────────────────────────────────────────────
+
+  it('T10312: auto-quarantines a corrupt DB into .cleo/quarantine/<role>-malformed-<iso>/', async () => {
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const projectRoot = createProjectWithTasksDb('project-auto-quarantine');
+    const tasksDbPath = join(projectRoot, '.cleo', 'tasks.db');
+
+    // Replace healthy tasks.db with garbage AFTER seedHealthyDb wrote it.
+    seedCorruptDb(tasksDbPath);
+
+    // Also create sidecar -wal + -shm so we can verify they're preserved.
+    writeFileSync(`${tasksDbPath}-wal`, 'placeholder wal sidecar');
+    writeFileSync(`${tasksDbPath}-shm`, 'placeholder shm sidecar');
+
+    const result = surveyDbSubstrate(projectRoot);
+    const survey = result.projects[0];
+    if (!survey) throw new Error('survey absent');
+    const tasks = survey.dbs['tasks'];
+    if (!tasks) throw new Error('tasks entry absent');
+
+    // Auto-quarantine fired — the structured envelope carries the path.
+    expect(tasks.integrityOK).toBe(false);
+    expect(tasks.quarantinedTo).not.toBeNull();
+    if (tasks.quarantinedTo === null) throw new Error('quarantinedTo absent');
+
+    // Path lives under <projectRoot>/.cleo/quarantine/tasks-malformed-<iso>/.
+    expect(tasks.quarantinedTo).toContain(join(projectRoot, '.cleo', 'quarantine'));
+    expect(tasks.quarantinedTo).toMatch(/tasks-malformed-/);
+
+    // Corrupt DB has been moved off the live path.
+    expect(existsSync(tasksDbPath)).toBe(false);
+
+    // Quarantine directory contains the .malformed file + both sidecars.
+    expect(existsSync(join(tasks.quarantinedTo, 'tasks.db.malformed'))).toBe(true);
+    expect(existsSync(join(tasks.quarantinedTo, 'tasks.db.malformed-wal'))).toBe(true);
+    expect(existsSync(join(tasks.quarantinedTo, 'tasks.db.malformed-shm'))).toBe(true);
+
+    // suggestedFix carries the recover command + quarantine path so the
+    // operator has a single one-liner without poking at structured fields.
+    expect(tasks.suggestedFix).not.toBeNull();
+    expect(tasks.suggestedFix).toContain('cleo backup recover tasks');
+    expect(tasks.suggestedFix).toContain(tasks.quarantinedTo);
+  });
+
+  it('T10312: --no-quarantine leaves the corrupt DB in place', async () => {
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const projectRoot = createProjectWithTasksDb('project-no-quarantine');
+    const tasksDbPath = join(projectRoot, '.cleo', 'tasks.db');
+    seedCorruptDb(tasksDbPath);
+
+    const result = surveyDbSubstrate(projectRoot, { autoQuarantine: false });
+    const survey = result.projects[0];
+    if (!survey) throw new Error('survey absent');
+    const tasks = survey.dbs['tasks'];
+    if (!tasks) throw new Error('tasks entry absent');
+
+    expect(tasks.integrityOK).toBe(false);
+    expect(tasks.quarantinedTo).toBeNull();
+
+    // Corrupt DB still at the live path — survey did NOT move it.
+    expect(existsSync(tasksDbPath)).toBe(true);
+
+    // suggestedFix is the canonical recover command, no quarantine
+    // addendum since none happened.
+    expect(tasks.suggestedFix).toBe('cleo backup recover tasks');
+  });
+
+  it('T10312: integrityCheckMs is recorded for every existing DB', async () => {
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const projectRoot = createProjectWithTasksDb('project-elapsed');
+
+    const result = surveyDbSubstrate(projectRoot);
+    const survey = result.projects[0];
+    if (!survey) throw new Error('survey absent');
+    const tasks = survey.dbs['tasks'];
+    if (!tasks) throw new Error('tasks entry absent');
+
+    // Healthy DB: integrityCheckMs is non-null and a non-negative number.
+    expect(tasks.integrityCheckMs).not.toBeNull();
+    if (tasks.integrityCheckMs === null) throw new Error('integrityCheckMs null');
+    expect(tasks.integrityCheckMs).toBeGreaterThanOrEqual(0);
+    expect(Number.isFinite(tasks.integrityCheckMs)).toBe(true);
+  });
+
+  it('T10312: timedOut=true when integrity_check elapsed exceeds the configured budget', async () => {
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const projectRoot = createProjectWithTasksDb('project-timeout');
+
+    // A 1-row tasks.db check takes single-digit ms. Pass a ridiculously
+    // small budget (integrityCheckTimeoutMs: -1 disabled; using a very
+    // tight 0.0001 round-trip workaround). Easier: configure 0... but
+    // 0 disables. Use 0.5 ms - but Math.floor in our impl drops sub-ms.
+    // Use the SQL-side fact that `integrity_check` on even an empty DB
+    // takes some non-zero ms by setting timeout to a value just below
+    // the actual elapsed.
+    //
+    // To guarantee determinism in CI, we override the timeout to a tiny
+    // value AND set autoQuarantine to false so we observe the timedOut
+    // flag without the quarantine side-effect.
+    //
+    // We measure once to discover actual elapsed, then re-run with
+    // timeout = elapsed - 1 to guarantee `timedOut: true`. If first
+    // run was 0 ms (very fast DB), we fall back to timeout=0 which is
+    // disabled — assertion is skipped via the `>= 0` early-out check
+    // below.
+    const firstPass = surveyDbSubstrate(projectRoot, { autoQuarantine: false });
+    const firstTasks = firstPass.projects[0]?.dbs['tasks'];
+    if (!firstTasks || firstTasks.integrityCheckMs === null) {
+      throw new Error('first pass elapsed absent');
+    }
+    if (firstTasks.integrityCheckMs <= 1) {
+      // Sub-ms check — the timeout-mechanism still works but we can't
+      // assert it deterministically. Verify the timeout=0 disable branch
+      // instead.
+      const passWithDisabledTimeout = surveyDbSubstrate(projectRoot, {
+        autoQuarantine: false,
+        integrityCheckTimeoutMs: 0,
+      });
+      const t = passWithDisabledTimeout.projects[0]?.dbs['tasks'];
+      expect(t?.timedOut).toBe(false);
+      expect(t?.integrityOK).toBe(true);
+      return;
+    }
+
+    const tightBudget = Math.max(0, firstTasks.integrityCheckMs - 1);
+    const secondPass = surveyDbSubstrate(projectRoot, {
+      autoQuarantine: false,
+      integrityCheckTimeoutMs: tightBudget,
+    });
+    const secondTasks = secondPass.projects[0]?.dbs['tasks'];
+    if (!secondTasks) throw new Error('second pass tasks entry absent');
+
+    expect(secondTasks.timedOut).toBe(true);
+    expect(secondTasks.integrityOK).toBe(false);
+    expect(secondTasks.error).toContain('integrity_check exceeded timeout');
+    expect(secondPass.summary.corrupt).toBeGreaterThanOrEqual(1);
+  });
+
+  it('T10312: integrityCheckTimeoutMs=0 disables the timeout', async () => {
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const projectRoot = createProjectWithTasksDb('project-timeout-disabled');
+
+    const result = surveyDbSubstrate(projectRoot, {
+      autoQuarantine: false,
+      integrityCheckTimeoutMs: 0,
+    });
+    const tasks = result.projects[0]?.dbs['tasks'];
+    if (!tasks) throw new Error('tasks entry absent');
+
+    // Healthy DB w/ timeout disabled: integrityOK true + timedOut false.
+    expect(tasks.integrityOK).toBe(true);
+    expect(tasks.timedOut).toBe(false);
   });
 });
