@@ -1,23 +1,25 @@
 /**
- * Unit tests for T10304: cleo backup recover brain
+ * Unit tests for `cleo backup recover <role>` and the backward-compatible
+ * `cleo backup recover brain` leaf (T10318 — generalised from T10304).
  *
- * Verifies the `backup recover brain` subcommand action handler:
- *   - --dry-run returns a plan envelope with dryRun=true and no mutation
- *   - happy-path returns structured envelope with all expected fields
- *   - missing-snapshot error path (E_NO_SNAPSHOT) returns clear error
- *   - --from-snapshot pin is plumbed through to the core helper
- *   - generic errors are surfaced via cliError with non-zero exit code
+ * Verifies the CLI dispatch wiring:
+ *   - `cleo backup recover brain` continues to work (backward compat).
+ *   - `cleo backup recover <role>` accepts any role from DB_INVENTORY.
+ *   - `--dry-run`, `--from-snapshot`, `--no-delta` are plumbed through.
+ *   - Missing role surfaces E_VALIDATION (exit code 6).
+ *   - Unknown role surfaces E_UNKNOWN_ROLE.
+ *   - BackupRecoverError instances are mapped to their stable exit codes.
+ *   - Generic errors fall back to exit code 1.
  *
- * The core `runBackupRecoverBrain` helper is mocked so this test exercises
- * ONLY the CLI command's wiring (arg parsing, envelope shape, exit codes).
- * Pattern mirrors backup-export.test.ts.
+ * The core `runBackupRecover` helper is mocked so this test exercises only
+ * the CLI command's wiring (arg parsing, envelope shape, exit codes).
  *
- * @task T10304
- * @epic T10286
+ * @task T10318
+ * @epic T10284
  * @saga T10281
  */
 
-import type { BackupRecoverBrainResult, BrainRecoveredRowCounts } from '@cleocode/contracts';
+import type { BackupRecoverResult, DbRecoveredRowCounts } from '@cleocode/contracts';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { backupCommand } from '../backup.js';
 
@@ -25,12 +27,10 @@ import { backupCommand } from '../backup.js';
 // Mocks — keep all real SQLite, file I/O, and dispatch off the table
 // ---------------------------------------------------------------------------
 
-const mockRunBackupRecoverBrain = vi.fn();
+const mockRunBackupRecover = vi.fn();
 
-vi.mock('@cleocode/core/store/backup-recover-brain.js', () => {
-  // Defined INSIDE the factory so the hoisted vi.mock body does not reach
-  // a TDZ variable declared after it in the test file (T10304).
-  class BackupRecoverBrainErrorMock extends Error {
+vi.mock('@cleocode/core/store/backup-recover.js', () => {
+  class BackupRecoverErrorMock extends Error {
     constructor(
       message: string,
       public readonly code: number,
@@ -38,41 +38,39 @@ vi.mock('@cleocode/core/store/backup-recover-brain.js', () => {
       public readonly fix?: string,
     ) {
       super(message);
-      this.name = 'BackupRecoverBrainError';
+      this.name = 'BackupRecoverError';
     }
   }
   return {
-    runBackupRecoverBrain: (...args: unknown[]) => mockRunBackupRecoverBrain(...args),
-    BackupRecoverBrainError: BackupRecoverBrainErrorMock,
+    runBackupRecover: (...args: unknown[]) => mockRunBackupRecover(...args),
+    BackupRecoverError: BackupRecoverErrorMock,
   };
 });
 
 /**
- * Constructor signature for the mocked `BackupRecoverBrainError` class.
+ * Constructor signature for the mocked `BackupRecoverError` class.
  *
  * The test body needs the SAME class reference the production code sees
- * via `instanceof BackupRecoverBrainError` so thrown errors are routed
- * through the mapped-error branch (exit code 4 / 78) rather than the
- * generic catch (exit code 1). Populated by `beforeAll` below.
+ * via `instanceof BackupRecoverError` so thrown errors are routed
+ * through the mapped-error branch rather than the generic catch.
  */
-type MockBackupRecoverBrainErrorCtor = new (
+type MockBackupRecoverErrorCtor = new (
   message: string,
   code: number,
   codeName: string,
   fix?: string,
 ) => Error;
 
-let MockBackupRecoverBrainError: MockBackupRecoverBrainErrorCtor;
+let MockBackupRecoverError: MockBackupRecoverErrorCtor;
 
 beforeAll(async () => {
-  const mod: { BackupRecoverBrainError: MockBackupRecoverBrainErrorCtor } = await import(
-    '@cleocode/core/store/backup-recover-brain.js'
+  const mod: { BackupRecoverError: MockBackupRecoverErrorCtor } = await import(
+    '@cleocode/core/store/backup-recover.js'
   );
-  MockBackupRecoverBrainError = mod.BackupRecoverBrainError;
+  MockBackupRecoverError = mod.BackupRecoverError;
 });
 
 const mockGetProjectRoot = vi.fn(() => '/tmp/test-project');
-const mockGetCleoDirAbsolute = vi.fn(() => '/tmp/test-project/.cleo');
 const mockGetLogger = vi.fn(() => ({
   warn: vi.fn(),
   error: vi.fn(),
@@ -86,7 +84,6 @@ vi.mock('@cleocode/core', async () => {
   return {
     ...actual,
     getProjectRoot: () => mockGetProjectRoot(),
-    getCleoDirAbsolute: (cwd?: string) => mockGetCleoDirAbsolute(cwd),
     getLogger: (channel: string) => mockGetLogger(channel),
   };
 });
@@ -99,10 +96,11 @@ vi.mock('../../../dispatch/adapters/cli.js', () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Helper — invoke the leaf subcommand's run handler
+// Helpers — invoke either the brain leaf or the generic recover group
 // ---------------------------------------------------------------------------
 
 interface RecoverArgs {
+  role?: string;
   'dry-run'?: boolean;
   'from-snapshot'?: string;
   'no-delta'?: boolean;
@@ -114,8 +112,8 @@ interface CittyLeaf {
 }
 
 /**
- * Reach into `backupCommand.subCommands.recover.subCommands.brain.run` and
- * invoke it with the supplied flags merged onto defaults.
+ * Resolve the `cleo backup recover brain` subcommand and invoke its run
+ * handler with the supplied flags merged onto defaults.
  */
 async function runRecoverBrain(args: RecoverArgs): Promise<void> {
   const recoverGroup = backupCommand.subCommands?.['recover'];
@@ -137,37 +135,69 @@ async function runRecoverBrain(args: RecoverArgs): Promise<void> {
   await (brainCmd as CittyLeaf).run({ args: merged, rawArgs: [] });
 }
 
+/**
+ * Resolve the `cleo backup recover` parent and invoke its run handler with
+ * the supplied positional `role` arg and flags. Exercises the generic
+ * `cleo backup recover <role>` dispatch path.
+ */
+async function runRecoverGeneric(args: RecoverArgs): Promise<void> {
+  const recoverGroup = backupCommand.subCommands?.['recover'];
+  if (!recoverGroup || typeof recoverGroup !== 'object' || !('run' in recoverGroup)) {
+    throw new Error('backup recover group subcommand not found');
+  }
+  const merged: RecoverArgs = {
+    role: '',
+    'dry-run': false,
+    'from-snapshot': '',
+    'no-delta': false,
+    force: false,
+    ...args,
+  };
+  await (recoverGroup as CittyLeaf).run({ args: merged, rawArgs: [] });
+}
+
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
 
-const ZERO_COUNTS: BrainRecoveredRowCounts = {
-  observations: 0,
-  decisions: 0,
-  learnings: 0,
+const BRAIN_ROW_COUNTS: DbRecoveredRowCounts = {
+  brain_observations: 142,
+  brain_decisions: 8,
+  brain_learnings: 17,
 };
 
-const HAPPY_RESULT: BackupRecoverBrainResult = {
+const ZERO_ROW_COUNTS: DbRecoveredRowCounts = {};
+
+const HAPPY_RESULT: BackupRecoverResult = {
+  role: 'brain',
   restoredFrom:
     '/tmp/test-project/.cleo/backups/snapshot/brain.db.snapshot-2026-05-23T08-00-55-563Z',
-  rowsRecovered: { observations: 142, decisions: 8, learnings: 17 },
+  rowsRecovered: BRAIN_ROW_COUNTS,
   dataLossWindowHours: 5.2,
   integrityOK: true,
   quarantinedTo: '/tmp/test-project/.cleo/quarantine/brain-malformed-2026-05-23T13-12-00-000Z',
   dryRun: false,
 };
 
-const DRY_RUN_PLAN: BackupRecoverBrainResult = {
+const DRY_RUN_PLAN: BackupRecoverResult = {
   ...HAPPY_RESULT,
   quarantinedTo: '',
   dryRun: true,
 };
 
+const TASKS_HAPPY_RESULT: BackupRecoverResult = {
+  ...HAPPY_RESULT,
+  role: 'tasks',
+  restoredFrom:
+    '/tmp/test-project/.cleo/backups/snapshot/tasks.db.snapshot-2026-05-23T08-00-55-563Z',
+  rowsRecovered: { tasks: 250 } satisfies DbRecoveredRowCounts,
+};
+
 // ---------------------------------------------------------------------------
-// Tests
+// Tests — backward-compat `cleo backup recover brain` leaf
 // ---------------------------------------------------------------------------
 
-describe('T10304 cleo backup recover brain — dry-run mode', () => {
+describe('cleo backup recover brain — dry-run mode (T10318 backward compat)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.exitCode = undefined;
@@ -178,46 +208,43 @@ describe('T10304 cleo backup recover brain — dry-run mode', () => {
   });
 
   it('returns a plan envelope with dryRun=true without mutating state', async () => {
-    mockRunBackupRecoverBrain.mockReturnValue(DRY_RUN_PLAN);
+    mockRunBackupRecover.mockReturnValue(DRY_RUN_PLAN);
 
     await runRecoverBrain({ 'dry-run': true });
 
-    expect(mockRunBackupRecoverBrain).toHaveBeenCalledOnce();
-    const call = mockRunBackupRecoverBrain.mock.calls[0]?.[0];
+    expect(mockRunBackupRecover).toHaveBeenCalledOnce();
+    const call = mockRunBackupRecover.mock.calls[0]?.[0];
     expect(call).toMatchObject({
-      corruptPath: '/tmp/test-project/.cleo/brain.db',
-      snapshotDir: '/tmp/test-project/.cleo/backups/snapshot',
-      vacuumSnapshotDir: '/tmp/test-project/.cleo/backups/sqlite',
-      legacyArtifactDir: '/tmp/test-project/.cleo',
-      quarantineRoot: '/tmp/test-project/.cleo/quarantine',
+      role: 'brain',
+      projectRoot: '/tmp/test-project',
       dryRun: true,
     });
     expect(process.exitCode).toBeUndefined();
   });
 
   it('plumbs --from-snapshot through to the core helper', async () => {
-    mockRunBackupRecoverBrain.mockReturnValue(DRY_RUN_PLAN);
+    mockRunBackupRecover.mockReturnValue(DRY_RUN_PLAN);
 
     await runRecoverBrain({
       'dry-run': true,
       'from-snapshot': '2026-05-22',
     });
 
-    const call = mockRunBackupRecoverBrain.mock.calls[0]?.[0];
+    const call = mockRunBackupRecover.mock.calls[0]?.[0];
     expect(call?.fromSnapshot).toBe('2026-05-22');
   });
 
   it('plumbs --no-delta through to the core helper', async () => {
-    mockRunBackupRecoverBrain.mockReturnValue(DRY_RUN_PLAN);
+    mockRunBackupRecover.mockReturnValue(DRY_RUN_PLAN);
 
     await runRecoverBrain({ 'dry-run': true, 'no-delta': true });
 
-    const call = mockRunBackupRecoverBrain.mock.calls[0]?.[0];
+    const call = mockRunBackupRecover.mock.calls[0]?.[0];
     expect(call?.noDelta).toBe(true);
   });
 });
 
-describe('T10304 cleo backup recover brain — happy path', () => {
+describe('cleo backup recover brain — happy path (T10318 backward compat)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.exitCode = undefined;
@@ -228,33 +255,31 @@ describe('T10304 cleo backup recover brain — happy path', () => {
   });
 
   it('returns structured envelope with all expected fields on success', async () => {
-    mockRunBackupRecoverBrain.mockReturnValue(HAPPY_RESULT);
+    mockRunBackupRecover.mockReturnValue(HAPPY_RESULT);
 
     await runRecoverBrain({});
 
-    expect(mockRunBackupRecoverBrain).toHaveBeenCalledOnce();
-    const call = mockRunBackupRecoverBrain.mock.calls[0]?.[0];
+    expect(mockRunBackupRecover).toHaveBeenCalledOnce();
+    const call = mockRunBackupRecover.mock.calls[0]?.[0];
+    expect(call?.role).toBe('brain');
     expect(call?.dryRun).toBe(false);
     expect(process.exitCode).toBeUndefined();
   });
 
-  it('passes corruptPath, snapshotDir, vacuumSnapshotDir, legacyArtifactDir, quarantineRoot', async () => {
-    mockRunBackupRecoverBrain.mockReturnValue(HAPPY_RESULT);
+  it('passes role=brain and projectRoot through', async () => {
+    mockRunBackupRecover.mockReturnValue(HAPPY_RESULT);
 
     await runRecoverBrain({});
 
-    const call = mockRunBackupRecoverBrain.mock.calls[0]?.[0];
+    const call = mockRunBackupRecover.mock.calls[0]?.[0];
     expect(call).toMatchObject({
-      corruptPath: '/tmp/test-project/.cleo/brain.db',
-      snapshotDir: '/tmp/test-project/.cleo/backups/snapshot',
-      vacuumSnapshotDir: '/tmp/test-project/.cleo/backups/sqlite',
-      legacyArtifactDir: '/tmp/test-project/.cleo',
-      quarantineRoot: '/tmp/test-project/.cleo/quarantine',
+      role: 'brain',
+      projectRoot: '/tmp/test-project',
     });
   });
 });
 
-describe('T10304 cleo backup recover brain — error paths', () => {
+describe('cleo backup recover brain — error paths (T10318 backward compat)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.exitCode = undefined;
@@ -265,12 +290,12 @@ describe('T10304 cleo backup recover brain — error paths', () => {
   });
 
   it('surfaces E_NO_SNAPSHOT with exit code 4 when no snapshots present', async () => {
-    mockRunBackupRecoverBrain.mockImplementation(() => {
-      throw new MockBackupRecoverBrainError(
-        'No snapshots found under /tmp/test-project/.cleo/backups/snapshot',
+    mockRunBackupRecover.mockImplementation(() => {
+      throw new MockBackupRecoverError(
+        'No snapshots found for role "brain"',
         4,
         'E_NO_SNAPSHOT',
-        'Run `cleo backup add` to create a snapshot before attempting recovery.',
+        'Run `cleo backup add` to create a snapshot for role "brain" before attempting recovery.',
       );
     });
 
@@ -280,9 +305,9 @@ describe('T10304 cleo backup recover brain — error paths', () => {
   });
 
   it('surfaces E_NO_SNAPSHOT_MATCH with exit code 4 when --from-snapshot pin matches zero candidates', async () => {
-    mockRunBackupRecoverBrain.mockImplementation(() => {
-      throw new MockBackupRecoverBrainError(
-        'Snapshot pin "1970-01-01" matched zero candidates',
+    mockRunBackupRecover.mockImplementation(() => {
+      throw new MockBackupRecoverError(
+        'Snapshot pin "1970-01-01" matched zero candidates for role "brain"',
         4,
         'E_NO_SNAPSHOT_MATCH',
       );
@@ -294,7 +319,7 @@ describe('T10304 cleo backup recover brain — error paths', () => {
   });
 
   it('surfaces generic errors with exit code 1', async () => {
-    mockRunBackupRecoverBrain.mockImplementation(() => {
+    mockRunBackupRecover.mockImplementation(() => {
       throw new Error('disk full');
     });
 
@@ -304,14 +329,78 @@ describe('T10304 cleo backup recover brain — error paths', () => {
     expect(process.exitCode).toBe(1);
   });
 
-  it('returns zero-counts envelope when restoration produced empty tables', async () => {
-    mockRunBackupRecoverBrain.mockReturnValue({
+  it('returns empty-counts envelope when restoration produced empty tables', async () => {
+    mockRunBackupRecover.mockReturnValue({
       ...HAPPY_RESULT,
-      rowsRecovered: ZERO_COUNTS,
+      rowsRecovered: ZERO_ROW_COUNTS,
     });
 
     await runRecoverBrain({});
 
     expect(process.exitCode).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — new generic `cleo backup recover <role>` surface
+// ---------------------------------------------------------------------------
+
+describe('cleo backup recover <role> — generic surface (T10318)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.exitCode = undefined;
+  });
+
+  afterEach(() => {
+    process.exitCode = undefined;
+  });
+
+  it('accepts an explicit positional role from DB_INVENTORY', async () => {
+    mockRunBackupRecover.mockReturnValue(TASKS_HAPPY_RESULT);
+
+    await runRecoverGeneric({ role: 'tasks' });
+
+    expect(mockRunBackupRecover).toHaveBeenCalledOnce();
+    const call = mockRunBackupRecover.mock.calls[0]?.[0];
+    expect(call?.role).toBe('tasks');
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it('surfaces E_VALIDATION with exit code 6 when no role is supplied', async () => {
+    await runRecoverGeneric({ role: '' });
+
+    expect(mockRunBackupRecover).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(6);
+  });
+
+  it('surfaces E_UNKNOWN_ROLE when an unknown role is supplied', async () => {
+    await runRecoverGeneric({ role: 'not-a-real-role' });
+
+    expect(mockRunBackupRecover).not.toHaveBeenCalled();
+    expect(typeof process.exitCode).toBe('number');
+    expect(process.exitCode).not.toBe(0);
+  });
+
+  it('plumbs --dry-run, --from-snapshot, --no-delta into the generic path', async () => {
+    mockRunBackupRecover.mockReturnValue({
+      ...TASKS_HAPPY_RESULT,
+      dryRun: true,
+      quarantinedTo: '',
+    });
+
+    await runRecoverGeneric({
+      role: 'tasks',
+      'dry-run': true,
+      'from-snapshot': '2026-05-22',
+      'no-delta': true,
+    });
+
+    const call = mockRunBackupRecover.mock.calls[0]?.[0];
+    expect(call).toMatchObject({
+      role: 'tasks',
+      dryRun: true,
+      fromSnapshot: '2026-05-22',
+      noDelta: true,
+    });
   });
 });

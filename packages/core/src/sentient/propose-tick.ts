@@ -146,9 +146,19 @@ async function killSwitchActive(statePath: string): Promise<boolean> {
  *
  * Kill-switch is respected: no reconciler trigger if killSwitch is active.
  *
+ * ### T10351 — concurrent-sweep guard
+ *
+ * The original implementation fire-and-forget'd a parallel reconciler sweep
+ * which could overlap with the dialectic-hook + STDP plasticity writers —
+ * the exact concurrent-write storm identified in the T10301 RCA. The reflex
+ * now serializes via `_reconcilerInFlight` and AWAITS the sweep so writes
+ * don't race with anything else this propose tick will do next.
+ *
  * @param projectRoot - Absolute project root for DB resolution.
  * @param statePath   - Path to sentient-state.json for kill-switch check.
  */
+let _reconcilerInFlight = false;
+
 async function checkBrainHealthReflex(projectRoot: string, statePath: string): Promise<void> {
   try {
     // Respect kill-switch — do not trigger reconciler if killed.
@@ -159,16 +169,23 @@ async function checkBrainHealthReflex(projectRoot: string, statePath: string): P
     const result = await scanBrainNoise(projectRoot);
 
     if (!result.isClean) {
-      // Async fire-and-forget — do NOT await; never throw into the propose tick.
-      void import('../memory/brain-reconciler.js')
-        .then(({ triggerReconcilerSweep }) =>
-          triggerReconcilerSweep(projectRoot).catch(() => {
-            /* non-fatal */
-          }),
-        )
-        .catch(() => {
-          /* non-fatal */
-        });
+      // T10351: serialize the reconciler trigger. The original implementation
+      // fire-and-forget'd a parallel reconciler sweep that could overlap with
+      // the dialectic-hook setImmediate writer + ongoing STDP writes — the
+      // exact concurrent-write storm identified in the T10301 RCA. We now
+      // skip silently if another sweep is already in flight, and otherwise
+      // await the sweep so its writes don't race with anything else this
+      // propose tick will do next.
+      if (_reconcilerInFlight) return;
+      _reconcilerInFlight = true;
+      try {
+        const { triggerReconcilerSweep } = await import('../memory/brain-reconciler.js');
+        await triggerReconcilerSweep(projectRoot);
+      } catch {
+        // non-fatal — reconciler errors must never break the propose tick
+      } finally {
+        _reconcilerInFlight = false;
+      }
     }
   } catch {
     // Health-reflex errors are non-fatal; the propose tick must continue.

@@ -15,13 +15,19 @@
  *   - `nested-nexus-duplicate` — `<cleoHome>/nexus/{nexus,signaldock}.db`
  *     duplicates of the flat-layout canonical files.
  *
+ * T10312 hardens the integrity_check path: bounded wall-clock timeout
+ * (`--integrity-timeout-ms`, default 60_000) and auto-quarantine of
+ * corrupt DBs to `<projectRoot>/.cleo/quarantine/<role>-malformed-<iso>/`
+ * (opt out with `--no-quarantine`).
+ *
  * @task T10307
+ * @task T10312 — bounded timeout + auto-quarantine
  * @epic T10282
  * @saga T10281
  * @see ADR-068 — CLEO Database Charter
  */
 
-import type { DbSubstrateAuditResult } from '@cleocode/contracts';
+import type { DbSubstrateAuditResult, DbSubstrateSurveyOptions } from '@cleocode/contracts';
 import { getProjectRoot, pushWarning } from '@cleocode/core';
 import { surveyDbSubstrate, surveyFleetDbSubstrate } from '@cleocode/core/doctor/db-substrate.js';
 import { defineCommand } from '../lib/define-cli-command.js';
@@ -72,6 +78,76 @@ function pushSubstrateWarnings(result: DbSubstrateAuditResult): void {
       context,
     });
   }
+
+  // T10310 — surface every pragma-drift item as a per-DB warning so
+  // operators see drift in `meta.warnings` even when the per-entry
+  // `pragmaDrift` array is only inspected by structured-output consumers.
+  for (const projectSurvey of result.projects) {
+    for (const [role, entry] of Object.entries(projectSurvey.dbs)) {
+      if (entry.pragmaDrift === null || entry.pragmaDrift.length === 0) continue;
+      for (const drift of entry.pragmaDrift) {
+        pushWarning({
+          code: 'W_DB_SUBSTRATE_PRAGMA_DRIFT',
+          message:
+            `Pragma drift on ${role} (${entry.filePath}): ` +
+            `expected ${drift.pragma}=${drift.expected}, actual=${drift.actual ?? '<unmeasurable>'}`,
+          severity: 'warn',
+          context: {
+            role,
+            filePath: entry.filePath,
+            pragma: drift.pragma,
+            expected: drift.expected,
+            actual: drift.actual,
+          },
+        });
+      }
+    }
+  }
+}
+
+/**
+ * Emit `meta.warnings` entries for every per-DB outcome that needs
+ * operator attention: auto-quarantine fired, integrity_check exceeded
+ * the configured timeout, or both.
+ *
+ * @param result - The substrate audit result to walk.
+ *
+ * @task T10312
+ */
+function pushPerDbWarnings(result: DbSubstrateAuditResult): void {
+  for (const projectSurvey of result.projects) {
+    for (const [role, dbEntry] of Object.entries(projectSurvey.dbs)) {
+      if (dbEntry.quarantinedTo !== null) {
+        pushWarning({
+          code: 'W_DB_SUBSTRATE_AUTO_QUARANTINED',
+          message:
+            `Auto-quarantined corrupt ${role} DB at ${dbEntry.filePath} → ${dbEntry.quarantinedTo}.` +
+            ` Recover via: cleo backup recover ${role}`,
+          severity: 'warn',
+          context: {
+            role,
+            filePath: dbEntry.filePath,
+            quarantinedTo: dbEntry.quarantinedTo,
+            integrityCheckMs: dbEntry.integrityCheckMs,
+          },
+        });
+      }
+      if (dbEntry.timedOut) {
+        pushWarning({
+          code: 'W_DB_SUBSTRATE_INTEGRITY_TIMEOUT',
+          message:
+            `integrity_check on ${role} DB at ${dbEntry.filePath} took ${dbEntry.integrityCheckMs}ms` +
+            ` — slow substrate flagged for operator attention`,
+          severity: 'warn',
+          context: {
+            role,
+            filePath: dbEntry.filePath,
+            integrityCheckMs: dbEntry.integrityCheckMs,
+          },
+        });
+      }
+    }
+  }
 }
 
 /**
@@ -100,21 +176,51 @@ export const doctorDbSubstrateCommand = defineCommand({
       type: 'string',
       description: 'Fleet root path (default: /mnt/projects). Only used with --fleet.',
     },
+    'integrity-timeout-ms': {
+      type: 'string',
+      description:
+        'Wall-clock budget for each PRAGMA integrity_check call (ms; default 60000; 0 disables).',
+    },
+    'no-quarantine': {
+      type: 'boolean',
+      description:
+        'Disable auto-quarantine of corrupt DBs (leaves them in place; report-only mode).',
+    },
     json: { type: 'boolean', description: 'Output as JSON' },
     human: { type: 'boolean', description: 'Force human-readable output' },
     quiet: { type: 'boolean', description: 'Suppress non-essential output' },
   },
   async run({ args }) {
     const isFleet = args.fleet === true;
+
+    // Parse --integrity-timeout-ms — fall through to the default when the
+    // operator omitted it or passed a non-finite/negative value.
+    let parsedTimeoutMs: number | undefined;
+    if (
+      typeof args['integrity-timeout-ms'] === 'string' &&
+      args['integrity-timeout-ms'].length > 0
+    ) {
+      const n = Number.parseInt(args['integrity-timeout-ms'], 10);
+      if (Number.isFinite(n) && n >= 0) {
+        parsedTimeoutMs = n;
+      }
+    }
+    const options: DbSubstrateSurveyOptions = {
+      ...(parsedTimeoutMs !== undefined ? { integrityCheckTimeoutMs: parsedTimeoutMs } : {}),
+      autoQuarantine: args['no-quarantine'] !== true,
+    };
+
     const result: DbSubstrateAuditResult = isFleet
       ? surveyFleetDbSubstrate(
           typeof args['fleet-root'] === 'string' && args['fleet-root'].length > 0
             ? args['fleet-root']
             : DEFAULT_FLEET_ROOT,
+          options,
         )
-      : surveyDbSubstrate(getProjectRoot());
+      : surveyDbSubstrate(getProjectRoot(), options);
 
     pushSubstrateWarnings(result);
+    pushPerDbWarnings(result);
 
     cliOutput(result, {
       command: 'doctor',

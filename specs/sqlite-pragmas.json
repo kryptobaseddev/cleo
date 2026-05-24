@@ -15,5 +15,19 @@
     ["mmap_size", "268435456"],
     ["temp_store", "MEMORY"],
     ["wal_autocheckpoint", "1000"]
+  ],
+  "$fileInvariantsNote": "T10310 — additional file-persistent invariants checked by `cleo doctor db-substrate` against every DB in DB_INVENTORY. NOT consumed by the Rust applicator (build.rs reads `pragmas` only). Format: [pragma_name, expected_value_as_string]. Values are compared case-insensitively. Expected page_size of 4096 matches the SQLite default; application_id 0 means no app-id tag (CLEO does not stamp one today).",
+  "fileInvariants": [
+    ["page_size", "4096"],
+    ["application_id", "0"]
+  ],
+  "$driftPragmasNote": "T10310 — canonical PRAGMA queries that `cleo doctor db-substrate` walks for every DB in DB_INVENTORY. Drift is reported when the actual value (on a raw read-only snapshot — no pragma application) differs from the expected value declared in `pragmas` or `fileInvariants`.",
+  "driftPragmas": [
+    "journal_mode",
+    "busy_timeout",
+    "foreign_keys",
+    "synchronous",
+    "page_size",
+    "application_id"
   ]
 }

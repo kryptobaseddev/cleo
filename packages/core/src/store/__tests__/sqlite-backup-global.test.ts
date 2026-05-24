@@ -547,6 +547,301 @@ describe('sqlite-backup global tier', () => {
     expect(all['conduit']?.[0]?.name).toBe('conduit-20260101-120000.db');
   });
 
+  // ==========================================================================
+  // T10317 — fleet snapshot coverage for every DB_INVENTORY global-tier row
+  // ==========================================================================
+
+  /**
+   * TC-200: vacuumIntoGlobalBackup('telemetry') writes a snapshot to the
+   * global backups dir when the live telemetry.db handle is non-null.
+   *
+   * @task T10317
+   * @saga T10281
+   * @epic T10284
+   */
+  it('TC-200: vacuumIntoGlobalBackup(telemetry) writes snapshot to global backups dir', async () => {
+    vi.resetModules();
+    const cleoHome = join(tmpdir(), `cleo-tc200-${Date.now()}`);
+    const telemetryDbPath = join(cleoHome, 'telemetry.db');
+    mkdirSync(cleoHome, { recursive: true });
+    seedSqliteDb(telemetryDbPath);
+
+    const telDb = new DatabaseSync(telemetryDbPath);
+    vi.doMock('../../telemetry/sqlite.js', () => ({
+      getTelemetryDb: async () => null,
+      getTelemetryNativeDb: () => telDb,
+    }));
+    vi.doMock('../nexus-sqlite.js', () => ({ getNexusNativeDb: () => null }));
+    vi.doMock('../signaldock-sqlite.js', () => ({
+      getGlobalSignaldockNativeDb: () => null,
+      ensureGlobalSignaldockDb: async () => undefined,
+    }));
+    vi.doMock('../skills-db.js', () => ({
+      openSkillsDb: async () => null,
+      getSkillsNativeDb: () => null,
+    }));
+    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+
+    const { vacuumIntoGlobalBackup } = await import('../sqlite-backup.js');
+    const result = await vacuumIntoGlobalBackup('telemetry', { cleoHomeOverride: cleoHome });
+
+    telDb.close();
+
+    expect(result.snapshotPath).toBeTruthy();
+    expect(result.snapshotPath).toContain('telemetry-');
+    expect(result.snapshotPath).toContain(join(cleoHome, 'backups', 'sqlite'));
+    expect(existsSync(result.snapshotPath)).toBe(true);
+
+    // Integrity check on the snapshot.
+    const snap = new DatabaseSync(result.snapshotPath, { readOnly: true });
+    try {
+      const row = snap.prepare('PRAGMA integrity_check').get() as Record<string, unknown>;
+      expect(row?.['integrity_check'] ?? row?.['integrity check']).toBe('ok');
+    } finally {
+      snap.close();
+    }
+  });
+
+  /**
+   * TC-201: vacuumIntoGlobalBackup('skills') writes a snapshot to the
+   * global backups dir when the live skills.db handle is non-null.
+   *
+   * @task T10317
+   */
+  it('TC-201: vacuumIntoGlobalBackup(skills) writes snapshot to global backups dir', async () => {
+    vi.resetModules();
+    const cleoHome = join(tmpdir(), `cleo-tc201-${Date.now()}`);
+    const skillsDbPath = join(cleoHome, 'skills.db');
+    mkdirSync(cleoHome, { recursive: true });
+    seedSqliteDb(skillsDbPath);
+
+    const skDb = new DatabaseSync(skillsDbPath);
+    vi.doMock('../skills-db.js', () => ({
+      openSkillsDb: async () => null,
+      getSkillsNativeDb: () => skDb,
+    }));
+    vi.doMock('../../telemetry/sqlite.js', () => ({
+      getTelemetryDb: async () => null,
+      getTelemetryNativeDb: () => null,
+    }));
+    vi.doMock('../nexus-sqlite.js', () => ({ getNexusNativeDb: () => null }));
+    vi.doMock('../signaldock-sqlite.js', () => ({
+      getGlobalSignaldockNativeDb: () => null,
+      ensureGlobalSignaldockDb: async () => undefined,
+    }));
+    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+
+    const { vacuumIntoGlobalBackup } = await import('../sqlite-backup.js');
+    const result = await vacuumIntoGlobalBackup('skills', { cleoHomeOverride: cleoHome });
+
+    skDb.close();
+
+    expect(result.snapshotPath).toBeTruthy();
+    expect(result.snapshotPath).toContain('skills-');
+    expect(existsSync(result.snapshotPath)).toBe(true);
+  });
+
+  /**
+   * TC-202: vacuumIntoGlobalBackup('global-brain') snapshots the orphan
+   * file via the raw-file-vacuum-readonly strategy. Orphan files exist on
+   * disk without a registered live opener; the snapshot path opens them
+   * read-only via a one-shot DatabaseSync.
+   *
+   * @task T10317
+   */
+  it('TC-202: vacuumIntoGlobalBackup(global-brain) snapshots via raw-file-vacuum-readonly', async () => {
+    vi.resetModules();
+    const cleoHome = join(tmpdir(), `cleo-tc202-${Date.now()}`);
+    const orphanPath = join(cleoHome, 'brain.db');
+    mkdirSync(cleoHome, { recursive: true });
+    seedSqliteDb(orphanPath);
+
+    // Provide neutral stubs for all chokepoint-opener modules so they do
+    // not leak file-system writes to the developer's machine.
+    vi.doMock('../nexus-sqlite.js', () => ({ getNexusNativeDb: () => null }));
+    vi.doMock('../signaldock-sqlite.js', () => ({
+      getGlobalSignaldockNativeDb: () => null,
+      ensureGlobalSignaldockDb: async () => undefined,
+    }));
+    vi.doMock('../skills-db.js', () => ({
+      openSkillsDb: async () => null,
+      getSkillsNativeDb: () => null,
+    }));
+    vi.doMock('../../telemetry/sqlite.js', () => ({
+      getTelemetryDb: async () => null,
+      getTelemetryNativeDb: () => null,
+    }));
+    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+
+    const { vacuumIntoGlobalBackup } = await import('../sqlite-backup.js');
+    const result = await vacuumIntoGlobalBackup('global-brain', { cleoHomeOverride: cleoHome });
+
+    expect(result.snapshotPath).toBeTruthy();
+    expect(result.snapshotPath).toContain('global-brain-');
+    expect(existsSync(result.snapshotPath)).toBe(true);
+
+    const snap = new DatabaseSync(result.snapshotPath, { readOnly: true });
+    try {
+      const row = snap.prepare('PRAGMA integrity_check').get() as Record<string, unknown>;
+      expect(row?.['integrity_check'] ?? row?.['integrity check']).toBe('ok');
+    } finally {
+      snap.close();
+    }
+  });
+
+  /**
+   * TC-203: vacuumIntoGlobalBackup('global-tasks') with NO file on disk is
+   * a clean skip (returns empty result, no throw). Raw-file-vacuum-readonly
+   * MUST NOT materialise a fresh DB just to snapshot an empty one.
+   *
+   * @task T10317
+   */
+  it('TC-203: vacuumIntoGlobalBackup(global-tasks) without on-disk file returns empty result', async () => {
+    vi.resetModules();
+    const cleoHome = join(tmpdir(), `cleo-tc203-${Date.now()}`);
+    mkdirSync(cleoHome, { recursive: true });
+    // Deliberately do NOT create cleoHome/tasks.db — the raw-file opener
+    // must detect the missing file and skip cleanly.
+
+    vi.doMock('../nexus-sqlite.js', () => ({ getNexusNativeDb: () => null }));
+    vi.doMock('../signaldock-sqlite.js', () => ({
+      getGlobalSignaldockNativeDb: () => null,
+      ensureGlobalSignaldockDb: async () => undefined,
+    }));
+    vi.doMock('../skills-db.js', () => ({
+      openSkillsDb: async () => null,
+      getSkillsNativeDb: () => null,
+    }));
+    vi.doMock('../../telemetry/sqlite.js', () => ({
+      getTelemetryDb: async () => null,
+      getTelemetryNativeDb: () => null,
+    }));
+    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+
+    const { vacuumIntoGlobalBackup } = await import('../sqlite-backup.js');
+    const result = await vacuumIntoGlobalBackup('global-tasks', { cleoHomeOverride: cleoHome });
+
+    expect(result.snapshotPath).toBe('');
+    expect(result.rotated).toEqual([]);
+  });
+
+  /**
+   * TC-204: vacuumIntoGlobalBackupAll iterates every global-tier inventory
+   * row. Each row contributes a result entry in the returned array. Targets
+   * with live handles produce snapshots; targets with no on-disk file
+   * produce empty `{snapshotPath:'', rotated:[]}` entries.
+   *
+   * Headline assertion: every DB_INVENTORY global-tier role surfaces in the
+   * result — none silently dropped.
+   *
+   * @task T10317
+   */
+  it('TC-204: vacuumIntoGlobalBackupAll returns one entry per global-tier inventory row', async () => {
+    vi.resetModules();
+    const cleoHome = join(tmpdir(), `cleo-tc204-${Date.now()}`);
+    mkdirSync(cleoHome, { recursive: true });
+
+    // Seed only the nexus DB — the other targets should surface with empty
+    // results without throwing.
+    const nexusPath = join(cleoHome, 'nexus.db');
+    seedSqliteDb(nexusPath);
+    const nexusDb = new DatabaseSync(nexusPath);
+
+    vi.doMock('../nexus-sqlite.js', () => ({
+      getNexusNativeDb: () => nexusDb,
+      getNexusDb: async () => null,
+    }));
+    vi.doMock('../signaldock-sqlite.js', () => ({
+      getGlobalSignaldockNativeDb: () => null,
+      ensureGlobalSignaldockDb: async () => undefined,
+    }));
+    vi.doMock('../skills-db.js', () => ({
+      openSkillsDb: async () => null,
+      getSkillsNativeDb: () => null,
+    }));
+    vi.doMock('../../telemetry/sqlite.js', () => ({
+      getTelemetryDb: async () => null,
+      getTelemetryNativeDb: () => null,
+    }));
+    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+
+    const { vacuumIntoGlobalBackupAll, describeSnapshotCoverage } = await import(
+      '../sqlite-backup.js'
+    );
+    const results = await vacuumIntoGlobalBackupAll({ cleoHomeOverride: cleoHome });
+
+    nexusDb.close();
+
+    // Coverage parity: result has exactly the global-tier roles from inventory.
+    const globalRolesFromCoverage = describeSnapshotCoverage()
+      .filter((r) => r.tier === 'global')
+      .map((r) => r.role)
+      .sort();
+    const resultRoles = results.map((r) => r.role).sort();
+    expect(resultRoles).toEqual(globalRolesFromCoverage);
+
+    // The nexus entry should have a snapshot path.
+    const nexusResult = results.find((r) => r.role === 'nexus');
+    expect(nexusResult?.snapshotPath).toBeTruthy();
+    expect(nexusResult?.snapshotPath).toContain('nexus-');
+
+    // Roles with no on-disk file return empty snapshotPath but are PRESENT.
+    for (const role of [
+      'signaldock-global',
+      'telemetry',
+      'skills',
+      'global-brain',
+      'global-tasks',
+    ]) {
+      expect(resultRoles).toContain(role);
+    }
+  });
+
+  /**
+   * TC-205: listGlobalSqliteBackupsAll surfaces every global-tier prefix —
+   * even prefixes whose bucket is empty. Provides a single audit surface
+   * for `cleo doctor db-substrate` follow-ups.
+   *
+   * @task T10317
+   */
+  it('TC-205: listGlobalSqliteBackupsAll surfaces every global-tier prefix', async () => {
+    vi.resetModules();
+    const cleoHome = join(tmpdir(), `cleo-tc205-${Date.now()}`);
+    const backupDir = join(cleoHome, 'backups', 'sqlite');
+    mkdirSync(backupDir, { recursive: true });
+
+    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.doMock('../nexus-sqlite.js', () => ({ getNexusNativeDb: () => null }));
+    vi.doMock('../signaldock-sqlite.js', () => ({
+      getGlobalSignaldockNativeDb: () => null,
+      ensureGlobalSignaldockDb: async () => undefined,
+    }));
+    vi.doMock('../skills-db.js', () => ({
+      openSkillsDb: async () => null,
+      getSkillsNativeDb: () => null,
+    }));
+    vi.doMock('../../telemetry/sqlite.js', () => ({
+      getTelemetryDb: async () => null,
+      getTelemetryNativeDb: () => null,
+    }));
+
+    // Seed a single nexus snapshot to verify non-empty buckets are populated.
+    writeFileSync(join(backupDir, 'nexus-20260101-120000.db'), 'fake-nexus');
+
+    const { listGlobalSqliteBackupsAll } = await import('../sqlite-backup.js');
+    const map = listGlobalSqliteBackupsAll(cleoHome);
+
+    // Every global-tier role from DB_INVENTORY surfaces as a key. Mapping
+    // role → prefix is identity except for signaldock-global → 'signaldock'.
+    expect(Object.keys(map).sort()).toEqual(
+      ['nexus', 'signaldock', 'telemetry', 'skills', 'global-brain', 'global-tasks'].sort(),
+    );
+
+    expect(map['nexus']?.length).toBe(1);
+    expect(map['signaldock']?.length).toBe(0);
+    expect(map['telemetry']?.length).toBe(0);
+  });
+
   /**
    * TC-105: listGlobalSqliteBackups('signaldock') returns only the global
    * signaldock snapshots, not nexus ones.

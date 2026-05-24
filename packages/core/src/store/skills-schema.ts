@@ -167,7 +167,13 @@ export const skillUsage = sqliteTable(
     observedAt: text('observed_at').notNull().default(sql`(datetime('now'))`),
     /** Event kind — `load`, `invoke`, `error`, etc. (free-form for now). */
     eventKind: text('event_kind').notNull(),
-    /** Optional epic / task ID context (null if not running inside a CLEO task). */
+    /**
+     * Optional epic / task ID context (null if not running inside a CLEO task).
+     *
+     * @cross-db tasks.tasks.id — skills→tasks soft FK (the project-tier task
+     * that owns this skill-usage event). Resolved by the skill telemetry
+     * accessor; no DB-level FK (skills.db is global; tasks.db is project-tier).
+     */
     taskId: text('task_id'),
     /** Optional model identifier the calling agent was running under. */
     modelId: text('model_id'),

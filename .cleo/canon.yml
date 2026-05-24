@@ -4,6 +4,15 @@
 # `cleo check canon docs` to detect raw-markdown writes that should have
 # routed through SSoT (via `cleo docs add`) instead.
 #
+# Related SSoT — verb-to-DocKind mapping:
+#   packages/core/src/docs/writer-registry.ts (T10366 · Saga T10288 · Epic T10290)
+#
+# canon.yml answers "WHERE does this DocKind live + which raw paths are CI-gated?".
+# writer-registry.ts answers "WHICH CLI verb (and core function) writes this DocKind?".
+# Together they cover the full routing contract — one for storage, one for entry point.
+# Parity is enforced by `writer-registry.test.ts`: every `ssot-first` descriptor in the
+# registry MUST match a kind here whose `canonicalHome: 'ssot-first'`, and vice versa.
+#
 # Schema is enforced at runtime — see .cleo/canon.schema.json.
 #
 # Routing taxonomy (one of):

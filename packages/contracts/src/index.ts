@@ -128,6 +128,14 @@ export type {
   BackupMetadata,
   BackupScope,
 } from './backup-manifest.js';
+// === Backup Verify Types (T10319 — per-DB freshness + integrity walker) ===
+export type {
+  BackupVerifyDbReport,
+  BackupVerifyResult,
+  BackupVerifySnapshot,
+  BackupVerifySummary,
+  BackupVerifyVerdict,
+} from './backup-verify.js';
 // === Boundary Registry (SSoT for Rust/TS layering — ADR-078, Saga T10176) ===
 export type {
   BoundaryEntry,
@@ -283,6 +291,12 @@ export type {
   DbTier,
 } from './db-inventory.js';
 export { DB_INVENTORY } from './db-inventory.js';
+// === DB Recovery (T10318 — Saga T10281 / Epic T10284 — generic across DB_INVENTORY) ===
+export type {
+  BackupRecoverResult,
+  DbRecoveredRowCounts,
+  DbRecoveryResult,
+} from './db-recovery.js';
 // === Dependency Registry Contracts ===
 export type {
   DependencyCategory,
@@ -336,6 +350,7 @@ export type {
   DbSubstrateMigrationOrphan,
   DbSubstrateProjectSurvey,
   DbSubstrateSummary,
+  DbSubstrateSurveyOptions,
   DbSubstrateWarning,
   DbSubstrateWarningKind,
   LegacyBackupEntry,
@@ -344,6 +359,7 @@ export type {
   LegacyBackupScanResult,
   OrphanEntry,
   OrphanScanResult,
+  PragmaDriftItem,
   PruneAuditEntry,
   PruneResult,
   SagaAuditEntry,
