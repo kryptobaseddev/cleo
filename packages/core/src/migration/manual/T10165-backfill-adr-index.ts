@@ -427,7 +427,7 @@ export async function backfillAdrIndex(
  */
 function parseArgs(argv: string[]): { projectRoot: string; dryRun: boolean } {
   let dryRun = true;
-  let projectRoot = process.cwd();
+  let projectRoot = process.cwd(); // CWD-OK: one-shot manual migration CLI default; overridable via --project-root (T10165)
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--apply') {
@@ -446,7 +446,7 @@ function parseArgs(argv: string[]): { projectRoot: string; dryRun: boolean } {
 async function main(): Promise<void> {
   const { projectRoot, dryRun } = parseArgs(process.argv.slice(2));
   const result = await backfillAdrIndex(projectRoot, { dryRun });
-  process.stdout.write(`${JSON.stringify({ dryRun, projectRoot, ...result }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ dryRun, projectRoot, ...result }, null, 2)}\n`); // stdout-discipline-allowed: one-shot manual migration CLI tool-output (T10165) // stdout-write-allowed: ops-tool invocation surface, not a CLEO render path (T10165)
 }
 
 const isDirectInvocation =
