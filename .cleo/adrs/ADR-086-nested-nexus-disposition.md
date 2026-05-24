@@ -1,11 +1,11 @@
 ---
-id: adr-085-nested-nexus-disposition
+id: adr-086-nested-nexus-disposition
 tasks: [T10321, T10306, T10282, T10285]
 kind: adr
-summary: ADR-085 — Disposition of the nested `~/.local/share/cleo/nexus/` subdirectory. BAN — delete the nested duplicates (`nexus/nexus.db`, `nexus/signaldock.db`, `nexus/nexus-pre-cleo.db.bak`) and lock in the canonical flat XDG layout (`<cleoHome>/nexus.db`, `<cleoHome>/signaldock.db`). Ships a migration script (`scripts/migrate-nested-nexus.mjs`) plus a runtime warning at `getNexusDb()` open time.
+summary: ADR-086 — Disposition of the nested `~/.local/share/cleo/nexus/` subdirectory. BAN — delete the nested duplicates (`nexus/nexus.db`, `nexus/signaldock.db`, `nexus/nexus-pre-cleo.db.bak`) and lock in the canonical flat XDG layout (`<cleoHome>/nexus.db`, `<cleoHome>/signaldock.db`). Ships a migration script (`scripts/migrate-nested-nexus.mjs`) plus a runtime warning at `getNexusDb()` open time.
 ---
 
-# ADR-085: Nested `~/.local/share/cleo/nexus/` Disposition — BAN
+# ADR-086: Nested `~/.local/share/cleo/nexus/` Disposition — BAN
 
 - **Status**: Accepted
 - **Date**: 2026-05-23
