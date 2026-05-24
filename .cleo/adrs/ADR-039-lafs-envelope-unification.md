@@ -112,10 +112,47 @@ Cherry-picked from Wave 4 commits in the T335 epic. Wave 4 finisher (T338) close
 
 ---
 
+## Amendment — T9920 (Saga T9855 / E8.1, 2026-05-24)
+
+`CliMeta` is extended with an optional first-class
+`suggestedNext?: ReadonlyArray<string>` field. The field is the **canonical**
+envelope-wide LLM next-action hint: a flat array of copy-pasteable CLI
+commands the agent may run next as the natural chained-reasoning step.
+
+**Semantic.** Each entry MUST be a self-contained, copy-pasteable command
+string (e.g. `"cleo focus T1234"`, `"cleo verify T1234 --gate implemented"`).
+The list is ordered by relevance — earliest entry is the most likely
+follow-up. An empty array means "no follow-up suggested"; absent means
+"the producer did not consider follow-ups". Renderers MUST omit the field
+from human output when the array is empty.
+
+**Backward compatibility.** The pre-T9920 nexus-only structured form lives
+on at `meta._nexus.suggestedNext: ReadonlyArray<SuggestedNextOp>` (see
+`packages/contracts/src/operations/nexus-scope.ts`). The nexus decorator
+will additionally project a flat string form onto `meta.suggestedNext`
+under follow-on task T9921. Existing structured-shape consumers continue
+to function unchanged — this amendment **adds** the envelope-wide field
+without altering the nexus-internal one.
+
+**Producer guidance.** Operation handlers, decorators, and middleware
+SHOULD use the helper
+`attachSuggestedNext(envelope, suggestions)` from
+`@cleocode/core/dispatch/suggested-next` (re-exported from
+`@cleocode/core`) to add the field. The helper deep-clones `envelope.meta`
+so the input envelope is never mutated.
+
+Follow-ons: T9921 (auto-populate on mutate ops), T9925 (LAFS conformance
+test asserts shape across every operation).
+
+---
+
 ## References
 
 - T335 — LAFS Envelope Remediation epic
 - T338 — FIX-3: Wave 4 finisher
+- T9920 (Saga T9855 / E8.1) — envelope-wide `meta.suggestedNext` promotion
 - `packages/lafs/src/envelope.ts` — canonical `CliEnvelope`, `CliMeta`, `CliEnvelopeError` types
+- `packages/core/src/dispatch/suggested-next.ts` — `attachSuggestedNext` helper
+- `packages/contracts/src/operations/nexus-scope.ts` — pre-existing structured `NexusScopeMeta.suggestedNext`
 - `packages/cleo/src/dispatch/lib/proto-envelope.ts` — `_ProtoEnvelopeStub` bridge type
 - `packages/cleo/src/dispatch/types.ts` — `DispatchResponse.meta` (renamed from `_meta`)
