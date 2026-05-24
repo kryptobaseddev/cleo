@@ -6797,6 +6797,61 @@ export const OPERATIONS: OperationDef[] = [
       },
     ],
   },
+  // ── docs.update (T10161 — Epic T10157 / Saga T9855) ──────────────────────
+  {
+    gateway: 'mutate',
+    domain: 'docs',
+    operation: 'update',
+    description:
+      'docs.update (mutate) — replace blob content for an existing slug while preserving the slug. ' +
+      'New sha256 + new attachment row; the old row stays reachable by ID for history. ' +
+      'NO supersession edge (use `cleo docs supersede` for that). ' +
+      'Audit log entry appended to .cleo/audit/docs-versioning.jsonl (squashed within a 5-min window).',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['slug'],
+    params: [
+      {
+        name: 'slug',
+        type: 'string' as const,
+        required: true,
+        description: 'Slug of the existing attachment to update',
+      },
+      {
+        name: 'file',
+        type: 'string' as const,
+        required: false,
+        description: 'Path to a local file containing the new content',
+      },
+      {
+        name: 'content',
+        type: 'string' as const,
+        required: false,
+        description: 'Inline UTF-8 content (mutually exclusive with file)',
+      },
+      {
+        name: 'message',
+        type: 'string' as const,
+        required: false,
+        description: 'One-line summary describing the change (recorded in the audit log)',
+      },
+      {
+        name: 'status',
+        type: 'string' as const,
+        required: false,
+        description:
+          'Override the new lifecycle status. Defaults to "draft" on every update. ' +
+          'Valid: draft|proposed|accepted|superseded|archived|deprecated.',
+      },
+      {
+        name: 'attachedBy',
+        type: 'string' as const,
+        required: false,
+        description: 'Agent identity that performed the update (defaults to "human")',
+      },
+    ],
+  },
   // ── playbook.* HITL CLI surface (T935) ───────────────────────────────────
   {
     gateway: 'mutate',

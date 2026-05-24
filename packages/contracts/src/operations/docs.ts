@@ -481,6 +481,101 @@ export interface DocsRemoveResult {
   attachmentBackend?: AttachmentBackend;
 }
 
+// --------------------------------------------------------------------------
+// docs.update — UPDATE-in-place via slug (T10161)
+// --------------------------------------------------------------------------
+
+/**
+ * Allowed `lifecycle_status` values mirrored from the attachments-table enum
+ * (`ATTACHMENT_LIFECYCLE_STATUSES` in
+ * `packages/core/src/store/schema/attachments.ts`). Kept inline here so the
+ * contract surface stays self-contained — the dispatch handler narrows raw
+ * `--status` input against this set before touching the store.
+ *
+ * @task T10161 (Epic T10157 / Saga T9855)
+ */
+export type DocsLifecycleStatus =
+  | 'draft'
+  | 'proposed'
+  | 'accepted'
+  | 'superseded'
+  | 'archived'
+  | 'deprecated';
+
+/**
+ * Parameters for `docs.update`.
+ *
+ * Replaces the blob content for an existing slug — the slug is transferred
+ * from the old `attachments` row to a new row carrying the new sha256, and
+ * the old row remains reachable by attachment-id for history. Unlike
+ * {@link DocsSupersedeParams}-style flows, NO supersession edge is created
+ * (callers wanting an explicit lineage edge should use `cleo docs supersede`).
+ *
+ * Exactly one of `file` or `content` MUST be provided.
+ *
+ * @task T10161 (Epic T10157 / Saga T9855 — E12.C4)
+ */
+export interface DocsUpdateParams {
+  /** Slug of the existing attachment to update (required). */
+  slug: string;
+  /** Path to a local file containing the new content. */
+  file?: string;
+  /** Inline UTF-8 content (mutually exclusive with `file`). */
+  content?: string;
+  /** Optional one-line summary describing the change (recorded in the audit log). */
+  message?: string;
+  /**
+   * Override the new lifecycle status. Defaults to `'draft'` on every update
+   * so an explicit `accepted` doc gets back-pressured to draft on edit. Pass
+   * `--status accepted` (or any other valid status) to override.
+   */
+  status?: DocsLifecycleStatus;
+  /** Agent identity that performed the update (default: `'human'`). */
+  attachedBy?: string;
+}
+
+/**
+ * Result of `docs.update`.
+ *
+ * Identifies the new row (active) and the row it replaced. When the supplied
+ * content is byte-identical to the current content the operation is a noop —
+ * `previousSha256` will equal `sha256` and `changed` will be `false`.
+ *
+ * @task T10161
+ */
+export interface DocsUpdateResult {
+  /** Slug that now points at the new content. */
+  slug: string;
+  /** Type/kind of the row, preserved from the prior version. */
+  type?: DocsType;
+  /** New attachment ID now bearing the slug. */
+  attachmentId: string;
+  /** Previous attachment ID; retains its row + bytes for history. */
+  previousAttachmentId: string;
+  /** SHA-256 hex of the new content. */
+  sha256: string;
+  /** SHA-256 hex of the prior content (equals `sha256` on a noop). */
+  previousSha256: string;
+  /** Whether the bytes actually changed (false ⇒ noop). */
+  changed: boolean;
+  /** Lifecycle status now stored on the new row. */
+  lifecycleStatus: DocsLifecycleStatus;
+  /** ISO 8601 timestamp the new row was registered. */
+  updatedAt: string;
+  /**
+   * Best-effort 1-indexed version number for the slug (count of historical
+   * rows that ever carried this slug, including the current one). When the
+   * underlying store cannot enumerate history this falls back to `2` for the
+   * first update and increments by 1 thereafter.
+   */
+  version: number;
+  /**
+   * True when this update was squashed into an existing audit entry within
+   * the 5-minute squash window (no new audit line was written).
+   */
+  squashed: boolean;
+}
+
 // ============================================================================
 // Discriminated Union (DocsOps)
 // ============================================================================
@@ -500,7 +595,8 @@ export type DocsOps =
   | { op: 'docs.fetch'; params: DocsFetchParams; result: DocsFetchResult }
   | { op: 'docs.generate'; params: DocsGenerateParams; result: DocsGenerateResult }
   | { op: 'docs.add'; params: DocsAddParams; result: DocsAddResult }
-  | { op: 'docs.remove'; params: DocsRemoveParams; result: DocsRemoveResult };
+  | { op: 'docs.remove'; params: DocsRemoveParams; result: DocsRemoveResult }
+  | { op: 'docs.update'; params: DocsUpdateParams; result: DocsUpdateResult };
 
 /**
  * Enumeration of all docs domain operation names.
@@ -509,4 +605,10 @@ export type DocsOps =
  * Useful for dynamic operation dispatch, type narrowing, or documentation.
  * Kept in sync with the `DocsOps` discriminated union above.
  */
-export type DocsOp = 'docs.list' | 'docs.fetch' | 'docs.generate' | 'docs.add' | 'docs.remove';
+export type DocsOp =
+  | 'docs.list'
+  | 'docs.fetch'
+  | 'docs.generate'
+  | 'docs.add'
+  | 'docs.remove'
+  | 'docs.update';

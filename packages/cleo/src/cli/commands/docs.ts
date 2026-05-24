@@ -1070,6 +1070,136 @@ const rankCommand = defineCommand({
   },
 });
 
+// ── cleo docs update ──────────────────────────────────────────────────────────
+
+/**
+ * `cleo docs update <slug>` — UPDATE-in-place via slug (T10161).
+ *
+ * Replaces the blob content for an existing slug while preserving the slug
+ * itself. Internally:
+ *
+ *   1. Looks up the existing attachment row by slug (E_NOT_FOUND if missing).
+ *   2. Hashes the new content; identical bytes ⇒ NOOP (changed=false).
+ *   3. Inside one BEGIN IMMEDIATE transaction: clear the slug on the old
+ *      row, insert/upsert a new row carrying the new sha256 + the slug, and
+ *      carry every existing owner ref onto the new row.
+ *   4. Writes a versioning audit line under
+ *      `.cleo/audit/docs-versioning.jsonl`. Updates for the same slug within
+ *      a 5-minute window squash into the prior line (revisions[]).
+ *
+ * Pairs with `cleo docs supersede` (T10162) — supersede creates an explicit
+ * lineage edge for major scope shifts; update is for minor edits that
+ * shouldn't fragment the slug history.
+ *
+ * @task T10161 (Epic T10157 · Saga T9855 · E12.C4)
+ */
+const updateCommand = defineCommand({
+  meta: {
+    name: 'update',
+    description:
+      'Replace blob content for an existing slug while preserving the slug. ' +
+      'Pass --file <path> OR --content <text> (exactly one). Defaults --status to "draft" ' +
+      'on every update so explicit `accepted` docs get back-pressured to draft on edit. ' +
+      'Audit log entry appended to .cleo/audit/docs-versioning.jsonl (squashed within 5 min).\n\n' +
+      'Positional arguments:\n' +
+      '  <slug>                 Slug of the attachment to update (required)\n\n' +
+      'Named arguments:\n' +
+      '  --file <path>          Local file containing the new content\n' +
+      '  --content <text>       Inline UTF-8 content (mutually exclusive with --file)\n' +
+      '  --message <text>       One-line summary of the change (audit log)\n' +
+      '  --status <status>      Override lifecycle status — default "draft"\n' +
+      '  --attached-by <name>   Agent identity for this revision (default "human")',
+  },
+  args: {
+    slug: {
+      type: 'positional',
+      description: 'Slug of the attachment to update',
+      required: true,
+    },
+    file: {
+      type: 'string',
+      description: 'Local file containing the new content',
+    },
+    content: {
+      type: 'string',
+      description: 'Inline UTF-8 content (mutually exclusive with --file)',
+    },
+    message: {
+      type: 'string',
+      description: 'One-line summary of the change (recorded in the audit log)',
+    },
+    status: {
+      type: 'string',
+      description:
+        'Lifecycle status to set on the new row. Valid: ' +
+        'draft|proposed|accepted|superseded|archived|deprecated. Default: draft.',
+    },
+    'attached-by': {
+      type: 'string',
+      description: 'Agent identity that performed the update (default: "human")',
+    },
+  },
+  async run({ args, rawArgs }) {
+    try {
+      assertKnownFlags(rawArgs, updateCommand.args, 'docs update');
+    } catch (err) {
+      if (err instanceof UnknownFlagError) {
+        cliError(err.message, ExitCode.VALIDATION_ERROR, {
+          name: err.code,
+          fix: err.fix,
+          alternatives: err.suggestions.map((s) => ({ action: s, command: s })),
+          details: { flag: err.flag, knownFlags: err.knownFlags },
+        });
+        process.exit(ExitCode.VALIDATION_ERROR);
+      }
+      throw err;
+    }
+
+    const slug = String(args.slug);
+    const filePath = typeof args.file === 'string' ? args.file : undefined;
+    const inlineContent = typeof args.content === 'string' ? args.content : undefined;
+
+    if (filePath !== undefined && inlineContent !== undefined) {
+      cliError('--file and --content are mutually exclusive', ExitCode.VALIDATION_ERROR, {
+        name: 'E_VALIDATION',
+        fix: 'Use `cleo docs update <slug> --file <path>` OR `--content <text>` (not both).',
+      });
+      process.exit(ExitCode.VALIDATION_ERROR);
+    }
+    if (filePath === undefined && inlineContent === undefined) {
+      cliError('provide --file <path> OR --content <text>', ExitCode.VALIDATION_ERROR, {
+        name: 'E_VALIDATION',
+        fix: 'Example: `cleo docs update my-doc --file ./new.md` OR `cleo docs update my-doc --content "..."`.',
+      });
+      process.exit(ExitCode.VALIDATION_ERROR);
+    }
+
+    // T10389 — resolve relative file paths against the worktree cwd so
+    // worktree-spawned agents can pass relative paths. Mirrors the
+    // discipline used in `cleo docs add`.
+    let resolvedFile: string | undefined;
+    if (filePath !== undefined) {
+      const routing = resolveWorktreeRouting();
+      resolvedFile = resolveWorktreeFilePath(filePath, routing);
+    }
+
+    await dispatchFromCli(
+      'mutate',
+      'docs',
+      'update',
+      {
+        slug,
+        ...(resolvedFile !== undefined ? { file: resolvedFile } : {}),
+        ...(inlineContent !== undefined ? { content: inlineContent } : {}),
+        ...(typeof args.message === 'string' ? { message: args.message } : {}),
+        ...(typeof args.status === 'string' ? { status: args.status } : {}),
+        ...(typeof args['attached-by'] === 'string' ? { attachedBy: args['attached-by'] } : {}),
+      },
+      { command: 'docs update' },
+    );
+  },
+});
+
 // ── cleo docs versions ────────────────────────────────────────────────────────
 
 /**
@@ -1847,6 +1977,7 @@ export const docsCommand = defineCommand({
   },
   subCommands: {
     add: addCommand,
+    update: updateCommand,
     list: listCommand,
     fetch: fetchCommand,
     remove: removeCommand,

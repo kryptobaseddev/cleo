@@ -39,10 +39,10 @@ describe('Docs Domain Registry (T797)', () => {
     expect(CANONICAL_DOMAINS).toContain('docs');
   });
 
-  it('docs domain has 5 registered operations', () => {
-    // add|list|fetch|remove (T797) + generate (T798)
+  it('docs domain has 6 registered operations', () => {
+    // add|list|fetch|remove (T797) + generate (T798) + update (T10161)
     const docsOps = getByDomain('docs');
-    expect(docsOps).toHaveLength(5);
+    expect(docsOps).toHaveLength(6);
   });
 
   it('docs has expected query operations', () => {
@@ -59,6 +59,15 @@ describe('Docs Domain Registry (T797)', () => {
     const names = mutateOps.map((o) => o.operation);
     expect(names).toContain('add');
     expect(names).toContain('remove');
+    // T10161 — update verb registered as mutate.
+    expect(names).toContain('update');
+  });
+
+  it('docs.update has slug as a required param (T10161)', () => {
+    const updateOp = OPERATIONS.find((o) => o.domain === 'docs' && o.operation === 'update');
+    expect(updateOp).toBeDefined();
+    expect(updateOp!.requiredParams).toContain('slug');
+    expect(updateOp!.gateway).toBe('mutate');
   });
 
   it('all docs operations have valid structure', () => {
@@ -112,6 +121,8 @@ describe('Docs Domain Handler Registration', () => {
     expect(ops.query).toContain('fetch');
     expect(ops.mutate).toContain('add');
     expect(ops.mutate).toContain('remove');
+    // T10161 — update verb appears in the supported-mutate list.
+    expect(ops.mutate).toContain('update');
   });
 });
 
@@ -220,6 +231,46 @@ describe('DocsHandler parameter validation', () => {
 
     it('does not return E_INVALID_OPERATION', async () => {
       const result = await handler.mutate('remove', {});
+      expect(result.error?.code).not.toBe('E_INVALID_OPERATION');
+    });
+  });
+
+  // T10161 — update verb param validation (DB-free shape checks).
+  describe('docs.update', () => {
+    it('returns E_INVALID_INPUT when slug is missing', async () => {
+      const result = await handler.mutate('update', {});
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INVALID_INPUT');
+    });
+
+    it('returns E_INVALID_INPUT when neither file nor content is provided', async () => {
+      const result = await handler.mutate('update', { slug: 'some-slug' });
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INVALID_INPUT');
+    });
+
+    it('returns E_INVALID_INPUT when BOTH file and content are provided', async () => {
+      const result = await handler.mutate('update', {
+        slug: 'some-slug',
+        file: '/tmp/x.md',
+        content: 'inline',
+      });
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INVALID_INPUT');
+    });
+
+    it('returns E_INVALID_INPUT when status is invalid', async () => {
+      const result = await handler.mutate('update', {
+        slug: 'some-slug',
+        content: 'x',
+        status: 'not-a-valid-status',
+      });
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INVALID_INPUT');
+    });
+
+    it('does not return E_INVALID_OPERATION', async () => {
+      const result = await handler.mutate('update', {});
       expect(result.error?.code).not.toBe('E_INVALID_OPERATION');
     });
   });
