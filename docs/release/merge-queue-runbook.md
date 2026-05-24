@@ -4,76 +4,34 @@
 > **Last updated:** 2026-05-24
 
 This document is the operator-facing runbook for GitHub Merge Queue on the
-`cleocode` repository. It covers setup, day-to-day commands, troubleshooting,
-and FAQ.
+`cleocode` repository. It covers setup, day-to-day commands, the zero-admin-merge
+policy, troubleshooting, and FAQ.
 
 ---
 
-## 1. Setup
+## Setup
 
-### 1.1 Prerequisites
+### Prerequisites
 
 - Repository admin access (or ask an owner).
 - `gh` CLI authenticated (`gh auth status`).
 - Default branch is `main`.
 
-### 1.2 Enable merge queue on the repository
+### How `merge_group` triggers work
 
-GitHub Merge Queue is enabled at the repository level via the web UI or API.
+When a PR is added to the merge queue, GitHub creates a temporary merge branch
+(`gh-readonly-queue/<target>/<pr>-<sha>`) and pushes it. This push fires the
+`merge_group` event. Any workflow whose `on:` block includes `merge_group:` will
+run against that temporary branch. The queue waits for all required checks to
+pass before fast-forwarding the target branch.
 
-**Web UI (recommended):**
-1. Go to **Settings → General → Pull Requests**.
-2. Under **Merge button**, check **Allow merge queue**.
-3. Choose **Build strategy**: **All checks required** (recommended) or
-   **Only required checks**.
-4. Set **Maximum pull requests to build**: `5` (default).
-5. Set **Maximum pull requests to merge**: `5` (default).
-6. Set **Minimum pull requests to merge**: `1` (default).
-7. Set **Maximum build time for a pull request**: `60` minutes.
-8. Save.
+Key points:
+- `merge_group` is a distinct event from `pull_request` or `push`.
+- Workflows that do **not** declare `merge_group:` will not run in the queue.
+- If a required status check is listed in branch protection but its workflow
+  lacks `merge_group:`, the PR will stall forever.
 
-**API (automation / reproducibility):**
-
-```bash
-# Enable merge queue (requires admin token)
-gh api -X PATCH repos/:owner/:repo \
-  -f allow_merge_queue=true \
-  -f merge_queue_build_strategy='all' \
-  -f merge_queue_maximum_entries=5 \
-  -f merge_queue_maximum_entries_to_merge=5 \
-  -f merge_queue_minimum_entries_to_merge=1 \
-  -f merge_queue_maximum_build_time=60
-```
-
-> **Note:** The `gh` CLI does not yet expose a first-class `merge queue enable`
-> command. Use the web UI or the REST API above.
-
-### 1.3 Verify branch protection works with merge queue
-
-Merge queue requires branch protection rules (or a ruleset) that:
-- Require status checks to pass before merging.
-- Require pull request reviews (optional but recommended).
-
-Run the protection setup from `docs/release/branch-protection-setup.md`:
-
-```bash
-gh api -X PUT repos/:owner/:repo/branches/main/protection \
-  -f required_status_checks[strict]=true \
-  -f required_status_checks[contexts][]=CI \
-  -f required_status_checks[contexts][]="Lockfile Check" \
-  -f required_status_checks[contexts][]="Contracts Dep Lint" \
-  -f enforce_admins=false \
-  -f required_pull_request_reviews[required_approving_review_count]=0 \
-  -f restrictions=null
-```
-
-Then verify the queue is active:
-
-```bash
-gh api repos/:owner/:repo/branches/main/protection | jq '.required_pull_request_reviews, .required_status_checks'
-```
-
-### 1.4 Ensure workflows declare `merge_group:`
+### Which workflows have `merge_group:`
 
 Every workflow that must run in the queue needs `merge_group:` in its `on:`
 block. As of 2026-05-24, the following 12 PR-gated workflows declare it:
@@ -107,11 +65,67 @@ triggered by non-PR events:
 If a new PR-gated workflow is added, it **must** include `merge_group:` or
 merge queue will skip its checks and the PR will stall.
 
+### Enable merge queue on the repository
+
+GitHub Merge Queue is enabled at the repository level via the web UI or API.
+
+**Web UI (recommended):**
+1. Go to **Settings → General → Pull Requests**.
+2. Under **Merge button**, check **Allow merge queue**.
+3. Choose **Build strategy**: **All checks required** (recommended) or
+   **Only required checks**.
+4. Set **Maximum pull requests to build**: `5` (default).
+5. Set **Maximum pull requests to merge**: `5` (default).
+6. Set **Minimum pull requests to merge**: `1` (default).
+7. Set **Maximum build time for a pull request**: `60` minutes.
+8. Save.
+
+**API (automation / reproducibility):**
+
+```bash
+# Enable merge queue (requires admin token)
+gh api -X PATCH repos/:owner/:repo \
+  -f allow_merge_queue=true \
+  -f merge_queue_build_strategy='all' \
+  -f merge_queue_maximum_entries=5 \
+  -f merge_queue_maximum_entries_to_merge=5 \
+  -f merge_queue_minimum_entries_to_merge=1 \
+  -f merge_queue_maximum_build_time=60
+```
+
+> **Note:** The `gh` CLI does not yet expose a first-class `merge queue enable`
+> command. Use the web UI or the REST API above.
+
+### Verify branch protection works with merge queue
+
+Merge queue requires branch protection rules (or a ruleset) that:
+- Require status checks to pass before merging.
+- Require pull request reviews (optional but recommended).
+
+Run the protection setup from `docs/release/branch-protection-setup.md`:
+
+```bash
+gh api -X PUT repos/:owner/:repo/branches/main/protection \
+  -f required_status_checks[strict]=true \
+  -f required_status_checks[contexts][]=CI \
+  -f required_status_checks[contexts][]="Lockfile Check" \
+  -f required_status_checks[contexts][]="Contracts Dep Lint" \
+  -f enforce_admins=false \
+  -f required_pull_request_reviews[required_approving_review_count]=0 \
+  -f restrictions=null
+```
+
+Then verify the queue is active:
+
+```bash
+gh api repos/:owner/:repo/branches/main/protection | jq '.required_pull_request_reviews, .required_status_checks'
+```
+
 ---
 
-## 2. Operator Commands
+## Operator Commands
 
-### 2.1 Add a PR to the merge queue
+### Add a PR to the merge queue
 
 **Web UI:**
 1. Open the PR.
@@ -137,7 +151,7 @@ gh api graphql -f query='
 ' -f id="$(gh pr view <num> --json id -q .id)"
 ```
 
-### 2.2 Check queue status
+### Check queue status
 
 ```bash
 # List PRs currently in the merge queue
@@ -148,7 +162,10 @@ gh api repos/:owner/:repo/pulls?state=open | \
 Or view the queue in the web UI:
 - **Repository → Pull requests → Merge queue** (tab near the top).
 
-### 2.3 Remove a PR from the queue
+You can also use `cleo orchestrate status --merge-queue` (when available) to
+see a project-local summary of queued PRs and their CI state.
+
+### Remove a PR from the queue
 
 **Web UI:**
 1. Open the PR.
@@ -169,7 +186,7 @@ gh api graphql -f query='
 ' -f id="$(gh pr view <num> --json id -q .id)"
 ```
 
-### 2.4 View merge queue history
+### View merge queue history
 
 ```bash
 # Recent merge-group events (push to gh-readonly-queue/* branches)
@@ -177,7 +194,7 @@ gh api repos/:owner/:repo/events?per_page=30 | \
   jq '.[] | select(.type == "PushEvent") | select(.payload.ref | contains("gh-readonly-queue")) | {created_at, ref: .payload.ref, before, after}'
 ```
 
-### 2.5 Check a specific merge-group CI run
+### Check a specific merge-group CI run
 
 Merge-group builds appear in the Actions tab with branch names like
 `gh-readonly-queue/main/pr-123-<sha>`.
@@ -192,9 +209,36 @@ gh run view <run-id>
 
 ---
 
-## 3. Troubleshooting
+## Zero-Admin-Merge Policy
 
-### 3.1 PR stuck in queue — CI never starts
+**All PRs must pass CI. No bypass.**
+
+This repository operates under a strict zero-admin-merge policy:
+
+1. **No human clicks "Merge"** — once a PR is approved and CI-green, the
+   author (or any collaborator) adds it to the merge queue.
+2. **The queue is the only path to `main`** — every commit on `main` has
+   passed CI on the exact merge commit, not just the PR branch tip.
+3. **Admin bypass is audited** — repository admins can technically bypass
+   the queue via **Admin merge** or `gh pr merge --admin`, but this is
+   reserved for true break-glass scenarios. Any bypass must be logged in
+   `.cleo/audit/force-bypass.jsonl` with:
+   - PR number
+   - Reason
+   - Operator identity
+   - Timestamp
+
+Consequences of bypassing:
+- Unreviewed or broken code can reach `main`.
+- The "green PR + stale main" race condition is reintroduced.
+- Release automation (auto-tag, worktree cleanup) may behave unexpectedly
+  because it expects the `merge_group` lifecycle.
+
+---
+
+## Troubleshooting
+
+### Queue blocked — CI never starts
 
 **Symptom:** PR shows "Waiting for checks to pass" indefinitely.
 
@@ -212,7 +256,7 @@ gh run view <run-id>
 - If a workflow is missing `merge_group:`, add it and re-queue the PR.
 - If the branch does not exist, remove and re-add the PR to the queue.
 
-### 3.2 PR fails in queue but passes on the PR branch
+### Stuck PRs — fails in queue but passes on the PR branch
 
 **Symptom:** Green PR CI, red merge-group CI.
 
@@ -229,7 +273,7 @@ rebase.
    ```
 2. Re-add the PR to the queue.
 
-### 3.3 "Required status check "X" was not reported"
+### Flake diagnosis — "Required status check "X" was not reported"
 
 **Symptom:** Merge queue complains that a required check is missing.
 
@@ -248,7 +292,7 @@ renaming a workflow job.
      -f required_status_checks[contexts][]="Exact Job Name"
    ```
 
-### 3.4 Merge queue disabled / missing from UI
+### Merge queue disabled / missing from UI
 
 **Symptom:** No "Merge when ready" button; only "Merge pull request".
 
@@ -256,10 +300,10 @@ renaming a workflow job.
 branch protection rules do not require status checks.
 
 **Fix:**
-1. Re-run the setup steps in §1.2 and §1.3.
+1. Re-run the setup steps in the Setup section above.
 2. Ensure at least one status check is required by protection rules.
 
-### 3.5 Auto-tag workflow (`auto-tag-on-release-merge.yml`) not firing
+### Auto-tag workflow (`auto-tag-on-release-merge.yml`) not firing
 
 **Symptom:** Release PR merged, but no tag created.
 
@@ -276,7 +320,7 @@ branch protection rules do not require status checks.
 - If the workflow did not run, check `.github/workflows/auto-tag-on-release-merge.yml`
   for syntax errors.
 
-### 3.6 Worktree cleanup not running after merge-queue merge
+### Worktree cleanup not running after merge-queue merge
 
 **Symptom:** Merged PR's worktree still exists.
 
@@ -293,7 +337,7 @@ but the `merged` flag must be `true`.
 
 ---
 
-## 4. FAQ
+## FAQ
 
 ### Q1: Do I need to rebase before adding to the merge queue?
 
@@ -343,9 +387,15 @@ git fetch origin main
 git log --oneline -5 origin/main
 ```
 
+### Q8: What is `cleo orchestrate status --merge-queue`?
+
+**A:** When implemented, this command surfaces a project-local summary of
+queued PRs, their CI state, and estimated time-to-merge. Until then, use
+the `gh api` and web UI commands documented in the Operator Commands section.
+
 ---
 
-## 5. References
+## References
 
 - `AGENTS.md` — Release & Branching (ADR-065) section
 - `docs/release/branch-protection-setup.md` — Branch protection API commands
