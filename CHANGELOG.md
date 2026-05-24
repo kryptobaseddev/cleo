@@ -1,5 +1,42 @@
 # Changelog
 
+## [2026.5.121] (2026-05-24)
+
+### Saga T9862 SG-BUGS-2026-05-21 closure
+
+End-to-end bug backlog ship. 32/32 saga tasks at terminal state across 4 epics (T9864 dispatch, T9865 CLI, T9866 docs/arch, T9867 security). ~24 PRs merged.
+
+#### Fixes
+
+- spawn pipeline: 60s→180s timeout + `--orchestrator-defer` atomicity flag (T9823, T10430, #709)
+- core/tests: bump CLEO-INJECTION.md size cap 400→450 (T10465, #713)
+- spawn-prompt: remove orphan `buildChangesetLintGateBlock` (T10485/T10499, #757, #765)
+- docs: `cleo docs add` E_INTERNAL regression (T9901 / gh-#98, #721)
+- changeset: reject invalid kind values (T9936, #723)
+- engine: preserve CleoError LAFS codes via SSoT helper (T9940, #728)
+- core: auto-complete contract clarification — verify never auto-completes (T9900 / gh-#94, #731)
+- dispatch: wire `mutate:tasks.relates.remove` operation (T10111, #732)
+- tasks: label validator accepts uppercase task-ID labels (T9824, #733)
+- orchestration: IVTR Lead blast-radius full-suite test scope (T9842, #734)
+- contracts: tier metadata SSoT regression snapshot (T9845, #737)
+- build: cant builds before caamp via explicit dep map (T9939, #738)
+- core: cleo briefing uses non-keepalive dream timer (T9948, #746)
+- tasks: `cleo show` validates task ID format (T10109, #748)
+- cli: `cleo labels <name>` + `cleo find --label` (T9904, #749)
+- release: `cleo release validate-changelog` verb + workflow integration (T9937, #751)
+- ci: orphan `.cleo/` dir check workflow (T10155, #754)
+- tasks: `cleo find --parent` filter wired (T10108, #755)
+- core: rich CLI fix-hint for E_EVIDENCE_INSUFFICIENT (T9949, #756)
+- hooks: pre-push hook scoped to local-branch commits only (T10488, #758)
+
+#### Out-of-scope cancellations (documented)
+
+- T9899 / gh-#86 (SSE heartbeat) — fixed in external signaldock repo (commit 5f5ffff)
+- T9913 / gh-#88 (SignalDock production-readiness) — same external scope
+- T10112 (T9560 epic-data-corruption sweep) — already-done in DB
+- T10156 (T9837 lint-script audit) — false-positive, scripts shipped 2026-05-22
+- T9902 (Command Center architecture) — answered via decision O-mpk9gizi-0
+
 ## [2026.5.120] (2026-05-24)
 
 ### Features
