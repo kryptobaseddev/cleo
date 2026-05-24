@@ -33,8 +33,10 @@ function generateRequestId(): string {
 // dispatcher hands off to it.
 import {
   drainWarnings,
+  extractByJsonPointer,
   type FormatOptions,
   formatSuccess,
+  isJsonPointer,
   metaFooter,
   pagerFooter,
   renderAuditReconstruct,
@@ -94,6 +96,7 @@ import {
   renderTree,
   renderVersion,
   renderWaves,
+  serializePointerValue,
 } from '@cleocode/core';
 import type { CliEnvelope, CliMeta, Warning } from '@cleocode/lafs';
 import { applyFieldFilter, extractFieldFromResult } from '@cleocode/lafs';
@@ -246,6 +249,35 @@ function pickDecoratorMetaExtensionsLocal(
   return out;
 }
 
+/**
+ * Build the in-memory CliEnvelope shape we use when resolving an RFC 6901
+ * `--field <pointer>` invocation. Mirrors the envelope produced by
+ * `formatSuccess` (success, data, meta, page?) so pointers like
+ * `/data/title`, `/meta/operation`, and `/page/total` all resolve.
+ *
+ * Decorator-stamped meta (`_nexus`, `deprecated`, `suggestedNext`) is
+ * merged in the same way `cliOutput`'s standard JSON path does, so the
+ * pointer surface matches what `--json` would emit.
+ *
+ * @task T9929
+ */
+function buildEnvelopeForPointer(data: unknown, opts: CliOutputOptions): Record<string, unknown> {
+  const decoratorExt = pickDecoratorMetaExtensionsLocal(opts.responseMeta);
+  const meta: Record<string, unknown> = {
+    ...decoratorExt,
+    ...(opts.extensions ?? {}),
+    operation: opts.operation ?? 'cli.output',
+  };
+  if (opts.message) meta['message'] = opts.message;
+  const envelope: Record<string, unknown> = {
+    success: true,
+    data,
+    meta,
+  };
+  if (opts.page) envelope['page'] = opts.page;
+  return envelope;
+}
+
 // ---------------------------------------------------------------------------
 // Options for cliOutput
 // ---------------------------------------------------------------------------
@@ -294,6 +326,24 @@ export interface CliOutputOptions {
 export function cliOutput(data: unknown, opts: CliOutputOptions): void {
   const ctx = getFormatContext();
   const fieldCtx = getFieldContext();
+
+  // T9929 (Saga T9855 / E9) — RFC 6901 JSON Pointer extraction.
+  //
+  // When `--field` looks like a JSON pointer (starts with `/`), resolve
+  // it against the WHOLE envelope (not just `data`). This lets agents
+  // write `cleo show T123 --field /data/title` and skip the `jq`
+  // dependency. The leading slash is the discriminator from legacy
+  // fuzzy-field-name lookups (`--field title`) handled below.
+  if (fieldCtx.field && isJsonPointer(fieldCtx.field)) {
+    const envelope = buildEnvelopeForPointer(data, opts);
+    const value = extractByJsonPointer(envelope, fieldCtx.field);
+    if (value === undefined) {
+      cliError(`Pointer "${fieldCtx.field}" did not resolve`, 4, { name: 'E_FIELD_NOT_FOUND' });
+      process.exit(4);
+    }
+    process.stdout.write(`${serializePointerValue(value)}\n`);
+    return;
+  }
 
   if (ctx.format === 'human') {
     let dataToRender = data as Record<string, unknown>;
