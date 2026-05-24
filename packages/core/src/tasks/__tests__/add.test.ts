@@ -98,6 +98,28 @@ describe('validateLabels', () => {
     expect(() => validateLabels(['UPPERCASE'])).toThrow('Invalid label format');
     expect(() => validateLabels(['has space'])).toThrow('Invalid label format');
   });
+
+  // T9824 — uppercase task-ID-shaped labels are canonical per ADR-073 and
+  // MUST be accepted so agents can tag tasks with their parent task ID.
+  it('accepts uppercase task-ID-shaped labels (T9824 / ADR-073)', () => {
+    expect(() => validateLabels(['T9813'])).not.toThrow();
+    expect(() => validateLabels(['T9813', 'T9814'])).not.toThrow();
+    expect(() => validateLabels(['T123'])).not.toThrow();
+    expect(() => validateLabels(['T99999'])).not.toThrow();
+    // Mixed: task-ID labels alongside conventional lowercase labels
+    expect(() => validateLabels(['T9813', 'bug', 'security'])).not.toThrow();
+  });
+
+  it('still rejects malformed task-ID-like labels (T9824)', () => {
+    // Lowercase 't' is not a canonical task-ID prefix — must remain rejected
+    expect(() => validateLabels(['t9813'])).not.toThrow(); // already matches lowercase rule
+    // Too few digits (< 3) — not a real task ID shape
+    expect(() => validateLabels(['T1'])).toThrow('Invalid label format');
+    expect(() => validateLabels(['T12'])).toThrow('Invalid label format');
+    // Wrong shape — still rejected
+    expect(() => validateLabels(['T9813x'])).toThrow('Invalid label format');
+    expect(() => validateLabels(['XT9813'])).toThrow('Invalid label format');
+  });
 });
 
 describe('validatePhaseFormat', () => {
