@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Coordinates ct-docs-lookup, ct-docs-write, ct-docs-review, ct-spec-writer, and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.7.0
+version: 3.8.0
 tier: 3
 core: false
 category: specialist
@@ -331,6 +331,23 @@ node scripts/sweep-manual-doc-writes.mjs \
 Exit codes: `0` (clean OR `--allow-unresolved`), `1` (at least one
 `orphan` or `drift` entry), `2` (canon.yml parse failure, git not
 available, SSoT query failed).
+
+### T10179 + T10203 manual-write migration (T10371)
+
+Saga T10176's two known raw-write workarounds are normalised:
+
+| Original file | SSoT slug | Type | Notes |
+|---|---|---|---|
+| `docs/research/t10179-executor-probe-result.md` | `t10179-executor-probe` | research | in-sync via earlier T9791 import — verified by SHA. |
+| `.changeset/t10179-executor-probe.md` (consumed v5.108) | `t10179-changeset-archive` | note | bytes preserved verbatim from git `cc48ca10e`; archived because the pnpm/changesets `"@cleocode/cleo": patch` frontmatter does not satisfy the `changeset` DocKind schema. |
+| `.changeset/t10203-napi-step-exports.md` (consumed v5.108) | `t10203-napi-step-exports` | changeset | in-sync via the `cleo changeset add` dual-write at PR-time. |
+
+Round-trip parity is regression-locked by
+`packages/core/src/docs/__tests__/manual-write-migration.test.ts`. The
+test embeds the canonical bytes inline and asserts that
+`createAttachmentStore().put(...) → findBySlug(...)` returns the same
+SHA-256 it started with. Any future migration that silently rewrites or
+recompresses these blobs fails the test.
 
 ### Slug similarity warn (T10361 · closes T10167)
 
