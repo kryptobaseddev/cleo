@@ -191,6 +191,11 @@ export function getCleoHome(): string {
  * Returns `{cleoHome}/templates` where CLEO-INJECTION.md and other global
  * templates are stored.
  *
+ * @deprecated Use {@link import('./templates/registry.js').getTemplateManifest}
+ * and the typed `getTemplatesByKind('doc')` / `getInstalledStatus()` helpers
+ * instead. The directory-resolver pattern hides the manifest the install
+ * verbs need to reason about. Rewire planned in T9879 (Saga T9855).
+ *
  * @example
  * ```typescript
  * const dir = getCleoTemplatesDir(); // e.g. "/home/user/.local/share/cleo/templates"
