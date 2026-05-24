@@ -618,6 +618,61 @@ jobs:
         # Pure static analysis of checked-in source files — no untrusted input.
         run: node scripts/lint-dockind-writer-uniqueness.mjs
 
+  manual-write-sweep:
+    # T10372 / Epic T10293 / Saga T10288 SG-DOCS-INTEGRITY E5.2 — repo-wide
+    # manual-write sweep. Walks every `.md` file added under `.cleo/canon.yml`'s
+    # `rawMdPaths` directories since the T9791 docs-import cutoff
+    # (commit 251814e86), hashes it, and queries the docs SSoT to classify
+    # each file as `in-sync`, `drift`, or `orphan`. Emits a structured JSON
+    # report under `audit/manual-write-sweep-<date>.json`.
+    #
+    # READ-ONLY: the script mutates nothing. Initially wired with
+    # `continue-on-error: true` so the existing orphan corpus does not fail
+    # CI; flips to strict after Saga T10288 / Epic T10293 E5.3 lands the
+    # orphan cleanup migration. The report artefact is uploaded on every
+    # run so reviewers can see the unresolved count trend.
+    name: Manual Write Sweep (T10372)
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history required for git log --diff-filter=A
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.30.0'
+          run_install: false
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      - run: pnpm install --frozen-lockfile
+      - name: Build cleo CLI (sweep shells out to `cleo docs list/fetch`)
+        run: pnpm run build
+      - name: Run manual-write sweep
+        # The script exits 1 when orphans or drift exist — wrap with
+        # --allow-unresolved so CI is informational until E5.3 cleans up.
+        # --cleo-bin invokes the just-built local CLI bundle.
+        run: node scripts/sweep-manual-doc-writes.mjs --allow-unresolved --cleo-bin "node packages/cleo/dist/cli/index.js"
+      - name: Upload sweep report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: manual-write-sweep
+          path: audit/manual-write-sweep-*.json
+          if-no-files-found: warn
+
   canon-drift:
     name: Canon Drift Check
     needs: [biome]
