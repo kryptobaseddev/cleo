@@ -602,6 +602,26 @@ export {
   parseAcceptanceCriteria,
 } from './tasks/infer-add-params.js';
 export { listTasks } from './tasks/list.js';
+// Pipeline-stage canonical helpers (T060, T871, T10341)
+//
+// Re-exported from the PUBLIC barrel so CLI commands can validate
+// --pipeline-stage arguments at dispatch entry without violating the
+// lint-core-first RULE-3 ban on `@cleocode/core/internal` imports.
+//
+// @task T10341
+// @epic T10327
+// @saga T10326
+export {
+  getPipelineStageOrder,
+  isPipelineTransitionForward,
+  isTerminalPipelineStage,
+  isValidPipelineStage,
+  TASK_PIPELINE_STAGES,
+  type TaskPipelineStage,
+  TERMINAL_PIPELINE_STAGES,
+  validatePipelineStage,
+  validatePipelineTransition,
+} from './tasks/pipeline-stage.js';
 // System-wide severity attestation primitive (T9071 / ADR-054 draft)
 export {
   type AppendSeverityAttestationOptions,
