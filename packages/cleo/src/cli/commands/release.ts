@@ -330,8 +330,19 @@ const planCommand = defineCommand({
       description:
         'Skip CHANGELOG.md auto-write (default: write/replace the ## [<version>] section). (T9838)',
     },
+    'skip-readiness': {
+      type: 'boolean',
+      description:
+        'Skip the release-readiness preflight check (default: run check). Use only in emergency. (T10459)',
+    },
   },
   async run({ args }) {
+    // T10459 — release-readiness gate
+    if (args['skip-readiness'] !== true) {
+      const { runSpawnReadinessHygieneCli } = await import('@cleocode/core/hygiene/validate-spawn-readiness.js');
+      await runSpawnReadinessHygieneCli();
+      // If we reach here, all gates passed (runSpawnReadinessHygieneCli exits on failure)
+    }
     await dispatchFromCli(
       'mutate',
       'release',
