@@ -44,6 +44,8 @@ import type {
   DocsListResult,
   DocsRemoveParams,
   DocsRemoveResult,
+  DocsSupersedeParams,
+  DocsSupersedeResult,
   DocsType,
   DocsUpdateParams,
   DocsUpdateResult,
@@ -72,6 +74,9 @@ import {
   reserveSlugForDispatch,
   resolveAttachmentBackend,
   SlugCollisionError,
+  SUPERSEDE_NOT_FOUND_CODE,
+  SUPERSEDE_SAME_SLUG_CODE,
+  supersedeDoc,
   updateDocBySlug,
   validateDocBody,
   writeChangesetEntry,
@@ -162,6 +167,7 @@ type DocsTypedOps = {
   readonly add: readonly [DocsAddParams, DocsAddResult];
   readonly remove: readonly [DocsRemoveParams, DocsRemoveResult];
   readonly update: readonly [DocsUpdateParams, DocsUpdateResult];
+  readonly supersede: readonly [DocsSupersedeParams, DocsSupersedeResult];
 };
 
 // ─── Owner type inference ─────────────────────────────────────────────────────
@@ -1516,6 +1522,50 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       'update',
     );
   },
+
+  // ── docs.supersede ─────────────────────────────────────────────────────────
+
+  supersede: async (params) => {
+    const { oldSlug, newSlug, reason } = params;
+
+    if (typeof oldSlug !== 'string' || oldSlug.length === 0) {
+      return lafsError('E_INVALID_INPUT', '<oldSlug> is required', 'supersede');
+    }
+    if (typeof newSlug !== 'string' || newSlug.length === 0) {
+      return lafsError('E_INVALID_INPUT', '<newSlug> is required', 'supersede');
+    }
+
+    try {
+      const result = await supersedeDoc(getProjectRoot(), {
+        oldSlug,
+        newSlug,
+        ...(typeof reason === 'string' && reason.length > 0 ? { reason } : {}),
+      });
+
+      const payload: DocsSupersedeResult = {
+        oldSlug: result.oldSlug,
+        newSlug: result.newSlug,
+        oldAttachmentId: result.oldAttachmentId,
+        newAttachmentId: result.newAttachmentId,
+        supersededAt: result.supersededAt,
+        edgeId: result.edgeId,
+        ...(result.reason !== undefined ? { reason: result.reason } : {}),
+      };
+      return lafsSuccess<DocsSupersedeResult>(payload, 'supersede');
+    } catch (err) {
+      const code =
+        err && typeof err === 'object' && 'code' in err && typeof err.code === 'number'
+          ? // Map ExitCode (number) → stable LAFS string code expected by callers.
+            err.code === 4
+            ? SUPERSEDE_NOT_FOUND_CODE
+            : err.code === 6
+              ? SUPERSEDE_SAME_SLUG_CODE
+              : 'E_INTERNAL'
+          : 'E_INTERNAL';
+      const message = err instanceof Error ? err.message : 'supersede failed';
+      return lafsError(code, message, 'supersede');
+    }
+  },
 });
 
 // ─── Envelope-to-response converter ──────────────────────────────────────────
@@ -1599,7 +1649,7 @@ function docsEnvelopeToResponse(
 // ─── DocsHandler ──────────────────────────────────────────────────────────────
 
 const QUERY_OPS = new Set<string>(['list', 'fetch', 'generate']);
-const MUTATE_OPS = new Set<string>(['add', 'remove', 'update']);
+const MUTATE_OPS = new Set<string>(['add', 'remove', 'update', 'supersede']);
 
 /**
  * Domain handler for `cleo docs` attachment operations.
@@ -1679,7 +1729,7 @@ export class DocsHandler implements DomainHandler {
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
       query: ['list', 'fetch', 'generate'],
-      mutate: ['add', 'remove', 'update'],
+      mutate: ['add', 'remove', 'update', 'supersede'],
     };
   }
 }
