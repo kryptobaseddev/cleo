@@ -20,8 +20,76 @@ permissions:
   id-token: write
 
 jobs:
+  prebuild:
+    name: Prebuild ${{ matrix.triple }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            triple: linux-x64-gnu
+            cross: false
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+            triple: linux-arm64-gnu
+            cross: true
+          - target: x86_64-apple-darwin
+            runner: macos-13
+            triple: darwin-x64
+            cross: false
+          - target: aarch64-apple-darwin
+            runner: macos-14
+            triple: darwin-arm64
+            cross: false
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            triple: win32-x64-msvc
+            cross: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain (${{ matrix.target }})
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install cross (Linux arm64)
+        if: matrix.cross == true
+        shell: bash
+        run: cargo install cross --locked
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install workspace dependencies
+        shell: bash
+        run: pnpm install --frozen-lockfile --filter '!@cleocode/studio'
+      - name: Build napi binding (${{ matrix.target }})
+        working-directory: crates/worktree-napi
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            pnpm --package=@napi-rs/cli@3 dlx napi build --release --target ${{ matrix.target }} --use-cross
+          else
+            pnpm --package=@napi-rs/cli@3 dlx napi build --release --target ${{ matrix.target }}
+          fi
+          if [ -f worktree-napi.node ]; then
+            mv worktree-napi.node "worktree-napi.${{ matrix.triple }}.node"
+          fi
+          ls -la *.node
+      - name: Upload prebuilt artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: worktree-napi-${{ matrix.triple }}
+          path: crates/worktree-napi/worktree-napi.*.node
+          if-no-files-found: error
+          retention-days: 14
+
   release:
     name: Build & Publish
+    needs: prebuild
     runs-on: ubuntu-latest
 
     steps:
@@ -494,56 +562,11 @@ jobs:
       # binary will fall back to the loader's descriptive error, identical
       # to today's behaviour, just without the file:../../crates regression.
       - name: Download worktree-napi prebuilt binaries
-        id: napi-binaries
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          # Pick the most-recent successful prebuild run for this commit.
-          # Prefer a run matching the tag's commit SHA so we publish exactly
-          # the binaries that match the code being released. Falls back to
-          # the most-recent successful run if no SHA match is found (e.g.
-          # the prebuild hasn't completed yet for this tag).
-          WORKFLOW=".github/workflows/worktree-napi-prebuild.yml"
-          TAG_SHA=$(git rev-parse HEAD)
-          RUN_ID=$(gh run list \
-            --workflow "$WORKFLOW" \
-            --status success \
-            --limit 10 \
-            --json databaseId,headSha \
-            --jq "[.[] | select(.headSha == \"$TAG_SHA\")] | .[0].databaseId // empty")
-          if [[ -z "$RUN_ID" ]]; then
-            echo "::warning::No SHA-matched prebuild run for $TAG_SHA — falling back to most-recent successful run."
-            RUN_ID=$(gh run list \
-              --workflow "$WORKFLOW" \
-              --status success \
-              --limit 1 \
-              --json databaseId \
-              --jq '.[0].databaseId // empty')
-          fi
-          if [[ -z "$RUN_ID" ]]; then
-            echo "::warning::No successful worktree-napi-prebuild run found — per-triple packages will publish without .node binaries."
-            echo "downloaded=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "Found worktree-napi-prebuild run: $RUN_ID"
-          mkdir -p /tmp/worktree-napi-artifacts
-          gh run download "$RUN_ID" \
-            --dir /tmp/worktree-napi-artifacts \
-            --pattern 'worktree-napi-*'
-          # Copy each artifact into its matching per-triple package directory.
-          for triple in linux-x64-gnu linux-arm64-gnu darwin-x64 darwin-arm64 win32-x64-msvc; do
-            ART="/tmp/worktree-napi-artifacts/worktree-napi-${triple}"
-            DEST="packages/worktree-napi-${triple}"
-            if [[ -d "$ART" ]] && [[ -d "$DEST" ]]; then
-              cp "$ART"/worktree-napi.*.node "$DEST/" 2>/dev/null || true
-              ls -lh "$DEST/" || true
-            else
-              echo "::warning::Missing artifact $ART or dest $DEST for triple $triple"
-            fi
-          done
-          echo "downloaded=true" >> "$GITHUB_OUTPUT"
+        uses: actions/download-artifact@v4
+        with:
+          path: crates/worktree-napi
+          pattern: worktree-napi-*
+          merge-multiple: true
 
       # ── npm Publish (OIDC Trusted Publishing) ─────────────────────────────────
       # Publish in dependency order so downstream packages can resolve workspace:*
