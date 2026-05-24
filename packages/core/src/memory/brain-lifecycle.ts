@@ -1147,7 +1147,7 @@ export async function runConsolidation(
     const retentionResult = await pruneStaleHistory(projectRoot);
     result.historyRetention = retentionResult;
   } catch (err) {
-    console.warn('[consolidation] Step 9d history retention failed:', err);
+    console.warn('[consolidation] Step 9d history retention failed:', err); // json-stream-hygiene-allowed: matches Step 9a-9f best-effort console.warn pattern in this file
   }
 
   // Step 9f: Hard-sweeper — autonomous DELETE for prune candidates (T995)
