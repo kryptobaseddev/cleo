@@ -1002,10 +1002,28 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         if (err.code === 'E_FILE_WRITE_FAILED') {
           return lafsError('E_FILE_ERROR', err.message, 'add');
         }
+        // T10388 — uniform E_SLUG_RESERVED shape across both writers. The
+        // changeset writer now reserves slugs through the central allocator
+        // BEFORE any filesystem or DB mutation; collisions surface here with
+        // 3 suggested alternatives. The legacy E_SSOT_WRITE_FAILED code is
+        // retained in `details.aliases` for one release of back-compat so
+        // downstream consumers grepping for the old code can still match.
+        if (err.code === 'E_SLUG_RESERVED') {
+          return {
+            success: false,
+            error: {
+              code: 'E_SLUG_RESERVED',
+              message: err.message,
+              details: {
+                suggestions: err.suggestions,
+                aliases: err.aliases,
+              },
+            },
+          };
+        }
         // E_SSOT_WRITE_FAILED — bubble up so the operator can see the
-        // underlying store error (typically a slug collision wrapped as
-        // SlugCollisionError on the way through). The writer has already
-        // rolled back the `.changeset/<slug>.md` file at this point.
+        // underlying store error. The writer has already rolled back the
+        // `.changeset/<slug>.md` file at this point.
         return lafsError('E_SSOT_WRITE_FAILED', err.message, 'add');
       }
 

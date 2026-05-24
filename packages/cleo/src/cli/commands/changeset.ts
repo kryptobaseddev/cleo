@@ -232,10 +232,15 @@ const addCommand = defineCommand({
     // ── 6. Render the LAFS envelope. ────────────────────────────────────────
     if (!outcome.ok) {
       const err = outcome.error;
+      // T10388 — when the central slug-allocator rejects the slug, surface
+      // the 3 derived suggestions as a `fix` hint so the operator can pick
+      // a free alternative on retry without re-running discovery.
       const hint =
         err.code === 'E_SLUG_PATTERN_MISMATCH' && err.example
           ? `example slug: ${err.example}`
-          : undefined;
+          : err.code === 'E_SLUG_RESERVED'
+            ? `try: ${err.suggestions.join(', ')}`
+            : undefined;
       cliError(err.message, ExitCode.VALIDATION_ERROR, {
         name: err.code,
         ...(hint ? { fix: hint } : {}),
