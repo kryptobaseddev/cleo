@@ -281,6 +281,9 @@ export {
   reserveSlug,
   reserveSlugForDispatch,
 } from './docs/slug-allocator.js';
+// Docs body-schema validation per DocKind (T10160 — E12.C3 · Saga T9855)
+export type { ValidateDocBodyResult } from './docs/validate-body.js';
+export { validateDocBody } from './docs/validate-body.js';
 // DocKind Writer Registry (T10366 / Saga T10288 / Epic T10290)
 export type {
   WriteArgs,
