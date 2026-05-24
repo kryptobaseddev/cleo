@@ -168,6 +168,19 @@ export {
   statusDocs,
   syncFromGit,
 } from './docs/docs-ops.js';
+// Docs UPDATE-in-place via slug (T10161 — E12.C4 · Saga T9855)
+export type {
+  DocsUpdateError,
+  DocsUpdateOk,
+  UpdateDocBySlugResult,
+} from './docs/docs-update.js';
+export {
+  DOCS_UPDATE_SQUASH_WINDOW_MS,
+  DOCS_VERSIONING_AUDIT_FILE,
+  docsUpdateMimeFromPath,
+  isLifecycleStatus,
+  updateDocBySlug,
+} from './docs/docs-update.js';
 // Docs export — rich Markdown export of a task with frontmatter + attachments (T947)
 export type { ExportDocumentOptions, ExportDocumentResult } from './docs/export-document.js';
 export { exportDocument } from './docs/export-document.js';
