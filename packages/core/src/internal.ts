@@ -1457,6 +1457,7 @@ export {
   checkCallsiteCoverageAtom,
   checkEngineMigrationLocDrop,
   checkGateEvidenceMinimum,
+  checkGateEvidenceMinimumDetailed,
   composeGateEvidence,
   ENGINE_MIGRATION_MIN_REDUCTION_PCT,
   type EvidenceTool,

@@ -26,7 +26,7 @@ import { getTaskAccessor } from '../store/data-accessor.js';
 import {
   checkCallsiteCoverageAtom,
   checkEngineMigrationLocDrop,
-  checkGateEvidenceMinimum,
+  checkGateEvidenceMinimumDetailed,
   composeGateEvidence,
   parseEvidence,
   validateAtom,
@@ -511,10 +511,15 @@ export async function validateGateVerify(
         }
 
         // Check each target gate satisfies its minimum.
+        // T9949: surface the rich example-bearing remediation hint via
+        // `engineError({fix:})` so `note:`-only callers see exactly which
+        // alternative atom kind the gate requires (commit/files/decision/pr).
         for (const targetGate of targets) {
-          const missing = checkGateEvidenceMinimum(targetGate, validatedAtoms);
+          const missing = checkGateEvidenceMinimumDetailed(targetGate, validatedAtoms);
           if (missing) {
-            return engineError('E_EVIDENCE_INSUFFICIENT', missing);
+            return engineError('E_EVIDENCE_INSUFFICIENT', missing.message, {
+              fix: missing.hint,
+            });
           }
         }
 
