@@ -97,6 +97,21 @@ export function resetTelemetryDbState(): void {
 }
 
 /**
+ * Return the raw `node:sqlite` handle for the open telemetry.db (or `null`
+ * if not yet initialised). Exposed so the backup pipeline can issue
+ * `PRAGMA wal_checkpoint(TRUNCATE)` + `VACUUM INTO` against the live
+ * singleton without re-resolving the path or opening a second handle.
+ *
+ * Mirrors {@link getNexusNativeDb}, {@link getBrainNativeDb}, etc.
+ *
+ * @task T10317 — fleet snapshot coverage for every `DB_INVENTORY` entry
+ *               (Saga T10281 / Epic T10284 / E3)
+ */
+export function getTelemetryNativeDb(): DatabaseSync | null {
+  return _nativeDb;
+}
+
+/**
  * Initialize telemetry.db (lazy singleton).
  * Creates the file and runs migrations on first call.
  */
