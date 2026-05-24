@@ -2,6 +2,11 @@
  * Release Domain Operations (7 operations)
  *
  * All mutate operations
+ *
+ * Shared-surface taxonomy (T10483): this file also defines the contract that
+ * keeps shipped CLEO release commands and generated workflow templates aligned.
+ * The contract is intentionally data-only so downstream validators can assert
+ * the release pipeline without importing @cleocode/core or @cleocode/cleo.
  */
 
 /**
@@ -15,6 +20,183 @@ export interface ReleaseGate {
   passed: boolean;
   reason?: string;
 }
+
+// ── T10483: release shared-surface command/template contract ────────────────
+
+/**
+ * Release-surface taxonomy used by T10468/T10476 to distinguish shipped CLEO
+ * consumer tooling, cleocode dogfood-only repository workflows, and contracts
+ * that are shared by both surfaces.
+ */
+export type ReleaseSurfaceAudience =
+  | 'shipped-consumer-tooling'
+  | 'cleocode-dogfood-workflow'
+  | 'shared-surface';
+
+/** Stability expectation for a release surface. */
+export type ReleaseSurfaceStability = 'public-contract' | 'internal-template';
+
+/** CLI or dispatch entry point participating in the release shared surface. */
+export interface ReleaseCommandSurfaceContract {
+  /** Human-facing command form, e.g. `cleo release plan`. */
+  command: string;
+  /** Dispatch gateway used by the shipped CLI command. */
+  gateway: 'query' | 'mutate' | 'pipeline';
+  /** Dispatch domain and operation, e.g. `release.plan`. */
+  operation: string;
+  /** Surface audience classification for release-product taxonomy. */
+  audience: ReleaseSurfaceAudience;
+  /** Compatibility/stability promise. */
+  stability: ReleaseSurfaceStability;
+  /** True when the command may write local deterministic state. */
+  writesLocalState: boolean;
+  /** True when the command may call GitHub/npm/network services. */
+  mayCallNetwork: boolean;
+  /** True when an LLM call may block success. MUST remain false for release surfaces. */
+  llmBlockingPath: false;
+  /** True when identical inputs and repo state yield the same release artifact. */
+  deterministic: boolean;
+  /** True when this surface must be covered by a changeset before release. */
+  changesetRequired: boolean;
+}
+
+/** Generated workflow template participating in the release shared surface. */
+export interface ReleaseTemplateSurfaceContract {
+  /** Template path in the source tree. */
+  template: string;
+  /** Rendered workflow filename installed into consumer repositories. */
+  renderedWorkflow: string;
+  /** Owning/recovering command that operators use for this workflow. */
+  owningCommand: string;
+  /** Surface audience classification for release-product taxonomy. */
+  audience: ReleaseSurfaceAudience;
+  /** Compatibility/stability promise. */
+  stability: ReleaseSurfaceStability;
+  /** True when template execution may call GitHub/npm/network services. */
+  mayCallNetwork: boolean;
+  /** True when an LLM call may block success. MUST remain false for release surfaces. */
+  llmBlockingPath: false;
+  /** True when the template consumes a precomputed deterministic plan. */
+  consumesReleasePlan: boolean;
+  /** True when template drift must be snapshot/render tested. */
+  renderSnapshotRequired: boolean;
+}
+
+/**
+ * Shipped release commands that form the public/operator contract.  The first
+ * verb, `plan`, is deliberately deterministic and network-free: release
+ * planning must be a changesets-first local computation, not an LLM-first or
+ * GitHub-first blocking path.
+ */
+export const RELEASE_SHARED_COMMAND_SURFACES = [
+  {
+    command: 'cleo release plan',
+    gateway: 'mutate',
+    operation: 'release.plan',
+    audience: 'shared-surface',
+    stability: 'public-contract',
+    writesLocalState: true,
+    mayCallNetwork: false,
+    llmBlockingPath: false,
+    deterministic: true,
+    changesetRequired: true,
+  },
+  {
+    command: 'cleo release open',
+    gateway: 'mutate',
+    operation: 'release.open',
+    audience: 'shared-surface',
+    stability: 'public-contract',
+    writesLocalState: true,
+    mayCallNetwork: true,
+    llmBlockingPath: false,
+    deterministic: false,
+    changesetRequired: true,
+  },
+  {
+    command: 'cleo release reconcile',
+    gateway: 'mutate',
+    operation: 'release.reconcile',
+    audience: 'shared-surface',
+    stability: 'public-contract',
+    writesLocalState: true,
+    mayCallNetwork: true,
+    llmBlockingPath: false,
+    deterministic: true,
+    changesetRequired: true,
+  },
+  {
+    command: 'cleo release rollback',
+    gateway: 'pipeline',
+    operation: 'pipeline.release.rollback',
+    audience: 'shipped-consumer-tooling',
+    stability: 'public-contract',
+    writesLocalState: true,
+    mayCallNetwork: false,
+    llmBlockingPath: false,
+    deterministic: true,
+    changesetRequired: true,
+  },
+] as const satisfies readonly ReleaseCommandSurfaceContract[];
+
+/** Workflow templates that must stay in parity with the release command surface. */
+export const RELEASE_SHARED_TEMPLATE_SURFACES = [
+  {
+    template: 'packages/core/templates/workflows/release-prepare.yml.tmpl',
+    renderedWorkflow: 'release-prepare.yml',
+    owningCommand: 'cleo release open',
+    audience: 'shared-surface',
+    stability: 'public-contract',
+    mayCallNetwork: true,
+    llmBlockingPath: false,
+    consumesReleasePlan: true,
+    renderSnapshotRequired: true,
+  },
+  {
+    template: 'packages/core/templates/workflows/release-publish.yml.tmpl',
+    renderedWorkflow: 'release-publish.yml',
+    owningCommand: 'cleo release reconcile',
+    audience: 'shared-surface',
+    stability: 'public-contract',
+    mayCallNetwork: true,
+    llmBlockingPath: false,
+    consumesReleasePlan: true,
+    renderSnapshotRequired: true,
+  },
+  {
+    template: 'packages/core/templates/workflows/release-rollback.yml.tmpl',
+    renderedWorkflow: 'release-rollback.yml',
+    owningCommand: 'cleo release rollback',
+    audience: 'cleocode-dogfood-workflow',
+    stability: 'internal-template',
+    mayCallNetwork: true,
+    llmBlockingPath: false,
+    consumesReleasePlan: false,
+    renderSnapshotRequired: true,
+  },
+  {
+    template: 'packages/core/templates/workflows/release-fanout.yml.tmpl',
+    renderedWorkflow: 'release-fanout.yml',
+    owningCommand: 'cleo release plan',
+    audience: 'cleocode-dogfood-workflow',
+    stability: 'internal-template',
+    mayCallNetwork: true,
+    llmBlockingPath: false,
+    consumesReleasePlan: true,
+    renderSnapshotRequired: true,
+  },
+] as const satisfies readonly ReleaseTemplateSurfaceContract[];
+
+/** All commands/templates that share the release-product contract. */
+export const RELEASE_SHARED_SURFACE_CONTRACT = {
+  commands: RELEASE_SHARED_COMMAND_SURFACES,
+  templates: RELEASE_SHARED_TEMPLATE_SURFACES,
+  invariants: {
+    deterministicPlanningCommand: 'cleo release plan',
+    llmBlockingPathAllowed: false,
+    changesetRequiredForPublicCommands: true,
+  },
+} as const;
 
 /**
  * Mutate Operations
