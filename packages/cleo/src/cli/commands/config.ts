@@ -29,7 +29,7 @@
  * @adr 076
  */
 
-import { CleoError, formatError, loadConfig } from '@cleocode/core';
+import { CleoError, loadConfig } from '@cleocode/core';
 import { showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { defineCommand } from '../lib/define-cli-command.js';
@@ -94,7 +94,7 @@ const listCommand = defineCommand({
       cliOutput({ config: resolved }, { command: 'config' });
     } catch (err) {
       if (err instanceof CleoError) {
-        cliError(formatError(err), err.code, { name: 'E_CONFIG_LOAD' });
+        cliError(`config list failed: ${err.message}`, err.code, { name: 'E_CONFIG_LOAD' });
         process.exit(err.code);
       }
       throw err;
