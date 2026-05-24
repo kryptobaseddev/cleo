@@ -905,8 +905,8 @@ const exportCommand = defineCommand({
         } else {
           // Markdown payload is the user-requested output of this command —
           // emitted to stdout for piping. Not chrome.
-          process.stdout.write(result.markdown); // stdout-discipline-allowed: user-requested markdown output for piping (T10163)
-          if (!result.markdown.endsWith('\n')) process.stdout.write('\n'); // stdout-discipline-allowed: trailing newline for user-requested markdown (T10163)
+          process.stdout.write(result.markdown); // stdout-write-allowed: markdown piping (T10164) // stdout-discipline-allowed: same (T10163)
+          if (!result.markdown.endsWith('\n')) process.stdout.write('\n'); // stdout-write-allowed: trailing newline (T10164) // stdout-discipline-allowed: same (T10163)
         }
       }
     } catch (err) {
