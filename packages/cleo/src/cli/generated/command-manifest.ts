@@ -497,7 +497,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'labelsCommand',
     name: 'labels',
-    description: 'List all labels with counts or show tasks with specific label',
+    description: 'List all labels (no args), or show tasks for a label (cleo labels <name>)',
     load: async () => (await import('../commands/labels.js')).labelsCommand as CommandDef,
   },
   {

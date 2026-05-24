@@ -63,6 +63,16 @@ export const findCommand = defineCommand({
         'Surface urgent work across both axes: priority IN (critical,high) OR severity IN (P0,P1) (T9905)',
       alias: 'u',
     },
+    /**
+     * Filter by label — `cleo find --label <name>` returns every task
+     * whose `labels[]` includes the given value. Closes GH#393 and gives
+     * `find` parity with the positional `cleo labels <name>` surface.
+     * @task T9904
+     */
+    label: {
+      type: 'string',
+      description: 'Filter by label — return tasks whose labels[] includes this value (T9904)',
+    },
   },
   async run({ args }) {
     const limit = args.limit !== undefined ? Number.parseInt(args.limit, 10) : undefined;
@@ -82,6 +92,8 @@ export const findCommand = defineCommand({
     if (args.kind !== undefined) params['kind'] = args.kind;
     // T9905: unified urgency surface — only forward when the flag was set
     if (args.urgent !== undefined) params['urgent'] = args.urgent;
+    // T9904: label filter — forward when set
+    if (args.label !== undefined) params['label'] = args.label;
     const response = await dispatchRaw('query', 'tasks', 'find', params);
     if (!response.success) {
       handleRawError(response, { command: 'find', operation: 'tasks.find' });
