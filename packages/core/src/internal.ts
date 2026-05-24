@@ -310,6 +310,17 @@ export {
   reserveSlug,
   reserveSlugForDispatch,
 } from './docs/slug-allocator.js';
+// Docs atomic supersede transaction (T10162 — E12.C5 · Saga T9855)
+export type {
+  SupersedeDocInput,
+  SupersedeDocParams,
+  SupersedeDocResult,
+} from './docs/supersede.js';
+export {
+  SUPERSEDE_NOT_FOUND_CODE,
+  SUPERSEDE_SAME_SLUG_CODE,
+  supersedeDoc,
+} from './docs/supersede.js';
 // Docs body-schema validation per DocKind (T10160 — E12.C3 · Saga T9855)
 export type { ValidateDocBodyResult } from './docs/validate-body.js';
 export { validateDocBody } from './docs/validate-body.js';
@@ -1263,6 +1274,14 @@ export {
   migrateSignaldockToConduit,
   needsSignaldockToConduitMigration,
 } from './store/migrate-signaldock-to-conduit.js';
+// T10162 (Saga T9855 · Epic T10157) — canonical DB-open chokepoint re-export
+// so dispatch + tests that need a project-scoped tasks.db handle can route
+// through `@cleocode/core/internal` without depending on the deep subpath
+// `@cleocode/core/store/open-cleo-db`. Snapshot opener was already exported
+// from the package root index.ts (T9685-B3); this adds the lifecycle-aware
+// opener which is the SSoT for every write-path consumer.
+export type { CleoDbHandle, CleoDbRole } from './store/open-cleo-db.js';
+export { openCleoDb } from './store/open-cleo-db.js';
 export { createSession, getActiveSession } from './store/session-store.js';
 export {
   _resetGlobalSignaldockDb_TESTING_ONLY,
