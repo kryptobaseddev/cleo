@@ -51,7 +51,7 @@ import {
   unlinkSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync } from 'node:sqlite';
 import { DB_INVENTORY, type DbInventoryEntry, type DbRole } from '@cleocode/contracts';
 import { getCleoDir, getCleoHome, resolveOrCwd } from '../paths.js';
 import { getTelemetryDb, getTelemetryNativeDb } from '../telemetry/sqlite.js';
@@ -326,6 +326,12 @@ function buildRawFileVacuumOpener(
     if (!path) return null;
     if (!existsSync(path)) return null;
     try {
+      // Dynamic import preserves the T1331 lazy-init contract: importing
+      // sqlite.ts (which statically imports sqlite-backup.ts for
+      // `listSqliteBackups`) MUST NOT pull node:sqlite into module-load
+      // time. Only the raw-file-vacuum-readonly path needs the
+      // constructor, and it is exercised at snapshot-time, not load-time.
+      const { DatabaseSync } = await import('node:sqlite');
       return new DatabaseSync(path, { readOnly: true });
     } catch {
       // The file might be locked by another writer, corrupt, or otherwise
