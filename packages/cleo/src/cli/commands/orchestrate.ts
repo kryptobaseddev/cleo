@@ -37,8 +37,10 @@
  * @epic T4454
  */
 
+import { execFileSync } from 'node:child_process';
 import type { EpicRollup, WaveRollup } from '@cleocode/contracts';
 import { orchestration } from '@cleocode/core';
+import { BUILD_CONFIG } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
@@ -160,8 +162,37 @@ const statusCommand = defineCommand({
       type: 'string',
       description: 'Epic ID to scope status to',
     },
+    'merge-queue': {
+      type: 'boolean',
+      description: 'Show GitHub merge queue depth instead of epic status (T10445)',
+    },
   },
   async run({ args }) {
+    if (args['merge-queue']) {
+      const repo = BUILD_CONFIG.repository.fullName;
+      let queueDepth = 0;
+      let estimatedWaitMinutes = 0;
+      let blocked = false;
+      let note = 'merge queue not enabled';
+
+      try {
+        const raw = execFileSync(
+          'gh',
+          ['api', `repos/${repo}/merge-queue`, '--jq', '.entries | length'],
+          { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 15000 },
+        );
+        queueDepth = Number(raw.trim()) || 0;
+        estimatedWaitMinutes = queueDepth * 5; // rough heuristic: ~5 min per PR
+        blocked = queueDepth > 10;
+        note = queueDepth > 0 ? 'active' : 'empty';
+      } catch {
+        // 404 or other error — merge queue not enabled, return graceful defaults
+      }
+
+      cliOutput({ queueDepth, estimatedWaitMinutes, blocked, note }, { command: 'orchestrate' });
+      return;
+    }
+
     await dispatchFromCli(
       'query',
       'orchestrate',
