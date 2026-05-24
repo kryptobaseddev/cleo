@@ -1012,6 +1012,14 @@ export {
   runReleaseGates,
   showRelease,
 } from './release/release-manifest.js';
+// T9937: validate-changelog verb (Saga T9862) — canonical CHANGELOG.md header
+// validator that replaces the brittle `grep -qF "## [VERSION]"` step in
+// .github/workflows/release.yml. Exposed via internal for the dispatch layer.
+export type {
+  ValidateChangelogOptions,
+  ValidateChangelogResult,
+} from './release/validate-changelog.js';
+export { validateChangelog } from './release/validate-changelog.js';
 // T9529: provenance verify verb (Phase 2 of T9493) — READ-ONLY audit of the
 // 11 provenance tables for a release tag.
 export type {

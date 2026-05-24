@@ -37,7 +37,11 @@
  */
 
 import type { ReleaseGateCheckParams } from '@cleocode/contracts/operations/release';
-import type { ReleaseOpenOptions, ReleasePlanOptions } from '@cleocode/core/internal';
+import type {
+  ReleaseOpenOptions,
+  ReleasePlanOptions,
+  ValidateChangelogOptions,
+} from '@cleocode/core/internal';
 import { getLogger, getProjectRoot } from '@cleocode/core/internal';
 import type { OpsFromCore } from '../adapters/typed.js';
 import {
@@ -46,6 +50,7 @@ import {
   releaseOpen,
   releasePlan,
   releaseReconcileV2,
+  validateChangelog,
 } from '../lib/engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { errorResult, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
@@ -176,6 +181,70 @@ export class ReleaseHandler implements DomainHandler {
           const typed: ReleaseIvtrSuggestParams = { taskId };
           return wrapResult(
             await coreOps['ivtr-suggest'](typed),
+            'query',
+            'release',
+            operation,
+            startTime,
+          );
+        }
+
+        // release.validate-changelog — canonical CHANGELOG.md header validator
+        // (T9937 / Saga T9862). Replaces the brittle `grep -qF "## [VERSION]"`
+        // step in .github/workflows/release.yml. Read-only.
+        //
+        // The core verb returns a plain `ValidateChangelogResult` envelope
+        // (NOT an EngineResult discriminated union) so direct SDK consumers
+        // can branch on `result.valid`. At the dispatch boundary we translate
+        // `valid=false` into `E_CHANGELOG_MISSING_SECTION` so the CLI emits a
+        // non-zero exit code — exactly the behaviour CI workflows depend on
+        // (the legacy `grep -qF "## [VERSION]" || exit 1` had the same
+        // contract).
+        case 'validate-changelog': {
+          const version = typeof params?.version === 'string' ? params.version : undefined;
+          if (!version)
+            return errorResult(
+              'query',
+              'release',
+              operation,
+              'E_INVALID_INPUT',
+              'version is required',
+              startTime,
+            );
+          const typed: ValidateChangelogOptions = {
+            version,
+            projectRoot: getProjectRoot(),
+            ...(typeof params?.changelogPath === 'string'
+              ? { changelogPath: params.changelogPath }
+              : {}),
+          };
+          const validation = await validateChangelog(typed);
+          if (validation.valid) {
+            return wrapResult(
+              { success: true, data: validation },
+              'query',
+              'release',
+              operation,
+              startTime,
+            );
+          }
+          return wrapResult(
+            {
+              success: false,
+              error: {
+                code: 'E_CHANGELOG_MISSING_SECTION',
+                message:
+                  validation.reason ??
+                  `CHANGELOG.md missing canonical header for v${validation.normalizedVersion}`,
+                details: {
+                  version: validation.version,
+                  normalizedVersion: validation.normalizedVersion,
+                  changelogPath: validation.changelogPath,
+                  headerFound: validation.headerFound,
+                },
+                fix: `Run \`cleo release plan v${validation.normalizedVersion}\` locally to write the section, then re-push.`,
+                exitCode: 1,
+              },
+            },
             'query',
             'release',
             operation,
@@ -367,7 +436,7 @@ export class ReleaseHandler implements DomainHandler {
   /** Return declared operations for introspection and registry validation. */
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['gate', 'ivtr-suggest'],
+      query: ['gate', 'ivtr-suggest', 'validate-changelog'],
       mutate: ['gate', 'ivtr-suggest', 'reconcile', 'plan', 'open'],
     };
   }

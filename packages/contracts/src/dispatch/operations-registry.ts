@@ -7629,6 +7629,37 @@ export const OPERATIONS: OperationDef[] = [
     ] satisfies ParamDef[],
   },
 
+  // release query: validate-changelog (T9937 / Saga T9862 — canonical CHANGELOG
+  // header validator that replaces the brittle inline grep step in
+  // .github/workflows/release.yml). Read-only — exposed only under the query
+  // gateway because no DB or filesystem mutation occurs.
+  {
+    gateway: 'query',
+    domain: 'release',
+    operation: 'validate-changelog',
+    description:
+      'release.validate-changelog (query) — validate that CHANGELOG.md contains the canonical `## [VERSION]` header per ADR-028 §2.5. Replaces the brittle inline grep in .github/workflows/release.yml (T9937 / Saga T9862).',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['version'],
+    params: [
+      {
+        name: 'version',
+        type: 'string',
+        required: true,
+        description: 'Release version (accepts v2026.5.94 or 2026.5.94)',
+        cli: { positional: true },
+      },
+      {
+        name: 'changelogPath',
+        type: 'string',
+        required: false,
+        description: 'Override the CHANGELOG file path (default: <projectRoot>/CHANGELOG.md)',
+      },
+    ] satisfies ParamDef[],
+  },
+
   // ---------------------------------------------------------------------------
   // Provenance domain — `cleo provenance` CLI surface (T9528 · Phase 2 of T9493)
   // ---------------------------------------------------------------------------
