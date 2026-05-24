@@ -356,6 +356,54 @@ export interface DbSubstrateEntry {
    * @task T10311
    */
   migrationCoverage: DbSubstrateMigrationCoverage | null;
+  /**
+   * Pragma drift entries — one per pragma whose actual value (read from
+   * a raw read-only snapshot of this DB, no pragma application) differs
+   * from the SSoT expectation in `specs/sqlite-pragmas.json`.
+   *
+   * @remarks
+   * `null` when the DB does not exist on disk (no snapshot to query) OR
+   * the integrity_check failed (a corrupt DB cannot be reliably queried
+   * for pragmas). Empty array `[]` means the DB matches the canonical
+   * pragma SSoT exactly.
+   *
+   * @task T10310
+   */
+  pragmaDrift: PragmaDriftItem[] | null;
+}
+
+/**
+ * One pragma drift item surfaced in {@link DbSubstrateEntry.pragmaDrift}.
+ *
+ * @remarks
+ * Compared values are normalised to lower-case strings before equality
+ * is asserted, matching SQLite's pragma-output conventions
+ * (`journal_mode` returns `wal` not `WAL`, `synchronous` returns
+ * `2` for `NORMAL`, etc. — see {@link PRAGMA_VALUE_NORMALISERS}).
+ *
+ * The triple `(pragma, expected, actual)` is stable across runs so
+ * downstream consumers can deduplicate / aggregate drift reports.
+ *
+ * @task T10310
+ * @epic T10283
+ * @saga T10281
+ */
+export interface PragmaDriftItem {
+  /** Name of the pragma (e.g. `journal_mode`, `busy_timeout`). */
+  pragma: string;
+  /**
+   * Expected value as declared in `specs/sqlite-pragmas.json`. Always a
+   * string — values are stored as strings in the SSoT so a future
+   * `0x12345` application_id literal does not lose its hex form to a
+   * number cast.
+   */
+  expected: string;
+  /**
+   * Actual value as returned by `PRAGMA <name>` on a raw read-only
+   * snapshot. `null` when the pragma query threw (e.g. an exotic pragma
+   * name not implemented by this SQLite build).
+   */
+  actual: string | null;
 }
 
 /**
