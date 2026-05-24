@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Coordinates ct-docs-lookup, ct-docs-write, ct-docs-review, ct-spec-writer, and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.3.0
+version: 3.4.0
 tier: 3
 core: false
 category: specialist
@@ -165,6 +165,17 @@ etc.) — this is what makes cross-kind collisions structurally near-impossible.
 ONE writer descriptor — multi-writer regressions trip the registry at build
 time (the slug-collision class root-cause from T10294).
 
+**Decision tree — pick the verb without guessing:**
+
+```text
+if kind === 'changeset'          → cleo changeset add
+elif kind === 'llm-readme'       → tooling-composed (system-managed)
+elif kind === 'release-note'     → cleo release reconcile (system-managed)
+else                              → cleo docs add --type <kind>
+```
+
+In code:
+
 ```ts
 import { WriterRegistry } from '@cleocode/core/internal';
 
@@ -172,6 +183,9 @@ const desc = WriterRegistry.for('changeset');
 // → { kind: 'changeset', verb: 'changeset add', dispatchOp: 'changeset.add',
 //     coreFn: 'writeChangesetEntry', mode: 'ssot-first',
 //     sourcePath: 'packages/core/src/changesets/writer.ts' }
+
+// Resolve the verb programmatically — no string-matching in caller code.
+const verb = WriterRegistry.for(kind).verb; // 'docs add' | 'changeset add' | 'system-managed'
 ```
 
 Descriptor modes mirror `.cleo/canon.yml`'s `canonicalHome`:
@@ -181,6 +195,23 @@ Descriptor modes mirror `.cleo/canon.yml`'s `canonicalHome`:
 
 Test parity: every `ssot-first` descriptor MUST match a kind whose
 `canonicalHome: 'ssot-first'` in `.cleo/canon.yml`, and vice versa.
+
+**Legitimate bypass — `WriterRegistry.systemManaged` (T10368):** writers
+for `system-managed` kinds (e.g. `generateDocsLlmsTxt`, `composeReleaseNotes`)
+do not go through `cleo docs add` because the bytes are tooling-composed
+rather than human-authored. The registry still names the producer via
+`coreFn`, so drift tooling can follow the breadcrumb from kind →
+core function without an exception list. Do NOT invent NEW `system-managed`
+entries to dodge the docs-add path — every kind authored by a human MUST
+flow through `cleo docs add` or `cleo changeset add`.
+
+**Cross-link to the allocator contract:** the registry calls
+{@link reserveSlug} BEFORE the writer delegates. A taken slug returns
+`{ ok: false, code: 'E_SLUG_RESERVED', details: { suggestions } }`
+with the SAME shape both `cleo docs add` and `cleo changeset add` surface
+to callers (closing the T10294 envelope-drift bug). See the
+"Slug allocation goes through ONE chokepoint" section above for the
+allocator contract and the legacy `E_SLUG_TAKEN` alias.
 
 T10366 establishes the registry contract; T10367 (docs add) and T10368
 (changeset add) wire the actual writer delegation. Until those land,
