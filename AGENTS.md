@@ -586,6 +586,9 @@ prohibited. The current pipeline uses the 4-verb model — `plan` → `open` →
 `reconcile` (or `rollback`) — introduced by SPEC-T9345 and finalized when
 T9540 removed the legacy `start` / `verify` / `publish` verbs.
 
+All PRs target `main` through the **GitHub Merge Queue**; see
+docs/release/merge-queue-runbook.md for the full runbook.
+
 ### Merge Queue & Zero-Admin-Merge Policy
 
 This repository uses **GitHub Merge Queue** for all PRs targeting `main`.
@@ -607,7 +610,7 @@ not need `merge_group:` because they are triggered by `workflow_dispatch`,
 tag push, or cron — never by a PR merge event.
 
 See `docs/release/merge-queue-runbook.md` for setup, operator commands,
-and troubleshooting.
+troubleshooting, and FAQ.
 
 ### Branch Conventions
 
