@@ -330,6 +330,38 @@ is reached:
   the Lead escalates to HITL via `cleo orchestrate pending --add
   <runId>` — never auto-attest, never auto-reject.
 
+### Max-N infra-fault row catalogue
+
+The Lead consumes one row per detected infra-fault and chooses retry
+strategy from this canonical table. Rows split into two families:
+**semantic faults** (validator decided but couldn't reach a verdict —
+e.g. missing AC list, tool not resolved) and **infrastructure faults**
+(validator process / transport itself failed before it could decide).
+Each row specifies retry count, backoff strategy, and
+transient-vs-permanent classification.
+
+| Fault | Family | Retry count | Backoff | Classification | Escalation atom |
+|-------|--------|-------------|---------|----------------|-----------------|
+| `validator-rejected-no-acs` | semantic | 0 | n/a | permanent | `E_VALIDATOR_NO_ACS` → HITL for AC backfill (ADR-066) |
+| `validator-partial` | semantic | 1 | immediate | transient on first occurrence | `E_VALIDATOR_PARTIAL` after retry → HITL |
+| `validator-unreachable` | semantic | 2 | exponential (10s / 30s) | transient | `E_VALIDATOR_UNREACHABLE` after retries → HITL |
+| `tool-not-resolved` | semantic | 0 | n/a | permanent | `E_TOOL_NOT_RESOLVED` → Lead backfills `.cleo/project-context.json` then re-spawns |
+| **`timeout`** | **infra** | **2** | **exponential (5s / 30s)** | **transient** | `E_VALIDATOR_TIMEOUT` after retries → HITL. Validator process exceeded `subagentTimeoutSeconds` (default 300s for tier-1). A slow LLM call often completes on retry; persistent timeouts indicate a stuck process or pathological task input — investigate input size before further retries. |
+| **`conduit-drop`** | **infra** | **3** | **immediate** | **transient** | `E_VALIDATOR_VERDICT_DROPPED` after retries → HITL. The `validator.verdict` message was emitted but lost on the Conduit transport before the orchestrator observed it. Conduit transport latency is low so immediate retry is safe; persistent drops indicate a Conduit subsystem failure (escalate to infra team, not HITL-AC-backfill). |
+| **`validator-OOM`** | **infra** | **1** | **immediate, downgraded model tier** (e.g. Sonnet → Haiku) | **permanent if downgrade also OOMs** | `E_VALIDATOR_OOM` after retry → HITL. Validator process killed by kernel OOM-killer or hit Node V8 heap limit. Single retry runs with a smaller model context window; second OOM indicates the task input itself is pathological (gigabyte-scale diff, runaway AC list) — Lead MUST investigate task input size BEFORE any further retry to avoid burning HITL budget on a structurally impossible validation. |
+
+**Retry-counter accounting**: each row consumes ONE slot of the
+`delegation.validatorRetryMax` budget (default N=3) regardless of family.
+Semantic + infra faults share the same counter — three consecutive
+faults of ANY mix triggers HITL escalation. This prevents an
+infinite-loop adversary where alternating fault kinds bypass the cap.
+
+**Permanent classification**: a row marked `permanent` short-circuits
+the retry loop immediately — Lead skips the remaining retry budget and
+escalates on the first occurrence. Use sparingly; reserve for faults
+where retry has zero chance of changing the outcome (missing ACs,
+unresolvable tool, post-downgrade OOM).
+
 ### Infra-fault vs reject — the critical distinction
 
 | Symptom | Classification | Why |
