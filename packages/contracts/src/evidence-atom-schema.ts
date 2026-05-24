@@ -196,6 +196,117 @@ export const callsiteCoverageAtomSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// ADR-079-r2: satisfies atom — cross-task AC binding
+// ---------------------------------------------------------------------------
+
+/**
+ * Strict UUIDv4 regex (lowercase, hyphenated 8-4-4-4-12 with the `4` major
+ * version nibble and `[89ab]` variant nibble) per ADR-079-r2 §2.1 ABNF
+ * (`ac-uuid` production) and RFC 9562 §5.4. Used by the `satisfies:` atom
+ * to validate the target-AC UUID form.
+ *
+ * Validators MUST reject mixed-case to prevent silent dedupe failures — the
+ * canonical column casing is lowercase per ADR-079-r1 §2.1.
+ *
+ * @task T10506
+ * @adr ADR-079-r2 §2.1
+ */
+export const AC_UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+/**
+ * Positional-alias regex for `satisfies:` atom target-AC identifiers per
+ * ADR-079-r2 §2.1 ABNF (`ac-alias` production). Format: `AC<1-4 digits>`
+ * (capped at AC9999 — three orders of magnitude above realistic per-task AC
+ * counts).
+ *
+ * @task T10506
+ * @adr ADR-079-r2 §2.1
+ */
+export const AC_ALIAS_REGEX = /^AC[0-9]{1,4}$/;
+
+/**
+ * Task-id regex for `satisfies:` atom target-task identifiers per ADR-079-r2
+ * §2.1 ABNF (`task-id` production). Format: `T<1-7 digits>` (capped at
+ * T9999999 — three orders of magnitude above current CLEO task IDs as of
+ * 2026-05-24).
+ *
+ * @task T10506
+ * @adr ADR-079-r2 §2.1
+ */
+export const SATISFIES_TASK_ID_REGEX = /^T[0-9]{1,7}$/;
+
+/**
+ * Version-pin regex for `satisfies:` atom optional `@<ts>` suffix per
+ * ADR-079-r2 §2.1 ABNF (`version-pin` production). Format: `YYYYMMDDhhmmss`
+ * (ISO-8601-basic timestamp, 14 digits).
+ *
+ * @task T10506
+ * @adr ADR-079-r2 §2.1
+ */
+export const SATISFIES_VERSION_PIN_REGEX = /^[0-9]{14}$/;
+
+/**
+ * `satisfies:<task-id>#<ac-id>[@<version-pin>]` atom — cross-task AC binding
+ * per ADR-079-r2 §2.1 (full grammar) and ADR-079-r1 §2.4 (basic shape).
+ *
+ * Format:
+ *
+ *   - `satisfies:T1234#a1b2c3d4-5e6f-4890-abcd-ef1234567890`   — canonical
+ *     UUID form (preferred for long-lived specs).
+ *   - `satisfies:T1234#AC2`                                    — positional
+ *     alias form (preferred in fresh PRs where the target task's AC list
+ *     is stable).
+ *   - `satisfies:T1234#AC2@20260524223045`                     — alias +
+ *     optional version-pin (Validator emissions where pin-on-mint is
+ *     required by ADR-079-r2 §3.4).
+ *
+ * Exactly ONE of `targetAcId` (UUID form) or `targetAcAlias` (alias form)
+ * is populated per parsed atom. `versionPin` is always optional.
+ *
+ * ## Scope
+ *
+ * This Zod schema covers PARSING ONLY. The runtime validator semantics —
+ * the 5-check accept/reject pipeline (target exists, target not terminal,
+ * AC exists, same-saga scope rule) — ship in T10507 alongside the
+ * `evidence_satisfies_bindings` side-effect table.
+ *
+ * Per ADR-079-r2 §2.2 the maximum atom length is 120 chars; the schema does
+ * NOT enforce length here because the per-field regexes already cap the
+ * surface (`satisfies:` + 8-char T+digits + `#` + 36-char UUID + `@` +
+ * 14-char pin = 78 chars max — well under 120).
+ *
+ * @task T10506
+ * @adr ADR-079-r2 §2.1
+ * @adr ADR-079-r1 §2.4
+ */
+export const satisfiesAtomSchema = z.object({
+  kind: z.literal('satisfies'),
+  /** Target task ID — `T<1-7 digits>` per ADR-079-r2 §2.1. */
+  targetTaskId: z
+    .string()
+    .regex(SATISFIES_TASK_ID_REGEX, 'satisfies atom targetTaskId must match /^T[0-9]{1,7}$/'),
+  /** Lowercase UUIDv4 — populated for the canonical form; undefined for alias form. */
+  targetAcId: z
+    .string()
+    .regex(AC_UUID_REGEX, 'satisfies atom targetAcId must be a lowercase UUIDv4')
+    .optional(),
+  /** Positional alias `AC<1-4 digits>` — populated for alias form; undefined for UUID form. */
+  targetAcAlias: z
+    .string()
+    .regex(AC_ALIAS_REGEX, 'satisfies atom targetAcAlias must match /^AC[0-9]{1,4}$/')
+    .optional(),
+  /** Optional `@<14-digit YYYYMMDDhhmmss>` pin captured at mint time. */
+  versionPin: z
+    .string()
+    .regex(
+      SATISFIES_VERSION_PIN_REGEX,
+      'satisfies atom versionPin must be 14 digits (YYYYMMDDhhmmss)',
+    )
+    .optional(),
+});
+
+// ---------------------------------------------------------------------------
 // Discriminated union
 // ---------------------------------------------------------------------------
 
@@ -218,6 +329,8 @@ export const callsiteCoverageAtomSchema = z.object({
  *   - `pr`                 — merged-PR retroactive proof (T9764 / T9838)
  *   - `loc-drop`           — engine-migration LOC reduction (T1604)
  *   - `callsite-coverage`  — exported-symbol production callsite (T1605)
+ *   - `satisfies`          — cross-task AC binding (T10506 / ADR-079-r2;
+ *                            validator semantics ship in T10507)
  *
  * @task T10337
  * @adr ADR-051
@@ -233,6 +346,7 @@ export const EvidenceAtomSchema = z.discriminatedUnion('kind', [
   prAtomSchema,
   locDropAtomSchema,
   callsiteCoverageAtomSchema,
+  satisfiesAtomSchema,
 ]);
 
 /**
@@ -383,6 +497,7 @@ const ATOM_EXAMPLES: Readonly<Record<EvidenceAtomKind, string>> = Object.freeze(
   pr: 'pr:357',
   'loc-drop': 'loc-drop:<fromLines>:<toLines>',
   'callsite-coverage': 'callsite-coverage:<symbolName>:<relativeSourcePath>',
+  satisfies: 'satisfies:T1234#AC2',
 });
 
 /**
@@ -718,6 +833,78 @@ export function parseEvidenceString(raw: string): EvidenceAtom[] {
         atoms.push({ kind: 'callsite-coverage', symbolName, relativeSourcePath });
         break;
       }
+      case 'satisfies': {
+        // ADR-079-r2 §2.1 ABNF:
+        //   satisfies-atom = "satisfies:" task-id "#" ac-id [ "@" version-pin ]
+        // Payload shape: <task-id>#<ac-id>[@<version-pin>]
+        //
+        // PARSING ONLY per T10506 — runtime validator semantics (5-check
+        // accept pipeline + same-saga scope rule) ship in T10507.
+        const hashIdx = payload.indexOf('#');
+        if (hashIdx < 1 || hashIdx === payload.length - 1) {
+          throw new EvidenceParseError(
+            `Malformed satisfies atom: "${chunk}" (expected satisfies:<task-id>#<ac-id>[@<version-pin>])`,
+            'Use format: satisfies:T1234#AC2 or satisfies:T1234#<uuid> e.g. satisfies:T10506#AC1',
+          );
+        }
+        const targetTaskId = payload.slice(0, hashIdx).trim();
+        const acAndPin = payload.slice(hashIdx + 1).trim();
+
+        // task-id must match strict ABNF /^T[0-9]{1,7}$/
+        if (!SATISFIES_TASK_ID_REGEX.test(targetTaskId)) {
+          throw new EvidenceParseError(
+            `satisfies atom targetTaskId "${targetTaskId}" must match /^T[0-9]{1,7}$/ in "${chunk}"`,
+            'Use format: satisfies:T<digits>#<ac-id> e.g. satisfies:T1234#AC2',
+          );
+        }
+
+        // Split optional version-pin (after `@`)
+        const atIdx = acAndPin.indexOf('@');
+        let acIdRaw: string;
+        let versionPin: string | undefined;
+        if (atIdx === -1) {
+          acIdRaw = acAndPin;
+          versionPin = undefined;
+        } else {
+          if (atIdx < 1 || atIdx === acAndPin.length - 1) {
+            throw new EvidenceParseError(
+              `Malformed satisfies atom version-pin in "${chunk}" (expected <ac-id>@<14-digit YYYYMMDDhhmmss>)`,
+              'Use format: satisfies:T1234#AC2@20260524223045',
+            );
+          }
+          acIdRaw = acAndPin.slice(0, atIdx).trim();
+          versionPin = acAndPin.slice(atIdx + 1).trim();
+          if (!SATISFIES_VERSION_PIN_REGEX.test(versionPin)) {
+            throw new EvidenceParseError(
+              `satisfies atom versionPin "${versionPin}" must be 14 digits (YYYYMMDDhhmmss) in "${chunk}"`,
+              'Use format: satisfies:T1234#AC2@<YYYYMMDDhhmmss> e.g. satisfies:T1234#AC2@20260524223045',
+            );
+          }
+        }
+
+        // ac-id is EITHER a strict UUIDv4 OR an AC<digits> alias — exactly one.
+        let targetAcId: string | undefined;
+        let targetAcAlias: string | undefined;
+        if (AC_UUID_REGEX.test(acIdRaw)) {
+          targetAcId = acIdRaw;
+        } else if (AC_ALIAS_REGEX.test(acIdRaw)) {
+          targetAcAlias = acIdRaw;
+        } else {
+          throw new EvidenceParseError(
+            `satisfies atom ac-id "${acIdRaw}" must be either a lowercase UUIDv4 or AC<1-4 digits> in "${chunk}"`,
+            'Use format: satisfies:T1234#AC2 (alias) or satisfies:T1234#<lowercase-uuidv4> (canonical)',
+          );
+        }
+
+        atoms.push({
+          kind: 'satisfies',
+          targetTaskId,
+          ...(targetAcId !== undefined ? { targetAcId } : {}),
+          ...(targetAcAlias !== undefined ? { targetAcAlias } : {}),
+          ...(versionPin !== undefined ? { versionPin } : {}),
+        });
+        break;
+      }
       case 'state': {
         // T9838: explicit-form modifier for the preceding pr: atom.
         // Format: pr:<num>;state:MERGED. The resolver always requires
@@ -743,7 +930,7 @@ export function parseEvidenceString(raw: string): EvidenceAtom[] {
       default:
         throw new EvidenceParseError(
           `Unknown evidence kind: "${kind}" in atom "${chunk}"`,
-          'Valid kinds: commit, files, test-run, tool, url, note, loc-drop, callsite-coverage, decision, pr, state',
+          'Valid kinds: commit, files, test-run, tool, url, note, loc-drop, callsite-coverage, decision, pr, satisfies, state',
         );
     }
   }
