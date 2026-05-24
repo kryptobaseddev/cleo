@@ -204,6 +204,7 @@ type _ObserveBrainParamsShape = {
   origin?: string | null;
   provenanceChain?: string[] | null;
   _skipGate?: boolean;
+  _skipQueue?: boolean;
 };
 
 type _AssertObserveParamsPinned = AssertEquals1<
