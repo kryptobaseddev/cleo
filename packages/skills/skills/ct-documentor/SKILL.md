@@ -1,13 +1,13 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Coordinates ct-docs-lookup, ct-docs-write, ct-docs-review, ct-spec-writer, and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.12.0
+version: 3.13.0
 tier: 3
 core: false
 category: specialist
 protocol: null
 metadata:
-  version: 3.12.0
+  version: 3.13.0
   lastReviewed: 2026-05-24
   stability: stable
 dependencies:
@@ -483,6 +483,46 @@ not yet under test.
 observation pollutes the FTS index. Use `cleo memory backfill-docs` (AC4
 of T9976) only to repair attachments that pre-date the auto-emit feature
 or were written outside the SSoT.
+
+#### System-managed exemptions (T10368)
+
+Not every `.md` write inside `packages/core/src/**` is a DocKind authoring
+path. Release composers, RCASD migration tooling, nexus wiki generators, and
+the publish-mirror copier all emit Markdown bytes from inside `core/` but
+SHOULD NOT route through `WriterRegistry.write` — they are deterministic
+derived artifacts, not user-authored canonical documents.
+
+These legitimate bypasses live in `SYSTEM_MANAGED_ENTRIES` inside
+`writer-registry.ts`. Every entry cites an ADR pointer:
+
+```ts
+WriterRegistry.listSystemManaged();
+// → [
+//   { id: 'release.plan-json',          adrRef: 'ADR-028 ...' },
+//   { id: 'release.changelog',          adrRef: 'ADR-028 §2.5 ...' },
+//   { id: 'lifecycle.rcasd-migration',  adrRef: 'ADR-076 ...' },
+//   { id: 'lifecycle.stage-artifact',   adrRef: 'ADR-076 ...' },
+//   { id: 'sessions.handoff-markdown',  adrRef: 'ADR-076 ...' },
+//   { id: 'nexus.wiki-overview',        adrRef: 'ADR-076 ...' },
+//   { id: 'docs.publish-mirror',        adrRef: 'ADR-076 ...' },
+// ]
+
+// Path-based exemption lookup — used by the writer-audit test + T10369 lint:
+const hit = WriterRegistry.isSystemManaged('.cleo/release/v2026.5.103.plan.json');
+// → { id: 'release.plan-json', kind: null, adrRef: 'ADR-028 ...', ... }
+```
+
+When adding a NEW `.md` writer inside `packages/core/src/**`, you MUST
+either:
+
+1. Route through `WriterRegistry.write({kind, slug, payload})` (the
+   canonical path for DocKind authoring), OR
+2. Append a new entry to `SYSTEM_MANAGED_ENTRIES` with an ADR pointer
+   ratifying the bypass.
+
+The `writer-audit.test.ts` regression test fails when a new `.md` writer
+appears without either path. T10369 (next in the epic) promotes this from a
+unit test to a full CI lint gate.
 
 ### Slug similarity warn (T10361 · closes T10167)
 

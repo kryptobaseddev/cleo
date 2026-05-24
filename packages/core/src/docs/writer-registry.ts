@@ -30,7 +30,7 @@
  *      registry-build time — surfaced as a programmer error in dev/CI
  *      rather than a silent envelope drift in production.
  *
- * ## Scope of THIS task (T10366)
+ * ## Scope of T10366 (foundation)
  *
  * T10366 establishes the registry CONTRACT and shape. Actual writer
  * delegation wiring lands in T10367 + T10368. {@link WriterRegistry.write}
@@ -44,6 +44,19 @@
  * `docs add`, T10368 wires `changeset add`) read the `coreFn`/`dispatchOp`
  * fields to resolve the writer at the same call site.
  *
+ * ## Scope of T10368 (audit + system-managed exemptions)
+ *
+ * T10368 adds the {@link SystemManagedEntry} map + lookup helper
+ * {@link WriterRegistry.isSystemManaged} so legitimate non-DocKind writers
+ * (`CHANGELOG.md` composer, `.cleo/release/*.plan.json` writer, stage
+ * artifact composer, RCASD migration tool, etc.) are explicitly registered
+ * with an ADR pointer rather than surfacing as a silent SSoT bypass.
+ *
+ * The T10369 lint gate consumes this map to exempt known artifacts from the
+ * "one writer per DocKind" enforcement — anything writing `.md` from inside
+ * `packages/core/src/**` that does NOT route through {@link WriterRegistry.write}
+ * AND is NOT in {@link SYSTEM_MANAGED_ENTRIES} is a regression.
+ *
  * ## canon.yml parity
  *
  * Every descriptor with `mode: 'ssot-first'` MUST match a kind in
@@ -51,10 +64,10 @@
  * test (`writer-registry.test.ts`) enforces this by loading both the
  * registry and the canon-yml file and asserting one-for-one alignment.
  *
- * @task T10366
+ * @task T10366 (foundation), T10368 (system-managed map)
  * @epic T10290
  * @saga T10288
- * @adr ADR-076 (canon routing), ADR-083 (Cleo persona)
+ * @adr ADR-076 (canon routing), ADR-083 (Cleo persona), ADR-028 (release manifest)
  */
 
 import type { BuiltinDocKind } from '@cleocode/contracts';
@@ -293,6 +306,207 @@ const DESCRIPTORS: ReadonlyArray<WriterDescriptor> = Object.freeze([
   },
 ]);
 
+// ─── System-managed exemption map (T10368) ────────────────────────────────────
+
+/**
+ * One entry per legitimate non-DocKind writer that emits `.md` (or other
+ * canonical artifact bytes) from inside `packages/core/src/**`.
+ *
+ * Each entry MUST cite an ADR that ratifies the bypass. T10369's lint gate
+ * walks the repo looking for `.md` writers, cross-references this map, and
+ * fails the build for any uncited new writer.
+ *
+ * The {@link relativePathGlob} field is a project-root-relative glob (NOT a
+ * regex). The lint script normalises both sides through the same matcher,
+ * so trailing slashes and `**` segments work as in `.gitignore`.
+ *
+ * @task T10368
+ */
+export interface SystemManagedEntry {
+  /** Short identifier — used in log lines + lint output. */
+  readonly id: string;
+  /** Closest matching BuiltinDocKind, OR `null` when the artifact isn't a DocKind. */
+  readonly kind: BuiltinDocKind | null;
+  /** Glob (project-root-relative) of the file path(s) this writer produces. */
+  readonly relativePathGlob: string;
+  /** Repo-relative source file containing the writer call. */
+  readonly sourcePath: string;
+  /** Specific call site (path:line) for at-a-glance grep targeting. */
+  readonly callsite: string;
+  /** ADR pointer that ratifies the SSoT bypass. */
+  readonly adrRef: string;
+  /** Free-form reason — surfaced by the lint script on failure. */
+  readonly reason: string;
+}
+
+/**
+ * Canonical list of T10368-audited system-managed writers.
+ *
+ * Maintenance contract:
+ *   - Adding a NEW `.md` writer in `packages/core/src/**` requires either
+ *     routing it through {@link WriterRegistry.write} OR appending an entry
+ *     here with an ADR pointer.
+ *   - Removing an entry requires removing the matching writer (or rerouting
+ *     it through `WriterRegistry.write`).
+ *
+ * Audit table reference: see T10368 PR description for the full classification
+ * of every `writeFileSync(*.md)` callsite in `packages/core/src/**`.
+ *
+ * @task T10368
+ */
+const SYSTEM_MANAGED_ENTRIES: ReadonlyArray<SystemManagedEntry> = Object.freeze([
+  {
+    id: 'release.plan-json',
+    kind: null,
+    relativePathGlob: '.cleo/release/*.plan.json',
+    sourcePath: 'packages/core/src/release/plan.ts',
+    callsite: 'packages/core/src/release/plan.ts:writePlanFile',
+    adrRef: 'ADR-028 (release manifest format)',
+    reason:
+      'Release Plan envelopes are JSON not Markdown and live alongside the DB ' +
+      'releases row by design. Writer is the single composer; no DocKind binding.',
+  },
+  {
+    id: 'release.changelog',
+    kind: 'release-note',
+    relativePathGlob: 'CHANGELOG.md',
+    sourcePath: 'packages/core/src/release/plan.ts',
+    callsite: 'packages/core/src/release/plan.ts:writeChangelogSection',
+    adrRef: 'ADR-028 §2.5 (CHANGELOG composer)',
+    reason:
+      'CHANGELOG.md is composed from aggregated changesets at release-plan time. ' +
+      'The descriptor for `release-note` already marks the kind as system-managed; ' +
+      'this entry pins the exact callsite for the lint gate.',
+  },
+  {
+    id: 'lifecycle.rcasd-migration',
+    kind: 'rcasd',
+    relativePathGlob: '.cleo/rcasd/**/*.md',
+    sourcePath: 'packages/core/src/lifecycle/consolidate-rcasd.ts',
+    callsite: 'packages/core/src/lifecycle/consolidate-rcasd.ts:moveWithFrontmatter',
+    adrRef: 'ADR-076 (canon routing — migration tooling exemption)',
+    reason:
+      'RCASD consolidation tool moves pre-existing rcasd `.md` files between ' +
+      'on-disk layouts and re-injects frontmatter. Not a new authoring path — ' +
+      'a migration helper for files already on disk.',
+  },
+  {
+    id: 'lifecycle.stage-artifact',
+    kind: 'rcasd',
+    relativePathGlob: '.cleo/stages/*/*-*.md',
+    sourcePath: 'packages/core/src/lifecycle/stage-artifacts.ts',
+    callsite: 'packages/core/src/lifecycle/stage-artifacts.ts:ensureStageArtifact',
+    adrRef: 'ADR-076 (canon routing — stage artifact composer)',
+    reason:
+      'Stage artifacts are composed deterministically from epic id + stage. ' +
+      'Authoring is by the lifecycle engine, not the user — no DocKind slug.',
+  },
+  {
+    id: 'sessions.handoff-markdown',
+    kind: 'handoff',
+    relativePathGlob: '**/*-handoff*.md',
+    sourcePath: 'packages/core/src/sessions/handoff-markdown.ts',
+    callsite: 'packages/core/src/sessions/handoff-markdown.ts:emitHandoffMarkdown',
+    adrRef: 'ADR-076 (canon routing — handoff renderer)',
+    reason:
+      'Pure markdown renderer for the handoff envelope. Callers that want a ' +
+      'canonical SSoT-tracked handoff use `cleo docs add --type handoff` ' +
+      '(which uses this renderer internally). The renderer itself does not ' +
+      'create a DocKind row.',
+  },
+  {
+    id: 'nexus.wiki-overview',
+    kind: null,
+    relativePathGlob: '**/nexus/wiki/**/*.md',
+    sourcePath: 'packages/core/src/nexus/wiki-index.ts',
+    callsite: 'packages/core/src/nexus/wiki-index.ts:rebuildWikiIndex',
+    adrRef: 'ADR-076 (canon routing — nexus wiki is not a DocKind)',
+    reason:
+      'Nexus wiki overview + community pages are derived artifacts of the ' +
+      'nexus graph; they are regenerated on every wiki rebuild and are not ' +
+      'a DocKind in the canon registry.',
+  },
+  {
+    id: 'docs.publish-mirror',
+    kind: null,
+    relativePathGlob: 'docs/**/*.md',
+    sourcePath: 'packages/core/src/docs/publish-pr.ts',
+    callsite: 'packages/core/src/docs/publish-pr.ts:writePublishMirror',
+    adrRef: 'ADR-076 (canon routing — publish mirror)',
+    reason:
+      'publishMirror writes are the canon-routed copy step (the second half ' +
+      'of `cleo docs publish`). They consume bytes that ALREADY routed through ' +
+      'the SSoT via `cleo docs add` — pinned here so the lint gate skips them.',
+  },
+  {
+    id: 'bootstrap.global-agents-md',
+    kind: null,
+    relativePathGlob: '**/.agents/AGENTS.md',
+    sourcePath: 'packages/core/src/bootstrap.ts',
+    callsite: 'packages/core/src/bootstrap.ts:bootstrap (sanitize CAAMP)',
+    adrRef: 'ADR-076 (canon routing — global bootstrap is not a DocKind)',
+    reason:
+      'Bootstrap sanitizes the global `~/.agents/AGENTS.md` hub (strips legacy ' +
+      '<!-- CLEO:START --> blocks + CAAMP corruption). Not a DocKind authoring ' +
+      'path — it mutates a user-owned global config file in place during init.',
+  },
+  {
+    id: 'init.pr-template',
+    kind: null,
+    relativePathGlob: '.github/pull_request_template.md',
+    sourcePath: 'packages/core/src/init.ts',
+    callsite: 'packages/core/src/init.ts:installGithubTemplates',
+    adrRef: 'ADR-076 (canon routing — github scaffolding is not a DocKind)',
+    reason:
+      '`cleo init` copies the bundled pull_request_template.md into the host ' +
+      'project `.github/` directory. Authoring is by the init scaffolder (the ' +
+      'template ships in the npm package) — no user-facing slug, no DocKind row.',
+  },
+  {
+    id: 'injection.global-cleo-injection',
+    kind: null,
+    relativePathGlob: '**/.cleo/templates/CLEO-INJECTION.md',
+    sourcePath: 'packages/core/src/injection.ts',
+    callsite: 'packages/core/src/injection.ts:installGlobalCleoInjection',
+    adrRef: 'ADR-076 (canon routing — global protocol injection is not a DocKind)',
+    reason:
+      'Installs the bundled `CLEO-INJECTION.md` protocol template into the ' +
+      'global `<cleoHome>/templates/` directory. Bytes are vendored in the npm ' +
+      'package — the install step is deterministic and idempotent, not a ' +
+      'DocKind authoring path.',
+  },
+]);
+
+/**
+ * Convert a glob pattern into a RegExp. Supports `*` (segment-internal) and
+ * `**` (cross-segment). Used by {@link WriterRegistry.isSystemManaged} to
+ * match repo-relative paths against the registered globs.
+ *
+ * @internal
+ * @task T10368
+ */
+function globToRegExp(glob: string): RegExp {
+  // Escape regex special chars except `*` and `?`.
+  let body = '';
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i];
+    const next = glob[i + 1];
+    if (c === '*' && next === '*') {
+      body += '.*';
+      i++; // consume second '*'
+    } else if (c === '*') {
+      body += '[^/]*';
+    } else if (c === '?') {
+      body += '.';
+    } else if (c !== undefined && /[.+^${}()|[\]\\]/.test(c)) {
+      body += `\\${c}`;
+    } else {
+      body += c ?? '';
+    }
+  }
+  return new RegExp(`^${body}$`);
+}
+
 // ─── Registry class ───────────────────────────────────────────────────────────
 
 /**
@@ -401,6 +615,57 @@ export class WriterRegistry {
       if (!registered.has(kind as BuiltinDocKind)) return false;
     }
     return true;
+  }
+
+  /**
+   * Read-only view of every system-managed entry (T10368).
+   *
+   * Consumed by the T10369 lint gate to exempt known artifacts from the
+   * "one writer per DocKind" enforcement.
+   */
+  static listSystemManaged(): ReadonlyArray<SystemManagedEntry> {
+    return SYSTEM_MANAGED_ENTRIES;
+  }
+
+  /**
+   * Match a project-root-relative path against every registered
+   * {@link SystemManagedEntry} glob and return the FIRST hit (or `null` when
+   * no entry matches).
+   *
+   * The lint gate calls this for every `.md` writer call site discovered in
+   * `packages/core/src/**`; a `null` return means the writer is uncited and
+   * must either route through {@link WriterRegistry.write} or get a new
+   * entry in {@link SYSTEM_MANAGED_ENTRIES}.
+   *
+   * Matching is glob-based (see {@link globToRegExp}). Paths are normalised
+   * to forward slashes for cross-platform consistency.
+   *
+   * @task T10368
+   */
+  static isSystemManaged(relativePath: string): SystemManagedEntry | null {
+    const normalised = relativePath.replace(/\\/g, '/');
+    for (const entry of SYSTEM_MANAGED_ENTRIES) {
+      const re = globToRegExp(entry.relativePathGlob);
+      if (re.test(normalised)) {
+        return entry;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Lookup helper — find the system-managed entry by its `id` field.
+   *
+   * Useful for refactored writers that want to emit a routing log line
+   * citing the registry entry without re-parsing the glob.
+   *
+   * @task T10368
+   */
+  static findSystemManagedById(id: string): SystemManagedEntry | null {
+    for (const entry of SYSTEM_MANAGED_ENTRIES) {
+      if (entry.id === id) return entry;
+    }
+    return null;
   }
 
   /**
