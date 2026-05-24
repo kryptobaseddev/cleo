@@ -145,6 +145,14 @@ export {
   findHighestAdrNumber,
   MAX_ADR_ALLOCATION_ATTEMPTS,
 } from './docs/adr-allocator.js';
+// Docs provenance graph (T10164 — Epic T10157 / Saga T9855) — typed
+// {@link DocProvenanceResponse} envelope built via BFS over `attachments`.
+export type { BuildDocProvenanceGraphOptions } from './docs/build-provenance-graph.js';
+export {
+  buildDocProvenanceGraph,
+  DocProvenanceRootNotFoundError,
+  renderProvenanceGraphAsDot,
+} from './docs/build-provenance-graph.js';
 // Docs generator — llms.txt format generation (T798)
 export type { GenerateDocsOptions, GenerateDocsResult } from './docs/docs-generator.js';
 export { generateDocsLlmsTxt } from './docs/docs-generator.js';
@@ -1335,6 +1343,8 @@ export {
 } from './store/sqlite-backup.js';
 export { applyPerfPragmas } from './store/sqlite-pragmas.js';
 export {
+  attachmentRefs,
+  attachments,
   auditLog,
   externalTaskLinks,
   releases,
