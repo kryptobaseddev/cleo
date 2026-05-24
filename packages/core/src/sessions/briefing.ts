@@ -474,13 +474,32 @@ export async function computeBriefing(
   // Every cleo briefing call gives the dream cycle a chance to fire. The existing
   // 5-minute cooldown + dreamInFlight guard in dream-cycle.ts prevent over-firing.
   // Gated by config flag briefing.opportunisticDream (defaults to true).
+  //
+  // T9948 contention contract:
+  //   - The fire-and-forget path inside `dispatchDream` uses
+  //     `setImmediate(...).unref()` so this trigger MUST NOT delay process
+  //     exit. The structured trace below logs the trigger to the `briefing`
+  //     subsystem logger (silent by default; `LOG_LEVEL=info` opt-in) so
+  //     contention investigations can correlate writer-lock holders with
+  //     opportunistic dream firings.
   try {
     const { loadConfig } = await import('../config.js');
     const cfg = await loadConfig(projectRoot).catch(() => undefined);
     const enabled = cfg?.briefing?.opportunisticDream ?? true;
     if (enabled) {
       const { checkAndDream } = await import('../memory/dream-cycle.js');
-      // Fire async (inline=false) — must never block the briefing response.
+      const { getLogger } = await import('../logger.js');
+      const log = getLogger('briefing');
+      // T9948 AC3: emit a structured trace BEFORE firing so a stuck PID
+      // can be correlated to the opportunistic dream trigger via the log
+      // ring buffer or pino transport.
+      log.debug(
+        { event: 'opportunistic-dream-trigger', projectRoot, task: 'T9948' },
+        'briefing: scheduling opportunistic dream (fire-and-forget, non-keepalive)',
+      );
+      // Fire async (inline=false) — must never block the briefing response,
+      // and per T9948 must not keep the process alive (see dispatchDream
+      // `.unref()`).
       checkAndDream(projectRoot, { inline: false }).catch(() => undefined);
     }
   } catch {
