@@ -303,6 +303,99 @@ describe('resolvePhasePrompt', () => {
     expect(prompt).toContain('REJECT criteria');
   });
 
+  it('injects Blast-Radius Test Scope into validate prompt when infrastructure files changed (T9842)', async () => {
+    await startIvtr('T999', { cwd: testDir });
+    const state = await advanceIvtr('T999', ['sha-impl'], { cwd: testDir });
+    const evidenceBundle: ImplEvidenceSummary[] = [
+      {
+        attachmentSha256: 'a'.repeat(64),
+        kind: 'impl-diff',
+        filesChanged: [
+          // Mirrors the T9814 precedent: a transaction primitive in core/store.
+          'packages/core/src/store/sqlite-data-accessor.ts',
+        ],
+        linesAdded: 12,
+        linesRemoved: 4,
+        durationMs: 1500,
+      },
+    ];
+    const prompt = resolvePhasePrompt(
+      'T999',
+      state,
+      'My Task',
+      'Refactor DataAccessor.transaction()',
+      undefined,
+      evidenceBundle,
+    );
+
+    // The synthetic infrastructure change with targeted-test-only Lead review
+    // would be caught by the updated protocol (AC3).
+    expect(prompt).toContain('Blast-Radius Test Scope');
+    expect(prompt).toContain('T9842');
+    // T9814 precedent must be cited in the Lead-spawn prompt (AC4).
+    expect(prompt).toContain('T9814');
+    expect(prompt).toContain('agent-resolver');
+    // Lead is instructed to run the full per-package vitest, not targeted-only.
+    expect(prompt).toContain('pnpm --filter @cleocode/core run test');
+    // New REJECT criterion is wired up.
+    expect(prompt).toContain('Infra-test-scope violation');
+    expect(prompt).toContain('infra-test-scope-violation');
+  });
+
+  it('does NOT inject Blast-Radius Test Scope when impl-diff is non-infrastructure (T9842)', async () => {
+    await startIvtr('T999', { cwd: testDir });
+    const state = await advanceIvtr('T999', ['sha-impl'], { cwd: testDir });
+    const evidenceBundle: ImplEvidenceSummary[] = [
+      {
+        attachmentSha256: 'b'.repeat(64),
+        kind: 'impl-diff',
+        filesChanged: [
+          'packages/cleo/src/cli/commands/show.ts',
+          'docs/release/branch-protection-setup.md',
+        ],
+      },
+    ];
+    const prompt = resolvePhasePrompt(
+      'T999',
+      state,
+      'My Task',
+      'CLI show polish',
+      undefined,
+      evidenceBundle,
+    );
+
+    expect(prompt).not.toContain('Blast-Radius Test Scope');
+    expect(prompt).not.toContain('infra-test-scope-violation');
+  });
+
+  it('aggregates filesChanged across multiple impl evidence entries (T9842)', async () => {
+    await startIvtr('T999', { cwd: testDir });
+    const state = await advanceIvtr('T999', ['sha-impl'], { cwd: testDir });
+    const evidenceBundle: ImplEvidenceSummary[] = [
+      {
+        attachmentSha256: 'a'.repeat(64),
+        kind: 'impl-diff',
+        filesChanged: ['packages/cleo/src/cli/commands/show.ts'],
+      },
+      {
+        attachmentSha256: 'c'.repeat(64),
+        kind: 'impl-diff',
+        filesChanged: ['packages/contracts/src/envelope.ts'],
+      },
+    ];
+    const prompt = resolvePhasePrompt(
+      'T999',
+      state,
+      'My Task',
+      'Mixed change',
+      undefined,
+      evidenceBundle,
+    );
+
+    expect(prompt).toContain('Blast-Radius Test Scope');
+    expect(prompt).toContain('pnpm --filter @cleocode/contracts run test');
+  });
+
   it('generates audit prompt after validate (T9216: audit phase added)', async () => {
     await startIvtr('T999', { cwd: testDir });
     await advanceIvtr('T999', ['sha-i'], { cwd: testDir });
