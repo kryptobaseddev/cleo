@@ -20,7 +20,8 @@
 
 import type { GateEvidence, Task, TaskVerification, VerificationGate } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { SAGA_GROUPS_RELATION, SAGA_LABEL } from './constants.js';
+import { SAGA_GROUPS_RELATION } from './constants.js';
+import { isSagaShape } from './enforcement.js';
 
 /**
  * Resolve Saga member Epic IDs through `task_relations.type='groups'` edges.
@@ -49,7 +50,8 @@ export async function resolveSagaMemberIds(
 ): Promise<string[] | null> {
   const sagaTask = await accessor.loadSingleTask(sagaId);
   if (!sagaTask) return null;
-  if (!(sagaTask.labels ?? []).includes(SAGA_LABEL)) return null;
+  // T10331 (Saga T10326 W2.B): dual-shape acceptance via isSagaShape.
+  if (!isSagaShape(sagaTask)) return null;
   const seen = new Set<string>();
   const memberIds: string[] = [];
   for (const relation of sagaTask.relates ?? []) {
@@ -98,10 +100,20 @@ export async function findSagasGroupingTask(
   accessor: DataAccessor,
   memberId: string,
 ): Promise<Task[]> {
-  const { tasks: sagas } = await accessor.queryTasks({ type: 'epic', label: 'saga' });
+  // T10331 (Saga T10326 W2.B): dual-shape sweep — query BOTH the canonical
+  // `type='saga'` rows AND the legacy `type='epic' + label='saga'` rows so
+  // not-yet-migrated rows in long-lived sessions still surface during the
+  // deprecation window. W3.C T10334 collapses to the single new-shape query.
+  const [newShape, oldShape] = await Promise.all([
+    accessor.queryTasks({ type: 'saga' }),
+    accessor.queryTasks({ type: 'epic', label: 'saga' }),
+  ]);
+  const seenIds = new Set<string>();
   const matches: Task[] = [];
-  for (const saga of sagas) {
-    if (!(saga.labels ?? []).includes(SAGA_LABEL)) continue;
+  for (const saga of [...newShape.tasks, ...oldShape.tasks]) {
+    if (seenIds.has(saga.id)) continue;
+    seenIds.add(saga.id);
+    if (!isSagaShape(saga)) continue;
     const hasMemberEdge = (saga.relates ?? []).some(
       (relation) => relation.type === SAGA_GROUPS_RELATION && relation.taskId === memberId,
     );

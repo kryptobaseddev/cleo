@@ -111,15 +111,34 @@ const SAGA_LIST_HARD_LIMIT = 1000;
  * @param projectRoot - Absolute path to the project root.
  */
 export async function sagaList(projectRoot: string): Promise<EngineResult<SagaListResult>> {
-  const result = await taskList(projectRoot, {
-    type: 'epic',
-    label: 'saga',
-    limit: SAGA_LIST_HARD_LIMIT,
-  });
-  if (!result.success) {
-    return engineError('E_GENERAL', result.error?.message ?? 'Failed to list Sagas');
+  // T10331 (Saga T10326 W2.B): dual-shape sweep — query BOTH the canonical
+  // `type='saga'` rows AND the legacy `type='epic' + label='saga'` rows. The
+  // two predicates union into a single saga catalog during the deprecation
+  // window; W3.C T10334 collapses to the single new-shape query.
+  const [newShape, oldShape] = await Promise.all([
+    taskList(projectRoot, { type: 'saga', limit: SAGA_LIST_HARD_LIMIT }),
+    taskList(projectRoot, {
+      type: 'epic',
+      label: 'saga',
+      limit: SAGA_LIST_HARD_LIMIT,
+    }),
+  ]);
+  if (!newShape.success) {
+    return engineError('E_GENERAL', newShape.error?.message ?? 'Failed to list Sagas');
   }
-  const tasks = result.data?.tasks ?? [];
+  if (!oldShape.success) {
+    return engineError('E_GENERAL', oldShape.error?.message ?? 'Failed to list Sagas');
+  }
+  // Merge + dedupe by id (insertion-order stable: new-shape rows first).
+  const seenIds = new Set<string>();
+  const newShapeTasks = newShape.data?.tasks ?? [];
+  const oldShapeTasks = oldShape.data?.tasks ?? [];
+  const tasks: Array<(typeof newShapeTasks)[number]> = [];
+  for (const t of [...newShapeTasks, ...oldShapeTasks]) {
+    if (seenIds.has(t.id)) continue;
+    seenIds.add(t.id);
+    tasks.push(t);
+  }
 
   // T10117: loud-include — every saga-labeled row surfaces, with one warning
   // per I5 violator. We collect warnings inline rather than filtering them

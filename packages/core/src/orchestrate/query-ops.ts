@@ -24,6 +24,7 @@ import type { EnrichedWave } from '../orchestration/waves.js';
 import { getEnrichedWaves } from '../orchestration/waves.js';
 import { getProjectRoot } from '../paths.js';
 import { SAGA_GROUPS_RELATION, SAGA_LABEL } from '../sagas/constants.js';
+import { isSagaShape } from '../sagas/enforcement.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import type { DepGraphIssue } from '../tasks/dep-graph-validator.js';
 import { runValidation } from '../tasks/dep-graph-validator.js';
@@ -122,21 +123,38 @@ export type OrchestrateTraversal = 'parent' | 'saga' | 'both';
 /**
  * Single source of truth for the saga-shaped-epic check (ADR-073).
  *
- * A task is a saga when its `labels` array contains `'saga'` AND its `type`
- * is `'epic'`. Sagas are top-level grouping nodes whose members are linked
- * via `task_relations.type='groups'` rather than `parentId`.
+ * Dual-shape acceptance (T10331, Saga T10326 W2.B):
+ *   - Canonical post-migration shape: `type === 'saga'` — first-class
+ *     {@link TaskType} value introduced by W1.A T10328 (ADR-083 §2.5).
+ *   - Legacy label-encoded shape: `type === 'epic' && labels.includes('saga')`
+ *     — still produced by fixtures and not-yet-migrated rows during the
+ *     deprecation window. Removed in W3.C cutover (T10334).
+ *
+ * Sagas are top-level grouping nodes whose members are linked via
+ * `task_relations.type='groups'` rather than `parentId`.
  *
  * @param task - The task to inspect. Pass either a fully-loaded {@link Task}
  *               (with `labels` populated by `loadSingleTask` / `queryTasks`)
  *               or `null`/`undefined` (returns `false`).
- * @returns `true` when `task` is a saga-labeled epic.
+ * @returns `true` when `task` is a saga under either shape.
+ *
+ * @deprecated Prefer {@link isSagaShape} (`packages/core/src/sagas/enforcement.ts`)
+ *   when the caller holds a fully-typed {@link Task} — it returns a
+ *   compile-time type-narrowing predicate (`task is SagaTask`) instead of a
+ *   plain `boolean`. `isSagaEpic` remains for the in-file query-ops callers
+ *   that hold `Pick<Task,'type'|'labels'>` rows.
  *
  * @bug gh-390
  * @adr ADR-073
+ * @adr ADR-083 — Saga as first-class TaskType
  * @task T9839
+ * @task T10331
  */
 export function isSagaEpic(task: Pick<Task, 'type' | 'labels'> | null | undefined): boolean {
   if (!task) return false;
+  // New shape — first-class 'saga' TaskType (T10277 cutover).
+  if (task.type === 'saga') return true;
+  // Old shape — labelled epic (deprecation-window dual acceptance, T10334 drops).
   if (task.type !== 'epic') return false;
   return (task.labels ?? []).includes(SAGA_LABEL);
 }
@@ -422,7 +440,8 @@ export async function orchestrateReady(
     // detect the saga shape and aggregate ready-sets across member epics.
     // -------------------------------------------------------------------------
     const via: OrchestrateTraversal = opts?.via ?? 'both';
-    const sagaShaped = isSagaEpic(epic);
+    // T10331 (Saga T10326 W2.B): dual-shape saga detection via isSagaShape.
+    const sagaShaped = isSagaShape(epic);
     const useSagaWalk = via === 'saga' || (via === 'both' && sagaShaped);
 
     const accessor = await getTaskAccessor(root);
@@ -451,7 +470,8 @@ export async function orchestrateReady(
         // itself saga-labeled, skip it and surface the anomaly in meta rather
         // than recursing — preserves O(N) aggregation.
         const memberTask = tasks.find((t) => t.id === memberId);
-        if (memberTask && isSagaEpic(memberTask)) {
+        // T10331 (Saga T10326 W2.B): dual-shape saga detection via isSagaShape.
+        if (memberTask && isSagaShape(memberTask)) {
           skippedNested.push(memberId);
           continue;
         }
@@ -665,7 +685,8 @@ export async function orchestrateWaves(
     }
 
     const via: OrchestrateTraversal = opts?.via ?? 'both';
-    const sagaShaped = isSagaEpic(epic);
+    // T10331 (Saga T10326 W2.B): dual-shape saga detection via isSagaShape.
+    const sagaShaped = isSagaShape(epic);
     const useSagaWalk = via === 'saga' || (via === 'both' && sagaShaped);
 
     if (!useSagaWalk) {
@@ -684,7 +705,8 @@ export async function orchestrateWaves(
 
     for (const memberId of members) {
       const memberTask = await accessor.loadSingleTask(memberId);
-      if (memberTask && isSagaEpic(memberTask)) {
+      // T10331 (Saga T10326 W2.B): dual-shape saga detection via isSagaShape.
+      if (memberTask && isSagaShape(memberTask)) {
         skippedNested.push(memberId);
         continue;
       }
