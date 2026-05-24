@@ -881,6 +881,318 @@ describe('runEnvelopeConformance — canonical tiered conformance (T4673)', () =
 });
 
 // ============================
+// E8 ENVELOPE FIELDS (Saga T9855 / T9920 / T9923 / T9922)
+// ============================
+
+/**
+ * Per-field structural validators for the E8 envelope additions.
+ *
+ * The canonical {@link isValidLafsEnvelope} helper above only enforces the
+ * baseline ADR-039 shape. These validators enforce the **additive** field
+ * contracts shipped under Saga T9855 / E8:
+ *
+ * - {@link assertSuggestedNext} — `meta.suggestedNext` (T9920)
+ * - {@link assertTokens}        — `meta.tokens` (T9923)
+ * - {@link assertProjection}    — `meta.projection` (T9922)
+ *
+ * Each validator returns `{ valid: true }` for present-and-well-formed,
+ * `{ valid: true }` for absent (every field is optional), and
+ * `{ valid: false, error }` for present-but-wrong-shape.
+ *
+ * @task T9925
+ */
+function assertSuggestedNext(meta: Record<string, unknown>): {
+  valid: boolean;
+  error?: string;
+} {
+  if (!('suggestedNext' in meta)) return { valid: true }; // absent is allowed
+  const v = meta['suggestedNext'];
+  if (!Array.isArray(v)) {
+    return {
+      valid: false,
+      error: `meta.suggestedNext MUST be ReadonlyArray<string> (got ${typeof v})`,
+    };
+  }
+  for (let i = 0; i < v.length; i++) {
+    if (typeof v[i] !== 'string') {
+      return {
+        valid: false,
+        error: `meta.suggestedNext[${i}] MUST be string (got ${typeof v[i]})`,
+      };
+    }
+  }
+  return { valid: true };
+}
+
+function assertTokens(meta: Record<string, unknown>): { valid: boolean; error?: string } {
+  if (!('tokens' in meta)) return { valid: true }; // absent is allowed
+  const v = meta['tokens'];
+  if (!v || typeof v !== 'object' || Array.isArray(v)) {
+    return { valid: false, error: 'meta.tokens MUST be an object' };
+  }
+  const t = v as Record<string, unknown>;
+  if (typeof t['estimate'] !== 'number') {
+    return { valid: false, error: 'meta.tokens.estimate MUST be number' };
+  }
+  if (typeof t['model'] !== 'string') {
+    return { valid: false, error: 'meta.tokens.model MUST be string' };
+  }
+  if (typeof t['calculatedAt'] !== 'string') {
+    return { valid: false, error: 'meta.tokens.calculatedAt MUST be string (ISO 8601)' };
+  }
+  return { valid: true };
+}
+
+function assertProjection(meta: Record<string, unknown>): { valid: boolean; error?: string } {
+  if (!('projection' in meta)) return { valid: true }; // absent is allowed (default 'mvi')
+  const v = meta['projection'];
+  if (v !== 'mvi' && v !== 'full') {
+    return {
+      valid: false,
+      error: `meta.projection MUST be 'mvi' | 'full' (got ${JSON.stringify(v)})`,
+    };
+  }
+  return { valid: true };
+}
+
+describe('E8 envelope fields — meta.suggestedNext (T9920)', () => {
+  it('absent field is valid (optional)', () => {
+    const json = formatSuccess({ ok: true }, undefined, 'tasks.show');
+    const parsed = JSON.parse(json);
+    expect(parsed.meta.suggestedNext).toBeUndefined();
+    expect(assertSuggestedNext(parsed.meta).valid).toBe(true);
+    // Canonical envelope still valid without the field
+    expect(isValidLafsEnvelope(json).valid).toBe(true);
+  });
+
+  it('empty array is valid (means "no follow-up suggested")', () => {
+    const meta = { suggestedNext: [] };
+    expect(assertSuggestedNext(meta).valid).toBe(true);
+  });
+
+  it('populated array of strings is valid', () => {
+    const meta = {
+      suggestedNext: ['cleo focus T1234', 'cleo verify T1234 --gate implemented'] as const,
+    };
+    expect(assertSuggestedNext(meta).valid).toBe(true);
+  });
+
+  it('rejects non-array (string instead of array)', () => {
+    const meta = { suggestedNext: 'cleo focus T1234' };
+    const result = assertSuggestedNext(meta);
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('ReadonlyArray<string>');
+  });
+
+  it('rejects array with non-string element', () => {
+    const meta = { suggestedNext: ['cleo focus T1234', 42] };
+    const result = assertSuggestedNext(meta);
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('[1]');
+  });
+
+  it('rejects object (not an array)', () => {
+    const meta = { suggestedNext: { 0: 'cleo focus T1234' } };
+    const result = assertSuggestedNext(meta);
+    expect(result.valid).toBe(false);
+  });
+
+  it('canonical envelope with valid suggestedNext passes isValidLafsEnvelope()', () => {
+    const json = formatSuccess({ ok: true }, undefined, {
+      operation: 'tasks.show',
+      // FormatOptions doesn't surface suggestedNext directly — we synthesise
+      // a post-hoc envelope to exercise the structural check.
+    });
+    const parsed = JSON.parse(json);
+    parsed.meta.suggestedNext = ['cleo list', 'cleo session status'] as const;
+    expect(assertSuggestedNext(parsed.meta).valid).toBe(true);
+    expect(isValidLafsEnvelope(JSON.stringify(parsed)).valid).toBe(true);
+  });
+});
+
+describe('E8 envelope fields — meta.tokens (T9923)', () => {
+  it('absent field is valid (optional)', () => {
+    const json = formatSuccess({ ok: true }, undefined, 'tasks.show');
+    const parsed = JSON.parse(json);
+    expect(parsed.meta.tokens).toBeUndefined();
+    expect(assertTokens(parsed.meta).valid).toBe(true);
+  });
+
+  it('all three fields present is valid', () => {
+    const meta = {
+      tokens: { estimate: 123, model: 'cl100k', calculatedAt: '2026-05-24T12:00:00Z' },
+    };
+    expect(assertTokens(meta).valid).toBe(true);
+  });
+
+  it('rejects partial tokens — missing model', () => {
+    const meta = { tokens: { estimate: 42, calculatedAt: '2026-05-24T12:00:00Z' } };
+    const result = assertTokens(meta);
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('model');
+  });
+
+  it('rejects partial tokens — missing calculatedAt', () => {
+    const meta = { tokens: { estimate: 42, model: 'cl100k' } };
+    const result = assertTokens(meta);
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('calculatedAt');
+  });
+
+  it('rejects partial tokens — missing estimate', () => {
+    const meta = { tokens: { model: 'cl100k', calculatedAt: '2026-05-24T12:00:00Z' } };
+    const result = assertTokens(meta);
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('estimate');
+  });
+
+  it('rejects non-number estimate', () => {
+    const meta = { tokens: { estimate: '42', model: 'cl100k', calculatedAt: '2026-05-24Z' } };
+    const result = assertTokens(meta);
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('estimate');
+  });
+
+  it('rejects array shape', () => {
+    const meta = { tokens: [42, 'cl100k', '2026-05-24Z'] };
+    const result = assertTokens(meta);
+    expect(result.valid).toBe(false);
+  });
+
+  it('canonical envelope with valid tokens passes isValidLafsEnvelope()', () => {
+    const json = formatSuccess({ ok: true }, undefined, 'tasks.show');
+    const parsed = JSON.parse(json);
+    parsed.meta.tokens = {
+      estimate: 256,
+      model: 'cl100k',
+      calculatedAt: new Date().toISOString(),
+    };
+    expect(assertTokens(parsed.meta).valid).toBe(true);
+    expect(isValidLafsEnvelope(JSON.stringify(parsed)).valid).toBe(true);
+  });
+
+  // ---- T9923 backwards-compat: meta._tokenEstimate (legacy, removeAt v2026.7.0)
+
+  it('backward compat: envelope with legacy meta._tokenEstimate is valid', () => {
+    const json = formatSuccess({ ok: true }, undefined, 'tasks.show');
+    const parsed = JSON.parse(json);
+    parsed.meta._tokenEstimate = { estimate: 99, vendor: 'legacy' };
+    // Legacy field has no strict shape check — open object permitted
+    expect(isValidLafsEnvelope(JSON.stringify(parsed)).valid).toBe(true);
+    // And does NOT trigger the new-field validator
+    expect(assertTokens(parsed.meta).valid).toBe(true);
+  });
+
+  it('backward compat: envelope with BOTH _tokenEstimate (legacy) AND tokens (canonical) is valid', () => {
+    const json = formatSuccess({ ok: true }, undefined, 'tasks.show');
+    const parsed = JSON.parse(json);
+    parsed.meta._tokenEstimate = { estimate: 99 };
+    parsed.meta.tokens = {
+      estimate: 99,
+      model: 'cl100k',
+      calculatedAt: '2026-05-24T12:00:00Z',
+    };
+    // Deprecation overlap window — both shapes coexist
+    expect(assertTokens(parsed.meta).valid).toBe(true);
+    expect(isValidLafsEnvelope(JSON.stringify(parsed)).valid).toBe(true);
+  });
+});
+
+describe('E8 envelope fields — meta.projection (T9922)', () => {
+  it("absent field is valid (default 'mvi' applies)", () => {
+    const json = formatSuccess({ ok: true }, undefined, 'system.status');
+    const parsed = JSON.parse(json);
+    expect(parsed.meta.projection).toBeUndefined();
+    expect(assertProjection(parsed.meta).valid).toBe(true);
+  });
+
+  it("'mvi' is valid", () => {
+    const meta = { projection: 'mvi' };
+    expect(assertProjection(meta).valid).toBe(true);
+  });
+
+  it("'full' is valid", () => {
+    const meta = { projection: 'full' };
+    expect(assertProjection(meta).valid).toBe(true);
+  });
+
+  it('rejects unknown value', () => {
+    const meta = { projection: 'partial' };
+    const result = assertProjection(meta);
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('mvi');
+    expect(result.error).toContain('full');
+  });
+
+  it('rejects boolean value', () => {
+    const meta = { projection: true };
+    const result = assertProjection(meta);
+    expect(result.valid).toBe(false);
+  });
+
+  it('rejects empty string', () => {
+    const meta = { projection: '' };
+    const result = assertProjection(meta);
+    expect(result.valid).toBe(false);
+  });
+
+  it("canonical envelope with projection='mvi' passes isValidLafsEnvelope()", () => {
+    const json = formatSuccess({ ok: true }, undefined, 'tasks.list');
+    const parsed = JSON.parse(json);
+    parsed.meta.projection = 'mvi';
+    expect(assertProjection(parsed.meta).valid).toBe(true);
+    expect(isValidLafsEnvelope(JSON.stringify(parsed)).valid).toBe(true);
+  });
+
+  it("canonical envelope with projection='full' (opt-out) passes isValidLafsEnvelope()", () => {
+    const json = formatSuccess({ ok: true }, undefined, 'tasks.list');
+    const parsed = JSON.parse(json);
+    parsed.meta.projection = 'full';
+    expect(assertProjection(parsed.meta).valid).toBe(true);
+    expect(isValidLafsEnvelope(JSON.stringify(parsed)).valid).toBe(true);
+  });
+});
+
+describe('E8 envelope fields — composite regression (T9920 + T9923 + T9922)', () => {
+  it('envelope with ALL E8 fields populated is valid', () => {
+    const json = formatSuccess({ ok: true }, undefined, 'tasks.list');
+    const parsed = JSON.parse(json);
+    parsed.meta.suggestedNext = ['cleo show T1234', 'cleo focus T1234'] as const;
+    parsed.meta.tokens = {
+      estimate: 512,
+      model: 'cl100k',
+      calculatedAt: '2026-05-24T12:00:00Z',
+    };
+    parsed.meta.projection = 'mvi';
+
+    expect(assertSuggestedNext(parsed.meta).valid).toBe(true);
+    expect(assertTokens(parsed.meta).valid).toBe(true);
+    expect(assertProjection(parsed.meta).valid).toBe(true);
+    expect(isValidLafsEnvelope(JSON.stringify(parsed)).valid).toBe(true);
+  });
+
+  it('envelope with NONE of the E8 fields still passes (regression: pre-E8 envelopes valid)', () => {
+    const json = formatSuccess({ ok: true }, undefined, 'tasks.list');
+    const parsed = JSON.parse(json);
+    expect(parsed.meta.suggestedNext).toBeUndefined();
+    expect(parsed.meta.tokens).toBeUndefined();
+    expect(parsed.meta.projection).toBeUndefined();
+    expect(isValidLafsEnvelope(json).valid).toBe(true);
+  });
+
+  it('error envelope MAY carry E8 fields (projection is stamped on errors too)', () => {
+    const err = new CleoError(ExitCode.NOT_FOUND, 'Task not found');
+    const json = formatError(err, 'tasks.show');
+    const parsed = JSON.parse(json);
+    parsed.meta.projection = 'mvi';
+    parsed.meta.suggestedNext = ['cleo find "T1234"'] as const;
+    expect(assertProjection(parsed.meta).valid).toBe(true);
+    expect(assertSuggestedNext(parsed.meta).valid).toBe(true);
+    expect(isValidLafsEnvelope(JSON.stringify(parsed)).valid).toBe(true);
+  });
+});
+
+// ============================
 // T5001: HIERARCHY POLICY CONFORMANCE
 // ============================
 
