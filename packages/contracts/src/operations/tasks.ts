@@ -36,6 +36,7 @@ import type {
   TaskView,
 } from '../tasks.js';
 import type { DocsType } from './docs.js';
+import type { JsonSchema, OperationInputContract } from './input-contract.js';
 
 export type { TaskPriority, TaskStatus };
 
@@ -1351,4 +1352,311 @@ export type TasksOps = {
   readonly 'saga.repair': readonly [TasksSagaRepairParams, TasksSagaRepairResult];
   /** T10121 — idempotent cron-safe auto-close repair (supersedes T10098 scope). */
   readonly 'saga.reconcile': readonly [TasksSagaReconcileParams, TasksSagaReconcileResult];
+};
+
+// ---------------------------------------------------------------------------
+// OperationInputContract schemas (T9917 / Epic T9903 / Saga T9855)
+// ---------------------------------------------------------------------------
+//
+// JSON Schema documents that describe the accepted input shape for each
+// tasks.* mutate operation. The `tasks.add`, `tasks.add-batch`, and
+// `tasks.update` schemas back the schema-first `mutate(operation, input)`
+// DX surface introduced by T9914 and validated by T9915.
+//
+// Schemas live in `contracts/` because the CLI (`packages/cleo/`) and the
+// CORE registry (`packages/core/`) both depend on them — contracts is the
+// leaf package both packages already import from, so colocation avoids a
+// fan-out violation (T10074).
+//
+// Each schema sets `additionalProperties: false` to reject typo'd flags
+// outright instead of silently dropping them on the floor at the dispatch
+// boundary.
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-task entry inside a `tasks.add-batch` payload.
+ *
+ * Mirrors the shape of {@link TasksAddBatchParams.tasks | TasksAddBatchParams.tasks[]}
+ * exactly — every field is identical to a `tasks.add` spec EXCEPT `dryRun`,
+ * which is hoisted to the batch level so a single dispatch can preview the
+ * whole batch atomically.
+ *
+ * @task T9917
+ */
+export interface TasksAddBatchEntry {
+  /** Task title (3–500 characters). Required. */
+  title: string;
+  /** Detailed task description (must differ meaningfully from title). */
+  description?: string;
+  /** Parent task ID (makes this task a subtask). */
+  parent?: string;
+  /** Comma-separated dependency task IDs. */
+  depends?: string[];
+  /** Task priority (low | medium | high | critical). */
+  priority?: string;
+  /** Lowercase alphanumeric + hyphens + periods labels. */
+  labels?: string[];
+  /** Task type (saga | epic | task | subtask). */
+  type?: TaskType; // SSoT-EXEMPT:kind≠type — same axis split as TasksAddBatchParams (T944) // ssot-exempt-ok: mirrors parent type
+  /** Pipe-separated acceptance criteria, normalized to string[]. */
+  acceptance?: string[];
+  /** Phase slug to assign the task to. */
+  phase?: string;
+  /** Scope size estimate (small | medium | large). */
+  size?: string;
+  /** Initial note entry for the task. */
+  notes?: string;
+  /** Files touched by the task (relative paths). */
+  files?: string[];
+  /** Task kind / intent axis (work | research | experiment | bug | spike | release). */
+  kind?: string;
+  /** Task scope / granularity axis (project | feature | unit). */
+  scope?: string;
+  /** Severity level (P0 | P1 | P2 | P3). */
+  severity?: string;
+  /** Bypass BRAIN duplicate-task rejection (audited). */
+  forceDuplicate?: boolean;
+}
+
+/**
+ * JSON Schema draft-07 document describing the accepted input shape for
+ * the `tasks.add` mutate operation.
+ *
+ * Mirrors {@link TasksAddParams} field-for-field. Set
+ * `additionalProperties: false` so a typo'd flag fails fast with a typed
+ * `E_VAL_ADDITIONALPROPERTIES` error instead of being silently dropped.
+ *
+ * @task T9917
+ */
+export const TASKS_ADD_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  required: ['title'],
+  additionalProperties: false,
+  properties: {
+    title: { type: 'string', minLength: 1, maxLength: 500 },
+    description: { type: 'string' },
+    parent: { type: 'string' },
+    depends: { type: 'array', items: { type: 'string' } },
+    priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
+    labels: { type: 'array', items: { type: 'string' } },
+    type: { type: 'string', enum: ['saga', 'epic', 'task', 'subtask'] },
+    acceptance: { type: 'array', items: { type: 'string' } },
+    phase: { type: 'string' },
+    size: { type: 'string', enum: ['small', 'medium', 'large'] },
+    notes: { type: 'string' },
+    files: { type: 'array', items: { type: 'string' } },
+    dryRun: { type: 'boolean' },
+    parentSearch: { type: 'string' },
+    kind: {
+      type: 'string',
+      enum: ['work', 'research', 'experiment', 'bug', 'spike', 'release'],
+    },
+    scope: { type: 'string', enum: ['project', 'feature', 'unit'] },
+    severity: { type: 'string', enum: ['P0', 'P1', 'P2', 'P3'] },
+    forceDuplicate: { type: 'boolean' },
+  },
+};
+
+/**
+ * Schema-first input contract for `tasks.add`.
+ *
+ * @task T9917
+ */
+export const tasksAddInputContract: OperationInputContract<TasksAddParams> = {
+  operation: 'tasks.add',
+  schema: TASKS_ADD_INPUT_SCHEMA,
+  examples: [
+    {
+      name: 'minimal',
+      value: { title: 'Ship E7-MUTATE-DX-SCHEMA-FIRST' },
+      description: 'Smallest valid input — title is the only required field.',
+    },
+    {
+      name: 'subtask-with-acceptance',
+      value: {
+        title: 'Wire validator into add command',
+        parent: 'T9903',
+        priority: 'high',
+        acceptance: ['validator runs before dispatch', 'errors surface in envelope'],
+      },
+    },
+  ],
+};
+
+/**
+ * JSON Schema draft-07 document describing the accepted input shape for
+ * the `tasks.add-batch` mutate operation.
+ *
+ * Wraps N `tasks.add` specs in a single atomic transaction. `dryRun` is
+ * hoisted to the batch level (single rollback unit), so the per-entry
+ * schema OMITS `dryRun` deliberately.
+ *
+ * @task T9917
+ */
+export const TASKS_ADD_BATCH_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  required: ['tasks'],
+  additionalProperties: false,
+  properties: {
+    tasks: {
+      type: 'array',
+      minItems: 1,
+      items: {
+        type: 'object',
+        required: ['title'],
+        additionalProperties: false,
+        properties: {
+          title: { type: 'string', minLength: 1, maxLength: 500 },
+          description: { type: 'string' },
+          parent: { type: 'string' },
+          depends: { type: 'array', items: { type: 'string' } },
+          priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
+          labels: { type: 'array', items: { type: 'string' } },
+          type: { type: 'string', enum: ['saga', 'epic', 'task', 'subtask'] },
+          acceptance: { type: 'array', items: { type: 'string' } },
+          phase: { type: 'string' },
+          size: { type: 'string', enum: ['small', 'medium', 'large'] },
+          notes: { type: 'string' },
+          files: { type: 'array', items: { type: 'string' } },
+          kind: {
+            type: 'string',
+            enum: ['work', 'research', 'experiment', 'bug', 'spike', 'release'],
+          },
+          scope: { type: 'string', enum: ['project', 'feature', 'unit'] },
+          severity: { type: 'string', enum: ['P0', 'P1', 'P2', 'P3'] },
+          forceDuplicate: { type: 'boolean' },
+        },
+      },
+    },
+    defaultParent: { type: 'string' },
+    dryRun: { type: 'boolean' },
+  },
+};
+
+/**
+ * Schema-first input contract for `tasks.add-batch`.
+ *
+ * @task T9917
+ */
+export const tasksAddBatchInputContract: OperationInputContract<TasksAddBatchParams> = {
+  operation: 'tasks.add-batch',
+  schema: TASKS_ADD_BATCH_INPUT_SCHEMA,
+  examples: [
+    {
+      name: 'two-tasks',
+      value: {
+        tasks: [{ title: 'first task' }, { title: 'second task' }],
+      },
+      description: 'Atomic insert of two tasks under no shared parent.',
+    },
+    {
+      name: 'with-default-parent',
+      value: {
+        defaultParent: 'T9903',
+        tasks: [{ title: 'a' }, { title: 'b', parent: 'T9914' }],
+      },
+      description: 'defaultParent applies to entries without an explicit parent.',
+    },
+  ],
+};
+
+/**
+ * JSON Schema draft-07 document describing the accepted input shape for
+ * the `tasks.update` mutate operation.
+ *
+ * Mirrors {@link TasksUpdateQueryParams}. `taskId` is REQUIRED. All other
+ * fields are optional — `tasks.update` is a partial update; only the
+ * fields supplied are mutated.
+ *
+ * @task T9917
+ */
+export const TASKS_UPDATE_INPUT_SCHEMA: JsonSchema = {
+  type: 'object',
+  required: ['taskId'],
+  additionalProperties: false,
+  properties: {
+    taskId: { type: 'string', minLength: 1 },
+    title: { type: 'string', minLength: 1, maxLength: 500 },
+    description: { type: 'string' },
+    status: {
+      type: 'string',
+      enum: ['pending', 'active', 'blocked', 'done', 'cancelled'],
+    },
+    priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
+    notes: { type: 'string' },
+    labels: { type: 'array', items: { type: 'string' } },
+    addLabels: { type: 'array', items: { type: 'string' } },
+    removeLabels: { type: 'array', items: { type: 'string' } },
+    depends: { type: 'array', items: { type: 'string' } },
+    addDepends: { type: 'array', items: { type: 'string' } },
+    removeDepends: { type: 'array', items: { type: 'string' } },
+    acceptance: { type: 'array', items: { type: 'string' } },
+    parent: { type: ['string', 'null'] },
+    type: { type: 'string', enum: ['saga', 'epic', 'task', 'subtask'] },
+    size: { type: 'string', enum: ['small', 'medium', 'large'] },
+    files: { type: 'array', items: { type: 'string' } },
+    addFiles: { type: 'array', items: { type: 'string' } },
+    removeFiles: { type: 'array', items: { type: 'string' } },
+    pipelineStage: { type: 'string' },
+    kind: {
+      type: 'string',
+      enum: ['work', 'research', 'experiment', 'bug', 'spike', 'release'],
+    },
+    scope: { type: 'string', enum: ['project', 'feature', 'unit'] },
+    severity: { type: 'string', enum: ['P0', 'P1', 'P2', 'P3'] },
+    reason: { type: 'string' },
+    dependsWaiver: { type: 'string' },
+    clearBlockedBy: { type: 'boolean' },
+    relates: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['taskId', 'type'],
+        additionalProperties: false,
+        properties: {
+          taskId: { type: 'string', minLength: 1 },
+          type: { type: 'string', minLength: 1 },
+          reason: { type: 'string' },
+        },
+      },
+    },
+    addRelates: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['taskId', 'type'],
+        additionalProperties: false,
+        properties: {
+          taskId: { type: 'string', minLength: 1 },
+          type: { type: 'string', minLength: 1 },
+          reason: { type: 'string' },
+        },
+      },
+    },
+    removeRelates: { type: 'array', items: { type: 'string' } },
+  },
+};
+
+/**
+ * Schema-first input contract for `tasks.update`.
+ *
+ * @task T9917
+ */
+export const tasksUpdateInputContract: OperationInputContract<TasksUpdateQueryParams> = {
+  operation: 'tasks.update',
+  schema: TASKS_UPDATE_INPUT_SCHEMA,
+  examples: [
+    {
+      name: 'set-status',
+      value: { taskId: 'T9917', status: 'active' },
+      description: 'Transition status to active.',
+    },
+    {
+      name: 'add-labels-incrementally',
+      value: {
+        taskId: 'T9917',
+        addLabels: ['saga.t9855', 'epic.t9903'],
+      },
+    },
+  ],
 };

@@ -18,10 +18,11 @@ import { setFormatContext } from '../format-context.js';
 // Module mocks — hoisted so they apply before any import resolution
 // ---------------------------------------------------------------------------
 
-const { dispatchRawMock, existsSyncMock, readFileSyncMock } = vi.hoisted(() => ({
+const { dispatchRawMock, existsSyncMock, readFileSyncMock, readFileMock } = vi.hoisted(() => ({
   dispatchRawMock: vi.fn(),
   existsSyncMock: vi.fn(),
   readFileSyncMock: vi.fn(),
+  readFileMock: vi.fn(),
 }));
 
 vi.mock('../../dispatch/adapters/cli.js', () => ({
@@ -35,6 +36,18 @@ vi.mock('node:fs', async (importOriginal) => {
     ...original,
     existsSync: existsSyncMock,
     readFileSync: readFileSyncMock,
+  };
+});
+
+// T9917: add-batch.ts now reads input through `collectMutateInput` which
+// uses `readFile` from `node:fs/promises`. Mock it in lockstep with the
+// legacy `node:fs` mocks so the existing test fixtures continue to work.
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const original = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...original,
+    default: { ...original, readFile: readFileMock },
+    readFile: readFileMock,
   };
 });
 
@@ -156,7 +169,7 @@ describe('addBatchCommand dispatch behaviour (file input)', () => {
 
   it('calls dispatchRaw exactly once for file input with all tasks', async () => {
     existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue(
+    readFileMock.mockResolvedValue(
       JSON.stringify([
         { title: 'Task A', acceptance: ['a'] },
         { title: 'Task B', acceptance: ['b'] },
@@ -187,7 +200,7 @@ describe('addBatchCommand dispatch behaviour (file input)', () => {
 
   it('forwards dryRun: true when --dry-run is set', async () => {
     existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue(JSON.stringify([{ title: 'T', acceptance: ['a'] }]));
+    readFileMock.mockResolvedValue(JSON.stringify([{ title: 'T', acceptance: ['a'] }]));
     dispatchRawMock.mockResolvedValueOnce(makeSuccessEnvelope([]));
 
     await invokeAddBatch({ file: '/tmp/tasks.json', 'dry-run': true });
@@ -202,7 +215,7 @@ describe('addBatchCommand dispatch behaviour (file input)', () => {
 
   it('forwards defaultParent when --parent is set', async () => {
     existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue(JSON.stringify([{ title: 'Child', acceptance: ['a'] }]));
+    readFileMock.mockResolvedValue(JSON.stringify([{ title: 'Child', acceptance: ['a'] }]));
     dispatchRawMock.mockResolvedValueOnce(makeSuccessEnvelope([]));
 
     await invokeAddBatch({ file: '/tmp/tasks.json', parent: 'T999' });
@@ -217,7 +230,7 @@ describe('addBatchCommand dispatch behaviour (file input)', () => {
 
   it('does NOT include defaultParent when --parent is not set', async () => {
     existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue(JSON.stringify([{ title: 'Task', acceptance: ['a'] }]));
+    readFileMock.mockResolvedValue(JSON.stringify([{ title: 'Task', acceptance: ['a'] }]));
     dispatchRawMock.mockResolvedValueOnce(makeSuccessEnvelope([]));
 
     await invokeAddBatch({ file: '/tmp/tasks.json' });
@@ -227,13 +240,17 @@ describe('addBatchCommand dispatch behaviour (file input)', () => {
   });
 
   it('exits 1 and does NOT call dispatchRaw again when CORE op returns success: false', async () => {
+    // T9917: payload must pass schema validation FIRST (titles required).
+    // CORE-side failures (e.g. parent not found, BRAIN duplicate guard) now
+    // produce the legacy exit 1 / E_BATCH_FAILED envelope.
     existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue(
-      JSON.stringify([{ title: 'Good', acceptance: ['a'] }, { acceptance: ['b'] }]),
+    readFileMock.mockResolvedValue(
+      JSON.stringify([
+        { title: 'Good', acceptance: ['a'] },
+        { title: 'Also good', acceptance: ['b'] },
+      ]),
     );
-    dispatchRawMock.mockResolvedValueOnce(
-      makeErrorEnvelope('E_BATCH_FAILED', 'Task at index 1 failed: missing title'),
-    );
+    dispatchRawMock.mockResolvedValueOnce(makeErrorEnvelope('E_BATCH_FAILED', 'parent not found'));
 
     const result = await invokeAddBatch({ file: '/tmp/tasks.json' });
 
@@ -243,27 +260,35 @@ describe('addBatchCommand dispatch behaviour (file input)', () => {
   });
 
   it('does NOT call dispatchRaw when file does not exist', async () => {
+    // T9917: collectMutateInput uses fs/promises.readFile. ENOENT bubbles up
+    // through the CLI catch path which surfaces it as E_VALIDATION_FAILED
+    // (exit 6) — same outcome (no dispatch, non-zero exit) as the legacy
+    // existsSync-based pre-check.
     existsSyncMock.mockReturnValue(false);
+    readFileMock.mockRejectedValueOnce(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
 
     const result = await invokeAddBatch({ file: '/does/not/exist.json' });
 
     expect(dispatchRawMock).not.toHaveBeenCalled();
-    expect(result.exitCode).toBe(2);
+    expect(result.exitCode).toBe(6);
   });
 
   it('does NOT call dispatchRaw when JSON from file is invalid', async () => {
+    // T9917: collectMutateInput surfaces JSON parse errors with the source
+    // label and a snippet — CLI maps that to E_VALIDATION_FAILED (exit 6),
+    // up from the legacy exit 2.
     existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue('not valid json{{{');
+    readFileMock.mockResolvedValue('not valid json{{{');
 
     const result = await invokeAddBatch({ file: '/tmp/bad.json' });
 
     expect(dispatchRawMock).not.toHaveBeenCalled();
-    expect(result.exitCode).toBe(2);
+    expect(result.exitCode).toBe(6);
   });
 
   it('does NOT include dryRun when --dry-run is not set', async () => {
     existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue(JSON.stringify([{ title: 'Task', acceptance: ['a'] }]));
+    readFileMock.mockResolvedValue(JSON.stringify([{ title: 'Task', acceptance: ['a'] }]));
     dispatchRawMock.mockResolvedValueOnce(makeSuccessEnvelope([]));
 
     await invokeAddBatch({ file: '/tmp/tasks.json' });
