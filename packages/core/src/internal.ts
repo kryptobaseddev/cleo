@@ -2408,6 +2408,10 @@ export { ConduitClient } from './conduit/conduit-client.js';
 export { createConduit } from './conduit/factory.js';
 export { HttpTransport } from './conduit/http-transport.js';
 export { decrypt, encrypt } from './crypto/credentials.js';
+// T9915 (Saga T9855 / E7.2) — SSoT input validator over OperationInputContract
+// Re-exported explicitly so CLI transport adapter (T9916) can resolve from
+// the internal barrel without traversing the public re-export chain.
+export { validateOperationInput } from './dispatch/validation.js';
 // Brain health dashboard (T1908 / BBTT-W2-4)
 export {
   type BrainHealthDashboard,
