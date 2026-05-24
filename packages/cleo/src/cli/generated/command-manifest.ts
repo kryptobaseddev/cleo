@@ -863,6 +863,13 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/telemetry.js')).telemetryCommand as CommandDef,
   },
   {
+    exportName: 'templatesCommand',
+    name: 'templates',
+    description:
+      'TemplateManifest SSoT registry surface (list, show, install, upgrade, diff, validate)',
+    load: async () => (await import('../commands/templates.js')).templatesCommand as CommandDef,
+  },
+  {
     exportName: 'testingCommand',
     name: 'testing',
     description: 'Validate testing protocol compliance',
