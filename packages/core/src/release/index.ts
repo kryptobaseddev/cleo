@@ -128,6 +128,8 @@ export {
 export type { DoubleListingResult, EpicCompletenessResult } from './guards.js';
 export { checkDoubleListing, checkEpicCompleteness } from './guards.js';
 // Post-release invariants registry (ADR-056 D5 / T1411)
+// T10339 — R5: this executable subsystem is catalogued by the central
+// metadata registry at `@cleocode/contracts/invariants/adr-056-release.ts`.
 export type {
   InvariantReport,
   InvariantResult,
@@ -136,12 +138,14 @@ export type {
   ReconcileAction,
   ReconcileAuditRow,
   RegisteredInvariant,
+  RegisteredReleaseInvariant,
 } from './invariants/index.js';
 export {
   ARCHIVE_REASON_INVARIANT_ID,
   clearInvariants,
   extractTaskIds,
   getInvariants,
+  getRegisteredAdr056Invariants,
   RECONCILE_AUDIT_FILE,
   registerArchiveReasonInvariant,
   registerInvariant,

@@ -2,6 +2,11 @@
  * Archive-reason post-release invariant — first customer of the registry
  * defined in {@link ./registry}.
  *
+ * The release-time `RegisteredInvariant` shape consumed below is the
+ * executable counterpart of ADR-056 D5; the central metadata for this
+ * invariant subsystem is catalogued in
+ * `@cleocode/contracts/invariants/adr-056-release.ts` (T10339 — R5).
+ *
  * Workflow (per ADR-056 D5 step 2):
  *   1. Read the tag annotation (`git tag <tag> -l --format='%(contents)'`)
  *      and every commit between `<previousTag>..<tag>` (inclusive of `<tag>`).
