@@ -79,3 +79,20 @@ deprecations:
       Back-compat alias for the pre-ADR-068 starter-bundle terminology. The
       delegate (`resolveAgentTemplates`) is itself deprecated — migrate to
       the registry directly. Saga T9855.
+
+  # T9888 / Saga T9855 — `cleo init --workflows` CLI alias is now a thin
+  # wrapper around the SSoT template registry. The branch emits a
+  # deprecation warning to stderr and delegates through
+  # `getTemplatesByKind('workflow')` + `scaffoldWorkflows`. The canonical
+  # install surface going forward is `cleo templates install --kind
+  # workflow` (T9886). Removal target v2026.7.0.
+  - id: cleo-init-workflows-alias
+    path: packages/cleo/src/cli/commands/init.ts
+    since: v2026.5.115
+    remove: v2026.7.0
+    replacement: cleo templates install --kind workflow
+    note: >-
+      Legacy `cleo init --workflows` CLI alias. The canonical workflow
+      install surface is `cleo templates install --kind workflow` (T9886).
+      The alias now emits a deprecation warning and delegates through the
+      SSoT template registry. Saga T9855 / ADR-076 / T9888.
