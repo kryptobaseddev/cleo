@@ -92,6 +92,7 @@ describe('buildSpawnPrompt — core contract', () => {
     expect(p).toContain('## Session Linkage');
     expect(p).toContain('## Stage-Specific Guidance');
     expect(p).toContain('## Evidence-Based Gate Ritual');
+    expect(p).toContain('## Changeset Lint Gate');
     expect(p).toContain('## Quality Gates');
     expect(p).toContain('## Return Format Contract');
   });
@@ -762,6 +763,67 @@ describe('buildSpawnPrompt — task documents section (T1614)', () => {
       protocol: 'implementation',
       projectRoot: PROJECT_ROOT,
       docAttachments: [TEXT_ATTACHMENT, BINARY_ATTACHMENT],
+    });
+    expect(result.unresolvedTokens).toHaveLength(0);
+  });
+});
+
+describe('buildSpawnPrompt — changeset lint gate (T10448)', () => {
+  it('includes the changeset lint gate section in all tiers', () => {
+    for (const tier of [0, 1, 2] as SpawnTier[]) {
+      const result = buildSpawnPrompt({
+        task: BASE_TASK,
+        protocol: 'implementation',
+        tier,
+        projectRoot: PROJECT_ROOT,
+      });
+      expect(result.prompt).toContain('## Changeset Lint Gate');
+      expect(result.prompt).toContain('lint-changesets.mjs');
+      expect(result.prompt).toContain('run BEFORE starting work');
+    }
+  });
+
+  it('references the absolute script path under project root', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+    });
+    expect(result.prompt).toContain(`${PROJECT_ROOT}/scripts/lint-changesets.mjs`);
+  });
+
+  it('instructs the agent to fail fast on malformed changesets', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+    });
+    expect(result.prompt).toContain('Do NOT start implementation');
+    expect(result.prompt).toContain('Fail fast here');
+    expect(result.prompt).toContain('feat|fix|perf|refactor|docs|test|chore|breaking');
+  });
+
+  it('places the changeset lint gate between Evidence Gate and Quality Gates', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+    });
+    const evidenceIdx = result.prompt.indexOf('## Evidence-Based Gate Ritual');
+    const changesetIdx = result.prompt.indexOf('## Changeset Lint Gate');
+    const qualityIdx = result.prompt.indexOf('## Quality Gates');
+    expect(evidenceIdx).toBeGreaterThan(-1);
+    expect(changesetIdx).toBeGreaterThan(-1);
+    expect(qualityIdx).toBeGreaterThan(-1);
+    expect(evidenceIdx).toBeLessThan(changesetIdx);
+    expect(changesetIdx).toBeLessThan(qualityIdx);
+  });
+
+  it('produces zero unresolved tokens when changeset lint gate is present', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
     });
     expect(result.unresolvedTokens).toHaveLength(0);
   });
