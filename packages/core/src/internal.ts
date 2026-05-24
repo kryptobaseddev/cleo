@@ -263,6 +263,17 @@ export {
   releaseReservedSlug,
   reserveSlug,
 } from './docs/slug-allocator.js';
+// DocKind Writer Registry (T10366 / Saga T10288 / Epic T10290)
+export type {
+  WriteArgs,
+  WriteOptions,
+  WritePayload,
+  WriteResult,
+  WriterDescriptor,
+  WriterMode,
+  WriterVerb,
+} from './docs/writer-registry.js';
+export { WriterRegistry, WriterRegistryCollisionError } from './docs/writer-registry.js';
 // Git hooks (T1588) — project-agnostic POSIX commit-msg + pre-push T-ID enforcement
 export type {
   CleoHookName,

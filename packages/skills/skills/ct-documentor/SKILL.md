@@ -158,6 +158,36 @@ When choosing a slug, follow the DocKind prefix conventions in the routing
 matrix above (`adr-NNN-*`, `spec-*`, `research-*`, `t<id>-*` for changesets,
 etc.) — this is what makes cross-kind collisions structurally near-impossible.
 
+#### One writer per DocKind — WriterRegistry SSoT (T10366 · Saga T10288 / Epic T10290)
+
+`packages/core/src/docs/writer-registry.ts:WriterRegistry` is the SSoT for
+"which CLI verb writes which DocKind". Every `BuiltinDocKind` maps to EXACTLY
+ONE writer descriptor — multi-writer regressions trip the registry at build
+time (the slug-collision class root-cause from T10294).
+
+```ts
+import { WriterRegistry } from '@cleocode/core/internal';
+
+const desc = WriterRegistry.for('changeset');
+// → { kind: 'changeset', verb: 'changeset add', dispatchOp: 'changeset.add',
+//     coreFn: 'writeChangesetEntry', mode: 'ssot-first',
+//     sourcePath: 'packages/core/src/changesets/writer.ts' }
+```
+
+Descriptor modes mirror `.cleo/canon.yml`'s `canonicalHome`:
+- `'ssot'` — bytes live in the blob store; published copy is a mirror.
+- `'ssot-first'` — dual-write via a dedicated verb (`changeset` today).
+- `'system-managed'` — tooling-composed (e.g. `llm-readme`, `release-note`).
+
+Test parity: every `ssot-first` descriptor MUST match a kind whose
+`canonicalHome: 'ssot-first'` in `.cleo/canon.yml`, and vice versa.
+
+T10366 establishes the registry contract; T10367 (docs add) and T10368
+(changeset add) wire the actual writer delegation. Until those land,
+`WriterRegistry.write()` returns `E_NOT_IMPLEMENTED` after consulting the
+allocator — callers should continue invoking the existing writers
+(`cleo docs add` dispatch handler, `writeChangesetEntry`) directly.
+
 ### Publish to a git-tracked path (when the doc must live on disk)
 
 ```bash
