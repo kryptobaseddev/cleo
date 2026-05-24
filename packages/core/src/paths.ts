@@ -191,10 +191,14 @@ export function getCleoHome(): string {
  * Returns `{cleoHome}/templates` where CLEO-INJECTION.md and other global
  * templates are stored.
  *
- * @deprecated Use {@link import('./templates/registry.js').getTemplateManifest}
- * and the typed `getTemplatesByKind('doc')` / `getInstalledStatus()` helpers
- * instead. The directory-resolver pattern hides the manifest the install
- * verbs need to reason about. Rewire planned in T9879 (Saga T9855).
+ * @deprecated Compose the SSoT registry entry's `installPath` against
+ * {@link getCleoHome} instead — e.g.
+ * `join(getCleoHome(), getTemplateById('cleo-injection').installPath)`
+ * resolves to the same file via the
+ * {@link import('./templates/registry.js').getTemplateById} registry surface.
+ * T9879 rewired every internal caller; this directory accessor remains as a
+ * back-compat shim and is targeted for removal in v2026.7.0 (see
+ * `.cleo/deprecations.yml`).
  *
  * @example
  * ```typescript

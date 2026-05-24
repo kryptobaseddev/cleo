@@ -34,3 +34,48 @@ deprecations:
     note: >-
       Raw `.md` writes to `.cleo/agent-outputs/` bypass the docs registry
       SSoT. Migrate to `cleo docs add --type note` (T9788).
+
+  # T9879 / Saga T9855 — legacy directory-resolver wrappers superseded by the
+  # SSoT template registry from T9877. Each wrapper now delegates internally
+  # to `getTemplatesByKind(...)` + `resolveSourcePathAbsolute(...)`; the
+  # wrappers stay as thin shims through the deprecation window so out-of-tree
+  # consumers retain a migration runway. Removal target v2026.7.0.
+  - id: get-cleo-templates-dir
+    path: packages/core/src/paths.ts
+    since: v2026.5.112
+    remove: v2026.7.0
+    replacement: join(getCleoHome(), getTemplateById('cleo-injection').installPath)
+    note: >-
+      Directory accessor returns `{cleoHome}/templates`. Compose the install
+      path via the SSoT registry entry instead (T9877). See ADR-076.
+
+  - id: get-workflow-templates-dir
+    paths:
+      - packages/core/src/init/scaffold-workflows.ts
+      - packages/cleo/src/cli/commands/init.ts
+    since: v2026.5.112
+    remove: v2026.7.0
+    replacement: getTemplatesByKind('workflow') + resolveSourcePathAbsolute(entry)
+    note: >-
+      Directory accessor used by `cleo init --workflows` / `cleo upgrade
+      workflows`. Wrapper now delegates to the SSoT registry (T9877). See
+      ADR-076 / Saga T9855.
+
+  - id: resolve-agent-templates
+    path: packages/core/src/agents/resolveAgentTemplates.ts
+    since: v2026.5.112
+    remove: v2026.7.0
+    replacement: getTemplatesByKind('agent') + resolveSourcePathAbsolute(entry)
+    note: >-
+      Directory accessor used by the agent seed installer. Wrapper now
+      delegates to the SSoT registry (T9877). ADR-076 / Saga T9855.
+
+  - id: resolve-starter-bundle
+    path: packages/core/src/agents/resolveAgentTemplates.ts
+    since: v2026.5.112
+    remove: v2026.7.0
+    replacement: resolveAgentTemplates() (itself SSoT-backed post T9879)
+    note: >-
+      Back-compat alias for the pre-ADR-068 starter-bundle terminology. The
+      delegate (`resolveAgentTemplates`) is itself deprecated — migrate to
+      the registry directly. Saga T9855.

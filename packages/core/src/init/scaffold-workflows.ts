@@ -49,6 +49,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { resolveToolCommand } from '../tasks/tool-resolver.js';
+import { getTemplatesByKind, resolveSourcePathAbsolute } from '../templates/registry.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -541,10 +542,15 @@ export async function scaffoldWorkflows(
  * @task T9858
  */
 export function getWorkflowTemplatesDir(): string {
-  // This module compiles to `packages/core/dist/init/scaffold-workflows.js`
-  // in dev and `node_modules/@cleocode/core/dist/init/scaffold-workflows.js`
-  // once installed. Both layouts share the `dist/init → ../../templates`
-  // relationship.
+  // T9879: delegate to the SSoT registry — derive the directory from the
+  // first `workflow` entry's resolved absolute sourcePath so a single source
+  // of truth backs both the directory accessor and per-entry consumers.
+  // Falls back to the historical relative-walk when the registry has no
+  // workflow entries (unreachable in practice; defensive).
+  const workflows = getTemplatesByKind('workflow');
+  if (workflows.length > 0) {
+    return dirname(resolveSourcePathAbsolute(workflows[0]));
+  }
   const here = dirname(fileURLToPath(import.meta.url));
   return resolve(here, '..', '..', 'templates', 'workflows');
 }

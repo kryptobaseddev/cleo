@@ -7,7 +7,8 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir as getHomedir } from 'node:os';
 import { join } from 'node:path';
 import type { CheckResult } from '@cleocode/contracts/scaffold-diagnostics';
-import { getCleoHome, getCleoTemplatesDir } from '../paths.js';
+import { getCleoHome } from '../paths.js';
+import { getTemplateById } from '../templates/registry.js';
 import { REQUIRED_GLOBAL_SUBDIRS } from './global-scaffold.js';
 
 /**
@@ -106,8 +107,19 @@ export function checkGlobalHome(): CheckResult {
  * @returns Check result with template version and sync status
  */
 export function checkGlobalTemplates(): CheckResult {
-  const templatesDir = getCleoTemplatesDir();
-  const injectionPath = join(templatesDir, 'CLEO-INJECTION.md');
+  // T9879: resolve the install path via the SSoT registry entry.
+  const entry = getTemplateById('cleo-injection');
+  if (entry === undefined) {
+    return {
+      id: 'global_templates',
+      category: 'global',
+      status: 'failed',
+      message: 'SSoT registry missing cleo-injection template entry',
+      details: { exists: false },
+      fix: 'reinstall @cleocode/core',
+    };
+  }
+  const injectionPath = join(getCleoHome(), entry.installPath);
 
   if (!existsSync(injectionPath)) {
     return {
