@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
-import { addRelation, listRelations } from '../relates.js';
+import { addRelation, listRelations, removeRelation } from '../relates.js';
 
 describe('relates.ts addRelation persistence (T5168)', () => {
   let testDir: string;
@@ -101,5 +101,66 @@ describe('relates.ts addRelation persistence (T5168)', () => {
       relations: [{ taskId: 'T002', type: 'fixes', reason: 'bugfix link' }],
       count: 1,
     });
+  });
+
+  /**
+   * T10111: round-trip — `add` then `remove` should leave zero relations.
+   * Companion to the dispatch-registry fix that exposed
+   * `mutate:tasks.relates.remove` to the CLI.
+   */
+  it('removeRelation round-trip (T10111): add → remove → empty', async () => {
+    // Add a relation
+    await addRelation('T001', 'T002', 'blocks', 'T001 blocks T002', testDir, accessor);
+
+    let listed = await listRelations('T001', testDir, accessor);
+    expect(listed).toEqual({
+      taskId: 'T001',
+      relations: [{ taskId: 'T002', type: 'blocks', reason: 'T001 blocks T002' }],
+      count: 1,
+    });
+
+    // Remove it (typed)
+    const removed = await removeRelation('T001', 'T002', 'blocks', testDir, accessor);
+    expect(removed).toEqual({
+      from: 'T001',
+      to: 'T002',
+      type: 'blocks',
+      removed: true,
+    });
+
+    // Verify it's gone
+    listed = await listRelations('T001', testDir, accessor);
+    expect(listed).toEqual({
+      taskId: 'T001',
+      relations: [],
+      count: 0,
+    });
+  });
+
+  it('removeRelation without type narrows to any (T10111)', async () => {
+    await addRelation('T001', 'T002', 'related', 'kept-shape', testDir, accessor);
+
+    // Omit type — should still delete the lone relation
+    const removed = await removeRelation('T001', 'T002', undefined, testDir, accessor);
+    expect(removed.removed).toBe(true);
+
+    const listed = await listRelations('T001', testDir, accessor);
+    expect(listed).toEqual({
+      taskId: 'T001',
+      relations: [],
+      count: 0,
+    });
+  });
+
+  it('removeRelation rejects non-existent source task (T10111)', async () => {
+    await expect(removeRelation('T999', 'T002', 'blocks', testDir, accessor)).rejects.toThrow(
+      'T999 not found',
+    );
+  });
+
+  it('removeRelation rejects non-existent target task (T10111)', async () => {
+    await expect(removeRelation('T001', 'T999', 'blocks', testDir, accessor)).rejects.toThrow(
+      'T999 not found',
+    );
   });
 });

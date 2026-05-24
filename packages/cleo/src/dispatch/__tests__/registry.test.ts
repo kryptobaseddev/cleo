@@ -74,6 +74,28 @@ describe('Operation Registry', () => {
       expect(resolve('query', 'tasks', 'not_a_real_operation')).toBeUndefined();
       expect(resolve('query', 'unknown', 'show')).toBeUndefined();
     });
+
+    /**
+     * T10111: `cleo relates remove` returned `E_INVALID_OPERATION` because the
+     * operation handler was wired in the dispatch domain + MUTATE_OPS set but
+     * never registered in the contracts OPERATIONS registry. Lock-in regression
+     * test: every relates verb listed in the CLI help text must resolve.
+     */
+    it('should resolve mutate:tasks.relates.remove (T10111)', () => {
+      const resolution = resolve('mutate', 'tasks', 'relates.remove');
+      expect(resolution).toBeDefined();
+      expect(resolution?.domain).toBe('tasks');
+      expect(resolution?.operation).toBe('relates.remove');
+      expect(resolution?.def.requiredParams).toContain('taskId');
+      expect(resolution?.def.requiredParams).toContain('relatedId');
+    });
+
+    it('should resolve mutate:tasks.relates.add (companion of relates.remove)', () => {
+      const resolution = resolve('mutate', 'tasks', 'relates.add');
+      expect(resolution).toBeDefined();
+      expect(resolution?.domain).toBe('tasks');
+      expect(resolution?.operation).toBe('relates.add');
+    });
   });
 
   describe('Parameter Validation', () => {
