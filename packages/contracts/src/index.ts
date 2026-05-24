@@ -856,6 +856,17 @@ export type {
 } from './operations/dialectic.js';
 // === Operations Types (API wire format, namespaced to avoid collision with domain types) ===
 export * as ops from './operations/index.js';
+// === Operation Input Contracts (T9914 / Saga T9855 / E7) ===
+// Re-exported at top level so SDK consumers (validator T9915, mutate DX
+// surface, generated docs) can import without the `ops.` namespace hop.
+export type {
+  JsonSchema,
+  OperationInputContract,
+  OperationInputContractRegistry,
+  OperationInputExample,
+  ValidationError,
+  ValidationResult,
+} from './operations/input-contract.js';
 // === Lifecycle Operation Types (T1455 — ADR-057 D1 Core normalization) ===
 // Re-exported at top level so @cleocode/core/lifecycle can import without the `ops.` namespace hop.
 // Note: Gate is included here — GateStatus conflict resolved (T1694): lifecycle.ts now re-exports
