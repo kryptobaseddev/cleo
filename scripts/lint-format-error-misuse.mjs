@@ -93,7 +93,7 @@ const OPT_OUT_MARKER = 'format-error-allowed';
  */
 const BASELINE_ALLOWLIST = new Set([
   'packages/cleo/src/cli/commands/checkpoint.ts:129',
-  'packages/cleo/src/cli/commands/config.ts:127',
+  'packages/cleo/src/cli/commands/config.ts:97',
   'packages/cleo/src/cli/commands/generate-changelog.ts:309',
   'packages/cleo/src/cli/commands/init.ts:197',
   'packages/cleo/src/cli/commands/otel.ts:43',
