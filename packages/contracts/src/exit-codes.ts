@@ -323,6 +323,45 @@ export const E_WORKFLOW_NOT_FOUND = 'E_WORKFLOW_NOT_FOUND' as const;
  */
 export const E_WRITE_CONTENTION = 'E_WRITE_CONTENTION' as const;
 
+/**
+ * E_INVALID_SEVERITY_VALUE — `--severity` was passed a value that is not one
+ * of the canonical {@link TASK_SEVERITIES} members (`P0|P1|P2|P3`).
+ *
+ * Returned by the `cleo add` and `cleo update` CLI commands at the dispatch
+ * boundary BEFORE the request reaches the database. Replaces the previous
+ * late-stage failure mode where SQLite surfaced a cryptic
+ * `CHECK constraint failed: severity` error after the write attempt.
+ *
+ * Maps to {@link ExitCode.VALIDATION_ERROR} (6) at the CLI boundary.
+ *
+ * @task T10341
+ * @epic T10327
+ * @saga T10326
+ */
+export const E_INVALID_SEVERITY_VALUE = 'E_INVALID_SEVERITY_VALUE' as const;
+
+/**
+ * E_INVALID_PIPELINE_STAGE — `--pipeline-stage` was passed a value that
+ * either (a) is not a recognised stage name in the canonical RCASD-IVTR+C
+ * pipeline (`research|consensus|architecture_decision|specification|`
+ * `decomposition|implementation|validation|testing|release|contribution|`
+ * `cancelled`), or (b) would move the task BACKWARD relative to its
+ * current stage. Pipeline stages are forward-only.
+ *
+ * Returned by the `cleo update` CLI command at the dispatch boundary BEFORE
+ * the request reaches the database. Replaces the previous late-stage
+ * failure mode where SQLite surfaced a cryptic
+ * `CHECK constraint failed: pipeline_stage` error or the core engine threw
+ * an opaque {@link CleoError} after a partial round-trip.
+ *
+ * Maps to {@link ExitCode.VALIDATION_ERROR} (6) at the CLI boundary.
+ *
+ * @task T10341
+ * @epic T10327
+ * @saga T10326
+ */
+export const E_INVALID_PIPELINE_STAGE = 'E_INVALID_PIPELINE_STAGE' as const;
+
 /** Check if an exit code represents an error (1-99). */
 export function isErrorCode(code: ExitCode): boolean {
   return code >= 1 && code < 100;

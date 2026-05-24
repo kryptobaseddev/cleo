@@ -531,6 +531,9 @@ export {
   E_EVIDENCE_INSUFFICIENT,
   // SPEC-T9345 release pipeline v2 error code names (T9530)
   E_GH_NOT_AUTHENTICATED,
+  // T10341 — typed CLI-layer validation for --severity + --pipeline-stage
+  E_INVALID_PIPELINE_STAGE,
+  E_INVALID_SEVERITY_VALUE,
   E_INVALID_STATE,
   E_PLAN_NOT_FOUND,
   E_RELEASE_PLAN_INVALID,
