@@ -26,6 +26,7 @@ on:
     types: [closed]
   push:
     branches: [main]
+  merge_group:
 
 jobs:
   cleanup:
