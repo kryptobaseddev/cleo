@@ -342,6 +342,104 @@ export interface DbSubstrateEntry {
    * otherwise. Typically `cleo backup recover <role>` per T10304.
    */
   suggestedFix: string | null;
+  /**
+   * Drizzle migration coverage cross-check (T10311). `null` when:
+   *   - the inventory entry has `migrationsDir === null` (derived or
+   *     reserved roles); OR
+   *   - the DB file does not exist; OR
+   *   - the DB exists but has no `__drizzle_migrations` table yet (e.g.
+   *     reserved opener that never ran migrations).
+   *
+   * Otherwise carries a populated {@link DbSubstrateMigrationCoverage}
+   * with the orphan-row / missing-file diffs.
+   *
+   * @task T10311
+   */
+  migrationCoverage: DbSubstrateMigrationCoverage | null;
+}
+
+/**
+ * One orphan row in `__drizzle_migrations` — a journal entry whose hash
+ * does not match any migration file currently on disk for this role.
+ *
+ * @remarks
+ * Orphans indicate one of:
+ *  - The DB was last written by a newer CLEO version whose migrations
+ *    have since been deleted/renamed; OR
+ *  - A hand-edited journal entry (manual SQL bootstrap that bypassed
+ *    Drizzle); OR
+ *  - A migration file was deleted from disk while its journal row
+ *    remained — a charter violation that breaks T9686-class
+ *    reconciliation.
+ *
+ * @task T10311
+ */
+export interface DbSubstrateMigrationOrphan {
+  /** SHA-256 hash recorded in `__drizzle_migrations.hash`. */
+  hash: string;
+  /**
+   * `__drizzle_migrations.created_at` (Drizzle convention: ms-since-epoch
+   * derived from the folder timestamp prefix). `null` when the column was
+   * present but `NULL`, or the column did not exist on this DB.
+   */
+  createdAt: number | null;
+}
+
+/**
+ * One missing-file entry — a migration file present in `migrationsDir`
+ * whose hash is NOT recorded in `__drizzle_migrations`.
+ *
+ * @remarks
+ * Missing-file entries indicate the migration has not been applied yet
+ * (which is benign for a fresh DB) OR was applied without a journal write
+ * (the bug class `reconcileJournal` Scenario 3 was designed to catch).
+ *
+ * @task T10311
+ */
+export interface DbSubstrateMigrationMissing {
+  /** Migration directory name (e.g. `20260318205539_initial`). */
+  name: string;
+  /** SHA-256 hash of the migration's `migration.sql` (Drizzle convention). */
+  hash: string;
+}
+
+/**
+ * Per-DB Drizzle migration coverage diff produced by
+ * `cleo doctor db-substrate`.
+ *
+ * @remarks
+ * The substrate audit cross-references `__drizzle_migrations` rows (the
+ * applied set) with files in `migrationsDir` (the expected set). Both
+ * directions are surfaced so operators can distinguish:
+ *
+ *  - **Orphan rows** (`orphanRows.length > 0`): the DB has applied
+ *    migrations that the local checkout does not provide. Risky — a
+ *    `reconcileJournal` Scenario 2A signal.
+ *  - **Missing files** (`missingFiles.length > 0`): the local checkout
+ *    has migrations the DB has not applied. Drizzle's `migrate()` will
+ *    pick these up on next open; benign for a fresh DB, suspicious for
+ *    a live one.
+ *
+ * Healthy coverage: `orphanRows.length === 0 && missingFiles.length === 0`
+ * AND `applied === expected`.
+ *
+ * @task T10311
+ */
+export interface DbSubstrateMigrationCoverage {
+  /** Number of rows in `__drizzle_migrations`. */
+  applied: number;
+  /** Number of migration directories in `migrationsDir`. */
+  expected: number;
+  /**
+   * Rows in `__drizzle_migrations` whose hash does not match any
+   * migration file on disk. Always present (may be empty).
+   */
+  orphanRows: DbSubstrateMigrationOrphan[];
+  /**
+   * Migration files whose hash is not recorded in
+   * `__drizzle_migrations`. Always present (may be empty).
+   */
+  missingFiles: DbSubstrateMigrationMissing[];
 }
 
 /**
