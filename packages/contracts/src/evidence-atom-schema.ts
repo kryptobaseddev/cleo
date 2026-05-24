@@ -332,14 +332,25 @@ export const GATE_EVIDENCE_REQUIREMENTS: Readonly<
  * Result of {@link validateEvidenceForGate}.
  *
  * Success carries no extra payload (the caller already holds the atom list).
- * Failure carries a human-readable message in the legacy
- * `Gate '<gate>' requires evidence: [<combo>] OR [<combo>]` format so error
- * surfaces (E_EVIDENCE_INSUFFICIENT) read identically across the CLI and any
- * client-side validator built on top of this schema.
+ * Failure carries:
+ *   - {@link EvidenceValidationFailure.message} — the legacy single-line
+ *     `Gate '<gate>' requires evidence: [<combo>] OR [<combo>]` format,
+ *     preserved byte-for-byte for backward-compat with surfaces and tests
+ *     that match against it.
+ *   - {@link EvidenceValidationFailure.hint} — a richer, multi-line,
+ *     example-bearing remediation hint suitable for CLI `fix:` surfaces.
+ *     Added by T9949 so `E_EVIDENCE_INSUFFICIENT` errors point clearly at
+ *     the alternative atom the caller needs (e.g. "this gate requires
+ *     real proof — note: alone is not accepted; use commit+files,
+ *     commit+note, or pr instead").
  */
-export type EvidenceValidationResult =
-  | { readonly ok: true }
-  | { readonly ok: false; readonly message: string };
+export interface EvidenceValidationFailure {
+  readonly ok: false;
+  readonly message: string;
+  readonly hint: string;
+}
+
+export type EvidenceValidationResult = { readonly ok: true } | EvidenceValidationFailure;
 
 /**
  * Format the satisfying-combinations spec for a gate as the legacy
@@ -352,6 +363,114 @@ export type EvidenceValidationResult =
 export function formatGateRequirement(gate: VerificationGate): string {
   const requirement = GATE_EVIDENCE_REQUIREMENTS[gate];
   return requirement.oneOf.map((set) => `[${set.join(' AND ')}]`).join(' OR ');
+}
+
+/**
+ * Example `--evidence` strings for each atom kind. Used by
+ * {@link formatGateRequirementHint} to render copy-pasteable remediation
+ * commands in CLI error surfaces.
+ *
+ * @task T9949
+ */
+const ATOM_EXAMPLES: Readonly<Record<EvidenceAtomKind, string>> = Object.freeze({
+  commit: 'commit:<sha>',
+  files: 'files:path/a.ts,path/b.ts',
+  'test-run': 'test-run:/tmp/vitest-out.json',
+  tool: 'tool:test',
+  url: 'url:https://example.com/docs',
+  note: 'note:<short description>',
+  decision: 'decision:D-arch-001',
+  pr: 'pr:357',
+  'loc-drop': 'loc-drop:<fromLines>:<toLines>',
+  'callsite-coverage': 'callsite-coverage:<symbolName>:<relativeSourcePath>',
+});
+
+/**
+ * Render a satisfying atom combination as a copy-pasteable `--evidence`
+ * string fragment, e.g. `['commit', 'files']` → `commit:<sha>;files:path/a.ts,path/b.ts`.
+ *
+ * @internal
+ */
+function renderCombinationAsEvidence(combination: ReadonlyArray<EvidenceAtomKind>): string {
+  return combination.map((kind) => ATOM_EXAMPLES[kind]).join(';');
+}
+
+/**
+ * Produce a multi-line, example-bearing remediation hint for a gate.
+ *
+ * Designed for CLI `fix:` surfaces so `E_EVIDENCE_INSUFFICIENT` errors point
+ * the caller at the specific alternative atom shape they need. The hint lists
+ * every satisfying combination as a copy-pasteable `cleo verify` invocation
+ * plus a note-specific clarification when the gate does NOT accept `note:`
+ * alone.
+ *
+ * The motivating bug (T9949) was that note-only deliverables (decision-only
+ * tasks, deletion-only refactors) hit `E_EVIDENCE_INSUFFICIENT` with the
+ * legacy single-line error and had to consult ADR-051 to figure out which
+ * additional atom kind the gate required. The richer hint inlines the answer.
+ *
+ * @param gate - Verification gate the hint is for.
+ * @returns Multi-line remediation hint suitable for an `engineError({fix:})`
+ *   surface. Always ends in a clarifying sentence about whether `note:` alone
+ *   is accepted for the gate.
+ *
+ * @example
+ * ```ts
+ * formatGateRequirementHint('implemented');
+ * // "Gate 'implemented' requires programmatic evidence. Use ONE of:
+ * //   - cleo verify T#### --gate implemented --evidence 'commit:<sha>;files:path/a.ts,path/b.ts'
+ * //   - cleo verify T#### --gate implemented --evidence 'commit:<sha>;note:<short description>'
+ * //   - cleo verify T#### --gate implemented --evidence 'decision:D-arch-001;files:path/a.ts,path/b.ts'
+ * //   - cleo verify T#### --gate implemented --evidence 'decision:D-arch-001;note:<short description>'
+ * //   - cleo verify T#### --gate implemented --evidence 'pr:357'
+ * // Note: 'note:' alone is NOT accepted for this gate — pair it with 'commit:' or 'decision:'."
+ * ```
+ *
+ * @task T9949
+ * @adr ADR-051 §2.3
+ */
+export function formatGateRequirementHint(gate: VerificationGate): string {
+  const requirement = GATE_EVIDENCE_REQUIREMENTS[gate];
+  if (!requirement) {
+    // Unknown gate — match validateEvidenceForGate's defensive default.
+    return `Gate '${gate}' has no documented evidence requirements.`;
+  }
+
+  const lines: string[] = [
+    `Gate '${gate}' requires programmatic evidence. Use ONE of:`,
+    ...requirement.oneOf.map(
+      (combo) =>
+        `  - cleo verify T#### --gate ${gate} --evidence '${renderCombinationAsEvidence(combo)}'`,
+    ),
+  ];
+
+  // Note-specific clarification — T9949's headline pain point.
+  // The gate accepts note: alone IFF some single-element combination is ['note'].
+  const noteAloneAccepted = requirement.oneOf.some(
+    (combo) => combo.length === 1 && combo[0] === 'note',
+  );
+  if (noteAloneAccepted) {
+    lines.push(`Note: 'note:' alone IS accepted for this gate (waiver-style evidence).`);
+  } else {
+    // Surface every alternative pairing involving note for at-a-glance routing.
+    const notePairings = requirement.oneOf.filter(
+      (combo) => combo.length > 1 && combo.includes('note'),
+    );
+    if (notePairings.length > 0) {
+      const partners = Array.from(
+        new Set(notePairings.flatMap((combo) => combo.filter((k) => k !== 'note'))),
+      ).map((k) => `'${k}:'`);
+      lines.push(
+        `Note: 'note:' alone is NOT accepted for this gate — pair it with ${partners.join(' or ')}.`,
+      );
+    } else {
+      lines.push(
+        `Note: 'note:' is NOT accepted for this gate (even when paired). See ADR-051 for the full grammar.`,
+      );
+    }
+  }
+
+  return lines.join('\n');
 }
 
 /**
@@ -401,6 +520,11 @@ export function validateEvidenceForGate(
   return {
     ok: false,
     message: `Gate '${gate}' requires evidence: ${formatGateRequirement(gate)}`,
+    // T9949: rich, example-bearing remediation hint suitable for CLI `fix:`.
+    // Always populated alongside `message` so consumers can choose between
+    // the legacy single-line surface and the multi-line hint without re-
+    // computing the spec.
+    hint: formatGateRequirementHint(gate),
   };
 }
 

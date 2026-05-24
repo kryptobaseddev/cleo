@@ -19,6 +19,7 @@ import {
   EvidenceAtomSchema,
   EvidenceParseError,
   formatGateRequirement,
+  formatGateRequirementHint,
   GATE_EVIDENCE_REQUIREMENTS,
   parseEvidenceString,
   validateEvidenceForGate,
@@ -495,5 +496,92 @@ describe('formatGateRequirement (T10337)', () => {
 
   it('formats single-element combination without AND', () => {
     expect(formatGateRequirement('cleanupDone')).toBe('[note]');
+  });
+});
+
+// ─── formatGateRequirementHint — rich CLI `fix:` surface (T9949) ────────────
+
+describe('formatGateRequirementHint (T9949)', () => {
+  it('renders implemented as multi-line list of copy-pasteable verify commands', () => {
+    const h = formatGateRequirementHint('implemented');
+    // Header line names the gate and uses "ONE of" framing.
+    expect(h).toMatch(/^Gate 'implemented' requires programmatic evidence\. Use ONE of:/);
+    // Each combination renders as a complete `cleo verify ... --evidence '<atoms>'` line.
+    expect(h).toContain("--evidence 'commit:<sha>;files:path/a.ts,path/b.ts'");
+    expect(h).toContain("--evidence 'commit:<sha>;note:<short description>'");
+    expect(h).toContain("--evidence 'decision:D-arch-001;files:path/a.ts,path/b.ts'");
+    expect(h).toContain("--evidence 'decision:D-arch-001;note:<short description>'");
+    expect(h).toContain("--evidence 'pr:357'");
+    // Routes a `note:`-only caller at the partner atom they need.
+    expect(h).toContain("'note:' alone is NOT accepted for this gate");
+    expect(h).toContain("'commit:'");
+    expect(h).toContain("'decision:'");
+  });
+
+  it('routes note-only callers for testsPassed at the right alternatives', () => {
+    // testsPassed accepts test-run, tool, or pr — none of which involve note.
+    const h = formatGateRequirementHint('testsPassed');
+    expect(h).toContain("--evidence 'test-run:/tmp/vitest-out.json'");
+    expect(h).toContain("--evidence 'tool:test'");
+    expect(h).toContain("--evidence 'pr:357'");
+    // When no combination includes note at all, the helper falls through to a
+    // generic "not accepted, see ADR-051" clarifier rather than fabricating a
+    // partner suggestion.
+    expect(h).toContain("'note:' is NOT accepted for this gate");
+    expect(h).toContain('ADR-051');
+  });
+
+  it('confirms note-only acceptance for cleanupDone', () => {
+    const h = formatGateRequirementHint('cleanupDone');
+    expect(h).toContain("--evidence 'note:<short description>'");
+    expect(h).toContain("'note:' alone IS accepted for this gate");
+  });
+
+  it('confirms note-only acceptance for securityPassed and nexusImpact', () => {
+    for (const gate of ['securityPassed', 'nexusImpact'] as const) {
+      const h = formatGateRequirementHint(gate);
+      expect(h, `${gate}: should confirm note alone is accepted`).toContain(
+        "'note:' alone IS accepted for this gate",
+      );
+    }
+  });
+
+  it('renders documented with files and url, and points away from note', () => {
+    const h = formatGateRequirementHint('documented');
+    expect(h).toContain("--evidence 'files:path/a.ts,path/b.ts'");
+    expect(h).toContain("--evidence 'url:https://example.com/docs'");
+    // documented has no note pairings — generic clarifier path.
+    expect(h).toContain("'note:' is NOT accepted for this gate");
+  });
+});
+
+// ─── validateEvidenceForGate — failure carries `hint` (T9949) ───────────────
+
+describe('validateEvidenceForGate failure surface (T9949)', () => {
+  it('populates a `hint` field alongside the legacy `message`', () => {
+    const r = validateEvidenceForGate('implemented', [
+      { kind: 'note', note: 'just a note' },
+    ] as EvidenceAtomInput[]);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      // Legacy single-line message preserved byte-for-byte.
+      expect(r.message).toBe(
+        "Gate 'implemented' requires evidence: [commit AND files] OR [commit AND note] OR [decision AND files] OR [decision AND note] OR [pr]",
+      );
+      // New rich hint includes the same content as formatGateRequirementHint.
+      expect(r.hint).toBe(formatGateRequirementHint('implemented'));
+    }
+  });
+
+  it('notes-only against testsPassed surfaces the right alternatives', () => {
+    const r = validateEvidenceForGate('testsPassed', [
+      { kind: 'note', note: 'I ran the tests by hand' },
+    ] as EvidenceAtomInput[]);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.hint).toContain("--evidence 'tool:test'");
+      expect(r.hint).toContain("--evidence 'pr:357'");
+      expect(r.hint).toContain("'note:' is NOT accepted for this gate");
+    }
   });
 });
