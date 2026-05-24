@@ -79,3 +79,34 @@ jobs:
           node-version: '24'
       - name: Lint stdout discipline (baseline mode)
         run: node scripts/lint-stdout-discipline.mjs
+
+  stdout-write-allowlist:
+    # T9924 · Saga T9855 (E8.5) · ADR-077
+    #
+    # Strict companion to `stdout-discipline` (T10135). The T10135 gate
+    # path-allowlists entire directories (scripts/, animations/, cleo-os/,
+    # cli/index.ts, etc.); T9924 requires an EXPLICIT per-line opt-out
+    # comment (`// stdout-write-allowed: <reason>`) for any
+    # `process.stdout.write` call outside the renderer SSoT paths:
+    #   - packages/cleo/src/cli/renderers/**
+    #   - packages/core/src/render/**
+    #
+    # Runs in --check (baseline) mode: fails only when NEW unannotated
+    # violation identities appear vs the committed baseline
+    # (scripts/.lint-stdout-write-allowlist-baseline.json). Existing
+    # call sites are pinned by the baseline; new authors must either move
+    # their call into the renderer SSoT or annotate the line.
+    #
+    # To update the baseline after annotating/migrating call sites:
+    #   node scripts/lint-stdout-write-allowlist.mjs --update-baseline
+    #   git add scripts/.lint-stdout-write-allowlist-baseline.json && git commit
+    name: Stdout Write Allowlist Lint (T9924)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Lint stdout-write allowlist (check mode)
+        run: node scripts/lint-stdout-write-allowlist.mjs --check
