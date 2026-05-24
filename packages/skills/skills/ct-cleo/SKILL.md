@@ -2,8 +2,8 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.2.0
-  lastReviewed: 2026-05-23
+  version: 2.3.0
+  lastReviewed: 2026-05-24
   stability: stable
 ---
 
@@ -198,3 +198,60 @@ If you see `E_PATH_TRAVERSAL`, `E_FILE_ERROR: Cannot read file`, or
 build that ships the T10389 fix-pack (closes T10353 + T10354 + T10294
 + T10365). Suppress the routing log with `CLEO_QUIET=1` for clean
 stderr in automation.
+
+---
+
+## CLI Output Contract (ADR-086 / Epic T9927 / E9 of Saga T9855)
+
+`cleo` stdout is now **envelope-only**. NEVER pipe `cleo` output through
+`tail`/`jq`/`python` — every common shape has a first-class flag.
+
+| Need | Flag | Example |
+|------|------|---------|
+| Scalar extract (no jq) | `--field <jsonpointer>` | `cleo add 'X' --acceptance "..." --field /data/task/id` |
+| ID-only pipeline | `--output id` | `cleo list --parent EPIC --output id \| while read c; do …; done` |
+| Affected count | `--output count` | `cleo list --parent EPIC --status pending --output count` |
+| TSV (no header) | `--output table` | `cleo list --parent EPIC --output table` |
+| Silent (exit code only) | `--output silent` | `cleo update T123 --status done --output silent` |
+| 1-line per record | `--summary` | `cleo list --parent EPIC --summary` |
+| Suppress stderr noise | `--quiet` | `id=$(cleo add 'X' --acceptance "..." --quiet --field /data/task/id)` |
+| Full record (legacy) | `--full` | `cleo show T123 --full` |
+
+### Defaults
+
+- **Read ops** (`show`, `list`, `find`) — return the full LAFS envelope.
+- **Mutate ops** (`add`, `add-batch`, `update`, `complete`) — return a
+  minimal envelope `{success, data: {count, ids[]}}` (T9931). Use `--full`
+  to opt back into the full record set.
+- **stdout** carries exactly ONE LAFS envelope terminated by a single
+  newline. Sub-step logs/progress/warnings route through Pino → stderr.
+  This is regression-locked by CI gates `lint-stdout-discipline` (T10135)
+  and `lint-stdout-write-allowlist` (T9924).
+
+### Canonical agent patterns
+
+```bash
+# Scalar extract — no jq needed.
+id=$(cleo add 'Title' --type task --parent T9927 --acceptance "..." \
+       --field /data/task/id)
+
+# ID-only pipeline — no JSON parsing.
+cleo list --parent T9927 --output id | while read child; do
+  cleo verify "$child" --gate qaPassed --evidence "tool:lint;tool:typecheck"
+done
+
+# Count-only check.
+remaining=$(cleo list --parent T9927 --status pending --output count)
+
+# Fully clean pipeline — stdout has IDs, stderr is empty unless error.
+cleo add-batch --file /tmp/batch.json --parent T9927 --quiet --output id
+```
+
+### Anti-patterns (REJECTED — these are CLI bugs if they appear post-E9)
+
+- ❌ `cleo show T123 | tail -1 | jq -r .data.task.id` → use `--field /data/task/id`
+- ❌ `cleo list --parent E1 | jq -r '.data.tasks[].id'` → use `--output id`
+- ❌ `cleo show T123 | python3 -c 'import json,sys; …'` → use `--field`
+- ❌ `cleo add 'X' 2>&1 | grep -oE 'T[0-9]+'` → use `--field /data/task/id`
+
+Full contract + RFC 2119 invariants: `cleo docs fetch adr-086-cli-output-contract-e9`.
