@@ -69,6 +69,11 @@ function main() {
         ...e,
         // Import path used at runtime — relative to cli/generated/
         importPath: `../commands/${f.replace(/\.ts$/, '.js')}`,
+        // Whether this export is a SubCommand-only binding (mounted under a
+        // parent command). SubCommands MAY share a `meta.name` with a
+        // top-level command — the parent command's `subCommands` table
+        // disambiguates at run time (e.g. `cleo verify` vs `cleo backup verify`).
+        isSubCommand: /SubCommand$/.test(e.exportName),
       });
     }
   }
@@ -79,9 +84,13 @@ function main() {
   }
 
   // Detect duplicate command names so we surface conflicts at build time.
-  const seenNames = new Map();
+  // SubCommand exports are skipped when a non-SubCommand owns the name — the
+  // SubCommand is mounted under its parent in source and never collides at
+  // the top level. Two TOP-level commands sharing a name is still an error.
+  const topLevelByName = new Map();
   for (const e of entries) {
-    const prev = seenNames.get(e.name);
+    if (e.isSubCommand) continue;
+    const prev = topLevelByName.get(e.name);
     if (prev && prev.exportName !== e.exportName) {
       console.error(
         `generate-command-manifest: duplicate command name "${e.name}" — ` +
@@ -89,7 +98,17 @@ function main() {
       );
       process.exit(1);
     }
-    seenNames.set(e.name, e);
+    topLevelByName.set(e.name, e);
+  }
+  // Prune SubCommand entries whose name is already owned by a top-level
+  // command — keeping them in the manifest would silently override the
+  // top-level binding via `subCommands[entry.name] = wrapper` in
+  // `packages/cleo/src/cli/index.ts`.
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = entries[i];
+    if (e.isSubCommand && topLevelByName.has(e.name)) {
+      entries.splice(i, 1);
+    }
   }
 
   const banner = `/**
