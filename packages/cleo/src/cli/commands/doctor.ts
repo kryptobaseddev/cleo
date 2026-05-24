@@ -16,6 +16,7 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { InvariantAuditResult } from '@cleocode/contracts';
 import type { HookMatrixResult } from '@cleocode/core';
 import { getProjectRoot, pushWarning } from '@cleocode/core';
 import {
@@ -197,6 +198,80 @@ function renderHookMatrixHuman(data: HookMatrixResult): void {
 }
 
 /**
+ * Render the invariant-registry audit result in a human-readable form.
+ *
+ * Output structure (T10340 / Saga T10326 R6 AC2 + AC3):
+ *   - Header line with totals + filter context.
+ *   - One block per ADR (alphabetically), with severity bands inside.
+ *   - Each violation line includes the offender ID + repair command.
+ *   - Trailing summary recapping the `not-applicable` / `documented`
+ *     counts so the gap analysis is visible end-to-end.
+ *
+ * @task T10340
+ * @epic T10327
+ * @saga T10326
+ */
+function renderInvariantAuditHuman(result: InvariantAuditResult): void {
+  const filterSuffix = result.filteredByAdr === null ? '' : ` (filtered: ${result.filteredByAdr})`;
+  humanLine(`\nInvariant Registry Audit${filterSuffix}`);
+  humanLine(
+    `  ${result.totalCount} entries · ${result.errorCount} error · ` +
+      `${result.warningCount} warning · ${result.infoCount} info · ` +
+      `${result.notApplicableCount} not-applicable · ${result.documentedCount} documented\n`,
+  );
+
+  // Group entries by ADR (stable: entries are already sorted by ADR + code).
+  const byAdr = new Map<string, typeof result.entries>();
+  for (const entry of result.entries) {
+    const bucket = byAdr.get(entry.adr) ?? [];
+    bucket.push(entry);
+    byAdr.set(entry.adr, bucket);
+  }
+
+  const severityRank: Record<string, number> = {
+    error: 0,
+    warning: 1,
+    info: 2,
+  };
+
+  for (const adr of Array.from(byAdr.keys()).sort()) {
+    const adrEntries = byAdr.get(adr) ?? [];
+    const failing = adrEntries.filter((e) => e.status === 'fail');
+    humanLine(`[${adr}] ${adrEntries.length} invariant(s), ${failing.length} failing:`);
+
+    // Sort failing entries by severity (error → warning → info), then by code.
+    const failingSorted = failing.slice().sort((a, b) => {
+      const ra = severityRank[a.severity] ?? 9;
+      const rb = severityRank[b.severity] ?? 9;
+      if (ra !== rb) return ra - rb;
+      return a.code.localeCompare(b.code);
+    });
+
+    for (const entry of failingSorted) {
+      humanLine(
+        `  [${entry.severity.toUpperCase()}] ${entry.code} · ${entry.name}` +
+          ` (${entry.violations.length} violation(s))`,
+      );
+      for (const v of entry.violations) {
+        humanLine(`    - ${v.message}`);
+        humanLine(`      repair: ${v.repairCommand}`);
+      }
+    }
+
+    // Show passing / documented / not-applicable as a single roll-up line so
+    // the operator sees that the entries WERE walked, not just skipped.
+    const passing = adrEntries.filter((e) => e.status === 'pass').length;
+    const docd = adrEntries.filter((e) => e.status === 'documented').length;
+    const na = adrEntries.filter((e) => e.status === 'not-applicable').length;
+    humanLine(`  (${passing} passing · ${docd} documented · ${na} not-applicable)\n`);
+  }
+
+  if (result.entries.length === 0) {
+    humanLine('  (no invariants registered)\n');
+  }
+}
+
+/**
  * Root doctor command — run system diagnostics and health checks.
  *
  * Global output flags (--json, --human, --quiet) are declared in args so
@@ -313,14 +388,38 @@ export const doctorCommand = defineCommand({
      * auto-close drift. Read-only; non-zero exit when any I-invariant
      * fails so the check is CI-gateable.
      *
+     * As of T10340 (R6), `--audit-sagas` is a focused alias on top of
+     * `--audit-invariants` — it filters the registry walk to ADR-073
+     * only. The implementation re-uses the central walker so the two
+     * surfaces stay in lock-step.
+     *
      * @task T10119
+     * @task T10340
      * @saga T10113
      * @epic T10209
      */
     'audit-sagas': {
       type: 'boolean',
       description:
-        'Audit every Saga for ADR-073 §1.2 invariant violations (I5/I7/depth) + auto-close drift (T10119)',
+        'Audit every Saga for ADR-073 §1.2 invariant violations (I5/I7/depth) + auto-close drift — focused alias on top of --audit-invariants (T10119, T10340)',
+    },
+    /**
+     * T10340: walk the central `INVARIANTS_REGISTRY` and audit every
+     * registered invariant against the project's current state.
+     *
+     * Output groups violations by ADR + severity and includes an
+     * actionable repair command per violation. Supports `--json` for
+     * machine consumption. Exit code is non-zero when any
+     * `severity:'error'` violation is observed.
+     *
+     * @task T10340 — R6
+     * @epic T10327 — E-INVARIANT-REGISTRY-SSOT
+     * @saga T10326 — SG-SUBSTRATE-RECONCILIATION
+     */
+    'audit-invariants': {
+      type: 'boolean',
+      description:
+        'Walk the central INVARIANTS_REGISTRY and audit every registered invariant — groups by ADR + severity with repair commands (T10340 / Saga T10326 R6)',
     },
     /**
      * T9983: migrate the worktree-include file location from
@@ -832,20 +931,34 @@ export const doctorCommand = defineCommand({
         ) {
           process.exitCode = 2;
         }
-      } else if (args['audit-sagas']) {
-        // T10119: ADR-073 §1.2 saga-hierarchy audit (I5/I7/depth + drift).
-        progress.step(0, 'Auditing Saga hierarchy for ADR-073 invariants');
-        const { auditSagaHierarchy } = await import('@cleocode/core/doctor/saga-audit.js');
+      } else if (args['audit-invariants'] || args['audit-sagas']) {
+        // T10340 (R6): walk central INVARIANTS_REGISTRY (full or ADR-filtered).
+        // --audit-sagas is a focused alias that delegates to the same walker
+        // with adrFilter='ADR-073' (Saga T10326 invariant: one SSoT, two
+        // surfaces). T10119: legacy CLI flag preserved verbatim.
+        const isFocusedAlias = args['audit-sagas'] === true && args['audit-invariants'] !== true;
+        const adrFilter = isFocusedAlias ? 'ADR-073' : undefined;
+        const stepLabel = isFocusedAlias
+          ? 'Auditing Saga hierarchy for ADR-073 invariants'
+          : 'Walking central INVARIANTS_REGISTRY';
+        progress.step(0, stepLabel);
+        const { auditInvariantRegistry } = await import('@cleocode/core/doctor/invariant-audit.js');
         const projectRoot = getProjectRoot();
-        const result = await auditSagaHierarchy(projectRoot);
+        const result = await auditInvariantRegistry(projectRoot, { adrFilter });
 
+        const operation = isFocusedAlias ? 'doctor.audit-sagas' : 'doctor.audit-invariants';
         const summary =
-          `Saga audit complete — ${result.sagas.length} saga(s) inspected, ` +
-          `${result.count} invariant violation(s), ${result.driftCount} drift warning(s)`;
+          `Invariant audit complete — ${result.totalCount} entries walked, ` +
+          `${result.errorCount} error / ${result.warningCount} warning / ${result.infoCount} info violation(s), ` +
+          `${result.notApplicableCount} not-applicable, ${result.documentedCount} documented`;
         progress.complete(summary);
 
-        cliOutput(result, { command: 'doctor', operation: 'doctor.audit-sagas' });
-        if (result.count > 0 && (process.exitCode === undefined || process.exitCode === 0)) {
+        if (isHuman && args.json !== true) {
+          renderInvariantAuditHuman(result);
+        }
+
+        cliOutput(result, { command: 'doctor', operation });
+        if (result.errorCount > 0 && (process.exitCode === undefined || process.exitCode === 0)) {
           process.exitCode = 2;
         }
       } else {

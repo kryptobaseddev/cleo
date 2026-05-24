@@ -20,6 +20,8 @@
  * @epic T9808
  */
 
+import type { InvariantSeverity } from './invariants/index.js';
+
 /**
  * One orphan `.cleo/` directory discovered under
  * `<projectRoot>/.claude/worktrees/`.
@@ -284,6 +286,115 @@ export interface SagaAuditResult {
   count: number;
   /** Total auto-close-drift warnings across all sagas. */
   driftCount: number;
+}
+
+// ============================================================================
+// Invariant Registry Audit (T10340 — Saga T10326 SG-SUBSTRATE-RECONCILIATION /
+// Epic T10327 E-INVARIANT-REGISTRY-SSOT / R6)
+// ============================================================================
+
+/**
+ * Per-entry status reported by {@link auditInvariantRegistry}.
+ *
+ * - `'pass'` — the entry has an adapter that executed against the current
+ *   `.cleo/tasks.db` state and observed zero violations.
+ * - `'fail'` — the entry has an adapter that executed and observed one or
+ *   more violations (forwarded into {@link InvariantAuditEntry.violations}).
+ * - `'not-applicable'` — the entry's `runtimeGate` is spawn-bound,
+ *   session-bound, or release-tag-bound, so there is no "scan current DB"
+ *   interpretation. Reported for completeness so the registry walk is
+ *   visible end-to-end.
+ * - `'documented'` — the entry has `runtimeGate === null` by design (the
+ *   invariant is a display/storage/process concern enforced elsewhere).
+ *   No check performed; surfaced so operators can audit gap coverage.
+ *
+ * @task T10340
+ */
+export type InvariantAuditStatus = 'pass' | 'fail' | 'not-applicable' | 'documented';
+
+/**
+ * One violation surfaced by {@link auditInvariantRegistry}.
+ *
+ * The shape intentionally mirrors {@link SagaAuditViolation} (so the saga
+ * audit pipeline can adapt its findings into this envelope without an
+ * intermediate transform), but the `invariantKey` field is the registry
+ * key (`${adr}.${code}`, e.g. `'ADR-073.I5'`) instead of a saga-only
+ * `kind` discriminator.
+ *
+ * @task T10340
+ */
+export interface InvariantAuditViolation {
+  /** Registry key — `${adr}.${code}`. */
+  invariantKey: string;
+  /** The offending task / row / resource identifier. */
+  offendingId: string;
+  /** Human-readable message naming the offender + repair command. */
+  message: string;
+  /** Canonical `cleo` command an operator should run to resolve. */
+  repairCommand: string;
+}
+
+/**
+ * Per-invariant audit entry produced by {@link auditInvariantRegistry}.
+ *
+ * One entry per registered invariant. `status` summarises the outcome of
+ * the adapter (or the lack thereof). `violations` is always present —
+ * empty when `status !== 'fail'`.
+ *
+ * @task T10340
+ */
+export interface InvariantAuditEntry {
+  /** Registry key — `${adr}.${code}`. */
+  invariantKey: string;
+  /** Source ADR identifier, e.g. `'ADR-073'`. */
+  adr: string;
+  /** Invariant code within the ADR, e.g. `'I3'` or `'ORC-001'`. */
+  code: string;
+  /** Short human-readable name. */
+  name: string;
+  /** Severity tier — drives exit code in the CLI surface. */
+  severity: InvariantSeverity;
+  /** Adapter outcome. See {@link InvariantAuditStatus}. */
+  status: InvariantAuditStatus;
+  /** Free-form note for `'not-applicable'` / `'documented'` entries. */
+  note: string;
+  /** Runtime-gate function name, when one is registered. `null` otherwise. */
+  runtimeGate: string | null;
+  /** Violations observed by the adapter. Empty when `status !== 'fail'`. */
+  violations: InvariantAuditViolation[];
+}
+
+/**
+ * Aggregated audit result returned by {@link auditInvariantRegistry}.
+ *
+ * `entries` carries one entry per registered invariant, sorted first by
+ * ADR (alphabetical), then by code. `errorCount` is the count of
+ * `severity: 'error'` entries whose status is `'fail'` — the only
+ * dimension that should drive a non-zero exit code in the CLI surface.
+ *
+ * Aggregates `warningCount` + `infoCount` cover the corresponding
+ * severities for `'fail'` entries. `notApplicableCount` + `documentedCount`
+ * surface the gap analysis (how many invariants are registry-only).
+ *
+ * @task T10340
+ */
+export interface InvariantAuditResult {
+  /** Per-invariant audit entries. Sorted by ADR then code. */
+  entries: InvariantAuditEntry[];
+  /** Total registered invariants walked. */
+  totalCount: number;
+  /** Entries with status='fail' AND severity='error'. */
+  errorCount: number;
+  /** Entries with status='fail' AND severity='warning'. */
+  warningCount: number;
+  /** Entries with status='fail' AND severity='info'. */
+  infoCount: number;
+  /** Entries with status='not-applicable' (spawn/session/release-bound). */
+  notApplicableCount: number;
+  /** Entries with status='documented' (runtimeGate:null by design). */
+  documentedCount: number;
+  /** ADR filter applied (e.g. `'ADR-073'`), or `null` when the walk was unfiltered. */
+  filteredByAdr: string | null;
 }
 
 // ============================================================================
