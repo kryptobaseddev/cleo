@@ -24,22 +24,30 @@ on:
 permissions:
   contents: write
 
+# Serialize auto-tag runs to prevent race conditions when multiple release PRs
+# land in quick succession (T10452).
+concurrency:
+  group: auto-tag-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   auto-tag:
     name: Tag merge commit
     runs-on: ubuntu-latest
-    # Only run when the PR was merged AND the title matches the release pattern.
-    # `startsWith` plus a regex check inside the run step gives us the strictest
-    # filter without pulling in extra actions.
+    # Run on merged PRs with release title, OR on merge_group events where the
+    # head commit message matches the release pattern.
     if: >
-      github.event.pull_request.merged == true &&
-      startsWith(github.event.pull_request.title, 'release: ship v')
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.merged == true &&
+       startsWith(github.event.pull_request.title, 'release: ship v')) ||
+      (github.event_name == 'merge_group' &&
+       startsWith(github.event.merge_group.head_commit.message, 'release: ship v'))
 
     steps:
       - name: Extract version from PR title
         id: version
         env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_TITLE: ${{ github.event.pull_request.title || github.event.merge_group.head_commit.message }}
         run: |
           set -euo pipefail
           # Match `release: ship v<MAJOR>.<MINOR>.<PATCH>[-suffix]` at the start
@@ -56,7 +64,7 @@ jobs:
       - name: Checkout merge commit
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.event.merge_group.head_sha }}
           fetch-depth: 0
 
       - name: Configure git identity
@@ -67,8 +75,8 @@ jobs:
       - name: Tag and push
         env:
           TAG: ${{ steps.version.outputs.tag }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number || 'merge-queue' }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha || github.event.merge_group.head_sha }}
         run: |
           set -euo pipefail
           # Idempotent: if the tag already exists locally OR on origin (e.g. an
