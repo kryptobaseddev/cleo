@@ -18,6 +18,24 @@ const PRIORITY_SCORE: Record<string, number> = {
   low: 25,
 };
 
+/**
+ * Severity-axis score bumps (T9905 unified urgency surface).
+ *
+ * Severity is orthogonal to priority — a task can have `priority='medium'` and
+ * `severity='P0'` (e.g. a freshly-filed P0 incident before triage promotes its
+ * priority). Without a severity boost the P0 work sits below an unrelated
+ * `priority='high'` task in the `next` ranking, which inverts the operator's
+ * expectations. The bump is conservative (P0 = +30, P1 = +15) so that
+ * `priority='critical'` (+100) still wins all ties, but a P0/P1 row decisively
+ * outranks any `priority='medium'` peer with no severity set.
+ *
+ * @task T9905
+ */
+const SEVERITY_SCORE: Record<string, number> = {
+  P0: 30,
+  P1: 15,
+};
+
 async function loadAllTasks(projectRoot: string): Promise<TaskRecord[]> {
   const accessor = await getTaskAccessor(projectRoot);
   const { tasks } = await accessor.queryTasks({});
@@ -81,6 +99,14 @@ export async function coreTaskNext(
 
       score += PRIORITY_SCORE[task.priority] ?? 50;
       reasons.push(`priority: ${task.priority} (+${PRIORITY_SCORE[task.priority] ?? 50})`);
+
+      // T9905: severity axis boost — orthogonal to priority.
+      const severityKey = task.severity ?? '';
+      const severityBump = SEVERITY_SCORE[severityKey];
+      if (severityBump !== undefined) {
+        score += severityBump;
+        reasons.push(`severity: ${severityKey} (+${severityBump})`);
+      }
 
       if (currentPhase && task.phase === currentPhase) {
         score += 20;

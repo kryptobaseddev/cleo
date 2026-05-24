@@ -83,7 +83,8 @@ export const updateCommand = defineCommand({
     },
     priority: {
       type: 'string',
-      description: 'New priority (critical|high|medium|low)',
+      description:
+        'New priority (critical|high|medium|low). Orthogonal to --severity — see `cleo find --urgent` for the unified surface (T9905).',
       alias: 'p',
     },
     type: {
@@ -213,7 +214,7 @@ export const updateCommand = defineCommand({
     severity: {
       type: 'string',
       description:
-        'Severity level (P0|P1|P2|P3) — valid for any --role (T9073). Orthogonal to priority. Appends signed attestation.',
+        'Severity level (P0|P1|P2|P3) — valid for any --kind (T9073). Orthogonal to --priority — does NOT auto-map (a P0 with priority=medium stays medium). Use `cleo find --urgent` for the unified surface (T9905). Appends signed attestation.',
     },
     /**
      * Operator-supplied justification required to override the

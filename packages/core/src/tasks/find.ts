@@ -34,6 +34,13 @@ export interface FindResult {
   depends?: string[];
   /** Scope size estimate. @task T091 */
   size?: string;
+  /**
+   * Bug severity axis — P0|P1|P2|P3, or null/undefined when unset.
+   * Surfaced so the unified urgency surface (T9905) can identify P0/P1 tasks
+   * without a follow-up `cleo show` per row.
+   * @task T9905
+   */
+  severity?: string | null;
   score: number;
   /** Progressive disclosure directives for follow-up operations. */
   _next?: NextDirectives;
@@ -55,6 +62,20 @@ export interface FindTasksOptions {
    * @task T9072
    */
   kind?: TaskKind;
+  /**
+   * Unified urgency surface (T9905).
+   *
+   * When `true`, the predicate is
+   *
+   *   `priority IN ('critical','high') OR severity IN ('P0','P1')`
+   *
+   * combining the two orthogonal urgency axes (priority + severity) into a
+   * single filter so agents don't have to query each axis separately.
+   * Composes with other filters via AND (e.g. `--urgent --status pending`).
+   *
+   * @task T9905
+   */
+  urgent?: boolean;
 }
 
 /** Result of finding tasks. */
@@ -63,6 +84,27 @@ export interface FindTasksResult {
   total: number;
   query: string;
   searchType: 'fuzzy' | 'id' | 'exact';
+}
+
+/**
+ * Predicate for the unified urgency surface (T9905).
+ *
+ * Returns `true` when the task satisfies the disjunctive predicate
+ *
+ *   `priority IN ('critical','high') OR severity IN ('P0','P1')`
+ *
+ * Exported for reuse by `coreTaskNext` (scoring boost) and the briefing
+ * computation so the three callers share a single definition of "urgent".
+ *
+ * @task T9905
+ */
+export function isUrgentTask(task: {
+  priority?: string | null;
+  severity?: string | null;
+}): boolean {
+  const p = task.priority ?? '';
+  const s = task.severity ?? '';
+  return p === 'critical' || p === 'high' || s === 'P0' || s === 'P1';
 }
 
 /**
@@ -221,14 +263,14 @@ export async function findTasks(
   accessor?: DataAccessor,
 ): Promise<FindTasksResult> {
   const options = extractInlineFilters(rawOptions);
-  const hasFilter = Boolean(options.status || options.kind);
+  const hasFilter = Boolean(options.status || options.kind || options.urgent);
 
   if (options.query == null && !options.id && !hasFilter) {
     throw new CleoError(
       ExitCode.INVALID_INPUT,
-      'Search query, --id, or at least one filter (--status, --kind) is required',
+      'Search query, --id, or at least one filter (--status, --kind, --urgent) is required',
       {
-        fix: 'cleo find "<query>"  OR  cleo find --status pending  OR  cleo find --id T123',
+        fix: 'cleo find "<query>"  OR  cleo find --urgent  OR  cleo find --status pending  OR  cleo find --id T123',
         details: { field: 'query' },
       },
     );
@@ -261,6 +303,12 @@ export async function findTasks(
     allTasks = allTasks.filter((t) => t.kind === options.kind);
   }
 
+  // T9905: unified urgency filter. Disjunctive across the two orthogonal axes:
+  //   priority IN ('critical','high') OR severity IN ('P0','P1')
+  if (options.urgent) {
+    allTasks = allTasks.filter((t) => isUrgentTask(t));
+  }
+
   let results: FindResult[];
   let searchType: FindTasksResult['searchType'];
   let queryStr: string;
@@ -281,6 +329,7 @@ export async function findTasks(
         parentId: t.parentId,
         depends: t.depends ?? [],
         size: t.size ?? undefined,
+        severity: t.severity ?? undefined,
         score:
           t.id.toUpperCase() === idQuery ? 100 : t.id.toUpperCase().startsWith(idQuery) ? 80 : 50,
       }));
@@ -299,6 +348,7 @@ export async function findTasks(
         parentId: t.parentId,
         depends: t.depends ?? [],
         size: t.size ?? undefined,
+        severity: t.severity ?? undefined,
         score: 100,
       }));
   } else if (options.query == null) {
@@ -315,6 +365,7 @@ export async function findTasks(
       parentId: t.parentId,
       depends: t.depends ?? [],
       size: t.size ?? undefined,
+      severity: t.severity ?? undefined,
       score: 50,
     }));
   } else {
@@ -338,6 +389,7 @@ export async function findTasks(
           parentId: t.parentId,
           depends: t.depends ?? [],
           size: t.size ?? undefined,
+          severity: t.severity ?? undefined,
           score: Math.round(score),
         });
       }
@@ -396,6 +448,8 @@ export async function taskFind(
     fields?: string;
     verbose?: boolean;
     kind?: string;
+    /** Unified urgency surface — see {@link FindTasksOptions.urgent}. @task T9905 */
+    urgent?: boolean;
   },
 ): Promise<EngineResult<{ results: (MinimalTaskRecord | TaskRecord)[]; total: number }>> {
   try {
@@ -410,6 +464,7 @@ export async function taskFind(
         limit: limit ?? 20,
         offset: options?.offset,
         kind: options?.kind as TaskKind | undefined,
+        urgent: options?.urgent,
       },
       projectRoot,
       accessor,
@@ -433,6 +488,10 @@ export async function taskFind(
       depends: r.depends,
       type: r.type,
       size: r.size,
+      // T9905: surface severity in the minimal projection so agents calling
+      // `cleo find --urgent` see the second urgency axis without a follow-up
+      // `cleo show` per row.
+      ...(r.severity != null ? { severity: r.severity } : {}),
     }));
 
     return engineSuccess({ results, total: findResult.total });

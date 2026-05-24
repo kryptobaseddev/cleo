@@ -52,6 +52,13 @@ function renderShowFull(task: Task): string {
   // Core fields
   lines.push(`${BOX.v}  ${DIM}Status:${NC}      ${task.status}`);
   lines.push(`${BOX.v}  ${DIM}Priority:${NC}    ${task.priority}`);
+  // T9905: dual-axis urgency surface — render the orthogonal axes side-by-side.
+  // `severity` is often null/undefined; emit an em-dash placeholder so the
+  // relationship is visible even when only one axis carries data.
+  const severityDisplay = task.severity ?? '—';
+  lines.push(
+    `${BOX.v}  ${DIM}Urgency:${NC}     priority=${task.priority} severity=${severityDisplay}`,
+  );
   if (task.type) lines.push(`${BOX.v}  ${DIM}Type:${NC}        ${task.type}`);
   if (task.phase) lines.push(`${BOX.v}  ${DIM}Phase:${NC}       ${task.phase}`);
   if (task.size) lines.push(`${BOX.v}  ${DIM}Size:${NC}        ${task.size}`);

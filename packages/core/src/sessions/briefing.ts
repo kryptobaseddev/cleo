@@ -72,6 +72,26 @@ export interface BriefingEpic {
 }
 
 /**
+ * Urgent task summary for briefing output (T9905).
+ *
+ * One entry per task that matches the unified urgency predicate:
+ *
+ *   `priority IN ('critical','high') OR severity IN ('P0','P1')`
+ *
+ * `priority` is always populated; `severity` is included only when the task
+ * row sets it (null otherwise). Sorted by axis class (P0 wins over critical
+ * wins over P1 wins over high) so the most-urgent row surfaces first.
+ *
+ * @task T9905
+ */
+export interface BriefingUrgentTask {
+  id: string;
+  title: string;
+  priority: string;
+  severity?: string | null;
+}
+
+/**
  * Pipeline stage data for briefing output.
  */
 export interface PipelineStageInfo {
@@ -162,6 +182,17 @@ export interface SessionBriefing {
   openBugs: BriefingBug[];
   blockedTasks: BriefingBlockedTask[];
   activeEpics: BriefingEpic[];
+  /**
+   * Tasks matching the unified urgency predicate (T9905):
+   *   `priority IN ('critical','high') OR severity IN ('P0','P1')`.
+   *
+   * Always present (empty array when nothing is urgent). Surfaces both
+   * urgency axes in one section so a fresh orchestrator session sees
+   * urgent work without scanning openBugs + nextTasks separately.
+   *
+   * @task T9905
+   */
+  urgentTasks: BriefingUrgentTask[];
   pipelineStage?: PipelineStageInfo;
   warnings?: string[];
   /** Brain memory context -- decisions/patterns/observations relevant to this scope. */
@@ -278,6 +309,16 @@ export async function computeBriefing(
   });
   // Remove epics already surfaced in nextTasks to avoid duplicate signal
   const activeEpics = rawActiveEpics.filter((e) => !nextTaskIdSet.has(e.id));
+
+  // 6.5. Urgent tasks — unified urgency surface (T9905).
+  // Combines the two orthogonal urgency axes (priority + severity) into a
+  // single section so a fresh orchestrator session sees urgent work without
+  // having to scan openBugs + nextTasks separately.
+  const urgentTasks = computeUrgentTasks(tasks, {
+    maxUrgent: MAX_URGENT_TASKS_DIET,
+    scopeTaskIds,
+    truncateTitles: true,
+  });
 
   // 7. Pipeline stage (optional - may not be available)
   const pipelineStage = await computePipelineStage(focus);
@@ -400,6 +441,7 @@ export async function computeBriefing(
     openBugs,
     blockedTasks,
     activeEpics,
+    urgentTasks,
     ...(pipelineStage && { pipelineStage }),
     ...(warnings.length > 0 && { warnings }),
     ...(memoryContext && { memoryContext }),
@@ -758,6 +800,69 @@ function computeNextTasks(
 }
 
 /**
+ * Compute the unified urgency surface (T9905).
+ *
+ * Filters open tasks for the disjunctive predicate
+ *
+ *   `priority IN ('critical','high') OR severity IN ('P0','P1')`
+ *
+ * and sorts by an urgency tier so the most-urgent rows surface first:
+ *
+ *   1. severity=P0     (tier 0)
+ *   2. priority=critical (tier 1)
+ *   3. severity=P1     (tier 2)
+ *   4. priority=high   (tier 3)
+ *
+ * A task carrying BOTH a high priority AND a P0 severity inherits the
+ * stronger tier (0). Completed / cancelled tasks never appear.
+ *
+ * @task T9905
+ */
+function computeUrgentTasks(
+  tasks: unknown[],
+  options: { maxUrgent: number; scopeTaskIds?: Set<string>; truncateTitles?: boolean },
+): BriefingUrgentTask[] {
+  const urgencyTier = (priority: string, severity: string | null | undefined): number | null => {
+    if (severity === 'P0') return 0;
+    if (priority === 'critical') return 1;
+    if (severity === 'P1') return 2;
+    if (priority === 'high') return 3;
+    return null;
+  };
+
+  const buckets: Array<BriefingUrgentTask & { tier: number }> = [];
+
+  for (const task of tasks) {
+    const t = task as {
+      id: string;
+      title: string;
+      status?: string;
+      priority?: string;
+      severity?: string | null;
+    };
+
+    if (options.scopeTaskIds && !options.scopeTaskIds.has(t.id)) continue;
+    if (t.status === 'done' || t.status === 'cancelled' || t.status === 'archived') continue;
+
+    const priority = t.priority ?? 'medium';
+    const severity = t.severity ?? null;
+    const tier = urgencyTier(priority, severity);
+    if (tier === null) continue;
+
+    buckets.push({
+      id: t.id,
+      title: options.truncateTitles ? truncate(t.title, MAX_TITLE_LEN_DIET) : t.title,
+      priority,
+      ...(severity ? { severity } : {}),
+      tier,
+    });
+  }
+
+  buckets.sort((a, b) => a.tier - b.tier);
+  return buckets.slice(0, options.maxUrgent).map(({ tier: _tier, ...rest }) => rest);
+}
+
+/**
  * Compute open bugs.
  */
 function computeOpenBugs(
@@ -989,6 +1094,14 @@ const MAX_DECISIONS_DIET = 3;
 const MAX_BLOCKED_TASKS_DIET = 3;
 /** Maximum activeEpics entries in the default (diet) briefing output. */
 const MAX_ACTIVE_EPICS_DIET = 3;
+/**
+ * Maximum urgentTasks entries in the default (diet) briefing output (T9905).
+ *
+ * Five matches the relatedDocs cap — enough to surface the top urgent slice
+ * without exploding the briefing token budget. Operators who need the full
+ * urgent backlog should run `cleo find --urgent`.
+ */
+const MAX_URGENT_TASKS_DIET = 5;
 /** Maximum title length (chars) for blockedTasks/activeEpics entries in diet mode. */
 const MAX_TITLE_LEN_DIET = 60;
 /** Maximum memoryContext title length (chars) in diet mode. */
