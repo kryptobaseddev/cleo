@@ -168,7 +168,7 @@ function runWorktreeLocationGate(expectedPath?: string): HygieneGateResult {
  * @returns Structured result with per-gate details.
  */
 export async function runSpawnReadinessHygiene(
-  projectRoot: string = process.cwd(),
+  projectRoot: string = process.cwd(), // CWD-OK: public API default — caller passes explicit root when invoked from non-cwd context
   worktreePath?: string,
 ): Promise<SpawnReadinessResult> {
   const gates = await Promise.all([
@@ -191,7 +191,7 @@ export async function runSpawnReadinessHygiene(
  * @param worktreePath - Expected worktree path (optional).
  */
 export async function runSpawnReadinessHygieneCli(
-  projectRoot: string = process.cwd(),
+  projectRoot: string = process.cwd(), // CWD-OK: CLI entry point default — `cleo hygiene` invoked from project cwd
   worktreePath?: string,
 ): Promise<void> {
   const result = await runSpawnReadinessHygiene(projectRoot, worktreePath);
