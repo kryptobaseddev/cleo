@@ -292,9 +292,9 @@ export class LafsA2AResult {
    * Get token estimate from LAFS envelope.
    *
    * @remarks
-   * Extracts the `_tokenEstimate` field from the LAFS envelope's `_meta`
-   * section, which contains estimated token usage, budget, and truncation
-   * information.
+   * Prefers the first-class `meta.tokens` field promoted in Saga T9855 /
+   * E8 — T9923, falling back to the legacy `_tokenEstimate` field for
+   * envelopes produced before the deprecation window closes at v2026.7.0.
    *
    * @returns Token estimate object, or null if no envelope or no estimate present
    */
@@ -302,11 +302,12 @@ export class LafsA2AResult {
     const envelope = this.getLafsEnvelope();
     if (!envelope?._meta) return null;
 
-    // Access LAFS meta fields
+    type EstimateShape = { estimated: number; budget?: number; truncated?: boolean };
     const meta = envelope._meta as LAFSMeta & {
-      _tokenEstimate?: { estimated: number; budget?: number; truncated?: boolean };
+      tokens?: EstimateShape;
+      _tokenEstimate?: EstimateShape;
     };
-    return meta._tokenEstimate ?? null;
+    return meta.tokens ?? meta._tokenEstimate ?? null;
   }
 
   /**
