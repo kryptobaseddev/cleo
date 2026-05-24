@@ -20,6 +20,7 @@ export type {
   AdrAllocateOk,
   AdrAllocateResult,
   AllocateAdrOptions,
+  AllocateAdrParams,
 } from './adr-allocator.js';
 export {
   allocateAdrSlug,
