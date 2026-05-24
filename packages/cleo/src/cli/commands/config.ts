@@ -29,7 +29,7 @@
  * @adr 076
  */
 
-import { CleoError, formatError, loadConfig } from '@cleocode/core';
+import { CleoError, loadConfig } from '@cleocode/core';
 import { showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { defineCommand } from '../lib/define-cli-command.js';
