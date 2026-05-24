@@ -32,6 +32,8 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync 
 import { basename, dirname, join } from 'node:path';
 import {
   DB_INVENTORY,
+  type DbCrossDbInvariantId,
+  type DbCrossDbOrphanReport,
   type DbInventoryEntry,
   type DbSubstrateAuditResult,
   type DbSubstrateEntry,
@@ -705,6 +707,687 @@ export function inspectDbFile(
   }
 }
 
+// ============================================================================
+// Cross-DB invariant walker (T10323 — Saga T10281 / Epic T10285)
+// ============================================================================
+
+/**
+ * Max number of orphan rows the bounded queries will return per invariant.
+ *
+ * Keeps walk latency bounded: each invariant runs at most one query that
+ * scans at most this many candidate rows, so a fleet of malformed DBs
+ * cannot blow up the substrate audit's wall-clock budget.
+ *
+ * @task T10323
+ */
+const CROSS_DB_QUERY_LIMIT = 100;
+
+/**
+ * Number of sample orphan keys carried in each report. The full count is
+ * tracked separately on `DbCrossDbOrphanReport.orphanCount`.
+ *
+ * @task T10323
+ */
+const CROSS_DB_SAMPLE_LIMIT = 5;
+
+/** Stable text for the I3 path-mismatch invariant fix. */
+const I3_FIX = 'Run `cleo nexus reset-project-id` to realign nexus.db with project-context.json';
+/** Stable text for the I1 invariant fix. */
+const I1_FIX = 'Run `cleo memory observe --task <taskId>` to re-anchor';
+/** Stable text for the I2 invariant fix. */
+const I2_FIX = 'Run `cleo docs prune --remove-orphan-blobs`';
+/** Stable text for the I4 invariant fix. */
+const I4_FIX =
+  'Repair llmtxt session linkage — re-run `cleo session start --link-task <taskId>` or prune the orphan llmtxt session row';
+/** Stable text for the I5 invariant fix. */
+const I5_FIX =
+  'Repair conduit job anchor — re-anchor the job to a live tasks/brain row or run `cleo conduit prune --orphans`';
+
+/**
+ * Helper: open a snapshot of `filePath` when it exists, returning `null`
+ * (no throw) for every failure mode. The cross-DB walker tolerates every
+ * absent / corrupt / unreadable source DB without short-circuiting the
+ * rest of the invariants.
+ *
+ * @param filePath - Absolute path to the candidate SQLite file.
+ * @returns The open snapshot handle, or `null` when the file is missing
+ *   / opener threw.
+ */
+function tryOpenSnapshot(filePath: string): ReturnType<typeof openCleoDbSnapshot> | null {
+  if (!existsSync(filePath)) return null;
+  try {
+    return openCleoDbSnapshot(filePath, { readOnly: true, applyPragmas: false });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Helper: build a `skipped` report for an invariant whose prerequisites
+ * are not met (missing source DB, missing column, opener threw, etc.).
+ *
+ * @param invariant - Canonical invariant ID.
+ * @param description - Stable invariant description.
+ * @param suggestedFix - Canonical repair command.
+ * @param reason - Free-form skip reason for triage.
+ * @returns A populated {@link DbCrossDbOrphanReport} with `skipped: true`.
+ */
+function buildSkippedReport(
+  invariant: DbCrossDbInvariantId,
+  description: string,
+  suggestedFix: string,
+  reason: string,
+): DbCrossDbOrphanReport {
+  return {
+    invariant,
+    description,
+    orphanCount: 0,
+    sample: [],
+    suggestedFix,
+    skipped: true,
+    skipReason: reason,
+  };
+}
+
+/**
+ * Helper: check whether a SQLite snapshot has a given table.
+ *
+ * @param snapshot - The open snapshot handle (NOT null — caller checks).
+ * @param tableName - Exact table name to check (case-sensitive).
+ * @returns `true` when `sqlite_master` carries a row with `name=<tableName>`.
+ */
+function snapshotHasTable(
+  snapshot: ReturnType<typeof openCleoDbSnapshot>,
+  tableName: string,
+): boolean {
+  type Row = { name: string };
+  try {
+    const rows = snapshot.db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=? LIMIT 1")
+      .all(tableName) as Row[];
+    return rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Helper: check whether a SQLite snapshot has a given column on a given
+ * table.
+ *
+ * @param snapshot - The open snapshot handle (NOT null — caller checks).
+ * @param tableName - Exact table name.
+ * @param columnName - Exact column name (case-sensitive).
+ * @returns `true` when `PRAGMA table_info(<tableName>)` carries a row
+ *   with `name=<columnName>`.
+ */
+function snapshotHasColumn(
+  snapshot: ReturnType<typeof openCleoDbSnapshot>,
+  tableName: string,
+  columnName: string,
+): boolean {
+  // table_info accepts a quoted identifier; tableName is validated by
+  // caller (only used on hardcoded table names from this module).
+  type ColumnInfoRow = { name: string };
+  try {
+    const rows = snapshot.db.prepare(`PRAGMA table_info(${tableName})`).all() as ColumnInfoRow[];
+    return rows.some((r) => r.name === columnName);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * I1 invariant: `brain_memory_links.task_id` (brain.db) must reference an
+ * existing `tasks.id` row in tasks.db.
+ *
+ * @remarks
+ * Strategy: read every distinct `task_id` from brain.db's
+ * `brain_memory_links` (LIMIT 100), then for each candidate ask tasks.db
+ * whether the row exists. The walker scans at most 100 candidate IDs,
+ * regardless of how many orphan links the brain has — operators see
+ * "≥ 100" only when the population truly exceeds the cap.
+ *
+ * @param tasksSnap - Open snapshot of tasks.db, or `null` when missing.
+ * @param brainSnap - Open snapshot of brain.db, or `null` when missing.
+ * @returns A {@link DbCrossDbOrphanReport} for invariant I1.
+ */
+export function checkInvariantI1(
+  tasksSnap: ReturnType<typeof openCleoDbSnapshot> | null,
+  brainSnap: ReturnType<typeof openCleoDbSnapshot> | null,
+): DbCrossDbOrphanReport {
+  const description =
+    'brain_memory_links.task_id (brain.db) must reference an existing tasks.id row in tasks.db';
+
+  if (brainSnap === null) {
+    return buildSkippedReport('I1', description, I1_FIX, 'brain.db missing or unreadable');
+  }
+  if (tasksSnap === null) {
+    return buildSkippedReport('I1', description, I1_FIX, 'tasks.db missing or unreadable');
+  }
+  if (!snapshotHasTable(brainSnap, 'brain_memory_links')) {
+    return buildSkippedReport(
+      'I1',
+      description,
+      I1_FIX,
+      'brain.db has no brain_memory_links table',
+    );
+  }
+  if (!snapshotHasTable(tasksSnap, 'tasks')) {
+    return buildSkippedReport('I1', description, I1_FIX, 'tasks.db has no tasks table');
+  }
+
+  type LinkRow = { task_id: string };
+  let candidateIds: string[];
+  try {
+    const rows = brainSnap.db
+      .prepare(
+        `SELECT DISTINCT task_id FROM brain_memory_links WHERE task_id IS NOT NULL LIMIT ${CROSS_DB_QUERY_LIMIT}`,
+      )
+      .all() as LinkRow[];
+    candidateIds = rows.map((r) => r.task_id);
+  } catch (err) {
+    return buildSkippedReport(
+      'I1',
+      description,
+      I1_FIX,
+      `brain.db query threw: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  const orphans: string[] = [];
+  const lookup = tasksSnap.db.prepare('SELECT id FROM tasks WHERE id = ? LIMIT 1');
+  for (const taskId of candidateIds) {
+    try {
+      const row = lookup.get(taskId) as { id: string } | undefined;
+      if (row === undefined) {
+        orphans.push(taskId);
+      }
+    } catch {
+      // Lookup threw — treat as inconclusive (skip this row, don't bias).
+    }
+  }
+
+  return {
+    invariant: 'I1',
+    description,
+    orphanCount: orphans.length,
+    sample: orphans.slice(0, CROSS_DB_SAMPLE_LIMIT),
+    suggestedFix: I1_FIX,
+    skipped: false,
+    skipReason: '',
+  };
+}
+
+/**
+ * I2 invariant: `blob_attachments.doc_slug` (manifest.db) used as a
+ * `T####`-shaped task identifier must reference an existing tasks.id row.
+ *
+ * @remarks
+ * CLEO uses `taskId` as the `docSlug` for blob attachments
+ * (see `packages/core/src/store/llmtxt-blob-adapter.ts`). Doc slugs that
+ * match the canonical `^T\d+$` shape MUST point at a live task; any
+ * other doc-slug shape (changesets, ADRs, research notes…) is out of
+ * scope for this invariant.
+ *
+ * @param tasksSnap - Open snapshot of tasks.db, or `null` when missing.
+ * @param manifestSnap - Open snapshot of manifest.db, or `null` when missing.
+ * @returns A {@link DbCrossDbOrphanReport} for invariant I2.
+ */
+export function checkInvariantI2(
+  tasksSnap: ReturnType<typeof openCleoDbSnapshot> | null,
+  manifestSnap: ReturnType<typeof openCleoDbSnapshot> | null,
+): DbCrossDbOrphanReport {
+  const description =
+    "manifest.db blob_attachments.doc_slug shaped like 'T####' must reference an existing tasks.id row";
+
+  if (manifestSnap === null) {
+    return buildSkippedReport('I2', description, I2_FIX, 'manifest.db missing or unreadable');
+  }
+  if (tasksSnap === null) {
+    return buildSkippedReport('I2', description, I2_FIX, 'tasks.db missing or unreadable');
+  }
+  if (!snapshotHasTable(manifestSnap, 'blob_attachments')) {
+    return buildSkippedReport(
+      'I2',
+      description,
+      I2_FIX,
+      'manifest.db has no blob_attachments table',
+    );
+  }
+  if (!snapshotHasTable(tasksSnap, 'tasks')) {
+    return buildSkippedReport('I2', description, I2_FIX, 'tasks.db has no tasks table');
+  }
+
+  type SlugRow = { doc_slug: string };
+  let candidates: string[];
+  try {
+    // Only T-shaped slugs. SQLite GLOB beats LIKE for prefix discrimination.
+    const rows = manifestSnap.db
+      .prepare(
+        `SELECT DISTINCT doc_slug FROM blob_attachments WHERE doc_slug GLOB 'T[0-9]*' AND doc_slug IS NOT NULL LIMIT ${CROSS_DB_QUERY_LIMIT}`,
+      )
+      .all() as SlugRow[];
+    candidates = rows.map((r) => r.doc_slug);
+  } catch (err) {
+    return buildSkippedReport(
+      'I2',
+      description,
+      I2_FIX,
+      `manifest.db query threw: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  const orphans: string[] = [];
+  const lookup = tasksSnap.db.prepare('SELECT id FROM tasks WHERE id = ? LIMIT 1');
+  for (const slug of candidates) {
+    try {
+      const row = lookup.get(slug) as { id: string } | undefined;
+      if (row === undefined) {
+        orphans.push(slug);
+      }
+    } catch {
+      // Lookup threw — skip silently.
+    }
+  }
+
+  return {
+    invariant: 'I2',
+    description,
+    orphanCount: orphans.length,
+    sample: orphans.slice(0, CROSS_DB_SAMPLE_LIMIT),
+    suggestedFix: I2_FIX,
+    skipped: false,
+    skipReason: '',
+  };
+}
+
+/**
+ * I3 invariant: nexus.db's `project_registry.project_path` row for the
+ * current project must match `projectRoot` (or, when no row exists, the
+ * project simply has not been registered with the nexus yet — that is
+ * skipped, not flagged).
+ *
+ * @remarks
+ * `.cleo/project-context.json` does NOT carry a `projectId` field; the
+ * canonical identifier is derived from `base64url(path).slice(0, 32)`.
+ * The invariant therefore asserts that the nexus registry's recorded
+ * `project_path` MATCHES the live project root for the computed ID.
+ *
+ * Detected drift: a single nexus row whose `project_path` no longer
+ * matches `projectRoot` (e.g. project was moved on disk; the
+ * registry still points at the old location).
+ *
+ * @param projectRoot - Absolute path to the project root being audited.
+ * @param nexusSnap - Open snapshot of nexus.db, or `null` when missing.
+ * @returns A {@link DbCrossDbOrphanReport} for invariant I3.
+ */
+export function checkInvariantI3(
+  projectRoot: string,
+  nexusSnap: ReturnType<typeof openCleoDbSnapshot> | null,
+): DbCrossDbOrphanReport {
+  const description =
+    'nexus.db project_registry.project_path must match the live projectRoot for this project_id';
+
+  if (nexusSnap === null) {
+    return buildSkippedReport('I3', description, I3_FIX, 'nexus.db missing or unreadable');
+  }
+  if (!snapshotHasTable(nexusSnap, 'project_registry')) {
+    return buildSkippedReport('I3', description, I3_FIX, 'nexus.db has no project_registry table');
+  }
+
+  const expectedProjectId = computeSubstrateProjectId(projectRoot);
+
+  type RegistryRow = { project_id: string; project_path: string };
+  let row: RegistryRow | undefined;
+  try {
+    row = nexusSnap.db
+      .prepare('SELECT project_id, project_path FROM project_registry WHERE project_id = ? LIMIT 1')
+      .get(expectedProjectId) as RegistryRow | undefined;
+  } catch (err) {
+    return buildSkippedReport(
+      'I3',
+      description,
+      I3_FIX,
+      `nexus.db query threw: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  // No registry row: project simply isn't tracked by the nexus yet — not
+  // a violation. The invariant only fires when a row exists AND its
+  // recorded path differs from the live projectRoot.
+  if (row === undefined) {
+    return buildSkippedReport(
+      'I3',
+      description,
+      I3_FIX,
+      `nexus.db has no project_registry row for projectId=${expectedProjectId}`,
+    );
+  }
+
+  const orphans: string[] = [];
+  if (row.project_path !== projectRoot) {
+    orphans.push(`${row.project_id} (path: ${row.project_path}, expected: ${projectRoot})`);
+  }
+
+  return {
+    invariant: 'I3',
+    description,
+    orphanCount: orphans.length,
+    sample: orphans.slice(0, CROSS_DB_SAMPLE_LIMIT),
+    suggestedFix: I3_FIX,
+    skipped: false,
+    skipReason: '',
+  };
+}
+
+/**
+ * I4 invariant: llmtxt.db's `session_id` (if the schema declares one)
+ * must reference an existing `sessions.id` row in tasks.db.
+ *
+ * @remarks
+ * Schema-aware: the live llmtxt schema (`llmtxt@2026.4.x`) does NOT yet
+ * declare a `session_id` column on any table. The walker probes
+ * `sqlite_master` for tables carrying a `session_id` column and runs
+ * the check only when one exists. The check stays compatible with future
+ * llmtxt schemas that introduce session linkage without code changes.
+ *
+ * When a candidate column is found, the bounded query gathers distinct
+ * `session_id` values (LIMIT 100) and cross-references each against
+ * tasks.db's `sessions` table.
+ *
+ * @param tasksSnap - Open snapshot of tasks.db, or `null` when missing.
+ * @param llmtxtSnap - Open snapshot of llmtxt.db, or `null` when missing.
+ * @returns A {@link DbCrossDbOrphanReport} for invariant I4.
+ */
+export function checkInvariantI4(
+  tasksSnap: ReturnType<typeof openCleoDbSnapshot> | null,
+  llmtxtSnap: ReturnType<typeof openCleoDbSnapshot> | null,
+): DbCrossDbOrphanReport {
+  const description =
+    'llmtxt.db tables carrying a session_id column must reference an existing sessions.id row in tasks.db';
+
+  if (llmtxtSnap === null) {
+    return buildSkippedReport('I4', description, I4_FIX, 'llmtxt.db missing or unreadable');
+  }
+  if (tasksSnap === null) {
+    return buildSkippedReport('I4', description, I4_FIX, 'tasks.db missing or unreadable');
+  }
+  if (!snapshotHasTable(tasksSnap, 'sessions')) {
+    return buildSkippedReport('I4', description, I4_FIX, 'tasks.db has no sessions table');
+  }
+
+  // Find any user table in llmtxt.db that has a `session_id` column.
+  // The schema may evolve — we don't hardcode a table name.
+  //
+  // NOTE: SQL `LIKE '__%'` matches ANY two-character-prefixed name (the
+  // underscore is a single-character wildcard in SQL). Use a literal
+  // escape so we exclude only the Drizzle/CLEO bookkeeping tables that
+  // genuinely begin with `__`.
+  type TableRow = { name: string };
+  let userTables: string[];
+  try {
+    const rows = llmtxtSnap.db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' AND name NOT LIKE '\\_\\_%' ESCAPE '\\'",
+      )
+      .all() as TableRow[];
+    userTables = rows.map((r) => r.name);
+  } catch (err) {
+    return buildSkippedReport(
+      'I4',
+      description,
+      I4_FIX,
+      `llmtxt.db schema query threw: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  const tablesWithSessionId: string[] = [];
+  for (const t of userTables) {
+    if (snapshotHasColumn(llmtxtSnap, t, 'session_id')) {
+      tablesWithSessionId.push(t);
+    }
+  }
+
+  if (tablesWithSessionId.length === 0) {
+    return buildSkippedReport(
+      'I4',
+      description,
+      I4_FIX,
+      'llmtxt.db has no table with a session_id column (schema does not yet declare session linkage)',
+    );
+  }
+
+  type SessionRow = { session_id: string };
+  const allCandidates = new Set<string>();
+  for (const tableName of tablesWithSessionId) {
+    if (allCandidates.size >= CROSS_DB_QUERY_LIMIT) break;
+    // Identifier safety: tableName comes from sqlite_master so it's
+    // already a valid identifier. Belt-and-braces regex check below.
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(tableName)) continue;
+    const remaining = CROSS_DB_QUERY_LIMIT - allCandidates.size;
+    try {
+      const rows = llmtxtSnap.db
+        .prepare(
+          `SELECT DISTINCT session_id FROM ${tableName} WHERE session_id IS NOT NULL LIMIT ${remaining}`,
+        )
+        .all() as SessionRow[];
+      for (const r of rows) {
+        allCandidates.add(r.session_id);
+      }
+    } catch {
+      // Skip this table on failure — don't bias the report.
+    }
+  }
+
+  const orphans: string[] = [];
+  const lookup = tasksSnap.db.prepare('SELECT id FROM sessions WHERE id = ? LIMIT 1');
+  for (const sessionId of allCandidates) {
+    try {
+      const row = lookup.get(sessionId) as { id: string } | undefined;
+      if (row === undefined) {
+        orphans.push(sessionId);
+      }
+    } catch {
+      // skip silently
+    }
+  }
+
+  return {
+    invariant: 'I4',
+    description,
+    orphanCount: orphans.length,
+    sample: orphans.slice(0, CROSS_DB_SAMPLE_LIMIT),
+    suggestedFix: I4_FIX,
+    skipped: false,
+    skipReason: '',
+  };
+}
+
+/**
+ * I5 invariant: `dead_letters.job_id` (conduit.db) must reference either
+ * an existing tasks.id row OR a brain anchor (page node, observation, …).
+ *
+ * @remarks
+ * Conduit jobs anchor against the broader CLEO substrate — a job's
+ * `job_id` may be a task ID (`T####`) or a brain entity (e.g.
+ * `observation:O-…`). The walker resolves each candidate against both
+ * targets and only flags rows that match neither.
+ *
+ * @param tasksSnap - Open snapshot of tasks.db, or `null` when missing.
+ * @param brainSnap - Open snapshot of brain.db, or `null` when missing.
+ * @param conduitSnap - Open snapshot of conduit.db, or `null` when missing.
+ * @returns A {@link DbCrossDbOrphanReport} for invariant I5.
+ */
+export function checkInvariantI5(
+  tasksSnap: ReturnType<typeof openCleoDbSnapshot> | null,
+  brainSnap: ReturnType<typeof openCleoDbSnapshot> | null,
+  conduitSnap: ReturnType<typeof openCleoDbSnapshot> | null,
+): DbCrossDbOrphanReport {
+  const description =
+    'conduit.db dead_letters.job_id must reference an existing tasks.id row OR a brain anchor (brain_page_nodes.id / brain_observations.id)';
+
+  if (conduitSnap === null) {
+    return buildSkippedReport('I5', description, I5_FIX, 'conduit.db missing or unreadable');
+  }
+  if (!snapshotHasTable(conduitSnap, 'dead_letters')) {
+    return buildSkippedReport('I5', description, I5_FIX, 'conduit.db has no dead_letters table');
+  }
+  // Both targets missing → cannot resolve; skip.
+  if (tasksSnap === null && brainSnap === null) {
+    return buildSkippedReport(
+      'I5',
+      description,
+      I5_FIX,
+      'both tasks.db and brain.db missing — cannot resolve job anchors',
+    );
+  }
+
+  type JobRow = { job_id: string };
+  let candidates: string[];
+  try {
+    const rows = conduitSnap.db
+      .prepare(
+        `SELECT DISTINCT job_id FROM dead_letters WHERE job_id IS NOT NULL LIMIT ${CROSS_DB_QUERY_LIMIT}`,
+      )
+      .all() as JobRow[];
+    candidates = rows.map((r) => r.job_id);
+  } catch (err) {
+    return buildSkippedReport(
+      'I5',
+      description,
+      I5_FIX,
+      `conduit.db query threw: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  const tasksLookup =
+    tasksSnap !== null && snapshotHasTable(tasksSnap, 'tasks')
+      ? tasksSnap.db.prepare('SELECT id FROM tasks WHERE id = ? LIMIT 1')
+      : null;
+  const brainPageLookup =
+    brainSnap !== null && snapshotHasTable(brainSnap, 'brain_page_nodes')
+      ? brainSnap.db.prepare('SELECT id FROM brain_page_nodes WHERE id = ? LIMIT 1')
+      : null;
+  const brainObsLookup =
+    brainSnap !== null && snapshotHasTable(brainSnap, 'brain_observations')
+      ? brainSnap.db.prepare('SELECT id FROM brain_observations WHERE id = ? LIMIT 1')
+      : null;
+
+  const orphans: string[] = [];
+  for (const jobId of candidates) {
+    let anchored = false;
+    try {
+      if (tasksLookup !== null && (tasksLookup.get(jobId) as { id: string } | undefined)) {
+        anchored = true;
+      }
+    } catch {
+      // skip
+    }
+    if (!anchored) {
+      try {
+        if (
+          brainPageLookup !== null &&
+          (brainPageLookup.get(jobId) as { id: string } | undefined)
+        ) {
+          anchored = true;
+        }
+      } catch {
+        // skip
+      }
+    }
+    if (!anchored) {
+      try {
+        if (brainObsLookup !== null && (brainObsLookup.get(jobId) as { id: string } | undefined)) {
+          anchored = true;
+        }
+      } catch {
+        // skip
+      }
+    }
+    if (!anchored) {
+      orphans.push(jobId);
+    }
+  }
+
+  return {
+    invariant: 'I5',
+    description,
+    orphanCount: orphans.length,
+    sample: orphans.slice(0, CROSS_DB_SAMPLE_LIMIT),
+    suggestedFix: I5_FIX,
+    skipped: false,
+    skipReason: '',
+  };
+}
+
+/**
+ * Run every cross-DB invariant in the T10320 catalogue (I1–I5) and
+ * return per-invariant orphan reports.
+ *
+ * @remarks
+ * Resolves every DB path through the inventory SSoT, opens each as a
+ * read-only snapshot, runs the bounded invariant queries, and closes
+ * the snapshots before returning. Every failure mode — missing file,
+ * malformed DB, missing column, missing table — is captured on the
+ * corresponding report's `skipped: true` branch; the walker never
+ * throws.
+ *
+ * Each invariant has its own dedicated checker (exported for unit
+ * tests) so the integration suite can verify the per-invariant
+ * semantics in isolation.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @returns Five {@link DbCrossDbOrphanReport} entries — one per invariant,
+ *   always in the canonical order I1, I2, I3, I4, I5.
+ *
+ * @task T10323
+ * @epic T10285
+ * @saga T10281
+ */
+export function walkCrossDbInvariants(projectRoot: string): DbCrossDbOrphanReport[] {
+  // Resolve every DB path through the inventory SSoT — no hardcoded
+  // paths. Roles we care about: tasks, brain, conduit, manifest,
+  // llmtxt, nexus.
+  const resolveByRole = (role: string): string | null => {
+    const entry = DB_INVENTORY.find((e) => e.role === role);
+    return entry ? resolveInventoryFilePath(entry, projectRoot) : null;
+  };
+
+  const tasksPath = resolveByRole('tasks');
+  const brainPath = resolveByRole('brain');
+  const conduitPath = resolveByRole('conduit');
+  const manifestPath = resolveByRole('manifest');
+  const llmtxtPath = resolveByRole('llmtxt');
+  const nexusPath = resolveByRole('nexus');
+
+  const tasksSnap = tasksPath ? tryOpenSnapshot(tasksPath) : null;
+  const brainSnap = brainPath ? tryOpenSnapshot(brainPath) : null;
+  const conduitSnap = conduitPath ? tryOpenSnapshot(conduitPath) : null;
+  const manifestSnap = manifestPath ? tryOpenSnapshot(manifestPath) : null;
+  const llmtxtSnap = llmtxtPath ? tryOpenSnapshot(llmtxtPath) : null;
+  const nexusSnap = nexusPath ? tryOpenSnapshot(nexusPath) : null;
+
+  try {
+    const reports: DbCrossDbOrphanReport[] = [
+      checkInvariantI1(tasksSnap, brainSnap),
+      checkInvariantI2(tasksSnap, manifestSnap),
+      checkInvariantI3(projectRoot, nexusSnap),
+      checkInvariantI4(tasksSnap, llmtxtSnap),
+      checkInvariantI5(tasksSnap, brainSnap, conduitSnap),
+    ];
+    return reports;
+  } finally {
+    // Close every snapshot we opened, regardless of which checks ran.
+    tasksSnap?.close();
+    brainSnap?.close();
+    conduitSnap?.close();
+    manifestSnap?.close();
+    llmtxtSnap?.close();
+    nexusSnap?.close();
+  }
+}
+
 /**
  * Walk the inventory and survey every project-tier + global-tier
  * database visible from one project root.
@@ -951,11 +1634,14 @@ export function surveyDbSubstrate(
     warnings.push(orphan);
   }
   warnings.push(...detectNestedNexusDuplicates());
+  // T10323: cross-DB invariants are checked once per project per audit.
+  const crossDbOrphans = walkCrossDbInvariants(projectRoot);
   return {
     scope: 'project',
     projects: [projectSurvey],
     summary: summarizeSubstrateSurveys([projectSurvey]),
     warnings,
+    crossDbOrphans,
   };
 }
 
@@ -1048,10 +1734,19 @@ export function surveyFleetDbSubstrate(
   }
   warnings.push(...detectNestedNexusDuplicates());
 
+  // T10323: in fleet mode we run cross-DB invariants per project. The
+  // global-tier shape (nexus.db) is shared, but I1/I2/I4/I5 are
+  // project-scoped — we want one set of reports per project root.
+  const crossDbOrphans: DbCrossDbOrphanReport[] = [];
+  for (const survey of projectSurveys) {
+    crossDbOrphans.push(...walkCrossDbInvariants(survey.projectRoot));
+  }
+
   return {
     scope: 'fleet',
     projects: projectSurveys,
     summary: summarizeSubstrateSurveys(projectSurveys),
     warnings,
+    crossDbOrphans,
   };
 }

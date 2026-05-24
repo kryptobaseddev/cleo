@@ -33,6 +33,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 // tests that need core primitives without an alias rewrite (saga-audit
 // uses the same approach).
 import {
+  checkInvariantI1,
+  checkInvariantI2,
+  checkInvariantI3,
+  checkInvariantI4,
+  checkInvariantI5,
+  computeSubstrateProjectId,
   detectOrphanProjectRootWarning,
   isLegitimateCleoProjectRoot,
   readParentWorkspace,
@@ -40,6 +46,7 @@ import {
   resolveInventoryMigrationsFolder,
   surveyDbSubstrate,
   surveyFleetDbSubstrate,
+  walkCrossDbInvariants,
   walkPragmaDrift,
 } from '../../../../../core/src/doctor/db-substrate.js';
 import {
@@ -990,5 +997,410 @@ describe('doctor db-substrate (T10307)', () => {
     // Healthy DB w/ timeout disabled: integrityOK true + timedOut false.
     expect(tasks.integrityOK).toBe(true);
     expect(tasks.timedOut).toBe(false);
+  });
+
+  // ============================================================================
+  // T10323 — cross-DB orphan-row report (Saga T10281 / Epic T10285)
+  // ============================================================================
+
+  /**
+   * Seed a tasks.db with a single live task and a single live session so
+   * the I1/I4/I5 anchor lookups can distinguish present vs. orphan.
+   *
+   * Schema is the minimum needed by the cross-DB walker — `tasks(id)` and
+   * `sessions(id)` columns. Other tasks.db columns are not exercised.
+   */
+  function seedTasksDbForCrossDb(
+    dbPath: string,
+    options: { taskIds: string[]; sessionIds: string[] },
+  ): void {
+    const writer = new DatabaseSyncCtor(dbPath);
+    writer.exec(
+      `CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT);
+       CREATE TABLE sessions (id TEXT PRIMARY KEY, scope TEXT);`,
+    );
+    const insertTask = writer.prepare('INSERT INTO tasks (id, title) VALUES (?, ?)');
+    for (const id of options.taskIds) {
+      insertTask.run(id, `title-for-${id}`);
+    }
+    const insertSession = writer.prepare('INSERT INTO sessions (id, scope) VALUES (?, ?)');
+    for (const id of options.sessionIds) {
+      insertSession.run(id, 'global');
+    }
+    writer.close();
+  }
+
+  /**
+   * Seed a brain.db carrying brain_memory_links rows AND a trio of
+   * anchor tables (page_nodes, observations) so I5 anchor resolution
+   * can succeed.
+   */
+  function seedBrainDbForCrossDb(
+    dbPath: string,
+    options: { linkTaskIds: string[]; pageNodeIds?: string[]; observationIds?: string[] },
+  ): void {
+    const writer = new DatabaseSyncCtor(dbPath);
+    writer.exec(
+      `CREATE TABLE brain_memory_links (
+         memory_type TEXT NOT NULL,
+         memory_id   TEXT NOT NULL,
+         task_id     TEXT NOT NULL,
+         link_type   TEXT NOT NULL
+       );
+       CREATE TABLE brain_page_nodes (id TEXT PRIMARY KEY, kind TEXT);
+       CREATE TABLE brain_observations (id TEXT PRIMARY KEY, narrative TEXT);`,
+    );
+    const insertLink = writer.prepare(
+      'INSERT INTO brain_memory_links (memory_type, memory_id, task_id, link_type) VALUES (?, ?, ?, ?)',
+    );
+    for (const taskId of options.linkTaskIds) {
+      insertLink.run('observation', `O-mem-${taskId}`, taskId, 'context');
+    }
+    const insertNode = writer.prepare('INSERT INTO brain_page_nodes (id, kind) VALUES (?, ?)');
+    for (const id of options.pageNodeIds ?? []) {
+      insertNode.run(id, 'task');
+    }
+    const insertObs = writer.prepare(
+      'INSERT INTO brain_observations (id, narrative) VALUES (?, ?)',
+    );
+    for (const id of options.observationIds ?? []) {
+      insertObs.run(id, 'note');
+    }
+    writer.close();
+  }
+
+  /**
+   * Seed a manifest.db (BlobFsAdapter shape) with blob_attachments rows.
+   * Only the columns the I2 invariant reads are materialized.
+   */
+  function seedManifestDbForCrossDb(dbPath: string, docSlugs: string[]): void {
+    const writer = new DatabaseSyncCtor(dbPath);
+    writer.exec(
+      `CREATE TABLE blob_attachments (
+         id        TEXT PRIMARY KEY,
+         doc_slug  TEXT NOT NULL,
+         blob_name TEXT NOT NULL,
+         hash      TEXT NOT NULL,
+         deleted_at TEXT
+       );`,
+    );
+    const insert = writer.prepare(
+      'INSERT INTO blob_attachments (id, doc_slug, blob_name, hash) VALUES (?, ?, ?, ?)',
+    );
+    let i = 0;
+    for (const slug of docSlugs) {
+      i += 1;
+      insert.run(`atch-${i}`, slug, `blob-${i}.bin`, `${'0'.repeat(63)}${i % 10}`);
+    }
+    writer.close();
+  }
+
+  /**
+   * Seed a nexus.db's project_registry with the given (projectId, projectPath) pair.
+   */
+  function seedNexusDbForCrossDb(
+    dbPath: string,
+    rows: { projectId: string; projectPath: string }[],
+  ): void {
+    const writer = new DatabaseSyncCtor(dbPath);
+    writer.exec(
+      `CREATE TABLE project_registry (
+         project_id   TEXT PRIMARY KEY,
+         project_hash TEXT NOT NULL,
+         project_path TEXT NOT NULL,
+         name         TEXT NOT NULL
+       );`,
+    );
+    const insert = writer.prepare(
+      'INSERT INTO project_registry (project_id, project_hash, project_path, name) VALUES (?, ?, ?, ?)',
+    );
+    for (const row of rows) {
+      insert.run(row.projectId, row.projectId, row.projectPath, 'fixture');
+    }
+    writer.close();
+  }
+
+  /**
+   * Seed an llmtxt.db with a `documents` table that carries a `session_id`
+   * column — the schema-aware I4 check probes for ANY table with that
+   * column and the test verifies it is found.
+   */
+  function seedLlmtxtDbForCrossDb(dbPath: string, sessionIds: string[]): void {
+    const writer = new DatabaseSyncCtor(dbPath);
+    writer.exec(
+      `CREATE TABLE documents (
+         id         TEXT PRIMARY KEY,
+         doc_slug   TEXT NOT NULL,
+         session_id TEXT
+       );`,
+    );
+    const insert = writer.prepare(
+      'INSERT INTO documents (id, doc_slug, session_id) VALUES (?, ?, ?)',
+    );
+    let i = 0;
+    for (const sessionId of sessionIds) {
+      i += 1;
+      insert.run(`doc-${i}`, `slug-${i}`, sessionId);
+    }
+    writer.close();
+  }
+
+  /**
+   * Seed a conduit.db with a `dead_letters` table carrying job_id rows.
+   */
+  function seedConduitDbForCrossDb(dbPath: string, jobIds: string[]): void {
+    const writer = new DatabaseSyncCtor(dbPath);
+    writer.exec(
+      `CREATE TABLE dead_letters (
+         id         TEXT PRIMARY KEY,
+         message_id TEXT NOT NULL,
+         job_id     TEXT NOT NULL,
+         reason     TEXT NOT NULL,
+         attempts   INTEGER NOT NULL,
+         created_at INTEGER NOT NULL
+       );`,
+    );
+    const insert = writer.prepare(
+      'INSERT INTO dead_letters (id, message_id, job_id, reason, attempts, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    );
+    let i = 0;
+    for (const jobId of jobIds) {
+      i += 1;
+      insert.run(`dl-${i}`, `msg-${i}`, jobId, 'max-attempts', 6, Date.now());
+    }
+    writer.close();
+  }
+
+  /**
+   * Build a project root with the 6 DBs (tasks, brain, manifest, nexus,
+   * llmtxt, conduit) seeded with intentional orphans for every invariant
+   * I1..I5. Returns the project root path.
+   *
+   * Anchor coverage:
+   *  - tasks.db lives task T100, session ses_live.
+   *  - brain.db link points at orphan T999 (I1 orphan).
+   *  - manifest.db doc_slug T888 is an orphan (I2 orphan).
+   *  - nexus.db row carries a STALE project_path (I3 orphan).
+   *  - llmtxt.db documents.session_id=ses_orphan (I4 orphan).
+   *  - conduit.db dead_letters.job_id=J777 (I5 orphan — not in tasks
+   *    or brain anchor tables).
+   */
+  function seedCrossDbFixture(name: string): string {
+    const projectRoot = join(fleetRoot, name);
+    const cleoDir = join(projectRoot, '.cleo');
+    const blobsDir = join(cleoDir, 'blobs');
+    const llmtxtDir = join(cleoDir, 'llmtxt');
+    mkdirSync(blobsDir, { recursive: true });
+    mkdirSync(llmtxtDir, { recursive: true });
+
+    seedTasksDbForCrossDb(join(cleoDir, 'tasks.db'), {
+      taskIds: ['T100'],
+      sessionIds: ['ses_live'],
+    });
+    seedBrainDbForCrossDb(join(cleoDir, 'brain.db'), {
+      linkTaskIds: ['T100', 'T999'], // T999 is the orphan
+      pageNodeIds: ['task:T100'],
+      observationIds: ['O-anchor-1'],
+    });
+    seedManifestDbForCrossDb(join(blobsDir, 'manifest.db'), [
+      'T100', // live
+      'T888', // orphan
+      'cs-changeset-not-a-task', // not T-shaped — skipped by GLOB
+    ]);
+    // Nexus row uses an INTENTIONAL path mismatch so I3 fires.
+    const expectedId = computeSubstrateProjectId(projectRoot);
+    const nexusPath = join(cleoHomeOverride, 'nexus.db');
+    seedNexusDbForCrossDb(nexusPath, [
+      { projectId: expectedId, projectPath: `${projectRoot}-MOVED` },
+    ]);
+    seedLlmtxtDbForCrossDb(join(llmtxtDir, 'llmtxt.db'), ['ses_live', 'ses_orphan']);
+    seedConduitDbForCrossDb(join(cleoDir, 'conduit.db'), [
+      'T100', // resolves via tasks
+      'task:T100', // resolves via brain_page_nodes
+      'O-anchor-1', // resolves via brain_observations
+      'J777', // orphan
+    ]);
+    return projectRoot;
+  }
+
+  it('T10323: walkCrossDbInvariants returns one report per invariant in canonical order', async () => {
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const projectRoot = createProjectWithTasksDb('cross-db-order');
+    const reports = walkCrossDbInvariants(projectRoot);
+    expect(reports).toHaveLength(5);
+    expect(reports.map((r) => r.invariant)).toEqual(['I1', 'I2', 'I3', 'I4', 'I5']);
+    // Every report carries the stable suggestedFix field — even when skipped.
+    for (const r of reports) {
+      expect(r.suggestedFix.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('T10323: 3-DB fixture detects orphans across every invariant', async () => {
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const projectRoot = seedCrossDbFixture('cross-db-fixture');
+    const result = surveyDbSubstrate(projectRoot);
+
+    // Envelope carries crossDbOrphans on the payload.
+    expect(result.crossDbOrphans).toBeDefined();
+    expect(result.crossDbOrphans.length).toBe(5);
+
+    const byId = new Map(result.crossDbOrphans.map((r) => [r.invariant, r]));
+
+    const i1 = byId.get('I1');
+    expect(i1).toBeDefined();
+    expect(i1?.skipped).toBe(false);
+    expect(i1?.orphanCount).toBeGreaterThanOrEqual(1);
+    expect(i1?.sample).toContain('T999');
+    expect(i1?.suggestedFix).toContain('cleo memory observe');
+
+    const i2 = byId.get('I2');
+    expect(i2?.skipped).toBe(false);
+    expect(i2?.orphanCount).toBeGreaterThanOrEqual(1);
+    expect(i2?.sample).toContain('T888');
+    expect(i2?.suggestedFix).toContain('cleo docs prune');
+
+    const i3 = byId.get('I3');
+    expect(i3?.skipped).toBe(false);
+    expect(i3?.orphanCount).toBe(1);
+    expect(i3?.sample[0]).toContain('-MOVED');
+    expect(i3?.suggestedFix).toContain('cleo nexus reset-project-id');
+
+    const i4 = byId.get('I4');
+    expect(i4?.skipped).toBe(false);
+    expect(i4?.orphanCount).toBe(1);
+    expect(i4?.sample).toContain('ses_orphan');
+    expect(i4?.suggestedFix).toContain('cleo session start');
+
+    const i5 = byId.get('I5');
+    expect(i5?.skipped).toBe(false);
+    expect(i5?.orphanCount).toBe(1);
+    expect(i5?.sample).toContain('J777');
+    expect(i5?.suggestedFix).toMatch(/conduit/i);
+  });
+
+  it('T10323: skipped invariants when source/target DBs are absent', async () => {
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    // Fresh project: only tasks.db exists. brain/manifest/nexus/llmtxt/conduit
+    // are all absent — every cross-DB invariant should report skipped.
+    const projectRoot = createProjectWithTasksDb('cross-db-skipped');
+    const result = surveyDbSubstrate(projectRoot);
+    expect(result.crossDbOrphans.length).toBe(5);
+    for (const r of result.crossDbOrphans) {
+      expect(r.skipped).toBe(true);
+      expect(r.orphanCount).toBe(0);
+      expect(r.sample).toEqual([]);
+      expect(r.skipReason.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('T10323: I1 reports zero orphans when every brain link anchors a live task', () => {
+    const projectRoot = join(fleetRoot, 'i1-clean');
+    mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
+    seedTasksDbForCrossDb(join(projectRoot, '.cleo', 'tasks.db'), {
+      taskIds: ['T1', 'T2'],
+      sessionIds: [],
+    });
+    seedBrainDbForCrossDb(join(projectRoot, '.cleo', 'brain.db'), {
+      linkTaskIds: ['T1', 'T2'],
+    });
+
+    const reports = walkCrossDbInvariants(projectRoot);
+    const i1 = reports.find((r) => r.invariant === 'I1');
+    expect(i1?.skipped).toBe(false);
+    expect(i1?.orphanCount).toBe(0);
+    expect(i1?.sample).toEqual([]);
+  });
+
+  it('T10323: I3 returns 0 orphans when nexus project_path matches projectRoot', async () => {
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const projectRoot = createProjectWithTasksDb('i3-match');
+    const expectedId = computeSubstrateProjectId(projectRoot);
+    seedNexusDbForCrossDb(join(cleoHomeOverride, 'nexus.db'), [
+      { projectId: expectedId, projectPath: projectRoot },
+    ]);
+
+    const reports = walkCrossDbInvariants(projectRoot);
+    const i3 = reports.find((r) => r.invariant === 'I3');
+    expect(i3?.skipped).toBe(false);
+    expect(i3?.orphanCount).toBe(0);
+  });
+
+  it('T10323: I4 stays skipped when the llmtxt schema has no session_id column', () => {
+    const projectRoot = join(fleetRoot, 'i4-no-column');
+    const cleoDir = join(projectRoot, '.cleo');
+    const llmtxtDir = join(cleoDir, 'llmtxt');
+    mkdirSync(llmtxtDir, { recursive: true });
+    seedTasksDbForCrossDb(join(cleoDir, 'tasks.db'), { taskIds: [], sessionIds: [] });
+
+    // Seed an llmtxt.db with a `documents` table that has NO session_id.
+    const writer = new DatabaseSyncCtor(join(llmtxtDir, 'llmtxt.db'));
+    writer.exec(
+      `CREATE TABLE documents (
+         id       TEXT PRIMARY KEY,
+         doc_slug TEXT NOT NULL
+       );`,
+    );
+    writer.close();
+
+    const reports = walkCrossDbInvariants(projectRoot);
+    const i4 = reports.find((r) => r.invariant === 'I4');
+    expect(i4?.skipped).toBe(true);
+    expect(i4?.skipReason).toMatch(/session_id/);
+  });
+
+  it('T10323: orphan reports are bounded — never more than 100 candidate rows scanned', () => {
+    const projectRoot = join(fleetRoot, 'i1-bounded');
+    mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
+    seedTasksDbForCrossDb(join(projectRoot, '.cleo', 'tasks.db'), {
+      taskIds: [],
+      sessionIds: [],
+    });
+    // Seed 150 distinct orphan task IDs — well above the 100 LIMIT.
+    const ids: string[] = [];
+    for (let i = 0; i < 150; i += 1) {
+      ids.push(`T-orphan-${i}`);
+    }
+    seedBrainDbForCrossDb(join(projectRoot, '.cleo', 'brain.db'), { linkTaskIds: ids });
+
+    const reports = walkCrossDbInvariants(projectRoot);
+    const i1 = reports.find((r) => r.invariant === 'I1');
+    expect(i1?.skipped).toBe(false);
+    // Bounded query: at most 100 candidate rows; sample ≤ 5.
+    expect(i1?.orphanCount).toBeLessThanOrEqual(100);
+    expect((i1?.sample ?? []).length).toBeLessThanOrEqual(5);
+  });
+
+  it('T10323: per-invariant checkers can be invoked in isolation (unit-test boundary)', () => {
+    // Each exported checker accepts already-open snapshot handles + returns
+    // a well-formed report. Smoke test: feeding `null` for every snapshot
+    // produces a skipped report with the canonical suggestedFix.
+    const i1 = checkInvariantI1(null, null);
+    expect(i1.invariant).toBe('I1');
+    expect(i1.skipped).toBe(true);
+    expect(i1.suggestedFix).toContain('cleo memory observe');
+
+    const i2 = checkInvariantI2(null, null);
+    expect(i2.invariant).toBe('I2');
+    expect(i2.suggestedFix).toContain('cleo docs prune');
+
+    const i3 = checkInvariantI3('/tmp/no-such-project', null);
+    expect(i3.invariant).toBe('I3');
+    expect(i3.suggestedFix).toContain('reset-project-id');
+
+    const i4 = checkInvariantI4(null, null);
+    expect(i4.invariant).toBe('I4');
+    expect(i4.suggestedFix).toMatch(/cleo session start/);
+
+    const i5 = checkInvariantI5(null, null, null);
+    expect(i5.invariant).toBe('I5');
+    expect(i5.suggestedFix).toMatch(/conduit/i);
   });
 });

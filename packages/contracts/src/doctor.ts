@@ -640,6 +640,101 @@ export interface DbSubstrateAuditResult {
    * duplicates, etc. ALWAYS present (may be empty).
    */
   warnings: DbSubstrateWarning[];
+  /**
+   * Cross-DB orphan-row reports — one entry per invariant the survey
+   * was able to check. ALWAYS present (may be empty when no DBs exist,
+   * or when every invariant returned zero orphans).
+   *
+   * Surfaced to the envelope's `meta.crossDbOrphans` array by the
+   * `cleo doctor db-substrate` command via `pushWarning`. Per-invariant
+   * sample row IDs are capped at the first 5 to keep envelopes small.
+   *
+   * @task T10323
+   */
+  crossDbOrphans: DbCrossDbOrphanReport[];
+}
+
+/**
+ * Canonical identifiers for the cross-DB referential invariants surfaced by
+ * `cleo doctor db-substrate` (T10323). The catalogue is owned by the T10320
+ * ADR draft — every ID here MUST round-trip with the ADR enumeration.
+ *
+ * | ID | Source                                | Target                                      |
+ * |----|---------------------------------------|---------------------------------------------|
+ * | I1 | `brain_memory_links.task_id`          | `tasks.id` (tasks.db)                        |
+ * | I2 | `manifest.db blob_attachments.doc_slug` | `tasks.id` (tasks.db)                      |
+ * | I3 | `nexus.db project_registry.project_id`| `.cleo/project-context.json` (or computed)  |
+ * | I4 | `llmtxt.db documents.doc_slug` (or any `session_id` column) | `tasks.id` / `sessions.id` |
+ * | I5 | `conduit.db dead_letters.job_id`      | `tasks.id` / `brain_*.id`                    |
+ *
+ * Invariants I1 / I2 / I3 / I5 always run when both source + target DBs
+ * exist; I4 runs only when the source schema actually declares a candidate
+ * column (the live llmtxt schema has not yet introduced `session_id` — the
+ * check stays schema-aware to avoid false positives).
+ *
+ * @task T10323
+ * @epic T10285
+ * @saga T10281
+ */
+export type DbCrossDbInvariantId = 'I1' | 'I2' | 'I3' | 'I4' | 'I5';
+
+/**
+ * One cross-DB orphan-row finding produced by `walkCrossDbInvariants`.
+ *
+ * @remarks
+ * Every reported invariant carries a bounded sample (first 5 orphan keys)
+ * so operators can immediately see WHICH rows triggered the finding. The
+ * underlying SQL queries are capped at LIMIT 100 — a sample of 5 is
+ * sufficient for triage, and the full count is reported via `orphanCount`.
+ *
+ * `suggestedFix` is the canonical repair command (or hint) for the
+ * invariant class. When the invariant has no programmatic fix it carries
+ * a human-readable instruction.
+ *
+ * `skipped` indicates the invariant could not be checked (e.g. the source
+ * DB is missing, the column has not yet been added to the schema, or the
+ * snapshot opener threw). When `skipped === true`, `orphanCount === 0`
+ * and `sample === []`.
+ *
+ * @task T10323
+ */
+export interface DbCrossDbOrphanReport {
+  /** Canonical invariant identifier — see {@link DbCrossDbInvariantId}. */
+  invariant: DbCrossDbInvariantId;
+  /**
+   * Human-readable description of which (source → target) reference class
+   * this invariant tracks. Stable text — operators should be able to grep
+   * this in audit logs.
+   */
+  description: string;
+  /**
+   * Total number of orphan rows detected by the bounded query. When the
+   * query hit its `LIMIT 100` cap, this value is the cap; the actual
+   * orphan population may be larger.
+   */
+  orphanCount: number;
+  /**
+   * First N (≤ 5) orphan identifiers — usually the foreign-key column
+   * value. Order matches the source DB's natural read order (no ORDER BY).
+   * `[]` when `orphanCount === 0` OR `skipped === true`.
+   */
+  sample: string[];
+  /**
+   * Canonical repair command or hint. Stable text — wired into release
+   * notes and ADR-068 evidence atoms.
+   */
+  suggestedFix: string;
+  /**
+   * `true` when the invariant could not be checked (missing DB, missing
+   * column, opener threw). `orphanCount === 0` and `sample === []` when
+   * skipped. Carries the skip reason for triage.
+   */
+  skipped: boolean;
+  /**
+   * Free-form reason populated when `skipped === true`. Empty string
+   * otherwise. Stable text — operators rely on this for diagnostics.
+   */
+  skipReason: string;
 }
 
 /**
