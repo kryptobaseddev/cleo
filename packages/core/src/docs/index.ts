@@ -15,6 +15,19 @@
  * @task T1612
  */
 
+export type {
+  AdrAllocateErr,
+  AdrAllocateOk,
+  AdrAllocateResult,
+  AllocateAdrOptions,
+} from './adr-allocator.js';
+export {
+  allocateAdrSlug,
+  assembleAdrSlug,
+  findHighestAdrNumber,
+  MAX_ADR_ALLOCATION_ATTEMPTS,
+} from './adr-allocator.js';
+
 export type { GenerateDocsOptions, GenerateDocsResult } from './docs-generator.js';
 export { generateDocsLlmsTxt } from './docs-generator.js';
 export type {

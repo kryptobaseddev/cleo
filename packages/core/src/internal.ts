@@ -131,6 +131,19 @@ export {
   diagnosticsExport,
   diagnosticsStatus,
 } from './diagnostics/engine-ops.js';
+// ADR slug auto-numbering (T10360 / Saga T10288 / Epic T10291 / closes T10153)
+export type {
+  AdrAllocateErr,
+  AdrAllocateOk,
+  AdrAllocateResult,
+  AllocateAdrOptions,
+} from './docs/adr-allocator.js';
+export {
+  allocateAdrSlug,
+  assembleAdrSlug,
+  findHighestAdrNumber,
+  MAX_ADR_ALLOCATION_ATTEMPTS,
+} from './docs/adr-allocator.js';
 // Docs generator — llms.txt format generation (T798)
 export type { GenerateDocsOptions, GenerateDocsResult } from './docs/docs-generator.js';
 export { generateDocsLlmsTxt } from './docs/docs-generator.js';
