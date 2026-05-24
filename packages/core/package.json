@@ -26,6 +26,11 @@
       "import": "./dist/internal.js",
       "require": "./dist/internal.js"
     },
+    "./hygiene/validate-spawn-readiness.js": {
+      "types": "./dist/hygiene/validate-spawn-readiness.d.ts",
+      "import": "./dist/hygiene/validate-spawn-readiness.js",
+      "require": "./dist/hygiene/validate-spawn-readiness.js"
+    },
     "./contracts": {
       "types": "./dist/contracts.d.ts",
       "import": "./dist/contracts.js",

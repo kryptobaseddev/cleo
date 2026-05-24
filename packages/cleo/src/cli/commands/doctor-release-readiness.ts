@@ -155,8 +155,11 @@ export const doctorReleaseReadinessCommand = defineCommand({
     checks.push(changelogCheck);
 
     // ── 4. npm OIDC sanity ──────────────────────────────────────────────────
-    // Verify that the root package.json has publishConfig.access=public,
-    // which is required for npm Trusted Publishing (OIDC) to work.
+    // Verify the published-package package.json files declare
+    // publishConfig.access=public, which is required for npm Trusted
+    // Publishing (OIDC). The root package.json is a private monorepo and
+    // doesn't get published, so we skip it and check each published
+    // workspace package instead.
     const packageJsonPath = join(repoRoot, 'package.json');
     let oidcCheck: CheckResult;
     if (existsSync(packageJsonPath)) {
@@ -164,19 +167,33 @@ export const doctorReleaseReadinessCommand = defineCommand({
         const pkg = JSON.parse(
           await import('node:fs').then((m) => m.readFileSync(packageJsonPath, 'utf8')),
         );
-        const hasPublishConfig =
-          typeof pkg.publishConfig === 'object' && pkg.publishConfig !== null;
-        const accessPublic = hasPublishConfig && pkg.publishConfig.access === 'public';
-        oidcCheck = {
-          name: 'npm-oidc-sanity',
-          status: accessPublic ? 'pass' : 'fail',
-          exitCode: accessPublic ? 0 : 1,
-          durationMs: 0,
-          stdout: accessPublic ? 'package.json has publishConfig.access=public' : '',
-          stderr: accessPublic
-            ? ''
-            : 'package.json missing publishConfig.access=public — required for npm OIDC Trusted Publishing',
-        };
+        // Skip root if it's a private monorepo (T10498) — only published
+        // packages need publishConfig.access.
+        if (pkg.private === true) {
+          oidcCheck = {
+            name: 'npm-oidc-sanity',
+            status: 'pass',
+            exitCode: 0,
+            durationMs: 0,
+            stdout:
+              'root package.json is private — skipping (per-package check applies at publish time)',
+            stderr: '',
+          };
+        } else {
+          const hasPublishConfig =
+            typeof pkg.publishConfig === 'object' && pkg.publishConfig !== null;
+          const accessPublic = hasPublishConfig && pkg.publishConfig.access === 'public';
+          oidcCheck = {
+            name: 'npm-oidc-sanity',
+            status: accessPublic ? 'pass' : 'fail',
+            exitCode: accessPublic ? 0 : 1,
+            durationMs: 0,
+            stdout: accessPublic ? 'package.json has publishConfig.access=public' : '',
+            stderr: accessPublic
+              ? ''
+              : 'package.json missing publishConfig.access=public — required for npm OIDC Trusted Publishing',
+          };
+        }
       } catch {
         oidcCheck = {
           name: 'npm-oidc-sanity',
