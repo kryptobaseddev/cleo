@@ -563,6 +563,7 @@ export type {
   RegisteredInvariant,
 } from './invariants/index.js';
 export {
+  ADR_056_INVARIANTS,
   ADR_073_INVARIANTS,
   getInvariant,
   getInvariantsByAdr,

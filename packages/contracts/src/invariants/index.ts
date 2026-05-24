@@ -26,10 +26,12 @@
  * @see ADR-073-above-epic-naming.md §1.2
  */
 
+import { ADR_056_INVARIANTS } from './adr-056-release.js';
 import { ADR_073_INVARIANTS } from './adr-073-saga.js';
 
 // Re-exported so consumers can import either the per-ADR list or the merged
 // registry from one place.
+export { ADR_056_INVARIANTS } from './adr-056-release.js';
 export { ADR_073_INVARIANTS } from './adr-073-saga.js';
 
 /**
@@ -149,7 +151,7 @@ function buildKey(invariant: RegisteredInvariant): string {
  * @internal
  */
 function buildRegistry(): Readonly<Record<string, RegisteredInvariant>> {
-  const entries: RegisteredInvariant[] = [...ADR_073_INVARIANTS];
+  const entries: RegisteredInvariant[] = [...ADR_073_INVARIANTS, ...ADR_056_INVARIANTS];
   const record: Record<string, RegisteredInvariant> = {};
   for (const entry of entries) {
     const key = buildKey(entry);
