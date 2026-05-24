@@ -1,0 +1,49 @@
+# Skill Coverage Map (internal — never ships)
+#
+# Maps each canonical skill to the code paths it documents. When a PR
+# touches a path declared here but doesn't update the matching SKILL.md
+# (or its in-repo equivalent under .cleo/skills/), the `Skill Drift
+# Check` CI gate fails with `E_SKILL_DRIFT_UNACKNOWLEDGED`.
+#
+# This file is listed in packages/skills/.npmignore so it never lands in
+# the published `@cleocode/skills` bundle. It is a developer-side
+# enforcement artifact, not a consumer-facing one.
+#
+# Schema:
+#   <skill-name>:
+#     location: <relative path to the SKILL.md>
+#     coverage:
+#       - <glob or directory path the skill documents>
+#       - ...
+#     tier: <0 | 1 | 2>          # 0 = no drift tolerated; 1+ = trailer override allowed
+#     stability: <experimental | stable | deprecated>
+#
+# Tier-0 skills: edits in the same PR are MANDATORY; trailer override is
+# rejected (see AGENTS.md "Skill Maintenance Discipline" section).
+#
+# See AGENTS.md "Skill Maintenance Discipline (Saga T9799 · Epic T9960)"
+# for the full enforcement contract.
+#
+# ---------------------------------------------------------------------
+# T10495 / SAGA T10377 SG-IVTR-AC-BINDING: register the cleo-validator
+# skill draft. The runtime wiring (subagent_type: cleo-validator + the
+# validator.* tool family) lands under T10383 — paths declared here do
+# NOT yet exist; the coverage entry declares intent so that once T10383
+# creates packages/contracts/src/validator/* and the validator subagent
+# implementation under packages/core/src/validation/* (or wherever the
+# Validator role wires in), the drift check will already be armed.
+# ---------------------------------------------------------------------
+
+cleo-validator:
+  location: .cleo/skills/cleo-validator/SKILL.md
+  coverage:
+    - packages/contracts/src/validator/**
+    - packages/core/src/validation/**
+  tier: 2
+  stability: experimental
+  # Notes:
+  #   - Owning saga: T10377 (SG-IVTR-AC-BINDING)
+  #   - Owning epic: T10379 (E-VALIDATOR-SKILL-DRAFT)
+  #   - Runtime wiring epic: T10383 (E-VALIDATOR-ROLE)
+  #   - Council §3.1 action #5 — SKILL ships in SAME PR as the role
+  #     contract; this coverage entry pre-arms the drift check.
