@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/worktree-napi-darwin-x64",
-  "version": "2026.5.104",
+  "version": "2026.5.116",
   "description": "macOS x86_64 prebuilt for @cleocode/worktree-napi",
   "license": "MIT",
   "os": [
