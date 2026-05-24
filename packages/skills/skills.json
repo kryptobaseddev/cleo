@@ -4,8 +4,8 @@
   "skills": [
     {
       "name": "ct-cleo",
-      "description": "CLEO task management protocol - core guidance for session, task, and workflow operations. Provides CLI-based workflow, session protocol, task discovery patterns, RCSD lifecycle overview, error handling, and the Human Render Contract (ADR-077). Load this skill for detailed CLEO protocol guidance.",
-      "version": "2.2.0",
+      "description": "CLEO task management protocol - core guidance for session, task, and workflow operations. Provides CLI-based workflow, session protocol, task discovery patterns, RCSD lifecycle overview, error handling, the Human Render Contract (ADR-077), and the CLI Output Contract (ADR-086). Load this skill for detailed CLEO protocol guidance.",
+      "version": "2.3.0",
       "path": "skills/ct-cleo/SKILL.md",
       "references": [
         "skills/ct-cleo/references/session-protocol.md",
@@ -27,8 +27,8 @@
       ],
       "license": "MIT",
       "metadata": {
-        "version": "2.2.0",
-        "lastReviewed": "2026-05-23",
+        "version": "2.3.0",
+        "lastReviewed": "2026-05-24",
         "stability": "stable"
       }
     },
