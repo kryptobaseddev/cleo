@@ -29,12 +29,14 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   CleoError,
-  formatError,
   getWorkflowTemplatesDir as getCoreWorkflowTemplatesDir,
   type InitOptions,
   initProject,
+  pushWarning,
   scaffoldWorkflows,
+  type WorkflowName,
 } from '@cleocode/core';
+import { getTemplatesByKind } from '@cleocode/core/templates/registry';
 import { defineCommand } from 'citty';
 import { cliError, cliOutput } from '../renderers/index.js';
 
@@ -126,7 +128,12 @@ export const initCommand = defineCommand({
     },
     workflows: {
       type: 'boolean',
-      description: 'Scaffold the release-prepare.yml workflow into .github/workflows/ (T9531).',
+      /**
+       * @deprecated Use `cleo templates install --kind workflow` instead
+       * (T9886 / Saga T9855). Removal target: v2026.7.0. T9888.
+       */
+      description:
+        '[DEPRECATED — use `cleo templates install --kind workflow`] Scaffold release workflows into .github/workflows/. Will be removed in v2026.7.0.',
       default: false,
     },
     'dry-run': {
@@ -137,17 +144,38 @@ export const initCommand = defineCommand({
   },
   async run({ args }) {
     try {
-      // T9531 — `cleo init --workflows` short-circuits the project-init path
-      // and dispatches to the workflow scaffolder primitive. Both flags are
-      // hung off the same `init` command (rather than a new top-level verb)
-      // because they belong to the same conceptual "set up CLEO in this
-      // project" surface.
+      // T9888 — `cleo init --workflows` is deprecated. The SSoT install
+      // surface is `cleo templates install --kind workflow` (T9886). This
+      // branch now (a) emits a deprecation warning to stderr, (b) walks the
+      // registry via `getTemplatesByKind('workflow')` to pick the workflow
+      // set, and (c) delegates to `scaffoldWorkflows` (which itself is
+      // registry-backed) so substitution behaviour is preserved. Removal
+      // target: v2026.7.0.
       if (args.workflows) {
+        // T9888 — surface the deprecation through the ALS WarningCollector
+        // (T9768/T9769) so it lands in `envelope.meta.warnings`. Direct
+        // `process.stderr.write` is forbidden by `lint-json-stream-hygiene`
+        // for any command that emits a JSON envelope.
+        pushWarning({
+          code: 'W_INIT_WORKFLOWS_DEPRECATED',
+          message:
+            '[deprecated] cleo init --workflows: use `cleo templates install --kind workflow` instead. This alias will be removed in v2026.7.0.',
+          severity: 'warn',
+          deprecated: 'cleo init --workflows',
+          replacement: 'cleo templates install --kind workflow',
+          removeBy: 'v2026.7.0',
+          context: { task: 'T9888', saga: 'T9855' },
+        });
         const projectRoot = process.cwd();
         const templatesDir = getWorkflowTemplatesDir();
+        const workflowEntries = getTemplatesByKind('workflow');
+        const templates = workflowEntries
+          .map((entry) => entry.id)
+          .filter((id): id is WorkflowName => isWorkflowName(id));
         const result = await scaffoldWorkflows({
           projectRoot,
           templatesDir,
+          ...(templates.length > 0 ? { templates } : {}),
           dryRun: !!args['dry-run'],
           force: !!args.force,
         });
@@ -194,10 +222,31 @@ export const initCommand = defineCommand({
       );
     } catch (err) {
       if (err instanceof CleoError) {
-        cliError(formatError(err), err.code, { name: 'E_INTERNAL' });
+        cliError(`init failed: ${err.message}`, err.code, { name: 'E_INTERNAL' });
         process.exit(err.code);
       }
       throw err;
     }
   },
 });
+
+/**
+ * Type-guard: narrow a registry id string to a {@link WorkflowName}.
+ *
+ * The workflow registry currently lists exactly the four canonical names
+ * declared by {@link WorkflowName} (release-prepare / release-publish /
+ * release-fanout / release-rollback). The guard exists so that adding a
+ * new workflow entry to the registry without extending the type union
+ * fails closed (filtered out) instead of silently passing through.
+ *
+ * @internal
+ * @task T9888
+ */
+function isWorkflowName(id: string): id is WorkflowName {
+  return (
+    id === 'release-prepare' ||
+    id === 'release-publish' ||
+    id === 'release-fanout' ||
+    id === 'release-rollback'
+  );
+}
