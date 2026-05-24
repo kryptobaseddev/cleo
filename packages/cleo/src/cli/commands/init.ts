@@ -32,6 +32,7 @@ import {
   getWorkflowTemplatesDir as getCoreWorkflowTemplatesDir,
   type InitOptions,
   initProject,
+  pushWarning,
   scaffoldWorkflows,
   type WorkflowName,
 } from '@cleocode/core';
@@ -151,9 +152,20 @@ export const initCommand = defineCommand({
       // registry-backed) so substitution behaviour is preserved. Removal
       // target: v2026.7.0.
       if (args.workflows) {
-        process.stderr.write(
-          '[deprecated] cleo init --workflows: use `cleo templates install --kind workflow` instead. This alias will be removed in v2026.7.0.\n',
-        );
+        // T9888 — surface the deprecation through the ALS WarningCollector
+        // (T9768/T9769) so it lands in `envelope.meta.warnings`. Direct
+        // `process.stderr.write` is forbidden by `lint-json-stream-hygiene`
+        // for any command that emits a JSON envelope.
+        pushWarning({
+          code: 'W_INIT_WORKFLOWS_DEPRECATED',
+          message:
+            '[deprecated] cleo init --workflows: use `cleo templates install --kind workflow` instead. This alias will be removed in v2026.7.0.',
+          severity: 'warn',
+          deprecated: 'cleo init --workflows',
+          replacement: 'cleo templates install --kind workflow',
+          removeBy: 'v2026.7.0',
+          context: { task: 'T9888', saga: 'T9855' },
+        });
         const projectRoot = process.cwd();
         const templatesDir = getWorkflowTemplatesDir();
         const workflowEntries = getTemplatesByKind('workflow');
