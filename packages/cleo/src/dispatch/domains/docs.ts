@@ -45,6 +45,8 @@ import type {
   DocsRemoveParams,
   DocsRemoveResult,
   DocsType,
+  DocsUpdateParams,
+  DocsUpdateResult,
 } from '@cleocode/contracts/operations/docs';
 import { pushWarning } from '@cleocode/core';
 import type {
@@ -63,12 +65,14 @@ import {
   generateDocsLlmsTxt,
   getCleoDirAbsolute,
   getProjectRoot,
+  isLifecycleStatus,
   memoryObserve,
   parseChangesetFrontmatter,
   releaseReservedSlug,
   reserveSlugForDispatch,
   resolveAttachmentBackend,
   SlugCollisionError,
+  updateDocBySlug,
   validateDocBody,
   writeChangesetEntry,
 } from '@cleocode/core/internal';
@@ -157,6 +161,7 @@ type DocsTypedOps = {
   readonly generate: readonly [DocsGenerateParams, DocsGenerateResult];
   readonly add: readonly [DocsAddParams, DocsAddResult];
   readonly remove: readonly [DocsRemoveParams, DocsRemoveResult];
+  readonly update: readonly [DocsUpdateParams, DocsUpdateResult];
 };
 
 // ─── Owner type inference ─────────────────────────────────────────────────────
@@ -1450,6 +1455,67 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       'remove',
     );
   },
+
+  // ── docs.update (T10161 — E12.C4 / Saga T9855) ─────────────────────────────
+
+  update: async (params) => {
+    const { slug: rawSlug, file: filePath, content: inlineContent, status: rawStatus } = params;
+
+    if (typeof rawSlug !== 'string' || rawSlug.length === 0) {
+      return lafsError('E_INVALID_INPUT', 'slug is required', 'update');
+    }
+
+    // Exactly one of file or content must be provided.
+    const hasFile = typeof filePath === 'string' && filePath.length > 0;
+    const hasContent = typeof inlineContent === 'string';
+    if (hasFile === hasContent) {
+      return lafsError(
+        'E_INVALID_INPUT',
+        'Provide exactly one of --file <path> or --content <text>',
+        'update',
+        'Use `cleo docs update <slug> --file ./new.md` OR `cleo docs update <slug> --content "..."`.',
+      );
+    }
+
+    // Validate --status against the canonical enum before touching the store.
+    if (rawStatus !== undefined && !isLifecycleStatus(rawStatus)) {
+      return lafsError(
+        'E_INVALID_INPUT',
+        `status must be one of: draft|proposed|accepted|superseded|archived|deprecated — got '${String(rawStatus)}'`,
+        'update',
+      );
+    }
+
+    // Resolve a relative --file path against the dispatch cwd so the core
+    // function receives an absolute path. Mirrors docs.add discipline.
+    const projectRoot = getProjectRoot();
+    const resolvedParams: typeof params = hasFile
+      ? { ...params, file: resolve(filePath as string) }
+      : params;
+
+    const outcome = await updateDocBySlug(projectRoot, resolvedParams);
+
+    if (!outcome.ok) {
+      return lafsError(outcome.error.code, outcome.error.message, 'update');
+    }
+
+    return lafsSuccess<DocsUpdateResult>(
+      {
+        slug: outcome.result.slug,
+        ...(outcome.result.type !== null ? { type: outcome.result.type as DocsType } : {}),
+        attachmentId: outcome.result.attachmentId,
+        previousAttachmentId: outcome.result.previousAttachmentId,
+        sha256: outcome.result.sha256,
+        previousSha256: outcome.result.previousSha256,
+        changed: outcome.result.changed,
+        lifecycleStatus: outcome.result.lifecycleStatus,
+        updatedAt: outcome.result.updatedAt,
+        version: outcome.result.version,
+        squashed: outcome.result.squashed,
+      },
+      'update',
+    );
+  },
 });
 
 // ─── Envelope-to-response converter ──────────────────────────────────────────
@@ -1533,7 +1599,7 @@ function docsEnvelopeToResponse(
 // ─── DocsHandler ──────────────────────────────────────────────────────────────
 
 const QUERY_OPS = new Set<string>(['list', 'fetch', 'generate']);
-const MUTATE_OPS = new Set<string>(['add', 'remove']);
+const MUTATE_OPS = new Set<string>(['add', 'remove', 'update']);
 
 /**
  * Domain handler for `cleo docs` attachment operations.
@@ -1613,7 +1679,7 @@ export class DocsHandler implements DomainHandler {
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
       query: ['list', 'fetch', 'generate'],
-      mutate: ['add', 'remove'],
+      mutate: ['add', 'remove', 'update'],
     };
   }
 }
