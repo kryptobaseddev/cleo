@@ -344,6 +344,7 @@ export type {
   LegacyBackupScanResult,
   OrphanEntry,
   OrphanScanResult,
+  PragmaDriftItem,
   PruneAuditEntry,
   PruneResult,
   SagaAuditEntry,

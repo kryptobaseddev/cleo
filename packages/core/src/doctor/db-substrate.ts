@@ -41,11 +41,13 @@ import {
   type DbSubstrateProjectSurvey,
   type DbSubstrateSummary,
   type DbSubstrateWarning,
+  type PragmaDriftItem,
 } from '@cleocode/contracts';
 import { getCleoHome } from '@cleocode/paths';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { openCleoDbSnapshot } from '../store/open-cleo-db.js';
 import { resolveCorePackageMigrationsFolder } from '../store/resolve-migrations-folder.js';
+import { loadPragmaSsot, normalisePragmaValue } from './pragma-ssot.js';
 
 /**
  * Number of representative tables to row-count per DB.
@@ -115,6 +117,88 @@ function pickRepresentativeTables(
     .all() as SchemaRow[];
   const filtered = rows.map((r) => r.name).filter((n) => !ROW_COUNT_TABLE_BLOCKLIST.has(n));
   return filtered.slice(0, REPRESENTATIVE_TABLE_LIMIT);
+}
+
+/**
+ * Walk the canonical drift-pragma list against an open snapshot handle
+ * and report every pragma whose actual value diverges from the SSoT.
+ *
+ * @remarks
+ * Reads each pragma name from {@link PragmaSsot.driftPragmas} (sourced
+ * from `specs/sqlite-pragmas.json#driftPragmas`), runs `PRAGMA <name>`
+ * against `snapshotDb`, normalises the result via
+ * {@link normalisePragmaValue}, and compares against the SSoT-declared
+ * expected value (case-insensitively).
+ *
+ * Pragmas whose query throws are surfaced with `actual: null` so the
+ * envelope reader can distinguish "differs" from "could not measure".
+ *
+ * **Important**: this function expects the snapshot to have been opened
+ * WITHOUT `applyPragmas` (i.e. `applyPragmas: false`). The drift report
+ * measures what the DB actually carries on disk + the connection's
+ * defaults, NOT what `applyPerfPragmas` would set after open. This
+ * captures the case where a discovery tool or legacy opener queries the
+ * DB without going through the SSoT — exactly the regression class
+ * Saga T10281 / Epic T10283 was filed to surface.
+ *
+ * @param snapshotDb - Open read-only snapshot handle.
+ * @returns Drift items; empty array when every queried pragma matches
+ *   the canonical expectation.
+ *
+ * @task T10310
+ * @epic T10283
+ * @saga T10281
+ */
+export function walkPragmaDrift(
+  snapshotDb: ReturnType<typeof openCleoDbSnapshot>['db'],
+): PragmaDriftItem[] {
+  const ssot = loadPragmaSsot();
+  const drift: PragmaDriftItem[] = [];
+
+  for (const pragmaName of ssot.driftPragmas) {
+    const expected = ssot.expectedByName.get(pragmaName.toLowerCase());
+    if (expected === undefined) {
+      // The SSoT lists a pragma in driftPragmas but no expectation —
+      // surface as null actual to make the misconfiguration visible
+      // rather than silently skipping.
+      drift.push({ pragma: pragmaName, expected: '<missing-ssot>', actual: null });
+      continue;
+    }
+
+    let actualRaw: string | null = null;
+    try {
+      // PRAGMA <name> returns a single row keyed by the pragma name.
+      // We narrow the unknown row to a string-or-number value and
+      // stringify defensively.
+      const row = snapshotDb.prepare(`PRAGMA ${pragmaName}`).get() as
+        | Record<string, string | number | bigint | null>
+        | undefined;
+      if (row !== undefined) {
+        const rowValue = row[pragmaName];
+        if (rowValue !== null && rowValue !== undefined) {
+          actualRaw = typeof rowValue === 'bigint' ? String(rowValue) : String(rowValue);
+        }
+      }
+    } catch {
+      actualRaw = null;
+    }
+
+    if (actualRaw === null) {
+      // Pragma query failed entirely OR returned no row — surface drift
+      // with actual=null so the envelope reader can spot it without
+      // a separate "could not measure" channel.
+      drift.push({ pragma: pragmaName, expected, actual: null });
+      continue;
+    }
+
+    const expectedNormalised = normalisePragmaValue(pragmaName, expected);
+    const actualNormalised = normalisePragmaValue(pragmaName, actualRaw);
+    if (expectedNormalised !== actualNormalised) {
+      drift.push({ pragma: pragmaName, expected, actual: actualRaw });
+    }
+  }
+
+  return drift;
 }
 
 /**
@@ -298,6 +382,7 @@ export function inspectDbFile(entry: DbInventoryEntry, filePath: string): DbSubs
       error: null,
       suggestedFix: null,
       migrationCoverage: null,
+      pragmaDrift: null,
     };
   }
 
@@ -322,6 +407,7 @@ export function inspectDbFile(entry: DbInventoryEntry, filePath: string): DbSubs
     const integrityOK = integrityRows.length === 1 && integrityRows[0]?.integrity_check === 'ok';
 
     let rowCounts: Record<string, number> | null = null;
+    let pragmaDrift: PragmaDriftItem[] | null = null;
     if (integrityOK) {
       const tables = pickRepresentativeTables(snapshot.db);
       if (tables.length > 0) {
@@ -333,6 +419,11 @@ export function inspectDbFile(entry: DbInventoryEntry, filePath: string): DbSubs
           }
         }
       }
+      // Pragma drift walk — only meaningful on a DB that passed
+      // integrity_check. A corrupt DB's pragmas are not reliably
+      // queryable (and the survey already surfaces `integrityOK=false`
+      // which is the higher-priority signal).
+      pragmaDrift = walkPragmaDrift(snapshot.db);
     }
 
     // Migration coverage cross-check (T10311). Only attempted when the
@@ -362,6 +453,7 @@ export function inspectDbFile(entry: DbInventoryEntry, filePath: string): DbSubs
       error: null,
       suggestedFix: integrityOK ? null : `cleo backup recover ${entry.role}`,
       migrationCoverage,
+      pragmaDrift,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -375,6 +467,7 @@ export function inspectDbFile(entry: DbInventoryEntry, filePath: string): DbSubs
       error: message,
       suggestedFix: `cleo backup recover ${entry.role}`,
       migrationCoverage: null,
+      pragmaDrift: null,
     };
   } finally {
     snapshot?.close();

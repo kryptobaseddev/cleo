@@ -19,6 +19,7 @@
  */
 
 // T10307 — DB-substrate survey (Saga T10281 SG-BRAIN-DB-RESILIENCE / Epic T10282)
+// T10310 — Per-DB pragma drift (Saga T10281 SG-BRAIN-DB-RESILIENCE / Epic T10283)
 export {
   computeSubstrateProjectId,
   detectNestedNexusDuplicates,
@@ -29,6 +30,7 @@ export {
   surveyDbSubstrate,
   surveyFleetDbSubstrate,
   surveyProjectDbSubstrate,
+  walkPragmaDrift,
 } from './db-substrate.js';
 // T10309 — Legacy-backup walker (Saga T10281 SG-BRAIN-DB-RESILIENCE / Epic T10282)
 export type { LegacyBackupPruneOptions, LegacyBackupScanOptions } from './legacy-backups.js';
@@ -42,6 +44,12 @@ export {
   recommendForBackup,
   scanLegacyBackups,
 } from './legacy-backups.js';
+export type { PragmaSsot, PragmaSsotEntry } from './pragma-ssot.js';
+export {
+  loadPragmaSsot,
+  normalisePragmaValue,
+  PRAGMA_VALUE_NORMALISERS,
+} from './pragma-ssot.js';
 export { auditSagaHierarchy } from './saga-audit.js';
 export type { PruneOptions, ScanOptions } from './worktree-orphans.js';
 export {
