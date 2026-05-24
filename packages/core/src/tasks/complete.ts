@@ -602,14 +602,23 @@ export async function completeTask(
         }
       }
 
-      // T10116: Saga auto-close (mirrors epic auto-close lines ~480-541).
+      // T10116 + T10425: Saga auto-close (mirrors epic auto-close lines ~480-541).
       //
-      // Sagas (`label='saga'` epics, ADR-073 §1.2) link to their member
-      // Epics via `task_relations.type='groups'` instead of `parentId`. The
-      // existing epic + coordination-parent branches above only walk the
+      // Sagas link to their member Epics via `task_relations.type='groups'`
+      // instead of `parentId` — see ADR-083 §2.6 ("`task_relations.type='groups'`
+      // remains the Saga↔Epic membership edge. Sagas do NOT use `parentId`") and
+      // the underlying ADR-073 §1.2 invariants I3+I5. Sagas surface here under
+      // BOTH the new-shape (`type='saga'`, T10277) AND the legacy-shape
+      // (`type='epic' + label='saga'`, T10334 drops) via `findSagasGroupingTask`
+      // — the helper sweeps both via `isSagaShape` to keep the auto-close
+      // contract stable across the deprecation window.
+      //
+      // The existing epic + coordination-parent branches above only walk the
       // `parentId` column, so a saga whose member just completed would stay
       // `pending` forever — the T10090 drift bug class (T9787, T9800,
-      // T9831 all manifested this way).
+      // T9831 all manifested this way). T10425 (Saga T10326 L1) added the
+      // new-shape + Epic→Task→Subtask regression coverage that pins this
+      // branch.
       //
       // This branch fires whenever the completing task is a member of one
       // or more sagas. For each saga that groups this task:
@@ -620,7 +629,7 @@ export async function completeTask(
       //      (`done` or `cancelled`), treating the current task as `done`
       //      because its DB write happens immediately after this branch.
       //   5. Synthesize a verification envelope citing the closing event,
-      //      the member rollup digest, and ADR-073 (AC4).
+      //      the member rollup digest, and ADR-073 §1.2 / ADR-083 §2.6 (AC4).
       //
       // The saga loop runs after the coordination-parent branch so a task
       // that is BOTH a coordination-parent child AND a saga member rolls
