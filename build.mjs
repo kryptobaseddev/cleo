@@ -28,6 +28,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve, dirname, join, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { depsFor } from './scripts/build-deps.mjs';
 
 // ---------------------------------------------------------------------------
 // Auto-scan: build core entry points by scanning the source tree rather than
@@ -543,16 +544,56 @@ function validateCoreEntryPoints() {
 // ---------------------------------------------------------------------------
 
 /**
+ * Hard-prereq assertion: throw `E_BUILD_DEP_MISSING` if any declared internal
+ * dep's `dist/` directory is absent before we start building `<label>`.
+ *
+ * Replaces the implicit "wave comments declare ordering" pattern with an
+ * explicit data-driven check (T9939). The dep declarations live in
+ * `scripts/build-deps.mjs`; if a future refactor reorders waves and breaks
+ * the topological invariant, this assertion fires at the wave gate with an
+ * actionable error instead of letting tsup explode with a confusing
+ * `TS2307: Cannot find module '@cleocode/cant'` deep in rollup-plugin-dts.
+ *
+ * Skips silently when the label is not in `PACKAGE_DEPS` — only declared
+ * deps are checked, never invented ones.
+ *
+ * @param {string} label - The dist label, e.g. `"packages/caamp/dist/"`.
+ * @throws Error with code `E_BUILD_DEP_MISSING` when a declared dep is absent.
+ */
+function assertDepsReady(label) {
+  const deps = depsFor(label);
+  if (deps.length === 0) return;
+  const missing = deps.filter((dep) => !existsSync(resolve(__dirname, dep)));
+  if (missing.length > 0) {
+    const err = new Error(
+      `E_BUILD_DEP_MISSING: ${label} depends on [${missing.join(', ')}] ` +
+        `but their dist/ directories are absent. ` +
+        `This indicates a wave-ordering regression in build.mjs — the wave ` +
+        `that builds ${label} must run AFTER every wave that builds its deps. ` +
+        `See scripts/build-deps.mjs for the canonical dependency declarations.`,
+    );
+    /** @type {any} */ (err).code = 'E_BUILD_DEP_MISSING';
+    throw err;
+  }
+}
+
+/**
  * Spawn `pnpm --filter <filter> run build` and return a Promise that resolves
  * when the process exits 0 or rejects with a descriptive error on non-zero exit.
  * Timing is logged on success so waves can be compared against the old
  * sequential baseline.
+ *
+ * Before spawning the child process, asserts that every internal dep declared
+ * in `scripts/build-deps.mjs` for this `label` has produced its `dist/`. This
+ * is the regression-locked guard for the cant→caamp dep (T9939) and every
+ * other inter-package ordering invariant.
  *
  * @param {string} filter - pnpm filter expression (e.g. "@cleocode/lafs")
  * @param {string} label  - human-readable label for log output
  * @returns {Promise<void>}
  */
 function buildPkg(filter, label) {
+  assertDepsReady(label);
   const start = Date.now();
   return new Promise((resolve, reject) => {
     const proc = spawnPnpm(['--filter', filter, 'run', 'build'], {
@@ -708,6 +749,7 @@ export declare function is_canonical(skillPath: string, options?: IsCanonicalOpt
   //   (deps caamp, nexus, worktree — all ready after waves 3–4)
   // ---------------------------------------------------------------------------
   console.log('\n[build] Wave 5: core (esbuild + tsc declarations)');
+  assertDepsReady('packages/core/dist/');
   await esbuild.build(coreBuildOptions);
   await sanitizeSourcemaps('packages/core/dist'); // T9184
   console.log('  -> packages/core/dist/index.js');
@@ -738,6 +780,7 @@ export declare function is_canonical(skillPath: string, options?: IsCanonicalOpt
     // adapters uses esbuild inline + tsc for .d.ts — wrap inline to keep
     // it in the same wave without a separate buildPkg invocation.
     (async () => {
+      assertDepsReady('packages/adapters/dist/');
       await esbuild.build(adaptersBuildOptions);
       await sanitizeSourcemaps('packages/adapters/dist'); // T9184
       console.log('  -> packages/adapters/dist/index.js (esbuild)');
@@ -784,6 +827,7 @@ export declare function is_canonical(skillPath: string, options?: IsCanonicalOpt
   // Wave 8: cleo esbuild bundle (deps adapters, playbooks, runtime — all ready)
   // ---------------------------------------------------------------------------
   console.log('\n[build] Wave 8: cleo (esbuild)');
+  assertDepsReady('packages/cleo/dist/');
   await esbuild.build(cleoBuildOptions);
   await sanitizeSourcemaps('packages/cleo/dist'); // T9184
   // Make CLI entry executable (shebang only works with +x)
