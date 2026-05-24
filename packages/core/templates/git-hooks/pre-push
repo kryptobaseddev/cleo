@@ -46,13 +46,18 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     continue
   fi
 
-  if [ "$remote_sha" = "$ZERO_SHA" ]; then
-    # New branch: validate every commit reachable from local_sha that is
-    # NOT reachable from any other remote ref.
-    range="$local_sha --not --remotes"
-  else
-    range="$remote_sha..$local_sha"
-  fi
+  # Scan range: commits reachable from local_sha that are NOT reachable
+  # from any remote ref. This is rebase-safe — after `git rebase origin/main`
+  # the new base commits (which include release-ship / chore(changelog) /
+  # ci: nudge commits that legitimately lack T-IDs) are already on
+  # `origin/main` and therefore excluded from the scan. The naive
+  # `$remote_sha..$local_sha` form would include those rebased-on commits
+  # because the OLD remote_sha is no longer an ancestor of the new
+  # local_sha after a rebase. Using `--not --remotes` for BOTH new and
+  # existing branches gives consistent, project-agnostic behaviour.
+  #
+  # T10488 (Saga T9862 Wave 5) — narrow scan to truly-local commits.
+  range="$local_sha --not --remotes"
 
   # Subject extraction: %s = subject. NUL-delimit for safety.
   # shellcheck disable=SC2086
