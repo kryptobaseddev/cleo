@@ -222,6 +222,22 @@ export type {
   MigrationManifestEntry,
 } from './docs/migrate-agent-outputs.js';
 export { migrateAgentOutputs } from './docs/migrate-agent-outputs.js';
+// Atomic ID-numbering utility (T10159 — absorbs T10153 / Saga T9855 / Epic T10157)
+export type {
+  AllocateAutoSlugForDispatchParams,
+  AllocateAutoSlugForDispatchResult,
+  DocNumberingOptions,
+  ResolveNextDocNumberResult,
+} from './docs/numbering.js';
+export {
+  _resetNumberingCache_TESTING_ONLY,
+  AUTO_TOKEN,
+  allocateAutoSlug,
+  allocateAutoSlugForDispatch,
+  applyAutoSlug,
+  parseSlugSequence,
+  resolveNextDocNumber,
+} from './docs/numbering.js';
 // Docs publish-pr foundation + new-doc flow (T9716 + T9718 — T9644 / Epic T9630 / Saga T9625)
 export type {
   ProvisionResult,
