@@ -100,7 +100,9 @@ const { orchestrateSpawn, runLintChangesets } = await import('../spawn-ops.js');
 describe('runLintChangesets — changeset hygiene gate (T10448)', () => {
   it('returns ok=true when the linter exits 0', () => {
     execFileSyncMock.mockReset();
-    execFileSyncMock.mockReturnValueOnce('lint-changesets: 2 entry/entries validated successfully.\n');
+    execFileSyncMock.mockReturnValueOnce(
+      'lint-changesets: 2 entry/entries validated successfully.\n',
+    );
 
     const result = runLintChangesets('/tmp/cleo-spawn-test-root');
     expect(result.ok).toBe(true);

@@ -299,9 +299,13 @@ export function runLintChangesets(projectRoot: string): { ok: boolean; error?: s
     return { ok: true };
   } catch (err) {
     const stderr =
-      err && typeof err === 'object' && 'stderr' in err ? String((err as { stderr?: string }).stderr) : '';
+      err && typeof err === 'object' && 'stderr' in err
+        ? String((err as { stderr?: string }).stderr)
+        : '';
     const stdout =
-      err && typeof err === 'object' && 'stdout' in err ? String((err as { stdout?: string }).stdout) : '';
+      err && typeof err === 'object' && 'stdout' in err
+        ? String((err as { stdout?: string }).stdout)
+        : '';
     const message = stderr || stdout || (err instanceof Error ? err.message : String(err));
     return { ok: false, error: message };
   }
@@ -1163,14 +1167,21 @@ export async function orchestrateSpawn(
     spawnLogger.info({ taskId, step: 'lint-changesets' }, 'running changeset hygiene gate');
     const lintResult = runLintChangesets(root);
     if (!lintResult.ok) {
-      spawnLogger.error({ taskId, error: lintResult.error }, 'T10448 changeset hygiene gate failed');
-      return engineError('E_CHANGESET_HYGIENE_FAILED', 'Changeset hygiene gate failed — malformed .changeset/*.md entries detected', {
-        details: {
-          taskId,
-          lintOutput: lintResult.error,
+      spawnLogger.error(
+        { taskId, error: lintResult.error },
+        'T10448 changeset hygiene gate failed',
+      );
+      return engineError(
+        'E_CHANGESET_HYGIENE_FAILED',
+        'Changeset hygiene gate failed — malformed .changeset/*.md entries detected',
+        {
+          details: {
+            taskId,
+            lintOutput: lintResult.error,
+          },
+          fix: 'Run `node scripts/lint-changesets.mjs` to see every offending entry. Canonical kinds: feat|fix|perf|refactor|docs|test|chore|breaking.',
         },
-        fix: 'Run `node scripts/lint-changesets.mjs` to see every offending entry. Canonical kinds: feat|fix|perf|refactor|docs|test|chore|breaking.',
-      });
+      );
     }
 
     // Thread the orchestrator's active session id into the spawn prompt so

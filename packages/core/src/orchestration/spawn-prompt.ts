@@ -1726,7 +1726,6 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   }
   authoredSections.push(buildStageGuidance(protocol, rcasdDir, outputDir));
   authoredSections.push(buildEvidenceGateBlock(taskId));
-  authoredSections.push(buildChangesetLintGateBlock(input.projectRoot));
   authoredSections.push(buildQualityGateBlock());
 
   // Tier-specific content — tier 0 pointer is authored; tier 1/2 embeds
