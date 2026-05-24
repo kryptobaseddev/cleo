@@ -28,7 +28,12 @@ export {
   findHighestAdrNumber,
   MAX_ADR_ALLOCATION_ATTEMPTS,
 } from './adr-allocator.js';
-
+export type { BuildDocProvenanceGraphOptions } from './build-provenance-graph.js';
+export {
+  buildDocProvenanceGraph,
+  DocProvenanceRootNotFoundError,
+  renderProvenanceGraphAsDot,
+} from './build-provenance-graph.js';
 export type { GenerateDocsOptions, GenerateDocsResult } from './docs-generator.js';
 export { generateDocsLlmsTxt } from './docs-generator.js';
 export type {
