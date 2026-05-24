@@ -105,6 +105,13 @@ let _starterBundleWarnFired = false;
  *
  * @returns Absolute path to the templates root, or `null` when unresolved.
  *
+ * @deprecated Use
+ * {@link import('../templates/registry.js').getTemplatesByKind | getTemplatesByKind('agent')}
+ * from the SSoT template registry — each agent entry exposes its own
+ * `sourcePath`/`installPath`/`substitution`/`updateStrategy`, removing the
+ * need for a directory lookup followed by per-file convention. Rewire
+ * planned in T9879 (Saga T9855).
+ *
  * @example
  * ```typescript
  * const templatesDir = resolveAgentTemplates();
