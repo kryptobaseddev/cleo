@@ -57,6 +57,7 @@ import { lazyCommand } from './lazy-command.js';
 import { didYouMean } from './lib/did-you-mean.js';
 import { maybePromptFirstRun } from './lib/first-run-detection.js';
 import { resolveFormat } from './middleware/output-format.js';
+import { isOutputMode, type OutputMode, setOutputMode } from './output-context.js';
 import { setProjectionOptOut } from './projection-context.js';
 import { resolveSubCommandForHelp } from './resolve-subcommand.js';
 
@@ -131,6 +132,7 @@ async function startCli(): Promise<void> {
   // Parse global format + field flags from argv.
   const rawOpts: Record<string, unknown> = {};
   let verboseFlag = false;
+  let outputModeRaw: string | undefined;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--json') rawOpts['json'] = true;
@@ -141,6 +143,8 @@ async function startCli(): Promise<void> {
     else if (arg === '--mvi' && i + 1 < argv.length) rawOpts['mvi'] = argv[++i];
     // T9922: MVI record projection opt-out. --full is an alias for --verbose.
     else if (arg === '--verbose' || arg === '--full') verboseFlag = true;
+    // T9930 — global --output {envelope|id|table|count|silent} flag.
+    else if (arg === '--output' && i + 1 < argv.length) outputModeRaw = argv[++i];
   }
 
   const formatResolution = resolveFormat(rawOpts);
@@ -158,6 +162,20 @@ async function startCli(): Promise<void> {
   // full record". --human also opts out because the human renderer needs every
   // field. JSON/agent paths (the common case) stay on MVI projection.
   setProjectionOptOut(verboseFlag || formatResolution.format === 'human');
+
+  // T9930 — resolve & validate --output BEFORE dispatch. Rejecting an unknown
+  // mode here gives the operator/agent a deterministic stderr error with a
+  // valid-modes list instead of silently falling through to the default.
+  if (outputModeRaw !== undefined) {
+    if (!isOutputMode(outputModeRaw)) {
+      process.stderr.write(
+        `Error: invalid --output mode "${outputModeRaw}"\n` +
+          `Valid modes: envelope, id, table, count, silent\n`,
+      );
+      process.exit(2);
+    }
+    setOutputMode(outputModeRaw as OutputMode);
+  }
 
   // ---------------------------------------------------------------------------
   // Fast-path for help / version / no-args invocations.
