@@ -647,13 +647,6 @@ export { updateTask } from './tasks/update.js';
 // T9918 (Saga T9855 / E7.5) — OperationInputContract registry seed
 // T9917 (Saga T9855 / E7.4) — extended with tasks.add + tasks.update via contracts package
 export { getInputContract, INPUT_CONTRACTS } from './dispatch/contracts/input-contracts.js';
-// T9929 (Saga T9855 / E9) — RFC 6901 JSON Pointer extractor for --field flag
-export {
-  extractByJsonPointer,
-  isJsonPointer,
-  type PointerResult,
-  serializePointerValue,
-} from './dispatch/projection.js';
 // T9922 (Saga T9855 / E8.3) — MVI record projection (default for read ops)
 export {
   applyProjectionPlan,
@@ -665,6 +658,13 @@ export {
   projectMviList,
   resolveProjectionMode,
 } from './dispatch/mvi-projection.js';
+// T9929 (Saga T9855 / E9) — RFC 6901 JSON Pointer extractor for --field flag
+export {
+  extractByJsonPointer,
+  isJsonPointer,
+  type PointerResult,
+  serializePointerValue,
+} from './dispatch/projection.js';
 // T9920 (Saga T9855 / E8.1) — envelope-wide meta.suggestedNext attach helper
 // T9921 (Saga T9855 / E8.2) — per-op suggestion builders + tasks.* registry
 export {
