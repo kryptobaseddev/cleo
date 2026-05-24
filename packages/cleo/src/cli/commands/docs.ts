@@ -262,6 +262,13 @@ const addCommand = defineCommand({
         'add a new doc with a near-duplicate slug (e.g. intentional fork). ' +
         'Every bypass is logged to .cleo/audit/similar-bypass.jsonl.',
     },
+    strict: {
+      type: 'boolean',
+      description:
+        "Enforce body-schema validation against the kind's requiredSections (T10160). " +
+        'When set, a missing H2 section fails the write with E_DOC_SCHEMA_MISMATCH. ' +
+        'Default (advisory) surfaces missing sections as a W_DOC_SCHEMA_MISMATCH warning.',
+    },
   },
   async run({ args, rawArgs }) {
     // T10359 — pre-parse strict flag validation. citty's underlying
@@ -454,6 +461,7 @@ const addCommand = defineCommand({
         ...(args['attached-by'] ? { attachedBy: args['attached-by'] } : {}),
         ...(args.slug ? { slug: args.slug } : {}),
         ...(args.type ? { type: args.type } : {}),
+        ...(args.strict === true ? { strict: true } : {}),
       },
       { command: 'docs add' },
     );

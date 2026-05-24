@@ -405,6 +405,22 @@ export interface DocsAddParams {
    * @task T9637 (T-DOCS-SLUG-2)
    */
   type?: DocsType;
+  /**
+   * When `true`, body-schema validation against
+   * {@link DocKindMetadata.requiredSections} is enforced — a missing
+   * required H2 section returns `E_DOC_SCHEMA_MISMATCH` with the
+   * missing-sections list in `details.missing`. When omitted or `false`,
+   * the validator runs in advisory mode: the write proceeds and any
+   * missing sections surface as a warning in the envelope's `meta`.
+   *
+   * Only meaningful when `file` is set; URL attachments skip body
+   * validation (no local bytes to scan).
+   *
+   * @task T10160 (E12.C3 · absorbs T10154)
+   * @epic T10157
+   * @saga T9855
+   */
+  strict?: boolean;
 }
 
 /**

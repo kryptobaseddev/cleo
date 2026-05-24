@@ -98,6 +98,20 @@ export interface DocKindMetadata {
    * Built-in kinds leave this unset; extensions set it to `true`.
    */
   readonly isExtension?: boolean;
+  /**
+   * Optional list of H2 section titles that MUST appear in the document
+   * body. Validated by `validateDocBody(kind, body)` (T10160).
+   *
+   * Match is case-insensitive and tolerant of hyphen-vs-space variants
+   * (e.g. `## Next Steps` and `## next-steps` both satisfy a required
+   * section of `Next Steps`).
+   *
+   * Empty or omitted → no body schema requirements for this kind.
+   *
+   * @task T10160 (E12.C3 · absorbs T10154)
+   * @epic T10157
+   */
+  readonly requiredSections?: ReadonlyArray<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -125,6 +139,7 @@ export const BUILTIN_DOC_KINDS: ReadonlyArray<DocKindMetadata> = [
     publishDir: 'docs/adr',
     requiresEntityId: true,
     entityIdPattern: /^adr-\d{3,4}-[a-z0-9-]+$/,
+    requiredSections: ['Status', 'Date', 'Context', 'Decision', 'Consequences'],
   },
   {
     kind: 'spec',
@@ -133,6 +148,7 @@ export const BUILTIN_DOC_KINDS: ReadonlyArray<DocKindMetadata> = [
     defaultOwnerKind: 'task',
     publishDir: 'docs/spec',
     requiresEntityId: false,
+    requiredSections: ['Goal', 'Non-Goals', 'Requirements', 'Out-of-Scope'],
   },
   {
     kind: 'research',
@@ -141,6 +157,7 @@ export const BUILTIN_DOC_KINDS: ReadonlyArray<DocKindMetadata> = [
     defaultOwnerKind: 'task',
     publishDir: 'docs/research',
     requiresEntityId: false,
+    requiredSections: ['Question', 'Findings', 'Sources'],
   },
   {
     kind: 'handoff',
@@ -149,6 +166,7 @@ export const BUILTIN_DOC_KINDS: ReadonlyArray<DocKindMetadata> = [
     defaultOwnerKind: 'session',
     publishDir: 'docs/handoff',
     requiresEntityId: false,
+    requiredSections: ['Context', 'State', 'Next-Steps'],
   },
   {
     kind: 'note',
@@ -157,6 +175,7 @@ export const BUILTIN_DOC_KINDS: ReadonlyArray<DocKindMetadata> = [
     defaultOwnerKind: 'observation',
     publishDir: 'docs/note',
     requiresEntityId: false,
+    requiredSections: [],
   },
   {
     kind: 'llm-readme',
@@ -165,6 +184,7 @@ export const BUILTIN_DOC_KINDS: ReadonlyArray<DocKindMetadata> = [
     defaultOwnerKind: 'project',
     publishDir: '.',
     requiresEntityId: false,
+    requiredSections: [],
   },
   {
     kind: 'changeset',
@@ -174,6 +194,7 @@ export const BUILTIN_DOC_KINDS: ReadonlyArray<DocKindMetadata> = [
     publishDir: '.changeset',
     requiresEntityId: true,
     entityIdPattern: /^t\d+-[a-z0-9-]+$/,
+    requiredSections: [],
   },
   {
     kind: 'release-note',
@@ -183,6 +204,7 @@ export const BUILTIN_DOC_KINDS: ReadonlyArray<DocKindMetadata> = [
     publishDir: 'docs/release',
     requiresEntityId: true,
     entityIdPattern: /^v\d{4}\.\d+\.\d+(-[a-z0-9-]+)?$/,
+    requiredSections: ['Changes', 'Migration'],
   },
   {
     kind: 'plan',
@@ -191,6 +213,7 @@ export const BUILTIN_DOC_KINDS: ReadonlyArray<DocKindMetadata> = [
     defaultOwnerKind: 'task',
     publishDir: 'docs/plan',
     requiresEntityId: false,
+    requiredSections: ['Goal', 'Steps', 'Owners'],
   },
   {
     kind: 'rcasd',
@@ -200,6 +223,7 @@ export const BUILTIN_DOC_KINDS: ReadonlyArray<DocKindMetadata> = [
     publishDir: '.cleo/rcasd',
     requiresEntityId: true,
     entityIdPattern: /^t\d+(-.+)?$/,
+    requiredSections: ['Root-Cause', 'Action', 'Schedule', 'Detection'],
   },
 ];
 
@@ -253,6 +277,16 @@ export interface DocKindExtensionConfig {
    * a malformed config can't trigger pathological backtracking.
    */
   readonly entityIdPattern?: string;
+  /**
+   * Optional list of required H2 section titles for this extension kind.
+   *
+   * Same semantics as {@link DocKindMetadata.requiredSections} — matched
+   * case-insensitively with hyphen/space normalisation. Omit or pass
+   * `[]` for kinds that have no body schema.
+   *
+   * @task T10160
+   */
+  readonly requiredSections?: ReadonlyArray<string>;
 }
 
 /**
@@ -596,6 +630,25 @@ function validateExtensionEntry(
     );
   }
 
+  let requiredSections: ReadonlyArray<string> | undefined;
+  if (obj.requiredSections !== undefined) {
+    if (!Array.isArray(obj.requiredSections)) {
+      throw new DocKindConfigError(`${where}: 'requiredSections' must be an array`, source);
+    }
+    const sections: string[] = [];
+    for (let i = 0; i < obj.requiredSections.length; i++) {
+      const item = obj.requiredSections[i];
+      if (typeof item !== 'string' || item.length === 0) {
+        throw new DocKindConfigError(
+          `${where}: 'requiredSections[${i}]' must be a non-empty string`,
+          source,
+        );
+      }
+      sections.push(item);
+    }
+    requiredSections = sections;
+  }
+
   return {
     kind,
     label,
@@ -604,6 +657,7 @@ function validateExtensionEntry(
     publishDir,
     requiresEntityId,
     ...(entityIdPattern !== undefined ? { entityIdPattern } : {}),
+    ...(requiredSections !== undefined ? { requiredSections } : {}),
   };
 }
 
@@ -633,6 +687,7 @@ function compileExtension(ext: DocKindExtensionConfig, source: string): DocKindM
     publishDir: ext.publishDir,
     requiresEntityId: ext.requiresEntityId,
     ...(entityIdPattern !== undefined ? { entityIdPattern } : {}),
+    ...(ext.requiredSections !== undefined ? { requiredSections: ext.requiredSections } : {}),
     isExtension: true,
   };
 }
