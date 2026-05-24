@@ -137,7 +137,7 @@
     {
       "name": "ct-documentor",
       "description": "Documentation creation, editing, and review with CLEO style guide compliance. Coordinates specialized skills for lookup, writing, and review.",
-      "version": "3.2.0",
+      "version": "3.4.0",
       "path": "skills/ct-documentor/SKILL.md",
       "references": [],
       "core": false,
@@ -169,7 +169,7 @@
     {
       "name": "ct-docs-write",
       "description": "Documentation writing with CLEO's conversational, clear, user-focused style. Use when creating, editing, or improving documentation files.",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "path": "skills/ct-docs-write/SKILL.md",
       "references": [],
       "core": false,

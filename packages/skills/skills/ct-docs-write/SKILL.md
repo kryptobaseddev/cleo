@@ -1,7 +1,7 @@
 ---
 name: ct-docs-write
 description: This skill should be used when creating, editing, or reviewing documentation files (markdown, MDX, README, guides). Use when the user asks to "write docs", "create documentation", "edit the README", "improve doc clarity", "make docs more readable", "follow the style guide", or "write user-facing content". Applies CLEO's conversational, clear, and user-focused writing style.
-version: 1.0.0
+version: 1.1.0
 tier: 3
 core: false
 category: composition
@@ -147,6 +147,32 @@ Match complexity to audience. Mismatch is the biggest style failure.
 
 Declare the audience in frontmatter — `audience: end-user | agent | maintainer`
 — so reviewers can apply the right rubric.
+
+## Verb Selection — pick the right writer
+
+`packages/core/src/docs/writer-registry.ts` is the SSoT for "which CLI verb
+writes which DocKind". Every `BuiltinDocKind` maps to EXACTLY ONE writer —
+the registry rejects multi-writer regressions at build time (T10366 ·
+Saga T10288 / Epic T10290). The decision tree:
+
+```text
+if kind === 'changeset'  → cleo changeset add --slug <handle> --kind <bump> --summary "..."
+elif kind === 'llm-readme'    → tooling-composed (system-managed; do not author by hand)
+elif kind === 'release-note'  → cleo release reconcile (system-managed)
+else                          → cleo docs add <ownerId> <path> --type <kind> --slug <handle>
+```
+
+`cleo changeset add` is the dedicated dual-write verb for `changeset` —
+the kind's `canonicalHome` is `ssot-first` in `.cleo/canon.yml`, so the
+`.changeset/*.md` file IS part of the contract (it's git-tracked). For
+every other human-authored kind (`adr`, `spec`, `research`, `handoff`,
+`note`, `plan`, `rcasd`) the canonical verb is `cleo docs add --type <kind>`.
+
+**Migration rule for examples in this guide:** any example that
+hand-writes `.changeset/*.md`, `.cleo/adrs/*.md`, `.cleo/research/*.md`,
+or `.cleo/agent-outputs/*.md` is OBSOLETE. Update it to use the
+registered verb instead. The CI gate `cleo check canon docs` will fail
+the PR otherwise (T9796).
 
 ## Through SDK (preferred)
 
