@@ -17,6 +17,7 @@ export * from './curator.js';
 export * from './daemon.js';
 export * from './daemon-api.js';
 export * from './events.js';
+export * from './execute-action.js';
 export * from './hygiene-scan.js';
 export * from './ingesters/brain-ingester.js';
 export * from './ingesters/nexus-ingester.js';

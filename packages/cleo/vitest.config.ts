@@ -175,6 +175,30 @@ export default defineConfig({
         '../../packages/core/src/sentient/proposal-rate-limiter.ts',
         import.meta.url,
       ).pathname,
+      // T9898: execute-action SSoT (Saga T9855 / E6.4) — fixAction safety guard +
+      // spawn + audit-log append surface consumed by `cleo sentient propose accept`.
+      '@cleocode/core/sentient/execute-action.js': new URL(
+        '../../packages/core/src/sentient/execute-action.ts',
+        import.meta.url,
+      ).pathname,
+      // T9898: skills-store subpath import used by sentient.ts review-status verbs.
+      // The bare-package resolver can't find it in sparse worktrees; aliasing to the
+      // source tree lets vitest tests that import sentient.ts load cleanly.
+      '@cleocode/core/store/skills-store.js': new URL(
+        '../../packages/core/src/store/skills-store.ts',
+        import.meta.url,
+      ).pathname,
+      // T9898: sqlite subpath import used by `sentient propose accept|reject|list`
+      // (dynamic import). Same rationale as skills-store alias above.
+      '@cleocode/core/store/sqlite.js': new URL(
+        '../../packages/core/src/store/sqlite.ts',
+        import.meta.url,
+      ).pathname,
+      // T9898: tasks-schema subpath import used by sentient.ts dynamic queries.
+      '@cleocode/core/store/tasks-schema': new URL(
+        '../../packages/core/src/store/tasks-schema.ts',
+        import.meta.url,
+      ).pathname,
       '@cleocode/core/sentient': new URL(
         '../../packages/core/src/sentient/index.ts',
         import.meta.url,
