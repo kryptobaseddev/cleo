@@ -60,6 +60,7 @@ import { resolveFormat } from './middleware/output-format.js';
 import { isOutputMode, type OutputMode, setOutputMode } from './output-context.js';
 import { setProjectionOptOut } from './projection-context.js';
 import { resolveSubCommandForHelp } from './resolve-subcommand.js';
+import { setSummaryMode } from './summary-context.js';
 
 function getPackageVersion(): string {
   const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '../../package.json');
@@ -133,6 +134,7 @@ async function startCli(): Promise<void> {
   const rawOpts: Record<string, unknown> = {};
   let verboseFlag = false;
   let outputModeRaw: string | undefined;
+  let summaryFlag = false;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--json') rawOpts['json'] = true;
@@ -145,6 +147,8 @@ async function startCli(): Promise<void> {
     else if (arg === '--verbose' || arg === '--full') verboseFlag = true;
     // T9930 — global --output {envelope|id|table|count|silent} flag.
     else if (arg === '--output' && i + 1 < argv.length) outputModeRaw = argv[++i];
+    // T9932 — global --summary flag: 1-line-per-record re-render.
+    else if (arg === '--summary') summaryFlag = true;
   }
 
   const formatResolution = resolveFormat(rawOpts);
@@ -176,6 +180,10 @@ async function startCli(): Promise<void> {
     }
     setOutputMode(outputModeRaw as OutputMode);
   }
+
+  // T9932 — 1-line-per-record summary render. See summary-context.ts for the
+  // precedence rules (--field > --output non-envelope > --summary > defaults).
+  setSummaryMode(summaryFlag);
 
   // ---------------------------------------------------------------------------
   // Fast-path for help / version / no-args invocations.

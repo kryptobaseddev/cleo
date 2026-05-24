@@ -38,6 +38,12 @@ const listArgs = {
     type: 'boolean',
     description: 'Alias for --verbose. T9922.',
   },
+  // T9932 — 1-line-per-record summary render. Global flag; parsed by cli/index.ts.
+  summary: {
+    type: 'boolean',
+    description:
+      'Render each task as a single line "<id> [<status>] <title-truncated-60>". Composes with --output: --output {id|table|count|silent} wins. T9932.',
+  },
 } as const;
 
 /**
