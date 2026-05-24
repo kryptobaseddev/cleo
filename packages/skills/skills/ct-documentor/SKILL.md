@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Coordinates ct-docs-lookup, ct-docs-write, ct-docs-review, ct-spec-writer, and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.6.0
+version: 3.7.0
 tier: 3
 core: false
 category: specialist
@@ -292,6 +292,45 @@ the canonical `changeset` DocKind) are allowlisted in the script.
 
 Per-line opt-out (use sparingly): append
 `// dockind-writer-allowed: <reason>` on the writeFile line.
+
+#### Audit complement — manual-write sweep (T10372)
+
+`scripts/sweep-manual-doc-writes.mjs` (CI job:
+`Manual Write Sweep (T10372)`) is the read-only audit counterpart to
+the writer-uniqueness lint. Where T10369 prevents *new* raw `.md`
+writers from landing in `packages/core/src/**`, this sweep walks every
+`*.md` file *already* added under `.cleo/canon.yml`'s `rawMdPaths`
+directories since the T9791 docs-import cutoff (commit `251814e86`)
+and classifies each one against the docs SSoT:
+
+| Remediation | Meaning | Fix |
+|---|---|---|
+| `in-sync` | File SHA matches a blob already in the SSoT — bytes are tracked. | None. |
+| `drift` | Slug exists in SSoT but the on-disk content has changed. | Re-publish via `cleo docs publish` or re-add as a new version. |
+| `orphan` | Neither SHA nor slug resolves — the file is a raw fs write that bypassed `cleo docs add`. | Migrate via `cleo docs add <ownerId> <file> --type <kind> --slug <slug>`. |
+| `deleted` | File was added since the cutoff but no longer exists on disk. | Informational only — does not count toward `unresolved`. |
+
+Each run writes a timestamped report to
+`audit/manual-write-sweep-<date>.json` and prints the summary block to
+stdout. The CI job uploads the report as a workflow artefact on every
+run and is wired with `continue-on-error: true` initially so the
+existing orphan corpus does not break PRs. Saga T10288 / Epic T10293
+E5.3 closes the orphan migration; the gate flips strict after that
+lands.
+
+```bash
+# Local invocation — uses the globally-installed `cleo` on PATH.
+node scripts/sweep-manual-doc-writes.mjs
+
+# CI / monorepo build — point at the just-built local CLI bundle.
+node scripts/sweep-manual-doc-writes.mjs \
+  --cleo-bin "node packages/cleo/dist/cli/index.js" \
+  --allow-unresolved
+```
+
+Exit codes: `0` (clean OR `--allow-unresolved`), `1` (at least one
+`orphan` or `drift` entry), `2` (canon.yml parse failure, git not
+available, SSoT query failed).
 
 ### Slug similarity warn (T10361 · closes T10167)
 
