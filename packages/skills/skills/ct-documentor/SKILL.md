@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Coordinates ct-docs-lookup, ct-docs-write, ct-docs-review, ct-spec-writer, and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.9.0
+version: 3.10.0
 tier: 3
 core: false
 category: specialist
@@ -394,6 +394,49 @@ If a sweep run surfaces a file that should genuinely stay as raw
 markdown (e.g. an audit log not meant for SSoT propagation), add an
 entry to `audit/sweep-exemptions.yml` rather than migrating it. The
 sweep script honours exemptions and does not flag them as orphans.
+
+### Stuck-saga closure via `cleo saga reconcile` (T10374 · Saga T10288 / Epic T10293)
+
+When a Saga's docs-related closeout was completed under the saga's
+member Epics — every Epic flipped to `status='done'` — but the parent
+Saga row itself is still `pending`, the recovery verb is
+`cleo saga reconcile <sagaId>`. This is the cron-safe T10121 path
+that the ADR-076 / T10113 auto-close path delivers; sagas that pre-date
+the auto-close path (T9625 is the canonical example) need an explicit
+nudge.
+
+The recipe — use this any time a docs-canon Saga is observably stuck
+even though its members have all shipped via `cleo docs add` /
+`cleo docs publish`:
+
+1. Verify member-Epic terminality:
+   `for E in <memberIds>; do cleo show $E | jq '.data.task.status'; done`.
+   Every member must be `done`, `cancelled`, or `archived` before
+   reconcile will close the parent. If any member is genuinely stuck,
+   close THAT one first (evidence-based per ADR-051) — do NOT cancel
+   a member just to satisfy the gate.
+2. Verify the SSoT fetch-gate the Saga's acceptance gates on (typically
+   a research plan or closure note):
+   `cleo docs fetch <slug>` — must return `success: true` with the
+   expected bytes.
+3. Reconcile: `cleo saga reconcile <sagaId>`. The verb is idempotent
+   (re-runs return `action: 'no-op'`) and never modifies member rows.
+4. Confirm: `cleo show <sagaId>` — `status` must be `done` and
+   `completedAt` populated. The action is appended to
+   `.cleo/audit/saga-reconcile.jsonl` for audit.
+5. Write a closure-evidence handoff via
+   `cleo docs add <taskId> <file> --type handoff --slug <saga>-closure-evidence`
+   capturing: member statuses (table), reconcile envelope output,
+   sibling-saga sanity check (no cross-saga side effects), and
+   ADR-076 + T10113 path validation. The slug `t9625-closure-evidence`
+   is the canonical reference.
+
+Regression coverage for this path lives at
+`packages/core/src/sagas/__tests__/t9625-closure.test.ts` and locks
+three invariants: stuck-saga closure (AC1), sibling-saga isolation
+(AC2), and idempotency (AC3). Add a new case there whenever you close
+another stuck docs-canon Saga so the recovery pattern stays under
+test.
 
 ### Slug similarity warn (T10361 · closes T10167)
 
