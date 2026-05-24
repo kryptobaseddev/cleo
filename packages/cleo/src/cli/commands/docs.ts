@@ -532,6 +532,16 @@ const listCommand = defineCommand({
         'Sort key: newest (default — most recent first), sha (ascending hex), ' +
         'slug (alphabetical, slug-less rows last) (T9792).',
     },
+    // T9922 — MVI record projection opt-out flags (surfaced for --help).
+    verbose: {
+      type: 'boolean',
+      description:
+        'Return full attachment records instead of the MVI projection (id + slug + type + kind + sha + size + createdAt). T9922.',
+    },
+    full: {
+      type: 'boolean',
+      description: 'Alias for --verbose. T9922.',
+    },
   },
   async run({ args }) {
     const task = args.task ?? undefined;
@@ -612,6 +622,16 @@ const fetchCommand = defineCommand({
       type: 'positional',
       description: 'Attachment ID (att_*) or SHA-256 hex',
       required: true,
+    },
+    // T9922 — MVI record projection opt-out flags (surfaced for --help).
+    verbose: {
+      type: 'boolean',
+      description:
+        'Return the full attachment metadata block instead of the MVI projection. The byte payload is always returned. T9922.',
+    },
+    full: {
+      type: 'boolean',
+      description: 'Alias for --verbose. T9922.',
     },
   },
   async run({ args }) {

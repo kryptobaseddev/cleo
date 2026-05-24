@@ -654,6 +654,17 @@ export {
   type PointerResult,
   serializePointerValue,
 } from './dispatch/projection.js';
+// T9922 (Saga T9855 / E8.3) — MVI record projection (default for read ops)
+export {
+  applyProjectionPlan,
+  PROJECTION_PLANS,
+  type ProjectionKind,
+  type ProjectionMode,
+  type ProjectionPlan,
+  projectMvi,
+  projectMviList,
+  resolveProjectionMode,
+} from './dispatch/mvi-projection.js';
 // T9920 (Saga T9855 / E8.1) — envelope-wide meta.suggestedNext attach helper
 // T9921 (Saga T9855 / E8.2) — per-op suggestion builders + tasks.* registry
 export {

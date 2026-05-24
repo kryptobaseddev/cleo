@@ -28,6 +28,16 @@ const listArgs = {
     type: 'string',
     description: 'Alias for --parent (legacy parentId compatibility)',
   },
+  // T9922 — MVI record projection opt-out flags (surfaced for --help).
+  verbose: {
+    type: 'boolean',
+    description:
+      'Return full task records instead of the MVI projection (id + title + status + key metadata). T9922.',
+  },
+  full: {
+    type: 'boolean',
+    description: 'Alias for --verbose. T9922.',
+  },
 } as const;
 
 /**

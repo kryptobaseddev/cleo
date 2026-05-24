@@ -26,9 +26,23 @@ export const showCommand = defineCommand({
   meta: {
     name: 'show',
     description:
-      'Show full task details by ID (returns complete task record with metadata, verification, lifecycle)',
+      'Show task details by ID. MVI-projected (id + title + status + key metadata) by default; pass --verbose / --full to receive the complete record with description, acceptance, verification, evidence, etc. (T9922)',
   },
-  args: paramsToCittyArgs(getOperationParams('query', 'tasks', 'show')),
+  args: {
+    ...paramsToCittyArgs(getOperationParams('query', 'tasks', 'show')),
+    // T9922 — MVI record projection opt-out flags. The global parser in
+    // cli/index.ts reads these too; the declarations here surface them in
+    // `cleo show --help` and document the contract for agents.
+    verbose: {
+      type: 'boolean',
+      description:
+        'Return the full task record (description, acceptance, verification, evidence) instead of the MVI projection. T9922.',
+    },
+    full: {
+      type: 'boolean',
+      description: 'Alias for --verbose. T9922.',
+    },
+  },
   async run({ args }) {
     await dispatchFromCli(
       'query',
