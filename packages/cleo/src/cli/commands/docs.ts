@@ -24,7 +24,6 @@ import {
   ExitCode,
 } from '@cleocode/contracts';
 import {
-  buildDocsGraph,
   CleoError,
   CounterMismatchError,
   checkSlugSimilarity,
@@ -57,6 +56,8 @@ import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { loadCanonRegistry } from '../../dispatch/domains/check/canon-docs.js';
 import { assertKnownFlags, UnknownFlagError } from '../lib/strict-args.js';
 import { cliError, cliOutput, humanInfo } from '../renderers/index.js';
+// T10164 — DocProvenanceResponse-typed graph verb (`--root <slug>|<taskId>`).
+import { graphCommand as provenanceGraphCommand } from './docs/graph.js';
 import { docsViewerSubcommands } from './docs-viewer.js';
 
 /** Drift detection result. */
@@ -904,8 +905,8 @@ const exportCommand = defineCommand({
         } else {
           // Markdown payload is the user-requested output of this command —
           // emitted to stdout for piping. Not chrome.
-          process.stdout.write(result.markdown); // stdout-discipline-allowed: user-requested markdown output for piping (T10163)
-          if (!result.markdown.endsWith('\n')) process.stdout.write('\n'); // stdout-discipline-allowed: trailing newline for user-requested markdown (T10163)
+          process.stdout.write(result.markdown); // stdout-write-allowed: markdown piping (T10164) // stdout-discipline-allowed: same (T10163)
+          if (!result.markdown.endsWith('\n')) process.stdout.write('\n'); // stdout-write-allowed: trailing newline (T10164) // stdout-discipline-allowed: same (T10163)
         }
       }
     } catch (err) {
@@ -1191,92 +1192,13 @@ const mergeCommand = defineCommand({
   },
 });
 
-// ── cleo docs graph ───────────────────────────────────────────────────────────
-
-/**
- * cleo docs graph --for <id> — build a document relationship graph via llmtxt/graph.
- */
-const graphCommand = defineCommand({
-  meta: {
-    name: 'graph',
-    description:
-      'Build a document relationship graph for an entity using llmtxt/graph.buildGraph. ' +
-      'Output formats: mermaid (default), dot, json.',
-  },
-  args: {
-    for: {
-      type: 'string',
-      description: 'Owner entity ID (T###, ses_*, O-*)',
-      required: true,
-    },
-    format: {
-      type: 'string',
-      description: 'Output format: mermaid | dot | json (default: mermaid)',
-    },
-    out: {
-      type: 'string',
-      description: 'Write graph to this file path',
-    },
-    json: {
-      type: 'boolean',
-      description: 'Emit LAFS JSON envelope',
-    },
-  },
-  async run({ args }) {
-    const projectRoot = getProjectRoot();
-    const fmt = args.format ?? 'mermaid';
-
-    try {
-      const result = await buildDocsGraph({ ownerId: String(args.for), projectRoot });
-
-      let output: string;
-      if (fmt === 'dot') {
-        const dotLines = ['digraph docs {'];
-        for (const node of result.nodes) {
-          dotLines.push(`  "${node.id}" [label="${node.label}"];`);
-        }
-        for (const edge of result.edges) {
-          dotLines.push(`  "${edge.source}" -> "${edge.target}" [label="${edge.relation}"];`);
-        }
-        dotLines.push('}');
-        output = dotLines.join('\n');
-      } else if (fmt === 'json') {
-        output = JSON.stringify(result, null, 2);
-      } else {
-        // mermaid
-        const lines = ['graph LR'];
-        for (const edge of result.edges) {
-          lines.push(`  ${edge.source} -->|${edge.relation}| ${edge.target}`);
-        }
-        if (result.edges.length === 0) {
-          for (const node of result.nodes) {
-            lines.push(`  ${node.id}["${node.label}"]`);
-          }
-        }
-        output = lines.join('\n');
-      }
-
-      if (typeof args.out === 'string' && args.out.length > 0) {
-        const outPath = isAbsolute(args.out) ? args.out : resolve(projectRoot, args.out);
-        await mkdir(dirname(outPath), { recursive: true });
-        await writeFile(outPath, output, 'utf8');
-        humanInfo(`Wrote graph to ${outPath}`);
-      }
-
-      cliOutput(
-        { format: fmt, nodeCount: result.nodes.length, edgeCount: result.edges.length, output },
-        { command: 'docs graph', operation: 'docs.graph' },
-      );
-    } catch (err) {
-      // T9789: flat LAFS error envelope (ADR-039) — no double-wrap.
-      const message = err instanceof Error ? err.message : String(err);
-      cliError(`docs graph failed: ${message}`, ExitCode.GENERAL_ERROR, {
-        name: 'E_DOCS_GRAPH_FAILED',
-      });
-      process.exit(ExitCode.GENERAL_ERROR);
-    }
-  },
-});
+// ── cleo docs graph (moved to ./docs/graph.ts in T10164) ─────────────────────
+//
+// The legacy `--for <id>` llmtxt-backed graph was replaced by the T10166
+// DocProvenanceResponse contract per ADR-078 §4. The new `--root <slug>|<taskId>`
+// implementation lives in ./docs/graph.ts and is wired below via
+// `provenanceGraphCommand` so the `subCommands.graph` slot stays unchanged for
+// existing callers.
 
 // ── cleo docs rank ────────────────────────────────────────────────────────────
 
@@ -2243,7 +2165,8 @@ export const docsCommand = defineCommand({
     find: findCommand,
     search: searchCommand,
     merge: mergeCommand,
-    graph: graphCommand,
+    // T10164 — DocProvenanceResponse-typed graph (`--root <slug>|<taskId>`).
+    graph: provenanceGraphCommand,
     rank: rankCommand,
     versions: versionsCommand,
     publish: publishCommand,

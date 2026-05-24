@@ -66,7 +66,7 @@ interface WorktreeInfoNapi {
 /**
  * Options for the napi `pruneWorktrees` binding (T10203).
  *
- * Mirrors `crates/worktree-napi`'s `PruneOpts` — see ADR-078 for the
+ * Mirrors `crates/worktree-napi`'s `PruneOpts` — see ADR-087 for the
  * worktrunk-core SDK boundary contract.
  */
 interface PruneOptsNapi {
