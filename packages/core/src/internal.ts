@@ -96,6 +96,7 @@ export {
 } from './bootstrap.js';
 // Changesets — CLEO-native task-anchored DSL (T9738 / T9793 dual-write)
 export type {
+  ParseChangesetFrontmatterResult,
   WriteChangesetError,
   WriteChangesetOptions,
   WriteChangesetOutcome,
@@ -104,6 +105,7 @@ export type {
 export {
   parseChangesetDir,
   parseChangesetFile,
+  parseChangesetFrontmatter,
   renderChangesetMarkdown,
   writeChangesetEntry,
 } from './changesets/index.js';
