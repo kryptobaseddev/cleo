@@ -306,6 +306,45 @@ export type EvidenceAtom =
       successCount: number;
       /** Total number of checks evaluated in the rollup. */
       totalChecks: number;
+    }
+  | {
+      /**
+       * Satisfies atom — cross-task acceptance-criterion binding per
+       * ADR-079-r2.
+       *
+       * Carries the parsed form (one of `targetAcId` UUID or
+       * `targetAcAlias` `AC<digits>` will be populated; optional
+       * `versionPin` captures the target AC's `updated_at` at mint time)
+       * plus the validator-canonical `resolvedAcUuid` populated by the
+       * T10507 5-check pipeline (target exists, not terminal, AC exists,
+       * same-saga scope). T10506 only ships the parser — the validated
+       * form is reserved here so consumers of `EvidenceAtom` (sentinel
+       * tables, gate-checkers, audit logs) can pattern-match on
+       * `kind === 'satisfies'` from day one.
+       *
+       * Format: `satisfies:<task-id>#<ac-id>[@<version-pin>]`
+       *   - `satisfies:T1234#a1b2c3d4-5e6f-4890-abcd-ef1234567890` (UUID)
+       *   - `satisfies:T1234#AC2`                                  (alias)
+       *   - `satisfies:T1234#AC2@20260524223045`                   (pin)
+       *
+       * @task T10506
+       * @adr ADR-079-r2
+       */
+      kind: 'satisfies';
+      /** Target task ID — `T<1-7 digits>` per ADR-079-r2 §2.1. */
+      targetTaskId: string;
+      /** Lowercase UUIDv4 — populated for canonical form; undefined for alias form. */
+      targetAcId?: string;
+      /** `AC<1-4 digits>` alias — populated for alias form; undefined for UUID form. */
+      targetAcAlias?: string;
+      /** Optional `@<YYYYMMDDhhmmss>` pin captured at mint time. */
+      versionPin?: string;
+      /**
+       * Canonical UUID resolved by the T10507 validator from `targetAcId`
+       * (already canonical) or by looking up `(targetTaskId, alias-ordinal)`.
+       * Reserved here for forward compatibility; undefined under T10506.
+       */
+      resolvedAcUuid?: string;
     };
 
 /**

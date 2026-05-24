@@ -480,6 +480,8 @@ export type {
   GateEvidenceRequirement,
 } from './evidence-atom-schema.js';
 export {
+  AC_ALIAS_REGEX,
+  AC_UUID_REGEX,
   callsiteCoverageAtomSchema,
   commitAtomSchema,
   decisionAtomSchema,
@@ -493,6 +495,9 @@ export {
   noteAtomSchema,
   parseEvidenceString,
   prAtomSchema,
+  SATISFIES_TASK_ID_REGEX,
+  SATISFIES_VERSION_PIN_REGEX,
+  satisfiesAtomSchema,
   testRunAtomSchema,
   toolAtomSchema,
   urlAtomSchema,
