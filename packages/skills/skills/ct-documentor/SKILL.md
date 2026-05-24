@@ -1,13 +1,13 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Coordinates ct-docs-lookup, ct-docs-write, ct-docs-review, ct-spec-writer, and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.11.0
+version: 3.12.0
 tier: 3
 core: false
 category: specialist
 protocol: null
 metadata:
-  version: 3.11.0
+  version: 3.12.0
   lastReviewed: 2026-05-24
   stability: stable
 dependencies:
@@ -65,7 +65,7 @@ and every owner writes through `cleo docs add` — not raw filesystem writes.
 | Doc Type | Owner Skill | SSoT Command |
 |----------|-------------|--------------|
 | `spec` (REQ-XXX requirements) | `ct-spec-writer` | `cleo docs add <ownerId> <path> --type spec --slug spec-<feature>` |
-| `adr` (architecture decisions) | `ct-adr-recorder` | `cleo docs add <ownerId> <path> --type adr --slug adr-<NNN>-<rest>` |
+| `adr` (architecture decisions) | `ct-adr-recorder` | `cleo docs add <ownerId> <path> --type adr --slug adr-<NNN>-<rest>` (TODO T10360 · E3.2 pending: `--title` + auto-`adr-NNN` allocation) |
 | `research` (multi-source investigation) | `ct-research-agent` | `cleo docs add <ownerId> <path> --type research --slug research-<topic>` |
 | `handoff` (session/agent transition) | `ct-documentor` (this skill) | `cleo docs add <ownerId> <path> --type handoff --slug handoff-<context>` |
 | `note` (conversational prose) | `ct-docs-write` | `cleo docs add <ownerId> <path> --type note --slug <kebab-topic>` |
