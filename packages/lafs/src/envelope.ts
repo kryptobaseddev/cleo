@@ -759,8 +759,50 @@ export interface CliMeta {
    * the flat string projection layered alongside.
    */
   suggestedNext?: ReadonlyArray<string>;
+  /**
+   * First-class token-cost annotation for this CLI envelope.
+   *
+   * @remarks
+   * Promotes the legacy underscore-prefixed `meta._tokenEstimate` field
+   * (still emitted for backwards compatibility — see {@link CliMetaTokens}
+   * deprecation notice). Renderers and orchestrators MAY use this to
+   * surface the envelope's approximate token cost without depending on
+   * LAFS-tier internals.
+   *
+   * Promoted in Saga T9855 / E8 — T9923 (ADR-039).
+   */
+  tokens?: CliMetaTokens;
+  /**
+   * Legacy underscore-prefixed token-cost annotation.
+   *
+   * @deprecated removeAt v2026.7.0 — use {@link CliMeta.tokens} instead.
+   * Retained for ONE release so existing consumers can migrate.
+   */
+  _tokenEstimate?: { estimate: number; [key: string]: unknown };
   /** Extensible metadata; vendor fields go here. */
   [key: string]: unknown;
+}
+
+/**
+ * Structured token-cost annotation attached to a CLI envelope's `meta.tokens`.
+ *
+ * @remarks
+ * First-class promotion of the legacy `meta._tokenEstimate` field, introduced
+ * in Saga T9855 / E8 — T9923. Consumers SHOULD read `meta.tokens.estimate`
+ * directly; the legacy underscore-prefixed field is retained for ONE release
+ * and removed at v2026.7.0.
+ */
+export interface CliMetaTokens {
+  /** Approximate token count of the envelope payload. */
+  estimate: number;
+  /**
+   * Tokenizer identifier used to compute {@link CliMetaTokens.estimate}.
+   *
+   * @example `"cl100k"`, `"o200k"`, `"approx"` (heuristic fallback).
+   */
+  model: string;
+  /** ISO 8601 timestamp of when the estimate was computed. */
+  calculatedAt: string;
 }
 
 /**
