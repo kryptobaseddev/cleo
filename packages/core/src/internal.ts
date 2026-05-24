@@ -263,6 +263,8 @@ export {
 } from './docs/similarity-check.js';
 // Central slug allocator chokepoint (T10392 / Saga T10288 / Epic T10289)
 export type {
+  ReserveSlugForDispatchParams,
+  ReserveSlugForDispatchResult,
   ReserveSlugOptions,
   SlugReserveErr,
   SlugReserveOk,
@@ -275,6 +277,7 @@ export {
   normalizeSlug,
   releaseReservedSlug,
   reserveSlug,
+  reserveSlugForDispatch,
 } from './docs/slug-allocator.js';
 // DocKind Writer Registry (T10366 / Saga T10288 / Epic T10290)
 export type {
