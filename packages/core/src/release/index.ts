@@ -216,6 +216,11 @@ export {
 export type { SmokeEnvironment } from './ship-e2e-smoke.js';
 export { runShipE2eSmoke } from './ship-e2e-smoke.js';
 export { createDefaultSmokeEnvironment } from './ship-e2e-smoke-default-env.js';
+// T9937 — `cleo release validate-changelog <version>` canonical CHANGELOG.md
+// header validator (replaces brittle `grep -qF "## [VERSION]"` in
+// .github/workflows/release.yml). Saga T9862.
+export type { ValidateChangelogOptions, ValidateChangelogResult } from './validate-changelog.js';
+export { validateChangelog } from './validate-changelog.js';
 // T9529 — provenance verify verb (Phase 2 of T9493). READ-ONLY audit of the
 // 11 provenance tables for a release (or N most-recent releases).
 export type {

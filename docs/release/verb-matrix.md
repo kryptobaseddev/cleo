@@ -50,6 +50,7 @@ in-memory plan envelope.
 | `show <ver>`            | _(read-only query)_       | _(none)_                           | _(none)_                                              | Reads `releases` + provenance tables                                         | — |
 | `channel`               | _(read-only query)_       | _(none)_                           | _(none)_                                              | Inspects current git branch to infer release channel                         | `latest` / `beta` / `alpha`. |
 | `ship-e2e-smoke <ver>`  | _(validator — no DB writes)_ | _(none directly — invokes `plan` + `open` then polls)_ | _(none directly)_                                | Dry-run by default. With `--execute`: runs `plan` + `open`, then polls `gh pr` + `git ls-remote --tags` + `npm view` | Added by **T10103**. One-shot end-to-end validator. |
+| `validate-changelog <ver>` | _(validator — no DB writes)_ | _(none)_                       | _(none)_                                              | Reads `CHANGELOG.md`; asserts canonical `## [<ver>]` header (ADR-028 §2.5)   | Added by **T9937** (Saga T9862). Replaces the brittle `grep -qF "## [VERSION]"` step in `release.yml`. |
 
 ## What was removed (DO NOT use)
 

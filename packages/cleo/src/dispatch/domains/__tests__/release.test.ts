@@ -18,6 +18,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../lib/engine.js', () => ({
   releaseGateCheck: vi.fn(),
   releaseIvtrAutoSuggest: vi.fn(),
+  releaseOpen: vi.fn(),
+  releasePlan: vi.fn(),
+  releaseReconcileV2: vi.fn(),
+  // T9937 — Saga T9862: canonical CHANGELOG header validator.
+  validateChangelog: vi.fn(),
 }));
 
 vi.mock('@cleocode/core/internal', () => ({
@@ -34,7 +39,7 @@ vi.mock('@cleocode/core/internal', () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import { releaseGateCheck, releaseIvtrAutoSuggest } from '../../lib/engine.js';
+import { releaseGateCheck, releaseIvtrAutoSuggest, validateChangelog } from '../../lib/engine.js';
 import { ReleaseHandler } from '../release.js';
 
 // ---------------------------------------------------------------------------
@@ -133,8 +138,77 @@ describe('ReleaseHandler', () => {
     const ops = handler.getSupportedOperations();
     expect(ops.query).toContain('gate');
     expect(ops.query).toContain('ivtr-suggest');
+    expect(ops.query).toContain('validate-changelog');
     expect(ops.mutate).toContain('gate');
     expect(ops.mutate).toContain('ivtr-suggest');
+  });
+
+  // -----------------------------------------------------------------------
+  // query('validate-changelog') — T9937 / Saga T9862
+  // -----------------------------------------------------------------------
+
+  describe('query("validate-changelog")', () => {
+    it('returns E_INVALID_INPUT when version is missing', async () => {
+      const result = await handler.query('validate-changelog', {});
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INVALID_INPUT');
+    });
+
+    it('returns success envelope when canonical header is present', async () => {
+      vi.mocked(validateChangelog).mockResolvedValue({
+        valid: true,
+        version: 'v2026.5.94',
+        normalizedVersion: '2026.5.94',
+        changelogPath: '/mock/project/CHANGELOG.md',
+        headerFound: '## [2026.5.94]',
+      });
+      const result = await handler.query('validate-changelog', { version: 'v2026.5.94' });
+      expect(result.success).toBe(true);
+      expect((result.data as Record<string, unknown>)['valid']).toBe(true);
+      expect((result.data as Record<string, unknown>)['headerFound']).toBe('## [2026.5.94]');
+      expect(validateChangelog).toHaveBeenCalledWith({
+        version: 'v2026.5.94',
+        projectRoot: '/mock/project',
+      });
+    });
+
+    it('returns E_CHANGELOG_MISSING_SECTION when the header is absent', async () => {
+      vi.mocked(validateChangelog).mockResolvedValue({
+        valid: false,
+        version: 'v2026.5.94',
+        normalizedVersion: '2026.5.94',
+        changelogPath: '/mock/project/CHANGELOG.md',
+        headerFound: null,
+        reason: 'CHANGELOG.md does not contain ## [2026.5.94]',
+      });
+      const result = await handler.query('validate-changelog', { version: 'v2026.5.94' });
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_CHANGELOG_MISSING_SECTION');
+      expect(result.error?.message).toContain('2026.5.94');
+      expect(result.error?.details).toMatchObject({
+        normalizedVersion: '2026.5.94',
+        headerFound: null,
+      });
+    });
+
+    it('forwards explicit changelogPath when provided', async () => {
+      vi.mocked(validateChangelog).mockResolvedValue({
+        valid: true,
+        version: '2026.5.94',
+        normalizedVersion: '2026.5.94',
+        changelogPath: '/custom/NOTES.md',
+        headerFound: '## [2026.5.94]',
+      });
+      await handler.query('validate-changelog', {
+        version: '2026.5.94',
+        changelogPath: '/custom/NOTES.md',
+      });
+      expect(validateChangelog).toHaveBeenCalledWith({
+        version: '2026.5.94',
+        projectRoot: '/mock/project',
+        changelogPath: '/custom/NOTES.md',
+      });
+    });
   });
 
   // -----------------------------------------------------------------------
