@@ -1,11 +1,15 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Coordinates ct-docs-lookup, ct-docs-write, ct-docs-review, ct-spec-writer, and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.10.0
+version: 3.11.0
 tier: 3
 core: false
 category: specialist
 protocol: null
+metadata:
+  version: 3.11.0
+  lastReviewed: 2026-05-24
+  stability: stable
 dependencies:
   - ct-docs-lookup
   - ct-docs-write
@@ -437,6 +441,48 @@ three invariants: stuck-saga closure (AC1), sibling-saga isolation
 (AC2), and idempotency (AC3). Add a new case there whenever you close
 another stuck docs-canon Saga so the recovery pattern stays under
 test.
+
+### Docs->memory auto-emit (T9976 · regression-tested by T10375)
+
+Every successful `cleo docs add` fires a fire-and-forget memory observation
+into `brain_observations`. The CLI never blocks on this write — a BRAIN
+failure cannot fail `docs add` — but the observation is the bridge that
+makes `cleo memory find '<slug>'` surface attached docs.
+
+**Title shape**: `"Doc attached: <slug>"` (or `"Doc attached: <attachmentId>"`
+when no slug is provided). This is what the FTS index matches on, so the
+slug is also a memory-discovery key — not just a docs-lookup key.
+
+**Narrative payload** (the {@link DocAttachmentObservationPayload} contract):
+
+```jsonc
+{
+  "kind": "doc-attachment",        // discriminator
+  "attachmentId": "<id>",          // assigned by the docs store
+  "ownerId": "<T#### | SG-#### | …>",
+  "slug": "<kebab-slug>",          // omitted only when --slug not passed
+  "type": "<docKind>",             // omitted only when --type not passed
+  "addedAt": "<ISO 8601 timestamp>"
+}
+```
+
+The payload is consumed by `cleo memory verify <observationId>` for
+round-trip checks against the docs store — see AC3 of the original T9976
+suite at `packages/cleo/src/dispatch/domains/__tests__/docs-memory-observation.test.ts`.
+
+**Retroactive sweeps**: when migrating manual `Write`-based docs back into
+the SSoT (the T10371 + T10373 pattern), the auto-emit fires uniformly for
+the kebab-case slugs the sweep uses (`t<num>-<kebab>`, `adr-<num>-<kebab>`).
+Regression coverage lives at
+`packages/cleo/src/dispatch/domains/__tests__/docs-memory-observation-retroactive.test.ts`
+(T10375). Add a new case to that table whenever you discover a slug shape
+not yet under test.
+
+**Anti-pattern**: do NOT write a `cleo memory observe` manually after a
+`cleo docs add` — the auto-emit already happened, and the duplicate
+observation pollutes the FTS index. Use `cleo memory backfill-docs` (AC4
+of T9976) only to repair attachments that pre-date the auto-emit feature
+or were written outside the SSoT.
 
 ### Slug similarity warn (T10361 · closes T10167)
 
