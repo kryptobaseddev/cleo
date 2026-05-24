@@ -291,7 +291,13 @@ export class StudioSupervisor {
     this.#child = child;
     this.#status = 'running';
 
-    process.stdout.write(
+    // T9928 — daemon log lines go to stderr; stdout is reserved for the
+    // single LAFS envelope written by any cleo verb that may shell out to
+    // the daemon. Studio inherits stdio, so its own stdout still flows
+    // through this process's stdout — that is intentional and not subject
+    // to this discipline (the daemon is a long-running supervisor, not a
+    // CLI verb).
+    process.stderr.write(
       `[CLEO STUDIO] Started Studio server (pid=${child.pid ?? '?'} port=${this.#port})\n`,
     );
 
@@ -692,7 +698,7 @@ export async function bootstrapDaemon(
     studioSupervisor = new StudioSupervisor(opts.studioOptions ?? {});
     try {
       studioSupervisor.start();
-      process.stdout.write('[CLEO DAEMON] Studio supervision enabled.\n');
+      process.stderr.write('[CLEO DAEMON] Studio supervision enabled.\n');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       process.stderr.write(`[CLEO DAEMON] Studio supervision start failed: ${msg}\n`);
@@ -700,7 +706,7 @@ export async function bootstrapDaemon(
       studioSupervisor = null;
     }
   } else {
-    process.stdout.write(
+    process.stderr.write(
       '[CLEO DAEMON] Studio supervision disabled (daemon.superviseStudio=false).\n',
     );
   }
@@ -728,7 +734,7 @@ export async function bootstrapDaemon(
   const shutdown = async (reason: string): Promise<void> => {
     // 1. Stop Studio first (SIGTERM with 10 s grace period).
     if (studioSupervisor !== null) {
-      process.stdout.write('[CLEO DAEMON] Forwarding shutdown to Studio (SIGTERM)…\n');
+      process.stderr.write('[CLEO DAEMON] Forwarding shutdown to Studio (SIGTERM)…\n');
       try {
         await studioSupervisor.stop();
       } catch {
@@ -770,7 +776,7 @@ export async function bootstrapDaemon(
   const tickOptions: TickOptions = { projectRoot, statePath };
   await patchSentientState(statePath, { lastCronFiredAt: new Date().toISOString() });
   const outcome = await safeRunTick(tickOptions);
-  process.stdout.write(
+  process.stderr.write(
     `${new Date().toISOString()} [CLEO SENTIENT] boot tick: ${outcome.kind} ` +
       `(task=${outcome.taskId ?? 'n/a'}) ${outcome.detail}\n`,
   );
@@ -796,7 +802,7 @@ export async function bootstrapDaemon(
       // (Suspected H1 root cause of the 2026-05-13 lastTickAt freeze.)
       try {
         const result = await safeRunTick(tickOptions);
-        process.stdout.write(
+        process.stderr.write(
           `${new Date().toISOString()} [CLEO SENTIENT] tick: ${result.kind} ` +
             `(task=${result.taskId ?? 'n/a'}) ${result.detail}\n`,
         );
@@ -824,7 +830,7 @@ export async function bootstrapDaemon(
         const state = await readSentientState(statePath);
         if (!state.tier2Enabled) return;
         const result = await safeRunProposeTick(proposeOptions);
-        process.stdout.write(
+        process.stderr.write(
           `${new Date().toISOString()} [CLEO SENTIENT T2] propose: ${result.kind} ` +
             `(written=${result.written}, count=${result.count}) ${result.detail}\n`,
         );
@@ -851,7 +857,7 @@ export async function bootstrapDaemon(
 
     if (curatorCfg.enabled) {
       const expr = curatorCronExpression(curatorCfg.runEveryHours);
-      process.stdout.write(
+      process.stderr.write(
         `[CLEO SENTIENT CURATOR] enabled (interval=${curatorCfg.runEveryHours}h, cron='${expr}', staleAfterDays=${curatorCfg.staleAfterDays}, archiveAfterDays=${curatorCfg.archiveAfterDays})\n`,
       );
       cron.schedule(
@@ -868,7 +874,7 @@ export async function bootstrapDaemon(
               staleAfterDays: curatorCfg.staleAfterDays,
               archiveAfterDays: curatorCfg.archiveAfterDays,
             });
-            process.stdout.write(
+            process.stderr.write(
               `${new Date().toISOString()} [CLEO SENTIENT CURATOR] tick complete: ` +
                 `checked=${result.summary.checked} stale=${result.summary.markedStale} ` +
                 `archived=${result.summary.archived} reactivated=${result.summary.reactivated}\n`,
@@ -886,7 +892,7 @@ export async function bootstrapDaemon(
         },
       );
     } else {
-      process.stdout.write(
+      process.stderr.write(
         '[CLEO SENTIENT CURATOR] disabled (daemon.curator.enabled=false). Skipping schedule.\n',
       );
     }
@@ -902,7 +908,7 @@ export async function bootstrapDaemon(
         const hygieneState = await readSentientState(statePath);
         if (hygieneState.killSwitch) return;
 
-        process.stdout.write(
+        process.stderr.write(
           `${new Date().toISOString()} [CLEO SENTIENT HYGIENE] nightly cross-project hygiene loop starting\n`,
         );
         const digest = await safeRunCrossProjectHygiene();
@@ -920,7 +926,7 @@ export async function bootstrapDaemon(
           },
         });
 
-        process.stdout.write(
+        process.stderr.write(
           `${new Date().toISOString()} [CLEO SENTIENT HYGIENE] complete: ${digest.summary}\n`,
         );
       } catch (err) {
