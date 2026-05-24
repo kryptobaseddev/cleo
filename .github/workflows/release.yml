@@ -568,6 +568,22 @@ jobs:
           pattern: worktree-napi-*
           merge-multiple: true
 
+      - name: Validate prebuilt artifacts
+        run: |
+          for triple in linux-x64-gnu linux-arm64-gnu darwin-x64 darwin-arm64 win32-x64-msvc; do
+            file="crates/worktree-napi/worktree-napi.${triple}.node"
+            if [ ! -f "$file" ]; then
+              echo "ERROR: Missing artifact $file"
+              exit 1
+            fi
+            size=$(stat -c%s "$file" 2>/dev/null || stat -f%z "$file" 2>/dev/null)
+            if [ "$size" -eq 0 ]; then
+              echo "ERROR: Empty artifact $file"
+              exit 1
+            fi
+            echo "OK: $file ($size bytes)"
+          done
+
       # ── npm Publish (OIDC Trusted Publishing) ─────────────────────────────────
       # Publish in dependency order so downstream packages can resolve workspace:*
       # refs correctly when pnpm replaces them with real version numbers.
