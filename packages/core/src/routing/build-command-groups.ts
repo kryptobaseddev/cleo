@@ -168,6 +168,7 @@ export const CLI_COMMAND_CATEGORIES: Readonly<Record<string, CliCategory>> = {
   version: 'System & Admin',
   init: 'System & Admin',
   config: 'System & Admin',
+  templates: 'System & Admin',
   admin: 'System & Admin',
   doctor: 'System & Admin',
   'doctor-projects': 'System & Admin',
