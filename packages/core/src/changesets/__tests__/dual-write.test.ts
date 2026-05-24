@@ -210,6 +210,91 @@ describe('writeChangesetEntry — schema validation', () => {
     if (outcome.ok) return;
     expect(outcome.error.code).toBe('E_INVALID_ENTRY');
   });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // T9936 (Saga T9862) — invalid `kind` values must be rejected BEFORE any
+  // dual-write side effect. The historical drift `kind: 'feature'` is the
+  // canonical real-world example (4 entries leaked through legacy writers
+  // before the schema gate hardened). Every entry below probes one invalid
+  // shape and asserts:
+  //   1. `outcome.ok` is false with `E_INVALID_ENTRY`.
+  //   2. `.changeset/<slug>.md` was NEVER created (no partial state).
+  //   3. The error message mentions `kind` so the operator can localise.
+  // ────────────────────────────────────────────────────────────────────────
+  describe('writeChangesetEntry — invalid kind rejection (T9936)', () => {
+    /**
+     * Probe a single invalid kind value end-to-end. Asserts schema gate
+     * fires before any filesystem mutation and surfaces the field name.
+     */
+    async function probeInvalidKind(invalidKind: unknown, slug: string): Promise<void> {
+      const bad = {
+        id: slug,
+        tasks: ['T9936'],
+        kind: invalidKind,
+        summary: `Invalid kind probe: ${String(invalidKind)}`,
+      } as unknown as ChangesetEntry;
+
+      const outcome = await writeChangesetEntry(bad, { projectRoot });
+      expect(outcome.ok).toBe(false);
+      if (outcome.ok) return;
+      expect(outcome.error.code).toBe('E_INVALID_ENTRY');
+      // The Zod issue path is preserved so operators see WHICH field failed.
+      expect(outcome.error.message).toContain('kind');
+      // No partial state — file must NOT exist on disk.
+      expect(existsSync(join(projectRoot, '.changeset', `${slug}.md`))).toBe(false);
+    }
+
+    it('rejects kind="feature" — the canonical historical drift (T9936)', async () => {
+      // The real-world bug: 4 changesets were written with `kind: feature`
+      // instead of canonical `kind: feat`, blowing aggregator output. The
+      // schema gate MUST refuse this exact shape.
+      await probeInvalidKind('feature', 't9936-kind-feature');
+    });
+
+    it('rejects kind="fixes" (plural drift)', async () => {
+      await probeInvalidKind('fixes', 't9936-kind-fixes');
+    });
+
+    it('rejects kind="improvement" (commonly-mistyped synonym)', async () => {
+      await probeInvalidKind('improvement', 't9936-kind-improvement');
+    });
+
+    it('rejects kind="" (empty string)', async () => {
+      await probeInvalidKind('', 't9936-kind-empty');
+    });
+
+    it('rejects kind=null', async () => {
+      await probeInvalidKind(null, 't9936-kind-null');
+    });
+
+    it('rejects kind=undefined', async () => {
+      await probeInvalidKind(undefined, 't9936-kind-undefined');
+    });
+
+    it('rejects kind with leading/trailing whitespace ("feat ")', async () => {
+      // Schema is strict — whitespace-tolerant matching would erode the
+      // canonical set. Operators must pass the bare token.
+      await probeInvalidKind('feat ', 't9936-kind-whitespace');
+    });
+
+    it('accepts every canonical kind in CHANGESET_KINDS — coverage anchor', async () => {
+      // Round-trip check: each canonical kind MUST be writable. If a future
+      // schema edit drops one (or renames it), this test catches it.
+      const { CHANGESET_KINDS } = await import('@cleocode/contracts');
+      for (const kind of CHANGESET_KINDS) {
+        const entry: ChangesetEntry = {
+          id: `t9936-canonical-${kind}`,
+          tasks: ['T9936'],
+          kind,
+          summary: `Canonical kind ${kind} accepted.`,
+          // `breaking` requires the migration note refinement.
+          ...(kind === 'breaking' ? { breaking: 'migration step' } : {}),
+        };
+        const outcome = await writeChangesetEntry(entry, { projectRoot });
+        expect(outcome.ok, `kind '${kind}' should be accepted`).toBe(true);
+      }
+    });
+  });
 });
 
 describe('renderChangesetMarkdown', () => {
