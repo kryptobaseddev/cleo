@@ -1,24 +1,40 @@
 /**
  * CLI add-batch command — thin adapter for the CORE `tasks.add-batch` op.
  *
- * Reads a JSON array from file or stdin; delegates atomicity to CORE via ONE
+ * Reads a JSON array from `--params`, `--file`, or stdin via the shared
+ * {@link collectMutateInput} adapter (T9916), validates against
+ * {@link INPUT_CONTRACTS}['tasks.add-batch'] via {@link validateOperationInput}
+ * (T9915), then delegates atomicity to CORE via ONE
  * `dispatchRaw('mutate', 'tasks', 'add-batch', ...)` call. If any spec fails
  * the entire batch is rolled back by the CORE transaction.
  *
- * @task T9816
- * @epic T9813
+ * @task T9816 (original CLI adapter)
+ * @task T9917 (OperationInputContract retrofit)
+ * @epic T9903 (E7-MUTATE-DX-SCHEMA-FIRST)
+ * @saga T9855
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { ExitCode } from '@cleocode/contracts';
+import { INPUT_CONTRACTS, validateOperationInput } from '@cleocode/core';
 import { defineCommand } from 'citty';
 import { dispatchRaw } from '../../dispatch/adapters/cli.js';
+import { collectMutateInput } from '../lib/collect-input.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
 /**
  * Native citty command — thin CLI adapter for the CORE `tasks.add-batch` op.
- * Input parsing lives here; all business logic (validation, atomicity) lives in CORE.
+ *
+ * Input parsing flows through {@link collectMutateInput} (the canonical
+ * `--params` / `--file` / stdin / positional adapter from T9916), then
+ * through {@link validateOperationInput} (T9915) using the
+ * `INPUT_CONTRACTS['tasks.add-batch']` schema (T9917). All business logic
+ * (atomicity, dispatch) lives in CORE.
+ *
+ * Backwards compat: the legacy `--file <path>` and stdin paths still work
+ * exactly as before — they now route through the shared adapter.
  *
  * @task T9816
+ * @task T9917
  */
 export const addBatchCommand = defineCommand({
   meta: {
@@ -26,9 +42,14 @@ export const addBatchCommand = defineCommand({
     description: 'Create multiple tasks in a single atomic transaction from a JSON file',
   },
   args: {
+    params: {
+      type: 'string',
+      description:
+        'Inline JSON object: { "tasks": [...], "defaultParent"?: "...", "dryRun"?: bool } (T9917)',
+    },
     file: {
       type: 'string',
-      description: 'Path to JSON file (array of task objects). Use - for stdin.',
+      description: 'Path to JSON file (array of task objects, or full payload). Use - for stdin.',
     },
     parent: {
       type: 'string',
@@ -40,72 +61,113 @@ export const addBatchCommand = defineCommand({
     },
   },
   async run({ args }) {
-    const filePath = args.file as string | undefined;
     const defaultParent = args.parent as string | undefined;
-    const dryRun = args['dry-run'] as boolean | undefined;
+    const dryRunFlag = args['dry-run'] as boolean | undefined;
+    const paramsArg = args.params as string | undefined;
+    const fileArg = args.file as string | undefined;
 
-    // --- Input adapter (CLI responsibility): file or stdin ---
-    let raw: string;
-    if (!filePath || filePath === '-') {
-      const chunks: Buffer[] = [];
-      for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-      raw = Buffer.concat(chunks).toString('utf-8');
-      if (!raw.trim()) {
-        cliError(
-          'No input provided. Pass --file <path> or pipe JSON to stdin.',
-          'E_VALIDATION',
-          { name: 'E_VALIDATION', fix: 'cleo add-batch --file tasks.json' },
-          { operation: 'tasks.add-batch' },
-        );
-        process.exitCode = 2;
-        return;
-      }
-    } else {
-      if (!existsSync(filePath)) {
-        cliError(
-          `File not found: ${filePath}`,
-          'E_NOT_FOUND',
-          { name: 'E_NOT_FOUND', fix: `Verify the file path exists: ${filePath}` },
-          { operation: 'tasks.add-batch' },
-        );
-        process.exitCode = 2;
-        return;
-      }
-      raw = readFileSync(filePath, 'utf-8');
-    }
+    // 1. Collect raw input via the shared T9916 adapter. Supports
+    //    --params, --file (including '-' for stdin), and piped stdin.
+    //    Legacy compat: when --file is '-', treat as stdin (collectMutateInput
+    //    only treats stdin as the third channel when no --file is passed, so
+    //    we normalize here).
+    const collectArgs: { params?: string; file?: string } = {};
+    if (paramsArg !== undefined) collectArgs.params = paramsArg;
+    if (fileArg !== undefined && fileArg !== '-') collectArgs.file = fileArg;
 
-    let tasks: unknown[];
+    let raw: unknown;
     try {
-      const parsed = JSON.parse(raw) as unknown;
-      tasks = Array.isArray(parsed) ? parsed : [parsed];
-    } catch {
+      raw = await collectMutateInput(
+        collectArgs,
+        process.stdin as NodeJS.ReadableStream & { isTTY?: boolean },
+      );
+    } catch (err) {
       cliError(
-        'Invalid JSON input. Expected an array of task objects.',
-        'E_VALIDATION',
-        { name: 'E_VALIDATION', fix: 'Ensure the input is a valid JSON array of task objects' },
+        (err as Error).message,
+        ExitCode.VALIDATION_ERROR,
+        {
+          name: 'E_VALIDATION_FAILED',
+          fix: 'Verify the JSON syntax of your --params / --file / stdin input',
+        },
         { operation: 'tasks.add-batch' },
       );
-      process.exitCode = 2;
+      process.exitCode = ExitCode.VALIDATION_ERROR;
       return;
     }
 
-    if (tasks.length === 0) {
+    if (raw === undefined) {
       cliError(
-        'No tasks in input.',
-        'E_VALIDATION',
-        { name: 'E_VALIDATION', fix: 'Provide at least one task object in the JSON array' },
+        'No input provided. Pass --params <json>, --file <path>, or pipe JSON to stdin.',
+        ExitCode.VALIDATION_ERROR,
+        {
+          name: 'E_VALIDATION_FAILED',
+          fix: 'cleo add-batch --file tasks.json',
+        },
         { operation: 'tasks.add-batch' },
       );
-      process.exitCode = 2;
+      process.exitCode = ExitCode.VALIDATION_ERROR;
       return;
     }
 
-    // --- Single dispatch call: all atomicity owned by CORE ---
-    const response = await dispatchRaw('mutate', 'tasks', 'add-batch', {
-      tasks,
-      ...(defaultParent && { defaultParent }),
-      ...(dryRun && { dryRun: true }),
-    });
+    // 2. Normalize the legacy "bare array" shape into the canonical
+    //    `{ tasks: [...] }` payload. The schema-first contract expects an
+    //    object with a `tasks` array — the pre-T9917 CLI accepted a raw
+    //    array on stdin / --file for ergonomics.
+    let payload: Record<string, unknown>;
+    if (Array.isArray(raw)) {
+      payload = { tasks: raw };
+    } else if (
+      raw !== null &&
+      typeof raw === 'object' &&
+      Array.isArray((raw as Record<string, unknown>)['tasks'])
+    ) {
+      payload = { ...(raw as Record<string, unknown>) };
+    } else {
+      // Single-object legacy compat: wrap into a one-element batch.
+      payload = { tasks: [raw] };
+    }
+
+    // 3. Merge CLI flag overlays for --parent / --dry-run. Flags lose to
+    //    explicit fields already present in the payload.
+    if (defaultParent !== undefined && payload['defaultParent'] === undefined) {
+      payload['defaultParent'] = defaultParent;
+    }
+    if (dryRunFlag === true && payload['dryRun'] === undefined) {
+      payload['dryRun'] = true;
+    }
+
+    // 4. Schema-first validation via the SSoT INPUT_CONTRACTS registry.
+    const contract = INPUT_CONTRACTS['tasks.add-batch'];
+    if (!contract) {
+      cliError(
+        'tasks.add-batch contract missing from INPUT_CONTRACTS registry',
+        ExitCode.GENERAL_ERROR,
+        { name: 'E_INTERNAL', fix: 'This is a CLI bug — file an issue' },
+        { operation: 'tasks.add-batch' },
+      );
+      process.exitCode = ExitCode.GENERAL_ERROR;
+      return;
+    }
+    const result = validateOperationInput(contract, payload);
+    if (!result.ok) {
+      cliError(
+        'tasks.add-batch failed: validation',
+        ExitCode.VALIDATION_ERROR,
+        {
+          name: 'E_VALIDATION_FAILED',
+          fix: result.errors[0]?.fix ?? 'Inspect the errors[] payload and correct the input',
+          details: { errors: result.errors },
+        },
+        { operation: 'tasks.add-batch' },
+      );
+      process.exitCode = ExitCode.VALIDATION_ERROR;
+      return;
+    }
+
+    // 5. Single dispatch call — atomicity owned by CORE. `payload` is the
+    //    already-normalized object form that the validator accepted; reuse
+    //    it directly as the wire shape (Record<string, unknown>-compatible).
+    const response = await dispatchRaw('mutate', 'tasks', 'add-batch', payload);
 
     if (!response.success) {
       cliError(

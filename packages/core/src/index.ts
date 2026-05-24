@@ -644,6 +644,8 @@ export { updateTask } from './tasks/update.js';
 // can import them without violating lint-core-first RULE-3 (which bans
 // `@cleocode/core/internal` from CLI command files).
 
+// T9917 (Saga T9855 / E7.4) — INPUT_CONTRACTS registry seeded with tasks.* ops
+export { INPUT_CONTRACTS } from './dispatch/contracts/input-contracts.js';
 // T9915 (Saga T9855 / E7.2) — SSoT input validator over OperationInputContract
 export { validateOperationInput } from './dispatch/validation.js';
 // Setup wizard `--config-json` merger

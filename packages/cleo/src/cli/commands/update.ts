@@ -19,17 +19,20 @@
  * @epic T4454
  */
 
-import { TASK_SEVERITIES } from '@cleocode/contracts';
+import { ExitCode, TASK_SEVERITIES } from '@cleocode/contracts';
 import {
   appendSignedSeverityAttestation,
+  INPUT_CONTRACTS,
   isPipelineTransitionForward,
   isValidPipelineStage,
   parseAcceptanceCriteria,
   TASK_PIPELINE_STAGES,
+  validateOperationInput,
 } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
-import { cliError } from '../renderers/index.js';
+import { collectMutateInput } from '../lib/collect-input.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 /**
  * Update a task by ID, applying only the fields that are explicitly provided.
@@ -41,6 +44,29 @@ export const updateCommand = defineCommand({
       'Update a task. Safe under concurrent invocation — retries on SQLITE_BUSY up to 4 attempts (gh#391).',
   },
   args: {
+    /**
+     * Schema-first input — supersedes all flag-based args when present.
+     *
+     * Accepts a JSON object matching `INPUT_CONTRACTS['tasks.update']`.
+     * The `taskId` MUST be present in the JSON payload (positional
+     * `taskId` arg is ignored in this path).
+     *
+     * @task T9917
+     */
+    params: {
+      type: 'string',
+      description:
+        'Inline JSON object matching INPUT_CONTRACTS["tasks.update"] (T9917). Overrides positional + flags.',
+    },
+    /**
+     * Schema-first input from a JSON file. Same semantics as --params.
+     *
+     * @task T9917
+     */
+    'params-file': {
+      type: 'string',
+      description: 'Path to JSON file matching INPUT_CONTRACTS["tasks.update"] (T9917).',
+    },
     taskId: {
       type: 'positional',
       description: 'Task ID to update',
@@ -249,6 +275,97 @@ export const updateCommand = defineCommand({
     },
   },
   async run({ args, cmd }) {
+    // T9917: schema-first input path. When --params or --params-file is
+    // supplied, collect → validate against INPUT_CONTRACTS['tasks.update']
+    // → dispatch directly. The legacy flag-mapping path is skipped.
+    const paramsArg = args.params as string | undefined;
+    const paramsFileArg = args['params-file'] as string | undefined;
+    if (paramsArg !== undefined || paramsFileArg !== undefined) {
+      const collectArgs: { params?: string; file?: string } = {};
+      if (paramsArg !== undefined) collectArgs.params = paramsArg;
+      if (paramsFileArg !== undefined) collectArgs.file = paramsFileArg;
+
+      let raw: unknown;
+      try {
+        raw = await collectMutateInput(
+          collectArgs,
+          process.stdin as NodeJS.ReadableStream & { isTTY?: boolean },
+        );
+      } catch (err) {
+        cliError(
+          (err as Error).message,
+          ExitCode.VALIDATION_ERROR,
+          {
+            name: 'E_VALIDATION_FAILED',
+            fix: 'Verify the JSON syntax of your --params / --params-file input',
+          },
+          { operation: 'tasks.update' },
+        );
+        process.exit(ExitCode.VALIDATION_ERROR);
+        return;
+      }
+
+      // If the positional `taskId` was passed alongside --params and the
+      // payload omits taskId, fold it in for ergonomics (`cleo update T9917
+      // --params '{"status":"active"}'` should work).
+      if (
+        raw !== null &&
+        typeof raw === 'object' &&
+        !Array.isArray(raw) &&
+        (raw as Record<string, unknown>)['taskId'] === undefined &&
+        args.taskId !== undefined
+      ) {
+        (raw as Record<string, unknown>)['taskId'] = args.taskId;
+      }
+
+      const contract = INPUT_CONTRACTS['tasks.update'];
+      if (!contract) {
+        cliError(
+          'tasks.update contract missing from INPUT_CONTRACTS registry',
+          ExitCode.GENERAL_ERROR,
+          { name: 'E_INTERNAL', fix: 'This is a CLI bug — file an issue' },
+          { operation: 'tasks.update' },
+        );
+        process.exit(ExitCode.GENERAL_ERROR);
+        return;
+      }
+      const validation = validateOperationInput(contract, raw);
+      if (!validation.ok) {
+        cliError(
+          'tasks.update failed: validation',
+          ExitCode.VALIDATION_ERROR,
+          {
+            name: 'E_VALIDATION_FAILED',
+            fix: validation.errors[0]?.fix ?? 'Inspect errors[] and correct the input',
+            details: { errors: validation.errors },
+          },
+          { operation: 'tasks.update' },
+        );
+        process.exit(ExitCode.VALIDATION_ERROR);
+        return;
+      }
+
+      // `raw` is the parsed object that the validator accepted; reuse it
+      // directly as the wire shape (Record<string, unknown>-compatible).
+      const validatedPayload = raw as Record<string, unknown>;
+      const response = await dispatchRaw('mutate', 'tasks', 'update', validatedPayload);
+      if (!response.success) {
+        cliError(
+          response.error?.message ?? 'Update failed',
+          response.error?.code ?? 'E_UPDATE_FAILED',
+          {
+            name: response.error?.code ?? 'E_UPDATE_FAILED',
+            fix: response.error?.fix ?? 'Check task fields and try again',
+          },
+          { operation: 'tasks.update' },
+        );
+        process.exit(1);
+        return;
+      }
+      cliOutput(response.data, { command: 'update', operation: 'tasks.update' });
+      return;
+    }
+
     if (!args.taskId) {
       await showUsage(cmd);
       return;
