@@ -33,10 +33,26 @@ const composeSpawnPayloadMock = vi.fn();
 const getTaskAccessorMock = vi.fn();
 const getActiveSessionMock = vi.fn();
 const execFileSyncMock = vi.fn();
+const execFileMock = vi.fn();
+const existsSyncMock = vi.fn();
 
 vi.mock('node:child_process', () => ({
   execFileSync: (...args: unknown[]) => execFileSyncMock(...args),
+  // packages/worktree/src/git.ts imports both execFile and execFileSync;
+  // mocking only execFileSync caused 'No "execFile" export' errors when
+  // the worktree barrel was loaded via spawn-ops imports.
+  execFile: (...args: unknown[]) => execFileMock(...args),
 }));
+
+vi.mock('node:fs', async () => {
+  const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
+  return {
+    ...actual,
+    // spawn-ops.ts uses existsSync to gate runLintChangesets — the test
+    // expects the script to "exist" so execFileSync is called.
+    existsSync: (...args: unknown[]) => existsSyncMock(...args),
+  };
+});
 
 vi.mock('@cleocode/worktree', async () => {
   const actual = await vi.importActual<typeof import('@cleocode/worktree')>('@cleocode/worktree');
@@ -100,6 +116,8 @@ const { orchestrateSpawn, runLintChangesets } = await import('../spawn-ops.js');
 describe('runLintChangesets — changeset hygiene gate (T10448)', () => {
   it('returns ok=true when the linter exits 0', () => {
     execFileSyncMock.mockReset();
+    existsSyncMock.mockReset();
+    existsSyncMock.mockReturnValueOnce(true);
     execFileSyncMock.mockReturnValueOnce(
       'lint-changesets: 2 entry/entries validated successfully.\n',
     );
@@ -121,6 +139,8 @@ describe('runLintChangesets — changeset hygiene gate (T10448)', () => {
 
   it('returns ok=false with stderr when the linter exits non-zero', () => {
     execFileSyncMock.mockReset();
+    existsSyncMock.mockReset();
+    existsSyncMock.mockReturnValueOnce(true);
     const err = new Error('Command failed: node scripts/lint-changesets.mjs') as Error & {
       stderr?: string;
       stdout?: string;
@@ -141,6 +161,8 @@ describe('runLintChangesets — changeset hygiene gate (T10448)', () => {
 
   it('returns ok=true when the script is absent (non-monorepo graceful degradation)', () => {
     execFileSyncMock.mockReset();
+    existsSyncMock.mockReset();
+    existsSyncMock.mockReturnValueOnce(false);
     // The function checks existsSync before calling execFileSync.
     // In the test environment the script path does not exist, so
     // execFileSync should NOT be called.
