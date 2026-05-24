@@ -156,6 +156,35 @@ jobs:
         # rogue worktrees should exist. The script exits 0 when clean.
         run: node scripts/lint-worktree-location.mjs
 
+  orphan-cleo-dir-check:
+    # T10155 / Saga T9862 SG-WORKTREE-CANON Wave 5 — orphan-`.cleo/` regression
+    # guard. Scans `git diff --diff-filter=A` between the PR base and HEAD for
+    # any newly-added file matching `.claude/worktrees/<sessionId>/.cleo/**`.
+    # Fires with a clear error referencing T9550/T9580 (the two historical
+    # incidents) so the operator can find the in-source regression that
+    # synthesised the rogue path. Complementary to `lint-project-root-anti-
+    # pattern.mjs` (T9584) — that gate catches the source-level anti-pattern;
+    # this one catches the materialised symptom if a brand-new pattern slips
+    # through. Pure static analysis of `git diff` output — no untrusted input.
+    name: Orphan .cleo/ Dir Check (T10155)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history required so `git diff origin/<base>...HEAD` resolves
+          # both ends — shallow clones drop the base ref's commit.
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Resolve PR base ref
+        # `github.base_ref` is unset on pushes; fall back to `main` so direct
+        # pushes to feature branches are still scanned.
+        run: echo "BASE_REF=origin/${{ github.base_ref || 'main' }}" >> $GITHUB_ENV
+      - name: Lint orphan .cleo/ paths in PR-added files
+        run: node scripts/lint-orphan-cleo-dir.mjs --base "$BASE_REF"
+
   agent-outputs-registration:
     # T1617: Require every .md added to .cleo/agent-outputs/ to be registered
     # via (a) cleo docs add, (b) cleo memory observe, or (c) @no-cleo-register
