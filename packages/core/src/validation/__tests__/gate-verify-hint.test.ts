@@ -252,4 +252,81 @@ describe('validateGateVerify — hint field (GH #94 / T919)', () => {
     expect(data.action).toBe('set_all');
     expect(data.hint).toBe('All gates green. Run: cleo complete T104');
   });
+
+  /**
+   * GH #94 / T9900 — Reproduction test for the original bug report.
+   *
+   * Per the canonical contract (ADR-051 Pre-Complete Gate Ritual + policy (b)
+   * in validateGateVerify): `cleo verify` is a write to `task.verification`
+   * ONLY. It MUST NOT mutate `task.status`. Even when the final gate write
+   * drives `verification.passed = true`, the task lifecycle stays put until
+   * an explicit `cleo complete <id>` runs and re-validates evidence
+   * (E_EVIDENCE_STALE protection).
+   *
+   * This test seeds a task with `status: 'pending'` (the exact shape the
+   * GH #94 reporter observed) and asserts:
+   *   1. The engine's response carries `status: 'pending'` after gates green
+   *   2. The hint field directs the user to run `cleo complete`
+   *   3. The task in the data store still has `status: 'pending'`
+   *      (verified by reloading via the accessor)
+   *
+   * @task T9900
+   * @gh 94
+   */
+  it('keeps task.status as pending after all gates green (GH #94 reproduction)', async () => {
+    const taskId = 'T9094';
+    // Seed task with status 'pending' — the exact scenario GH #94 reported
+    // for T448 / T466 (docs tasks shipped at commit d70129a).
+    const accessor = await createSqliteDataAccessor(TEST_ROOT);
+    await seedTasks(accessor, [
+      {
+        id: taskId,
+        title: `GH #94 reproduction task`,
+        type: 'task',
+        status: 'pending',
+        priority: 'medium',
+        acceptance: ['AC1'],
+        files: ['seed.ts'],
+      },
+    ]);
+    await accessor.close();
+    resetDbState();
+
+    // Drive both required gates green via separate verify calls (the path
+    // that GH #94 reported was the one to misbehave).
+    await validateGateVerify(TEST_ROOT, {
+      taskId,
+      gate: 'implemented',
+      value: true,
+      evidence: evidenceFor('implemented'),
+    });
+    resetDbState();
+    const result = await validateGateVerify(TEST_ROOT, {
+      taskId,
+      gate: 'testsPassed',
+      value: true,
+      evidence: evidenceFor('testsPassed'),
+    });
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+
+    // Contract assertion 1 — engine result reports verification.passed=true
+    // but task.status STAYS pending (never auto-transitions to 'done').
+    expect(data.passed).toBe(true);
+    expect(data.missingGates).toHaveLength(0);
+    expect(data.status).toBe('pending');
+
+    // Contract assertion 2 — hint instructs the user to call cleo complete.
+    expect(data.hint).toBe(`All gates green. Run: cleo complete ${taskId}`);
+
+    // Contract assertion 3 — re-read from the store confirms persistence:
+    // verification is set, but the lifecycle status is untouched.
+    resetDbState();
+    const verifyAccessor = await createSqliteDataAccessor(TEST_ROOT);
+    const reloaded = await verifyAccessor.loadSingleTask(taskId);
+    await verifyAccessor.close();
+    expect(reloaded).toBeDefined();
+    expect(reloaded?.status).toBe('pending');
+    expect(reloaded?.verification?.passed).toBe(true);
+  });
 });

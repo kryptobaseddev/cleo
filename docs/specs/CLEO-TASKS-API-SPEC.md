@@ -339,6 +339,45 @@ cleo complete T###
 The HTTP equivalent (PROPOSED) is `POST /api/tasks/:id/verify` per
 `docs/specs/CLEO-STUDIO-HTTP-SPEC.md` §2.
 
+### 7.1 Contract — `cleo verify` NEVER auto-completes a task (GH #94)
+
+A `cleo verify` write is scoped exclusively to `task.verification.*`. Even
+when the final gate write drives `verification.passed = true`, the engine
+**never** mutates `task.status`. Closing a task is a separate, explicit
+action: the user (or orchestrator) MUST call `cleo complete <id>`, which
+re-validates every hard evidence atom (commit reachability, file sha256,
+test-run hash) before flipping `status → done`.
+
+This is the canonical contract per ADR-051 §10 (Pre-Complete Gate Ritual) and
+is enforced in `packages/core/src/validation/engine-ops.ts` (the comment
+labelled "policy (b): verify NEVER auto-completes"). The decision rests on
+two operational invariants:
+
+1. **Evidence staleness protection.** If `verify` auto-flipped status,
+   nothing would force the staleness re-check at `complete` time. An agent
+   could verify, then tamper with files, and the status would already be
+   `done` — bypassing the E_EVIDENCE_STALE guard entirely.
+2. **Lifecycle audit clarity.** Every status transition to `done` MUST be
+   accompanied by an explicit `cleo complete` audit entry. Coupling `verify`
+   and `complete` would blur the audit trail and break per-task evidence
+   re-validation.
+
+The engine emits a `hint` field on every gate write that drives
+`verification.passed = true`, so the agent knows the next step:
+
+```json
+{
+  "taskId": "T###",
+  "passed": true,
+  "missingGates": [],
+  "hint": "All gates green. Run: cleo complete T###"
+}
+```
+
+**Reference**: `packages/core/src/validation/__tests__/gate-verify-hint.test.ts`
+(GH #94 reproduction test asserts `status: 'pending'` is preserved after
+all gates pass).
+
 ---
 
 ## 8. External Task Links (sync)
