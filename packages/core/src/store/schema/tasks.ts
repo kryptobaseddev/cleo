@@ -219,6 +219,69 @@ export const tasks = sqliteTable(
   ],
 );
 
+// === TASK ACCEPTANCE CRITERIA (T10502 · ADR-079-r1) ===
+
+/**
+ * Acceptance criteria stored as first-class rows (one row per AC clause),
+ * replacing the legacy JSON-array `tasks.acceptanceJson` column for new
+ * writes per ADR-079-r1 §2.1 + §2.2 (Saga T10377 SG-IVTR-AC-BINDING,
+ * Epic T10381 E-AC-MIGRATION, Task T10502 Wave 2a).
+ *
+ * Identity model:
+ *   - `id` is a canonical UUIDv4 generated at creation (`crypto.randomUUID()`).
+ *     Immutable across edits; binds Validator verdicts, `satisfies:` evidence
+ *     atoms, and CI gate references.
+ *   - `ordinal` is the 1-based positional alias (`AC<n>`) for human + agent
+ *     display. Monotonic per-task insertion order, **never reused** when an
+ *     AC is deleted (per §2.2: deletion leaves a gap, never back-fills).
+ *
+ * The UNIQUE INDEX on (taskId, ordinal) guarantees no two ACs on the same
+ * task share an ordinal — protecting the alias-resolution path used by
+ * spawn prompts and `cleo show`.
+ *
+ * `contentHash` is an optional sha256(text) snapshot used by the future
+ * `_history` companion table (§2.3) for drift detection on text edits.
+ * Writers MAY leave it NULL; readers MUST treat NULL as "drift detection
+ * unavailable" rather than as "text unchanged".
+ *
+ * Subsequent waves in T10381 add `task_acceptance_criteria_history`
+ * (T10503) and `evidence_ac_bindings` (T10504) — this PR establishes the
+ * canonical AC table the others reference via FK.
+ *
+ * @adr  ADR-079-r1 §2.1 §2.2 §4.2
+ * @saga T10377
+ * @epic T10381
+ * @task T10502
+ * @decision D013
+ */
+export const taskAcceptanceCriteria = sqliteTable(
+  'task_acceptance_criteria',
+  {
+    /** Canonical stable ID — UUIDv4 generated at AC creation, immutable. */
+    id: text('id').primaryKey(),
+    /** Owning task. ON DELETE CASCADE — ACs are owned by the task lifecycle. */
+    taskId: text('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    /** 1-based insertion-order alias used by the AC<n> display label. */
+    ordinal: integer('ordinal').notNull(),
+    /** The AC statement itself — editable; edits append to _history (T10503). */
+    text: text('text').notNull(),
+    /** ISO-8601 creation timestamp. */
+    createdAt: text('created_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
+    /** ISO-8601 last-edit timestamp. NULL until first edit. */
+    updatedAt: text('updated_at'),
+    /** Optional sha256(text) snapshot — populated by writers for drift detection. */
+    contentHash: text('content_hash'),
+  },
+  (table) => [
+    // FK lookup path — `WHERE task_id = ?` is the dominant access pattern.
+    index('idx_task_acceptance_criteria_task_id').on(table.taskId),
+    // Alias-resolution + invariant: no two ACs share an ordinal on the same task.
+    unique('uq_task_acceptance_criteria_task_ordinal').on(table.taskId, table.ordinal),
+  ],
+);
+
 // === TASK DEPENDENCIES ===
 
 export const taskDependencies = sqliteTable(
