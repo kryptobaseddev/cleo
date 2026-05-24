@@ -167,6 +167,9 @@ export function renderChangesetMarkdown(entry: ChangesetEntry): string {
  * }
  * ```
  */
+// SSoT-EXEMPT: legacy T9793 entry/opts shape (predates ADR-057 uniform signature);
+// migrating to (projectRoot, params) is a separate sweep (T10367 scopes only the
+// docs-add delegation wire, not the writer-signature normalisation).
 export async function writeChangesetEntry(
   entry: ChangesetEntry,
   opts: WriteChangesetOptions,

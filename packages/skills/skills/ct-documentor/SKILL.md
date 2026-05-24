@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Coordinates ct-docs-lookup, ct-docs-write, ct-docs-review, ct-spec-writer, and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.4.0
+version: 3.5.0
 tier: 3
 core: false
 category: specialist
@@ -240,6 +240,29 @@ T10366 establishes the registry contract; T10367 (docs add) and T10368
 `WriterRegistry.write()` returns `E_NOT_IMPLEMENTED` after consulting the
 allocator — callers should continue invoking the existing writers
 (`cleo docs add` dispatch handler, `writeChangesetEntry`) directly.
+
+**T10367 LIVE — `cleo docs add --type changeset` delegates to
+`writeChangesetEntry`.** The dispatch handler in
+`packages/cleo/src/dispatch/domains/docs.ts` now branches on
+`payload.type === 'changeset'` and routes the call through the
+canonical dual-write transaction. This eliminates the second writer
+for the `changeset` DocKind (the SG-DOCS-INTEGRITY invariant) — the
+bytes that land on `.changeset/<slug>.md` AND the SSoT blob are
+byte-identical regardless of which verb the operator invoked. The
+`cleo changeset add` CLI remains the friendlier authoring surface
+(it prompts for every required frontmatter field) while
+`cleo docs add --type changeset --file <path>` works for agents that
+already have a fully-formed changeset markdown blob in hand.
+
+Contract for the docs-add path:
+- The input file MUST carry valid changeset frontmatter
+  (`id`, `tasks`, `kind`, `summary`). Missing → `E_REQUIRES_CHANGESET_VERB`
+  with a fix hint pointing at `cleo changeset add` for guided authoring.
+- When `--slug` is also passed it MUST match the frontmatter `id`
+  (the frontmatter is canonical) — divergence → `E_SLUG_MISMATCH`.
+- The LAFS envelope on success carries `data.type === 'changeset'`,
+  `data.slug`, `data.attachmentId`, and `data.sha256` — round-trip
+  identical to what `cleo changeset add` emits.
 
 ### Slug similarity warn (T10361 · closes T10167)
 
