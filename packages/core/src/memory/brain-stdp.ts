@@ -112,6 +112,76 @@ const DEFAULT_LOOKBACK_DAYS = 30;
 const DEFAULT_PAIRING_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 h
 
 // ============================================================================
+// Retention defaults (T10348 — Saga T10281 / Epic T10286 E5-BRAIN-P0-HOTFIX)
+// ============================================================================
+
+/**
+ * Default retention window (days) for `brain_plasticity_events`.
+ *
+ * Rows older than this many days are deleted by `pruneStaleHistory()` after
+ * every `runConsolidation` pass. T10301 RCA established that this table grew
+ * from 19K → 3.57M rows in 19 days (182×) under heavy consolidation traffic
+ * because the table is append-only with no DELETE path. 30 days matches the
+ * STDP `lookbackDays` window — events older than the STDP read horizon have
+ * no further influence on plasticity computations, so they are safe to prune.
+ *
+ * @task T10348
+ * @epic T10286
+ */
+export const MAX_PLASTICITY_EVENTS_RETENTION_DAYS = 30;
+
+/**
+ * Default retention window (days) for `brain_weight_history`.
+ *
+ * Rows older than this many days are deleted by `pruneStaleHistory()` after
+ * every `runConsolidation` pass. The schema-level comment on
+ * `brainWeightHistory` (see `packages/core/src/store/memory-schema.ts`) states
+ * "Retention policy: rolling 90 days" but that pruning was never wired —
+ * T10348 wires it at 30 days (matching plasticity_events) to bound growth on
+ * the larger of the two append-only logs.
+ *
+ * @task T10348
+ * @epic T10286
+ */
+export const MAX_WEIGHT_HISTORY_RETENTION_DAYS = 30;
+
+/**
+ * Hard row-count cap for `brain_plasticity_events`.
+ *
+ * Acts as a defensive upper bound when retention-by-days alone is insufficient
+ * (e.g. a single day producing > MAX rows under unusually heavy consolidation
+ * traffic, as happened on 2026-05-12 when 1.17M rows were inserted in 24 h).
+ * When the table exceeds this cap, `pruneStaleHistory()` deletes the oldest
+ * rows by `timestamp ASC` until the count is back under the cap.
+ *
+ * @task T10348
+ * @epic T10286
+ */
+export const MAX_PLASTICITY_EVENTS_ROW_CAP = 50_000;
+
+/**
+ * Hard row-count cap for `brain_weight_history` — companion to
+ * `MAX_PLASTICITY_EVENTS_ROW_CAP`. Same semantics.
+ *
+ * @task T10348
+ * @epic T10286
+ */
+export const MAX_WEIGHT_HISTORY_ROW_CAP = 50_000;
+
+/**
+ * Row-deletion threshold above which `pruneStaleHistory()` emits a
+ * `[pruneStaleHistory]` Pino info-level message. Below this threshold the
+ * prune is silent. The threshold matches the T10301 RCA recommendation
+ * ("optionally VACUUM if rows-deleted > 10_000") but `pruneStaleHistory()`
+ * does NOT auto-run VACUUM — VACUUM under WAL is a heavyweight blocking
+ * operation that should be operator-driven (see `cleo doctor --vacuum`).
+ *
+ * @task T10348
+ * @epic T10286
+ */
+export const PRUNE_HISTORY_LOG_THRESHOLD = 10_000;
+
+// ============================================================================
 // Reward backfill types
 // ============================================================================
 
@@ -1766,6 +1836,231 @@ export async function applyHomeostaticDecay(
     } catch {
       // per-edge failure is non-fatal
     }
+  }
+
+  return result;
+}
+
+// ============================================================================
+// T10348 — Retention discipline for brain_plasticity_events + brain_weight_history
+// ============================================================================
+
+/**
+ * Options for `pruneStaleHistory`.
+ *
+ * @task T10348
+ * @epic T10286
+ */
+export interface PruneStaleHistoryOptions {
+  /**
+   * Retention window (days) applied to BOTH tables. Rows older than this
+   * many days are deleted. Default: 30 (see
+   * `MAX_PLASTICITY_EVENTS_RETENTION_DAYS`).
+   *
+   * Operators can disable retention entirely by setting
+   * `CLEO_BRAIN_HISTORY_RETENTION_DAYS=0` in the environment — when that env
+   * var is `0`, `pruneStaleHistory()` is a no-op regardless of this option.
+   */
+  retentionDays?: number;
+  /**
+   * Hard row cap for `brain_plasticity_events`. After the age-based prune,
+   * if the row count still exceeds this number, the oldest rows are deleted
+   * by `timestamp ASC` until the count is back under the cap. Default:
+   * `MAX_PLASTICITY_EVENTS_ROW_CAP`.
+   */
+  plasticityEventsRowCap?: number;
+  /**
+   * Hard row cap for `brain_weight_history`. Same semantics as
+   * `plasticityEventsRowCap`. Default: `MAX_WEIGHT_HISTORY_ROW_CAP`.
+   */
+  weightHistoryRowCap?: number;
+}
+
+/**
+ * Result returned by `pruneStaleHistory`.
+ *
+ * @task T10348
+ * @epic T10286
+ */
+export interface PruneStaleHistoryResult {
+  /** Number of rows deleted from `brain_plasticity_events`. */
+  plasticityEventsDeleted: number;
+  /** Number of rows deleted from `brain_weight_history`. */
+  weightHistoryDeleted: number;
+  /** Whether retention was skipped (env override set to 0). */
+  skipped: boolean;
+}
+
+/**
+ * Prune stale rows from `brain_plasticity_events` and `brain_weight_history`.
+ *
+ * The two tables are STDP-driven append-only event logs. Per the T10301 RCA,
+ * unbounded growth (19K → 3.57M rows, 446 MB + 458 MB across 19 days) caused
+ * `brain.db` to reach 1.7 GB and contributed to the malformation incident
+ * (Saga T10281). T10348 wires retention discipline behind this single chokepoint.
+ *
+ * ### Two-stage prune
+ *
+ * 1. **Age-based**: delete rows with `timestamp` / `changed_at` older than
+ *    `retentionDays` days (default 30 — matches STDP `lookbackDays`).
+ * 2. **Row-cap fallback**: after step 1, if the table is still over its row
+ *    cap, delete the oldest remaining rows until under the cap.
+ *
+ * ### Operator override
+ *
+ * `CLEO_BRAIN_HISTORY_RETENTION_DAYS=0` disables both stages entirely. Any
+ * positive integer value REPLACES `retentionDays` (the option still wins if
+ * passed explicitly — env is only consulted when no option is passed).
+ *
+ * ### Best-effort semantics
+ *
+ * Every SQL call is wrapped — missing tables, partial-migration installs,
+ * and per-row errors are all logged silently and never throw. This function
+ * MUST NEVER block `runConsolidation` even when retention storage is wedged.
+ *
+ * ### Logging
+ *
+ * When `plasticityEventsDeleted + weightHistoryDeleted >= PRUNE_HISTORY_LOG_THRESHOLD`
+ * (default 10_000), a single `[pruneStaleHistory]` info line is emitted via
+ * `console.info` so operators can see large prunes in session output. Smaller
+ * prunes are silent. VACUUM is NEVER triggered automatically — heavyweight
+ * compaction stays operator-driven (`cleo doctor --vacuum`).
+ *
+ * @param projectRoot - Project root directory for brain.db resolution
+ * @param options - Retention configuration (see `PruneStaleHistoryOptions`)
+ * @returns Counts of rows deleted from each table
+ *
+ * @task T10348
+ * @epic T10286
+ */
+export async function pruneStaleHistory(
+  projectRoot: string,
+  options?: PruneStaleHistoryOptions,
+): Promise<PruneStaleHistoryResult> {
+  const result: PruneStaleHistoryResult = {
+    plasticityEventsDeleted: 0,
+    weightHistoryDeleted: 0,
+    skipped: false,
+  };
+
+  // ── Operator override: CLEO_BRAIN_HISTORY_RETENTION_DAYS ─────────────────
+  // Explicit option wins; otherwise consult env; otherwise use defaults.
+  let retentionDays: number;
+  if (options?.retentionDays !== undefined) {
+    retentionDays = options.retentionDays;
+  } else {
+    const envRaw = process.env['CLEO_BRAIN_HISTORY_RETENTION_DAYS'];
+    if (envRaw !== undefined && envRaw !== '') {
+      const parsed = Number.parseInt(envRaw, 10);
+      retentionDays =
+        Number.isFinite(parsed) && parsed >= 0 ? parsed : MAX_PLASTICITY_EVENTS_RETENTION_DAYS;
+    } else {
+      retentionDays = MAX_PLASTICITY_EVENTS_RETENTION_DAYS;
+    }
+  }
+
+  // retentionDays === 0 → operator disable. No-op the entire function.
+  if (retentionDays === 0) {
+    result.skipped = true;
+    return result;
+  }
+
+  const plasticityRowCap = options?.plasticityEventsRowCap ?? MAX_PLASTICITY_EVENTS_ROW_CAP;
+  const weightHistoryRowCap = options?.weightHistoryRowCap ?? MAX_WEIGHT_HISTORY_ROW_CAP;
+
+  const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
+  await getBrainDb(projectRoot);
+  const nativeDb = getBrainNativeDb();
+  if (!nativeDb) return result;
+
+  // ── Compute cutoff timestamp ──────────────────────────────────────────────
+  const cutoffMs = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+  // ISO 8601 with space separator to match the format written by INSERT paths
+  // (see brain-stdp.ts:655 nowIso construction).
+  const cutoffIso = new Date(cutoffMs).toISOString().replace('T', ' ').slice(0, 19);
+
+  // ── Stage 1a: age-based prune on brain_plasticity_events ─────────────────
+  try {
+    nativeDb.prepare('SELECT 1 FROM brain_plasticity_events LIMIT 1').get();
+    const stmt = nativeDb.prepare(`DELETE FROM brain_plasticity_events WHERE timestamp < ?`);
+    const info = stmt.run(cutoffIso) as { changes?: number | bigint };
+    const changes = info.changes;
+    result.plasticityEventsDeleted += Number(changes ?? 0);
+  } catch {
+    // table missing or schema drift — non-fatal
+  }
+
+  // ── Stage 1b: age-based prune on brain_weight_history ────────────────────
+  try {
+    nativeDb.prepare('SELECT 1 FROM brain_weight_history LIMIT 1').get();
+    const stmt = nativeDb.prepare(`DELETE FROM brain_weight_history WHERE changed_at < ?`);
+    const info = stmt.run(cutoffIso) as { changes?: number | bigint };
+    const changes = info.changes;
+    result.weightHistoryDeleted += Number(changes ?? 0);
+  } catch {
+    // table missing or schema drift — non-fatal
+  }
+
+  // ── Stage 2a: row-cap fallback on brain_plasticity_events ────────────────
+  try {
+    const row = nativeDb.prepare(`SELECT COUNT(*) AS cnt FROM brain_plasticity_events`).get() as
+      | { cnt?: number | bigint }
+      | undefined;
+    const count = Number(row?.cnt ?? 0);
+    if (count > plasticityRowCap) {
+      const overage = count - plasticityRowCap;
+      // Delete the oldest `overage` rows by timestamp ASC. Use a subquery to
+      // identify the row IDs so we don't depend on LIMIT in DELETE working
+      // across all SQLite builds (node:sqlite uses the bundled amalgamation
+      // which DOES support LIMIT-in-DELETE, but the subquery form is portable
+      // and matches the pattern used elsewhere in the brain pipeline).
+      const stmt = nativeDb.prepare(
+        `DELETE FROM brain_plasticity_events
+         WHERE id IN (
+           SELECT id FROM brain_plasticity_events
+           ORDER BY timestamp ASC, id ASC
+           LIMIT ?
+         )`,
+      );
+      const info = stmt.run(overage) as { changes?: number | bigint };
+      result.plasticityEventsDeleted += Number(info.changes ?? 0);
+    }
+  } catch {
+    // best-effort
+  }
+
+  // ── Stage 2b: row-cap fallback on brain_weight_history ───────────────────
+  try {
+    const row = nativeDb.prepare(`SELECT COUNT(*) AS cnt FROM brain_weight_history`).get() as
+      | { cnt?: number | bigint }
+      | undefined;
+    const count = Number(row?.cnt ?? 0);
+    if (count > weightHistoryRowCap) {
+      const overage = count - weightHistoryRowCap;
+      const stmt = nativeDb.prepare(
+        `DELETE FROM brain_weight_history
+         WHERE id IN (
+           SELECT id FROM brain_weight_history
+           ORDER BY changed_at ASC, id ASC
+           LIMIT ?
+         )`,
+      );
+      const info = stmt.run(overage) as { changes?: number | bigint };
+      result.weightHistoryDeleted += Number(info.changes ?? 0);
+    }
+  } catch {
+    // best-effort
+  }
+
+  // ── Operator-visible log on large prunes ─────────────────────────────────
+  const totalDeleted = result.plasticityEventsDeleted + result.weightHistoryDeleted;
+  if (totalDeleted >= PRUNE_HISTORY_LOG_THRESHOLD) {
+    console.info(
+      `[pruneStaleHistory] Pruned ${result.plasticityEventsDeleted} plasticity_events ` +
+        `+ ${result.weightHistoryDeleted} weight_history rows ` +
+        `(retention=${retentionDays}d). Consider running 'cleo doctor --vacuum' ` +
+        `to reclaim disk space.`,
+    );
   }
 
   return result;
