@@ -55,6 +55,8 @@
     "version:bump": "node scripts/version-all.mjs",
     "cleo:dev": "node --disable-warning=ExperimentalWarning packages/cleo/dist/cli/index.js",
     "gen:llm-catalog": "node scripts/generate-llm-catalog.mjs",
+    "render:invariants": "pnpm --filter @cleocode/contracts run build:ts && node packages/contracts/scripts/render-invariants-docs.mjs",
+    "render:invariants:check": "pnpm --filter @cleocode/contracts run build:ts && node packages/contracts/scripts/render-invariants-docs.mjs --check",
     "hooks:install": "simple-git-hooks"
   },
   "simple-git-hooks": {
