@@ -1,15 +1,17 @@
 /**
- * Docs Domain Operations Contract (5 operations)
+ * Docs Domain Operations Contract (7 operations)
  *
  * Query operations: 3
- * Mutate operations: 2
+ * Mutate operations: 4
  *
  * Docs domain handles attachment management and document generation via `cleo docs`:
- *   - add     — attach a local file or URL to a CLEO owner entity (task, session, observation)
- *   - list    — list attachments for an owner entity
- *   - generate — generate llms.txt summary for a task/epic, optionally attach as blob
- *   - fetch   — retrieve attachment bytes and metadata by ID or SHA-256
- *   - remove  — remove an attachment ref; purges blob when refCount hits zero
+ *   - add        — attach a local file or URL to a CLEO owner entity (task, session, observation)
+ *   - list       — list attachments for an owner entity
+ *   - generate   — generate llms.txt summary for a task/epic, optionally attach as blob
+ *   - fetch      — retrieve attachment bytes and metadata by ID or SHA-256
+ *   - remove     — remove an attachment ref; purges blob when refCount hits zero
+ *   - update     — UPDATE-in-place via slug (T10161)
+ *   - supersede  — atomically flip an older doc to `superseded` and link it to its successor (T10162)
  *
  * Owner type is auto-detected from the owner ID prefix:
  *   T###        → 'task'
@@ -576,6 +578,62 @@ export interface DocsUpdateResult {
   squashed: boolean;
 }
 
+// --------------------------------------------------------------------------
+// docs.supersede — flip an old doc to `superseded` and point at its successor
+// --------------------------------------------------------------------------
+
+/**
+ * Parameters for `docs.supersede`.
+ *
+ * Both `oldSlug` and `newSlug` reference rows on `attachments.slug`. The
+ * operation is atomic: either both rows update (and the lifecycle flip lands)
+ * or neither does.
+ *
+ * @task T10162 (Saga T9855 · Epic T10157 · ADR-078)
+ */
+export interface DocsSupersedeParams {
+  /** Slug of the doc being replaced. */
+  oldSlug: string;
+  /** Slug of the doc that replaces {@link oldSlug}. */
+  newSlug: string;
+  /**
+   * Optional human-readable reason surfaced on the response envelope and
+   * preserved by future provenance-graph reads (T10166 `summary` field on
+   * the `supersedes` edge). Not persisted to a dedicated column today.
+   */
+  reason?: string;
+}
+
+/**
+ * Result of `docs.supersede`.
+ *
+ * @task T10162 (Saga T9855 · Epic T10157 · ADR-078)
+ */
+export interface DocsSupersedeResult {
+  /** Slug of the doc that was just superseded. */
+  oldSlug: string;
+  /** Slug of the new doc that supersedes {@link oldSlug}. */
+  newSlug: string;
+  /** Attachment ID resolved from {@link oldSlug}. */
+  oldAttachmentId: string;
+  /** Attachment ID resolved from {@link newSlug}. */
+  newAttachmentId: string;
+  /** ISO-8601 timestamp the supersession was recorded. */
+  supersededAt: string;
+  /**
+   * Stable identifier for the lineage edge minted by this call.
+   *
+   * The edge itself is not stored in a dedicated table — it is reconstructed
+   * at read time from `attachments.supersedes` / `attachments.superseded_by`
+   * by `cleo docs provenance` (T10166). The ID is deterministic
+   * (`supersedes:<newAttachmentId>->&<oldAttachmentId>`) so concurrent callers
+   * that win the transaction race observe a stable value.
+   */
+  edgeId: string;
+  /** Optional reason carried through from the request. */
+  reason?: string;
+}
+
 // ============================================================================
 // Discriminated Union (DocsOps)
 // ============================================================================
@@ -596,7 +654,8 @@ export type DocsOps =
   | { op: 'docs.generate'; params: DocsGenerateParams; result: DocsGenerateResult }
   | { op: 'docs.add'; params: DocsAddParams; result: DocsAddResult }
   | { op: 'docs.remove'; params: DocsRemoveParams; result: DocsRemoveResult }
-  | { op: 'docs.update'; params: DocsUpdateParams; result: DocsUpdateResult };
+  | { op: 'docs.update'; params: DocsUpdateParams; result: DocsUpdateResult }
+  | { op: 'docs.supersede'; params: DocsSupersedeParams; result: DocsSupersedeResult };
 
 /**
  * Enumeration of all docs domain operation names.
@@ -611,4 +670,5 @@ export type DocsOp =
   | 'docs.generate'
   | 'docs.add'
   | 'docs.remove'
-  | 'docs.update';
+  | 'docs.update'
+  | 'docs.supersede';
