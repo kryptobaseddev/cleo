@@ -66,11 +66,11 @@
     "packages/cleo/src/cli/commands/snapshot.ts:42",
     "packages/cleo/src/cli/commands/status.ts:289",
     "packages/cleo/src/cli/commands/worktree.ts:274",
-    "packages/cleo/src/cli/index.ts:330",
+    "packages/cleo/src/cli/index.ts:348",
     "packages/mcp-adapter/src/server.ts:127",
     "packages/mcp-adapter/src/server.ts:133",
     "packages/mcp-adapter/src/server.ts:137",
     "packages/nexus/src/__tests__/bench-nexus.ts:389"
   ],
-  "updatedAt": "2026-05-24T11:24:03.061Z"
+  "updatedAt": "2026-05-24T12:03:31.616Z"
 }

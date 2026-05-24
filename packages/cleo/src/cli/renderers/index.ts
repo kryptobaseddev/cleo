@@ -103,8 +103,10 @@ import { applyFieldFilter, extractFieldFromResult } from '@cleocode/lafs';
 import type { DispatchResponseMeta } from '../../dispatch/types.js';
 import { getFieldContext } from '../field-context.js';
 import { getFormatContext } from '../format-context.js';
+import { getOutputMode } from '../output-context.js';
 import { emitLafsViolation, LafsViolationError, validateLafsShape } from './lafs-validator.js';
 import { normalizeForHuman } from './normalizer.js';
+import { renderOutputMode } from './output-mode.js';
 
 export type { RenderWavesMode, RenderWavesOptions } from '@cleocode/core';
 export { renderWaves };
@@ -332,6 +334,20 @@ export interface CliOutputOptions {
 export function cliOutput(data: unknown, opts: CliOutputOptions): void {
   const ctx = getFormatContext();
   const fieldCtx = getFieldContext();
+  const outputMode = getOutputMode();
+
+  // T9930 — --output {id|table|count|silent} re-renders the canonical envelope
+  // payload into the alternative shape the caller asked for. `--field` (T9929)
+  // takes precedence: when both are set, the field extraction below runs first
+  // and short-circuits to a scalar projection, never reaching this switch.
+  // `envelope` mode (default) falls through to the existing human/JSON paths.
+  if (outputMode !== 'envelope' && !fieldCtx.field) {
+    const out = renderOutputMode(outputMode, data);
+    if (out.text !== null && out.text.length > 0) {
+      process.stdout.write(out.text + '\n');
+    }
+    return;
+  }
 
   // T9929 (Saga T9855 / E9) — RFC 6901 JSON Pointer extraction.
   //
@@ -637,6 +653,15 @@ export function cliError(
   meta?: Partial<CliMeta>,
 ): void {
   const ctx = getFormatContext();
+  const outputMode = getOutputMode();
+
+  // T9930 — --output silent suppresses success stdout but failures still need
+  // a 1-line operator-visible signal on stderr. Skip the LAFS envelope (which
+  // would normally go to stdout) so the silent contract is preserved.
+  if (outputMode === 'silent') {
+    process.stderr.write(`Error: ${message}${code ? ` (${code})` : ''}\n`);
+    return;
+  }
 
   if (ctx.format === 'human') {
     process.stderr.write(`Error: ${message}${code ? ` (${code})` : ''}\n`);
