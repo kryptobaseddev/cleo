@@ -1,5 +1,6 @@
 /**
- * Registry-driven post-release invariants gate (ADR-056 D5).
+ * Registry-driven post-release invariants gate (ADR-056 D5) — EXECUTABLE
+ * subsystem catalogued by the central invariants registry.
  *
  * Defines the registration API + execution loop for release-time invariants.
  * This module is intentionally generic: it knows nothing about archiveReason,
@@ -12,11 +13,37 @@
  * plumbing on top of T1411's already-scoped hook code retires the entire
  * class of drift bugs that ADR-054's six patches paid for ad-hoc.
  *
+ * ---
+ *
+ * **Relationship to the central invariants registry (`@cleocode/contracts`):**
+ *
+ * The central registry at `packages/contracts/src/invariants/` is the SSoT
+ * for invariant *metadata* — every system-wide invariant carries an entry
+ * with `(adr, code, name, severity, runtimeGate, tests)` for cross-system
+ * tooling (R4 CI gate, R6 doctor audit, R8 docs renderer).
+ *
+ * This module is the *executable* counterpart specific to release-time
+ * reconciliation. ADR-056 D5 is registered in the central registry
+ * (`packages/contracts/src/invariants/adr-056-release.ts`); the `runtimeGate`
+ * field of that entry points HERE (the `runInvariants` export below). The
+ * central entry is the catalogue; this module is the implementation.
+ *
+ * Consumers wanting to enumerate ADR-056 metadata SHOULD call
+ * `getInvariantsByAdr('ADR-056')` from `@cleocode/contracts`. Consumers
+ * wanting to register or run an executable release-time invariant continue
+ * to use `registerInvariant` / `runInvariants` from this module.
+ *
  * @task T1411
  * @epic T1407
  * @adr ADR-056 D5
+ * @see packages/contracts/src/invariants/adr-056-release.ts — central metadata entry
+ * @see ADR-056-db-ssot-and-release-completion-invariant.md §Decision D5
  */
 
+import {
+  type RegisteredInvariant as CentralRegisteredInvariant,
+  getInvariantsByAdr,
+} from '@cleocode/contracts';
 import { getProjectRoot } from '../../paths.js';
 
 /**
@@ -93,10 +120,22 @@ export interface InvariantReport {
 }
 
 /**
- * Specification for a registered invariant.
+ * Specification for a registered EXECUTABLE release invariant.
  *
  * `check` is invoked once per `runInvariants(tag, …)` call; it MUST be
  * idempotent on dry-run inputs and idempotent-on-success on live inputs.
+ *
+ * NOTE: this type is distinct from
+ * `@cleocode/contracts`'s `RegisteredInvariant` — that one is the
+ * cross-system *metadata* shape (`adr`, `code`, `name`, `severity`,
+ * `runtimeGate`, `tests`). The two registries serve complementary roles:
+ *
+ * - **Central (metadata):** catalogues every invariant for tooling
+ *   (CI gate, doctor audit, docs renderer).
+ * - **Release (executable):** runs reconciliation logic per release tag.
+ *
+ * @see RegisteredReleaseInvariant — canonical alias going forward.
+ * @see CentralRegisteredInvariant — metadata counterpart from contracts.
  */
 export interface RegisteredInvariant {
   /** Stable identifier (kebab-case recommended). */
@@ -108,6 +147,15 @@ export interface RegisteredInvariant {
   /** Implementation that performs the check (and reconciliation, if applicable). */
   check: (options: InvariantRunOptions) => Promise<InvariantResult>;
 }
+
+/**
+ * Canonical alias for the executable release-invariant shape.
+ *
+ * Prefer this name in new code; the bare `RegisteredInvariant` export is
+ * preserved as a backward-compatible alias for existing consumers
+ * (archive-reason-invariant.ts, the release barrel, etc.).
+ */
+export type RegisteredReleaseInvariant = RegisteredInvariant;
 
 /**
  * Module-local registry. Single global instance — invariants register on
@@ -208,4 +256,25 @@ export async function runInvariants(
     ...aggregate,
     results,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Central registry bridge (T10339 — R5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Return the ADR-056 metadata entries from the central invariants registry
+ * (`@cleocode/contracts`).
+ *
+ * This release-side module is the executable subsystem catalogued by
+ * ADR-056 D5 in the central registry. Consumers (doctor audit, docs
+ * renderer, the CI gate added by R4 T10338) can use this helper to surface
+ * the metadata for every ADR-056 decision without reaching across into
+ * `@cleocode/contracts` directly.
+ *
+ * @returns The six ADR-056 metadata entries (D1..D6) in declaration order.
+ * @see packages/contracts/src/invariants/adr-056-release.ts
+ */
+export function getRegisteredAdr056Invariants(): CentralRegisteredInvariant[] {
+  return getInvariantsByAdr('ADR-056');
 }
