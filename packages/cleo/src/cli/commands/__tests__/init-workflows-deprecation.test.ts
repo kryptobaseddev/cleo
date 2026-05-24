@@ -17,6 +17,7 @@
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { drainWarnings } from '@cleocode/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock the renderer so cliOutput / cliError do not actually print and become
@@ -62,37 +63,32 @@ async function invoke(cmd: CittyCommand, args: RunArgs): Promise<void> {
 
 let tempRoot = '';
 let cwdSpy: ReturnType<typeof vi.spyOn>;
-let stderrSpy: ReturnType<typeof vi.spyOn>;
-const stderrWrites: string[] = [];
 
 beforeEach(() => {
   tempRoot = mkdtempSync(join(tmpdir(), 'cleo-init-workflows-test-'));
   vi.clearAllMocks();
-  stderrWrites.length = 0;
+  // Drain any residual warnings queued by previous tests so this suite's
+  // assertions see only what the init handler emitted.
+  drainWarnings();
   cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(tempRoot);
-  stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(((
-    chunk: string | Uint8Array,
-  ) => {
-    stderrWrites.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf-8'));
-    return true;
-  }) as never);
 });
 
 afterEach(() => {
   cwdSpy.mockRestore();
-  stderrSpy.mockRestore();
   if (tempRoot) rmSync(tempRoot, { recursive: true, force: true });
 });
 
 describe('cleo init --workflows (T9888 deprecation alias)', () => {
-  it('writes the deprecation warning to stderr', async () => {
+  it('emits a W_INIT_WORKFLOWS_DEPRECATED warning into the envelope', async () => {
     await invoke(initCommand, { workflows: true, 'dry-run': true });
 
-    const joined = stderrWrites.join('');
-    expect(joined).toMatch(/\[deprecated\]/);
-    expect(joined).toMatch(/cleo init --workflows/);
-    expect(joined).toMatch(/cleo templates install --kind workflow/);
-    expect(joined).toMatch(/v2026\.7\.0/);
+    const drained = drainWarnings() ?? [];
+    const warning = drained.find((w) => w.code === 'W_INIT_WORKFLOWS_DEPRECATED');
+    expect(warning, 'expected a W_INIT_WORKFLOWS_DEPRECATED warning').toBeDefined();
+    expect(warning?.message).toMatch(/\[deprecated\]/);
+    expect(warning?.message).toMatch(/cleo init --workflows/);
+    expect(warning?.message).toMatch(/cleo templates install --kind workflow/);
+    expect(warning?.message).toMatch(/v2026\.7\.0/);
   });
 
   it('still installs workflows into .github/workflows/', async () => {
