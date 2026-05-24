@@ -53,7 +53,8 @@ import { parseChangesetDir } from '../changesets/index.js';
 import { getLogger } from '../logger.js';
 import { getCleoDirAbsolute, getProjectRoot } from '../paths.js';
 import { getProjectInfoSync } from '../project-info.js';
-import { SAGA_GROUPS_RELATION, SAGA_LABEL } from '../sagas/constants.js';
+import { SAGA_GROUPS_RELATION } from '../sagas/constants.js';
+import { isSagaShape } from '../sagas/enforcement.js';
 import { atomicWrite } from '../store/atomic.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { getDb } from '../store/sqlite.js';
@@ -455,7 +456,10 @@ async function resolveSagaTasks(sagaId: string, projectRoot: string): Promise<Sa
         memberResolutions: new Map(),
       };
     }
-    if (!(saga.labels ?? []).includes(SAGA_LABEL)) {
+    // T10331 (Saga T10326 W2.B): dual-shape saga detection — accept both the
+    // canonical `type='saga'` row and the legacy label-encoded epic until
+    // W3.C T10334 drops the old clause.
+    if (!isSagaShape(saga)) {
       return {
         tasks: [],
         sagaExists: true,

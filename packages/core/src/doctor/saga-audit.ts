@@ -36,12 +36,9 @@
 
 import type { SagaAuditEntry, SagaAuditResult, SagaAuditViolation } from '@cleocode/contracts';
 import {
-  assertSagaInvariantI5,
   assertSagaInvariantI7,
   isSagaInvariantViolationError,
   SAGA_GROUPS_RELATION,
-  SAGA_LABEL,
-  type SagaTask,
 } from '../sagas/index.js';
 import { taskList } from '../tasks/list.js';
 import { taskShow } from '../tasks/show.js';
@@ -146,18 +143,34 @@ async function measureMemberSubtreeDepth(
  * ```
  */
 export async function auditSagaHierarchy(projectRoot: string): Promise<SagaAuditResult> {
-  // Step 1 — list every saga-labeled epic (ADR-073 I1).
-  const listResult = await taskList(projectRoot, { type: 'epic', label: SAGA_LABEL });
+  // Step 1 — list every saga row (ADR-073 I1). T10331 (Saga T10326 W2.B):
+  // dual-shape sweep — query BOTH the canonical `type='saga'` rows AND the
+  // legacy `type='epic' + label='saga'` rows so not-yet-migrated rows still
+  // surface during the deprecation window. W3.C T10334 collapses to one query.
+  const [newShape, oldShape] = await Promise.all([
+    taskList(projectRoot, { type: 'saga' }),
+    taskList(projectRoot, { type: 'epic', label: 'saga' }),
+  ]);
   const sagas: SagaAuditEntry[] = [];
-  if (!listResult.success || !listResult.data?.tasks) {
+  if (!newShape.success && !oldShape.success) {
     return { sagas: [], count: 0, driftCount: 0 };
   }
 
   let totalInvariantViolations = 0;
   let totalDrift = 0;
 
-  // Iterate sagas in stable id order so the doctor output is deterministic.
-  const sagaRows = (listResult.data.tasks as TaskLike[]).slice().sort((a, b) => {
+  // Merge + dedupe by id, then iterate in stable id order so the doctor
+  // output is deterministic across runs.
+  const seenIds = new Set<string>();
+  const mergedRows: TaskLike[] = [];
+  const newShapeRows: TaskLike[] = newShape.success ? (newShape.data.tasks as TaskLike[]) : [];
+  const oldShapeRows: TaskLike[] = oldShape.success ? (oldShape.data.tasks as TaskLike[]) : [];
+  for (const row of [...newShapeRows, ...oldShapeRows]) {
+    if (!row.id || seenIds.has(row.id)) continue;
+    seenIds.add(row.id);
+    mergedRows.push(row);
+  }
+  const sagaRows = mergedRows.slice().sort((a, b) => {
     return (a.id ?? '').localeCompare(b.id ?? '');
   });
 
@@ -167,32 +180,25 @@ export async function auditSagaHierarchy(projectRoot: string): Promise<SagaAudit
     const violations: SagaAuditViolation[] = [];
 
     // --- I5 check (sagaRow.parentId IS NULL) ---
-    // Reuse the runtime guard so audit + runtime share one definition.
-    // Cast to SagaTask: audit only iterates rows already known to be sagas
-    // (returned by `taskList({ label: 'saga' })` upstream), so the dual-shape
-    // window guarantee in SagaTask holds. T10330 retyped the gate; this
-    // cast is the audit's pre-narrowing handshake (T10331 callsite sweep
-    // will replace with explicit isSagaShape narrowing on a typed task row).
-    try {
-      assertSagaInvariantI5({
-        id: sagaRow.id,
-        labels: sagaRow.labels ?? [],
-        parentId: sagaRow.parentId ?? null,
-        depends: sagaRow.depends ?? [],
-        type: 'epic',
-      } as unknown as SagaTask);
-    } catch (err) {
-      if (isSagaInvariantViolationError(err) && err.diag.invariant === 'I5') {
-        violations.push({
-          kind: 'I5',
-          sagaId: sagaRow.id,
-          offendingId: sagaRow.id,
-          message:
-            `Saga ${sagaRow.id} violates I5: parentId=${sagaRow.parentId ?? '<null>'}` +
-            ` — run \`cleo saga repair ${sagaRow.id}\``,
-          repairCommand: `cleo saga repair ${sagaRow.id}`,
-        });
-      }
+    // T10331 (Saga T10326 W2.B): the audit iterates rows already known to
+    // be sagas (returned by the dual-shape merged query above), so the I5
+    // invariant — `parentId MUST be NULL` (ADR-073 §1.2) — reduces to a
+    // direct field check. We previously cast `TaskLike` to `SagaTask` to
+    // route through `assertSagaInvariantI5`; that cast carried an
+    // `as unknown as` escape hatch and the gate only inspects `parentId`
+    // anyway. Inlining keeps the no-escape-hatch rule (AGENTS.md Type
+    // Safety) and preserves the violation message verbatim.
+    const sagaParentId = sagaRow.parentId ?? null;
+    if (sagaParentId !== null && sagaParentId !== '') {
+      violations.push({
+        kind: 'I5',
+        sagaId: sagaRow.id,
+        offendingId: sagaRow.id,
+        message:
+          `Saga ${sagaRow.id} violates I5: parentId=${sagaRow.parentId ?? '<null>'}` +
+          ` — run \`cleo saga repair ${sagaRow.id}\``,
+        repairCommand: `cleo saga repair ${sagaRow.id}`,
+      });
     }
 
     // --- Load relates so we can audit members ---
