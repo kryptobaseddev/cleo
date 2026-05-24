@@ -28,4 +28,5 @@ export {
   getTemplateById,
   getTemplateManifest,
   getTemplatesByKind,
+  resolveSourcePathAbsolute,
 } from './registry.js';

@@ -21,11 +21,38 @@ import {
   getCanonicalTemplatesTildePath,
   getCleoGlobalCantAgentsDir,
   getCleoHome,
-  getCleoTemplatesDir,
   getCleoTemplatesTildePath,
   getProjectRoot,
 } from './paths.js';
 import { ensureGlobalHome, getPackageRoot } from './scaffold.js';
+import { getTemplateById } from './templates/registry.js';
+
+/**
+ * Resolve the absolute path to the installed `CLEO-INJECTION.md` under the
+ * global CLEO home (`<cleoHome>/<entry.installPath>`).
+ *
+ * Routes through the SSoT registry's `cleo-injection` entry (T9879) so the
+ * install target lives next to the entry's `sourcePath`/`updateStrategy`
+ * declaration rather than in a parallel constant.
+ */
+function getInjectionInstallPath(): string {
+  const entry = getTemplateById('cleo-injection');
+  if (entry === undefined) {
+    throw new Error('SSoT registry missing cleo-injection template entry');
+  }
+  return join(getCleoHome(), entry.installPath);
+}
+
+/**
+ * Resolve the absolute path to the global templates directory.
+ *
+ * Derived as the parent directory of the resolved `cleo-injection`
+ * `installPath` so a single registry entry continues to drive both the
+ * file and the containing directory.
+ */
+function getInjectionInstallDir(): string {
+  return join(getCleoHome(), 'templates');
+}
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -225,7 +252,7 @@ async function ensureGlobalTemplatesBootstrap(
   ctx: BootstrapContext,
   packageRootOverride?: string,
 ): Promise<void> {
-  const globalTemplatesDir = getCleoTemplatesDir();
+  const globalTemplatesDir = getInjectionInstallDir();
 
   if (!ctx.isDryRun) {
     await mkdir(globalTemplatesDir, { recursive: true });
@@ -259,7 +286,7 @@ async function ensureGlobalTemplatesBootstrap(
     return;
   }
 
-  const xdgDest = join(globalTemplatesDir, 'CLEO-INJECTION.md');
+  const xdgDest = getInjectionInstallPath();
   const xdgWritten = await writeTemplateTo(templateContent, xdgDest, ctx.isDryRun);
   ctx.created.push(
     `${getCleoTemplatesTildePath()}/CLEO-INJECTION.md (${xdgWritten ? 'refreshed' : 'would refresh'})`,
@@ -751,7 +778,7 @@ async function verifyBootstrapHealth(ctx: BootstrapContext): Promise<void> {
   if (ctx.isDryRun) return;
 
   try {
-    const xdgTemplatePath = join(getCleoTemplatesDir(), 'CLEO-INJECTION.md');
+    const xdgTemplatePath = getInjectionInstallPath();
     const agentsMd = join(getAgentsHome(), 'AGENTS.md');
 
     if (!existsSync(xdgTemplatePath)) {
