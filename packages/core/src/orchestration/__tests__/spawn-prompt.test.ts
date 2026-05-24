@@ -78,6 +78,16 @@ describe('buildSpawnPrompt — core contract', () => {
     expect(result.prompt).toContain('**Tier**: 2');
   });
 
+  it('includes lint-changesets in quality gates (T10448)', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+    });
+    expect(result.prompt).toContain('lint-changesets');
+    expect(result.prompt).toContain('T10448');
+  });
+
   it('includes every required section in tier 1 prompts', () => {
     const result = buildSpawnPrompt({
       task: BASE_TASK,

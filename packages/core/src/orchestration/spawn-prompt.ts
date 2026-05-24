@@ -1025,30 +1025,7 @@ function buildEvidenceGateBlock(taskId: string): string {
   ].join('\n');
 }
 
-/** Build the changeset-lint hygiene gate block (T10448). */
-function buildChangesetLintGateBlock(projectRoot: string): string {
-  const scriptPath = join(projectRoot, 'scripts', 'lint-changesets.mjs');
-  return [
-    '## Changeset Lint Gate (T10448 — run BEFORE starting work)',
-    '',
-    '> Pre-spawn hygiene check: validate that all `.changeset/*.md` entries are well-formed before you begin implementation.',
-    '> Malformed changesets cause silent aggregator failures downstream. Fail fast here.',
-    '',
-    '```bash',
-    `node ${scriptPath}   # validates every .changeset/*.md file independently`,
-    '```',
-    '',
-    '**If this gate fails**:',
-    '1. Do NOT start implementation.',
-    '2. Fix the malformed changeset(s) listed in the output.',
-    '3. Re-run the lint gate until it passes.',
-    '4. Only then proceed to the Stage-Specific Guidance below.',
-    '',
-    'Canonical kinds: `feat|fix|perf|refactor|docs|test|chore|breaking`.',
-  ].join('\n');
-}
-
-/** Build the quality-gate block — biome + build + test. */
+/** Build the quality-gate block — biome + build + test + changeset hygiene. */
 function buildQualityGateBlock(): string {
   return [
     '## Quality Gates (run before every `cleo complete`)',
@@ -1057,6 +1034,7 @@ function buildQualityGateBlock(): string {
     'pnpm biome ci .        # full repo, strict — same as CI',
     'pnpm run build         # full dep graph build',
     'pnpm run test          # zero new failures vs main',
+    'node scripts/lint-changesets.mjs  # validate .changeset/*.md entries (T10448)',
     'git diff --stat HEAD   # verify the diff matches the story',
     '```',
     '',
