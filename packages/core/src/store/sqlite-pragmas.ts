@@ -62,7 +62,19 @@
  * `journal_mode = WAL` if not already set) silently no-op on read-only
  * handles, which is fine — the writer set WAL when it created the DB.
  *
- * @task T-PERF-PRAGMAS, T9053, T9157
+ * @task T-PERF-PRAGMAS, T9053, T9157, T10313
+ *
+ * @remarks SQLite version pin (T10313, Saga T10281 / Epic T10283 E2-DB-INTEGRITY)
+ *
+ * `specs/sqlite-pragmas.json` declares `sqliteVersionPin.version = "3.51.2"` and
+ * `nodeMinimum = "24.13.0"`. This saga's brain.db malformation (T10281,
+ * 2026-05-23) occurred under node:sqlite v3.51.2 — upstream concurrent-write
+ * race suspected per T10301 RCA (D012). Pin maintained until upstream fix
+ * confirmed via `https://sqlite.org/src/timeline`.
+ *
+ * The pin is enforced as a SOFT pin: `sqlite-version-pin.test.ts` warns when
+ * `process.versions.sqlite` differs from the declared version but does NOT
+ * fail the gate. Hard-pinning here would break every Node minor release.
  */
 
 import type { DatabaseSync } from 'node:sqlite';
