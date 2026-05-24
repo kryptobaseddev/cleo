@@ -96,12 +96,16 @@ export type { EngineResult };
  * milliseconds. Enforced via an {@link AbortController} that races against
  * the spawn pipeline; on expiry an `E_TIMEOUT` envelope is returned.
  *
- * 60s mirrors `DEFAULT_GIT_TIMEOUT_MS` so the wrapper never fires before a
- * single bounded subprocess would have surfaced its own timeout error.
+ * 180s mirrors `DEFAULT_GIT_TIMEOUT_MS` so the wrapper never fires before a
+ * single bounded subprocess would have surfaced its own timeout error. The
+ * prior 60s budget caused every spawn on large-repo monorepos (10k+ files)
+ * to fail with `E_WORKTREE_PROVISION_FAILED` because `git worktree add`
+ * routinely exceeded 60s during cold checkout (T9823).
  *
  * @task T9545
+ * @task T9823
  */
-export const SPAWN_BUDGET_MS = 60_000;
+export const SPAWN_BUDGET_MS = 180_000;
 
 /**
  * Bounded budget for the timeout-cleanup pass (Saga T10176 / D010). Cleanup
@@ -477,6 +481,18 @@ export async function composeSpawnForTask(
      * @task T9226
      */
     spawnCloneExclude?: readonly string[];
+    /**
+     * T9214 / T10430 atomicity waiver. When `'orchestrator-defer'`, flows
+     * through to {@link composeSpawnPayload}'s `scope` option so the worker
+     * file-scope gate records an auditable `atomicity_waiver` rather than
+     * rejecting the spawn with `E_ATOMICITY_NO_SCOPE`. Distinct from
+     * `spawnCloneExclude` (worktree-tree filter) — this governs the
+     * file-scope gate only.
+     *
+     * @task T9214
+     * @task T10430
+     */
+    atomicityScope?: 'orchestrator-defer';
   } = {},
 ): Promise<SpawnPayload> {
   const accessor = await getTaskAccessor(root);
@@ -512,6 +528,10 @@ export async function composeSpawnForTask(
       worktreeBranch: options.worktreeBranch,
       conduitSubscription: options.conduitSubscription,
       spawnCloneExclude: options.spawnCloneExclude,
+      // T10430 — pass the atomicity waiver into the composer. When set to
+      // 'orchestrator-defer', checkAtomicity grants the spawn for a worker
+      // without declared files and stamps atomicity_waiver in the result.
+      ...(options.atomicityScope ? { scope: options.atomicityScope } : {}),
     });
   } finally {
     db.close();
@@ -957,10 +977,19 @@ export async function orchestrateSpawnExecute(
  * @param projectRoot - Optional project root path.
  * @param tier - Optional spawn tier (0=worker, 1=lead, 2=orchestrator).
  * @param noWorktree - If true, skip worktree provisioning.
+ * @param spawnScope - T9807 sparse-checkout cone path (governs the worktree's
+ *   checked-out tree). Distinct from `atomicityScope`.
+ * @param atomicityScope - T9214 / T10430 atomicity waiver. When
+ *   `'orchestrator-defer'`, the composer routes the waiver into
+ *   {@link composeSpawnPayload} so the worker file-scope gate grants the
+ *   spawn and records `atomicity_waiver: 'orchestrator-scope-tier1-call'`
+ *   instead of returning `E_ATOMICITY_NO_SCOPE`.
  * @returns Engine result with spawn prompt data.
  * @task T4478
  * @task T932
  * @task T9545
+ * @task T9214
+ * @task T10430
  */
 export async function orchestrateSpawn(
   taskId: string,
@@ -969,6 +998,7 @@ export async function orchestrateSpawn(
   tier?: 0 | 1 | 2,
   noWorktree?: boolean,
   spawnScope?: string,
+  atomicityScope?: 'orchestrator-defer',
 ): Promise<EngineResult> {
   if (!taskId) {
     return engineError('E_INVALID_INPUT', 'taskId is required');
@@ -1231,6 +1261,10 @@ export async function orchestrateSpawn(
         worktreeBranch,
         conduitSubscription,
         spawnCloneExclude: appliedWorktreeExcludePatterns,
+        // T10430 — forward the atomicity waiver into the composer's scope
+        // option so workers without explicit AC.files can be spawned when
+        // an orchestrator passes `--orchestrator-defer`.
+        ...(atomicityScope ? { atomicityScope } : {}),
       }),
       budgetCtrl.signal,
       'compose-prompt',
