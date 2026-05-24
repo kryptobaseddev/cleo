@@ -23,6 +23,13 @@ jobs:
   prebuild:
     name: Prebuild ${{ matrix.triple }}
     runs-on: ${{ matrix.runner }}
+    # T10479: darwin-x64 (macos-13 Intel) runners are routinely saturated;
+    # mark optional matrix entries non-blocking so a stuck/cancelled build
+    # does not block the rest of the release pipeline. The downstream
+    # "release" job tolerates a missing darwin-x64 binary via the soft-fail
+    # in "Validate prebuilt artifacts" + the publish-skip in publish_pkg.
+    continue-on-error: ${{ matrix.optional == true }}
+    timeout-minutes: ${{ matrix.optional == true && 30 || 60 }}
     strategy:
       fail-fast: false
       matrix:
@@ -39,6 +46,7 @@ jobs:
             runner: macos-13
             triple: darwin-x64
             cross: false
+            optional: true   # T10479: macos-13 runner pool saturated; non-blocking
           - target: aarch64-apple-darwin
             runner: macos-14
             triple: darwin-arm64
@@ -570,18 +578,38 @@ jobs:
 
       - name: Validate prebuilt artifacts
         run: |
-          for triple in linux-x64-gnu linux-arm64-gnu darwin-x64 darwin-arm64 win32-x64-msvc; do
+          # T10479: darwin-x64 is OPTIONAL — macos-13 Intel runner pool is
+          # frequently saturated and routinely blocks releases. A missing
+          # darwin-x64 binary surfaces a workflow warning instead of failing
+          # the release; consumers without a matching prebuilt fall back to
+          # the loader's descriptive error (same behaviour as today).
+          REQUIRED_TRIPLES="linux-x64-gnu linux-arm64-gnu darwin-arm64 win32-x64-msvc"
+          OPTIONAL_TRIPLES="darwin-x64"
+          for triple in $REQUIRED_TRIPLES; do
             file="crates/worktree-napi/worktree-napi.${triple}.node"
             if [ ! -f "$file" ]; then
-              echo "ERROR: Missing artifact $file"
+              echo "ERROR: Missing required artifact $file"
               exit 1
             fi
             size=$(stat -c%s "$file" 2>/dev/null || stat -f%z "$file" 2>/dev/null)
             if [ "$size" -eq 0 ]; then
-              echo "ERROR: Empty artifact $file"
+              echo "ERROR: Empty required artifact $file"
               exit 1
             fi
-            echo "OK: $file ($size bytes)"
+            echo "OK (required): $file ($size bytes)"
+          done
+          for triple in $OPTIONAL_TRIPLES; do
+            file="crates/worktree-napi/worktree-napi.${triple}.node"
+            if [ ! -f "$file" ]; then
+              echo "::warning::Optional artifact missing: $file (T10479 — darwin-x64 prebuild was non-blocking)"
+              continue
+            fi
+            size=$(stat -c%s "$file" 2>/dev/null || stat -f%z "$file" 2>/dev/null)
+            if [ "$size" -eq 0 ]; then
+              echo "::warning::Empty optional artifact $file (T10479)"
+              continue
+            fi
+            echo "OK (optional): $file ($size bytes)"
           done
 
       # ── npm Publish (OIDC Trusted Publishing) ─────────────────────────────────
@@ -724,7 +752,16 @@ jobs:
           # the platform isn't supported at all.
           publish_pkg packages/worktree-napi-linux-x64-gnu
           publish_pkg packages/worktree-napi-linux-arm64-gnu
-          publish_pkg packages/worktree-napi-darwin-x64
+          # T10479: darwin-x64 is optional — skip publish if the binary was
+          # not produced (macos-13 runner pool saturation). The previous
+          # @cleocode/worktree-napi-darwin-x64 version on npm continues to
+          # satisfy Intel-Mac consumers via optionalDependencies until a
+          # later release with an available macos-13 runner re-publishes.
+          if [ -f crates/worktree-napi/worktree-napi.darwin-x64.node ]; then
+            publish_pkg packages/worktree-napi-darwin-x64
+          else
+            echo "SKIP: @cleocode/worktree-napi-darwin-x64 — binary missing (T10479 — non-blocking)"
+          fi
           publish_pkg packages/worktree-napi-darwin-arm64
           publish_pkg packages/worktree-napi-win32-x64-msvc
           publish_pkg crates/worktree-napi
