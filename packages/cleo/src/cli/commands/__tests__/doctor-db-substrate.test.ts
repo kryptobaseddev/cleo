@@ -21,7 +21,7 @@
  * @saga T10281
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -214,6 +214,10 @@ describe('doctor db-substrate (T10307)', () => {
     expect(tasks.sizeBytes).not.toBeNull();
     expect(tasks.error).toBeNull();
     expect(tasks.suggestedFix).toBeNull();
+    // T10312 fields: healthy DB has no quarantine + non-null elapsed.
+    expect(tasks.quarantinedTo).toBeNull();
+    expect(tasks.integrityCheckMs).not.toBeNull();
+    expect(tasks.timedOut).toBe(false);
 
     // brain.db wasn't seeded — should be exists: false.
     const brain = survey.dbs['brain'];
@@ -223,6 +227,10 @@ describe('doctor db-substrate (T10307)', () => {
     expect(brain.integrityOK).toBeNull();
     expect(brain.rowCounts).toBeNull();
     expect(brain.error).toBeNull();
+    // T10312 fields: missing DB has null elapsed + no quarantine.
+    expect(brain.quarantinedTo).toBeNull();
+    expect(brain.integrityCheckMs).toBeNull();
+    expect(brain.timedOut).toBe(false);
   });
 
   it('surfaces integrityOK=false + suggestedFix when the DB is corrupt', async () => {
@@ -242,7 +250,11 @@ describe('doctor db-substrate (T10307)', () => {
     if (!tasks) throw new Error('tasks entry absent');
     expect(tasks.exists).toBe(true);
     expect(tasks.integrityOK).toBe(false);
-    expect(tasks.suggestedFix).toBe('cleo backup recover tasks');
+    // Default auto-quarantine fires — suggestedFix carries the recovery
+    // cmd + the quarantine path inline. The hard recovery command stays
+    // canonical at the start of the string.
+    expect(tasks.suggestedFix).not.toBeNull();
+    expect(tasks.suggestedFix).toContain('cleo backup recover tasks');
 
     // Either error is non-null (open threw) OR integrityOK rolled to false
     // via a non-'ok' pragma result — both branches satisfy the corrupt
@@ -812,5 +824,171 @@ describe('doctor db-substrate (T10307)', () => {
     } finally {
       db.close();
     }
+  });
+
+  // ────────────────────────────────────────────────────────────────────
+  // T10312 — bounded timeout + auto-quarantine
+  // ────────────────────────────────────────────────────────────────────
+
+  it('T10312: auto-quarantines a corrupt DB into .cleo/quarantine/<role>-malformed-<iso>/', async () => {
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const projectRoot = createProjectWithTasksDb('project-auto-quarantine');
+    const tasksDbPath = join(projectRoot, '.cleo', 'tasks.db');
+
+    // Replace healthy tasks.db with garbage AFTER seedHealthyDb wrote it.
+    seedCorruptDb(tasksDbPath);
+
+    // Also create sidecar -wal + -shm so we can verify they're preserved.
+    writeFileSync(`${tasksDbPath}-wal`, 'placeholder wal sidecar');
+    writeFileSync(`${tasksDbPath}-shm`, 'placeholder shm sidecar');
+
+    const result = surveyDbSubstrate(projectRoot);
+    const survey = result.projects[0];
+    if (!survey) throw new Error('survey absent');
+    const tasks = survey.dbs['tasks'];
+    if (!tasks) throw new Error('tasks entry absent');
+
+    // Auto-quarantine fired — the structured envelope carries the path.
+    expect(tasks.integrityOK).toBe(false);
+    expect(tasks.quarantinedTo).not.toBeNull();
+    if (tasks.quarantinedTo === null) throw new Error('quarantinedTo absent');
+
+    // Path lives under <projectRoot>/.cleo/quarantine/tasks-malformed-<iso>/.
+    expect(tasks.quarantinedTo).toContain(join(projectRoot, '.cleo', 'quarantine'));
+    expect(tasks.quarantinedTo).toMatch(/tasks-malformed-/);
+
+    // Corrupt DB has been moved off the live path.
+    expect(existsSync(tasksDbPath)).toBe(false);
+
+    // Quarantine directory contains the .malformed file + both sidecars.
+    expect(existsSync(join(tasks.quarantinedTo, 'tasks.db.malformed'))).toBe(true);
+    expect(existsSync(join(tasks.quarantinedTo, 'tasks.db.malformed-wal'))).toBe(true);
+    expect(existsSync(join(tasks.quarantinedTo, 'tasks.db.malformed-shm'))).toBe(true);
+
+    // suggestedFix carries the recover command + quarantine path so the
+    // operator has a single one-liner without poking at structured fields.
+    expect(tasks.suggestedFix).not.toBeNull();
+    expect(tasks.suggestedFix).toContain('cleo backup recover tasks');
+    expect(tasks.suggestedFix).toContain(tasks.quarantinedTo);
+  });
+
+  it('T10312: --no-quarantine leaves the corrupt DB in place', async () => {
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const projectRoot = createProjectWithTasksDb('project-no-quarantine');
+    const tasksDbPath = join(projectRoot, '.cleo', 'tasks.db');
+    seedCorruptDb(tasksDbPath);
+
+    const result = surveyDbSubstrate(projectRoot, { autoQuarantine: false });
+    const survey = result.projects[0];
+    if (!survey) throw new Error('survey absent');
+    const tasks = survey.dbs['tasks'];
+    if (!tasks) throw new Error('tasks entry absent');
+
+    expect(tasks.integrityOK).toBe(false);
+    expect(tasks.quarantinedTo).toBeNull();
+
+    // Corrupt DB still at the live path — survey did NOT move it.
+    expect(existsSync(tasksDbPath)).toBe(true);
+
+    // suggestedFix is the canonical recover command, no quarantine
+    // addendum since none happened.
+    expect(tasks.suggestedFix).toBe('cleo backup recover tasks');
+  });
+
+  it('T10312: integrityCheckMs is recorded for every existing DB', async () => {
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const projectRoot = createProjectWithTasksDb('project-elapsed');
+
+    const result = surveyDbSubstrate(projectRoot);
+    const survey = result.projects[0];
+    if (!survey) throw new Error('survey absent');
+    const tasks = survey.dbs['tasks'];
+    if (!tasks) throw new Error('tasks entry absent');
+
+    // Healthy DB: integrityCheckMs is non-null and a non-negative number.
+    expect(tasks.integrityCheckMs).not.toBeNull();
+    if (tasks.integrityCheckMs === null) throw new Error('integrityCheckMs null');
+    expect(tasks.integrityCheckMs).toBeGreaterThanOrEqual(0);
+    expect(Number.isFinite(tasks.integrityCheckMs)).toBe(true);
+  });
+
+  it('T10312: timedOut=true when integrity_check elapsed exceeds the configured budget', async () => {
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const projectRoot = createProjectWithTasksDb('project-timeout');
+
+    // A 1-row tasks.db check takes single-digit ms. Pass a ridiculously
+    // small budget (integrityCheckTimeoutMs: -1 disabled; using a very
+    // tight 0.0001 round-trip workaround). Easier: configure 0... but
+    // 0 disables. Use 0.5 ms - but Math.floor in our impl drops sub-ms.
+    // Use the SQL-side fact that `integrity_check` on even an empty DB
+    // takes some non-zero ms by setting timeout to a value just below
+    // the actual elapsed.
+    //
+    // To guarantee determinism in CI, we override the timeout to a tiny
+    // value AND set autoQuarantine to false so we observe the timedOut
+    // flag without the quarantine side-effect.
+    //
+    // We measure once to discover actual elapsed, then re-run with
+    // timeout = elapsed - 1 to guarantee `timedOut: true`. If first
+    // run was 0 ms (very fast DB), we fall back to timeout=0 which is
+    // disabled — assertion is skipped via the `>= 0` early-out check
+    // below.
+    const firstPass = surveyDbSubstrate(projectRoot, { autoQuarantine: false });
+    const firstTasks = firstPass.projects[0]?.dbs['tasks'];
+    if (!firstTasks || firstTasks.integrityCheckMs === null) {
+      throw new Error('first pass elapsed absent');
+    }
+    if (firstTasks.integrityCheckMs <= 1) {
+      // Sub-ms check — the timeout-mechanism still works but we can't
+      // assert it deterministically. Verify the timeout=0 disable branch
+      // instead.
+      const passWithDisabledTimeout = surveyDbSubstrate(projectRoot, {
+        autoQuarantine: false,
+        integrityCheckTimeoutMs: 0,
+      });
+      const t = passWithDisabledTimeout.projects[0]?.dbs['tasks'];
+      expect(t?.timedOut).toBe(false);
+      expect(t?.integrityOK).toBe(true);
+      return;
+    }
+
+    const tightBudget = Math.max(0, firstTasks.integrityCheckMs - 1);
+    const secondPass = surveyDbSubstrate(projectRoot, {
+      autoQuarantine: false,
+      integrityCheckTimeoutMs: tightBudget,
+    });
+    const secondTasks = secondPass.projects[0]?.dbs['tasks'];
+    if (!secondTasks) throw new Error('second pass tasks entry absent');
+
+    expect(secondTasks.timedOut).toBe(true);
+    expect(secondTasks.integrityOK).toBe(false);
+    expect(secondTasks.error).toContain('integrity_check exceeded timeout');
+    expect(secondPass.summary.corrupt).toBeGreaterThanOrEqual(1);
+  });
+
+  it('T10312: integrityCheckTimeoutMs=0 disables the timeout', async () => {
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const projectRoot = createProjectWithTasksDb('project-timeout-disabled');
+
+    const result = surveyDbSubstrate(projectRoot, {
+      autoQuarantine: false,
+      integrityCheckTimeoutMs: 0,
+    });
+    const tasks = result.projects[0]?.dbs['tasks'];
+    if (!tasks) throw new Error('tasks entry absent');
+
+    // Healthy DB w/ timeout disabled: integrityOK true + timedOut false.
+    expect(tasks.integrityOK).toBe(true);
+    expect(tasks.timedOut).toBe(false);
   });
 });
