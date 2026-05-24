@@ -442,6 +442,26 @@ jobs:
         # No untrusted input used — pure static analysis of checked-in source files.
         run: node scripts/lint-no-raw-db-opens.mjs
 
+  cross-db-annotation-lint:
+    name: Cross-DB Annotation Lint (T10324)
+    # T10324 / Saga T10281 SG-BRAIN-DB-RESILIENCE / Epic T10285 E4-DB-CROSS-LINKS —
+    # enforce the ADR-068 "Cross-DB Reference Columns" amendment. Every Drizzle
+    # column whose value points at a row in a DIFFERENT .db file must carry an
+    # `@cross-db <targetRole>.<table>.<column>` JSDoc tag immediately above the
+    # declaration. Runs in --check mode against
+    # scripts/.lint-cross-db-annotations-baseline.json (seeded at 0); net-add of
+    # un-annotated cross-DB columns fails the gate. Pure static analysis — no
+    # untrusted input.
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Lint cross-DB columns in Drizzle schemas (baseline mode)
+        run: node scripts/lint-cross-db-annotations.mjs --check
+
   core-first-lint:
     name: CORE-First Architecture Lint (T9622 / E-CORE-FIRST-ARCH)
     runs-on: ubuntu-latest

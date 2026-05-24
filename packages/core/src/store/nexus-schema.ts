@@ -23,8 +23,23 @@ import { index, integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core
 export const projectRegistry = sqliteTable(
   'project_registry',
   {
+    /**
+     * Canonical project identifier (12-hex-char ID since T9149 W5).
+     *
+     * @cross-db filesystem:.cleo/project-context.json.projectId — nexus→project-context-file
+     * invariant. Each registered project must have a project-context.json file
+     * whose `projectId` matches this row's `project_id`. Verified out-of-band by
+     * `cleo doctor db-substrate` (T10323); no DB-level FK.
+     */
     projectId: text('project_id').primaryKey(),
     projectHash: text('project_hash').notNull().unique(),
+    /**
+     * Absolute filesystem path that owns this project_id.
+     *
+     * @cross-db filesystem:<projectPath>/.cleo/project-context.json — nexus→filesystem
+     * invariant. The directory at this path MUST contain a
+     * `.cleo/project-context.json` file referencing the SAME projectId.
+     */
     projectPath: text('project_path').notNull().unique(),
     name: text('name').notNull(),
     registeredAt: text('registered_at').notNull().default(sql`(datetime('now'))`),
@@ -35,9 +50,19 @@ export const projectRegistry = sqliteTable(
     lastSync: text('last_sync').notNull().default(sql`(datetime('now'))`),
     taskCount: integer('task_count').notNull().default(0),
     labelsJson: text('labels_json').notNull().default('[]'),
-    /** Absolute path to the project's brain.db file. */
+    /**
+     * Absolute path to the project's brain.db file.
+     *
+     * @cross-db filesystem:brain.db — nexus→filesystem path pointer. The file at
+     * this path is the project-tier `brain.db` opened via `openCleoDb('brain', cwd)`.
+     */
     brainDbPath: text('brain_db_path'),
-    /** Absolute path to the project's tasks.db file. */
+    /**
+     * Absolute path to the project's tasks.db file.
+     *
+     * @cross-db filesystem:tasks.db — nexus→filesystem path pointer. The file at
+     * this path is the project-tier `tasks.db` opened via `openCleoDb('tasks', cwd)`.
+     */
     tasksDbPath: text('tasks_db_path'),
     /** ISO 8601 timestamp of the last successful code intelligence index run. */
     lastIndexed: text('last_indexed'),
@@ -88,9 +113,11 @@ export const nexusAuditLog = sqliteTable(
     timestamp: text('timestamp').notNull().default(sql`(datetime('now'))`),
     action: text('action').notNull(),
     projectHash: text('project_hash'),
+    /** @cross-db nexus.project_registry.project_id — intra-DB soft FK (kept here for symmetry with the audit-log shape). */
     projectId: text('project_id'),
     domain: text('domain'),
     operation: text('operation'),
+    /** @cross-db tasks.sessions.id — nexus→tasks soft FK (project-tier session that issued the audited operation). Resolved by the nexus accessor; no DB-level FK. */
     sessionId: text('session_id'),
     requestId: text('request_id'),
     source: text('source'),
@@ -508,6 +535,11 @@ export const userProfile = sqliteTable(
     /**
      * Soft FK to a future session_messages.id.
      * Null until Wave 5 (T1145) ships the session_messages table.
+     *
+     * @cross-db conduit.session_messages.id — nexus→conduit soft FK (RESERVED).
+     * The target table does not yet exist (Wave 5 / T1145). Once the table
+     * ships in conduit.db, this column becomes a real cross-DB soft FK
+     * resolved by the nexus accessor; no DB-level FK.
      */
     derivedFromMessageId: text('derived_from_message_id'),
 

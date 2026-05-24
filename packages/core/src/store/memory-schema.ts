@@ -162,8 +162,10 @@ export const brainDecisions = sqliteTable(
     confidence: text('confidence', { enum: BRAIN_CONFIDENCE_LEVELS }).notNull(),
     outcome: text('outcome', { enum: BRAIN_OUTCOME_TYPES }),
     alternativesJson: text('alternatives_json'),
-    contextEpicId: text('context_epic_id'), // soft FK to tasks.id in tasks.db
-    contextTaskId: text('context_task_id'), // soft FK to tasks.id in tasks.db
+    /** @cross-db tasks.tasks.id — brain→tasks soft FK (decision context epic). Resolved by the brain accessor; no DB-level FK (SQLite cannot enforce cross-file constraints). */
+    contextEpicId: text('context_epic_id'),
+    /** @cross-db tasks.tasks.id — brain→tasks soft FK (decision context task). Resolved by the brain accessor; no DB-level FK (SQLite cannot enforce cross-file constraints). */
+    contextTaskId: text('context_task_id'),
     contextPhase: text('context_phase'),
     /**
      * Quality score: 0.0 (noise) – 1.0 (canonical). Null for legacy entries.
@@ -703,7 +705,8 @@ export const brainObservations = sqliteTable(
     project: text('project'),
     filesReadJson: text('files_read_json'), // JSON array of file paths
     filesModifiedJson: text('files_modified_json'), // JSON array of file paths
-    sourceSessionId: text('source_session_id'), // soft FK to sessions
+    /** @cross-db tasks.sessions.id — brain→tasks soft FK (origin session for this observation). Resolved by the brain accessor; no DB-level FK. */
+    sourceSessionId: text('source_session_id'),
     sourceType: text('source_type', { enum: BRAIN_OBSERVATION_SOURCE_TYPES })
       .notNull()
       .default('agent'),
@@ -969,7 +972,8 @@ export const brainMemoryLinks = sqliteTable(
   {
     memoryType: text('memory_type', { enum: BRAIN_MEMORY_TYPES }).notNull(),
     memoryId: text('memory_id').notNull(),
-    taskId: text('task_id').notNull(), // soft FK to tasks.id in tasks.db
+    /** @cross-db tasks.tasks.id — brain→tasks soft FK (every BRAIN entry can be linked to one or more tasks). Resolved by the brain accessor; no DB-level FK. */
+    taskId: text('task_id').notNull(),
     linkType: text('link_type', { enum: BRAIN_LINK_TYPES }).notNull(),
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
   },
@@ -1317,7 +1321,13 @@ export const brainRetrievalLog = sqliteTable(
     /** Estimated tokens consumed by this retrieval. */
     tokensUsed: integer('tokens_used'),
 
-    /** Session ID (soft FK to tasks.db sessions). Enables grouping retrievals by session for STDP analysis. */
+    /**
+     * Session ID. Enables grouping retrievals by session for STDP analysis.
+     *
+     * @cross-db tasks.sessions.id — brain→tasks soft FK. Resolved by the
+     * brain accessor; no DB-level FK (SQLite cannot enforce cross-file
+     * constraints).
+     */
     sessionId: text('session_id'),
 
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
@@ -1381,7 +1391,12 @@ export const brainPlasticityEvents = sqliteTable(
     kind: text('kind', { enum: ['ltp', 'ltd'] }).notNull(),
     /** ISO 8601 timestamp when this event was applied. */
     timestamp: text('timestamp').notNull().default(sql`(datetime('now'))`),
-    /** Session ID that triggered the STDP pass, if available. */
+    /**
+     * Session ID that triggered the STDP pass, if available.
+     *
+     * @cross-db tasks.sessions.id — brain→tasks soft FK. Resolved by the
+     * brain accessor; no DB-level FK.
+     */
     sessionId: text('session_id'),
 
     // === T673-M2: Observability columns ===
@@ -1568,7 +1583,12 @@ export const brainModulators = sqliteTable(
     /** Polymorphic source event ID — task ID, memory entry ID, or other string ref. */
     sourceEventId: text('source_event_id'),
 
-    /** Session ID (soft FK to tasks.db sessions). */
+    /**
+     * Session ID that emitted this modulator.
+     *
+     * @cross-db tasks.sessions.id — brain→tasks soft FK. Resolved by the
+     * brain accessor; no DB-level FK.
+     */
     sessionId: text('session_id'),
 
     /** Human-readable description of why this modulator was emitted. */
@@ -1614,7 +1634,12 @@ export const brainConsolidationEvents = sqliteTable(
      */
     trigger: text('trigger').notNull(),
 
-    /** Session ID that initiated this consolidation (soft FK to tasks.db sessions). */
+    /**
+     * Session ID that initiated this consolidation.
+     *
+     * @cross-db tasks.sessions.id — brain→tasks soft FK. Resolved by the
+     * brain accessor; no DB-level FK.
+     */
     sessionId: text('session_id'),
 
     /**
@@ -1665,7 +1690,12 @@ export const brainTranscriptEvents = sqliteTable(
   'brain_transcript_events',
   {
     id: text('id').primaryKey(),
-    /** Session ID sourced from the JSONL filename (ses_YYYYMMDD_xxxxx). */
+    /**
+     * Session ID sourced from the JSONL filename (ses_YYYYMMDD_xxxxx).
+     *
+     * @cross-db tasks.sessions.id — brain→tasks soft FK. Resolved by the
+     * brain accessor; no DB-level FK.
+     */
     sessionId: text('session_id').notNull(),
     /** Ordinal position of this block within the session (0-based). */
     seq: integer('seq').notNull(),
@@ -1886,6 +1916,10 @@ export const sessionNarrative = sqliteTable('session_narrative', {
   /**
    * CLEO session identifier (e.g. `ses_20260422131135_5149eb`).
    * Matches the `session_id` field used throughout the sessions subsystem.
+   *
+   * @cross-db tasks.sessions.id — brain→tasks soft FK (this table lives in
+   * brain.db; the session row it anchors to lives in tasks.db). Resolved by
+   * the brain accessor; no DB-level FK.
    */
   sessionId: text('session_id').primaryKey(),
 
