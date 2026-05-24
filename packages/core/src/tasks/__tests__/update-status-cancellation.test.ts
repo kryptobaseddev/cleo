@@ -77,6 +77,38 @@ describe('updateTask cancellation path (T9838-D)', () => {
     expect(result.changes).toContain('pipelineStage');
   });
 
+  it('pending task with NO verification gates initialized -> cancelled succeeds (T9947)', async () => {
+    // T9947 repro: a pending task with `verification` left explicitly null
+    // (gates never initialized via `cleo verify`) historically caused the
+    // engine wrapper to mis-label the rejection as `E_NOT_INITIALIZED`.
+    // Post-T9838-D + T9940 the wrapper surfaces real CleoError codes, but
+    // we lock the behaviour to prevent the regression class.
+    await seedTasks(accessor, [
+      {
+        id: 'T9947A',
+        title: 'Misfiled placeholder task',
+        status: 'pending',
+        priority: 'medium',
+        pipelineStage: 'research',
+        createdAt: new Date().toISOString(),
+        // verification is intentionally undefined — the task has never been
+        // routed through `cleo verify`, so no gate state exists.
+        verification: undefined,
+      },
+    ]);
+
+    const result = await updateTask(
+      { taskId: 'T9947A', status: 'cancelled' },
+      env.tempDir,
+      accessor,
+    );
+
+    expect(result.task.status).toBe('cancelled');
+    expect(result.task.cancelledAt).toBeTruthy();
+    expect(result.task.pipelineStage).toBe('cancelled');
+    expect(result.changes).toContain('status');
+  });
+
   it('active -> cancelled succeeds, stamps cancelledAt, syncs pipelineStage', async () => {
     await seedTasks(accessor, [
       {
@@ -250,6 +282,34 @@ describe('updateTask cancellation path (T9838-D)', () => {
         expect(result.error.code).not.toBe('E_NOT_INITIALIZED');
         // CleoError.toLAFSError() emits the catalog lafsCode for NOT_FOUND.
         expect(result.error.code).toBe('E_CLEO_NOT_FOUND');
+      }
+    });
+
+    it('pending task with verification=undefined cancels via wrapper (T9947)', async () => {
+      // T9947 repro through the engine wrapper:
+      // `cleo update <id> --status cancelled` on a pending task whose
+      // `verification` column is null/undefined MUST succeed. The earlier
+      // failure mode dressed an internal validation throw up as
+      // E_NOT_INITIALIZED at the wrapper layer.
+      await seedTasks(accessor, [
+        {
+          id: 'T9947B',
+          title: 'Wrapper repro — no gates initialized',
+          status: 'pending',
+          priority: 'medium',
+          pipelineStage: 'research',
+          createdAt: new Date().toISOString(),
+          verification: undefined,
+        },
+      ]);
+
+      const result = await taskUpdate(env.tempDir, 'T9947B', { status: 'cancelled' });
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.task.status).toBe('cancelled');
+        expect(result.data.task.cancelledAt).toBeTruthy();
+        expect(result.data.task.pipelineStage).toBe('cancelled');
       }
     });
   });
