@@ -22,6 +22,7 @@
  */
 
 import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { TemplateKind, TemplateManifestEntry } from '@cleocode/contracts';
@@ -144,4 +145,91 @@ export function getInstalledStatus(id: string, projectRoot: string): InstalledSt
   }
   const path = join(projectRoot, entry.installPath);
   return { installed: existsSync(path), path };
+}
+
+/**
+ * Resolve an entry's `sourcePath` to an absolute filesystem path, handling
+ * both monorepo source checkout AND installed-npm-package layouts.
+ *
+ * Resolution order (first hit wins):
+ *  1. Monorepo workspace root (detected via `pnpm-workspace.yaml`) joined
+ *     with the entry's repo-relative `sourcePath`.
+ *  2. Workspace package resolution against the owning npm package
+ *     (`@cleocode/core`, `@cleocode/agents`, `@cleocode/skills`) — covers
+ *     installed-package layouts where the templates live alongside the
+ *     compiled `dist/` directory.
+ *  3. Relative walk anchored on this module's compiled location — final
+ *     fallback for environments where neither `pnpm-workspace.yaml` nor
+ *     `require.resolve` succeeds.
+ *
+ * @param entry - A template manifest entry.
+ * @returns Absolute path to the source file.
+ *
+ * @throws When no candidate path exists on disk — surfaces as a single
+ *   clear error rather than letting downstream `fs.readFile` fail with
+ *   an opaque ENOENT.
+ *
+ * @public
+ * @task T9879
+ */
+export function resolveSourcePathAbsolute(entry: TemplateManifestEntry): string {
+  const candidates: string[] = [];
+
+  // 1. Monorepo source layout — repo-relative sourcePath under pnpm root.
+  const monorepoRoot = findMonorepoRoot();
+  if (monorepoRoot !== null) {
+    candidates.push(join(monorepoRoot, entry.sourcePath));
+  }
+
+  // 2. Installed-npm-package layout — resolve the owning package's root and
+  //    strip the leading `packages/<name>/` prefix from sourcePath.
+  const installedFromPkg = resolveFromOwningPackage(entry.sourcePath);
+  if (installedFromPkg !== null) {
+    candidates.push(installedFromPkg);
+  }
+
+  // 3. Fallback: climb from this file's location.
+  const here = dirname(fileURLToPath(import.meta.url));
+  // packages/core/src/templates/ → packages/<...> (workspace)
+  candidates.push(resolve(here, '..', '..', '..', '..', entry.sourcePath));
+  // packages/core/dist/templates/ → packages/<...> (compiled)
+  candidates.push(resolve(here, '..', '..', '..', '..', '..', entry.sourcePath));
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  throw new Error(
+    `resolveSourcePathAbsolute: cannot locate "${entry.sourcePath}" for entry "${entry.id}" — searched: ${candidates.join(', ')}`,
+  );
+}
+
+/**
+ * Internal: resolve a repo-relative `sourcePath` against the owning npm
+ * package (`@cleocode/core`, `@cleocode/agents`, `@cleocode/skills`).
+ *
+ * `sourcePath` looks like `packages/<pkg>/<rest>` — the published package
+ * root is the dirname of the resolved `package.json`, so the in-package
+ * relative path is `<rest>`.
+ *
+ * @returns Absolute path candidate, or `null` when the package or file
+ *   cannot be resolved.
+ */
+function resolveFromOwningPackage(sourcePath: string): string | null {
+  const segments = sourcePath.split('/');
+  if (segments[0] !== 'packages' || segments.length < 3) {
+    return null;
+  }
+  const pkgFolder = segments[1];
+  const tail = segments.slice(2).join('/');
+  const pkgName = `@cleocode/${pkgFolder}`;
+  try {
+    const req = createRequire(import.meta.url);
+    const pkgJson = req.resolve(`${pkgName}/package.json`);
+    return join(dirname(pkgJson), tail);
+  } catch {
+    return null;
+  }
 }

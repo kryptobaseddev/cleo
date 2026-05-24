@@ -14,12 +14,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { CORE_PROTECTED_FILES } from '../../constants.js';
 import { detectLegacyAgentOutputs } from '../../migration/agent-outputs.js';
-import {
-  getCleoHome,
-  getCleoTemplatesDir,
-  getCleoTemplatesTildePath,
-  getProjectRoot,
-} from '../../paths.js';
+import { getCleoHome, getCleoTemplatesTildePath, getProjectRoot } from '../../paths.js';
 import {
   getNodeUpgradeInstructions,
   getNodeVersionInfo,
@@ -27,6 +22,7 @@ import {
 } from '../../platform.js';
 import { checkWorktreeInclude, getGitignoreContent } from '../../scaffold.js';
 import { checkGlobalSchemas as checkGlobalSchemasRaw } from '../../schema-management.js';
+import { getTemplateById } from '../../templates/registry.js';
 
 // ============================================================================
 // Types
@@ -145,9 +141,23 @@ export function checkDocsAccessibility(cleoHome: string = getCleoHome()): CheckR
 // Check 7: @ Reference Resolution
 // ============================================================================
 
+/**
+ * Resolve the canonical absolute path to the installed CLEO-INJECTION.md via
+ * the SSoT template registry (T9879). All doctor checks read from this single
+ * path so the install target lives next to its source-of-truth entry in
+ * `packages/core/src/templates/manifest-data.ts`.
+ */
+function resolveInjectionInstallPath(): string {
+  const entry = getTemplateById('cleo-injection');
+  if (entry === undefined) {
+    throw new Error('SSoT registry missing cleo-injection template entry');
+  }
+  return join(getCleoHome(), entry.installPath);
+}
+
 /** @task T4525 */
 export function checkAtReferenceResolution(): CheckResult {
-  const docsFile = join(getCleoTemplatesDir(), 'CLEO-INJECTION.md');
+  const docsFile = resolveInjectionInstallPath();
   const reference = `@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`;
 
   if (!existsSync(docsFile)) {
@@ -933,7 +943,7 @@ export function checkAtReferenceTargetExists(projectRoot?: string): CheckResult 
 export function checkTemplateFreshness(projectRoot?: string): CheckResult {
   const root = getProjectRoot(projectRoot);
   const sourcePath = join(root, 'templates', 'CLEO-INJECTION.md');
-  const deployedPath = join(getCleoTemplatesDir(), 'CLEO-INJECTION.md');
+  const deployedPath = resolveInjectionInstallPath();
   const deployedTildePath = `${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`;
 
   if (!existsSync(sourcePath)) {
@@ -991,7 +1001,7 @@ export function checkTemplateFreshness(projectRoot?: string): CheckResult {
  * @task T5153
  */
 export function checkTierMarkersPresent(): CheckResult {
-  const templatePath = join(getCleoTemplatesDir(), 'CLEO-INJECTION.md');
+  const templatePath = resolveInjectionInstallPath();
 
   if (!existsSync(templatePath)) {
     return {
