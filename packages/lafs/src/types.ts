@@ -613,16 +613,32 @@ export interface TokenEstimate {
  * Extended metadata block that includes an optional token-budget estimate.
  *
  * @remarks
- * Extends {@link LAFSMeta} with a `_tokenEstimate` field used by the budget
- * enforcement middleware to record the estimated cost of the envelope.
+ * Extends {@link LAFSMeta} with both the legacy underscore-prefixed
+ * `_tokenEstimate` field AND the first-class `tokens` field promoted by
+ * Saga T9855 / E8 — T9923. The underscore-prefixed field is retained for
+ * ONE release so existing consumers can migrate and is removed at
+ * v2026.7.0.
  */
 export interface LAFSMetaWithBudget extends LAFSMeta {
   /**
-   * Token-count estimate for budget tracking.
+   * Legacy underscore-prefixed token estimate.
    *
+   * @deprecated removeAt v2026.7.0 — use {@link LAFSMetaWithBudget.tokens}
+   *   instead. Retained for ONE release so existing consumers can migrate.
    * @defaultValue undefined
    */
   _tokenEstimate?: TokenEstimate;
+  /**
+   * First-class token-budget estimate for this envelope.
+   *
+   * @remarks
+   * Mirrors `_tokenEstimate` during the deprecation window. New code
+   * SHOULD read this field; renderers MAY drop the underscore-prefixed
+   * field from human output.
+   *
+   * @defaultValue undefined
+   */
+  tokens?: TokenEstimate;
 }
 
 /**

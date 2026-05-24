@@ -15,8 +15,12 @@
  */
 import type { LAFSEnvelope, LAFSError, LAFSMeta, MVILevel } from './types.js';
 
-/** Extended meta type that includes optional `_tokenEstimate` from budget enforcement. */
-type MetaWithEstimate = LAFSMeta & { _tokenEstimate?: unknown };
+/**
+ * Extended meta type that includes the first-class `tokens` field (Saga
+ * T9855 / E8 — T9923) and the legacy underscore-prefixed `_tokenEstimate`
+ * field retained for ONE release (removeAt v2026.7.0).
+ */
+type MetaWithEstimate = LAFSMeta & { _tokenEstimate?: unknown; tokens?: unknown };
 
 /** Extended error type that includes optional agent-action fields (may be added by the agent layer). */
 type ErrorWithAgent = LAFSError & {
@@ -116,6 +120,9 @@ function projectMetaMinimal(meta: LAFSMeta): Record<string, unknown> {
   };
   if (m.sessionId) projected.sessionId = m.sessionId;
   if (m.warnings?.length) projected.warnings = m.warnings;
+  // T9923: project both first-class `tokens` and legacy `_tokenEstimate`
+  // during the deprecation window (removeAt v2026.7.0).
+  if (m.tokens) projected.tokens = m.tokens;
   if (m._tokenEstimate) projected._tokenEstimate = m._tokenEstimate;
   return projected;
 }
@@ -131,6 +138,8 @@ function projectMetaStandard(meta: LAFSMeta): Record<string, unknown> {
   };
   if (m.sessionId) projected.sessionId = m.sessionId;
   if (m.warnings?.length) projected.warnings = m.warnings;
+  // T9923: project both first-class `tokens` and legacy `_tokenEstimate`.
+  if (m.tokens) projected.tokens = m.tokens;
   if (m._tokenEstimate) projected._tokenEstimate = m._tokenEstimate;
   return projected;
 }
