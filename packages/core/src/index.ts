@@ -647,7 +647,17 @@ export { updateTask } from './tasks/update.js';
 // T9918 (Saga T9855 / E7.5) — OperationInputContract registry seed
 export { getInputContract, INPUT_CONTRACTS } from './dispatch/contracts/input-contracts.js';
 // T9920 (Saga T9855 / E8.1) — envelope-wide meta.suggestedNext attach helper
-export { attachSuggestedNext } from './dispatch/suggested-next.js';
+// T9921 (Saga T9855 / E8.2) — per-op suggestion builders + tasks.* registry
+export {
+  attachSuggestedNext,
+  buildTasksAddBatchSuggestedNext,
+  buildTasksAddSuggestedNext,
+  buildTasksCompleteSuggestedNext,
+  buildTasksFindSuggestedNext,
+  buildTasksUpdateSuggestedNext,
+  type SuggestedNextBuilder,
+  TASKS_SUGGESTED_NEXT_BUILDERS,
+} from './dispatch/suggested-next.js';
 // T9915 (Saga T9855 / E7.2) — SSoT input validator over OperationInputContract
 export { validateOperationInput } from './dispatch/validation.js';
 // Setup wizard `--config-json` merger
