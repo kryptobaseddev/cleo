@@ -28,8 +28,16 @@ const __dirname = resolve(fileURLToPath(import.meta.url), '..');
 const REPO_ROOT = resolve(__dirname, '../..');
 const SCRIPT = join(REPO_ROOT, 'scripts/lint-stdout-write-allowlist.mjs');
 
-/** Fixture lives under a non-allowlisted package so it must trigger. */
-const FIXTURE_PATH = join(REPO_ROOT, 'packages/contracts/src/__stdout_write_violation_fixture.ts');
+/**
+ * Fixture lives under a non-allowlisted package so it must trigger.
+ * Suffixed with pid to avoid cross-contamination with the parallel
+ * lint-stdout-discipline suite (T10360 — same scan tree, different lint
+ * scripts, must not see each other's fixtures).
+ */
+const FIXTURE_PATH = join(
+  REPO_ROOT,
+  `packages/contracts/src/__stdout_write_violation_fixture_${process.pid}.ts`,
+);
 
 /**
  * Run the lint script with optional extra args.
@@ -63,7 +71,9 @@ describe('lint-stdout-write-allowlist — check mode (default)', () => {
     const result = runLint(['--check']);
     expect(result.status).toBe(1);
     const combined = result.stdout + result.stderr;
-    expect(combined).toContain('packages/contracts/src/__stdout_write_violation_fixture.ts');
+    expect(combined).toContain(
+      `packages/contracts/src/__stdout_write_violation_fixture_${process.pid}.ts`,
+    );
     expect(combined).toMatch(/NEW unannotated violation/);
   });
 

@@ -116,6 +116,11 @@ const ALLOW_PATH_PREFIXES = [
 const ALLOW_PATH_REGEXES = [
   // All test directories
   /__tests__\//,
+  // Sibling lint test suite's fixture (lint-stdout-write-allowlist.test.mjs)
+  // — must be ignored here to prevent cross-contamination when tests run
+  // in parallel (T10360 fix). Our own fixture file (matching this lint's
+  // marker) is still scanned and validated.
+  /__stdout_write_violation_fixture(?:_\d+)?\.ts$/,
 ];
 
 /** Inline opt-out marker (must appear on the same source line). */

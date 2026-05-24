@@ -213,6 +213,7 @@ const addCommand = defineCommand({
       '  --labels <csv>         Comma-separated labels (e.g. rfc,spec)\n' +
       '  --attached-by <name>   Agent identity that created the attachment (default: "human")\n' +
       '  --slug <kebab>         Human-friendly alias, unique per project (T9636)\n' +
+      '  --title <text>         Human-readable title — REQUIRED for --type adr when --slug is omitted (T10360)\n' +
       '  --type <kind>          Taxonomy classification — run `cleo docs list-types` for kinds\n' +
       '  --allow-similar        Bypass the slug-similarity warn — every bypass is audited\n' +
       '                         to .cleo/audit/similar-bypass.jsonl (T10361)\n' +
@@ -222,7 +223,8 @@ const addCommand = defineCommand({
       '  • Unknown flags → E_UNKNOWN_FLAG with did-you-mean suggestions (T10359)\n' +
       '  • Slug collision → E_SLUG_RESERVED + 3 alternative slugs (T10386)\n' +
       '  • Near-duplicate slug → W_SLUG_SIMILAR warning unless --allow-similar (T10361)\n' +
-      '  • TODO(T10360): --type adr will auto-allocate adr-NNN-<title> from a --title flag.',
+      '  • For --type adr without --slug, slug auto-allocates as `adr-NNN-<kebab-title>` via the\n' +
+      '    central allocator (T10360 — closes T10153). --title is required in this case.',
   },
   args: {
     'owner-id': {
@@ -257,6 +259,13 @@ const addCommand = defineCommand({
         'Human-friendly kebab-case alias for the attachment, unique per project (T9636). ' +
         'Collision returns E_SLUG_RESERVED with 3 alternative suggestions ' +
         '(legacy E_SLUG_TAKEN aliased under details.aliases for one release — T10386).',
+    },
+    title: {
+      type: 'string',
+      description:
+        'Human-readable title used to derive the kebab-slug tail when auto-allocating an ' +
+        'ADR slug. REQUIRED when --type adr is set AND --slug is omitted. Slugified via the ' +
+        'shared kebabize helper (lowercase, hyphen-separated, diacritics stripped) (T10360).',
     },
     type: {
       type: 'string',
@@ -307,6 +316,23 @@ const addCommand = defineCommand({
         name: 'E_VALIDATION',
         fix: 'Example: cleo docs add T123 docs/rfc.md --desc "RFC draft" — or — cleo docs add T123 --url https://example.com/spec',
       });
+      process.exit(6);
+    }
+
+    // T10360 — `--type adr` without `--slug` requires `--title` for the
+    // auto-allocator's kebab-title tail. Surfacing this at the CLI layer
+    // keeps the error close to the operator's input so the fix hint is
+    // copy-pasteable.
+    if (args.type === 'adr' && !args.slug && !args.title) {
+      cliError(
+        '--title <text> is required when --type adr is used without --slug — ' +
+          'the allocator needs a title to assemble adr-NNN-<kebab-title>',
+        6,
+        {
+          name: 'E_VALIDATION',
+          fix: 'Re-run with --title "Adopt Drizzle v1 beta" (or pass --slug adr-042-explicit-name to bypass auto-allocation).',
+        },
+      );
       process.exit(6);
     }
 
@@ -468,6 +494,7 @@ const addCommand = defineCommand({
         ...(args.labels ? { labels: args.labels } : {}),
         ...(args['attached-by'] ? { attachedBy: args['attached-by'] } : {}),
         ...(args.slug ? { slug: args.slug } : {}),
+        ...(args.title ? { title: args.title } : {}),
         ...(args.type ? { type: args.type } : {}),
         ...(args.strict === true ? { strict: true } : {}),
       },
