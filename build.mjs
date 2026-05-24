@@ -50,6 +50,9 @@ const SUBPATH_DIRS = [
   // T9887 — packages/core/src/config/registry.ts is exposed via the
   // ./config/registry subpath export for `cleo config` (Saga T9855 E4).
   'config',
+  // T9886 — packages/core/src/templates/registry.ts is exposed via the
+  // ./templates/registry subpath export for `cleo templates` (Saga T9855 E4).
+  'templates',
   'sentient',
   'gc',
   'doctor',

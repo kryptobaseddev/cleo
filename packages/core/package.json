@@ -101,6 +101,11 @@
       "import": "./dist/config/registry.js",
       "require": "./dist/config/registry.js"
     },
+    "./templates/registry": {
+      "types": "./dist/templates/registry.d.ts",
+      "import": "./dist/templates/registry.js",
+      "require": "./dist/templates/registry.js"
+    },
     "./gc": {
       "types": "./dist/gc/index.d.ts",
       "import": "./dist/gc/index.js",
