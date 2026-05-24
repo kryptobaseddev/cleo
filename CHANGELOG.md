@@ -1,5 +1,11 @@
 # Changelog
 
+## [2026.5.112] (2026-05-24)
+
+### Features
+
+- cleo tree --human: default footer legend (icons + counts) — JSON unchanged (T10114)
+
 ## [2026.5.111] (2026-05-24)
 
 ### Features
