@@ -19,7 +19,14 @@
  * @epic T4454
  */
 
-import { appendSignedSeverityAttestation, parseAcceptanceCriteria } from '@cleocode/core';
+import { TASK_SEVERITIES } from '@cleocode/contracts';
+import {
+  appendSignedSeverityAttestation,
+  isPipelineTransitionForward,
+  isValidPipelineStage,
+  parseAcceptanceCriteria,
+  TASK_PIPELINE_STAGES,
+} from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
 import { cliError } from '../renderers/index.js';
@@ -246,6 +253,86 @@ export const updateCommand = defineCommand({
       await showUsage(cmd);
       return;
     }
+
+    // T10341: validate --severity against the canonical TaskSeverity enum
+    // BEFORE dispatch. Replaces the late-stage SQLite
+    // `CHECK constraint failed: severity` failure mode with a typed
+    // E_INVALID_SEVERITY_VALUE that names the valid enum members.
+    if (
+      args.severity !== undefined &&
+      !TASK_SEVERITIES.includes(args.severity as (typeof TASK_SEVERITIES)[number])
+    ) {
+      const valid = TASK_SEVERITIES.join(', ');
+      cliError(
+        `severity must be one of: ${valid} — got '${args.severity}'`,
+        6,
+        {
+          name: 'E_INVALID_SEVERITY_VALUE',
+          fix: `Pass --severity with one of: ${valid}`,
+        },
+        { operation: 'tasks.update' },
+      );
+      process.exit(6);
+      return;
+    }
+
+    // T10341: validate --pipeline-stage against the canonical
+    // TASK_PIPELINE_STAGES enum BEFORE dispatch. Catches both unknown
+    // stage names AND backward transitions (pipeline-stage is
+    // forward-only per RCASD-IVTR+C). Replaces the late-stage failure
+    // (DB CHECK constraint OR opaque core CleoError throw) with a
+    // typed E_INVALID_PIPELINE_STAGE that names the valid next stages.
+    if (args['pipeline-stage'] !== undefined) {
+      const requestedStage = String(args['pipeline-stage']);
+
+      // 1. Unknown stage name — short-circuit with a helpful enum list.
+      if (!isValidPipelineStage(requestedStage)) {
+        const valid = TASK_PIPELINE_STAGES.join(', ');
+        cliError(
+          `pipeline-stage must be one of: ${valid} — got '${requestedStage}'`,
+          6,
+          {
+            name: 'E_INVALID_PIPELINE_STAGE',
+            fix: `Pass --pipeline-stage with one of: ${valid}`,
+          },
+          { operation: 'tasks.update' },
+        );
+        process.exit(6);
+        return;
+      }
+
+      // 2. Backward transition — fetch existing task to learn current
+      // stage and reject if the request would move backward.
+      const showResponse = await dispatchRaw('query', 'tasks', 'show', {
+        taskId: args.taskId,
+      });
+      const existingTask = showResponse.success
+        ? (showResponse.data as Record<string, unknown> | undefined)
+        : undefined;
+      const currentStage =
+        typeof existingTask?.['pipelineStage'] === 'string'
+          ? (existingTask['pipelineStage'] as string)
+          : null;
+
+      if (currentStage && !isPipelineTransitionForward(currentStage, requestedStage)) {
+        const validForward = TASK_PIPELINE_STAGES.filter((s) => {
+          // Same predicate as core's validatePipelineTransition fix hint.
+          return isPipelineTransitionForward(currentStage, s);
+        }).join(', ');
+        cliError(
+          `pipeline-stage transition rejected: cannot move backward from '${currentStage}' to '${requestedStage}'. Pipeline stages are forward-only.`,
+          6,
+          {
+            name: 'E_INVALID_PIPELINE_STAGE',
+            fix: `Pass --pipeline-stage with a stage at or after '${currentStage}'. Valid forward stages: ${validForward}`,
+          },
+          { operation: 'tasks.update' },
+        );
+        process.exit(6);
+        return;
+      }
+    }
+
     const params: Record<string, unknown> = { taskId: args.taskId };
 
     if (args.title !== undefined) params['title'] = args.title;

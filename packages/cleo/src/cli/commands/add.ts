@@ -13,6 +13,7 @@
  * @epic T4454
  */
 
+import { TASK_SEVERITIES } from '@cleocode/contracts';
 import {
   appendSignedSeverityAttestation,
   getProjectRoot,
@@ -219,6 +220,29 @@ export const addCommand = defineCommand({
       await showUsage(cmd);
       return;
     }
+
+    // T10341: validate --severity against the canonical TaskSeverity enum
+    // BEFORE dispatch. Replaces the late-stage SQLite
+    // `CHECK constraint failed: severity` failure mode with a typed
+    // E_INVALID_SEVERITY_VALUE that names the valid enum members.
+    if (
+      args.severity !== undefined &&
+      !TASK_SEVERITIES.includes(args.severity as (typeof TASK_SEVERITIES)[number])
+    ) {
+      const valid = TASK_SEVERITIES.join(', ');
+      cliError(
+        `severity must be one of: ${valid} — got '${args.severity}'`,
+        6,
+        {
+          name: 'E_INVALID_SEVERITY_VALUE',
+          fix: `Pass --severity with one of: ${valid}`,
+        },
+        { operation: 'tasks.add' },
+      );
+      process.exit(6);
+      return;
+    }
+
     const params: Record<string, unknown> = { title: args.title };
 
     if (args.status !== undefined) params['status'] = args.status;
