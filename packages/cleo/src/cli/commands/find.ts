@@ -63,6 +63,21 @@ export const findCommand = defineCommand({
         'Surface urgent work across both axes: priority IN (critical,high) OR severity IN (P0,P1) (T9905)',
       alias: 'u',
     },
+    /**
+     * Filter by parent task ID (T10108).
+     *
+     * Restricts results to direct children of the given parent. Mirrors the
+     * `cleo list --parent` semantics — including Saga-aware routing via
+     * `task_relations.type='groups'` when the parent is an Epic labeled `saga`.
+     */
+    parent: {
+      type: 'string',
+      description: 'Filter results to direct children of <parent> (T10108)',
+    },
+    'parent-id': {
+      type: 'string',
+      description: 'Alias for --parent (legacy parentId compatibility)',
+    },
   },
   async run({ args }) {
     const limit = args.limit !== undefined ? Number.parseInt(args.limit, 10) : undefined;
@@ -82,6 +97,9 @@ export const findCommand = defineCommand({
     if (args.kind !== undefined) params['kind'] = args.kind;
     // T9905: unified urgency surface — only forward when the flag was set
     if (args.urgent !== undefined) params['urgent'] = args.urgent;
+    // T10108: --parent filter (with legacy --parent-id alias)
+    if (args.parent !== undefined) params['parent'] = args.parent;
+    if (args['parent-id'] !== undefined) params['parent'] = params['parent'] ?? args['parent-id'];
     const response = await dispatchRaw('query', 'tasks', 'find', params);
     if (!response.success) {
       handleRawError(response, { command: 'find', operation: 'tasks.find' });

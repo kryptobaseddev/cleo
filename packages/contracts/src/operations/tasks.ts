@@ -138,6 +138,22 @@ export interface TasksFindParams {
    * @task T9905
    */
   urgent?: boolean;
+  /**
+   * Filter by parent task ID — restrict the result set to direct children of
+   * `parent`. Mirrors the `tasks.list --parent` semantics (ADR-073 §1) so
+   * `cleo find` and `cleo list` agree on the parent axis.
+   *
+   * When `parent` resolves to a Saga (Epic with `labels.includes('saga')`),
+   * children are resolved through `task_relations.type='groups'` edges
+   * instead of the `parentId` column — matching `tasks.list`.
+   *
+   * Composes with other filters via AND. Eliminates the empty-string
+   * `query=""` bypass that returned the full unfiltered result set
+   * (T10108 bug).
+   *
+   * @task T10108
+   */
+  parent?: string;
 }
 export type TasksFindResult = MinimalTask[];
 

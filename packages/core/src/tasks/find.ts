@@ -18,6 +18,7 @@ import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import type { NextDirectives } from '../mvi-helpers.js';
 import { taskListItemNext } from '../mvi-helpers.js';
+import { resolveSagaMemberIds } from '../sagas/storage.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { taskToRecord } from './engine-converters.js';
@@ -76,6 +77,21 @@ export interface FindTasksOptions {
    * @task T9905
    */
   urgent?: boolean;
+  /**
+   * Filter results to direct children of `parent`.
+   *
+   * Mirrors the `tasks.list --parent` semantics (ADR-073 §1). When `parent`
+   * resolves to a Saga (Epic with `labels.includes('saga')`), children are
+   * resolved through `task_relations.type='groups'` edges instead of the
+   * `parentId` column — same routing as `listTasks`.
+   *
+   * Composes with other filters via AND. Closes the empty-string `query=""`
+   * bypass where `cleo find "" --parent T123` previously returned the full
+   * unfiltered result set (T10108 bug).
+   *
+   * @task T10108
+   */
+  parent?: string;
 }
 
 /** Result of finding tasks. */
@@ -263,14 +279,24 @@ export async function findTasks(
   accessor?: DataAccessor,
 ): Promise<FindTasksResult> {
   const options = extractInlineFilters(rawOptions);
-  const hasFilter = Boolean(options.status || options.kind || options.urgent);
+
+  // T10108: treat an empty / whitespace-only query as "no query supplied",
+  // which closes the empty-string bypass where `cleo find ""` previously
+  // matched every task via `fuzzyScore('', '<title>') === 80`. The CLI passes
+  // through positional args verbatim, so users routinely typed
+  // `cleo find "" --parent T123` and got the full unfiltered set back.
+  if (typeof options.query === 'string' && options.query.trim() === '') {
+    options.query = undefined;
+  }
+
+  const hasFilter = Boolean(options.status || options.kind || options.urgent || options.parent);
 
   if (options.query == null && !options.id && !hasFilter) {
     throw new CleoError(
       ExitCode.INVALID_INPUT,
-      'Search query, --id, or at least one filter (--status, --kind, --urgent) is required',
+      'Search query, --id, or at least one filter (--status, --kind, --urgent, --parent) is required',
       {
-        fix: 'cleo find "<query>"  OR  cleo find --urgent  OR  cleo find --status pending  OR  cleo find --id T123',
+        fix: 'cleo find "<query>"  OR  cleo find --urgent  OR  cleo find --status pending  OR  cleo find --parent T123  OR  cleo find --id T123',
         details: { field: 'query' },
       },
     );
@@ -278,10 +304,26 @@ export async function findTasks(
 
   const acc = accessor ?? (await getTaskAccessor(cwd));
 
+  // T10108: Saga-aware --parent routing — mirror `listTasks`.
+  // When `--parent` targets a Saga (Epic with `labels.includes('saga')`),
+  // children live in `task_relations.type='groups'`, NOT in the `parentId`
+  // column. Detect once up-front; fall back to the default `parentId`-based
+  // filter when the parent is not a Saga (or does not exist).
+  let sagaMemberIds: string[] | null = null;
+  if (options.parent) {
+    sagaMemberIds = await resolveSagaMemberIds(acc, options.parent);
+  }
+
   // Use targeted query with status filter when available
   const filters: TaskQueryFilters = {};
   if (options.status) {
     filters.status = options.status;
+  }
+  // T10108: push the parent filter down to the accessor when this is a plain
+  // parent (not a Saga). For Sagas we filter in-memory below using the
+  // member-ID set returned by `resolveSagaMemberIds`.
+  if (options.parent && sagaMemberIds === null) {
+    filters.parentId = options.parent;
   }
   const queryResult = await acc.queryTasks(filters);
   let allTasks: Task[] = [...queryResult.tasks];
@@ -294,8 +336,19 @@ export async function findTasks(
       if (options.status) {
         archivedTasks = archivedTasks.filter((t) => t.status === options.status);
       }
+      // T10108: archive must respect the parent filter too. For Sagas, the
+      // member-set filter below covers archived rows uniformly.
+      if (options.parent && sagaMemberIds === null) {
+        archivedTasks = archivedTasks.filter((t) => t.parentId === options.parent);
+      }
       allTasks = [...allTasks, ...archivedTasks];
     }
+  }
+
+  // T10108: Saga-member filter — restrict to the saga's member Epic IDs.
+  if (sagaMemberIds !== null) {
+    const memberSet = new Set(sagaMemberIds);
+    allTasks = allTasks.filter((t) => memberSet.has(t.id));
   }
 
   // T944/T9072: kind filter — applied after status/archive resolution
@@ -450,6 +503,8 @@ export async function taskFind(
     kind?: string;
     /** Unified urgency surface — see {@link FindTasksOptions.urgent}. @task T9905 */
     urgent?: boolean;
+    /** Filter results to direct children of this parent. @task T10108 */
+    parent?: string;
   },
 ): Promise<EngineResult<{ results: (MinimalTaskRecord | TaskRecord)[]; total: number }>> {
   try {
@@ -465,6 +520,7 @@ export async function taskFind(
         offset: options?.offset,
         kind: options?.kind as TaskKind | undefined,
         urgent: options?.urgent,
+        parent: options?.parent,
       },
       projectRoot,
       accessor,
