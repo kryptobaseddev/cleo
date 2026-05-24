@@ -19,6 +19,7 @@ on:
   pull_request:
     types: [closed]
     branches: [main]
+  merge_group:
 
 permissions:
   contents: write
