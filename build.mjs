@@ -81,6 +81,10 @@ const SUBPATH_DIRS = [
   // T9740 Wave C: caamp imports `@cleocode/core/skills/skill-root.js` so the
   // `./skills/*` subpath export must emit physical .js files (not just .d.ts).
   'skills',
+  // T10451 (PR #759): packages/cleo/src/cli/commands/hygiene.ts + release.ts
+  // import @cleocode/core/hygiene/validate-spawn-readiness.js so the
+  // `./hygiene/*` subpath must be scanned for esbuild entry points.
+  'hygiene',
 ];
 
 
