@@ -247,7 +247,8 @@ const addCommand = defineCommand({
       type: 'string',
       description:
         'Human-friendly kebab-case alias for the attachment, unique per project (T9636). ' +
-        'Collision returns E_SLUG_TAKEN with 3 alternative suggestions.',
+        'Collision returns E_SLUG_RESERVED with 3 alternative suggestions ' +
+        '(legacy E_SLUG_TAKEN aliased under details.aliases for one release — T10386).',
     },
     type: {
       type: 'string',
