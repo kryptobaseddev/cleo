@@ -40,6 +40,7 @@ export { copyPathsWithReflock } from './copy-on-write.js';
 export {
   type AddTransientWorktreeOptions,
   addTransientWorktree,
+  DEFAULT_GIT_TIMEOUT_MS,
   removeTransientWorktree,
 } from './git.js';
 export type { WorktreeAuditPayload } from './worktree-audit.js';
