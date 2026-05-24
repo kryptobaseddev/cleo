@@ -273,7 +273,7 @@ export function validatePriority(priority: string): asserts priority is TaskPrio
  * @task T4460
  */
 export function validateTaskType(type: string): asserts type is TaskType {
-  const valid: TaskType[] = ['epic', 'task', 'subtask'];
+  const valid: TaskType[] = ['saga', 'epic', 'task', 'subtask'];
   if (!valid.includes(type as TaskType)) {
     throw new CleoError(
       ExitCode.VALIDATION_ERROR,
