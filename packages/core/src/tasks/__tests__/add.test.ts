@@ -65,7 +65,8 @@ describe('validatePriority — tasks/add', () => {
 });
 
 describe('validateTaskType', () => {
-  it('accepts epic, task, subtask', () => {
+  it('accepts saga, epic, task, subtask', () => {
+    expect(() => validateTaskType('saga')).not.toThrow();
     expect(() => validateTaskType('epic')).not.toThrow();
     expect(() => validateTaskType('task')).not.toThrow();
     expect(() => validateTaskType('subtask')).not.toThrow();
