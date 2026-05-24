@@ -1,8 +1,9 @@
 ---
-"@cleocode/core": patch
+id: t10499-narrow-catch-err
+tasks: [T10499]
+kind: fix
+summary: narrow catch err in validate-spawn-readiness (replace any with Error narrowing)
 ---
-
-fix(hygiene): replace `catch (err: any)` with proper narrowing (T10499)
 
 T10451 shipped `validateSpawnReadiness` with two `catch (err: any)` clauses
 which fail biome's `noExplicitAny` check during release.yml's lint step.
