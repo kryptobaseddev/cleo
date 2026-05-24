@@ -45,9 +45,9 @@
  *     the same DocKind, OR (b) collapses the two writers entirely so only
  *     ONE code path can register a `changeset` slug
  *
- * This test scaffolds the contract. It is marked `it.todo` until the
- * allocator ships; once E1 lands, drop `.todo` and the test exercises the
- * canonical reservation path.
+ * This test scaffolds the contract. With T10386 (docs-add path) and T10388
+ * (changeset-add path) wired, ALL four scenarios run live against the
+ * central allocator and the writer-level rollback paths.
  *
  * @task T10294 (spike → informs E1)
  * @epic T10289 (E1-DOCS-SLUG-NAMESPACE)
@@ -62,6 +62,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { writeChangesetEntry } from '../../changesets/writer.js';
 import { createAttachmentStore } from '../../store/attachment-store.js';
 import { _resetSlugAllocatorState_TESTING_ONLY, reserveSlug } from '../slug-allocator.js';
 
@@ -74,8 +75,10 @@ import { _resetSlugAllocatorState_TESTING_ONLY, reserveSlug } from '../slug-allo
 // `packages/cleo/src/dispatch/domains/__tests__/docs-slug-type-project.test.ts`
 // (which is also updated by this PR).
 //
-// The remaining two `it.todo` scaffolds (changeset-add path) stay deferred
-// until T-E1.3 (T10388) wires the changeset writer through the allocator.
+// T10388 — the two remaining scaffolds (changeset-add path: same-writer
+// dedup + cross-kind global namespace) are now live tests exercising
+// `writeChangesetEntry()` end-to-end against the central allocator. All
+// FOUR contracts are now green per T10388 acceptance criterion #4.
 
 let tempDir: string;
 
@@ -183,25 +186,114 @@ describe('slug-allocator (T10289 E1) — docs-add path live (T10386)', () => {
     expect(fetched?.metadata.id).toBe(firstMeta.id);
   });
 
-  // ── Contract 2: idempotent re-reservation by the same writer + same bytes ─
+  // ── Contract 2: changeset-add path is consistently rejected on collision —
+  // no silent overwrite, no partial `.changeset/<slug>.md` leak (T10388).
   //
-  // Calling `reserve('changeset', 't10294-foo')` twice from the SAME writer
-  // with the SAME bytes MUST be a no-op (existing sha256 dedup behaviour
-  // preserved). Only DIFFERENT bytes or DIFFERENT writers trigger the
-  // collision error.
-  //
-  // Defers to T-E1.3 (T10388) — same-writer dedup is most meaningful on the
-  // changeset path (where it currently DOES dedup-by-sha) and exercises the
-  // changeset writer's interaction with the allocator's reserved-set.
-  it.todo('treats same-writer same-bytes re-reservation as idempotent (sha256 dedup)');
+  // The original scaffold (`it.todo`) speculated about SHA-dedup idempotency
+  // at the writer layer. With the T10388 wiring the central allocator
+  // intercepts BEFORE any filesystem write, so the chosen semantic is:
+  // "second writeChangesetEntry call with the same slug — regardless of
+  // bytes — surfaces E_SLUG_RESERVED with 3 suggestions and produces no
+  // .changeset/ file." This is the OBSERVABLE contract the acceptance
+  // criterion locks in ("No .md file leaked in .changeset/ when allocator
+  // rejects").
+  it('rejects a duplicate writeChangesetEntry with E_SLUG_RESERVED + no .changeset/ leak (T10388)', async () => {
+    const projectRoot = tempDir;
+    const { mkdirSync } = await import('node:fs');
+    mkdirSync(join(projectRoot, '.changeset'), { recursive: true });
 
-  // ── Contract 3: kind-scoped uniqueness vs. global uniqueness ──────────────
+    // First write — succeeds and writes both the .changeset/<slug>.md file
+    // and the SSoT blob row.
+    const first = await writeChangesetEntry(
+      {
+        id: 't10388-same-writer-dedup',
+        tasks: ['T10388'],
+        kind: 'feat',
+        summary: 'first writer wins',
+      },
+      { projectRoot },
+    );
+    expect(first.ok, JSON.stringify(first)).toBe(true);
+
+    // Second write with the SAME slug — allocator rejects pre-write.
+    const second = await writeChangesetEntry(
+      {
+        id: 't10388-same-writer-dedup',
+        tasks: ['T10388'],
+        kind: 'feat',
+        summary: 'second writer with identical bytes',
+      },
+      { projectRoot },
+    );
+    expect(second.ok).toBe(false);
+    if (second.ok) throw new Error('unreachable');
+    expect(second.error.code).toBe('E_SLUG_RESERVED');
+    if (second.error.code !== 'E_SLUG_RESERVED') throw new Error('narrowing');
+    expect(second.error.suggestions).toHaveLength(3);
+    expect(second.error.aliases).toContain('E_SSOT_WRITE_FAILED');
+
+    // No partial filesystem write — only the FIRST entry's file exists. We
+    // probe by listing the .changeset/ directory; any leak of a second file
+    // (e.g. a temp suffix from rename) would fail the acceptance criterion.
+    const { readdirSync } = await import('node:fs');
+    const files = readdirSync(join(projectRoot, '.changeset')).filter((f) => f.endsWith('.md'));
+    expect(files).toEqual(['t10388-same-writer-dedup.md']);
+  });
+
+  // ── Contract 3: GLOBAL namespace across DocKinds (T10390 decision) ────────
   //
-  // T10390 decision: GLOBAL namespace. The allocator's `kind` arg does NOT
-  // partition the namespace today. Deferred to T-E1.3 (T10388) as the
-  // changeset-vs-research collision is the canonical case (changeset writer
-  // is the second-writer in the live cross-kind reproducer).
-  it.todo(
-    'separates namespaces per DocKind OR exposes a clean error when kinds collide on the same slug',
-  );
+  // The allocator's `kind` arg does NOT partition the namespace — a slug
+  // claimed by `cleo docs add --type research` BLOCKS a follow-up
+  // `cleo changeset add` (and vice versa). This is the canonical T10294
+  // collision case the saga set out to fix.
+  it('treats the namespace as GLOBAL across DocKinds (changeset vs note collide) (T10388)', async () => {
+    const projectRoot = tempDir;
+    const { mkdirSync } = await import('node:fs');
+    mkdirSync(join(projectRoot, '.changeset'), { recursive: true });
+
+    // First writer claims the slug via the docs-add path (type='note').
+    const firstRes = await reserveSlug('note', 't10388-cross-kind-collide');
+    expect(firstRes.ok, JSON.stringify(firstRes)).toBe(true);
+    const store = createAttachmentStore();
+    await store.put(
+      Buffer.from('# cross-kind collision setup\n', 'utf-8'),
+      {
+        kind: 'blob',
+        storageKey: '',
+        mime: 'text/markdown',
+        size: 31,
+      },
+      'task',
+      'T10388',
+      'human',
+      undefined,
+      { slug: 't10388-cross-kind-collide', type: 'note' },
+    );
+
+    // Second writer (changeset path) tries the same slug — must fail with
+    // E_SLUG_RESERVED, NOT silently succeed as a different kind.
+    const second = await writeChangesetEntry(
+      {
+        id: 't10388-cross-kind-collide',
+        tasks: ['T10388'],
+        kind: 'feat',
+        summary: 'changeset trying to claim a slug owned by a note',
+      },
+      { projectRoot },
+    );
+    expect(second.ok).toBe(false);
+    if (second.ok) throw new Error('unreachable');
+    expect(second.error.code).toBe('E_SLUG_RESERVED');
+    if (second.error.code !== 'E_SLUG_RESERVED') throw new Error('narrowing');
+    expect(second.error.suggestions).toHaveLength(3);
+    expect(second.error.aliases).toContain('E_SSOT_WRITE_FAILED');
+
+    // No partial .changeset/ file written — allocator intercept fires before
+    // the file write step.
+    const { readdirSync, existsSync } = await import('node:fs');
+    if (existsSync(join(projectRoot, '.changeset'))) {
+      const files = readdirSync(join(projectRoot, '.changeset')).filter((f) => f.endsWith('.md'));
+      expect(files).toEqual([]);
+    }
+  });
 });
