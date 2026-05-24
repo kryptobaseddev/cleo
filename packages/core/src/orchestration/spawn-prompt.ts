@@ -1726,7 +1726,9 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   }
   authoredSections.push(buildStageGuidance(protocol, rcasdDir, outputDir));
   authoredSections.push(buildEvidenceGateBlock(taskId));
-  authoredSections.push(buildChangesetLintGateBlock(input.projectRoot));
+  // T10448 partial — buildChangesetLintGateBlock() was referenced but never
+  // implemented/exported. Restored as a follow-up; for now skip cleanly so the
+  // tsc build does not block releases. Tracked: T10448.
   authoredSections.push(buildQualityGateBlock());
 
   // Tier-specific content — tier 0 pointer is authored; tier 1/2 embeds
