@@ -219,6 +219,25 @@ Starter playbooks ship with `@cleocode/playbooks`: `rcasd.cantbook`, `ivtr.cantb
 Typed `RenderableEnvelope<T>` from `@cleocode/contracts`. `envelope.data.kind` ∈ `tree | table | list | grouped-list | section | single | generic` — agents route on `kind`. Render logic in `packages/core/src/render/`, primitives in `packages/animations/render/`, icon enums in `@cleocode/contracts/render/icon.ts`. Families self-register via `registerRenderer(command, kind, fn)`. Commands: `cleo show T<id>` (typed), `cleo show T<id> --human` (force), `cleo tree T<id>` (generic walk of parent + `groups` edges). Full: `cleo docs fetch adr-077-human-render-contract`.
 <!-- /CLEO-INJECTION:section=human-render -->
 
+<!-- CLEO-INJECTION:section=output-contract -->
+## CLI Output Contract (ADR-086)
+
+`cleo` stdout = ONE LAFS envelope per call (single JSON object + `\n`). All logs/progress → stderr. NEVER pipe through `tail`/`jq`/`python` — use flags.
+
+| Need | Flag | Example |
+|------|------|---------|
+| Scalar extract | `--field <jsonpointer>` | `id=$(cleo add 'X' --acceptance "..." --field /data/task/id)` |
+| ID-only pipeline | `--output id` | `cleo list --parent EPIC --output id \| while read c; do …; done` |
+| Affected count | `--output count` | `cleo list --parent EPIC --status pending --output count` |
+| TSV (no header) | `--output table` | `cleo list --parent EPIC --output table` |
+| Silent (exit-code only) | `--output silent` | `cleo update T123 --status done --output silent` |
+| 1-line per record | `--summary` | `cleo list --parent EPIC --summary` |
+| Suppress stderr | `--quiet` | `cleo add-batch --file f.json --parent T1 --quiet --output id` |
+| Force full record | `--full` | `cleo show T123 --full` |
+
+Mutate ops (`add`, `add-batch`, `update`, `complete`) return `{count, ids[]}` by default (T9931) — opt back to full record via `--full`. Anti-patterns (REJECTED): `cleo show … | tail -1 | jq …`, `cleo list … | jq -r '.data.tasks[].id'`, `cleo add 'X' 2>&1 | grep -oE 'T[0-9]+'`. Full contract: `cleo docs fetch adr-086-cli-output-contract-e9`.
+<!-- /CLEO-INJECTION:section=output-contract -->
+
 <!-- CLEO-INJECTION:section=error-handling -->
 ## Error Handling
 
