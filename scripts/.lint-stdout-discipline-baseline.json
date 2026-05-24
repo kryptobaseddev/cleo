@@ -19,7 +19,7 @@
     "packages/cleo-os/src/postinstall.ts:376",
     "packages/cleo-os/src/postinstall.ts:393",
     "packages/cleo-os/src/postinstall.ts:428",
-    "packages/cleo/src/cli/commands/backup.ts:59",
+    "packages/cleo/src/cli/commands/backup.ts:60",
     "packages/cleo/src/cli/commands/brain.ts:393",
     "packages/cleo/src/cli/commands/briefing.ts:192",
     "packages/cleo/src/cli/commands/check.ts:451",
@@ -78,5 +78,5 @@
     "packages/mcp-adapter/src/server.ts:133",
     "packages/mcp-adapter/src/server.ts:137"
   ],
-  "updatedAt": "2026-05-24T03:09:29.986Z"
+  "updatedAt": "2026-05-24T04:10:27.560Z"
 }
