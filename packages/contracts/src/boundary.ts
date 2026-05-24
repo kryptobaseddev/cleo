@@ -492,7 +492,7 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
       panic_unwind: 'allowed-with-recovery',
       root_escape: 'forbidden',
     },
-    amendments: ['adr-077-worktreeinclude'],
+    amendments: ['adr-087-worktree-ffi-topology'],
     rationale:
       'napi binding shim (515 LOC) for worktrunk-core, used by packages/core spawn-pipeline tests, packages/core/src/scaffold/ensure-config.ts, and shipped via packages/worktree-napi-* per-platform npm packages. Internal-only.',
   },
@@ -510,7 +510,7 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
       panic_unwind: 'forbidden',
       root_escape: 'forbidden',
     },
-    amendments: ['adr-077-worktreeinclude', 'adr-078-boundary-registry'],
+    amendments: ['adr-077-worktreeinclude-canonical-location', 'adr-078-boundary-registry'],
     rationale:
       'Refactored SoC per ADR-078 amendment 2026-05-23. Worktree primitives core (1,352 LOC) vendored from /mnt/projects/worktrunk per D010, consumed by worktree-napi. Reference implementation of the boundary-registry pattern. Full SDK surface documented in crates/worktrunk-core/README.md (T10223). Internal-only today; publish=true is a future option if external worktree-tooling emerges.',
   },
@@ -868,7 +868,7 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
       root_escape: 'forbidden',
       fs_writes_outside_root: 'audited',
     },
-    amendments: ['adr-077-worktreeinclude', 'adr-078-boundary-registry'],
+    amendments: ['adr-087-worktree-ffi-topology', 'adr-078-boundary-registry'],
     rationale:
       'Worktree SSoT primitive layer (1,972 LOC) — canonical create/destroy/list/prune/include/copy-on-write bound by @cleocode/paths. Post-PR-#487 the responsibilities are distinct from packages/core/src/worktree/ (SDK-level enrichment). Consumes worktrunk-core via worktree-napi.',
   },
