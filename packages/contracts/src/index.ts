@@ -291,6 +291,12 @@ export type {
   DbTier,
 } from './db-inventory.js';
 export { DB_INVENTORY } from './db-inventory.js';
+// === DB Recovery (T10318 — Saga T10281 / Epic T10284 — generic across DB_INVENTORY) ===
+export type {
+  BackupRecoverResult,
+  DbRecoveredRowCounts,
+  DbRecoveryResult,
+} from './db-recovery.js';
 // === Dependency Registry Contracts ===
 export type {
   DependencyCategory,

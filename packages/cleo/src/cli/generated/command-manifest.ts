@@ -123,7 +123,8 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'backupRecoverSubCommand',
     name: 'recover',
-    description: 'Recover a malformed CLEO database from snapshot',
+    description:
+      'Recover a malformed CLEO database from snapshot — accepts any role from DB_INVENTORY (T10318)',
     load: async () =>
       (await import('../commands/backup-recover.js')).backupRecoverSubCommand as CommandDef,
   },
