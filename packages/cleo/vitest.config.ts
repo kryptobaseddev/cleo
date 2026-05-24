@@ -261,6 +261,12 @@ export default defineConfig({
         '../../packages/core/src/config/registry.ts',
         import.meta.url,
       ).pathname,
+      // T9886: templates/registry subpath — SSoT TemplateManifest registry
+      // (Saga T9855 / E4) consumed by the `cleo templates` CLI surface.
+      '@cleocode/core/templates/registry': new URL(
+        '../../packages/core/src/templates/registry.ts',
+        import.meta.url,
+      ).pathname,
       // T9416: llm subpath imports used by `cleo auth list` / `cleo auth remove`
       '@cleocode/core/llm/credential-pool.js': new URL(
         '../../packages/core/src/llm/credential-pool.ts',
