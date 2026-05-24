@@ -673,11 +673,15 @@ export async function validateGateVerify(
       result.override = override.override;
     }
 
-    // GH #94 / T919 — policy (b): verify NEVER auto-completes.
+    // GH #94 / T919 / T9900 — policy (b): verify NEVER auto-completes.
     // When the final gate write drives verification.passed to true, emit a
     // clear next-step hint so agents and users know they must explicitly run
     // `cleo complete`.  Only emitted on write actions (not view/reset) when
     // all required gates are green.
+    //
+    // Contract is documented at docs/specs/CLEO-TASKS-API-SPEC.md §7.1 and
+    // reproduction-tested in packages/core/src/validation/__tests__/
+    // gate-verify-hint.test.ts ("GH #94 reproduction").
     if (
       (action === 'set_gate' || action === 'set_all') &&
       verification.passed === true &&
