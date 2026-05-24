@@ -12,6 +12,21 @@
  * @see ADR-073-above-epic-naming.md
  */
 
+// === Central Invariants Registry re-export (T10335 / Saga T10326) ===
+// Surfaces the central registry (ADR-073 I1-I8 + future-ADR entries) to
+// existing @cleocode/core saga consumers without forcing a contracts import
+// at every callsite.
+export {
+  ADR_073_INVARIANTS,
+  getInvariant,
+  getInvariantsByAdr,
+  INVARIANTS_REGISTRY,
+  type InvariantDoctorAudit,
+  type InvariantLintRule,
+  type InvariantRuntimeGate,
+  type InvariantSeverity,
+  type RegisteredInvariant,
+} from '@cleocode/contracts';
 export { type SagaAddParams, type SagaAddResult, sagaAdd } from './add.js';
 export { LIST_BINDING_SAGA_GROUPS, SAGA_GROUPS_RELATION, SAGA_LABEL } from './constants.js';
 export { type SagaCreateParams, sagaCreate } from './create.js';
