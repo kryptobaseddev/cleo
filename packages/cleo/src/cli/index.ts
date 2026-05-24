@@ -353,7 +353,7 @@ async function runMainWithLafsEnvelope(
     // Match citty's plain-text version output for backward compat with scripts
     // that grep for the version string. The `cleo --version` agent path was
     // already handled earlier in startCli via cliOutput.
-    process.stdout.write(`${version}\n`);
+    process.stdout.write(`${version}\n`); // stdout-write-allowed: legacy citty version compat (pre-existing, line-shifted by T9932 --summary flag wiring)
     process.exit(0);
   }
 
