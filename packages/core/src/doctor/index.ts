@@ -20,7 +20,13 @@
 
 // T10307 — DB-substrate survey (Saga T10281 SG-BRAIN-DB-RESILIENCE / Epic T10282)
 // T10310 — Per-DB pragma drift (Saga T10281 SG-BRAIN-DB-RESILIENCE / Epic T10283)
+// T10323 — Cross-DB orphan-row walker (Saga T10281 / Epic T10285)
 export {
+  checkInvariantI1,
+  checkInvariantI2,
+  checkInvariantI3,
+  checkInvariantI4,
+  checkInvariantI5,
   computeSubstrateProjectId,
   detectNestedNexusDuplicates,
   detectOrphanProjectRootWarning,
@@ -30,6 +36,7 @@ export {
   surveyDbSubstrate,
   surveyFleetDbSubstrate,
   surveyProjectDbSubstrate,
+  walkCrossDbInvariants,
   walkPragmaDrift,
 } from './db-substrate.js';
 // T10309 — Legacy-backup walker (Saga T10281 SG-BRAIN-DB-RESILIENCE / Epic T10282)

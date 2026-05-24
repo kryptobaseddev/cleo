@@ -103,6 +103,26 @@ function pushSubstrateWarnings(result: DbSubstrateAuditResult): void {
       }
     }
   }
+
+  // T10323: surface cross-DB orphan-row reports as `meta.warnings` too,
+  // one warning per invariant that detected ≥1 orphan. Skipped invariants
+  // are NOT surfaced as warnings — they're informational only.
+  for (const report of result.crossDbOrphans) {
+    if (report.skipped || report.orphanCount === 0) continue;
+    pushWarning({
+      code: `W_DB_SUBSTRATE_CROSS_DB_${report.invariant}`,
+      message: `${report.invariant}: ${report.orphanCount} orphan row${
+        report.orphanCount === 1 ? '' : 's'
+      } — ${report.description}. ${report.suggestedFix}`,
+      severity: 'warn',
+      context: {
+        invariant: report.invariant,
+        orphanCount: report.orphanCount,
+        sample: report.sample.join(','),
+        suggestedFix: report.suggestedFix,
+      },
+    });
+  }
 }
 
 /**
