@@ -47,6 +47,9 @@ import { spawn } from 'node:child_process';
  * exports. Each dir is scanned one level deep (direct .ts files only).
  */
 const SUBPATH_DIRS = [
+  // T9887 — packages/core/src/config/registry.ts is exposed via the
+  // ./config/registry subpath export for `cleo config` (Saga T9855 E4).
+  'config',
   'sentient',
   'gc',
   'doctor',

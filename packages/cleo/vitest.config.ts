@@ -255,6 +255,12 @@ export default defineConfig({
         '../../packages/core/src/config.ts',
         import.meta.url,
       ).pathname,
+      // T9887: config/registry subpath — the SSoT `resolveCleoConfig` cascade
+      // resolver (Saga T9855 / E4) consumed by the `cleo config` CLI surface.
+      '@cleocode/core/config/registry': new URL(
+        '../../packages/core/src/config/registry.ts',
+        import.meta.url,
+      ).pathname,
       // T9416: llm subpath imports used by `cleo auth list` / `cleo auth remove`
       '@cleocode/core/llm/credential-pool.js': new URL(
         '../../packages/core/src/llm/credential-pool.ts',

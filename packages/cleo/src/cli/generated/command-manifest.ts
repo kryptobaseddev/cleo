@@ -240,7 +240,8 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'configCommand',
     name: 'config',
-    description: 'Configuration management',
+    description:
+      'CleoConfig SSoT registry surface (show, get, set, validate, drift-check) + legacy presets/list',
     load: async () => (await import('../commands/config.js')).configCommand as CommandDef,
   },
   {
