@@ -59,6 +59,8 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type {
   AgentSpawnCapability,
   CLEOSpawnAdapter,
@@ -280,8 +282,6 @@ async function raceAgainstAbort<T>(
  * @task T10448
  */
 export function runLintChangesets(projectRoot: string): { ok: boolean; error?: string } {
-  const { join } = require('node:path');
-  const { existsSync } = require('node:fs');
   const scriptPath = join(projectRoot, 'scripts', 'lint-changesets.mjs');
 
   if (!existsSync(scriptPath)) {

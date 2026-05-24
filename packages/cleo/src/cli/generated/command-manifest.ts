@@ -363,6 +363,15 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
       (await import('../commands/doctor-projects.js')).doctorProjectsCommand as CommandDef,
   },
   {
+    exportName: 'doctorReleaseReadinessCommand',
+    name: 'release-readiness',
+    description:
+      'Pre-flight release readiness check — lint matrix + changelog + changeset + npm OIDC + tag-trigger sanity (T10458)',
+    load: async () =>
+      (await import('../commands/doctor-release-readiness.js'))
+        .doctorReleaseReadinessCommand as CommandDef,
+  },
+  {
     exportName: 'doctorCommand',
     name: 'doctor',
     description: 'Run system diagnostics and health checks',
@@ -447,6 +456,12 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     name: 'history',
     description: 'Completion timeline and productivity analytics',
     load: async () => (await import('../commands/history.js')).historyCommand as CommandDef,
+  },
+  {
+    exportName: 'hygieneCommand',
+    name: 'hygiene',
+    description: 'Run spawn-readiness hygiene checks',
+    load: async () => (await import('../commands/hygiene.js')).hygieneCommand as CommandDef,
   },
   {
     exportName: 'importTasksCommand',
