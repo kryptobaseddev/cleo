@@ -624,6 +624,8 @@ export { updateTask } from './tasks/update.js';
 // can import them without violating lint-core-first RULE-3 (which bans
 // `@cleocode/core/internal` from CLI command files).
 
+// T9915 (Saga T9855 / E7.2) — SSoT input validator over OperationInputContract
+export { validateOperationInput } from './dispatch/validation.js';
 // Setup wizard `--config-json` merger
 export { mergeConfigJson, WIZARD_SECTION_IDS } from './setup/config-json-merge.js';
 // Backup bundle inspect primitives (tar parser, encryption detect, byte fmt)
