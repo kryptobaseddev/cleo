@@ -32,6 +32,11 @@ const validateSpawnReadinessMock = vi.fn();
 const composeSpawnPayloadMock = vi.fn();
 const getTaskAccessorMock = vi.fn();
 const getActiveSessionMock = vi.fn();
+const execFileSyncMock = vi.fn();
+
+vi.mock('node:child_process', () => ({
+  execFileSync: (...args: unknown[]) => execFileSyncMock(...args),
+}));
 
 vi.mock('@cleocode/worktree', async () => {
   const actual = await vi.importActual<typeof import('@cleocode/worktree')>('@cleocode/worktree');
@@ -86,7 +91,62 @@ vi.mock('../plan.js', () => ({
 }));
 
 // Imported AFTER the mocks so the orchestrate spawn binding uses them.
-const { orchestrateSpawn } = await import('../spawn-ops.js');
+const { orchestrateSpawn, runLintChangesets } = await import('../spawn-ops.js');
+
+// ---------------------------------------------------------------------------
+// runLintChangesets — T10448 pre-spawn hygiene gate
+// ---------------------------------------------------------------------------
+
+describe('runLintChangesets — changeset hygiene gate (T10448)', () => {
+  it('returns ok=true when the linter exits 0', () => {
+    execFileSyncMock.mockReset();
+    execFileSyncMock.mockReturnValueOnce('lint-changesets: 2 entry/entries validated successfully.\n');
+
+    const result = runLintChangesets('/tmp/cleo-spawn-test-root');
+    expect(result.ok).toBe(true);
+    expect(result.error).toBeUndefined();
+    expect(execFileSyncMock).toHaveBeenCalledWith(
+      process.execPath,
+      ['/tmp/cleo-spawn-test-root/scripts/lint-changesets.mjs'],
+      {
+        cwd: '/tmp/cleo-spawn-test-root',
+        encoding: 'utf8',
+        timeout: 30_000,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
+  });
+
+  it('returns ok=false with stderr when the linter exits non-zero', () => {
+    execFileSyncMock.mockReset();
+    const err = new Error('Command failed: node scripts/lint-changesets.mjs') as Error & {
+      stderr?: string;
+      stdout?: string;
+      status?: number;
+    };
+    err.stderr = 'lint-changesets: FAIL — 1 of 3 entries rejected.\n';
+    err.stdout = '';
+    err.status = 1;
+    execFileSyncMock.mockImplementationOnce(() => {
+      throw err;
+    });
+
+    const result = runLintChangesets('/tmp/cleo-spawn-test-root');
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('FAIL');
+    expect(result.error).toContain('entries rejected');
+  });
+
+  it('returns ok=true when the script is absent (non-monorepo graceful degradation)', () => {
+    execFileSyncMock.mockReset();
+    // The function checks existsSync before calling execFileSync.
+    // In the test environment the script path does not exist, so
+    // execFileSync should NOT be called.
+    const result = runLintChangesets('/nonexistent-project-root');
+    expect(result.ok).toBe(true);
+    expect(execFileSyncMock).not.toHaveBeenCalled();
+  });
+});
 
 // ---------------------------------------------------------------------------
 // runTimeoutCleanup
