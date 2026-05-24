@@ -123,7 +123,8 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'backupRecoverSubCommand',
     name: 'recover',
-    description: 'Recover a malformed CLEO database from snapshot',
+    description:
+      'Recover a malformed CLEO database from snapshot — accepts any role from DB_INVENTORY (T10318)',
     load: async () =>
       (await import('../commands/backup-recover.js')).backupRecoverSubCommand as CommandDef,
   },
@@ -336,6 +337,22 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     name: 'docs',
     description: 'Documentation attachment management (add/list/fetch/remove), ',
     load: async () => (await import('../commands/docs.js')).docsCommand as CommandDef,
+  },
+  {
+    exportName: 'doctorDbSubstrateCommand',
+    name: 'db-substrate',
+    description: 'Walk every DB in the inventory + report integrity, row counts, orphan dirs. ',
+    load: async () =>
+      (await import('../commands/doctor-db-substrate.js')).doctorDbSubstrateCommand as CommandDef,
+  },
+  {
+    exportName: 'doctorLegacyBackupsCommand',
+    name: 'legacy-backups',
+    description:
+      'Enumerate legacy *-pre-cleo.db.bak / brain.db.PRE-DUP-FIX-* / pre-untrack / rotation-overflow ',
+    load: async () =>
+      (await import('../commands/doctor-legacy-backups.js'))
+        .doctorLegacyBackupsCommand as CommandDef,
   },
   {
     exportName: 'doctorProjectsCommand',
