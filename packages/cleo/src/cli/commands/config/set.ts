@@ -182,35 +182,37 @@ function parseWriteScope(raw: string | undefined): 'global' | 'project' | null {
  * @internal
  */
 function coerceValue(raw: string, typeFlag: string | undefined): unknown {
-  if (typeFlag === undefined) {
-    return parseConfigValue(raw);
+  if (typeFlag === undefined) return parseConfigValue(raw);
+  if (typeFlag === 'string') return raw;
+  if (typeFlag === 'number') return coerceNumber(raw);
+  if (typeFlag === 'boolean') return coerceBoolean(raw);
+  if (typeFlag === 'json') return coerceJson(raw);
+  throw new Error(`--type must be one of: string | number | boolean | json (got "${typeFlag}")`);
+}
+
+/** Coerce a CLI string into a finite number; throws on `NaN`. @internal */
+function coerceNumber(raw: string): number {
+  const n = Number(raw);
+  if (Number.isNaN(n)) {
+    throw new Error(`--type number cannot coerce "${raw}"`);
   }
-  switch (typeFlag) {
-    case 'string':
-      return raw;
-    case 'number': {
-      const n = Number(raw);
-      if (Number.isNaN(n)) {
-        throw new Error(`--type number cannot coerce "${raw}"`);
-      }
-      return n;
-    }
-    case 'boolean': {
-      const lower = raw.toLowerCase();
-      if (lower === 'true') return true;
-      if (lower === 'false') return false;
-      throw new Error(`--type boolean accepts only "true"/"false" (got "${raw}")`);
-    }
-    case 'json':
-      try {
-        return JSON.parse(raw) as unknown;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        throw new Error(`--type json failed to parse: ${msg}`);
-      }
-    default:
-      throw new Error(
-        `--type must be one of: string | number | boolean | json (got "${typeFlag}")`,
-      );
+  return n;
+}
+
+/** Coerce a CLI string into a boolean (`true`/`false`, case-insensitive). @internal */
+function coerceBoolean(raw: string): boolean {
+  const lower = raw.toLowerCase();
+  if (lower === 'true') return true;
+  if (lower === 'false') return false;
+  throw new Error(`--type boolean accepts only "true"/"false" (got "${raw}")`);
+}
+
+/** Coerce a CLI string via `JSON.parse`; rewraps SyntaxError into a CLI-shaped message. @internal */
+function coerceJson(raw: string): unknown {
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`--type json failed to parse: ${msg}`);
   }
 }
