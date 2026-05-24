@@ -246,6 +246,12 @@ function pickDecoratorMetaExtensionsLocal(
   if (responseMeta['suggestedNext'] !== undefined) {
     out['suggestedNext'] = responseMeta['suggestedNext'];
   }
+  // T9922 (Saga T9855 / E8.3) — surface MVI record projection choice so JSON
+  // consumers can see whether the response was projected ('mvi') or returned
+  // in full ('full'). Stamped by the mvi-record-projection middleware.
+  if (responseMeta['projection'] !== undefined) {
+    out['projection'] = responseMeta['projection'];
+  }
   return out;
 }
 

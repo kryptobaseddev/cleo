@@ -22,6 +22,7 @@ import { Dispatcher } from '../dispatcher.js';
 import { createDomainHandlers } from '../domains/index.js';
 import { createAudit } from '../middleware/audit.js';
 import { createFieldFilter } from '../middleware/field-filter.js';
+import { createMviRecordProjection } from '../middleware/mvi-record-projection.js';
 import { createSanitizer } from '../middleware/sanitizer.js';
 import { createSessionResolver } from '../middleware/session-resolver.js';
 import { createTelemetry } from '../middleware/telemetry.js';
@@ -161,6 +162,11 @@ export function createCliDispatcher(): Dispatcher {
       createSessionResolver(lookupCliSession), // T4959: session identity first
       createSanitizer(() => getProjectRoot()),
       createFieldFilter(),
+      // T9922 (Saga T9855 / E8.3): MVI record projection default for read ops.
+      // Runs AFTER the domain handler returns so it can trim the data payload
+      // before audit + telemetry record byte sizes. Sits before audit so the
+      // audit trail captures the projected (final) bytes.
+      createMviRecordProjection(),
       createAudit(), // T4959: CLI now gets audit trail
       createTelemetry(), // T624: opt-in self-improvement telemetry
     ],
