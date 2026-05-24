@@ -104,9 +104,10 @@ import type { DispatchResponseMeta } from '../../dispatch/types.js';
 import { getFieldContext } from '../field-context.js';
 import { getFormatContext } from '../format-context.js';
 import { getOutputMode } from '../output-context.js';
+import { getSummaryMode } from '../summary-context.js';
 import { emitLafsViolation, LafsViolationError, validateLafsShape } from './lafs-validator.js';
 import { normalizeForHuman } from './normalizer.js';
-import { renderOutputMode } from './output-mode.js';
+import { renderOutputMode, renderSummary } from './output-mode.js';
 
 export type { RenderWavesMode, RenderWavesOptions } from '@cleocode/core';
 export { renderWaves };
@@ -335,6 +336,7 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
   const ctx = getFormatContext();
   const fieldCtx = getFieldContext();
   const outputMode = getOutputMode();
+  const summary = getSummaryMode();
 
   // T9930 — --output {id|table|count|silent} re-renders the canonical envelope
   // payload into the alternative shape the caller asked for. `--field` (T9929)
@@ -343,6 +345,19 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
   // `envelope` mode (default) falls through to the existing human/JSON paths.
   if (outputMode !== 'envelope' && !fieldCtx.field) {
     const out = renderOutputMode(outputMode, data);
+    if (out.text !== null && out.text.length > 0) {
+      process.stdout.write(out.text + '\n');
+    }
+    return;
+  }
+
+  // T9932 — --summary re-renders the envelope payload as 1 line per record:
+  // `<id> [<status>] <title-truncated-60>`. Precedence (see summary-context.ts):
+  //   `--field` wins (handled below)
+  //   `--output {id|table|count|silent}` wins (handled above)
+  //   `--summary` runs here, BEFORE the default JSON/human paths.
+  if (summary && !fieldCtx.field) {
+    const out = renderSummary(data);
     if (out.text !== null && out.text.length > 0) {
       process.stdout.write(out.text + '\n');
     }

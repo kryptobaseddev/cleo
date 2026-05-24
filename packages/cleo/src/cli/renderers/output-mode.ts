@@ -203,6 +203,74 @@ export interface OutputModeResult {
 }
 
 /**
+ * Render the dispatch envelope's `data` payload as one line per record.
+ *
+ * Format: `<id> [<status>] <title-truncated-60>` per row.
+ *
+ * Single-record envelopes (`{task: {...}}`, bare `{id, status, title}`) emit
+ * exactly one line. List-shaped envelopes (`{tasks: []}` / `{items: []}`)
+ * emit one line per element. Records missing `id` are skipped (consistent
+ * with `--output id`). Empty arrays return `'No rows.'` to match the
+ * `--output table` empty contract.
+ *
+ * Title is truncated to 60 chars (UTF-16 code units) with a trailing `…`
+ * when shortened — matches the cell cap used by `renderTableList`.
+ *
+ * @task T9932
+ * @epic T9855
+ */
+export function renderSummary(data: unknown): OutputModeResult {
+  if (data === null || typeof data !== 'object') {
+    return { text: '' };
+  }
+  const rec = data as Record<string, unknown>;
+
+  // 1. List shapes — {tasks: [...]} or {items: [...]} from SDK ListResponse.
+  const tasks = rec['tasks'];
+  if (Array.isArray(tasks)) {
+    return { text: renderSummaryList(tasks as unknown[]) };
+  }
+  const items = rec['items'];
+  if (Array.isArray(items)) {
+    return { text: renderSummaryList(items as unknown[]) };
+  }
+
+  // 2. Single nested task ({task: {id, status, title}}) — e.g. `cleo show`.
+  const task = rec['task'];
+  if (task && typeof task === 'object') {
+    return { text: renderSummaryRow(task as Record<string, unknown>) };
+  }
+
+  // 3. Bare record (`{id, status, title}`).
+  if (typeof rec['id'] === 'string') {
+    return { text: renderSummaryRow(rec) };
+  }
+
+  return { text: '' };
+}
+
+/** Render a single record line: `<id> [<status>] <title-truncated-60>`. */
+function renderSummaryRow(record: Record<string, unknown>): string {
+  const id = typeof record['id'] === 'string' ? record['id'] : '';
+  const status = typeof record['status'] === 'string' ? record['status'] : '';
+  const title = truncate(typeof record['title'] === 'string' ? record['title'] : '', 60);
+  return `${id} [${status}] ${title}`;
+}
+
+/** Render a list of records, one line each. Skips rows lacking an id. */
+function renderSummaryList(rows: unknown[]): string {
+  if (rows.length === 0) return 'No rows.';
+  const lines: string[] = [];
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+    const rec = row as Record<string, unknown>;
+    if (typeof rec['id'] !== 'string') continue;
+    lines.push(renderSummaryRow(rec));
+  }
+  return lines.length === 0 ? 'No rows.' : lines.join('\n');
+}
+
+/**
  * Re-render a successful dispatch envelope's `data` payload into the
  * shape requested by the `--output` flag.
  *
