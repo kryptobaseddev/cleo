@@ -152,6 +152,8 @@ export { generateDocsLlmsTxt } from './docs/docs-generator.js';
 // + git⇄llmtxt round-trip (publish/sync/status) (T9634 — Saga T9625 / Epic T9626)
 export type {
   DocsDriftItem,
+  DocsFindSimilarHit,
+  DocsFindSimilarResult,
   DocsGraphEdge,
   DocsGraphNode,
   DocsGraphResult,
@@ -171,6 +173,9 @@ export type {
 } from './docs/docs-ops.js';
 export {
   buildDocsGraph,
+  DEFAULT_FIND_SIMILAR_LIMIT,
+  DEFAULT_FIND_SIMILAR_THRESHOLD,
+  findSimilarDocs,
   listDocVersions,
   listPublications,
   mergeDocs,

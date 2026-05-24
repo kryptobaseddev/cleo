@@ -23,7 +23,7 @@ import type { Attachment, AttachmentMetadata, AttachmentRef } from '@cleocode/co
 import { and, eq, sql } from 'drizzle-orm';
 import { getCleoDirAbsolute } from '../paths.js';
 import { getDb, getNativeTasksDb } from './sqlite.js';
-import { attachmentRefs, attachments } from './tasks-schema.js';
+import { type AttachmentLifecycleStatus, attachmentRefs, attachments } from './tasks-schema.js';
 
 // ─── Error types ──────────────────────────────────────────────────────────────
 
@@ -291,18 +291,31 @@ export interface AttachmentStore {
    *
    * Returns `null` if no attachment in this project carries the slug.
    *
+   * `summary` and `lifecycleStatus` (T10158 provenance columns) are
+   * surfaced here so similarity-style callers (T10163) do not have to
+   * round-trip the DB a second time.
+   *
    * @task T9636
    */
   findBySlug(
     slug: string,
     cwd?: string,
-  ): Promise<{ metadata: AttachmentMetadata; slug: string; type: string | null } | null>;
+  ): Promise<{
+    metadata: AttachmentMetadata;
+    slug: string;
+    type: string | null;
+    summary: string | null;
+    lifecycleStatus: AttachmentLifecycleStatus;
+  } | null>;
 
   /**
    * List ALL attachments in the project DB, optionally filtered by `type`.
    *
    * Returns one row per `attachment_refs` entry so callers see how the
    * attachment was bound to its owner. Use this for `cleo docs list --project`.
+   *
+   * `summary` and `lifecycleStatus` (T10158 provenance columns) are
+   * surfaced as additive fields for callers that need them (T10163).
    *
    * @task T9638
    */
@@ -316,6 +329,8 @@ export interface AttachmentStore {
       type: string | null;
       ownerType: AttachmentRef['ownerType'];
       ownerId: string;
+      summary: string | null;
+      lifecycleStatus: AttachmentLifecycleStatus;
     }>
   >;
 
@@ -782,6 +797,8 @@ export function createAttachmentStore(): AttachmentStore {
         metadata: rowToMetadata(row),
         slug: row.slug ?? slug,
         type: row.type ?? null,
+        summary: row.summary ?? null,
+        lifecycleStatus: row.lifecycleStatus,
       };
     },
 
@@ -814,6 +831,8 @@ export function createAttachmentStore(): AttachmentStore {
         type: string | null;
         ownerType: AttachmentRef['ownerType'];
         ownerId: string;
+        summary: string | null;
+        lifecycleStatus: AttachmentLifecycleStatus;
       }> = [];
       for (const refRow of rows) {
         const row = await db
@@ -829,6 +848,8 @@ export function createAttachmentStore(): AttachmentStore {
           type: row.type ?? null,
           ownerType: refRow.ownerType,
           ownerId: refRow.ownerId,
+          summary: row.summary ?? null,
+          lifecycleStatus: row.lifecycleStatus,
         });
       }
       return out;
