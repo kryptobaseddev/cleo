@@ -13,7 +13,7 @@
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { defineCommand } from '../lib/define-cli-command.js';
-import { cliOutput, cliError, humanLine } from '../renderers/index.js';
+import { cliOutput, humanLine } from '../renderers/index.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -161,8 +161,11 @@ export const doctorReleaseReadinessCommand = defineCommand({
     let oidcCheck: CheckResult;
     if (existsSync(packageJsonPath)) {
       try {
-        const pkg = JSON.parse(await import('node:fs').then((m) => m.readFileSync(packageJsonPath, 'utf8')));
-        const hasPublishConfig = typeof pkg.publishConfig === 'object' && pkg.publishConfig !== null;
+        const pkg = JSON.parse(
+          await import('node:fs').then((m) => m.readFileSync(packageJsonPath, 'utf8')),
+        );
+        const hasPublishConfig =
+          typeof pkg.publishConfig === 'object' && pkg.publishConfig !== null;
         const accessPublic = hasPublishConfig && pkg.publishConfig.access === 'public';
         oidcCheck = {
           name: 'npm-oidc-sanity',
@@ -198,17 +201,14 @@ export const doctorReleaseReadinessCommand = defineCommand({
 
     // ── 5. Tag-trigger sanity ───────────────────────────────────────────────
     // Verify that the auto-tag-on-release-merge.yml workflow exists and looks valid.
-    const tagWorkflowPath = join(
-      repoRoot,
-      '.github',
-      'workflows',
-      'auto-tag-on-release-merge.yml',
-    );
+    const tagWorkflowPath = join(repoRoot, '.github', 'workflows', 'auto-tag-on-release-merge.yml');
     const tagWorkflowExists = existsSync(tagWorkflowPath);
     let tagTriggerCheck: CheckResult;
     if (tagWorkflowExists) {
       try {
-        const content = await import('node:fs').then((m) => m.readFileSync(tagWorkflowPath, 'utf8'));
+        const content = await import('node:fs').then((m) =>
+          m.readFileSync(tagWorkflowPath, 'utf8'),
+        );
         const hasName = content.includes('name:');
         const hasOnTrigger = content.includes('on:') || content.includes('pull_request:');
         const valid = hasName && hasOnTrigger;
