@@ -148,6 +148,22 @@ export interface TasksFindParams {
    * @task T9904
    */
   label?: string;
+  /**
+   * Filter by parent task ID — restricts the result set to tasks whose
+   * `parentId` equals this value. Mirrors the `--parent` axis on
+   * `cleo list`. When the parent task is a Saga (Epic with
+   * `label='saga'`), routing goes through `task_relations.type='groups'`
+   * member IDs instead of the `parentId` column (ADR-073 §1).
+   *
+   * Composes with other filters via AND. Closes T10108 — pre-fix,
+   * `cleo find "" --parent <id>` returned every task in the project
+   * because the empty-string query bypassed all filters via
+   * `fuzzyScore('', '<title>')===80`.
+   *
+   * @task T10108
+   * @saga T9862
+   */
+  parent?: string;
 }
 export type TasksFindResult = MinimalTask[];
 

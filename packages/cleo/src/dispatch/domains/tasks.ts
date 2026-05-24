@@ -240,6 +240,10 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
         urgent: params.urgent,
         // T9904: label filter — `cleo find --label <name>` (closes GH#393).
         label: params.label,
+        // T10108: parent filter — `cleo find --parent <id>`. Saga-aware via
+        // resolveSagaMemberIds (ADR-073 §1) so saga members surface through
+        // the same routing as `cleo list --parent`.
+        parent: params.parent,
       }),
       'find',
     );
