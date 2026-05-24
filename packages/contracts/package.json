@@ -116,9 +116,10 @@
     }
   },
   "scripts": {
-    "build": "tsc -b --force && node scripts/emit-schemas.mjs",
-    "build:ts": "tsc -b --force",
+    "build": "tsc -b --force && node scripts/copy-assets.mjs && node scripts/emit-schemas.mjs",
+    "build:ts": "tsc -b --force && node scripts/copy-assets.mjs",
     "build:schemas": "node scripts/emit-schemas.mjs",
+    "build:assets": "node scripts/copy-assets.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

@@ -4,9 +4,15 @@
  * @remarks
  * This module exports the typed shape and the runtime constant for every
  * SQLite database that CLEO manages. The runtime data is sourced from the
- * canonical JSON inventory at `packages/core/src/store/db-inventory.json`
+ * canonical JSON inventory at `packages/contracts/src/db-inventory.json`
  * via ESM JSON import (`with { type: 'json' }`). The JSON file is the
  * single source of truth; this module re-exposes it with a typed contract.
+ *
+ * The JSON file is co-located in this package (rather than referencing a
+ * sibling-package `src/` path) so that the built `dist/db-inventory.js`
+ * resolves the JSON via a relative `./db-inventory.json` import that
+ * works inside the published `@cleocode/contracts` npm tarball — sibling
+ * package `src/` directories are not shipped to consumers.
  *
  * Downstream consumers:
  *
@@ -23,9 +29,10 @@
  *   agent_id, session_id, ...).
  *
  * Adding a new entry to the inventory is a charter amendment — update
- * `db-inventory.json` AND `.cleo/adrs/ADR-068-cleo-database-charter.md`
- * in the same PR (gated by `cleo check arch` Gate-4 SSoT-EXEMPT lint
- * once T10282 ships its drift check).
+ * `packages/contracts/src/db-inventory.json` AND
+ * `.cleo/adrs/ADR-068-cleo-database-charter.md` in the same PR (gated by
+ * `cleo check arch` Gate-4 SSoT-EXEMPT lint once T10282 ships its drift
+ * check).
  *
  * @see ADR-068 — CLEO Database Charter (canonical narrative)
  * @see Saga T10281 — SG-BRAIN-DB-RESILIENCE (provenance)
@@ -37,7 +44,7 @@
  * @saga T10281
  */
 
-import dbInventoryData from '../../core/src/store/db-inventory.json' with { type: 'json' };
+import dbInventoryData from './db-inventory.json' with { type: 'json' };
 
 /**
  * Canonical role names for every SQLite database in the CLEO charter.
@@ -203,7 +210,7 @@ const rawInventory = dbInventoryData as DbInventoryFile;
  * Immutable canonical inventory of every CLEO SQLite database.
  *
  * @remarks
- * Sourced from `packages/core/src/store/db-inventory.json` — the SSoT.
+ * Sourced from `packages/contracts/src/db-inventory.json` — the SSoT.
  * Adding a new entry is a charter amendment per ADR-068 §"How to add a
  * new database". The {@link db-inventory.test.ts} suite asserts:
  *
