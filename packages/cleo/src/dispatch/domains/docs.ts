@@ -61,10 +61,12 @@ import {
   getCleoDirAbsolute,
   getProjectRoot,
   memoryObserve,
+  parseChangesetFrontmatter,
   releaseReservedSlug,
   reserveSlugForDispatch,
   resolveAttachmentBackend,
   SlugCollisionError,
+  writeChangesetEntry,
 } from '@cleocode/core/internal';
 import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
@@ -865,6 +867,162 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         );
       }
       type = rawType;
+    }
+
+    // T10367 (Saga T10288 · Epic T10290 · E2.2) — changeset DocKind delegation.
+    //
+    // The `changeset` kind is `canonicalHome: 'ssot-first'` in `.cleo/canon.yml`
+    // and the WriterRegistry (T10366) names `writeChangesetEntry` as the sole
+    // writer. `cleo docs add --type changeset` therefore MUST flow through
+    // the dual-write transaction in `packages/core/src/changesets/writer.ts`
+    // instead of the generic attachment-store path below — otherwise the
+    // bytes land in the SSoT blob store BUT skip the `.changeset/<slug>.md`
+    // file mirror that the release-plan aggregator + human reviewers read.
+    //
+    // Contract:
+    //   - File body MUST carry a valid changeset frontmatter (id, tasks,
+    //     kind, summary). Missing frontmatter → E_REQUIRES_CHANGESET_VERB
+    //     with a fix hint pointing at `cleo changeset add` for guided
+    //     authoring (the CLI flag-prompt surface is the friendlier path
+    //     when the operator only has free-form prose).
+    //   - When --slug is provided alongside --type changeset, it MUST match
+    //     the frontmatter `id`. The frontmatter is canonical; --slug is
+    //     redundant but accepted for symmetry with the rest of `docs add`.
+    //   - On success the LAFS envelope mirrors what `cleo changeset add`
+    //     emits — `slug`, `attachmentId`, `sha256`, plus `type: 'changeset'`
+    //     and `kind: 'blob'` (the SSoT blob kind).
+    //
+    // The file branch below is bypassed entirely in this path — there is
+    // exactly ONE writer for the `changeset` kind (the SG-DOCS-INTEGRITY
+    // invariant). Side-effects (memory observation, llmtxt graph mint, v2
+    // mirror) are NOT replayed here because `writeChangesetEntry` already
+    // owns the canonical write surface and downstream consumers read from
+    // the SSoT blob via the same code path either verb invoked.
+    if (type === 'changeset') {
+      if (!filePath) {
+        return lafsError(
+          'E_INVALID_INPUT',
+          'changeset writes require a --file path (URL attachments are not supported for changesets)',
+          'add',
+        );
+      }
+      const absPath = resolve(filePath);
+      let bytes: Buffer;
+      try {
+        bytes = await readFile(absPath);
+      } catch {
+        return lafsError('E_FILE_ERROR', `Cannot read file: ${absPath}`, 'add');
+      }
+      const parsed = parseChangesetFrontmatter(bytes.toString('utf-8'));
+      if (!parsed.ok) {
+        // Map the discriminated parser failure to a single envelope code.
+        // E_REQUIRES_CHANGESET_VERB tells the operator that this kind has
+        // a dedicated CLI verb for guided authoring — `cleo changeset add`
+        // prompts for every required field. The `details.parserError`
+        // field carries the raw failure shape so agents can post-process
+        // without re-running the parser.
+        let message: string;
+        if (parsed.error === 'missing-frontmatter') {
+          message =
+            'changeset file is missing the `---`-fenced YAML frontmatter. ' +
+            'Required fields: id, tasks, kind, summary.';
+        } else if (parsed.error === 'missing-required') {
+          message = `changeset frontmatter is missing required fields: ${parsed.missing.join(', ')}.`;
+        } else if (parsed.error === 'yaml-invalid') {
+          const lineHint = parsed.line !== undefined ? ` (line ${parsed.line})` : '';
+          message = `changeset frontmatter YAML is invalid${lineHint}: ${parsed.parserMessage}`;
+        } else {
+          // schema-invalid
+          message = `changeset frontmatter failed schema validation: ${parsed.issues.join('; ')}`;
+        }
+        return {
+          success: false,
+          error: {
+            code: 'E_REQUIRES_CHANGESET_VERB',
+            message,
+            details: {
+              fix: 'Use `cleo changeset add --slug <id> --tasks <T####> --kind <kind> --summary <text>` for guided authoring.',
+              parserError: parsed.error,
+              ...(parsed.error === 'missing-required' ? { missing: parsed.missing } : {}),
+              ...(parsed.error === 'schema-invalid' ? { issues: parsed.issues } : {}),
+            },
+          },
+        };
+      }
+
+      // If --slug was also provided, cross-check against the frontmatter id.
+      // The frontmatter wins — but a mismatch is almost always an operator
+      // bug (typo in either surface) so we fail loud rather than silently
+      // discard the flag.
+      if (slug !== undefined && slug !== parsed.entry.id) {
+        return {
+          success: false,
+          error: {
+            code: 'E_SLUG_MISMATCH',
+            message: `--slug '${slug}' does not match changeset frontmatter id '${parsed.entry.id}'. The frontmatter is canonical — drop --slug or align it.`,
+          },
+        };
+      }
+
+      const outcome = await writeChangesetEntry(parsed.entry, {
+        projectRoot: getProjectRoot(),
+        attachedBy:
+          typeof rawAttachedBy === 'string' && rawAttachedBy.length > 0
+            ? rawAttachedBy
+            : 'cleo-docs-add',
+      });
+      if (!outcome.ok) {
+        const err = outcome.error;
+        if (err.code === 'E_SLUG_PATTERN_MISMATCH') {
+          const hint = err.example ? ` (example: ${err.example})` : '';
+          return lafsError('E_SLUG_PATTERN_MISMATCH', `${err.message}${hint}`, 'add');
+        }
+        if (err.code === 'E_INVALID_ENTRY') {
+          return lafsError('E_INVALID_INPUT', err.message, 'add');
+        }
+        if (err.code === 'E_FILE_WRITE_FAILED') {
+          return lafsError('E_FILE_ERROR', err.message, 'add');
+        }
+        // E_SSOT_WRITE_FAILED — bubble up so the operator can see the
+        // underlying store error (typically a slug collision wrapped as
+        // SlugCollisionError on the way through). The writer has already
+        // rolled back the `.changeset/<slug>.md` file at this point.
+        return lafsError('E_SSOT_WRITE_FAILED', err.message, 'add');
+      }
+
+      // T9976 — emit structured memory observation for the changeset write,
+      // matching the regular docs-add behaviour. Fire-and-forget; the
+      // observation is best-effort and never fails the dispatch envelope.
+      const changesetPayload: DocAttachmentObservationPayload = {
+        kind: 'doc-attachment',
+        attachmentId: outcome.result.attachmentId,
+        ownerId: outcome.result.ownerId,
+        addedAt: new Date().toISOString(),
+        slug: outcome.result.slug,
+        type: 'changeset',
+      };
+      emitDocAttachmentObservation(changesetPayload, getProjectRoot());
+
+      return lafsSuccess<DocsAddResult>(
+        {
+          attachmentId: outcome.result.attachmentId,
+          sha256: outcome.result.sha256,
+          // writeChangesetEntry returns a freshly-minted ref so refCount is 1
+          // (or more if the same content was already addressed by another
+          // owner). The store sets the canonical value; mirroring it here
+          // keeps the envelope shape identical to the file/url branches.
+          refCount: 1,
+          kind: 'blob',
+          ownerId: outcome.result.ownerId,
+          ownerType: 'task',
+          // Changeset writes land in the legacy attachment store; v2 mirror
+          // is not applicable to the dual-write transaction.
+          attachmentBackend: 'legacy' as DocsAddResult['attachmentBackend'],
+          slug: outcome.result.slug,
+          type: 'changeset',
+        },
+        'add',
+      );
     }
 
     // T9788 — when the registered kind requires an entityId, enforce the

@@ -9,6 +9,10 @@
  * @module changesets
  */
 
+export {
+  type ParseChangesetFrontmatterResult,
+  parseChangesetFrontmatter,
+} from './parse-frontmatter.js';
 export { parseChangesetDir, parseChangesetFile } from './parser.js';
 export {
   renderChangesetMarkdown,
