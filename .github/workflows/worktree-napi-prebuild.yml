@@ -11,13 +11,21 @@ on:
     paths:
       - 'crates/worktree-napi/**'
       - 'crates/worktrunk-core/**'
+      - 'packages/worktree/**'
+      - 'packages/contracts/**'
+      - 'packages/worktree-napi-*/**'
       - 'rust-toolchain.toml'
+      - 'pnpm-lock.yaml'
       - '.github/workflows/worktree-napi-prebuild.yml'
   pull_request:
     paths:
       - 'crates/worktree-napi/**'
       - 'crates/worktrunk-core/**'
+      - 'packages/worktree/**'
+      - 'packages/contracts/**'
+      - 'packages/worktree-napi-*/**'
       - 'rust-toolchain.toml'
+      - 'pnpm-lock.yaml'
       - '.github/workflows/worktree-napi-prebuild.yml'
   workflow_dispatch:
   merge_group:
