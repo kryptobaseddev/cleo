@@ -1,22 +1,29 @@
 /**
  * ADR DB Sync (ADR-017)
  *
- * Syncs ADR markdown frontmatter into the architecture_decisions DB table
- * AND regenerates .cleo/adrs/adr-index.jsonl in one pass.
+ * Syncs ADR markdown frontmatter into the architecture_decisions DB table.
  *
  * Single command: ct adr sync (or admin.adr.sync)
  * - Updates architecture_decisions + adr_task_links in SQLite (runtime search)
- * - Rewrites adr-index.jsonl (portable ADR export, includes archive/ ADRs)
  *
- * NOTE: This file writes .cleo/adrs/adr-index.jsonl — the ADR portability export.
- * This is DISTINCT from the agent pipeline_manifest (ADR-027). The pipeline_manifest
- * for agent outputs lives in tasks.db and is accessed via `cleo manifest` CLI.
+ * NOTE: `.cleo/adrs/adr-index.jsonl` is FROZEN as of T10165 (Saga T9855). The
+ * canonical store for the same metadata is the `attachments` table provenance
+ * columns shipped by T10158, reachable via `cleo docs fetch <adr-slug>` and
+ * the docs SSoT graph (T10162/T10164). This sync no longer writes the JSONL;
+ * the file is preserved on disk for one deprecation cycle so external scripts
+ * that still read it continue to work — append a NEW line to it and the
+ * `cleo check canon docs` gate fails with `E_ADR_INDEX_JSONL_FROZEN`.
+ *
+ * This file is DISTINCT from the agent pipeline_manifest (ADR-027). The
+ * pipeline_manifest for agent outputs lives in tasks.db and is accessed via
+ * `cleo manifest` CLI.
  *
  * @task T4792
  * @task T4942 — ADR index generation folded in so one command keeps both in sync
+ * @task T10165 — adr-index.jsonl write path retired; backfilled into attachments
  */
 
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { adrTaskLinks, architectureDecisions, tasks } from '../store/tasks-schema.js';
 import { parseAdrFile } from './parse.js';
@@ -67,8 +74,11 @@ function collectAdrFiles(dir: string): Array<{ file: string; relPath: string }> 
 }
 
 /**
- * Sync all ADR markdown files into the architecture_decisions table
- * AND regenerate the ADR index (adr-index.jsonl) in one pass.
+ * Sync all ADR markdown files into the architecture_decisions table.
+ *
+ * As of T10165 (Saga T9855) the `.cleo/adrs/adr-index.jsonl` portability
+ * export is frozen — the canonical store for the same metadata is now the
+ * `attachments` table (T10158 provenance columns).
  */
 // SSoT-EXEMPT: zero-params op — no Params contract needed; ADR-057 D1 applies to parameterized ops only
 export async function syncAdrsToDb(projectRoot: string): Promise<AdrSyncResult> {
@@ -84,10 +94,15 @@ export async function syncAdrsToDb(projectRoot: string): Promise<AdrSyncResult> 
   const db = await getDb(projectRoot);
   const now = new Date().toISOString();
 
-  const allFiles = collectAdrFiles(adrsDir);
-  // Only sync top-level files to DB (archive/ ADRs are superseded)
-  const activeFiles = allFiles.filter((f) => !f.relPath.includes('/'));
-  const manifestEntries: Record<string, unknown>[] = [];
+  // Only sync top-level files to DB (archive/ ADRs are superseded).
+  // T10165 — the previous code also collected archive/ files to feed the
+  // JSONL export; the export is now retired so we scan top-level only.
+  const activeFiles = collectAdrFiles(adrsDir).filter((f) => !f.relPath.includes('/'));
+
+  // T10165 — JSONL export retired. The legacy `manifestEntries` collector
+  // and the `writeFileSync(adr-index.jsonl)` call that lived here are gone;
+  // canonical store for the same metadata is the `attachments` table
+  // populated by `packages/core/src/migration/manual/T10165-backfill-adr-index.ts`.
 
   // --- DB sync (active ADRs only) ---
   for (const { file, relPath } of activeFiles) {
@@ -202,56 +217,10 @@ export async function syncAdrsToDb(projectRoot: string): Promise<AdrSyncResult> 
     }
   }
 
-  // --- ADR index (adr-index.jsonl — all ADRs including archive/) ---
-  for (const { relPath } of allFiles) {
-    try {
-      const filePath = join(adrsDir, relPath);
-      const record = parseAdrFile(filePath, projectRoot);
-      const fm = record.frontmatter;
-
-      const entry: Record<string, unknown> = {
-        id: record.id,
-        file: `.cleo/adrs/${relPath}`,
-        title: record.title,
-        status: fm.Status ?? 'unknown',
-        date: fm.Date ?? '',
-      };
-      if (fm.Accepted) entry['accepted'] = fm.Accepted;
-      if (fm.Supersedes) entry['supersedes'] = fm.Supersedes;
-      if (fm['Superseded By']) entry['supersededBy'] = fm['Superseded By'];
-      if (fm.Amends) entry['amends'] = fm.Amends;
-      if (fm['Amended By']) entry['amendedBy'] = fm['Amended By'];
-      if (fm['Related Tasks']) {
-        entry['relatedTasks'] = fm['Related Tasks']
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean);
-      }
-      if (fm.Gate) entry['gate'] = fm.Gate;
-      if (fm['Gate Status']) entry['gateStatus'] = fm['Gate Status'];
-      if (fm.Summary) entry['summary'] = fm.Summary;
-      if (fm.Keywords)
-        entry['keywords'] = fm.Keywords.split(',')
-          .map((s) => s.trim())
-          .filter(Boolean);
-      if (fm.Topics)
-        entry['topics'] = fm.Topics.split(',')
-          .map((s) => s.trim())
-          .filter(Boolean);
-
-      manifestEntries.push(entry);
-    } catch {
-      // Non-fatal: a parse failure in one ADR doesn't block the manifest
-    }
-  }
-
-  // Write the ADR portability index — NOT the agent pipeline_manifest (ADR-027).
-  // The agent pipeline_manifest lives in tasks.db and is accessed via `cleo manifest` CLI.
-  writeFileSync(
-    join(adrsDir, 'adr-index.jsonl'),
-    manifestEntries.map((e) => JSON.stringify(e)).join('\n') + '\n',
-    'utf-8',
-  );
+  // ADR portability index (`.cleo/adrs/adr-index.jsonl`) is frozen as of
+  // T10165. The previous regeneration loop + `writeFileSync` call was
+  // removed in the same commit that added the `attachments` table backfill
+  // at `packages/core/src/migration/manual/T10165-backfill-adr-index.ts`.
 
   return result;
 }
