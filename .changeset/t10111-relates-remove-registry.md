@@ -1,5 +1,5 @@
 ---
-id: T10111
+id: t10111-relates-remove-registry
 tasks: [T10111]
 kind: fix
 summary: "Wire mutate:tasks.relates.remove in the operations registry so `cleo relates remove` succeeds"
