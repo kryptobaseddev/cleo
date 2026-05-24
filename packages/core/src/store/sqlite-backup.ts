@@ -191,10 +191,11 @@ interface SnapshotTarget {
  *
  * `getBrainDb` is the canonical chokepoint for brain.db opens
  * (`packages/core/src/store/memory-sqlite.ts`, allowlisted under
- * `packages/core/src/store/**`). We call it directly rather than via
- * `openCleoDb('brain', cwd)` because the latter is currently misrouted to
- * `getTasksDb` — a separate routing bug tracked outside T10316. Calling the
- * canonical opener guarantees brain.db is actually opened.
+ * `packages/core/src/store/**`). Historically this was called directly
+ * because `openCleoDb('brain')` was misrouted to `getTasksDb` (T10397) —
+ * that bug is now fixed in `open-cleo-db.ts`, so direct calls here remain
+ * valid but redundant; keeping the direct call avoids re-applying pragmas
+ * and the project_id consistency gate on the snapshot path.
  */
 async function openBrainDbForSnapshot(cwd?: string): Promise<SnapshotDbHandle | null> {
   await getBrainDb(cwd);

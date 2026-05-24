@@ -40,8 +40,12 @@
 
 import { createRequire } from 'node:module';
 import type { DatabaseSync } from 'node:sqlite';
+import { ExitCode } from '@cleocode/contracts';
+import { CleoError } from '../errors.js';
 import { resolveOrCwd } from '../paths.js';
+import { getProjectInfoSync } from '../project-info.js';
 import { getConduitNativeDb } from './conduit-sqlite.js';
+import { getBrainDb } from './memory-sqlite.js';
 import { getNexusDb } from './nexus-sqlite.js';
 import { ensureGlobalSignaldockDb, getGlobalSignaldockNativeDb } from './signaldock-sqlite.js';
 import { openSkillsDb } from './skills-db.js';
@@ -106,9 +110,28 @@ async function openSkillsDbHandle(_cwd?: string): Promise<unknown> {
   return openSkillsDb();
 }
 
+/**
+ * Open brain.db via its canonical lifecycle module (memory-sqlite.ts).
+ *
+ * T10397 fix: prior to this task, the `brain` role was silently aliased to
+ * `getTasksDb`, so every consumer that called `openCleoDb('brain')` was
+ * handed a `tasks.db` handle. Writes to brain tables either no-op'd against
+ * tasks.db or surfaced as schema errors at prepare()-time.
+ *
+ * @task T10397
+ */
+async function openBrainDbHandle(cwd?: string): Promise<unknown> {
+  return getBrainDb(cwd);
+}
+
 const ROLE_OPENERS: Record<ImplementedCleoDbRole, DbOpener> = {
   tasks: getTasksDb as unknown as DbOpener,
-  brain: getTasksDb as unknown as DbOpener,
+  // T10397: brain role MUST resolve to brain.db, NOT tasks.db. Prior to
+  // this fix the entry was `getTasksDb`, silently corrupting every
+  // brain-table write that flowed through the chokepoint.
+  brain: openBrainDbHandle,
+  // sessions table lives inside tasks.db — there is no separate sessions.db
+  // file. The alias is intentional.
   sessions: getTasksDb as unknown as DbOpener,
   signaldock: openSignaldockDb,
   conduit: openConduitDb,
@@ -125,6 +148,114 @@ function unwrapNativeSqliteDb(db: unknown): unknown {
 
 function isDatabaseSync(db: unknown): db is DatabaseSync {
   return Boolean(db && typeof db === 'object' && 'exec' in db && 'prepare' in db);
+}
+
+/**
+ * Roles whose DBs track per-project `project_id` and therefore need to be
+ * cross-checked against `.cleo/project-info.json` on every open.
+ *
+ * Today this is just `nexus` — its `project_registry` table records one row
+ * per known project with `(project_id PRIMARY KEY, project_path UNIQUE)`.
+ * The drift check verifies that a row whose `project_path` matches the
+ * caller's project root has the same `project_id` as the caller's
+ * `.cleo/project-info.json`. Mismatch → `E_PROJECT_ID_DRIFT`.
+ *
+ * Project-tier DBs (`tasks`, `brain`, `conduit`, `sessions`) do NOT carry a
+ * `project_id` column — they live under per-project `.cleo/` and inherit
+ * project identity from their parent directory. The path-layer (T9803) and
+ * worktree-isolation guard (T9806) already prevent cross-project misroutes
+ * for those roles. Global-tier DBs (`signaldock`, `skills`) carry no
+ * project identity at all.
+ *
+ * @task T10322
+ * @saga T10281
+ * @adr ADR-068
+ */
+const PROJECT_ID_TRACKING_ROLES: ReadonlySet<CleoDbRole> = new Set<CleoDbRole>(['nexus']);
+
+interface ProjectRegistryRow {
+  project_id: string;
+  project_path: string;
+}
+
+/**
+ * Cross-check `.cleo/project-info.json::projectId` against the project_id
+ * recorded for this project's path inside the DB being opened.
+ *
+ * No-ops (returns silently) for ALL non-drift cases:
+ * - The role does not track `project_id` (see {@link PROJECT_ID_TRACKING_ROLES}).
+ * - `.cleo/project-info.json` is missing or unparseable (pre-init / fresh clone).
+ * - The `projectId` field is empty (pre-T5333 install).
+ * - The DB's project-tracking table does not yet exist (pre-bootstrap).
+ * - No row in the tracking table matches the caller's project path
+ *   (project not yet registered with nexus).
+ *
+ * Throws `CleoError(CONFIG_ERROR, "E_PROJECT_ID_DRIFT", ...)` IFF every
+ * condition is satisfied:
+ * 1. The role tracks project_id, AND
+ * 2. `.cleo/project-info.json` reports a non-empty `projectId`, AND
+ * 3. The DB has a project-registry row for the caller's `projectRoot`, AND
+ * 4. That row's `project_id` differs from the project-info projectId.
+ *
+ * Read-only: never writes to the DB.
+ *
+ * @task T10322
+ * @saga T10281 (SG-BRAIN-DB-RESILIENCE)
+ * @epic T10285 (E4-DB-CROSS-LINKS)
+ * @adr ADR-068
+ */
+export function validateProjectIdConsistency(role: CleoDbRole, db: unknown, cwd?: string): void {
+  if (!PROJECT_ID_TRACKING_ROLES.has(role)) {
+    return;
+  }
+  if (!isDatabaseSync(db)) {
+    // Cannot probe the schema without a native handle; let the caller
+    // surface the underlying type error rather than masking it here.
+    return;
+  }
+
+  const projectRoot = resolveOrCwd(cwd);
+  const projectInfo = getProjectInfoSync(projectRoot);
+  if (!projectInfo || projectInfo.projectId.length === 0) {
+    // Pre-init or pre-T5333 install — nothing to drift against.
+    return;
+  }
+
+  let row: ProjectRegistryRow | undefined;
+  try {
+    const stmt = db.prepare(
+      'SELECT project_id, project_path FROM project_registry WHERE project_path = ? LIMIT 1',
+    );
+    row = stmt.get(projectInfo.projectRoot) as ProjectRegistryRow | undefined;
+  } catch {
+    // `project_registry` may not exist yet (fresh nexus.db before
+    // migrations have run). Bootstrap is not drift.
+    return;
+  }
+  if (!row || typeof row.project_id !== 'string' || row.project_id.length === 0) {
+    // Project not yet registered with the nexus — that's a normal first-open
+    // state, not drift.
+    return;
+  }
+
+  if (row.project_id !== projectInfo.projectId) {
+    throw new CleoError(
+      ExitCode.CONFIG_ERROR,
+      `E_PROJECT_ID_DRIFT: ${role} DB reports project_id=${row.project_id} for ` +
+        `path=${projectInfo.projectRoot} but .cleo/project-info.json reports ` +
+        `projectId=${projectInfo.projectId}. The DB and project-info.json are ` +
+        `not pointing at the same project — a backup/restore or directory move ` +
+        `has left them inconsistent.`,
+      {
+        fix:
+          `Inspect both values: \`cat ${projectInfo.projectRoot}/.cleo/project-info.json\` ` +
+          `and the corresponding row in nexus.db's project_registry. Reconcile by ` +
+          `either (a) updating project-info.json to the canonical ID, or (b) ` +
+          `re-registering this project with \`cleo init --reset\` if the registry ` +
+          `entry is stale.`,
+      },
+    );
+  }
 }
 
 /**
@@ -159,6 +290,12 @@ export async function openCleoDb(role: CleoDbRole, cwd?: string): Promise<CleoDb
   if (isDatabaseSync(db)) {
     applyPerfPragmas(db);
   }
+
+  // T10322: runtime gate — every project-id-tracking DB open is
+  // cross-checked against .cleo/project-info.json::projectId. Mismatch
+  // throws E_PROJECT_ID_DRIFT. No-ops for project-tier and global-tier
+  // roles that don't carry a project_id column.
+  validateProjectIdConsistency(role, db, cwd);
 
   return {
     db,
