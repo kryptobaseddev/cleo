@@ -3,8 +3,8 @@
 **Date**: 2026-05-06
 **Status**: accepted
 **Accepted**: 2026-05-06
-**Amended**: 2026-05-23 (T10306, Saga T10281 SG-BRAIN-DB-RESILIENCE / Epic T10282 E1-DB-INVENTORY)
-**Related Tasks**: T9048, T9047, T10305, T10306
+**Amended**: 2026-05-23 (T10306, Saga T10281 SG-BRAIN-DB-RESILIENCE / Epic T10282 E1-DB-INVENTORY); 2026-05-23 (T10324, Saga T10281 SG-BRAIN-DB-RESILIENCE / Epic T10285 E4-DB-CROSS-LINKS — Cross-DB Reference Columns subsection)
+**Related Tasks**: T9048, T9047, T10305, T10306, T10324
 **Related ADRs**: ADR-006, ADR-010, ADR-013, ADR-036, ADR-037, ADR-038, ADR-054
 **Keywords**: database, charter, sqlite, ownership, lifecycle, concurrency, openCleoDb, chokepoint, schema-migration, retention, backup, privacy, ci-gate
 **Topics**: database-architecture, governance, data-safety, concurrency-model
@@ -91,6 +91,56 @@ Direct `new DatabaseSync(...)` outside `openCleoDb` is permitted only in:
 Production code paths that bypass `openCleoDb` are a charter violation and MUST be flagged by the CI gate (see below).
 
 > **Migration note**: today, `DatabaseSync` is constructed in multiple places (`packages/brain/src/db-connections.ts`, `packages/cleo/src/cli/commands/agent.ts`, `packages/cleo/src/cli/commands/migrate-agents-v2.ts`, `packages/core/src/store/sqlite-native.ts`, `packages/core/src/telemetry/sqlite.ts`, `packages/core/src/store/llmtxt-blob-adapter.ts`). Routing all production callers through `openCleoDb` is tracked as follow-on cleanup; this charter establishes the contract. Until the migration lands, each existing call site is grandfathered with a comment referencing this ADR.
+
+### Cross-DB Reference Columns (Amended 2026-05-23 · T10324 · Saga T10281 / Epic T10285)
+
+SQLite cannot enforce foreign-key constraints across attached database files. Every cross-database reference (brain→tasks, conduit→signaldock, nexus→tasks, skills→tasks, etc.) is a SOFT foreign key whose integrity is the responsibility of the accessor layer and the `cleo doctor db-substrate` orphan-row report (T10323).
+
+The catalogue of cross-DB invariants — the five load-bearing reference graphs and their validation + repair procedures — is owned by **ADR-085 Cross-DB Invariants Catalogue** (T10320). This subsection of ADR-068 codifies the SOURCE-side documentation contract: every Drizzle column that participates in a cross-DB reference MUST carry a `@cross-db` JSDoc tag so the catalogue, the accessor layer, and tooling (T10323 orphan-row report) can locate, walk, and validate references statically.
+
+To make the contract explicit at the column declaration, every Drizzle column whose value points at a row that lives in a DIFFERENT database file MUST carry a JSDoc `@cross-db` tag immediately above the declaration.
+
+#### Tag grammar
+
+```
+@cross-db <targetRole>.<table>.<column> — <direction-of-flow> <intra-DB or accessor note>
+```
+
+- `<targetRole>` MUST be one of the canonical role names registered with `openCleoDb` (`tasks`, `brain`, `conduit`, `nexus`, `telemetry`, `manifest`, `llmtxt`, `signaldock-global`, `skills`) OR the literal token `filesystem:` when the column is a filesystem path pointer (e.g. `project_registry.brain_db_path`).
+- `<table>.<column>` are the canonical table + column names in the TARGET database.
+- The trailing prose MUST identify which accessor or validator enforces the soft FK at runtime (e.g. "Resolved by the brain accessor; no DB-level FK").
+
+Example:
+
+```ts
+/** @cross-db tasks.tasks.id — brain→tasks soft FK (every BRAIN entry can be linked to one or more tasks). Resolved by the brain accessor; no DB-level FK. */
+taskId: text('task_id').notNull(),
+```
+
+#### Which columns are CROSS-DB
+
+A column is cross-DB IFF the referenced row lives in a different `.db` file than the table declaring it. Concretely:
+
+- Columns named `task_id`, `session_id`, `epic_id` in any non-`tasks.db` schema are cross-DB.
+- Columns named `agent_id` / `from_agent_id` / `to_agent_id` / `author_agent_id` / `reviewer_agent_id` / `subscriber_agent_id` / `parent_agent_id` in any non-`signaldock.db` schema are cross-DB.
+- Columns named `project_id` / `project_path` / `brain_db_path` / `tasks_db_path` in `nexus.db` are cross-DB (target = `project-context.json` or another DB file).
+- Columns named `brain_anchor` (anywhere) referencing `brain.db` `brain_observations.id` are cross-DB.
+
+A column is INTRA-DB (and therefore EXEMPT from the rule) when ANY of the following hold:
+
+1. The column chains `.references(() => …)` to a sibling table in the same schema graph — Drizzle's `.references()` only works for tables declared in the same DB.
+2. The declaring file is one of `tasks-schema.ts`, `chain-schema.ts`, `signaldock-schema.ts`, or lives under `packages/core/src/store/schema/` (these schemas model the SAME database as their referenced tables).
+3. The declaration line carries a trailing `// cross-db-annotation-ok: <reason>` opt-out comment.
+
+#### CI gate
+
+`scripts/lint-cross-db-annotations.mjs` (CI job: **Cross-DB Annotation Lint**) walks every Drizzle schema file under `packages/core/src/store/` and `packages/core/src/agents/`, identifies cross-DB columns by the snake-case name patterns above, and fails the PR when ANY such column is missing a `@cross-db` tag. The gate runs in `--check` mode against `scripts/.lint-cross-db-annotations-baseline.json` — net-add of un-annotated columns fails CI; reductions are always accepted.
+
+The baseline is intentionally seeded at zero — the initial pass landed under T10324 annotated every cross-DB column simultaneously.
+
+#### Why not enforce at the type level
+
+A Drizzle-typed cross-DB column wrapper would force every consumer to import a new helper, which would (a) explode the surface area touched by T10324 and (b) couple every schema module to a contract that we don't yet need to enforce at runtime. The lightweight `@cross-db` tag keeps the contract at the documentation layer where T10323's orphan-row report and the accessor layer can both consume it without a code-level coupling. The trade-off is acknowledged in §Alternatives Considered below.
 
 ### CI Gate (charter integrity)
 
@@ -195,3 +245,5 @@ Document the charter but skip the programmatic check.
 - **2026-05-23 (T10306, Saga T10281 SG-BRAIN-DB-RESILIENCE / Epic T10282 E1-DB-INVENTORY)**: extended inventory to 12 rows (added `skills`, `global-brain`, `global-tasks`); flagged nested-nexus `~/.local/share/cleo/nexus/{nexus,signaldock}.db` duplicates as a structural bug pending T10321 (E4-T2 BAN vs ADOPT ADR); marked row 4 `signaldock-project` historical (post-ADR-037 → conduit.db); clarified blob+manifest unification as ONE file (row 7); cross-referenced the runtime SSoT (`packages/core/src/store/db-inventory.json` / `DB_INVENTORY` from `@cleocode/contracts`) as the machine-readable counterpart to this governance overlay. Status remains `accepted` (amendment, not supersession).
 
 - **2026-05-23 (T10315, Saga T10281 SG-BRAIN-DB-RESILIENCE / Epic T10284 E3-BACKUP-RECOVERY)**: cross-referenced the canonical SQLite-backup-path ratification recorded in ADR-013 §10. Both `vacuumIntoBackupAll` (auto session-end) AND `createBackup` (manual `cleo backup add`) now write to `.cleo/backups/sqlite/` for the project tier; `.cleo/backups/snapshot/` is a deprecated read-only fallthrough that will be removed in the release following T10315. Global-tier rotation under `$XDG_DATA_HOME/cleo/backups/sqlite/` is unchanged. Backup column wording in §Canonical Inventory is unchanged — the rows already reference `VACUUM INTO via vacuumIntoBackupAll`; the path unification is now spelled out in ADR-013 §10 to keep the governance overlay (this ADR) and the integrity-mechanics ADR (ADR-013) aligned. Status remains `accepted` (cross-reference amendment, not supersession).
+
+- **2026-05-23 (T10324, Saga T10281 SG-BRAIN-DB-RESILIENCE / Epic T10285 E4-DB-CROSS-LINKS)**: added the "Cross-DB Reference Columns" subsection between the `openCleoDb` chokepoint section and the CI Gate (charter integrity) section. Establishes the `@cross-db <targetRole>.<table>.<column>` JSDoc-tag contract that every Drizzle column referencing a row in a different `.db` file MUST carry. Shipped 33 annotations across `memory-schema.ts`, `conduit-schema.ts`, `nexus-schema.ts`, `skills-schema.ts`, and `agent-schema.ts`; CI gate `Cross-DB Annotation Lint` (`scripts/lint-cross-db-annotations.mjs`) runs in baseline mode against `scripts/.lint-cross-db-annotations-baseline.json` (seeded at 0) and fails on net-add of un-annotated cross-DB columns. The contract complements the future T10323 doctor orphan-row report and the accessor-layer soft-FK validators. Status remains `accepted` (amendment, not supersession).

@@ -93,7 +93,9 @@ export const messages = sqliteTable(
     conversationId: text('conversation_id')
       .notNull()
       .references(() => conversations.id),
+    /** @cross-db signaldock-global.agents.agent_id — conduit→signaldock soft FK (sender). Resolved by the conduit accessor; no DB-level FK. */
     fromAgentId: text('from_agent_id').notNull(),
+    /** @cross-db signaldock-global.agents.agent_id — conduit→signaldock soft FK (recipient). Resolved by the conduit accessor; no DB-level FK. */
     toAgentId: text('to_agent_id').notNull(),
     content: text('content').notNull(),
     contentType: text('content_type').notNull().default('text'),
@@ -202,6 +204,7 @@ export const attachments = sqliteTable(
   {
     slug: text('slug').primaryKey(),
     conversationId: text('conversation_id').notNull(),
+    /** @cross-db signaldock-global.agents.agent_id — conduit→signaldock soft FK (author). Resolved by the conduit accessor; no DB-level FK. */
     fromAgentId: text('from_agent_id').notNull(),
     content: blob('content', { mode: 'buffer' }).notNull(),
     originalSize: integer('original_size').notNull(),
@@ -236,6 +239,7 @@ export const attachmentVersions = sqliteTable(
       .notNull()
       .references(() => attachments.slug, { onDelete: 'cascade' }),
     versionNumber: integer('version_number').notNull(),
+    /** @cross-db signaldock-global.agents.agent_id — conduit→signaldock soft FK (revision author). Resolved by the conduit accessor; no DB-level FK. */
     authorAgentId: text('author_agent_id').notNull(),
     changeType: text('change_type').notNull().default('patch'),
     patchText: text('patch_text'),
@@ -269,6 +273,7 @@ export const attachmentApprovals = sqliteTable(
     slug: text('slug')
       .notNull()
       .references(() => attachments.slug, { onDelete: 'cascade' }),
+    /** @cross-db signaldock-global.agents.agent_id — conduit→signaldock soft FK (reviewer). Resolved by the conduit accessor; no DB-level FK. */
     reviewerAgentId: text('reviewer_agent_id').notNull(),
     status: text('status').notNull().default('pending'),
     comment: text('comment'),
@@ -293,6 +298,7 @@ export const attachmentContributors = sqliteTable(
     slug: text('slug')
       .notNull()
       .references(() => attachments.slug, { onDelete: 'cascade' }),
+    /** @cross-db signaldock-global.agents.agent_id — conduit→signaldock soft FK (contributor). Resolved by the conduit accessor; no DB-level FK. */
     agentId: text('agent_id').notNull(),
     versionCount: integer('version_count').notNull().default(0),
     totalTokensAdded: integer('total_tokens_added').notNull().default(0),
@@ -322,6 +328,7 @@ export const attachmentContributors = sqliteTable(
  * @epic T310
  */
 export const projectAgentRefs = sqliteTable('project_agent_refs', {
+  /** @cross-db signaldock-global.agents.agent_id — conduit→signaldock soft FK (per-project override target). Resolved by the conduit accessor; no DB-level FK. */
   agentId: text('agent_id').primaryKey(),
   attachedAt: text('attached_at').notNull(),
   role: text('role'),
@@ -345,8 +352,10 @@ export const topics = sqliteTable(
   {
     id: text('id').primaryKey(),
     name: text('name').notNull().unique(),
+    /** @cross-db tasks.tasks.id — conduit→tasks soft FK (epic this topic scopes coordination to). Resolved by the conduit accessor; no DB-level FK. */
     epicId: text('epic_id').notNull(),
     waveId: integer('wave_id'),
+    /** @cross-db signaldock-global.agents.agent_id — conduit→signaldock soft FK (topic creator). Resolved by the conduit accessor; no DB-level FK. */
     createdBy: text('created_by').notNull(),
     createdAt: integer('created_at').notNull(),
   },
@@ -365,6 +374,7 @@ export const topicSubscriptions = sqliteTable(
     topicId: text('topic_id')
       .notNull()
       .references(() => topics.id, { onDelete: 'cascade' }),
+    /** @cross-db signaldock-global.agents.agent_id — conduit→signaldock soft FK (subscriber). Resolved by the conduit accessor; no DB-level FK. */
     agentId: text('agent_id').notNull(),
     subscribedAt: integer('subscribed_at').notNull(),
   },
@@ -387,6 +397,7 @@ export const topicMessages = sqliteTable(
     topicId: text('topic_id')
       .notNull()
       .references(() => topics.id, { onDelete: 'cascade' }),
+    /** @cross-db signaldock-global.agents.agent_id — conduit→signaldock soft FK (publisher). Resolved by the conduit accessor; no DB-level FK. */
     fromAgentId: text('from_agent_id').notNull(),
     kind: text('kind').notNull().default('message'),
     content: text('content').notNull(),
@@ -407,6 +418,7 @@ export const topicMessageAcks = sqliteTable(
     messageId: text('message_id')
       .notNull()
       .references(() => topicMessages.id, { onDelete: 'cascade' }),
+    /** @cross-db signaldock-global.agents.agent_id — conduit→signaldock soft FK (ACK origin). Resolved by the conduit accessor; no DB-level FK. */
     subscriberAgentId: text('subscriber_agent_id').notNull(),
     deliveredAt: integer('delivered_at'),
     readAt: integer('read_at'),
