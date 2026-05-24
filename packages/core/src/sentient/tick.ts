@@ -30,6 +30,10 @@ import {
   reVerifyWorkerReport,
   type WorkerReport,
 } from '../orchestrate/worker-verify.js';
+import {
+  CONTEXT_STALENESS_SCAN_INTERVAL_MS,
+  type ContextStalenessScanOutcome,
+} from './detectors/context-staleness.js';
 import { DREAM_CYCLE_INTERVAL_MS } from './dream-cycle.js';
 import { HYGIENE_SCAN_INTERVAL_MS } from './hygiene-scan.js';
 import { DRIFT_SCAN_INTERVAL_MS } from './stage-drift-tick.js';
@@ -275,6 +279,28 @@ export interface TickOptions {
    * @task T1680
    */
   dreamCycleIntervalMs?: number;
+  /**
+   * Override for the context-staleness scan function. Injected by tests to
+   * avoid reading `.cleo/project-context.json` from disk. When omitted the
+   * default {@link safeRunContextStalenessScan} from
+   * `./detectors/context-staleness.js` is used.
+   *
+   * Pass `null` to disable the staleness scan entirely (e.g. unit tests that
+   * don't exercise this path).
+   *
+   * @task T9896
+   */
+  contextStalenessScan?:
+    | ((projectRoot: string, statePath: string) => Promise<ContextStalenessScanOutcome>)
+    | null;
+  /**
+   * Interval (ms) between context-staleness scan passes.
+   * Defaults to {@link CONTEXT_STALENESS_SCAN_INTERVAL_MS} (6 hours).
+   * Pass 0 to scan on every tick (useful for integration tests).
+   *
+   * @task T9896
+   */
+  contextStalenessIntervalMs?: number;
 }
 
 /** Result of a spawn invocation. */
@@ -455,6 +481,18 @@ let _worktreePruneTickCount = 0;
  * @internal
  */
 let _lastStageDriftScanAt = 0;
+
+// ---------------------------------------------------------------------------
+// Context-staleness scan state (T9896)
+// ---------------------------------------------------------------------------
+
+/**
+ * Unix-epoch-ms timestamp of the last context-staleness scan pass.
+ * Gated to at most once every {@link CONTEXT_STALENESS_SCAN_INTERVAL_MS}.
+ * Starts at 0 so the first tick always triggers an initial scan.
+ * @internal
+ */
+let _lastContextStalenessScanAt = 0;
 
 // ---------------------------------------------------------------------------
 // Hygiene scan state (T1636)
@@ -861,6 +899,51 @@ async function maybeTriggerStageDriftScan(
 }
 
 /**
+ * Evaluate the context-staleness scan cadence and fire
+ * {@link safeRunContextStalenessScan} when enough time has elapsed.
+ *
+ * Respects the injectable `options.contextStalenessScan` override
+ * (`null` = disabled). Errors are swallowed — staleness detection must never
+ * crash the tick.
+ *
+ * @param projectRoot - Absolute project root.
+ * @param statePath   - Path to sentient-state.json.
+ * @param options     - Tick options (provides injectable + interval override).
+ *
+ * @internal
+ * @task T9896
+ */
+async function maybeTriggerContextStalenessScan(
+  projectRoot: string,
+  statePath: string,
+  options: TickOptions,
+): Promise<void> {
+  // Null explicitly disables the scan (test escape hatch).
+  if (options.contextStalenessScan === null) return;
+
+  const intervalMs = options.contextStalenessIntervalMs ?? CONTEXT_STALENESS_SCAN_INTERVAL_MS;
+  const now = Date.now();
+
+  if (now - _lastContextStalenessScanAt < intervalMs) return;
+
+  // Update the timestamp before awaiting so concurrent ticks don't double-fire.
+  _lastContextStalenessScanAt = now;
+
+  try {
+    if (options.contextStalenessScan) {
+      // Injected override (tests).
+      await options.contextStalenessScan(projectRoot, statePath);
+    } else {
+      // Default: lazy-import and run.
+      const { safeRunContextStalenessScan } = await import('./detectors/context-staleness.js');
+      await safeRunContextStalenessScan({ projectRoot, statePath });
+    }
+  } catch {
+    // Staleness scan is best-effort: errors must never propagate to the tick caller.
+  }
+}
+
+/**
  * Evaluate the hygiene scan cadence and fire {@link safeRunHygieneScan}
  * when enough time has elapsed since the last scan.
  *
@@ -1012,6 +1095,12 @@ export async function safeRunTick(options: TickOptions): Promise<TickOutcome> {
   // Stage-drift scan: fire when enough time has elapsed (T1635).
   // Best-effort: errors never affect tick outcome.
   maybeTriggerStageDriftScan(options.projectRoot, options.statePath, options).catch(() => {
+    // Ignore.
+  });
+
+  // Context-staleness scan: fire when enough time has elapsed (T9896).
+  // Best-effort: errors never affect tick outcome.
+  maybeTriggerContextStalenessScan(options.projectRoot, options.statePath, options).catch(() => {
     // Ignore.
   });
 
