@@ -50,12 +50,12 @@
     "packages/cleo/src/cli/commands/memory.ts:2032",
     "packages/cleo/src/cli/commands/nexus.ts:1566",
     "packages/cleo/src/cli/commands/nexus.ts:1567",
-    "packages/cleo/src/cli/commands/sentient.ts:847",
-    "packages/cleo/src/cli/commands/sentient.ts:850",
-    "packages/cleo/src/cli/commands/sentient.ts:854",
-    "packages/cleo/src/cli/commands/sentient.ts:858",
-    "packages/cleo/src/cli/commands/sentient.ts:862",
-    "packages/cleo/src/cli/commands/sentient.ts:867",
+    "packages/cleo/src/cli/commands/sentient.ts:951",
+    "packages/cleo/src/cli/commands/sentient.ts:954",
+    "packages/cleo/src/cli/commands/sentient.ts:958",
+    "packages/cleo/src/cli/commands/sentient.ts:962",
+    "packages/cleo/src/cli/commands/sentient.ts:966",
+    "packages/cleo/src/cli/commands/sentient.ts:971",
     "packages/cleo/src/cli/commands/session.ts:746",
     "packages/cleo/src/cli/commands/skill.ts:91",
     "packages/cleo/src/cli/commands/snapshot.ts:41",
@@ -66,5 +66,5 @@
     "packages/mcp-adapter/src/server.ts:133",
     "packages/mcp-adapter/src/server.ts:137"
   ],
-  "updatedAt": "2026-05-24T10:31:20.131Z"
+  "updatedAt": "2026-05-24T11:12:15.168Z"
 }
