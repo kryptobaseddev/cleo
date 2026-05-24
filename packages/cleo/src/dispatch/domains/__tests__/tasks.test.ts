@@ -73,6 +73,7 @@ import {
   taskAnalyze,
   taskArchive,
   taskBlockers,
+  taskCancel,
   taskComplexityEstimate,
   taskCurrentGet,
   taskDelete,
@@ -129,6 +130,10 @@ describe('TasksHandler', () => {
         'current',
         'label.list',
         'sync.links',
+        // ADR-073 — saga sub-domain (T9521 / T10125).
+        'saga.list',
+        'saga.members',
+        'saga.rollup',
       ]);
     });
 
@@ -138,6 +143,10 @@ describe('TasksHandler', () => {
         'add',
         'update',
         'complete',
+        // T9947 regression lock: `cancel` MUST appear in the dispatch registry
+        // so `cleo cancel <taskId>` is routable. Pre-T9947 ship the verb was
+        // surfaced in `--help` but absent from the registry — invoking it
+        // returned E_NOT_FOUND.
         'cancel',
         'delete',
         'archive',
@@ -152,6 +161,12 @@ describe('TasksHandler', () => {
         'sync.links.remove',
         'claim',
         'unclaim',
+        // ADR-073 — saga sub-domain (T9521 / T10125).
+        'saga.create',
+        'saga.add',
+        'saga.repair',
+        'saga.detach',
+        'saga.reconcile',
       ]);
     });
   });
@@ -834,6 +849,93 @@ describe('TasksHandler', () => {
 
       expect(result.success).toBe(true);
       expect(taskDelete).toHaveBeenCalledWith('/mock/project', 'T001', true);
+    });
+
+    // -------------------------------------------------------------------
+    // cancel — T9947 regression lock
+    //
+    // Two bugs reported against `cleo cancel`:
+    //   1. `cleo update <taskId> --status cancelled` returned E_NOT_INITIALIZED on
+    //      tasks whose verification gates had never been initialized (closed by
+    //      T9838-D — `taskUpdate` wrapper now surfaces real CleoError codes via
+    //      cleoErrorToEngineResult).
+    //   2. `cleo cancel <taskId>` was in `--help` output but invoking it returned
+    //      E_NOT_FOUND because the `cancel` operation was not reachable through
+    //      the dispatch registry.
+    //
+    // These tests lock both fixes in place against the TasksHandler:
+    //   - The 'cancel' op is dispatch-routable (handler.mutate('cancel', ...) returns
+    //     a real envelope rather than E_UNKNOWN_OPERATION).
+    //   - The cancel handler delegates to `taskCancel(projectRoot, taskId, reason)`.
+    //   - `--reason` is forwarded to the engine.
+    // -------------------------------------------------------------------
+    it('cancel - delegates to taskCancel (T9947 regression lock)', async () => {
+      vi.mocked(taskCancel).mockResolvedValue({
+        success: true,
+        data: {
+          task: 'T001',
+          cancelled: true,
+          cancelledAt: '2026-05-24T00:00:00.000Z',
+        },
+      });
+
+      const result = await handler.mutate('cancel', { taskId: 'T001' });
+
+      expect(result.success).toBe(true);
+      expect(taskCancel).toHaveBeenCalledWith('/mock/project', 'T001', undefined);
+    });
+
+    it('cancel - forwards --reason to engine (T9947)', async () => {
+      vi.mocked(taskCancel).mockResolvedValue({
+        success: true,
+        data: {
+          task: 'T002',
+          cancelled: true,
+          reason: 'Superseded by T003',
+          cancelledAt: '2026-05-24T00:00:00.000Z',
+        },
+      });
+
+      const result = await handler.mutate('cancel', {
+        taskId: 'T002',
+        reason: 'Superseded by T003',
+      });
+
+      expect(result.success).toBe(true);
+      expect(taskCancel).toHaveBeenCalledWith('/mock/project', 'T002', 'Superseded by T003');
+    });
+
+    it('cancel - surfaces idempotent re-cancel (alreadyCancelled=true) (T9947 / T9838)', async () => {
+      vi.mocked(taskCancel).mockResolvedValue({
+        success: true,
+        data: {
+          task: 'T003',
+          cancelled: true,
+          cancelledAt: '2026-05-20T00:00:00.000Z',
+          alreadyCancelled: true,
+        },
+      });
+
+      const result = await handler.mutate('cancel', { taskId: 'T003' });
+
+      expect(result.success).toBe(true);
+      // The wrapped engine payload propagates the alreadyCancelled flag.
+      expect((result.data as { alreadyCancelled?: boolean }).alreadyCancelled).toBe(true);
+    });
+
+    it('cancel - propagates engine error (E_INVALID_STATE for done task) (T9947)', async () => {
+      vi.mocked(taskCancel).mockResolvedValue({
+        success: false,
+        error: {
+          code: 'E_INVALID_STATE',
+          message: 'Cannot cancel a completed task',
+        },
+      });
+
+      const result = await handler.mutate('cancel', { taskId: 'T_DONE' });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INVALID_STATE');
     });
 
     it('archive - delegates to taskArchive', async () => {
