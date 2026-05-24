@@ -338,6 +338,22 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/docs.js')).docsCommand as CommandDef,
   },
   {
+    exportName: 'doctorDbSubstrateCommand',
+    name: 'db-substrate',
+    description: 'Walk every DB in the inventory + report integrity, row counts, orphan dirs. ',
+    load: async () =>
+      (await import('../commands/doctor-db-substrate.js')).doctorDbSubstrateCommand as CommandDef,
+  },
+  {
+    exportName: 'doctorLegacyBackupsCommand',
+    name: 'legacy-backups',
+    description:
+      'Enumerate legacy *-pre-cleo.db.bak / brain.db.PRE-DUP-FIX-* / pre-untrack / rotation-overflow ',
+    load: async () =>
+      (await import('../commands/doctor-legacy-backups.js'))
+        .doctorLegacyBackupsCommand as CommandDef,
+  },
+  {
     exportName: 'doctorProjectsCommand',
     name: 'doctor-projects',
     description: 'Probe every registered project (nexus.db) for DB + config health',

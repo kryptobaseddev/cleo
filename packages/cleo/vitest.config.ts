@@ -121,6 +121,13 @@ export default defineConfig({
         '../../packages/core/src/store/backup-recover-brain.ts',
         import.meta.url,
       ).pathname,
+      // T10319: backup-verify SSoT (Saga T10281 Epic T10284) — used by
+      // `cleo backup verify` CLI verb. Same source-tree resolution rationale
+      // as the backup-recover-brain alias above.
+      '@cleocode/core/store/backup-verify.js': new URL(
+        '../../packages/core/src/store/backup-verify.ts',
+        import.meta.url,
+      ).pathname,
       // T946 sentient daemon consumes these subpath exports at runtime.
       '@cleocode/core/sdk': new URL('../../packages/core/src/cleo.ts', import.meta.url).pathname,
       '@cleocode/core/tasks': new URL(
