@@ -113,6 +113,26 @@ jobs:
           version: '2.4.11'
       - run: biome ci .
 
+  adr-index-jsonl-frozen-lint:
+    # T10165 / Saga T9855 SG-TEMPLATE-CONFIG-SSOT — the `.cleo/adrs/adr-index.jsonl`
+    # portability export is frozen. Canonical store for the same metadata
+    # is the `attachments` table provenance columns (T10158). The lint
+    # walks the file's frozen invariants AND diffs against origin/main to
+    # catch newly-appended data lines. Pure static analysis — no user
+    # input flows here.
+    name: ADR Index JSONL Frozen (T10165)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Lint adr-index.jsonl frozen invariants
+        run: node scripts/lint-adr-index-jsonl-frozen.mjs --check-no-growth --base=origin/main
+
   worktree-location-lint:
     # T9809 / Saga T9800 SG-WORKTREE-CANON — D009 council verdict:
     # Rejects any git worktree whose path is outside the canonical XDG
