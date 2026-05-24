@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-24T06:25:40.955Z",
+  "generatedAt": "2026-05-24T07:16:18.716Z",
   "rawMdPaths": [
     ".cleo/adrs/",
     ".cleo/research/",
@@ -9,60 +9,14 @@
   "summary": {
     "cutoff": "251814e86",
     "totalFiles": 16,
-    "orphan": 5,
+    "orphan": 0,
     "drift": 0,
-    "inSync": 11,
+    "inSync": 16,
     "deleted": 0,
-    "unresolved": 5
+    "unresolved": 0
   },
   "grouped": {
-    "orphan": [
-      {
-        "file": ".cleo/adrs/ADR-083-cleo-persona-and-hierarchy-reconciliation.md",
-        "fileSha": "bd8c14ab55430125c0909e0b42d9f0f1e453c1116e1e25f821c6b34ece6c4c2f",
-        "remediation": "orphan",
-        "ssotSlug": null,
-        "ssotType": null,
-        "ssotAttachmentId": null,
-        "ssotSha": null
-      },
-      {
-        "file": ".cleo/adrs/ADR-085-cross-db-invariants.md",
-        "fileSha": "677ad407b1751d889cded48aa7de9cc26274e852cc41ee9c37f8bbedd4625a13",
-        "remediation": "orphan",
-        "ssotSlug": null,
-        "ssotType": null,
-        "ssotAttachmentId": null,
-        "ssotSha": null
-      },
-      {
-        "file": ".cleo/agent-outputs/T10268-saga-closeout.md",
-        "fileSha": "cbc9da442d4d3304fc6fb591275fe8f6b59335256cec1cb5cb3e6944a5fec75d",
-        "remediation": "orphan",
-        "ssotSlug": null,
-        "ssotType": null,
-        "ssotAttachmentId": null,
-        "ssotSha": null
-      },
-      {
-        "file": ".cleo/research/t10292-e4-cli-verb-matrix.md",
-        "fileSha": "b4b4240616b35f250a1b5aaa3bd84b75a859448a62b7cfa76e3eac5ada150092",
-        "remediation": "orphan",
-        "ssotSlug": null,
-        "ssotType": null,
-        "ssotAttachmentId": null,
-        "ssotSha": null
-      },
-      {
-        "file": ".cleo/research/t10292-e4-sdk-import-edges.md",
-        "fileSha": "9e4d21fd18ad983d98dee545c239f458cbb5c96c9d3574007a030fd0c09b2b64",
-        "remediation": "orphan",
-        "ssotSlug": null,
-        "ssotType": null,
-        "ssotAttachmentId": null,
-        "ssotSha": null
-      }
-    ],
+    "orphan": [],
     "drift": [],
     "in-sync": [
       {
@@ -73,6 +27,33 @@
         "ssotType": "adr",
         "ssotAttachmentId": "c72ef9db-7155-4671-8fa3-215c15effe26",
         "ssotSha": "0113f7f7ab1818fb681c0b7d1f601fb306819686ed08b07e18b1461fa746d22c"
+      },
+      {
+        "file": ".cleo/adrs/ADR-083-cleo-persona-and-hierarchy-reconciliation.md",
+        "fileSha": "bd8c14ab55430125c0909e0b42d9f0f1e453c1116e1e25f821c6b34ece6c4c2f",
+        "remediation": "in-sync",
+        "ssotSlug": "adr-083-cleo-persona-and-hierarchy-reconciliation",
+        "ssotType": "adr",
+        "ssotAttachmentId": "69ae26c4-883e-42be-9186-5ab96ebc2a77",
+        "ssotSha": "bd8c14ab55430125c0909e0b42d9f0f1e453c1116e1e25f821c6b34ece6c4c2f"
+      },
+      {
+        "file": ".cleo/adrs/ADR-085-cross-db-invariants.md",
+        "fileSha": "677ad407b1751d889cded48aa7de9cc26274e852cc41ee9c37f8bbedd4625a13",
+        "remediation": "in-sync",
+        "ssotSlug": "adr-085-cross-db-invariants",
+        "ssotType": "adr",
+        "ssotAttachmentId": "a7d1a798-5ee4-4232-b134-9817266dcfa4",
+        "ssotSha": "677ad407b1751d889cded48aa7de9cc26274e852cc41ee9c37f8bbedd4625a13"
+      },
+      {
+        "file": ".cleo/agent-outputs/T10268-saga-closeout.md",
+        "fileSha": "cbc9da442d4d3304fc6fb591275fe8f6b59335256cec1cb5cb3e6944a5fec75d",
+        "remediation": "in-sync",
+        "ssotSlug": "t10268-saga-closeout",
+        "ssotType": "handoff",
+        "ssotAttachmentId": "d35b33cb-4aab-47ee-ab33-0302f5733c79",
+        "ssotSha": "cbc9da442d4d3304fc6fb591275fe8f6b59335256cec1cb5cb3e6944a5fec75d"
       },
       {
         "file": ".cleo/agent-outputs/T10269-ivtr-external-systems.md",
@@ -156,6 +137,15 @@
         "ssotSha": "fee0dca1e93f5efb58af4943f6d7f9443560aed7afe5a951967e2d2625856240"
       },
       {
+        "file": ".cleo/research/t10292-e4-cli-verb-matrix.md",
+        "fileSha": "b4b4240616b35f250a1b5aaa3bd84b75a859448a62b7cfa76e3eac5ada150092",
+        "remediation": "in-sync",
+        "ssotSlug": "t10292-e4-cli-verb-matrix",
+        "ssotType": "research",
+        "ssotAttachmentId": "7006abc1-f3e6-4e2e-bd7a-01904a9fca58",
+        "ssotSha": "b4b4240616b35f250a1b5aaa3bd84b75a859448a62b7cfa76e3eac5ada150092"
+      },
+      {
         "file": ".cleo/research/t10292-e4-gap-verdicts.md",
         "fileSha": "241d810bf99eb8a417608553aabc7d2ab76f18661075bcfd68e909dd05f848e1",
         "remediation": "in-sync",
@@ -163,6 +153,15 @@
         "ssotType": "research",
         "ssotAttachmentId": "b3114265-a0d6-4761-b808-387062ba3b58",
         "ssotSha": "241d810bf99eb8a417608553aabc7d2ab76f18661075bcfd68e909dd05f848e1"
+      },
+      {
+        "file": ".cleo/research/t10292-e4-sdk-import-edges.md",
+        "fileSha": "9e4d21fd18ad983d98dee545c239f458cbb5c96c9d3574007a030fd0c09b2b64",
+        "remediation": "in-sync",
+        "ssotSlug": "t10292-e4-sdk-import-edges",
+        "ssotType": "research",
+        "ssotAttachmentId": "68c26c11-3881-4f8b-8f8f-d5510d0cd6a2",
+        "ssotSha": "9e4d21fd18ad983d98dee545c239f458cbb5c96c9d3574007a030fd0c09b2b64"
       }
     ],
     "deleted": []

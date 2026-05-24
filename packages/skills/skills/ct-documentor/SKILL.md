@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Coordinates ct-docs-lookup, ct-docs-write, ct-docs-review, ct-spec-writer, and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.8.0
+version: 3.9.0
 tier: 3
 core: false
 category: specialist
@@ -348,6 +348,52 @@ test embeds the canonical bytes inline and asserts that
 `createAttachmentStore().put(...) → findBySlug(...)` returns the same
 SHA-256 it started with. Any future migration that silently rewrites or
 recompresses these blobs fails the test.
+
+### Sweep-driven remediation loop (T10373)
+
+T10371 only covers the *known* manual-write set declared in the original
+Saga T10176 disposition. The T10372 sweep surfaces *every* orphan
+remaining under `rawMdPaths` at the moment it runs. T10373 closes the
+loop by consuming the sweep report and migrating each orphan into the
+SSoT using the same `cleo docs add --slug` pattern T10371 established.
+
+The recurring pattern (use this any time the sweep flags fresh
+orphans):
+
+1. Run the sweep: `node scripts/sweep-manual-doc-writes.mjs`. The
+   report lands at `audit/manual-write-sweep-<date>.json`.
+2. For each `orphan` entry, derive the migration tuple:
+   - `--type` from the file's parent directory (`.cleo/adrs/` → `adr`,
+     `.cleo/research/` → `research`, `.cleo/agent-outputs/` →
+     `handoff` or `note` based on content, `.cleo/rcasd/` → `rcasd`).
+   - `--slug` from the filename — lowercase, kebab-case, no
+     extension (e.g. `ADR-085-cross-db-invariants.md` →
+     `adr-085-cross-db-invariants`).
+   - `<owner-id>` from the file's frontmatter `task:` field if
+     present, otherwise from `cleo find "<filename-keyword>"`.
+3. Run `cleo docs add <ownerId> <file> --type <kind> --slug <slug>
+   --desc "<sweep-remediation context>"`. The `--desc` should
+   reference the originating task ID so future operators can trace
+   the migration.
+4. Verify via `cleo docs fetch <slug>` and re-run the sweep — the
+   `orphan` count MUST drop by the number of files migrated.
+5. Add the new (slug, sha256, type, ownerId) row to a
+   round-trip parity test alongside the T10371 set. The canonical
+   example lives at
+   `packages/core/src/docs/__tests__/sweep-remediation.test.ts`.
+
+T10373 migrated five orphans this way: `ADR-083`, `ADR-085`,
+`T10268-saga-closeout`, `t10292-e4-cli-verb-matrix`, and
+`t10292-e4-sdk-import-edges`. The last two were direct fallout from
+the pre-T10389 worktree-unreachable bug — T10353 and T10354 workers
+fell back to raw filesystem writes because `cleo docs add` rejected
+inside their spawned worktrees. Re-publishing the bytes via the SSoT
+proves the round-trip and closes the loop the bug opened.
+
+If a sweep run surfaces a file that should genuinely stay as raw
+markdown (e.g. an audit log not meant for SSoT propagation), add an
+entry to `audit/sweep-exemptions.yml` rather than migrating it. The
+sweep script honours exemptions and does not flag them as orphans.
 
 ### Slug similarity warn (T10361 · closes T10167)
 
