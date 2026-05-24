@@ -298,6 +298,9 @@ export function applyBudgetEnforcement(
         ...envelope,
         _meta: {
           ...envelope._meta,
+          // T9923 (Saga T9855 / E8): first-class field is `tokens`;
+          // `_tokenEstimate` retained for ONE release (removeAt v2026.7.0).
+          tokens: tokenEstimate,
           _tokenEstimate: tokenEstimate,
         } as LAFSMetaWithBudget,
       },
@@ -319,17 +322,20 @@ export function applyBudgetEnforcement(
     const truncatedEstimate = estimator.estimate(result);
 
     if (truncatedEstimate <= budget) {
+      const truncatedTokenEstimate: TokenEstimate = {
+        estimated: truncatedEstimate,
+        truncated: true,
+        originalEstimate: estimatedTokens,
+      };
       return {
         envelope: {
           ...envelope,
           result,
           _meta: {
             ...envelope._meta,
-            _tokenEstimate: {
-              estimated: truncatedEstimate,
-              truncated: true,
-              originalEstimate: estimatedTokens,
-            },
+            // T9923: first-class `tokens` + legacy `_tokenEstimate`.
+            tokens: truncatedTokenEstimate,
+            _tokenEstimate: truncatedTokenEstimate,
           } as LAFSMetaWithBudget,
         },
         withinBudget: true,
@@ -349,6 +355,8 @@ export function applyBudgetEnforcement(
       error: createBudgetExceededError(estimatedTokens, budget),
       _meta: {
         ...envelope._meta,
+        // T9923: first-class `tokens` + legacy `_tokenEstimate`.
+        tokens: tokenEstimate,
         _tokenEstimate: tokenEstimate,
       } as LAFSMetaWithBudget,
     },
