@@ -1274,6 +1274,7 @@ export type {
   DepsTreeEdge,
   DepsTreeNode,
   TaskShowAttachmentEntry,
+  TasksAddBatchEntry,
   TasksAddBatchParams,
   TasksAddBatchResult,
   TasksAddParams,
@@ -1360,6 +1361,17 @@ export type {
   TasksUnclaimResult,
   TasksUpdateQueryParams,
   TasksUpdateQueryResult,
+} from './operations/tasks.js';
+// === T9917 tasks.* schema-first input contracts (Saga T9855 / Epic T9903) ===
+// Top-level exports so the core dispatch registry (input-contracts.ts) can
+// import them without the `ops.` namespace hop.
+export {
+  TASKS_ADD_BATCH_INPUT_SCHEMA,
+  TASKS_ADD_INPUT_SCHEMA,
+  TASKS_UPDATE_INPUT_SCHEMA,
+  tasksAddBatchInputContract,
+  tasksAddInputContract,
+  tasksUpdateInputContract,
 } from './operations/tasks.js';
 // === Validate / Check Operation Types (T982 + T1430 — typed-dispatch surface) ===
 // Re-exported at top level so CLI dispatch can import without the `ops.` namespace hop.

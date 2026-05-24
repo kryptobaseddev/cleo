@@ -13,14 +13,17 @@
  * @epic T4454
  */
 
-import { TASK_SEVERITIES } from '@cleocode/contracts';
+import { ExitCode, TASK_SEVERITIES } from '@cleocode/contracts';
 import {
   appendSignedSeverityAttestation,
   getProjectRoot,
+  INPUT_CONTRACTS,
   inferTaskAddParams,
+  validateOperationInput,
 } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
+import { collectMutateInput } from '../lib/collect-input.js';
 import { cliError, cliOutput, humanInfo, humanWarn } from '../renderers/index.js';
 
 /**
@@ -47,6 +50,29 @@ export const addCommand = defineCommand({
     description: `Create a new task (requires active session)\nFor 2+ tasks at once: cleo add-batch --file tasks.json (single transaction, atomic rollback)`,
   },
   args: {
+    /**
+     * Schema-first input — supersedes all flag-based args when present.
+     *
+     * Accepts a JSON object that matches `INPUT_CONTRACTS['tasks.add']`.
+     * When provided, the command short-circuits the flag-mapping path
+     * entirely and goes straight to validate→dispatch.
+     *
+     * @task T9917
+     */
+    params: {
+      type: 'string',
+      description:
+        'Inline JSON object matching INPUT_CONTRACTS["tasks.add"] (T9917). Overrides positional + flags.',
+    },
+    /**
+     * Schema-first input from a JSON file. Same semantics as --params.
+     *
+     * @task T9917
+     */
+    'params-file': {
+      type: 'string',
+      description: 'Path to JSON file matching INPUT_CONTRACTS["tasks.add"] (T9917).',
+    },
     title: {
       type: 'positional',
       description: 'Task title (3–500 characters)',
@@ -216,6 +242,81 @@ export const addCommand = defineCommand({
     },
   },
   async run({ args, cmd }) {
+    // T9917: schema-first input path. When --params or --params-file is
+    // supplied, collect → validate against INPUT_CONTRACTS['tasks.add'] →
+    // dispatch directly. The legacy flag-mapping path is skipped entirely.
+    const paramsArg = args.params as string | undefined;
+    const paramsFileArg = args['params-file'] as string | undefined;
+    if (paramsArg !== undefined || paramsFileArg !== undefined) {
+      const collectArgs: { params?: string; file?: string } = {};
+      if (paramsArg !== undefined) collectArgs.params = paramsArg;
+      if (paramsFileArg !== undefined) collectArgs.file = paramsFileArg;
+
+      let raw: unknown;
+      try {
+        raw = await collectMutateInput(
+          collectArgs,
+          process.stdin as NodeJS.ReadableStream & { isTTY?: boolean },
+        );
+      } catch (err) {
+        cliError(
+          (err as Error).message,
+          ExitCode.VALIDATION_ERROR,
+          {
+            name: 'E_VALIDATION_FAILED',
+            fix: 'Verify the JSON syntax of your --params / --params-file input',
+          },
+          { operation: 'tasks.add' },
+        );
+        process.exit(ExitCode.VALIDATION_ERROR);
+        return;
+      }
+
+      const contract = INPUT_CONTRACTS['tasks.add'];
+      if (!contract) {
+        cliError(
+          'tasks.add contract missing from INPUT_CONTRACTS registry',
+          ExitCode.GENERAL_ERROR,
+          { name: 'E_INTERNAL', fix: 'This is a CLI bug — file an issue' },
+          { operation: 'tasks.add' },
+        );
+        process.exit(ExitCode.GENERAL_ERROR);
+        return;
+      }
+      const validation = validateOperationInput(contract, raw);
+      if (!validation.ok) {
+        cliError(
+          'tasks.add failed: validation',
+          ExitCode.VALIDATION_ERROR,
+          {
+            name: 'E_VALIDATION_FAILED',
+            fix: validation.errors[0]?.fix ?? 'Inspect errors[] and correct the input',
+            details: { errors: validation.errors },
+          },
+          { operation: 'tasks.add' },
+        );
+        process.exit(ExitCode.VALIDATION_ERROR);
+        return;
+      }
+
+      // `raw` is the parsed object that the validator accepted; reuse it
+      // directly as the wire shape (Record<string, unknown>-compatible).
+      const validatedPayload = raw as Record<string, unknown>;
+      const response = await dispatchRaw('mutate', 'tasks', 'add', validatedPayload);
+      if (!response.success) {
+        handleRawError(response, { command: 'add', operation: 'tasks.add' });
+      }
+      const data = response.data as Record<string, unknown>;
+      const dataWarnings = data?.warnings as string[] | undefined;
+      if (dataWarnings?.length) {
+        for (const w of dataWarnings) {
+          humanWarn(`⚠ ${w}`);
+        }
+      }
+      cliOutput(data, { command: 'add', operation: 'tasks.add' });
+      return;
+    }
+
     if (!args.title) {
       await showUsage(cmd);
       return;
