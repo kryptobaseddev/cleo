@@ -22,24 +22,30 @@
  * therefore inside the `db-open-guard` allowlist).
  *
  * @task T10307
+ * @task T10311 — per-DB Drizzle migration coverage cross-check
  * @epic T10282
  * @saga T10281
  * @see ADR-068 — CLEO Database Charter
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import {
   DB_INVENTORY,
   type DbInventoryEntry,
   type DbSubstrateAuditResult,
   type DbSubstrateEntry,
+  type DbSubstrateMigrationCoverage,
+  type DbSubstrateMigrationMissing,
+  type DbSubstrateMigrationOrphan,
   type DbSubstrateProjectSurvey,
   type DbSubstrateSummary,
   type DbSubstrateWarning,
 } from '@cleocode/contracts';
 import { getCleoHome } from '@cleocode/paths';
+import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { openCleoDbSnapshot } from '../store/open-cleo-db.js';
+import { resolveCorePackageMigrationsFolder } from '../store/resolve-migrations-folder.js';
 
 /**
  * Number of representative tables to row-count per DB.
@@ -143,6 +149,128 @@ function safeRowCount(
 }
 
 /**
+ * Resolve the absolute path to the migrations folder for an inventory
+ * entry whose `migrationsDir` is non-null.
+ *
+ * @remarks
+ * The inventory stores `migrationsDir` as a repo-relative path
+ * (e.g. `packages/core/migrations/drizzle-tasks/`). At runtime the
+ * @cleocode/core package ships those migrations under its own root, so
+ * we delegate to {@link resolveCorePackageMigrationsFolder} which works
+ * across workspace-dev, bundled, and global-install layouts. The set
+ * name is the trailing path segment of `migrationsDir` (with the
+ * trailing slash stripped).
+ *
+ * @param migrationsDir - Repo-relative path from `DbInventoryEntry.migrationsDir`.
+ * @returns Absolute path to the migrations folder.
+ *
+ * @task T10311
+ */
+export function resolveInventoryMigrationsFolder(migrationsDir: string): string {
+  // Strip trailing slash and take basename — the SSoT path is structured
+  // as `<…>/drizzle-<role>/` so basename is the set name.
+  const normalized = migrationsDir.endsWith('/') ? migrationsDir.slice(0, -1) : migrationsDir;
+  const setName = basename(normalized);
+  return resolveCorePackageMigrationsFolder(setName);
+}
+
+/**
+ * Cross-reference `__drizzle_migrations` rows against migration files on
+ * disk and produce a {@link DbSubstrateMigrationCoverage} diff.
+ *
+ * @remarks
+ * The cross-reference uses Drizzle's canonical SHA-256(migration.sql)
+ * hash via `readMigrationFiles` — the same algorithm used by
+ * `migrate()` and `reconcileJournal`. Hashes are the authoritative
+ * identifier; folder names are surfaced for human readability only.
+ *
+ * Failure modes that return `null` (not an error):
+ *   - The DB has no `__drizzle_migrations` table (reserved opener,
+ *     fresh DB before bootstrap).
+ *   - `readMigrationFiles` throws (e.g. migrationsDir does not exist
+ *     in the running install — should never happen in production but
+ *     can during test fixtures that point at a temp path).
+ *
+ * @param snapshotDb - Open read-only snapshot of the target DB.
+ * @param migrationsFolderPath - Absolute path to the migrations folder.
+ * @returns A populated {@link DbSubstrateMigrationCoverage}, or `null`
+ *   when the cross-reference cannot be performed.
+ *
+ * @task T10311
+ */
+export function computeMigrationCoverage(
+  snapshotDb: ReturnType<typeof openCleoDbSnapshot>['db'],
+  migrationsFolderPath: string,
+): DbSubstrateMigrationCoverage | null {
+  // 1. Confirm the journal table exists. If not, the DB hasn't been
+  //    bootstrapped yet — return null so callers don't mistake a
+  //    pre-bootstrap state for a failure.
+  type SchemaRow = { name: string };
+  const journalRows = snapshotDb
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='__drizzle_migrations'")
+    .all() as SchemaRow[];
+  if (journalRows.length === 0) {
+    return null;
+  }
+
+  // 2. Read the journal. Drizzle's standard columns are (id, hash,
+  //    created_at, name) — name may be absent on very old DBs but hash
+  //    is always present.
+  type JournalRow = { hash: string; created_at: number | bigint | null };
+  let appliedRows: JournalRow[];
+  try {
+    appliedRows = snapshotDb
+      .prepare('SELECT hash, created_at FROM __drizzle_migrations ORDER BY id')
+      .all() as JournalRow[];
+  } catch {
+    // Journal table exists but row read failed (column drift, locked, …)
+    // — surface as an empty applied set so the missing-files diff still
+    // signals to the operator. Better to over-report than swallow.
+    appliedRows = [];
+  }
+
+  // 3. Read files on disk via the same routine Drizzle uses internally.
+  let fileEntries: ReturnType<typeof readMigrationFiles>;
+  try {
+    fileEntries = readMigrationFiles({ migrationsFolder: migrationsFolderPath });
+  } catch {
+    // Folder unreachable in this install — cannot cross-check.
+    return null;
+  }
+
+  // 4. Build hash sets and diff in both directions.
+  const fileHashes = new Set<string>(fileEntries.map((f) => f.hash));
+  const dbHashes = new Set<string>(appliedRows.map((r) => r.hash));
+
+  const orphanRows: DbSubstrateMigrationOrphan[] = [];
+  for (const row of appliedRows) {
+    if (fileHashes.has(row.hash)) continue;
+    orphanRows.push({
+      hash: row.hash,
+      createdAt:
+        row.created_at === null
+          ? null
+          : typeof row.created_at === 'bigint'
+            ? Number(row.created_at)
+            : row.created_at,
+    });
+  }
+
+  const missingFiles: DbSubstrateMigrationMissing[] = [];
+  for (const fileEntry of fileEntries) {
+    if (dbHashes.has(fileEntry.hash)) continue;
+    missingFiles.push({ name: fileEntry.name, hash: fileEntry.hash });
+  }
+
+  return {
+    applied: appliedRows.length,
+    expected: fileEntries.length,
+    orphanRows,
+    missingFiles,
+  };
+}
+
+/**
  * Inspect one resolved DB file and produce the per-role substrate entry.
  *
  * @remarks
@@ -169,6 +297,7 @@ export function inspectDbFile(entry: DbInventoryEntry, filePath: string): DbSubs
       sizeBytes: null,
       error: null,
       suggestedFix: null,
+      migrationCoverage: null,
     };
   }
 
@@ -206,6 +335,23 @@ export function inspectDbFile(entry: DbInventoryEntry, filePath: string): DbSubs
       }
     }
 
+    // Migration coverage cross-check (T10311). Only attempted when the
+    // inventory declares a non-null `migrationsDir` AND the DB passed
+    // integrity_check — there's no point cross-referencing a corrupt
+    // journal against the file system.
+    let migrationCoverage: DbSubstrateMigrationCoverage | null = null;
+    if (integrityOK && entry.migrationsDir !== null) {
+      try {
+        const migrationsFolderPath = resolveInventoryMigrationsFolder(entry.migrationsDir);
+        migrationCoverage = computeMigrationCoverage(snapshot.db, migrationsFolderPath);
+      } catch {
+        // Resolver threw (e.g. @cleocode/core not findable from this
+        // module — should never happen at runtime). Leave coverage as
+        // null; the rest of the substrate audit still surfaces.
+        migrationCoverage = null;
+      }
+    }
+
     return {
       filePath,
       exists: true,
@@ -215,6 +361,7 @@ export function inspectDbFile(entry: DbInventoryEntry, filePath: string): DbSubs
       sizeBytes,
       error: null,
       suggestedFix: integrityOK ? null : `cleo backup recover ${entry.role}`,
+      migrationCoverage,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -227,6 +374,7 @@ export function inspectDbFile(entry: DbInventoryEntry, filePath: string): DbSubs
       sizeBytes,
       error: message,
       suggestedFix: `cleo backup recover ${entry.role}`,
+      migrationCoverage: null,
     };
   } finally {
     snapshot?.close();
