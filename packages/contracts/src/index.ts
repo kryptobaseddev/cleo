@@ -327,6 +327,42 @@ export { CANONICAL_DOMAINS } from './dispatch/identity.js';
 export type { OperationDef, Resolution } from './dispatch/operation-def.js';
 // === Dispatch OPERATIONS data + builder helpers (T10061 — T9833b / E-CLI-BOUNDARY / SG-ARCH-SOLID) ===
 export { defineDomain, defineOp, OPERATIONS } from './dispatch/operations-registry.js';
+// === Docs Provenance Graph (T10166 / Saga T9855 / E12) ===
+export type {
+  DocLifecycleStatus,
+  DocProvenanceResponse,
+  ProvenanceDecisionNode,
+  ProvenanceDocNode,
+  ProvenanceEdge,
+  ProvenanceEdgeRelation,
+  ProvenanceMemoryNode,
+  ProvenanceNode,
+  ProvenanceNodeKind,
+  ProvenanceSessionNode,
+  ProvenanceTaskNode,
+} from './docs/provenance.js';
+export {
+  DOC_LIFECYCLE_STATUSES,
+  docLifecycleStatusSchema,
+  docProvenanceResponseSchema,
+  isDocProvenanceResponse,
+  isProvenanceDecisionNode,
+  isProvenanceDocNode,
+  isProvenanceMemoryNode,
+  isProvenanceSessionNode,
+  isProvenanceTaskNode,
+  PROVENANCE_EDGE_RELATIONS,
+  PROVENANCE_NODE_KINDS,
+  provenanceDecisionNodeSchema,
+  provenanceDocNodeSchema,
+  provenanceEdgeRelationSchema,
+  provenanceEdgeSchema,
+  provenanceMemoryNodeSchema,
+  provenanceNodeKindSchema,
+  provenanceNodeSchema,
+  provenanceSessionNodeSchema,
+  provenanceTaskNodeSchema,
+} from './docs/provenance.js';
 // === DocsAccessor Contracts (T9063) ===
 export type {
   DocExportFormat,
