@@ -39,9 +39,10 @@ export {
   walkCrossDbInvariants,
   walkPragmaDrift,
 } from './db-substrate.js';
+export { auditInvariantRegistry } from './invariant-audit.js';
 // T10340 — Invariant Registry Audit (Saga T10326 SG-SUBSTRATE-RECONCILIATION /
 // Epic T10327 E-INVARIANT-REGISTRY-SSOT / R6)
-export { auditInvariantRegistry } from './invariant-audit.js';
+export { renderInvariantAuditLines } from './invariant-audit-render.js';
 // T10309 — Legacy-backup walker (Saga T10281 SG-BRAIN-DB-RESILIENCE / Epic T10282)
 export type { LegacyBackupPruneOptions, LegacyBackupScanOptions } from './legacy-backups.js';
 export {

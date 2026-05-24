@@ -19,6 +19,7 @@ import { join } from 'node:path';
 import type { InvariantAuditResult } from '@cleocode/contracts';
 import type { HookMatrixResult } from '@cleocode/core';
 import { getProjectRoot, pushWarning } from '@cleocode/core';
+import { renderInvariantAuditLines } from '@cleocode/core/doctor/invariant-audit-render.js';
 import {
   quarantineRogueCleoDir,
   scanRogueCleoDirs,
@@ -198,76 +199,20 @@ function renderHookMatrixHuman(data: HookMatrixResult): void {
 }
 
 /**
- * Render the invariant-registry audit result in a human-readable form.
+ * Render the invariant-registry audit result by delegating to the core
+ * line-builder and emitting each line via `humanLine`.
  *
- * Output structure (T10340 / Saga T10326 R6 AC2 + AC3):
- *   - Header line with totals + filter context.
- *   - One block per ADR (alphabetically), with severity bands inside.
- *   - Each violation line includes the offender ID + repair command.
- *   - Trailing summary recapping the `not-applicable` / `documented`
- *     counts so the gap analysis is visible end-to-end.
+ * The actual rendering logic lives in
+ * `@cleocode/core/doctor/invariant-audit-render.js` so the CLI Boundary
+ * lint (T10076) stays satisfied — this thin wrapper is < 10 LOC.
  *
  * @task T10340
  * @epic T10327
  * @saga T10326
  */
 function renderInvariantAuditHuman(result: InvariantAuditResult): void {
-  const filterSuffix = result.filteredByAdr === null ? '' : ` (filtered: ${result.filteredByAdr})`;
-  humanLine(`\nInvariant Registry Audit${filterSuffix}`);
-  humanLine(
-    `  ${result.totalCount} entries · ${result.errorCount} error · ` +
-      `${result.warningCount} warning · ${result.infoCount} info · ` +
-      `${result.notApplicableCount} not-applicable · ${result.documentedCount} documented\n`,
-  );
-
-  // Group entries by ADR (stable: entries are already sorted by ADR + code).
-  const byAdr = new Map<string, typeof result.entries>();
-  for (const entry of result.entries) {
-    const bucket = byAdr.get(entry.adr) ?? [];
-    bucket.push(entry);
-    byAdr.set(entry.adr, bucket);
-  }
-
-  const severityRank: Record<string, number> = {
-    error: 0,
-    warning: 1,
-    info: 2,
-  };
-
-  for (const adr of Array.from(byAdr.keys()).sort()) {
-    const adrEntries = byAdr.get(adr) ?? [];
-    const failing = adrEntries.filter((e) => e.status === 'fail');
-    humanLine(`[${adr}] ${adrEntries.length} invariant(s), ${failing.length} failing:`);
-
-    // Sort failing entries by severity (error → warning → info), then by code.
-    const failingSorted = failing.slice().sort((a, b) => {
-      const ra = severityRank[a.severity] ?? 9;
-      const rb = severityRank[b.severity] ?? 9;
-      if (ra !== rb) return ra - rb;
-      return a.code.localeCompare(b.code);
-    });
-
-    for (const entry of failingSorted) {
-      humanLine(
-        `  [${entry.severity.toUpperCase()}] ${entry.code} · ${entry.name}` +
-          ` (${entry.violations.length} violation(s))`,
-      );
-      for (const v of entry.violations) {
-        humanLine(`    - ${v.message}`);
-        humanLine(`      repair: ${v.repairCommand}`);
-      }
-    }
-
-    // Show passing / documented / not-applicable as a single roll-up line so
-    // the operator sees that the entries WERE walked, not just skipped.
-    const passing = adrEntries.filter((e) => e.status === 'pass').length;
-    const docd = adrEntries.filter((e) => e.status === 'documented').length;
-    const na = adrEntries.filter((e) => e.status === 'not-applicable').length;
-    humanLine(`  (${passing} passing · ${docd} documented · ${na} not-applicable)\n`);
-  }
-
-  if (result.entries.length === 0) {
-    humanLine('  (no invariants registered)\n');
+  for (const line of renderInvariantAuditLines(result)) {
+    humanLine(line);
   }
 }
 
