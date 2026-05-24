@@ -73,6 +73,24 @@ export const findCommand = defineCommand({
       type: 'string',
       description: 'Filter by label — return tasks whose labels[] includes this value (T9904)',
     },
+    /**
+     * Filter by parent task ID — `cleo find --parent <id>` returns only
+     * tasks whose `parentId` matches. Mirrors the `--parent` axis on
+     * `cleo list`. When the parent target is a Saga (Epic with
+     * `label='saga'`), routing goes through `task_relations.type='groups'`
+     * member IDs (ADR-073 §1) — same path as `cleo list --parent`.
+     *
+     * Closes T10108 — pre-fix the flag was missing entirely AND empty-string
+     * queries bypassed every filter via `fuzzyScore('', '<title>')===80`.
+     *
+     * @task T10108
+     * @saga T9862
+     */
+    parent: {
+      type: 'string',
+      description:
+        'Filter by parent task ID — Saga-aware via task_relations groups (ADR-073 §1) (T10108)',
+    },
   },
   async run({ args }) {
     const limit = args.limit !== undefined ? Number.parseInt(args.limit, 10) : undefined;
@@ -94,6 +112,8 @@ export const findCommand = defineCommand({
     if (args.urgent !== undefined) params['urgent'] = args.urgent;
     // T9904: label filter — forward when set
     if (args.label !== undefined) params['label'] = args.label;
+    // T10108: parent filter — forward when set
+    if (args.parent !== undefined) params['parent'] = args.parent;
     const response = await dispatchRaw('query', 'tasks', 'find', params);
     if (!response.success) {
       handleRawError(response, { command: 'find', operation: 'tasks.find' });

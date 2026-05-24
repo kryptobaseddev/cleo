@@ -18,6 +18,7 @@ import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import type { NextDirectives } from '../mvi-helpers.js';
 import { taskListItemNext } from '../mvi-helpers.js';
+import { resolveSagaMemberIds } from '../sagas/storage.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { taskToRecord } from './engine-converters.js';
@@ -88,6 +89,26 @@ export interface FindTasksOptions {
    * @task T9904
    */
   label?: string;
+  /**
+   * Filter by parent task ID — restricts the result set to tasks whose
+   * `parentId` equals this value. Mirrors the `--parent` axis on
+   * `cleo list`.
+   *
+   * When the parent target is a Saga (Epic with `labels.includes('saga')`),
+   * routing goes through `task_relations.type='groups'` member IDs (via
+   * `resolveSagaMemberIds`) instead of the `parentId` column — the same
+   * dual-path resolution `listTasks` uses (ADR-073 §1). Saga members are
+   * top-level Epics with `parentId: null`, so the parentId column would
+   * otherwise return zero rows.
+   *
+   * Composes with other filters via AND. Filter-only mode is valid:
+   * `cleo find --parent <id>` with no query / no --id returns every
+   * task that hangs under the parent.
+   *
+   * @task T10108
+   * @saga T9862
+   */
+  parent?: string;
 }
 
 /** Result of finding tasks. */
@@ -281,14 +302,26 @@ export async function findTasks(
   accessor?: DataAccessor,
 ): Promise<FindTasksResult> {
   const options = extractInlineFilters(rawOptions);
-  const hasFilter = Boolean(options.status || options.kind || options.urgent || options.label);
+
+  // T10108: an empty-string or whitespace-only `query` is the same as no
+  // query — without this, `fuzzyScore('', '<any title>')` returns 80 for
+  // every task (the empty string is a substring of every string), bypassing
+  // every filter and returning the full task set. Normalise to `undefined`
+  // so the filter-only branches below take over.
+  if (options.query != null && options.query.trim() === '') {
+    options.query = undefined;
+  }
+
+  const hasFilter = Boolean(
+    options.status || options.kind || options.urgent || options.label || options.parent,
+  );
 
   if (options.query == null && !options.id && !hasFilter) {
     throw new CleoError(
       ExitCode.INVALID_INPUT,
-      'Search query, --id, or at least one filter (--status, --kind, --urgent, --label) is required',
+      'Search query, --id, or at least one filter (--status, --kind, --urgent, --label, --parent) is required',
       {
-        fix: 'cleo find "<query>"  OR  cleo find --label bug  OR  cleo find --urgent  OR  cleo find --status pending  OR  cleo find --id T123',
+        fix: 'cleo find "<query>"  OR  cleo find --label bug  OR  cleo find --urgent  OR  cleo find --status pending  OR  cleo find --parent T123  OR  cleo find --id T123',
         details: { field: 'query' },
       },
     );
@@ -296,9 +329,21 @@ export async function findTasks(
 
   const acc = accessor ?? (await getTaskAccessor(cwd));
 
-  // Use targeted query with status/label filters when available — push the
-  // label filter into the accessor so SQLite-backed accessors benefit from
-  // the existing label-aware queryTasks predicate. T9904.
+  // T10108: Saga-aware --parent routing.
+  // When --parent targets a Saga (label='saga'), children live in
+  // task_relations.type='groups', NOT in the parentId column. Detect once
+  // up-front; falls back to the default parentId-based query when the
+  // parent is not a Saga (or does not exist — non-existent IDs collapse to
+  // an empty result via the default path, preserving historical behaviour).
+  // Mirrors `listTasks` (ADR-073 §1).
+  let sagaMemberIds: string[] | null = null;
+  if (options.parent) {
+    sagaMemberIds = await resolveSagaMemberIds(acc, options.parent);
+  }
+
+  // Use targeted query with status/label/parent filters when available —
+  // push them into the accessor so SQLite-backed accessors benefit from the
+  // existing query predicates. T9904 (label) / T10108 (parent).
   const filters: TaskQueryFilters = {};
   if (options.status) {
     filters.status = options.status;
@@ -306,8 +351,29 @@ export async function findTasks(
   if (options.label) {
     filters.label = options.label;
   }
+  // T10108: skip the parentId filter when routing through Saga groups —
+  // Saga members are top-level Epics with parentId=null, so the column
+  // wouldn't match. The member-set intersection below restricts the result
+  // in-memory instead.
+  if (options.parent && sagaMemberIds === null) {
+    filters.parentId = options.parent;
+  }
   const queryResult = await acc.queryTasks(filters);
   let allTasks: Task[] = [...queryResult.tasks];
+
+  // T10108: Saga path — restrict the queried set to the saga's member IDs,
+  // preserving the relation-order of the groups edges (matches listTasks).
+  if (sagaMemberIds !== null) {
+    const memberOrder = new Map<string, number>();
+    for (let idx = 0; idx < sagaMemberIds.length; idx++) {
+      const id = sagaMemberIds[idx];
+      if (id !== undefined) memberOrder.set(id, idx);
+    }
+    const memberSet = new Set(sagaMemberIds);
+    allTasks = allTasks
+      .filter((t) => memberSet.has(t.id))
+      .sort((a, b) => (memberOrder.get(a.id) ?? 0) - (memberOrder.get(b.id) ?? 0));
+  }
 
   // Include archive if requested
   if (options.includeArchive) {
@@ -482,6 +548,8 @@ export async function taskFind(
     urgent?: boolean;
     /** Filter by label — see {@link FindTasksOptions.label}. @task T9904 */
     label?: string;
+    /** Filter by parent task ID — see {@link FindTasksOptions.parent}. @task T10108 */
+    parent?: string;
   },
 ): Promise<EngineResult<{ results: (MinimalTaskRecord | TaskRecord)[]; total: number }>> {
   try {
@@ -498,6 +566,7 @@ export async function taskFind(
         kind: options?.kind as TaskKind | undefined,
         urgent: options?.urgent,
         label: options?.label,
+        parent: options?.parent,
       },
       projectRoot,
       accessor,
