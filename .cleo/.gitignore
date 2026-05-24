@@ -93,6 +93,14 @@
 !deprecations.yml
 !deprecations.schema.json
 
+# Step 14: Allow in-repo agent role skills (T10495 / SAGA T10377
+# SG-IVTR-AC-BINDING). Project-local skills that document agent roles
+# (e.g. cleo-validator) live here rather than under
+# packages/skills/skills/ when they are repo-specific contracts. They
+# are reviewed in the PR and ship as docs artifacts.
+!skills/
+!skills/**
+
 # =============================================================================
 # EXPLICIT DENY — safety net that overrides allow rules above
 # =============================================================================
