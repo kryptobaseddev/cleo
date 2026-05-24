@@ -129,9 +129,9 @@ describe('CLEO-INJECTION v2.6.0 CLI-only template', () => {
   });
 
   describe('Template size', () => {
-    it('is under 400 lines (T9148 added HTML section anchors for cleo briefing inject — currently ~354 lines)', () => {
+    it('is under 450 lines (T9148 anchors + T9934/ADR-086 CLI Output Contract grew to ~418 lines)', () => {
       const lines = content.split('\n').length;
-      expect(lines).toBeLessThanOrEqual(400);
+      expect(lines).toBeLessThanOrEqual(450);
     });
 
     it('is at least 50 lines (not accidentally empty)', () => {
