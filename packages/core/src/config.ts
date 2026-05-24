@@ -218,6 +218,10 @@ function parseEnvValue(value: string): unknown {
 /**
  * Load and merge configuration from all sources.
  * Priority: defaults < global config < project config < environment vars
+ *
+ * @deprecated Use `resolveCleoConfig` from `@cleocode/core/config/registry` instead.
+ *   The new resolver is driven by the ConfigManifest contract (T9876) and is the
+ *   SSoT for cascade resolution. Tracked for rewire under T9879.
  */
 export async function loadConfig(cwd?: string): Promise<CleoConfig> {
   // Start with defaults
@@ -258,6 +262,11 @@ export async function loadConfig(cwd?: string): Promise<CleoConfig> {
 /**
  * Get a single config value with source tracking.
  * Returns the value and which source it came from.
+ *
+ * @deprecated Use `getConfigValue` from `@cleocode/core/config/registry` instead.
+ *   The registry helper resolves over the ConfigManifest cascade (T9876). The
+ *   ResolvedValue source-tracking shape is being reconsidered under T9879 —
+ *   callers that need provenance should follow that thread.
  */
 export async function getConfigValue<T>(path: string, cwd?: string): Promise<ResolvedValue<T>> {
   // Check environment variables first
@@ -297,6 +306,9 @@ export async function getConfigValue<T>(path: string, cwd?: string): Promise<Res
  * Get a raw config value from the project config file only (no cascade).
  * Returns undefined if the key is not found.
  * Used by the engine layer for simple key lookups without source tracking.
+ *
+ * @deprecated Use `getConfigValue` from `@cleocode/core/config/registry` with
+ *   `scope: 'project'` instead. Tracked for rewire under T9879.
  * @task T4789
  */
 export async function getRawConfigValue(key: string, cwd?: string): Promise<unknown> {
@@ -312,6 +324,10 @@ export async function getRawConfigValue(key: string, cwd?: string): Promise<unkn
 /**
  * Get the full raw project config (no cascade).
  * Returns null if no config file exists.
+ *
+ * @deprecated Use `resolveCleoConfig` from `@cleocode/core/config/registry`
+ *   with `scope: 'project'` instead. Returns `{}` for missing files rather
+ *   than `null`. Tracked for rewire under T9879.
  * @task T4789
  */
 export async function getRawConfig(cwd?: string): Promise<Record<string, unknown> | null> {
