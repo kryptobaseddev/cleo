@@ -29,7 +29,8 @@
  */
 
 import { join } from 'node:path';
-import { cwd as processCwd } from 'node:process';
+import { cwd as processCwd, stdin, stdout } from 'node:process';
+import { createInterface } from 'node:readline/promises';
 import {
   getSentientDaemonStatus,
   monitorWorkers,
@@ -40,6 +41,12 @@ import {
   stopSentientDaemon,
   WORKER_BUDGET_MS,
 } from '@cleocode/core/sentient/daemon.js';
+import {
+  appendSentientExecuteAudit,
+  executeFixAction,
+  extractFixActionFromNotesJson,
+  parseFixAction,
+} from '@cleocode/core/sentient/execute-action.js';
 import { safeRunProposeTick } from '@cleocode/core/sentient/propose-tick.js';
 import { patchSentientState, readSentientState } from '@cleocode/core/sentient/state.js';
 import { safeRunTick } from '@cleocode/core/sentient/tick.js';
@@ -334,19 +341,63 @@ const proposeListSub = defineCommand({
   },
 });
 
+/**
+ * Injectable confirmation prompt for `cleo sentient propose accept`.
+ *
+ * Tests replace this so the readline interface never touches the real
+ * stdin. Returns `true` IFF the user replied `y` or `yes` (case-insensitive).
+ *
+ * @internal
+ */
+export let promptAcceptExecution: (fixAction: string) => Promise<boolean> = async (
+  fixAction: string,
+) => {
+  const rl = createInterface({ input: stdin, output: stdout });
+  try {
+    stdout.write(`[sentient] Proposal accepted. fixAction:\n  $ ${fixAction}\n`);
+    const answer = await rl.question('Execute now? [y/N] ');
+    const normalised = answer.trim().toLowerCase();
+    return normalised === 'y' || normalised === 'yes';
+  } finally {
+    rl.close();
+  }
+};
+
+/** Test-only setter that swaps in a stub prompt for the accept flow. */
+export function __setPromptAcceptExecutionForTest(
+  next: (fixAction: string) => Promise<boolean>,
+): () => void {
+  const prev = promptAcceptExecution;
+  promptAcceptExecution = next;
+  return () => {
+    promptAcceptExecution = prev;
+  };
+}
+
 const proposeAcceptSub = defineCommand({
   meta: {
     name: 'accept',
-    description: 'Accept a proposal — transition proposed → pending',
+    description:
+      'Accept a proposal — transition proposed → pending, optionally execute its fixAction',
   },
   args: {
     ...projectArgs,
     id: { type: 'positional' as const, description: 'Proposal task ID', required: true },
+    execute: {
+      type: 'boolean' as const,
+      description: 'Execute proposal.fixAction without prompting',
+    },
+    'no-execute': {
+      type: 'boolean' as const,
+      description: 'Skip fixAction execution even if the proposal carries one',
+    },
   },
   async run({ args }) {
     const projectRoot = resolveProjectRoot(args.project as string | undefined);
     const jsonMode = args.json === true;
     const id = args.id as string;
+    const forceExecute = args.execute === true;
+    const skipExecute = args['no-execute'] === true;
 
     try {
       const { getDb } = await import('@cleocode/core/store/sqlite.js');
@@ -389,10 +440,63 @@ const proposeAcceptSub = defineCommand({
         },
       });
 
+      // Pull fixAction from notes_json proposal-meta envelope.
+      const fixAction = extractFixActionFromNotesJson(existing.notesJson ?? null);
+
+      // Decide whether to execute.
+      // Precedence: --no-execute > --execute > interactive prompt > skip.
+      let shouldExecute = false;
+      if (fixAction && !skipExecute) {
+        if (forceExecute) {
+          shouldExecute = true;
+        } else {
+          shouldExecute = await promptAcceptExecution(fixAction);
+        }
+      }
+
+      if (!shouldExecute) {
+        emitSuccess(
+          {
+            id,
+            status: 'pending',
+            acceptedAt: now,
+            executed: false,
+            fixAction: fixAction ?? null,
+          },
+          jsonMode,
+          `Proposal ${id} accepted → pending`,
+        );
+        return;
+      }
+
+      // fixAction is non-null at this point (guarded by `shouldExecute` branch).
+      const parsed = parseFixAction(fixAction as string);
+      if (!parsed.ok) {
+        emitFailure(parsed.code, parsed.reason, jsonMode);
+        return;
+      }
+
+      const result = await executeFixAction(parsed, { cwd: projectRoot });
+      await appendSentientExecuteAudit(projectRoot, {
+        proposalId: id,
+        fixAction: fixAction as string,
+        exitCode: result.exitCode,
+        durationMs: result.durationMs,
+        timestamp: new Date().toISOString(),
+      });
+
       emitSuccess(
-        { id, status: 'pending', acceptedAt: now },
+        {
+          id,
+          status: 'pending',
+          acceptedAt: now,
+          executed: true,
+          exitCode: result.exitCode,
+          stderrSnippet: result.stderrSnippet,
+          fixAction,
+        },
         jsonMode,
-        `Proposal ${id} accepted → pending`,
+        `Proposal ${id} accepted → pending (fixAction exit=${result.exitCode})`,
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
