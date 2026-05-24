@@ -24,6 +24,8 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { WriterRegistry } from '../docs/writer-registry.js';
+import { getLogger } from '../logger.js';
 import { getCleoDirAbsolute } from '../paths.js';
 import { addFrontmatter, buildFrontmatter } from './frontmatter.js';
 import {
@@ -32,6 +34,8 @@ import {
   getStagePath,
   listEpicDirs,
 } from './rcasd-paths.js';
+
+const log = getLogger('lifecycle:consolidate-rcasd');
 
 // ============================================================================
 // Types
@@ -165,6 +169,19 @@ function safeMoveWithFrontmatter(
       const withFrontmatter = addFrontmatter(content, metadata);
       writeFileSync(to, withFrontmatter, 'utf-8');
       unlinkSync(from);
+
+      // T10368: surface the system-managed routing — RCASD migration is
+      // registered as `lifecycle.rcasd-migration` in `SYSTEM_MANAGED_ENTRIES`.
+      if (process.env['CLEO_QUIET'] !== '1') {
+        const entry = WriterRegistry.findSystemManagedById('lifecycle.rcasd-migration');
+        if (entry !== null) {
+          log.debug(
+            { path: to, registryEntry: entry.id, adr: entry.adrRef },
+            'system-managed writer (T10368)',
+          );
+        }
+      }
+
       return { from, to, type: 'move', status: 'success' };
     } catch (err) {
       return {

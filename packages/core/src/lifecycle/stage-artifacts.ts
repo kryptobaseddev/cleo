@@ -13,10 +13,14 @@
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
+import { WriterRegistry } from '../docs/writer-registry.js';
+import { getLogger } from '../logger.js';
 import { getProjectRoot } from '../paths.js';
 import { addFrontmatter, buildFrontmatter, type RelatedLink } from './frontmatter.js';
 import { ensureStagePath, getStagePath } from './rcasd-paths.js';
 import { STAGE_DEFINITIONS, STAGE_PREREQUISITES, type Stage } from './stages.js';
+
+const log = getLogger('lifecycle:stage-artifacts');
 
 export interface StageArtifactResult {
   absolutePath: string;
@@ -113,6 +117,18 @@ export async function ensureStageArtifact(
 
   const nextContent = addFrontmatter(currentContent, metadata);
   await writeFile(absolutePath, nextContent, 'utf-8');
+
+  // T10368: surface the system-managed routing — stage artifact composer
+  // is registered as `lifecycle.stage-artifact` in `SYSTEM_MANAGED_ENTRIES`.
+  if (process.env['CLEO_QUIET'] !== '1') {
+    const entry = WriterRegistry.findSystemManagedById('lifecycle.stage-artifact');
+    if (entry !== null) {
+      log.debug(
+        { path: absolutePath, registryEntry: entry.id, adr: entry.adrRef },
+        'system-managed writer (T10368)',
+      );
+    }
+  }
 
   return {
     absolutePath,
