@@ -37,9 +37,25 @@ export interface TaskDetail extends Task {
 }
 
 /**
+ * Canonical task ID format — uppercase `T` followed by one or more digits.
+ *
+ * Dispatch-layer sanitization (`sanitizeTaskId`) normalises loose inputs like
+ * `t1234` or bare digits before they reach core, so this defensive check
+ * targets direct in-process callers (tests, future SDK consumers) where
+ * malformed IDs like `T932EP`, `T-foo`, or `TASKABC` would otherwise fall
+ * through to a DB miss and surface as a confusing `Task not found`.
+ *
+ * @task T10109
+ */
+const CANONICAL_TASK_ID_PATTERN = /^T\d+$/;
+
+/**
  * Get a task by ID with enriched details.
  * Checks active tasks first, then archive if not found.
  * @task T4460
+ * @task T10109 — defensive format validation; rejects malformed IDs with
+ *               `INVALID_INPUT` instead of silently falling through to a
+ *               `NOT_FOUND` DB miss (or worse, a KeyError downstream).
  */
 export async function showTask(
   taskId: string,
@@ -50,6 +66,13 @@ export async function showTask(
     throw new CleoError(ExitCode.INVALID_INPUT, 'Task ID is required', {
       fix: 'cleo show T###',
       details: { field: 'taskId' },
+    });
+  }
+
+  if (!CANONICAL_TASK_ID_PATTERN.test(taskId)) {
+    throw new CleoError(ExitCode.INVALID_INPUT, `Invalid task ID format: ${taskId}`, {
+      fix: 'Use format T followed by digits (e.g., T1234)',
+      details: { field: 'taskId', value: taskId, pattern: '^T\\d+$' },
     });
   }
 
