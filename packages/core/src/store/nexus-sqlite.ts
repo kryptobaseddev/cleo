@@ -17,6 +17,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
+import { getLogger } from '../logger.js';
 import { getCleoHome } from '../paths.js';
 import { ensureColumns, migrateWithRetry, reconcileJournal } from './migration-manager.js';
 import * as nexusSchema from './nexus-schema.js';
@@ -83,6 +84,102 @@ export function getNexusDbPath(): string {
  */
 export function resolveNexusMigrationsFolder(): string {
   return resolveCorePackageMigrationsFolder('drizzle-nexus');
+}
+
+// ---------------------------------------------------------------------------
+// Nested-nexus migration debris detection (ADR-085 / T10321)
+// ---------------------------------------------------------------------------
+
+/**
+ * Canonical filename within the nested `<cleoHome>/nexus/` subdirectory that
+ * indicates the structural bug ADR-085 BANs. If this file exists, the install
+ * has not yet run `scripts/migrate-nested-nexus.mjs`.
+ */
+const NESTED_NEXUS_SENTINEL = 'nexus.db';
+
+/**
+ * One-shot warning gate keyed on the absolute nested path. Prevents the
+ * warning from spamming when `getNexusDb()` is called repeatedly within a
+ * single process (e.g. CLI commands that re-open the handle, tests that
+ * exercise nexus across many describe blocks).
+ *
+ * Exposed via {@link _resetNestedNexusWarningGate} for test hygiene.
+ */
+const _warnedNestedPaths: Set<string> = new Set();
+
+/**
+ * Returns the absolute path that, if present, indicates the install carries
+ * the nested-nexus structural bug. ALWAYS `<cleoHome>/nexus/nexus.db`.
+ *
+ * Exposed for tests; production callers should use
+ * {@link detectAndWarnOnNestedNexus} instead.
+ *
+ * @task T10321
+ * @adr ADR-085
+ */
+export function getNestedNexusSentinelPath(): string {
+  return join(getCleoHome(), 'nexus', NESTED_NEXUS_SENTINEL);
+}
+
+/**
+ * Detect the presence of the nested-nexus structural bug and emit a one-shot
+ * warning via the canonical pino logger if found.
+ *
+ * The function is non-blocking and non-throwing — it never alters the
+ * outcome of the surrounding `getNexusDb()` open. The canonical flat
+ * `nexus.db` open proceeds normally regardless of whether the nested debris
+ * is present.
+ *
+ * Idempotency: the first call for a given nested path emits the warning;
+ * subsequent calls within the same process are no-ops. Tests can reset the
+ * gate via {@link _resetNestedNexusWarningGate}.
+ *
+ * @returns `true` when the warning fired on this call; `false` otherwise.
+ *
+ * @task T10321
+ * @adr ADR-085
+ */
+export function detectAndWarnOnNestedNexus(): boolean {
+  let nestedPath: string;
+  try {
+    nestedPath = getNestedNexusSentinelPath();
+  } catch {
+    // Path resolution should never throw, but defence-in-depth: if it does
+    // we silently skip — never break the open path for a diagnostic warning.
+    return false;
+  }
+
+  if (!existsSync(nestedPath)) return false;
+  if (_warnedNestedPaths.has(nestedPath)) return false;
+  _warnedNestedPaths.add(nestedPath);
+
+  const canonicalPath = getNexusDbPath();
+  const log = getLogger('nexus-sqlite');
+  log.warn(
+    {
+      nestedPath,
+      canonicalPath,
+      migrationCommand: 'node scripts/migrate-nested-nexus.mjs',
+      adr: 'ADR-085',
+      task: 'T10321',
+    },
+    'Detected nested-nexus structural bug — canonical flat nexus.db is in use; ' +
+      'nested duplicates at <cleoHome>/nexus/ are migration debris. Run the ' +
+      'migration script to remove them.',
+  );
+
+  return true;
+}
+
+/**
+ * Reset the one-shot warning gate. Tests only — production callers MUST NOT
+ * use this.
+ *
+ * @internal
+ * @task T10321
+ */
+export function _resetNestedNexusWarningGate(): void {
+  _warnedNestedPaths.clear();
 }
 
 /**
@@ -382,6 +479,10 @@ export async function getNexusDb(): Promise<NodeSQLiteDatabase<typeof nexusSchem
   _nexusInitPromise = (async () => {
     const dbPath = requestedPath;
     _nexusDbPath = dbPath;
+
+    // ADR-085 / T10321 — warn (one-shot, non-blocking) if the install still
+    // carries the nested-nexus migration debris. Does not alter the open.
+    detectAndWarnOnNestedNexus();
 
     // Ensure directory exists
     mkdirSync(dirname(dbPath), { recursive: true });
