@@ -683,6 +683,81 @@ const removeCommand = defineCommand({
   },
 });
 
+// ── cleo docs supersede ──────────────────────────────────────────────────────
+
+/**
+ * `cleo docs supersede <oldSlug> <newSlug> [--reason "..."]`
+ *
+ * Atomically supersedes one doc with another. Flips
+ * `attachments.lifecycle_status` on the older row to `'superseded'`, sets the
+ * `superseded_by` FK pointer to the new row, and sets `supersedes` on the new
+ * row back to the old. All three writes commit inside a single
+ * `BEGIN IMMEDIATE` transaction via the `openCleoDb` chokepoint.
+ *
+ * The supersession edge surfaced by `cleo docs provenance` (T10166) is
+ * reconstructed at read time from these FK pointers — no dedicated edges
+ * table exists. The deterministic `edgeId` returned on the envelope
+ * (`supersedes:<newId>-><oldId>`) is the same handle future provenance reads
+ * will quote.
+ *
+ * @task T10162 (Saga T9855 · Epic T10157 · ADR-078)
+ */
+const supersedeCommandArgs = {
+  oldSlug: {
+    type: 'positional',
+    description: 'Slug of the doc being replaced',
+    required: true,
+  },
+  newSlug: {
+    type: 'positional',
+    description: 'Slug of the doc that replaces oldSlug',
+    required: true,
+  },
+  reason: {
+    type: 'string',
+    description: 'Optional human-readable reason carried back on the response envelope',
+  },
+} as const;
+
+const supersedeCommand = defineCommand({
+  meta: {
+    name: 'supersede',
+    description:
+      'Atomically supersede an older doc with a newer one: flips lifecycle_status to ' +
+      "'superseded' on the old row and links both rows via the supersedes/superseded_by " +
+      'FK pointers. All writes commit in a single SQLite transaction.',
+  },
+  args: supersedeCommandArgs,
+  async run({ args, rawArgs }) {
+    try {
+      assertKnownFlags(rawArgs, supersedeCommandArgs, 'docs supersede');
+    } catch (err) {
+      if (err instanceof UnknownFlagError) {
+        cliError(err.message, ExitCode.VALIDATION_ERROR, { name: 'E_VALIDATION' });
+        process.exit(ExitCode.VALIDATION_ERROR);
+      }
+      throw err;
+    }
+
+    const oldSlug = args.oldSlug;
+    const newSlug = args.newSlug;
+    const reason =
+      typeof args.reason === 'string' && args.reason.length > 0 ? args.reason : undefined;
+
+    await dispatchFromCli(
+      'mutate',
+      'docs',
+      'supersede',
+      {
+        oldSlug,
+        newSlug,
+        ...(reason !== undefined ? { reason } : {}),
+      },
+      { command: 'docs supersede' },
+    );
+  },
+});
+
 // ── cleo docs generate ───────────────────────────────────────────────────────
 
 /** cleo docs generate --for <id> [--attach] — generate llms.txt document. */
@@ -2001,6 +2076,7 @@ export const docsCommand = defineCommand({
     list: listCommand,
     fetch: fetchCommand,
     remove: removeCommand,
+    supersede: supersedeCommand,
     generate: generateCommand,
     export: exportCommand,
     search: searchCommand,
