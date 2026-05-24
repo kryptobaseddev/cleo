@@ -1,7 +1,7 @@
 ---
 name: ct-spec-writer
 description: Technical specification writing using RFC 2119 language for clear, unambiguous requirements. Creates protocol specifications, technical requirements, API specifications, and architecture documents with testable requirements and compliance criteria. Use when writing specifications, defining protocols, documenting requirements, or creating API contracts. Triggers on specification tasks, protocol definition needs, or requirement documentation.
-version: 2.0.0
+version: 2.1.0
 tier: 2
 core: false
 category: recommended
@@ -161,8 +161,17 @@ cleo docs add T1234 docs/specs/auth-protocol.md \
   Other allowed values: `adr | research | handoff | note | llm-readme`.
 - `--slug` is the kebab-case retrieval handle. Use the spec topic +
   version (e.g. `auth-protocol-v2`, `release-pipeline-v3`). The CLI
-  returns `E_SLUG_TAKEN` with 3 alternatives on collision — pick one
-  rather than silently overwriting.
+  returns `E_SLUG_RESERVED` with 3 alternatives on collision (legacy
+  `E_SLUG_TAKEN` aliased under `details.aliases` for one release —
+  T10386) — pick one rather than silently overwriting.
+- Near-duplicate slugs (e.g. `auth-protocol-v2` vs an existing
+  `auth-protocol`) surface a `W_SLUG_SIMILAR` warning with the top
+  match (T10361). Pass `--allow-similar` to proceed when the new spec
+  intentionally forks; every bypass is audited to
+  `.cleo/audit/similar-bypass.jsonl`.
+- Unknown flags fail fast with `E_UNKNOWN_FLAG` + did-you-mean
+  suggestions (T10359) — `--titel`/`--lables` become "did you mean
+  --type/--labels?". Run `cleo docs add --help` for the canonical surface.
 - The owner ID (`T1234`) auto-attaches the spec to its parent task so
   downstream stages (`ct-validator`, decomposition, implementation)
   can discover the spec via `cleo docs list --task T1234 --type spec`.

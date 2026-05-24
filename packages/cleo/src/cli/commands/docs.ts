@@ -213,8 +213,16 @@ const addCommand = defineCommand({
       '  --labels <csv>         Comma-separated labels (e.g. rfc,spec)\n' +
       '  --attached-by <name>   Agent identity that created the attachment (default: "human")\n' +
       '  --slug <kebab>         Human-friendly alias, unique per project (T9636)\n' +
-      '  --type <kind>          Taxonomy classification — run `cleo docs list-types` for kinds\n\n' +
-      'Unknown flags are rejected with E_UNKNOWN_FLAG + did-you-mean suggestions (T10359).',
+      '  --type <kind>          Taxonomy classification — run `cleo docs list-types` for kinds\n' +
+      '  --allow-similar        Bypass the slug-similarity warn — every bypass is audited\n' +
+      '                         to .cleo/audit/similar-bypass.jsonl (T10361)\n' +
+      '  --strict               Enforce body-schema (requiredSections) — fail with\n' +
+      '                         E_DOC_SCHEMA_MISMATCH instead of warning (T10160)\n\n' +
+      'Validation behaviors:\n' +
+      '  • Unknown flags → E_UNKNOWN_FLAG with did-you-mean suggestions (T10359)\n' +
+      '  • Slug collision → E_SLUG_RESERVED + 3 alternative slugs (T10386)\n' +
+      '  • Near-duplicate slug → W_SLUG_SIMILAR warning unless --allow-similar (T10361)\n' +
+      '  • TODO(T10360): --type adr will auto-allocate adr-NNN-<title> from a --title flag.',
   },
   args: {
     'owner-id': {

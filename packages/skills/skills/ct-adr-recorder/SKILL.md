@@ -115,7 +115,26 @@ cleo docs add T4798 docs/adr/ADR-0042.md \
   `spec | adr | research | handoff | note | llm-readme`.
 - `--slug` MUST follow `adr-<NNNN>-<short-topic>`. The numeric segment
   is the canonical ADR id; the topic segment makes the slug human
-  readable. Collisions return `E_SLUG_TAKEN` with 3 alternatives.
+  readable. Collisions return `E_SLUG_RESERVED` with 3 alternatives
+  (legacy `E_SLUG_TAKEN` aliased under `details.aliases` for one release —
+  T10386).
+- Near-duplicate slugs trigger `W_SLUG_SIMILAR` (T10361). The CLI
+  surfaces the top match and hints `--allow-similar`. Use `--allow-similar`
+  only when the new ADR genuinely forks from the existing one (e.g.
+  versioned re-issue); every bypass is audited to
+  `.cleo/audit/similar-bypass.jsonl`.
+- Unknown flags fail fast with `E_UNKNOWN_FLAG` + did-you-mean
+  suggestions (T10359) — `--lbls` becomes "did you mean --labels?".
+- TODO(T10360 · E3.2 pending): when shipped, ADR drafts will accept
+  `--title "<human title>"` and CLEO will auto-allocate the next
+  `adr-NNN-<kebab-title>` via the E1 slug allocator. Until then,
+  you MUST hand-pick the next free `NNNN` by inspecting
+  `cleo docs list --type adr --project`. Example future call:
+  ```bash
+  # FUTURE — DO NOT USE until T10360 ships:
+  # cleo docs add T4798 docs/drafts/draft.md --type adr \
+  #   --title "Adopt Drizzle ORM v1 beta"
+  ```
 - The owner ID is the consensus task whose verdict drives the ADR
   (`T4798` above). This is how downstream supersession cascades find
   the chain — never attach an ADR to an arbitrary task.
