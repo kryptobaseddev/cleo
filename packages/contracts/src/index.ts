@@ -224,6 +224,21 @@ export type {
   ConduitTopicSubscribeOptions,
   ConduitUnsubscribe,
 } from './conduit.js';
+// === Config Manifest (T9876 / Saga T9855) ===
+export type {
+  ConfigManifestEntry,
+  ConfigManifestScope,
+  ConfigScope,
+  DriftDetection,
+} from './config/manifest.js';
+export {
+  CLEO_CONFIG_MANIFEST,
+  CONFIG_MANIFEST_ENTRIES,
+  configManifestEntrySchema,
+  GLOBAL_CLEO_CONFIG_MANIFEST,
+  PROJECT_CONTEXT_MANIFEST,
+  PROJECT_INFO_MANIFEST,
+} from './config/manifest.js';
 // === Configuration Types ===
 export type {
   BackupConfig,
