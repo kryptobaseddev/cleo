@@ -49,7 +49,6 @@ export {
 
 export type { ExportDocumentOptions, ExportDocumentResult } from './export-document.js';
 export { exportDocument } from './export-document.js';
-
 // ── T10361 — slug similarity warn at docs add write-time ────────────────────
 export type {
   CheckSlugSimilarityOptions,
@@ -63,6 +62,9 @@ export {
   DEFAULT_SIMILARITY_THRESHOLD,
   parseSimilarityConfig,
 } from './similarity-check.js';
+// ── T10160 — body schema validation per DocKind (requiredSections[]) ────────
+export type { ValidateDocBodyResult } from './validate-body.js';
+export { validateDocBody } from './validate-body.js';
 
 // ── T9639 — cleo docs import (legacy .md migration) ─────────────────────────
 

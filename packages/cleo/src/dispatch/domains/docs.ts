@@ -46,6 +46,7 @@ import type {
   DocsRemoveResult,
   DocsType,
 } from '@cleocode/contracts/operations/docs';
+import { pushWarning } from '@cleocode/core';
 import type {
   AttachmentRef,
   LlmsTxtAttachment,
@@ -66,6 +67,7 @@ import {
   reserveSlugForDispatch,
   resolveAttachmentBackend,
   SlugCollisionError,
+  validateDocBody,
   writeChangesetEntry,
 } from '@cleocode/core/internal';
 import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../adapters/typed.js';
@@ -833,6 +835,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       attachedBy: rawAttachedBy,
       slug: rawSlug,
       type: rawType,
+      strict: strictMode,
     } = params;
     if (!ownerId) {
       return lafsError('E_INVALID_INPUT', 'ownerId is required', 'add');
@@ -1094,6 +1097,54 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         bytes = await readFile(absPath);
       } catch {
         return lafsError('E_FILE_ERROR', `Cannot read file: ${absPath}`, 'add');
+      }
+
+      // T10160 — body schema validation per DocKind.
+      //
+      // Runs only when --type is supplied and the kind declares a
+      // non-empty `requiredSections` in the canonical doc-kind taxonomy.
+      // `strict: true` → missing sections fail the write with
+      // `E_DOC_SCHEMA_MISMATCH`. Default (advisory) → a warning surfaces
+      // through the AsyncLocalStorage warning collector so the envelope's
+      // `meta.warnings` carries it; the write proceeds.
+      //
+      // URL attachments are skipped — there are no local bytes to scan.
+      // Project-level extensions are picked up via `DocKindRegistry.load`
+      // so a kind declared in `.cleo/docs-config.json` with
+      // `requiredSections` participates in the same validator.
+      if (type !== undefined) {
+        const bodyText = bytes.toString('utf-8');
+        let registry: DocKindRegistry | undefined;
+        try {
+          registry = DocKindRegistry.load(getProjectRoot());
+        } catch {
+          // Malformed extension config — fall back to built-ins-only.
+          // `cleo check canon docs` surfaces the underlying diagnostic.
+          registry = undefined;
+        }
+        const check = validateDocBody(type, bodyText, registry);
+        if (!check.ok) {
+          const missingList = check.missing.join(', ');
+          if (strictMode === true) {
+            return lafsError(
+              'E_DOC_SCHEMA_MISMATCH',
+              `body for kind '${type}' is missing required section(s): ${missingList}`,
+              'add',
+              `Add the missing H2 section(s) — '## ${check.missing[0] ?? ''}' — then retry. ` +
+                `Pass --strict=false (default) to surface as an advisory warning instead of an error.`,
+              {
+                kind: type,
+                missing: check.missing,
+                strict: true,
+              },
+            );
+          }
+          // Advisory mode — push a warning and continue.
+          pushWarning({
+            code: 'W_DOC_SCHEMA_MISMATCH',
+            message: `body for kind '${type}' is missing required section(s): ${missingList}. Add '--strict' to fail on schema violations.`,
+          });
+        }
       }
 
       const mime = mimeFromPath(absPath);
