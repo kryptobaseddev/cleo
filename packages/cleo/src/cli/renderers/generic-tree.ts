@@ -17,9 +17,15 @@
  */
 
 import { type AnimateContext, createAnimateContext } from '@cleocode/animations';
-import { renderTree } from '@cleocode/animations/render';
+import { renderLegend, renderSummary, renderTree } from '@cleocode/animations/render';
 import type { FlatTreeNode, TreeResponse } from '@cleocode/contracts';
-import { ascii, KindIcon, pickIcon, RelationIcon } from '@cleocode/contracts/render/icon.js';
+import {
+  ascii,
+  KindIcon,
+  pickIcon,
+  RelationIcon,
+  StatusIcon,
+} from '@cleocode/contracts/render/icon.js';
 import type { GenericTreeMetadata, GenericTreeResult } from '@cleocode/core/internal';
 import { getFormatContext } from '../format-context.js';
 import { DIM, NC } from './colors.js';
@@ -104,7 +110,98 @@ export function renderGenericTree(
     if (annotations) lines.push(annotations);
   }
 
+  // Default footer legend (only in --human render path; JSON branch never
+  // reaches this function). Walks the tree once to compute the icons + statuses
+  // actually used so the legend only covers what's on screen.
+  const footer = renderFooterLegend(result, ctx, useAscii);
+  if (footer) {
+    lines.push('');
+    lines.push(footer);
+  }
+
   return lines.join('\n');
+}
+
+/**
+ * Build the default footer: a separator line + legend (icons used) +
+ * one-line summary (totalNodes / maxDepth / saga-member count).
+ *
+ * Returns `''` when `ctx.enabled === false` so the gate semantics match the
+ * tree body. Icon set is computed from `result.tree` so the legend only
+ * lists glyphs the user actually sees above.
+ */
+function renderFooterLegend(
+  result: GenericTreeResult,
+  ctx: AnimateContext,
+  useAscii: boolean,
+): string {
+  if (!ctx.enabled) return '';
+
+  // Collect kinds + statuses present in the rendered tree (drop duplicates).
+  const kindsSeen = new Set<FlatTreeNode<GenericTreeMetadata>['kind']>();
+  const statusesSeen = new Set<FlatTreeNode<GenericTreeMetadata>['status']>();
+  let hasGroupsEdge = false;
+  for (const node of result.tree.tree) {
+    kindsSeen.add(node.kind);
+    statusesSeen.add(node.status);
+    if (node.metadata.edgeType === 'groups') hasGroupsEdge = true;
+  }
+
+  // Legend items in canonical order: kinds → relation glyphs → statuses.
+  const items: Array<{ icon: string; label: string }> = [];
+  const KIND_ORDER: Array<[FlatTreeNode<GenericTreeMetadata>['kind'], string]> = [
+    ['saga', 'saga'],
+    ['epic', 'epic'],
+    ['task', 'task'],
+    ['subtask', 'subtask'],
+  ];
+  for (const [kind, label] of KIND_ORDER) {
+    if (!kindsSeen.has(kind)) continue;
+    items.push({ icon: pickIcon(kindIconOf(kind), { noColor: useAscii }), label });
+  }
+  if (hasGroupsEdge) {
+    items.push({
+      icon: useAscii ? ascii(RelationIcon.GROUPS) : RelationIcon.GROUPS,
+      label: 'groups-edge',
+    });
+  }
+  const STATUS_ORDER: Array<[FlatTreeNode<GenericTreeMetadata>['status'], StatusIcon]> = [
+    ['done', StatusIcon.DONE],
+    ['in_progress', StatusIcon.ACTIVE],
+    ['pending', StatusIcon.PENDING],
+    ['blocked', StatusIcon.BLOCKED],
+    ['archived', StatusIcon.ARCHIVED],
+    ['cancelled', StatusIcon.CANCELLED],
+  ];
+  const STATUS_LABEL: Record<string, string> = {
+    done: 'done',
+    in_progress: 'active',
+    pending: 'pending',
+    blocked: 'blocked',
+    archived: 'archived',
+    cancelled: 'cancelled',
+  };
+  for (const [status, icon] of STATUS_ORDER) {
+    if (!statusesSeen.has(status)) continue;
+    items.push({
+      icon: pickIcon(icon, { noColor: useAscii }),
+      label: STATUS_LABEL[status] ?? status,
+    });
+  }
+
+  const legend = renderLegend({ items, ctx });
+
+  // Summary: total nodes, max depth, and saga-member count (groups edges only).
+  const sagaMembers = result.tree.tree.filter((n) => n.metadata.edgeType === 'groups').length;
+  const counts: Array<{ label: string; n: number }> = [
+    { label: 'nodes', n: result.tree.totalNodes },
+    { label: 'depth', n: result.tree.maxDepth },
+  ];
+  if (sagaMembers > 0) counts.push({ label: 'saga members', n: sagaMembers });
+  const summary = renderSummary({ counts, ctx });
+
+  const divider = `${DIM}─── Legend ───${NC}`;
+  return [divider, legend, summary].filter(Boolean).join('\n');
 }
 
 /**
