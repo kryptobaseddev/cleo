@@ -13,9 +13,9 @@
  * @epic T10435
  */
 
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { execFileSync } from 'node:child_process';
 
 /**
  * Signals that indicate a worktree may be in a partial / wedged state.

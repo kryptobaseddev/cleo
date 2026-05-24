@@ -7,7 +7,7 @@
 
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runSpawnReadinessHygiene } from '../validate-spawn-readiness.js';
 
 describe('runSpawnReadinessHygiene', () => {

@@ -339,7 +339,9 @@ const planCommand = defineCommand({
   async run({ args }) {
     // T10459 — release-readiness gate
     if (args['skip-readiness'] !== true) {
-      const { runSpawnReadinessHygieneCli } = await import('@cleocode/core/hygiene/validate-spawn-readiness.js');
+      const { runSpawnReadinessHygieneCli } = await import(
+        '@cleocode/core/hygiene/validate-spawn-readiness.js'
+      );
       await runSpawnReadinessHygieneCli();
       // If we reach here, all gates passed (runSpawnReadinessHygieneCli exits on failure)
     }

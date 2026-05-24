@@ -237,9 +237,7 @@ export function detectPartialWorktree(
     timestamp: new Date().toISOString(),
     signals,
     partial:
-      signals.hasUncommittedChanges ||
-      signals.nodeModulesMissing ||
-      signals.indexLockPresent,
+      signals.hasUncommittedChanges || signals.nodeModulesMissing || signals.indexLockPresent,
   });
   process.stderr.write(`${logLine}\n`);
 
