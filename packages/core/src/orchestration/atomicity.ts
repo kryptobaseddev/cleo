@@ -189,7 +189,7 @@ export function checkAtomicity(input: AtomicityInput): AtomicityResult {
       allowed: false,
       code: 'E_ATOMICITY_NO_SCOPE',
       message: `Worker role for task ${input.taskId} lacks file scope (AC.files). Workers MUST declare their files.`,
-      fixHint: `Child task ${input.taskId} has no file scope. Either spawn with --files <list>, or set --scope orchestrator-defer to let the worker declare scope at commit time.`,
+      fixHint: `Child task ${input.taskId} has no file scope. Either declare files on the task (e.g. \`cleo update ${input.taskId} --files "path/a.ts,path/b.ts"\`), or pass \`--orchestrator-defer\` to \`cleo orchestrate spawn\` to let the worker declare scope at commit time (tier-1+ orchestrators only).`,
       meta: { fileCount: 0, hasScope: false },
     };
   }

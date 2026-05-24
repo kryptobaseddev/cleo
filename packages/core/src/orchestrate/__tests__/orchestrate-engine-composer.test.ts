@@ -186,6 +186,37 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
     expect(details?.atomicity?.allowed).toBe(false);
   });
 
+  it('T10430 — atomicityScope=orchestrator-defer waives E_ATOMICITY_NO_SCOPE for worker without files', async () => {
+    // Re-uses READY_WORKER_NO_SCOPE (T932WX) — a worker task with no AC.files.
+    // Without the waiver this spawn returns E_ATOMICITY_NO_SCOPE (verified by
+    // the test above). Passing atomicityScope='orchestrator-defer' through
+    // the seventh positional arg routes the waiver into composeSpawnPayload
+    // → checkAtomicity so the spawn is granted with an audit-trail waiver.
+    const result = await orchestrateSpawn(
+      'T932WX',
+      undefined,
+      TEST_ROOT,
+      undefined,
+      true, // noWorktree — keep the test hermetic
+      undefined, // spawnScope (sparse-checkout) — distinct from atomicityScope
+      'orchestrator-defer',
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      atomicity: {
+        allowed: boolean;
+        atomicity_waiver?: string;
+        meta?: { fileCount: number; hasScope: boolean };
+      };
+    };
+    expect(data.atomicity.allowed).toBe(true);
+    // The waiver reason is stamped on the spawn payload so the manifest entry
+    // remains auditable downstream.
+    expect(data.atomicity.atomicity_waiver).toBe('orchestrator-scope-tier1-call');
+    expect(data.atomicity.meta).toEqual({ fileCount: 0, hasScope: false });
+  });
+
   it('T1014 — epic spawn auto-promotes to role=lead, bypassing atomicity file-scope gate', async () => {
     // T932EP is type=epic with no files declared. Without the T1014 fix this
     // would return E_ATOMICITY_NO_SCOPE because the default resolved role is

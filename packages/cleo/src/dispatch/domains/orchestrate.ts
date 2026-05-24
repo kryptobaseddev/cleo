@@ -152,6 +152,14 @@ interface OrchestrateSpawnParams {
   noWorktree?: boolean;
   /** T9807 — sparse-checkout scope prefix (e.g. `packages/cleo`). */
   spawnScope?: string;
+  /**
+   * T9214 / T10430 — atomicity waiver flowing into `composeSpawnPayload`'s
+   * `scope` option. When `'orchestrator-defer'`, the worker file-scope gate
+   * grants the spawn and records `atomicity_waiver:
+   * 'orchestrator-scope-tier1-call'` instead of returning `E_ATOMICITY_NO_SCOPE`.
+   * Distinct from {@link spawnScope} (sparse-checkout cone path).
+   */
+  atomicityScope?: 'orchestrator-defer';
 }
 
 interface OrchestrateHandoffParams {
@@ -396,6 +404,7 @@ async function orchestrateSpawnOp(params: OrchestrateSpawnParams) {
     params.tier,
     params.noWorktree,
     params.spawnScope,
+    params.atomicityScope,
   );
 }
 
@@ -806,12 +815,20 @@ export class OrchestrateHandler implements DomainHandler {
           const tierRaw = params.tier;
           const tier =
             tierRaw === 0 || tierRaw === 1 || tierRaw === 2 ? (tierRaw as 0 | 1 | 2) : undefined;
+          // T10430 — accept the atomicity-waiver flag through the gateway so
+          // the CLI's `--orchestrator-defer` reaches `checkAtomicity` via
+          // `composeSpawnPayload.scope`. Validate the literal value so an
+          // arbitrary string cannot widen the contract.
+          const atomicityScopeRaw = params.atomicityScope;
+          const atomicityScope: 'orchestrator-defer' | undefined =
+            atomicityScopeRaw === 'orchestrator-defer' ? 'orchestrator-defer' : undefined;
           const p: OrchestrateSpawnParams = {
             taskId: params.taskId as string,
             protocolType: params.protocolType as string | undefined,
             tier,
             noWorktree: params.noWorktree as boolean | undefined,
             spawnScope: params.spawnScope as string | undefined,
+            ...(atomicityScope ? { atomicityScope } : {}),
           };
           return wrapResult(await coreOps.spawn(p), 'mutate', 'orchestrate', operation, startTime);
         }

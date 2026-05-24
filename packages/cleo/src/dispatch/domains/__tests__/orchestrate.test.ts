@@ -154,3 +154,81 @@ describe('OrchestrateHandler.mutate("worktree.complete") — ADR-062 merge wirin
     expect(result.error?.code).toBe('E_INVALID_INPUT');
   });
 });
+
+// ---------------------------------------------------------------------------
+// spawn dispatch — T10430 --orchestrator-defer atomicity waiver wiring
+// ---------------------------------------------------------------------------
+
+describe('OrchestrateHandler.mutate("spawn") — T10430 atomicityScope wiring', () => {
+  let handler: OrchestrateHandler;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    handler = new OrchestrateHandler();
+  });
+
+  it('forwards atomicityScope="orchestrator-defer" to orchestrateSpawn (T10430)', async () => {
+    // The dispatch layer imports orchestrateSpawn from '../lib/engine.js' (see
+    // the top-level vi.mock at line 3 — every engine helper is a vi.fn).
+    const engine = await import('../../lib/engine.js');
+    const spawnSpy = vi.mocked(engine.orchestrateSpawn);
+    spawnSpy.mockResolvedValue({
+      success: true,
+      data: {
+        taskId: 'T10430',
+        prompt: 'spawn prompt',
+        atomicity: {
+          allowed: true,
+          atomicity_waiver: 'orchestrator-scope-tier1-call',
+        },
+      },
+    });
+
+    const result = await handler.mutate('spawn', {
+      taskId: 'T10430',
+      atomicityScope: 'orchestrator-defer',
+    });
+
+    expect(result.success).toBe(true);
+    // The dispatch must forward the waiver as the seventh positional arg of
+    // orchestrateSpawn (after taskId, protocolType, projectRoot, tier,
+    // noWorktree, spawnScope).
+    expect(spawnSpy).toHaveBeenCalledTimes(1);
+    const callArgs = spawnSpy.mock.calls[0];
+    expect(callArgs?.[0]).toBe('T10430');
+    expect(callArgs?.[6]).toBe('orchestrator-defer');
+  });
+
+  it('rejects unknown atomicityScope values (defense-in-depth contract narrowing)', async () => {
+    const engine = await import('../../lib/engine.js');
+    const spawnSpy = vi.mocked(engine.orchestrateSpawn);
+    spawnSpy.mockResolvedValue({
+      success: true,
+      data: { taskId: 'T10430', prompt: 'spawn prompt', atomicity: { allowed: true } },
+    });
+
+    await handler.mutate('spawn', {
+      taskId: 'T10430',
+      // Anything other than the literal 'orchestrator-defer' MUST be dropped
+      // so a hostile caller cannot widen the waiver contract.
+      atomicityScope: 'arbitrary-string',
+    });
+
+    const callArgs = spawnSpy.mock.calls[0];
+    expect(callArgs?.[6]).toBeUndefined();
+  });
+
+  it('omits atomicityScope when the CLI did not pass --orchestrator-defer', async () => {
+    const engine = await import('../../lib/engine.js');
+    const spawnSpy = vi.mocked(engine.orchestrateSpawn);
+    spawnSpy.mockResolvedValue({
+      success: true,
+      data: { taskId: 'T10430', prompt: 'spawn prompt', atomicity: { allowed: true } },
+    });
+
+    await handler.mutate('spawn', { taskId: 'T10430' });
+
+    const callArgs = spawnSpy.mock.calls[0];
+    expect(callArgs?.[6]).toBeUndefined();
+  });
+});

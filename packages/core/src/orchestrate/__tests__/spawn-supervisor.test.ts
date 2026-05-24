@@ -186,6 +186,27 @@ describe('runTimeoutCleanup — bounded auto-cleanup helper (T9545)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// SPAWN_BUDGET_MS — T9823 regression lock
+// ---------------------------------------------------------------------------
+
+describe('SPAWN_BUDGET_MS (T9823 regression lock)', () => {
+  it('is pinned at 180_000ms so large-repo `git worktree add` can complete', () => {
+    // The legacy 60s budget caused E_WORKTREE_PROVISION_FAILED on every spawn
+    // against the cleocode monorepo (10k+ files). T9823 bumped to 180s.
+    expect(SPAWN_BUDGET_MS).toBe(180_000);
+  });
+
+  it('is strictly larger than the legacy 60s budget that caused T9823', () => {
+    expect(SPAWN_BUDGET_MS).toBeGreaterThan(60_000);
+  });
+
+  it('mirrors DEFAULT_GIT_TIMEOUT_MS so per-subprocess + overall budgets stay aligned', async () => {
+    const { DEFAULT_GIT_TIMEOUT_MS } = await import('@cleocode/worktree');
+    expect(SPAWN_BUDGET_MS).toBe(DEFAULT_GIT_TIMEOUT_MS);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // orchestrateSpawn — happy path and timeout-with-cleanup
 // ---------------------------------------------------------------------------
 

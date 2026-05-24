@@ -20,13 +20,15 @@ const execFileAsync = promisify(execFile);
 /**
  * Default per-subprocess timeout for every git invocation in this module.
  *
- * 60s mirrors the T9501 `runGitWithLockRetry` budget — long enough for normal
- * `git worktree add` on large repos, short enough that a hung child surfaces
- * a clear timeout error to the spawn pipeline supervisor.
+ * 180s allows large-repo `git worktree add` (~95s observed on the cleocode
+ * monorepo with 10,712 tracked files) to complete while still bounding wedged
+ * git children — a clear timeout error still surfaces to the spawn pipeline
+ * supervisor before the overall {@link SPAWN_BUDGET_MS} fires (T9823).
  *
  * @task T9545
+ * @task T9823
  */
-export const DEFAULT_GIT_TIMEOUT_MS = 60_000;
+export const DEFAULT_GIT_TIMEOUT_MS = 180_000;
 
 /**
  * Run a git command synchronously and return trimmed stdout.
