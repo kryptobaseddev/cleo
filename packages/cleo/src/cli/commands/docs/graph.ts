@@ -21,7 +21,7 @@ import {
   buildDocProvenanceGraph,
   DocProvenanceRootNotFoundError,
   renderProvenanceGraphAsDot,
-} from '@cleocode/core/internal';
+} from '@cleocode/core/internal'; // core-first-allowed: T10164 docs.graph helpers not yet promoted to public barrel
 import { defineCommand } from '../../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../../renderers/index.js';
 
