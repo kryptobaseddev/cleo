@@ -1,13 +1,13 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Coordinates ct-docs-lookup, ct-docs-write, ct-docs-review, ct-spec-writer, and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.13.0
+version: 3.14.0
 tier: 3
 core: false
 category: specialist
 protocol: null
 metadata:
-  version: 3.13.0
+  version: 3.14.0
   lastReviewed: 2026-05-24
   stability: stable
 dependencies:
@@ -77,6 +77,51 @@ rejects any subagent return that wrote raw markdown into `.cleo/adrs/`,
 materializing through `cleo docs add` + (optionally) `cleo docs publish`.
 
 ---
+
+## Decision: update vs supersede vs create (T10168 · Saga T9855 / E12)
+
+Before adding a new doc, ALWAYS ask: is this **a new doc**, **a change to an existing doc**, or **a replacement for an existing doc**?
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Question                              │ Verb                        │
+├─────────────────────────────────────────────────────────────────────┤
+│  Same idea, fixing/extending content?  │ cleo docs update <slug>     │
+│  → typo in ADR-076                     │   (T10161 — in-place patch) │
+│  → adding a clarifying paragraph       │                             │
+│  → refreshing a stale section          │                             │
+│                                                                       │
+│  Replacing the whole canonical model?  │ cleo docs supersede         │
+│  → "saga model v2" replaces v1         │   <old> <new> (T10162)      │
+│  → ADR-080 replaces ADR-073            │   (lifecycle flip + lineage)│
+│  → new architecture supplants old      │                             │
+│                                                                       │
+│  Genuinely new idea?                   │ cleo docs find --similar    │
+│  → drafting a new spec                 │   <slug> FIRST (T10163)     │
+│  → fresh ADR for a new concern         │   → if no hit, cleo docs add│
+│  → recording a new investigation       │   → if hit, route to update │
+│                                                                       │
+│  Tracing the lineage graph?            │ cleo docs graph             │
+│  → "what does this doc replace?"       │   --root <slug> (T10164)    │
+│  → "what tasks reference this ADR?"    │                             │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Examples
+
+- **"Fix a typo in ADR-076 saga-first-class"** → `cleo docs update adr-076-saga-first-class --body /tmp/fixed.md --message "fix typo in §2"`. NOT a new doc. NOT a supersession. Just patch in place; T10161 squashes patches within a 5-minute window so consecutive typo fixes don't bloat the audit log.
+
+- **"Replace the entire saga-orchestration model with v2"** → `cleo docs add T9999 v2.md --type adr --slug adr-080-saga-orchestration-v2` followed by `cleo docs supersede adr-073-above-epic-naming adr-080-saga-orchestration-v2 --reason "v2 canonicalizes the SG- prefix + 4-tier hierarchy"`. Both rows survive in the attachments table; readers see `lifecycle_status=superseded` on v1 and `supersedes=adr-073` on v2.
+
+- **"Drafting a new spec for the BRAIN recovery pipeline"** → FIRST run `cleo docs find --similar brain-recovery` (T10163). If similarity > 0.85 against an existing draft, ROUTE the request into `cleo docs update` instead — the existing draft is the canonical surface. If no near-match, proceed with `cleo docs add T#### draft.md --type spec --slug spec-brain-recovery-pipeline`.
+
+- **"Auditing the supersession chain for ADR-039"** → `cleo docs graph --root adr-039-lafs-envelope-unification --depth 3`. Returns a DocProvenanceGraph envelope (T10166 contract) with nodes + edges, optionally `--format dot` for graphviz visualization.
+
+### Anti-patterns (INSTANT REJECTION)
+
+- ❌ Calling `cleo docs add` with a slug that's only a typo-distance away from an existing doc — the auto-warn (T10167) fires `W_SLUG_SIMILAR`; respect it and route to `cleo docs update` instead of bypassing with `--allow-similar`.
+- ❌ Editing a `.cleo/adrs/*.md` file directly with `Write` — bypasses the SSoT writer; T10366 `WriterRegistry` is the chokepoint and the docs SSoT will reconcile auto-emit drift.
+- ❌ Creating a new doc when an existing one needs updating — bloats the attachments table and breaks lineage. The decision tree above resolves this — when in doubt, run `cleo docs find --similar <proposed-slug>` first.
 
 ## Through SDK (preferred)
 
