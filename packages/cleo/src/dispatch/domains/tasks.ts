@@ -238,6 +238,8 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
         kind: params.kind,
         // T9905: unified urgency surface
         urgent: params.urgent,
+        // T9904: label filter — `cleo find --label <name>` (closes GH#393).
+        label: params.label,
       }),
       'find',
     );

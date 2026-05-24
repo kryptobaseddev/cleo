@@ -119,6 +119,8 @@ export async function tasksFindOp(
     includeArchive?: boolean;
     offset?: number;
     kind?: TaskKind;
+    /** Filter by label — selects tasks whose `labels[]` includes this value. @task T9904 */
+    label?: string;
   },
 ): Promise<FindTasksResult> {
   return findTasks(
@@ -131,6 +133,7 @@ export async function tasksFindOp(
       limit: params.limit,
       offset: params.offset,
       kind: params.kind,
+      label: params.label,
     },
     projectRoot,
   );
