@@ -266,6 +266,8 @@ export {
   taskUnclaim,
   taskUpdate,
   taskWorkHistory,
+  // T9937 — validate-changelog verb (Saga T9862)
+  validateChangelog,
   validateGateVerify,
   // T5327 + T260: Protocol validation operations (12 protocols)
   validateProtocolArchitectureDecision,

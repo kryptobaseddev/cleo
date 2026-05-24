@@ -381,18 +381,21 @@ jobs:
           echo "All required build artifacts present"
 
       # ── CHANGELOG gate ────────────────────────────────────────────────────────
+      # T9937 (Saga T9862): the legacy inline `grep -qF "## [${VERSION}]"`
+      # check was brittle — during the v2026.5.94 hotfix-2 ship the
+      # aggregator emitted `## [vVERSION]` (with v) while this grep expected
+      # `## [VERSION]` (no v), and the workflow silently passed. Routing
+      # through the canonical CLEO verb (`cleo release validate-changelog`)
+      # centralises the header shape in ONE place (ADR-028 §2.5) so the
+      # workflow can't drift from the aggregator.
 
-      - name: Verify CHANGELOG section
+      - name: Verify CHANGELOG section (cleo release validate-changelog)
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          if ! grep -qF "## [${VERSION}]" CHANGELOG.md; then
-            echo "ERROR: CHANGELOG.md does not contain a section for version ${VERSION}"
-            echo "Expected to find: ## [${VERSION}]"
-            echo "Add a CHANGELOG section locally before pushing the tag."
-            exit 1
-          fi
-          echo "CHANGELOG section verified for v${VERSION}"
+          # The CLI was just built via `pnpm run build`; invoke the bundled
+          # entry point directly to avoid relying on a `cleo` bin on PATH.
+          node packages/cleo/dist/cli/index.js release validate-changelog "${VERSION}"
 
       # ── GitHub Release ────────────────────────────────────────────────────────
 
