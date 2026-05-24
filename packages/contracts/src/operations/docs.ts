@@ -401,6 +401,15 @@ export interface DocsAddParams {
    */
   slug?: string;
   /**
+   * Optional human-readable title — used to derive the kebab-slug tail when
+   * auto-allocating an ADR slug. REQUIRED when `type === 'adr'` AND `slug`
+   * is omitted; ignored otherwise. The allocator slugifies the title via
+   * the shared kebabize helper.
+   *
+   * @task T10360 (closes T10153)
+   */
+  title?: string;
+  /**
    * Optional taxonomy classification. Must match one of
    * {@link DOCS_TYPE_VALUES}; an invalid value returns `E_INVALID_TYPE`.
    *
@@ -449,6 +458,13 @@ export interface DocsAddResult {
   slug?: string;
   /** Type classification recorded for this attachment, when provided (T9637). */
   type?: DocsType;
+  /**
+   * Auto-allocated ADR number, present iff the slug was minted by
+   * {@link allocateAdrSlug} (i.e. `--type adr` without `--slug`).
+   *
+   * @task T10360
+   */
+  adrNumber?: number;
 }
 
 // --------------------------------------------------------------------------

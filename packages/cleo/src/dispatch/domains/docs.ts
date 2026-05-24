@@ -60,7 +60,9 @@ import type {
 import {
   type AttachmentBackend,
   AUTO_TOKEN,
+  allocateAdrSlug,
   allocateAutoSlugForDispatch,
+  consumeReservedSlug,
   createAttachmentStore,
   createAttachmentStoreV2,
   type DerefResult,
@@ -847,6 +849,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       labels: rawLabels,
       attachedBy: rawAttachedBy,
       slug: rawSlug,
+      title: rawTitle,
       type: rawType,
       strict: strictMode,
     } = params;
@@ -1073,6 +1076,34 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       );
     }
 
+    // T10360 — when `--type adr` is set AND `--slug` is omitted, auto-allocate
+    // the slug via the ADR chokepoint. The allocator probes the docs SSoT for
+    // the highest existing ADR number, increments by 1, and reserves
+    // `adr-NNN-<kebab-title>` via the T10392 reserveSlug chokepoint. The
+    // returned slug is consumed by the imminent `attachmentStore.put` call
+    // (same handshake as explicit `--slug` callers).
+    //
+    // `--title` is the canonical kebab-source. We validated its presence at
+    // the CLI layer; here we re-check defensively for non-CLI callers
+    // (HTTP, programmatic) so the error contract stays uniform.
+    let adrNumber: number | undefined;
+    if (type === 'adr' && slug === undefined) {
+      if (typeof rawTitle !== 'string' || rawTitle.trim().length === 0) {
+        return lafsError(
+          'E_VALIDATION',
+          'title is required when type=adr and slug is omitted — the allocator needs ' +
+            'a title to assemble adr-NNN-<kebab-title>',
+          'add',
+        );
+      }
+      const allocation = await allocateAdrSlug(getProjectRoot(), { title: rawTitle });
+      if (!allocation.ok) {
+        return lafsError(allocation.code, allocation.message, 'add');
+      }
+      slug = allocation.slug;
+      adrNumber = allocation.number;
+    }
+
     // T9788 — when the registered kind requires an entityId, enforce the
     // kind's slug pattern on top of the shape check above. We accept a
     // missing slug (the store will assign one) but reject mismatches
@@ -1081,6 +1112,8 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     if (type !== undefined && slug !== undefined) {
       const patternCheck = getDocKindRegistry().validateSlug(type, slug);
       if (!patternCheck.ok) {
+        // Release the auto-allocated reservation so it doesn't leak.
+        if (adrNumber !== undefined) releaseReservedSlug(slug);
         const exampleHint = patternCheck.example ? ` (example: ${patternCheck.example})` : '';
         return lafsError('E_SLUG_PATTERN_MISMATCH', `${patternCheck.error}${exampleHint}`, 'add');
       }
@@ -1105,7 +1138,10 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     // collapsed both writers onto a single error shape). Downstream
     // consumers grepping for the legacy code can match
     // `details.aliases: ['E_SLUG_TAKEN']` until E2 deprecates the alias.
-    if (slug !== undefined) {
+    // T10360 — when adrNumber is set, allocateAdrSlug() already reserved the
+    // slug via reserveSlug() internally; skip the second chokepoint call to
+    // avoid double-reservation. For all other paths the chokepoint runs.
+    if (slug !== undefined && adrNumber === undefined) {
       const reservation = await reserveSlugForDispatch(getProjectRoot(), {
         kind: type ?? '',
         slug,
@@ -1214,9 +1250,10 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           extras,
         );
       } catch (err) {
-        // Release any reservation held by the allocator so retries do not
-        // see a stale claim. Safe on any thrown error path because
-        // releaseReservedSlug() is a no-op for un-reserved slugs.
+        // Release any reservation held by the allocator (explicit reserveSlug
+        // OR auto-allocated ADR slug T10360) so retries do not see a stale
+        // claim. Safe on any thrown error path because releaseReservedSlug()
+        // is a no-op for un-reserved slugs.
         if (slug !== undefined) releaseReservedSlug(slug);
         if (err instanceof SlugCollisionError) {
           // T10386 — late-bound collision (cross-process race won by another
@@ -1239,6 +1276,12 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         }
         throw err;
       }
+
+      // T10360 — `attachmentStore.put` only consumes the reservation when
+      // `CLEO_STRICT_SLUG_ALLOCATOR=1`. In non-strict mode (current default)
+      // the auto-allocated slug would otherwise leak in the in-process
+      // reservedSlugs set indefinitely. Consume defensively here.
+      if (adrNumber !== undefined && slug !== undefined) consumeReservedSlug(slug);
 
       // T947 Wave B — also mirror the write through the unified v2 store
       // so llmtxt-backed manifests learn about the attachment. The v2
@@ -1297,6 +1340,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           attachmentBackend: backend as DocsAddResult['attachmentBackend'],
           ...(slug !== undefined ? { slug } : {}),
           ...(type !== undefined ? { type } : {}),
+          ...(adrNumber !== undefined ? { adrNumber } : {}),
         },
         'add',
       );
@@ -1347,6 +1391,9 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         throw err;
       }
 
+      // T10360 — consume the auto-allocated reservation (see file-path branch).
+      if (adrNumber !== undefined && slug !== undefined) consumeReservedSlug(slug);
+
       // T945 Stage A — mint `llmtxt:<sha256>` node + `embeds` edge for the
       // URL attachment (the URL itself is the content-addressable identity).
       import('@cleocode/core/internal')
@@ -1384,6 +1431,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           attachmentBackend: backend as DocsAddResult['attachmentBackend'],
           ...(slug !== undefined ? { slug } : {}),
           ...(type !== undefined ? { type } : {}),
+          ...(adrNumber !== undefined ? { adrNumber } : {}),
         },
         'add',
       );
