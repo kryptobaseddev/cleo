@@ -6771,6 +6771,40 @@ export const OPERATIONS: OperationDef[] = [
       },
     ],
   },
+  // ── docs.supersede (T10162) ──────────────────────────────────────────────
+  {
+    gateway: 'mutate',
+    domain: 'docs',
+    operation: 'supersede',
+    description:
+      'docs.supersede (mutate) — atomically flip an older doc to `superseded` and link both rows via the supersedes/superseded_by self-FK pointers (T10162 · Saga T9855)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['oldSlug', 'newSlug'],
+    params: [
+      {
+        name: 'oldSlug',
+        type: 'string' as const,
+        required: true,
+        description: 'Slug of the doc being replaced',
+        cli: { positional: true },
+      },
+      {
+        name: 'newSlug',
+        type: 'string' as const,
+        required: true,
+        description: 'Slug of the doc that replaces oldSlug',
+        cli: { positional: true },
+      },
+      {
+        name: 'reason',
+        type: 'string' as const,
+        required: false,
+        description: 'Optional human-readable reason carried back on the response',
+      },
+    ],
+  },
   // ── docs.generate (T798) ─────────────────────────────────────────────────
   {
     gateway: 'query',

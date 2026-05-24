@@ -39,10 +39,10 @@ describe('Docs Domain Registry (T797)', () => {
     expect(CANONICAL_DOMAINS).toContain('docs');
   });
 
-  it('docs domain has 5 registered operations', () => {
-    // add|list|fetch|remove (T797) + generate (T798)
+  it('docs domain has 6 registered operations', () => {
+    // add|list|fetch|remove (T797) + generate (T798) + supersede (T10162)
     const docsOps = getByDomain('docs');
-    expect(docsOps).toHaveLength(5);
+    expect(docsOps).toHaveLength(6);
   });
 
   it('docs has expected query operations', () => {
@@ -59,6 +59,7 @@ describe('Docs Domain Registry (T797)', () => {
     const names = mutateOps.map((o) => o.operation);
     expect(names).toContain('add');
     expect(names).toContain('remove');
+    expect(names).toContain('supersede');
   });
 
   it('all docs operations have valid structure', () => {
@@ -91,6 +92,13 @@ describe('Docs Domain Registry (T797)', () => {
     expect(removeOp).toBeDefined();
     expect(removeOp!.requiredParams).toContain('attachmentRef');
     expect(removeOp!.requiredParams).toContain('from');
+  });
+
+  it('docs.supersede has oldSlug and newSlug as required params', () => {
+    const supersedeOp = OPERATIONS.find((o) => o.domain === 'docs' && o.operation === 'supersede');
+    expect(supersedeOp).toBeDefined();
+    expect(supersedeOp!.requiredParams).toContain('oldSlug');
+    expect(supersedeOp!.requiredParams).toContain('newSlug');
   });
 });
 
