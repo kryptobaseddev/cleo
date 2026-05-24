@@ -209,6 +209,14 @@ async function startCli(): Promise<void> {
   }
 
   if (!isHelpOrVersion) {
+    // T9933 — propagate --quiet to the logger subsystem BEFORE startup
+    // maintenance so the pino fallback logger emits at level=silent instead
+    // of writing WARN-level entries to stderr during migration checks etc.
+    // Only runs on the non-fast-path; --help/--version with --quiet stays cheap.
+    if (rawOpts['quiet'] === true) {
+      const { setLoggerQuiet } = await import('@cleocode/core/internal');
+      setLoggerQuiet(true);
+    }
     await runStartupMaintenance();
   }
 
