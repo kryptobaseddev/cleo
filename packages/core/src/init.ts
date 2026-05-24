@@ -584,6 +584,7 @@ export async function installGitHubTemplates(
       skipped.push('.github/pull_request_template.md');
     } else {
       const content = readFileSync(prTemplateSrc, 'utf-8');
+      // T10368-audit-ok: init.pr-template
       await writeFile(prTemplateDest, content, 'utf-8');
       created.push('.github/pull_request_template.md');
     }

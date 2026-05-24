@@ -50,6 +50,7 @@ import {
 import { and, desc, eq } from 'drizzle-orm';
 
 import { parseChangesetDir } from '../changesets/index.js';
+import { WriterRegistry } from '../docs/writer-registry.js';
 import { getLogger } from '../logger.js';
 import { getCleoDirAbsolute, getProjectRoot } from '../paths.js';
 import { getProjectInfoSync } from '../project-info.js';
@@ -842,7 +843,13 @@ async function resolvePreviousVersion(
 /**
  * Atomic write to `.cleo/release/<resolved-version>.plan.json` (R-030).
  *
+ * Registered as a system-managed writer (T10368) — see
+ * `WriterRegistry.listSystemManaged()` entry `release.plan-json`. Emits a
+ * routing log line when `CLEO_QUIET` is unset so downstream auditors can
+ * confirm the bypass was registered (vs an undocumented `writeFileSync`).
+ *
  * @internal
+ * @task T9525, T10368
  */
 function writePlanFile(plan: ReleasePlan, projectRoot: string): string {
   const releaseDir = join(getCleoDirAbsolute(projectRoot), 'release');
@@ -852,6 +859,20 @@ function writePlanFile(plan: ReleasePlan, projectRoot: string): string {
   const body = `${JSON.stringify(plan, null, 2)}\n`;
   writeFileSync(tmpPath, body, { encoding: 'utf-8' });
   renameSync(tmpPath, finalPath);
+
+  // T10368: surface the system-managed routing — the lint gate verifies this
+  // callsite is registered. Quiet mode suppresses the log for CI/scripted
+  // runs where it would clutter stdout.
+  if (process.env['CLEO_QUIET'] !== '1') {
+    const entry = WriterRegistry.findSystemManagedById('release.plan-json');
+    if (entry !== null) {
+      log.debug(
+        { path: finalPath, registryEntry: entry.id, adr: entry.adrRef },
+        'system-managed writer (T10368)',
+      );
+    }
+  }
+
   return finalPath;
 }
 
@@ -948,6 +969,20 @@ async function writeChangelogSection(args: {
   }
 
   await atomicWrite(changelogPath, updated);
+
+  // T10368: surface the system-managed routing — `CHANGELOG.md` is the
+  // canonical release-notes mirror and the writer is registered under
+  // `release.changelog`. Quiet mode suppresses the log for scripted runs.
+  if (process.env['CLEO_QUIET'] !== '1') {
+    const entry = WriterRegistry.findSystemManagedById('release.changelog');
+    if (entry !== null) {
+      log.debug(
+        { path: changelogPath, registryEntry: entry.id, adr: entry.adrRef },
+        'system-managed writer (T10368)',
+      );
+    }
+  }
+
   return { changelogPath, written: true };
 }
 
