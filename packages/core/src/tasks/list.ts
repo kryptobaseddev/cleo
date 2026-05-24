@@ -7,6 +7,7 @@
 import type { Task, TaskPriority, TaskRecord, TaskStatus, TaskType } from '@cleocode/contracts';
 import type { LAFSPage } from '@cleocode/lafs';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
+import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import type { NextDirectives } from '../mvi-helpers.js';
 import { taskListItemNext } from '../mvi-helpers.js';
 import { paginate } from '../pagination.js';
@@ -288,10 +289,8 @@ export async function taskList(
       result.page,
     );
   } catch (err: unknown) {
-    const e = err as { message?: string };
-    return {
-      success: false,
-      error: { code: 'E_NOT_INITIALIZED', message: e?.message ?? 'Task database not initialized' },
-    };
+    // T9940: preserve CleoError LAFS codes; non-CleoError → E_INTERNAL,
+    // never the misleading E_NOT_INITIALIZED blanket label.
+    return cleoErrorToEngineResult(err, 'E_INTERNAL', 'Failed to list tasks');
   }
 }

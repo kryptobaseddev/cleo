@@ -7,6 +7,7 @@
  */
 
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { predictImpact } from '../intelligence/impact.js';
 import type { ImpactReport } from '../intelligence/types.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
@@ -66,9 +67,18 @@ export {
   coreTaskUnarchive,
 };
 
+/**
+ * Convert a caught error to an EngineResult failure.
+ *
+ * T9940: extracts the real LAFS code from any thrown `CleoError`. Non-CleoError
+ * exceptions fall through to `E_INTERNAL`, never the misleading
+ * `E_NOT_INITIALIZED` blanket label that the pre-T9940 wrapper used.
+ *
+ * @task T9940
+ * @epic T9862
+ */
 function nonCrudEngineError<T>(err: unknown, fallbackMsg: string): EngineResult<T> {
-  const e = err as { message?: string };
-  return engineError<T>('E_NOT_INITIALIZED', e?.message ?? fallbackMsg);
+  return cleoErrorToEngineResult<T>(err, 'E_INTERNAL', fallbackMsg);
 }
 
 /**
@@ -239,8 +249,9 @@ export async function taskTree(
     const result = await coreTaskTree(projectRoot, taskId, withBlockers);
     return engineSuccess(result);
   } catch (err: unknown) {
-    const e = err as { message?: string };
-    return engineError('E_NOT_FOUND', e?.message ?? 'Task not found');
+    // T9940: preserve CleoError LAFS codes; fall through to E_NOT_FOUND
+    // (the canonical tree-wrapper fallback) only when no CleoError shape.
+    return cleoErrorToEngineResult(err, 'E_NOT_FOUND', 'Task not found');
   }
 }
 
@@ -288,8 +299,7 @@ export async function taskRelates(
     const result = await coreTaskRelates(projectRoot, taskId);
     return engineSuccess(result);
   } catch (err: unknown) {
-    const e = err as { message?: string };
-    return engineError('E_GENERAL', e?.message ?? 'Failed to read task relations');
+    return cleoErrorToEngineResult(err, 'E_GENERAL', 'Failed to read task relations');
   }
 }
 
@@ -309,8 +319,7 @@ export async function taskRelatesAdd(
     const result = await coreTaskRelatesAdd(projectRoot, taskId, relatedId, type, reason);
     return engineSuccess(result);
   } catch (err: unknown) {
-    const e = err as { message?: string };
-    return engineError('E_GENERAL', e?.message ?? 'Failed to update task relations');
+    return cleoErrorToEngineResult(err, 'E_GENERAL', 'Failed to update task relations');
   }
 }
 
@@ -328,8 +337,7 @@ export async function taskRelatesRemove(
     const result = await coreTaskRelatesRemove(projectRoot, taskId, relatedId, type);
     return engineSuccess(result);
   } catch (err: unknown) {
-    const e = err as { message?: string };
-    return engineError('E_GENERAL', e?.message ?? 'Failed to remove task relation');
+    return cleoErrorToEngineResult(err, 'E_GENERAL', 'Failed to remove task relation');
   }
 }
 
@@ -355,8 +363,7 @@ export async function taskRelatesFind(
     }
     return engineSuccess(result);
   } catch (err: unknown) {
-    const e = err as { message?: string };
-    return engineError('E_INTERNAL', e?.message ?? 'Task relates find failed');
+    return cleoErrorToEngineResult(err, 'E_INTERNAL', 'Task relates find failed');
   }
 }
 
@@ -386,8 +393,7 @@ export async function taskAnalyze(
     const result = await coreTaskAnalyze(projectRoot, taskId, params);
     return engineSuccess(result);
   } catch (err: unknown) {
-    const e = err as { message?: string };
-    return engineError('E_GENERAL', e?.message ?? 'Task analysis failed');
+    return cleoErrorToEngineResult(err, 'E_GENERAL', 'Task analysis failed');
   }
 }
 
@@ -405,8 +411,7 @@ export async function taskImpact(
     const result = await predictImpact(change, projectRoot, undefined, matchLimit);
     return engineSuccess(result);
   } catch (err: unknown) {
-    const e = err as { message?: string };
-    return engineError('E_GENERAL', e?.message ?? 'Impact prediction failed');
+    return cleoErrorToEngineResult(err, 'E_GENERAL', 'Impact prediction failed');
   }
 }
 
@@ -562,6 +567,8 @@ export async function taskCancel(
     // cancelled" from underlying engine/DB failures. Prior to this fix
     // every error mapped to E_NOT_FOUND, including T877_INVARIANT_VIOLATION
     // and E_CANNOT_CANCEL — masking real bugs as missing tasks.
+    // T9940: prefer the real LAFS code when a CleoError bubbles up before
+    // applying the legacy string-prefix heuristics for plain Errors.
     const e = err as { message?: string };
     const message = e?.message ?? 'Failed to cancel task';
     if (message.startsWith('E_INVALID_STATE:')) {
@@ -570,6 +577,6 @@ export async function taskCancel(
     if (message.includes(' not found')) {
       return engineError('E_NOT_FOUND', message);
     }
-    return engineError('E_INTERNAL', message);
+    return cleoErrorToEngineResult(err, 'E_INTERNAL', message);
   }
 }

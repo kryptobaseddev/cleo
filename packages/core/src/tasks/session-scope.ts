@@ -30,6 +30,7 @@ import type {
   TaskType,
 } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { getActiveSession } from '../store/session-store.js';
 import { addTask } from './add.js';
@@ -188,7 +189,8 @@ export async function addTaskWithSessionScope(
       ...(result.warnings?.length && { warnings: result.warnings }),
     });
   } catch (err: unknown) {
-    const e = err as { message?: string };
-    return engineError('E_NOT_INITIALIZED', e?.message ?? 'Task database not initialized');
+    // T9940: preserve CleoError LAFS codes; non-CleoError falls through to
+    // E_INTERNAL (not the misleading E_NOT_INITIALIZED blanket label).
+    return cleoErrorToEngineResult(err, 'E_INTERNAL', 'Failed to add task with session scope');
   }
 }
