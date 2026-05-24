@@ -47,13 +47,36 @@ const statsCommand = defineCommand({
 /**
  * Root labels command group — list and filter tasks by label.
  *
- * Defaults to `list` when no subcommand is given.
+ * Behaviour matrix:
+ *   - `cleo labels`             → list all labels with counts (label.list)
+ *   - `cleo labels <name>`      → list tasks carrying that label (tasks.list)
+ *   - `cleo labels list`        → explicit alias for label.list
+ *   - `cleo labels show <name>` → explicit alias for the positional form
+ *   - `cleo labels stats`       → label statistics
+ *
+ * The positional `name` arg closes GH#393 (T9904) — `cleo labels <name>`
+ * used to be rejected because the root command had no positional arg.
+ * `cleo find --label <name>` is the parallel alternative wired in the
+ * same task.
+ *
  * The `tags` alias is registered separately in index.ts.
+ *
+ * @task T9904 — GH#393 cleo labels <name> rejected positional
  */
 export const labelsCommand = defineCommand({
   meta: {
     name: 'labels',
-    description: 'List all labels with counts or show tasks with specific label',
+    description: 'List all labels (no args), or show tasks for a label (cleo labels <name>)',
+  },
+  args: {
+    // Optional positional — when present, dispatches to tasks.list with the
+    // label filter; when absent, falls through to the legacy label.list path.
+    // Required:false keeps the bare `cleo labels` invocation working.
+    name: {
+      type: 'positional',
+      description: 'Label name to filter tasks by (omit to list all labels)',
+      required: false,
+    },
   },
   subCommands: {
     list: listCommand,
@@ -61,9 +84,20 @@ export const labelsCommand = defineCommand({
     stats: statsCommand,
   },
   async run(ctx) {
-    // Default: invoke list when no subcommand provided
-    if (!ctx.rawArgs.some((a) => ['list', 'show', 'stats'].includes(a))) {
-      await dispatchFromCli('query', 'tasks', 'label.list', {}, { command: 'labels' });
+    const rawArgs = ctx.rawArgs ?? [];
+    // If a subcommand was invoked, citty will dispatch to it — bail out.
+    if (rawArgs.some((a) => ['list', 'show', 'stats'].includes(a))) {
+      return;
     }
+    // T9904 — positional `name`: route to tasks.list with label filter.
+    // citty surfaces the positional under `args.name`. When absent the
+    // user wants the original "list all labels" behaviour.
+    const name = (ctx.args as { name?: string }).name;
+    if (typeof name === 'string' && name.length > 0) {
+      await dispatchFromCli('query', 'tasks', 'list', { label: name }, { command: 'labels' });
+      return;
+    }
+    // Default: invoke list when no subcommand AND no positional was given
+    await dispatchFromCli('query', 'tasks', 'label.list', {}, { command: 'labels' });
   },
 });

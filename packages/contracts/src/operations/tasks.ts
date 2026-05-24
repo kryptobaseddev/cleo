@@ -138,6 +138,16 @@ export interface TasksFindParams {
    * @task T9905
    */
   urgent?: boolean;
+  /**
+   * Filter by label — selects tasks whose `labels` array contains this
+   * value. Composes with other filters via AND.
+   *
+   * Closes GH#393 — gives `cleo find --label <name>` parity with the
+   * positional `cleo labels <name>` surface.
+   *
+   * @task T9904
+   */
+  label?: string;
 }
 export type TasksFindResult = MinimalTask[];
 
