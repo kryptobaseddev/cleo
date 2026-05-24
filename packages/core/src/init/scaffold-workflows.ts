@@ -531,6 +531,13 @@ export async function scaffoldWorkflows(
  * (T9858).
  *
  * @returns Absolute path to the workflows template directory.
+ *
+ * @deprecated Use
+ * {@link import('../templates/registry.js').getTemplatesByKind | getTemplatesByKind('workflow')}
+ * from the SSoT template registry. The directory-resolver pattern loses the
+ * per-template substitution + update policy the registry exposes. Rewire
+ * planned in T9879 (Saga T9855).
+ *
  * @task T9858
  */
 export function getWorkflowTemplatesDir(): string {
@@ -548,6 +555,12 @@ export function getWorkflowTemplatesDir(): string {
  * for the git-hook installer surface (T1588 / T1608).
  *
  * @returns Absolute path to the git-hooks template directory.
+ *
+ * @deprecated Use
+ * {@link import('../templates/registry.js').getTemplatesByKind | getTemplatesByKind('config')}
+ * filtered by `installPath.startsWith('.git/hooks/')`. Rewire planned in
+ * T9879 (Saga T9855).
+ *
  * @task T9858
  */
 export function getGitHookTemplatesDir(): string {

@@ -80,6 +80,11 @@ export function getGitignoreTemplate(): string {
  * workflow templates from `packages/cleo/templates/` to
  * `packages/core/templates/` per the Package-Boundary Check.
  *
+ * @deprecated Use `getTemplatesByKind('workflow')` from
+ * `@cleocode/core/templates/registry`. The directory-resolver pattern
+ * hides the substitution + update policy each entry now declares. Rewire
+ * planned in T9879 (Saga T9855).
+ *
  * @task T9531
  * @task T9858
  */
