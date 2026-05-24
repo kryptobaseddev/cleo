@@ -1,5 +1,38 @@
 # Changelog
 
+## [2026.5.110] (2026-05-24)
+
+### Features
+
+- BRAIN auto-recovery on errcode=11 — snapshot restore + .recover delta + quarantine corrupt DB (T10303, Saga T10281)
+- Brain retention discipline — 30d/50k cap on brain_weight_history + brain_plasticity_events to prevent unbounded growth (T10348, Saga T10281)
+- Brain writer-locking — single-writer worker thread + SPSC queue to prevent WAL B-tree race (T10351, Saga T10281)
+- cleo backup recover &lt;role&gt; — generalized recovery pipeline beyond brain (T10318, Saga T10281)
+- cleo backup verify — per-DB freshness + integrity envelope (T10319, Saga T10281)
+- cleo doctor db-substrate — per-DB integrity walker + fleet survey + orphan-root detection + pragma drift + migration coverage + cross-DB orphan-row report (T10307, T10308, T10310, T10311, T10312, T10323, Saga T10281)
+- cleo doctor legacy-backups — *-pre-cleo.db.bak catalog + rotation (T10309, Saga T10281)
+- db-inventory SSoT artifact + DB_INVENTORY contract — 12 entries covering project + global tiers (T10305, Saga T10281)
+- openCleoDb project_id consistency gate (E_PROJECT_ID_DRIFT) (T10322, Saga T10281)
+- vacuumIntoBackupAll covers every DB_INVENTORY entry (brain backup gap closed) (T10316 + T10317, Saga T10281)
+- Cross-DB invariant catalogue (ADR-085) + @cross-db JSDoc annotations + lint gate (T10320 + T10324, Saga T10281)
+
+### Fixes
+
+- openCleoDb('brain') brain-misrouting fixed — was opening tasks.db; now opens brain.db (T10397 fixed by T10322, Saga T10281)
+- @cleocode/contracts db-inventory.json packaging — co-located in contracts package to fix v109 install regression (T10399, Saga T10281)
+
+### Documentation
+
+- ADR-013 §9 amended — canonical backup path .cleo/backups/sqlite/ ratified + retention policy (T10315 + T10309, Saga T10281)
+- ADR-068 charter amended — 12-row inventory + nested-nexus structural bug flag + signaldock-project historical + @cross-db rule (T10306 + T10324, Saga T10281)
+- ADR-085 cross-DB invariants catalogue (T10320, Saga T10281)
+- ADR-086 nested ~/.local/share/cleo/nexus/ disposition = BAN + migration tool (T10321, Saga T10281)
+- SQLite version pin + upstream bug-tracker reference in specs/sqlite-pragmas.json (T10313, Saga T10281)
+- Idempotency contract tests across brain/conduit/llmtxt/manifest DBs (T10314, Saga T10281)
+- Integration regression test: auto-recovery chokepoint on malformed brain.db (T10302, Saga T10281)
+- RCA: brain.db 42MB→1.7GB growth + malformation root cause = WAL B-tree race (T10301, decision D012, Saga T10281)
+- Forensic preservation: malformed brain.db + .recover output for future RCA (T10300, decision D011, Saga T10281)
+
 ## [2026.5.109] (2026-05-23)
 
 ### Fixes
