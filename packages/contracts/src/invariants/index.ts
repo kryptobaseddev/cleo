@@ -11,7 +11,8 @@
  * 5. Render documentation via the downstream R8 auto-render pipeline.
  *
  * Downstream consumers:
- * - R2 (T10336): register ADR-070 ORC codes into this same registry.
+ * - R2 (T10336, SHIPPED): registers ADR-070 ORC-001..ORC-014 codes into
+ *   this same registry via `./adr-070-orchestration.ts`.
  * - R4 (T10338): CI gate validates that every `severity:'error'` entry has
  *   a non-null `runtimeGate` AND a matching error-code in `errors.ts`.
  * - R5 (T10339): refactor `packages/core/src/release/invariants/registry.ts`
@@ -27,11 +28,13 @@
  */
 
 import { ADR_056_INVARIANTS } from './adr-056-release.js';
+import { ADR_070_INVARIANTS } from './adr-070-orchestration.js';
 import { ADR_073_INVARIANTS } from './adr-073-saga.js';
 
 // Re-exported so consumers can import either the per-ADR list or the merged
 // registry from one place.
 export { ADR_056_INVARIANTS } from './adr-056-release.js';
+export { ADR_070_INVARIANTS } from './adr-070-orchestration.js';
 export { ADR_073_INVARIANTS } from './adr-073-saga.js';
 
 /**
@@ -151,7 +154,11 @@ function buildKey(invariant: RegisteredInvariant): string {
  * @internal
  */
 function buildRegistry(): Readonly<Record<string, RegisteredInvariant>> {
-  const entries: RegisteredInvariant[] = [...ADR_073_INVARIANTS, ...ADR_056_INVARIANTS];
+  const entries: RegisteredInvariant[] = [
+    ...ADR_073_INVARIANTS,
+    ...ADR_056_INVARIANTS,
+    ...ADR_070_INVARIANTS,
+  ];
   const record: Record<string, RegisteredInvariant> = {};
   for (const entry of entries) {
     const key = buildKey(entry);

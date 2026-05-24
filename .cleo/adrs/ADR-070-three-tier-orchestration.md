@@ -166,6 +166,46 @@ The following T9080 children consume this ADR:
 - **T9086** — Manifest aggregation rules for Phase Lead roll-ups
   (per ADR-027 § append semantics).
 
+## ORC-### Invariant Enumeration (T10336 / SG-SUBSTRATE-RECONCILIATION R2)
+
+The ORC codes that govern Orchestrator / Lead / Worker behaviour are
+registered in the central invariants registry
+(`packages/contracts/src/invariants/adr-070-orchestration.ts`) and keyed
+under `INVARIANTS_REGISTRY['ADR-070.ORC-XXX']`. Every entry carries
+severity, runtime-gate location, lint-rule reference, and test paths so
+the R6 doctor audit (T10340) and R8 docs renderer (T10342) can chase the
+enforcement surface programmatically.
+
+| Code     | Name                                                  | Severity | Enforcement                                                                                  |
+|----------|-------------------------------------------------------|----------|----------------------------------------------------------------------------------------------|
+| ORC-001  | Orchestrator is the HITL interface                    | warning  | Prompt-time — `ct-orchestrator/SKILL.md`. No dispatch gate.                                  |
+| ORC-002  | Orchestrator MUST NOT write or edit code              | warning  | Prompt-time — `ct-orchestrator/SKILL.md`. No dispatch gate.                                  |
+| ORC-003  | Orchestrator MUST NOT read full source files          | warning  | Prompt-time — `ct-orchestrator/SKILL.md`. No dispatch gate.                                  |
+| ORC-004  | Dependency-ordered spawning                           | warning  | `validateSpawnReadiness` (V_MISSING_DEP / V_UNMET_DEP) + skill-orchestrator validator.       |
+| ORC-005  | Orchestrator context budget ≈ 10 K tokens             | warning  | `estimateContext` advisory; surfaced via `cleo orchestrate context`.                         |
+| ORC-006  | Worker scope ≤ 3 files per spawn                      | error    | `validateSpawnReadiness` (V_ATOMIC_SCOPE_MISSING / V_ATOMIC_SCOPE_TOO_LARGE).                |
+| ORC-007  | All work traced to an Epic                            | warning  | ADR-066 acceptance-criteria gate + cleo find. No single ORC-named runtime guard.             |
+| ORC-008  | Zero architectural decisions during execution         | warning  | Prompt-time — held by skill + ADR-066 acceptance criteria.                                   |
+| ORC-009  | Manifest-mediated handoffs                            | warning  | Prompt-time — held by ct-orchestrator/SKILL.md and reinforced by ORC-005 budget pressure.    |
+| ORC-010  | Lead-interposition for Epic-child Workers             | warning  | FILED (T10278) — dispatch gate `E_LEAD_REQUIRED_FOR_EPIC_CHILD` unshipped per ADR-083 §2.4.  |
+| ORC-011  | Orchestrator-depth ≤ 3                                | warning  | FILED (T10279) — dispatch gate `E_ORCHESTRATOR_DEPTH_EXCEEDED` unshipped per ADR-083 §2.2.   |
+| ORC-012  | Thin-agent inversion-of-control                       | error    | `enforceThinAgent` → `ThinAgentViolationError` → `E_THIN_AGENT_VIOLATION` (exit 68).         |
+| ORC-013  | Worktree provisioning at canonical XDG location       | error    | `assertCanonicalWorktreeLocation` → `E_WT_LOCATION_FORBIDDEN`. CI: lint-worktree-location.   |
+| ORC-014  | Lead-bypass detection at session end                  | error    | `endSession` → `LeadBypassDetectedError` → `E_LEAD_BYPASS_DETECTED` (exit 107).              |
+
+**Registry shape.** Every entry follows the `RegisteredInvariant`
+contract: stable `adr` + `code` pair → name + description + severity +
+optional `runtimeGate` (module + functionName) + optional `lintRule`
+(lint-script path) + optional `doctorAudit` + test-file refs +
+optional `deprecated` flag. Lookup helpers `getInvariant` and
+`getInvariantsByAdr` are exported from `@cleocode/contracts`.
+
+**Gap visibility.** Nine of the fourteen entries are `severity:'warning'`
+with `runtimeGate: null` — the gap is intentional and documented in each
+entry's `description` so the R6 doctor audit surfaces unenforced ORC
+contracts to the operator alongside the enforced ones. ORC-010 / ORC-011
+in particular are FILED but UNSHIPPED — tracked under T10278 / T10279.
+
 ## References
 
 - ADR-027 — Manifest contract (workers append their own rows).
@@ -173,6 +213,11 @@ The following T9080 children consume this ADR:
   values used here: `orchestrator`, `leaf`).
 - ADR-069 — Coordination Layers (forthcoming; covers Lead crash
   recovery and cross-epic dependency negotiation).
-- ct-orchestrator skill — Orchestrator role contract.
+- ADR-083 §2.2 — Cleo persona singleton + recursion bound (depth ≤ 3).
+- ADR-083 §2.4 — Lead-interposition contract for Epic-child Workers.
+- ct-orchestrator skill — Orchestrator role contract (source of ORC-001..ORC-009).
 - ct-lead skill (T9084) — Phase Lead role contract (forthcoming).
 - T1252 — `parseTopicName` and the `epic-<TID>.wave-<n>` primitive.
+- T10326 SG-SUBSTRATE-RECONCILIATION — saga that produced this enumeration.
+- T10335 R1 — central INVARIANTS_REGISTRY introduced.
+- T10336 R2 — this enumeration (current task).
