@@ -306,18 +306,32 @@ export function validateSize(size: string): asserts size is TaskSize {
 
 /**
  * Validate label format.
+ *
+ * Labels must be one of:
+ * - Lowercase alphanumeric with hyphens/periods (`^[a-z][a-z0-9.-]*$`)
+ *   — e.g. `my-label`, `v1.0`, `bug`, `security`
+ * - A canonical task-ID-shaped label (`^T\d{3,}$`) — case preserved per ADR-073
+ *   so agents can tag tasks with their canonical parent task ID (e.g. `T9813`).
+ *
  * @task T4460
+ * @task T9824 — uppercase task-ID label acceptance
  */
 export function validateLabels(labels: string[]): void {
   for (const label of labels) {
     const trimmed = label.trim();
+    // Task-ID-shaped labels (e.g. T9813) are accepted as-is — ADR-073 canonical form.
+    if (/^T\d{3,}$/.test(trimmed)) continue;
     if (!/^[a-z][a-z0-9.-]*$/.test(trimmed)) {
       throw new CleoError(
         ExitCode.VALIDATION_ERROR,
-        `Invalid label format: '${trimmed}' (must be lowercase alphanumeric with hyphens/periods)`,
+        `Invalid label format: '${trimmed}' (must be lowercase alphanumeric with hyphens/periods, or a task ID like T9813)`,
         {
-          fix: `Labels must match pattern ^[a-z][a-z0-9.-]*$ (e.g. my-label, v1.0)`,
-          details: { field: 'labels', expected: '^[a-z][a-z0-9.-]*$', actual: trimmed },
+          fix: `Labels must match pattern ^[a-z][a-z0-9.-]*$ (e.g. my-label, v1.0) or ^T\\d{3,}$ (e.g. T9813)`,
+          details: {
+            field: 'labels',
+            expected: '^[a-z][a-z0-9.-]*$ or ^T\\d{3,}$',
+            actual: trimmed,
+          },
         },
       );
     }
