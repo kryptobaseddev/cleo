@@ -26,8 +26,8 @@
     "packages/cleo/src/cli/commands/check.ts:621",
     "packages/cleo/src/cli/commands/check.ts:623",
     "packages/cleo/src/cli/commands/deps.ts:328",
-    "packages/cleo/src/cli/commands/docs.ts:784",
-    "packages/cleo/src/cli/commands/docs.ts:785",
+    "packages/cleo/src/cli/commands/docs.ts:804",
+    "packages/cleo/src/cli/commands/docs.ts:805",
     "packages/cleo/src/cli/commands/event.ts:238",
     "packages/cleo/src/cli/commands/event.ts:249",
     "packages/cleo/src/cli/commands/event.ts:251",
@@ -66,5 +66,5 @@
     "packages/mcp-adapter/src/server.ts:133",
     "packages/mcp-adapter/src/server.ts:137"
   ],
-  "updatedAt": "2026-05-24T11:12:15.168Z"
+  "updatedAt": "2026-05-24T11:24:02.616Z"
 }
