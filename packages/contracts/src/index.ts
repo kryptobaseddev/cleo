@@ -1845,6 +1845,25 @@ export type {
   TaskViewNextAction,
   TaskViewPipelineStage,
 } from './tasks.js';
+// === Template Manifest (T9875 / Saga T9855) ===
+export type {
+  PlaceholderSource,
+  PlaceholderSpec,
+  PlaceholderSpecInput,
+  TemplateKind,
+  TemplateManifestEntry,
+  TemplateManifestEntryInput,
+  TemplateSubstitution,
+  UpdateStrategy,
+} from './templates/manifest.js';
+export {
+  PLACEHOLDER_SOURCES,
+  PlaceholderSpecSchema,
+  TEMPLATE_KINDS,
+  TEMPLATE_SUBSTITUTIONS,
+  TEMPLATE_UPDATE_STRATEGIES,
+  TemplateManifestEntrySchema,
+} from './templates/manifest.js';
 // === Tessera Types ===
 export type {
   TesseraInstantiationInput,
