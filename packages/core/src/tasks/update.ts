@@ -18,8 +18,9 @@ import type {
 // safeAppendLog replaced by tx.appendLog inside transaction (T023)
 import { ExitCode } from '@cleocode/contracts';
 import { loadConfig } from '../config.js';
-import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
+import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
@@ -689,20 +690,11 @@ export async function taskUpdate(
     );
     return engineSuccess({ task: taskToRecord(result.task), changes: result.changes });
   } catch (err: unknown) {
-    // T9838-D: surface real error codes instead of mis-labelling everything
-    // as `E_NOT_INITIALIZED`. CleoErrors carry their own LAFS code via
-    // `toLAFSError()`; non-CleoErrors (DB invariant triggers, unexpected
-    // runtime issues) fall through to `E_INTERNAL`.
-    if (err instanceof CleoError) {
-      const lafs = err.toLAFSError();
-      return engineError(lafs.code, err.message, {
-        exitCode: err.code,
-        ...(err.fix !== undefined ? { fix: err.fix } : {}),
-        ...(err.alternatives !== undefined ? { alternatives: err.alternatives } : {}),
-        ...(err.details !== undefined ? { details: err.details } : {}),
-      });
-    }
-    const e = err as { message?: string };
-    return engineError('E_INTERNAL', e?.message ?? 'Failed to update task');
+    // T9940 (generalizing T9838-D): surface real CleoError LAFS codes via
+    // the shared `cleoErrorToEngineResult` helper. Non-CleoErrors (DB
+    // invariant triggers raised as plain Error, unexpected runtime issues)
+    // fall through to `E_INTERNAL`, never the misleading
+    // `E_NOT_INITIALIZED` blanket label that the wrapper used before T9838-D.
+    return cleoErrorToEngineResult(err, 'E_INTERNAL', 'Failed to update task');
   }
 }
