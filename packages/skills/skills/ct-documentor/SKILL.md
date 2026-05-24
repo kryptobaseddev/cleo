@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Coordinates ct-docs-lookup, ct-docs-write, ct-docs-review, ct-spec-writer, and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.5.0
+version: 3.6.0
 tier: 3
 core: false
 category: specialist
@@ -263,6 +263,35 @@ Contract for the docs-add path:
 - The LAFS envelope on success carries `data.type === 'changeset'`,
   `data.slug`, `data.attachmentId`, and `data.sha256` — round-trip
   identical to what `cleo changeset add` emits.
+
+#### CI gate — DocKind Writer Uniqueness (T10369)
+
+`scripts/lint-dockind-writer-uniqueness.mjs` (CI job:
+`DocKind Writer Uniqueness (T10369)`) enforces the
+WriterRegistry invariants at PR-time. It refuses to merge a PR that:
+
+1. Adds a new entry to `BUILTIN_DOC_KINDS` (in
+   `packages/contracts/src/docs-taxonomy.ts`) without a matching
+   descriptor in `writer-registry.ts` (`dockind-coverage-missing`).
+2. Declares more than one descriptor for the same DocKind
+   (`dockind-coverage-collision` — the registry itself throws at module
+   load too, this gate surfaces it earlier in CI).
+3. Has a `mode: 'ssot-first'` descriptor that does NOT match
+   `.cleo/canon.yml`'s `canonicalHome` for the same kind, or vice versa
+   (`canon-yml-ssot-first-drift`).
+4. Adds a NEW raw `writeFileSync(path.md, …)` / `writeFile(path.md, …)`
+   call inside `packages/core/src/**` that is not in
+   `.lint-dockind-writer-baseline.json` (`unregistered-md-write`).
+
+Schema-parity rules (#1-#3) are ALWAYS strict — there is no baseline.
+The unregistered-md-write rule runs in baseline mode by default; count
+decreases always pass, count increases fail. The two legitimate
+non-DocKind `.md` writers (`packages/core/src/sessions/handoff-markdown.ts`
+for session snapshots and `packages/core/src/changesets/writer.ts` for
+the canonical `changeset` DocKind) are allowlisted in the script.
+
+Per-line opt-out (use sparingly): append
+`// dockind-writer-allowed: <reason>` on the writeFile line.
 
 ### Slug similarity warn (T10361 · closes T10167)
 

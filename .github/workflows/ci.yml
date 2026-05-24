@@ -593,6 +593,31 @@ jobs:
         # No untrusted input used — pure static analysis of checked-in source files.
         run: node scripts/lint-cli-package-boundary.mjs --check
 
+  dockind-writer-uniqueness:
+    # T10369 / Epic T10290 / Saga T10288 SG-DOCS-INTEGRITY — DocKind Writer
+    # Uniqueness gate. Enforces ONE writer per BuiltinDocKind in
+    # `packages/core/src/docs/writer-registry.ts`, asserts that every
+    # `mode: 'ssot-first'` descriptor aligns with `.cleo/canon.yml`'s
+    # `canonicalHome`, and flags raw `*.md` writes in `packages/core/src/**`
+    # that bypass the canonical writer set.
+    #
+    # Schema-parity rules (registry coverage + canon.yml drift) are ALWAYS
+    # strict — there is no baseline for those. The unregistered-md-write
+    # rule runs in baseline mode by default: it fails only when the count
+    # INCREASES above `.lint-dockind-writer-baseline.json`. Count decreases
+    # always pass.
+    name: DocKind Writer Uniqueness (T10369)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: DocKind Writer Uniqueness gate (baseline mode)
+        # Pure static analysis of checked-in source files — no untrusted input.
+        run: node scripts/lint-dockind-writer-uniqueness.mjs
+
   canon-drift:
     name: Canon Drift Check
     needs: [biome]
