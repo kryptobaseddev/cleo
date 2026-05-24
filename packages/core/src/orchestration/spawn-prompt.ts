@@ -1025,6 +1025,37 @@ function buildEvidenceGateBlock(taskId: string): string {
   ].join('\n');
 }
 
+/**
+ * Build the changeset-lint hygiene gate block (T10448).
+ *
+ * Note: this function was originally added in T10448 (commit 743db13f3) and
+ * inadvertently removed by T10452 (commit 15d8bfef2) which left the call site
+ * orphaned, breaking `tsc --emitDeclarationOnly`. Restored here as a
+ * collateral fix while shipping T9937 (Saga T9862) so the build pipeline
+ * stays green. Tracking bug: T10485.
+ */
+function buildChangesetLintGateBlock(projectRoot: string): string {
+  const scriptPath = join(projectRoot, 'scripts', 'lint-changesets.mjs');
+  return [
+    '## Changeset Lint Gate (T10448 — run BEFORE starting work)',
+    '',
+    '> Pre-spawn hygiene check: validate that all `.changeset/*.md` entries are well-formed before you begin implementation.',
+    '> Malformed changesets cause silent aggregator failures downstream. Fail fast here.',
+    '',
+    '```bash',
+    `node ${scriptPath}   # validates every .changeset/*.md file independently`,
+    '```',
+    '',
+    '**If this gate fails**:',
+    '1. Do NOT start implementation.',
+    '2. Fix the malformed changeset(s) listed in the output.',
+    '3. Re-run the lint gate until it passes.',
+    '4. Only then proceed to the Stage-Specific Guidance below.',
+    '',
+    'Canonical kinds: `feat|fix|perf|refactor|docs|test|chore|breaking`.',
+  ].join('\n');
+}
+
 /** Build the quality-gate block — biome + build + test + changeset hygiene. */
 function buildQualityGateBlock(): string {
   return [

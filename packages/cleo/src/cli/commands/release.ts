@@ -212,6 +212,57 @@ const channelCommand = defineCommand({
   },
 });
 
+/**
+ * cleo release validate-changelog <version> — canonical CHANGELOG.md header
+ * validator. Replaces the brittle `grep -qF "## [VERSION]"` step in
+ * `.github/workflows/release.yml` (and any consumer-shipped release workflow)
+ * with a typed CLEO verb that:
+ *
+ *  - Normalises both `v2026.5.94` and `2026.5.94` inputs to the canonical
+ *    no-v header form (ADR-028 §2.5).
+ *  - Returns a LAFS envelope with `valid`, `headerFound`, and a
+ *    human-readable `reason` when the gate fails.
+ *  - Exits non-zero on `valid=false` so CI workflows can treat it as a hard
+ *    gate (the dispatch layer's `wrapResult` already surfaces the error
+ *    envelope and sets the process exit code).
+ *
+ * @task T9937
+ * @saga T9862
+ * @adr ADR-028 §2.5
+ */
+const validateChangelogCommand = defineCommand({
+  meta: {
+    name: 'validate-changelog',
+    description: 'Validate that CHANGELOG.md contains the canonical `## [VERSION]` header (T9937)',
+  },
+  args: {
+    version: {
+      type: 'positional',
+      description: 'Release version (accepts v2026.5.94 or 2026.5.94)',
+      required: true,
+    },
+    path: {
+      type: 'string',
+      description: 'Override the CHANGELOG file path (default: <projectRoot>/CHANGELOG.md)',
+      required: false,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'release',
+      'validate-changelog',
+      {
+        version: args.version,
+        ...(typeof args.path === 'string' && args.path.length > 0
+          ? { changelogPath: args.path }
+          : {}),
+      },
+      { command: 'release' },
+    );
+  },
+});
+
 // ---------------------------------------------------------------------------
 // Canonical SPEC-T9345 release pipeline v2 (T9492 / T9494 / T9495)
 //
@@ -452,6 +503,8 @@ export const releaseCommand = defineCommand({
     'pr-status': prStatusCommand,
     channel: channelCommand,
     'rollback-full': rollbackFullCommand,
+    // T9937 — canonical CHANGELOG.md header validator (Saga T9862).
+    'validate-changelog': validateChangelogCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
