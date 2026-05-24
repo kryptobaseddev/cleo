@@ -1,11 +1,16 @@
 # CLEO GitHub Actions workflow templates
 
-This directory contains CLEO's templated GitHub Actions workflows for the
-release pipeline defined in
+This directory contains CLEO's supported consumer GitHub Actions workflow
+templates for the release pipeline defined in
 `.cleo/rcasd/T9345/research/SPEC-T9345-release-pipeline-v2.md`. Templates
 are project-agnostic: they ship with `{{PLACEHOLDER}}` markers that are
-resolved at scaffold time by `cleo init --workflows` (T9531) against the
-local `.cleo/project-context.json` and the ADR-061 tool resolver.
+resolved at scaffold/upgrade time against the local project context,
+`.cleo/config.json`, and the ADR-061 tool resolver.
+
+Contract boundary: these four templates are portable CLEO consumer tooling.
+The cleocode repository's own `.github/workflows/*.yml` files are dogfood-only
+owner CI unless a shipped CLEO installer renders them into a consumer project.
+See `docs/release/consumer-workflow-hook-contract.md` for the T10476 taxonomy.
 
 ## Template files
 
@@ -87,21 +92,25 @@ Source precedence (highest first):
 | `release-fanout.yml.tmpl`    | `GITHUB_TOKEN` (auto)   | `DOCKER_HUB_TOKEN` (if `dockerRetag=true`), `SENTINEL_TOKEN` (if `sentinelNotify=true`), `STUDIO_DEPLOY_TOKEN` (if `studioDeploy=true`) |
 | `release-rollback.yml.tmpl`  | `GITHUB_TOKEN` (auto), `NPM_TOKEN` (if `PUBLISHERS` contains `npm`) | `CARGO_TOKEN` (if `PUBLISHERS` contains `cargo`) |
 
-## Scaffolding workflow
+## Scaffolding and upgrade workflow
 
 ```bash
 # Render the templates against the local project, writing to .github/workflows/.
 cleo init --workflows
 
-# Re-render after editing project-context.json or release config.
-cleo init --workflows --force
+# Check for rendered workflow drift without writing.
+cleo upgrade workflows --check
+
+# Refresh rendered workflows after editing project-context.json or release config.
+cleo upgrade workflows --force
 ```
 
-The scaffolder reads each `*.yml.tmpl` file in this directory, performs
+The scaffolder/upgrader reads each `*.yml.tmpl` file in this directory, performs
 regex substitution against the placeholder vocabulary above, validates the
-result with `actionlint`, and writes the rendered YAML to
+result with `actionlint` when available, and writes the rendered YAML to
 `<project>/.github/workflows/<basename>.yml`. Existing files are NOT
-overwritten without `--force`.
+overwritten by the scaffold path without `--force`; the upgrade path reports
+drift read-only unless force semantics are explicitly selected.
 
 ## Extending without forking
 
