@@ -103,4 +103,11 @@ export interface MinimalTaskRecord {
   type?: string;
   /** Scope size estimate — helps agents decide if decomposition is needed. @task T091 */
   size?: string;
+  /**
+   * Bug severity axis — P0|P1|P2|P3 (string-widened). Surfaced so the unified
+   * urgency surface (`cleo find --urgent`) can identify P0/P1 rows without a
+   * follow-up `cleo show` per row.
+   * @task T9905
+   */
+  severity?: string | null;
 }
