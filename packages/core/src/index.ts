@@ -645,6 +645,7 @@ export { updateTask } from './tasks/update.js';
 // `@cleocode/core/internal` from CLI command files).
 
 // T9918 (Saga T9855 / E7.5) — OperationInputContract registry seed
+// T9917 (Saga T9855 / E7.4) — extended with tasks.add + tasks.update via contracts package
 export { getInputContract, INPUT_CONTRACTS } from './dispatch/contracts/input-contracts.js';
 // T9920 (Saga T9855 / E8.1) — envelope-wide meta.suggestedNext attach helper
 export { attachSuggestedNext } from './dispatch/suggested-next.js';

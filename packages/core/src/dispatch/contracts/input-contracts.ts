@@ -1,267 +1,77 @@
 /**
- * Starter registry of {@link OperationInputContract} entries.
+ * INPUT_CONTRACTS — SSoT registry of per-operation input contracts.
  *
- * Seeds the `OperationInputContractRegistry` introduced by T9914 with a
- * minimal real-world example so the agent-introspection surface
- * (`cleo schema <op> --input` / `--examples`, T9918) has something to
- * return today. Additional contracts are added incrementally per
- * E7 retrofit task (T9917+).
+ * Keyed by the canonical `<domain>.<verb>` operation identifier (e.g.
+ * `'tasks.add'`, `'tasks.add-batch'`, `'tasks.update'`). The value type uses
+ * `OperationInputContract<unknown>` so the map is assignable across
+ * operations with different input shapes — callers that need the concrete
+ * `T` must narrow via an operation-specific accessor.
  *
- * The single seed entry is `tasks.add-batch` — the canonical bulk-create
- * operation that benefits most from agents discovering its shape before
- * piping a payload via `cleo add-batch --params -`.
+ * Originally seeded by T9918 (PR #663) with a single `tasks.add-batch`
+ * entry to back the `cleo schema <op> --input/--examples` introspection
+ * surface. T9917 extends the registry to cover the full tasks.* mutate
+ * surface (add + add-batch + update) and rewires the schemas to live in
+ * `packages/contracts/src/operations/tasks.ts` so the CLI commands
+ * import them via the contracts leaf package (no Core dependency hop).
+ *
+ * CLI commands look up their contract by operation name, hand the raw
+ * payload to `validateOperationInput()` (T9915), then forward the
+ * narrowed value through `dispatchRaw`. Every retrofit (T9917+) extends
+ * this map.
  *
  * @packageDocumentation
  * @module @cleocode/core/dispatch/contracts/input-contracts
  *
  * @epic T9855
- * @task T9918
+ * @task T9918 — original seed entry + getInputContract accessor
+ * @task T9917 — tasks.add + tasks.update extension; schemas moved to contracts
  */
 
-import type { OperationInputContract, OperationInputContractRegistry } from '@cleocode/contracts';
-
-// ---------------------------------------------------------------------------
-// Wire-format task spec (mirrors AddBatchTaskSpec — kept in sync manually
-// rather than imported so contracts stay decoupled from internal Core types).
-// ---------------------------------------------------------------------------
-
-/**
- * Wire-format task spec accepted by `tasks.add-batch`. Local mirror of
- * `AddBatchTaskSpec` from `packages/core/src/tasks/add-batch.ts` so the
- * contract describes the public wire shape without importing internal
- * Core types into the schema-registry module.
- */
-interface AddBatchTaskSpecWire {
-  title: string;
-  description?: string;
-  parent?: string;
-  depends?: string[];
-  priority?: string;
-  labels?: string[];
-  type?: string;
-  acceptance?: string[];
-  phase?: string;
-  size?: string;
-  notes?: string;
-  files?: string[];
-  kind?: string;
-  scope?: string;
-  severity?: string;
-  forceDuplicate?: boolean;
-}
+import {
+  type OperationInputContract,
+  type OperationInputContractRegistry,
+  tasksAddBatchInputContract,
+  tasksAddInputContract,
+  tasksUpdateInputContract,
+} from '@cleocode/contracts';
 
 /**
- * Input shape for the `tasks.add-batch` operation.
+ * Registry of every {@link OperationInputContract} known to the CLEO
+ * runtime, keyed by the contract's `operation` identifier.
  *
- * Matches the runtime params accepted by `tasksAddBatchOp` — an array of
- * wire-format task specs, an optional shared default parent, and an
- * optional dry-run flag.
- */
-interface TasksAddBatchInput {
-  tasks: AddBatchTaskSpecWire[];
-  defaultParent?: string;
-  dryRun?: boolean;
-}
-
-// ---------------------------------------------------------------------------
-// tasks.add-batch contract
-// ---------------------------------------------------------------------------
-
-/**
- * Schema-first contract for `tasks.add-batch`.
+ * Extend this map every time a new operation is migrated to the
+ * schema-first input contract surface.
  *
- * Mirrors the operation registry entry in
- * `packages/contracts/src/dispatch/operations-registry.ts` and the
- * runtime shape in `packages/core/src/tasks/add-batch.ts`. Examples
- * showcase the two most common patterns: a minimal 2-task batch under a
- * shared epic and an epic-decomposition batch using per-task `parent`.
- */
-const tasksAddBatchContract: OperationInputContract<TasksAddBatchInput> = {
-  operation: 'tasks.add-batch',
-  schema: {
-    $schema: 'http://json-schema.org/draft-07/schema#',
-    type: 'object',
-    required: ['tasks'],
-    additionalProperties: false,
-    properties: {
-      tasks: {
-        type: 'array',
-        minItems: 1,
-        description: 'Array of task specs to insert atomically. At least one task is required.',
-        items: {
-          type: 'object',
-          required: ['title'],
-          additionalProperties: false,
-          properties: {
-            title: {
-              type: 'string',
-              minLength: 1,
-              maxLength: 200,
-              description: 'Human-readable task title (required).',
-            },
-            description: {
-              type: 'string',
-              description: 'Optional long-form task description.',
-            },
-            parent: {
-              type: 'string',
-              description: 'Parent task ID (ADR-057 D2 wire field — maps to parentId internally).',
-            },
-            depends: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'List of task IDs this task depends on.',
-            },
-            priority: {
-              type: 'string',
-              enum: ['low', 'medium', 'high', 'critical'],
-              description: 'Task priority.',
-            },
-            labels: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Free-form classification labels.',
-            },
-            type: {
-              type: 'string',
-              enum: ['epic', 'task', 'subtask', 'saga'],
-              description: 'Task tier (ADR-073 — saga elevates Epic via label).',
-            },
-            acceptance: {
-              type: 'array',
-              items: { type: 'string', minLength: 1 },
-              description: 'Acceptance criteria. REQUIRED for all tasks per ADR-066.',
-            },
-            phase: {
-              type: 'string',
-              description: 'Free-form phase grouping.',
-            },
-            size: {
-              type: 'string',
-              enum: ['small', 'medium', 'large'],
-              description: 'Sizing bucket (no time estimates).',
-            },
-            notes: {
-              type: 'string',
-              description: 'Initial note entry for the task.',
-            },
-            files: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'List of files this task is scoped to.',
-            },
-            kind: {
-              type: 'string',
-              enum: ['work', 'research', 'experiment', 'bug', 'spike', 'release'],
-              description: 'Task kind (orthogonal to type).',
-            },
-            scope: {
-              type: 'string',
-              description: 'Scope-of-change descriptor.',
-            },
-            severity: {
-              type: 'string',
-              enum: ['P0', 'P1', 'P2', 'P3'],
-              description: 'Severity (orthogonal to priority; triggers Ed25519 attestation).',
-            },
-            forceDuplicate: {
-              type: 'boolean',
-              description: 'Bypass duplicate-detection guards.',
-            },
-          },
-        },
-      },
-      defaultParent: {
-        type: 'string',
-        description: 'Optional default parent task ID applied when a task spec omits parent.',
-      },
-      dryRun: {
-        type: 'boolean',
-        description: 'Validate and predict IDs without writing to the database.',
-      },
-    },
-  },
-  examples: [
-    {
-      name: 'minimal-two-task-batch',
-      description:
-        'Smallest realistic batch — two tasks sharing a default parent epic, each with required acceptance.',
-      value: {
-        tasks: [
-          {
-            title: 'Spec the new dispatcher contract',
-            acceptance: ['Contract spec landed', 'Reviewed by team-lead'],
-          },
-          {
-            title: 'Implement the dispatcher contract',
-            acceptance: ['All tests pass', 'Wired to existing callers'],
-          },
-        ],
-        defaultParent: 'T1234',
-      },
-    },
-    {
-      name: 'epic-decomposition-with-explicit-parents',
-      description:
-        'Per-task parent assignment — useful when decomposing one epic into children of different sibling epics.',
-      value: {
-        tasks: [
-          {
-            title: 'Add --input flag to cleo schema',
-            parent: 'T9918',
-            acceptance: ['Flag accepted', 'JSON schema returned'],
-            priority: 'medium',
-            size: 'small',
-          },
-          {
-            title: 'Add --examples flag to cleo schema',
-            parent: 'T9918',
-            acceptance: ['Flag accepted', 'Examples array returned'],
-            priority: 'medium',
-            size: 'small',
-          },
-        ],
-      },
-    },
-    {
-      name: 'dry-run-preview',
-      description: 'Validate-only run — predicts IDs without writing to the database.',
-      value: {
-        tasks: [
-          {
-            title: 'Preview-only task',
-            acceptance: ['Dry run succeeds'],
-          },
-        ],
-        dryRun: true,
-      },
-    },
-  ],
-};
-
-// ---------------------------------------------------------------------------
-// Registry
-// ---------------------------------------------------------------------------
-
-/**
- * Canonical registry of every {@link OperationInputContract} known to the
- * CLEO runtime. Consumers MUST treat this map as the SSoT for
- * agent-introspection surfaces (`cleo schema <op> --input` /
- * `--examples`) and for the schema-first `mutate(operation, input)` DX.
+ * @example
+ * ```ts
+ * import { INPUT_CONTRACTS } from '@cleocode/core/dispatch/contracts/input-contracts';
  *
- * Currently seeded with a single contract (`tasks.add-batch`) so
- * T9918 has something concrete to return. Additional operations land
- * incrementally via T9917+ retrofit tasks.
+ * const contract = INPUT_CONTRACTS['tasks.add'];
+ * if (!contract) throw new Error('unknown op');
+ * const result = validateOperationInput(contract, payload);
+ * ```
+ *
+ * @task T9917 — extended with tasks.add + tasks.update
+ * @task T9918 — original tasks.add-batch seed
  */
 export const INPUT_CONTRACTS: OperationInputContractRegistry = {
-  'tasks.add-batch': tasksAddBatchContract as OperationInputContract<unknown>,
+  'tasks.add': tasksAddInputContract,
+  'tasks.add-batch': tasksAddBatchInputContract,
+  'tasks.update': tasksUpdateInputContract,
 };
 
 /**
- * Look up the {@link OperationInputContract} for a given operation key.
+ * Resolve the {@link OperationInputContract} for an operation id, or
+ * return `null` when no contract is registered.
  *
- * @param operation - Fully-qualified operation key (e.g. `'tasks.add-batch'`).
+ * Used by the `cleo schema <op> --input` / `--examples` introspection
+ * surface (T9918) and by any caller that needs to render a null-safe
+ * envelope when an operation has no schema-first contract yet.
+ *
+ * @param operation - Canonical `<domain>.<verb>` operation identifier.
  * @returns The matching contract, or `null` when no contract is registered.
+ *
+ * @task T9918
  */
 export function getInputContract(operation: string): OperationInputContract<unknown> | null {
   return INPUT_CONTRACTS[operation] ?? null;
