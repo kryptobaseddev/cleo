@@ -34,6 +34,36 @@ interface TransportStream {
 let rootLogger: pino.Logger | null = null;
 let currentLogDir: string | null = null;
 let currentTransport: TransportStream | null = null;
+let quietMode = false;
+
+/**
+ * Enable or disable quiet mode for the logger subsystem.
+ *
+ * When quiet=true:
+ *   - The stderr fallback `getLogger()` returns silent-level loggers.
+ *   - If the root logger is initialized, its level is set to 'silent'.
+ *
+ * Critical CLI errors that route through `cliError()` and `process.exit()`
+ * are emitted via direct stderr writes outside this subsystem and are NOT
+ * affected by quiet mode — see T9933 spec.
+ *
+ * @task T9933
+ */
+export function setLoggerQuiet(quiet: boolean): void {
+  quietMode = quiet;
+  if (quiet && rootLogger) {
+    rootLogger.level = 'silent';
+  }
+}
+
+/**
+ * Inspect the current quiet-mode flag. Exposed for tests + diagnostics.
+ *
+ * @task T9933
+ */
+export function isLoggerQuiet(): boolean {
+  return quietMode;
+}
 
 /**
  * Convert bytes to a human-readable size string for pino-roll.
@@ -139,10 +169,12 @@ export function initLogger(
  */
 export function getLogger(subsystem: string): pino.Logger {
   if (!rootLogger) {
-    // Fallback: stderr logger (stdout reserved for structured output)
+    // Fallback: stderr logger (stdout reserved for structured output).
+    // Under quiet mode (T9933), drop fallback warnings entirely so
+    // operators piping JSON output see clean stderr.
     return pino(
       {
-        level: 'warn',
+        level: quietMode ? 'silent' : 'warn',
         formatters: { level: (label: string) => ({ level: label.toUpperCase() }) },
       },
       pino.destination(2),
