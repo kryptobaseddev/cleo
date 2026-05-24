@@ -318,7 +318,14 @@ export { ensureInitialized, getVersion, initProject } from './init.js';
 export { checkSchema, validateAgainstSchema } from './json-schema-validator.js';
 export type { LoggerConfig } from './logger.js';
 // Logger
-export { closeLogger, getLogDir, getLogger, initLogger } from './logger.js';
+export {
+  closeLogger,
+  getLogDir,
+  getLogger,
+  initLogger,
+  isLoggerQuiet,
+  setLoggerQuiet,
+} from './logger.js';
 export type { FormatOptions } from './output.js';
 // Output formatting (LAFS envelope)
 export { drainWarnings, formatError, formatOutput, formatSuccess, pushWarning } from './output.js';

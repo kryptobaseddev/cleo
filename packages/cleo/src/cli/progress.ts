@@ -6,6 +6,7 @@
  */
 
 import { stderr } from 'node:process';
+import { isQuiet } from './format-context.js';
 
 export interface ProgressOptions {
   /** Whether to show progress (true for human mode, false for JSON mode) */
@@ -35,7 +36,7 @@ export class ProgressTracker {
    * Start the progress tracker.
    */
   start(): void {
-    if (!this.enabled) return;
+    if (!this.enabled || isQuiet()) return;
     this.currentStep = 0;
     stderr.write(`\n${this.prefix}: Starting...\n`);
   }
@@ -44,7 +45,7 @@ export class ProgressTracker {
    * Update to a specific step.
    */
   step(index: number, message?: string): void {
-    if (!this.enabled) return;
+    if (!this.enabled || isQuiet()) return;
     this.currentStep = index;
     const stepName = this.steps[index] ?? message ?? 'Working...';
     const progress = `[${index + 1}/${this.totalSteps}]`;
@@ -67,7 +68,7 @@ export class ProgressTracker {
    * one JSON object per CLI invocation (ADR-039 / T927).
    */
   complete(summary?: string): void {
-    if (!this.enabled) return;
+    if (!this.enabled || isQuiet()) return;
     if (summary) {
       stderr.write(`\n${this.prefix}: \u2713 ${summary}\n\n`);
     } else {
@@ -79,7 +80,7 @@ export class ProgressTracker {
    * Report an error.
    */
   error(message: string): void {
-    if (!this.enabled) return;
+    if (!this.enabled || isQuiet()) return;
     stderr.write(`\n${this.prefix}: \u2717 ${message}\n\n`);
   }
 }
@@ -114,7 +115,7 @@ export class Spinner {
    * Start the spinner.
    */
   start(): void {
-    if (!this.enabled) return;
+    if (!this.enabled || isQuiet()) return;
     this.timer = setInterval(() => {
       const frame = this.frames[this.frameIndex];
       stderr.write(`\r${frame} ${this.message}`);
@@ -126,7 +127,7 @@ export class Spinner {
    * Stop the spinner.
    */
   stop(finalMessage?: string): void {
-    if (!this.enabled) return;
+    if (!this.enabled || isQuiet()) return;
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
