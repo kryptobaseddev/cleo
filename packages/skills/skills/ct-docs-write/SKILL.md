@@ -1,7 +1,7 @@
 ---
 name: ct-docs-write
 description: This skill should be used when creating, editing, or reviewing documentation files (markdown, MDX, README, guides). Use when the user asks to "write docs", "create documentation", "edit the README", "improve doc clarity", "make docs more readable", "follow the style guide", or "write user-facing content". Applies CLEO's conversational, clear, and user-focused writing style.
-version: 1.1.0
+version: 1.2.0
 tier: 3
 core: false
 category: composition
@@ -193,8 +193,19 @@ cleo docs add T1234 docs/drafts/saml-setup.md \
   For user-facing prose use `note`; for end-user docs use `note` or `spec`
   depending on whether the doc carries REQ-XXX requirements.
 - `--slug` is the human-friendly handle for retrieval. Use kebab-case. If the
-  slug is already taken the CLI returns `E_SLUG_TAKEN` with 3 alternatives —
-  pick one rather than overwriting silently.
+  slug is already taken the CLI returns `E_SLUG_RESERVED` with 3 alternatives
+  (legacy `E_SLUG_TAKEN` aliased under `details.aliases` for one release —
+  T10386) — pick one rather than overwriting silently.
+- If the slug is too close to an existing one the CLI surfaces a
+  `W_SLUG_SIMILAR` warning with the top match + a `--allow-similar` hint
+  (T10361). Pass `--allow-similar` to proceed when the fork is intentional;
+  every bypass is logged to `.cleo/audit/similar-bypass.jsonl`.
+- Unknown flags (typos, removed options) fail fast with `E_UNKNOWN_FLAG`
+  + did-you-mean suggestions (T10359). The legacy "silently absorb as
+  positional" behaviour from citty's `parseArgs` is rejected.
+- TODO(T10360 · E3.2 pending): when shipped, `--type adr` will accept a
+  `--title <human-title>` flag and auto-allocate `adr-NNN-<kebab-title>`
+  via the E1 slug allocator — no more manual ADR-079 numbering.
 - The owner ID (`T1234` above) auto-classifies the attachment by prefix:
   `T###` → task, `ses_*` → session, `O-*` → observation.
 
