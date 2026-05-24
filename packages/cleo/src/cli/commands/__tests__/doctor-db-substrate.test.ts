@@ -27,6 +27,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { DB_INVENTORY } from '@cleocode/contracts';
+import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 // Direct-path import matches the pattern used by other CLI integration
 // tests that need core primitives without an alias rewrite (saga-audit
@@ -36,6 +37,7 @@ import {
   isLegitimateCleoProjectRoot,
   readParentWorkspace,
   resolveInventoryFilePath,
+  resolveInventoryMigrationsFolder,
   surveyDbSubstrate,
   surveyFleetDbSubstrate,
 } from '../../../../../core/src/doctor/db-substrate.js';
@@ -52,6 +54,62 @@ function seedHealthyDb(dbPath: string): void {
     `CREATE TABLE rows (id INTEGER PRIMARY KEY, label TEXT NOT NULL);
      INSERT INTO rows (label) VALUES ('alpha'), ('beta');`,
   );
+  writer.close();
+}
+
+/**
+ * Seed a DB with a populated `__drizzle_migrations` journal AND a
+ * placeholder data table. The journal entries come from
+ * `readMigrationFiles` so the hashes match the real on-disk migrations
+ * for the given role. T10311 migration-coverage fixtures rely on this.
+ *
+ * @param dbPath - Absolute path to the SQLite file to create.
+ * @param migrationsFolder - Absolute path to the role's migrationsDir.
+ * @param options.skipLastN - When `> 0`, omit the last N hashes from the
+ *   journal so the coverage check detects missing files.
+ * @param options.includeOrphanHash - When non-null, additionally insert
+ *   this hash as a fake row (not present on disk) to trigger an
+ *   orphan-row detection.
+ */
+function seedDbWithMigrationJournal(
+  dbPath: string,
+  migrationsFolder: string,
+  options: { skipLastN?: number; includeOrphanHash?: string | null } = {},
+): void {
+  const writer = new DatabaseSyncCtor(dbPath);
+  // Placeholder data table so the substrate audit's integrity_check +
+  // rowCounts paths still execute against a non-trivial schema.
+  writer.exec(
+    `CREATE TABLE rows (id INTEGER PRIMARY KEY, label TEXT NOT NULL);
+     INSERT INTO rows (label) VALUES ('alpha');`,
+  );
+  // Drizzle canonical journal schema.
+  writer.exec(
+    `CREATE TABLE __drizzle_migrations (
+       id INTEGER PRIMARY KEY,
+       hash text NOT NULL,
+       created_at numeric,
+       name text,
+       applied_at TEXT
+     );`,
+  );
+
+  const migrations = readMigrationFiles({ migrationsFolder });
+  const skip = options.skipLastN ?? 0;
+  const cutoff = Math.max(0, migrations.length - skip);
+  const insert = writer.prepare(
+    'INSERT INTO __drizzle_migrations (hash, created_at, name) VALUES (?, ?, ?)',
+  );
+  for (let i = 0; i < cutoff; i += 1) {
+    const m = migrations[i];
+    if (!m) continue;
+    insert.run(m.hash, m.folderMillis, m.name);
+  }
+
+  if (options.includeOrphanHash != null) {
+    insert.run(options.includeOrphanHash, Date.now(), 'fake-orphan-migration');
+  }
+
   writer.close();
 }
 
@@ -434,5 +492,159 @@ describe('doctor db-substrate (T10307)', () => {
       result.summary.totalDbs,
     );
     expect(result.summary.healthy).toBeGreaterThanOrEqual(1);
+  });
+
+  // ============================================================================
+  // T10311 — per-DB Drizzle migration coverage cross-check
+  // ============================================================================
+
+  it('T10311: reports null migrationCoverage when DB has no __drizzle_migrations table', async () => {
+    // `seedHealthyDb` creates a placeholder `rows` table but no journal.
+    // Coverage must be null — the DB hasn't been bootstrapped yet.
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const projectRoot = createProjectWithTasksDb('no-journal');
+    const result = surveyDbSubstrate(projectRoot);
+    const tasks = result.projects[0]?.dbs['tasks'];
+    expect(tasks?.exists).toBe(true);
+    expect(tasks?.integrityOK).toBe(true);
+    expect(tasks?.migrationCoverage).toBeNull();
+  });
+
+  it('T10311: reports null migrationCoverage for derived/reserved roles (migrationsDir=null)', async () => {
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const projectRoot = createProjectWithTasksDb('derived-role-project');
+    // Manifest is a `derived` role with migrationsDir=null. Seed a healthy
+    // DB at its inventory path so we exercise the success path through
+    // inspectDbFile but with the early-return branch on coverage.
+    const manifestEntry = DB_INVENTORY.find((e) => e.role === 'manifest');
+    expect(manifestEntry).toBeDefined();
+    if (!manifestEntry) return;
+    expect(manifestEntry.migrationsDir).toBeNull();
+    const manifestPath = resolveInventoryFilePath(manifestEntry, projectRoot);
+    mkdirSync(join(projectRoot, '.cleo', 'blobs'), { recursive: true });
+    // Build a manifest.db with a populated journal that would otherwise
+    // confuse a less-careful check.
+    const tasksFolder = resolveInventoryMigrationsFolder('packages/core/migrations/drizzle-tasks/');
+    seedDbWithMigrationJournal(manifestPath, tasksFolder);
+
+    const result = surveyDbSubstrate(projectRoot);
+    const manifest = result.projects[0]?.dbs['manifest'];
+    expect(manifest?.exists).toBe(true);
+    // migrationsDir=null short-circuits even though the DB has a journal.
+    expect(manifest?.migrationCoverage).toBeNull();
+  });
+
+  it('T10311: healthy when every file has a journal row AND every row matches a file', async () => {
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const projectRoot = join(fleetRoot, 'healthy-coverage');
+    mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
+    const tasksFolder = resolveInventoryMigrationsFolder('packages/core/migrations/drizzle-tasks/');
+    const onDisk = readMigrationFiles({ migrationsFolder: tasksFolder });
+    seedDbWithMigrationJournal(join(projectRoot, '.cleo', 'tasks.db'), tasksFolder);
+
+    const result = surveyDbSubstrate(projectRoot);
+    const tasks = result.projects[0]?.dbs['tasks'];
+    expect(tasks?.exists).toBe(true);
+    expect(tasks?.integrityOK).toBe(true);
+    expect(tasks?.migrationCoverage).not.toBeNull();
+    expect(tasks?.migrationCoverage?.applied).toBe(onDisk.length);
+    expect(tasks?.migrationCoverage?.expected).toBe(onDisk.length);
+    expect(tasks?.migrationCoverage?.orphanRows).toEqual([]);
+    expect(tasks?.migrationCoverage?.missingFiles).toEqual([]);
+  });
+
+  it('T10311: detects orphan-row when journal carries a hash not on disk', async () => {
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const projectRoot = join(fleetRoot, 'orphan-row');
+    mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
+    const tasksFolder = resolveInventoryMigrationsFolder('packages/core/migrations/drizzle-tasks/');
+    // Real-looking SHA-256 that will never collide with any on-disk hash.
+    const fakeHash = 'deadbeef'.repeat(8);
+    seedDbWithMigrationJournal(join(projectRoot, '.cleo', 'tasks.db'), tasksFolder, {
+      includeOrphanHash: fakeHash,
+    });
+
+    const result = surveyDbSubstrate(projectRoot);
+    const tasks = result.projects[0]?.dbs['tasks'];
+    expect(tasks?.migrationCoverage).not.toBeNull();
+    const coverage = tasks?.migrationCoverage;
+    if (!coverage) throw new Error('coverage absent');
+    expect(coverage.orphanRows.length).toBe(1);
+    expect(coverage.orphanRows[0]?.hash).toBe(fakeHash);
+    expect(coverage.orphanRows[0]?.createdAt).not.toBeNull();
+    expect(coverage.missingFiles).toEqual([]);
+    // applied = expected + 1 because we injected the orphan on top.
+    expect(coverage.applied).toBe(coverage.expected + 1);
+  });
+
+  it('T10311: detects missing-file when on-disk migration has no journal row', async () => {
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const projectRoot = join(fleetRoot, 'missing-file');
+    mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
+    const tasksFolder = resolveInventoryMigrationsFolder('packages/core/migrations/drizzle-tasks/');
+    const onDisk = readMigrationFiles({ migrationsFolder: tasksFolder });
+    // Skip the last 2 hashes from the journal to simulate migrations that
+    // were never applied yet. Drizzle's `migrate()` would pick them up on
+    // next open — the survey just needs to surface them.
+    seedDbWithMigrationJournal(join(projectRoot, '.cleo', 'tasks.db'), tasksFolder, {
+      skipLastN: 2,
+    });
+
+    const result = surveyDbSubstrate(projectRoot);
+    const tasks = result.projects[0]?.dbs['tasks'];
+    expect(tasks?.migrationCoverage).not.toBeNull();
+    const coverage = tasks?.migrationCoverage;
+    if (!coverage) throw new Error('coverage absent');
+    expect(coverage.orphanRows).toEqual([]);
+    expect(coverage.missingFiles.length).toBe(2);
+    expect(coverage.applied).toBe(onDisk.length - 2);
+    expect(coverage.expected).toBe(onDisk.length);
+    // Names of the missing migrations are the LAST 2 alphabetically — the
+    // ones we deliberately omitted.
+    const lastTwoNames = onDisk
+      .slice(-2)
+      .map((m) => m.name)
+      .sort();
+    const missingNames = coverage.missingFiles.map((m) => m.name).sort();
+    expect(missingNames).toEqual(lastTwoNames);
+  });
+
+  it('T10311: detects both orphan-rows AND missing-files simultaneously', async () => {
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const projectRoot = join(fleetRoot, 'both-drifts');
+    mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
+    const tasksFolder = resolveInventoryMigrationsFolder('packages/core/migrations/drizzle-tasks/');
+    seedDbWithMigrationJournal(join(projectRoot, '.cleo', 'tasks.db'), tasksFolder, {
+      skipLastN: 1,
+      includeOrphanHash: 'cafebabe'.repeat(8),
+    });
+
+    const result = surveyDbSubstrate(projectRoot);
+    const tasks = result.projects[0]?.dbs['tasks'];
+    const coverage = tasks?.migrationCoverage;
+    if (!coverage) throw new Error('coverage absent');
+    expect(coverage.orphanRows.length).toBe(1);
+    expect(coverage.missingFiles.length).toBe(1);
+  });
+
+  it('T10311: resolveInventoryMigrationsFolder normalizes trailing slash', () => {
+    // Inventory entries use a trailing slash; the resolver must handle
+    // both that form and the slashless form for symmetry.
+    const withSlash = resolveInventoryMigrationsFolder('packages/core/migrations/drizzle-tasks/');
+    const withoutSlash = resolveInventoryMigrationsFolder('packages/core/migrations/drizzle-tasks');
+    expect(withSlash).toBe(withoutSlash);
+    expect(withSlash.endsWith('drizzle-tasks')).toBe(true);
   });
 });
