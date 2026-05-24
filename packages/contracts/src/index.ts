@@ -128,6 +128,14 @@ export type {
   BackupMetadata,
   BackupScope,
 } from './backup-manifest.js';
+// === Backup Verify Types (T10319 — per-DB freshness + integrity walker) ===
+export type {
+  BackupVerifyDbReport,
+  BackupVerifyResult,
+  BackupVerifySnapshot,
+  BackupVerifySummary,
+  BackupVerifyVerdict,
+} from './backup-verify.js';
 // === Boundary Registry (SSoT for Rust/TS layering — ADR-078, Saga T10176) ===
 export type {
   BoundaryEntry,
