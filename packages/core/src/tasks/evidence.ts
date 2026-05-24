@@ -1274,6 +1274,36 @@ export function checkGateEvidenceMinimum(
 }
 
 /**
+ * Detailed variant of {@link checkGateEvidenceMinimum} that returns the
+ * machine-readable failure (with `message` + `hint`) instead of a flat
+ * string. Use this when the caller needs the multi-line CLI `fix:` hint
+ * (T9949) — `E_EVIDENCE_INSUFFICIENT` surfaces in engine-ops.ts populate
+ * `engineError({fix: result.hint})` with this output.
+ *
+ * Returns `null` when the gate is satisfied.
+ *
+ * @param gate - The gate being verified
+ * @param atoms - Validated atoms
+ * @returns `null` when satisfied; `{ message, hint }` when not
+ *
+ * @task T9949
+ * @adr ADR-051 §2.3
+ */
+export function checkGateEvidenceMinimumDetailed(
+  gate: VerificationGate,
+  atoms: EvidenceAtom[],
+): { message: string; hint: string } | null {
+  const projected: Array<{ kind: ParsedEvidenceAtom['kind'] }> = [];
+  for (const atom of atoms) {
+    if (atom.kind === 'override') continue;
+    const kind: ParsedEvidenceAtom['kind'] = atom.kind;
+    projected.push({ kind });
+  }
+  const result = validateEvidenceForGate(gate, projected);
+  return result.ok ? null : { message: result.message, hint: result.hint };
+}
+
+/**
  * Compose a {@link GateEvidence} record from validated atoms.
  *
  * @param atoms - Validated evidence atoms

@@ -475,6 +475,7 @@ export {
 export type {
   EvidenceAtom as EvidenceAtomInput,
   EvidenceAtomKind,
+  EvidenceValidationFailure,
   EvidenceValidationResult,
   GateEvidenceRequirement,
 } from './evidence-atom-schema.js';
@@ -486,6 +487,7 @@ export {
   EvidenceParseError,
   filesAtomSchema,
   formatGateRequirement,
+  formatGateRequirementHint,
   GATE_EVIDENCE_REQUIREMENTS,
   locDropAtomSchema,
   noteAtomSchema,

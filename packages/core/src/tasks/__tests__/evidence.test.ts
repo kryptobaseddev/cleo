@@ -20,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   checkGateEvidenceMinimum,
+  checkGateEvidenceMinimumDetailed,
   composeGateEvidence,
   parseEvidence,
   revalidateEvidence,
@@ -417,6 +418,40 @@ describe('checkGateEvidenceMinimum (T832)', () => {
 
   it('cleanupDone accepts a note', () => {
     expect(checkGateEvidenceMinimum('cleanupDone', [{ kind: 'note', note: 'cleaned' }])).toBeNull();
+  });
+});
+
+describe('checkGateEvidenceMinimumDetailed (T9949)', () => {
+  it('returns null when the gate is satisfied', () => {
+    expect(
+      checkGateEvidenceMinimumDetailed('cleanupDone', [{ kind: 'note', note: 'done' }]),
+    ).toBeNull();
+  });
+
+  it('returns { message, hint } when note-only evidence hits implemented', () => {
+    const r = checkGateEvidenceMinimumDetailed('implemented', [
+      { kind: 'note', note: 'I deleted some files' },
+    ]);
+    expect(r).not.toBeNull();
+    if (r) {
+      // Legacy message preserved for any consumer that still matches against it.
+      expect(r.message).toMatch(/^Gate 'implemented' requires evidence: /);
+      // Rich hint surfaces the alternative atoms a note-only caller needs.
+      expect(r.hint).toContain('Use ONE of:');
+      expect(r.hint).toContain("--evidence 'commit:<sha>;note:<short description>'");
+      expect(r.hint).toContain("'note:' alone is NOT accepted for this gate");
+    }
+  });
+
+  it('returns a hint confirming note-only acceptance for cleanupDone failure path', () => {
+    // cleanupDone requires note — when called with NO atoms it fails, and the
+    // hint should still point at the canonical note-only verify command.
+    const r = checkGateEvidenceMinimumDetailed('cleanupDone', []);
+    expect(r).not.toBeNull();
+    if (r) {
+      expect(r.hint).toContain("--evidence 'note:<short description>'");
+      expect(r.hint).toContain("'note:' alone IS accepted for this gate");
+    }
   });
 });
 
