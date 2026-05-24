@@ -1,5 +1,5 @@
 /**
- * Unit tests for the nested-nexus disposition (ADR-085 / T10321 / Saga T10281).
+ * Unit tests for the nested-nexus disposition (ADR-086 / T10321 / Saga T10281).
  *
  * Two surfaces under test:
  *
@@ -16,7 +16,7 @@
  * `cleanup-legacy.test.ts`).
  *
  * @task T10321
- * @adr ADR-085
+ * @adr ADR-086
  */
 
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -82,7 +82,7 @@ function nestedPath(home: string): string {
 // detectAndWarnOnNestedNexus
 // ---------------------------------------------------------------------------
 
-describe('detectAndWarnOnNestedNexus (ADR-085 §2.2)', () => {
+describe('detectAndWarnOnNestedNexus (ADR-086 §2.2)', () => {
   let tmpHome: string;
   let prevCleoHome: string | undefined;
 
@@ -115,7 +115,7 @@ describe('detectAndWarnOnNestedNexus (ADR-085 §2.2)', () => {
 
     const [payload, message] = warnSpy.mock.calls[0] ?? [];
     expect(payload).toMatchObject({
-      adr: 'ADR-085',
+      adr: 'ADR-086',
       task: 'T10321',
       migrationCommand: 'node scripts/migrate-nested-nexus.mjs',
     });
@@ -145,7 +145,7 @@ describe('detectAndWarnOnNestedNexus (ADR-085 §2.2)', () => {
 // migrate-nested-nexus.mjs — plan() + execute()
 // ---------------------------------------------------------------------------
 
-describe('scripts/migrate-nested-nexus.mjs plan() (ADR-085 §2.1 allowlist)', () => {
+describe('scripts/migrate-nested-nexus.mjs plan() (ADR-086 §2.1 allowlist)', () => {
   let tmpHome: string;
 
   beforeEach(() => {
@@ -248,7 +248,7 @@ describe('scripts/migrate-nested-nexus.mjs plan() (ADR-085 §2.1 allowlist)', ()
   });
 });
 
-describe('scripts/migrate-nested-nexus.mjs execute() (ADR-085 §2.1)', () => {
+describe('scripts/migrate-nested-nexus.mjs execute() (ADR-086 §2.1)', () => {
   let tmpHome: string;
 
   beforeEach(() => {

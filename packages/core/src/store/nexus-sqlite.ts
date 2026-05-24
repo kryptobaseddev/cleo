@@ -87,12 +87,12 @@ export function resolveNexusMigrationsFolder(): string {
 }
 
 // ---------------------------------------------------------------------------
-// Nested-nexus migration debris detection (ADR-085 / T10321)
+// Nested-nexus migration debris detection (ADR-086 / T10321)
 // ---------------------------------------------------------------------------
 
 /**
  * Canonical filename within the nested `<cleoHome>/nexus/` subdirectory that
- * indicates the structural bug ADR-085 BANs. If this file exists, the install
+ * indicates the structural bug ADR-086 BANs. If this file exists, the install
  * has not yet run `scripts/migrate-nested-nexus.mjs`.
  */
 const NESTED_NEXUS_SENTINEL = 'nexus.db';
@@ -115,7 +115,7 @@ const _warnedNestedPaths: Set<string> = new Set();
  * {@link detectAndWarnOnNestedNexus} instead.
  *
  * @task T10321
- * @adr ADR-085
+ * @adr ADR-086
  */
 export function getNestedNexusSentinelPath(): string {
   return join(getCleoHome(), 'nexus', NESTED_NEXUS_SENTINEL);
@@ -137,7 +137,7 @@ export function getNestedNexusSentinelPath(): string {
  * @returns `true` when the warning fired on this call; `false` otherwise.
  *
  * @task T10321
- * @adr ADR-085
+ * @adr ADR-086
  */
 export function detectAndWarnOnNestedNexus(): boolean {
   let nestedPath: string;
@@ -160,7 +160,7 @@ export function detectAndWarnOnNestedNexus(): boolean {
       nestedPath,
       canonicalPath,
       migrationCommand: 'node scripts/migrate-nested-nexus.mjs',
-      adr: 'ADR-085',
+      adr: 'ADR-086',
       task: 'T10321',
     },
     'Detected nested-nexus structural bug — canonical flat nexus.db is in use; ' +
@@ -480,7 +480,7 @@ export async function getNexusDb(): Promise<NodeSQLiteDatabase<typeof nexusSchem
     const dbPath = requestedPath;
     _nexusDbPath = dbPath;
 
-    // ADR-085 / T10321 — warn (one-shot, non-blocking) if the install still
+    // ADR-086 / T10321 — warn (one-shot, non-blocking) if the install still
     // carries the nested-nexus migration debris. Does not alter the open.
     detectAndWarnOnNestedNexus();
 

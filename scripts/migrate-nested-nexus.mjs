@@ -4,7 +4,7 @@
  * migrate-nested-nexus.mjs — Delete the nested `~/.local/share/cleo/nexus/`
  * subdirectory and its DB / sidecar / sidecar-bak debris.
  *
- * Per ADR-085 (Nested-Nexus Disposition — BAN), Saga T10281
+ * Per ADR-086 (Nested-Nexus Disposition — BAN), Saga T10281
  * SG-BRAIN-DB-RESILIENCE / Epic T10285 E4-DB-CROSS-LINKS / T10321: the
  * canonical CLEO global-tier layout is FLAT. The nested subdirectory at
  * `$XDG_DATA_HOME/cleo/nexus/` is migration debris left by an incomplete
@@ -52,7 +52,7 @@
  *   3  - user declined the interactive prompt
  *
  * @task T10321
- * @adr ADR-085
+ * @adr ADR-086
  */
 
 import { existsSync, readdirSync, rmdirSync, statSync, unlinkSync } from 'node:fs';
@@ -101,7 +101,7 @@ function resolveCleoHome() {
 }
 
 // ---------------------------------------------------------------------------
-// Allowlist (ADR-085 §2.1)
+// Allowlist (ADR-086 §2.1)
 // ---------------------------------------------------------------------------
 
 /**
