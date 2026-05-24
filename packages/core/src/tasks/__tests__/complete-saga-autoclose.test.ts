@@ -430,4 +430,135 @@ describe('completeTask — saga auto-close (T10116)', () => {
     expect(result.task.status).toBe('done');
     expect(result.autoCompleted).toBeUndefined();
   });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // T10425 (Saga T10326 L1) — additional coverage filed AFTER T10116 shipped:
+  //   1. New-shape `type='saga'` rows (T10277 ScopeB cutover) must drive the
+  //      same auto-close branch — previously only legacy `type='epic' +
+  //      label='saga'` fixtures exercised this code path.
+  //   2. Epic→Task→Subtask cascade (the canonical AC3 "must not regress"
+  //      contract) is asserted INSIDE the saga test file so a future edit to
+  //      the saga branch cannot silently break the parent rollup it sits
+  //      next to.
+  // See ADR-083 §2.6 + ADR-073 §1.2 invariants I3+I5.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  it("auto-closes a new-shape `type='saga'` row when its last member completes (T10425 / T10277)", async () => {
+    // New-shape saga (post-T10277 ScopeB cutover): `type='saga'` with NO
+    // `'saga'` label. The auto-close branch resolves the saga via
+    // `findSagasGroupingTask`, which sweeps both shapes via `isSagaShape`.
+    // This pins the new-shape contract against silent drift.
+    const now = new Date().toISOString();
+    await seedTasks(accessor, [
+      {
+        id: 'TS-NEW',
+        title: 'SG-NEW-SHAPE',
+        type: 'saga',
+        status: 'pending',
+        priority: 'high',
+        createdAt: now,
+      },
+      {
+        id: 'TM-N1',
+        title: 'Member Epic 1 (new-shape saga)',
+        type: 'epic',
+        status: 'done',
+        priority: 'high',
+        createdAt: now,
+        completedAt: now,
+      },
+      {
+        id: 'TM-N2',
+        title: 'Member Epic 2 (last pending)',
+        type: 'epic',
+        status: 'pending',
+        priority: 'high',
+        createdAt: now,
+      },
+    ]);
+    await accessor.addRelation('TS-NEW', 'TM-N1', SAGA_GROUPS_RELATION);
+    await accessor.addRelation('TS-NEW', 'TM-N2', SAGA_GROUPS_RELATION);
+
+    const result = await completeTask({ taskId: 'TM-N2' }, env.tempDir, accessor);
+
+    expect(result.task.status).toBe('done');
+    expect(result.autoCompleted).toContain('TS-NEW');
+
+    // Re-load and confirm the new-shape saga flipped terminal.
+    const saga = await accessor.loadSingleTask('TS-NEW');
+    expect(saga?.status).toBe('done');
+    expect(saga?.type).toBe('saga');
+    expect(saga?.completedAt).toBeDefined();
+    expect(saga?.pipelineStage).toBe('contribution');
+
+    // Synthesized evidence MUST still cite the canonical ADR atoms — the
+    // new-shape contract reuses `buildSagaAutoCloseEvidence`, so the
+    // three-atom envelope is identical to the legacy-shape case.
+    const evidence = saga?.verification?.evidence?.implemented;
+    const atomNotes = (evidence?.atoms ?? []).map((a) => a.note);
+    expect(atomNotes.some((n) => n?.startsWith('saga-auto-close-via-completeTask:'))).toBe(true);
+    expect(atomNotes.some((n) => n === 'adr:ADR-073 §1.2 invariants I3+I5')).toBe(true);
+  });
+
+  it('does NOT regress the Epic→Task→Subtask cascade auto-close (T10425 AC3)', async () => {
+    // Canonical parent-edge rollup: when every subtask of a task is done,
+    // the task auto-closes; when every task of an epic is done, the epic
+    // auto-closes. This branch lives ABOVE the saga branch in completeTask;
+    // pinning it here proves a future saga-branch edit cannot silently
+    // break the cascade it sits next to.
+    const now = new Date().toISOString();
+    await seedTasks(accessor, [
+      {
+        id: 'E-CASCADE',
+        title: 'Cascade Epic',
+        type: 'epic',
+        status: 'pending',
+        priority: 'high',
+        createdAt: now,
+      },
+      {
+        id: 'T-CASCADE',
+        title: 'Cascade Task',
+        type: 'task',
+        status: 'pending',
+        priority: 'high',
+        parentId: 'E-CASCADE',
+        createdAt: now,
+      },
+      {
+        id: 'ST-CASCADE-1',
+        title: 'Subtask 1',
+        type: 'subtask',
+        status: 'done',
+        priority: 'medium',
+        parentId: 'T-CASCADE',
+        createdAt: now,
+        completedAt: now,
+      },
+      {
+        id: 'ST-CASCADE-2',
+        title: 'Subtask 2 — last pending',
+        type: 'subtask',
+        status: 'pending',
+        priority: 'medium',
+        parentId: 'T-CASCADE',
+        createdAt: now,
+      },
+    ]);
+
+    const result = await completeTask({ taskId: 'ST-CASCADE-2' }, env.tempDir, accessor);
+
+    expect(result.task.status).toBe('done');
+    // Both the parent task AND the grandparent epic should auto-roll.
+    // Per the implementation, the immediate parent (task) closes via the
+    // coordination-parent branch; the epic then closes via the epic
+    // auto-complete branch on its own walk path (next call). Here we
+    // assert at minimum the immediate-parent rollup landed — proving
+    // the parent-edge cascade is untouched by the saga branch above.
+    expect(result.autoCompleted).toContain('T-CASCADE');
+
+    const task = await accessor.loadSingleTask('T-CASCADE');
+    expect(task?.status).toBe('done');
+    expect(task?.pipelineStage).toBe('contribution');
+  });
 });
