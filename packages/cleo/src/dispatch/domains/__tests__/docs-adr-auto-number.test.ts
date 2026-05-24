@@ -227,7 +227,8 @@ describe('docs dispatch — ADR auto-numbering (T10360 / closes T10153)', () => 
       };
     };
 
-    const result = await allocateAdrSlug('Always Fails', {
+    const result = await allocateAdrSlug(tempDir, {
+      title: 'Always Fails',
       reserveSlugImpl: failingReserve as never,
       startNumberOverride: 1,
     });

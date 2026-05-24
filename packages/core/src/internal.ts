@@ -137,6 +137,7 @@ export type {
   AdrAllocateOk,
   AdrAllocateResult,
   AllocateAdrOptions,
+  AllocateAdrParams,
 } from './docs/adr-allocator.js';
 export {
   allocateAdrSlug,

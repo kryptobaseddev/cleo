@@ -1096,7 +1096,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           'add',
         );
       }
-      const allocation = await allocateAdrSlug(rawTitle, { cwd: getProjectRoot() });
+      const allocation = await allocateAdrSlug(getProjectRoot(), { title: rawTitle });
       if (!allocation.ok) {
         return lafsError(allocation.code, allocation.message, 'add');
       }

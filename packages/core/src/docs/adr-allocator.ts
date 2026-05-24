@@ -104,8 +104,21 @@ export interface AdrAllocateErr {
 /** Discriminated union returned by {@link allocateAdrSlug}. */
 export type AdrAllocateResult = AdrAllocateOk | AdrAllocateErr;
 
-/** Options accepted by {@link allocateAdrSlug}. */
-export interface AllocateAdrOptions extends ReserveSlugOptions {
+/**
+ * Params accepted by {@link allocateAdrSlug}.
+ *
+ * Follows the canonical Core SSoT dispatch contract (ADR-057): the
+ * function takes `(projectRoot, params)` so it can be invoked from a
+ * `defineTypedHandler` block without the SSoT lint flagging it as a
+ * non-uniform signature.
+ */
+export interface AllocateAdrParams extends ReserveSlugOptions {
+  /**
+   * Human-readable title — slugified into the slug tail.
+   * Empty / whitespace-only titles return `E_VALIDATION`.
+   */
+  readonly title: string;
+
   /**
    * Override the starting ADR number. Used by unit tests to force the
    * allocator down the retry path without populating the DB first.
@@ -120,6 +133,15 @@ export interface AllocateAdrOptions extends ReserveSlugOptions {
    *
    * @internal
    */
+  readonly reserveSlugImpl?: typeof reserveSlug;
+}
+
+/**
+ * @deprecated Legacy positional shape — retained for one release of
+ * back-compat with internal callers. Prefer {@link AllocateAdrParams}.
+ */
+export interface AllocateAdrOptions extends ReserveSlugOptions {
+  readonly startNumberOverride?: number;
   readonly reserveSlugImpl?: typeof reserveSlug;
 }
 
@@ -216,16 +238,24 @@ export function assembleAdrSlug(number: number, title: string): string {
  * @param opts - Optional cwd + test overrides.
  * @returns `{ ok: true, number, slug }` or `{ ok: false, code, message }`.
  *
+ * @param projectRoot - Absolute path to the project root (the `.cleo/`
+ *                       parent). Used for DB resolution + slug
+ *                       reservation. Pass `getProjectRoot()` from the
+ *                       dispatch layer.
+ * @param params - Allocation params — `title` is the canonical kebab
+ *                 source. Test seams (`startNumberOverride`,
+ *                 `reserveSlugImpl`) are optional.
+ * @returns `{ ok: true, number, slug }` or `{ ok: false, code, message }`.
+ *
  * @task T10360
  */
-// SSoT-EXEMPT: internal SDK helper — not a dispatched (projectRoot, params) op. Title is the canonical input + opts only injects test seams. (T10360)
 export async function allocateAdrSlug(
-  title: string,
-  opts?: AllocateAdrOptions,
+  projectRoot: string,
+  params: AllocateAdrParams,
 ): Promise<AdrAllocateResult> {
   // Reject empty / whitespace-only titles up front so an empty kebab
   // tail (`adr-001-`) never lands in the DB.
-  const kebab = slugify(title);
+  const kebab = slugify(params.title);
   if (!kebab) {
     return {
       ok: false,
@@ -234,17 +264,17 @@ export async function allocateAdrSlug(
     };
   }
 
-  const reserve = opts?.reserveSlugImpl ?? reserveSlug;
-  const startNumber = opts?.startNumberOverride ?? (await findHighestAdrNumber(opts?.cwd)) + 1;
+  const reserve = params.reserveSlugImpl ?? reserveSlug;
+  const startNumber = params.startNumberOverride ?? (await findHighestAdrNumber(projectRoot)) + 1;
 
   // Try `startNumber`, `startNumber+1`, ... up to MAX_ADR_ALLOCATION_ATTEMPTS
   // increments. Each candidate is a fresh reservation attempt against the
   // central allocator chokepoint.
   for (let i = 0; i < MAX_ADR_ALLOCATION_ATTEMPTS; i++) {
     const candidateNumber = startNumber + i;
-    const candidateSlug = assembleAdrSlug(candidateNumber, title);
+    const candidateSlug = assembleAdrSlug(candidateNumber, params.title);
     const reservation: SlugReserveResult = await reserve('adr', candidateSlug, {
-      ...(opts?.cwd !== undefined ? { cwd: opts.cwd } : {}),
+      cwd: projectRoot,
     });
     if (reservation.ok) {
       return { ok: true, number: candidateNumber, slug: reservation.normalizedSlug };
