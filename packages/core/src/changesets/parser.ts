@@ -63,6 +63,59 @@ function extractSnippet(frontmatter: string, line: number): string | undefined {
   return trimmed;
 }
 
+/**
+ * Best-effort locator for schema issue paths inside frontmatter YAML.
+ *
+ * Zod validates the parsed object and therefore does not know source lines.
+ * For deterministic release-note metadata failures we still want errors to
+ * point operators at the relevant YAML key, not just the opening fence. This
+ * helper handles the simple mapping style used by changesets and falls back
+ * gracefully when aliases/flow-style YAML make localisation ambiguous.
+ *
+ * @internal
+ * @task T10480
+ */
+function locateSchemaIssueLine(
+  frontmatter: string,
+  issuePath: readonly (string | number | symbol)[],
+): number | null {
+  const keys = issuePath.filter((part): part is string => typeof part === 'string');
+  if (keys.length === 0) return null;
+
+  const lines = frontmatter.split(/\r?\n/);
+  let searchStart = 0;
+  let parentIndent = -1;
+  let lastMatchLine: number | null = null;
+
+  for (const key of keys) {
+    const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const keyPattern = new RegExp(`^(\\s*)${escapedKey}\\s*:`);
+    let found = false;
+
+    for (let i = searchStart; i < lines.length; i++) {
+      const line = lines[i];
+      if (line === undefined || line.trim().length === 0 || line.trimStart().startsWith('#'))
+        continue;
+
+      const indent = line.match(/^\s*/)?.[0].length ?? 0;
+      if (parentIndent >= 0 && indent <= parentIndent) break;
+
+      const match = line.match(keyPattern);
+      if (!match) continue;
+
+      parentIndent = match[1]?.length ?? 0;
+      searchStart = i + 1;
+      lastMatchLine = i + 1;
+      found = true;
+      break;
+    }
+
+    if (!found) return lastMatchLine;
+  }
+
+  return lastMatchLine;
+}
+
 // ─── Frontmatter splitting ────────────────────────────────────────────────────
 
 /**
@@ -174,13 +227,18 @@ export function parseChangesetFile(path: string): ChangesetEntry {
 
   const result = ChangesetEntrySchema.safeParse(candidate);
   if (!result.success) {
+    type SchemaIssue = (typeof result.error.issues)[number];
     const issues = result.error.issues
-      .map((issue) => {
+      .map((issue: SchemaIssue) => {
         const fieldPath = issue.path.length > 0 ? issue.path.join('.') : '<root>';
         return `  - ${fieldPath}: ${issue.message}`;
       })
       .join('\n');
-    throw new Error(`${path}:${split.frontmatterStartLine} changeset schema violation:\n${issues}`);
+    const firstIssue = result.error.issues[0];
+    const yamlLine = firstIssue ? locateSchemaIssueLine(split.frontmatter, firstIssue.path) : null;
+    const line =
+      yamlLine !== null ? split.frontmatterStartLine + yamlLine : split.frontmatterStartLine;
+    throw new Error(`${path}:${line} changeset schema violation:\n${issues}`);
   }
 
   // Cross-check: the filename slug should match `id`. This is a strong
