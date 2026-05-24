@@ -239,6 +239,10 @@ function pickDecoratorMetaExtensionsLocal(
   const out: Record<string, unknown> = {};
   if (responseMeta['_nexus'] !== undefined) out['_nexus'] = responseMeta['_nexus'];
   if (responseMeta['deprecated'] !== undefined) out['deprecated'] = responseMeta['deprecated'];
+  // T9921 (Saga T9855 / E8.2) — forward auto-populated tasks.* suggestedNext
+  if (responseMeta['suggestedNext'] !== undefined) {
+    out['suggestedNext'] = responseMeta['suggestedNext'];
+  }
   return out;
 }
 
