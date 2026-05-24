@@ -336,6 +336,7 @@ export type {
   DbSubstrateMigrationOrphan,
   DbSubstrateProjectSurvey,
   DbSubstrateSummary,
+  DbSubstrateSurveyOptions,
   DbSubstrateWarning,
   DbSubstrateWarningKind,
   LegacyBackupEntry,
