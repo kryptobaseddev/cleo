@@ -122,6 +122,14 @@ export interface ObserveBrainParams {
    * External callers MUST NOT set this flag.
    */
   _skipGate?: boolean;
+  /**
+   * T10351: Internal flag — when true, bypasses the brain writer-thread
+   * chokepoint and writes directly. Set ONLY by the writer-thread handler
+   * (`brain-writer-handlers.ts`) when re-entering observeBrain from inside
+   * the worker, so the routing doesn't recurse forever. External callers
+   * MUST NOT set this flag.
+   */
+  _skipQueue?: boolean;
 }
 
 // ── ObserveBrainResult ──────────────────────────────────────────────

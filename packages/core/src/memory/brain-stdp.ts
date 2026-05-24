@@ -664,11 +664,51 @@ export async function shouldRunPlasticity(
  * The number is mapped to `pairingWindowMs`; `lookbackDays` stays at 30d.
  * A deprecation warning is emitted to steer callers to `StdpPlasticityOptions`.
  *
+ * ### T10351 — process-local serializer
+ *
+ * `brain_plasticity_events` and `brain_weight_history` are the highest-volume
+ * write tables in brain.db (~94% of the 1.7 GB blow-up identified in the
+ * T10301 RCA). Two concurrent `applyStdpPlasticity` runs in the same process
+ * (possible via the dialectic-hook + propose-tick reflex + manual
+ * `cleo memory consolidate` racing each other) would interleave their inserts
+ * and torn frame writes from one transaction can clobber the schema-root
+ * B-tree page — the documented corruption signature. The exported entry
+ * point now serializes passes via an async mutex; one pass at a time per
+ * process. See `brain-writer-thread.ts` for the per-row chokepoint that
+ * covers low-volume callers.
+ *
  * @param projectRoot - Project root directory for brain.db resolution
  * @param options - `StdpPlasticityOptions` or a legacy number (deprecated `sessionWindowMs`).
  * @returns Counts of LTP/LTD events applied and edges created/updated.
  */
+let _stdpInFlight: Promise<unknown> | null = null;
+
 export async function applyStdpPlasticity(
+  projectRoot: string,
+  options?: StdpPlasticityOptions | number,
+): Promise<StdpPlasticityResult> {
+  // T10351: serialize STDP passes via a process-local async mutex. If another
+  // pass is in flight, wait for it to finish before starting this one. This
+  // is the brain-stdp side of the single-writer chokepoint — every plasticity
+  // INSERT (lines below) plus every weight_history INSERT now runs strictly
+  // sequentially within this process, eliminating the inner-loop race.
+  while (_stdpInFlight) {
+    try {
+      await _stdpInFlight;
+    } catch {
+      // ignore — we'll attempt our own pass below
+    }
+  }
+  const passPromise = applyStdpPlasticityImpl(projectRoot, options);
+  _stdpInFlight = passPromise.catch(() => undefined);
+  try {
+    return await passPromise;
+  } finally {
+    _stdpInFlight = null;
+  }
+}
+
+async function applyStdpPlasticityImpl(
   projectRoot: string,
   options?: StdpPlasticityOptions | number,
 ): Promise<StdpPlasticityResult> {
