@@ -5,9 +5,9 @@
  * @saga T10431
  */
 
-import { defineCommand } from 'citty';
-import { runSpawnReadinessHygieneCli } from '@cleocode/core/hygiene/validate-spawn-readiness.js';
 import { getProjectRoot } from '@cleocode/core';
+import { runSpawnReadinessHygieneCli } from '@cleocode/core/hygiene/validate-spawn-readiness.js';
+import { defineCommand } from 'citty';
 
 export const hygieneCommand = defineCommand({
   meta: {

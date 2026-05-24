@@ -58,10 +58,21 @@ function runChangesetLintGate(projectRoot: string): HygieneGateResult {
   }
   try {
     execSync(`node "${scriptPath}"`, { cwd: projectRoot, encoding: 'utf-8', timeout: 10_000 });
-    return { name: 'changeset-lint', passed: true, message: 'All changesets well-formed.', severity: 'error' };
-  } catch (err: any) {
-    const stderr = err.stderr || err.message || String(err);
-    return { name: 'changeset-lint', passed: false, message: `Changeset lint failed: ${stderr}`, severity: 'error' };
+    return {
+      name: 'changeset-lint',
+      passed: true,
+      message: 'All changesets well-formed.',
+      severity: 'error',
+    };
+  } catch (err) {
+    const e = err as { stderr?: string; message?: string };
+    const stderr = e.stderr || e.message || String(err);
+    return {
+      name: 'changeset-lint',
+      passed: false,
+      message: `Changeset lint failed: ${stderr}`,
+      severity: 'error',
+    };
   }
 }
 
@@ -77,26 +88,56 @@ function runChangelogDriftGate(projectRoot: string): HygieneGateResult {
     };
   }
   try {
-    const head = execSync('head -n 5 CHANGELOG.md', { cwd: projectRoot, encoding: 'utf-8', timeout: 5_000 });
+    const head = execSync('head -n 5 CHANGELOG.md', {
+      cwd: projectRoot,
+      encoding: 'utf-8',
+      timeout: 5_000,
+    });
     const hasHeader = /^## \[/.test(head);
     if (hasHeader) {
-      return { name: 'changelog-drift', passed: true, message: 'CHANGELOG.md has valid version header.', severity: 'error' };
+      return {
+        name: 'changelog-drift',
+        passed: true,
+        message: 'CHANGELOG.md has valid version header.',
+        severity: 'error',
+      };
     }
-    return { name: 'changelog-drift', passed: false, message: 'CHANGELOG.md missing version header (expected ## [YYYY.MM.PATCH]).', severity: 'error' };
-  } catch (err: any) {
-    return { name: 'changelog-drift', passed: false, message: `Failed to read CHANGELOG.md: ${err.message}`, severity: 'error' };
+    return {
+      name: 'changelog-drift',
+      passed: false,
+      message: 'CHANGELOG.md missing version header (expected ## [YYYY.MM.PATCH]).',
+      severity: 'error',
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      name: 'changelog-drift',
+      passed: false,
+      message: `Failed to read CHANGELOG.md: ${message}`,
+      severity: 'error',
+    };
   }
 }
 
 /** Run the worktree location gate. */
 function runWorktreeLocationGate(expectedPath?: string): HygieneGateResult {
   if (!expectedPath) {
-    return { name: 'worktree-location', passed: true, message: 'No worktree path provided — skipping location check.', severity: 'warn' };
+    return {
+      name: 'worktree-location',
+      passed: true,
+      message: 'No worktree path provided — skipping location check.',
+      severity: 'warn',
+    };
   }
   try {
     const cwd = execSync('pwd', { encoding: 'utf-8', timeout: 5_000 }).trim();
     if (cwd === expectedPath || cwd.includes(expectedPath)) {
-      return { name: 'worktree-location', passed: true, message: `cwd matches worktree (${cwd}).`, severity: 'error' };
+      return {
+        name: 'worktree-location',
+        passed: true,
+        message: `cwd matches worktree (${cwd}).`,
+        severity: 'error',
+      };
     }
     return {
       name: 'worktree-location',
@@ -104,8 +145,14 @@ function runWorktreeLocationGate(expectedPath?: string): HygieneGateResult {
       message: `cwd mismatch: expected ${expectedPath}, got ${cwd}`,
       severity: 'error',
     };
-  } catch (err: any) {
-    return { name: 'worktree-location', passed: false, message: `Failed to check cwd: ${err.message}`, severity: 'error' };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      name: 'worktree-location',
+      passed: false,
+      message: `Failed to check cwd: ${message}`,
+      severity: 'error',
+    };
   }
 }
 
@@ -161,7 +208,10 @@ export async function runSpawnReadinessHygieneCli(
     console.log('All gates passed — spawn readiness confirmed.');
     process.exitCode = 0;
   } else {
-    const failed = result.gates.filter((g) => !g.passed).map((g) => g.name).join(', ');
+    const failed = result.gates
+      .filter((g) => !g.passed)
+      .map((g) => g.name)
+      .join(', ');
     console.error(`FAILED gates: ${failed}`);
     process.exitCode = 1;
   }

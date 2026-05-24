@@ -31,8 +31,8 @@ import { createDoctorProgress } from '../progress.js';
 import { cliError, cliOutput, humanLine } from '../renderers/index.js';
 import { doctorDbSubstrateCommand } from './doctor-db-substrate.js';
 import { doctorLegacyBackupsCommand } from './doctor-legacy-backups.js';
-import { doctorReleaseReadinessCommand } from './doctor-release-readiness.js';
 import { runDoctorProjects } from './doctor-projects.js';
+import { doctorReleaseReadinessCommand } from './doctor-release-readiness.js';
 import { readMigrationConflicts } from './migrate-agents-v2.js';
 
 // ============================================================================
