@@ -23,11 +23,16 @@ jobs:
   prebuild:
     name: Prebuild ${{ matrix.triple }}
     runs-on: ${{ matrix.runner }}
-    # T10479: darwin-x64 (macos-13 Intel) runners are routinely saturated;
-    # mark optional matrix entries non-blocking so a stuck/cancelled build
-    # does not block the rest of the release pipeline. The downstream
-    # "release" job tolerates a missing darwin-x64 binary via the soft-fail
-    # in "Validate prebuilt artifacts" + the publish-skip in publish_pkg.
+    # T10479: darwin-x64 (macos-13 Intel) was REMOVED from this matrix entirely.
+    # `continue-on-error` is insufficient because GitHub Actions `needs:` waits
+    # for QUEUED jobs to reach a terminal state — saturated macos-13 runner
+    # pool leaves the job queued indefinitely, which blocks the downstream
+    # `release` job forever. Removing the matrix entry is the only way to
+    # ship while the macos-13 runner pool is unavailable. Re-add this entry
+    # in a future PR once the pool recovers. Until then, macOS Intel napi
+    # consumers stay on the last successfully-published @cleocode/worktree-napi-darwin-x64
+    # binary via optionalDependencies (the loader emits a descriptive error
+    # if no compatible triple is found at all).
     continue-on-error: ${{ matrix.optional == true }}
     timeout-minutes: ${{ matrix.optional == true && 30 || 60 }}
     strategy:
@@ -42,11 +47,6 @@ jobs:
             runner: ubuntu-latest
             triple: linux-arm64-gnu
             cross: true
-          - target: x86_64-apple-darwin
-            runner: macos-13
-            triple: darwin-x64
-            cross: false
-            optional: true   # T10479: macos-13 runner pool saturated; non-blocking
           - target: aarch64-apple-darwin
             runner: macos-14
             triple: darwin-arm64
@@ -193,7 +193,10 @@ jobs:
           # Then every publishable workspace package, including the
           # @cleocode/worktree-napi root and its 5 per-triple wrapper
           # packages (T10178 — fixes global-install resolution gap).
-          for pkg in packages/contracts packages/paths packages/core packages/caamp packages/lafs packages/cant packages/nexus packages/brain packages/runtime packages/adapters packages/cleo packages/cleo-os packages/agents packages/skills packages/playbooks packages/worktree packages/git-shim packages/mcp-adapter packages/studio packages/animations crates/worktree-napi packages/worktree-napi-linux-x64-gnu packages/worktree-napi-linux-arm64-gnu packages/worktree-napi-darwin-x64 packages/worktree-napi-darwin-arm64 packages/worktree-napi-win32-x64-msvc; do
+          # T10479: packages/worktree-napi-darwin-x64 removed — not published
+          # this release because darwin-x64 was removed from the prebuild
+          # matrix entirely.
+          for pkg in packages/contracts packages/paths packages/core packages/caamp packages/lafs packages/cant packages/nexus packages/brain packages/runtime packages/adapters packages/cleo packages/cleo-os packages/agents packages/skills packages/playbooks packages/worktree packages/git-shim packages/mcp-adapter packages/studio packages/animations crates/worktree-napi packages/worktree-napi-linux-x64-gnu packages/worktree-napi-linux-arm64-gnu packages/worktree-napi-darwin-arm64 packages/worktree-napi-win32-x64-msvc; do
             if [[ -f "$pkg/package.json" ]]; then
               jq --arg v "$VERSION" '.version = $v' "$pkg/package.json" > "$pkg/package.tmp" \
                 && mv "$pkg/package.tmp" "$pkg/package.json"
@@ -578,13 +581,11 @@ jobs:
 
       - name: Validate prebuilt artifacts
         run: |
-          # T10479: darwin-x64 is OPTIONAL — macos-13 Intel runner pool is
-          # frequently saturated and routinely blocks releases. A missing
-          # darwin-x64 binary surfaces a workflow warning instead of failing
-          # the release; consumers without a matching prebuilt fall back to
-          # the loader's descriptive error (same behaviour as today).
+          # T10479: darwin-x64 was REMOVED from the prebuild matrix because
+          # macos-13 Intel runners stay queued indefinitely under pool
+          # saturation, blocking the entire release. Only the 4 buildable
+          # triples are validated here.
           REQUIRED_TRIPLES="linux-x64-gnu linux-arm64-gnu darwin-arm64 win32-x64-msvc"
-          OPTIONAL_TRIPLES="darwin-x64"
           for triple in $REQUIRED_TRIPLES; do
             file="crates/worktree-napi/worktree-napi.${triple}.node"
             if [ ! -f "$file" ]; then
@@ -597,19 +598,6 @@ jobs:
               exit 1
             fi
             echo "OK (required): $file ($size bytes)"
-          done
-          for triple in $OPTIONAL_TRIPLES; do
-            file="crates/worktree-napi/worktree-napi.${triple}.node"
-            if [ ! -f "$file" ]; then
-              echo "::warning::Optional artifact missing: $file (T10479 — darwin-x64 prebuild was non-blocking)"
-              continue
-            fi
-            size=$(stat -c%s "$file" 2>/dev/null || stat -f%z "$file" 2>/dev/null)
-            if [ "$size" -eq 0 ]; then
-              echo "::warning::Empty optional artifact $file (T10479)"
-              continue
-            fi
-            echo "OK (optional): $file ($size bytes)"
           done
 
       # ── npm Publish (OIDC Trusted Publishing) ─────────────────────────────────
@@ -752,16 +740,11 @@ jobs:
           # the platform isn't supported at all.
           publish_pkg packages/worktree-napi-linux-x64-gnu
           publish_pkg packages/worktree-napi-linux-arm64-gnu
-          # T10479: darwin-x64 is optional — skip publish if the binary was
-          # not produced (macos-13 runner pool saturation). The previous
-          # @cleocode/worktree-napi-darwin-x64 version on npm continues to
-          # satisfy Intel-Mac consumers via optionalDependencies until a
-          # later release with an available macos-13 runner re-publishes.
-          if [ -f crates/worktree-napi/worktree-napi.darwin-x64.node ]; then
-            publish_pkg packages/worktree-napi-darwin-x64
-          else
-            echo "SKIP: @cleocode/worktree-napi-darwin-x64 — binary missing (T10479 — non-blocking)"
-          fi
+          # T10479: @cleocode/worktree-napi-darwin-x64 is NOT published from
+          # this release — darwin-x64 was removed from the prebuild matrix
+          # entirely because macos-13 runners stay queued indefinitely under
+          # pool saturation. The previously-published version on npm
+          # continues to satisfy Intel-Mac consumers via optionalDependencies.
           publish_pkg packages/worktree-napi-darwin-arm64
           publish_pkg packages/worktree-napi-win32-x64-msvc
           publish_pkg crates/worktree-napi
