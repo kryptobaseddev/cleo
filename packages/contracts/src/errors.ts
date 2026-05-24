@@ -29,6 +29,8 @@ import { ExitCode } from './exit-codes.js';
  *
  * @task T889 Orchestration Coherence v3
  * @task T907 Thin-agent enforcement
+ * @see INVARIANTS_REGISTRY['ADR-070.ORC-012'] — central-registry entry
+ *   for this invariant. Source: `./invariants/adr-070-orchestration.ts`.
  */
 export class ThinAgentViolationError extends Error {
   /** Stable LAFS error code string for envelope emission. */
@@ -209,6 +211,8 @@ export class DecisionValidatorFailedError extends Error {
  * @codeName E_LEAD_BYPASS_DETECTED
  * @task T9230
  * @adr ADR-070
+ * @see INVARIANTS_REGISTRY['ADR-070.ORC-014'] — central-registry entry
+ *   for this invariant. Source: `./invariants/adr-070-orchestration.ts`.
  */
 export class LeadBypassDetectedError extends Error {
   /** Stable LAFS error code string for envelope emission. */
