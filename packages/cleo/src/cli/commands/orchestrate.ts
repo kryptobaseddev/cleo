@@ -360,6 +360,13 @@ const spawnCommand = defineCommand({
         'Example: --scope packages/cleo creates a worktree with only that subtree checked out. ' +
         'Reduces disk usage and checkout time for tasks scoped to a single package.',
     },
+    'orchestrator-defer': {
+      type: 'boolean',
+      description:
+        'T9214 atomicity waiver: defer worker file-scope declaration to commit time. ' +
+        'Tier-1+ orchestrators only — records auditable atomicity_waiver in the spawn manifest. ' +
+        'Bypasses E_ATOMICITY_NO_SCOPE for worker tasks without explicit AC.files.',
+    },
   },
   async run({ args }) {
     // T892: --tier accepts auto|0|1|2. 'auto' (and undefined) are forwarded
@@ -372,6 +379,13 @@ const spawnCommand = defineCommand({
         tier = parsed;
       }
     }
+    // T10430: --orchestrator-defer flows through as atomicityScope so the
+    // engine can route the waiver into composeSpawnPayload → checkAtomicity.
+    // Distinct from --scope (sparse-checkout): atomicityScope governs the
+    // file-scope gate, spawnScope governs the worktree's checked-out tree.
+    const atomicityScope: 'orchestrator-defer' | undefined = args['orchestrator-defer']
+      ? 'orchestrator-defer'
+      : undefined;
     await dispatchFromCli(
       'mutate',
       'orchestrate',
@@ -382,6 +396,7 @@ const spawnCommand = defineCommand({
         tier,
         noWorktree: args['no-worktree'] === true,
         ...(args.scope ? { spawnScope: args.scope } : {}),
+        ...(atomicityScope ? { atomicityScope } : {}),
       },
       { command: 'orchestrate' },
     );
