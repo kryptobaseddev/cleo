@@ -529,6 +529,20 @@ export {
 } from './graph.js';
 export type { AdapterHookProvider } from './hooks.js';
 export type { AdapterInstallProvider, InstallOptions, InstallResult } from './install.js';
+// === Invariants Registry (Saga T10326 / Epic T10327 / Task T10335 — SG-SUBSTRATE-RECONCILIATION) ===
+export type {
+  InvariantDoctorAudit,
+  InvariantLintRule,
+  InvariantRuntimeGate,
+  InvariantSeverity,
+  RegisteredInvariant,
+} from './invariants/index.js';
+export {
+  ADR_073_INVARIANTS,
+  getInvariant,
+  getInvariantsByAdr,
+  INVARIANTS_REGISTRY,
+} from './invariants/index.js';
 // === Background Job Status (T9955 — promoted from core/store/tasks-schema.ts) ===
 export type { BackgroundJobStatus } from './jobs.js';
 export type {
