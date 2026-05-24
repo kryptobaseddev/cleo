@@ -393,6 +393,7 @@ export {
 // === Doctor: DB-Substrate Survey (T10307 — Saga T10281 / Epic T10282) ===
 // === Doctor: Legacy-Backup Walker (T10309 — Saga T10281 / Epic T10282) ===
 // === Doctor: Cross-DB Invariants (T10323 — Saga T10281 / Epic T10285) ===
+// === Doctor: Invariant Registry Audit (T10340 — Saga T10326 / Epic T10327) ===
 export type {
   ComprehensiveAuditResult,
   DbCrossDbInvariantId,
@@ -407,6 +408,10 @@ export type {
   DbSubstrateSurveyOptions,
   DbSubstrateWarning,
   DbSubstrateWarningKind,
+  InvariantAuditEntry,
+  InvariantAuditResult,
+  InvariantAuditStatus,
+  InvariantAuditViolation,
   LegacyBackupEntry,
   LegacyBackupOriginHint,
   LegacyBackupRecommendation,
