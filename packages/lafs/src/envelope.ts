@@ -744,6 +744,21 @@ export interface CliMeta {
   timestamp: string;
   /** Active session identifier, if present. */
   sessionId?: string;
+  /**
+   * Array of suggested follow-up commands (LAFS hint for chained reasoning).
+   *
+   * Envelope-wide first-class field promoted from the nexus-only
+   * `meta._nexus.suggestedNext` structured form (Saga T9855 / E8 — T9920).
+   * Each entry is a copy-pasteable CLI string the agent can run next.
+   * Producers (operation handlers, decorators) SHOULD attach this via
+   * `attachSuggestedNext()` from `@cleocode/core/dispatch/suggested-next`.
+   *
+   * Renderers MUST drop this field from human output when the array is
+   * empty. Backward-compatible: existing `meta._nexus.suggestedNext`
+   * structured consumers continue to function unchanged — this field is
+   * the flat string projection layered alongside.
+   */
+  suggestedNext?: ReadonlyArray<string>;
   /** Extensible metadata; vendor fields go here. */
   [key: string]: unknown;
 }
