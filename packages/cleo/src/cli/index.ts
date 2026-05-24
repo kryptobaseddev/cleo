@@ -57,6 +57,7 @@ import { lazyCommand } from './lazy-command.js';
 import { didYouMean } from './lib/did-you-mean.js';
 import { maybePromptFirstRun } from './lib/first-run-detection.js';
 import { resolveFormat } from './middleware/output-format.js';
+import { setProjectionOptOut } from './projection-context.js';
 import { resolveSubCommandForHelp } from './resolve-subcommand.js';
 
 function getPackageVersion(): string {
@@ -129,6 +130,7 @@ async function startCli(): Promise<void> {
 
   // Parse global format + field flags from argv.
   const rawOpts: Record<string, unknown> = {};
+  let verboseFlag = false;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--json') rawOpts['json'] = true;
@@ -137,6 +139,8 @@ async function startCli(): Promise<void> {
     else if (arg === '--field' && i + 1 < argv.length) rawOpts['field'] = argv[++i];
     else if (arg === '--fields' && i + 1 < argv.length) rawOpts['fields'] = argv[++i];
     else if (arg === '--mvi' && i + 1 < argv.length) rawOpts['mvi'] = argv[++i];
+    // T9922: MVI record projection opt-out. --full is an alias for --verbose.
+    else if (arg === '--verbose' || arg === '--full') verboseFlag = true;
   }
 
   const formatResolution = resolveFormat(rawOpts);
@@ -149,6 +153,11 @@ async function startCli(): Promise<void> {
     fieldResolution.mvi = 'minimal';
   }
   setFieldContext(fieldResolution);
+
+  // T9922: MVI record projection opt-out. --verbose / --full mean "give me the
+  // full record". --human also opts out because the human renderer needs every
+  // field. JSON/agent paths (the common case) stay on MVI projection.
+  setProjectionOptOut(verboseFlag || formatResolution.format === 'human');
 
   // ---------------------------------------------------------------------------
   // Fast-path for help / version / no-args invocations.

@@ -29,7 +29,17 @@ export const findCommand = defineCommand({
     limit: { type: 'string', description: 'Max results (default: 20)' },
     offset: { type: 'string', description: 'Skip first N results' },
     fields: { type: 'string', description: 'Comma-separated additional fields to include' },
-    verbose: { type: 'boolean', description: 'Include all task fields', alias: 'v' },
+    verbose: {
+      type: 'boolean',
+      description:
+        'Return full task records instead of the MVI projection (id + title + status + key metadata). T9922.',
+      alias: 'v',
+    },
+    // T9922 — MVI record projection opt-out alias (surfaced for --help).
+    full: {
+      type: 'boolean',
+      description: 'Alias for --verbose. T9922.',
+    },
     /**
      * Filter by task kind axis (T944/T9072).
      * Values: work | research | experiment | bug | spike | release
