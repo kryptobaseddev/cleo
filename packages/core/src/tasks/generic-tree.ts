@@ -23,7 +23,8 @@ import type {
   TreeNodeStatus,
   TreeResponse,
 } from '@cleocode/contracts';
-import { SAGA_GROUPS_RELATION, SAGA_LABEL } from '../sagas/constants.js';
+import { SAGA_GROUPS_RELATION } from '../sagas/constants.js';
+import { isSagaShape } from '../sagas/enforcement.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { getLeafBlockers, getTransitiveBlockers } from './dependency-check.js';
 
@@ -144,12 +145,18 @@ function toTreeStatus(status: TaskStatus): TreeNodeStatus {
 /**
  * Map a {@link Task} record to the typed {@link TreeNodeKind} discriminator.
  *
- * Sagas are stored as `type='epic'` rows that carry the `'saga'` label —
- * those resolve to `'saga'`. Everything else maps 1:1 from `Task.type`,
- * with `'task'` as the safe fallback when the type column is missing.
+ * Dual-shape saga acceptance (T10331, Saga T10326 W2.B):
+ *   - Canonical post-migration shape: `type === 'saga'` — first-class
+ *     {@link TaskType} value introduced by W1.A T10328 (ADR-083 §2.5).
+ *   - Legacy label-encoded shape: `type === 'epic' && labels.includes('saga')`
+ *     — still produced by fixtures and not-yet-migrated rows during the
+ *     deprecation window. Removed in W3.C cutover (T10334).
+ *
+ * Everything else maps 1:1 from `Task.type`, with `'task'` as the safe
+ * fallback when the type column is missing.
  */
 function toTreeKind(task: Task): TreeNodeKind {
-  if (task.type === 'epic' && (task.labels ?? []).includes(SAGA_LABEL)) return 'saga';
+  if (isSagaShape(task)) return 'saga';
   if (task.type === 'epic') return 'epic';
   if (task.type === 'subtask') return 'subtask';
   return 'task';

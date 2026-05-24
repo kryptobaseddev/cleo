@@ -631,19 +631,37 @@ export async function reconcileSaga(
   if (params.sagaId && params.sagaId.length > 0) {
     sagaIds = [params.sagaId];
   } else {
-    const listResult = await taskList(projectRoot, { type: 'epic', label: SAGA_LABEL });
-    if (!listResult.success) {
+    // T10331 (Saga T10326 W2.B): dual-shape sweep — query BOTH the canonical
+    // `type='saga'` rows AND the legacy `type='epic' + label='saga'` rows so
+    // not-yet-migrated rows still surface during the deprecation window.
+    // W3.C T10334 collapses to a single new-shape query.
+    const [newShape, oldShape] = await Promise.all([
+      taskList(projectRoot, { type: 'saga' }),
+      taskList(projectRoot, { type: 'epic', label: SAGA_LABEL }),
+    ]);
+    if (!newShape.success) {
       return engineError(
         'E_GENERAL',
-        listResult.error?.message ?? 'Failed to list sagas for reconcile',
+        newShape.error?.message ?? 'Failed to list sagas for reconcile',
       );
     }
-    const rows = listResult.data?.tasks ?? [];
-    sagaIds = rows
-      .map((t) => (t as { id?: string }).id)
-      .filter((id): id is string => typeof id === 'string' && id.length > 0)
-      // Stable order so cron output is deterministic across runs.
-      .sort((a, b) => a.localeCompare(b));
+    if (!oldShape.success) {
+      return engineError(
+        'E_GENERAL',
+        oldShape.error?.message ?? 'Failed to list sagas for reconcile',
+      );
+    }
+    const seenSagaIds = new Set<string>();
+    const mergedIds: string[] = [];
+    for (const t of [...(newShape.data?.tasks ?? []), ...(oldShape.data?.tasks ?? [])]) {
+      const id = (t as { id?: string }).id;
+      if (typeof id !== 'string' || id.length === 0) continue;
+      if (seenSagaIds.has(id)) continue;
+      seenSagaIds.add(id);
+      mergedIds.push(id);
+    }
+    // Stable order so cron output is deterministic across runs.
+    sagaIds = mergedIds.sort((a, b) => a.localeCompare(b));
   }
 
   const entries: SagaReconcileEntry[] = [];
