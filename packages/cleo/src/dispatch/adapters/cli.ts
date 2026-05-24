@@ -22,6 +22,7 @@ import { Dispatcher } from '../dispatcher.js';
 import { createDomainHandlers } from '../domains/index.js';
 import { createAudit } from '../middleware/audit.js';
 import { createFieldFilter } from '../middleware/field-filter.js';
+import { createMutateMinimalEnvelope } from '../middleware/mutate-minimal-envelope.js';
 import { createMviRecordProjection } from '../middleware/mvi-record-projection.js';
 import { createSanitizer } from '../middleware/sanitizer.js';
 import { createSessionResolver } from '../middleware/session-resolver.js';
@@ -167,6 +168,10 @@ export function createCliDispatcher(): Dispatcher {
       // before audit + telemetry record byte sizes. Sits before audit so the
       // audit trail captures the projected (final) bytes.
       createMviRecordProjection(),
+      // T9931 (Saga T9855 / E9.4): minimal envelopes for mutate ops. Mirror
+      // policy to the read-side projection — sits in the same pre-audit slot
+      // so audit/telemetry record the trimmed bytes.
+      createMutateMinimalEnvelope(),
       createAudit(), // T4959: CLI now gets audit trail
       createTelemetry(), // T624: opt-in self-improvement telemetry
     ],

@@ -647,6 +647,13 @@ export { updateTask } from './tasks/update.js';
 // T9918 (Saga T9855 / E7.5) — OperationInputContract registry seed
 // T9917 (Saga T9855 / E7.4) — extended with tasks.add + tasks.update via contracts package
 export { getInputContract, INPUT_CONTRACTS } from './dispatch/contracts/input-contracts.js';
+// T9931 (Saga T9855 / E9.4) — minimal mutate envelopes (default for mutate ops)
+export {
+  applyMutateProjection,
+  type MinimalMutateEnvelope,
+  MUTATE_PROJECTION_PLANS,
+  type MutateProjectionPlan,
+} from './dispatch/mutate-projection.js';
 // T9922 (Saga T9855 / E8.3) — MVI record projection (default for read ops)
 export {
   applyProjectionPlan,
