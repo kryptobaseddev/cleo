@@ -84,6 +84,15 @@ export interface DreamCycleOptions {
   /**
    * Whether to run inline (await) vs fire-and-forget (setImmediate).
    * Default: false (fire-and-forget).
+   *
+   * **Process lifetime (T9948):** in the fire-and-forget path the timer
+   * handle is `unref()`-ed so that the host process is NOT kept alive by
+   * a pending dream cycle. Long-lived hosts (e.g. the sentient daemon)
+   * have other unrelated work that keeps the event loop running, so
+   * unref-ing here only changes the short-lived case (`cleo briefing`,
+   * `cleo show`, …) — those invocations now exit promptly instead of
+   * hanging the SQLite writer lock for as long as `runConsolidation`
+   * takes to finish.
    */
   inline?: boolean;
 }
@@ -232,9 +241,28 @@ export function checkIdleTrigger(idleThresholdMinutes: number): {
  *
  * Private helper. External callers use `checkAndDream` or `triggerManualDream`.
  *
+ * **T9948 — process-lifetime contract**
+ *
+ * When `inline=false`, the run is scheduled via `setImmediate(...).unref()`
+ * so the host process is NOT held alive by a pending dream cycle. This
+ * matters because `runConsolidation` performs BEGIN-locked writes against
+ * brain.db (deduplication, tier promotion, sweepers, …) which can run
+ * for many minutes on a busy graph. Prior to this contract, a single
+ * `cleo briefing` invocation could keep its PID alive — and therefore
+ * the SQLite writer lock contended — for as long as consolidation took.
+ *
+ * Long-lived hosts (the sentient daemon, integration test harnesses) keep
+ * the event loop alive through their tick interval / explicit awaits;
+ * unref-ing this single timer changes nothing for them. Short-lived hosts
+ * (`cleo briefing`, `cleo show`, `cleo find`) now exit as soon as the
+ * caller's await chain resolves.
+ *
  * @param projectRoot - Project root for brain.db resolution.
  * @param sessionId - Active session ID (for Step 9a reward backfill).
- * @param inline - If true, await inline; else fire via setImmediate.
+ * @param inline - If true, await inline; else fire-and-forget via
+ *   `setImmediate(...).unref()` (non-keepalive).
+ *
+ * @task T9948 — briefing DB-lock contention root-cause fix
  */
 async function dispatchDream(
   projectRoot: string,
@@ -259,7 +287,12 @@ async function dispatchDream(
   if (inline) {
     await run();
   } else {
-    setImmediate(run);
+    // T9948: unref() the handle so a fire-and-forget dream does not hold
+    // open a short-lived process (e.g. `cleo briefing`). The dream still
+    // runs to completion in long-lived hosts (sentient daemon, tests)
+    // because they keep the event loop alive through unrelated work.
+    const handle = setImmediate(run);
+    handle.unref();
   }
 }
 
