@@ -682,6 +682,41 @@ jobs:
         # Pure static analysis of checked-in source files — no untrusted input.
         run: node scripts/lint-dockind-writer-uniqueness.mjs
 
+  docs-similarity-lint:
+    # T10170 / Saga T9855 / Epic E12.C13 — Docs Similarity Lint. Blocks PRs
+    # whose new `.md` additions under any canonical doc root (publishMirror
+    # or rawMdPaths in `.cleo/canon.yml`) score >= 0.85 cosine similarity
+    # against any existing doc.
+    #
+    # The script scans ONLY the PR diff (`git diff --diff-filter=A
+    # <base>...HEAD`), so the legacy corpus is never re-scored — it acts as
+    # a forward-only enforcement. Tolerated near-dupes are recorded in
+    # `scripts/.lint-docs-similarity-baseline.json` and re-checked on every
+    # run; net-add over baseline fails with E_DOC_NEAR_DUPLICATE.
+    #
+    # Sister gates: T10369 (DocKind writer uniqueness — slug allocation),
+    # T10361 (write-time slug-similarity inside `cleo docs add`).
+    name: Docs Similarity Lint (T10170)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history required so `git diff origin/main...HEAD` resolves
+          # both ends — shallow clones drop the base ref's commit.
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Resolve PR base ref
+        # GHA's `github.base_ref` is unset on pushes; default to `main` so
+        # local pushes to feature branches still get scanned.
+        run: echo "BASE_REF=origin/${{ github.base_ref || 'main' }}" >> $GITHUB_ENV
+      - name: Docs Similarity gate (--check)
+        # Pure read of checked-in markdown — no untrusted shell expansion of
+        # diff content. The script runs `git diff --diff-filter=A` itself.
+        run: node scripts/lint-docs-similarity.mjs --check --base "$BASE_REF"
+
   manual-write-sweep:
     # T10372 / Epic T10293 / Saga T10288 SG-DOCS-INTEGRITY E5.2 — repo-wide
     # manual-write sweep. Walks every `.md` file added under `.cleo/canon.yml`'s
