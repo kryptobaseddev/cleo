@@ -76,6 +76,18 @@ export interface FindTasksOptions {
    * @task T9905
    */
   urgent?: boolean;
+  /**
+   * Filter by label — selects tasks whose `labels` array contains this
+   * value. Composes with other filters via AND (e.g. `--label bug --status pending`).
+   * Filter-only mode: passing only `--label` with no `query`/`--id` is valid
+   * and returns every task carrying the label.
+   *
+   * Closes GH#393 — gives `cleo find --label <name>` parity with the
+   * positional `cleo labels <name>` surface.
+   *
+   * @task T9904
+   */
+  label?: string;
 }
 
 /** Result of finding tasks. */
@@ -179,7 +191,7 @@ export function fuzzyScore(query: string, text: string): number {
  * the options so the filter lifts out of the query token and only the
  * remaining words stay in the free-text search.
  *
- * Recognised fields: `status`, `kind`, `priority`, `type`, `id`.
+ * Recognised fields: `status`, `kind`, `priority`, `type`, `id`, `label` (T9904).
  * Unrecognised `key:value` tokens pass through as-is (treated as fuzzy
  * text) to preserve user intent.
  *
@@ -215,7 +227,7 @@ export function extractInlineFilters(options: FindTasksOptions): FindTasksOption
   const remaining: string[] = [];
   const next: FindTasksOptions = { ...options };
   for (const tok of tokens) {
-    const m = tok.match(/^(status|kind|priority|type|id):(.+)$/i);
+    const m = tok.match(/^(status|kind|priority|type|id|label):(.+)$/i);
     if (!m) {
       remaining.push(tok);
       continue;
@@ -230,6 +242,12 @@ export function extractInlineFilters(options: FindTasksOptions): FindTasksOption
         break;
       case 'id':
         if (!next.id) next.id = value;
+        break;
+      case 'label':
+        // T9904 — lift inline `label:<value>` into the filter; explicit
+        // --label option wins (matches the precedence rule used by the
+        // other inline filters above).
+        if (!next.label) next.label = value;
         break;
       default:
         // priority/type aren't in FindTasksOptions today — pass through.
@@ -263,14 +281,14 @@ export async function findTasks(
   accessor?: DataAccessor,
 ): Promise<FindTasksResult> {
   const options = extractInlineFilters(rawOptions);
-  const hasFilter = Boolean(options.status || options.kind || options.urgent);
+  const hasFilter = Boolean(options.status || options.kind || options.urgent || options.label);
 
   if (options.query == null && !options.id && !hasFilter) {
     throw new CleoError(
       ExitCode.INVALID_INPUT,
-      'Search query, --id, or at least one filter (--status, --kind, --urgent) is required',
+      'Search query, --id, or at least one filter (--status, --kind, --urgent, --label) is required',
       {
-        fix: 'cleo find "<query>"  OR  cleo find --urgent  OR  cleo find --status pending  OR  cleo find --id T123',
+        fix: 'cleo find "<query>"  OR  cleo find --label bug  OR  cleo find --urgent  OR  cleo find --status pending  OR  cleo find --id T123',
         details: { field: 'query' },
       },
     );
@@ -278,10 +296,15 @@ export async function findTasks(
 
   const acc = accessor ?? (await getTaskAccessor(cwd));
 
-  // Use targeted query with status filter when available
+  // Use targeted query with status/label filters when available — push the
+  // label filter into the accessor so SQLite-backed accessors benefit from
+  // the existing label-aware queryTasks predicate. T9904.
   const filters: TaskQueryFilters = {};
   if (options.status) {
     filters.status = options.status;
+  }
+  if (options.label) {
+    filters.label = options.label;
   }
   const queryResult = await acc.queryTasks(filters);
   let allTasks: Task[] = [...queryResult.tasks];
@@ -293,6 +316,13 @@ export async function findTasks(
       let archivedTasks = archive.archivedTasks as Task[];
       if (options.status) {
         archivedTasks = archivedTasks.filter((t) => t.status === options.status);
+      }
+      if (options.label) {
+        // T9904 — archive doesn't flow through queryTasks; apply the label
+        // predicate here so includeArchive composes correctly.
+        archivedTasks = archivedTasks.filter((t) =>
+          (t.labels ?? []).includes(options.label as string),
+        );
       }
       allTasks = [...allTasks, ...archivedTasks];
     }
@@ -450,6 +480,8 @@ export async function taskFind(
     kind?: string;
     /** Unified urgency surface — see {@link FindTasksOptions.urgent}. @task T9905 */
     urgent?: boolean;
+    /** Filter by label — see {@link FindTasksOptions.label}. @task T9904 */
+    label?: string;
   },
 ): Promise<EngineResult<{ results: (MinimalTaskRecord | TaskRecord)[]; total: number }>> {
   try {
@@ -465,6 +497,7 @@ export async function taskFind(
         offset: options?.offset,
         kind: options?.kind as TaskKind | undefined,
         urgent: options?.urgent,
+        label: options?.label,
       },
       projectRoot,
       accessor,
