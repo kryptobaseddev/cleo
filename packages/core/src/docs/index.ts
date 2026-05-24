@@ -62,6 +62,17 @@ export {
   DEFAULT_SIMILARITY_THRESHOLD,
   parseSimilarityConfig,
 } from './similarity-check.js';
+// ── T10162 — atomic supersede transaction (lifecycle flip + lineage edge) ───
+export type {
+  SupersedeDocInput,
+  SupersedeDocParams,
+  SupersedeDocResult,
+} from './supersede.js';
+export {
+  SUPERSEDE_NOT_FOUND_CODE,
+  SUPERSEDE_SAME_SLUG_CODE,
+  supersedeDoc,
+} from './supersede.js';
 // ── T10160 — body schema validation per DocKind (requiredSections[]) ────────
 export type { ValidateDocBodyResult } from './validate-body.js';
 export { validateDocBody } from './validate-body.js';
