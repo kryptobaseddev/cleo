@@ -55,6 +55,8 @@ import type {
 } from '@cleocode/core/internal';
 import {
   type AttachmentBackend,
+  AUTO_TOKEN,
+  allocateAutoSlugForDispatch,
   createAttachmentStore,
   createAttachmentStoreV2,
   type DerefResult,
@@ -849,14 +851,28 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       );
     }
 
-    // T9636 — validate slug (shape only; uniqueness is checked by the store).
+    // T10159 (Saga T9855 / Epic T10157) — resolve the literal `AUTO` token
+    // BEFORE shape validation. The slug `adr-AUTO-saga-fix` carries an
+    // uppercase `AUTO` placeholder that would otherwise fail the strict
+    // lowercase-kebab regex. `allocateAutoSlug` atomically scans the
+    // `attachments` table for the kind's existing numeric portion (e.g.
+    // adr-077-...) and substitutes the next available number into the
+    // slug. Non-AUTO slugs pass through unchanged.
     let slug: string | undefined;
     if (rawSlug !== undefined) {
-      const check = validateSlug(rawSlug);
+      let candidate = rawSlug as string;
+      if (typeof candidate === 'string' && candidate.includes(AUTO_TOKEN)) {
+        const allocated = await allocateAutoSlugForDispatch(getProjectRoot(), {
+          kind: typeof rawType === 'string' ? rawType : '',
+          rawSlug: candidate,
+        });
+        candidate = allocated.resolvedSlug;
+      }
+      const check = validateSlug(candidate);
       if (!check.valid) {
         return lafsError('E_INVALID_SLUG', check.reason, 'add');
       }
-      slug = rawSlug as string;
+      slug = candidate;
     }
 
     // T9637 — validate type against the closed taxonomy set.
