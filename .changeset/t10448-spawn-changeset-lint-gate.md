@@ -1,5 +1,8 @@
 ---
-"@cleocode/core": patch
+id: t10448-spawn-changeset-lint-gate
+tasks: [T10448]
+kind: feat
+summary: "spawn: wire lint-changesets gate into spawn prompt"
 ---
 
 feat(spawn): wire lint-changesets gate into spawn prompt (T10448)

@@ -1,5 +1,5 @@
 ---
-id: T9905
+id: t9905-unified-urgent-surface
 tasks: [T9905]
 kind: feat
 summary: "Unified urgent surface across find/next/briefing/show (priority + severity dual-axis)"

@@ -1,5 +1,5 @@
 ---
-id: T9947
+id: t9947-cancel-regression-locks
 tasks: [T9947]
 kind: fix
 summary: "Regression-lock `cleo cancel <id>` + `cleo update --status cancelled` on pending tasks with no verification gates"
