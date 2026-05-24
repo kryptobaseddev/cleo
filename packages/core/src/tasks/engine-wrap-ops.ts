@@ -8,6 +8,7 @@
 import type { TaskStatus } from '@cleocode/contracts';
 import { TASK_STATUSES } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import type { DepGraphValidateResult, DepValidateScope } from './dep-graph-validator.js';
 import { runValidation } from './dep-graph-validator.js';
@@ -28,9 +29,18 @@ import {
 } from './task-import.js';
 import { computeCriticalPath, renderMermaidTree, renderTextTree } from './tree-render.js';
 
+/**
+ * Convert a caught error to an EngineResult failure.
+ *
+ * T9940: extracts the real LAFS code from any thrown `CleoError`. Non-CleoError
+ * exceptions fall through to `E_INTERNAL`, never the misleading
+ * `E_NOT_INITIALIZED` blanket label that the pre-T9940 wrapper used.
+ *
+ * @task T9940
+ * @epic T9862
+ */
 function nonCrudEngineError<T>(err: unknown, fallbackMsg: string): EngineResult<T> {
-  const e = err as { message?: string };
-  return engineError<T>('E_NOT_INITIALIZED', e?.message ?? fallbackMsg);
+  return cleoErrorToEngineResult<T>(err, 'E_INTERNAL', fallbackMsg);
 }
 
 /**
@@ -390,8 +400,7 @@ export async function taskClaim(
     await acc.claimTask(taskId, agentId);
     return engineSuccess({ taskId, agentId });
   } catch (err: unknown) {
-    const e = err as { message?: string };
-    return engineError('E_INTERNAL', e?.message ?? 'Failed to claim task');
+    return cleoErrorToEngineResult(err, 'E_INTERNAL', 'Failed to claim task');
   }
 }
 
@@ -410,7 +419,6 @@ export async function taskUnclaim(
     await acc.unclaimTask(taskId);
     return engineSuccess({ taskId });
   } catch (err: unknown) {
-    const e = err as { message?: string };
-    return engineError('E_INTERNAL', e?.message ?? 'Failed to unclaim task');
+    return cleoErrorToEngineResult(err, 'E_INTERNAL', 'Failed to unclaim task');
   }
 }

@@ -12,6 +12,7 @@ import {
   type TaskStatus,
 } from '@cleocode/contracts';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
+import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { safeAppendLog } from '../store/data-safety-central.js';
@@ -239,10 +240,8 @@ export async function taskArchive(
       archivedTasks: result.archived.map((id: string) => ({ id })),
     });
   } catch (err: unknown) {
-    const e = err as { message?: string };
-    return {
-      success: false,
-      error: { code: 'E_NOT_INITIALIZED', message: e?.message ?? 'Task database not initialized' },
-    };
+    // T9940: surface real CleoError LAFS codes; non-CleoError falls through
+    // to E_INTERNAL (not the misleading E_NOT_INITIALIZED blanket label).
+    return cleoErrorToEngineResult(err, 'E_INTERNAL', 'Failed to archive tasks');
   }
 }
