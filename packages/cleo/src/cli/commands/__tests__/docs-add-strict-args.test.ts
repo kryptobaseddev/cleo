@@ -42,6 +42,11 @@ const docsAddSchema = {
   'attached-by': { type: 'string' as const, description: 'Attached by' },
   slug: { type: 'string' as const, description: 'Slug' },
   type: { type: 'string' as const, description: 'Type' },
+  'allow-similar': {
+    type: 'boolean' as const,
+    description: 'Bypass slug similarity check (T10361)',
+  },
+  strict: { type: 'boolean' as const, description: 'Enforce body-schema validation (T10160)' },
 };
 
 describe('docs add — strict flag validation (T10359 / closes T10238)', () => {
