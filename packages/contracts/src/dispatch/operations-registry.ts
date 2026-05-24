@@ -2335,6 +2335,41 @@ export const OPERATIONS: OperationDef[] = [
       },
     ] satisfies ParamDef[],
   },
+  {
+    gateway: 'mutate',
+    domain: 'tasks',
+    operation: 'relates.remove',
+    description:
+      'tasks.relates.remove (mutate) — delete a relation between two tasks. Pass `type` to scope deletion to a single relation kind; omit to remove any type.',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['taskId', 'relatedId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'Source task ID',
+        cli: { positional: true },
+      },
+      {
+        name: 'relatedId',
+        type: 'string',
+        required: true,
+        description: 'Target task ID to remove the relation to',
+        cli: { positional: true },
+      },
+      {
+        name: 'type',
+        type: 'string',
+        required: false,
+        description:
+          'Optional relation type (blocks|related|duplicates|absorbs|fixes|extends|supersedes). Omit to remove any type.',
+        cli: { flag: 'type' },
+      },
+    ] satisfies ParamDef[],
+  },
   // === saga sub-domain (ADR-073 — above-epic grouping tier) ===
   {
     gateway: 'mutate',
