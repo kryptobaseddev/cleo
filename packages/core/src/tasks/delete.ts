@@ -9,6 +9,7 @@ import type { Task, TaskRecord } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
+import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { taskToRecord } from './engine-converters.js';
@@ -196,10 +197,10 @@ export async function taskDelete(
       cascadeDeleted: result.cascadeDeleted,
     });
   } catch (err: unknown) {
-    const e = err as { message?: string };
-    return {
-      success: false,
-      error: { code: 'E_NOT_INITIALIZED', message: e?.message ?? 'Task database not initialized' },
-    };
+    // T9940: preserve real CleoError LAFS codes (E_CLEO_NOT_FOUND,
+    // E_CLEO_VALIDATION, etc.) instead of blanket-labelling every failure
+    // as E_NOT_INITIALIZED. Non-CleoError exceptions fall through to
+    // E_INTERNAL with the original message.
+    return cleoErrorToEngineResult(err, 'E_INTERNAL', 'Failed to delete task');
   }
 }

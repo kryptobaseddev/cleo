@@ -15,6 +15,7 @@ import type {
 import { ExitCode } from '@cleocode/contracts';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
+import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import type { NextDirectives } from '../mvi-helpers.js';
 import { taskListItemNext } from '../mvi-helpers.js';
 import type { DataAccessor } from '../store/data-accessor.js';
@@ -436,10 +437,8 @@ export async function taskFind(
 
     return engineSuccess({ results, total: findResult.total });
   } catch (err: unknown) {
-    const e = err as { message?: string };
-    return {
-      success: false,
-      error: { code: 'E_NOT_INITIALIZED', message: e?.message ?? 'Task database not initialized' },
-    };
+    // T9940: preserve CleoError LAFS codes; non-CleoError → E_INTERNAL,
+    // never the misleading E_NOT_INITIALIZED blanket label.
+    return cleoErrorToEngineResult(err, 'E_INTERNAL', 'Failed to search tasks');
   }
 }

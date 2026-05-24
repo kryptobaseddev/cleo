@@ -7,6 +7,7 @@
 import { ExitCode } from '@cleocode/contracts';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
+import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 
@@ -98,11 +99,8 @@ export async function taskLabelList(
     const labels = await listLabels(projectRoot, accessor);
     return engineSuccess({ labels, count: labels.length });
   } catch (err: unknown) {
-    const e = err as { message?: string };
-    return {
-      success: false,
-      error: { code: 'E_NOT_INITIALIZED', message: e?.message ?? 'Task database not initialized' },
-    };
+    // T9940: preserve CleoError LAFS codes; non-CleoError → E_INTERNAL.
+    return cleoErrorToEngineResult(err, 'E_INTERNAL', 'Failed to list labels');
   }
 }
 

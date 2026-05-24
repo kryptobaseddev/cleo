@@ -6,8 +6,9 @@
 
 import type { Task, TaskRecord, TaskRef, TaskView } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
-import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
+import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { getLifecycleStatus } from '../lifecycle/index.js';
 import { getIvtrState } from '../lifecycle/ivtr-loop.js';
 import type { NextDirectives } from '../mvi-helpers.js';
@@ -136,16 +137,24 @@ export async function showTask(
 
 /**
  * Convert a caught error to an EngineResult failure.
- * Mirrors cleoErrorToEngineError from dispatch/_error.ts without cross-layer import.
+ *
+ * T9940: replaces the prior numeric-code heuristic (code===4 → E_NOT_FOUND,
+ * code===2 → E_INVALID_INPUT) with the canonical CleoError → LAFS code path.
+ * CleoError instances surface their full LAFS code via `toLAFSError()`
+ * (`E_CLEO_NOT_FOUND`, `E_CLEO_VALIDATION`, etc.); non-CleoErrors fall
+ * through to the supplied `fallbackCode`. This eliminates the silent
+ * blanket-label of `E_NOT_INITIALIZED` for every status-transition and
+ * DB-invariant violation that bubbled out of `showTask`.
+ *
+ * @task T9940
+ * @epic T9862
  */
 function caughtToEngineError<T>(
   err: unknown,
   fallbackCode: string,
   fallbackMsg: string,
 ): EngineResult<T> {
-  const e = err as { code?: number; message?: string };
-  const code = e?.code === 4 ? 'E_NOT_FOUND' : e?.code === 2 ? 'E_INVALID_INPUT' : fallbackCode;
-  return engineError<T>(code, e?.message ?? fallbackMsg);
+  return cleoErrorToEngineResult<T>(err, fallbackCode, fallbackMsg);
 }
 
 /**
