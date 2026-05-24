@@ -92,7 +92,7 @@ export function validateDocBody(
   registry?: DocKindRegistry,
 ): ValidateDocBodyResult {
   const meta = lookupMetadata(kind, registry);
-  if (!meta || !meta.requiredSections || meta.requiredSections.length === 0) {
+  if (!meta?.requiredSections || meta.requiredSections.length === 0) {
     return { ok: true, missing: [] };
   }
 

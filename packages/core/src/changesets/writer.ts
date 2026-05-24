@@ -29,7 +29,8 @@ import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { BlobAttachment } from '@cleocode/contracts';
 import { type ChangesetEntry, ChangesetEntrySchema, DocKindRegistry } from '@cleocode/contracts';
-import { createAttachmentStore } from '../store/attachment-store.js';
+import { releaseReservedSlug, reserveSlug } from '../docs/slug-allocator.js';
+import { createAttachmentStore, SlugCollisionError } from '../store/attachment-store.js';
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -71,6 +72,15 @@ export interface WriteChangesetResult {
 
 /**
  * Discriminated error result for {@link writeChangesetEntry}.
+ *
+ * `E_SLUG_RESERVED` (T10388, Saga T10288, Epic T10289) is surfaced by the
+ * central slug-allocator chokepoint when another writer has already claimed
+ * the slug — either in the SAME process (in-process reserved set) or another
+ * process (DB-level `uniq_attachments_slug` UNIQUE INDEX). The `suggestions`
+ * field carries exactly 3 free alternatives derived by
+ * `deriveSlugSuggestionsForAllocator`. The `aliases` field retains
+ * `'E_SSOT_WRITE_FAILED'` for one-release back-compat — downstream consumers
+ * grepping for the legacy code can match `aliases.includes(...)`.
  */
 export type WriteChangesetError =
   | {
@@ -80,6 +90,12 @@ export type WriteChangesetError =
     }
   | { readonly code: 'E_INVALID_ENTRY'; readonly message: string }
   | { readonly code: 'E_FILE_WRITE_FAILED'; readonly message: string }
+  | {
+      readonly code: 'E_SLUG_RESERVED';
+      readonly message: string;
+      readonly suggestions: readonly string[];
+      readonly aliases: readonly string[];
+    }
   | { readonly code: 'E_SSOT_WRITE_FAILED'; readonly message: string };
 
 /**
@@ -201,6 +217,38 @@ export async function writeChangesetEntry(
     };
   }
 
+  // ── 1b. Central slug-allocator chokepoint (T10388, Saga T10288, Epic T10289). ─
+  //
+  // BEFORE any filesystem or DB mutation: ask the allocator whether the slug
+  // is free. The allocator:
+  //   - Holds the per-slug Mutex while it probes the DB.
+  //   - Adds the slug to the in-process reserved set on success.
+  //   - Returns `E_SLUG_RESERVED` with 3 suggestions on collision.
+  //
+  // The reservation is consumed by `attachmentStore.put` on success (writer
+  // contract). On any subsequent failure path we explicitly release with
+  // `releaseReservedSlug(validated.id)` so retries do not see a stale claim.
+  //
+  // This ELIMINATES the rollback path that previously deleted
+  // `.changeset/<slug>.md` after a late-bound `SlugCollisionError`. The
+  // typed catch in step 4 below is now defence-in-depth for the
+  // cross-process race window (where another process took the slug between
+  // `reserveSlug` and `put`).
+  const reservation = await reserveSlug('changeset', validated.id, {
+    cwd: opts.projectRoot,
+  });
+  if (!reservation.ok) {
+    return {
+      ok: false,
+      error: {
+        code: 'E_SLUG_RESERVED',
+        message: `Slug '${validated.id}' is already in use in this project`,
+        suggestions: reservation.suggestions,
+        aliases: ['E_SSOT_WRITE_FAILED'],
+      },
+    };
+  }
+
   // ── 2. Render bytes. ────────────────────────────────────────────────────
   const markdown = renderChangesetMarkdown(validated);
   const bytes = Buffer.from(markdown, 'utf-8');
@@ -221,6 +269,8 @@ export async function writeChangesetEntry(
     } catch {
       /* Already gone or unwritable — ignore. */
     }
+    // Release the slug reservation so retries do not see a stale claim.
+    releaseReservedSlug(validated.id);
     return {
       ok: false,
       error: {
@@ -238,6 +288,12 @@ export async function writeChangesetEntry(
   if (ownerId === undefined) {
     // Schema guarantees `tasks.length >= 1` so this is unreachable; included
     // for type narrowing.
+    releaseReservedSlug(validated.id);
+    try {
+      rmSync(filePath, { force: true });
+    } catch {
+      /* File removal best-effort. */
+    }
     return {
       ok: false,
       error: { code: 'E_INVALID_ENTRY', message: 'tasks array empty after validation' },
@@ -284,6 +340,29 @@ export async function writeChangesetEntry(
       rmSync(filePath, { force: true });
     } catch {
       /* File removal best-effort. */
+    }
+    // Release the slug reservation so retries do not see a stale claim.
+    // Safe regardless of whether the chokepoint reserved it or
+    // attachmentStore.put already consumed it (releaseReservedSlug is a
+    // no-op on an unreserved slug).
+    releaseReservedSlug(validated.id);
+
+    // T10388 — defence-in-depth: if the SSoT write throws SlugCollisionError
+    // it means another process took the slug between our reserveSlug() and
+    // attachmentStore.put() (cross-process race). Surface the SAME
+    // E_SLUG_RESERVED envelope as the early-bound chokepoint path so the
+    // CLI surface sees one uniform shape, with the legacy E_SSOT_WRITE_FAILED
+    // code retained under `aliases` for one release of back-compat.
+    if (err instanceof SlugCollisionError) {
+      return {
+        ok: false,
+        error: {
+          code: 'E_SLUG_RESERVED',
+          message: `Slug '${err.slug}' is already in use in this project`,
+          suggestions: err.suggestions,
+          aliases: ['E_SSOT_WRITE_FAILED'],
+        },
+      };
     }
     return {
       ok: false,
