@@ -1,8 +1,9 @@
 ---
-"@cleocode/core": patch
+id: t10485-remove-orphan-fn
+tasks: [T10485]
+kind: fix
+summary: remove orphan buildChangesetLintGateBlock function
 ---
-
-fix(spawn): remove orphan buildChangesetLintGateBlock function (T10485)
 
 Function was deprecated by T10452 (its check was inlined into the Quality
 Gates block) but a subsequent merge collision in T9937 briefly restored
