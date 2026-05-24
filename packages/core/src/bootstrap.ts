@@ -351,6 +351,7 @@ async function injectAgentsHub(ctx: BootstrapContext): Promise<void> {
         const sanitized = sanitizeCaampFile(stripped);
 
         if (sanitized !== content) {
+          // T10368-audit-ok: bootstrap.global-agents-md
           await writeFile(globalAgentsMd, sanitized, 'utf8');
           ctx.created.push('~/.agents/AGENTS.md (sanitized CAAMP corruption)');
         }

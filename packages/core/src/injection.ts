@@ -217,6 +217,7 @@ export async function ensureInjection(projectRoot: string): Promise<ScaffoldResu
     await mkdir(globalTemplatesDir, { recursive: true });
     const globalPath = join(globalTemplatesDir, 'CLEO-INJECTION.md');
     if (!existsSync(globalPath)) {
+      // T10368-audit-ok: injection.global-cleo-injection
       await writeFile(globalPath, content);
       actions.push('installed global CLEO-INJECTION.md');
     }

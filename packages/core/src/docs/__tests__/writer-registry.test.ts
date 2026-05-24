@@ -252,3 +252,105 @@ describe('WriterRegistryCollisionError', () => {
     expect(err.message).toContain('2');
   });
 });
+
+// ─── T10368: system-managed exemption map ─────────────────────────────────────
+
+describe('WriterRegistry.listSystemManaged (T10368)', () => {
+  it('returns at least the known second-writer hits from the E2 decomp planner', () => {
+    const entries = WriterRegistry.listSystemManaged();
+    const ids = new Set(entries.map((e) => e.id));
+
+    // Each known second-writer call site MUST have an entry.
+    expect(ids.has('release.plan-json')).toBe(true);
+    expect(ids.has('release.changelog')).toBe(true);
+    expect(ids.has('lifecycle.rcasd-migration')).toBe(true);
+    expect(ids.has('lifecycle.stage-artifact')).toBe(true);
+    expect(ids.has('sessions.handoff-markdown')).toBe(true);
+    expect(ids.has('nexus.wiki-overview')).toBe(true);
+    expect(ids.has('docs.publish-mirror')).toBe(true);
+  });
+
+  it('every entry carries an ADR pointer', () => {
+    for (const entry of WriterRegistry.listSystemManaged()) {
+      expect(entry.adrRef).toMatch(/ADR-\d+/);
+      expect(entry.reason.length).toBeGreaterThan(20);
+      expect(entry.sourcePath).toContain('packages/');
+      expect(entry.callsite).toContain('packages/');
+    }
+  });
+
+  it('ids are unique', () => {
+    const entries = WriterRegistry.listSystemManaged();
+    const ids = entries.map((e) => e.id);
+    const uniq = new Set(ids);
+    expect(uniq.size).toBe(ids.length);
+  });
+});
+
+describe('WriterRegistry.isSystemManaged (T10368)', () => {
+  it('matches release.plan-json by exact path', () => {
+    const hit = WriterRegistry.isSystemManaged('.cleo/release/v2026.5.103.plan.json');
+    expect(hit).not.toBeNull();
+    if (hit !== null) {
+      expect(hit.id).toBe('release.plan-json');
+    }
+  });
+
+  it('matches CHANGELOG.md', () => {
+    const hit = WriterRegistry.isSystemManaged('CHANGELOG.md');
+    expect(hit).not.toBeNull();
+    if (hit !== null) {
+      expect(hit.id).toBe('release.changelog');
+      expect(hit.kind).toBe('release-note');
+    }
+  });
+
+  it('matches RCASD migration glob', () => {
+    const hit = WriterRegistry.isSystemManaged('.cleo/rcasd/T4881/research/install.md');
+    expect(hit).not.toBeNull();
+    if (hit !== null) {
+      // Either of the two rcasd-keyed entries is acceptable. The migration
+      // tool runs against the same on-disk layout that the stage artifact
+      // composer produces, so glob overlap is expected; first-match-wins is
+      // by design.
+      expect(['lifecycle.rcasd-migration', 'lifecycle.stage-artifact']).toContain(hit.id);
+    }
+  });
+
+  it('matches stage artifact paths', () => {
+    const hit = WriterRegistry.isSystemManaged('.cleo/stages/research/T1234-research.md');
+    expect(hit).not.toBeNull();
+    if (hit !== null) {
+      expect(hit.id).toBe('lifecycle.stage-artifact');
+    }
+  });
+
+  it('returns null for an unregistered .md write', () => {
+    const hit = WriterRegistry.isSystemManaged('packages/cleo/src/cli/some-random.md');
+    expect(hit).toBeNull();
+  });
+
+  it('normalises Windows-style backslashes', () => {
+    const hit = WriterRegistry.isSystemManaged('.cleo\\release\\v1.0.0.plan.json');
+    expect(hit).not.toBeNull();
+    if (hit !== null) {
+      expect(hit.id).toBe('release.plan-json');
+    }
+  });
+});
+
+describe('WriterRegistry.findSystemManagedById (T10368)', () => {
+  it('returns the entry for a known id', () => {
+    const entry = WriterRegistry.findSystemManagedById('release.plan-json');
+    expect(entry).not.toBeNull();
+    if (entry !== null) {
+      expect(entry.id).toBe('release.plan-json');
+      expect(entry.relativePathGlob).toBe('.cleo/release/*.plan.json');
+    }
+  });
+
+  it('returns null for an unknown id', () => {
+    const entry = WriterRegistry.findSystemManagedById('does-not-exist');
+    expect(entry).toBeNull();
+  });
+});
