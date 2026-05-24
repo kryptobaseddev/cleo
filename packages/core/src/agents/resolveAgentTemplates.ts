@@ -34,6 +34,7 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pushWarning } from '../output.js';
+import { getTemplatesByKind, resolveSourcePathAbsolute } from '../templates/registry.js';
 
 // ---------------------------------------------------------------------------
 // Meta-agents directory helper
@@ -123,7 +124,22 @@ let _starterBundleWarnFired = false;
  * @task T1935 T1929 ADR-068
  */
 export function resolveAgentTemplates(): string | null {
-  // Primary: workspace module resolution against the published package root.
+  // T9879: delegate to the SSoT registry — derive the directory from the
+  // first `agent` entry's resolved absolute sourcePath so registry consumers
+  // and directory consumers share one resolution chain. Falls back to the
+  // historical layout probe when neither pnpm-workspace nor require.resolve
+  // can locate the templates, preserving the original soft-fail contract.
+  const agents = getTemplatesByKind('agent');
+  if (agents.length > 0) {
+    try {
+      return dirname(resolveSourcePathAbsolute(agents[0]));
+    } catch {
+      // Fall through to the legacy probe below.
+    }
+  }
+
+  // Primary fallback: workspace module resolution against the published
+  // package root.
   try {
     const req = createRequire(import.meta.url);
     const agentsPkgJson = req.resolve('@cleocode/agents/package.json');
@@ -133,7 +149,7 @@ export function resolveAgentTemplates(): string | null {
     // Package unreachable — fall through to relative walk.
   }
 
-  // Fallback: climb relative to this file's location. Works in both
+  // Final fallback: climb relative to this file's location. Works in both
   // workspace (src/) and compiled (dist/) layouts without requiring the
   // consumer to have `@cleocode/agents` declared as a direct dependency.
   const here = dirname(fileURLToPath(import.meta.url));

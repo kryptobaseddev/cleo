@@ -5,9 +5,10 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { ScaffoldResult } from '@cleocode/contracts/scaffold-diagnostics';
-import { getCleoHome, getCleoTemplatesDir } from '../paths.js';
+import { getCleoHome } from '../paths.js';
+import { getTemplateById } from '../templates/registry.js';
 
 /**
  * Resolve the source location of CLEOOS-IDENTITY.md from the installed package.
@@ -32,8 +33,15 @@ function resolveIdentitySourcePath(): string | null {
 export async function ensureGlobalTemplates(): Promise<ScaffoldResult> {
   const { getInjectionTemplateContent } = await import('../injection.js');
 
-  const templatesDir = getCleoTemplatesDir();
-  const injectionPath = join(templatesDir, 'CLEO-INJECTION.md');
+  // T9879: route through the SSoT registry entry for the global injection
+  // template so the install path lives next to its source-of-truth source
+  // path + update strategy declaration.
+  const entry = getTemplateById('cleo-injection');
+  if (entry === undefined) {
+    throw new Error('SSoT registry missing cleo-injection template entry');
+  }
+  const injectionPath = join(getCleoHome(), entry.installPath);
+  const templatesDir = dirname(injectionPath);
 
   await mkdir(templatesDir, { recursive: true });
 
