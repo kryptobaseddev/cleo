@@ -33,6 +33,7 @@ import {
   DEFAULT_SIMILARITY_THRESHOLD,
   detectStrayCleoDb,
   exportDocument,
+  findSimilarDocs,
   getAgentOutputsAbsolute,
   getProjectRoot,
   listDocVersions,
@@ -981,6 +982,139 @@ const searchCommand = defineCommand({
       cliError(`docs search failed: ${message}`, ExitCode.GENERAL_ERROR, {
         name: 'E_DOCS_SEARCH_FAILED',
       });
+      process.exit(ExitCode.GENERAL_ERROR);
+    }
+  },
+});
+
+// ── cleo docs find ────────────────────────────────────────────────────────────
+
+/**
+ * `cleo docs find --similar <slug>` — surface llmtxt/similarity.rankBySimilarity
+ * over an existing seed doc.
+ *
+ * Useful for agents asking "what's already been written about X?" before
+ * drafting a new doc. Ranks every other published doc against the seed's
+ * content, filtered (by default) to the same DocKind. Pass `--all-kinds`
+ * to disable the kind filter and rank cross-kind.
+ *
+ * The JSON envelope mirrors the AC contract:
+ * `{ seedSlug, seedKind, totalCandidates, hits: [{ slug, kind, score, summary, lifecycle_status }] }`.
+ *
+ * @task T10163 (Epic T10157 · Saga T9855 · E12.C6)
+ */
+const findCommand = defineCommand({
+  meta: {
+    name: 'find',
+    description:
+      'Find docs similar to a seed slug via llmtxt/similarity.rankBySimilarity. ' +
+      'Pass --similar <slug>; results default to the same DocKind as the seed. ' +
+      'Use --all-kinds to rank cross-kind, --threshold to set the minimum cosine ' +
+      'score, and --limit to cap the number of returned hits.\n\n' +
+      'Named arguments:\n' +
+      '  --similar <slug>       Slug of the seed doc to anchor similarity against (required for now)\n' +
+      '  --limit <n>            Maximum number of hits to return (default 10)\n' +
+      '  --threshold <0..1>     Minimum cosine score, hits below are dropped (default 0.5)\n' +
+      '  --all-kinds            Disable the same-kind filter and rank cross-kind\n' +
+      '  --json                 Emit LAFS JSON envelope (default for non-TTY)',
+  },
+  args: {
+    similar: {
+      type: 'string',
+      description: 'Slug of the seed doc to anchor similarity against',
+    },
+    limit: {
+      type: 'string',
+      description: 'Maximum number of hits to return (default: 10)',
+    },
+    threshold: {
+      type: 'string',
+      description: 'Minimum cosine similarity score in [0, 1] (default: 0.5)',
+    },
+    'all-kinds': {
+      type: 'boolean',
+      description: 'Disable the same-kind filter and rank across every DocKind',
+    },
+    json: {
+      type: 'boolean',
+      description: 'Emit LAFS JSON envelope instead of human-readable output',
+    },
+  },
+  async run({ args, rawArgs }) {
+    try {
+      assertKnownFlags(rawArgs, findCommand.args, 'docs find');
+    } catch (err) {
+      if (err instanceof UnknownFlagError) {
+        cliError(err.message, ExitCode.VALIDATION_ERROR, {
+          name: err.code,
+          fix: err.fix,
+          alternatives: err.suggestions.map((s) => ({ action: s, command: s })),
+          details: { flag: err.flag, knownFlags: err.knownFlags },
+        });
+        process.exit(ExitCode.VALIDATION_ERROR);
+      }
+      throw err;
+    }
+
+    const similarSlug = typeof args.similar === 'string' ? args.similar.trim() : '';
+    if (similarSlug.length === 0) {
+      cliError('--similar <slug> is required', ExitCode.VALIDATION_ERROR, {
+        name: 'E_VALIDATION',
+        fix: 'Example: `cleo docs find --similar adr-073-above-epic-naming --limit 5`.',
+      });
+      process.exit(ExitCode.VALIDATION_ERROR);
+    }
+
+    // Parse numeric flags with explicit validation so we emit structured
+    // errors instead of forwarding NaN into the core helper.
+    let limit: number | undefined;
+    if (typeof args.limit === 'string') {
+      const parsed = Number.parseInt(args.limit, 10);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        cliError(
+          `--limit must be a positive integer (got "${args.limit}")`,
+          ExitCode.VALIDATION_ERROR,
+          {
+            name: 'E_VALIDATION',
+          },
+        );
+        process.exit(ExitCode.VALIDATION_ERROR);
+      }
+      limit = parsed;
+    }
+
+    let threshold: number | undefined;
+    if (typeof args.threshold === 'string') {
+      const parsed = Number.parseFloat(args.threshold);
+      if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+        cliError(
+          `--threshold must be a number in [0, 1] (got "${args.threshold}")`,
+          ExitCode.VALIDATION_ERROR,
+          { name: 'E_VALIDATION' },
+        );
+        process.exit(ExitCode.VALIDATION_ERROR);
+      }
+      threshold = parsed;
+    }
+
+    const allKinds = args['all-kinds'] === true;
+    const projectRoot = getProjectRoot();
+
+    try {
+      const result = await findSimilarDocs(similarSlug, {
+        ...(limit !== undefined ? { limit } : {}),
+        ...(threshold !== undefined ? { threshold } : {}),
+        allKinds,
+        projectRoot,
+      });
+      cliOutput(result, { command: 'docs find', operation: 'docs.find' });
+    } catch (err) {
+      const code =
+        err instanceof Error && typeof (err as Error & { code?: string }).code === 'string'
+          ? (err as Error & { code: string }).code
+          : 'E_DOCS_FIND_FAILED';
+      const message = err instanceof Error ? err.message : String(err);
+      cliError(`docs find failed: ${message}`, ExitCode.GENERAL_ERROR, { name: code });
       process.exit(ExitCode.GENERAL_ERROR);
     }
   },
@@ -2106,6 +2240,7 @@ export const docsCommand = defineCommand({
     supersede: supersedeCommand,
     generate: generateCommand,
     export: exportCommand,
+    find: findCommand,
     search: searchCommand,
     merge: mergeCommand,
     graph: graphCommand,

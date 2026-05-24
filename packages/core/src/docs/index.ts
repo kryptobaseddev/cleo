@@ -33,10 +33,14 @@ export type { GenerateDocsOptions, GenerateDocsResult } from './docs-generator.j
 export { generateDocsLlmsTxt } from './docs-generator.js';
 export type {
   DocsDriftItem,
+  DocsFindSimilarHit,
+  DocsFindSimilarResult,
   DocsGraphEdge,
   DocsGraphNode,
   DocsGraphResult,
   DocsMergeResult,
+  DocsProjectSearchHit,
+  DocsProjectSearchResult,
   DocsPublicationRecord,
   DocsPublishResult,
   DocsRankHit,
@@ -50,12 +54,16 @@ export type {
 } from './docs-ops.js';
 export {
   buildDocsGraph,
+  DEFAULT_FIND_SIMILAR_LIMIT,
+  DEFAULT_FIND_SIMILAR_THRESHOLD,
+  findSimilarDocs,
   listDocVersions,
   listPublications,
   mergeDocs,
   publishDocs,
   rankDocs,
   recordPublication,
+  searchAllProjectDocs,
   searchDocs,
   statusDocs,
   syncFromGit,

@@ -449,6 +449,229 @@ export async function searchAllProjectDocs(
   return { query, totalDocs: deduped.length, hits };
 }
 
+// ─── Similarity ranking by seed slug (T10163) ────────────────────────────────
+
+/**
+ * A single ranked hit returned by {@link findSimilarDocs}.
+ *
+ * Shape pins the envelope contract documented in T10163 AC:
+ * `{ slug, kind, score, summary, lifecycle_status }`. `kind` is the
+ * taxonomy classification (DocKind name, e.g. `'adr'`, `'spec'`); the
+ * underlying column on `attachments` is named `type` but the surfaced
+ * field follows the canonical doc-kind terminology.
+ *
+ * @task T10163 (Epic T10157 / Saga T9855)
+ */
+export interface DocsFindSimilarHit {
+  /** Attachment SHA-256 content address. */
+  readonly id: string;
+  /** Slug under which the doc is published. */
+  readonly slug: string;
+  /** Taxonomy classification (DocKind name) — null when the doc has none. */
+  readonly kind: string | null;
+  /** Normalised cosine similarity score in `[0, 1]`. */
+  readonly score: number;
+  /** Short human-readable summary from `attachments.summary`. */
+  readonly summary: string | null;
+  /** Lifecycle state from `attachments.lifecycle_status`. */
+  readonly lifecycle_status: string;
+}
+
+/**
+ * Result returned by {@link findSimilarDocs}.
+ *
+ * @task T10163 (Epic T10157 / Saga T9855)
+ */
+export interface DocsFindSimilarResult {
+  /** The seed slug used as the similarity anchor. */
+  readonly seedSlug: string;
+  /** DocKind of the seed doc — null when the seed has none. */
+  readonly seedKind: string | null;
+  /** Total number of docs considered before threshold + limit filtering. */
+  readonly totalCandidates: number;
+  /** Ranked hits, highest score first, post-threshold + limit. */
+  readonly hits: DocsFindSimilarHit[];
+}
+
+/**
+ * Default minimum similarity score for {@link findSimilarDocs} results.
+ * Matches the AC for T10163 and biases toward higher-signal matches.
+ */
+export const DEFAULT_FIND_SIMILAR_THRESHOLD = 0.5;
+
+/**
+ * Default maximum number of hits returned by {@link findSimilarDocs}.
+ */
+export const DEFAULT_FIND_SIMILAR_LIMIT = 10;
+
+/**
+ * Find docs similar to a given seed slug via
+ * `llmtxt/similarity.rankBySimilarity` over their text content.
+ *
+ * Unlike {@link searchAllProjectDocs}, which takes a free-text query, this
+ * function uses the **content of an existing published doc** as the
+ * similarity anchor. Useful for agents asking "what's already been written
+ * about X?" before drafting a new doc.
+ *
+ * Behaviour:
+ *   - The seed doc itself is always excluded from the results.
+ *   - By default, candidates are filtered to the same `kind` (DocKind /
+ *     `attachments.type`) as the seed. Pass `allKinds: true` to disable
+ *     this filter and rank cross-kind.
+ *   - Hits below `threshold` (default {@link DEFAULT_FIND_SIMILAR_THRESHOLD})
+ *     are dropped before slicing to `limit`
+ *     (default {@link DEFAULT_FIND_SIMILAR_LIMIT}).
+ *   - Non-text attachments (binary blobs, images) are skipped so their
+ *     bytes do not pollute the n-gram fingerprint.
+ *
+ * @param slug - Slug of the seed doc to anchor similarity against.
+ * @param opts - Optional filter + pagination overrides.
+ * @returns Ranked hits with `{ slug, kind, score, summary, lifecycle_status }`.
+ *
+ * @throws `LLMTXT_PRIMITIVE_UNAVAILABLE` when `llmtxt/similarity` is not installed.
+ * @throws `Error` with `code = 'E_DOCS_SLUG_NOT_FOUND'` when the seed slug
+ *         does not resolve to a published doc.
+ *
+ * @task T10163 (Epic T10157 · Saga T9855 · E12.C6)
+ *
+ * @example
+ * ```ts
+ * const result = await findSimilarDocs('adr-073-above-epic-naming', { limit: 5 });
+ * for (const hit of result.hits) {
+ *   console.log(`${hit.score.toFixed(2)}  ${hit.slug}  (${hit.kind})`);
+ * }
+ * ```
+ */
+export async function findSimilarDocs(
+  slug: string,
+  opts?: {
+    limit?: number;
+    threshold?: number;
+    allKinds?: boolean;
+    projectRoot?: string;
+  },
+): Promise<DocsFindSimilarResult> {
+  let rankBySimilarity: (
+    q: string,
+    candidates: string[],
+    options?: { method?: 'ngram' | 'shingle'; threshold?: number },
+  ) => SimilarityRankResult[];
+
+  try {
+    const mod = await import('llmtxt/similarity');
+    rankBySimilarity = mod.rankBySimilarity;
+  } catch (cause) {
+    throwUnavailable('llmtxt/similarity', cause);
+  }
+
+  const root = opts?.projectRoot ?? getProjectRoot();
+  const limit = opts?.limit ?? DEFAULT_FIND_SIMILAR_LIMIT;
+  const threshold = opts?.threshold ?? DEFAULT_FIND_SIMILAR_THRESHOLD;
+  const allKinds = opts?.allKinds ?? false;
+  const store = createAttachmentStore();
+
+  const seed = await store.findBySlug(slug, root);
+  if (!seed) {
+    const err = new Error(`E_DOCS_SLUG_NOT_FOUND: no doc with slug "${slug}"`);
+    (err as Error & { code: string }).code = 'E_DOCS_SLUG_NOT_FOUND';
+    throw err;
+  }
+
+  const seedFetched = await store.get(seed.metadata.sha256, root);
+  if (!seedFetched) {
+    const err = new Error(
+      `E_DOCS_SEED_UNREADABLE: blob for slug "${slug}" (sha256=${seed.metadata.sha256}) ` +
+        `is missing from the attachment store`,
+    );
+    (err as Error & { code: string }).code = 'E_DOCS_SEED_UNREADABLE';
+    throw err;
+  }
+  const seedContent = seedFetched.bytes.toString('utf8').slice(0, SEARCH_MAX_BYTES_PER_DOC);
+
+  const typeFilter = !allKinds && seed.type ? { type: seed.type } : undefined;
+  const rows = await store.listAllInProject(root, typeFilter);
+
+  // Dedupe by attachment id (one blob can be referenced by N owners) and
+  // drop the seed itself so it cannot rank against itself.
+  const seen = new Map<string, (typeof rows)[number]>();
+  for (const r of rows) {
+    if (r.slug === slug) continue;
+    if (r.metadata.id === seed.metadata.id) continue;
+    if (!seen.has(r.metadata.id)) seen.set(r.metadata.id, r);
+  }
+  const deduped = Array.from(seen.values());
+
+  if (deduped.length === 0) {
+    return {
+      seedSlug: slug,
+      seedKind: seed.type,
+      totalCandidates: 0,
+      hits: [],
+    };
+  }
+
+  type Candidate = {
+    row: (typeof deduped)[number];
+    content: string;
+  };
+  const candidates: Candidate[] = [];
+  for (const row of deduped) {
+    if (row.slug === null) continue;
+    const mime =
+      row.metadata.attachment.kind === 'blob'
+        ? row.metadata.attachment.mime
+        : row.metadata.attachment.kind === 'local-file'
+          ? ((row.metadata.attachment as LocalFileAttachment).mime ?? 'text/plain')
+          : null;
+    if (!isTextMime(mime)) continue;
+    try {
+      const fetched = await store.get(row.metadata.sha256, root);
+      if (!fetched) continue;
+      const text = fetched.bytes.toString('utf8').slice(0, SEARCH_MAX_BYTES_PER_DOC);
+      candidates.push({ row, content: text });
+    } catch {
+      // Skip unreadable blobs — they must not crash the whole search.
+    }
+  }
+
+  if (candidates.length === 0) {
+    return {
+      seedSlug: slug,
+      seedKind: seed.type,
+      totalCandidates: deduped.length,
+      hits: [],
+    };
+  }
+
+  const ranked = rankBySimilarity(
+    seedContent,
+    candidates.map((c) => c.content),
+  );
+
+  const hits: DocsFindSimilarHit[] = [];
+  for (const r of ranked) {
+    if (hits.length >= limit) break;
+    if (r.score < threshold) continue;
+    const c = candidates[r.index];
+    if (!c || c.row.slug === null) continue;
+    hits.push({
+      id: c.row.metadata.id,
+      slug: c.row.slug,
+      kind: c.row.type,
+      score: r.score,
+      summary: c.row.summary,
+      lifecycle_status: c.row.lifecycleStatus,
+    });
+  }
+
+  return {
+    seedSlug: slug,
+    seedKind: seed.type,
+    totalCandidates: deduped.length,
+    hits,
+  };
+}
+
 /**
  * Merge two text contents using llmtxt/sdk version primitives.
  *
