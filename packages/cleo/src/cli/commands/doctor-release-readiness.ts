@@ -175,7 +175,8 @@ export const doctorReleaseReadinessCommand = defineCommand({
             status: 'pass',
             exitCode: 0,
             durationMs: 0,
-            stdout: 'root package.json is private — skipping (per-package check applies at publish time)',
+            stdout:
+              'root package.json is private — skipping (per-package check applies at publish time)',
             stderr: '',
           };
         } else {
