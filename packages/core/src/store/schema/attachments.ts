@@ -5,7 +5,14 @@
  * @task T796
  */
 
-import { index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import {
+  type AnySQLiteColumn,
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+} from 'drizzle-orm/sqlite-core';
 
 const ATTACHMENT_OWNER_TYPES = [
   'task',
@@ -15,6 +22,30 @@ const ATTACHMENT_OWNER_TYPES = [
   'learning',
   'pattern',
 ] as const;
+
+/**
+ * Allowed lifecycle states for `attachments.lifecycle_status`.
+ *
+ * Mirrors the supersession workflow proven on `brain_decisions.confirmation_state`
+ * (T1826) and extended for documents with the `draft`, `archived`, and
+ * `deprecated` terminal states.
+ *
+ * Validation is enforced at the dispatch layer (not via a SQL CHECK constraint)
+ * so future taxonomy additions do NOT require a schema migration.
+ *
+ * @task T10158 (Epic T10157 / Saga T9855)
+ */
+export const ATTACHMENT_LIFECYCLE_STATUSES = [
+  'draft',
+  'proposed',
+  'accepted',
+  'superseded',
+  'archived',
+  'deprecated',
+] as const;
+
+/** Discriminated union of attachment lifecycle states. */
+export type AttachmentLifecycleStatus = (typeof ATTACHMENT_LIFECYCLE_STATUSES)[number];
 
 /**
  * Registry of stored attachments (blob content).
@@ -54,8 +85,85 @@ export const attachments = sqliteTable(
      * @task T9637 (Epic T9627 / Saga T9625)
      */
     type: text('type'),
+    /**
+     * Document workflow state — mirrors `brain_decisions.confirmation_state`
+     * (T1826) and extends it for the document-publishing lifecycle.
+     *
+     * Allowed values: `draft | proposed | accepted | superseded | archived | deprecated`.
+     * Defaults to `'draft'` for new rows; legacy rows pass through at this
+     * default after the T10158 migration. Validation is performed at the
+     * dispatch layer (no SQL CHECK constraint) so future states can be added
+     * without a schema migration.
+     *
+     * @see ATTACHMENT_LIFECYCLE_STATUSES — canonical enum
+     * @task T10158 (Epic T10157 / Saga T9855)
+     */
+    lifecycleStatus: text('lifecycle_status', { enum: ATTACHMENT_LIFECYCLE_STATUSES })
+      .notNull()
+      .default('draft'),
+    /**
+     * Self-referential FK forward pointer to the `attachments.id` row that
+     * this doc replaces. NULL when this doc does not supersede a prior one.
+     *
+     * The referenced row's `superseded_by` should be set to this row's ID on
+     * write — mirrors the brain_decisions supersession pattern (T1826).
+     *
+     * @see supersededBy — reverse pointer stored on the older row
+     * @task T10158 (Epic T10157 / Saga T9855)
+     */
+    supersedes: text('supersedes').references((): AnySQLiteColumn => attachments.id),
+    /**
+     * Self-referential FK reverse pointer to the `attachments.id` row that
+     * has superseded this doc. NULL while this doc is still active.
+     *
+     * Set when a newer doc's `supersedes` points to this row.
+     *
+     * @see supersedes — forward pointer stored on the newer row
+     * @task T10158 (Epic T10157 / Saga T9855)
+     */
+    supersededBy: text('superseded_by').references((): AnySQLiteColumn => attachments.id),
+    /**
+     * Optional short human-readable summary of the attachment (≤ 1 sentence),
+     * distinct from the full body stored in `attachment_json`. Surfaced in
+     * `cleo docs list` and graph-traversal envelopes.
+     *
+     * @task T10158 (Epic T10157 / Saga T9855)
+     */
+    summary: text('summary'),
+    /**
+     * Optional JSON array of free-form keyword strings for search.
+     *
+     * Stored as serialised JSON (not normalised to a sidecar table) to match
+     * the existing `attachment_json` storage discipline. Parsed at read time
+     * by the dispatch layer.
+     *
+     * @task T10158 (Epic T10157 / Saga T9855)
+     */
+    keywords: text('keywords'),
+    /**
+     * Optional JSON array of canonical topic slugs (cross-cuts taxonomy) — a
+     * higher-signal classification axis than `type`. Topics are project-defined
+     * and validated at the dispatch layer.
+     *
+     * @task T10158 (Epic T10157 / Saga T9855)
+     */
+    topics: text('topics'),
+    /**
+     * Optional JSON array of `T####` task IDs that this doc relates to.
+     *
+     * Soft cross-reference (no FK enforced) since tasks live in the same
+     * tasks.db but the `tasks` table is not always present during pure
+     * docs-graph traversal.
+     *
+     * @task T10158 (Epic T10157 / Saga T9855)
+     */
+    relatedTasks: text('related_tasks'),
   },
-  (table) => [index('idx_attachments_sha256').on(table.sha256)],
+  (table) => [
+    index('idx_attachments_sha256').on(table.sha256),
+    index('idx_attachments_lifecycle_status').on(table.lifecycleStatus),
+    index('idx_attachments_supersedes').on(table.supersedes),
+  ],
 );
 
 /**
