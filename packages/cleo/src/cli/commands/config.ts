@@ -94,7 +94,7 @@ const listCommand = defineCommand({
       cliOutput({ config: resolved }, { command: 'config' });
     } catch (err) {
       if (err instanceof CleoError) {
-        cliError(formatError(err), err.code, { name: 'E_CONFIG_LOAD' });
+        cliError(err.message, err.code, { name: 'E_CONFIG_LOAD' });
         process.exit(err.code);
       }
       throw err;
