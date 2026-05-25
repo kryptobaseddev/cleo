@@ -85,6 +85,12 @@ jobs:
           fetch-depth: 0
         timeout-minutes: 5
 
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+        timeout-minutes: 2
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -148,6 +154,12 @@ jobs:
           BRANCH="release/${{ inputs.version }}"
           git checkout -b "$BRANCH"
           echo "name=$BRANCH" >> "$GITHUB_OUTPUT"
+        timeout-minutes: 2
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
         timeout-minutes: 2
 
       - name: Set up Node.js
