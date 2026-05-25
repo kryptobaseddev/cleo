@@ -1,8 +1,12 @@
 # CLEO Prime — Canonical Sentient Master Plan
 
 > **Canonical**: this document supersedes `~/.claude/plans/dreamy-yawning-pinwheel.md` and `~/.claude/plans/i-know-there-was-sequential-elephant.md`, merging both into a single layered roadmap.
-> **Status**: planning · DRAFT · 2026-05-15
+> **Status**: canonical (promoted from DRAFT 2026-05-23) · indexed by `cleo docs fetch cleo-canonical-north-star` (mirror: [`docs/plan/cleo-canonical-north-star.md`](../plan/cleo-canonical-north-star.md))
+> **Originally drafted**: 2026-05-15
 > **Floor**: `v2026.5.68` (T9261 Phase 4 W1-W4 — unified LLM provider architecture live)
+> **Sibling canon**: [`docs/research/CleoCode-Architecture-Harness-Planning.md`](../research/CleoCode-Architecture-Harness-Planning.md) — UI/IPC/TUI layer (Tier 0 added 2026-05-23)
+> **2026-05-23 addendum**: brain.db malformed in production; Tier 0 prerequisite **T10281 SG-BRAIN-DB-RESILIENCE** filed — Wave 0 (T10286 hotfix) shipped 2026-05-23
+> **2026-05-24 addendum**: 11-saga Tier-0 mesh + 2 persona/memory sagas — see `cleo docs fetch cleo-canonical-north-star` (v3 owner-shipped 2026-05-24 18:01 via commit 3064d10d5); T10288 SG-DOCS-INTEGRITY shipped (v2026.5.115), enforces canonical doc routing
 > **Author**: cleo-prime (orchestrator), synthesizing two parallel research-pass plans into one canon
 
 ---
