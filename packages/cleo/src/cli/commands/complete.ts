@@ -65,6 +65,17 @@ export const completeCommand = defineCommand({
       description:
         'Reason for bypassing E_EPIC_HAS_PENDING_CHILDREN guard (audited to .cleo/audit/premature-close.jsonl)',
     },
+    // T10509 — AC-coverage gate (load-bearing IVTR closure)
+    'waive-ac': {
+      type: 'string',
+      description:
+        'Comma-separated AC tokens (UUIDs or AC<n> aliases) to waive from the AC-coverage gate. Requires --waive-reason. Audited to .cleo/audit/ac-waiver.jsonl.',
+    },
+    'waive-reason': {
+      type: 'string',
+      description:
+        'Mandatory justification text for --waive-ac. Captured verbatim in the audit row.',
+    },
   },
   async run({ args }) {
     const response = await dispatchRaw('mutate', 'tasks', 'complete', {
@@ -74,6 +85,9 @@ export const completeCommand = defineCommand({
       verificationNote: args['verification-note'] as string | undefined,
       acknowledgeRisk: args['acknowledge-risk'] as string | undefined,
       overrideReason: args['override-reason'] as string | undefined,
+      // T10509 — AC-coverage gate waiver path
+      waiveAc: args['waive-ac'] as string | undefined,
+      waiveReason: args['waive-reason'] as string | undefined,
     });
 
     if (!response.success) {

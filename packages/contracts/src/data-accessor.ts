@@ -130,6 +130,27 @@ export interface AcRow {
 }
 
 /**
+ * A row of the `evidence_ac_bindings` table (T10503) — the M:N join between
+ * evidence atoms and acceptance criteria. Powers the AC-coverage gate
+ * (T10509) — "what evidence has been recorded against this AC?".
+ *
+ * @task T10509
+ * @saga T10377 (SG-IVTR-AC-BINDING)
+ */
+export interface AcBindingRow {
+  /** UUIDv4 — set by the writer (T10505/T10506). */
+  id: string;
+  /** Stable hash / composite key of the evidence atom. NOT an FK. */
+  evidenceAtomId: string;
+  /** FK → `task_acceptance_criteria(id)`. */
+  acId: string;
+  /** One of {direct, satisfies, coverage}. */
+  bindingType: 'direct' | 'satisfies' | 'coverage';
+  /** ISO-8601 timestamp of binding creation. */
+  createdAt: string;
+}
+
+/**
  * Subset of DataAccessor methods available inside a transaction callback.
  * Write-only — reads use the outer accessor (snapshot isolation).
  */
@@ -181,6 +202,17 @@ export interface TransactionAccessor {
   appendAcHistory(
     rows: Array<{ acId: string; previousText: string; reason: string }>,
   ): Promise<void>;
+  /**
+   * Read all `evidence_ac_bindings` rows whose `ac_id` ∈ the given set.
+   * Used by the AC-coverage gate (T10509) to compute which ACs are
+   * satisfied vs unsatisfied inside the same transaction that flips the
+   * task to `done`.
+   *
+   * Returns the empty array when `acIds` is empty.
+   *
+   * @task T10509
+   */
+  getAcBindings(acIds: readonly string[]): Promise<AcBindingRow[]>;
 }
 
 // Re-export AcRow at the module level for both transaction + outer accessor use.
@@ -253,6 +285,14 @@ export interface DataAccessor {
    * @task T10508
    */
   getAcRows(taskId: string): Promise<AcRow[]>;
+
+  /**
+   * Read `evidence_ac_bindings` rows whose `ac_id` ∈ the given set.
+   * Powers the AC-coverage gate (T10509). Returns the empty array when
+   * `acIds` is empty or no bindings exist for the supplied ids.
+   * @task T10509
+   */
+  getAcBindings(acIds: readonly string[]): Promise<AcBindingRow[]>;
 
   // ---- Metadata (schema_meta KV store) ----
 

@@ -516,6 +516,9 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
       notes: params.notes,
       overrideReason: params.overrideReason,
       acknowledgeRisk: params.acknowledgeRisk,
+      // T10509 — AC-coverage gate waiver path
+      waiveAc: params.waiveAc,
+      waiveReason: params.waiveReason,
     });
     // T994: Track memory usage on task completion (fire-and-forget; must not block).
     // SSoT-EXEMPT: fire-and-forget side-effect that must not block the complete flow
