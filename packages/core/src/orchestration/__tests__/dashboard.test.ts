@@ -3,7 +3,11 @@ import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
 import type { DataAccessor } from '../../store/data-accessor.js';
-import { collectOrchestrateDashboard, formatDashboardPromptSummary } from '../dashboard.js';
+import {
+  collectOrchestrateDashboard,
+  type DashboardWorktreeState,
+  formatDashboardPromptSummary,
+} from '../dashboard.js';
 
 function task(id: string, status: Task['status'], depends: string[] = []): Task {
   return {
@@ -23,6 +27,30 @@ function accessor(tasks: Task[]): DataAccessor {
   return {
     queryTasks: async () => ({ tasks, total: tasks.length }),
   } as unknown as DataAccessor;
+}
+
+function worktreeState(
+  statusCategory: string,
+  overrides: Partial<DashboardWorktreeState> = {},
+): DashboardWorktreeState {
+  const isDirty = overrides.isDirty ?? false;
+  const hasUnpushedCommits = overrides.hasUnpushedCommits ?? false;
+  const reasons = [
+    ...(statusCategory === 'stale' ? ['stale'] : []),
+    ...(isDirty ? ['dirty'] : []),
+    ...(hasUnpushedCommits ? ['unpushed'] : []),
+  ];
+  return {
+    path: `/tmp/${statusCategory}`,
+    branch: 'task/T1',
+    taskId: 'T1',
+    statusCategory,
+    isDirty,
+    hasUnpushedCommits,
+    isStalled: reasons.length > 0,
+    reasons,
+    ...overrides,
+  };
 }
 
 describe('collectOrchestrateDashboard', () => {
@@ -67,7 +95,12 @@ describe('collectOrchestrateDashboard', () => {
       ]),
       now: new Date('2026-05-24T12:00:00.000Z'),
       rateWindowHours: 24,
-      worktreeStatusCategories: ['active', 'active', 'locked', 'merged'],
+      worktreeStates: [
+        worktreeState('active'),
+        worktreeState('active'),
+        worktreeState('locked'),
+        worktreeState('merged'),
+      ],
     });
 
     expect(metrics.queueDepth).toBe(1);
@@ -76,6 +109,51 @@ describe('collectOrchestrateDashboard', () => {
     expect(metrics.forceBypassRate).toEqual({ count: 2, perHour: 0.08, windowHours: 24 });
     expect(metrics.activeWorktreeCount).toBe(2);
     expect(metrics.worktrees.total).toBe(4);
+    expect(metrics.worktrees.stalled).toBe(0);
+  });
+
+  it('surfaces stalled worker worktrees with dirty, unpushed, and stale reasons', async () => {
+    const metrics = await collectOrchestrateDashboard('/project', {
+      accessor: accessor([task('T1', 'active')]),
+      now: new Date('2026-05-24T12:00:00.000Z'),
+      worktreeStates: [
+        worktreeState('active', {
+          path: '/worker/dirty',
+          branch: 'task/T10',
+          taskId: 'T10',
+          isDirty: true,
+          isStalled: true,
+          reasons: ['dirty'],
+        }),
+        worktreeState('active', {
+          path: '/worker/unpushed',
+          branch: 'task/T11',
+          taskId: 'T11',
+          hasUnpushedCommits: true,
+          isStalled: true,
+          reasons: ['unpushed'],
+        }),
+        worktreeState('stale', {
+          path: '/worker/stale',
+          branch: 'task/T12',
+          taskId: 'T12',
+        }),
+      ],
+    });
+
+    expect(metrics.worktrees).toMatchObject({
+      total: 3,
+      active: 2,
+      stale: 1,
+      dirty: 1,
+      unpushed: 1,
+      stalled: 3,
+    });
+    expect(metrics.stalledWorktrees.map((worktree) => worktree.reasons)).toEqual([
+      ['dirty'],
+      ['unpushed'],
+      ['stale'],
+    ]);
   });
 
   it('formats a compact prompt summary', async () => {
@@ -87,7 +165,7 @@ describe('collectOrchestrateDashboard', () => {
     });
 
     expect(formatDashboardPromptSummary(metrics)).toBe(
-      'queue=1 ready / 0 active; worktrees=1 active; adminMerge=0/h; forceBypass=0/h (24h)',
+      'queue=1 ready / 0 active; worktrees=1 active (0 stalled: 0 dirty, 0 unpushed); adminMerge=0/h; forceBypass=0/h (24h)',
     );
   });
 });
