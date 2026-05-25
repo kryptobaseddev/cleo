@@ -11,6 +11,33 @@ import matter from 'gray-matter';
 import type { SkillEntry, SkillMetadata } from '../../types.js';
 
 /**
+ * Convert YAML parser outputs into plain JSON-compatible values.
+ *
+ * gray-matter/js-yaml resolves implicit date scalars (for example
+ * `released: 2026-05-25`) to Date instances. Hermes skill_view responses are
+ * serialized as plain JSON across runtimes, so frontmatter metadata must not
+ * expose Date objects.
+ */
+function toJsonCompatibleYamlValue(value: unknown): unknown {
+  if (value instanceof Date) {
+    const iso = value.toISOString();
+    return iso.endsWith('T00:00:00.000Z') ? iso.slice(0, 10) : iso;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => toJsonCompatibleYamlValue(item));
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, toJsonCompatibleYamlValue(item)]),
+    );
+  }
+
+  return value;
+}
+
+/**
  * Parse a SKILL.md file and extract its frontmatter metadata.
  *
  * @remarks
@@ -40,21 +67,28 @@ export async function parseSkillFile(filePath: string): Promise<SkillMetadata | 
       return null;
     }
 
+    const normalizedMetadata = toJsonCompatibleYamlValue(data.metadata) as
+      | Record<string, string>
+      | undefined;
     const allowedTools = data['allowed-tools'] ?? data.allowedTools;
+    const scalarString = (value: unknown): string | undefined => {
+      if (value === undefined || value === null) return undefined;
+      return String(toJsonCompatibleYamlValue(value));
+    };
 
     return {
-      name: String(data.name),
-      description: String(data.description),
-      license: data.license ? String(data.license) : undefined,
-      compatibility: data.compatibility ? String(data.compatibility) : undefined,
-      metadata: data.metadata as Record<string, string> | undefined,
+      name: scalarString(data.name) ?? '',
+      description: scalarString(data.description) ?? '',
+      license: scalarString(data.license),
+      compatibility: scalarString(data.compatibility),
+      metadata: normalizedMetadata,
       allowedTools:
         typeof allowedTools === 'string'
           ? allowedTools.split(/\s+/)
           : Array.isArray(allowedTools)
             ? allowedTools.map(String)
             : undefined,
-      version: data.version ? String(data.version) : undefined,
+      version: scalarString(data.version),
     };
   } catch {
     return null;
