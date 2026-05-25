@@ -288,8 +288,14 @@ const listCommand = defineCommand({
       'the release-plan aggregator consumes. JSON envelope by default, ' +
       'aligned table on --human.',
   },
-  args: {},
-  async run() {
+  args: {
+    unshipped: {
+      type: 'boolean',
+      description:
+        'List only top-level unshipped .changeset/*.md entries (excludes .changeset/shipped/**).',
+    },
+  },
+  async run({ args }) {
     const projectRoot = getProjectRoot();
     const dir = join(projectRoot, '.changeset');
 
@@ -297,7 +303,13 @@ const listCommand = defineCommand({
     // queued" answer — return an envelope rather than erroring so scripts
     // can poll without try/catch noise.
     if (!existsSync(dir)) {
-      const empty = { entries: [] as ChangesetEntry[], count: 0, dir, note: 'no .changeset/ dir' };
+      const empty = {
+        entries: [] as ChangesetEntry[],
+        count: 0,
+        dir,
+        unshipped: args.unshipped === true,
+        note: 'no .changeset/ dir',
+      };
       if (isHumanOutput()) {
         humanLine('No changeset entries found (.changeset/ directory absent).');
       }
@@ -308,7 +320,7 @@ const listCommand = defineCommand({
     // Re-use the canonical parser the aggregator/lint script share — keeps
     // this verb and CI lockstep, so a `list` that succeeds implies the lint
     // gate would also pass.
-    let entries: ChangesetEntry[];
+    let entries: ChangesetEntry[] = [];
     try {
       entries = changesets.parseChangesetDir(dir);
     } catch (err: unknown) {
@@ -341,7 +353,7 @@ const listCommand = defineCommand({
     }
 
     cliOutput(
-      { entries, count: entries.length, dir },
+      { entries, count: entries.length, dir, unshipped: args.unshipped === true },
       { command: 'changeset list', operation: 'changeset.list' },
     );
   },

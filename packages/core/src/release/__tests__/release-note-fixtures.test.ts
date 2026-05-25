@@ -91,10 +91,7 @@ async function seedEpicWithChildren(epicId: string, childIds: readonly string[])
   }
 }
 
-function writeChangeset(
-  slug: string,
-  lines: readonly string[],
-): void {
+function writeChangeset(slug: string, lines: readonly string[]): void {
   const dir = join(testDir, '.changeset');
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, `${slug}.md`), `${lines.join('\n')}\n`, 'utf8');
@@ -102,9 +99,13 @@ function writeChangeset(
 
 function commitFixtureInputs(): void {
   execFileSync('git', ['-C', testDir, 'add', '.'], { encoding: 'utf-8' });
-  execFileSync('git', ['-C', testDir, 'commit', '--quiet', '-m', 'test: seed release-note fixture'], {
-    encoding: 'utf-8',
-  });
+  execFileSync(
+    'git',
+    ['-C', testDir, 'commit', '--quiet', '-m', 'test: seed release-note fixture'],
+    {
+      encoding: 'utf-8',
+    },
+  );
 }
 
 async function planFixture(): Promise<{ changelog: string; releaseNotes: string }> {
@@ -164,7 +165,10 @@ describe('deterministic release-note fixtures (T10473)', () => {
     },
     {
       name: 'rust',
-      manifest: ['Cargo.toml', '[package]\nname = "fixture-rust"\nversion = "0.1.0"\nedition = "2021"\n'],
+      manifest: [
+        'Cargo.toml',
+        '[package]\nname = "fixture-rust"\nversion = "0.1.0"\nedition = "2021"\n',
+      ],
       task: 'T10003',
       change: 'Rust fixture records security hardening.',
       section: 'Security',
@@ -216,8 +220,12 @@ describe('deterministic release-note fixtures (T10473)', () => {
 
     const { changelog } = await planFixture();
 
-    expect(changelog).toContain('**@cleocode/core:** cleocode fixture exposes task and PR provenance.');
-    expect(changelog).toContain('[T10473](https://github.com/kryptobaseddev/cleo/search?q=T10473&type=commits)');
+    expect(changelog).toContain(
+      '**@cleocode/core:** cleocode fixture exposes task and PR provenance.',
+    );
+    expect(changelog).toContain(
+      '[T10473](https://github.com/kryptobaseddev/cleo/search?q=T10473&type=commits)',
+    );
     expect(changelog).toContain('[#804](https://github.com/kryptobaseddev/cleo/pull/804)');
   });
 
@@ -257,6 +265,6 @@ describe('deterministic release-note fixtures (T10473)', () => {
     expect(changelog).toContain('- Prior release remains intact.');
     expect(changelog).toContain('## [2026.6.0]');
     expect(changelog).toContain('Brownfield fixture replaces only the new release block.');
-    expect((changelog.match(/^## \[2026\.6\.0\]/gm) ?? [])).toHaveLength(1);
+    expect(changelog.match(/^## \[2026\.6\.0\]/gm) ?? []).toHaveLength(1);
   });
 });

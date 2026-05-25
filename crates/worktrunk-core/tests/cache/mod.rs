@@ -163,11 +163,7 @@ fn clear_json_files_missing_dir_returns_zero() {
 #[test]
 fn write_json_at_creates_parent_dirs() {
     let tmp = TempDir::new().unwrap();
-    let path = tmp
-        .path()
-        .join("deeply")
-        .join("nested")
-        .join("entry.json");
+    let path = tmp.path().join("deeply").join("nested").join("entry.json");
     let entry = Entry {
         key: "k".to_string(),
         value: 1,

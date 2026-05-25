@@ -306,7 +306,13 @@ const planCommand = defineCommand({
     saga: {
       type: 'string',
       description:
-        'Saga task ID — walks task_relations type=groups to aggregate member Epics (ADR-073). Mutually exclusive with --epic. (T9838)',
+        'Saga task ID — walks task_relations type=groups to aggregate member Epics (ADR-073). Mutually exclusive with --epic/--tasks. (T9838)',
+      required: false,
+    },
+    tasks: {
+      type: 'string',
+      description:
+        'Explicit task-list release scope (comma- or space-separated, e.g. --tasks T9961,T9962 or --tasks T9961 --tasks T9962). Mutually exclusive with --epic/--saga. (T10088)',
       required: false,
     },
     scheme: {
@@ -353,6 +359,7 @@ const planCommand = defineCommand({
         version: args.version,
         epicId: args.epic,
         sagaId: args.saga,
+        taskIds: parseTaskScopeArg(args.tasks),
         scheme: args.scheme as string | undefined,
         channel: args.channel as string | undefined,
         hotfix: args.hotfix === true,
@@ -363,6 +370,17 @@ const planCommand = defineCommand({
     );
   },
 });
+
+function parseTaskScopeArg(value: unknown): string[] | undefined {
+  const raw = Array.isArray(value) ? value : typeof value === 'string' ? [value] : [];
+  const taskIds = raw.flatMap((part) =>
+    String(part)
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
+  return taskIds.length > 0 ? taskIds : undefined;
+}
 
 /**
  * cleo release open <version> — Phase 3 of the new release pipeline (T9530).

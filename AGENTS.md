@@ -628,6 +628,8 @@ troubleshooting, and FAQ.
 #    `releases` with status='planned'. Read-mostly: no git mutations,
 #    no `gh` calls, no network.
 cleo release plan v2026.MM.N --epic TXXXX
+# For cross-Epic release windows, pass the exact release task set explicitly.
+cleo release plan v2026.MM.N --tasks TXXXX,TYYYY
 
 # 2. Open — dispatch the release-prepare GHA workflow. The workflow cuts
 #    `release/v<version>`, commits changelog + version bump, pushes the

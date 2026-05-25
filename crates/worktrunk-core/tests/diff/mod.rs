@@ -118,8 +118,14 @@ fn parses_real_git_shortstat_output() {
     // We don't assert exact numbers (git wording varies subtly across versions)
     // — only that all three buckets resolved AND the totals are positive.
     let (files, ins, del) = parsed;
-    assert!(files >= 1, "expected ≥1 file changed, got {files} in {stdout:?}");
-    assert!(ins + del > 0, "expected non-zero churn, got ins={ins} del={del}");
+    assert!(
+        files >= 1,
+        "expected ≥1 file changed, got {files} in {stdout:?}"
+    );
+    assert!(
+        ins + del > 0,
+        "expected non-zero churn, got ins={ins} del={del}"
+    );
 }
 
 #[test]
@@ -139,7 +145,10 @@ fn parses_real_git_numstat_lines() {
             total_deleted += d;
         }
     }
-    assert!(total_added >= 2, "expected ≥2 lines added, got {total_added}");
+    assert!(
+        total_added >= 2,
+        "expected ≥2 lines added, got {total_added}"
+    );
     // Fixture only appends — total_deleted stays 0. We still assert the
     // value to prove parse_numstat_line resolved a deletion column.
     assert_eq!(total_deleted, 0);
@@ -162,8 +171,7 @@ fn parses_compound_shortstat_summary() {
 /// keep parity.
 #[test]
 fn parses_numstat_with_osc_link() {
-    let line =
-        "\x1b]8;;https://example.com\x1b\\src\x1b]8;;\x1b\\  5\t3\tsrc/lib.rs";
+    let line = "\x1b]8;;https://example.com\x1b\\src\x1b]8;;\x1b\\  5\t3\tsrc/lib.rs";
     // OSC sequences should be stripped; the resulting prefix is `src` text +
     // whitespace, which the parser SHOULD skip past via its
     // `!c.is_ascii_digit()` trim. If the numstat columns are tab-separated
