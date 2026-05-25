@@ -20,10 +20,12 @@
 
 import {
   applyMutateProjection,
+  isJsonPointer,
   MUTATE_PROJECTION_PLANS,
   type ProjectionMode,
   resolveProjectionMode,
 } from '@cleocode/core';
+import { getFieldContext } from '../../cli/field-context.js';
 import { getProjectionOptOut } from '../../cli/projection-context.js';
 import type { DispatchRequest, DispatchResponse, Middleware } from '../types.js';
 
@@ -39,6 +41,77 @@ function resolveModeFor(req: DispatchRequest): ProjectionMode {
   const override = req.params?.['_projection'];
   if (override === 'full' || override === 'mvi') return override;
   return resolveProjectionMode(getProjectionOptOut() || undefined);
+}
+
+type MutationBucket = 'created' | 'updated' | 'deleted';
+
+const OPERATION_BUCKETS: Readonly<Record<string, MutationBucket>> = {
+  'tasks.add': 'created',
+  'tasks.add-batch': 'created',
+  'tasks.update': 'updated',
+  'tasks.complete': 'updated',
+  'tasks.delete': 'deleted',
+};
+
+const BASE_DATA_FIELDS = new Set([
+  'count',
+  'created',
+  'updated',
+  'deleted',
+  'ids',
+  'fieldPathHints',
+  'status',
+  'completedAt',
+  'changes',
+  'dryRun',
+  'duplicate',
+  'acceptanceCriteriaIds',
+  'autoCompleted',
+  'cascadeDeleted',
+]);
+
+function decodePointerToken(token: string): string {
+  return token.replace(/~1/g, '/').replace(/~0/g, '~');
+}
+
+function prevalidateMutateProjectionPointer(operation: string, pointer: string): string | null {
+  if (pointer === '' || pointer === '/') return null;
+  if (!pointer.startsWith('/data/')) return null;
+  const [, root, field, index] = pointer.split('/').map(decodePointerToken);
+  if (root !== 'data' || !field || !BASE_DATA_FIELDS.has(field)) {
+    return `Pointer "${pointer}" is not available on the projected mutation envelope. Use /data/created/0, /data/updated/0, /data/deleted/0, or legacy /data/ids/0.`;
+  }
+  const bucket = OPERATION_BUCKETS[operation];
+  if (
+    index !== undefined &&
+    ['created', 'updated', 'deleted'].includes(field) &&
+    field !== bucket
+  ) {
+    return `Pointer "${pointer}" cannot resolve for ${operation}; use /data/${bucket}/0.`;
+  }
+  return null;
+}
+
+function fieldNotFoundResponse(req: DispatchRequest, message: string): DispatchResponse {
+  return {
+    meta: {
+      gateway: req.gateway,
+      domain: req.domain,
+      operation: req.operation,
+      timestamp: new Date().toISOString(),
+      duration_ms: 0,
+      source: req.source,
+      requestId: req.requestId,
+      mutateProjection: 'mvi',
+    },
+    success: false,
+    error: {
+      code: 'E_FIELD_NOT_FOUND',
+      exitCode: 4,
+      message,
+      details: { phase: 'prewrite-field-projection-validation' },
+    },
+  };
 }
 
 /**
@@ -65,6 +138,12 @@ export function createMutateMinimalEnvelope(): Middleware {
 
     const opKey = `${req.domain}.${req.operation}`;
     const hasPlan = MUTATE_PROJECTION_PLANS[opKey] !== undefined;
+
+    const field = getFieldContext().field;
+    if (hasPlan && mode === 'mvi' && field && isJsonPointer(field)) {
+      const validationError = prevalidateMutateProjectionPointer(opKey, field);
+      if (validationError) return fieldNotFoundResponse(req, validationError);
+    }
 
     const response = await next();
 
