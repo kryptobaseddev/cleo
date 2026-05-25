@@ -5,7 +5,7 @@
  * @task T1633 — BRAIN-powered duplicate detection
  */
 
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import type {
   ProjectMeta,
   Task,
@@ -26,7 +26,7 @@ import { resolveOrCwd } from '../paths.js';
 import { allocateNextTaskId } from '../sequence/index.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor, TransactionAccessor } from '../store/data-accessor.js';
-import { applyAcPlan, buildFreshAcRows } from './ac-table.js';
+import { acItemToText, applyAcPlan, buildFreshAcRows } from './ac-table.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
 import {
   findEpicAncestor,
@@ -98,8 +98,22 @@ export interface AddTaskResult {
   task: Task;
   duplicate?: boolean;
   dryRun?: boolean;
+  /** IDs created by this mutation, suitable for WorkGraph/projection consumers. */
+  createdIds?: {
+    tasks: string[];
+    acceptanceCriteria: string[];
+  };
   /** Non-blocking warnings emitted during validation. @task T089 */
   warnings?: string[];
+}
+
+/** Normalize AC arrays once so legacy JSON, AC rows, and projections stay aligned. */
+export function normalizeAcceptance(
+  acceptance: readonly string[] | undefined,
+): string[] | undefined {
+  if (!acceptance) return undefined;
+  const normalized = acceptance.map((item) => item.trim()).filter((item) => item.length > 0);
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 /**
@@ -686,6 +700,7 @@ export async function addTask(
   // preventing the common failure mode where agents drop flags like --parent.
   const issues: ValidationIssue[] = [];
   const warnings: string[] = [];
+  const normalizedAcceptance = normalizeAcceptance(options.acceptance);
 
   // Anti-hallucination: title and description must be different (T5698)
   if (
@@ -768,7 +783,7 @@ export async function addTask(
     // Enforce Acceptance Criteria (general rule: min 3 for all task types)
     const enforcement = await createAcceptanceEnforcement(cwd);
     const acValidation = enforcement.validateCreation({
-      acceptance: options.acceptance,
+      acceptance: normalizedAcceptance,
       priority: priority,
     });
     if (!acValidation.valid) {
@@ -783,7 +798,7 @@ export async function addTask(
     if (options.type === 'epic') {
       try {
         await validateEpicCreation(
-          { acceptance: options.acceptance, description: options.description },
+          { acceptance: normalizedAcceptance, description: options.description },
           cwd,
         );
       } catch (err) {
@@ -862,6 +877,7 @@ export async function addTask(
   }
 
   // Parent hierarchy validation using targeted queries
+  let parentTaskForProjection: Task | null = null;
   if (parentId) {
     if (!/^T\d{3,}$/.test(parentId)) {
       throw new CleoError(ExitCode.INVALID_INPUT, `Invalid parent ID format: ${parentId}`, {
@@ -877,6 +893,8 @@ export async function addTask(
         details: { field: 'parentId', actual: parentId },
       });
     }
+
+    parentTaskForProjection = parentTask;
 
     // Read hierarchy limits from config via policy module
     const config = await loadConfig(cwd);
@@ -1152,8 +1170,7 @@ export async function addTask(
     if (options.severity !== undefined) previewTask.severity = options.severity;
     if (options.labels?.length) previewTask.labels = options.labels.map((l) => l.trim());
     if (options.files?.length) previewTask.files = options.files.map((f) => f.trim());
-    if (options.acceptance?.length)
-      previewTask.acceptance = options.acceptance.map((a) => a.trim());
+    if (normalizedAcceptance?.length) previewTask.acceptance = normalizedAcceptance;
     if (options.depends?.length) previewTask.depends = options.depends.map((d) => d.trim());
     if (options.notes) {
       const previewNote = `${new Date()
@@ -1252,7 +1269,7 @@ export async function addTask(
   if (phase) task.phase = phase;
   if (options.labels?.length) task.labels = options.labels.map((l) => l.trim());
   if (options.files?.length) task.files = options.files.map((f) => f.trim());
-  if (options.acceptance?.length) task.acceptance = options.acceptance.map((a) => a.trim());
+  if (normalizedAcceptance?.length) task.acceptance = normalizedAcceptance;
   if (options.depends?.length) task.depends = options.depends.map((d) => d.trim());
   if (options.notes) {
     const timestampedNote = `${new Date()
@@ -1279,6 +1296,7 @@ export async function addTask(
   }
 
   // Wrap all writes in a transaction for TOCTOU safety (T023)
+  const createdAcceptanceCriteriaIds: string[] = [];
   await dataAccessor.transaction(async (tx: TransactionAccessor) => {
     // Position shuffling via bulk SQL update (T025)
     if (options.position !== undefined) {
@@ -1293,10 +1311,38 @@ export async function addTask(
     // `tasks.acceptance` string lives on `task` and was just upserted
     // above via upsertSingleTask. We additionally hydrate the row-table
     // SSoT so future readers can resolve AC by stable UUID + ordinal.
-    if (options.acceptance?.length) {
-      const acRows = buildFreshAcRows(taskId, options.acceptance);
+    if (normalizedAcceptance?.length) {
+      const acRows = buildFreshAcRows(taskId, normalizedAcceptance);
       // Fresh task — no history, no delete. Insert is the only mutation.
       await applyAcPlan(tx, taskId, { inserts: acRows, history: [], fullDelete: false });
+      createdAcceptanceCriteriaIds.push(...acRows.map((row) => row.id));
+    }
+
+    // PM-Core V2 WorkGraph projection sync: parent_id is the containment edge,
+    // and each newly-added direct child is mirrored as a parent-owned AC row so
+    // completion criteria readers can resolve child work without inspecting
+    // task_relations. Keep the legacy parent acceptance JSON in sync as the
+    // compatibility projection until typed child_task AC columns land.
+    if (parentId && parentTaskForProjection) {
+      const parentAcRows = await tx.getAcRows(parentId);
+      const parentChildAcText = `Complete child ${taskId}: ${options.title.trim()}`;
+      const parentChildAcRow = {
+        id: randomUUID(),
+        taskId: parentId,
+        ordinal: parentAcRows.reduce((max, row) => Math.max(max, row.ordinal), 0) + 1,
+        text: parentChildAcText,
+      };
+      await tx.insertAcRows([parentChildAcRow]);
+      createdAcceptanceCriteriaIds.push(parentChildAcRow.id);
+
+      const parentAcceptance = normalizeAcceptance([
+        ...(parentTaskForProjection.acceptance ?? []).map(acItemToText),
+        parentChildAcText,
+      ]);
+      await tx.updateTaskFields(parentId, {
+        acceptanceJson: JSON.stringify(parentAcceptance ?? []),
+        updatedAt: now,
+      });
     }
 
     // Update project metadata if a new phase was created
@@ -1348,5 +1394,9 @@ export async function addTask(
       });
   }
 
-  return { task, ...(warnings.length > 0 && { warnings }) };
+  return {
+    task,
+    createdIds: { tasks: [taskId], acceptanceCriteria: createdAcceptanceCriteriaIds },
+    ...(warnings.length > 0 && { warnings }),
+  };
 }

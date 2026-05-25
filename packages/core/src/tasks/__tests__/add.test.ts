@@ -15,6 +15,7 @@ import {
   getNextPosition,
   getTaskDepth,
   inferTaskType,
+  normalizeAcceptance,
   validateLabels,
   validateParent,
   validatePhaseFormat,
@@ -24,6 +25,14 @@ import {
   validateTaskType,
   validateTitle,
 } from '../add.js';
+
+describe('normalizeAcceptance', () => {
+  it('trims acceptance arrays and drops empty entries', () => {
+    expect(normalizeAcceptance([' first ', '', '  ', 'second'])).toEqual(['first', 'second']);
+    expect(normalizeAcceptance(undefined)).toBeUndefined();
+    expect(normalizeAcceptance([' ', ''])).toBeUndefined();
+  });
+});
 
 describe('validateTitle — tasks/add', () => {
   it('accepts valid titles', () => {
@@ -330,6 +339,41 @@ describe('addTask (integration)', () => {
     );
     expect(child.task.parentId).toBe('T001');
     expect(child.task.type).toBe('task');
+  });
+
+  it('normalizes child acceptance, creates parent child AC projection, and returns created IDs', async () => {
+    await addTask(
+      { title: 'Parent', description: 'Parent epic task', type: 'epic' },
+      env.tempDir,
+      accessor,
+    );
+
+    const child = await addTask(
+      {
+        title: 'Child projection',
+        description: 'Child of parent epic with acceptance projection',
+        parentId: 'T001',
+        acceptance: [' child ac one ', '', 'child ac two  '],
+      },
+      env.tempDir,
+      accessor,
+    );
+
+    expect(child.task.id).toBe('T002');
+    expect(child.task.acceptance).toEqual(['child ac one', 'child ac two']);
+    expect(child.createdIds?.tasks).toEqual(['T002']);
+    expect(child.createdIds?.acceptanceCriteria).toHaveLength(3);
+
+    const childRows = await accessor.getAcRows('T002');
+    expect(childRows.map((row) => row.text)).toEqual(['child ac one', 'child ac two']);
+
+    const parentRows = await accessor.getAcRows('T001');
+    expect(parentRows).toHaveLength(1);
+    expect(parentRows[0]?.text).toBe('Complete child T002: Child projection');
+    expect(child.createdIds?.acceptanceCriteria).toContain(parentRows[0]?.id);
+
+    const parent = await accessor.loadSingleTask('T001');
+    expect(parent?.acceptance).toEqual(['Complete child T002: Child projection']);
   });
 
   it('rejects invalid parent', async () => {
