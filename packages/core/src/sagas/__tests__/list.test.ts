@@ -307,7 +307,7 @@ describe('repairSaga (T10117) — AC3', () => {
     const now = new Date().toISOString();
     await seedTasks(accessor, [
       {
-        id: 'T-NOT-SAGA',
+        id: 'T9900',
         title: 'Plain epic',
         status: 'active',
         priority: 'high',
@@ -316,7 +316,7 @@ describe('repairSaga (T10117) — AC3', () => {
       },
     ]);
 
-    const result = await repairSaga(env.tempDir, { sagaId: 'T-NOT-SAGA' });
+    const result = await repairSaga(env.tempDir, { sagaId: 'T9900' });
 
     expect(result.success).toBe(false);
     if (result.success) return;

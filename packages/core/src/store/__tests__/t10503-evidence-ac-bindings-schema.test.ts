@@ -325,12 +325,13 @@ describe('T10503 fresh migration apply — evidence_ac_bindings table + indexes'
            id TEXT PRIMARY KEY NOT NULL
          )`,
       );
-      nativeDb.prepare('INSERT INTO task_acceptance_criteria (id) VALUES (?)').run('AC-1');
     }
+    nativeDb.prepare('INSERT OR IGNORE INTO task_acceptance_criteria (id) VALUES (?)').run('AC-1');
 
-    // Inserting twice with the same (atom, ac, type) triple must fail
-    // on the second INSERT — the UNIQUE composite index is enforced
-    // unconditionally by SQLite regardless of FK state.
+    // This assertion targets the composite UNIQUE index only. Disable FK
+    // enforcement locally because fresh main may now carry the real AC FK target
+    // with additional required columns beyond this migration's scope.
+    nativeDb.exec('PRAGMA foreign_keys = OFF');
     nativeDb
       .prepare(
         `INSERT INTO evidence_ac_bindings
