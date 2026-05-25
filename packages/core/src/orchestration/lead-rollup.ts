@@ -13,18 +13,39 @@
  * messages so the rollup is conduit-aware. The function does NOT subscribe
  * to topics directly: that is the Lead's responsibility, not core's.
  *
+ * # Mode resolution (T10513 — council action #9)
+ *
+ * The Lead↔Worker Max-N loop scaffolded by E-VALIDATOR-ROLE (T10383) is
+ * gated behind the `leadRollup.mode` config key, NOT a function parameter.
+ * Public function signatures stay identical so existing callers never need
+ * to change. Internally each rollup invocation calls
+ * {@link resolveLeadRollupMode} to look up the operative mode from the
+ * `.cleo/config.json` cascade (default: `'passive'`).
+ *
+ * - `'passive'` — Legacy behaviour. The roll-up contract is unchanged.
+ * - `'active'`  — Reserved for the Lead↔Worker Max-N runtime shipping under
+ *   T10512. Until that runtime lands, the active branch logs a debug marker
+ *   and falls through to passive — so flipping the flag NEVER breaks an
+ *   existing project.
+ * - `'auto'`    — Treated as `'passive'` until the heuristic ships.
+ *
  * @task T9082
+ * @task T10513
+ * @saga T10377
  * @adr ADR-070
  */
 
 import type {
   EpicRollup,
+  LeadRollupMode,
   RollupBlocker,
   RollupEvidenceAtom,
   RollupWorker,
   VerificationGate,
   WaveRollup,
 } from '@cleocode/contracts';
+import { getConfigValue } from '../config/registry.js';
+import { resolveOrCwd } from '../paths.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { computeWaves } from './waves.js';
 
@@ -53,13 +74,55 @@ export interface RollupWaveStatusOptions {
 }
 
 /**
+ * Resolve the operative `leadRollup.mode` from the `.cleo/config.json` cascade.
+ *
+ * Resolution rules:
+ * 1. Look up `leadRollup.mode` via the SSoT config registry's `getConfigValue`
+ *    helper (T9878). Project config (precedence 20) wins over global (10).
+ * 2. When the key is absent, return the contract default `'passive'`.
+ * 3. When the key is present but malformed (not one of the three valid
+ *    `LeadRollupMode` values), fall back to `'passive'` rather than throwing —
+ *    a typo'd config MUST NEVER break an existing caller's rollup call.
+ *
+ * Failures from the registry IO (e.g. unreadable config file) are caught and
+ * downgraded to `'passive'` for the same reason.
+ *
+ * @param projectRoot - Project root to read the cascade from. Defaults to the
+ *   `getProjectRoot()` discovery path (falling back to `process.cwd()` only
+ *   when no `.cleo` sentinel is found) via `resolveOrCwd` — same convention
+ *   the rest of `packages/core/src` uses (T9584).
+ * @returns The resolved `LeadRollupMode` — guaranteed to be one of the three
+ *   valid values, never `undefined`.
+ *
+ * @task T10513
+ */
+export async function resolveLeadRollupMode(projectRoot?: string): Promise<LeadRollupMode> {
+  let resolved: unknown;
+  try {
+    const root = resolveOrCwd(projectRoot);
+    resolved = await getConfigValue('leadRollup.mode', { projectRoot: root, scope: 'merged' });
+  } catch {
+    // Unreadable config file OR no project root resolvable — preserve
+    // legacy behaviour. Lead-rollup MUST NEVER crash because the
+    // operator's `.cleo/config.json` is missing / unreadable / the cwd
+    // is outside a CLEO project.
+    return 'passive';
+  }
+  if (resolved === 'active' || resolved === 'auto' || resolved === 'passive') {
+    return resolved;
+  }
+  return 'passive';
+}
+
+/**
  * Compute a roll-up for a single wave of an epic.
  *
  * @param epicId - Parent epic ID.
  * @param waveId - Wave number (0 = first wave). Must match `cleo deps waves`
  *   output.
  * @param projectRoot - Optional project root for SDK consumers (test fixtures
- *   pass an explicit root; CLI consumers omit it).
+ *   pass an explicit root; CLI consumers omit it). Also used to resolve the
+ *   `leadRollup.mode` feature flag from the project config cascade.
  * @param options - Optional inputs (conduit messages).
  * @returns A `WaveRollup` shape. Returns an empty wave (`workers: []`) when
  *   the wave has no tasks.
@@ -70,6 +133,7 @@ export async function rollupWaveStatus(
   projectRoot?: string,
   options: RollupWaveStatusOptions = {},
 ): Promise<WaveRollup> {
+  const mode = await resolveLeadRollupMode(projectRoot);
   const accessor = await getTaskAccessor(projectRoot);
 
   // Load the epic and its children.
@@ -189,6 +253,14 @@ export async function rollupWaveStatus(
 
   const readyToAdvance = workers.length > 0 && workers.every((w) => w.verificationPassed);
 
+  // T10513 — active-mode hook. The Lead↔Worker Max-N runtime (T10512) plugs
+  // in here. Until that runtime ships we deliberately keep this a no-op so
+  // flipping the flag from 'passive' → 'active' is observably safe: the
+  // returned WaveRollup shape is identical.
+  if (mode === 'active') {
+    applyActiveModeHook(workers, blockers);
+  }
+
   return {
     epicId,
     waveId,
@@ -197,6 +269,24 @@ export async function rollupWaveStatus(
     readyToAdvance,
     capturedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * Active-mode rollup hook — reserved extension point for the Lead↔Worker
+ * Max-N retry runtime (T10512).
+ *
+ * Today this function is intentionally a no-op. Its presence (and the
+ * `mode === 'active'` call site above) is the seam T10512 will plug retry
+ * signal emission into without re-touching the public function signatures —
+ * the WHOLE POINT of the feature-flag refactor per council action #9.
+ *
+ * Kept exported-internal (module scope, not re-exported from the barrel) so
+ * tests in this directory can exercise it directly.
+ *
+ * @task T10513
+ */
+function applyActiveModeHook(_workers: RollupWorker[], _blockers: RollupBlocker[]): void {
+  // Intentional no-op until T10512 lands. See module-level docstring above.
 }
 
 /**
