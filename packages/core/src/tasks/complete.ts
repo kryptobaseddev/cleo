@@ -20,7 +20,7 @@ import { getProjectRoot, resolveOrCwd } from '../paths.js';
 import { buildSagaAutoCloseEvidence, findSagasGroupingTask } from '../sagas/storage.js';
 import { wrapWithAgentSession } from '../sessions/agent-session-adapter.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
-import type { DataAccessor } from '../store/data-accessor.js';
+import type { DataAccessor, TransactionAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { getActiveSession } from '../store/session-store.js';
 import {
@@ -245,10 +245,12 @@ function projectRootForGate(cwd: string | undefined): string {
  * @internal
  * @task T10509
  */
+type AcCoverageAccessor = Pick<DataAccessor, 'getAcRows' | 'getAcBindings'>;
+
 async function enforceAcCoverageGate(
   options: CompleteTaskOptions,
   projectRoot: string,
-  accessor: DataAccessor,
+  accessor: AcCoverageAccessor,
 ): Promise<void> {
   // 1. Validate `--waive-ac` arrives with a reason. Operators that pass
   //    `--waive-ac` alone get a hard rejection — the reason is the
@@ -273,7 +275,7 @@ async function enforceAcCoverageGate(
   }
 
   // 2. Compute base coverage. Short-circuit on zero-AC tasks.
-  const coverage = await computeAcCoverage(options.taskId, accessor);
+  const coverage = await computeAcCoverage(options.taskId, accessor as DataAccessor);
   if (coverage.ok) return;
 
   // 3. Owner-override path (highest precedence) — log the bypass with
@@ -350,6 +352,23 @@ async function enforceAcCoverageGate(
       },
     },
   );
+}
+
+/**
+ * Execute the task-completion critical section under the tasks DB write lock.
+ *
+ * The concrete SQLite accessor backs `transaction()` with `BEGIN IMMEDIATE` at
+ * the outermost boundary, so the AC completion gate and status/autoclose writes
+ * run in one atomic write transaction instead of validating on a stale read
+ * snapshot and flipping `status='done'` later.
+ *
+ * @task T10595
+ */
+export async function withTaskWriteTransaction<T>(
+  accessor: DataAccessor,
+  fn: (tx: TransactionAccessor) => Promise<T>,
+): Promise<T> {
+  return accessor.transaction(fn);
 }
 
 /**
@@ -571,26 +590,6 @@ export async function completeTask(
     }
   }
 
-  // ---- T10509: AC-coverage gate (load-bearing IVTR closure) ----
-  //
-  // Every acceptance criterion MUST be backed by at least one
-  // `evidence_ac_bindings` row (any kind: direct, satisfies, coverage)
-  // before the task can be marked done. Override paths:
-  //   1. `--waive-ac "<csv>" --waive-reason "<text>"` — per-AC waiver
-  //      logged to `.cleo/audit/ac-waiver.jsonl`.
-  //   2. `CLEO_OWNER_OVERRIDE=1` + `CLEO_OWNER_OVERRIDE_REASON=<text>`
-  //      — full bypass logged to `.cleo/audit/force-bypass.jsonl`.
-  //
-  // The check is no-op for tasks with zero ACs (the existing
-  // `enforcement.acceptance.mode='block'` knob covers the "every task
-  // must declare ACs" case).
-  //
-  // Transactional safety: the read uses the SAME accessor handle as the
-  // subsequent transaction below. SQLite snapshot isolation pins the AC
-  // + binding rows between the read here and the writes inside the tx
-  // — no race window where the row set drifts.
-  await enforceAcCoverageGate(options, projectRootForGate(cwd), acc);
-
   const now = new Date().toISOString();
   const before = { ...task };
 
@@ -623,258 +622,268 @@ export async function completeTask(
       projectRoot: resolveOrCwd(cwd),
       label: `complete:${options.taskId}`,
     },
-    async () => {
-      // Auto-advance pipelineStage: IVTR execution stages → release (T719)
-      // When a task is completed, advance from implementation/validation/testing to release.
-      // This mirrors the lifecycle model: completing work exits the IVTR phase.
-      const completionStage = task.pipelineStage;
-      if (
-        completionStage &&
-        isValidPipelineStage(completionStage) &&
-        EXECUTION_STAGES_FOR_RELEASE.has(completionStage)
-      ) {
-        task.pipelineStage = 'release';
-      }
+    async () =>
+      withTaskWriteTransaction(acc, async (tx) => {
+        // ---- T10509/T10595: AC-coverage gate (load-bearing IVTR closure) ----
+        //
+        // The coverage rows are read after BEGIN IMMEDIATE has acquired the
+        // tasks DB write lock and before any status writes occur, so the gate
+        // decision and status='done'/autoclose updates commit or roll back as
+        // one atomic unit.
+        await enforceAcCoverageGate(options, projectRootForGate(cwd), tx);
 
-      // T871: Always sync pipelineStage to a terminal value on completion.
-      // `contribution` is the natural terminal stage (RCASD-IVTR+C). This keeps
-      // `status=done` and `pipelineStage=contribution` aligned so downstream
-      // consumers (Studio Pipeline Kanban, dashboards) can rely on either signal
-      // without drift. The write is below so it always wins over the
-      // `implementation/validation/testing → release` nudge above — completed
-      // tasks should never linger in a pre-terminal stage.
-      if (!isTerminalPipelineStage(task.pipelineStage)) {
-        task.pipelineStage = 'contribution';
-      }
-
-      // Update task
-      task.status = 'done';
-      task.completedAt = now;
-      task.updatedAt = now;
-
-      if (options.notes) {
-        const timestampedNote = `${new Date()
-          .toISOString()
-          .replace('T', ' ')
-          .replace(/\.\d+Z$/, ' UTC')}: ${options.notes}`;
-        if (!task.notes) task.notes = [];
-        task.notes.push(timestampedNote);
-      }
-
-      if (options.changeset) {
-        if (!task.notes) task.notes = [];
-        task.notes.push(`Changeset: ${options.changeset}`);
-      }
-
-      // Check if parent epic should auto-complete
-      // T1632: auto-complete fires only when ALL siblings are terminal AND
-      // the epic's own verification evidence is satisfied (verifyEpicHasEvidence).
-      // This closes the gap where an epic with no verification would silently
-      // roll up to done just because its last child finished.
-      if (task.parentId) {
-        const parent = await acc.loadSingleTask(task.parentId);
-        if (parent && parent.type === 'epic' && !parent.noAutoComplete) {
-          const siblings = await acc.getChildren(parent.id);
-          // Guard: only auto-complete if the epic has at least one registered child.
-          // An empty siblings list means no children are recorded in the DB, which
-          // would vacuously satisfy .every() and incorrectly auto-complete the epic.
-          // The current task is not yet 'done' in DB, so match it by ID.
-          const allDone =
-            siblings.length > 0 &&
-            siblings.every(
-              (c) => c.id === task.id || c.status === 'done' || c.status === 'cancelled',
-            );
-          if (allDone) {
-            // T1632: When enforcement is strict + verification enabled, only
-            // auto-close if the epic's evidence gates are satisfied.
-            // `verifyEpicHasEvidence` returns true when:
-            //   (a) the epic has direct evidence atoms on any gate, OR
-            //   (b) all non-cancelled children will be done+verified after this write.
-            // For the rollup case the current task is not yet persisted, so we
-            // must check condition (b) with the updated siblings view — treat the
-            // current task as done+verified for this check.
-            // When enforcement is off or advisory, skip the check (preserve existing
-            // behaviour where any terminal-sibling rollup closes the epic).
-            const needsEvidenceCheck =
-              enforcement.verificationEnabled && enforcement.lifecycleMode === 'strict';
-
-            const epicEvidencePassed = needsEvidenceCheck
-              ? await verifyEpicHasEvidence(parent, {
-                  ...acc,
-                  getChildren: async (parentId: string) => {
-                    if (parentId !== parent.id) return acc.getChildren(parentId);
-                    // Overlay the current task as done+verified so the check sees the
-                    // post-write state without a DB round-trip.
-                    return siblings.map((c) => {
-                      if (c.id !== task.id) return c;
-                      return {
-                        ...c,
-                        status: 'done' as const,
-                        verification: c.verification ?? task.verification ?? undefined,
-                      };
-                    });
-                  },
-                } as typeof acc)
-              : true;
-
-            if (epicEvidencePassed) {
-              parent.status = 'done';
-              parent.completedAt = now;
-              parent.updatedAt = now;
-              // T871: Auto-completed epics must also reach a terminal pipelineStage.
-              if (!isTerminalPipelineStage(parent.pipelineStage)) {
-                parent.pipelineStage = 'contribution';
-              }
-              autoCompleted.push(parent.id);
-              autoCompletedTasks.push(parent);
-            }
-          }
-        }
-      }
-
-      // T9040: Coordination parent auto-rollup.
-      //
-      // A "coordination parent" is a non-epic task (type='task'|'subtask') that
-      // has NO own implementation files — its scope was fully delivered by its
-      // children. When the last pending child completes, synthesize rollup
-      // verification evidence from the children's gate state and auto-complete
-      // the parent so it does not stay `pending` forever.
-      //
-      // Epics already have their own rollup path above (via verifyEpicHasEvidence).
-      // This branch handles the remaining `type!='epic'` case.
-      //
-      // The rollup fires only when ALL siblings (excluding the current task, which
-      // is not yet persisted as 'done') are terminal (done or cancelled).
-      if (task.parentId) {
-        const coordinationParent = await acc.loadSingleTask(task.parentId);
+        // Auto-advance pipelineStage: IVTR execution stages → release (T719)
+        // When a task is completed, advance from implementation/validation/testing to release.
+        // This mirrors the lifecycle model: completing work exits the IVTR phase.
+        const completionStage = task.pipelineStage;
         if (
-          coordinationParent &&
-          coordinationParent.type !== 'epic' &&
-          !autoCompleted.includes(coordinationParent.id)
+          completionStage &&
+          isValidPipelineStage(completionStage) &&
+          EXECUTION_STAGES_FOR_RELEASE.has(completionStage)
         ) {
-          const cpChildren = await acc.getChildren(coordinationParent.id);
-          // Guard: require at least one registered child and check isCoordinationParent
-          // before examining terminal status so we don't touch tasks with own files.
-          if (
-            cpChildren.length > 0 &&
-            isCoordinationParent(coordinationParent, cpChildren.length)
-          ) {
-            const allCpDone = cpChildren.every(
-              (c) => c.id === task.id || c.status === 'done' || c.status === 'cancelled',
-            );
-            if (allCpDone) {
-              // Synthesize verification evidence from children's gate state.
-              // The overlay adds the current task (not yet in DB) as done so
-              // buildRollupEvidence sees the post-write view.
-              const childrenForRollup: Task[] = cpChildren.map((c) =>
-                c.id === task.id ? { ...c, status: 'done' as const } : c,
+          task.pipelineStage = 'release';
+        }
+
+        // T871: Always sync pipelineStage to a terminal value on completion.
+        // `contribution` is the natural terminal stage (RCASD-IVTR+C). This keeps
+        // `status=done` and `pipelineStage=contribution` aligned so downstream
+        // consumers (Studio Pipeline Kanban, dashboards) can rely on either signal
+        // without drift. The write is below so it always wins over the
+        // `implementation/validation/testing → release` nudge above — completed
+        // tasks should never linger in a pre-terminal stage.
+        if (!isTerminalPipelineStage(task.pipelineStage)) {
+          task.pipelineStage = 'contribution';
+        }
+
+        // Update task
+        task.status = 'done';
+        task.completedAt = now;
+        task.updatedAt = now;
+
+        if (options.notes) {
+          const timestampedNote = `${new Date()
+            .toISOString()
+            .replace('T', ' ')
+            .replace(/\.\d+Z$/, ' UTC')}: ${options.notes}`;
+          if (!task.notes) task.notes = [];
+          task.notes.push(timestampedNote);
+        }
+
+        if (options.changeset) {
+          if (!task.notes) task.notes = [];
+          task.notes.push(`Changeset: ${options.changeset}`);
+        }
+
+        // Check if parent epic should auto-complete
+        // T1632: auto-complete fires only when ALL siblings are terminal AND
+        // the epic's own verification evidence is satisfied (verifyEpicHasEvidence).
+        // This closes the gap where an epic with no verification would silently
+        // roll up to done just because its last child finished.
+        if (task.parentId) {
+          const parent = await acc.loadSingleTask(task.parentId);
+          if (parent && parent.type === 'epic' && !parent.noAutoComplete) {
+            const siblings = await acc.getChildren(parent.id);
+            // Guard: only auto-complete if the epic has at least one registered child.
+            // An empty siblings list means no children are recorded in the DB, which
+            // would vacuously satisfy .every() and incorrectly auto-complete the epic.
+            // The current task is not yet 'done' in DB, so match it by ID.
+            const allDone =
+              siblings.length > 0 &&
+              siblings.every(
+                (c) => c.id === task.id || c.status === 'done' || c.status === 'cancelled',
               );
-              coordinationParent.verification = buildRollupEvidence(
-                coordinationParent.id,
-                childrenForRollup,
-              );
-              coordinationParent.status = 'done';
-              coordinationParent.completedAt = now;
-              coordinationParent.updatedAt = now;
-              // T871: coordination parents that auto-complete must also reach a
-              // terminal pipelineStage to stay in sync with Studio/dashboards.
-              if (!isTerminalPipelineStage(coordinationParent.pipelineStage)) {
-                coordinationParent.pipelineStage = 'contribution';
+            if (allDone) {
+              // T1632: When enforcement is strict + verification enabled, only
+              // auto-close if the epic's evidence gates are satisfied.
+              // `verifyEpicHasEvidence` returns true when:
+              //   (a) the epic has direct evidence atoms on any gate, OR
+              //   (b) all non-cancelled children will be done+verified after this write.
+              // For the rollup case the current task is not yet persisted, so we
+              // must check condition (b) with the updated siblings view — treat the
+              // current task as done+verified for this check.
+              // When enforcement is off or advisory, skip the check (preserve existing
+              // behaviour where any terminal-sibling rollup closes the epic).
+              const needsEvidenceCheck =
+                enforcement.verificationEnabled && enforcement.lifecycleMode === 'strict';
+
+              const epicEvidencePassed = needsEvidenceCheck
+                ? await verifyEpicHasEvidence(parent, {
+                    ...acc,
+                    getChildren: async (parentId: string) => {
+                      if (parentId !== parent.id) return acc.getChildren(parentId);
+                      // Overlay the current task as done+verified so the check sees the
+                      // post-write state without a DB round-trip.
+                      return siblings.map((c) => {
+                        if (c.id !== task.id) return c;
+                        return {
+                          ...c,
+                          status: 'done' as const,
+                          verification: c.verification ?? task.verification ?? undefined,
+                        };
+                      });
+                    },
+                  } as typeof acc)
+                : true;
+
+              if (epicEvidencePassed) {
+                parent.status = 'done';
+                parent.completedAt = now;
+                parent.updatedAt = now;
+                // T871: Auto-completed epics must also reach a terminal pipelineStage.
+                if (!isTerminalPipelineStage(parent.pipelineStage)) {
+                  parent.pipelineStage = 'contribution';
+                }
+                autoCompleted.push(parent.id);
+                autoCompletedTasks.push(parent);
               }
-              autoCompleted.push(coordinationParent.id);
-              autoCompletedTasks.push(coordinationParent);
             }
           }
         }
-      }
 
-      // T10116 + T10425: Saga auto-close (mirrors epic auto-close lines ~480-541).
-      //
-      // Sagas link to their member Epics via `task_relations.type='groups'`
-      // instead of `parentId` — see ADR-083 §2.6 ("`task_relations.type='groups'`
-      // remains the Saga↔Epic membership edge. Sagas do NOT use `parentId`") and
-      // the underlying ADR-073 §1.2 invariants I3+I5. Sagas surface here under
-      // BOTH the new-shape (`type='saga'`, T10277) AND the legacy-shape
-      // (`type='epic' + label='saga'`, T10334 drops) via `findSagasGroupingTask`
-      // — the helper sweeps both via `isSagaShape` to keep the auto-close
-      // contract stable across the deprecation window.
-      //
-      // The existing epic + coordination-parent branches above only walk the
-      // `parentId` column, so a saga whose member just completed would stay
-      // `pending` forever — the T10090 drift bug class (T9787, T9800,
-      // T9831 all manifested this way). T10425 (Saga T10326 L1) added the
-      // new-shape + Epic→Task→Subtask regression coverage that pins this
-      // branch.
-      //
-      // This branch fires whenever the completing task is a member of one
-      // or more sagas. For each saga that groups this task:
-      //   1. Skip if the saga is already terminal (idempotency).
-      //   2. Skip if we have already queued it on this `completeTask` call.
-      //   3. Resolve member IDs via the saga's populated `relates` array.
-      //   4. Auto-close only when EVERY non-cancelled member is terminal
-      //      (`done` or `cancelled`), treating the current task as `done`
-      //      because its DB write happens immediately after this branch.
-      //   5. Synthesize a verification envelope citing the closing event,
-      //      the member rollup digest, and ADR-073 §1.2 / ADR-083 §2.6 (AC4).
-      //
-      // The saga loop runs after the coordination-parent branch so a task
-      // that is BOTH a coordination-parent child AND a saga member rolls
-      // both up in a single call. Each saga is appended to the same
-      // `autoCompletedTasks` list so the transaction below upserts every
-      // synthesized close in one commit.
-      const sagasGroupingThisTask = await findSagasGroupingTask(acc, task.id);
-      for (const saga of sagasGroupingThisTask) {
-        if (saga.status === 'done' || saga.status === 'cancelled') continue;
-        if (autoCompleted.includes(saga.id)) continue;
-
-        // Resolve member IDs directly from the saga's populated `relates`
-        // array — `findSagasGroupingTask` already loaded it via
-        // `queryTasks`, so we avoid an extra `resolveSagaMemberIds` call.
-        const memberIds: string[] = [];
-        const seen = new Set<string>();
-        for (const relation of saga.relates ?? []) {
-          if (relation.type !== 'groups') continue;
-          if (seen.has(relation.taskId)) continue;
-          seen.add(relation.taskId);
-          memberIds.push(relation.taskId);
+        // T9040: Coordination parent auto-rollup.
+        //
+        // A "coordination parent" is a non-epic task (type='task'|'subtask') that
+        // has NO own implementation files — its scope was fully delivered by its
+        // children. When the last pending child completes, synthesize rollup
+        // verification evidence from the children's gate state and auto-complete
+        // the parent so it does not stay `pending` forever.
+        //
+        // Epics already have their own rollup path above (via verifyEpicHasEvidence).
+        // This branch handles the remaining `type!='epic'` case.
+        //
+        // The rollup fires only when ALL siblings (excluding the current task, which
+        // is not yet persisted as 'done') are terminal (done or cancelled).
+        if (task.parentId) {
+          const coordinationParent = await acc.loadSingleTask(task.parentId);
+          if (
+            coordinationParent &&
+            coordinationParent.type !== 'epic' &&
+            !autoCompleted.includes(coordinationParent.id)
+          ) {
+            const cpChildren = await acc.getChildren(coordinationParent.id);
+            // Guard: require at least one registered child and check isCoordinationParent
+            // before examining terminal status so we don't touch tasks with own files.
+            if (
+              cpChildren.length > 0 &&
+              isCoordinationParent(coordinationParent, cpChildren.length)
+            ) {
+              const allCpDone = cpChildren.every(
+                (c) => c.id === task.id || c.status === 'done' || c.status === 'cancelled',
+              );
+              if (allCpDone) {
+                // Synthesize verification evidence from children's gate state.
+                // The overlay adds the current task (not yet in DB) as done so
+                // buildRollupEvidence sees the post-write view.
+                const childrenForRollup: Task[] = cpChildren.map((c) =>
+                  c.id === task.id ? { ...c, status: 'done' as const } : c,
+                );
+                coordinationParent.verification = buildRollupEvidence(
+                  coordinationParent.id,
+                  childrenForRollup,
+                );
+                coordinationParent.status = 'done';
+                coordinationParent.completedAt = now;
+                coordinationParent.updatedAt = now;
+                // T871: coordination parents that auto-complete must also reach a
+                // terminal pipelineStage to stay in sync with Studio/dashboards.
+                if (!isTerminalPipelineStage(coordinationParent.pipelineStage)) {
+                  coordinationParent.pipelineStage = 'contribution';
+                }
+                autoCompleted.push(coordinationParent.id);
+                autoCompletedTasks.push(coordinationParent);
+              }
+            }
+          }
         }
-        if (memberIds.length === 0) continue;
 
-        const memberTasks = await acc.loadTasks(memberIds);
-        // Overlay the current task as `done` so the rollup check sees the
-        // post-write state without a DB round-trip — same approach used by
-        // the epic auto-close branch above.
-        const allMembersTerminal = memberTasks.every((m) => {
-          if (m.id === task.id) return true;
-          return m.status === 'done' || m.status === 'cancelled';
-        });
-        // Guard: require we actually loaded every member ID we expected.
-        // A member ID present on the saga's `relates` but missing from
-        // the DB (cascade-orphan) MUST block auto-close until reconciled.
-        if (memberTasks.length !== memberIds.length) continue;
-        if (!allMembersTerminal) continue;
+        // T10116 + T10425: Saga auto-close (mirrors epic auto-close lines ~480-541).
+        //
+        // Sagas link to their member Epics via `task_relations.type='groups'`
+        // instead of `parentId` — see ADR-083 §2.6 ("`task_relations.type='groups'`
+        // remains the Saga↔Epic membership edge. Sagas do NOT use `parentId`") and
+        // the underlying ADR-073 §1.2 invariants I3+I5. Sagas surface here under
+        // BOTH the new-shape (`type='saga'`, T10277) AND the legacy-shape
+        // (`type='epic' + label='saga'`, T10334 drops) via `findSagasGroupingTask`
+        // — the helper sweeps both via `isSagaShape` to keep the auto-close
+        // contract stable across the deprecation window.
+        //
+        // The existing epic + coordination-parent branches above only walk the
+        // `parentId` column, so a saga whose member just completed would stay
+        // `pending` forever — the T10090 drift bug class (T9787, T9800,
+        // T9831 all manifested this way). T10425 (Saga T10326 L1) added the
+        // new-shape + Epic→Task→Subtask regression coverage that pins this
+        // branch.
+        //
+        // This branch fires whenever the completing task is a member of one
+        // or more sagas. For each saga that groups this task:
+        //   1. Skip if the saga is already terminal (idempotency).
+        //   2. Skip if we have already queued it on this `completeTask` call.
+        //   3. Resolve member IDs via the saga's populated `relates` array.
+        //   4. Auto-close only when EVERY non-cancelled member is terminal
+        //      (`done` or `cancelled`), treating the current task as `done`
+        //      because its DB write happens immediately after this branch.
+        //   5. Synthesize a verification envelope citing the closing event,
+        //      the member rollup digest, and ADR-073 §1.2 / ADR-083 §2.6 (AC4).
+        //
+        // The saga loop runs after the coordination-parent branch so a task
+        // that is BOTH a coordination-parent child AND a saga member rolls
+        // both up in a single call. Each saga is appended to the same
+        // `autoCompletedTasks` list so the transaction below upserts every
+        // synthesized close in one commit.
+        const sagasGroupingThisTask = await findSagasGroupingTask(acc, task.id);
+        for (const saga of sagasGroupingThisTask) {
+          if (saga.status === 'done' || saga.status === 'cancelled') continue;
+          if (autoCompleted.includes(saga.id)) continue;
 
-        // Synthesize evidence + flip the saga to terminal. The saga write
-        // joins `autoCompletedTasks` so the transaction below upserts it
-        // alongside the current task and any epic / coordination-parent
-        // that also rolled up.
-        const terminalMemberIds = memberTasks
-          .filter((m) => m.id === task.id || m.status === 'done' || m.status === 'cancelled')
-          .map((m) => m.id);
-        saga.verification = buildSagaAutoCloseEvidence(saga.id, terminalMemberIds, now);
-        saga.status = 'done';
-        saga.completedAt = now;
-        saga.updatedAt = now;
-        // T871: keep `pipelineStage` aligned with `status='done'`.
-        if (!isTerminalPipelineStage(saga.pipelineStage)) {
-          saga.pipelineStage = 'contribution';
+          // Resolve member IDs directly from the saga's populated `relates`
+          // array — `findSagasGroupingTask` already loaded it via
+          // `queryTasks`, so we avoid an extra `resolveSagaMemberIds` call.
+          const memberIds: string[] = [];
+          const seen = new Set<string>();
+          for (const relation of saga.relates ?? []) {
+            if (relation.type !== 'groups') continue;
+            if (seen.has(relation.taskId)) continue;
+            seen.add(relation.taskId);
+            memberIds.push(relation.taskId);
+          }
+          if (memberIds.length === 0) continue;
+
+          const memberTasks = await acc.loadTasks(memberIds);
+          // Overlay the current task as `done` so the rollup check sees the
+          // post-write state without a DB round-trip — same approach used by
+          // the epic auto-close branch above.
+          const allMembersTerminal = memberTasks.every((m) => {
+            if (m.id === task.id) return true;
+            return m.status === 'done' || m.status === 'cancelled';
+          });
+          // Guard: require we actually loaded every member ID we expected.
+          // A member ID present on the saga's `relates` but missing from
+          // the DB (cascade-orphan) MUST block auto-close until reconciled.
+          if (memberTasks.length !== memberIds.length) continue;
+          if (!allMembersTerminal) continue;
+
+          // Synthesize evidence + flip the saga to terminal. The saga write
+          // joins `autoCompletedTasks` so the transaction below upserts it
+          // alongside the current task and any epic / coordination-parent
+          // that also rolled up.
+          const terminalMemberIds = memberTasks
+            .filter((m) => m.id === task.id || m.status === 'done' || m.status === 'cancelled')
+            .map((m) => m.id);
+          saga.verification = buildSagaAutoCloseEvidence(saga.id, terminalMemberIds, now);
+          saga.status = 'done';
+          saga.completedAt = now;
+          saga.updatedAt = now;
+          // T871: keep `pipelineStage` aligned with `status='done'`.
+          if (!isTerminalPipelineStage(saga.pipelineStage)) {
+            saga.pipelineStage = 'contribution';
+          }
+          autoCompleted.push(saga.id);
+          autoCompletedTasks.push(saga);
         }
-        autoCompleted.push(saga.id);
-        autoCompletedTasks.push(saga);
-      }
 
-      // Wrap writes in a transaction for TOCTOU safety (T023)
-      await acc.transaction(async (tx) => {
+        // Writes join the BEGIN IMMEDIATE transaction opened by
+        // withTaskWriteTransaction above, keeping the gate decision and status
+        // changes atomic (T10595).
         await tx.upsertSingleTask(task);
         for (const parentTask of autoCompletedTasks) {
           await tx.upsertSingleTask(parentTask);
@@ -889,14 +898,13 @@ export async function completeTask(
           before: null,
           after: { title: task.title, previousStatus: before.status },
         });
-      });
 
-      // llmtxt tracks `documentIds` when contribute() returns a shape
-      // matching `{ documentId?: string }`. CLEO tasks are not llmtxt
-      // documents, so we return an empty object here — eventCount still
-      // ticks to 1 on success, which is the signal the receipt needs.
-      return {};
-    },
+        // llmtxt tracks `documentIds` when contribute() returns a shape
+        // matching `{ documentId?: string }`. CLEO tasks are not llmtxt
+        // documents, so we return an empty object here — eventCount still
+        // ticks to 1 on success, which is the signal the receipt needs.
+        return {};
+      }),
   );
 
   // Compute newly unblocked tasks: dependents whose deps are now all satisfied
