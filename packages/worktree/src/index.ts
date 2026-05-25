@@ -43,6 +43,8 @@ export {
   DEFAULT_GIT_TIMEOUT_MS,
   removeTransientWorktree,
 } from './git.js';
+export type { PartialWorktreeSignals, RecoveryResult } from './recovery.js';
+export { detectPartialWorktree, recoverPartialWorktree } from './recovery.js';
 export type { WorktreeAuditPayload } from './worktree-audit.js';
 export {
   addWorktreeToSentinelIndex,
