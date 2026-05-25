@@ -158,6 +158,92 @@ export interface TimeoutCleanupResult {
   elapsedMs: number;
 }
 
+// ---------------------------------------------------------------------------
+// T10455 — Partial worktree detection on ETIMEDOUT
+// ---------------------------------------------------------------------------
+
+/**
+ * Signals that indicate a worktree may be in a partial / wedged state.
+ *
+ * @task T10455
+ */
+export interface PartialWorktreeSignals {
+  /** True when `git status --porcelain` returns non-empty output. */
+  hasUncommittedChanges: boolean;
+  /** True when `node_modules` is missing from the worktree root. */
+  nodeModulesMissing: boolean;
+  /** True when `.git/index.lock` exists (wedged git index). */
+  indexLockPresent: boolean;
+  /** True when the worktree directory itself exists but looks incomplete. */
+  worktreeExists: boolean;
+}
+
+/**
+ * Detect whether a worktree is in a partial state after a timeout or
+ * ETIMEDOUT error. Checks for:
+ *   1. Uncommitted changes (`git status --porcelain`)
+ *   2. Missing `node_modules`
+ *   3. Stale `.git/index.lock`
+ *
+ * The result is logged as structured JSON to stderr so external monitors
+ * (e.g. the worktree-recovery cron or the orchestrator dashboard) can
+ * observe it without parsing free-form text.
+ *
+ * @param worktreePath - Absolute path to the worktree directory.
+ * @param taskId       - Task ID associated with the worktree.
+ * @returns Detection signals.
+ * @task T10455
+ */
+export function detectPartialWorktree(
+  worktreePath: string,
+  taskId: string,
+): PartialWorktreeSignals {
+  const signals: PartialWorktreeSignals = {
+    hasUncommittedChanges: false,
+    nodeModulesMissing: false,
+    indexLockPresent: false,
+    worktreeExists: existsSync(worktreePath),
+  };
+
+  if (!signals.worktreeExists) {
+    return signals;
+  }
+
+  // 1. Check for uncommitted changes
+  try {
+    const status = execFileSync('git', ['status', '--porcelain'], {
+      cwd: worktreePath,
+      encoding: 'utf-8',
+      timeout: 5_000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    signals.hasUncommittedChanges = status.trim().length > 0;
+  } catch {
+    // Best-effort: if git status fails, assume no uncommitted changes
+    signals.hasUncommittedChanges = false;
+  }
+
+  // 2. Check for missing node_modules
+  signals.nodeModulesMissing = !existsSync(join(worktreePath, 'node_modules'));
+
+  // 3. Check for stale index.lock
+  signals.indexLockPresent = existsSync(join(worktreePath, '.git', 'index.lock'));
+
+  // Emit structured JSON to stderr for observability
+  const logLine = JSON.stringify({
+    event: 'worktree.partial-state-detected',
+    taskId,
+    worktreePath,
+    timestamp: new Date().toISOString(),
+    signals,
+    partial:
+      signals.hasUncommittedChanges || signals.nodeModulesMissing || signals.indexLockPresent,
+  });
+  process.stderr.write(`${logLine}\n`);
+
+  return signals;
+}
+
 /**
  * Best-effort, bounded cleanup of a partially-provisioned worktree after the
  * spawn supervisor fires. Idempotent: re-running against an absent worktree

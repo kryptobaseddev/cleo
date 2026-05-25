@@ -111,15 +111,15 @@ describe('auditSagaHierarchy (T10119)', () => {
     if (!db) throw new Error('nativeDb not initialized');
 
     // Clean saga + one normal Epic member.
-    insertTask(db, { id: 'SG001', title: 'Clean Saga', type: 'epic', labels: ['saga'] });
-    insertTask(db, { id: 'E001', title: 'Member Epic', type: 'epic' });
-    linkMember(db, 'SG001', 'E001');
+    insertTask(db, { id: 'T9301', title: 'Clean Saga', type: 'epic', labels: ['saga'] });
+    insertTask(db, { id: 'T9311', title: 'Member Epic', type: 'epic' });
+    linkMember(db, 'T9301', 'T9311');
 
     const { auditSagaHierarchy } = await import('../saga-audit.js');
     const result = await auditSagaHierarchy(tempDir);
 
     expect(result.sagas).toHaveLength(1);
-    expect(result.sagas[0]?.sagaId).toBe('SG001');
+    expect(result.sagas[0]?.sagaId).toBe('T9301');
     expect(result.sagas[0]?.violations).toEqual([]);
     expect(result.sagas[0]?.memberCount).toBe(1);
     expect(result.count).toBe(0);
@@ -131,26 +131,26 @@ describe('auditSagaHierarchy (T10119)', () => {
     const db = getNativeDb() as NativeDbForTest | null;
     if (!db) throw new Error('nativeDb not initialized');
 
-    insertTask(db, { id: 'E_PARENT', title: 'Parent Epic', type: 'epic' });
+    insertTask(db, { id: 'T9390', title: 'Parent Epic', type: 'epic' });
     insertTask(db, {
-      id: 'SG002',
+      id: 'T9302',
       title: 'Saga with parent',
       type: 'epic',
       labels: ['saga'],
-      parentId: 'E_PARENT',
+      parentId: 'T9390',
     });
 
     const { auditSagaHierarchy } = await import('../saga-audit.js');
     const result = await auditSagaHierarchy(tempDir);
 
-    const sg002 = result.sagas.find((s) => s.sagaId === 'SG002');
+    const sg002 = result.sagas.find((s) => s.sagaId === 'T9302');
     expect(sg002).toBeDefined();
     const i5 = sg002?.violations.find((v) => v.kind === 'I5');
     expect(i5).toBeDefined();
-    expect(i5?.offendingId).toBe('SG002');
+    expect(i5?.offendingId).toBe('T9302');
     expect(i5?.message).toContain('I5');
-    expect(i5?.message).toContain('E_PARENT');
-    expect(i5?.repairCommand).toBe('cleo saga repair SG002');
+    expect(i5?.message).toContain('T9390');
+    expect(i5?.repairCommand).toBe('cleo saga repair T9302');
     expect(result.count).toBeGreaterThanOrEqual(1);
   });
 
@@ -159,22 +159,22 @@ describe('auditSagaHierarchy (T10119)', () => {
     const db = getNativeDb() as NativeDbForTest | null;
     if (!db) throw new Error('nativeDb not initialized');
 
-    insertTask(db, { id: 'SG003', title: 'Outer Saga', type: 'epic', labels: ['saga'] });
+    insertTask(db, { id: 'T9303', title: 'Outer Saga', type: 'epic', labels: ['saga'] });
     // Nested saga — invariant I7 violation.
-    insertTask(db, { id: 'SG003_INNER', title: 'Inner Saga', type: 'epic', labels: ['saga'] });
-    linkMember(db, 'SG003', 'SG003_INNER');
+    insertTask(db, { id: 'T93031', title: 'Inner Saga', type: 'epic', labels: ['saga'] });
+    linkMember(db, 'T9303', 'T93031');
 
     const { auditSagaHierarchy } = await import('../saga-audit.js');
     const result = await auditSagaHierarchy(tempDir);
 
-    const outer = result.sagas.find((s) => s.sagaId === 'SG003');
+    const outer = result.sagas.find((s) => s.sagaId === 'T9303');
     expect(outer).toBeDefined();
     const i7 = outer?.violations.find((v) => v.kind === 'I7');
     expect(i7).toBeDefined();
-    expect(i7?.offendingId).toBe('SG003_INNER');
+    expect(i7?.offendingId).toBe('T93031');
     expect(i7?.message).toContain('I7');
-    expect(i7?.message).toContain('SG003_INNER');
-    expect(i7?.repairCommand).toBe('cleo saga detach SG003 SG003_INNER');
+    expect(i7?.message).toContain('T93031');
+    expect(i7?.repairCommand).toBe('cleo saga detach T9303 T93031');
   });
 
   it('detects auto-close drift when all members done but saga pending', async () => {
@@ -183,21 +183,21 @@ describe('auditSagaHierarchy (T10119)', () => {
     if (!db) throw new Error('nativeDb not initialized');
 
     insertTask(db, {
-      id: 'SG004',
+      id: 'T9304',
       title: 'Drifting Saga',
       type: 'epic',
       status: 'pending',
       labels: ['saga'],
     });
-    insertTask(db, { id: 'E_M1', title: 'Member 1', type: 'epic', status: 'done' });
-    insertTask(db, { id: 'E_M2', title: 'Member 2', type: 'epic', status: 'done' });
-    linkMember(db, 'SG004', 'E_M1');
-    linkMember(db, 'SG004', 'E_M2');
+    insertTask(db, { id: 'T9321', title: 'Member 1', type: 'epic', status: 'done' });
+    insertTask(db, { id: 'T9322', title: 'Member 2', type: 'epic', status: 'done' });
+    linkMember(db, 'T9304', 'T9321');
+    linkMember(db, 'T9304', 'T9322');
 
     const { auditSagaHierarchy } = await import('../saga-audit.js');
     const result = await auditSagaHierarchy(tempDir);
 
-    const drifting = result.sagas.find((s) => s.sagaId === 'SG004');
+    const drifting = result.sagas.find((s) => s.sagaId === 'T9304');
     expect(drifting).toBeDefined();
     expect(drifting?.memberCount).toBe(2);
     expect(drifting?.doneCount).toBe(2);
@@ -206,7 +206,7 @@ describe('auditSagaHierarchy (T10119)', () => {
     expect(drift).toBeDefined();
     expect(drift?.message).toContain('2/2 members done');
     expect(drift?.message).toContain('status=pending');
-    expect(drift?.repairCommand).toBe('cleo saga reconcile SG004');
+    expect(drift?.repairCommand).toBe('cleo saga reconcile T9304');
 
     // Auto-close-drift is a soft warning — it does NOT count toward the
     // hard `count` total (only I5/I7/depth do).
@@ -220,19 +220,19 @@ describe('auditSagaHierarchy (T10119)', () => {
     if (!db) throw new Error('nativeDb not initialized');
 
     insertTask(db, {
-      id: 'SG005',
+      id: 'T9305',
       title: 'Closed Saga',
       type: 'epic',
       status: 'done',
       labels: ['saga'],
     });
-    insertTask(db, { id: 'E_M3', title: 'Member 3', type: 'epic', status: 'done' });
-    linkMember(db, 'SG005', 'E_M3');
+    insertTask(db, { id: 'T9323', title: 'Member 3', type: 'epic', status: 'done' });
+    linkMember(db, 'T9305', 'T9323');
 
     const { auditSagaHierarchy } = await import('../saga-audit.js');
     const result = await auditSagaHierarchy(tempDir);
 
-    const closed = result.sagas.find((s) => s.sagaId === 'SG005');
+    const closed = result.sagas.find((s) => s.sagaId === 'T9305');
     expect(closed?.violations.find((v) => v.kind === 'auto-close-drift')).toBeUndefined();
     expect(result.driftCount).toBe(0);
   });
