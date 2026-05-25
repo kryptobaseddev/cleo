@@ -1,0 +1,19 @@
+{
+  "id": "T10559-research-hierarchy-violations-202605251902",
+  "file": ".cleo/rcasd/T10559/research/T10559-hierarchy-violation-report.md",
+  "title": "T10559 PM-Core V2 hierarchy violation detection report",
+  "date": "2026-05-25",
+  "status": "completed",
+  "agent_type": "research",
+  "topics": ["T10559", "PM-Core V2", "hierarchy violations", "read-only analysis"],
+  "key_findings": [
+    "Read-only copied tasks.db analysis found 0 parent_id cycles, 174 blank/null type rows, 353 tier matrix parent/child violations, 0 missing parent edges, and 31 active non-epic/non-saga orphan roots."
+  ],
+  "actionable": true,
+  "needs_followup": [
+    "Decide whether legacy archived/cancelled blank-type rows should be migrated, quarantined, or exempted from strict checks.",
+    "Split the 353 tier matrix violations into safe automatic repairs versus owner-reviewed hierarchy redesigns.",
+    "Triage the 31 active orphan roots for promotion, reparenting, or explicit standalone exception handling."
+  ],
+  "linked_tasks": ["T10559", "T10538"]
+}
