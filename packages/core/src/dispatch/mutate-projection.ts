@@ -7,8 +7,9 @@
  * createdAt, updatedAt, labels, the entire row. Agents almost never need any
  * of that to keep working; they only need enough information to confirm the
  * mutation landed and to feed the next operation. This module strips the
- * payload down to `{count, ids[]}` (and, for single-task ops, a few extra
- * routing keys like `status`, `completedAt`, or `changes`).
+ * payload down to `{count, created[], updated[], deleted[]}` (and, for
+ * single-task ops, a few extra routing keys like `status`, `completedAt`, or
+ * `changes`). A deprecated `ids[]` alias remains for existing field pointers.
  *
  * This is the mutate-side analogue to {@link applyProjectionPlan} for read
  * ops in `./mvi-projection.ts`. The two modules use the same opt-out signal
@@ -27,16 +28,27 @@ import type { ProjectionMode } from './mvi-projection.js';
 /**
  * Minimal envelope shape returned for batch-style mutate ops.
  *
- * Always includes a count and the affected task IDs. For single-task ops
- * (`add`, `update`, `complete`, `delete`) `count` is `1` and `ids` is a
- * single-element array. For `add-batch` `count` and `ids` reflect the entire
- * transaction.
+ * Always includes a count and operation-specific affected task IDs. For
+ * single-task ops (`add`, `update`, `complete`, `delete`) `count` is `1` and
+ * exactly one of `created`, `updated`, or `deleted` contains the affected ID.
+ * For `add-batch`, `created` reflects the entire transaction.
  */
 export interface MinimalMutateEnvelope {
   /** Number of records the mutation affected. */
   count: number;
-  /** Affected task IDs, in the order the operation processed them. */
+  /** Task IDs created by the mutation, in operation order. */
+  created: string[];
+  /** Task IDs updated by the mutation, in operation order. */
+  updated: string[];
+  /** Task IDs deleted by the mutation, in operation order. */
+  deleted: string[];
+  /**
+   * Deprecated legacy alias for the non-empty created/updated/deleted set.
+   * Kept so `/data/ids/0` remains script-compatible while callers migrate.
+   */
   ids: string[];
+  /** Machine-readable hints for deprecated field paths. */
+  fieldPathHints: Record<string, string>;
   /**
    * Per-op routing extras kept for single-task ops:
    * - `status` — post-mutation task status (add, update, complete)
@@ -98,6 +110,23 @@ function readString(record: Record<string, unknown>, key: string): string | unde
   return typeof value === 'string' ? value : undefined;
 }
 
+type MutationBucket = 'created' | 'updated' | 'deleted';
+
+const IDS_DEPRECATION_HINT =
+  '/data/ids is deprecated; use /data/created/0, /data/updated/0, or /data/deleted/0 for operation-specific IDs.';
+
+/** Build the standardized mutate envelope with all mutation buckets present. */
+function makeEnvelope(bucket: MutationBucket, ids: string[]): MinimalMutateEnvelope {
+  return {
+    count: ids.length,
+    created: bucket === 'created' ? ids : [],
+    updated: bucket === 'updated' ? ids : [],
+    deleted: bucket === 'deleted' ? ids : [],
+    ids,
+    fieldPathHints: { '/data/ids': IDS_DEPRECATION_HINT, '/data/ids/0': IDS_DEPRECATION_HINT },
+  };
+}
+
 /**
  * SSoT mapping of mutate operation → projection plan.
  *
@@ -113,10 +142,7 @@ export const MUTATE_PROJECTION_PLANS: Readonly<Record<string, MutateProjectionPl
       const id = readTaskId(task);
       const status =
         task && typeof task === 'object' ? (task as Record<string, unknown>)['status'] : undefined;
-      const envelope: MinimalMutateEnvelope = {
-        count: id ? 1 : 0,
-        ids: id ? [id] : [],
-      };
+      const envelope = makeEnvelope('created', id ? [id] : []);
       if (typeof status === 'string') envelope['status'] = status;
       const createdIds = data['createdIds'];
       if (createdIds && typeof createdIds === 'object') {
@@ -147,10 +173,8 @@ export const MUTATE_PROJECTION_PLANS: Readonly<Record<string, MutateProjectionPl
       }
       const createdRaw = data['created'];
       const created = typeof createdRaw === 'number' ? createdRaw : ids.length;
-      const envelope: MinimalMutateEnvelope = {
-        count: created,
-        ids,
-      };
+      const envelope = makeEnvelope('created', ids);
+      envelope.count = created;
       if (data['dryRun'] === true) envelope['dryRun'] = true;
       return envelope;
     },
@@ -160,10 +184,7 @@ export const MUTATE_PROJECTION_PLANS: Readonly<Record<string, MutateProjectionPl
     extract: (data) => {
       const task = data['task'];
       const id = readTaskId(task);
-      const envelope: MinimalMutateEnvelope = {
-        count: id ? 1 : 0,
-        ids: id ? [id] : [],
-      };
+      const envelope = makeEnvelope('updated', id ? [id] : []);
       const changes = data['changes'];
       if (Array.isArray(changes)) envelope['changes'] = changes;
       if (task && typeof task === 'object') {
@@ -178,10 +199,7 @@ export const MUTATE_PROJECTION_PLANS: Readonly<Record<string, MutateProjectionPl
     extract: (data) => {
       const task = data['task'];
       const id = readTaskId(task);
-      const envelope: MinimalMutateEnvelope = {
-        count: id ? 1 : 0,
-        ids: id ? [id] : [],
-      };
+      const envelope = makeEnvelope('updated', id ? [id] : []);
       if (task && typeof task === 'object') {
         const inner = task as Record<string, unknown>;
         const status = inner['status'];
@@ -201,10 +219,7 @@ export const MUTATE_PROJECTION_PLANS: Readonly<Record<string, MutateProjectionPl
     extract: (data) => {
       const deleted = data['deletedTask'] ?? data['task'];
       const id = readTaskId(deleted);
-      const envelope: MinimalMutateEnvelope = {
-        count: id ? 1 : 0,
-        ids: id ? [id] : [],
-      };
+      const envelope = makeEnvelope('deleted', id ? [id] : []);
       if (deleted && typeof deleted === 'object') {
         const status = readString(deleted as Record<string, unknown>, 'status');
         if (status) envelope['status'] = status;
@@ -212,11 +227,10 @@ export const MUTATE_PROJECTION_PLANS: Readonly<Record<string, MutateProjectionPl
       const cascadeDeleted = data['cascadeDeleted'];
       if (Array.isArray(cascadeDeleted) && cascadeDeleted.length > 0) {
         envelope['cascadeDeleted'] = cascadeDeleted;
-        envelope['count'] = envelope['count'] + cascadeDeleted.length;
-        envelope['ids'] = [
-          ...envelope['ids'],
-          ...cascadeDeleted.filter((x): x is string => typeof x === 'string'),
-        ];
+        const cascadeIds = cascadeDeleted.filter((x): x is string => typeof x === 'string');
+        envelope['count'] = envelope['count'] + cascadeIds.length;
+        envelope['ids'] = [...envelope['ids'], ...cascadeIds];
+        envelope['deleted'] = [...envelope['deleted'], ...cascadeIds];
       }
       return envelope;
     },
