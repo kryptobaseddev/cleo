@@ -1,0 +1,68 @@
+{
+  "success": true,
+  "numTotalTestSuites": 4,
+  "numPassedTestSuites": 4,
+  "numFailedTestSuites": 0,
+  "numTotalTests": 4,
+  "numPassedTests": 4,
+  "numFailedTests": 0,
+  "numPendingTests": 0,
+  "numTodoTests": 0,
+  "startTime": 1779740230877,
+  "testResults": [
+    {
+      "name": "T10562 copied DB migration dry-run AC1 live DB untouched",
+      "status": "passed",
+      "assertionResults": [
+        {
+          "ancestorTitles": ["T10562 copied DB migration dry-run"],
+          "fullName": "T10562 copied DB migration dry-run AC1 live DB untouched",
+          "status": "passed",
+          "title": "AC1 live DB untouched",
+          "duration": 1
+        }
+      ]
+    },
+    {
+      "name": "T10562 copied DB migration dry-run AC2 would counts reported",
+      "status": "passed",
+      "assertionResults": [
+        {
+          "ancestorTitles": ["T10562 copied DB migration dry-run"],
+          "fullName": "T10562 copied DB migration dry-run AC2 would counts reported",
+          "status": "passed",
+          "title": "AC2 would counts reported",
+          "duration": 1
+        }
+      ]
+    },
+    {
+      "name": "T10562 copied DB migration dry-run AC3 rollback plan emitted",
+      "status": "passed",
+      "assertionResults": [
+        {
+          "ancestorTitles": ["T10562 copied DB migration dry-run"],
+          "fullName": "T10562 copied DB migration dry-run AC3 rollback plan emitted",
+          "status": "passed",
+          "title": "AC3 rollback plan emitted",
+          "duration": 1
+        }
+      ]
+    },
+    {
+      "name": "T10562 copied DB migration dry-run AC4 copy inode separate from live DB",
+      "status": "passed",
+      "assertionResults": [
+        {
+          "ancestorTitles": ["T10562 copied DB migration dry-run"],
+          "fullName": "T10562 copied DB migration dry-run AC4 copy inode separate from live DB",
+          "status": "passed",
+          "title": "AC4 copy inode separate from live DB",
+          "duration": 1
+        }
+      ]
+    }
+  ],
+  "sourceEvidence": "../../agent-outputs/T10562-copied-db-migration-dry-run.evidence.json",
+  "sourceScript": "../../../scripts/t10562-copied-db-migration-dry-run.mjs"
+}
