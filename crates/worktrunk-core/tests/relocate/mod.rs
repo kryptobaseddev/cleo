@@ -45,7 +45,10 @@ fn expected_path_matches_paths_ssot_layout() {
 fn project_hash_is_deterministic_and_16_chars() {
     let h = compute_project_hash("/mnt/projects/cleocode");
     assert_eq!(h.len(), 16);
-    assert!(h.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+    assert!(
+        h.chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+    );
     // Recompute — same answer.
     assert_eq!(h, compute_project_hash("/mnt/projects/cleocode"));
 }
@@ -106,10 +109,7 @@ fn relocation_plan_detects_simple_swap_cycle() {
     //   feat-a is at /p1 and wants /p2
     //   feat-b is at /p2 and wants /p1
     // The SDK must flag a cycle-break (one moves to a temp first).
-    let worktrees = vec![
-        wt("feat-a", "/p1", "aaa"),
-        wt("feat-b", "/p2", "bbb"),
-    ];
+    let worktrees = vec![wt("feat-a", "/p1", "aaa"), wt("feat-b", "/p2", "bbb")];
     let mut expected = HashMap::new();
     expected.insert("feat-a".to_string(), PathBuf::from("/p2"));
     expected.insert("feat-b".to_string(), PathBuf::from("/p1"));

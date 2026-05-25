@@ -16,7 +16,11 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { ChangesetEntry, ChangesetKind } from '@cleocode/contracts';
+import type {
+  ChangesetEntry,
+  ChangesetKind,
+  ChangesetReleaseNoteSection,
+} from '@cleocode/contracts';
 import { ChangesetEntrySchema } from '@cleocode/contracts';
 import { parse as parseYaml } from 'yaml';
 import { parseChangesetDir } from '../changesets/index.js';
@@ -82,44 +86,38 @@ export interface AggregateChangesetsOptions {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-/**
- * Canonical render order for kind groups. Breaking floats to the TOP of the
- * section so migration-critical context lands first; everything else follows a
- * stable engineering taxonomy aligned with conventional-commit semantics.
- *
- * NOTE: `breaking` is rendered FIRST in the markdown body but iterated last
- * here — rendering wraps the order so breaking sits at the head. See
- * {@link aggregateChangesetsForRelease} for the wrap logic.
- *
- * @internal
- */
-const KIND_RENDER_ORDER: readonly ChangesetKind[] = [
-  'feat',
-  'fix',
-  'perf',
-  'refactor',
-  'docs',
-  'test',
-  'chore',
+const RELEASE_NOTE_SECTION_ORDER: readonly ChangesetReleaseNoteSection[] = [
+  'added',
+  'changed',
+  'fixed',
+  'deprecated',
+  'removed',
+  'security',
   'breaking',
 ] as const;
 
-/**
- * Human-readable section headers per kind. Lower-case keys are intentional;
- * we Title-Case at render time for consistency with conventional-commit
- * vocabulary used elsewhere in CLEO's release tooling.
- *
- * @internal
- */
-const KIND_HEADERS: Readonly<Record<ChangesetKind, string>> = {
-  feat: 'Features',
-  fix: 'Fixes',
-  perf: 'Performance',
-  refactor: 'Refactors',
-  docs: 'Documentation',
-  test: 'Tests',
-  chore: 'Chores',
+const RELEASE_NOTE_SECTION_HEADERS: Readonly<Record<ChangesetReleaseNoteSection, string>> = {
+  added: 'Added',
+  changed: 'Changed',
+  fixed: 'Fixed',
+  deprecated: 'Deprecated',
+  removed: 'Removed',
+  security: 'Security',
   breaking: 'BREAKING CHANGES',
+};
+
+const DEFAULT_TASK_PROVENANCE_BASE_URL = 'https://github.com/kryptobaseddev/cleo/search';
+const DEFAULT_PR_PROVENANCE_BASE_URL = 'https://github.com/kryptobaseddev/cleo/pull';
+
+const KIND_TO_RELEASE_NOTE_SECTION: Readonly<Record<ChangesetKind, ChangesetReleaseNoteSection>> = {
+  feat: 'added',
+  fix: 'fixed',
+  perf: 'changed',
+  refactor: 'changed',
+  docs: 'changed',
+  test: 'changed',
+  chore: 'changed',
+  breaking: 'breaking',
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -131,17 +129,36 @@ const KIND_HEADERS: Readonly<Record<ChangesetKind, string>> = {
  *
  * @internal
  */
-function groupByKind(entries: readonly ChangesetEntry[]): Map<ChangesetKind, ChangesetEntry[]> {
-  const groups = new Map<ChangesetKind, ChangesetEntry[]>();
+function groupByReleaseNoteSection(
+  entries: readonly ChangesetEntry[],
+): Map<ChangesetReleaseNoteSection, ChangesetEntry[]> {
+  const groups = new Map<ChangesetReleaseNoteSection, ChangesetEntry[]>();
   for (const entry of entries) {
-    const bucket = groups.get(entry.kind);
+    if (entry.releaseNotes?.includeInChangelog === false) continue;
+    const section = entry.releaseNotes?.section ?? KIND_TO_RELEASE_NOTE_SECTION[entry.kind];
+    const bucket = groups.get(section);
     if (bucket) {
       bucket.push(entry);
     } else {
-      groups.set(entry.kind, [entry]);
+      groups.set(section, [entry]);
     }
   }
   return groups;
+}
+
+function markdownLink(label: string, href: string): string {
+  return `[${label}](${href})`;
+}
+
+function renderTaskProvenanceLink(taskId: string): string {
+  return markdownLink(
+    taskId,
+    `${DEFAULT_TASK_PROVENANCE_BASE_URL}?q=${encodeURIComponent(taskId)}&type=commits`,
+  );
+}
+
+function renderPrProvenanceLink(pr: number): string {
+  return markdownLink(`#${pr}`, `${DEFAULT_PR_PROVENANCE_BASE_URL}/${pr}`);
 }
 
 /**
@@ -154,10 +171,17 @@ function groupByKind(entries: readonly ChangesetEntry[]): Map<ChangesetKind, Cha
  * @internal
  */
 function renderEntryBullet(entry: ChangesetEntry): string {
-  const taskAnchors = entry.tasks.map((id) => `(${id})`).join(' ');
+  const note = entry.releaseNotes?.impact ?? entry.summary;
+  const taskAnchors = entry.tasks.map(renderTaskProvenanceLink).join(', ');
   const prAnchors =
-    entry.prs && entry.prs.length > 0 ? ' ' + entry.prs.map((n) => `(#${n})`).join(' ') : '';
-  return `- ${entry.summary} ${taskAnchors}${prAnchors}`.trimEnd();
+    entry.prs && entry.prs.length > 0
+      ? '; ' + entry.prs.map(renderPrProvenanceLink).join(', ')
+      : '';
+  const provenance = ` _(provenance: ${taskAnchors}${prAnchors})_`;
+  const target = entry.releaseNotes?.targets?.length
+    ? `**${entry.releaseNotes.targets.join(', ')}:** `
+    : '';
+  return `- ${target}${note}${provenance}`.trimEnd();
 }
 
 /**
@@ -171,7 +195,7 @@ function renderEntryBullet(entry: ChangesetEntry): string {
  */
 function renderBreakingEntry(entry: ChangesetEntry): string {
   const bullet = renderEntryBullet(entry);
-  const migration = (entry.breaking ?? '').trim();
+  const migration = (entry.releaseNotes?.migration ?? entry.breaking ?? '').trim();
   if (migration.length === 0) return bullet;
   // Indent each line of the migration note by two spaces so it renders as a
   // nested block under the bullet in standard markdown renderers.
@@ -187,10 +211,13 @@ function renderBreakingEntry(entry: ChangesetEntry): string {
  *
  * @internal
  */
-function renderGroup(kind: ChangesetKind, entries: readonly ChangesetEntry[]): string {
-  const header = `### ${KIND_HEADERS[kind]}`;
+function renderGroup(
+  section: ChangesetReleaseNoteSection,
+  entries: readonly ChangesetEntry[],
+): string {
+  const header = `### ${RELEASE_NOTE_SECTION_HEADERS[section]}`;
   const body = entries
-    .map((e) => (kind === 'breaking' ? renderBreakingEntry(e) : renderEntryBullet(e)))
+    .map((e) => (section === 'breaking' ? renderBreakingEntry(e) : renderEntryBullet(e)))
     .join('\n');
   return `${header}\n\n${body}`;
 }
@@ -244,27 +271,23 @@ export function aggregateChangesetsForRelease(
     return { markdown: '', entryCount: 0, kinds: new Set<ChangesetKind>() };
   }
 
-  const groups = groupByKind(entries);
-  const presentKinds = new Set<ChangesetKind>(groups.keys());
-
-  // Compose a render order that floats `breaking` to the head if present and
-  // preserves the canonical engineering order for the rest.
-  const orderedKinds: ChangesetKind[] = [];
-  if (groups.has('breaking')) orderedKinds.push('breaking');
-  for (const kind of KIND_RENDER_ORDER) {
-    if (kind === 'breaking') continue;
-    if (groups.has(kind)) orderedKinds.push(kind);
-  }
+  const includedEntries = entries.filter(
+    (entry) => entry.releaseNotes?.includeInChangelog !== false,
+  );
+  const groups = groupByReleaseNoteSection(includedEntries);
+  const presentKinds = new Set<ChangesetKind>(includedEntries.map((entry) => entry.kind));
 
   const header = title ? `## ${version} — ${date} — ${title}` : `## ${version} — ${date}`;
 
-  const body = orderedKinds.map((kind) => renderGroup(kind, groups.get(kind) ?? [])).join('\n\n');
+  const body = RELEASE_NOTE_SECTION_ORDER.map((section) =>
+    renderGroup(section, groups.get(section) ?? []),
+  ).join('\n\n');
 
   const markdown = `${header}\n\n${body}\n`;
 
   return {
     markdown,
-    entryCount: entries.length,
+    entryCount: includedEntries.length,
     kinds: presentKinds,
   };
 }
