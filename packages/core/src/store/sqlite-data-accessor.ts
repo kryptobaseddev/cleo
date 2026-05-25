@@ -417,6 +417,35 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       );
     },
 
+    // ---- AC rows (T10508) ----
+
+    async getAcRows(taskId: string) {
+      const db = await getDb(cwd);
+      const rows = await db
+        .select({
+          id: schema.taskAcceptanceCriteria.id,
+          taskId: schema.taskAcceptanceCriteria.taskId,
+          ordinal: schema.taskAcceptanceCriteria.ordinal,
+          text: schema.taskAcceptanceCriteria.text,
+          createdAt: schema.taskAcceptanceCriteria.createdAt,
+          updatedAt: schema.taskAcceptanceCriteria.updatedAt,
+          contentHash: schema.taskAcceptanceCriteria.contentHash,
+        })
+        .from(schema.taskAcceptanceCriteria)
+        .where(eq(schema.taskAcceptanceCriteria.taskId, taskId))
+        .orderBy(schema.taskAcceptanceCriteria.ordinal)
+        .all();
+      return rows.map((r) => ({
+        id: r.id,
+        taskId: r.taskId,
+        ordinal: r.ordinal,
+        text: r.text,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt ?? null,
+        contentHash: r.contentHash ?? null,
+      }));
+    },
+
     async archiveSingleTask(taskId: string, fields: ArchiveFields): Promise<void> {
       const db = await getDb(cwd);
       // Verify the task exists before archiving
@@ -1010,6 +1039,69 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
             await db
               .delete(schema.taskRelations)
               .where(eq(schema.taskRelations.taskId, taskId))
+              .run();
+          },
+          // ---- AC rows (T10508) ----
+          async insertAcRows(
+            rows: Array<{ id: string; taskId: string; ordinal: number; text: string }>,
+          ): Promise<void> {
+            if (rows.length === 0) return;
+            await db
+              .insert(schema.taskAcceptanceCriteria)
+              .values(
+                rows.map((r) => ({
+                  id: r.id,
+                  taskId: r.taskId,
+                  ordinal: r.ordinal,
+                  text: r.text,
+                })),
+              )
+              .run();
+          },
+          async getAcRows(taskId: string) {
+            const out = await db
+              .select({
+                id: schema.taskAcceptanceCriteria.id,
+                taskId: schema.taskAcceptanceCriteria.taskId,
+                ordinal: schema.taskAcceptanceCriteria.ordinal,
+                text: schema.taskAcceptanceCriteria.text,
+                createdAt: schema.taskAcceptanceCriteria.createdAt,
+                updatedAt: schema.taskAcceptanceCriteria.updatedAt,
+                contentHash: schema.taskAcceptanceCriteria.contentHash,
+              })
+              .from(schema.taskAcceptanceCriteria)
+              .where(eq(schema.taskAcceptanceCriteria.taskId, taskId))
+              .orderBy(schema.taskAcceptanceCriteria.ordinal)
+              .all();
+            return out.map((r) => ({
+              id: r.id,
+              taskId: r.taskId,
+              ordinal: r.ordinal,
+              text: r.text,
+              createdAt: r.createdAt,
+              updatedAt: r.updatedAt ?? null,
+              contentHash: r.contentHash ?? null,
+            }));
+          },
+          async deleteAcRowsForTask(taskId: string): Promise<void> {
+            await db
+              .delete(schema.taskAcceptanceCriteria)
+              .where(eq(schema.taskAcceptanceCriteria.taskId, taskId))
+              .run();
+          },
+          async appendAcHistory(
+            rows: Array<{ acId: string; previousText: string; reason: string }>,
+          ): Promise<void> {
+            if (rows.length === 0) return;
+            await db
+              .insert(schema.taskAcceptanceCriteriaHistory)
+              .values(
+                rows.map((r) => ({
+                  acId: r.acId,
+                  previousText: r.previousText,
+                  reason: r.reason,
+                })),
+              )
               .run();
           },
         };
