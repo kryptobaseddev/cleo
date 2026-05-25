@@ -3,19 +3,19 @@ id: ADR-073
 title: Task Hierarchy Charter — Saga / Epic / Task / Subtask
 status: Accepted
 date: 2026-05-17
-amendedDate: 2026-05-18
+amendedDate: 2026-05-25
 task: T9520
-linkedTasks: [T9518, T9514, T9519, T9624]
+linkedTasks: [T9518, T9514, T9519, T9624, T10551]
 supersedes: null
 supersededBy: null
 ---
 
 # ADR-073: Task Hierarchy Charter — Saga / Epic / Task / Subtask
 
-**Status:** Accepted (amended 2026-05-18)
-**Date:** 2026-05-17 (Charter §0–§2 added 2026-05-18 under T9624)
-**Task:** T9520 (original), T9624 (charter amendment)
-**Linked Tasks:** T9518 (parent epic), T9514 (gating dep — relates writer fix), T9519 (task_relations groups type), T9624 (charter consolidation)
+**Status:** Accepted (amended 2026-05-25)
+**Date:** 2026-05-17 (Charter §0–§2 added 2026-05-18 under T9624; PM-Core V2 containment amendment added 2026-05-25 under T10551)
+**Task:** T9520 (original), T9624 (charter amendment), T10551 (PM-Core V2 containment amendment)
+**Linked Tasks:** T9518 (parent epic), T9514 (gating dep — relates writer fix), T9519 (task_relations groups type), T9624 (charter consolidation), T10551 (PM-Core V2 containment amendment)
 
 ---
 
@@ -38,6 +38,14 @@ ADR-066 owns: **the orthogonal axes that classify a task within a tier**.
 ADR-070 owns: **which agent role drives a tier at runtime**.
 ADR-065 owns: **how a tier's output ships** (scheme is project-configured, not hierarchy-defined).
 
+> **AMENDED 2026-05-25 (T10551, aligned with ADR-088 / PM-Core V2):**
+> Saga is a first-class task tier with canonical storage `tasks.type='saga'`.
+> The older `type='epic' AND label='saga'` and `task_relations.*='groups'`
+> membership model is legacy-only and explicitly deprecated for hierarchy,
+> rollup, child listing, completion, and nesting-budget semantics. `parent_id`
+> is the only containment edge: Saga → Epic → Task → Subtask. `task_relations`
+> may retain `groups` only as non-containment provenance/cross-reference data.
+
 ---
 
 ## §1 Task Hierarchy Charter
@@ -50,11 +58,11 @@ demotion per §1.3.
 
 ### §1.1 Tier Table
 
-> **AMENDED 2026-05-23 (ADR-083):** The `Owner` column originally conflated *role* (the actor) with *scope* (the work-unit) on a single axis. ADR-083 §2.2–§2.3 splits these into two orthogonal axes: **scope** is the tier (column 4 here), **role** is the actor (Orchestrator/Lead/Worker per ADR-083 §2.2). The `Primary actor` column below reflects ADR-083's locked role mapping. **Storage encoding for Saga changes** in the migration filed by ADR-083 §2.5 + Epic `E-SAGA-TYPE-MIGRATION` — Saga becomes `type='saga'` (not `type='epic' + label='saga'`). Until that migration ships, the legacy storage encoding shown below remains the runtime contract.
+> **AMENDED 2026-05-25 (T10551):** The `Owner` column originally conflated *role* (the actor) with *scope* (the work-unit) on a single axis. ADR-083 §2.2–§2.3 splits these into two orthogonal axes: **scope** is the tier (column 4 here), **role** is the actor (Orchestrator/Lead/Worker per ADR-083 §2.2). The `Primary actor` column below reflects ADR-083's locked role mapping. **Storage encoding for Saga is now `type='saga'`.** The older `type='epic' AND label='saga'` encoding is legacy compatibility only and is not the doctrine for new PM-Core V2 hierarchy.
 
-| Tier    | Prefix (display) | Storage encoding (current → post-migration)              | Scope-of-change (what it modifies)                                | Primary actor (role per ADR-083 §2.2) | Sizing                                                              |
+| Tier    | Prefix (display) | Storage encoding                                          | Scope-of-change (what it modifies)                                | Primary actor (role per ADR-083 §2.2) | Sizing                                                              |
 |---------|------------------|-----------------------------------------------------------|--------------------------------------------------------------------|---------------------------------------|----------------------------------------------------------------------|
-| Saga    | `SG-`            | `type='epic' AND label='saga'` → `type='saga'`            | Strategic theme grouping ≥2 Epics across ≥2 releases               | Orchestrator (Cleo at root)           | ≥2 child Epics; unbounded above                                     |
+| Saga    | `SG-`            | `type='saga'`                                             | Strategic theme containing ≥2 Epics across ≥2 releases             | Orchestrator (Cleo at root)           | ≥2 child Epics; unbounded above                                     |
 | Epic    | `E-`             | `type='epic'`                                             | One releasable slice; ≥1 PR merged to `main`; ships in one release | Orchestrator                          | 4–10 child Tasks; single release per project's scheme               |
 | Task    | `T-`             | `type='task'`                                             | One atomic PR-sized change; one well-defined capability            | Lead                                  | 1–7 child Subtasks (or leaf); single PR; single wave                |
 | Subtask | (implicit)       | `type='subtask'`                                          | One focused commit; ≤2 files OR one module boundary                | Worker                                | 1 commit; contributes to parent Task's single PR; fits one Worker context |
@@ -68,15 +76,15 @@ means for that project. The hierarchy charter does NOT hard-code CalVer.
 
 **I1 — Storage uniformity.** All task IDs are stored as `T####` (per
 `packages/core/src/tasks/id-generator.ts`, `TASK_ID_PATTERN = /^T(\d{3,})$/`).
-The `type` column is the canonical tier discriminator. The `label='saga'` field
-elevates a `type='epic'` row to Saga semantics. There is NO separate ID space
+The `type` column is the canonical tier discriminator, including
+`type='saga'`. Labels never define hierarchy. There is NO separate ID space
 for Sagas, Epics, Tasks, or Subtasks.
 
 **I2 — Conceptual prefixes are display + import only.** `SG-`, `E-`, `T-` (and
 Subtask's implicit absence) are documentation, CLI display, and import-mapping
 conventions. They MUST NOT be used as DB primary keys. Permitted uses:
 - Documentation and ADR cross-references (e.g., "see E-9354").
-- CLI display output (e.g., `cleo show T9518` renders the header as `SG-9518` when `label='saga'`).
+- CLI display output (e.g., `cleo show T9518` renders the header as `SG-9518` when `type='saga'`).
 - External import mapping — CSV/JSON ingestion that uses prefixed IDs MUST be
   routed to the correct `type` (e.g., a row prefixed `E-` creates a task with `type='epic'`).
 - Research / planning / decomposition shorthand on whiteboards, transcripts, briefing docs.
@@ -99,19 +107,25 @@ Leads MUST NOT own multiple Epics simultaneously. The Orchestrator MUST NOT
 spawn Workers directly when fan-out exceeds the ADR-070 migration threshold
 (>3 Workers / cross-wave IVTR).
 
-**I5 — Sagas link via `groups`, not `parent`.** `task_relations.type='groups'`
-is the ONLY relation type that links a Saga to its member Epics. The Saga
-row's `parent_id` MUST be NULL. `cleo list --parent <sagaId>` returns empty;
-member discovery uses `cleo saga members <sagaId>`.
+**I5 — Parent containment only; legacy `groups` hierarchy deprecated.**
+`tasks.parent_id` is the ONLY containment edge. Saga children are Epics whose
+`parent_id` points at the Saga; Epic children are Tasks; Task children are
+Subtasks. `task_relations.type='groups'` MUST NOT create hierarchy, satisfy
+child listing, drive rollups, satisfy completion, or consume nesting budget.
+Existing `groups` edges are legacy non-containment provenance/cross-reference
+data only.
 
 **I6 — Acceptance criteria required at every tier.** Per ADR-066 §"Ownership
 Matrix" invariant #5, all tasks regardless of `type` or `kind` MUST have
 `--acceptance` set at creation time. No tier exemption exists.
 
-**I7 — Maximum parent depth is 3.** The parent ladder Subtask → Task → Epic is
-fixed at depth 3 (`hierarchy.maxDepth=3`). Sagas do NOT consume depth — they
-attach via `groups` relations, not parent edges. This preserves the depth
-budget regardless of Saga count.
+**I7 — Maximum parent depth is 3, pinned by parent-edge distance.**
+`hierarchy.maxDepth=3` means the maximum number of `parent_id` edges from a
+root to a leaf is three. The valid containment ladder is Saga(depth 0) →
+Epic(depth 1) → Task(depth 2) → Subtask(depth 3). A standalone Epic may also
+be a root at depth 0, yielding Epic(depth 0) → Task(depth 1) → Subtask(depth 2).
+No deeper parent chain is valid; secondary relations cannot extend or bypass
+this budget.
 
 **I8 — Subtask-to-PR aggregation rule.** A Task ships as exactly one PR. The
 PR's commit history is the union of the Task's Subtask commits (plus any
@@ -131,12 +145,12 @@ Use this table whenever a tier's scope or ownership invariant is questioned.
 | Task generates >1 PR                                       | Split into ≥2 sibling Tasks under the same Epic                            | I3, I8              |
 | Task spans >1 wave                                         | Split into sibling Tasks across waves, OR promote to Epic                  | I3 + ADR-070        |
 | Epic spans >1 release                                      | Regroup under a Saga; split into release-sized sibling Epics under it      | I3                  |
-| Saga has 1 member Epic                                     | Demote — remove `label='saga'`                                             | §1.1 sizing         |
+| Saga has 1 member Epic                                     | Demote — convert to `type='epic'` or merge into an existing Epic           | §1.1 sizing         |
 | Epic has 0 child Tasks                                     | Demote — convert to standalone Task                                        | §1.1 sizing         |
 | Epic has >10 child Tasks                                   | Split Epic into sibling Epics, OR regroup under Saga                       | §1.1 sizing         |
 | Worker attempts to spawn another Worker                    | Reject — escalate fan-out to Phase Lead                                    | I4 + ADR-070        |
 | External import row prefixed `E-` lacks `type` field       | Map to `type='epic'`                                                       | I2 (import mapping) |
-| External import row prefixed `SG-` lacks type/label        | Map to `type='epic'`, `label='saga'`                                       | I2 (import mapping) |
+| External import row prefixed `SG-` lacks `type` field      | Map to `type='saga'`                                                       | I1, I2 (import mapping) |
 
 ---
 
@@ -153,7 +167,7 @@ systems). Prefixes are NEVER persisted as part of the primary key.
 | (none) | Subtask                                         | `T####` with `type='subtask'`                   |
 | `T-`   | Task                                            | `T####` with `type='task'`                      |
 | `E-`   | Epic                                            | `T####` with `type='epic'`                      |
-| `SG-`  | Saga                                            | `T####` with `type='epic'` AND `label='saga'`   |
+| `SG-`  | Saga                                            | `T####` with `type='saga'`                      |
 | `SD-`  | SignalDock subsystem namespace (reserved)        | not a task ID — code/namespace identifier        |
 | `ADR-` | Architecture Decision Record                     | filesystem (`.cleo/adrs/*.md`)                   |
 | `D-`   | BRAIN decision record                            | brain.db (`decisions` table)                     |
@@ -169,7 +183,7 @@ systems). Prefixes are NEVER persisted as part of the primary key.
 4. **No collision with TaskType column values.** Prefix letters MUST NOT match
    the literal `type` column strings `subtask`, `task`, `epic`.
 5. **Display vs storage.** Display formatters MAY render `SG-9518` for a row
-   whose stored `id='T9518'` and `label='saga'`. Storage operations MUST always
+   whose stored `id='T9518'` and `type='saga'`. Storage operations MUST always
    resolve through the bare `T####` key.
 
 ---
@@ -208,9 +222,9 @@ a hybrid. The Council reached 5/5 unanimous PASS across all four gate dimensions
 - **Two-letter prefix safety.** `SG-` operates in a ~26× less dense collision space
   than single-letter alternatives.
 - **Canon aesthetic.** Saga joins Hearth, Sigil, Sentient, and RCASD as a
-  deliberate mythic-narrative noun. Because `task_relations.type='groups'` is
-  generic, Saga is a recursive narrative-graph noun on day one — `SG-X groups
-  SG-Y groups E-Z` is a legal traversal without schema migration.
+  deliberate mythic-narrative noun. Historical prototypes also used generic
+  relation edges for association; under PM-Core V2, those edges are legacy
+  non-containment provenance only, while hierarchy traverses `parent_id`.
 - **Collision risk neutralized.** The Contrarian's sharpest finding was that `SG-`
   could collide with the actively-expanding SignalDock namespace. §2.1 closes
   the trap at decision time by reserving both `SG-` and `SD-`.
@@ -220,22 +234,21 @@ a hybrid. The Council reached 5/5 unanimous PASS across all four gate dimensions
 ## §4 Storage Shape
 
 > **AMENDED 2026-05-23 (T10333 under Saga T10326 SG-SUBSTRATE-RECONCILIATION):**
-> The original §4 stance — "Saga is NOT a new `TaskType` enum value" — has
+> The original §4 stance that Saga was not a first-class `TaskType` has
 > been **RETIRED**. ADR-083 §2.5 (2026-05-23, "Saga as TaskType discriminator")
 > elevated Saga to a first-class `TaskType` value after six months of dogfood
-> exposed the structural fragility of the label-overlay encoding (90
+> exposed the structural fragility of the legacy label-based encoding (90
 > `labels.includes('saga')` sites, ambiguous-transition risk during
 > reparenting, untyped vectorized traversal). The canonical post-migration
 > storage encoding is `type='saga'`; the legacy `type='epic' AND label='saga'`
 > encoding remains accepted during the deprecation window via the dual-shape
 > predicate `isSagaShape` (`packages/core/src/sagas/enforcement.ts`).
 >
-> **Canon for the type/label question lives in ADR-083 §2.5.** This section
-> is preserved as historical context (see §8 Change Log for the verbatim
-> original text). §4.1 (Wire mechanism) and §4.2 (Gating dependency) below
-> remain in force unchanged — the `task_relations.type='groups'` membership
-> edge and the T9514 writer-fix dependency are orthogonal to the type/label
-> encoding decision and survive the migration intact.
+> **Canon for the type/label question lives in ADR-083 §2.5 and ADR-088.**
+> This section is preserved as historical context (see §8 Change Log for the
+> retired original stance). §4.1 is amended below: `parent_id` is now the
+> hierarchy wire, while `task_relations.type='groups'` is legacy-only
+> non-containment provenance/cross-reference data.
 
 The migration filed by ADR-083 §2.5 (Epic `E-SAGA-TYPE-MIGRATION`, T10277,
 under Saga T10326) is the canonical source for the cutover semantics. Until
@@ -245,22 +258,20 @@ the W3.C cutover (T10334) closes, runtime code MUST accept both shapes via
 
 ### §4.1 Wire mechanism
 
-Saga-to-Epic grouping uses `task_relations.type='groups'`. A `SG-X` Saga groups
-child Epics via:
-
-```bash
-cleo update SG-X --relates E-Y:groups
-```
-
-The `groups` relation is generic and supports recursive traversal: `SG-A groups
-SG-B groups E-C` is a legal graph on day one.
+Saga-to-Epic containment uses `tasks.parent_id`: a child Epic's `parent_id`
+points at its containing Saga. This parent edge is the only hierarchy wire for
+member listing, ancestor/descendant traversal, rollups, completion, and nesting
+depth. The old `task_relations.type='groups'` linkage is deprecated as a
+hierarchy mechanism; it may appear only as legacy non-containment provenance or
+cross-reference data and MUST NOT affect hierarchy behavior.
 
 ### §4.2 Gating dependency
 
-**T9514** (`cleo update --relates` writer fix) MUST merge before any Saga is
-materialized. The `groups` relation write path is broken until T9514 lands.
-Creating Saga nodes before T9514 merges will produce relation records that
-cannot be reliably read back.
+**T9514** (`cleo update --relates` writer fix) was the historical gate for the
+legacy `groups` relation writer. It no longer gates Saga hierarchy creation:
+new Saga containment is materialized by writing `parent_id` on child Epics.
+Projects preserving old `groups` records for provenance still require a working
+relation writer, but those records are not hierarchy.
 
 ---
 
@@ -280,16 +291,16 @@ cannot be reliably read back.
 
 - Single canonical SSoT for the full 4-tier hierarchy — no more drift across AGENTS.md, skills, and ADRs.
 - Multi-release themes have a canonical container (Saga) with clear name, prefix, storage pattern, and lifecycle rules.
-- Zero schema migration: Saga reuses the existing `type='epic'` row with a label.
-- The `groups` relation is generic; Saga-to-Epic and Saga-to-Saga traversals work on day one.
+- Saga has first-class storage as `type='saga'`; legacy label-shaped Saga rows are compatibility/migration data only.
+- Hierarchy traversal is deterministic because Saga-to-Epic, Epic-to-Task, and Task-to-Subtask containment all use `parent_id`.
 - Prefix collision risk closed permanently via §2.1 registry.
 - Tier promotion / demotion rules (§1.3) are machine-checkable — agents and CI can flag violations.
 - I8 (Subtask-to-PR aggregation) provides a load-bearing rule distinguishing Subtask from Task at every decision point.
 
 ### §6.2 Negative / Trade-offs
 
-- `cleo list` without filters surfaces Saga-labeled Epics alongside regular Epics; filter by label to see only Sagas. `cleo saga list` is the preferred path.
-- The `groups` relation overloads `task_relations` alongside dedupe-merge semantics. A discriminator column may be warranted if semantic ambiguity causes bugs.
+- Legacy data may contain label-shaped Saga rows during migration; new PM-Core V2 data should list Sagas by `type='saga'`.
+- Legacy `groups` relation records may remain during migration, but they are non-containment only and must not drive child listing, rollups, completion, or depth.
 - The `SG-` display prefix on stored `T####` IDs creates a display/storage indirection that all CLI formatters and search helpers MUST honor.
 - Tier-promotion enforcement (I3) is currently a guideline, not a CI gate. Future work may add a `cleo doctor` check that flags tier-scope violations.
 
@@ -313,18 +324,19 @@ cannot be reliably read back.
 ## §8 Change Log
 
 - **2026-05-17** — Initial ADR. Saga tier adopted (`SG-`). Prefix registry created with `SG-`, `SD-`, `ADR-`, `D-`.
-- **2026-05-18** — Amended under T9624. Added §0 SSoT boundary, §1 Hierarchy Charter (4-tier table + 8 invariants including I8 Subtask-to-PR aggregation rule + lifecycle decision table), §2 Prefix Registry expanded with `T-`, `E-`, and explicit display/import-only semantics. Release-scheme-agnostic wording (project's `release.scheme` config governs, not hierarchy). Original Saga decision content preserved verbatim as §3–§6. Charter now covers all 4 tiers as canonical SSoT, not only Saga.
+- **2026-05-18** — Amended under T9624. Added §0 SSoT boundary, §1 Hierarchy Charter (4-tier table + 8 invariants including I8 Subtask-to-PR aggregation rule + lifecycle decision table), §2 Prefix Registry expanded with `T-`, `E-`, and explicit display/import-only semantics. Release-scheme-agnostic wording (project's `release.scheme` config governs, not hierarchy). Original Saga decision context preserved in §3–§6. Charter now covers all 4 tiers as canonical SSoT, not only Saga.
+- **2026-05-25** — Amended under T10551 for PM-Core V2 alignment. Saga is canonical `type='saga'`; legacy `label='saga'` and `task_relations.type='groups'` hierarchy semantics are explicitly deprecated. `parent_id` is pinned as the only containment edge with Saga/Epic/Task/Subtask depths 0/1/2/3 under `hierarchy.maxDepth=3`.
 
 ### 2026-05-23 — Amendment under T10333 (Saga T10326 SG-SUBSTRATE-RECONCILIATION)
 
 ADR-083 §2.5 (accepted 2026-05-23, "Saga as TaskType discriminator —
 T10122/A8 REVERSED to ACCEPT") elevates Saga to a first-class
 `TaskType` value. §4 above is amended in place to retire the
-"Saga is NOT a new `TaskType` enum value" prohibition and forward-point
+prior non-TaskType prohibition and forward-point
 to ADR-083 §2.5 as the canonical source for the type/label question.
-§4.1 (Wire mechanism — `task_relations.type='groups'`) and §4.2 (Gating
-dependency — T9514 writer fix) are preserved unchanged: they are
-orthogonal to the type/label encoding decision.
+§4.1 (Wire mechanism) and §4.2 (Gating dependency) were later amended by
+T10551: `parent_id` is the hierarchy wire, and `groups` is legacy
+non-containment provenance/cross-reference only.
 
 The migration path (`type='epic' AND label='saga'` → `type='saga'`,
 drop `'saga'` from `labels[]`) is implemented under Epic
@@ -339,25 +351,13 @@ label-encoded and canonical type-encoded shapes. The W3.C cutover
 amendment closes the textual contradiction between §4 and the
 §1.1 amendment note + ADR-083 §2.5.
 
-**Original §4 text (2026-05-17, preserved for historical context):**
+**Retired original §4 stance (2026-05-17, summarized for historical context):**
 
-> **§4 Storage Shape (preserved from 2026-05-17)**
->
-> **Saga is NOT a new `TaskType` enum value.** It is a labeled role that
-> a top-level Epic plays. Concretely:
->
-> - A Saga is an existing `type='epic'` task with `label='saga'` set via
->   `cleo update --label saga` (or created directly via `cleo saga
->   create`).
-> - The `TaskType` enum remains `{subtask, task, epic}` per ADR-066. No
->   schema migration is required.
-> - Saga-level grouping is expressed through `task_relations.type='groups'`
->   edges (implemented in T9519) that link the Saga-labeled Epic to its
->   child Epics.
->
-> This protects against future drift where someone proposes adding `saga`
-> to the `TaskType` enum. If such a proposal surfaces, it MUST reference
-> this clause and provide a full migration path for every existing Saga.
+The original implementation modeled Saga identity through an Epic row plus a
+Saga label and expressed Saga membership through `task_relations.type='groups'`.
+That stance is superseded for PM-Core V2: Saga identity is `type='saga'`, and
+Saga/Epic containment is `parent_id`. Historical `groups` records are
+non-containment provenance/cross-reference data only.
 
 The 2026-05-23 amendment is itself the proposal anticipated by the final
 sentence above — ADR-083 §2.5 + the W1.A/W1.B migration shipped under
