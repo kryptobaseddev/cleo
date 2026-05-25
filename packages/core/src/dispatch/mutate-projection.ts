@@ -118,6 +118,15 @@ export const MUTATE_PROJECTION_PLANS: Readonly<Record<string, MutateProjectionPl
         ids: id ? [id] : [],
       };
       if (typeof status === 'string') envelope['status'] = status;
+      const createdIds = data['createdIds'];
+      if (createdIds && typeof createdIds === 'object') {
+        const acceptanceCriteria = (createdIds as Record<string, unknown>)['acceptanceCriteria'];
+        if (Array.isArray(acceptanceCriteria)) {
+          envelope['acceptanceCriteriaIds'] = acceptanceCriteria.filter(
+            (entry): entry is string => typeof entry === 'string',
+          );
+        }
+      }
       if (data['duplicate'] === true) envelope['duplicate'] = true;
       if (data['dryRun'] === true) envelope['dryRun'] = true;
       return envelope;
