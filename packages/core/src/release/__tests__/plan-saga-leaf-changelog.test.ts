@@ -347,7 +347,7 @@ describe('releasePlan --saga (T9838 Fix 1)', () => {
     expect(result.error.message).toContain('mutually exclusive');
   });
 
-  it('rejects when neither --saga nor --epic is provided', async () => {
+  it('rejects when neither --saga, --epic, nor --tasks is provided', async () => {
     const result = await releasePlan({
       version: 'v2026.6.0',
       channel: 'latest',
@@ -359,7 +359,7 @@ describe('releasePlan --saga (T9838 Fix 1)', () => {
     expect(result.success).toBe(false);
     if (result.success) throw new Error('unreachable');
     expect(result.error.code).toBe('E_INVALID_INPUT');
-    expect(result.error.message).toContain('--saga or --epic is required');
+    expect(result.error.message).toContain('--saga, --epic, or --tasks is required');
   });
 });
 
