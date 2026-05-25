@@ -41,7 +41,12 @@ export {
 } from './classify.js';
 export type { ContextEstimation } from './context.js';
 export { countManifestEntries, estimateContext } from './context.js';
-export type { DashboardRateMetric, OrchestrateDashboardMetrics } from './dashboard.js';
+export type {
+  DashboardLockContention,
+  DashboardLockMarker,
+  DashboardRateMetric,
+  OrchestrateDashboardMetrics,
+} from './dashboard.js';
 export { collectOrchestrateDashboard, formatDashboardPromptSummary } from './dashboard.js';
 export type {
   HarnessHint,

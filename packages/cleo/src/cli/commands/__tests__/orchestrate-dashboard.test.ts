@@ -5,5 +5,8 @@ describe('orchestrate dashboard CLI command', () => {
   it('is registered in the orchestrate command manifest', () => {
     expect(orchestrateCommand.subCommands).toHaveProperty('dashboard');
     expect(orchestrateCommand.subCommands?.dashboard?.meta?.name).toBe('dashboard');
+    expect(orchestrateCommand.subCommands?.dashboard?.meta?.description).toContain(
+      'DB/evidence lock contention',
+    );
   });
 });
