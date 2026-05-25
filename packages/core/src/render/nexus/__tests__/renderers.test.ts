@@ -14,13 +14,154 @@
  * @task T10132
  */
 
+import type { GraphNodeKind } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
 import {
   renderNexusClusters,
   renderNexusContext,
+  renderNexusFullContext,
   renderNexusHotPaths,
   renderNexusStatus,
 } from '../index.js';
+
+type GraphFixtureSize = 'small' | 'medium' | 'large';
+
+interface GraphContextPerformanceFixture {
+  size: GraphFixtureSize;
+  graph: {
+    nodeCount: number;
+    relationCount: number;
+  };
+  thresholds: {
+    contextTokenBudget: number;
+    fullContextTokenBudget: number;
+    maxRenderMs: number;
+    maxQueryCount: number;
+  };
+  observed: {
+    queryCount: number;
+  };
+  contextData: Record<string, unknown>;
+  fullContextData: Record<string, unknown>;
+}
+
+const DISPLAYED_CONTEXT_MATCHES = 5;
+
+const estimateFixtureTokens = (text: string): number => Math.ceil(text.length / 4);
+
+const makeKind = (index: number): GraphNodeKind => (index % 3 === 0 ? 'method' : 'function');
+
+const makeSymbolLinks = (
+  prefix: string,
+  count: number,
+): Array<{ name: string; kind: GraphNodeKind }> =>
+  Array.from({ length: count }, (_, index) => ({
+    name: `${prefix}${index + 1}`,
+    kind: makeKind(index),
+  }));
+
+const makeContextResult = (
+  fixtureName: GraphFixtureSize,
+  index: number,
+): Record<string, unknown> => ({
+  name: `${fixtureName}ContextSymbol${index + 1}`,
+  kind: makeKind(index),
+  filePath: `src/${fixtureName}/module-${index + 1}.ts`,
+  startLine: 20 + index,
+  docSummary: `${fixtureName} graph context fixture symbol ${index + 1}`,
+  community: { id: `${fixtureName}-community`, label: `${fixtureName}-core` },
+  callers: makeSymbolLinks(`${fixtureName}Caller${index + 1}_`, 3),
+  callees: makeSymbolLinks(`${fixtureName}Callee${index + 1}_`, 4),
+  processes: [{ label: `${fixtureName} render flow`, role: 'entry' }],
+  source: null,
+});
+
+const makeBrainMemories = (
+  fixtureName: GraphFixtureSize,
+  count: number,
+): Array<Record<string, unknown>> =>
+  Array.from({ length: count }, (_, index) => ({
+    nodeType: 'learning',
+    label: `${fixtureName} context memory ${index + 1}`,
+    edgeType: 'documents',
+    weight: 0.9 - index * 0.01,
+  }));
+
+const makeTaskLinks = (count: number): Array<{ taskId: string; weight: number }> =>
+  Array.from({ length: count }, (_, index) => ({
+    taskId: `T${10_000 + index}`,
+    weight: 0.8 - index * 0.02,
+  }));
+
+const makePerformanceFixture = (
+  size: GraphFixtureSize,
+  graph: { nodeCount: number; relationCount: number },
+  matchCount: number,
+  thresholds: GraphContextPerformanceFixture['thresholds'],
+): GraphContextPerformanceFixture => ({
+  size,
+  graph,
+  thresholds,
+  observed: {
+    queryCount: size === 'small' ? 2 : size === 'medium' ? 4 : 6,
+  },
+  contextData: {
+    matchCount,
+    _symbolName: `${size}ContextSymbol`,
+    _fixtureGraphSize: graph,
+    _queryCount: size === 'small' ? 2 : size === 'medium' ? 4 : 6,
+    results: Array.from({ length: Math.min(DISPLAYED_CONTEXT_MATCHES, matchCount) }, (_, index) =>
+      makeContextResult(size, index),
+    ),
+  },
+  fullContextData: {
+    symbolId: `src/${size}/entry.ts::${size}ContextSymbol`,
+    _durationMs: size === 'small' ? 3 : size === 'medium' ? 9 : 17,
+    _fixtureGraphSize: graph,
+    _queryCount: size === 'small' ? 2 : size === 'medium' ? 4 : 6,
+    nexus: {
+      kind: 'function',
+      filePath: `src/${size}/entry.ts`,
+      callers: makeSymbolLinks(`${size}Caller`, 16),
+      callees: makeSymbolLinks(`${size}Callee`, 18),
+    },
+    plasticityWeight: {
+      totalWeight: graph.relationCount / graph.nodeCount,
+      edgeCount: graph.relationCount,
+    },
+    brainMemories: makeBrainMemories(size, size === 'small' ? 2 : size === 'medium' ? 8 : 24),
+    tasks: makeTaskLinks(size === 'small' ? 1 : size === 'medium' ? 6 : 18),
+    sentientProposals: Array.from({ length: size === 'large' ? 9 : 2 }, (_, index) => ({
+      title: `${size} proposal ${index + 1}`,
+      weight: 0.7 - index * 0.03,
+    })),
+    conduitThreads: Array.from({ length: size === 'large' ? 8 : 1 }, (_, index) => ({
+      nodeId: `${size}-thread-${index + 1}`,
+      weight: 0.5 - index * 0.02,
+    })),
+  },
+});
+
+const graphContextPerformanceFixtures: GraphContextPerformanceFixture[] = [
+  makePerformanceFixture('small', { nodeCount: 24, relationCount: 48 }, 2, {
+    contextTokenBudget: 700,
+    fullContextTokenBudget: 700,
+    maxRenderMs: 25,
+    maxQueryCount: 3,
+  }),
+  makePerformanceFixture('medium', { nodeCount: 250, relationCount: 900 }, 12, {
+    contextTokenBudget: 1_900,
+    fullContextTokenBudget: 1_100,
+    maxRenderMs: 35,
+    maxQueryCount: 5,
+  }),
+  makePerformanceFixture('large', { nodeCount: 2_500, relationCount: 12_000 }, 240, {
+    contextTokenBudget: 2_000,
+    fullContextTokenBudget: 1_300,
+    maxRenderMs: 50,
+    maxQueryCount: 7,
+  }),
+];
 
 // ---------------------------------------------------------------------------
 // nexus clusters renderer
@@ -128,6 +269,55 @@ describe('nexus context — human renderer', () => {
   it('returns empty string in quiet mode', () => {
     const data = { matchCount: 0, results: [], _symbolName: 'x' };
     expect(renderNexusContext(data, true)).toBe('');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// graph/context token-budget + performance fixtures
+// ---------------------------------------------------------------------------
+
+describe('nexus graph/context — token budget and performance fixtures', () => {
+  it.each(
+    graphContextPerformanceFixtures,
+  )('keeps $size graph context output inside recorded token/query/latency thresholds', (fixture) => {
+    const start = performance.now();
+    const output = renderNexusContext(fixture.contextData, false);
+    const elapsedMs = performance.now() - start;
+    const tokenEstimate = estimateFixtureTokens(output);
+
+    expect(fixture.graph.nodeCount).toBeGreaterThan(0);
+    expect(fixture.graph.relationCount).toBeGreaterThanOrEqual(fixture.graph.nodeCount);
+    expect(tokenEstimate).toBeLessThanOrEqual(fixture.thresholds.contextTokenBudget);
+    expect(elapsedMs).toBeLessThanOrEqual(fixture.thresholds.maxRenderMs);
+    expect(fixture.observed.queryCount).toBeLessThanOrEqual(fixture.thresholds.maxQueryCount);
+  });
+
+  it.each(
+    graphContextPerformanceFixtures,
+  )('keeps $size full-context output inside recorded token/query/latency thresholds', (fixture) => {
+    const start = performance.now();
+    const output = renderNexusFullContext(fixture.fullContextData, false);
+    const elapsedMs = performance.now() - start;
+    const tokenEstimate = estimateFixtureTokens(output);
+
+    expect(output).toContain('## Living Brain:');
+    expect(tokenEstimate).toBeLessThanOrEqual(fixture.thresholds.fullContextTokenBudget);
+    expect(elapsedMs).toBeLessThanOrEqual(fixture.thresholds.maxRenderMs);
+    expect(fixture.observed.queryCount).toBeLessThanOrEqual(fixture.thresholds.maxQueryCount);
+  });
+
+  it('reports omitted matches for medium/large context fixtures', () => {
+    const omittedFixtures = graphContextPerformanceFixtures.filter(
+      (fixture) => Number(fixture.contextData['matchCount']) > DISPLAYED_CONTEXT_MATCHES,
+    );
+
+    expect(omittedFixtures.map((fixture) => fixture.size)).toEqual(['medium', 'large']);
+    for (const fixture of omittedFixtures) {
+      const output = renderNexusContext(fixture.contextData, false);
+      expect(output).toContain(
+        `Showing ${DISPLAYED_CONTEXT_MATCHES} of ${fixture.contextData['matchCount']} matches`,
+      );
+    }
   });
 });
 
