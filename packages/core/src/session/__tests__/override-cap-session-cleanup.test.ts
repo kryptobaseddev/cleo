@@ -19,6 +19,7 @@ import {
   checkAndIncrementOverrideCap,
   readSessionOverrideCount,
 } from '../../security/override-cap.js';
+import { getTaskAccessor } from '../../store/data-accessor.js';
 import { sessionEnd, sessionStart, sessionStatus } from '../engine-ops.js';
 
 // ---------------------------------------------------------------------------
@@ -146,6 +147,47 @@ describe('override-cap session-end cleanup (T9505)', () => {
     const statusAfterRestart = await sessionStatus(tempDir);
     expect(statusAfterRestart.success).toBe(true);
     expect(statusAfterRestart.data?.overrideCount).toBe(0);
+  });
+
+  it('sessionStatus selects the newest active session instead of a stale fixture scope (T9156)', async () => {
+    const accessor = await getTaskAccessor(tempDir);
+    await accessor.upsertSingleSession({
+      id: 'session-stale-fixture',
+      name: 'stale T001 fixture',
+      status: 'active',
+      scope: { type: 'epic', epicId: 'T001', rootTaskId: 'T001' },
+      taskWork: { taskId: 'T001', setAt: '2026-01-01T00:00:00.000Z' },
+      startedAt: '2026-01-01T00:00:00.000Z',
+      lastActivity: '2026-01-01T00:00:00.000Z',
+      resumeCount: 0,
+      scopeKind: 'epic',
+      scopeId: 'T001',
+      stats: {
+        tasksCompleted: 0,
+        tasksCreated: 0,
+        tasksUpdated: 0,
+        focusChanges: 0,
+        totalActiveMinutes: 0,
+        suspendCount: 0,
+      },
+    });
+
+    const fresh = await sessionStart(tempDir, {
+      scope: 'global',
+      name: 'fresh agent session',
+      agentHandle: 'fresh-agent',
+    });
+    expect(fresh.success).toBe(true);
+
+    const status = await sessionStatus(tempDir);
+    expect(status.success).toBe(true);
+    expect(status.data?.session?.id).toBe(fresh.data?.id);
+    expect(status.data?.session?.scope).toEqual({ type: 'global' });
+    expect(status.data?.session?.scope).not.toEqual({
+      type: 'epic',
+      epicId: 'T001',
+      rootTaskId: 'T001',
+    });
   });
 
   it('counter is keyed by sessionId — each session has an independent bucket', async () => {
