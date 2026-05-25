@@ -1,0 +1,209 @@
+{
+  "format": "VitestJsonLike",
+  "task": "T10562",
+  "status": "pass",
+  "numTotalTests": 4,
+  "numPassedTests": 4,
+  "numFailedTests": 0,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "title": "AC1 live DB untouched",
+          "status": "pass",
+          "failureMessages": []
+        }
+      ],
+      "name": "AC1 live DB untouched",
+      "status": "pass",
+      "message": "before sha256=a59c088f8a56111053311593b078eed24a14d4f8b1aa2c2a4b00b13a4256789a; after sha256=a59c088f8a56111053311593b078eed24a14d4f8b1aa2c2a4b00b13a4256789a; inode=2049:2382648"
+    },
+    {
+      "assertionResults": [
+        {
+          "title": "AC2 would counts reported",
+          "status": "pass",
+          "failureMessages": []
+        }
+      ],
+      "name": "AC2 would counts reported",
+      "status": "pass",
+      "message": "{\"wouldCreate\":1,\"wouldUpdate\":1,\"wouldDelete\":1}"
+    },
+    {
+      "assertionResults": [
+        {
+          "title": "AC3 rollback plan emitted",
+          "status": "pass",
+          "failureMessages": []
+        }
+      ],
+      "name": "AC3 rollback plan emitted",
+      "status": "pass",
+      "message": "Rollback is copy-only: remove copy DB and do not promote it; live DB was never opened for write."
+    },
+    {
+      "assertionResults": [
+        {
+          "title": "AC4 copy inode separate from live DB",
+          "status": "pass",
+          "failureMessages": []
+        }
+      ],
+      "name": "AC4 copy inode separate from live DB",
+      "status": "pass",
+      "message": "live=2049:2382648; copy=52:378421238"
+    }
+  ],
+  "db": {
+    "liveBefore": {
+      "path": "/mnt/projects/cleocode/.cleo/tasks.db",
+      "dev": 2049,
+      "inode": 2382648,
+      "size": 118996992,
+      "mtimeMs": 1779740143667.2322,
+      "sha256": "a59c088f8a56111053311593b078eed24a14d4f8b1aa2c2a4b00b13a4256789a"
+    },
+    "liveAfter": {
+      "path": "/mnt/projects/cleocode/.cleo/tasks.db",
+      "dev": 2049,
+      "inode": 2382648,
+      "size": 118996992,
+      "mtimeMs": 1779740143667.2322,
+      "sha256": "a59c088f8a56111053311593b078eed24a14d4f8b1aa2c2a4b00b13a4256789a"
+    },
+    "copyBefore": {
+      "path": "/home/keatonhoskins/.local/share/cleo/worktrees/1e3146b7352ba279/T10562/tmp/t10562/tasks-dry-run-copy.db",
+      "dev": 52,
+      "inode": 378421238,
+      "size": 118996992,
+      "mtimeMs": 1779740143667.2322,
+      "sha256": "a59c088f8a56111053311593b078eed24a14d4f8b1aa2c2a4b00b13a4256789a"
+    },
+    "copyAfter": {
+      "path": "/home/keatonhoskins/.local/share/cleo/worktrees/1e3146b7352ba279/T10562/tmp/t10562/tasks-dry-run-copy.db",
+      "dev": 52,
+      "inode": 378421238,
+      "size": 119001088,
+      "mtimeMs": 1779740230877.065,
+      "sha256": "090d35714034cf0b989a1df511a93bfa1400ca20caa6eafb7ff78f8f155e44dd"
+    },
+    "separateCopyInode": true,
+    "copyPathUnderWorktreeTmp": true
+  },
+  "diff": {
+    "beforeTables": [
+      "__drizzle_migrations",
+      "adr_relations",
+      "adr_task_links",
+      "agent_credentials",
+      "agent_error_log",
+      "agent_instances",
+      "architecture_decisions",
+      "attachment_refs",
+      "attachments",
+      "audit_log",
+      "brain_release_links",
+      "commit_files",
+      "commits",
+      "evidence_ac_bindings",
+      "experiments",
+      "external_task_links",
+      "lifecycle_evidence",
+      "lifecycle_gate_results",
+      "lifecycle_pipelines",
+      "lifecycle_stages",
+      "lifecycle_transitions",
+      "manifest_entries",
+      "pipeline_manifest",
+      "playbook_approvals",
+      "playbook_runs",
+      "pr_commits",
+      "pr_tasks",
+      "pull_requests",
+      "release_artifacts",
+      "release_changes",
+      "release_changesets",
+      "release_commits",
+      "releases",
+      "schema_meta",
+      "session_handoff_entries",
+      "sessions",
+      "status_registry",
+      "task_acceptance_criteria",
+      "task_acceptance_criteria_history",
+      "task_commits",
+      "task_dependencies",
+      "task_relations",
+      "task_work_history",
+      "tasks",
+      "token_usage",
+      "warp_chain_instances",
+      "warp_chains"
+    ],
+    "afterTables": [
+      "__drizzle_migrations",
+      "adr_relations",
+      "adr_task_links",
+      "agent_credentials",
+      "agent_error_log",
+      "agent_instances",
+      "architecture_decisions",
+      "attachment_refs",
+      "attachments",
+      "audit_log",
+      "brain_release_links",
+      "commit_files",
+      "commits",
+      "evidence_ac_bindings",
+      "experiments",
+      "external_task_links",
+      "lifecycle_evidence",
+      "lifecycle_gate_results",
+      "lifecycle_pipelines",
+      "lifecycle_stages",
+      "lifecycle_transitions",
+      "manifest_entries",
+      "pipeline_manifest",
+      "playbook_approvals",
+      "playbook_runs",
+      "pr_commits",
+      "pr_tasks",
+      "pull_requests",
+      "release_artifacts",
+      "release_changes",
+      "release_changesets",
+      "release_commits",
+      "releases",
+      "schema_meta",
+      "session_handoff_entries",
+      "sessions",
+      "status_registry",
+      "t10562_migration_dry_run_probe",
+      "task_acceptance_criteria",
+      "task_acceptance_criteria_history",
+      "task_commits",
+      "task_dependencies",
+      "task_relations",
+      "task_work_history",
+      "tasks",
+      "token_usage",
+      "warp_chain_instances",
+      "warp_chains"
+    ],
+    "createdTables": [
+      "t10562_migration_dry_run_probe"
+    ],
+    "probeTableRowsAfter": 2
+  },
+  "counts": {
+    "wouldCreate": 1,
+    "wouldUpdate": 1,
+    "wouldDelete": 1
+  },
+  "rollbackPlan": [
+    "Do not replace or promote /mnt/projects/cleocode/.cleo/tasks.db; it was not modified by this dry-run.",
+    "Delete dry-run copy /home/keatonhoskins/.local/share/cleo/worktrees/1e3146b7352ba279/T10562/tmp/t10562/tasks-dry-run-copy.db to discard all simulated changes.",
+    "If a future real migration fails after promotion, restore the pre-migration backup and verify sha256/inode metadata before reopening CLEO."
+  ]
+}
