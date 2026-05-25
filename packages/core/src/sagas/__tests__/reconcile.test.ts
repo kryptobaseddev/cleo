@@ -34,7 +34,7 @@ import { reconcileSaga, SAGA_RECONCILE_AUDIT_FILE } from '../reconcile.js';
 let TEST_ROOT: string;
 
 /**
- * Seed one saga (`T-S`) with `n` member epics. Each member is given the
+ * Seed one saga (`T9000`) with `n` member epics. Each member is given the
  * status supplied in `memberStatuses` (default: all `'active'`). Saga itself
  * is seeded `'active'`.
  */
@@ -65,7 +65,7 @@ async function seedSagaWithMembers(
 
   const memberIds: string[] = [];
   for (let i = 0; i < memberStatuses.length; i++) {
-    const memberId = `T-E${i + 1}`;
+    const memberId = `T901${i + 1}`;
     memberIds.push(memberId);
     await createTask(
       {
@@ -125,9 +125,9 @@ afterEach(async () => {
 
 describe('reconcileSaga — closure path (AC1, AC2, AC5)', () => {
   it('closes a single saga when all members are terminal (AC2)', async () => {
-    await seedSagaWithMembers(TEST_ROOT, 'T-S', ['done', 'done']);
+    await seedSagaWithMembers(TEST_ROOT, 'T9000', ['done', 'done']);
 
-    const result = await reconcileSaga(TEST_ROOT, { sagaId: 'T-S' });
+    const result = await reconcileSaga(TEST_ROOT, { sagaId: 'T9000' });
     expect(result.success, JSON.stringify(result)).toBe(true);
     if (!result.success) return;
 
@@ -135,20 +135,20 @@ describe('reconcileSaga — closure path (AC1, AC2, AC5)', () => {
     expect(result.data.closed).toBe(1);
     expect(result.data.noOp).toBe(0);
     expect(result.data.entries[0]?.action).toBe('close');
-    expect(result.data.entries[0]?.sagaId).toBe('T-S');
+    expect(result.data.entries[0]?.sagaId).toBe('T9000');
     expect(result.data.entries[0]?.statusBefore).toBe('active');
     expect(result.data.entries[0]?.statusAfter).toBe('done');
 
     // Verify the row was actually written
-    const after = await taskShow(TEST_ROOT, 'T-S');
+    const after = await taskShow(TEST_ROOT, 'T9000');
     expect(after.data?.task.status).toBe('done');
     expect(after.data?.task.completedAt).toBeTruthy();
   });
 
   it('treats `cancelled` and `archived` members as terminal for closure', async () => {
-    await seedSagaWithMembers(TEST_ROOT, 'T-S', ['done', 'cancelled', 'archived']);
+    await seedSagaWithMembers(TEST_ROOT, 'T9000', ['done', 'cancelled', 'archived']);
 
-    const result = await reconcileSaga(TEST_ROOT, { sagaId: 'T-S' });
+    const result = await reconcileSaga(TEST_ROOT, { sagaId: 'T9000' });
     expect(result.success).toBe(true);
     if (!result.success) return;
     expect(result.data.closed).toBe(1);
@@ -157,13 +157,13 @@ describe('reconcileSaga — closure path (AC1, AC2, AC5)', () => {
 
   it('walks every saga when no sagaId supplied (AC1)', async () => {
     // Two sagas — one closure-ready, one with a pending member.
-    await seedSagaWithMembers(TEST_ROOT, 'T-S1', ['done', 'done']);
+    await seedSagaWithMembers(TEST_ROOT, 'T9001', ['done', 'done']);
 
     // Inline second-saga seed (re-using the helper would clobber .git/.cleo).
     const ts = '2026-05-22T00:00:00Z';
     await createTask(
       {
-        id: 'T-S2',
+        id: 'T9002',
         title: 'Saga 2',
         type: 'epic',
         status: 'active',
@@ -176,7 +176,7 @@ describe('reconcileSaga — closure path (AC1, AC2, AC5)', () => {
     );
     await createTask(
       {
-        id: 'T-E3',
+        id: 'T9013',
         title: 'Pending Epic',
         type: 'epic',
         status: 'active',
@@ -186,7 +186,7 @@ describe('reconcileSaga — closure path (AC1, AC2, AC5)', () => {
       } as Parameters<typeof createTask>[0],
       TEST_ROOT,
     );
-    await addRelation('T-S2', 'T-E3', 'groups', TEST_ROOT);
+    await addRelation('T9002', 'T9013', 'groups', TEST_ROOT);
 
     const result = await reconcileSaga(TEST_ROOT);
     expect(result.success).toBe(true);
@@ -195,19 +195,19 @@ describe('reconcileSaga — closure path (AC1, AC2, AC5)', () => {
     expect(result.data.closed).toBe(1);
     expect(result.data.pending).toBe(1);
     const closedIds = result.data.entries.filter((e) => e.action === 'close').map((e) => e.sagaId);
-    expect(closedIds).toContain('T-S1');
+    expect(closedIds).toContain('T9001');
   });
 
   it('appends one JSON-line entry per reconcile decision (AC5)', async () => {
-    await seedSagaWithMembers(TEST_ROOT, 'T-S', ['done', 'done']);
-    await reconcileSaga(TEST_ROOT, { sagaId: 'T-S' });
+    await seedSagaWithMembers(TEST_ROOT, 'T9000', ['done', 'done']);
+    await reconcileSaga(TEST_ROOT, { sagaId: 'T9000' });
 
     const lines = readAuditLines(TEST_ROOT);
     expect(lines).toHaveLength(1);
     const entry = lines[0];
-    expect(entry?.sagaId).toBe('T-S');
+    expect(entry?.sagaId).toBe('T9000');
     expect(entry?.action).toBe('close');
-    expect(entry?.membersAffected.sort()).toEqual(['T-E1', 'T-E2']);
+    expect(entry?.membersAffected.sort()).toEqual(['T9011', 'T9012']);
     expect(entry?.pendingMembers).toEqual([]);
     expect(entry?.statusBefore).toBe('active');
     expect(entry?.statusAfter).toBe('done');
@@ -219,12 +219,12 @@ describe('reconcileSaga — closure path (AC1, AC2, AC5)', () => {
 
 describe('reconcileSaga — idempotency (AC3)', () => {
   it('emits action=no-op on a saga that is already done', async () => {
-    await seedSagaWithMembers(TEST_ROOT, 'T-S', ['done', 'done']);
-    const first = await reconcileSaga(TEST_ROOT, { sagaId: 'T-S' });
+    await seedSagaWithMembers(TEST_ROOT, 'T9000', ['done', 'done']);
+    const first = await reconcileSaga(TEST_ROOT, { sagaId: 'T9000' });
     expect(first.success).toBe(true);
     if (first.success) expect(first.data.entries[0]?.action).toBe('close');
 
-    const second = await reconcileSaga(TEST_ROOT, { sagaId: 'T-S' });
+    const second = await reconcileSaga(TEST_ROOT, { sagaId: 'T9000' });
     expect(second.success).toBe(true);
     if (!second.success) return;
     expect(second.data.entries[0]?.action).toBe('no-op');
@@ -233,26 +233,26 @@ describe('reconcileSaga — idempotency (AC3)', () => {
   });
 
   it('emits action=no-op when members are pending (no closure)', async () => {
-    await seedSagaWithMembers(TEST_ROOT, 'T-S', ['done', 'active']);
-    const result = await reconcileSaga(TEST_ROOT, { sagaId: 'T-S' });
+    await seedSagaWithMembers(TEST_ROOT, 'T9000', ['done', 'active']);
+    const result = await reconcileSaga(TEST_ROOT, { sagaId: 'T9000' });
     expect(result.success).toBe(true);
     if (!result.success) return;
     expect(result.data.entries[0]?.action).toBe('no-op');
-    expect(result.data.entries[0]?.pendingMembers).toContain('T-E2');
+    expect(result.data.entries[0]?.pendingMembers).toContain('T9012');
     expect(result.data.pending).toBe(1);
     expect(result.data.closed).toBe(0);
 
     // Saga row must still be active.
-    const after = await taskShow(TEST_ROOT, 'T-S');
+    const after = await taskShow(TEST_ROOT, 'T9000');
     expect(after.data?.task.status).toBe('active');
   });
 });
 
 describe('reconcileSaga — dry-run mode', () => {
   it('reports closure intent without mutating the row or writing audit log', async () => {
-    await seedSagaWithMembers(TEST_ROOT, 'T-S', ['done', 'done']);
+    await seedSagaWithMembers(TEST_ROOT, 'T9000', ['done', 'done']);
 
-    const result = await reconcileSaga(TEST_ROOT, { sagaId: 'T-S', dryRun: true });
+    const result = await reconcileSaga(TEST_ROOT, { sagaId: 'T9000', dryRun: true });
     expect(result.success).toBe(true);
     if (!result.success) return;
     expect(result.data.dryRun).toBe(true);
@@ -261,7 +261,7 @@ describe('reconcileSaga — dry-run mode', () => {
     expect(result.data.entries[0]?.statusAfter).toBe('active');
 
     // Row must NOT have flipped.
-    const after = await taskShow(TEST_ROOT, 'T-S');
+    const after = await taskShow(TEST_ROOT, 'T9000');
     expect(after.data?.task.status).toBe('active');
 
     // Audit log must not exist (dry-run skips the write).
@@ -272,27 +272,27 @@ describe('reconcileSaga — dry-run mode', () => {
 
 describe('reconcileSaga — concurrency (AC4)', () => {
   it('returns action=blocked when the per-saga lock is held by another caller', async () => {
-    await seedSagaWithMembers(TEST_ROOT, 'T-S', ['done', 'done']);
+    await seedSagaWithMembers(TEST_ROOT, 'T9000', ['done', 'done']);
 
     // Manually acquire the per-saga lock (mirrors what a concurrent
     // invocation would do) BEFORE invoking reconcileSaga. The lock-file
     // path is the same one the reconciler uses.
     const lockDir = join(getCleoHome(), 'locks', 'saga-reconcile');
     mkdirSync(lockDir, { recursive: true });
-    const lockPath = join(lockDir, 'T-S.lock');
+    const lockPath = join(lockDir, 'T9000.lock');
     const { appendFileSync } = await import('node:fs');
     appendFileSync(lockPath, '', { encoding: 'utf-8' });
     const release = await acquireLock(lockPath, { retries: 0, stale: 300_000 });
 
     try {
-      const result = await reconcileSaga(TEST_ROOT, { sagaId: 'T-S' });
+      const result = await reconcileSaga(TEST_ROOT, { sagaId: 'T9000' });
       expect(result.success).toBe(true);
       if (!result.success) return;
       expect(result.data.entries[0]?.action).toBe('blocked');
       expect(result.data.blocked).toBe(1);
 
       // Saga row must still be active — closure did not run.
-      const after = await taskShow(TEST_ROOT, 'T-S');
+      const after = await taskShow(TEST_ROOT, 'T9000');
       expect(after.data?.task.status).toBe('active');
 
       // The blocked decision must still be audit-logged.
@@ -314,7 +314,7 @@ describe('reconcileSaga — zero-member sagas', () => {
     const ts = '2026-05-22T00:00:00Z';
     await createTask(
       {
-        id: 'T-S',
+        id: 'T9000',
         title: 'Empty saga',
         type: 'epic',
         status: 'active',
@@ -326,7 +326,7 @@ describe('reconcileSaga — zero-member sagas', () => {
       TEST_ROOT,
     );
 
-    const result = await reconcileSaga(TEST_ROOT, { sagaId: 'T-S' });
+    const result = await reconcileSaga(TEST_ROOT, { sagaId: 'T9000' });
     expect(result.success).toBe(true);
     if (!result.success) return;
     expect(result.data.entries[0]?.action).toBe('no-op');
@@ -340,7 +340,7 @@ describe('reconcileSaga — error paths', () => {
     mkdirSync(join(TEST_ROOT, '.git'), { recursive: true });
     await getDb(TEST_ROOT);
 
-    const result = await reconcileSaga(TEST_ROOT, { sagaId: 'T-MISSING' });
+    const result = await reconcileSaga(TEST_ROOT, { sagaId: 'T999999' });
     expect(result.success).toBe(true);
     if (!result.success) return;
     expect(result.data.entries[0]?.action).toBe('error');
