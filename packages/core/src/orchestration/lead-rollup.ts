@@ -45,6 +45,7 @@ import type {
   WaveRollup,
 } from '@cleocode/contracts';
 import { getConfigValue } from '../config/registry.js';
+import { resolveOrCwd } from '../paths.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { computeWaves } from './waves.js';
 
@@ -86,21 +87,25 @@ export interface RollupWaveStatusOptions {
  * Failures from the registry IO (e.g. unreadable config file) are caught and
  * downgraded to `'passive'` for the same reason.
  *
- * @param projectRoot - Project root to read the cascade from. Defaults to
- *   `process.cwd()` to match the rest of the lead-rollup module's behaviour
- *   when callers omit the argument.
+ * @param projectRoot - Project root to read the cascade from. Defaults to the
+ *   `getProjectRoot()` discovery path (falling back to `process.cwd()` only
+ *   when no `.cleo` sentinel is found) via `resolveOrCwd` — same convention
+ *   the rest of `packages/core/src` uses (T9584).
  * @returns The resolved `LeadRollupMode` — guaranteed to be one of the three
  *   valid values, never `undefined`.
  *
  * @task T10513
  */
 export async function resolveLeadRollupMode(projectRoot?: string): Promise<LeadRollupMode> {
-  const root = projectRoot ?? process.cwd();
   let resolved: unknown;
   try {
+    const root = resolveOrCwd(projectRoot);
     resolved = await getConfigValue('leadRollup.mode', { projectRoot: root, scope: 'merged' });
   } catch {
-    // Unreadable config file — preserve legacy behaviour.
+    // Unreadable config file OR no project root resolvable — preserve
+    // legacy behaviour. Lead-rollup MUST NEVER crash because the
+    // operator's `.cleo/config.json` is missing / unreadable / the cwd
+    // is outside a CLEO project.
     return 'passive';
   }
   if (resolved === 'active' || resolved === 'auto' || resolved === 'passive') {
