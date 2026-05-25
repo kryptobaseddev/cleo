@@ -897,7 +897,12 @@ function listGitTags(projectRoot: string): Set<string> | null {
       stdio: 'pipe',
       timeout: 60_000,
     });
-    return new Set(raw.split('\n').map((s) => s.trim()).filter(Boolean));
+    return new Set(
+      raw
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean),
+    );
   } catch (err: unknown) {
     log.warn(
       { err: err instanceof Error ? err.message : String(err) },
@@ -1399,10 +1404,14 @@ export async function releasePlan(
     );
   }
   if (scopeCount === 0) {
-    return engineError<ReleasePlanResult>('E_INVALID_INPUT', '--saga, --epic, or --tasks is required', {
-      exitCode: ExitCode.VALIDATION_ERROR,
-      fix: 'pass --epic T#### (single Epic), --saga T#### (Saga walks groups relation), or --tasks T####,T####',
-    });
+    return engineError<ReleasePlanResult>(
+      'E_INVALID_INPUT',
+      '--saga, --epic, or --tasks is required',
+      {
+        exitCode: ExitCode.VALIDATION_ERROR,
+        fix: 'pass --epic T#### (single Epic), --saga T#### (Saga walks groups relation), or --tasks T####,T####',
+      },
+    );
   }
 
   // ── R-021 / T9838: resolve tasks for the plan ────────────────────────
@@ -1419,18 +1428,26 @@ export async function releasePlan(
   if (opts.taskIds?.length) {
     const taskRes = await resolveExplicitTasks(opts.taskIds, projectRoot);
     if (taskRes.missing.length > 0) {
-      return engineError<ReleasePlanResult>('E_NOT_FOUND', 'One or more --tasks IDs were not found', {
-        exitCode: ExitCode.NOT_FOUND,
-        fix: `cleo exists ${taskRes.missing[0]}`,
-        details: { missing: taskRes.missing },
-      });
+      return engineError<ReleasePlanResult>(
+        'E_NOT_FOUND',
+        'One or more --tasks IDs were not found',
+        {
+          exitCode: ExitCode.NOT_FOUND,
+          fix: `cleo exists ${taskRes.missing[0]}`,
+          details: { missing: taskRes.missing },
+        },
+      );
     }
     if (taskRes.tasks.length === 0) {
-      return engineError<ReleasePlanResult>(E_EPIC_EMPTY, '--tasks resolved to zero eligible tasks', {
-        exitCode: ExitCode.NOT_FOUND,
-        fix: 'pass at least one non-cancelled, non-archived task ID',
-        details: { taskIds: opts.taskIds, excluded: taskRes.excluded },
-      });
+      return engineError<ReleasePlanResult>(
+        E_EPIC_EMPTY,
+        '--tasks resolved to zero eligible tasks',
+        {
+          exitCode: ExitCode.NOT_FOUND,
+          fix: 'pass at least one non-cancelled, non-archived task ID',
+          details: { taskIds: opts.taskIds, excluded: taskRes.excluded },
+        },
+      );
     }
     tasks = taskRes.tasks;
     resolvedEpicId = taskRes.tasks[0]?.parentId ?? taskRes.tasks[0]?.id ?? 'explicit-tasks';
