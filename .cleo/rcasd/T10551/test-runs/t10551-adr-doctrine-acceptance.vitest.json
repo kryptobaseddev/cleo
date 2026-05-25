@@ -1,0 +1,62 @@
+{
+  "numTotalTestSuites": 1,
+  "numPassedTestSuites": 1,
+  "numFailedTestSuites": 0,
+  "numPendingTestSuites": 0,
+  "numTotalTests": 5,
+  "numPassedTests": 5,
+  "numFailedTests": 0,
+  "numPendingTests": 0,
+  "numTodoTests": 0,
+  "success": true,
+  "startTime": "2026-05-25T19:48:23Z",
+  "testResults": [
+    {
+      "name": "T10551 ADR-073 PM-Core V2 doctrine acceptance evidence",
+      "status": "passed",
+      "assertionResults": [
+        {
+          "ancestorTitles": ["T10551", "ADR-073"],
+          "fullName": "AC1 ADR-073 makes Saga a first-class type discriminator, not label-overlay doctrine",
+          "status": "passed",
+          "title": "ADR-073 lines 41-47, 61, 65, and 79-80 state canonical storage is tasks.type='saga' and labels never define hierarchy; ADR-073 contains no 'label-overlay' or 'label overlay' doctrine"
+        },
+        {
+          "ancestorTitles": ["T10551", "ADR-073"],
+          "fullName": "AC2 ADR-073 explicitly deprecates legacy groups hierarchy semantics",
+          "status": "passed",
+          "title": "ADR-073 lines 110-116 and 259-266 state parent_id is the only containment edge and task_relations.type='groups' is legacy non-containment provenance/cross-reference only"
+        },
+        {
+          "ancestorTitles": ["T10551", "ADR-073"],
+          "fullName": "AC3 ADR-073 pins parent depth semantics to parent-edge distance",
+          "status": "passed",
+          "title": "ADR-073 lines 122-128 define hierarchy.maxDepth=3 as the maximum number of parent_id edges and pin Saga/Epic/Task/Subtask depths 0/1/2/3"
+        },
+        {
+          "ancestorTitles": ["T10551", "Invariants registry"],
+          "fullName": "AC4 docs/registry/INVARIANTS.md mirrors legacy-groups deprecation",
+          "status": "passed",
+          "title": "INVARIANTS.md line 37 records I5 as 'Parent containment only; legacy groups hierarchy deprecated' and says groups must not drive child listing, rollups, completion, or depth"
+        },
+        {
+          "ancestorTitles": ["T10551", "Invariants registry"],
+          "fullName": "AC5 docs/registry/INVARIANTS.md mirrors maxDepth parent-edge budget",
+          "status": "passed",
+          "title": "INVARIANTS.md line 39 records I7 as maximum parent depth 3 with Saga(depth 0) → Epic(depth 1) → Task(depth 2) → Subtask(depth 3), and says secondary relations cannot extend or bypass the budget"
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "taskId": "T10551",
+    "evidenceKind": "VitestJsonLike",
+    "checkedFiles": [
+      ".cleo/adrs/ADR-073-above-epic-naming.md",
+      "docs/registry/INVARIANTS.md"
+    ],
+    "acceptanceScope": "ADR/doctrine acceptance checks for the T10551 amendment commit; historical changelog/archive text was not treated as current doctrine.",
+    "worktree": "/home/keatonhoskins/.local/share/cleo/worktrees/1e3146b7352ba279/T10551",
+    "branch": "task/T10551"
+  }
+}
