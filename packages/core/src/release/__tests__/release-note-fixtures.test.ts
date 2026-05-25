@@ -208,7 +208,7 @@ describe('deterministic release-note fixtures (T10473)', () => {
       'prs: [804]',
       'summary: cleocode release notes include provenance links.',
       'releaseNotes:',
-      '  targets: [@cleocode/core]',
+      '  targets: ["@cleocode/core"]',
       '  impact: cleocode fixture exposes task and PR provenance.',
       '---',
       '',
