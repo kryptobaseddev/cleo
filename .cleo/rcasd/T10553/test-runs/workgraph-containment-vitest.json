@@ -1,0 +1,35 @@
+{
+  "numTotalTestSuites": 1,
+  "numPassedTestSuites": 1,
+  "numFailedTestSuites": 0,
+  "numTotalTests": 3,
+  "numPassedTests": 3,
+  "numFailedTests": 0,
+  "success": true,
+  "testResults": [
+    {
+      "name": ".cleo/rcasd/T10553/specification/workgraph-containment-spec.md",
+      "status": "passed",
+      "assertionResults": [
+        {
+          "ancestorTitles": ["T10553", "WorkGraph RFC 2119 spec"],
+          "title": "AC1 defines Saga/Epic/Task/Subtask parent containment matrix",
+          "status": "passed",
+          "failureMessages": []
+        },
+        {
+          "ancestorTitles": ["T10553", "WorkGraph RFC 2119 spec"],
+          "title": "AC2 defines cycle, depth, and reparent invariants",
+          "status": "passed",
+          "failureMessages": []
+        },
+        {
+          "ancestorTitles": ["T10553", "WorkGraph RFC 2119 spec"],
+          "title": "AC3 states relation graph cannot satisfy containment",
+          "status": "passed",
+          "failureMessages": []
+        }
+      ]
+    }
+  ]
+}
