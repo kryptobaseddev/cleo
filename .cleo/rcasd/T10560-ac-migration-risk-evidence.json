@@ -1,0 +1,778 @@
+{
+  "schema": "VitestJsonLike",
+  "task": "T10560",
+  "generated_at": "2026-05-25T19:36:38Z",
+  "db_source": "/mnt/projects/cleocode/.cleo/tasks.db (opened sqlite read-only mode=ro)",
+  "local_isolated_db_probe": {
+    "path": "/home/keatonhoskins/.local/share/cleo/worktrees/1e3146b7352ba279/T10560/.cleo/tasks.db",
+    "exists": true,
+    "size_bytes": 0,
+    "tables": []
+  },
+  "acceptance_checks": [
+    {
+      "name": "parents with children and text ACs reported",
+      "status": "passed",
+      "count": 363
+    },
+    {
+      "name": "parents with children and no ACs reported",
+      "status": "passed",
+      "count": 20
+    },
+    {
+      "name": "evidence_ac_bindings references audited",
+      "status": "passed",
+      "count": 4,
+      "orphan_ac_refs": 0,
+      "unmatched_lifecycle_evidence_atoms": 4
+    }
+  ],
+  "metrics": {
+    "task_count": 3570,
+    "parent_count": 383,
+    "structured_ac_count": 17919,
+    "legacy_text_ac_tasks": 3372,
+    "evidence_binding_count": 4,
+    "evidence_orphan_ac_refs": 0,
+    "evidence_atom_lifecycle_matches": 0,
+    "evidence_atom_unmatched_lifecycle": 4
+  },
+  "queries_executed": [
+    "parents_with_children_and_text_acs",
+    "parents_with_children_and_no_acs",
+    "evidence_ac_bindings"
+  ],
+  "results": {
+    "parents_with_children_and_text_acs": {
+      "count": 363,
+      "sample": [
+        {
+          "id": "T9261",
+          "title": "T-LLM-CRED-CENTRALIZATION: Centralize CLEO LLM credentials registry + role-based routing + plugin provider system",
+          "status": "done",
+          "type": "epic",
+          "child_count": 73,
+          "legacy_text_ac_count": 5,
+          "structured_ac_count": 5
+        },
+        {
+          "id": "T1042",
+          "title": "Cleo Nexus vs GitNexus: Far-Exceed Capability Analysis",
+          "status": "pending",
+          "type": "epic",
+          "child_count": 43,
+          "legacy_text_ac_count": 6,
+          "structured_ac_count": 6
+        },
+        {
+          "id": "T1150",
+          "title": "T-MSR: Migration System Remediation \u2014 end drizzle debt spiral across 5 DBs",
+          "status": "archived",
+          "type": "epic",
+          "child_count": 37,
+          "legacy_text_ac_count": 13,
+          "structured_ac_count": 13
+        },
+        {
+          "id": "T9118",
+          "title": "EPIC: CLEO surface audit + consolidation \u2014 providers/adapters/backends/agents/command-bloat",
+          "status": "pending",
+          "type": "epic",
+          "child_count": 30,
+          "legacy_text_ac_count": 9,
+          "structured_ac_count": 9
+        },
+        {
+          "id": "T9796",
+          "title": "E-DOCS-CANON-LOCKDOWN: .cleo/canon.yml + cleo check canon docs CI gate \u2014 agents cannot write raw .md for canonical types",
+          "status": "done",
+          "type": "epic",
+          "child_count": 23,
+          "legacy_text_ac_count": 7,
+          "structured_ac_count": 7
+        },
+        {
+          "id": "T1232",
+          "title": "PRE-WAVE: CLEO Agents Architecture Remediation for v2026.4.110",
+          "status": "pending",
+          "type": "epic",
+          "child_count": 22,
+          "legacy_text_ac_count": 13,
+          "structured_ac_count": 13
+        },
+        {
+          "id": "T1586",
+          "title": "T-FOUNDATION-LOCKDOWN: project-agnostic anti-drift enforcement layer for CLEO harness",
+          "status": "pending",
+          "type": "epic",
+          "child_count": 22,
+          "legacy_text_ac_count": 11,
+          "structured_ac_count": 11
+        },
+        {
+          "id": "T1467",
+          "title": "T-THIN-WRAPPER complete CLI thin-wrapper migration",
+          "status": "pending",
+          "type": "epic",
+          "child_count": 21,
+          "legacy_text_ac_count": 7,
+          "structured_ac_count": 7
+        },
+        {
+          "id": "T1555",
+          "title": "EPIC: Audit-2026-04-28 follow-up remediation tasks",
+          "status": "pending",
+          "type": "epic",
+          "child_count": 21,
+          "legacy_text_ac_count": 5,
+          "structured_ac_count": 5
+        },
+        {
+          "id": "T1075",
+          "title": "T1075 PSYCHE Theory-of-Mind Layer (formerly Honcho Memory Integration)",
+          "status": "archived",
+          "type": "epic",
+          "child_count": 20,
+          "legacy_text_ac_count": 5,
+          "structured_ac_count": 5
+        },
+        {
+          "id": "T1855",
+          "title": "EPIC: CLEO opinionated guardrails \u2014 mandatory dependency enforcement, auto-suggest, dep-tree integrity validator, cross-epic dep linter",
+          "status": "pending",
+          "type": "epic",
+          "child_count": 20,
+          "legacy_text_ac_count": 10,
+          "structured_ac_count": 10
+        },
+        {
+          "id": "T1056",
+          "title": "Nexus P2: Living Brain Completion",
+          "status": "archived",
+          "type": "epic",
+          "child_count": 17,
+          "legacy_text_ac_count": 5,
+          "structured_ac_count": 5
+        },
+        {
+          "id": "T1566",
+          "title": "T-ENGINE-MIGRATION: Migrate 15,297 LOC of CLI engine logic to @cleocode/core (real T-THIN-WRAPPER)",
+          "status": "archived",
+          "type": "epic",
+          "child_count": 17,
+          "legacy_text_ac_count": 8,
+          "structured_ac_count": 8
+        },
+        {
+          "id": "T1929",
+          "title": "Agent System Canonicalization v2 \u2014 one canonical agent layout, end-to-end",
+          "status": "archived",
+          "type": "epic",
+          "child_count": 16,
+          "legacy_text_ac_count": 11,
+          "structured_ac_count": 11
+        },
+        {
+          "id": "T9098",
+          "title": "EPIC: Steal-from-graphify capability set + token-cheap LLM enrichment ladder \u2014 beat graphify on cost while matching/exceeding agent-token-reduction value",
+          "status": "pending",
+          "type": "epic",
+          "child_count": 16,
+          "legacy_text_ac_count": 8,
+          "structured_ac_count": 8
+        },
+        {
+          "id": "T1216",
+          "title": "Epic: Audit all false-completion suspects (12 full-NULL epics + 176 audit-column-gap tasks)",
+          "status": "archived",
+          "type": "epic",
+          "child_count": 15,
+          "legacy_text_ac_count": 12,
+          "structured_ac_count": 12
+        },
+        {
+          "id": "T1386",
+          "title": "PSYCHE LLM Layer Port \u2014 IMPLEMENTATION (port Honcho src/llm 3851 LOC; T1256 was retroactively closed, this is the actual port work)",
+          "status": "archived",
+          "type": "epic",
+          "child_count": 15,
+          "legacy_text_ac_count": 11,
+          "structured_ac_count": 11
+        },
+        {
+          "id": "T1892",
+          "title": "BBTT \u2014 BRAIN/Briefing Trust & Truth: field contracts, dream-cycle revival, provenance, write-discipline",
+          "status": "done",
+          "type": "epic",
+          "child_count": 14,
+          "legacy_text_ac_count": 7,
+          "structured_ac_count": 7
+        },
+        {
+          "id": "T9866",
+          "title": "E-BUGS-DOCS-ARCH: Docs + architecture cleanup bugs",
+          "status": "done",
+          "type": "epic",
+          "child_count": 14,
+          "legacy_text_ac_count": 4,
+          "structured_ac_count": 4
+        },
+        {
+          "id": "T10157",
+          "title": "E12-DOCS-PROVENANCE-INTEGRITY: docs SSoT as a queryable + supersession-aware DB-backed graph \u2014 mirror brain_decisions pattern + eliminate adr-index.jsonl + surface llmtxt vector+graph in CLI",
+          "status": "done",
+          "type": "epic",
+          "child_count": 13,
+          "legacy_text_ac_count": 15,
+          "structured_ac_count": 15
+        },
+        {
+          "id": "T1435",
+          "title": "Epic: T-DISPATCH-INFER eliminate dispatch-contracts type drift via Core inference",
+          "status": "archived",
+          "type": "epic",
+          "child_count": 13,
+          "legacy_text_ac_count": 8,
+          "structured_ac_count": 8
+        },
+        {
+          "id": "T1688",
+          "title": "W1: Contracts canonicalization \u2014 zero internal conflicts, schema emission, LAFS types unified, all 18 domains in barrel",
+          "status": "archived",
+          "type": "epic",
+          "child_count": 13,
+          "legacy_text_ac_count": 8,
+          "structured_ac_count": 8
+        },
+        {
+          "id": "T10114",
+          "title": "E11-HUMAN-RENDER-CONTRACT: unified renderer architecture \u2014 typed envelope \u2192 reusable primitives \u2192 fast string output, all logic in CORE per boundary rule",
+          "status": "done",
+          "type": "epic",
+          "child_count": 12,
+          "legacy_text_ac_count": 11,
+          "structured_ac_count": 11
+        },
+        {
+          "id": "T10544",
+          "title": "E6-TRANSACTIONAL-WRITES: safe mutations, dry-runs, idempotency, reparent, cancel, reopen, and partial-success handling",
+          "status": "pending",
+          "type": "epic",
+          "child_count": 12,
+          "legacy_text_ac_count": 4,
+          "structured_ac_count": 4
+        },
+        {
+          "id": "T1148",
+          "title": "Wave 8: Peer-Card Identity Layer + CANT Representation",
+          "status": "archived",
+          "type": "epic",
+          "child_count": 12,
+          "legacy_text_ac_count": 9,
+          "structured_ac_count": 9
+        },
+        {
+          "id": "T1737",
+          "title": "EPIC: CleoOS Sentient Harness v3 \u2014 Full Native Stack Replacement",
+          "status": "pending",
+          "type": "epic",
+          "child_count": 12,
+          "legacy_text_ac_count": 7,
+          "structured_ac_count": 7
+        },
+        {
+          "id": "T1910",
+          "title": "EPIC: Consolidate paths SSoT + CAAMP/adapters boundary + injection-chain hardening (post-T1882)",
+          "status": "archived",
+          "type": "epic",
+          "child_count": 12,
+          "legacy_text_ac_count": 7,
+          "structured_ac_count": 7
+        },
+        {
+          "id": "T1942",
+          "title": "Governed Execution Unification \u2014 playbook-as-primary-orchestration, OpenProse parity, self-healing",
+          "status": "pending",
+          "type": "epic",
+          "child_count": 12,
+          "legacy_text_ac_count": 11,
+          "structured_ac_count": 11
+        },
+        {
+          "id": "T9187",
+          "title": "AUDIT-RECOVERY-2026-05-08 fix scaffold-and-mark-done failure mode + harden cleo verify+complete",
+          "status": "done",
+          "type": "epic",
+          "child_count": 12,
+          "legacy_text_ac_count": 6,
+          "structured_ac_count": 6
+        },
+        {
+          "id": "T9345",
+          "title": "EPIC: IVTR Release System \u2014 research + RCASD overhaul for portable, reliable, project-agnostic release pipeline",
+          "status": "done",
+          "type": "epic",
+          "child_count": 12,
+          "legacy_text_ac_count": 8,
+          "structured_ac_count": 8
+        },
+        {
+          "id": "T9763",
+          "title": "T-JSON-HYGIENE: kill [caamp] WARNING noise + route warnings into LAFS meta.warnings + CI lint guard",
+          "status": "pending",
+          "type": "epic",
+          "child_count": 12,
+          "legacy_text_ac_count": 5,
+          "structured_ac_count": 5
+        },
+        {
+          "id": "T9981",
+          "title": "E4-WORKTREE-NAPI: crates/worktree-napi binding + prebuilt binary distribution",
+          "status": "done",
+          "type": "epic",
+          "child_count": 12,
+          "legacy_text_ac_count": 9,
+          "structured_ac_count": 9
+        },
+        {
+          "id": "T9987",
+          "title": "E10-VALIDATION-CLOSURE: 5-agent real-world IVTR + benchmark + saga closure report",
+          "status": "done",
+          "type": "epic",
+          "child_count": 12,
+          "legacy_text_ac_count": 8,
+          "structured_ac_count": 8
+        },
+        {
+          "id": "T10418",
+          "title": "SG-AGENT-TOOL-REGISTRY: self-discovering agent-facing tool registry + 60+ tools (terminal/file/git/web/browser/memory/vision/media/cron/MCP) + MCP client",
+          "status": "pending",
+          "type": "epic",
+          "child_count": 11,
+          "legacy_text_ac_count": 9,
+          "structured_ac_count": 9
+        },
+        {
+          "id": "T10542",
+          "title": "E4-WORKGRAPH-CORE: core-owned containment, traversal, rollup, frontier, and graph validation",
+          "status": "pending",
+          "type": "epic",
+          "child_count": 11,
+          "legacy_text_ac_count": 4,
+          "structured_ac_count": 4
+        },
+        {
+          "id": "T10545",
+          "title": "E7-CONTRACTS-LAFS-CLI: operation schemas, envelope validation, generated help, and thin CLI wrappers",
+          "status": "pending",
+          "type": "epic",
+          "child_count": 11,
+          "legacy_text_ac_count": 4,
+          "structured_ac_count": 4
+        },
+        {
+          "id": "T10547",
+          "title": "E9-AGENT-GRAPH-CONTEXT: edges, relations, graph slices, scaffold, and token-budgeted context packs",
+          "status": "pending",
+          "type": "epic",
+          "child_count": 11,
+          "legacy_text_ac_count": 3,
+          "structured_ac_count": 3
+        },
+        {
+          "id": "T10548",
+          "title": "E10-MIGRATION-CLEANUP-DOGFOOD-RELEASE: cutover, cleanup, full dogfood, and publish",
+          "status": "pending",
+          "type": "epic",
+          "child_count": 11,
+          "legacy_text_ac_count": 4,
+          "structured_ac_count": 4
+        },
+        {
+          "id": "T1187",
+          "title": "Tree, Dependency & Blocker Visualization Overhaul",
+          "status": "archived",
+          "type": "epic",
+          "child_count": 11,
+          "legacy_text_ac_count": 6,
+          "structured_ac_count": 6
+        },
+        {
+          "id": "T1449",
+          "title": "Epic: T-CORE-CONTRACTS-SSOT align Core API with Contracts",
+          "status": "archived",
+          "type": "epic",
+          "child_count": 11,
+          "legacy_text_ac_count": 7,
+          "structured_ac_count": 7
+        },
+        {
+          "id": "T9021",
+          "title": "SQLite open-site centralization sweep",
+          "status": "done",
+          "type": "epic",
+          "child_count": 11,
+          "legacy_text_ac_count": 5,
+          "structured_ac_count": 5
+        },
+        {
+          "id": "T9740",
+          "title": "T-SKILLS-CLEANUP: skills CLI refactor \u2014 CORE SSoT + remove legacy paths + fix migrate routing",
+          "status": "pending",
+          "type": "epic",
+          "child_count": 11,
+          "legacy_text_ac_count": 7,
+          "structured_ac_count": 7
+        },
+        {
+          "id": "T9864",
+          "title": "E-BUGS-DISPATCH: Dispatch / orchestrate bugs",
+          "status": "done",
+          "type": "epic",
+          "child_count": 11,
+          "legacy_text_ac_count": 4,
+          "structured_ac_count": 4
+        },
+        {
+          "id": "T9865",
+          "title": "E-BUGS-CLI: CLI command + validator bugs",
+          "status": "done",
+          "type": "epic",
+          "child_count": 11,
+          "legacy_text_ac_count": 6,
+          "structured_ac_count": 6
+        },
+        {
+          "id": "T10091",
+          "title": "E-CLOSURE-ATTESTATION: Release-verified epic/saga auto-close gated on git-merge + worktree-cleanup + branch-resolved + no-pending-followups",
+          "status": "cancelled",
+          "type": "epic",
+          "child_count": 10,
+          "legacy_text_ac_count": 1,
+          "structured_ac_count": 1
+        },
+        {
+          "id": "T10401",
+          "title": "SG-HARNESS-DAEMON-IPC: cleo daemon serve \u2014 Gateway hosting SDK API + VCM mutex + IPC server (HTTP/Unix-socket/ZeroMQ)",
+          "status": "pending",
+          "type": "epic",
+          "child_count": 10,
+          "legacy_text_ac_count": 9,
+          "structured_ac_count": 9
+        },
+        {
+          "id": "T10409",
+          "title": "SG-VAULT-CORE: vendor onecli vault + gateway as crates/vault-core + crates/cleo-gateway \u2014 canonical secure SSoT for all CLEO credentials (LLM + external APIs)",
+          "status": "pending",
+          "type": "epic",
+          "child_count": 10,
+          "legacy_text_ac_count": 13,
+          "structured_ac_count": 13
+        },
+        {
+          "id": "T10541",
+          "title": "E3-DRIZZLE-SCHEMA-V2: Drizzle rc.3 review and SQLite schema foundation",
+          "status": "pending",
+          "type": "epic",
+          "child_count": 10,
+          "legacy_text_ac_count": 4,
+          "structured_ac_count": 4
+        },
+        {
+          "id": "T1520",
+          "title": "EPIC: Full domain + namespace audit \u2014 18 dispatch domains + 55 Core namespaces (10-teammate parallel review)",
+          "status": "archived",
+          "type": "epic",
+          "child_count": 10,
+          "legacy_text_ac_count": 6,
+          "structured_ac_count": 6
+        },
+        {
+          "id": "T1627",
+          "title": "T-HYGIENE-RESET: Task graph integrity + systemic safeguards in core",
+          "status": "archived",
+          "type": "epic",
+          "child_count": 10,
+          "legacy_text_ac_count": 12,
+          "structured_ac_count": 12
+        }
+      ]
+    },
+    "parents_with_children_and_no_acs": {
+      "count": 20,
+      "sample": [
+        {
+          "id": "T001",
+          "title": "Cancelled",
+          "status": "archived",
+          "type": null,
+          "child_count": 13,
+          "legacy_text_ac_count": 0,
+          "structured_ac_count": 0
+        },
+        {
+          "id": "T100",
+          "title": "Task 100",
+          "status": "archived",
+          "type": null,
+          "child_count": 4,
+          "legacy_text_ac_count": 0,
+          "structured_ac_count": 0
+        },
+        {
+          "id": "T003",
+          "title": "Subtask",
+          "status": "pending",
+          "type": null,
+          "child_count": 3,
+          "legacy_text_ac_count": 0,
+          "structured_ac_count": 0
+        },
+        {
+          "id": "T1957",
+          "title": "Auth API (imported-3)",
+          "status": "archived",
+          "type": null,
+          "child_count": 3,
+          "legacy_text_ac_count": 0,
+          "structured_ac_count": 0
+        },
+        {
+          "id": "T1961",
+          "title": "Task (imported-3)",
+          "status": "archived",
+          "type": null,
+          "child_count": 3,
+          "legacy_text_ac_count": 0,
+          "structured_ac_count": 0
+        },
+        {
+          "id": "T1965",
+          "title": "Task (imported-4)",
+          "status": "archived",
+          "type": null,
+          "child_count": 3,
+          "legacy_text_ac_count": 0,
+          "structured_ac_count": 0
+        },
+        {
+          "id": "T800",
+          "title": "Task T800",
+          "status": "archived",
+          "type": "epic",
+          "child_count": 3,
+          "legacy_text_ac_count": 0,
+          "structured_ac_count": 0
+        },
+        {
+          "id": "T002",
+          "title": "New done",
+          "status": "archived",
+          "type": null,
+          "child_count": 2,
+          "legacy_text_ac_count": 0,
+          "structured_ac_count": 0
+        },
+        {
+          "id": "T1337",
+          "title": "Epic: Auth (imported)",
+          "status": "archived",
+          "type": "epic",
+          "child_count": 2,
+          "legacy_text_ac_count": 0,
+          "structured_ac_count": 0
+        },
+        {
+          "id": "T1354",
+          "title": "Epic: Auth (imported-3)",
+          "status": "archived",
+          "type": "epic",
+          "child_count": 2,
+          "legacy_text_ac_count": 0,
+          "structured_ac_count": 0
+        },
+        {
+          "id": "T1364",
+          "title": "Task (imported-2)",
+          "status": "archived",
+          "type": null,
+          "child_count": 2,
+          "legacy_text_ac_count": 0,
+          "structured_ac_count": 0
+        },
+        {
+          "id": "T1376",
+          "title": "Epic: Auth (imported-5)",
+          "status": "archived",
+          "type": "epic",
+          "child_count": 2,
+          "legacy_text_ac_count": 0,
+          "structured_ac_count": 0
+        },
+        {
+          "id": "T1969",
+          "title": "Frontend auth (imported)",
+          "status": "archived",
+          "type": null,
+          "child_count": 2,
+          "legacy_text_ac_count": 0,
+          "structured_ac_count": 0
+        },
+        {
+          "id": "T201",
+          "title": "Work task",
+          "status": "archived",
+          "type": null,
+          "child_count": 2,
+          "legacy_text_ac_count": 0,
+          "structured_ac_count": 0
+        },
+        {
+          "id": "T810",
+          "title": "Task T810",
+          "status": "archived",
+          "type": "epic",
+          "child_count": 2,
+          "legacy_text_ac_count": 0,
+          "structured_ac_count": 0
+        },
+        {
+          "id": "T1332",
+          "title": "Auth API (imported)",
+          "status": "archived",
+          "type": null,
+          "child_count": 1,
+          "legacy_text_ac_count": 0,
+          "structured_ac_count": 0
+        },
+        {
+          "id": "T1335",
+          "title": "Task (imported)",
+          "status": "archived",
+          "type": null,
+          "child_count": 1,
+          "legacy_text_ac_count": 0,
+          "structured_ac_count": 0
+        },
+        {
+          "id": "T1361",
+          "title": "Auth API (imported-2)",
+          "status": "archived",
+          "type": null,
+          "child_count": 1,
+          "legacy_text_ac_count": 0,
+          "structured_ac_count": 0
+        },
+        {
+          "id": "T1367",
+          "title": "Test task (imported-2)",
+          "status": "archived",
+          "type": null,
+          "child_count": 1,
+          "legacy_text_ac_count": 0,
+          "structured_ac_count": 0
+        },
+        {
+          "id": "T603",
+          "title": "Epic",
+          "status": "archived",
+          "type": "epic",
+          "child_count": 1,
+          "legacy_text_ac_count": 0,
+          "structured_ac_count": 0
+        }
+      ]
+    },
+    "evidence_ac_bindings": {
+      "count": 4,
+      "sample": [
+        {
+          "id": "676e8a33-907d-405e-a001-51bcfc88739b",
+          "evidence_atom_id": "pr:799",
+          "ac_id": "3401f81a-4931-4ee1-a5b7-7a9d23a3b1a8",
+          "binding_type": "direct",
+          "created_at": "2026-05-25T04:55:20Z",
+          "ac_task_id": "T10526",
+          "ac_ordinal": 2,
+          "orphan_ac_ref": 0,
+          "evidence_table_match": null
+        },
+        {
+          "id": "aba56dc7-8a41-454e-a4c7-6ac7a2fa5468",
+          "evidence_atom_id": "pr:799",
+          "ac_id": "76a13b16-48ad-4bd8-8940-2727bcc05386",
+          "binding_type": "direct",
+          "created_at": "2026-05-25T04:55:20Z",
+          "ac_task_id": "T10526",
+          "ac_ordinal": 3,
+          "orphan_ac_ref": 0,
+          "evidence_table_match": null
+        },
+        {
+          "id": "c3e46df8-46c2-468e-9472-d61d0ede66d5",
+          "evidence_atom_id": "pr:799",
+          "ac_id": "dfe21168-926c-4dea-a3a3-4bf5e0b8ff50",
+          "binding_type": "direct",
+          "created_at": "2026-05-25T04:55:20Z",
+          "ac_task_id": "T10526",
+          "ac_ordinal": 4,
+          "orphan_ac_ref": 0,
+          "evidence_table_match": null
+        },
+        {
+          "id": "fbe6a0cc-d52e-4c93-b05a-4ebf8c2e003b",
+          "evidence_atom_id": "pr:799",
+          "ac_id": "62c0f341-067a-419d-bd8b-9d9294b35dac",
+          "binding_type": "direct",
+          "created_at": "2026-05-25T04:55:20Z",
+          "ac_task_id": "T10526",
+          "ac_ordinal": 1,
+          "orphan_ac_ref": 0,
+          "evidence_table_match": null
+        }
+      ]
+    }
+  },
+  "numTotalTestSuites": 1,
+  "numPassedTestSuites": 1,
+  "numFailedTestSuites": 0,
+  "numTotalTests": 3,
+  "numPassedTests": 3,
+  "numFailedTests": 0,
+  "success": true,
+  "startTime": "2026-05-25T19:36:38Z",
+  "endTime": "2026-05-25T19:36:38Z",
+  "testResults": [
+    {
+      "name": "T10560 acceptance criteria migration risk audit",
+      "status": "passed",
+      "assertionResults": [
+        {
+          "ancestorTitles": [
+            "T10560"
+          ],
+          "title": "parents with children and text ACs reported",
+          "status": "passed",
+          "evidence": "count=363; orphan_ac_refs=n/a; unmatched_lifecycle_evidence_atoms=n/a"
+        },
+        {
+          "ancestorTitles": [
+            "T10560"
+          ],
+          "title": "parents with children and no ACs reported",
+          "status": "passed",
+          "evidence": "count=20; orphan_ac_refs=n/a; unmatched_lifecycle_evidence_atoms=n/a"
+        },
+        {
+          "ancestorTitles": [
+            "T10560"
+          ],
+          "title": "evidence_ac_bindings references audited",
+          "status": "passed",
+          "evidence": "count=4; orphan_ac_refs=0; unmatched_lifecycle_evidence_atoms=4"
+        }
+      ]
+    }
+  ]
+}
