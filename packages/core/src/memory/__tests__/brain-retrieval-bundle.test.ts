@@ -127,7 +127,7 @@ async function seedObservations(
   sessionId: string,
   count: number,
 ): Promise<void> {
-  const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+  const baseTimestamp = Date.UTC(2026, 0, 1, 0, 0, 0);
   // Ensure peer_id column exists (Wave 2 migration may not be applied in test env)
   try {
     nativeDb.exec(
@@ -139,6 +139,10 @@ async function seedObservations(
 
   for (let i = 0; i < count; i++) {
     const id = `O-test-${peerId.slice(0, 6)}-${sessionId.replace(/[^a-z0-9]/g, '-').slice(0, 12)}-${i}`;
+    const createdAt = new Date(baseTimestamp + i * 1000)
+      .toISOString()
+      .replace('T', ' ')
+      .slice(0, 19);
     try {
       nativeDb
         .prepare(
@@ -153,8 +157,8 @@ async function seedObservations(
           `Narrative ${i} for peer ${peerId}`,
           peerId,
           sessionId,
-          now,
-          now,
+          createdAt,
+          createdAt,
         );
     } catch {
       // If peer_id column fails, insert without it
@@ -170,8 +174,8 @@ async function seedObservations(
           `Observation ${i} by ${peerId}`,
           `Narrative ${i} for peer ${peerId}`,
           sessionId,
-          now,
-          now,
+          createdAt,
+          createdAt,
         );
     }
   }
