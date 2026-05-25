@@ -1,5 +1,62 @@
 # Changelog
 
+## [2026.5.122] (2026-05-25)
+
+### Saga T10377 SG-IVTR-AC-BINDING closure
+
+Tier-1 trust foundation shipped. 7/7 epics, 19+ saga PRs, 13 worker dispatches. The IVTR rubber-stamp gap is closed via four load-bearing primitives:
+
+- **AC stable IDs** (ADR-080) — every Acceptance Criterion now carries a canonical UUIDv4 generated at creation, with positional alias `AC<n>` retained for display only. Edits, reorders, splits, and deletes no longer silently invalidate prior verdicts.
+- **`satisfies:` evidence atom** (ADR-081) — full ABNF grammar with same-saga scope rule, 5-check validator, optional version pin, and append-only `evidence_ac_bindings` table.
+- **AC-coverage gate at `cleo complete`** — rejects completion with `E_AC_NOT_COVERED` unless every AC has at least one accepted `satisfies:` binding. Resolves on canonical UUID; alias drift never silently invalidates coverage.
+- **Independent Validator role** — first-class role with 4 SDK tools (`runValidatorMaxN`, `recordValidatorVerdict`, `listValidatorRuns`, `getValidatorMetrics`), Max-N retry runtime, infra-fault detection, lead-rollup `--validator` flag.
+
+#### ADRs
+
+- ADR-080 — AC Stable IDs (renumbered from ADR-079-r1)
+- ADR-081 — `satisfies:` Binding Grammar (renumbered from ADR-079-r2)
+- ADR-082 — Core Tools as First-Class (RESERVED for T9831/T10418)
+
+#### Fixes (in this release)
+
+- `release-prepare.yml` action versions @v4.1/@v4.0 → @v4 (PR #795 — both versions did not exist on the GH Actions registry)
+- `release-prepare.yml` missing `pnpm/action-setup` bootstrap step (PR #796)
+- `pnpm/action-setup` version override removed — reads from `packageManager` (PR #797)
+- `.changeset/T9948.md` renamed to lowercase `t9948.md` + id field (release-plan parser required kebab-case)
+
+#### Saga PRs landed earlier this saga window (2026-05-24 → 2026-05-25)
+
+- T10378 (E-ADR-A-REVISION): PRs #766, #768
+- T10379 (E-VALIDATOR-SKILL-DRAFT): PRs #769, #771
+- T10380 (E-T9187-SPIKE): PR #767
+- T10381 (E-AC-MIGRATION): PRs #772–#779 (8 PRs, full schema + backfill + parser + gate)
+- T10382 (E-NEW-CONTRIBUTOR-WALK): PR #780
+- T10383 (E-VALIDATOR-ROLE): PRs #781, #786, #787, #788, #789, #790
+- T10384 (E-IVTR-CLOSEOUT, this release): PRs #791 (closeout), #795, #796, #797 (release-pipeline hotfixes)
+
+#### Decisions sealed by this saga (NEVER revisit)
+
+- AC identity = single UUIDv4 at creation. No content hash, no positional persistence, no dual-ID system.
+- `satisfies:` scope = same saga. Cross-saga bindings need Lead-approved saga membership extension, not grammar support.
+- Alias `AC<n>` is display-only. Persisting positional aliases re-opens the rubber-stamp gap.
+- AC-coverage gate at `cleo complete` is mandatory. No `CLEO_OWNER_OVERRIDE` exception for coverage.
+- Validator verdicts bind to canonical UUIDs in `evidence_ac_bindings`.
+
+#### Follow-ups filed
+
+- T10498 — spawn-bundling root-cause (P1)
+- T10499 — validator metric surface polish (P2)
+- T10500 — `cleo release reconcile` test breakage on main (saga-adjacent)
+- T10501 — `cleo docs publish --into-worktree` UX (P2)
+- T10525 — release-prepare Preflight blocked by studio test failures (P1)
+
+#### Saga retrospective + closure report
+
+Canonical SSoT entries:
+
+- `cleo docs fetch sg-ivtr-ac-binding-retro` — saga retrospective (research, 11.7KB)
+- `cleo docs fetch sg-ivtr-ac-binding-closure-report` — closure report (note, 9.2KB)
+
 ## [2026.5.121] (2026-05-24)
 
 ### Saga T9862 SG-BUGS-2026-05-21 closure

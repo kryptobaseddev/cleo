@@ -66,24 +66,13 @@ pub fn add_worktree(repo_path: &Path, wt_path: &Path, branch: &str) {
     // the branch already exists.
     if git(
         repo_path,
-        &[
-            "worktree",
-            "add",
-            "-b",
-            branch,
-            wt_path.to_str().unwrap(),
-        ],
+        &["worktree", "add", "-b", branch, wt_path.to_str().unwrap()],
     )
     .is_err()
     {
         git(
             repo_path,
-            &[
-                "worktree",
-                "add",
-                wt_path.to_str().unwrap(),
-                branch,
-            ],
+            &["worktree", "add", wt_path.to_str().unwrap(), branch],
         )
         .expect("git worktree add (existing branch)");
     }

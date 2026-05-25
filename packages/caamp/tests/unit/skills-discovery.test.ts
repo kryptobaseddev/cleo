@@ -97,6 +97,30 @@ metadata:
       });
     });
 
+    it("normalizes implicit YAML date metadata to JSON-compatible strings", async () => {
+      mocks.readFile.mockResolvedValue(`---
+name: dated-skill
+description: Has implicit dates
+version: 2026-05-25
+metadata:
+  released: 2026-05-25
+  timestamps:
+    - 2026-05-25T13:45:00Z
+---
+
+# Dated Skill`);
+
+      const result = await parseSkillFile("/path/to/SKILL.md");
+
+      expect(result?.version).toBe("2026-05-25");
+      expect(result?.metadata).toEqual({
+        released: "2026-05-25",
+        timestamps: ["2026-05-25T13:45:00.000Z"],
+      });
+      expect(result?.metadata?.released).not.toBeInstanceOf(Date);
+      expect(() => JSON.stringify(result)).not.toThrow();
+    });
+
     it("parses skill with compatibility", async () => {
       mocks.readFile.mockResolvedValue(`---
 name: compat-skill
