@@ -1,0 +1,13 @@
+
+> @cleocode/monorepo@2026.5.122 db:generate /home/keatonhoskins/.local/share/cleo/worktrees/1e3146b7352ba279/T10566-rc3-experiment
+> drizzle-kit generate --config drizzle/tasks.config.ts
+
+Reading config file '/home/keatonhoskins/.local/share/cleo/worktrees/1e3146b7352ba279/T10566-rc3-experiment/drizzle/tasks.config.ts'
+Error: Interactive prompts require a TTY terminal (process.stdin.isTTY or process.stdout.isTTY is false). This can happen when running in CI, piped input, or non-interactive shells.
+    at render (/home/keatonhoskins/.local/share/cleo/worktrees/1e3146b7352ba279/T10566-rc3-experiment/node_modules/.pnpm/drizzle-kit@1.0.0-rc.3/node_modules/drizzle-kit/bin.cjs:3088:92)
+    at /home/keatonhoskins/.local/share/cleo/worktrees/1e3146b7352ba279/T10566-rc3-experiment/node_modules/.pnpm/drizzle-kit@1.0.0-rc.3/node_modules/drizzle-kit/bin.cjs:90306:63
+    at ddlDiff$3 (/home/keatonhoskins/.local/share/cleo/worktrees/1e3146b7352ba279/T10566-rc3-experiment/node_modules/.pnpm/drizzle-kit@1.0.0-rc.3/node_modules/drizzle-kit/bin.cjs:83882:99)
+    at handle$15 (/home/keatonhoskins/.local/share/cleo/worktrees/1e3146b7352ba279/T10566-rc3-experiment/node_modules/.pnpm/drizzle-kit@1.0.0-rc.3/node_modules/drizzle-kit/bin.cjs:91482:55)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async Object.handler (/home/keatonhoskins/.local/share/cleo/worktrees/1e3146b7352ba279/T10566-rc3-experiment/node_modules/.pnpm/drizzle-kit@1.0.0-rc.3/node_modules/drizzle-kit/bin.cjs:232828:4)
+    at async run (/home/keatonhoskins/.local/share/cleo/worktrees/1e3146b7352ba279/T10566-rc3-experiment/node_modules/.pnpm/drizzle-kit@1.0.0-rc.3/node_modules/drizzle-kit/bin.cjs:1229:4)
