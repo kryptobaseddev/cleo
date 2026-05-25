@@ -525,13 +525,25 @@ export async function taskPromote(
  * Reopen a completed task.
  * @task T1568
  * @epic T1566
+ * @task T10605
  */
 export async function taskReopen(
   projectRoot: string,
   taskId: string,
-  params?: { status?: string; reason?: string },
+  params?: {
+    status?: string;
+    reason?: string;
+    regressionOf?: string;
+    reopenAncestors?: boolean;
+  },
 ): Promise<
-  EngineResult<{ task: string; reopened: boolean; previousStatus: string; newStatus: string }>
+  EngineResult<{
+    task: string;
+    reopened: boolean;
+    previousStatus: string;
+    newStatus: string;
+    ancestorsReopened: string[];
+  }>
 > {
   try {
     const result = await coreTaskReopen(projectRoot, taskId, params);
