@@ -7528,19 +7528,22 @@ export const OPERATIONS: OperationDef[] = [
         name: 'epicId',
         type: 'string',
         required: false,
-        description: 'Epic task ID whose children scope the release (R-303); mutually exclusive with sagaId/taskIds',
+        description:
+          'Epic task ID whose children scope the release (R-303); mutually exclusive with sagaId/taskIds',
       },
       {
         name: 'sagaId',
         type: 'string',
         required: false,
-        description: 'Saga task ID whose grouped member Epics scope the release; mutually exclusive with epicId/taskIds',
+        description:
+          'Saga task ID whose grouped member Epics scope the release; mutually exclusive with epicId/taskIds',
       },
       {
         name: 'taskIds',
         type: 'array',
         required: false,
-        description: 'Explicit task-list release scope; mutually exclusive with epicId/sagaId (T10088)',
+        description:
+          'Explicit task-list release scope; mutually exclusive with epicId/sagaId (T10088)',
       },
       {
         name: 'scheme',

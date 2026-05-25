@@ -212,7 +212,15 @@ describe('releasePlan — happy path', () => {
 
   it('uses the most recent tagged shipped release as previousVersion (T10082)', async () => {
     await seedEpicWithChildren('T9999', 1);
-    execFileSync('git', ['-C', testDir, 'commit', '--allow-empty', '-m', 'release history', '--quiet']);
+    execFileSync('git', [
+      '-C',
+      testDir,
+      'commit',
+      '--allow-empty',
+      '-m',
+      'release history',
+      '--quiet',
+    ]);
     execFileSync('git', ['-C', testDir, 'tag', 'v2026.5.95']);
     execFileSync('git', ['-C', testDir, 'tag', 'v2026.5.97']);
     const db = await getDb(testDir);
