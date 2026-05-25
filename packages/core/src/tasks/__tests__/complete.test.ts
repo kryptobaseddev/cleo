@@ -8,9 +8,9 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
-import type { DataAccessor } from '../../store/data-accessor.js';
+import type { DataAccessor, TransactionAccessor } from '../../store/data-accessor.js';
 import { resetDbState } from '../../store/sqlite.js';
-import { completeTask } from '../complete.js';
+import { completeTask, withTaskWriteTransaction } from '../complete.js';
 
 describe('completeTask', () => {
   let env: TestDbEnv;
@@ -390,5 +390,99 @@ describe('completeTask', () => {
     const result = await completeTask({ taskId: 'T873' }, env.tempDir, accessor);
     expect(result.task.status).toBe('done');
     expect(result.task.pipelineStage).toBe('contribution');
+  });
+
+  it('T10595: runs AC completion gate inside the same write transaction as status update', async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T10595-A',
+        title: 'Atomic gate task',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    await accessor.transaction(async (tx) => {
+      await tx.insertAcRows([
+        { id: 'ac-t10595-a', taskId: 'T10595-A', ordinal: 1, text: 'covered atomically' },
+      ]);
+    });
+
+    const events: string[] = [];
+    const instrumented: DataAccessor = {
+      ...accessor,
+      async transaction<T>(fn: (tx: TransactionAccessor) => Promise<T>): Promise<T> {
+        events.push('begin-immediate');
+        return accessor.transaction(async (tx) => {
+          const instrumentedTx: TransactionAccessor = {
+            ...tx,
+            async getAcRows(taskId) {
+              events.push(`gate:${taskId}`);
+              return tx.getAcRows(taskId);
+            },
+            async upsertSingleTask(task) {
+              events.push(`status:${task.id}:${task.status}`);
+              return tx.upsertSingleTask(task);
+            },
+          };
+          return fn(instrumentedTx);
+        });
+      },
+    };
+
+    await expect(completeTask({ taskId: 'T10595-A' }, env.tempDir, instrumented)).rejects.toThrow(
+      'acceptance criterion/criteria have no evidence bindings',
+    );
+
+    expect(events).toEqual(['begin-immediate', 'gate:T10595-A']);
+    const persisted = await accessor.loadSingleTask('T10595-A');
+    expect(persisted?.status).toBe('pending');
+    expect(persisted?.completedAt).toBeUndefined();
+  });
+
+  it('T10595: serializes concurrent task write helpers', async () => {
+    let activeWriters = 0;
+    let maxActiveWriters = 0;
+    const releaseFirst = Promise.withResolvers<void>();
+    const firstEntered = Promise.withResolvers<void>();
+    const events: string[] = [];
+
+    const serialQueue: Array<() => void> = [];
+    const fakeAccessor = {
+      async transaction<T>(fn: (tx: TransactionAccessor) => Promise<T>): Promise<T> {
+        if (activeWriters > 0) {
+          await new Promise<void>((resolve) => serialQueue.push(resolve));
+        }
+        activeWriters += 1;
+        maxActiveWriters = Math.max(maxActiveWriters, activeWriters);
+        try {
+          return await fn({} as TransactionAccessor);
+        } finally {
+          activeWriters -= 1;
+          serialQueue.shift()?.();
+        }
+      },
+    } as DataAccessor;
+
+    const first = withTaskWriteTransaction(fakeAccessor, async () => {
+      events.push('first-enter');
+      firstEntered.resolve();
+      await releaseFirst.promise;
+      events.push('first-exit');
+      return 'first';
+    });
+    await firstEntered.promise;
+    const second = withTaskWriteTransaction(fakeAccessor, async () => {
+      events.push('second-enter');
+      return 'second';
+    });
+
+    await Promise.resolve();
+    expect(events).toEqual(['first-enter']);
+    releaseFirst.resolve();
+
+    await expect(Promise.all([first, second])).resolves.toEqual(['first', 'second']);
+    expect(maxActiveWriters).toBe(1);
+    expect(events).toEqual(['first-enter', 'first-exit', 'second-enter']);
   });
 });
