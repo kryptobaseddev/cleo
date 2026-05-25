@@ -17,7 +17,7 @@ consolidation plan with measured CI-minute savings.
 |---|----------|---------|------------------|-----:|-------------:|-----------|
 | 1 | `ci.yml` | push/PR main+develop | Monolith: lint + build + test + 20 architectural gates | 27 | 6.5 min wall / ~30 job-min | unmarked (foundational) |
 | 2 | `arch-boundary-check.yml` | push/PR main+develop | 2 arch lint jobs (DB-open + defineCommand SSoT) | 2 | 0.25 min | T10073 / T10072 |
-| 2a | `auto-tag-on-release-merge.yml` | PR closed (merged) on main | On `release: ship vX.Y.Z` PR merge, tag the merge commit + push (eliminates manual `git tag` step) | 1 | (new, never run) | T10104 |
+| 2a | `auto-tag-on-release-merge.yml` | workflow_dispatch only | Retired no-op; the old GITHUB_TOKEN tag-push two-hop is disabled (ADR-087 / T10434) | 1 | n/a | T10434 |
 | 3 | `boundary-registry-lint.yml` | push/PR main | Boundary registry vs filesystem parity + poison tests | 1 | 0.57 min | T10198 |
 | 4 | `dual-implementation-lint.yml` | push/PR main+develop | Detect Rust+TS duplicate primitive impls | 1 | 0.53 min | T10199 |
 | 5 | `docs-reingest.yml` | PR closed (merged) | Re-ingest published docs SSoT blobs post-merge | 1 | 0.29 min | T9645 |
@@ -25,13 +25,13 @@ consolidation plan with measured CI-minute savings.
 | 7 | `identity-pollution-check.yml` | push main + all PRs | Reject commits authored by `Test <test@example.com>` | 1 | 0.25 min | T9149 |
 | 8 | `lockfile-check.yml` | push main + all PRs | `pnpm install --frozen-lockfile` consistency check | 1 | 0.49 min | unmarked |
 | 9 | `release-pipeline-matrix.yml` | PR `release-pipeline` label / push main fixtures | 32-job scenario × archetype matrix (S1-S12) | 32+1+1 | 0.12 min (mostly skipped) | T9544 |
-| 10 | `release-prepare.yml` | workflow_dispatch | `cleo release open` triggers: cut branch, bump versions, open PR | 1 | 0.57 min | T9781 |
-| 11 | `release.yml` | push tag `v*` + workflow_dispatch | Build & publish npm + GitHub Release | 2 | 5.77 min | (release pipeline) |
+| 10 | `release-prepare.yml` | workflow_dispatch | Rendered template: preflight, cut release branch, plan/version/changelog, open bump PR | 3 | 0.57 min historical | T9781 / T10434 |
+| 11 | `release.yml` | push tag `v*` + workflow_dispatch | Integrated worktree-napi prebuild + build/publish npm + GitHub Release | 3 | 5.77 min historical; recent prebuilds ~1-3 min each | T10434 |
 | 12 | `skills-council.yml` | cron Sun 06:00 UTC + workflow_dispatch | Owner CI: council review of telemetry top-N skills | 1 | **never run** (stub) | T9662 |
 | 13 | `skills-depth-check.yml` | PR/push paths under packages/skills | Progressive-disclosure depth gate on SKILL.md | 1 | 0.22 min | T9684 |
 | 14 | `skills-grade.yml` | cron Mon 07:00 UTC + workflow_dispatch | Owner CI: weekly multi-rubric grade pass | 1 | **never run** (stub) | T9667 |
 | 15 | `worktree-cleanup.yml` | PR closed | Destroy merged-PR worktree + idle-7d sweep | 1 | 0.56 min | T9805 |
-| 16 | `worktree-napi-prebuild.yml` | push main/tags + PR paths under crates/worktree-napi | 5-triple prebuild matrix (linux/darwin/win × x64/arm) | 5 | (mid-flight) ~5-8 min | T10178 |
+| 16 | `worktree-napi-prebuild.yml` | push/PR path filters + manual + merge queue | Dogfood-only worktree-napi prebuild matrix; release.yml no longer consumes these artifacts | 4 | queue-limited; recent runs queued | T10178 / T10434 |
 
 **Notes on unmarked workflows:**
 
