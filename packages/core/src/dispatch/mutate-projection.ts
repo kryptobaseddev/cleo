@@ -171,11 +171,46 @@ export const MUTATE_PROJECTION_PLANS: Readonly<Record<string, MutateProjectionPl
           if (id) ids.push(id);
         }
       }
+      const isDryRun = data['dryRun'] === true;
       const createdRaw = data['created'];
       const created = typeof createdRaw === 'number' ? createdRaw : ids.length;
+      // T10599: in dry-run mode the meaningful count is wouldCreate, not the
+      // always-zero `created` field. Fall back to ids.length when absent.
+      const wouldCreateRaw = data['wouldCreate'];
+      const wouldCreate = typeof wouldCreateRaw === 'number' ? wouldCreateRaw : undefined;
+      const effectiveCount = isDryRun ? (wouldCreate ?? ids.length) : created;
       const envelope = makeEnvelope('created', ids);
-      envelope.count = created;
-      if (data['dryRun'] === true) envelope['dryRun'] = true;
+      envelope.count = effectiveCount;
+      if (isDryRun) {
+        envelope['dryRun'] = true;
+        // wouldCreate — predicted write count (AC1/AC2)
+        if (wouldCreate !== undefined) envelope['wouldCreate'] = wouldCreate;
+        // wouldAffect — generic dry-run affected count. Prefer Core's explicit
+        // value, otherwise mirror the effective count for legacy callers.
+        const wouldAffectRaw = data['wouldAffect'];
+        envelope['wouldAffect'] =
+          typeof wouldAffectRaw === 'number' ? wouldAffectRaw : effectiveCount;
+        // insertedCount — always 0 in dry-run (AC2: kept separate from wouldCreate)
+        const insertedCountRaw = data['insertedCount'];
+        envelope['insertedCount'] =
+          typeof insertedCountRaw === 'number' ? insertedCountRaw : 0;
+        // validatedCount — specs that passed validation (AC3)
+        const validatedCountRaw = data['validatedCount'];
+        if (typeof validatedCountRaw === 'number') {
+          envelope['validatedCount'] = validatedCountRaw;
+        }
+        // validationFindings — per-spec warnings (AC3)
+        const findings = data['validationFindings'];
+        if (Array.isArray(findings) && findings.length > 0) {
+          envelope['validationFindings'] = findings;
+        }
+      } else {
+        // Live run: expose insertedCount for parity (AC2)
+        const insertedCountRaw = data['insertedCount'];
+        if (typeof insertedCountRaw === 'number') {
+          envelope['insertedCount'] = insertedCountRaw;
+        }
+      }
       return envelope;
     },
   },

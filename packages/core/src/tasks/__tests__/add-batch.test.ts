@@ -187,6 +187,85 @@ describe('addBatchTasks', () => {
   });
 
   // -------------------------------------------------------------------------
+  // T10599 — dry-run count semantics
+  // -------------------------------------------------------------------------
+
+  it('(T10599 AC1) dryRun: wouldCreate reflects predicted count', async () => {
+    const result = await addBatchTasks(
+      {
+        tasks: [
+          { title: 'Dry AC1 A', description: 'Preview A' },
+          { title: 'Dry AC1 B', description: 'Preview B' },
+          { title: 'Dry AC1 C', description: 'Preview C' },
+        ],
+        dryRun: true,
+      },
+      accessor,
+      env.tempDir,
+    );
+
+    expect(result.dryRun).toBe(true);
+    expect(result.created).toBe(0);
+    expect(result.wouldCreate).toBe(3); // predicted, not 0
+    expect(result.wouldAffect).toBe(3);
+  });
+
+  it('(T10599 AC2) dryRun: insertedCount is 0, separate from wouldCreate', async () => {
+    const result = await addBatchTasks(
+      {
+        tasks: [
+          { title: 'Dry AC2 A' },
+          { title: 'Dry AC2 B' },
+        ],
+        dryRun: true,
+      },
+      accessor,
+      env.tempDir,
+    );
+
+    expect(result.insertedCount).toBe(0);
+    expect(result.wouldCreate).toBe(2);
+    // insertedCount and wouldCreate are distinct
+    expect(result.insertedCount).not.toBe(result.wouldCreate);
+  });
+
+  it('(T10599 AC2) live run: insertedCount equals created', async () => {
+    const result = await addBatchTasks(
+      {
+        tasks: [
+          { title: 'Live AC2 A' },
+          { title: 'Live AC2 B' },
+        ],
+      },
+      accessor,
+      env.tempDir,
+    );
+
+    expect(result.created).toBe(2);
+    expect(result.insertedCount).toBe(2);
+    expect(result.dryRun).toBeUndefined();
+    expect(result.wouldCreate).toBeUndefined();
+  });
+
+  it('(T10599 AC3) dryRun: validatedCount matches task count when no warnings', async () => {
+    const result = await addBatchTasks(
+      {
+        tasks: [
+          { title: 'Dry AC3 A' },
+          { title: 'Dry AC3 B' },
+        ],
+        dryRun: true,
+      },
+      accessor,
+      env.tempDir,
+    );
+
+    expect(result.validatedCount).toBe(2);
+    // No warnings → validationFindings absent
+    expect(result.validationFindings).toBeUndefined();
+  });
+
+  // -------------------------------------------------------------------------
   // Edge case: empty input returns { created: 0, tasks: [] }
   // -------------------------------------------------------------------------
 
