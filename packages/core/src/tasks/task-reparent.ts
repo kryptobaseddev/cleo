@@ -180,25 +180,51 @@ export async function coreTaskPromote(
  * @param params - Optional reopen options
  * @param params.status - Target status after reopening ("pending" or "active", default: "pending")
  * @param params.reason - Optional reason appended to the task's notes
- * @returns Confirmation with previous and new status
+ * @param params.regressionOf - Optional task ID this reopen is a regression of (AC2: regression_of path documented)
+ * @param params.reopenAncestors - When true (default), reopen any done ancestors in the hierarchy (AC1)
+ * @returns Confirmation with previous and new status, plus any ancestor IDs that were reopened
  *
  * @remarks
- * Only tasks with status "done" can be reopened. Clears the `completedAt` timestamp
- * and appends a timestamped note recording the reopen event.
+ * Only tasks with status "done" can be reopened. Preserves the prior `completedAt` timestamp
+ * in the task's notes before clearing it (AC3: completion history preserved). When
+ * `reopenAncestors` is true, all done ancestors are also set back to "pending" so the
+ * hierarchy reflects the unsatisfied state (AC1: required unsatisfied child reopens ancestors).
+ * When `regressionOf` is supplied, a note is appended that links the reopen to the original
+ * completed task (AC2: regression_of path documented).
  *
  * @example
  * ```typescript
- * const result = await coreTaskReopen('/project', 'T033', { status: 'active', reason: 'Tests failed' });
- * console.log(`${result.previousStatus} -> ${result.newStatus}`);
+ * const result = await coreTaskReopen('/project', 'T033', {
+ *   status: 'active',
+ *   reason: 'Tests failed',
+ *   regressionOf: 'T033',
+ *   reopenAncestors: true,
+ * });
+ * console.log(`${result.previousStatus} -> ${result.newStatus}, ancestors: ${result.ancestorsReopened}`);
  * ```
  *
  * @task T4790
+ * @task T10605
  */
 export async function coreTaskReopen(
   projectRoot: string,
   taskId: string,
-  params?: { status?: string; reason?: string },
-): Promise<{ task: string; reopened: boolean; previousStatus: string; newStatus: string }> {
+  params?: {
+    status?: string;
+    reason?: string;
+    /** Task ID that this reopen is a regression of. Appended to notes for traceability. */
+    regressionOf?: string;
+    /** When true (default), reopen any done ancestors so the hierarchy is consistent. */
+    reopenAncestors?: boolean;
+  },
+): Promise<{
+  task: string;
+  reopened: boolean;
+  previousStatus: string;
+  newStatus: string;
+  /** IDs of ancestor tasks that were transitioned from done → pending. */
+  ancestorsReopened: string[];
+}> {
   const accessor = await getTaskAccessor(projectRoot);
 
   const task = await accessor.loadSingleTask(taskId);
@@ -218,19 +244,64 @@ export async function coreTaskReopen(
   }
 
   const previousStatus = task.status;
+  const previousCompletedAt = task.completedAt;
+  const now = new Date().toISOString();
+
   task.status = targetStatus as TaskStatus;
   task.completedAt = undefined;
-  task.updatedAt = new Date().toISOString();
+  task.updatedAt = now;
 
   if (!task.notes) task.notes = [];
+
+  // AC3: preserve completion history — record the prior completedAt before clearing it
+  if (previousCompletedAt) {
+    task.notes.push(`[${now}] completion-history: completedAt=${previousCompletedAt}`);
+  }
+
+  // AC2: regression_of path — document which completed task this reopen traces back to.
+  // Use the schema/AC spelling (`regression_of`) in persisted history so notes are grepable
+  // and distinguish this lifecycle edge from free-form prose.
+  if (params?.regressionOf) {
+    task.notes.push(`[${now}] regression_of: ${params.regressionOf}`);
+  }
+
   const reason = params?.reason;
-  task.notes.push(
-    `[${task.updatedAt}] Reopened from ${previousStatus}${reason ? ': ' + reason : ''}`,
-  );
+  task.notes.push(`[${now}] Reopened from ${previousStatus}${reason ? ': ' + reason : ''}`);
 
   await accessor.upsertSingleTask(task);
 
-  return { task: taskId, reopened: true, previousStatus, newStatus: targetStatus };
+  // AC1: reopen done ancestors so the hierarchy stays consistent
+  const ancestorsReopened: string[] = [];
+  const shouldReopenAncestors = params?.reopenAncestors !== false; // default true
+  if (shouldReopenAncestors) {
+    const ancestors = await accessor.getAncestorChain(taskId);
+    for (const ancestor of ancestors) {
+      if (ancestor.status === 'done') {
+        const ancestorPreviousCompletedAt = ancestor.completedAt;
+        ancestor.status = 'pending';
+        ancestor.completedAt = undefined;
+        ancestor.updatedAt = now;
+        if (!ancestor.notes) ancestor.notes = [];
+        // Preserve ancestor's completion history too
+        if (ancestorPreviousCompletedAt) {
+          ancestor.notes.push(
+            `[${now}] completion-history: completedAt=${ancestorPreviousCompletedAt}`,
+          );
+        }
+        ancestor.notes.push(`[${now}] Reopened by child ${taskId} (required unsatisfied child)`);
+        await accessor.upsertSingleTask(ancestor);
+        ancestorsReopened.push(ancestor.id);
+      }
+    }
+  }
+
+  return {
+    task: taskId,
+    reopened: true,
+    previousStatus,
+    newStatus: targetStatus,
+    ancestorsReopened,
+  };
 }
 
 /**
