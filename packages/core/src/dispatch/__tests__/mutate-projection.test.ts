@@ -114,6 +114,105 @@ describe('applyMutateProjection — tasks.add-batch', () => {
     expect(out['ids']).toEqual(['T???', 'T???']);
   });
 
+  // T10599 — dry-run count semantics
+  describe('dry-run count semantics (T10599)', () => {
+    it('AC1: count reflects wouldCreate, not the always-zero created field', () => {
+      const data = {
+        created: 0,
+        dryRun: true,
+        wouldCreate: 3,
+        wouldAffect: 3,
+        validatedCount: 3,
+        insertedCount: 0,
+        tasks: [{ task: { id: 'T???' } }, { task: { id: 'T???' } }, { task: { id: 'T???' } }],
+      };
+      const out = applyMutateProjection(data, 'tasks.add-batch', 'mvi') as Record<string, unknown>;
+      expect(out['count']).toBe(3); // wouldCreate, not 0
+      expect(out['wouldAffect']).toBe(3);
+      expect(out['dryRun']).toBe(true);
+    });
+
+    it('AC2: insertedCount is separate from wouldCreate in dry-run', () => {
+      const data = {
+        created: 0,
+        dryRun: true,
+        wouldCreate: 2,
+        validatedCount: 2,
+        insertedCount: 0,
+        tasks: [{ task: { id: 'T???' } }, { task: { id: 'T???' } }],
+      };
+      const out = applyMutateProjection(data, 'tasks.add-batch', 'mvi') as Record<string, unknown>;
+      expect(out['wouldCreate']).toBe(2);
+      expect(out['wouldAffect']).toBe(2);
+      expect(out['insertedCount']).toBe(0);
+    });
+
+    it('AC2: insertedCount equals count in live run', () => {
+      const data = {
+        created: 2,
+        insertedCount: 2,
+        tasks: [{ task: { id: 'T100' } }, { task: { id: 'T101' } }],
+      };
+      const out = applyMutateProjection(data, 'tasks.add-batch', 'mvi') as Record<string, unknown>;
+      expect(out['count']).toBe(2);
+      expect(out['insertedCount']).toBe(2);
+      expect(out['wouldCreate']).toBeUndefined();
+      expect(out['dryRun']).toBeUndefined();
+    });
+
+    it('AC3: validatedCount is surfaced in dry-run envelope', () => {
+      const data = {
+        created: 0,
+        dryRun: true,
+        wouldCreate: 2,
+        validatedCount: 2,
+        insertedCount: 0,
+        tasks: [{ task: { id: 'T???' } }, { task: { id: 'T???' } }],
+      };
+      const out = applyMutateProjection(data, 'tasks.add-batch', 'mvi') as Record<string, unknown>;
+      expect(out['validatedCount']).toBe(2);
+    });
+
+    it('AC3: validationFindings are surfaced when present', () => {
+      const findings = [{ index: 1, warnings: ['Title is similar to T042'] }];
+      const data = {
+        created: 0,
+        dryRun: true,
+        wouldCreate: 2,
+        validatedCount: 2,
+        insertedCount: 0,
+        validationFindings: findings,
+        tasks: [{ task: { id: 'T???' } }, { task: { id: 'T???' } }],
+      };
+      const out = applyMutateProjection(data, 'tasks.add-batch', 'mvi') as Record<string, unknown>;
+      expect(out['validationFindings']).toEqual(findings);
+    });
+
+    it('validationFindings omitted when empty array', () => {
+      const data = {
+        created: 0,
+        dryRun: true,
+        wouldCreate: 1,
+        validatedCount: 1,
+        insertedCount: 0,
+        validationFindings: [],
+        tasks: [{ task: { id: 'T???' } }],
+      };
+      const out = applyMutateProjection(data, 'tasks.add-batch', 'mvi') as Record<string, unknown>;
+      expect(out['validationFindings']).toBeUndefined();
+    });
+
+    it('falls back to ids.length for count when wouldCreate absent in dry-run', () => {
+      const data = {
+        created: 0,
+        dryRun: true,
+        tasks: [{ task: { id: 'T???' } }, { task: { id: 'T???' } }],
+      };
+      const out = applyMutateProjection(data, 'tasks.add-batch', 'mvi') as Record<string, unknown>;
+      expect(out['count']).toBe(2); // falls back to ids.length
+    });
+  });
+
   it('handles entries with an inline id (no `task` wrapper)', () => {
     const data = { created: 2, tasks: [{ id: 'T200' }, { id: 'T201' }] };
     const out = applyMutateProjection(data, 'tasks.add-batch', 'mvi') as Record<string, unknown>;

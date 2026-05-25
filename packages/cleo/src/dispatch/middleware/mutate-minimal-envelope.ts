@@ -68,6 +68,13 @@ const BASE_DATA_FIELDS = new Set([
   'acceptanceCriteriaIds',
   'autoCompleted',
   'cascadeDeleted',
+  // T10599 add-batch dry-run semantics exposed by the projected mutate
+  // envelope. Keep these pointer-addressable for --field consumers.
+  'wouldCreate',
+  'wouldAffect',
+  'insertedCount',
+  'validatedCount',
+  'validationFindings',
 ]);
 
 function decodePointerToken(token: string): string {
