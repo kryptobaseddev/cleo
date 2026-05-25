@@ -27,6 +27,7 @@ const mockCliOutput = vi.fn();
 
 vi.mock('../../renderers/index.js', () => ({
   cliOutput: (...args: unknown[]) => mockCliOutput(...args),
+  humanLine: (message = '') => process.stdout.write(`${message}\n`),
 }));
 
 // Suppress process.stdout.write in tests — we verify cliOutput instead.

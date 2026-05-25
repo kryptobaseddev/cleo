@@ -34,6 +34,8 @@ vi.mock('../../../dispatch/adapters/cli.js', () => ({
 vi.mock('../../renderers/index.js', () => ({
   cliOutput: vi.fn(),
   cliError: vi.fn(),
+  humanInfo: vi.fn(),
+  humanWarn: (message: string) => process.stderr.write(`${message}\n`),
 }));
 
 // Mock Core inference — add.ts now delegates all inference to inferTaskAddParams (T1490)
