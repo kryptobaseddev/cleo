@@ -72,7 +72,10 @@ fn move_directory_recursively() {
     // Same-device rename should remove the source.
     assert!(!src_dir.exists(), "src dir should be gone");
     assert_eq!(fs::read_to_string(dst_dir.join("a.txt")).unwrap(), "a");
-    assert_eq!(fs::read_to_string(dst_dir.join("nested/b.txt")).unwrap(), "b");
+    assert_eq!(
+        fs::read_to_string(dst_dir.join("nested/b.txt")).unwrap(),
+        "b"
+    );
 }
 
 #[test]

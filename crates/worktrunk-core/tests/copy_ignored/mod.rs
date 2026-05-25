@@ -20,9 +20,7 @@ use std::fs;
 
 use tempfile::TempDir;
 use worktrunk_core::Progress;
-use worktrunk_core::step::{
-    BUILTIN_COPY_IGNORED_EXCLUDES, plan_copy_ignored, run_copy_ignored,
-};
+use worktrunk_core::step::{BUILTIN_COPY_IGNORED_EXCLUDES, plan_copy_ignored, run_copy_ignored};
 
 use crate::common::{commit_all, init_repo, write};
 

@@ -35,7 +35,7 @@
 
 import { execFile, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -706,22 +706,44 @@ async function archivePlan(version: string, projectRoot: string): Promise<void> 
   await mkdir(archiveDir, { recursive: true });
   const dst = join(archiveDir, `${version}.plan.json`);
   // Read source content, write to archive atomically (tmp-then-rename), only
-  // then delete source.
-  const content = readFileSync(src);
-  const tmp = `${dst}.tmp.${process.pid}.${Date.now()}`;
-  writeFileSync(tmp, content);
+  // then remove/rename source.
+  const bytes = readFileSync(src);
+  const tmp = `${dst}.tmp-${process.pid}-${Date.now()}`;
+  writeFileSync(tmp, bytes);
   renameSync(tmp, dst);
   // Delete source last (idempotent if archive write succeeded).
   try {
     renameSync(src, `${src}.archived.${Date.now()}`);
-    // Two-step instead of unlink so we never lose the source on disk if the
-    // operator wants forensic access; rename to .archived.<ts> is reversible.
   } catch {
+    // operator wants forensic access; rename to .archived.<ts> is reversible.
     // ignore — archive is durable, source cleanup is best-effort
   }
 }
 
-// ─── Helpers — BRAIN observation emission ────────────────────────────────────
+function changesetIdsFromPlan(plan: ReleasePlan): string[] {
+  const raw = plan.meta?.['changesetIds'];
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((value): value is string => typeof value === 'string' && value.length > 0);
+}
+
+function archiveShippedChangesets(version: string, plan: ReleasePlan, projectRoot: string): number {
+  const ids = changesetIdsFromPlan(plan);
+  if (ids.length === 0) return 0;
+  const sourceDir = join(projectRoot, '.changeset');
+  const archiveDir = join(sourceDir, 'shipped', version);
+  mkdirSync(archiveDir, { recursive: true });
+  let moved = 0;
+  for (const id of ids) {
+    const src = join(sourceDir, `${id}.md`);
+    if (!existsSync(src)) continue;
+    const dst = join(archiveDir, `${id}.md`);
+    renameSync(src, dst);
+    moved++;
+  }
+  return moved;
+}
+
+// ─── Main reconcile entrypoint ──────────────────────────────────────────────
 
 /**
  * Auto-emit `cleo memory observe ...` per R-098. Best-effort — failure is
@@ -1406,6 +1428,18 @@ export async function releaseReconcileV2(
     log.warn(
       { err: err instanceof Error ? err.message : String(err) },
       'Plan archive failed — provenance still recorded',
+    );
+  }
+
+  try {
+    const moved = archiveShippedChangesets(version, plan, projectRoot);
+    if (moved > 0) {
+      log.info({ version, moved }, 'Archived shipped changeset files');
+    }
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      'Changeset archive failed — provenance still recorded',
     );
   }
 
