@@ -46,7 +46,12 @@ describe('addBatchTasks', () => {
     const result = await addBatchTasks(
       {
         tasks: [
-          { title: 'Batch task A', description: 'First task in the batch' },
+          {
+            title: 'Batch task A',
+            description: 'First task in the batch',
+            labels: ['pm-core-v2', 'wave.3'],
+            acceptance: ['labels persist as arrays', 'acceptance persists as arrays'],
+          },
           { title: 'Batch task B', description: 'Second task in the batch' },
           { title: 'Batch task C', description: 'Third task in the batch' },
         ],
@@ -74,6 +79,8 @@ describe('addBatchTasks', () => {
     expect(t1!.title).toBe('Batch task A');
     expect(t2!.title).toBe('Batch task B');
     expect(t3!.title).toBe('Batch task C');
+    expect(t1!.labels).toEqual(['pm-core-v2', 'wave.3']);
+    expect(t1!.acceptance).toEqual(['labels persist as arrays', 'acceptance persists as arrays']);
   });
 
   // -------------------------------------------------------------------------
