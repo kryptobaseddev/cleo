@@ -183,7 +183,7 @@ function seedFeatChangeset(): void {
     [
       '---',
       'id: sample-feat',
-      'tasks: [T5678]',
+      'tasks: [T10001]',
       'kind: feat',
       'prs: [99]',
       'summary: A new capability.',
@@ -543,7 +543,7 @@ describe('releasePlan writes CHANGELOG.md (T9838 Fix 3)', () => {
       [
         '---',
         'id: sample-fix',
-        'tasks: [T1234]',
+        'tasks: [T10001]',
         'kind: fix',
         'summary: A sample bug fix.',
         '---',

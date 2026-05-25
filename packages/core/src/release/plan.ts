@@ -1164,6 +1164,31 @@ function readChangesetEntries(projectRoot: string): ChangesetEntry[] {
 }
 
 /**
+ * Keep only changesets whose task anchors intersect the release plan task set.
+ * This prevents stale entries left in `.changeset/` by prior releases from
+ * being re-consumed forever by unrelated release plans (T10085).
+ *
+ * @internal
+ * @task T10085
+ */
+function filterChangesetEntriesForPlanTasks(
+  entries: readonly ChangesetEntry[],
+  planTasks: readonly ReleasePlanTask[],
+): { scoped: ChangesetEntry[]; skipped: ChangesetEntry[] } {
+  const taskIds = new Set(planTasks.map((task) => task.id));
+  const scoped: ChangesetEntry[] = [];
+  const skipped: ChangesetEntry[] = [];
+  for (const entry of entries) {
+    if (entry.tasks.some((taskId) => taskIds.has(taskId))) {
+      scoped.push(entry);
+    } else {
+      skipped.push(entry);
+    }
+  }
+  return { scoped, skipped };
+}
+
+/**
  * Persist each parsed changeset entry into the `release_changesets` table.
  *
  * Idempotent re-runs of `cleo release plan` clear any prior rows for the same
@@ -1480,8 +1505,10 @@ export async function releasePlan(
       details: { parserMessage: message },
     });
   }
+  const scopedChangesets = filterChangesetEntriesForPlanTasks(changesetEntries, planTasks);
+  const skippedChangesetCount = scopedChangesets.skipped.length;
   const aggregated = aggregateChangesetsForRelease({
-    entries: changesetEntries,
+    entries: scopedChangesets.scoped,
     version: normalizedVersion,
     date: createdAt.slice(0, 10),
   });
@@ -1489,6 +1516,13 @@ export async function releasePlan(
   // ── Assemble + validate the plan envelope ─────────────────────────────
   const changelog = buildChangelog(planTasks);
   const preflightSummary = assemblePreflightSummary(unresolved);
+  if (skippedChangesetCount > 0) {
+    preflightSummary.preflightWarnings.push(
+      `Skipped ${skippedChangesetCount} out-of-scope changeset entr${
+        skippedChangesetCount === 1 ? 'y' : 'ies'
+      } whose task anchors are not part of this release plan`,
+    );
+  }
   const plan: ReleasePlan = {
     $schema: 'https://cleocode.io/schemas/release-plan/v1.json',
     version: normalizedVersion,
@@ -1564,7 +1598,7 @@ export async function releasePlan(
     const projectInfo = getProjectInfoSync(projectRoot);
     const releaseId = `${projectInfo?.projectHash ?? 'unknown'}:${plan.resolvedVersion}`;
     try {
-      await persistReleaseChangesets(releaseId, changesetEntries, projectRoot);
+      await persistReleaseChangesets(releaseId, scopedChangesets.scoped, projectRoot);
     } catch (err: unknown) {
       log.warn(
         { err: err instanceof Error ? err.message : String(err), releaseId },
