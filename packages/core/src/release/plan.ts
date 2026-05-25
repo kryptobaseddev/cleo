@@ -47,7 +47,7 @@ import {
   type ReleaseTaskKind,
   type ResolvedSource,
 } from '@cleocode/contracts';
-import { and, desc, eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 
 import { parseChangesetDir } from '../changesets/index.js';
 import { WriterRegistry } from '../docs/writer-registry.js';
@@ -109,6 +109,14 @@ export interface ReleasePlanOptions {
    * @task T9838
    */
   sagaId?: string;
+  /**
+   * Explicit task-list release scope. When set, the plan includes exactly these
+   * non-cancelled/non-archived task rows in caller order after de-duplication.
+   * Mutually exclusive with `epicId` and `sagaId`.
+   *
+   * @task T10088
+   */
+  taskIds?: string[];
   /** Versioning scheme. Default: inferred from `.cleo/release-config.json`. */
   scheme?: ReleaseScheme;
   /** Release channel. Default: `latest`. */
@@ -515,6 +523,44 @@ async function resolveSagaTasks(sagaId: string, projectRoot: string): Promise<Sa
 }
 
 /**
+ * Resolve an explicit `--tasks` scope into task rows, preserving caller order
+ * after de-duplication and rejecting cancelled/archived rows.
+ *
+ * @internal
+ * @task T10088
+ */
+async function resolveExplicitTasks(
+  taskIds: string[],
+  projectRoot: string,
+): Promise<{ tasks: Task[]; missing: string[]; excluded: string[] }> {
+  const accessor = await getTaskAccessor(projectRoot);
+  try {
+    const tasks: Task[] = [];
+    const missing: string[] = [];
+    const excluded: string[] = [];
+    const seen = new Set<string>();
+    for (const rawId of taskIds) {
+      const taskId = rawId.trim();
+      if (!taskId || seen.has(taskId)) continue;
+      seen.add(taskId);
+      const task = await accessor.loadSingleTask(taskId);
+      if (!task) {
+        missing.push(taskId);
+        continue;
+      }
+      if (task.status === 'cancelled' || task.status === 'archived') {
+        excluded.push(taskId);
+        continue;
+      }
+      tasks.push(task);
+    }
+    return { tasks, missing, excluded };
+  } finally {
+    await accessor.close();
+  }
+}
+
+/**
  * Variant of {@link resolveEpicTasks} that accepts a pre-opened accessor —
  * used by {@link resolveSagaTasks} to avoid opening one accessor per member
  * Epic. Mirrors `resolveEpicTasks` semantics exactly.
@@ -815,11 +861,17 @@ async function resolvePreviousVersion(
   const rows: ReleaseRow[] = await db
     .select()
     .from(releases)
-    .where(and(eq(releases.channel, channel), eq(releases.status, 'reconciled')))
-    .orderBy(desc(releases.publishedAt))
-    .limit(1)
+    .where(eq(releases.channel, channel))
+    .orderBy(desc(releases.publishedAt), desc(releases.reconciledAt), desc(releases.createdAt))
     .all();
-  const prior = rows[0];
+  const shippedStatuses = new Set(['reconciled', 'published', 'pushed', 'tagged']);
+  const tagSet = listGitTags(projectRoot);
+  const shipped = rows.filter((row) => {
+    if (!shippedStatuses.has(row.status)) return false;
+    return tagSet === null || tagSet.has(row.version);
+  });
+  shipped.sort(compareReleaseRowsNewestFirst);
+  const prior = shipped[0];
   if (!prior) {
     return {
       previousVersion: null,
@@ -831,9 +883,58 @@ async function resolvePreviousVersion(
   return {
     previousVersion: prior.version,
     previousTag: prior.version,
-    previousShippedAt: prior.publishedAt ?? null,
+    previousShippedAt: prior.publishedAt ?? prior.reconciledAt ?? null,
     firstEverRelease: false,
   };
+}
+
+/** Best-effort git tag inventory used to avoid treating untagged rows as shipped. */
+function listGitTags(projectRoot: string): Set<string> | null {
+  try {
+    const raw = runGitWithLockRetry(['tag', '--list'], {
+      cwd: projectRoot,
+      encoding: 'utf-8',
+      stdio: 'pipe',
+      timeout: 60_000,
+    });
+    return new Set(
+      raw
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean),
+    );
+  } catch (err: unknown) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      'git tag --list failed during previous-version resolution; falling back to DB status only',
+    );
+    return null;
+  }
+}
+
+function compareReleaseRowsNewestFirst(a: ReleaseRow, b: ReleaseRow): number {
+  const byVersion = compareVersionStrings(b.version, a.version);
+  if (byVersion !== 0) return byVersion;
+  const aTime = Date.parse(a.publishedAt ?? a.reconciledAt ?? a.createdAt ?? '') || 0;
+  const bTime = Date.parse(b.publishedAt ?? b.reconciledAt ?? b.createdAt ?? '') || 0;
+  return bTime - aTime;
+}
+
+function compareVersionStrings(a: string, b: string): number {
+  const pa = parseVersionParts(a);
+  const pb = parseVersionParts(b);
+  const max = Math.max(pa.length, pb.length);
+  for (let i = 0; i < max; i += 1) {
+    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return a.localeCompare(b);
+}
+
+function parseVersionParts(version: string): number[] {
+  const match = version.match(/v?(\d+(?:\.\d+){1,3})/);
+  if (!match) return [];
+  return match[1]!.split('.').map((part) => Number.parseInt(part, 10));
 }
 
 // ---------------------------------------------------------------------------
@@ -1295,37 +1396,71 @@ export async function releasePlan(
     });
   }
 
-  // ── T9838: --saga / --epic input validation ──────────────────────────
-  // sagaId and epicId are mutually exclusive. At least one MUST be set.
-  if (opts.sagaId && opts.epicId) {
+  // ── T9838/T10088: --saga / --epic / --tasks input validation ─────────
+  // The three scope selectors are mutually exclusive. At least one MUST be set.
+  const scopeCount = [opts.sagaId, opts.epicId, opts.taskIds?.length ? 'tasks' : undefined].filter(
+    Boolean,
+  ).length;
+  if (scopeCount > 1) {
     return engineError<ReleasePlanResult>(
       'E_INVALID_INPUT',
-      '--saga and --epic are mutually exclusive — pass one or the other',
+      '--saga, --epic, and --tasks are mutually exclusive — pass exactly one scope selector',
       {
         exitCode: ExitCode.VALIDATION_ERROR,
-        fix: 'omit --saga to walk a single Epic, OR omit --epic to walk a Saga',
-        details: { sagaId: opts.sagaId, epicId: opts.epicId },
+        fix: 'pass --epic T####, --saga T####, or --tasks T####,T####',
+        details: { sagaId: opts.sagaId, epicId: opts.epicId, taskIds: opts.taskIds },
       },
     );
   }
-  if (!opts.sagaId && !opts.epicId) {
-    return engineError<ReleasePlanResult>('E_INVALID_INPUT', '--saga or --epic is required', {
-      exitCode: ExitCode.VALIDATION_ERROR,
-      fix: 'pass --epic T#### (single Epic) or --saga T#### (Saga walks groups relation)',
-    });
+  if (scopeCount === 0) {
+    return engineError<ReleasePlanResult>(
+      'E_INVALID_INPUT',
+      '--saga, --epic, or --tasks is required',
+      {
+        exitCode: ExitCode.VALIDATION_ERROR,
+        fix: 'pass --epic T#### (single Epic), --saga T#### (Saga walks groups relation), or --tasks T####,T####',
+      },
+    );
   }
 
   // ── R-021 / T9838: resolve tasks for the plan ────────────────────────
-  // Three code paths:
-  //   (a) `--saga T####` walks task_relations.relation_type='groups' and
+  // Four code paths:
+  //   (a) `--tasks T####,T####` plans exactly those eligible tasks in caller order.
+  //   (b) `--saga T####` walks task_relations.relation_type='groups' and
   //       aggregates the member Epics' subtrees (or leaf-Epics themselves).
-  //   (b) `--epic T####` with non-cancelled children → existing semantics.
-  //   (c) `--epic T####` leaf-Epic (zero children) → singleton task list with
+  //   (c) `--epic T####` with non-cancelled children → existing semantics.
+  //   (d) `--epic T####` leaf-Epic (zero children) → singleton task list with
   //       the Epic's own evidence atoms (ADR-073 leaf-Epic-as-PR pattern).
   let tasks: Task[];
   let resolvedEpicId: string; // The ID that goes into `plan.epicId`
   let leafEpicMode = false; // True when path (c) is taken
-  if (opts.sagaId) {
+  if (opts.taskIds?.length) {
+    const taskRes = await resolveExplicitTasks(opts.taskIds, projectRoot);
+    if (taskRes.missing.length > 0) {
+      return engineError<ReleasePlanResult>(
+        'E_NOT_FOUND',
+        'One or more --tasks IDs were not found',
+        {
+          exitCode: ExitCode.NOT_FOUND,
+          fix: `cleo exists ${taskRes.missing[0]}`,
+          details: { missing: taskRes.missing },
+        },
+      );
+    }
+    if (taskRes.tasks.length === 0) {
+      return engineError<ReleasePlanResult>(
+        E_EPIC_EMPTY,
+        '--tasks resolved to zero eligible tasks',
+        {
+          exitCode: ExitCode.NOT_FOUND,
+          fix: 'pass at least one non-cancelled, non-archived task ID',
+          details: { taskIds: opts.taskIds, excluded: taskRes.excluded },
+        },
+      );
+    }
+    tasks = taskRes.tasks;
+    resolvedEpicId = taskRes.tasks[0]?.parentId ?? taskRes.tasks[0]?.id ?? 'explicit-tasks';
+  } else if (opts.sagaId) {
     const sagaRes = await resolveSagaTasks(opts.sagaId, projectRoot);
     if (!sagaRes.sagaExists) {
       return engineError<ReleasePlanResult>(
@@ -1534,6 +1669,9 @@ export async function releasePlan(
       changesetIds: scopedChangesetEntries.map((entry) => entry.id),
       // T9838: track input mode for downstream verbs (open, reconcile).
       ...(opts.sagaId ? { sagaId: opts.sagaId } : {}),
+      ...(opts.taskIds?.length
+        ? { taskIds: [...new Set(opts.taskIds.map((id) => id.trim()).filter(Boolean))] }
+        : {}),
       ...(leafEpicMode ? { leafEpicMode: true } : {}),
     },
   };
