@@ -308,21 +308,31 @@ export async function validateAtom(
       return validateDecision(parsed.decisionId, projectRoot);
     case 'pr':
       return validatePrAtom(parsed.prNumber, projectRoot);
-    case 'satisfies':
-      // ADR-079-r2: parser accepted in T10506; 5-check validator semantics
-      // (target exists, target not terminal, AC exists, same-saga scope)
-      // ship in T10507. Until then, surface a deferred-validator reason so
-      // callers see exactly why the atom was rejected. Tests for the parser
-      // itself live in __tests__/satisfies-atom.test.ts and never call
-      // validateAtom — they exercise parseEvidenceString directly.
-      return {
-        ok: false,
-        reason:
-          `satisfies:<task-id>#<ac-id> validator semantics ship in T10507 — ` +
-          `parser accepted (T10506), runtime checks pending. ` +
-          `Target: ${parsed.targetTaskId}#${parsed.targetAcId ?? parsed.targetAcAlias ?? '?'}`,
-        codeName: 'E_AC_BINDING_VALIDATOR_PENDING',
-      };
+    case 'satisfies': {
+      // ADR-079-r2: 5-check validator pipeline shipped by T10507.
+      // Delegates to the dedicated validator module to keep the dispatch
+      // switch focused. The 5 checks run IN ORDER, first-failure-wins
+      // (see `lifecycle/verification/satisfies-validator.ts` for the
+      // detailed contract).
+      const { validateSatisfiesAtom } = await import(
+        '../lifecycle/verification/satisfies-validator.js'
+      );
+      const result = await validateSatisfiesAtom(
+        {
+          kind: 'satisfies',
+          targetTaskId: parsed.targetTaskId,
+          targetAcId: parsed.targetAcId,
+          targetAcAlias: parsed.targetAcAlias,
+          versionPin: parsed.versionPin,
+        },
+        taskId,
+        projectRoot,
+      );
+      if (!result.ok) {
+        return { ok: false, reason: result.reason, codeName: result.codeName };
+      }
+      return { ok: true, atom: result.atom };
+    }
     default: {
       // Exhaustiveness check — never reachable if ParsedAtom is complete.
       return { ok: false, reason: `Unknown parsed atom`, codeName: 'E_EVIDENCE_INVALID' };
