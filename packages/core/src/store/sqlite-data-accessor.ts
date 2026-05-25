@@ -446,6 +446,31 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       }));
     },
 
+    // ---- AC bindings (T10509 — AC-coverage gate) ----
+
+    async getAcBindings(acIds: readonly string[]) {
+      if (acIds.length === 0) return [];
+      const db = await getDb(cwd);
+      const rows = await db
+        .select({
+          id: schema.evidenceAcBindings.id,
+          evidenceAtomId: schema.evidenceAcBindings.evidenceAtomId,
+          acId: schema.evidenceAcBindings.acId,
+          bindingType: schema.evidenceAcBindings.bindingType,
+          createdAt: schema.evidenceAcBindings.createdAt,
+        })
+        .from(schema.evidenceAcBindings)
+        .where(inArray(schema.evidenceAcBindings.acId, acIds as string[]))
+        .all();
+      return rows.map((r) => ({
+        id: r.id,
+        evidenceAtomId: r.evidenceAtomId,
+        acId: r.acId,
+        bindingType: r.bindingType,
+        createdAt: r.createdAt,
+      }));
+    },
+
     async archiveSingleTask(taskId: string, fields: ArchiveFields): Promise<void> {
       const db = await getDb(cwd);
       // Verify the task exists before archiving
@@ -1103,6 +1128,28 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
                 })),
               )
               .run();
+          },
+          // ---- AC bindings (T10509 — AC-coverage gate) ----
+          async getAcBindings(acIds: readonly string[]) {
+            if (acIds.length === 0) return [];
+            const out = await db
+              .select({
+                id: schema.evidenceAcBindings.id,
+                evidenceAtomId: schema.evidenceAcBindings.evidenceAtomId,
+                acId: schema.evidenceAcBindings.acId,
+                bindingType: schema.evidenceAcBindings.bindingType,
+                createdAt: schema.evidenceAcBindings.createdAt,
+              })
+              .from(schema.evidenceAcBindings)
+              .where(inArray(schema.evidenceAcBindings.acId, acIds as string[]))
+              .all();
+            return out.map((r) => ({
+              id: r.id,
+              evidenceAtomId: r.evidenceAtomId,
+              acId: r.acId,
+              bindingType: r.bindingType,
+              createdAt: r.createdAt,
+            }));
           },
         };
 

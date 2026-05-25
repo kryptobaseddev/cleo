@@ -23,6 +23,15 @@ import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { getActiveSession } from '../store/session-store.js';
+import {
+  appendAcCoverageForceBypass,
+  appendAcWaiverAudit,
+  applyWaivers,
+  computeAcCoverage,
+  readOwnerOverride,
+  resolveWaivers,
+  type UnsatisfiedAc,
+} from './ac-coverage-gate.js';
 import { buildRollupEvidence, isCoordinationParent } from './coordination-parent.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
 import { revalidateEvidence } from './evidence.js';
@@ -57,6 +66,27 @@ export interface CompleteTaskOptions {
    * @task T1632
    */
   overrideReason?: string;
+  /**
+   * Comma-separated AC tokens (UUIDs or `AC<n>` aliases) that the caller
+   * waives from the AC-coverage gate (T10509). Each token MUST resolve to
+   * an AC row on the task. The {@link waiveReason} is mandatory whenever
+   * this field is set; supplying `waiveAc` without `waiveReason` is rejected
+   * with `E_AC_COVERAGE_INCOMPLETE`.
+   *
+   * Waivers are recorded to `.cleo/audit/ac-waiver.jsonl` for forensic
+   * traceability per ADR-079-r4 §4.
+   *
+   * @task T10509
+   * @saga T10377 (SG-IVTR-AC-BINDING)
+   */
+  waiveAc?: string;
+  /**
+   * Justification text for the {@link waiveAc} waiver. Mandatory whenever
+   * `waiveAc` is non-empty. Captured verbatim in the audit row.
+   *
+   * @task T10509
+   */
+  waiveReason?: string;
 }
 
 /**
@@ -184,6 +214,142 @@ export async function verifyEpicHasEvidence(task: Task, acc: DataAccessor): Prom
   }
 
   return false;
+}
+
+/**
+ * Resolve the absolute project root to write audit logs to. The gate
+ * call site has `cwd` as an optional parameter; we re-use the same
+ * canonical fallback the rest of `completeTask` uses ({@link getProjectRoot}).
+ *
+ * @internal
+ * @task T10509
+ */
+function projectRootForGate(cwd: string | undefined): string {
+  return cwd ?? getProjectRoot();
+}
+
+/**
+ * Enforce the AC-coverage gate (T10509). Throws when:
+ *   - Any AC has zero `evidence_ac_bindings` rows AND no override clears it.
+ *   - `--waive-ac` was supplied without a non-empty `--waive-reason`.
+ *
+ * Override precedence (highest first):
+ *   1. `CLEO_OWNER_OVERRIDE=1` + reason — full bypass; logged to
+ *      `force-bypass.jsonl`; coverage check still runs so the audit row
+ *      captures the offenders for post-mortem.
+ *   2. `--waive-ac` + `--waive-reason` — per-AC waiver; logged to
+ *      `ac-waiver.jsonl`; the residual unsatisfied set MUST be empty.
+ *
+ * The gate is a NO-OP for tasks with zero ACs.
+ *
+ * @internal
+ * @task T10509
+ */
+async function enforceAcCoverageGate(
+  options: CompleteTaskOptions,
+  projectRoot: string,
+  accessor: DataAccessor,
+): Promise<void> {
+  // 1. Validate `--waive-ac` arrives with a reason. Operators that pass
+  //    `--waive-ac` alone get a hard rejection — the reason is the
+  //    forensic anchor that justifies skipping the gate.
+  const waiveCsv = options.waiveAc?.trim();
+  if (waiveCsv !== undefined && waiveCsv.length > 0) {
+    const reason = options.waiveReason?.trim() ?? '';
+    if (reason.length === 0) {
+      throw new CleoError(
+        ExitCode.AC_COVERAGE_INCOMPLETE,
+        '--waive-ac requires --waive-reason "<text>" — the reason is the audit anchor.',
+        {
+          fix: 'Re-run with --waive-reason "<justification>" (the reason is captured in .cleo/audit/ac-waiver.jsonl).',
+          details: {
+            field: 'waiveReason',
+            codeName: 'E_AC_COVERAGE_INCOMPLETE',
+            missingFlag: 'waiveReason',
+          },
+        },
+      );
+    }
+  }
+
+  // 2. Compute base coverage. Short-circuit on zero-AC tasks.
+  const coverage = await computeAcCoverage(options.taskId, accessor);
+  if (coverage.ok) return;
+
+  // 3. Owner-override path (highest precedence) — log the bypass with
+  //    the FULL unsatisfied list so the audit row captures what was
+  //    skipped. The bypass is recorded BEFORE returning so a process
+  //    crash between audit + completion still leaves a forensic trail.
+  const ownerReason = readOwnerOverride();
+  if (ownerReason !== null) {
+    await appendAcCoverageForceBypass(
+      {
+        kind: 'ac-coverage',
+        timestamp: new Date().toISOString(),
+        taskId: options.taskId,
+        reason: ownerReason,
+        actor: process.env['CLEO_AGENT_ID'] ?? 'cleo',
+        unsatisfied: coverage.unsatisfied,
+      },
+      projectRoot,
+    );
+    return;
+  }
+
+  // 4. Waiver path — resolve the tokens against the task's AC rows,
+  //    subtract the waived set from the unsatisfied list, AND require
+  //    the residual to be empty. Partial waivers that leave any AC
+  //    unaddressed are rejected — operators must either waive all
+  //    offenders or provide programmatic evidence for the rest.
+  let residual: UnsatisfiedAc[] = coverage.unsatisfied;
+  let unresolvedTokens: string[] = [];
+  if (waiveCsv !== undefined && waiveCsv.length > 0) {
+    const acRows = await accessor.getAcRows(options.taskId);
+    const resolved = resolveWaivers(waiveCsv, acRows);
+    unresolvedTokens = resolved.unresolved;
+    residual = applyWaivers(coverage.unsatisfied, new Set(resolved.acIds));
+
+    // Write the audit row BEFORE deciding to fail or pass — even
+    // partial waivers that get rejected MUST be recorded so a worker
+    // cannot mask exploration of the gate.
+    await appendAcWaiverAudit(
+      {
+        timestamp: new Date().toISOString(),
+        taskId: options.taskId,
+        waivedAcs: resolved.acIds,
+        waivedAliases: resolved.aliases,
+        reason: (options.waiveReason ?? '').trim(),
+        actor: process.env['CLEO_AGENT_ID'] ?? 'cleo',
+        unresolvedTokens,
+      },
+      projectRoot,
+    );
+
+    if (residual.length === 0 && unresolvedTokens.length === 0) return;
+  }
+
+  // 5. Gate fails — surface the structured error with the residual ACs
+  //    AND any unresolved waiver tokens so the operator sees both
+  //    classes of problem in one shot.
+  const offenderList = residual.map((u) => `${u.alias} (${u.acId})`).join(', ');
+  const unresolvedHint =
+    unresolvedTokens.length > 0 ? ` Unresolved waive tokens: ${unresolvedTokens.join(', ')}.` : '';
+  throw new CleoError(
+    ExitCode.AC_COVERAGE_INCOMPLETE,
+    `Task ${options.taskId} cannot complete — ${residual.length} acceptance criterion/criteria have no evidence bindings: ${offenderList}.${unresolvedHint}`,
+    {
+      fix:
+        'Either (1) record evidence via `cleo verify <taskId> --gate … --evidence …` so a binding row is written, ' +
+        '(2) pass `--waive-ac "<csv>" --waive-reason "<text>"` to record an audited waiver, or ' +
+        '(3) set CLEO_OWNER_OVERRIDE=1 + CLEO_OWNER_OVERRIDE_REASON=<text> for a full bypass.',
+      details: {
+        field: 'acceptance',
+        codeName: 'E_AC_COVERAGE_INCOMPLETE',
+        unsatisfied: residual,
+        unresolvedTokens,
+      },
+    },
+  );
 }
 
 /**
@@ -404,6 +570,26 @@ export async function completeTask(
       );
     }
   }
+
+  // ---- T10509: AC-coverage gate (load-bearing IVTR closure) ----
+  //
+  // Every acceptance criterion MUST be backed by at least one
+  // `evidence_ac_bindings` row (any kind: direct, satisfies, coverage)
+  // before the task can be marked done. Override paths:
+  //   1. `--waive-ac "<csv>" --waive-reason "<text>"` — per-AC waiver
+  //      logged to `.cleo/audit/ac-waiver.jsonl`.
+  //   2. `CLEO_OWNER_OVERRIDE=1` + `CLEO_OWNER_OVERRIDE_REASON=<text>`
+  //      — full bypass logged to `.cleo/audit/force-bypass.jsonl`.
+  //
+  // The check is no-op for tasks with zero ACs (the existing
+  // `enforcement.acceptance.mode='block'` knob covers the "every task
+  // must declare ACs" case).
+  //
+  // Transactional safety: the read uses the SAME accessor handle as the
+  // subsequent transaction below. SQLite snapshot isolation pins the AC
+  // + binding rows between the read here and the writes inside the tx
+  // — no race window where the row set drifts.
+  await enforceAcCoverageGate(options, projectRootForGate(cwd), acc);
 
   const now = new Date().toISOString();
   const before = { ...task };
@@ -905,6 +1091,19 @@ export interface TaskCompleteEngineOptions {
   overrideReason?: string;
   /** Reason for acknowledging CRITICAL nexus impact risk. */
   acknowledgeRisk?: string;
+  /**
+   * Comma-separated AC tokens (UUIDs or `AC<n>` aliases) waived from the
+   * AC-coverage gate. {@link waiveReason} is mandatory whenever this is set.
+   * @see CompleteTaskOptions.waiveAc
+   * @task T10509
+   */
+  waiveAc?: string;
+  /**
+   * Justification text for the {@link waiveAc} waiver.
+   * @see CompleteTaskOptions.waiveReason
+   * @task T10509
+   */
+  waiveReason?: string;
 }
 
 /**
@@ -937,6 +1136,8 @@ export async function taskComplete(
         notes: opts.notes,
         overrideReason: opts.overrideReason,
         acknowledgeRisk: opts.acknowledgeRisk,
+        waiveAc: opts.waiveAc,
+        waiveReason: opts.waiveReason,
       },
       projectRoot,
       accessor,

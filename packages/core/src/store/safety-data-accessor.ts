@@ -203,6 +203,12 @@ export class SafetyDataAccessor implements DataAccessor {
     return this.inner.getAcRows(taskId);
   }
 
+  // ---- AC bindings (T10509 — pass-through) ----
+
+  async getAcBindings(acIds: readonly string[]) {
+    return this.inner.getAcBindings(acIds);
+  }
+
   // ---- Metadata (pass-through to inner) ----
 
   async getMetaValue<T>(key: string): Promise<T | null> {
