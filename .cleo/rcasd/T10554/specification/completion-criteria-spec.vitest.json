@@ -9,13 +9,13 @@
   "numPendingTests": 0,
   "numTodoTests": 0,
   "success": true,
-  "startTime": 1779743833282,
+  "startTime": 1779744282580,
   "testResults": [
     {
-      "name": "/home/keatonhoskins/.local/share/cleo/worktrees/1e3146b7352ba279/T10554/.cleo/rcasd/T10554/specification/completion-criteria-spec.md",
+      "name": "/mnt/projects/cleocode/.cleo/rcasd/T10554/specification/completion-criteria-spec.md",
       "status": "passed",
-      "startTime": 1779743833282,
-      "endTime": 1779743833282,
+      "startTime": 1779744282580,
+      "endTime": 1779744282580,
       "assertionResults": [
         {
           "ancestorTitles": [
