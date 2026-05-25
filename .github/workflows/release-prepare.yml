@@ -80,13 +80,13 @@ jobs:
     steps:
       # R-263: third-party Actions pinned to major+minor.
       - name: Checkout
-        uses: actions/checkout@v4.1
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
         timeout-minutes: 5
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4.0
+        uses: actions/setup-node@v4
         with:
           node-version: '24'
         timeout-minutes: 3
@@ -130,7 +130,7 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4.1
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -151,7 +151,7 @@ jobs:
         timeout-minutes: 2
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4.0
+        uses: actions/setup-node@v4
         with:
           node-version: '24'
         timeout-minutes: 3
@@ -263,7 +263,7 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4.1
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
