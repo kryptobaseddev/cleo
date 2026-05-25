@@ -51,6 +51,14 @@ export interface AddBatchOptions {
 
 /**
  * Result of `addBatchTasks`.
+ *
+ * Dry-run semantics (T10599):
+ * - `created` is always 0 in dry-run mode.
+ * - `wouldCreate` carries the predicted creation count.
+ * - `wouldAffect` carries the generic predicted affected-entity count.
+ * - `insertedCount` is the durable write count (0 in dry-run, N in live).
+ * - `validatedCount` counts specs that passed validation.
+ * - `validationFindings` surfaces per-spec warnings for agent inspection.
  */
 export interface AddBatchResult {
   /** Number of tasks that were created (0 on dry-run). */
@@ -59,6 +67,41 @@ export interface AddBatchResult {
   tasks: AddTaskResult[];
   /** Whether this was a dry run. */
   dryRun?: boolean;
+  /**
+   * Number of tasks that would be created if this dry run were executed live.
+   * Only present when `dryRun` is `true`.
+   *
+   * @task T10599
+   */
+  wouldCreate?: number;
+  /**
+   * Generic dry-run affected count. For add-batch this equals `wouldCreate`.
+   *
+   * @task T10599
+   */
+  wouldAffect?: number;
+  /**
+   * Number of task specs that successfully passed validation.
+   * In a dry-run equals `wouldCreate` when all specs validate.
+   *
+   * @task T10599
+   */
+  validatedCount?: number;
+  /**
+   * Number of tasks durably written to the database.
+   * - Live run: equals `created`.
+   * - Dry run: always `0`.
+   *
+   * @task T10599
+   */
+  insertedCount?: number;
+  /**
+   * Per-spec non-blocking validation warnings (dry-run only).
+   * Only populated when at least one spec produced a warning.
+   *
+   * @task T10599
+   */
+  validationFindings?: Array<{ index: number; warnings: string[] }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -115,6 +158,7 @@ export async function addBatchTasks(
   // Dry-run path: validate each task spec without writing.
   if (dryRun) {
     const results: AddTaskResult[] = [];
+    const validationFindings: Array<{ index: number; warnings: string[] }> = [];
     for (let i = 0; i < taskSpecs.length; i++) {
       const spec = taskSpecs[i]!;
       const merged: AddTaskOptions = {
@@ -124,8 +168,22 @@ export async function addBatchTasks(
       };
       const result = await addTask(merged, cwd, dataAccessor);
       results.push(result);
+      if (result.warnings && result.warnings.length > 0) {
+        validationFindings.push({ index: i, warnings: result.warnings });
+      }
     }
-    return { created: 0, tasks: results, dryRun: true };
+    const wouldCreate = results.length;
+    const validatedCount = results.length;
+    return {
+      created: 0,
+      tasks: results,
+      dryRun: true,
+      wouldCreate,
+      wouldAffect: wouldCreate,
+      validatedCount,
+      insertedCount: 0,
+      ...(validationFindings.length > 0 && { validationFindings }),
+    };
   }
 
   // Live path: all inserts inside ONE transaction (SAVEPOINT-based).
@@ -167,7 +225,7 @@ export async function addBatchTasks(
     }
   });
 
-  return { created: results.length, tasks: results };
+  return { created: results.length, tasks: results, insertedCount: results.length };
 }
 
 // ---------------------------------------------------------------------------
