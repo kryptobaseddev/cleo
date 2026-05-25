@@ -291,7 +291,7 @@ export async function fetchSessionState(
           `SELECT id, title, narrative, created_at, provenance_class
            FROM brain_observations
            WHERE source_session_id = ?
-           ORDER BY created_at DESC LIMIT 10`,
+           ORDER BY created_at DESC, id DESC LIMIT 10`,
         )
         .all(sessionId) as RawObs[];
       recentObservations = obsRows.map((r) => ({
