@@ -47,6 +47,7 @@ import {
   type ClassifyResult,
   classifyTask,
 } from './classify.js';
+import { collectOrchestrateDashboard, formatDashboardPromptSummary } from './dashboard.js';
 import { type HarnessHint, resolveHarnessHint } from './harness-hint.js';
 import { autoDispatch } from './index.js';
 import {
@@ -610,6 +611,21 @@ export async function composeSpawnPayload(
     // best-effort — blob store may not be initialized; proceed without docs
   }
 
+  // 6e. Multi-agent observability summary (T10464).
+  //     Best-effort and compact: one line only, tier-1/2 only. Failures must
+  //     not block spawn, and tier-0 worker prompts stay lean.
+  let dashboardSummary: string | undefined;
+  if (tier >= 1) {
+    try {
+      dashboardSummary = formatDashboardPromptSummary(
+        await collectOrchestrateDashboard(projectRoot),
+      );
+    } catch {
+      // best-effort — dashboard aggregation reads audit/worktree state and may
+      // be unavailable in freshly-initialised test projects.
+    }
+  }
+
   // 7. Build the prompt via the T882 engine. The engine is now the internal
   //    assembler; callers that previously imported buildSpawnPrompt directly
   //    continue to work unchanged.
@@ -626,6 +642,7 @@ export async function composeSpawnPayload(
     worktreePath: options.worktreePath,
     worktreeBranch: options.worktreeBranch,
     conduitSubscription: options.conduitSubscription,
+    dashboardSummary,
     retrievalBundle,
     docAttachments,
     spawnCloneExclude: options.spawnCloneExclude,

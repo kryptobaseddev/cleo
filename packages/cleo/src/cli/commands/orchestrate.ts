@@ -40,7 +40,7 @@
 import { execFileSync } from 'node:child_process';
 import type { EpicRollup, WaveRollup } from '@cleocode/contracts';
 import { orchestration } from '@cleocode/core';
-import { BUILD_CONFIG } from '@cleocode/core/internal';
+import { BUILD_CONFIG, getProjectRoot } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
@@ -200,6 +200,33 @@ const statusCommand = defineCommand({
       { epicId: args.epic },
       { command: 'orchestrate' },
     );
+  },
+});
+
+/** cleo orchestrate dashboard — compact multi-agent observability snapshot */
+const dashboardCommand = defineCommand({
+  meta: {
+    name: 'dashboard',
+    description: 'Show queue depth, admin-merge rate, force-bypass rate, and active worktree count',
+  },
+  args: {
+    window: {
+      type: 'string',
+      description: 'Audit rate window in hours (default: 24)',
+    },
+  },
+  async run({ args }) {
+    const rateWindowHours =
+      args.window !== undefined ? Number.parseFloat(String(args.window)) : undefined;
+    const metrics = await orchestration.collectOrchestrateDashboard(getProjectRoot(), {
+      ...(rateWindowHours !== undefined && Number.isFinite(rateWindowHours) && rateWindowHours > 0
+        ? { rateWindowHours }
+        : {}),
+    });
+    cliOutput(metrics, {
+      command: 'orchestrate-dashboard',
+      operation: 'orchestrate.dashboard',
+    });
   },
 });
 
@@ -1132,6 +1159,7 @@ export const orchestrateCommand = defineCommand({
   subCommands: {
     start: startCommand,
     status: statusCommand,
+    dashboard: dashboardCommand,
     'roll-up': rollupCommand,
     analyze: analyzeCommand,
     ready: readyCommand,
