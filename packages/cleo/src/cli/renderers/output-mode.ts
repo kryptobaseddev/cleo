@@ -71,12 +71,14 @@ function extractIds(data: unknown): string[] {
 /**
  * Pick the row count from a dispatch envelope.
  *
- * Honours the explicit `total` field when present (which can exceed
- * `tasks.length` after server-side pagination), otherwise falls back to
- * the length of whatever array surface the payload exposes.
+ * Honours explicit count fields before array lengths. `total` wins for
+ * paginated read payloads; `count` is the canonical minimal mutate envelope
+ * field and is especially important for dry-run mutations where the raw
+ * inserted/created count can be zero while the predicted affected count is
+ * non-zero.
  *
  * @returns `0` when the data shape carries neither a counted collection
- *          nor a recognisable total field.
+ *          nor a recognisable count field.
  */
 function extractCount(data: unknown): number {
   if (data === null || typeof data !== 'object') return 0;
@@ -84,6 +86,13 @@ function extractCount(data: unknown): number {
 
   const total = rec['total'];
   if (typeof total === 'number' && Number.isFinite(total)) return total;
+
+  // Minimal mutate envelopes expose an explicit count. For
+  // `tasks.add-batch --dry-run`, Core projects this from `wouldCreate` so
+  // `--output count` reports the number of tasks that would be created rather
+  // than the zero durable-write count.
+  const count = rec['count'];
+  if (typeof count === 'number' && Number.isFinite(count)) return count;
 
   const tasks = rec['tasks'];
   if (Array.isArray(tasks)) return tasks.length;

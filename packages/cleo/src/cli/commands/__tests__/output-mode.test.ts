@@ -67,6 +67,30 @@ describe('renderOutputMode — count', () => {
     expect(out.text).toBe('17');
   });
 
+  it('(T10599 AC1) honours minimal mutate `count` for dry-run add-batch output', () => {
+    const out = renderOutputMode('count', {
+      count: 3,
+      created: ['T???', 'T???', 'T???'],
+      ids: ['T???', 'T???', 'T???'],
+      dryRun: true,
+      wouldCreate: 3,
+      insertedCount: 0,
+      validatedCount: 3,
+    });
+
+    expect(out.text).toBe('3');
+  });
+
+  it('(T10599 AC1) prefers paginated `total` over mutate-style `count` when both exist', () => {
+    const out = renderOutputMode('count', {
+      total: 17,
+      count: 3,
+      tasks: [{ id: 'T1' }, { id: 'T2' }, { id: 'T3' }],
+    });
+
+    expect(out.text).toBe('17');
+  });
+
   it('falls back to tasks.length when total is missing', () => {
     const out = renderOutputMode('count', {
       tasks: [{ id: 'T1' }, { id: 'T2' }, { id: 'T3' }],

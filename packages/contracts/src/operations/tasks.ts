@@ -821,6 +821,7 @@ export interface TasksAddBatchParams {
  * Result of `tasks.add-batch`.
  *
  * @task T9814
+ * @task T10599 (dry-run semantics: wouldCreate, wouldAffect, validatedCount, insertedCount, validationFindings)
  */
 export interface TasksAddBatchResult {
   /** Number of tasks actually created (0 on rollback or dry-run). */
@@ -829,6 +830,49 @@ export interface TasksAddBatchResult {
   tasks: TasksAddResult[];
   /** Whether this was a dry run. */
   dryRun?: boolean;
+  /**
+   * Number of tasks that would be created if the dry run were executed for real.
+   * Only present when `dryRun` is `true`. Use this for `--output count` in
+   * dry-run mode — `created` is always 0 in a dry run.
+   *
+   * @task T10599
+   */
+  wouldCreate?: number;
+  /**
+   * Generic number of rows/entities that would be affected by the dry-run operation.
+   * For `tasks.add-batch`, this equals `wouldCreate`.
+   *
+   * @task T10599
+   */
+  wouldAffect?: number;
+  /**
+   * Number of task specs that successfully passed validation during a dry run.
+   * Always equals `wouldCreate` when no validation errors occurred; may be less
+   * when partial validation failures are tolerated.
+   *
+   * @task T10599
+   */
+  validatedCount?: number;
+  /**
+   * Number of tasks durably written to the database.
+   * - Live run: equals `created`.
+   * - Dry run: always `0` (no writes performed).
+   *
+   * Kept separate from `created` so callers can distinguish "batch was a
+   * dry run with 0 writes" from "batch was live but created nothing due to
+   * rollback/validation failure".
+   *
+   * @task T10599
+   */
+  insertedCount?: number;
+  /**
+   * Per-task non-blocking validation warnings emitted during a dry run.
+   * Only present when at least one task spec produced a warning.
+   * Index matches the position of the spec in the `tasks` input array.
+   *
+   * @task T10599
+   */
+  validationFindings?: Array<{ index: number; warnings: string[] }>;
 }
 
 // tasks.add (dispatch-level params — extends TasksCreateParams)
