@@ -42,7 +42,7 @@ import type {
   ReleasePlanOptions,
   ValidateChangelogOptions,
 } from '@cleocode/core/internal';
-import { getLogger, getProjectRoot } from '@cleocode/core/internal';
+import { getLogger, getProjectRoot, resolveWorktreeRouting } from '@cleocode/core/internal';
 import type { OpsFromCore } from '../adapters/typed.js';
 import {
   releaseGateCheck,
@@ -372,7 +372,10 @@ export class ReleaseHandler implements DomainHandler {
             dryRun: typeof params?.dryRun === 'boolean' ? params.dryRun : false,
             writeChangelog:
               typeof params?.writeChangelog === 'boolean' ? params.writeChangelog : true,
-            projectRoot: getProjectRoot(),
+            // T10079: release plan side effects are project-level. When invoked
+            // from an XDG secondary worktree/subdir, route .changeset/,
+            // CHANGELOG.md, and plan.json writes to the primary worktree.
+            projectRoot: resolveWorktreeRouting().canonicalRoot,
           };
           return wrapResult(await releasePlan(typed), 'mutate', 'release', operation, startTime);
         }
