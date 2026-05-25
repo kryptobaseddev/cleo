@@ -213,6 +213,25 @@ export interface TransactionAccessor {
    * @task T10509
    */
   getAcBindings(acIds: readonly string[]): Promise<AcBindingRow[]>;
+  /**
+   * Insert rows into `evidence_ac_bindings`. Used by the Validator SDK
+   * tools (T10511) to persist coverage bindings transactionally after a
+   * Validator attestation. The UNIQUE (evidence_atom_id, ac_id, binding_type)
+   * index collapses idempotent re-inserts via `ON CONFLICT DO NOTHING`.
+   *
+   * No-op when `rows` is empty.
+   *
+   * @task T10511
+   * @saga T10377 (SG-IVTR-AC-BINDING)
+   */
+  insertAcBindings(
+    rows: Array<{
+      id: string;
+      evidenceAtomId: string;
+      acId: string;
+      bindingType: 'direct' | 'satisfies' | 'coverage';
+    }>,
+  ): Promise<void>;
 }
 
 // Re-export AcRow at the module level for both transaction + outer accessor use.
