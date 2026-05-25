@@ -1163,6 +1163,15 @@ function readChangesetEntries(projectRoot: string): ChangesetEntry[] {
   return parseChangesetDir(changesetDir);
 }
 
+/** Keep only changesets that belong to the release's planned task scope. */
+function filterChangesetsForPlanTasks(
+  entries: readonly ChangesetEntry[],
+  planTasks: readonly ReleasePlanTask[],
+): ChangesetEntry[] {
+  const taskIds = new Set(planTasks.map((task) => task.id));
+  return entries.filter((entry) => entry.tasks.some((taskId) => taskIds.has(taskId)));
+}
+
 /**
  * Persist each parsed changeset entry into the `release_changesets` table.
  *
@@ -1480,8 +1489,9 @@ export async function releasePlan(
       details: { parserMessage: message },
     });
   }
+  const scopedChangesetEntries = filterChangesetsForPlanTasks(changesetEntries, planTasks);
   const aggregated = aggregateChangesetsForRelease({
-    entries: changesetEntries,
+    entries: scopedChangesetEntries,
     version: normalizedVersion,
     date: createdAt.slice(0, 10),
   });
@@ -1521,6 +1531,7 @@ export async function releasePlan(
       // length to decide whether to append a section.
       releaseNotes: aggregated.markdown,
       changesetEntryCount: aggregated.entryCount,
+      changesetIds: scopedChangesetEntries.map((entry) => entry.id),
       // T9838: track input mode for downstream verbs (open, reconcile).
       ...(opts.sagaId ? { sagaId: opts.sagaId } : {}),
       ...(leafEpicMode ? { leafEpicMode: true } : {}),
@@ -1564,7 +1575,7 @@ export async function releasePlan(
     const projectInfo = getProjectInfoSync(projectRoot);
     const releaseId = `${projectInfo?.projectHash ?? 'unknown'}:${plan.resolvedVersion}`;
     try {
-      await persistReleaseChangesets(releaseId, changesetEntries, projectRoot);
+      await persistReleaseChangesets(releaseId, scopedChangesetEntries, projectRoot);
     } catch (err: unknown) {
       log.warn(
         { err: err instanceof Error ? err.message : String(err), releaseId },

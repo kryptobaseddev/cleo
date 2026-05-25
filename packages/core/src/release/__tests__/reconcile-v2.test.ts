@@ -26,7 +26,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -136,7 +136,11 @@ function writePlan(
   projectRoot: string,
   version: string,
   taskIds: string[],
-  opts: { previousVersion?: string | null; previousTag?: string | null } = {},
+  opts: {
+    previousVersion?: string | null;
+    previousTag?: string | null;
+    changesetIds?: string[];
+  } = {},
 ): void {
   const nowIso = new Date().toISOString();
   const plan = {
@@ -174,7 +178,10 @@ function writePlan(
     prUrl: null,
     mergeCommitSha: null,
     status: 'published',
-    meta: { firstEverRelease: opts.previousVersion === undefined },
+    meta: {
+      firstEverRelease: opts.previousVersion === undefined,
+      ...(opts.changesetIds ? { changesetIds: opts.changesetIds } : {}),
+    },
   };
   writeFileSync(
     join(projectRoot, '.cleo', 'release', `${version}.plan.json`),
@@ -336,6 +343,30 @@ describe('releaseReconcileV2 — Phase 1 (T9526)', () => {
     expect(await countRows(projectRoot, 'release_commits')).toBe(2);
     expect(await countRows(projectRoot, 'release_changes')).toBe(2);
     expect(await countRows(projectRoot, 'release_artifacts')).toBe(1);
+  });
+
+  it('archives only plan-scoped shipped changeset files after successful reconcile', async () => {
+    writePlan(projectRoot, VERSION, TASK_IDS, { changesetIds: ['ship-me'] });
+    const changesetDir = join(projectRoot, '.changeset');
+    mkdirSync(changesetDir, { recursive: true });
+    writeFileSync(
+      join(changesetDir, 'ship-me.md'),
+      '---\nid: ship-me\ntasks: [T8001]\nkind: fix\nsummary: Ship me.\n---\n',
+    );
+    writeFileSync(
+      join(changesetDir, 'stale-orphan.md'),
+      '---\nid: stale-orphan\ntasks: [T9999]\nkind: feat\nsummary: Leave me.\n---\n',
+    );
+
+    gitCommit(projectRoot, 'a.txt', '1', `feat(${TASK_IDS[0]}): ship a`);
+    gitTag(projectRoot, VERSION);
+
+    const result = await releaseReconcileV2(VERSION, { projectRoot });
+    expect(result.success).toBe(true);
+
+    expect(existsSync(join(changesetDir, 'ship-me.md'))).toBe(false);
+    expect(existsSync(join(changesetDir, 'shipped', VERSION, 'ship-me.md'))).toBe(true);
+    expect(existsSync(join(changesetDir, 'stale-orphan.md'))).toBe(true);
   });
 
   it('idempotent: re-run is a no-op and produces no duplicate rows', async () => {
