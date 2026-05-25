@@ -1264,13 +1264,29 @@ function readChangesetEntries(projectRoot: string): ChangesetEntry[] {
   return parseChangesetDir(changesetDir);
 }
 
-/** Keep only changesets that belong to the release's planned task scope. */
-function filterChangesetsForPlanTasks(
+/**
+ * Keep only changesets whose task anchors intersect the release plan task set.
+ * This prevents stale entries left in `.changeset/` by prior releases from
+ * being re-consumed forever by unrelated release plans (T10085).
+ *
+ * @internal
+ * @task T10085
+ */
+function filterChangesetEntriesForPlanTasks(
   entries: readonly ChangesetEntry[],
   planTasks: readonly ReleasePlanTask[],
-): ChangesetEntry[] {
+): { scoped: ChangesetEntry[]; skipped: ChangesetEntry[] } {
   const taskIds = new Set(planTasks.map((task) => task.id));
-  return entries.filter((entry) => entry.tasks.some((taskId) => taskIds.has(taskId)));
+  const scoped: ChangesetEntry[] = [];
+  const skipped: ChangesetEntry[] = [];
+  for (const entry of entries) {
+    if (entry.tasks.some((taskId) => taskIds.has(taskId))) {
+      scoped.push(entry);
+    } else {
+      skipped.push(entry);
+    }
+  }
+  return { scoped, skipped };
 }
 
 /**
@@ -1624,9 +1640,10 @@ export async function releasePlan(
       details: { parserMessage: message },
     });
   }
-  const scopedChangesetEntries = filterChangesetsForPlanTasks(changesetEntries, planTasks);
+  const scopedChangesets = filterChangesetEntriesForPlanTasks(changesetEntries, planTasks);
+  const skippedChangesetCount = scopedChangesets.skipped.length;
   const aggregated = aggregateChangesetsForRelease({
-    entries: scopedChangesetEntries,
+    entries: scopedChangesets.scoped,
     version: normalizedVersion,
     date: createdAt.slice(0, 10),
   });
@@ -1634,6 +1651,14 @@ export async function releasePlan(
   // ── Assemble + validate the plan envelope ─────────────────────────────
   const changelog = buildChangelog(planTasks);
   const preflightSummary = assemblePreflightSummary(unresolved);
+  if (skippedChangesetCount > 0) {
+    preflightSummary.preflightWarnings ??= [];
+    preflightSummary.preflightWarnings.push(
+      `Skipped ${skippedChangesetCount} out-of-scope changeset entr${
+        skippedChangesetCount === 1 ? 'y' : 'ies'
+      } whose task anchors are not part of this release plan`,
+    );
+  }
   const plan: ReleasePlan = {
     $schema: 'https://cleocode.io/schemas/release-plan/v1.json',
     version: normalizedVersion,
@@ -1666,7 +1691,7 @@ export async function releasePlan(
       // length to decide whether to append a section.
       releaseNotes: aggregated.markdown,
       changesetEntryCount: aggregated.entryCount,
-      changesetIds: scopedChangesetEntries.map((entry) => entry.id),
+      changesetIds: scopedChangesets.scoped.map((entry) => entry.id),
       // T9838: track input mode for downstream verbs (open, reconcile).
       ...(opts.sagaId ? { sagaId: opts.sagaId } : {}),
       ...(opts.taskIds?.length
@@ -1713,7 +1738,7 @@ export async function releasePlan(
     const projectInfo = getProjectInfoSync(projectRoot);
     const releaseId = `${projectInfo?.projectHash ?? 'unknown'}:${plan.resolvedVersion}`;
     try {
-      await persistReleaseChangesets(releaseId, scopedChangesetEntries, projectRoot);
+      await persistReleaseChangesets(releaseId, scopedChangesets.scoped, projectRoot);
     } catch (err: unknown) {
       log.warn(
         { err: err instanceof Error ? err.message : String(err), releaseId },

@@ -183,10 +183,10 @@ describe('releasePlan × changesets aggregator', () => {
     const releaseNotes = meta?.['releaseNotes'];
     expect(typeof releaseNotes).toBe('string');
     expect(releaseNotes).toContain('## v2026.6.0');
-    expect(releaseNotes).toContain('### Features');
-    expect(releaseNotes).toContain('### Fixes');
-    expect(releaseNotes).toContain('- A new capability. (T10001) (#99)');
-    expect(releaseNotes).toContain('- A sample bug fix. (T10001)');
+    expect(releaseNotes).toContain('### Added');
+    expect(releaseNotes).toContain('### Fixed');
+    expect(releaseNotes).toContain('- A new capability. _(provenance: [T10001](');
+    expect(releaseNotes).toContain('- A sample bug fix. _(provenance: [T10001](');
     expect(meta?.['changesetEntryCount']).toBe(2);
     expect(meta?.['changesetIds']).toEqual(['sample-feat', 'sample-fix']);
   });
@@ -247,7 +247,7 @@ describe('releasePlan × changesets aggregator', () => {
       [
         '---',
         'id: multi-task',
-        'tasks: [T10001, T101, T102]',
+        'tasks: [T10001]',
         'kind: refactor',
         'prs: [42, 43]',
         'summary: Split a big module.',
@@ -284,7 +284,7 @@ describe('releasePlan × changesets aggregator', () => {
     expect(row.changesetId).toBe('multi-task');
     expect(row.kind).toBe('refactor');
     expect(row.summary).toBe('Split a big module.');
-    expect(JSON.parse(row.taskIds)).toEqual(['T10001', 'T101', 'T102']);
+    expect(JSON.parse(row.taskIds)).toEqual(['T10001']);
     expect(row.prs).not.toBeNull();
     expect(JSON.parse(row.prs!)).toEqual([42, 43]);
     expect(row.notes).toBe('Body paragraph.');
@@ -329,6 +329,64 @@ describe('releasePlan × changesets aggregator', () => {
     expect(result.success).toBe(true);
     if (!result.success) throw new Error('unreachable');
     expect(result.data.changesetEntryCount).toBe(0);
+  });
+
+  it('skips out-of-scope stale changesets and warns instead of re-consuming them', async () => {
+    await seedEpicWithChildren('T9999', 1);
+
+    writeChangeset(
+      'in-scope',
+      [
+        '---',
+        'id: in-scope',
+        'tasks: [T10001]',
+        'kind: fix',
+        'summary: Current fix.',
+        '---',
+        '',
+      ].join('\n'),
+    );
+    writeChangeset(
+      'stale-prior-release',
+      [
+        '---',
+        'id: stale-prior-release',
+        'tasks: [T4242]',
+        'kind: feat',
+        'summary: Old feature.',
+        '---',
+        '',
+      ].join('\n'),
+    );
+
+    const result = await releasePlan({
+      version: 'v2026.6.0',
+      epicId: 'T9999',
+      channel: 'latest',
+      scheme: 'calver',
+      projectRoot: testDir,
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error('unreachable');
+    expect(result.data.changesetEntryCount).toBe(1);
+
+    const plan = parseReleasePlan(JSON.parse(readFileSync(result.data.planPath, 'utf-8')));
+    expect((plan.meta as Record<string, unknown>).releaseNotes).toContain('Current fix.');
+    expect((plan.meta as Record<string, unknown>).releaseNotes).not.toContain('Old feature.');
+    expect(plan.preflightSummary.preflightWarnings).toContain(
+      'Skipped 1 out-of-scope changeset entry whose task anchors are not part of this release plan',
+    );
+
+    const db = await getDb(testDir);
+    const releases = await db.select().from(schema.releases).all();
+    const releaseId = releases[0]!.id;
+    const rows = await db
+      .select()
+      .from(schema.releaseChangesets)
+      .where(eq(schema.releaseChangesets.releaseId, releaseId))
+      .all();
+    expect(rows.map((row) => row.changesetId)).toEqual(['in-scope']);
   });
 
   it('re-running the plan overwrites prior release_changesets rows (no accumulation)', async () => {

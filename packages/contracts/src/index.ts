@@ -199,7 +199,7 @@ export {
 } from './branch-lock.js';
 export type { AdapterCapabilities } from './capabilities.js';
 // === Changesets (CLEO-native task-anchored DSL — T9738) ===
-export type { ChangesetEntry, ChangesetKind } from './changesets.js';
+export type { ChangesetEntry, ChangesetKind, ChangesetReleaseNoteSection } from './changesets.js';
 export { CHANGESET_KINDS, ChangesetEntrySchema } from './changesets.js';
 // === CLI Category Types (help renderer grouping SSoT) ===
 export type { CliCategory } from './cli-category.js';

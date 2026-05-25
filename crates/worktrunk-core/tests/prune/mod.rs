@@ -50,7 +50,9 @@ fn merged_secondary_branch_appears_in_plan() {
         .filter(|c| c.kind == PruneCandidateKind::BranchOnly)
         .collect();
     assert!(
-        branch_only.iter().any(|c| c.branch.as_deref() == Some("feat")),
+        branch_only
+            .iter()
+            .any(|c| c.branch.as_deref() == Some("feat")),
         "expected `feat` as a BranchOnly candidate, got: {:#?}",
         plan.candidates
     );
