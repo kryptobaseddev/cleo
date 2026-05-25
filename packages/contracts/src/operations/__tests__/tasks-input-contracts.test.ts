@@ -73,6 +73,36 @@ describe('tasksAddBatchInputContract', () => {
     expect(tasksAddBatchInputContract.schema['additionalProperties']).toBe(false);
   });
 
+  it('keeps labels and acceptance canonical as arrays in the add-batch schema', () => {
+    const schema = tasksAddBatchInputContract.schema as {
+      properties: {
+        tasks: {
+          items: {
+            properties: {
+              labels: { type: string; items: { type: string }; 'x-fix-hint'?: string };
+              acceptance: { type: string; items: { type: string }; 'x-fix-hint'?: string };
+            };
+          };
+        };
+      };
+    };
+    const entryProperties = schema.properties.tasks.items.properties;
+
+    expect(entryProperties.labels).toMatchObject({ type: 'array', items: { type: 'string' } });
+    expect(entryProperties.labels['x-fix-hint']).toContain('JSON array');
+    expect(entryProperties.acceptance).toMatchObject({ type: 'array', items: { type: 'string' } });
+    expect(entryProperties.acceptance['x-fix-hint']).toContain('not a pipe-delimited string');
+  });
+
+  it('ships add-batch examples with canonical labels and acceptance arrays', () => {
+    const withArrays = tasksAddBatchInputContract.examples.find((ex) => ex.name === 'two-tasks');
+    expect(withArrays).toBeDefined();
+    const firstTask = withArrays?.value.tasks[0];
+
+    expect(Array.isArray(firstTask?.labels)).toBe(true);
+    expect(Array.isArray(firstTask?.acceptance)).toBe(true);
+  });
+
   it('exports the raw schema constant for re-use', () => {
     expect(TASKS_ADD_BATCH_INPUT_SCHEMA).toBe(tasksAddBatchInputContract.schema);
   });
