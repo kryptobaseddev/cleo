@@ -209,6 +209,77 @@ describe('releasePlan — happy path', () => {
     if (!result.success) throw new Error('unreachable');
     expect(result.data.resolvedVersion).toBe('v2026.6.0');
   });
+
+  it('uses the most recent tagged shipped release as previousVersion (T10082)', async () => {
+    await seedEpicWithChildren('T9999', 1);
+    execFileSync('git', ['-C', testDir, 'commit', '--allow-empty', '-m', 'release history', '--quiet']);
+    execFileSync('git', ['-C', testDir, 'tag', 'v2026.5.95']);
+    execFileSync('git', ['-C', testDir, 'tag', 'v2026.5.97']);
+    const db = await getDb(testDir);
+    await db.insert(schema.releases).values([
+      {
+        id: 'testhash00000:v2026.5.95',
+        version: 'v2026.5.95',
+        channel: 'latest',
+        status: 'reconciled',
+        publishedAt: '2026-05-20T00:00:00.000Z',
+      },
+      {
+        id: 'testhash00000:v2026.5.97',
+        version: 'v2026.5.97',
+        channel: 'latest',
+        status: 'published',
+        publishedAt: '2026-05-21T00:00:00.000Z',
+      },
+      {
+        id: 'testhash00000:v2026.5.98',
+        version: 'v2026.5.98',
+        channel: 'latest',
+        status: 'planned',
+        plannedAt: '2026-05-22T00:00:00.000Z',
+      },
+    ]);
+
+    const result = await releasePlan({
+      version: 'v2026.6.0',
+      epicId: 'T9999',
+      channel: 'latest',
+      scheme: 'calver',
+      projectRoot: testDir,
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error('unreachable');
+    const plan = parseReleasePlan(JSON.parse(readFileSync(result.data.planPath, 'utf-8')));
+    expect(plan.previousVersion).toBe('v2026.5.97');
+    expect(plan.previousTag).toBe('v2026.5.97');
+  });
+
+  it('accepts explicit task-list release scope via taskIds (T10088)', async () => {
+    const accessor = await createSqliteDataAccessor(testDir);
+    try {
+      await accessor.setMetaValue('schema_version', '2.10.0');
+      await accessor.upsertSingleTask(makeTask({ id: 'T10001', title: 'Explicit one' }));
+      await accessor.upsertSingleTask(makeTask({ id: 'T10002', title: 'Explicit two' }));
+    } finally {
+      await accessor.close();
+    }
+
+    const result = await releasePlan({
+      version: 'v2026.6.0',
+      taskIds: ['T10002', 'T10001'],
+      channel: 'latest',
+      scheme: 'calver',
+      projectRoot: testDir,
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error('unreachable');
+    expect(result.data.taskCount).toBe(2);
+    const plan = parseReleasePlan(JSON.parse(readFileSync(result.data.planPath, 'utf-8')));
+    expect(plan.tasks.map((t) => t.id)).toEqual(['T10002', 'T10001']);
+    expect(plan.meta?.taskIds).toEqual(['T10002', 'T10001']);
+  });
 });
 
 // =============================================================================
