@@ -26,6 +26,7 @@ import { resolveOrCwd } from '../paths.js';
 import { allocateNextTaskId } from '../sequence/index.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor, TransactionAccessor } from '../store/data-accessor.js';
+import { applyAcPlan, buildFreshAcRows } from './ac-table.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
 import {
   findEpicAncestor,
@@ -1286,6 +1287,17 @@ export async function addTask(
 
     // Insert the new task
     await tx.upsertSingleTask(task);
+
+    // T10508 — DUAL WRITE: also persist AC rows into the new
+    // task_acceptance_criteria table (T10502). The legacy
+    // `tasks.acceptance` string lives on `task` and was just upserted
+    // above via upsertSingleTask. We additionally hydrate the row-table
+    // SSoT so future readers can resolve AC by stable UUID + ordinal.
+    if (options.acceptance?.length) {
+      const acRows = buildFreshAcRows(taskId, options.acceptance);
+      // Fresh task — no history, no delete. Insert is the only mutation.
+      await applyAcPlan(tx, taskId, { inserts: acRows, history: [], fullDelete: false });
+    }
 
     // Update project metadata if a new phase was created
     if (options.addPhase && phase && updatedProjectMeta?.phases?.[phase]) {

@@ -25,6 +25,7 @@ import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { enforceAcceptanceImmutability } from './ac-immutability.js';
+import { applyAcPlan, planAcUpdate } from './ac-table.js';
 import {
   normalizePriority,
   validateLabels,
@@ -556,6 +557,7 @@ export async function updateTask(
   // Capture final relates state before transaction (built above from options)
   const finalRelates = task.relates ?? [];
   const isRelatesChange = changes.includes('relates');
+  const isAcceptanceChange = changes.includes('acceptance');
 
   // Wrap writes in a transaction for TOCTOU safety (T023)
   await acc.transaction(async (tx) => {
@@ -584,6 +586,18 @@ export async function updateTask(
           }
         }
       }
+    }
+
+    // T10508 — DUAL WRITE for `--acceptance`: the legacy
+    // `tasks.acceptance` JSON column was just upserted by
+    // upsertSingleTask above. We now plan the row-table SSoT mutations
+    // INSIDE the same transaction so a failure rolls both halves back.
+    // History rows are recorded BEFORE the delete, satisfying the
+    // shrink/replace-all ordering guarantee.
+    if (isAcceptanceChange && options.acceptance !== undefined) {
+      const existing = await tx.getAcRows(options.taskId);
+      const plan = planAcUpdate(options.taskId, existing, options.acceptance);
+      await applyAcPlan(tx, options.taskId, plan);
     }
 
     await tx.appendLog({

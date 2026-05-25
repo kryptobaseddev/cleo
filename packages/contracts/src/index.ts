@@ -288,6 +288,7 @@ export type {
 export { parseClaudeCodeCredentials } from './credentials.js';
 // === DataAccessor Interface ===
 export type {
+  AcRow,
   ArchiveFields,
   ArchiveFile,
   DataAccessor,
@@ -1280,6 +1281,7 @@ export type {
   DepGraphIssue,
   DepsTreeEdge,
   DepsTreeNode,
+  TaskShowAcRowEntry,
   TaskShowAttachmentEntry,
   TasksAddBatchEntry,
   TasksAddBatchParams,

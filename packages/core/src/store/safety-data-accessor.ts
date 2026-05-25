@@ -197,6 +197,12 @@ export class SafetyDataAccessor implements DataAccessor {
     await this.inner.removeRelation(taskId, relatedTo, relationType);
   }
 
+  // ---- AC rows (T10508 — pass-through) ----
+
+  async getAcRows(taskId: string) {
+    return this.inner.getAcRows(taskId);
+  }
+
   // ---- Metadata (pass-through to inner) ----
 
   async getMetaValue<T>(key: string): Promise<T | null> {

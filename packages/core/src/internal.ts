@@ -2541,4 +2541,6 @@ export {
   resolveAgentsBatch,
 } from './store/agent-resolver.js';
 // assertTestEnv — test-DB isolation guard (T1906 / BBTT-W3-4)
-export { assertTestEnv } from './store/data-accessor.js';
+// getTaskAccessor — canonical task DataAccessor factory (T10508 — surface
+// `getAcRows` to dispatch-layer `tasks.show` handler).
+export { assertTestEnv, getTaskAccessor } from './store/data-accessor.js';
