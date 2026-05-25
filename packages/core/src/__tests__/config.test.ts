@@ -163,4 +163,33 @@ describe('getConfigValue', () => {
     expect(result.value).toBe(5);
     expect(result.source).toBe('project');
   });
+
+  // T10513 — `leadRollup.mode` is registered in DEFAULTS with value `'passive'`
+  // so the legacy callers of `rollupWaveStatus` / `rollupEpicStatus` keep
+  // their pre-T10383 behaviour. Flipping the key to `'active'` enables the
+  // Lead↔Worker Max-N loop scaffolded by E-VALIDATOR-ROLE. See
+  // `orchestration/__tests__/lead-rollup-mode.test.ts` for the runtime
+  // contract tests.
+  it('leadRollup.mode defaults to "passive" (T10513)', async () => {
+    const projectDir = join(tempDir, 'project');
+    process.env['CLEO_DIR'] = join(projectDir, '.cleo');
+    const config = await loadConfig(projectDir);
+    expect(config.leadRollup?.mode).toBe('passive');
+  });
+
+  it('project config can flip leadRollup.mode to "active" (T10513)', async () => {
+    const cleoDir = join(tempDir, 'project', '.cleo');
+    await mkdir(cleoDir, { recursive: true });
+    await writeFile(
+      join(cleoDir, 'config.json'),
+      JSON.stringify({
+        version: '2.10.0',
+        _meta: { schemaVersion: '2.10.0' },
+        leadRollup: { mode: 'active' },
+      }),
+    );
+    process.env['CLEO_DIR'] = cleoDir;
+    const config = await loadConfig(join(tempDir, 'project'));
+    expect(config.leadRollup?.mode).toBe('active');
+  });
 });

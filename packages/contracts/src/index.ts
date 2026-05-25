@@ -257,6 +257,8 @@ export type {
   DepsRequiredAt,
   EnforcementProfile,
   HierarchyConfig,
+  LeadRollupConfig,
+  LeadRollupMode,
   LifecycleConfig,
   LifecycleEnforcementMode,
   LlmConfig,
