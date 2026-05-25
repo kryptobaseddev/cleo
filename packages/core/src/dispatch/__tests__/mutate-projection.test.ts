@@ -50,7 +50,13 @@ describe('applyMutateProjection — tasks.add', () => {
     const data = { task: FULL_TASK, duplicate: false };
     const out = applyMutateProjection(data, 'tasks.add', 'mvi') as Record<string, unknown>;
     expect(out['count']).toBe(1);
+    expect(out['created']).toEqual(['T9931']);
+    expect(out['updated']).toEqual([]);
+    expect(out['deleted']).toEqual([]);
     expect(out['ids']).toEqual(['T9931']);
+    expect(out['fieldPathHints']).toMatchObject({
+      '/data/ids/0': expect.stringContaining('deprecated'),
+    });
     expect(out['status']).toBe('pending');
     // Verbose fields stripped:
     expect(out['title']).toBeUndefined();
@@ -90,6 +96,9 @@ describe('applyMutateProjection — tasks.add-batch', () => {
     };
     const out = applyMutateProjection(data, 'tasks.add-batch', 'mvi') as Record<string, unknown>;
     expect(out['count']).toBe(3);
+    expect(out['created']).toEqual(['T100', 'T101', 'T102']);
+    expect(out['updated']).toEqual([]);
+    expect(out['deleted']).toEqual([]);
     expect(out['ids']).toEqual(['T100', 'T101', 'T102']);
     expect(out['tasks']).toBeUndefined();
   });
@@ -124,6 +133,9 @@ describe('applyMutateProjection — tasks.update', () => {
     const data = { task: FULL_TASK, changes: ['title', 'priority'] };
     const out = applyMutateProjection(data, 'tasks.update', 'mvi') as Record<string, unknown>;
     expect(out['count']).toBe(1);
+    expect(out['created']).toEqual([]);
+    expect(out['updated']).toEqual(['T9931']);
+    expect(out['deleted']).toEqual([]);
     expect(out['ids']).toEqual(['T9931']);
     expect(out['changes']).toEqual(['title', 'priority']);
     expect(out['status']).toBe('pending');
@@ -142,6 +154,9 @@ describe('applyMutateProjection — tasks.complete', () => {
     const data = { task: completedTask };
     const out = applyMutateProjection(data, 'tasks.complete', 'mvi') as Record<string, unknown>;
     expect(out['count']).toBe(1);
+    expect(out['created']).toEqual([]);
+    expect(out['updated']).toEqual(['T9931']);
+    expect(out['deleted']).toEqual([]);
     expect(out['ids']).toEqual(['T9931']);
     expect(out['status']).toBe('completed');
     expect(out['completedAt']).toBe('2026-05-24T00:00:00.000Z');
@@ -160,6 +175,9 @@ describe('applyMutateProjection — tasks.delete', () => {
     const data = { deletedTask: FULL_TASK };
     const out = applyMutateProjection(data, 'tasks.delete', 'mvi') as Record<string, unknown>;
     expect(out['count']).toBe(1);
+    expect(out['created']).toEqual([]);
+    expect(out['updated']).toEqual([]);
+    expect(out['deleted']).toEqual(['T9931']);
     expect(out['ids']).toEqual(['T9931']);
     expect(out['deletedTask']).toBeUndefined();
   });
@@ -168,6 +186,7 @@ describe('applyMutateProjection — tasks.delete', () => {
     const data = { deletedTask: FULL_TASK, cascadeDeleted: ['T1', 'T2'] };
     const out = applyMutateProjection(data, 'tasks.delete', 'mvi') as Record<string, unknown>;
     expect(out['count']).toBe(3);
+    expect(out['deleted']).toEqual(['T9931', 'T1', 'T2']);
     expect(out['ids']).toEqual(['T9931', 'T1', 'T2']);
     expect(out['cascadeDeleted']).toEqual(['T1', 'T2']);
   });

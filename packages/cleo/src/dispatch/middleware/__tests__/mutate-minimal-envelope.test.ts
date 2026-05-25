@@ -4,6 +4,7 @@
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';
+import { setFieldContext } from '../../../cli/field-context.js';
 import { resetProjectionOptOut, setProjectionOptOut } from '../../../cli/projection-context.js';
 import type { DispatchRequest, DispatchResponse } from '../../types.js';
 import { createMutateMinimalEnvelope } from '../mutate-minimal-envelope.js';
@@ -59,6 +60,7 @@ function makeSuccessResponse(
 describe('createMutateMinimalEnvelope middleware', () => {
   beforeEach(() => {
     resetProjectionOptOut();
+    setFieldContext({ mvi: 'minimal', mviSource: 'default', expectsCustomMvi: false });
   });
 
   // ---------------------------------------------------------------------
@@ -77,7 +79,13 @@ describe('createMutateMinimalEnvelope middleware', () => {
     );
     const data = response.data as Record<string, unknown>;
     expect(data['count']).toBe(1);
+    expect(data['created']).toEqual(['T9931']);
+    expect(data['updated']).toEqual([]);
+    expect(data['deleted']).toEqual([]);
     expect(data['ids']).toEqual(['T9931']);
+    expect(data['fieldPathHints']).toMatchObject({
+      '/data/ids/0': expect.stringContaining('deprecated'),
+    });
     expect(data['status']).toBe('pending');
     expect(data['acceptanceCriteriaIds']).toEqual(['ac-child', 'ac-parent']);
     expect(data['task']).toBeUndefined();
@@ -96,6 +104,7 @@ describe('createMutateMinimalEnvelope middleware', () => {
     );
     const data = response.data as Record<string, unknown>;
     expect(data['count']).toBe(2);
+    expect(data['created']).toEqual(['T100', 'T101']);
     expect(data['ids']).toEqual(['T100', 'T101']);
     expect(data['tasks']).toBeUndefined();
     expect(response.meta.mutateProjection).toBe('mvi');
@@ -109,6 +118,7 @@ describe('createMutateMinimalEnvelope middleware', () => {
     );
     const data = response.data as Record<string, unknown>;
     expect(data['count']).toBe(1);
+    expect(data['updated']).toEqual(['T9931']);
     expect(data['ids']).toEqual(['T9931']);
     expect(data['changes']).toEqual(['title']);
     expect(data['status']).toBe('pending');
@@ -129,6 +139,7 @@ describe('createMutateMinimalEnvelope middleware', () => {
     );
     const data = response.data as Record<string, unknown>;
     expect(data['count']).toBe(1);
+    expect(data['updated']).toEqual(['T9931']);
     expect(data['ids']).toEqual(['T9931']);
     expect(data['status']).toBe('completed');
     expect(data['completedAt']).toBe('2026-05-24T00:00:00.000Z');
@@ -144,6 +155,7 @@ describe('createMutateMinimalEnvelope middleware', () => {
     );
     const data = response.data as Record<string, unknown>;
     expect(data['count']).toBe(1);
+    expect(data['deleted']).toEqual(['T9931']);
     expect(data['ids']).toEqual(['T9931']);
     expect(data['status']).toBe('pending');
     expect(data['deletedTask']).toBeUndefined();
@@ -184,6 +196,50 @@ describe('createMutateMinimalEnvelope middleware', () => {
     expect(data['ids']).toEqual(['T9931']);
     expect(data['task']).toBeUndefined();
     expect(response.meta.mutateProjection).toBe('mvi');
+  });
+
+  it('prevalidates projected --field paths before invoking the mutation', async () => {
+    setFieldContext({
+      mvi: 'minimal',
+      mviSource: 'default',
+      expectsCustomMvi: false,
+      field: '/data/task/id',
+    });
+    const mw = createMutateMinimalEnvelope();
+    const req = makeRequest('tasks', 'add', { title: 'x' });
+    let wrote = false;
+    const response = await mw(req, async () => {
+      wrote = true;
+      return makeSuccessResponse('add', { task: FULL_TASK, duplicate: false });
+    });
+
+    expect(wrote).toBe(false);
+    expect(response.success).toBe(false);
+    expect(response.error?.code).toBe('E_FIELD_NOT_FOUND');
+    expect(response.error?.details).toMatchObject({
+      phase: 'prewrite-field-projection-validation',
+    });
+  });
+
+  it('allows deprecated /data/ids/0 field paths through to the projected envelope', async () => {
+    setFieldContext({
+      mvi: 'minimal',
+      mviSource: 'default',
+      expectsCustomMvi: false,
+      field: '/data/ids/0',
+    });
+    const mw = createMutateMinimalEnvelope();
+    const req = makeRequest('tasks', 'add', { title: 'x' });
+    const response = await mw(req, async () =>
+      makeSuccessResponse('add', { task: FULL_TASK, duplicate: false }),
+    );
+    const data = response.data as Record<string, unknown>;
+
+    expect(response.success).toBe(true);
+    expect(data['ids']).toEqual(['T9931']);
+    expect(data['fieldPathHints']).toMatchObject({
+      '/data/ids/0': expect.stringContaining('deprecated'),
+    });
   });
 
   // ---------------------------------------------------------------------
