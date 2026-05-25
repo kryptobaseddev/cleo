@@ -59,6 +59,7 @@ import {
   checkWorkflowCompliance,
   getLogger,
   getProjectRoot,
+  resolveWorktreeRouting,
   validateGateVerify,
   validateProtocolArchitectureDecision,
   validateProtocolArtifactPublish,
@@ -646,7 +647,10 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
   },
 
   'gate.set': async (params: ValidateGateParams) => {
-    const projectRoot = getProjectRoot();
+    // T10079: `cleo verify --gate implemented --evidence files:...` must
+    // validate file evidence against the primary worktree even when the caller
+    // is inside an XDG secondary worktree/subdir.
+    const projectRoot = resolveWorktreeRouting().canonicalRoot;
     if (!params.taskId) {
       return lafsError('E_INVALID_INPUT', 'taskId is required', 'gate.set');
     }
