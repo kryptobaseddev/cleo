@@ -67,14 +67,14 @@ Verify by running a PR and checking `gh pr checks <pr-number>`:
 gh pr checks <pr-number>
 ```
 
-Common check names for this repo:
+Common required check names for this repo:
 
 - `CI` — `.github/workflows/ci.yml` (tests + build)
 - `Lockfile Check` — `.github/workflows/lockfile-check.yml`
-- `Contracts Dep Lint` — `.github/workflows/contracts-dep-lint.yml` (if present)
+- `Contracts Dep Lint` — installed required context currently reported by the live branch-protection API (`app_id=15368`); `ci.yml` also carries a repo-local `contracts-dep-lint` job for parity coverage.
 
 If check names differ, update the `required_status_checks[contexts][]` values above
-to match the actual names reported by `gh pr checks`.
+to match the actual names reported by `gh pr checks` and the branch-protection API.
 
 ## References
 

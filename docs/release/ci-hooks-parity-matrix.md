@@ -1,7 +1,7 @@
 # CI hooks parity matrix and branch-protection map
 
 Task: T10475
-Observed: 2026-05-24T20:10:34Z
+Observed: 2026-05-25T03:08:25Z
 Repository: `kryptobaseddev/cleo`
 Default branch: `main`
 
@@ -42,6 +42,7 @@ Legend: yes = configured trigger; path = configured but path-filtered; n/a = int
 | Worktree Cleanup | `.github/workflows/worktree-cleanup.yml` | Cleocode dogfood-only | yes | yes | no | no | no | no | yes | Cleans orphaned CLEO worktrees for this repository. |
 | Docs Re-ingest | `.github/workflows/docs-reingest.yml` | Cleocode dogfood-only | closed PR only | no | no | no | no | no | yes | Runs after PR merge to refresh repo docs/search state. |
 | Release Pipeline Matrix | `.github/workflows/release-pipeline-matrix.yml` | Shared | path | path | no | no | no | no | yes | Dogfood CI instance for shipped release-pipeline scenarios; 32 scenario matrix. |
+| Release Readiness | `.github/workflows/release-readiness.yml` | Shared release dogfood | yes | no | no | no | no | no | yes | PR/merge-queue readiness gate for release PR state and release-note provenance. |
 | worktree-napi prebuild | `.github/workflows/worktree-napi-prebuild.yml` | Shared | path | path | no | yes (`v*`) | no | yes | yes | Builds/tests native prebuild artifacts for shipped `@cleocode/worktree-napi`. |
 | Auto-Tag on Release Merge | `.github/workflows/auto-tag-on-release-merge.yml` | Shared release dogfood | closed PR only | no | no | no | no | no | yes | Tags merge commit after release PR merge; repo instance validates release invariant. |
 | Release | `.github/workflows/release.yml` | Shared artifact publishing | no | no | no | yes (`v*`) | no | yes | no | Publishes shipped CLEO packages from tags; also has GitHub Release creation job. |
@@ -84,7 +85,7 @@ gh repo view --json nameWithOwner,defaultBranchRef
 gh api repos/:owner/:repo/branches/main/protection --jq '{required_status_checks:.required_status_checks.contexts, strict:.required_status_checks.strict, enforce_admins:.enforce_admins.enabled, required_reviews:.required_pull_request_reviews.required_approving_review_count, restrictions:.restrictions}'
 ```
 
-Observed result: repository `kryptobaseddev/cleo` default branch is `main`; GitHub returned `404 Branch not protected` for `main` at observation time.
+Observed result on 2026-05-25T03:08:25Z: repository `kryptobaseddev/cleo` default branch is `main`; GitHub reports `main` is protected with strict required status checks `CI`, `Lockfile Check`, and `Contracts Dep Lint`, zero required approving reviews, admin enforcement disabled, no push restrictions, force pushes disabled, and deletions disabled.
 
 ### Check-name reconciliation
 
@@ -92,7 +93,7 @@ Observed result: repository `kryptobaseddev/cleo` default branch is `main`; GitH
 | --- | --- | --- |
 | `CI` | Workflow name in `.github/workflows/ci.yml` is `CI`; jobs include `typecheck`, `unit-tests`, `build-verify`, and many lints. | Present. |
 | `Lockfile Check` | Workflow name in `.github/workflows/lockfile-check.yml` is `Lockfile Check`. | Present. |
-| `Contracts Dep Lint` | No `.github/workflows/contracts-dep-lint.yml` exists; `ci.yml` contains job `contracts-dep-lint`. GitHub required contexts may surface as `CI / contracts-dep-lint` rather than bare `Contracts Dep Lint`. | Needs owner verification with `gh pr checks <pr>` before applying protection. |
+| `Contracts Dep Lint` | No `.github/workflows/contracts-dep-lint.yml` exists; the live GitHub branch-protection API now reports `Contracts Dep Lint` as an installed required context (`app_id=15368`). `ci.yml` also contains job `contracts-dep-lint` as repo-local parity coverage. | Reconciled; keep the exact live context string unless future `gh pr checks <pr>` evidence proves the emitted check name changed. |
 
 ## Findings
 
@@ -101,5 +102,5 @@ Observed result: repository `kryptobaseddev/cleo` default branch is `main`; GitH
 3. Tag triggers are intentionally limited to product publishing/prebuild surfaces: `release.yml` and `worktree-napi-prebuild.yml` on `v*`.
 4. Cron triggers are intentionally owner/dogfood-only: freshness sentinel, skills council, and skills grade.
 5. Dispatch-only workflows are either shipped release operations (`release-prepare`, release template operations) or owner maintenance operations; dispatch is not a substitute for PR/main gates.
-6. The current live GitHub `main` branch protection does not match the in-tree desired protection document because the branch is reported unprotected.
-7. The required-context list in `docs/release/branch-protection-setup.md` needs reconciliation before enforcement: `Contracts Dep Lint` is documented, but the current tree exposes that as a `ci.yml` job rather than a same-named workflow file.
+6. The current live GitHub `main` branch protection now matches the in-tree desired protection document for required contexts, strictness, review count, admin enforcement, and push restrictions.
+7. The required-context list in `docs/release/branch-protection-setup.md` is reconciled to live state: `Contracts Dep Lint` is a valid installed required context in branch protection even though the tree also carries a repo-local `ci.yml` job named `contracts-dep-lint`.
