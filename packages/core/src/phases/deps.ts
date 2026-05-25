@@ -78,6 +78,16 @@ export interface CycleResult {
 }
 
 /**
+ * Dependency-complete statuses for phase/deps planning surfaces.
+ *
+ * `archived` is housekeeping-complete: archived work must not keep downstream
+ * tasks blocked or appear as executable work in dependency waves.
+ */
+function isDependencyComplete(task: Task): boolean {
+  return task.status === 'done' || task.status === 'cancelled' || task.status === 'archived';
+}
+
+/**
  * Build an adjacency graph from task dependencies.
  * @task T4464
  */
@@ -158,11 +168,11 @@ export async function getTaskDeps(
       : { id, title: 'Unknown', status: 'unknown' };
   };
 
-  // Find upstream dependencies that are not done (blocking this task)
+  // Find upstream dependencies that are not complete (blocking this task)
   const blockedBy = node.depends
     .filter((depId) => {
       const depTask = taskMap.get(depId);
-      return depTask && depTask.status !== 'done';
+      return depTask && !isDependencyComplete(depTask);
     })
     .map(toSummary);
 
@@ -224,7 +234,7 @@ export async function getExecutionWaves(
   accessor?: DataAccessor,
 ): Promise<ExecutionWave[]> {
   const allTasks = await loadAllTasks(cwd, accessor);
-  let tasks = allTasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled');
+  let tasks = allTasks.filter((t) => !isDependencyComplete(t));
 
   // Scope to epic if provided
   if (epicId) {
