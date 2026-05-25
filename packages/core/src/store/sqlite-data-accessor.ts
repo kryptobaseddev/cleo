@@ -1151,6 +1151,37 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
               createdAt: r.createdAt,
             }));
           },
+          // ---- AC bindings — writer (T10511, Validator SDK tools) ----
+          async insertAcBindings(
+            rows: Array<{
+              id: string;
+              evidenceAtomId: string;
+              acId: string;
+              bindingType: 'direct' | 'satisfies' | 'coverage';
+            }>,
+          ): Promise<void> {
+            if (rows.length === 0) return;
+            // Idempotent insert — UNIQUE (evidence_atom_id, ac_id, binding_type)
+            // index collapses re-inserts of the same triple via DO NOTHING.
+            await db
+              .insert(schema.evidenceAcBindings)
+              .values(
+                rows.map((r) => ({
+                  id: r.id,
+                  evidenceAtomId: r.evidenceAtomId,
+                  acId: r.acId,
+                  bindingType: r.bindingType,
+                })),
+              )
+              .onConflictDoNothing({
+                target: [
+                  schema.evidenceAcBindings.evidenceAtomId,
+                  schema.evidenceAcBindings.acId,
+                  schema.evidenceAcBindings.bindingType,
+                ],
+              })
+              .run();
+          },
         };
 
         const result = await fn(tx);
