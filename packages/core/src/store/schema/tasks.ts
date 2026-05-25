@@ -219,6 +219,69 @@ export const tasks = sqliteTable(
   ],
 );
 
+// === TASK ACCEPTANCE CRITERIA (T10502 · ADR-079-r1) ===
+
+/**
+ * Acceptance criteria stored as first-class rows (one row per AC clause),
+ * replacing the legacy JSON-array `tasks.acceptanceJson` column for new
+ * writes per ADR-079-r1 §2.1 + §2.2 (Saga T10377 SG-IVTR-AC-BINDING,
+ * Epic T10381 E-AC-MIGRATION, Task T10502 Wave 2a).
+ *
+ * Identity model:
+ *   - `id` is a canonical UUIDv4 generated at creation (`crypto.randomUUID()`).
+ *     Immutable across edits; binds Validator verdicts, `satisfies:` evidence
+ *     atoms, and CI gate references.
+ *   - `ordinal` is the 1-based positional alias (`AC<n>`) for human + agent
+ *     display. Monotonic per-task insertion order, **never reused** when an
+ *     AC is deleted (per §2.2: deletion leaves a gap, never back-fills).
+ *
+ * The UNIQUE INDEX on (taskId, ordinal) guarantees no two ACs on the same
+ * task share an ordinal — protecting the alias-resolution path used by
+ * spawn prompts and `cleo show`.
+ *
+ * `contentHash` is an optional sha256(text) snapshot used by the future
+ * `_history` companion table (§2.3) for drift detection on text edits.
+ * Writers MAY leave it NULL; readers MUST treat NULL as "drift detection
+ * unavailable" rather than as "text unchanged".
+ *
+ * Subsequent waves in T10381 add `task_acceptance_criteria_history`
+ * (T10503) and `evidence_ac_bindings` (T10504) — this PR establishes the
+ * canonical AC table the others reference via FK.
+ *
+ * @adr  ADR-079-r1 §2.1 §2.2 §4.2
+ * @saga T10377
+ * @epic T10381
+ * @task T10502
+ * @decision D013
+ */
+export const taskAcceptanceCriteria = sqliteTable(
+  'task_acceptance_criteria',
+  {
+    /** Canonical stable ID — UUIDv4 generated at AC creation, immutable. */
+    id: text('id').primaryKey(),
+    /** Owning task. ON DELETE CASCADE — ACs are owned by the task lifecycle. */
+    taskId: text('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    /** 1-based insertion-order alias used by the AC<n> display label. */
+    ordinal: integer('ordinal').notNull(),
+    /** The AC statement itself — editable; edits append to _history (T10503). */
+    text: text('text').notNull(),
+    /** ISO-8601 creation timestamp. */
+    createdAt: text('created_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
+    /** ISO-8601 last-edit timestamp. NULL until first edit. */
+    updatedAt: text('updated_at'),
+    /** Optional sha256(text) snapshot — populated by writers for drift detection. */
+    contentHash: text('content_hash'),
+  },
+  (table) => [
+    // FK lookup path — `WHERE task_id = ?` is the dominant access pattern.
+    index('idx_task_acceptance_criteria_task_id').on(table.taskId),
+    // Alias-resolution + invariant: no two ACs share an ordinal on the same task.
+    unique('uq_task_acceptance_criteria_task_ordinal').on(table.taskId, table.ordinal),
+  ],
+);
+
 // === TASK DEPENDENCIES ===
 
 export const taskDependencies = sqliteTable(
@@ -372,6 +435,93 @@ export const taskWorkHistory = sqliteTable(
   (table) => [index('idx_work_history_session').on(table.sessionId)],
 );
 
+// === TASK ACCEPTANCE CRITERIA HISTORY (T10504 · Saga T10377 SG-IVTR-AC-BINDING) ===
+
+/**
+ * Recognised values for {@link taskAcceptanceCriteriaHistory.reason}.
+ *
+ * Treated as an enum-ish discriminator at the application layer — NOT
+ * enforced by a SQL CHECK constraint. The history table is forward-only,
+ * and locking new reason codes behind a migration would block legitimate
+ * future event kinds (e.g. saga-merge, evidence-rebind) without buying
+ * any storage-level safety.
+ *
+ * @see {@link taskAcceptanceCriteriaHistory}
+ * @task T10504
+ */
+export const AC_HISTORY_REASONS = ['drift', 'edit', 'backfill', 'cancel', 'restore'] as const;
+
+/** Union type for {@link AC_HISTORY_REASONS}. */
+export type AcHistoryReason = (typeof AC_HISTORY_REASONS)[number];
+
+/**
+ * Append-only retention log of acceptance-criterion text changes.
+ *
+ * Each row captures the AC body that was REPLACED by an edit (or wiped
+ * by a cancel, restored on un-cancel, etc.). The current AC text always
+ * lives on the live `task_acceptance_criteria` row (added by sibling
+ * task T10502 — `task_acceptance_criteria`). This table answers:
+ *
+ *   - "Show me the most recent drift event for AC X" (idx + LIMIT 1)
+ *   - "Was this AC text ever in the form recorded by evidence atom Y?"
+ *   - "How many times has this AC drifted since the bound atom was recorded?"
+ *
+ * ## Why no FK on acId
+ *
+ * `acId` is INTENTIONALLY NOT declared `REFERENCES task_acceptance_criteria(id)`.
+ * AC rows can be deleted (e.g. when their parent task is cancelled and the
+ * task-level cascade fires, or when an entire AC is removed by an explicit
+ * edit). The drift forensics use-case requires the history to outlive the
+ * AC row — a deleted AC's history must remain queryable so we can answer
+ * "did this AC ever exist?" after the live row is gone.
+ *
+ * Per T10494 / decision D013 (research doc `ac-history-model-decision`),
+ * this is a deliberate denormalisation: orphan rows are accepted as the
+ * cost of unbounded auditability.
+ *
+ * ## Why INTEGER AUTOINCREMENT primary key
+ *
+ * High-volume append-only log. Sequential integer PKs are ~2× faster than
+ * UUIDs for the dominant access pattern (sequential insert, scan by acId).
+ * The PK is opaque — no consumer is expected to address rows by `id`; the
+ * `(acId, recordedAt DESC)` index drives the only read path.
+ *
+ * @adr ADR-079-r1 §D6 (drift detection model)
+ * @task T10504
+ * @epic T10381
+ * @saga T10377
+ * @decision D013
+ */
+export const taskAcceptanceCriteriaHistory = sqliteTable(
+  'task_acceptance_criteria_history',
+  {
+    /** Surrogate auto-increment PK — opaque, never addressed by consumers. */
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    /**
+     * Reference to the AC that was changed. INTENTIONALLY NOT a foreign
+     * key so history rows survive AC deletion (drift forensics).
+     */
+    acId: text('ac_id').notNull(),
+    /** ISO 8601 wall-clock instant the change was recorded. */
+    recordedAt: text('recorded_at').notNull().default(sql`(datetime('now'))`),
+    /** The AC text BEFORE this change — i.e. the value being superseded. */
+    previousText: text('previous_text').notNull(),
+    /**
+     * Why this history row was written. See {@link AC_HISTORY_REASONS}
+     * for canonical values; storage is plain TEXT to allow future event
+     * kinds without a schema migration.
+     */
+    reason: text('reason').notNull(),
+  },
+  (table) => [
+    // Drives the dominant read: "fetch latest drift events for AC X first."
+    // DESC ordering on recorded_at is load-bearing for the LIMIT 1 latest
+    // lookup — expressed via raw SQL because drizzle's index DSL does not
+    // surface per-column sort direction in the IndexColumn type.
+    index('idx_ac_history_ac_id_recorded_at').on(table.acId, sql`${table.recordedAt} desc`),
+  ],
+);
+
 // === EXTERNAL TASK LINKS (provider-agnostic task reconciliation) ===
 
 /**
@@ -434,3 +584,5 @@ export type TaskRelationRow = typeof taskRelations.$inferSelect;
 export type WorkHistoryRow = typeof taskWorkHistory.$inferSelect;
 export type ExternalTaskLinkRow = typeof externalTaskLinks.$inferSelect;
 export type NewExternalTaskLinkRow = typeof externalTaskLinks.$inferInsert;
+export type TaskAcceptanceCriteriaHistoryRow = typeof taskAcceptanceCriteriaHistory.$inferSelect;
+export type NewTaskAcceptanceCriteriaHistoryRow = typeof taskAcceptanceCriteriaHistory.$inferInsert;

@@ -237,6 +237,38 @@ export interface TasksShowResult {
    * @task T9966
    */
   attachments: TaskShowAttachmentEntry[];
+  /**
+   * Acceptance-criterion rows hydrated from the `task_acceptance_criteria`
+   * table (T10502). Each entry carries the stable UUID `id`, the
+   * `AC<ordinal>` alias, the ordinal itself, and the canonical AC text.
+   *
+   * Optional — undefined when the task has no rows in the table (e.g.
+   * legacy tasks not yet backfilled by T10505). Consumers should fall
+   * back to `task.acceptance` (the legacy JSON string) in that case.
+   *
+   * @task T10508
+   * @epic T10381
+   */
+  acRows?: TaskShowAcRowEntry[];
+}
+
+/**
+ * One acceptance-criterion entry in {@link TasksShowResult.acRows}.
+ *
+ * Mirrors the `AcDetail` shape from `@cleocode/core/tasks/show.js` but
+ * lives in contracts so dispatch-layer consumers don't depend on core.
+ *
+ * @task T10508
+ */
+export interface TaskShowAcRowEntry {
+  /** UUIDv4 stable identifier, immutable for the AC's lifetime. */
+  id: string;
+  /** Display alias derived from ordinal — `AC1`, `AC2`, etc. */
+  alias: string;
+  /** 1-based ordinal — never reused per task (gaps remain on shrink). */
+  ordinal: number;
+  /** The AC statement text. Structured gates round-trip as JSON. */
+  text: string;
 }
 
 // tasks.tree dispatch params (with optional withBlockers flag — dispatch alias)
@@ -926,6 +958,24 @@ export interface TasksCompleteQueryParams {
   overrideReason?: string;
   /** Reason for acknowledging CRITICAL nexus impact risk (bypasses nexusImpact gate). */
   acknowledgeRisk?: string;
+  /**
+   * Comma-separated AC tokens (UUIDs or `AC<n>` aliases) waived from the
+   * AC-coverage gate (T10509). MUST be paired with {@link waiveReason} —
+   * the gate rejects the call when one is set without the other.
+   *
+   * Waivers are recorded to `.cleo/audit/ac-waiver.jsonl` per ADR-079-r4 §4.
+   *
+   * @task T10509
+   * @saga T10377 (SG-IVTR-AC-BINDING)
+   */
+  waiveAc?: string;
+  /**
+   * Justification text for the {@link waiveAc} waiver. Mandatory whenever
+   * `waiveAc` is non-empty.
+   *
+   * @task T10509
+   */
+  waiveReason?: string;
 }
 /**
  * Result of `tasks.complete` — completion confirmation with unblocked tasks.

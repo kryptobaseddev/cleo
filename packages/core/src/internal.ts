@@ -875,7 +875,15 @@ export {
 } from './orchestrate/spawn-ops.js';
 // Context
 export { estimateContext } from './orchestration/context.js';
-// Orchestration
+export type {
+  DashboardRateMetric,
+  OrchestrateDashboardMetrics,
+} from './orchestration/dashboard.js';
+export {
+  collectOrchestrateDashboard,
+  formatDashboardPromptSummary,
+} from './orchestration/dashboard.js';
+
 export { analyzeEpic, prepareSpawn } from './orchestration/index.js';
 export {
   endParallelExecution,
@@ -1992,7 +2000,7 @@ export { taskUpdate } from './tasks/update.js';
 
 // Worktree destroy — re-export from @cleocode/worktree so the cleo CLI funnels
 // through core per the AGENTS.md Package-Boundary Check (T9985 / E8-CLI-LAYERING).
-export { destroyWorktree } from '@cleocode/worktree';
+export { destroyWorktree, recoverPartialWorktree } from '@cleocode/worktree';
 export type {
   AgentExecutionEvent,
   AgentExecutionOutcome,
@@ -2541,4 +2549,6 @@ export {
   resolveAgentsBatch,
 } from './store/agent-resolver.js';
 // assertTestEnv — test-DB isolation guard (T1906 / BBTT-W3-4)
-export { assertTestEnv } from './store/data-accessor.js';
+// getTaskAccessor — canonical task DataAccessor factory (T10508 — surface
+// `getAcRows` to dispatch-layer `tasks.show` handler).
+export { assertTestEnv, getTaskAccessor } from './store/data-accessor.js';

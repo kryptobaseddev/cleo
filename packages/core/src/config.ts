@@ -118,6 +118,14 @@ const DEFAULTS: CleoConfig = {
     // this default only governs whether an existing file gets co-written.
     cooperativeWriteBack: true,
   },
+  // T10513 — Lead↔Worker Max-N loop is OFF by default. `'passive'` preserves
+  // the legacy compute-from-manifest roll-up behaviour. Flip to `'active'`
+  // (via project or global `.cleo/config.json`, key `leadRollup.mode`) to
+  // enable the Lead-initiated retry signals scaffolded by E-VALIDATOR-ROLE
+  // (T10383). The active runtime itself ships in T10512.
+  leadRollup: {
+    mode: 'passive',
+  },
 };
 
 /** Environment variable to config path mapping. */

@@ -42,6 +42,8 @@ export type { ManifestEntry } from './manifest.js';
 export { pipelineManifestAppend } from './manifest.js';
 // SpawnPrimitives SDK Tool
 export { buildAgentEnv, buildWorktreeSpawnResult } from './spawn-primitives.js';
+export type { SpawnValidatorInput, SpawnValidatorOutput } from './spawn-validator.js';
+export { spawnValidator } from './spawn-validator.js';
 export type {
   AcquireSlotOptions,
   ReleaseSlotFn,
@@ -59,3 +61,14 @@ export type {
 } from './tool-resolver.js';
 // ToolResolver SDK Tool
 export { CANONICAL_TOOLS, resolveToolCommand } from './tool-resolver.js';
+// Validator SDK Tools (T10511 — Saga T10377 SG-IVTR-AC-BINDING)
+export type {
+  ValidatorAcPullInput,
+  ValidatorAcPullOutput,
+  ValidatorAcRowView,
+} from './validator-ac-pull.js';
+export { validatorAcPull } from './validator-ac-pull.js';
+export type { ValidatorAttestInput, ValidatorAttestOutput } from './validator-attest.js';
+export { validatorAttest } from './validator-attest.js';
+export type { ValidatorRejectInput, ValidatorRejectOutput } from './validator-reject.js';
+export { validatorReject } from './validator-reject.js';

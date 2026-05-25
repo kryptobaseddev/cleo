@@ -100,23 +100,23 @@ afterEach(async () => {
 describe('T9625 SG-CLEO-DOCS-CANON closure regression (T10374)', () => {
   it('AC1: closes a stuck saga whose 7 member Epics are all done', async () => {
     // Production shape: T9625 → T9626..T9632 (7 Epics, all done).
-    await seedSagaWithDoneMembers(TEST_ROOT, 'T-S9625', [
-      'T-E9626',
-      'T-E9627',
-      'T-E9628',
-      'T-E9629',
-      'T-E9630',
-      'T-E9631',
-      'T-E9632',
+    await seedSagaWithDoneMembers(TEST_ROOT, 'T9625', [
+      'T9626',
+      'T9627',
+      'T9628',
+      'T9629',
+      'T9630',
+      'T9631',
+      'T9632',
     ]);
 
     // Sanity: before reconcile the saga is pending/active even though
     // every member is terminal — this is the bug we're locking against.
-    const before = await taskShow(TEST_ROOT, 'T-S9625');
+    const before = await taskShow(TEST_ROOT, 'T9625');
     expect(before.data?.task.status).toBe('active');
     expect(before.data?.task.completedAt).toBeFalsy();
 
-    const result = await reconcileSaga(TEST_ROOT, { sagaId: 'T-S9625' });
+    const result = await reconcileSaga(TEST_ROOT, { sagaId: 'T9625' });
     expect(result.success, JSON.stringify(result)).toBe(true);
     if (!result.success) return;
 
@@ -127,7 +127,7 @@ describe('T9625 SG-CLEO-DOCS-CANON closure regression (T10374)', () => {
 
     const entry = result.data.entries[0];
     expect(entry?.action).toBe('close');
-    expect(entry?.sagaId).toBe('T-S9625');
+    expect(entry?.sagaId).toBe('T9625');
     expect(entry?.statusBefore).toBe('active');
     expect(entry?.statusAfter).toBe('done');
     expect(entry?.terminalMembers).toHaveLength(7);
@@ -135,21 +135,21 @@ describe('T9625 SG-CLEO-DOCS-CANON closure regression (T10374)', () => {
     expect(entry?.reason).toContain('all members terminal');
 
     // Verify the row was actually flipped + completedAt populated.
-    const after = await taskShow(TEST_ROOT, 'T-S9625');
+    const after = await taskShow(TEST_ROOT, 'T9625');
     expect(after.data?.task.status).toBe('done');
     expect(after.data?.task.completedAt).toBeTruthy();
   });
 
   it('AC2: leaves sibling closure-saga (T9787 shape) untouched', async () => {
     // Stuck saga (T9625 shape).
-    await seedSagaWithDoneMembers(TEST_ROOT, 'T-S9625', ['T-E9626', 'T-E9627']);
+    await seedSagaWithDoneMembers(TEST_ROOT, 'T9625', ['T9626', 'T9627']);
 
     // Already-done sibling closure-saga (T9787 shape). Seed by hand
     // so we can stamp `status='done'` + `completedAt` upfront.
     const ts = '2026-05-23T05:55:27.596Z';
     await createTask(
       {
-        id: 'T-S9787',
+        id: 'T9787',
         title: 'SG-DOCS-CANON-CLOSURE sibling',
         type: 'epic',
         status: 'done',
@@ -163,44 +163,44 @@ describe('T9625 SG-CLEO-DOCS-CANON closure regression (T10374)', () => {
     );
     // T9787 has no `groups` members in this fixture — it stands alone.
 
-    const beforeT9787 = await taskShow(TEST_ROOT, 'T-S9787');
+    const beforeT9787 = await taskShow(TEST_ROOT, 'T9787');
     expect(beforeT9787.data?.task.status).toBe('done');
     const t9787CompletedBefore = beforeT9787.data?.task.completedAt;
     expect(t9787CompletedBefore).toBeTruthy();
 
     // Reconcile the stuck saga.
-    const result = await reconcileSaga(TEST_ROOT, { sagaId: 'T-S9625' });
+    const result = await reconcileSaga(TEST_ROOT, { sagaId: 'T9625' });
     expect(result.success).toBe(true);
     if (!result.success) return;
     expect(result.data.closed).toBe(1);
 
     // T9787 must NOT have been touched — same status, same completedAt.
-    const afterT9787 = await taskShow(TEST_ROOT, 'T-S9787');
+    const afterT9787 = await taskShow(TEST_ROOT, 'T9787');
     expect(afterT9787.data?.task.status).toBe('done');
     expect(afterT9787.data?.task.completedAt).toBe(t9787CompletedBefore);
   });
 
   it('AC3: idempotency — second reconcile is a no-op on already-closed saga', async () => {
-    await seedSagaWithDoneMembers(TEST_ROOT, 'T-S9625', ['T-E9626', 'T-E9627', 'T-E9628']);
+    await seedSagaWithDoneMembers(TEST_ROOT, 'T9625', ['T9626', 'T9627', 'T9628']);
 
     // First reconcile closes the saga.
-    const first = await reconcileSaga(TEST_ROOT, { sagaId: 'T-S9625' });
+    const first = await reconcileSaga(TEST_ROOT, { sagaId: 'T9625' });
     expect(first.success).toBe(true);
     if (!first.success) return;
     expect(first.data.closed).toBe(1);
 
-    const closedAt = (await taskShow(TEST_ROOT, 'T-S9625')).data?.task.completedAt;
+    const closedAt = (await taskShow(TEST_ROOT, 'T9625')).data?.task.completedAt;
     expect(closedAt).toBeTruthy();
 
     // Second reconcile must emit no-op AND must NOT mutate completedAt.
-    const second = await reconcileSaga(TEST_ROOT, { sagaId: 'T-S9625' });
+    const second = await reconcileSaga(TEST_ROOT, { sagaId: 'T9625' });
     expect(second.success).toBe(true);
     if (!second.success) return;
     expect(second.data.closed).toBe(0);
     expect(second.data.noOp).toBe(1);
     expect(second.data.entries[0]?.action).toBe('no-op');
 
-    const afterSecond = await taskShow(TEST_ROOT, 'T-S9625');
+    const afterSecond = await taskShow(TEST_ROOT, 'T9625');
     expect(afterSecond.data?.task.completedAt).toBe(closedAt);
   });
 });

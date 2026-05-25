@@ -13,6 +13,7 @@
  *   background-jobs — background_jobs
  *   attachments   — attachments, attachment_refs
  *   experiments   — experiments
+ *   evidence-bindings — evidence_ac_bindings (M:N join: evidence atom ↔ AC)
  *   provenance/   — commits, task_commits, commit_files,
  *                   pull_requests, pr_commits, pr_tasks,
  *                   releases, release_commits, release_changes,
@@ -22,6 +23,7 @@
 export * from './attachments.js';
 export * from './audit.js';
 export * from './background-jobs.js';
+export * from './evidence-bindings.js';
 export * from './experiments.js';
 export * from './lifecycle.js';
 export * from './manifest.js';

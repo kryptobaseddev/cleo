@@ -41,6 +41,8 @@ export {
 } from './classify.js';
 export type { ContextEstimation } from './context.js';
 export { countManifestEntries, estimateContext } from './context.js';
+export type { DashboardRateMetric, OrchestrateDashboardMetrics } from './dashboard.js';
+export { collectOrchestrateDashboard, formatDashboardPromptSummary } from './dashboard.js';
 export type {
   HarnessHint,
   HarnessHintResult,
@@ -500,6 +502,6 @@ export function resolveTokens(
   return { resolved, unresolved };
 }
 
-// === Lead-tier rollup (T9082, ADR-070) ===
+// === Lead-tier rollup (T9082, ADR-070; mode flag T10513) ===
 export type { ConduitStatusMessage, RollupWaveStatusOptions } from './lead-rollup.js';
-export { rollupEpicStatus, rollupWaveStatus } from './lead-rollup.js';
+export { resolveLeadRollupMode, rollupEpicStatus, rollupWaveStatus } from './lead-rollup.js';

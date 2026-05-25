@@ -159,6 +159,12 @@ function makeCompletableAccessorMock(opts: {
     // post-coordination-parent loop is a no-op for these legacy fixtures.
     queryTasks: vi.fn().mockResolvedValue({ tasks: [], total: 0 }),
     loadTasks: vi.fn().mockResolvedValue([]),
+    // T10509: the AC-coverage gate calls getAcRows BEFORE the status flip
+    // and short-circuits as ok when zero ACs are returned. The mocked
+    // task carries no acceptance criteria, so an empty array is the right
+    // shape; getAcBindings only fires when getAcRows returns rows.
+    getAcRows: vi.fn().mockResolvedValue([]),
+    getAcBindings: vi.fn().mockResolvedValue([]),
   };
 }
 

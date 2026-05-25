@@ -234,6 +234,18 @@ export class UmbrellaDataAccessor implements DataAccessor {
     return (await this.tasks()).removeRelation(taskId, relatedTo, relationType);
   }
 
+  // ---- AC rows (T10508 — pass-through) ----
+
+  async getAcRows(taskId: string) {
+    return (await this.tasks()).getAcRows(taskId);
+  }
+
+  // ---- AC bindings (T10509 — pass-through) ----
+
+  async getAcBindings(acIds: readonly string[]) {
+    return (await this.tasks()).getAcBindings(acIds);
+  }
+
   async getMetaValue<T>(key: string): Promise<T | null> {
     return (await this.tasks()).getMetaValue<T>(key);
   }

@@ -55,6 +55,7 @@ import {
   getProjectRoot,
   listWorktrees,
   pruneOrphanedWorktreesByStatus,
+  recoverPartialWorktree,
 } from '@cleocode/core/internal';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { errorResult, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
@@ -164,7 +165,7 @@ export class WorktreeHandler implements DomainHandler {
    *
    * Supported operations:
    *  - `adopt` — register an externally-created worktree in the SSoT. Params:
-   *              `{ worktreePath, source?, taskId?, actor? }`. Returns an
+   *              `{ worktreePath, source?, taskId?, actor?, recover? }`. Returns an
    *              {@link AdoptWorktreeResult} envelope. (T9804)
    *  - `destroy` — explicitly destroy a single agent worktree. Params:
    *                `{ taskId, force?, deleteBranch?, reason? }`. Returns a
@@ -208,8 +209,9 @@ export class WorktreeHandler implements DomainHandler {
               : typeof rawTaskId === 'string' && rawTaskId.length > 0
                 ? rawTaskId
                 : undefined;
+          const projectRoot = getProjectRoot();
           const opts: AdoptWorktreeOpts = {
-            projectRoot: getProjectRoot(),
+            projectRoot,
             worktreePath,
             ...(source !== undefined ? { source } : {}),
             ...(taskId !== undefined ? { taskId } : {}),
@@ -218,6 +220,37 @@ export class WorktreeHandler implements DomainHandler {
               : {}),
           };
           const result = await adoptWorktree(opts);
+          if (result.success && params?.['recover'] === true) {
+            const recovery = recoverPartialWorktree(
+              projectRoot,
+              worktreePath,
+              result.data.taskId ?? taskId ?? 'unknown',
+            );
+            const recoveredResult = recovery.success
+              ? {
+                  success: true as const,
+                  data: {
+                    ...result.data,
+                    recovery,
+                  },
+                }
+              : {
+                  success: false as const,
+                  error: {
+                    code: 'E_WORKTREE_RECOVERY_FAILED',
+                    message: recovery.error ?? 'Partial worktree recovery failed.',
+                    fix: 'Inspect the worktree, then rerun `cleo worktree adopt <path> --recover` after resolving the reported recovery error.',
+                    details: { adopt: result.data, recovery },
+                  },
+                };
+            return wrapResult(
+              recoveredResult as Parameters<typeof wrapResult>[0],
+              'mutate',
+              'worktree',
+              operation,
+              startTime,
+            );
+          }
           return wrapResult(
             result as Parameters<typeof wrapResult>[0],
             'mutate',

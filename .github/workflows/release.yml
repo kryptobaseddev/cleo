@@ -565,16 +565,12 @@ jobs:
           echo "GitHub release v${VERSION} published"
 
       # ── worktree-napi prebuilt binaries ──────────────────────────────────────
-      # T10178: Download the 5 per-triple .node binaries produced by
-      # .github/workflows/worktree-napi-prebuild.yml so the per-triple
-      # @cleocode/worktree-napi-<triple> packages can be packed with their
-      # binary payload before publish. If the prebuild workflow hasn't
-      # completed yet (e.g. very fast back-to-back tag pushes) the step
-      # falls back to building linux-x64-gnu locally so the release runner
-      # at least publishes its own native triple. The other 4 triples will
-      # publish empty in that edge case — consumers without a matching
-      # binary will fall back to the loader's descriptive error, identical
-      # to today's behaviour, just without the file:../../crates regression.
+      # T10434 / T10438: Download the per-triple .node binaries produced by the
+      # prebuild job in THIS release.yml run. The release job has `needs:
+      # prebuild`, so publish cannot start until all required prebuild artifacts
+      # are present. This replaces the older cross-workflow race against
+      # worktree-napi-prebuild.yml; that workflow remains only for PR/dogfood
+      # validation and is not part of the release publish chain.
       - name: Download worktree-napi prebuilt binaries
         uses: actions/download-artifact@v4
         with:
@@ -733,14 +729,11 @@ jobs:
           # global-install regression introduced in v2026.5.101.)
           #
           # The `.node` binary files for each triple are produced by
-          # .github/workflows/worktree-napi-prebuild.yml and downloaded into
-          # the per-triple packages/ directories in the
-          # "Download worktree-napi prebuilt binaries" step earlier in this
-          # job. If any artifact is missing the per-triple package will be
-          # published with no binary which is intentional — the optionalDep
-          # mechanism simply falls back to the next available triple on
-          # consumer install. The napi loader emits a descriptive error if
-          # the platform isn't supported at all.
+          # this same release.yml run and downloaded into the per-triple
+          # packages/ directories in the "Download worktree-napi prebuilt
+          # binaries" step earlier in this job. Missing required artifacts are
+          # fatal before publish; optional platform gaps are represented by
+          # omitting that package from the publish list.
           publish_pkg packages/worktree-napi-linux-x64-gnu
           publish_pkg packages/worktree-napi-linux-arm64-gnu
           # T10479: @cleocode/worktree-napi-darwin-x64 is NOT published from
