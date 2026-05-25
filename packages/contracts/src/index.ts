@@ -2004,6 +2004,31 @@ export type {
   Transport,
   TransportConnectConfig,
 } from './transport.js';
+// === Validator Role Contracts (T10510 / Saga T10377 SG-IVTR-AC-BINDING) ===
+// Canonical AgentRole enum + per-AC ValidatorFinding + ValidatorAttestation /
+// ValidatorRejection envelopes + ValidatorVerdict discriminated union. Consumed
+// by SDK tools (T10511) and the Max-N runtime (T10512) under Epic T10383
+// E-VALIDATOR-ROLE.
+export type {
+  AgentRole,
+  ValidatorAttestation,
+  ValidatorFinding,
+  ValidatorFindingStatus,
+  ValidatorRejection,
+  ValidatorVerdict,
+} from './validator/index.js';
+export {
+  AGENT_ROLES,
+  isAgentRole,
+  isValidatorAttestation,
+  isValidatorRejection,
+  isValidatorVerdict,
+  VALIDATOR_ID_REGEX,
+  validatorAttestationSchema,
+  validatorFindingSchema,
+  validatorRejectionSchema,
+  validatorVerdictSchema,
+} from './validator/index.js';
 // === WarpChain Types ===
 export type {
   ChainShape,
