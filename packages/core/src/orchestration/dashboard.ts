@@ -6,9 +6,10 @@
  * persistence layer: every value is derived from existing SSoTs at call time.
  */
 
+import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { Task } from '@cleocode/contracts';
+import type { Task, WorktreeInfo } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { getForceBypassPath } from '../tasks/gate-audit.js';
@@ -22,6 +23,17 @@ export interface DashboardRateMetric {
   count: number;
   perHour: number;
   windowHours: number;
+}
+
+export interface DashboardWorktreeState {
+  path: string;
+  branch: string;
+  taskId: string | null;
+  statusCategory: string;
+  isDirty: boolean;
+  hasUnpushedCommits: boolean;
+  isStalled: boolean;
+  reasons: string[];
 }
 
 export interface OrchestrateDashboardMetrics {
@@ -44,7 +56,11 @@ export interface OrchestrateDashboardMetrics {
     stale: number;
     orphan: number;
     merged: number;
+    dirty: number;
+    unpushed: number;
+    stalled: number;
   };
+  stalledWorktrees: DashboardWorktreeState[];
 }
 
 export interface CollectDashboardOptions {
@@ -53,6 +69,8 @@ export interface CollectDashboardOptions {
   rateWindowHours?: number;
   /** Test hook: skip git worktree enumeration and use these status categories. */
   worktreeStatusCategories?: readonly string[];
+  /** Test hook: skip git worktree enumeration and use these full worktree states. */
+  worktreeStates?: readonly DashboardWorktreeState[];
 }
 
 /**
@@ -68,9 +86,12 @@ export async function collectOrchestrateDashboard(
   const { tasks } = await accessor.queryTasks({});
 
   const queue = summarizeQueue(tasks);
-  const worktreeCategories =
-    options.worktreeStatusCategories ?? (await collectWorktreeStatusCategories(projectRoot));
-  const worktrees = summarizeWorktrees(worktreeCategories);
+  const worktreeStates =
+    options.worktreeStates ??
+    (options.worktreeStatusCategories
+      ? statesFromCategories(options.worktreeStatusCategories)
+      : await collectWorktreeStates(projectRoot));
+  const worktrees = summarizeWorktrees(worktreeStates);
   const [adminMergeRate, forceBypassRate] = await Promise.all([
     countJsonlEvents(
       join(projectRoot, WORKTREE_LIFECYCLE_AUDIT_FILE),
@@ -92,12 +113,13 @@ export async function collectOrchestrateDashboard(
     forceBypassRate,
     activeWorktreeCount: worktrees.active,
     worktrees,
+    stalledWorktrees: worktreeStates.filter((worktree) => worktree.isStalled),
   };
 }
 
 /** One-line summary safe for spawn-prompt injection. */
 export function formatDashboardPromptSummary(metrics: OrchestrateDashboardMetrics): string {
-  return `queue=${metrics.queueDepth} ready / ${metrics.queue.active} active; worktrees=${metrics.activeWorktreeCount} active; adminMerge=${formatRate(metrics.adminMergeRate)}/h; forceBypass=${formatRate(metrics.forceBypassRate)}/h (${metrics.forceBypassRate.windowHours}h)`;
+  return `queue=${metrics.queueDepth} ready / ${metrics.queue.active} active; worktrees=${metrics.activeWorktreeCount} active (${metrics.worktrees.stalled} stalled: ${metrics.worktrees.dirty} dirty, ${metrics.worktrees.unpushed} unpushed); adminMerge=${formatRate(metrics.adminMergeRate)}/h; forceBypass=${formatRate(metrics.forceBypassRate)}/h (${metrics.forceBypassRate.windowHours}h)`;
 }
 
 function summarizeQueue(tasks: Task[]): OrchestrateDashboardMetrics['queue'] {
@@ -123,24 +145,103 @@ function summarizeQueue(tasks: Task[]): OrchestrateDashboardMetrics['queue'] {
   return { ready, pending, active, blocked };
 }
 
-async function collectWorktreeStatusCategories(projectRoot: string): Promise<readonly string[]> {
+async function collectWorktreeStates(
+  projectRoot: string,
+): Promise<readonly DashboardWorktreeState[]> {
   const result = await listWorktrees({ projectRoot });
   if (!result.success) return [];
-  return result.data.worktrees.map((worktree) => worktree.statusCategory);
+  return result.data.worktrees.map((worktree) => describeWorktreeState(worktree));
 }
 
 function summarizeWorktrees(
-  categories: readonly string[],
+  states: readonly DashboardWorktreeState[],
 ): OrchestrateDashboardMetrics['worktrees'] {
-  const counts = { total: categories.length, active: 0, locked: 0, stale: 0, orphan: 0, merged: 0 };
-  for (const category of categories) {
+  const counts = {
+    total: states.length,
+    active: 0,
+    locked: 0,
+    stale: 0,
+    orphan: 0,
+    merged: 0,
+    dirty: 0,
+    unpushed: 0,
+    stalled: 0,
+  };
+  for (const state of states) {
+    const { statusCategory: category } = state;
     if (category === 'active') counts.active += 1;
     else if (category === 'locked') counts.locked += 1;
     else if (category === 'stale') counts.stale += 1;
     else if (category === 'orphan') counts.orphan += 1;
     else if (category === 'merged') counts.merged += 1;
+    if (state.isDirty) counts.dirty += 1;
+    if (state.hasUnpushedCommits) counts.unpushed += 1;
+    if (state.isStalled) counts.stalled += 1;
   }
   return counts;
+}
+
+function statesFromCategories(categories: readonly string[]): DashboardWorktreeState[] {
+  return categories.map((statusCategory) => ({
+    path: '',
+    branch: '',
+    taskId: null,
+    statusCategory,
+    isDirty: false,
+    hasUnpushedCommits: false,
+    isStalled: statusCategory === 'stale',
+    reasons: statusCategory === 'stale' ? ['stale'] : [],
+  }));
+}
+
+function describeWorktreeState(worktree: WorktreeInfo): DashboardWorktreeState {
+  const isWorkerWorktree = worktree.taskId !== null;
+  const isDirty = isWorkerWorktree && hasDirtyWorktree(worktree.path);
+  const hasUnpushedCommits = isWorkerWorktree && hasUnpushedWork(worktree.path);
+  const reasons = [
+    ...(worktree.statusCategory === 'stale' ? ['stale'] : []),
+    ...(isDirty ? ['dirty'] : []),
+    ...(hasUnpushedCommits ? ['unpushed'] : []),
+  ];
+  return {
+    path: worktree.path,
+    branch: worktree.branch,
+    taskId: worktree.taskId,
+    statusCategory: worktree.statusCategory,
+    isDirty,
+    hasUnpushedCommits,
+    isStalled: reasons.length > 0,
+    reasons,
+  };
+}
+
+function hasDirtyWorktree(worktreePath: string): boolean {
+  try {
+    return (
+      execFileSync('git', ['status', '--porcelain'], {
+        cwd: worktreePath,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 15_000,
+      }).trim().length > 0
+    );
+  } catch {
+    return false;
+  }
+}
+
+function hasUnpushedWork(worktreePath: string): boolean {
+  try {
+    const count = execFileSync('git', ['rev-list', '--count', '@{u}..HEAD'], {
+      cwd: worktreePath,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 15_000,
+    }).trim();
+    return Number.parseInt(count, 10) > 0;
+  } catch {
+    return false;
+  }
 }
 
 async function countJsonlEvents(
