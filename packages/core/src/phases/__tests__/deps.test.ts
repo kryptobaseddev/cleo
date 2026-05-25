@@ -129,6 +129,34 @@ describe('getTaskDeps', () => {
     expect(result.blockedBy.length).toBeGreaterThan(0);
   });
 
+  it('treats archived upstream deps as complete, not blocking', async () => {
+    await writeTodo([
+      {
+        id: 'T001',
+        title: 'Archived prerequisite',
+        status: 'archived',
+        priority: 'medium',
+        type: 'task',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'T002',
+        title: 'Downstream task',
+        status: 'pending',
+        priority: 'medium',
+        type: 'task',
+        depends: ['T001'],
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+    ]);
+
+    const result = await getTaskDeps('T002', env.tempDir, accessor);
+    // Archived dependencies are omitted from non-executable planning surfaces;
+    // the important contract is that they do not block downstream work.
+    expect(result.upstream).toEqual([]);
+    expect(result.blockedBy).toEqual([]);
+  });
+
   it('throws for non-existent task', async () => {
     await writeTodo();
     await expect(getTaskDeps('T999', env.tempDir, accessor)).rejects.toThrow('not found');
@@ -177,6 +205,32 @@ describe('getExecutionWaves', () => {
     await writeTodo();
     const waves = await getExecutionWaves(undefined, env.tempDir, accessor);
     expect(waves.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('does not schedule archived deps and releases downstream tasks in first wave', async () => {
+    await writeTodo([
+      {
+        id: 'T001',
+        title: 'Archived prerequisite',
+        status: 'archived',
+        priority: 'medium',
+        type: 'task',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'T002',
+        title: 'Downstream task',
+        status: 'pending',
+        priority: 'medium',
+        type: 'task',
+        depends: ['T001'],
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+    ]);
+
+    const waves = await getExecutionWaves(undefined, env.tempDir, accessor);
+    expect(waves).toHaveLength(1);
+    expect(waves[0]!.tasks.map((t) => t.id)).toEqual(['T002']);
   });
 });
 
