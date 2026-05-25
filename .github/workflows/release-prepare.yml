@@ -1,254 +1,296 @@
+# CLEO release pipeline — Prepare bump-PR workflow.
+#
+# Generated from packages/cleo/templates/workflows/release-prepare.yml.tmpl by
+# `cleo init --workflows` (T9531). DO NOT EDIT the rendered file directly —
+# extend via `.workflow-overrides.yml` per SPEC-T9345 R-260.
+#
+# Implements SPEC-T9345-release-pipeline-v2.md §5.1 (R-200 — R-210, R-260 —
+# R-263). Triggers ONLY on workflow_dispatch; runs preflight (lint +
+# typecheck + test + build) BEFORE creating any commit; prepares the
+# release/<version> branch and opens the bump-PR via `gh pr create`.
+#
+# Placeholders (replaced at scaffold time — see workflows/README.md):
+#   <NODE_VERSION>     Node.js version    (e.g. "22.x")
+#   <INSTALL_CMD>      Install command    (e.g. "pnpm install --frozen-lockfile")
+#   <LINT_CMD>         tool:lint          (ADR-061 resolved)
+#   <TYPECHECK_CMD>    tool:typecheck     (ADR-061 resolved)
+#   <TEST_CMD>         tool:test          (ADR-061 resolved)
+#   <BUILD_CMD>        tool:build         (ADR-061 resolved)
+#   <BRANCH_PREFIX>    Release branch prefix (default: "release")
+#   <PR_LABEL>         GitHub label applied to bump-PR (default: "release")
+# (Angle-brackets in this doc comment are intentional — they avoid being
+#  substituted by the {{...}} regex pass. The placeholders below use {{...}}.)
+
 name: Release Prepare
 
-# Triggered by `cleo release open <version>` via:
-#   gh workflow run release-prepare.yml -f version=v2026.MM.N
-#
-# Responsibilities:
-#   1. Validate the version matches CalVer pattern
-#   2. Cut release/<version>-ship branch from main
-#   3. Bump versions in root package.json, all packages/*/package.json,
-#      and Cargo.toml workspace version
-#   4. Commit and push the release branch
-#   5. Open a PR from release/<version>-ship -> main
-#
-# After this workflow runs, the owner reviews the PR. On merge, the tag-push
-# triggers .github/workflows/release.yml which handles npm publish.
-#
-# See AGENTS.md "Release & Branching (ADR-065)" for full context.
-#
-# @task T9781
-
+# R-200: workflow_dispatch only — MUST NOT trigger on push to any branch.
+# R-201: required input `version`; optional `plan-blob-sha256`, `epic`, `channel`.
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'CalVer release version with v-prefix (e.g. v2026.5.99)'
-        required: true
+        description: 'Version to release (e.g. v2026.6.0)'
         type: string
+        required: true
+      plan-blob-sha256:
+        description: 'SHA256 of pre-computed plan JSON (optional)'
+        type: string
+        required: false
+      epic:
+        description: 'Epic task ID (e.g. T9999) used by `cleo release plan`'
+        type: string
+        required: false
+      channel:
+        description: 'Release channel'
+        type: choice
+        required: false
+        default: latest
+        options:
+          - latest
+          - beta
+          - alpha
+          - rc
 
+# R-202: contents:write (commit + branch), pull-requests:write (gh pr create),
+# id-token:write (signed tags only). MUST NOT request packages:write — npm
+# publish belongs to release.yml after the explicit release tag push.
 permissions:
   contents: write
   pull-requests: write
+  id-token: write
+
+# R-207: concurrent prepare runs against the same version queue rather than
+# collide. cancel-in-progress=false preserves in-flight work.
+concurrency:
+  group: release-prepare-${{ inputs.version }}
+  cancel-in-progress: false
+
+# R-262: bash everywhere — no cross-platform shell drift.
+defaults:
+  run:
+    shell: bash
 
 jobs:
-  prepare:
-    name: Prepare Release Branch
+  # R-204: lint + typecheck + test + build BEFORE any commit. Failure here
+  # MUST fail the workflow and prevent `prepare` from running.
+  preflight:
+    name: Preflight (lint + typecheck + test + build)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-
+    timeout-minutes: 20
     steps:
-      - name: Checkout main
-        uses: actions/checkout@v4
+      # R-263: third-party Actions pinned to major+minor.
+      - name: Checkout
+        uses: actions/checkout@v4.1
         with:
-          ref: main
           fetch-depth: 0
+        timeout-minutes: 5
 
-      - name: Validate version format
-        id: version
-        env:
-          INPUT_VERSION: ${{ github.event.inputs.version }}
-        run: |
-          VERSION="$INPUT_VERSION"
-
-          # Must start with 'v'
-          if [[ "$VERSION" != v* ]]; then
-            echo "ERROR: version must start with 'v' (got: $VERSION)"
-            exit 1
-          fi
-
-          # Validate CalVer pattern: vYYYY.M.PATCH or vYYYY.M.PATCH-suffix
-          if ! echo "$VERSION" | grep -qE '^v[0-9]{4}\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$'; then
-            echo "ERROR: version does not match CalVer pattern vYYYY.MM.PATCH (got: $VERSION)"
-            exit 1
-          fi
-
-          # Strip leading 'v' for use in package.json / Cargo.toml
-          VERSION_BARE="${VERSION#v}"
-
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "version_bare=$VERSION_BARE" >> "$GITHUB_OUTPUT"
-          echo "branch=release/${VERSION}-ship" >> "$GITHUB_OUTPUT"
-          echo "Version: $VERSION | bare: $VERSION_BARE | branch: release/${VERSION}-ship"
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4.0
         with:
           node-version: '24'
-          cache: 'pnpm'
+        timeout-minutes: 3
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        timeout-minutes: 5
+
+      - name: Lint
+        run: pnpm biome check .
+        timeout-minutes: 5
+
+      - name: Typecheck
+        run: pnpm run typecheck
+        timeout-minutes: 5
+
+      - name: Test
+        run: pnpm run test
+        timeout-minutes: 10
+
+      - name: Build
+        run: pnpm run build
+        timeout-minutes: 10
+
+      # R-208: status check `release-prepare/preflight` is reported by GitHub
+      # automatically against the bump-PR head SHA once the PR is open. No
+      # extra step is required — branch protection MUST require this check.
+
+  # R-203: prepare needs preflight.
+  # R-205: plan resolution → version bump → CHANGELOG → commit → push → bump-PR.
+  prepare:
+    name: Prepare bump-PR
+    runs-on: ubuntu-latest
+    needs: preflight
+    timeout-minutes: 20
+    outputs:
+      branch: ${{ steps.branch.outputs.name }}
+      branch_created: ${{ steps.push.outputs.created }}
+    env:
+      # R-210: only GITHUB_TOKEN required. NPM_TOKEN is publish-only.
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.1
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+        timeout-minutes: 5
 
       - name: Configure git identity
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+        timeout-minutes: 1
 
-      - name: Cut release branch from main
-        env:
-          BRANCH: ${{ steps.version.outputs.branch }}
+      - name: Cut release branch
+        id: branch
         run: |
+          BRANCH="release/${{ inputs.version }}"
           git checkout -b "$BRANCH"
-          echo "Branch $BRANCH created from main"
+          echo "name=$BRANCH" >> "$GITHUB_OUTPUT"
+        timeout-minutes: 2
 
-      - name: Bump root package.json version
-        env:
-          VERSION_BARE: ${{ steps.version.outputs.version_bare }}
-        run: |
-          if [[ -f "package.json" ]]; then
-            jq --arg v "$VERSION_BARE" '.version = $v' package.json > package.tmp \
-              && mv package.tmp package.json
-            echo "ROOT package.json -> $VERSION_BARE"
-          fi
+      - name: Set up Node.js
+        uses: actions/setup-node@v4.0
+        with:
+          node-version: '24'
+        timeout-minutes: 3
 
-      - name: Bump workspace package.json versions
-        env:
-          VERSION_BARE: ${{ steps.version.outputs.version_bare }}
-        run: |
-          # All publishable workspace packages -- keep in sync with release.yml
-          PACKAGES=(
-            adapters agents animations brain caamp cant
-            cleo cleo-os contracts core git-shim lafs
-            mcp-adapter nexus paths playbooks runtime
-            skills studio worktree
-          )
-          for pkg in "${PACKAGES[@]}"; do
-            PKG_JSON="packages/$pkg/package.json"
-            if [[ -f "$PKG_JSON" ]]; then
-              jq --arg v "$VERSION_BARE" '.version = $v' "$PKG_JSON" > "$PKG_JSON.tmp" \
-                && mv "$PKG_JSON.tmp" "$PKG_JSON"
-              echo "packages/$pkg/package.json -> $VERSION_BARE"
-            fi
-          done
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        timeout-minutes: 5
 
-      - name: Bump workspace @cleocode/* dependency refs
-        env:
-          VERSION_BARE: ${{ steps.version.outputs.version_bare }}
-        run: |
-          # Only @cleocode/* numeric pins move -- external deps (tree-sitter,
-          # drizzle-orm, @forge-ts/*, @biomejs/*, @types/*, etc.) are NEVER
-          # touched. This is the permanent fix for the v2026.5.100 / v2026.5.101
-          # regression that scoped bumps by "value starts with a digit" instead
-          # of "key starts with @cleocode/". See T10177 / surgical revert
-          # commit d26b76751 / SAGA T10176.
-          node scripts/bump-workspace-deps.mjs --version "$VERSION_BARE"
-
-      - name: Bump Cargo.toml workspace version
-        env:
-          VERSION_BARE: ${{ steps.version.outputs.version_bare }}
-        run: |
-          if [[ -f "Cargo.toml" ]]; then
-            # Replace the version field in the [package] section.
-            # The workspace Cargo.toml contains: version = "YYYY.M.patch"
-            # sed targets the first occurrence (workspace package table).
-            # Using perl for portable in-place regex with back-references.
-            perl -i -pe 's{^(version\s*=\s*")[^"]+(")}{"${1}'"$VERSION_BARE"'${2}"}e if 1..1' Cargo.toml
-            echo "Cargo.toml [package].version -> $VERSION_BARE"
-          fi
-
-      - name: Resolve release title from plan (if available)
+      # R-205(a)/(b): resolve plan — call `cleo release plan` if sha is empty,
+      # otherwise verify the existing plan blob via sha256.
+      - name: Resolve release plan
         id: plan
-        env:
-          VERSION_BARE: ${{ steps.version.outputs.version_bare }}
         run: |
-          PLAN_FILE=".cleo/release/${VERSION_BARE}.plan.json"
-          if [[ -f "$PLAN_FILE" ]]; then
-            EPIC_TITLE=$(jq -r '.epicTitle // .title // empty' "$PLAN_FILE" 2>/dev/null || true)
-            if [[ -n "$EPIC_TITLE" ]]; then
-              echo "title=${EPIC_TITLE}" >> "$GITHUB_OUTPUT"
-              echo "Plan title: $EPIC_TITLE"
-            else
-              echo "title=" >> "$GITHUB_OUTPUT"
-              echo "No epicTitle in plan -- using generic message"
+          mkdir -p .cleo/release
+          PLAN_FILE=".cleo/release/${{ inputs.version }}.plan.json"
+          if [ -z "${{ inputs.plan-blob-sha256 }}" ]; then
+            echo "No plan-blob-sha256 input — generating fresh plan."
+            EPIC_ARGS=()
+            if [ -n "${{ inputs.epic }}" ]; then
+              EPIC_ARGS=(--epic "${{ inputs.epic }}")
             fi
+            cleo release plan "${{ inputs.version }}" "${EPIC_ARGS[@]}" --json > "$PLAN_FILE"
           else
-            echo "title=" >> "$GITHUB_OUTPUT"
-            echo "No plan file at $PLAN_FILE -- using generic commit message"
+            echo "Verifying pre-computed plan against sha256=${{ inputs.plan-blob-sha256 }}"
+            if [ ! -f "$PLAN_FILE" ]; then
+              echo "::error::Plan file $PLAN_FILE not found — cannot verify sha256"
+              exit 1
+            fi
+            ACTUAL=$(sha256sum "$PLAN_FILE" | awk '{print $1}')
+            if [ "$ACTUAL" != "${{ inputs.plan-blob-sha256 }}" ]; then
+              echo "::error::Plan sha256 mismatch — expected ${{ inputs.plan-blob-sha256 }}, got $ACTUAL"
+              exit 1
+            fi
           fi
+          echo "plan_file=$PLAN_FILE" >> "$GITHUB_OUTPUT"
+        timeout-minutes: 5
 
-      - name: Commit version bump
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-          EPIC_TITLE: ${{ steps.plan.outputs.title }}
+      # R-205(c): bump version files via `cleo version-bump`.
+      - name: Bump version
+        run: cleo version-bump --version "${{ inputs.version }}"
+        timeout-minutes: 3
+
+      # R-205(d): regenerate CHANGELOG via the preserved `cleo release
+      # changelog` primitive, scoped to commits since the previous tag.
+      - name: Regenerate CHANGELOG
         run: |
-          git add \
-            package.json \
-            packages/*/package.json \
-            Cargo.toml || true
-
-          if [[ -n "$EPIC_TITLE" ]]; then
-            COMMIT_MSG="release: ship ${VERSION} -- ${EPIC_TITLE}"
+          PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            cleo release changelog --since "$PREV_TAG"
           else
-            COMMIT_MSG="release: ship ${VERSION}"
+            cleo release changelog
           fi
+        timeout-minutes: 3
 
-          # Only commit if there are staged changes
-          if ! git diff --cached --quiet; then
-            git commit -m "$COMMIT_MSG"
-            echo "Committed: $COMMIT_MSG"
-          else
-            echo "No version changes to commit (versions may already be correct)"
-          fi
-
-      - name: Push release branch
-        env:
-          BRANCH: ${{ steps.version.outputs.branch }}
+      # R-205(e): commit with the canonical subject line.
+      - name: Commit prepare
         run: |
-          git push -u origin "$BRANCH"
-          echo "Pushed branch: $BRANCH"
+          git add -A
+          git commit -m "release: prepare ${{ inputs.version }}"
+        timeout-minutes: 2
 
-      - name: Open pull request
-        id: pr
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.version.outputs.version }}
-          VERSION_BARE: ${{ steps.version.outputs.version_bare }}
-          BRANCH: ${{ steps.version.outputs.branch }}
-          EPIC_TITLE: ${{ steps.plan.outputs.title }}
+      - name: Push branch
+        id: push
         run: |
-          if [[ -n "$EPIC_TITLE" ]]; then
-            PR_TITLE="release: ship ${VERSION} -- ${EPIC_TITLE}"
-          else
-            PR_TITLE="release: ship ${VERSION}"
-          fi
+          git push origin "${{ steps.branch.outputs.name }}"
+          echo "created=true" >> "$GITHUB_OUTPUT"
+        timeout-minutes: 5
 
-          PR_BODY="## Release ${VERSION}
-
-          This PR was opened automatically by the \`release-prepare\` workflow
-          (triggered via \`cleo release open ${VERSION}\`).
-
-          ### What this PR does
-          - Bumps all \`packages/*/package.json\` versions to \`${VERSION_BARE}\`
-          - Bumps root \`package.json\` and \`Cargo.toml\` workspace version
-          - Provides a clean merge point for review before the tag is pushed
-
-          ### Next steps
-          1. Review the version bump diff
-          2. Merge this PR (admin merge OK -- no approver required per branch protection)
-          3. Push the release tag: \`git tag ${VERSION} && git push origin ${VERSION}\`
-          4. The \`release.yml\` workflow fires on tag push and handles npm publish
-
-          > Workflow: \`release-prepare.yml\` | Task: T9781"
-
-          PR_URL=$(gh pr create \
+      # R-205(f): open the bump-PR via `gh pr create`.
+      - name: Open bump-PR
+        run: |
+          gh pr create \
             --base main \
-            --head "$BRANCH" \
-            --title "$PR_TITLE" \
-            --body "$PR_BODY")
+            --head "${{ steps.branch.outputs.name }}" \
+            --title "release: prepare ${{ inputs.version }}" \
+            --label "release" \
+            --body-file "${{ steps.plan.outputs.plan_file }}"
+        timeout-minutes: 5
 
-          echo "PR URL: $PR_URL"
-          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
-
-      - name: Summary
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-          BRANCH: ${{ steps.version.outputs.branch }}
-          PR_URL: ${{ steps.pr.outputs.pr_url }}
+      # R-209(c): emit recovery hint into the job summary artifact.
+      - name: Emit recovery hint to job summary
+        if: always()
         run: |
-          echo "### Release Prepare Complete" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|-------|-------|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Version | \`$VERSION\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Branch | \`$BRANCH\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| PR | $PR_URL |" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## Release Prepare — ${{ inputs.version }}"
+            echo ""
+            echo "Branch: \`${{ steps.branch.outputs.name }}\`"
+            echo ""
+            echo "**Recovery command** (if anything went wrong):"
+            echo ""
+            echo "\`\`\`"
+            echo "cleo release plan ${{ inputs.version }} --epic ${{ inputs.epic }}; cleo release open ${{ inputs.version }}"
+            echo "\`\`\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+        timeout-minutes: 1
+
+  # R-209(a)(b): on failure, delete the half-cut release branch and print
+  # the recovery command. continue-on-error so cleanup itself cannot fail
+  # the workflow further.
+  cleanup-on-failure:
+    name: Cleanup on failure
+    runs-on: ubuntu-latest
+    needs:
+      - preflight
+      - prepare
+    if: failure()
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.1
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+        timeout-minutes: 5
+
+      - name: Delete release branch (best-effort)
+        continue-on-error: true
+        run: |
+          BRANCH="release/${{ inputs.version }}"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "Deleting remote branch $BRANCH"
+            git push origin --delete "$BRANCH" || true
+          else
+            echo "No remote branch $BRANCH to delete."
+          fi
+        timeout-minutes: 5
+
+      - name: Print recovery command
+        run: |
+          echo "::notice::Recovery: cleo release plan ${{ inputs.version }} --epic ${{ inputs.epic }}; cleo release open ${{ inputs.version }}"
+          {
+            echo "## Release Prepare FAILED — ${{ inputs.version }}"
+            echo ""
+            echo "Run this to recover:"
+            echo ""
+            echo "\`\`\`"
+            echo "cleo release plan ${{ inputs.version }} --epic ${{ inputs.epic }}; cleo release open ${{ inputs.version }}"
+            echo "\`\`\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+        timeout-minutes: 1

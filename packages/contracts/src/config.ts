@@ -530,6 +530,50 @@ export interface DecisionsConfig {
   validatorConfidenceThreshold?: number;
 }
 
+/**
+ * Operating mode for the Lead-tier wave roll-up
+ * (`packages/core/src/orchestration/lead-rollup.ts`).
+ *
+ * - `'passive'` — Default, backward-compatible behaviour. `rollupWaveStatus` /
+ *   `rollupEpicStatus` compute the rollup contract from manifest +
+ *   verification rows only. The Lead reads the result and decides what to do
+ *   externally.
+ * - `'active'`  — Enables the Lead↔Worker Max-N loop scaffolded by T10383
+ *   (E-VALIDATOR-ROLE). The rollup will additionally surface retry-eligible
+ *   workers and emit Lead-initiated retry signals.  The wiring of retries
+ *   themselves lives in T10512 — this flag is the gate.
+ * - `'auto'`    — Reserved for future heuristic selection (e.g. switch to
+ *   active mode iff the epic has ≥N pending workers). Treated as `'passive'`
+ *   at runtime until the heuristic ships.
+ *
+ * @task T10513
+ * @saga T10377
+ * @adr ADR-070
+ */
+export type LeadRollupMode = 'passive' | 'active' | 'auto';
+
+/**
+ * Lead-tier wave roll-up configuration.
+ *
+ * Single-key config block gating the Lead↔Worker Max-N loop introduced by
+ * SG-IVTR-AC-BINDING (T10377) and council action #9 of E-VALIDATOR-ROLE
+ * (T10383). The whole point of this block is to keep the existing
+ * `rollupWaveStatus` / `rollupEpicStatus` function signatures unchanged —
+ * callers pick up new behaviour by flipping the config key, never by
+ * threading a new parameter.
+ *
+ * @task T10513
+ * @saga T10377
+ */
+export interface LeadRollupConfig {
+  /**
+   * Roll-up operating mode. Defaults to `'passive'` for backward compatibility.
+   *
+   * @defaultValue 'passive'
+   */
+  mode?: LeadRollupMode;
+}
+
 /** CLEO project configuration (config.json). */
 export interface CleoConfig {
   /** Configuration schema version string. */
@@ -603,6 +647,20 @@ export interface CleoConfig {
    * @task T9410
    */
   auth?: AuthConfig;
+  /**
+   * Lead-tier wave roll-up configuration.
+   *
+   * Gates the Lead↔Worker Max-N loop scaffolded under SG-IVTR-AC-BINDING
+   * (T10377) and council action #9 of E-VALIDATOR-ROLE (T10383). When
+   * absent, the roll-up defaults to `{ mode: 'passive' }` — the legacy
+   * compute-from-manifest behaviour — so existing callers continue to work
+   * unchanged.
+   *
+   * @defaultValue undefined
+   * @task T10513
+   * @saga T10377
+   */
+  leadRollup?: LeadRollupConfig;
 }
 
 /**

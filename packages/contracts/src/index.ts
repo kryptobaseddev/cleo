@@ -257,6 +257,8 @@ export type {
   DepsRequiredAt,
   EnforcementProfile,
   HierarchyConfig,
+  LeadRollupConfig,
+  LeadRollupMode,
   LifecycleConfig,
   LifecycleEnforcementMode,
   LlmConfig,
@@ -288,6 +290,8 @@ export type {
 export { parseClaudeCodeCredentials } from './credentials.js';
 // === DataAccessor Interface ===
 export type {
+  AcBindingRow,
+  AcRow,
   ArchiveFields,
   ArchiveFile,
   DataAccessor,
@@ -480,6 +484,8 @@ export type {
   GateEvidenceRequirement,
 } from './evidence-atom-schema.js';
 export {
+  AC_ALIAS_REGEX,
+  AC_UUID_REGEX,
   callsiteCoverageAtomSchema,
   commitAtomSchema,
   decisionAtomSchema,
@@ -493,6 +499,9 @@ export {
   noteAtomSchema,
   parseEvidenceString,
   prAtomSchema,
+  SATISFIES_TASK_ID_REGEX,
+  SATISFIES_VERSION_PIN_REGEX,
+  satisfiesAtomSchema,
   testRunAtomSchema,
   toolAtomSchema,
   urlAtomSchema,
@@ -527,6 +536,8 @@ export {
 } from './evidence-record-schema.js';
 // === Exit Codes ===
 export {
+  // T10509 / Saga T10377 — AC-coverage gate at cleo complete (IVTR closure)
+  E_AC_COVERAGE_INCOMPLETE,
   // T10105 / Saga T10099 — fail-loud changeset parse
   E_CHANGESET_YAML_INVALID,
   // SPEC-T9345 release pipeline v2 error code names (T9525)
@@ -1275,6 +1286,7 @@ export type {
   DepGraphIssue,
   DepsTreeEdge,
   DepsTreeNode,
+  TaskShowAcRowEntry,
   TaskShowAttachmentEntry,
   TasksAddBatchEntry,
   TasksAddBatchParams,
@@ -1994,6 +2006,31 @@ export type {
   Transport,
   TransportConnectConfig,
 } from './transport.js';
+// === Validator Role Contracts (T10510 / Saga T10377 SG-IVTR-AC-BINDING) ===
+// Canonical AgentRole enum + per-AC ValidatorFinding + ValidatorAttestation /
+// ValidatorRejection envelopes + ValidatorVerdict discriminated union. Consumed
+// by SDK tools (T10511) and the Max-N runtime (T10512) under Epic T10383
+// E-VALIDATOR-ROLE.
+export type {
+  AgentRole,
+  ValidatorAttestation,
+  ValidatorFinding,
+  ValidatorFindingStatus,
+  ValidatorRejection,
+  ValidatorVerdict,
+} from './validator/index.js';
+export {
+  AGENT_ROLES,
+  isAgentRole,
+  isValidatorAttestation,
+  isValidatorRejection,
+  isValidatorVerdict,
+  VALIDATOR_ID_REGEX,
+  validatorAttestationSchema,
+  validatorFindingSchema,
+  validatorRejectionSchema,
+  validatorVerdictSchema,
+} from './validator/index.js';
 // === WarpChain Types ===
 export type {
   ChainShape,

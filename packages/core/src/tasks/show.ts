@@ -24,6 +24,28 @@ import {
   toHistoryEntry,
 } from './engine-converters.js';
 
+/**
+ * Hydrated acceptance criterion row surfaced by `cleo show --verbose`.
+ *
+ * Surfaces the stable UUID (the binding target for `satisfies:<acId>`
+ * evidence atoms in T10503), the human-friendly `AC<ordinal>` alias, and
+ * the canonical text. Reads from `task_acceptance_criteria` (T10502) —
+ * NOT the legacy `tasks.acceptance` JSON string.
+ *
+ * @task T10508
+ * @epic T10381
+ */
+export interface AcDetail {
+  /** UUIDv4 stable identifier, immutable for the AC's lifetime. */
+  id: string;
+  /** Display alias derived from ordinal — `AC1`, `AC2`, etc. */
+  alias: string;
+  /** 1-based ordinal — never reused per task (gaps remain on shrink). */
+  ordinal: number;
+  /** The AC statement text. Structured gates round-trip as JSON. */
+  text: string;
+}
+
 /** Enriched task with hierarchy info. */
 export interface TaskDetail extends Task {
   children?: string[];
@@ -32,6 +54,15 @@ export interface TaskDetail extends Task {
   dependents?: string[];
   hierarchyPath?: string[];
   isArchived?: boolean;
+  /**
+   * Acceptance-criterion rows hydrated from `task_acceptance_criteria`.
+   * Present when the table contains AC rows for the task (post-T10508
+   * dual-write or T10505 backfill). Coexists with the legacy
+   * `acceptance` string field — readers should prefer `acRows` when
+   * present and fall back to `acceptance` otherwise.
+   * @task T10508
+   */
+  acRows?: AcDetail[];
   /** Progressive disclosure directives for follow-up operations. */
   _next?: NextDirectives;
 }
@@ -104,6 +135,25 @@ export async function showTask(
   }
 
   const detail: TaskDetail = { ...task, isArchived };
+
+  // T10508 — hydrate AC rows from the new task_acceptance_criteria table.
+  // Surfaced alongside the legacy `acceptance` string for dual-read.
+  // Surface zero rows as undefined so JSON output stays clean for tasks
+  // that haven't been backfilled yet.
+  try {
+    const acRows = await acc.getAcRows(taskId);
+    if (acRows.length > 0) {
+      detail.acRows = acRows.map((row) => ({
+        id: row.id,
+        alias: `AC${row.ordinal}`,
+        ordinal: row.ordinal,
+        text: row.text,
+      }));
+    }
+  } catch {
+    // AC table read is best-effort — never block `cleo show` if the
+    // table is missing (e.g. legacy DB pre-T10502 migration).
+  }
 
   // Add children (only check active tasks, archived tasks don't have active children)
   if (!isArchived) {

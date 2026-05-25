@@ -448,9 +448,10 @@ const VALID_ADOPT_SOURCES = ['claude-agent', 'manual', 'adopted'] as const;
  * @example
  * ```sh
  * cleo worktree adopt .claude/worktrees/session-abc
- * cleo worktree adopt .claude/worktrees/session-abc --source claude-agent
- * cleo worktree adopt /tmp/my-manual-worktree --source manual --task-id T9804
- * cleo worktree adopt .claude/worktrees/session-abc --json
+ *   cleo worktree adopt .claude/worktrees/session-abc --source claude-agent
+ *   cleo worktree adopt /tmp/my-manual-worktree --source manual --task-id T9804
+ *   cleo worktree adopt .claude/worktrees/session-abc --recover
+ *   cleo worktree adopt .claude/worktrees/session-abc --json
  * ```
  *
  * @task T9804
@@ -487,6 +488,12 @@ const adoptCommand = defineCommand({
       type: 'string',
       description: 'Override actor name written to the audit log.',
     },
+    recover: {
+      type: 'boolean',
+      description:
+        'After adopting, recover a partial ETIMEDOUT worktree by running pnpm install and clearing stale git locks.',
+      default: false,
+    },
   },
   async run({ args }) {
     const rawPath = typeof args['path'] === 'string' ? args['path'] : '';
@@ -514,6 +521,7 @@ const adoptCommand = defineCommand({
         ...(source !== undefined ? { source } : {}),
         ...(rawTaskId !== undefined ? { taskId: rawTaskId } : {}),
         ...(rawActor !== undefined ? { actor: rawActor } : {}),
+        recover: args['recover'] === true,
       },
       { command: 'worktree-adopt', operation: 'worktree.adopt' },
     );

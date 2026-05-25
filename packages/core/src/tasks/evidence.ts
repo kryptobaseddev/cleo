@@ -188,6 +188,32 @@ export type ParsedAtom =
       kind: 'pr';
       /** PR number (positive integer). */
       prNumber: number;
+    }
+  | {
+      /**
+       * Cross-task AC-binding atom — references an acceptance criterion on
+       * another task in the same Saga (or root Epic when no Saga). The atom
+       * carries either the canonical UUIDv4 (`targetAcId`) OR the positional
+       * alias (`targetAcAlias`) — never both, never neither. Optional
+       * `versionPin` captures the target AC's `updated_at` at mint time.
+       *
+       * This entry covers PARSING ONLY (T10506); the 5-check validator
+       * semantics (target exists, target not terminal, AC exists, same-saga
+       * scope) ship in T10507. See ADR-079-r2 §2.1 for the ABNF and §2.4
+       * for the runtime validator contract.
+       *
+       * @task T10506
+       * @adr ADR-079-r2
+       */
+      kind: 'satisfies';
+      /** Target task ID — `T<1-7 digits>` per ADR-079-r2 §2.1. */
+      targetTaskId: string;
+      /** Lowercase UUIDv4 — populated for canonical form; undefined for alias form. */
+      targetAcId?: string;
+      /** `AC<1-4 digits>` alias — populated for alias form; undefined for UUID form. */
+      targetAcAlias?: string;
+      /** Optional `@<YYYYMMDDhhmmss>` pin captured at mint time. */
+      versionPin?: string;
     };
 
 /**
@@ -282,6 +308,31 @@ export async function validateAtom(
       return validateDecision(parsed.decisionId, projectRoot);
     case 'pr':
       return validatePrAtom(parsed.prNumber, projectRoot);
+    case 'satisfies': {
+      // ADR-079-r2: 5-check validator pipeline shipped by T10507.
+      // Delegates to the dedicated validator module to keep the dispatch
+      // switch focused. The 5 checks run IN ORDER, first-failure-wins
+      // (see `lifecycle/verification/satisfies-validator.ts` for the
+      // detailed contract).
+      const { validateSatisfiesAtom } = await import(
+        '../lifecycle/verification/satisfies-validator.js'
+      );
+      const result = await validateSatisfiesAtom(
+        {
+          kind: 'satisfies',
+          targetTaskId: parsed.targetTaskId,
+          targetAcId: parsed.targetAcId,
+          targetAcAlias: parsed.targetAcAlias,
+          versionPin: parsed.versionPin,
+        },
+        taskId,
+        projectRoot,
+      );
+      if (!result.ok) {
+        return { ok: false, reason: result.reason, codeName: result.codeName };
+      }
+      return { ok: true, atom: result.atom };
+    }
     default: {
       // Exhaustiveness check — never reachable if ParsedAtom is complete.
       return { ok: false, reason: `Unknown parsed atom`, codeName: 'E_EVIDENCE_INVALID' };
@@ -1489,6 +1540,14 @@ export async function revalidateEvidence(
         // time. A merged PR's mergedAt is immutable, so the atom is trusted
         // as captured. Re-validation would require another `gh` round trip
         // and add network dependency to every `cleo complete` invocation.
+        break;
+      case 'satisfies':
+        // ADR-079-r2: satisfies bindings resolve to evidence_satisfies_bindings
+        // rows owned by the T10507 validator. The row's target_ac_uuid is the
+        // immutable canonical form; the W_AC_ALIAS_DRIFTED warning surface
+        // (validator-side) gives the author one cycle to update before the
+        // next verify rejects. No re-validation at complete time — the
+        // recorded canonical UUID is the immutable trust surface.
         break;
       default:
         // Exhaustiveness — unreachable if EvidenceAtom is complete.

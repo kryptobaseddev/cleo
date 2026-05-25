@@ -108,6 +108,49 @@ export interface TaskFieldUpdates {
 }
 
 /**
+ * A row of the `task_acceptance_criteria` table (T10502).
+ *
+ * @task T10508
+ */
+export interface AcRow {
+  /** UUIDv4 stable identifier, immutable for the AC's lifetime. */
+  id: string;
+  /** Owning task ID. */
+  taskId: string;
+  /** 1-based ordinal — never reused per task (gaps remain on shrink). */
+  ordinal: number;
+  /** The AC statement text. Structured gates are serialised as JSON. */
+  text: string;
+  /** ISO-8601 timestamp the row was created. */
+  createdAt: string;
+  /** ISO-8601 last-edit timestamp; null until first edit. */
+  updatedAt: string | null;
+  /** Optional sha256(text) snapshot; writers MAY populate, readers MUST treat null as "unknown". */
+  contentHash: string | null;
+}
+
+/**
+ * A row of the `evidence_ac_bindings` table (T10503) — the M:N join between
+ * evidence atoms and acceptance criteria. Powers the AC-coverage gate
+ * (T10509) — "what evidence has been recorded against this AC?".
+ *
+ * @task T10509
+ * @saga T10377 (SG-IVTR-AC-BINDING)
+ */
+export interface AcBindingRow {
+  /** UUIDv4 — set by the writer (T10505/T10506). */
+  id: string;
+  /** Stable hash / composite key of the evidence atom. NOT an FK. */
+  evidenceAtomId: string;
+  /** FK → `task_acceptance_criteria(id)`. */
+  acId: string;
+  /** One of {direct, satisfies, coverage}. */
+  bindingType: 'direct' | 'satisfies' | 'coverage';
+  /** ISO-8601 timestamp of binding creation. */
+  createdAt: string;
+}
+
+/**
  * Subset of DataAccessor methods available inside a transaction callback.
  * Write-only — reads use the outer accessor (snapshot isolation).
  */
@@ -129,7 +172,69 @@ export interface TransactionAccessor {
   removeRelation(taskId: string, relatedTo: string, relationType?: string): Promise<void>;
   /** Remove all relations for a task (both directions) — used for set-replace. @task T9514 */
   clearRelations(taskId: string): Promise<void>;
+  /**
+   * Insert AC rows into `task_acceptance_criteria` with caller-supplied
+   * UUIDs and ordinals. Ordinals MUST NOT collide with existing rows for
+   * the same task — the UNIQUE (task_id, ordinal) index enforces this.
+   * @task T10508
+   */
+  insertAcRows(
+    rows: Array<{ id: string; taskId: string; ordinal: number; text: string }>,
+  ): Promise<void>;
+  /**
+   * Read all AC rows for a task, ordered by ordinal ASC.
+   * Available inside transactions for shrink/replace flows that need to
+   * read the current state before deletion.
+   * @task T10508
+   */
+  getAcRows(taskId: string): Promise<AcRow[]>;
+  /**
+   * Delete all AC rows for a task. Used by update-replace-all + update-shrink
+   * flows AFTER the history rows have been appended.
+   * @task T10508
+   */
+  deleteAcRowsForTask(taskId: string): Promise<void>;
+  /**
+   * Append a history row to `task_acceptance_criteria_history` capturing the
+   * AC text that is about to be superseded.
+   * @task T10508
+   */
+  appendAcHistory(
+    rows: Array<{ acId: string; previousText: string; reason: string }>,
+  ): Promise<void>;
+  /**
+   * Read all `evidence_ac_bindings` rows whose `ac_id` ∈ the given set.
+   * Used by the AC-coverage gate (T10509) to compute which ACs are
+   * satisfied vs unsatisfied inside the same transaction that flips the
+   * task to `done`.
+   *
+   * Returns the empty array when `acIds` is empty.
+   *
+   * @task T10509
+   */
+  getAcBindings(acIds: readonly string[]): Promise<AcBindingRow[]>;
+  /**
+   * Insert rows into `evidence_ac_bindings`. Used by the Validator SDK
+   * tools (T10511) to persist coverage bindings transactionally after a
+   * Validator attestation. The UNIQUE (evidence_atom_id, ac_id, binding_type)
+   * index collapses idempotent re-inserts via `ON CONFLICT DO NOTHING`.
+   *
+   * No-op when `rows` is empty.
+   *
+   * @task T10511
+   * @saga T10377 (SG-IVTR-AC-BINDING)
+   */
+  insertAcBindings(
+    rows: Array<{
+      id: string;
+      evidenceAtomId: string;
+      acId: string;
+      bindingType: 'direct' | 'satisfies' | 'coverage';
+    }>,
+  ): Promise<void>;
 }
+
+// Re-export AcRow at the module level for both transaction + outer accessor use.
 
 /**
  * DataAccessor interface.
@@ -192,6 +297,21 @@ export interface DataAccessor {
 
   /** Remove a row from the task_relations table (T9240). */
   removeRelation(taskId: string, relatedTo: string, relationType?: string): Promise<void>;
+
+  /**
+   * Read AC rows for a task from `task_acceptance_criteria`, ordered by
+   * ordinal ASC. Returns the empty array if no rows exist.
+   * @task T10508
+   */
+  getAcRows(taskId: string): Promise<AcRow[]>;
+
+  /**
+   * Read `evidence_ac_bindings` rows whose `ac_id` ∈ the given set.
+   * Powers the AC-coverage gate (T10509). Returns the empty array when
+   * `acIds` is empty or no bindings exist for the supplied ids.
+   * @task T10509
+   */
+  getAcBindings(acIds: readonly string[]): Promise<AcBindingRow[]>;
 
   // ---- Metadata (schema_meta KV store) ----
 

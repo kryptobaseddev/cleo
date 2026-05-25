@@ -224,6 +224,29 @@ export enum ExitCode {
    * @task T9230
    */
   LEAD_BYPASS_DETECTED = 107,
+
+  /**
+   * `cleo complete <tid>` was rejected because one or more acceptance criteria
+   * on the task have no `evidence_ac_bindings` rows pointing at them. The
+   * coverage gate is the load-bearing IVTR closure piece — every AC the task
+   * declared MUST be backed by a `direct`, `satisfies`, or `coverage` binding
+   * before completion is allowed.
+   *
+   * `error.details.unsatisfied` carries the list of offending ACs (each row
+   * has `acId`, `alias` (`AC<n>`), and `text`). Recovery options:
+   *   1. Add programmatic evidence that resolves the AC via `cleo verify` so
+   *      a binding row is written.
+   *   2. Pass `--waive-ac "<csv>" --waive-reason "<text>"` on `cleo complete`
+   *      to record an audited waiver (`.cleo/audit/ac-waiver.jsonl`).
+   *   3. Set `CLEO_OWNER_OVERRIDE=1` + `CLEO_OWNER_OVERRIDE_REASON=<text>` for
+   *      a full bypass (logged to `.cleo/audit/force-bypass.jsonl`).
+   *
+   * @codeName E_AC_COVERAGE_INCOMPLETE
+   * @task T10509
+   * @saga T10377 (SG-IVTR-AC-BINDING)
+   * @adr ADR-079-r4
+   */
+  AC_COVERAGE_INCOMPLETE = 108,
 }
 
 // ---------------------------------------------------------------------------
@@ -361,6 +384,25 @@ export const E_INVALID_SEVERITY_VALUE = 'E_INVALID_SEVERITY_VALUE' as const;
  * @saga T10326
  */
 export const E_INVALID_PIPELINE_STAGE = 'E_INVALID_PIPELINE_STAGE' as const;
+
+/**
+ * E_AC_COVERAGE_INCOMPLETE — `cleo complete <tid>` was rejected because at
+ * least one acceptance criterion on the task has no `evidence_ac_bindings`
+ * row. The coverage gate is the load-bearing IVTR closure piece — every AC
+ * the task declared MUST be backed by a binding (`direct`, `satisfies`, or
+ * `coverage`) before completion is allowed.
+ *
+ * `error.details.unsatisfied` carries the offending ACs (each entry has
+ * `acId`, `alias`, and `text`). Recovery options live on the {@link ExitCode.AC_COVERAGE_INCOMPLETE}
+ * JSDoc.
+ *
+ * Maps to {@link ExitCode.AC_COVERAGE_INCOMPLETE} (108) at the CLI boundary.
+ *
+ * @task T10509
+ * @saga T10377 (SG-IVTR-AC-BINDING)
+ * @adr ADR-079-r4
+ */
+export const E_AC_COVERAGE_INCOMPLETE = 'E_AC_COVERAGE_INCOMPLETE' as const;
 
 /** Check if an exit code represents an error (1-99). */
 export function isErrorCode(code: ExitCode): boolean {

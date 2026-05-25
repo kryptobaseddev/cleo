@@ -6,3 +6,7 @@ src/**/*.test.ts
 coverage/
 .test-*
 node_modules/
+
+# Developer-side enforcement artifacts — never ship to consumers.
+# See AGENTS.md "Skill Maintenance Discipline (Saga T9799 · Epic T9960)".
+internal/

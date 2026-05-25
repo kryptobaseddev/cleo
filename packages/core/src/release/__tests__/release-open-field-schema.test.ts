@@ -47,14 +47,24 @@ const REPO_WORKFLOW_PATH = resolve(
   'release-prepare.yml',
 );
 
-function readWorkflowInputs(): string[] {
+type WorkflowInputSchema = Record<string, { required?: boolean } | null | undefined>;
+
+function readWorkflowInputs(): WorkflowInputSchema {
   const raw = readFileSync(REPO_WORKFLOW_PATH, 'utf8');
   const parsed = parseYaml(raw) as {
-    on?: { workflow_dispatch?: { inputs?: Record<string, unknown> } };
+    on?: { workflow_dispatch?: { inputs?: WorkflowInputSchema } };
   };
-  const inputs = parsed.on?.workflow_dispatch?.inputs;
-  if (inputs === undefined || inputs === null) return [];
-  return Object.keys(inputs);
+  return parsed.on?.workflow_dispatch?.inputs ?? {};
+}
+
+function readWorkflowInputKeys(): string[] {
+  return Object.keys(readWorkflowInputs());
+}
+
+function readRequiredWorkflowInputKeys(): string[] {
+  return Object.entries(readWorkflowInputs())
+    .filter(([, config]) => config?.required === true)
+    .map(([key]) => key);
 }
 
 function makePlan(version: string): ReleasePlan {
@@ -213,9 +223,9 @@ afterEach(async () => {
 });
 
 describe('releaseOpen — workflow input schema parity (T10105)', () => {
-  it('release-prepare.yml declares exactly the `version` input', () => {
-    const inputs = readWorkflowInputs();
-    expect(inputs.sort()).toEqual(['version']);
+  it('release-prepare.yml declares `version` as the only required input', () => {
+    const requiredInputs = readRequiredWorkflowInputKeys();
+    expect(requiredInputs.sort()).toEqual(['version']);
   });
 
   it('`cleo release open` passes ONLY fields declared in the workflow YAML', async () => {
@@ -243,16 +253,15 @@ describe('releaseOpen — workflow input schema parity (T10105)', () => {
       }
     }
 
-    const declaredKeys = readWorkflowInputs();
+    const declaredKeys = readWorkflowInputKeys();
+    const requiredKeys = readRequiredWorkflowInputKeys();
 
     // EXTRA check — every key passed at runtime MUST be declared in YAML.
     const extra = passedKeys.filter((k) => !declaredKeys.includes(k));
     expect(extra).toEqual([]);
 
     // MISSING check — every REQUIRED YAML input MUST be passed at runtime.
-    // (We assume `required: true` for every declared input today; if that
-    //  ever changes, refine to parse the per-key `required:` flag.)
-    const missing = declaredKeys.filter((k) => !passedKeys.includes(k));
+    const missing = requiredKeys.filter((k) => !passedKeys.includes(k));
     expect(missing).toEqual([]);
 
     // Belt-and-braces: `plan-blob-sha256` MUST NOT be passed (T10105
