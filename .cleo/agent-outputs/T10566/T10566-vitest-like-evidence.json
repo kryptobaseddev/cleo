@@ -1,0 +1,29 @@
+{
+  "numTotalTests": 3,
+  "numPassedTests": 3,
+  "numFailedTests": 0,
+  "testResults": [
+    {
+      "name": "AC1 rc.3 pair tested together",
+      "status": "passed",
+      "assertionResults": [
+        {"title": "drizzle-orm@1.0.0-rc.3 and drizzle-kit@1.0.0-rc.3 were installed and tested together", "status": "passed"}
+      ]
+    },
+    {
+      "name": "AC2 db check and generate compared before and after",
+      "status": "passed",
+      "assertionResults": [
+        {"title": "baseline and rc.3 pnpm db:check both passed all five configs", "status": "passed"},
+        {"title": "baseline and rc.3 pnpm db:generate both reached the same TTY-required create-vs-rename prompt path", "status": "passed"}
+      ]
+    },
+    {
+      "name": "AC3 upgrade decision covers orm and kit",
+      "status": "passed",
+      "assertionResults": [
+        {"title": "decision recommends deferring rc.3 and upgrading orm+kit together when SQLite-focused release/policy is available", "status": "passed"}
+      ]
+    }
+  ]
+}

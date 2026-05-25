@@ -1,0 +1,8 @@
+ M packages/cleo/src/cli/commands/__tests__/output-mode.test.ts
+ M packages/cleo/src/cli/renderers/output-mode.ts
+ M packages/cleo/src/dispatch/middleware/mutate-minimal-envelope.ts
+ M packages/contracts/src/operations/tasks.ts
+ M packages/core/src/dispatch/__tests__/mutate-projection.test.ts
+ M packages/core/src/dispatch/mutate-projection.ts
+ M packages/core/src/tasks/__tests__/add-batch.test.ts
+ M packages/core/src/tasks/add-batch.ts
