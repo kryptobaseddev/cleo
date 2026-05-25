@@ -11,10 +11,24 @@
  * handled by the plugin's built-in module-runes preprocessing.
  */
 
+import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { svelte, vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig } from 'vitest/config';
 
+const studioRoot = new URL('.', import.meta.url);
+
+// SvelteKit's generated tsconfig is gitignored, but Vite's TS transform needs
+// the file referenced by tsconfig.json even for route handler unit tests.
+if (!existsSync(new URL('./.svelte-kit/tsconfig.json', studioRoot))) {
+  execFileSync('pnpm', ['exec', 'svelte-kit', 'sync'], {
+    cwd: studioRoot,
+    stdio: 'ignore',
+  });
+}
+
 export default defineConfig({
+  root: studioRoot.pathname,
   plugins: [
     svelte({
       preprocess: vitePreprocess(),
