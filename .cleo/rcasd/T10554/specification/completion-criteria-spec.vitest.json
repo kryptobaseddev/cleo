@@ -1,0 +1,64 @@
+{
+  "numTotalTestSuites": 1,
+  "numPassedTestSuites": 1,
+  "numFailedTestSuites": 0,
+  "numPendingTestSuites": 0,
+  "numTotalTests": 4,
+  "numPassedTests": 4,
+  "numFailedTests": 0,
+  "numPendingTests": 0,
+  "numTodoTests": 0,
+  "success": true,
+  "startTime": 1779743267609,
+  "testResults": [
+    {
+      "name": "/home/keatonhoskins/.local/share/cleo/worktrees/1e3146b7352ba279/T10554/.cleo/rcasd/T10554/specification/completion-criteria-spec.md",
+      "status": "passed",
+      "startTime": 1779743267609,
+      "endTime": 1779743267609,
+      "assertionResults": [
+        {
+          "ancestorTitles": [
+            "T10554 Completion Criteria RFC 2119 spec"
+          ],
+          "fullName": "T10554 Completion Criteria RFC 2119 spec AC1 row-shape rules define allowed kinds and error codes",
+          "title": "AC1 row-shape rules define allowed kinds and error codes",
+          "status": "passed",
+          "failureMessages": [],
+          "location": null
+        },
+        {
+          "ancestorTitles": [
+            "T10554 Completion Criteria RFC 2119 spec"
+          ],
+          "fullName": "T10554 Completion Criteria RFC 2119 spec AC2 cancelled child policy specifies rollup treatment and diagnostics",
+          "title": "AC2 cancelled child policy specifies rollup treatment and diagnostics",
+          "status": "passed",
+          "failureMessages": [],
+          "location": null
+        },
+        {
+          "ancestorTitles": [
+            "T10554 Completion Criteria RFC 2119 spec"
+          ],
+          "fullName": "T10554 Completion Criteria RFC 2119 spec AC3 done parent reopen policy specifies material triggers and event contract",
+          "title": "AC3 done parent reopen policy specifies material triggers and event contract",
+          "status": "passed",
+          "failureMessages": [],
+          "location": null
+        },
+        {
+          "ancestorTitles": [
+            "T10554 Completion Criteria RFC 2119 spec"
+          ],
+          "fullName": "T10554 Completion Criteria RFC 2119 spec AC4 waiver/replacement semantics specify immutable audit and conflict rules",
+          "title": "AC4 waiver/replacement semantics specify immutable audit and conflict rules",
+          "status": "passed",
+          "failureMessages": [],
+          "location": null
+        }
+      ],
+      "message": ""
+    }
+  ]
+}
