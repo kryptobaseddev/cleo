@@ -35,8 +35,8 @@ vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
   getTaskAccessor: vi.fn(),
 }));
 
-vi.mock('../../../../../core/src/store/file-utils.js', () => ({
-  resolveProjectRoot: vi.fn(() => '/tmp/test-project-root'),
+vi.mock('../../../../../core/src/paths.js', () => ({
+  getProjectRoot: vi.fn((cwd?: string) => cwd ?? '/tmp/test-project-root'),
 }));
 
 vi.mock('../../../../../core/src/config.js', () => ({
