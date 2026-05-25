@@ -105,7 +105,20 @@ export async function createTestDb(): Promise<TestDbEnv> {
     );
   }
 
-  const accessor = await createSqliteDataAccessor(tempDir);
+  // In integration runners CLEO_ROOT may point at the real project root; force
+  // sqlite path resolution to this isolated fixture while opening the DB.
+  const previousCleoDir = process.env['CLEO_DIR'];
+  process.env['CLEO_DIR'] = cleoDir;
+  let accessor: DataAccessor;
+  try {
+    accessor = await createSqliteDataAccessor(tempDir);
+  } finally {
+    if (previousCleoDir === undefined) {
+      delete process.env['CLEO_DIR'];
+    } else {
+      process.env['CLEO_DIR'] = previousCleoDir;
+    }
+  }
 
   // Verify config.json still exists after DB initialization
   const { readdirSync: readdirSync2 } = await import('node:fs');
