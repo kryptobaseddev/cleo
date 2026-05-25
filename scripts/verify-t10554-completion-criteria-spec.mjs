@@ -1,10 +1,13 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
 const root = process.cwd();
 const specPath = resolve(root, '.cleo/rcasd/T10554/specification/completion-criteria-spec.md');
-const outPath = resolve(root, '.cleo/rcasd/T10554/specification/completion-criteria-spec.vitest.json');
+const outPath = resolve(
+  root,
+  '.cleo/rcasd/T10554/specification/completion-criteria-spec.vitest.json',
+);
 const spec = readFileSync(specPath, 'utf8');
 
 const checks = [
@@ -12,14 +15,14 @@ const checks = [
     name: 'AC1 row-shape rules define allowed kinds and error codes',
     terms: [
       '## 4. AC kind row-shape rules (AC1)',
-      "| `behavior` |",
-      "| `test` |",
-      "| `doc` |",
-      "| `migration` |",
-      "| `qa` |",
-      "| `research` |",
-      "| `release` |",
-      "| `generic` |",
+      '| `behavior` |',
+      '| `test` |',
+      '| `doc` |',
+      '| `migration` |',
+      '| `qa` |',
+      '| `research` |',
+      '| `release` |',
+      '| `generic` |',
       'E_AC_KIND_MISSING',
       'E_AC_KIND_UNKNOWN',
       'E_AC_SHAPE_REQUIRED_FIELD',
@@ -117,5 +120,16 @@ const result = {
 
 mkdirSync(dirname(outPath), { recursive: true });
 writeFileSync(outPath, `${JSON.stringify(result, null, 2)}\n`);
-console.log(JSON.stringify({ success: result.success, output: outPath, passed: result.numPassedTests, failed: result.numFailedTests }, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      success: result.success,
+      output: outPath,
+      passed: result.numPassedTests,
+      failed: result.numFailedTests,
+    },
+    null,
+    2,
+  ),
+);
 process.exit(result.success ? 0 : 1);
