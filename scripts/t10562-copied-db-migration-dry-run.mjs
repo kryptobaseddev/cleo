@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { execFileSync } from 'node:child_process';
 /**
  * T10562 copied-DB migration dry-run artifact.
  *
@@ -13,12 +14,16 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { execFileSync } from 'node:child_process';
 
 const WORKTREE_ROOT = resolve(new URL('..', import.meta.url).pathname);
 const DEFAULT_LIVE_DB = '/mnt/projects/cleocode/.cleo/tasks.db';
 const DEFAULT_COPY_DB = join(WORKTREE_ROOT, 'tmp', 't10562', 'tasks-dry-run-copy.db');
-const DEFAULT_EVIDENCE = join(WORKTREE_ROOT, '.cleo', 'agent-outputs', 'T10562-copied-db-migration-dry-run.evidence.json');
+const DEFAULT_EVIDENCE = join(
+  WORKTREE_ROOT,
+  '.cleo',
+  'agent-outputs',
+  'T10562-copied-db-migration-dry-run.evidence.json',
+);
 
 function parseArgs(argv) {
   const args = {
@@ -34,7 +39,9 @@ function parseArgs(argv) {
     else if (arg === '--evidence') args.evidence = resolve(argv[++i]);
     else if (arg === '--write-evidence') args.writeEvidence = true;
     else if (arg === '--help' || arg === '-h') {
-      process.stdout.write(`Usage: node scripts/t10562-copied-db-migration-dry-run.mjs [--write-evidence] [--live-db PATH] [--copy-db PATH] [--evidence PATH]\n`);
+      process.stdout.write(
+        `Usage: node scripts/t10562-copied-db-migration-dry-run.mjs [--write-evidence] [--live-db PATH] [--copy-db PATH] [--evidence PATH]\n`,
+      );
       process.exit(0);
     } else {
       throw new Error(`Unknown argument: ${arg}`);
@@ -87,7 +94,8 @@ function run() {
   const liveBefore = fileIdentity(args.liveDb);
   execFileSync('cp', ['--reflink=never', '--preserve=mode,timestamps', args.liveDb, args.copyDb]);
   const copyBefore = fileIdentity(args.copyDb);
-  const separateCopyInode = liveBefore.dev !== copyBefore.dev || liveBefore.inode !== copyBefore.inode;
+  const separateCopyInode =
+    liveBefore.dev !== copyBefore.dev || liveBefore.inode !== copyBefore.inode;
 
   const probeTable = 't10562_migration_dry_run_probe';
   ensureTableMissing(args.copyDb, probeTable);
@@ -112,7 +120,9 @@ COMMIT;
 
   const afterTables = tableList(args.copyDb);
   const finalRows = Number(sqlite(args.copyDb, `SELECT COUNT(*) FROM ${probeTable};`));
-  const updatedRows = Number(sqlite(args.copyDb, `SELECT COUNT(*) FROM ${probeTable} WHERE marker = 'updated-by-dry-run';`));
+  const updatedRows = Number(
+    sqlite(args.copyDb, `SELECT COUNT(*) FROM ${probeTable} WHERE marker = 'updated-by-dry-run';`),
+  );
   const deletedRows = 3 - finalRows;
   const createdTables = afterTables.filter((name) => !beforeTables.includes(name));
   const copyAfter = fileIdentity(args.copyDb);
@@ -148,7 +158,8 @@ COMMIT;
     {
       name: 'AC3 rollback plan emitted',
       status: 'pass',
-      details: 'Rollback is copy-only: remove copy DB and do not promote it; live DB was never opened for write.',
+      details:
+        'Rollback is copy-only: remove copy DB and do not promote it; live DB was never opened for write.',
     },
     {
       name: 'AC4 copy inode separate from live DB',
@@ -165,7 +176,13 @@ COMMIT;
     numPassedTests: checks.filter((check) => check.status === 'pass').length,
     numFailedTests: checks.filter((check) => check.status !== 'pass').length,
     testResults: checks.map((check) => ({
-      assertionResults: [{ title: check.name, status: check.status, failureMessages: check.status === 'pass' ? [] : [check.details] }],
+      assertionResults: [
+        {
+          title: check.name,
+          status: check.status,
+          failureMessages: check.status === 'pass' ? [] : [check.details],
+        },
+      ],
       name: check.name,
       status: check.status,
       message: check.details,
