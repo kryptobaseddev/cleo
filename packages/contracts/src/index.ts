@@ -288,6 +288,7 @@ export type {
 export { parseClaudeCodeCredentials } from './credentials.js';
 // === DataAccessor Interface ===
 export type {
+  AcBindingRow,
   AcRow,
   ArchiveFields,
   ArchiveFile,
@@ -533,6 +534,8 @@ export {
 } from './evidence-record-schema.js';
 // === Exit Codes ===
 export {
+  // T10509 / Saga T10377 — AC-coverage gate at cleo complete (IVTR closure)
+  E_AC_COVERAGE_INCOMPLETE,
   // T10105 / Saga T10099 — fail-loud changeset parse
   E_CHANGESET_YAML_INVALID,
   // SPEC-T9345 release pipeline v2 error code names (T9525)

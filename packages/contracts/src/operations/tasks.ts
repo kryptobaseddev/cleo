@@ -958,6 +958,24 @@ export interface TasksCompleteQueryParams {
   overrideReason?: string;
   /** Reason for acknowledging CRITICAL nexus impact risk (bypasses nexusImpact gate). */
   acknowledgeRisk?: string;
+  /**
+   * Comma-separated AC tokens (UUIDs or `AC<n>` aliases) waived from the
+   * AC-coverage gate (T10509). MUST be paired with {@link waiveReason} —
+   * the gate rejects the call when one is set without the other.
+   *
+   * Waivers are recorded to `.cleo/audit/ac-waiver.jsonl` per ADR-079-r4 §4.
+   *
+   * @task T10509
+   * @saga T10377 (SG-IVTR-AC-BINDING)
+   */
+  waiveAc?: string;
+  /**
+   * Justification text for the {@link waiveAc} waiver. Mandatory whenever
+   * `waiveAc` is non-empty.
+   *
+   * @task T10509
+   */
+  waiveReason?: string;
 }
 /**
  * Result of `tasks.complete` — completion confirmation with unblocked tasks.
