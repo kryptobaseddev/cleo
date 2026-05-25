@@ -123,8 +123,7 @@ export async function sessionStatus(projectRoot: string): Promise<
   try {
     const accessor = await getTaskAccessor(projectRoot);
     const focusState = await accessor.getMetaValue<TaskWorkState>('focus_state');
-    const sessions = await accessor.loadSessions();
-    const active = sessions.find((s: Session) => s.status === 'active');
+    const active = await accessor.getActiveSession();
 
     // Surface persisted override count for the active session (T1501).
     let overrideCount = 0;
