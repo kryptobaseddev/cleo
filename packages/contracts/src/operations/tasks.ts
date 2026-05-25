@@ -1479,7 +1479,7 @@ export interface TasksAddBatchEntry {
   description?: string;
   /** Parent task ID (makes this task a subtask). */
   parent?: string;
-  /** Comma-separated dependency task IDs. */
+  /** Dependency task IDs as a JSON array. */
   depends?: string[];
   /** Task priority (low | medium | high | critical). */
   priority?: string;
@@ -1487,7 +1487,7 @@ export interface TasksAddBatchEntry {
   labels?: string[];
   /** Task type (saga | epic | task | subtask). */
   type?: TaskType; // SSoT-EXEMPT:kind≠type — same axis split as TasksAddBatchParams (T944) // ssot-exempt-ok: mirrors parent type
-  /** Pipe-separated acceptance criteria, normalized to string[]. */
+  /** Acceptance criteria as a JSON array; pipe-delimited strings are not canonical. */
   acceptance?: string[];
   /** Phase slug to assign the task to. */
   phase?: string;
@@ -1600,9 +1600,17 @@ export const TASKS_ADD_BATCH_INPUT_SCHEMA: JsonSchema = {
           parent: { type: 'string' },
           depends: { type: 'array', items: { type: 'string' } },
           priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
-          labels: { type: 'array', items: { type: 'string' } },
+          labels: {
+            type: 'array',
+            items: { type: 'string' },
+            'x-fix-hint': 'pass labels as a JSON array, e.g. ["pm-core-v2", "wave.3"]',
+          },
           type: { type: 'string', enum: ['saga', 'epic', 'task', 'subtask'] },
-          acceptance: { type: 'array', items: { type: 'string' } },
+          acceptance: {
+            type: 'array',
+            items: { type: 'string' },
+            'x-fix-hint': 'pass acceptance as a JSON array, not a pipe-delimited string',
+          },
           phase: { type: 'string' },
           size: { type: 'string', enum: ['small', 'medium', 'large'] },
           notes: { type: 'string' },
@@ -1634,7 +1642,18 @@ export const tasksAddBatchInputContract: OperationInputContract<TasksAddBatchPar
     {
       name: 'two-tasks',
       value: {
-        tasks: [{ title: 'first task' }, { title: 'second task' }],
+        tasks: [
+          {
+            title: 'first task',
+            labels: ['pm-core-v2', 'wave.3'],
+            acceptance: ['first acceptance criterion'],
+          },
+          {
+            title: 'second task',
+            labels: ['batch'],
+            acceptance: ['second acceptance criterion'],
+          },
+        ],
       },
       description: 'Atomic insert of two tasks under no shared parent.',
     },
