@@ -301,6 +301,16 @@ export interface BuildSpawnPromptInput {
    */
   conduitSubscription?: ConduitSubscriptionConfig;
   /**
+   * Compact orchestration dashboard summary.
+   *
+   * When provided and `tier >= 1`, a small one-line context block is injected
+   * so leads/orchestrators can see queue pressure, merge throughput, bypass
+   * pressure, and active worktree count without bloating worker prompts.
+   *
+   * @task T10464
+   */
+  dashboardSummary?: string;
+  /**
    * Memory retrieval bundle from `buildRetrievalBundle`.
    *
    * When provided and `tier >= 1`, a `## PSYCHE-MEMORY` section is injected
@@ -1398,6 +1408,11 @@ export function buildTier2SkillExcerpts(projectRoot: string): string {
  *
  * @task T1252 CONDUIT A2A
  */
+/** Build the compact dashboard context block injected into tier-1/2 spawns. */
+function buildDashboardContextBlock(summary: string): string {
+  return ['## Orchestrate Dashboard Context', '', `- ${summary}`].join('\n');
+}
+
 function buildConduitSubscriptionBlock(config: ConduitSubscriptionConfig): string {
   const { epicId, waveId, peerId } = config;
   const waveTopic = `epic-${epicId}.wave-${waveId}`;
@@ -1714,6 +1729,9 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   // orchestrator has configured A2A wave coordination for this task.
   if (tier >= 1 && input.conduitSubscription) {
     authoredSections.push(buildConduitSubscriptionBlock(input.conduitSubscription));
+  }
+  if (tier >= 1 && input.dashboardSummary) {
+    authoredSections.push(buildDashboardContextBlock(input.dashboardSummary));
   }
   // PSYCHE-MEMORY (T1260 E3) — only emitted for tier 1/2 when the retrieval
   // bundle is present. The bundle may be empty until T1147 W7 (.132) sweeps

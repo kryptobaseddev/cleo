@@ -875,7 +875,15 @@ export {
 } from './orchestrate/spawn-ops.js';
 // Context
 export { estimateContext } from './orchestration/context.js';
-// Orchestration
+export type {
+  DashboardRateMetric,
+  OrchestrateDashboardMetrics,
+} from './orchestration/dashboard.js';
+export {
+  collectOrchestrateDashboard,
+  formatDashboardPromptSummary,
+} from './orchestration/dashboard.js';
+
 export { analyzeEpic, prepareSpawn } from './orchestration/index.js';
 export {
   endParallelExecution,
