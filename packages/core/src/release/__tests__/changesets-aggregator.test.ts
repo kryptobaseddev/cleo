@@ -1,25 +1,14 @@
 /**
- * Tests for {@link aggregateChangesetsForRelease} — CLEO-native changesets
- * aggregator (T9753).
- *
- * Covers:
- *  - Empty input → empty markdown
- *  - Mixed kinds → grouped + ordered output
- *  - Breaking entry floats to the top with migration note
- *  - Task IDs rendered as `(T1234)` anchors
- *  - PR numbers appended as `(#42)` anchors when present
+ * Tests for deterministic zero-token release-note rendering.
  *
  * @task T9753
- * @epic T9752
+ * @task T10471
  */
 
 import type { ChangesetEntry } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
 import { aggregateChangesetsForRelease } from '../changesets-aggregator.js';
 
-/**
- * Build a minimal ChangesetEntry for test fixtures. Overrides win.
- */
 function entry(overrides: Partial<ChangesetEntry> & { id: string }): ChangesetEntry {
   return {
     id: overrides.id,
@@ -29,7 +18,15 @@ function entry(overrides: Partial<ChangesetEntry> & { id: string }): ChangesetEn
     prs: overrides.prs,
     notes: overrides.notes,
     breaking: overrides.breaking,
+    releaseNotes: overrides.releaseNotes,
   } as ChangesetEntry;
+}
+
+function renderedSections(markdown: string): string[] {
+  return markdown
+    .split('\n')
+    .filter((line) => line.startsWith('### '))
+    .map((line) => line.replace('### ', ''));
 }
 
 describe('aggregateChangesetsForRelease', () => {
@@ -44,121 +41,95 @@ describe('aggregateChangesetsForRelease', () => {
     expect(result.kinds.size).toBe(0);
   });
 
-  it('renders 5 mixed-kind entries with grouped section headers + task anchors', () => {
-    const entries: ChangesetEntry[] = [
-      entry({ id: 'one', kind: 'feat', tasks: ['T9001'], summary: 'New API endpoint.' }),
-      entry({ id: 'two', kind: 'fix', tasks: ['T9002'], summary: 'Stop the bleed.' }),
-      entry({ id: 'three', kind: 'docs', tasks: ['T9003'], summary: 'Update README.' }),
-      entry({ id: 'four', kind: 'refactor', tasks: ['T9004'], summary: 'Untangle.' }),
-      entry({ id: 'five', kind: 'chore', tasks: ['T9005'], summary: 'Bump deps.' }),
-    ];
-
+  it('renders strict release-note sections in deterministic Keep-a-Changelog order', () => {
     const result = aggregateChangesetsForRelease({
-      entries,
+      entries: [
+        entry({ id: 'fix', kind: 'fix', tasks: ['T9002'], summary: 'Stop the bleed.' }),
+        entry({ id: 'feat', kind: 'feat', tasks: ['T9001'], summary: 'New API endpoint.' }),
+        entry({ id: 'docs', kind: 'docs', tasks: ['T9003'], summary: 'Update README.' }),
+      ],
       version: 'v2026.6.0',
       date: '2026-05-20',
     });
 
-    expect(result.entryCount).toBe(5);
-    expect(result.kinds.size).toBe(5);
+    expect(result.entryCount).toBe(3);
+    expect(result.kinds.size).toBe(3);
     expect(result.markdown).toContain('## v2026.6.0 — 2026-05-20');
-    expect(result.markdown).toContain('### Features');
-    expect(result.markdown).toContain('### Fixes');
-    expect(result.markdown).toContain('### Documentation');
-    expect(result.markdown).toContain('### Refactors');
-    expect(result.markdown).toContain('### Chores');
-    // Each summary line includes the task-ID anchor.
-    expect(result.markdown).toContain('- New API endpoint. (T9001)');
-    expect(result.markdown).toContain('- Stop the bleed. (T9002)');
-    expect(result.markdown).toContain('- Update README. (T9003)');
-    expect(result.markdown).toContain('- Untangle. (T9004)');
-    expect(result.markdown).toContain('- Bump deps. (T9005)');
-  });
-
-  it('renders kind sections in canonical order: feat → fix → perf → refactor → docs → test → chore', () => {
-    const entries: ChangesetEntry[] = [
-      // Intentionally pass in reversed order to verify the renderer reorders.
-      entry({ id: 'a', kind: 'chore', tasks: ['T1'], summary: 'chore.' }),
-      entry({ id: 'b', kind: 'test', tasks: ['T2'], summary: 'test.' }),
-      entry({ id: 'c', kind: 'docs', tasks: ['T3'], summary: 'docs.' }),
-      entry({ id: 'd', kind: 'refactor', tasks: ['T4'], summary: 'refactor.' }),
-      entry({ id: 'e', kind: 'perf', tasks: ['T5'], summary: 'perf.' }),
-      entry({ id: 'f', kind: 'fix', tasks: ['T6'], summary: 'fix.' }),
-      entry({ id: 'g', kind: 'feat', tasks: ['T7'], summary: 'feat.' }),
-    ];
-
-    const result = aggregateChangesetsForRelease({
-      entries,
-      version: 'v2026.6.0',
-      date: '2026-05-20',
-    });
-
-    const sections = result.markdown
-      .split('\n')
-      .filter((line) => line.startsWith('### '))
-      .map((line) => line.replace('### ', ''));
-
-    expect(sections).toEqual([
-      'Features',
-      'Fixes',
-      'Performance',
-      'Refactors',
-      'Documentation',
-      'Tests',
-      'Chores',
+    expect(renderedSections(result.markdown)).toEqual([
+      'Added',
+      'Changed',
+      'Fixed',
+      'Deprecated',
+      'Removed',
+      'Security',
+      'BREAKING CHANGES',
     ]);
+    expect(result.markdown).toContain('- New API endpoint. _(provenance: [T9001](');
+    expect(result.markdown).toContain('- Stop the bleed. _(provenance: [T9002](');
+    expect(result.markdown).toContain('- Update README. _(provenance: [T9003](');
   });
 
-  it('floats a breaking entry to the TOP with its migration note rendered inline', () => {
-    const entries: ChangesetEntry[] = [
-      entry({ id: 'one', kind: 'feat', tasks: ['T1001'], summary: 'New feature.' }),
-      entry({
-        id: 'two',
-        kind: 'breaking',
-        tasks: ['T1002'],
-        summary: 'Remove legacy API.',
-        breaking: 'Callers must switch to the new `v2` endpoint. The old endpoint returns 410.',
-      }),
-      entry({ id: 'three', kind: 'fix', tasks: ['T1003'], summary: 'Fix race.' }),
-    ];
-
+  it('uses releaseNotes metadata for section, target, impact, migration, and inclusion', () => {
     const result = aggregateChangesetsForRelease({
-      entries,
+      entries: [
+        entry({
+          id: 'security-note',
+          kind: 'fix',
+          tasks: ['T10471'],
+          prs: [431],
+          summary: 'Fallback summary.',
+          releaseNotes: {
+            section: 'security',
+            targets: ['@cleocode/core'],
+            impact: 'Renderer emits operator-safe deterministic release notes.',
+            migration: 'No migration required.',
+          },
+        }),
+        entry({
+          id: 'hidden',
+          kind: 'chore',
+          tasks: ['T9999'],
+          summary: 'Internal-only cleanup.',
+          releaseNotes: { includeInChangelog: false },
+        }),
+      ],
       version: 'v2026.6.0',
       date: '2026-05-20',
     });
 
-    // BREAKING section must precede Features section in the output.
-    const breakingIdx = result.markdown.indexOf('### BREAKING CHANGES');
-    const featuresIdx = result.markdown.indexOf('### Features');
-    expect(breakingIdx).toBeGreaterThanOrEqual(0);
-    expect(featuresIdx).toBeGreaterThan(breakingIdx);
+    expect(result.entryCount).toBe(1);
+    expect(result.markdown).toContain(
+      '- **@cleocode/core:** Renderer emits operator-safe deterministic release notes.',
+    );
+    expect(result.markdown).toContain(
+      '_(provenance: [T10471](https://github.com/kryptobaseddev/cleo/search?q=T10471&type=commits); [#431](https://github.com/kryptobaseddev/cleo/pull/431))_',
+    );
+    expect(result.markdown).not.toContain('Internal-only cleanup.');
+  });
 
-    // Migration note appears indented under the breaking bullet.
+  it('renders breaking entries in the strict BREAKING CHANGES section with migration text', () => {
+    const result = aggregateChangesetsForRelease({
+      entries: [
+        entry({ id: 'feat', kind: 'feat', tasks: ['T1001'], summary: 'New feature.' }),
+        entry({
+          id: 'breaking',
+          kind: 'breaking',
+          tasks: ['T1002'],
+          summary: 'Remove legacy API.',
+          breaking: 'Callers must switch to the new `v2` endpoint. The old endpoint returns 410.',
+        }),
+      ],
+      version: 'v2026.6.0',
+      date: '2026-05-20',
+    });
+
+    const breakingIdx = result.markdown.indexOf('### BREAKING CHANGES');
+    const featureIdx = result.markdown.indexOf('New feature.');
+    expect(breakingIdx).toBeGreaterThan(featureIdx);
     expect(result.markdown).toContain('  Migration:');
     expect(result.markdown).toContain(
       '  Callers must switch to the new `v2` endpoint. The old endpoint returns 410.',
     );
-  });
-
-  it('appends PR anchors after task IDs when present', () => {
-    const entries: ChangesetEntry[] = [
-      entry({
-        id: 'one',
-        kind: 'fix',
-        tasks: ['T9686-A', 'T9686-B'],
-        prs: [324, 325],
-        summary: 'Two tasks, two PRs.',
-      }),
-    ];
-
-    const result = aggregateChangesetsForRelease({
-      entries,
-      version: 'v2026.6.0',
-      date: '2026-05-20',
-    });
-
-    expect(result.markdown).toContain('- Two tasks, two PRs. (T9686-A) (T9686-B) (#324) (#325)');
   });
 
   it('appends optional release title to the section header when provided', () => {
@@ -172,24 +143,13 @@ describe('aggregateChangesetsForRelease', () => {
     expect(result.markdown).toContain('## v2026.6.0 — 2026-05-20 — June Release');
   });
 
-  it('omits the BREAKING section when no breaking entries are present', () => {
+  it('preserves input order within a section bucket so on-disk filename ordering survives', () => {
     const result = aggregateChangesetsForRelease({
-      entries: [entry({ id: 'one', kind: 'feat', summary: 'A feature.' })],
-      version: 'v2026.6.0',
-      date: '2026-05-20',
-    });
-    expect(result.markdown).not.toContain('BREAKING');
-  });
-
-  it('preserves input order within a kind bucket so on-disk filename ordering survives', () => {
-    const entries: ChangesetEntry[] = [
-      entry({ id: 'a', kind: 'feat', tasks: ['T1'], summary: 'first feature.' }),
-      entry({ id: 'b', kind: 'feat', tasks: ['T2'], summary: 'second feature.' }),
-      entry({ id: 'c', kind: 'feat', tasks: ['T3'], summary: 'third feature.' }),
-    ];
-
-    const result = aggregateChangesetsForRelease({
-      entries,
+      entries: [
+        entry({ id: 'a', kind: 'feat', tasks: ['T1'], summary: 'first feature.' }),
+        entry({ id: 'b', kind: 'feat', tasks: ['T2'], summary: 'second feature.' }),
+        entry({ id: 'c', kind: 'feat', tasks: ['T3'], summary: 'third feature.' }),
+      ],
       version: 'v2026.6.0',
       date: '2026-05-20',
     });
