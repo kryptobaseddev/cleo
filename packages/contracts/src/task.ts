@@ -81,14 +81,16 @@ export type TaskKind = 'work' | 'research' | 'experiment' | 'bug' | 'spike' | 'r
 export type TaskScope = 'project' | 'feature' | 'unit';
 
 /**
- * Bug severity axis. Only meaningful when `kind='bug'`; enforced by a DB-level
- * CHECK constraint on the `role` column (`severity IS NULL OR (severity IN (...) AND role='bug')`).
+ * Severity axis. Orthogonal to {@link TaskKind}; valid severities may be set
+ * on work/research/experiment/bug/spike/release tasks alike. The DB CHECK
+ * constraint only validates membership in P0-P3.
  *
  * OWNER-WRITE-ONLY: severity is intended to be set through owner-authenticated
  * paths only. This prevents a prompt-injection exploit where a compromised
  * Tier 3 agent could downgrade a P0 bug to P3 to force-ship.
  *
  * @task T944
+ * @task T10089
  */
 export type TaskSeverity = 'P0' | 'P1' | 'P2' | 'P3';
 
@@ -466,7 +468,7 @@ export interface Task {
   scope?: TaskScope;
 
   /**
-   * Bug severity. Only valid when {@link role} is `'bug'`. OWNER-WRITE-ONLY.
+   * Severity axis. Valid for any {@link kind}. OWNER-WRITE-ONLY.
    * @defaultValue undefined
    * @task T944
    */
@@ -638,7 +640,7 @@ export interface TaskCreate {
   scope?: TaskScope;
 
   /**
-   * Bug severity (OWNER-WRITE-ONLY). Only valid with `kind='bug'`.
+   * Severity axis (OWNER-WRITE-ONLY). Valid for any `kind`.
    * @defaultValue undefined
    * @task T944
    */

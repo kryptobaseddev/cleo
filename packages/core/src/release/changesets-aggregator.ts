@@ -271,7 +271,9 @@ export function aggregateChangesetsForRelease(
     return { markdown: '', entryCount: 0, kinds: new Set<ChangesetKind>() };
   }
 
-  const includedEntries = entries.filter((entry) => entry.releaseNotes?.includeInChangelog !== false);
+  const includedEntries = entries.filter(
+    (entry) => entry.releaseNotes?.includeInChangelog !== false,
+  );
   const groups = groupByReleaseNoteSection(includedEntries);
   const presentKinds = new Set<ChangesetKind>(includedEntries.map((entry) => entry.kind));
 

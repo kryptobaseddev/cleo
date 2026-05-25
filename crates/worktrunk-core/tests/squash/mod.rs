@@ -147,7 +147,10 @@ fn multiple_commits_ahead_yields_squashable() {
             assert_eq!(commit_count, 3);
             // Subjects newest-first.
             assert_eq!(subjects.len(), 3);
-            assert!(subjects[0].contains("gamma"), "newest first: got {subjects:?}");
+            assert!(
+                subjects[0].contains("gamma"),
+                "newest first: got {subjects:?}"
+            );
             assert!(!diff_summary.is_empty(), "diff_summary must be non-empty");
         }
         other => panic!("expected Squashable, got {other:?}"),

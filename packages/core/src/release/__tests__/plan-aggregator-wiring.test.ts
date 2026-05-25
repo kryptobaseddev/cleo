@@ -132,7 +132,7 @@ afterEach(async () => {
 });
 
 describe('releasePlan × changesets aggregator', () => {
-  it('reads .changeset/*.md and embeds aggregated CHANGELOG in plan.meta.releaseNotes', async () => {
+  it('reads in-scope .changeset/*.md and embeds aggregated CHANGELOG in plan.meta.releaseNotes', async () => {
     await seedEpicWithChildren('T9999', 1);
 
     writeChangeset(
@@ -188,6 +188,55 @@ describe('releasePlan × changesets aggregator', () => {
     expect(releaseNotes).toContain('- A new capability. _(provenance: [T10001](');
     expect(releaseNotes).toContain('- A sample bug fix. _(provenance: [T10001](');
     expect(meta?.['changesetEntryCount']).toBe(2);
+    expect(meta?.['changesetIds']).toEqual(['sample-feat', 'sample-fix']);
+  });
+
+  it('filters stale/orphan changesets that do not reference planned tasks', async () => {
+    await seedEpicWithChildren('T9999', 1);
+
+    writeChangeset(
+      'in-scope',
+      [
+        '---',
+        'id: in-scope',
+        'tasks: [T10001]',
+        'kind: fix',
+        'summary: Scoped fix.',
+        '---',
+        '',
+      ].join('\n'),
+    );
+    writeChangeset(
+      'stale-orphan',
+      [
+        '---',
+        'id: stale-orphan',
+        'tasks: [T424242]',
+        'kind: feat',
+        'summary: Old release entry should not leak.',
+        '---',
+        '',
+      ].join('\n'),
+    );
+
+    const result = await releasePlan({
+      version: 'v2026.6.0',
+      epicId: 'T9999',
+      channel: 'latest',
+      scheme: 'calver',
+      projectRoot: testDir,
+      createdBy: 'integration-test',
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error('unreachable');
+    expect(result.data.changesetEntryCount).toBe(1);
+
+    const plan = parseReleasePlan(JSON.parse(readFileSync(result.data.planPath, 'utf-8')));
+    const meta = plan.meta as Record<string, unknown> | undefined;
+    expect(meta?.['releaseNotes']).toContain('Scoped fix.');
+    expect(meta?.['releaseNotes']).not.toContain('Old release entry should not leak.');
+    expect(meta?.['changesetIds']).toEqual(['in-scope']);
   });
 
   it('persists release_changesets rows linked to the release with structured JSON columns', async () => {
@@ -287,15 +336,27 @@ describe('releasePlan × changesets aggregator', () => {
 
     writeChangeset(
       'in-scope',
-      ['---', 'id: in-scope', 'tasks: [T10001]', 'kind: fix', 'summary: Current fix.', '---', ''].join(
-        '\n',
-      ),
+      [
+        '---',
+        'id: in-scope',
+        'tasks: [T10001]',
+        'kind: fix',
+        'summary: Current fix.',
+        '---',
+        '',
+      ].join('\n'),
     );
     writeChangeset(
       'stale-prior-release',
-      ['---', 'id: stale-prior-release', 'tasks: [T4242]', 'kind: feat', 'summary: Old feature.', '---', ''].join(
-        '\n',
-      ),
+      [
+        '---',
+        'id: stale-prior-release',
+        'tasks: [T4242]',
+        'kind: feat',
+        'summary: Old feature.',
+        '---',
+        '',
+      ].join('\n'),
     );
 
     const result = await releasePlan({
@@ -333,9 +394,15 @@ describe('releasePlan × changesets aggregator', () => {
 
     writeChangeset(
       'first',
-      ['---', 'id: first', 'tasks: [T10001]', 'kind: feat', 'summary: First entry.', '---', ''].join(
-        '\n',
-      ),
+      [
+        '---',
+        'id: first',
+        'tasks: [T10001]',
+        'kind: feat',
+        'summary: First entry.',
+        '---',
+        '',
+      ].join('\n'),
     );
 
     const first = await releasePlan({
@@ -350,9 +417,15 @@ describe('releasePlan × changesets aggregator', () => {
     // Add a second entry and re-run.
     writeChangeset(
       'second',
-      ['---', 'id: second', 'tasks: [T10001]', 'kind: fix', 'summary: Second entry.', '---', ''].join(
-        '\n',
-      ),
+      [
+        '---',
+        'id: second',
+        'tasks: [T10001]',
+        'kind: fix',
+        'summary: Second entry.',
+        '---',
+        '',
+      ].join('\n'),
     );
 
     const second = await releasePlan({

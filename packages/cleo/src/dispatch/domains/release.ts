@@ -42,7 +42,7 @@ import type {
   ReleasePlanOptions,
   ValidateChangelogOptions,
 } from '@cleocode/core/internal';
-import { getLogger, getProjectRoot } from '@cleocode/core/internal';
+import { getLogger, getProjectRoot, resolveWorktreeRouting } from '@cleocode/core/internal';
 import type { OpsFromCore } from '../adapters/typed.js';
 import {
   releaseGateCheck,
@@ -329,13 +329,16 @@ export class ReleaseHandler implements DomainHandler {
         }
 
         // release.plan — SPEC-T9345 §4.2 (T9525): build canonical Release Plan envelope
-        // T9838: --saga and --no-changelog flags forwarded; epicId no longer
+        // T9838/T10088: --saga/--tasks and --no-changelog flags forwarded; epicId no longer
         // required at the dispatch layer — the core verb validates that
-        // (epicId XOR sagaId) is set.
+        // exactly one scope selector is set.
         case 'plan': {
           const version = typeof params?.version === 'string' ? params.version : undefined;
           const epicId = typeof params?.epicId === 'string' ? params.epicId : undefined;
           const sagaId = typeof params?.sagaId === 'string' ? params.sagaId : undefined;
+          const taskIds = Array.isArray(params?.taskIds)
+            ? params.taskIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
+            : undefined;
           if (!version) {
             return errorResult(
               'mutate',
@@ -346,13 +349,13 @@ export class ReleaseHandler implements DomainHandler {
               startTime,
             );
           }
-          if (!epicId && !sagaId) {
+          if (!epicId && !sagaId && !taskIds?.length) {
             return errorResult(
               'mutate',
               'release',
               operation,
               'E_INVALID_INPUT',
-              '--saga or --epic is required',
+              '--saga, --epic, or --tasks is required',
               startTime,
             );
           }
@@ -360,6 +363,7 @@ export class ReleaseHandler implements DomainHandler {
             version,
             ...(epicId ? { epicId } : {}),
             ...(sagaId ? { sagaId } : {}),
+            ...(taskIds?.length ? { taskIds } : {}),
             scheme:
               typeof params?.scheme === 'string'
                 ? (params.scheme as ReleasePlanOptions['scheme'])
@@ -372,7 +376,10 @@ export class ReleaseHandler implements DomainHandler {
             dryRun: typeof params?.dryRun === 'boolean' ? params.dryRun : false,
             writeChangelog:
               typeof params?.writeChangelog === 'boolean' ? params.writeChangelog : true,
-            projectRoot: getProjectRoot(),
+            // T10079: release plan side effects are project-level. When invoked
+            // from an XDG secondary worktree/subdir, route .changeset/,
+            // CHANGELOG.md, and plan.json writes to the primary worktree.
+            projectRoot: resolveWorktreeRouting().canonicalRoot,
           };
           return wrapResult(await releasePlan(typed), 'mutate', 'release', operation, startTime);
         }
