@@ -638,10 +638,15 @@ cleo release open v2026.MM.N
 # 3. (Optional) Poll PR + CI status while the workflow runs.
 cleo release pr-status v2026.MM.N
 
-# 4. Reconcile — after the PR merges and the release-publish workflow
-#    pushes the tag, reconcile backfills the 11 provenance tables.
-#    Typically invoked by the publish workflow itself; can be run
-#    manually with --from-workflow=false.
+# 4. Tag explicitly after the release PR merges. The retired
+#    auto-tag-on-release-merge workflow is a no-op; do not rely on
+#    GITHUB_TOKEN tag pushes to trigger downstream release publishing.
+git tag -a v2026.MM.N -m "Release v2026.MM.N"
+git push origin v2026.MM.N
+
+# 5. Reconcile — after release.yml publishes from the tag, reconcile
+#    backfills the 11 provenance tables. Typically invoked by the publish
+#    workflow itself; can be run manually with --from-workflow=false.
 cleo release reconcile v2026.MM.N
 ```
 
@@ -681,18 +686,14 @@ full atom grammar and tool-resolution rules.
   verify-npm-published. Dry-run by default; add `--execute` to perform
   real mutations. Idempotent and resumable from any failure point.
 
-### Auto-Tag on Release Merge
+### Auto-Tag on Release Merge (Retired)
 
-`.github/workflows/auto-tag-on-release-merge.yml` (audit annotation
-`# @task T10104`) fires when a release-ship PR merges to `main` and the
-title matches `^release: ship v<version>` (e.g.
-`release: ship v2026.5.104`). The workflow extracts `vX.Y.Z` from the title,
-tags the PR's merge commit, and pushes the tag — which then triggers the
-downstream `release.yml` (build + npm publish + GitHub Release). This
-removes the manual `git tag -a vX.Y.Z && git push origin vX.Y.Z` step the
-orchestrator used to run after every release merge. The tag step is
-idempotent: if `vX.Y.Z` already exists locally or on `origin`, the workflow
-exits successfully without re-tagging.
+`.github/workflows/auto-tag-on-release-merge.yml` is retained only as a
+manual-dispatch no-op with audit annotation `# @task T10434`. The previous
+workflow pushed a `v*` tag from a `GITHUB_TOKEN` context and expected that tag
+push to trigger downstream `release.yml`; ADR-087 retires that two-hop chain.
+After a release prepare PR merges, create and push the release tag explicitly
+(or manually dispatch `release.yml` against an existing tag).
 
 ### Branch Protection
 
