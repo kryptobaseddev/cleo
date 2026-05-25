@@ -69,12 +69,17 @@ describe('createMutateMinimalEnvelope middleware', () => {
     const mw = createMutateMinimalEnvelope();
     const req = makeRequest('tasks', 'add', { title: 'x' });
     const response = await mw(req, async () =>
-      makeSuccessResponse('add', { task: FULL_TASK, duplicate: false }),
+      makeSuccessResponse('add', {
+        task: FULL_TASK,
+        duplicate: false,
+        createdIds: { tasks: ['T9931'], acceptanceCriteria: ['ac-child', 'ac-parent'] },
+      }),
     );
     const data = response.data as Record<string, unknown>;
     expect(data['count']).toBe(1);
     expect(data['ids']).toEqual(['T9931']);
     expect(data['status']).toBe('pending');
+    expect(data['acceptanceCriteriaIds']).toEqual(['ac-child', 'ac-parent']);
     expect(data['task']).toBeUndefined();
     expect(data['description']).toBeUndefined();
     expect(response.meta.mutateProjection).toBe('mvi');
