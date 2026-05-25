@@ -876,6 +876,8 @@ export {
 // Context
 export { estimateContext } from './orchestration/context.js';
 export type {
+  DashboardLockContention,
+  DashboardLockMarker,
   DashboardRateMetric,
   OrchestrateDashboardMetrics,
 } from './orchestration/dashboard.js';

@@ -207,7 +207,8 @@ const statusCommand = defineCommand({
 const dashboardCommand = defineCommand({
   meta: {
     name: 'dashboard',
-    description: 'Show queue depth, admin-merge rate, force-bypass rate, and active worktree count',
+    description:
+      'Show queue depth, admin-merge rate, force-bypass rate, worktrees, and DB/evidence lock contention',
   },
   args: {
     window: {

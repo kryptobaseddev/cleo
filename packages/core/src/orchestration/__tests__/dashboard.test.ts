@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
@@ -110,6 +110,17 @@ describe('collectOrchestrateDashboard', () => {
     expect(metrics.activeWorktreeCount).toBe(2);
     expect(metrics.worktrees.total).toBe(4);
     expect(metrics.worktrees.stalled).toBe(0);
+    expect(metrics.lockContention).toMatchObject({
+      dbLockCount: 0,
+      evidenceLockCount: 0,
+      staleLockCount: 0,
+      worktreeLockedCount: 1,
+      worktreeStaleCount: 0,
+      hasContention: true,
+    });
+    expect(metrics.lockContention.cleanupGuidance).toContain(
+      'For wedged agent worktrees, run `cleo worktree force-unlock <taskId>`.',
+    );
   });
 
   it('surfaces stalled worker worktrees with dirty, unpushed, and stale reasons', async () => {
@@ -154,6 +165,48 @@ describe('collectOrchestrateDashboard', () => {
       ['unpushed'],
       ['stale'],
     ]);
+  });
+
+  it('surfaces DB/evidence lock markers and stale-lock cleanup guidance', async () => {
+    const projectRoot = join(process.cwd(), '.tmp-dashboard-locks-test');
+    await mkdir(join(projectRoot, '.cleo', 'audit'), { recursive: true });
+    const dbLockPath = join(projectRoot, '.cleo', 'tasks.db-journal');
+    const evidenceLockPath = join(
+      projectRoot,
+      '.cleo',
+      'audit',
+      'shared-evidence-recent.jsonl.lock',
+    );
+    await writeFile(dbLockPath, 'db lock');
+    await writeFile(evidenceLockPath, 'evidence lock');
+    const old = new Date('2026-05-24T11:00:00.000Z');
+    await utimes(dbLockPath, old, old);
+
+    const metrics = await collectOrchestrateDashboard(projectRoot, {
+      accessor: accessor([task('T1', 'pending')]),
+      now: new Date('2026-05-24T12:00:00.000Z'),
+      worktreeStatusCategories: ['stale'],
+    });
+
+    expect(metrics.lockContention).toMatchObject({
+      dbLockCount: 1,
+      evidenceLockCount: 1,
+      staleLockCount: 1,
+      worktreeLockedCount: 0,
+      worktreeStaleCount: 1,
+      hasContention: true,
+    });
+    expect(metrics.lockContention.lockMarkers.map((marker) => marker.kind)).toEqual([
+      'db',
+      'evidence',
+    ]);
+    expect(metrics.lockContention.cleanupGuidance).toEqual(
+      expect.arrayContaining([
+        'If no CLEO process is actively writing, stale DB/evidence lock markers can be removed after inspection.',
+        'Confirm no running CLEO writers, then delete stale lock marker files.',
+        'Review stale worktrees with `cleo worktree list --status stale`.',
+      ]),
+    );
   });
 
   it('formats a compact prompt summary', async () => {

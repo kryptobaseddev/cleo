@@ -7,7 +7,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Task, WorktreeInfo } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
@@ -18,6 +18,9 @@ import { listWorktrees } from '../worktree/list.js';
 
 /** Observation window used for audit-derived rates. */
 export const DASHBOARD_RATE_WINDOW_HOURS = 24;
+
+/** Age after which dashboard lock markers are treated as likely stale. */
+export const DASHBOARD_STALE_LOCK_MINUTES = 30;
 
 export interface DashboardRateMetric {
   count: number;
@@ -34,6 +37,24 @@ export interface DashboardWorktreeState {
   hasUnpushedCommits: boolean;
   isStalled: boolean;
   reasons: string[];
+}
+
+export interface DashboardLockMarker {
+  path: string;
+  kind: 'db' | 'evidence';
+  ageMinutes: number;
+  stale: boolean;
+}
+
+export interface DashboardLockContention {
+  dbLockCount: number;
+  evidenceLockCount: number;
+  staleLockCount: number;
+  worktreeLockedCount: number;
+  worktreeStaleCount: number;
+  hasContention: boolean;
+  lockMarkers: DashboardLockMarker[];
+  cleanupGuidance: string[];
 }
 
 export interface OrchestrateDashboardMetrics {
@@ -61,6 +82,7 @@ export interface OrchestrateDashboardMetrics {
     stalled: number;
   };
   stalledWorktrees: DashboardWorktreeState[];
+  lockContention: DashboardLockContention;
 }
 
 export interface CollectDashboardOptions {
@@ -71,6 +93,8 @@ export interface CollectDashboardOptions {
   worktreeStatusCategories?: readonly string[];
   /** Test hook: skip git worktree enumeration and use these full worktree states. */
   worktreeStates?: readonly DashboardWorktreeState[];
+  /** Test hook: bypass filesystem lock-marker scanning. */
+  lockMarkers?: readonly DashboardLockMarker[];
 }
 
 /**
@@ -92,6 +116,8 @@ export async function collectOrchestrateDashboard(
       ? statesFromCategories(options.worktreeStatusCategories)
       : await collectWorktreeStates(projectRoot));
   const worktrees = summarizeWorktrees(worktreeStates);
+  const lockMarkers = options.lockMarkers ?? (await collectDashboardLockMarkers(projectRoot, now));
+  const lockContention = summarizeLockContention(worktrees, lockMarkers);
   const [adminMergeRate, forceBypassRate] = await Promise.all([
     countJsonlEvents(
       join(projectRoot, WORKTREE_LIFECYCLE_AUDIT_FILE),
@@ -114,12 +140,16 @@ export async function collectOrchestrateDashboard(
     activeWorktreeCount: worktrees.active,
     worktrees,
     stalledWorktrees: worktreeStates.filter((worktree) => worktree.isStalled),
+    lockContention,
   };
 }
 
 /** One-line summary safe for spawn-prompt injection. */
 export function formatDashboardPromptSummary(metrics: OrchestrateDashboardMetrics): string {
-  return `queue=${metrics.queueDepth} ready / ${metrics.queue.active} active; worktrees=${metrics.activeWorktreeCount} active (${metrics.worktrees.stalled} stalled: ${metrics.worktrees.dirty} dirty, ${metrics.worktrees.unpushed} unpushed); adminMerge=${formatRate(metrics.adminMergeRate)}/h; forceBypass=${formatRate(metrics.forceBypassRate)}/h (${metrics.forceBypassRate.windowHours}h)`;
+  const lockSummary = metrics.lockContention.hasContention
+    ? `; locks=${metrics.lockContention.dbLockCount} db / ${metrics.lockContention.evidenceLockCount} evidence / ${metrics.lockContention.worktreeLockedCount} worktree (${metrics.lockContention.staleLockCount + metrics.lockContention.worktreeStaleCount} stale)`
+    : '';
+  return `queue=${metrics.queueDepth} ready / ${metrics.queue.active} active; worktrees=${metrics.activeWorktreeCount} active (${metrics.worktrees.stalled} stalled: ${metrics.worktrees.dirty} dirty, ${metrics.worktrees.unpushed} unpushed)${lockSummary}; adminMerge=${formatRate(metrics.adminMergeRate)}/h; forceBypass=${formatRate(metrics.forceBypassRate)}/h (${metrics.forceBypassRate.windowHours}h)`;
 }
 
 function summarizeQueue(tasks: Task[]): OrchestrateDashboardMetrics['queue'] {
@@ -242,6 +272,85 @@ function hasUnpushedWork(worktreePath: string): boolean {
   } catch {
     return false;
   }
+}
+
+async function collectDashboardLockMarkers(
+  projectRoot: string,
+  now: Date,
+): Promise<DashboardLockMarker[]> {
+  const roots = [join(projectRoot, '.cleo'), join(projectRoot, '.cleo', 'audit')];
+  const markers: DashboardLockMarker[] = [];
+  for (const root of roots) {
+    let entries: string[];
+    try {
+      entries = await readdir(root);
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const kind = classifyLockMarker(entry);
+      if (!kind) continue;
+      const path = join(root, entry);
+      try {
+        const info = await stat(path);
+        if (!info.isFile()) continue;
+        const ageMinutes = Math.max(0, Math.round((now.getTime() - info.mtimeMs) / 60_000));
+        markers.push({
+          path,
+          kind,
+          ageMinutes,
+          stale: ageMinutes >= DASHBOARD_STALE_LOCK_MINUTES,
+        });
+      } catch {
+        // Best-effort observability: lock files may disappear while scanning.
+      }
+    }
+  }
+  return markers.sort((a, b) => b.ageMinutes - a.ageMinutes || a.path.localeCompare(b.path));
+}
+
+function classifyLockMarker(fileName: string): DashboardLockMarker['kind'] | undefined {
+  if (fileName.endsWith('.db-journal') || fileName.endsWith('.db.lock')) return 'db';
+  if (fileName.endsWith('.jsonl.lock') || fileName.endsWith('.evidence.lock')) return 'evidence';
+  return undefined;
+}
+
+function summarizeLockContention(
+  worktrees: OrchestrateDashboardMetrics['worktrees'],
+  lockMarkers: readonly DashboardLockMarker[],
+): DashboardLockContention {
+  const dbLockCount = lockMarkers.filter((marker) => marker.kind === 'db').length;
+  const evidenceLockCount = lockMarkers.filter((marker) => marker.kind === 'evidence').length;
+  const staleLockCount = lockMarkers.filter((marker) => marker.stale).length;
+  const hasContention =
+    dbLockCount > 0 || evidenceLockCount > 0 || worktrees.locked > 0 || worktrees.stale > 0;
+  const cleanupGuidance: string[] = [];
+
+  if (dbLockCount > 0 || evidenceLockCount > 0) {
+    cleanupGuidance.push(
+      'If no CLEO process is actively writing, stale DB/evidence lock markers can be removed after inspection.',
+    );
+  }
+  if (staleLockCount > 0) {
+    cleanupGuidance.push('Confirm no running CLEO writers, then delete stale lock marker files.');
+  }
+  if (worktrees.locked > 0) {
+    cleanupGuidance.push('For wedged agent worktrees, run `cleo worktree force-unlock <taskId>`.');
+  }
+  if (worktrees.stale > 0) {
+    cleanupGuidance.push('Review stale worktrees with `cleo worktree list --status stale`.');
+  }
+
+  return {
+    dbLockCount,
+    evidenceLockCount,
+    staleLockCount,
+    worktreeLockedCount: worktrees.locked,
+    worktreeStaleCount: worktrees.stale,
+    hasContention,
+    lockMarkers: [...lockMarkers],
+    cleanupGuidance,
+  };
 }
 
 async function countJsonlEvents(
