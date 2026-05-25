@@ -48,7 +48,16 @@ HARNESS_EXTENSIONS = {
     "argument-hint", "disable-model-invocation", "user-invocable",
     "model", "context", "agent", "hooks",
 }
-ALLOWED_FRONTMATTER = SPEC_FRONTMATTER | HARNESS_EXTENSIONS
+
+# CLEO overlays that intentionally live in SKILL.md because existing runtime
+# gates read them from frontmatter. Keep this list small and explicit: all other
+# provider/runtime-specific fields must be added here deliberately instead of
+# silently passing through as unknown metadata.
+CLEO_OVERLAY_EXTENSIONS = {
+    "loomStage",
+}
+
+ALLOWED_FRONTMATTER = SPEC_FRONTMATTER | HARNESS_EXTENSIONS | CLEO_OVERLAY_EXTENSIONS
 
 CLEO_ONLY = {
     "version", "tier", "core", "category", "protocol",
@@ -61,6 +70,73 @@ MANIFEST_REQUIRED_FIELDS = [
     "name", "version", "description", "path", "status",
     "tier", "token_budget", "capabilities", "constraints",
 ]
+
+JSON_SCALAR_TYPES = (str, int, float, bool, type(None))
+DATE_LIKE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}(?:$|[T\s]\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:?\d{2})?$)")
+NUMERIC_OR_VERSION_RE = re.compile(r"^[+-]?\d+(?:\.\d+)+(?:[-+][0-9A-Za-z.-]+)?$")
+INTEGER_RE = re.compile(r"^[+-]?\d+$")
+
+
+def _is_json_serializable(value):
+    """Return True when a PyYAML value can safely round-trip via JSON."""
+    if isinstance(value, JSON_SCALAR_TYPES):
+        return True
+    if isinstance(value, list):
+        return all(_is_json_serializable(item) for item in value)
+    if isinstance(value, dict):
+        return all(isinstance(k, str) and _is_json_serializable(v) for k, v in value.items())
+    return False
+
+
+def _metadata_unquoted_portability_findings(raw_frontmatter):
+    """Find metadata scalars that YAML parsers may coerce differently.
+
+    Decision O-mpkoldtv-0 requires SKILL.md frontmatter to be cross-harness
+    portable through JS/Python YAML parsers and JSON-serializable. The open skill
+    spec already treats metadata as string-to-string, so date-like, timestamp,
+    version, and numeric metadata values must be quoted.
+    """
+    findings = []
+    lines = raw_frontmatter.splitlines()
+    in_metadata = False
+    metadata_indent = None
+
+    for line_no, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        indent = len(line) - len(line.lstrip(" "))
+        if re.match(r"^metadata\s*:\s*$", stripped):
+            in_metadata = True
+            metadata_indent = indent
+            continue
+
+        if in_metadata and indent <= (metadata_indent or 0):
+            in_metadata = False
+            metadata_indent = None
+
+        if not in_metadata:
+            continue
+
+        match = re.match(r"^([A-Za-z0-9_.-]+)\s*:\s*(.+?)\s*(?:#.*)?$", stripped)
+        if not match:
+            continue
+
+        key, value = match.groups()
+        value = value.strip()
+        if not value or value[0] in {'\"', "'", "[", "{"}:
+            continue
+
+        if DATE_LIKE_RE.match(value):
+            findings.append((line_no, key, value, "date/timestamp-like"))
+        elif key in {"version", "last_updated", "last_reviewed"} and (
+                NUMERIC_OR_VERSION_RE.match(value) or INTEGER_RE.match(value)):
+            findings.append((line_no, key, value, "version/numeric"))
+        elif NUMERIC_OR_VERSION_RE.match(value) or INTEGER_RE.match(value):
+            findings.append((line_no, key, value, "numeric"))
+
+    return findings
 
 
 def validate_skill(skill_path, manifest_path=None, dispatch_config_path=None, provider_map_path=None):
@@ -128,11 +204,26 @@ def validate_skill(skill_path, manifest_path=None, dispatch_config_path=None, pr
 
     ok(tier, "Frontmatter is a dict")
 
+    if not _is_json_serializable(frontmatter):
+        error(tier, "Frontmatter must be JSON-serializable after YAML parsing (quote dates/timestamps and use string keys)")
+    else:
+        ok(tier, "Frontmatter is JSON-serializable after YAML parsing")
+
+    unknown_keys = sorted(key for key in frontmatter if key not in ALLOWED_FRONTMATTER and key not in CLEO_ONLY)
+    for key in unknown_keys:
+        error(tier, (
+            f"Unknown frontmatter field '{key}' is not in the explicit spec/provider allowlist; "
+            "move custom data under metadata or add an explicit validator allowlist entry"
+        ))
+
+    if not unknown_keys:
+        ok(tier, "All frontmatter fields are in the explicit spec/provider allowlist")
+
     for key in frontmatter:
         if key in CLEO_ONLY:
             error(tier, f"Move '{key}' to manifest.json (CLEO-only field)")
         else:
-            pass  # valid or unknown keys checked in tier 2
+            pass  # valid or unknown keys checked above
 
     if not any(r[1] == "ERROR" and "CLEO-only" in r[2] for r in results):
         ok(tier, "No CLEO-only fields in frontmatter")
@@ -265,6 +356,11 @@ def validate_skill(skill_path, manifest_path=None, dispatch_config_path=None, pr
                 warn(tier, (
                     f"'metadata' values should be strings per agentskills.io spec; "
                     f"non-string keys: {non_string_vals[:3]} (quote numeric versions: \"1.0\" not 1.0)"
+                ))
+            for line_no, key, value, kind in _metadata_unquoted_portability_findings(raw_frontmatter):
+                error(tier, (
+                    f"'metadata.{key}' uses unquoted {kind} scalar at frontmatter line {line_no}: {value!r}; "
+                    "quote it for Python/JS YAML parity and JSON portability"
                 ))
             present_recommended = RECOMMENDED_METADATA_KEYS & set(metadata_val.keys())
             if not present_recommended:

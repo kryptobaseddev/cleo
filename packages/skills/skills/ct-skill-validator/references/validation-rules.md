@@ -67,6 +67,17 @@ either omit them or document the dependency in `compatibility`.
 | `agent` | string | No | Subagent type (Explore, Plan, etc.) |
 | `hooks` | dict | No | Skill-scoped lifecycle hooks |
 
+#### CLEO overlay extensions
+
+These are intentionally allowlisted CLEO runtime overlays that still live in
+`SKILL.md` because repo/runtime gates consume them directly. Do not add new
+provider- or runtime-specific top-level fields without adding them to the
+validator allowlist.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `loomStage` | string | No | RCASD-IVTR+C stage binding used by LOOM protocol skills |
+
 ### CLEO-only fields (forbidden in SKILL.md; belong in `manifest-entry.json`)
 
 These fields hold CLEO-specific structured data that the Claude runtime
@@ -99,7 +110,9 @@ the SKILL.md frontmatter or violate the agentskills.io spec.
 | T1-003 | Frontmatter block can be extracted (closing `---` found) | ERROR | Add closing `---` after frontmatter |
 | T1-004 | Frontmatter is valid YAML | ERROR | Fix YAML syntax errors |
 | T1-005 | Frontmatter parses to a dictionary | ERROR | Frontmatter must be key: value pairs, not a scalar or list |
-| T1-006 | No CLEO-only fields present in frontmatter | ERROR (per field) | Move the field to manifest-entry.json or manifest.json |
+| T1-006 | Frontmatter is JSON-serializable after YAML parsing | ERROR | Quote date/timestamp-like values and use string keys |
+| T1-007 | All top-level fields are in the explicit spec/provider allowlist | ERROR (per field) | Move custom data under `metadata` or add a deliberate allowlist entry |
+| T1-008 | No CLEO-only fields present in frontmatter | ERROR (per field) | Move the field to manifest-entry.json or manifest.json |
 
 ## Tier 2 — Frontmatter Quality Rules
 
@@ -138,6 +151,7 @@ the SKILL.md frontmatter or violate the agentskills.io spec.
 | T2-031 | `metadata` values are all strings (agentskills.io spec) | WARN | Quote numeric versions: `version: "1.0"` |
 | T2-032 | `metadata` includes at least one of: author, version, last_updated | WARN | Add recommended traceability keys |
 | T2-033 | `metadata.last_updated` (and `metadata.last_reviewed` if present) match `YYYY-MM-DD HH:MM:SS` | WARN | Use precise timestamp format, e.g. `"2026-05-21 14:00:18"` |
+| T2-034 | Date-like, timestamp, version, and numeric metadata scalars are quoted | ERROR | Quote metadata values so Python/JS YAML parsers and JSON serializers agree |
 
 ## Tier 3 — Body Quality Rules
 
@@ -173,7 +187,9 @@ the SKILL.md frontmatter or violate the agentskills.io spec.
 | T1-003 | 1 | Frontmatter extractable (closing `---`) | ERROR |
 | T1-004 | 1 | Frontmatter valid YAML | ERROR |
 | T1-005 | 1 | Frontmatter is a dict | ERROR |
-| T1-006 | 1 | No CLEO-only fields | ERROR |
+| T1-006 | 1 | Frontmatter JSON-serializable after YAML parsing | ERROR |
+| T1-007 | 1 | Top-level fields in explicit spec/provider allowlist | ERROR |
+| T1-008 | 1 | No CLEO-only fields | ERROR |
 | T2-001 | 2 | `name` present | ERROR |
 | T2-002 | 2 | `name` is string | ERROR |
 | T2-003 | 2 | `name` hyphen-case | ERROR |
@@ -207,6 +223,7 @@ the SKILL.md frontmatter or violate the agentskills.io spec.
 | T2-031 | 2 | `metadata` values are strings | WARN |
 | T2-032 | 2 | `metadata` has author/version/last_updated | WARN |
 | T2-033 | 2 | `metadata` timestamp keys match `YYYY-MM-DD HH:MM:SS` | WARN |
+| T2-034 | 2 | Risky metadata scalars are quoted | ERROR |
 | T3-001 | 3 | Body present | WARN |
 | T3-002 | 3 | Body under 600 lines | ERROR |
 | T3-003 | 3 | Body under 500 lines (spec) | WARN |
