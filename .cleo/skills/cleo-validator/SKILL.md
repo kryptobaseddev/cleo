@@ -2,9 +2,9 @@
 name: cleo-validator
 description: "Independent IVTR peer-reviewer role. The Validator is spawned by a Lead AFTER a Worker reports an implementation candidate to verify that every Acceptance Criterion is satisfied by programmatic evidence. The Validator MUST be a different agent instance from the Worker who built the change — same-agent self-attestation is rejected as rubber-stamping. Use when spawned with `subagent_type: cleo-validator` (or equivalent role token) and a target task ID; the Validator pulls the AC list via `validator.ac-pull`, runs the IVTR rubric, then ships exactly ONE binary verdict — `validator.attest` (pass) or `validator.reject` (fail). Triggers: 'validate this implementation', 'run the IVTR rubric', 'attest the acceptance criteria', 'is this PR ready to merge?', any spawn carrying role=validator. Implements ADR-083 §4 (Validator role) and the SG-IVTR-AC-BINDING saga (T10377)."
 metadata:
-  version: 2.0.0
+  version: 2.1.0
   lastReviewed: 2026-05-25
-  stability: experimental
+  stability: stable
 ---
 
 # Validator Role (cleo-validator)
