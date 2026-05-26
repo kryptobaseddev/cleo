@@ -1085,6 +1085,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
               sourceKey?: string;
               targetTaskId?: string | null;
               projection?: string;
+              contentHash?: string | null;
             }>,
           ): Promise<void> {
             if (rows.length === 0) return;
@@ -1100,6 +1101,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
                   targetTaskId: r.targetTaskId ?? null,
                   projection: r.projection ?? 'legacy',
                   text: r.text,
+                  contentHash: r.contentHash ?? null,
                 })),
               )
               .run();
