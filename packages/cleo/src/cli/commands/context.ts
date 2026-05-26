@@ -70,7 +70,7 @@ const checkCommand = defineCommand({
     handleRawError(response, { command: 'context', operation: 'admin.context' });
     const data = response.data as { status?: string };
     cliOutput(data, { command: 'context', operation: 'admin.context' });
-    const exitCode = STATUS_EXIT_CODE[data.status] ?? ExitCode.SUCCESS;
+    const exitCode = STATUS_EXIT_CODE[data.status ?? ''] ?? ExitCode.SUCCESS;
     if (exitCode !== ExitCode.SUCCESS) {
       process.exit(exitCode);
     }
