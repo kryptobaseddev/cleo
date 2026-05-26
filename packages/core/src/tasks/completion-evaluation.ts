@@ -3,6 +3,8 @@ import type {
   AcRow,
   CompletionBlockerReason,
   CompletionCriterionEvaluation,
+  CompletionCriterionReplacement,
+  CompletionCriterionWaiver,
   CompletionEvaluation,
   CompletionExplanation,
   CompletionStaleReason,
@@ -12,8 +14,15 @@ import type {
 } from '@cleocode/contracts';
 
 export interface EvaluateCompletionOptions {
-  /** Cancelled child tasks that an operator has explicitly waived for completion. */
+  /**
+   * Legacy child-id-only waiver list retained for callers not yet migrated to
+   * criterion-scoped waiver records. Prefer `childWaivers` for new code.
+   */
   readonly waivedChildTaskIds?: readonly string[];
+  /** Criterion-scoped waivers with reason, actor, and timestamp metadata. */
+  readonly childWaivers?: readonly CompletionCriterionWaiver[];
+  /** Criterion-scoped replacement policies for cancelled or superseded children. */
+  readonly childReplacements?: readonly CompletionCriterionReplacement[];
 }
 
 const CHILD_SATISFIED_STATUS: ReadonlySet<TaskStatus> = new Set(['done']);
@@ -35,6 +44,39 @@ function bindingsByAcId(bindings: readonly AcBindingRow[]): Map<string, AcBindin
 
 function childById(children: readonly Task[]): Map<string, Task> {
   return new Map(children.map((child) => [child.id, child]));
+}
+
+function criterionChildKey(criterionAcId: string, childTaskId: string): string {
+  return `${criterionAcId}\u0000${childTaskId}`;
+}
+
+function waiversByCriterionChild(
+  waivers: readonly CompletionCriterionWaiver[],
+): Map<string, CompletionCriterionWaiver> {
+  return new Map(
+    waivers.map((waiver) => [criterionChildKey(waiver.criterionAcId, waiver.childTaskId), waiver]),
+  );
+}
+
+function replacementsByCriterionChild(
+  replacements: readonly CompletionCriterionReplacement[],
+): Map<string, CompletionCriterionReplacement> {
+  return new Map(
+    replacements.map((replacement) => [
+      criterionChildKey(replacement.criterionAcId, replacement.originalChildTaskId),
+      replacement,
+    ]),
+  );
+}
+
+function legacyWaiverFor(row: AcRow, childTaskId: string): CompletionCriterionWaiver {
+  return {
+    criterionAcId: row.id,
+    childTaskId,
+    reason: 'legacy child id waiver',
+    actor: 'legacy-waivedChildTaskIds',
+    waivedAt: 'legacy',
+  };
 }
 
 function criterionBase(
@@ -67,7 +109,9 @@ function evaluateChildCriterion(
   row: AcRow,
   evidenceBindings: number,
   children: ReadonlyMap<string, Task>,
-  waivedChildTaskIds: ReadonlySet<string>,
+  waivers: ReadonlyMap<string, CompletionCriterionWaiver>,
+  replacements: ReadonlyMap<string, CompletionCriterionReplacement>,
+  legacyWaivedChildTaskIds: ReadonlySet<string>,
 ): CompletionCriterionEvaluation {
   const base = criterionBase(row, evidenceBindings);
   const targetTaskId = row.targetTaskId ?? undefined;
@@ -81,12 +125,35 @@ function evaluateChildCriterion(
   }
 
   const withChild = { ...base, targetTaskId, targetTaskStatus: child.status };
+  const replacement = replacements.get(criterionChildKey(row.id, child.id));
+  if (replacement) {
+    const replacementTask = children.get(replacement.replacementChildTaskId);
+    if (replacementTask?.status === 'done') {
+      return {
+        ...withChild,
+        status: 'replaced',
+        replacement,
+        replacementTaskStatus: replacementTask.status,
+      };
+    }
+    return {
+      ...withChild,
+      status: 'unsatisfied',
+      reason: 'child_replacement_not_done',
+      replacement,
+      ...(replacementTask ? { replacementTaskStatus: replacementTask.status } : {}),
+    };
+  }
+
   if (CHILD_SATISFIED_STATUS.has(child.status)) {
     return { ...withChild, status: 'satisfied' };
   }
   if (CHILD_WAIVABLE_STATUS.has(child.status)) {
-    if (waivedChildTaskIds.has(child.id)) {
-      return { ...withChild, status: 'waived' };
+    const waiver =
+      waivers.get(criterionChildKey(row.id, child.id)) ??
+      (legacyWaivedChildTaskIds.has(child.id) ? legacyWaiverFor(row, child.id) : undefined);
+    if (waiver) {
+      return { ...withChild, status: 'waived', waiver };
     }
     return {
       ...withChild,
@@ -121,18 +188,28 @@ export async function evaluateCompletion(
   const bindings = await accessor.getAcBindings(acRows.map((row) => row.id));
   const bindingMap = bindingsByAcId(bindings);
   const childrenMap = childById(children);
-  const waivedChildTaskIds = new Set(options.waivedChildTaskIds ?? []);
+  const legacyWaivedChildTaskIds = new Set(options.waivedChildTaskIds ?? []);
+  const waivers = waiversByCriterionChild(options.childWaivers ?? []);
+  const replacements = replacementsByCriterionChild(options.childReplacements ?? []);
 
   const criteria = acRows.map((row) => {
     const evidenceBindings = bindingMap.get(row.id)?.length ?? 0;
     if (row.kind === 'child_task') {
-      return evaluateChildCriterion(row, evidenceBindings, childrenMap, waivedChildTaskIds);
+      return evaluateChildCriterion(
+        row,
+        evidenceBindings,
+        childrenMap,
+        waivers,
+        replacements,
+        legacyWaivedChildTaskIds,
+      );
     }
     return evaluateTextOrEvidence(row, evidenceBindings);
   });
 
   const satisfied = criteria.filter((criterion) => criterion.status === 'satisfied');
   const waived = criteria.filter((criterion) => criterion.status === 'waived');
+  const replaced = criteria.filter((criterion) => criterion.status === 'replaced');
   const unsatisfied = criteria.filter((criterion) => criterion.status === 'unsatisfied');
   const staleReasons: CompletionStaleReason[] =
     task.status === 'done' && unsatisfied.length > 0
@@ -149,11 +226,13 @@ export async function evaluateCompletion(
     satisfied,
     unsatisfied,
     waived,
+    replaced,
     totals: {
       criteria: criteria.length,
       satisfied: satisfied.length,
       unsatisfied: unsatisfied.length,
       waived: waived.length,
+      replaced: replaced.length,
     },
   };
 }
@@ -172,12 +251,12 @@ function blockerForStale(evaluation: CompletionEvaluation): CompletionCriterionE
 
 function summarize(evaluation: CompletionEvaluation): string {
   if (evaluation.ready) {
-    return `Task ${evaluation.taskId} is ready to complete: ${evaluation.totals.satisfied} satisfied, ${evaluation.totals.waived} waived, 0 unsatisfied criteria.`;
+    return `Task ${evaluation.taskId} is ready to complete: ${evaluation.totals.satisfied} satisfied, ${evaluation.totals.waived} waived, ${evaluation.totals.replaced} replaced, 0 unsatisfied criteria.`;
   }
   if (evaluation.stale) {
     return `Task ${evaluation.taskId} is already done but has ${evaluation.totals.unsatisfied} unsatisfied completion criteria.`;
   }
-  return `Task ${evaluation.taskId} is not ready to complete: ${evaluation.totals.unsatisfied} unsatisfied, ${evaluation.totals.satisfied} satisfied, ${evaluation.totals.waived} waived criteria.`;
+  return `Task ${evaluation.taskId} is not ready to complete: ${evaluation.totals.unsatisfied} unsatisfied, ${evaluation.totals.satisfied} satisfied, ${evaluation.totals.waived} waived, ${evaluation.totals.replaced} replaced criteria.`;
 }
 
 /** Format a CompletionEvaluation into a compact, human-readable explanation. */

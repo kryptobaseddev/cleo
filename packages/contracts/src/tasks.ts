@@ -158,14 +158,57 @@ export interface TaskView {
 
 export type CompletionCriterionKind = 'text' | 'evidence_bound' | 'child_task';
 
-export type CompletionCriterionStatus = 'satisfied' | 'unsatisfied' | 'waived';
+export type CompletionCriterionStatus = 'satisfied' | 'unsatisfied' | 'waived' | 'replaced';
 
 export type CompletionBlockerReason =
   | 'missing_evidence_binding'
   | 'child_not_done'
   | 'child_cancelled_requires_waiver'
+  | 'child_replacement_not_done'
   | 'child_missing'
   | 'done_parent_stale';
+
+/**
+ * Explicit operator waiver for a child-task completion criterion. @task T10592
+ *
+ * Waivers are intentionally criterion-scoped: the same cancelled child may back
+ * multiple parent criteria, and each criterion needs its own reason, actor, and
+ * timestamp for auditable completion rollups.
+ */
+export interface CompletionCriterionWaiver {
+  /** AC row id that is being waived. */
+  criterionAcId: string;
+  /** Child task id referenced by the waived AC row. */
+  childTaskId: string;
+  /** Human/operator rationale for accepting the cancelled child as waived. */
+  reason: string;
+  /** Actor that approved the waiver. */
+  actor: string;
+  /** ISO-8601 timestamp recording when the waiver was approved. */
+  waivedAt: string;
+}
+
+/**
+ * Explicit replacement policy for a child-task completion criterion. @task T10592
+ *
+ * Replacements only satisfy the original criterion when the replacement child is
+ * itself done; otherwise the criterion remains unsatisfied with a replacement
+ * blocker so rollups can distinguish replaced work from waived or satisfied work.
+ */
+export interface CompletionCriterionReplacement {
+  /** AC row id whose original child requirement is replaced. */
+  criterionAcId: string;
+  /** Original child task id referenced by the AC row. */
+  originalChildTaskId: string;
+  /** Replacement child task id that must be done to satisfy this criterion. */
+  replacementChildTaskId: string;
+  /** Human/operator rationale for replacing the original child. */
+  reason: string;
+  /** Actor that approved the replacement. */
+  actor: string;
+  /** ISO-8601 timestamp recording when the replacement was approved. */
+  replacedAt: string;
+}
 
 /** A typed per-AC completion evaluation row. @task T10591 */
 export interface CompletionCriterionEvaluation {
@@ -177,7 +220,7 @@ export interface CompletionCriterionEvaluation {
   text: string;
   /** Criteria kind from the AC table. */
   kind: CompletionCriterionKind;
-  /** Whether this criterion is satisfied, unsatisfied, or explicitly waived. */
+  /** Whether this criterion is satisfied, unsatisfied, explicitly waived, or replaced. */
   status: CompletionCriterionStatus;
   /** Blocking reason when status is unsatisfied. */
   reason?: CompletionBlockerReason;
@@ -185,6 +228,12 @@ export interface CompletionCriterionEvaluation {
   targetTaskId?: string;
   /** Observed child task status for child_task rows. */
   targetTaskStatus?: TaskStatus;
+  /** Explicit waiver metadata when status is `waived`. */
+  waiver?: CompletionCriterionWaiver;
+  /** Explicit replacement metadata when a replacement policy applies. */
+  replacement?: CompletionCriterionReplacement;
+  /** Observed status of the replacement child task, when a replacement policy applies. */
+  replacementTaskStatus?: TaskStatus;
   /** Number of evidence bindings attached to this AC. */
   evidenceBindings: number;
 }
@@ -202,11 +251,13 @@ export interface CompletionEvaluation {
   satisfied: CompletionCriterionEvaluation[];
   unsatisfied: CompletionCriterionEvaluation[];
   waived: CompletionCriterionEvaluation[];
+  replaced: CompletionCriterionEvaluation[];
   totals: {
     criteria: number;
     satisfied: number;
     unsatisfied: number;
     waived: number;
+    replaced: number;
   };
 }
 
