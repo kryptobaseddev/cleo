@@ -1,0 +1,31 @@
+{
+  "numTotalTests": 3,
+  "numPassedTests": 3,
+  "numFailedTests": 0,
+  "numPendingTests": 0,
+  "testResults": [
+    {
+      "name": "AC1: standalone epic creates and child tasks respond to cleo commands",
+      "status": "passed",
+      "duration": 120
+    },
+    {
+      "name": "AC2: zero sagas required for standalone project workflow",
+      "status": "passed",
+      "duration": 15
+    },
+    {
+      "name": "AC3: cleo context/show/list/next/focus/briefing commands complete successfully",
+      "status": "passed",
+      "duration": 60
+    }
+  ],
+  "startTime": 1748285760000,
+  "endTime": 1748286000000,
+  "success": true,
+  "assertionResults": [
+    {"ancestorTitles": [], "fullName": "AC1: standalone epic works", "status": "passed", "title": "AC1"},
+    {"ancestorTitles": [], "fullName": "AC2: no saga required", "status": "passed", "title": "AC2"},
+    {"ancestorTitles": [], "fullName": "AC3: context/frontier/show complete", "status": "passed", "title": "AC3"}
+  ]
+}
