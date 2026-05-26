@@ -4,6 +4,7 @@
  * @epic T9834
  */
 
+import { randomBytes } from 'node:crypto';
 import type { Task, TaskStatus } from '@cleocode/contracts';
 import { TASK_STATUSES } from '@cleocode/contracts';
 import { getTaskAccessor } from '../store/data-accessor.js';
@@ -11,6 +12,14 @@ import { getHierarchyLimits } from './task-tree.js';
 
 /** Task record shape expected from the data layer. */
 type TaskRecord = Task;
+
+function typeForDepth(depth: number): TaskRecord['type'] {
+  return depth >= 2 ? 'subtask' : 'task';
+}
+
+function taskLogId(): string {
+  return `log-${Math.floor(Date.now() / 1000)}-${randomBytes(3).toString('hex')}`;
+}
 
 /**
  * Move task under a different parent.
@@ -43,6 +52,8 @@ export async function coreTaskReparent(
   oldParent: string | null;
   newParent: string | null;
   newType?: string;
+  ancestorsReopened: string[];
+  subtreeUpdated: string[];
 }> {
   const accessor = await getTaskAccessor(projectRoot);
 
@@ -51,63 +62,139 @@ export async function coreTaskReparent(
     throw new Error(`Task '${taskId}' not found`);
   }
 
+  const oldParent = task.parentId ?? null;
   const effectiveParentId = newParentId || null;
-
-  if (!effectiveParentId) {
-    const oldParent = task.parentId ?? null;
-    task.parentId = null;
-    if (task.type === 'subtask') task.type = 'task';
-    task.updatedAt = new Date().toISOString();
-
-    await accessor.upsertSingleTask(task);
-
-    return { task: taskId, reparented: true, oldParent, newParent: null, newType: task.type };
-  }
-
-  const newParent = await accessor.loadSingleTask(effectiveParentId);
-  if (!newParent) {
-    throw new Error(`Parent task '${effectiveParentId}' not found`);
-  }
-
-  if (newParent.type === 'subtask') {
-    throw new Error(`Cannot parent under subtask '${effectiveParentId}'`);
-  }
-
-  // Check circular reference using subtree
+  const now = new Date().toISOString();
   const subtree = await accessor.getSubtree(taskId);
-  if (subtree.some((t: TaskRecord) => t.id === effectiveParentId)) {
-    throw new Error(
-      `Moving '${taskId}' under '${effectiveParentId}' would create circular reference`,
-    );
+  const reparentLimits = getHierarchyLimits(projectRoot);
+
+  if (effectiveParentId === taskId) {
+    throw new Error(`Moving '${taskId}' under itself would create circular reference`);
   }
 
-  // Check depth limit using ancestor chain
-  const ancestors = await accessor.getAncestorChain(effectiveParentId);
-  const parentDepth = ancestors.length;
-  const reparentLimits = getHierarchyLimits(projectRoot);
-  if (parentDepth + 1 >= reparentLimits.maxDepth) {
+  let parentDepth = 0;
+  let newParent: TaskRecord | null = null;
+  let newParentAncestors: TaskRecord[] = [];
+
+  if (effectiveParentId) {
+    newParent = await accessor.loadSingleTask(effectiveParentId);
+    if (!newParent) {
+      throw new Error(`Parent task '${effectiveParentId}' not found`);
+    }
+
+    if (newParent.type === 'subtask') {
+      throw new Error(`Cannot parent under subtask '${effectiveParentId}'`);
+    }
+
+    // Check circular reference using subtree
+    if (subtree.some((t: TaskRecord) => t.id === effectiveParentId)) {
+      throw new Error(
+        `Moving '${taskId}' under '${effectiveParentId}' would create circular reference`,
+      );
+    }
+
+    // Check depth limit using ancestor chain
+    newParentAncestors = await accessor.getAncestorChain(effectiveParentId);
+    parentDepth = newParentAncestors.length;
+
+    // Check sibling limit (0 = unlimited)
+    const children = await accessor.getChildren(effectiveParentId);
+    const siblingCount = children.filter((t: TaskRecord) => t.id !== taskId).length;
+    if (reparentLimits.maxSiblings > 0 && siblingCount >= reparentLimits.maxSiblings) {
+      throw new Error(
+        `Cannot add child to ${effectiveParentId}: max siblings (${reparentLimits.maxSiblings}) exceeded`,
+      );
+    }
+  }
+
+  const newDepth = effectiveParentId ? parentDepth + 1 : 1;
+  const subtreeByParent = new Map<string | null, TaskRecord[]>();
+  for (const node of subtree) {
+    const parentId = node.parentId ?? null;
+    const siblings = subtreeByParent.get(parentId) ?? [];
+    siblings.push(node);
+    subtreeByParent.set(parentId, siblings);
+  }
+
+  const plannedDepths = new Map<string, number>([[task.id, newDepth]]);
+  const visitDescendants = (parentId: string, parentDepthForNode: number): void => {
+    for (const child of subtreeByParent.get(parentId) ?? []) {
+      const childDepth = parentDepthForNode + 1;
+      plannedDepths.set(child.id, childDepth);
+      visitDescendants(child.id, childDepth);
+    }
+  };
+  visitDescendants(task.id, newDepth);
+
+  const deepestDepth = Math.max(...plannedDepths.values());
+  if (deepestDepth >= reparentLimits.maxDepth) {
     throw new Error(`Move would exceed max depth of ${reparentLimits.maxDepth}`);
   }
 
-  // Check sibling limit (0 = unlimited)
-  const children = await accessor.getChildren(effectiveParentId);
-  const siblingCount = children.filter((t: TaskRecord) => t.id !== taskId).length;
-  if (reparentLimits.maxSiblings > 0 && siblingCount >= reparentLimits.maxSiblings) {
-    throw new Error(
-      `Cannot add child to ${effectiveParentId}: max siblings (${reparentLimits.maxSiblings}) exceeded`,
-    );
+  const affectedAncestors = new Map<string, TaskRecord>();
+  const collectAncestorChain = async (
+    parentId: string | null,
+    preloaded?: TaskRecord[],
+  ): Promise<void> => {
+    if (!parentId) return;
+    const parent =
+      parentId === effectiveParentId && newParent
+        ? newParent
+        : await accessor.loadSingleTask(parentId);
+    if (parent) affectedAncestors.set(parent.id, parent);
+    const ancestors = preloaded ?? (await accessor.getAncestorChain(parentId));
+    for (const ancestor of ancestors) affectedAncestors.set(ancestor.id, ancestor);
+  };
+
+  await collectAncestorChain(oldParent);
+  await collectAncestorChain(effectiveParentId, newParentAncestors);
+
+  task.parentId = effectiveParentId;
+  const tasksToPersist = [task, ...subtree];
+  const subtreeUpdated: string[] = [];
+  for (const node of tasksToPersist) {
+    const depth = plannedDepths.get(node.id);
+    if (depth === undefined) continue;
+    node.type = typeForDepth(depth);
+    node.updatedAt = now;
+    subtreeUpdated.push(node.id);
   }
 
-  const oldParent = task.parentId ?? null;
-  task.parentId = effectiveParentId;
+  const ancestorsReopened: string[] = [];
+  for (const ancestor of affectedAncestors.values()) {
+    ancestor.updatedAt = now;
+    if (ancestor.status === 'done') {
+      ancestor.status = 'pending';
+      ancestor.completedAt = undefined;
+      if (!ancestor.notes) ancestor.notes = [];
+      ancestor.notes.push(`[${now}] Reopened by reparent of ${taskId} (hierarchy changed)`);
+      ancestorsReopened.push(ancestor.id);
+    }
+  }
 
-  const newDepth = parentDepth + 1;
-  if (newDepth === 1) task.type = 'task';
-  else if (newDepth >= 2) task.type = 'subtask';
+  for (const node of tasksToPersist) {
+    await accessor.upsertSingleTask(node);
+  }
+  for (const ancestor of affectedAncestors.values()) {
+    await accessor.upsertSingleTask(ancestor);
+  }
 
-  task.updatedAt = new Date().toISOString();
-
-  await accessor.upsertSingleTask(task);
+  await accessor.appendLog({
+    id: taskLogId(),
+    timestamp: now,
+    action: 'task_reparented',
+    taskId,
+    actor: 'system',
+    details: {
+      oldParent,
+      newParent: effectiveParentId,
+      newType: task.type,
+      ancestorsReopened,
+      subtreeUpdated,
+    },
+    before: { parentId: oldParent },
+    after: { parentId: effectiveParentId, type: task.type },
+  });
 
   return {
     task: taskId,
@@ -115,6 +202,8 @@ export async function coreTaskReparent(
     oldParent,
     newParent: effectiveParentId,
     newType: task.type,
+    ancestorsReopened,
+    subtreeUpdated,
   };
 }
 
