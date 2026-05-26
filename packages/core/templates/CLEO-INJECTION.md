@@ -67,11 +67,13 @@ If you find yourself reading a markdown file for orientation, STOP. Run `cleo br
 | Goal | Command |
 |------|---------|
 | Create a single task | `cleo add --type task --parent <epicId> --title "..." --acceptance "..."` |
-| Create N tasks atomically | `cleo add-batch --file tasks.json --parent <epicId>` |
+| Create N tasks atomically | `cleo add-batch --file tasks.json --parent <epicId>` (file is a top-level JSON array of task objects) |
 | Preview batch before inserting | `cleo add-batch --file tasks.json --parent <epicId> --dry-run` |
 | Batch from stdin | `echo '[...]' \| cleo add-batch --file - --parent <epicId>` |
 
 `cleo add-batch` inserts all tasks in a single transaction — ANY failure rolls back ALL inserts.
+Use `--dry-run` first; the projected mutation envelope reports `/data/count` and
+`/data/wouldCreate` as the predicted create count while `/data/insertedCount` remains `0`.
 See `ct-cleo` skill section "Decomposing an epic into N tasks" for the JSON schema and rollback semantic.
 
 ### Sagas — above-Epic grouping (ADR-073)
@@ -226,7 +228,7 @@ Typed `RenderableEnvelope<T>` from `@cleocode/contracts`. `envelope.data.kind` �
 
 | Need | Flag | Example |
 |------|------|---------|
-| Scalar extract | `--field <jsonpointer>` | `id=$(cleo add 'X' --acceptance "..." --field /data/task/id)` |
+| Scalar extract | `--field <jsonpointer>` | `id=$(cleo add 'X' --acceptance "..." --field /data/created/0)` |
 | ID-only pipeline | `--output id` | `cleo list --parent EPIC --output id \| while read c; do …; done` |
 | Affected count | `--output count` | `cleo list --parent EPIC --status pending --output count` |
 | TSV (no header) | `--output table` | `cleo list --parent EPIC --output table` |
@@ -235,7 +237,7 @@ Typed `RenderableEnvelope<T>` from `@cleocode/contracts`. `envelope.data.kind` �
 | Suppress stderr | `--quiet` | `cleo add-batch --file f.json --parent T1 --quiet --output id` |
 | Force full record | `--full` | `cleo show T123 --full` |
 
-Mutate ops (`add`, `add-batch`, `update`, `complete`) return `{count, ids[]}` by default (T9931) — opt back to full record via `--full`. Anti-patterns (REJECTED): `cleo show … | tail -1 | jq …`, `cleo list … | jq -r '.data.tasks[].id'`, `cleo add 'X' 2>&1 | grep -oE 'T[0-9]+'`. Full contract: `cleo docs fetch adr-086-cli-output-contract-e9`.
+Mutate ops (`add`, `add-batch`, `update`, `complete`, `delete`) return `{count, created[], updated[], deleted[], ids[]}` by default (T9931). Use contract-backed paths: `/data/created/0` for create/add-batch, `/data/updated/0` for update/complete, `/data/deleted/0` for delete, and `/data/count` for counts. `ids[]` is a deprecated compatibility alias; opt back to full record via `--full`. Anti-patterns (REJECTED): `cleo show … | tail -1 | jq …`, `cleo list … | jq -r '.data.tasks[].id'`, `cleo add 'X' 2>&1 | grep -oE 'T[0-9]+'`. Full contract: `cleo docs fetch adr-086-cli-output-contract-e9`.
 <!-- /CLEO-INJECTION:section=output-contract -->
 
 <!-- CLEO-INJECTION:section=error-handling -->
