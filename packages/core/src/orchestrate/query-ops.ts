@@ -11,7 +11,13 @@
 
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { Task, TaskStatus } from '@cleocode/contracts';
+import type {
+  OrchestrateReportEntry,
+  OrchestrateReportGroup,
+  OrchestrateReportParams,
+  Task,
+  TaskStatus,
+} from '@cleocode/contracts';
 import { TASK_STATUSES } from '@cleocode/contracts';
 import { loadConfig } from '../config.js';
 import { type EngineResult, engineError } from '../engine-result.js';
@@ -28,11 +34,6 @@ import { isSagaShape } from '../sagas/enforcement.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import type { DepGraphIssue } from '../tasks/dep-graph-validator.js';
 import { runValidation } from '../tasks/dep-graph-validator.js';
-import type {
-  OrchestrateReportEntry,
-  OrchestrateReportGroup,
-  OrchestrateReportParams,
-} from '@cleocode/contracts';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -906,7 +907,6 @@ export async function orchestrateReport(
       const deps = task.depends ?? [];
       const unmetDeps = deps.filter((d) => !completedIds.has(d));
       const gates = task.gates ?? {};
-      const gateKeys = Object.keys(gates) as Array<keyof typeof gates>;
 
       // --- Invalid classification ---
       const hasMissingDeps = deps.some((d) => missingDepIds.has(d));
@@ -936,7 +936,9 @@ export async function orchestrateReport(
       // or if gates are absent/undefined AND the task is pending (not yet started)
       if (
         failedGates.length > 0 ||
-        (hasPendingGates && task.status === 'pending' && !(gates as Record<string, unknown>)['implemented'])
+        (hasPendingGates &&
+          task.status === 'pending' &&
+          !(gates as Record<string, unknown>)['implemented'])
       ) {
         const gateSummary: Record<string, boolean> = {};
         for (const g of requiredGates) {
@@ -947,9 +949,8 @@ export async function orchestrateReport(
           title: task.title,
           priority: task.priority ?? 'medium',
           status: task.status,
-          reason: failedGates.length > 0
-            ? `gates-failed: ${failedGates.join(',')}`
-            : 'gates-incomplete',
+          reason:
+            failedGates.length > 0 ? `gates-failed: ${failedGates.join(',')}` : 'gates-incomplete',
           gates: gateSummary,
         });
         continue;

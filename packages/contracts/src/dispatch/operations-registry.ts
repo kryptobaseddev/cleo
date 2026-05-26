@@ -980,7 +980,8 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'orchestrate',
     operation: 'report',
-    description: 'orchestrate.report (query) — grouped readiness report: ready, blocked, blockedBy, gate-blocked, invalid (T10631)',
+    description:
+      'orchestrate.report (query) — grouped readiness report: ready, blocked, blockedBy, gate-blocked, invalid (T10631)',
     tier: 1,
     idempotent: true,
     sessionRequired: false,
