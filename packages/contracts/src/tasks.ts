@@ -15,6 +15,8 @@
  * @epic T1688
  */
 
+import { z } from 'zod';
+import { TASK_STATUSES } from './status-registry.js';
 import type { TaskPriority, TaskStatus } from './task.js';
 
 // ---------------------------------------------------------------------------
@@ -328,6 +330,251 @@ export interface CompletionExplanation {
   contextPack?: CompletionContextPack;
   blockers: CompletionCriterionEvaluation[];
 }
+
+/** Parameter contract for `tasks.completion.list`. @task T10607 */
+export interface CompletionListParams {
+  /** Task whose completion criteria should be listed. */
+  taskId: string;
+  /** Optional status filter for criteria rows. */
+  status?: CompletionCriterionStatus;
+  /** Optional criterion kind filter. */
+  kind?: CompletionCriterionKind;
+}
+
+/** Result contract for `tasks.completion.list`. @task T10607 */
+export interface CompletionListResult {
+  taskId: string;
+  criteria: CompletionCriterionEvaluation[];
+  totals: CompletionEvaluation['totals'];
+}
+
+/** Parameter contract for `tasks.completion.evaluate`. @task T10607 */
+export interface CompletionEvaluateParams extends CompletionContextPackOptions {
+  /** Task whose completion readiness should be evaluated. */
+  taskId: string;
+  /** Include bounded audit context in the evaluation response. */
+  includeContext?: boolean;
+}
+
+/** Result contract for `tasks.completion.evaluate`. @task T10607 */
+export type CompletionEvaluateResult = CompletionEvaluation;
+
+/** Parameter contract for `tasks.completion.explain`. @task T10607 */
+export interface CompletionExplainParams extends CompletionEvaluateParams {}
+
+/** Result contract for `tasks.completion.explain`. @task T10607 */
+export type CompletionExplainResult = CompletionExplanation;
+
+/** Typed stale-projection error codes returned by `tasks.projection.repair`. @task T10607 */
+export type CompletionProjectionRepairErrorCode =
+  | 'projection_not_stale'
+  | 'criteria_missing'
+  | 'binding_target_missing'
+  | 'repair_conflict';
+
+/** Stale completion-projection repair diagnostic. @task T10607 */
+export interface CompletionProjectionRepairError {
+  code: CompletionProjectionRepairErrorCode;
+  message: string;
+  taskId: string;
+  acId?: string;
+  evidenceAtomId?: string;
+}
+
+/** Parameter contract for `tasks.projection.repair`. @task T10607 */
+export interface CompletionProjectionRepairParams {
+  /** Task whose derived completion projection should be rebuilt/repaired. */
+  taskId: string;
+  /** Preview repair actions without writing projection state. */
+  dryRun?: boolean;
+}
+
+/** Result contract for `tasks.projection.repair`. @task T10607 */
+export interface CompletionProjectionRepairResult {
+  taskId: string;
+  repaired: boolean;
+  dryRun: boolean;
+  staleBefore: boolean;
+  staleAfter: boolean;
+  errors: CompletionProjectionRepairError[];
+}
+
+const completionTaskStatusSchema = z.enum(TASK_STATUSES);
+const completionCriterionKindSchema = z.enum(['text', 'evidence_bound', 'child_task']);
+const completionCriterionStatusSchema = z.enum(['satisfied', 'unsatisfied', 'waived', 'replaced']);
+const completionBlockerReasonSchema = z.enum([
+  'missing_evidence_binding',
+  'child_not_done',
+  'child_cancelled_requires_waiver',
+  'child_replacement_not_done',
+  'child_missing',
+  'done_parent_stale',
+]);
+const completionStaleReasonSchema = z.enum(['done_parent_has_unsatisfied_criteria']);
+const completionProjectionRepairErrorCodeSchema = z.enum([
+  'projection_not_stale',
+  'criteria_missing',
+  'binding_target_missing',
+  'repair_conflict',
+]);
+const completionCriterionWaiverSchema = z.object({
+  criterionAcId: z.string().min(1),
+  childTaskId: z.string().min(1),
+  reason: z.string().min(1),
+  actor: z.string().min(1),
+  waivedAt: z.string().min(1),
+});
+const completionCriterionReplacementSchema = z.object({
+  criterionAcId: z.string().min(1),
+  originalChildTaskId: z.string().min(1),
+  replacementChildTaskId: z.string().min(1),
+  reason: z.string().min(1),
+  actor: z.string().min(1),
+  replacedAt: z.string().min(1),
+});
+
+/** Zod schema for one typed AC completion-result row. @task T10607 */
+export const completionCriterionEvaluationSchema = z.object({
+  acId: z.string().min(1),
+  alias: z.string().min(1),
+  text: z.string(),
+  kind: completionCriterionKindSchema,
+  status: completionCriterionStatusSchema,
+  reason: completionBlockerReasonSchema.optional(),
+  targetTaskId: z.string().min(1).optional(),
+  targetTaskStatus: completionTaskStatusSchema.optional(),
+  waiver: completionCriterionWaiverSchema.optional(),
+  replacement: completionCriterionReplacementSchema.optional(),
+  replacementTaskStatus: completionTaskStatusSchema.optional(),
+  evidenceBindings: z.number().int().nonnegative(),
+});
+
+/** Zod schema for unsatisfied completion criteria. @task T10607 */
+export const unsatisfiedCompletionCriterionSchema = completionCriterionEvaluationSchema.extend({
+  status: z.literal('unsatisfied'),
+  reason: completionBlockerReasonSchema,
+});
+
+const completionTotalsSchema = z.object({
+  criteria: z.number().int().nonnegative(),
+  satisfied: z.number().int().nonnegative(),
+  unsatisfied: z.number().int().nonnegative(),
+  waived: z.number().int().nonnegative(),
+  replaced: z.number().int().nonnegative(),
+});
+const completionContextPackSchema: z.ZodType<CompletionContextPack> = z.object({
+  taskId: z.string().min(1),
+  generatedAt: z.string().min(1),
+  source: z.literal('audit_log'),
+  window: z.object({
+    limit: z.number().int().positive(),
+    since: z.string().min(1).optional(),
+    relationDepth: z.number().int().nonnegative(),
+    relatedTaskIds: z.array(z.string().min(1)),
+  }),
+  events: z.array(
+    z.object({
+      id: z.string().min(1),
+      timestamp: z.string().min(1),
+      action: z.enum([
+        'task_completed',
+        'task_reopened',
+        'task_cancelled',
+        'task_uncancelled',
+        'task_reparented',
+        'ac_projection_rebuilt',
+      ]),
+      taskId: z.string().min(1),
+      relation: z.enum(['self', 'parent', 'child', 'sibling', 'related']),
+      actor: z.string().min(1),
+      details: z.record(z.string(), z.unknown()).optional(),
+      before: z.record(z.string(), z.unknown()).optional(),
+      after: z.record(z.string(), z.unknown()).optional(),
+    }),
+  ),
+  summary: z.object({
+    totalEvents: z.number().int().nonnegative(),
+    byAction: z.record(z.string(), z.number().int().nonnegative()),
+    byRelation: z.record(z.string(), z.number().int().nonnegative()),
+    latestEventAt: z.string().nullable(),
+  }),
+});
+
+/** Zod result contract for `tasks.completion.evaluate`. @task T10607 */
+export const completionEvaluationSchema = z.object({
+  taskId: z.string().min(1),
+  taskStatus: completionTaskStatusSchema,
+  ready: z.boolean(),
+  stale: z.boolean(),
+  staleReasons: z.array(completionStaleReasonSchema),
+  contextPack: completionContextPackSchema.optional(),
+  satisfied: z.array(completionCriterionEvaluationSchema),
+  unsatisfied: z.array(unsatisfiedCompletionCriterionSchema),
+  waived: z.array(completionCriterionEvaluationSchema),
+  replaced: z.array(completionCriterionEvaluationSchema),
+  totals: completionTotalsSchema,
+});
+
+/** Zod result contract for `tasks.completion.explain`. @task T10607 */
+export const completionExplanationSchema = z.object({
+  taskId: z.string().min(1),
+  ready: z.boolean(),
+  stale: z.boolean(),
+  summary: z.string(),
+  contextPack: completionContextPackSchema.optional(),
+  blockers: z.array(completionCriterionEvaluationSchema),
+});
+
+/** Zod params for `tasks.completion.list`. @task T10607 */
+export const completionListParamsSchema = z.object({
+  taskId: z.string().min(1),
+  status: completionCriterionStatusSchema.optional(),
+  kind: completionCriterionKindSchema.optional(),
+});
+
+/** Zod result contract for `tasks.completion.list`. @task T10607 */
+export const completionListResultSchema = z.object({
+  taskId: z.string().min(1),
+  criteria: z.array(completionCriterionEvaluationSchema),
+  totals: completionTotalsSchema,
+});
+
+/** Zod params for `tasks.completion.evaluate` and `tasks.completion.explain`. @task T10607 */
+export const completionEvaluateParamsSchema = z.object({
+  taskId: z.string().min(1),
+  includeContext: z.boolean().optional(),
+  limit: z.number().int().positive().optional(),
+  since: z.string().min(1).optional(),
+  relationDepth: z.number().int().nonnegative().optional(),
+});
+
+/** Zod params for `tasks.completion.explain`. @task T10607 */
+export const completionExplainParamsSchema = completionEvaluateParamsSchema;
+
+/** Zod schema for typed stale-projection repair errors. @task T10607 */
+export const completionProjectionRepairErrorSchema = z.object({
+  code: completionProjectionRepairErrorCodeSchema,
+  message: z.string().min(1),
+  taskId: z.string().min(1),
+  acId: z.string().min(1).optional(),
+  evidenceAtomId: z.string().min(1).optional(),
+});
+
+/** Zod params for `tasks.projection.repair`. @task T10607 */
+export const completionProjectionRepairParamsSchema = z.object({
+  taskId: z.string().min(1),
+  dryRun: z.boolean().optional(),
+});
+
+/** Zod result contract for `tasks.projection.repair`. @task T10607 */
+export const completionProjectionRepairResultSchema = z.object({
+  taskId: z.string().min(1),
+  repaired: z.boolean(),
+  dryRun: z.boolean(),
+  staleBefore: z.boolean(),
+  staleAfter: z.boolean(),
+  errors: z.array(completionProjectionRepairErrorSchema),
+});
 
 // ---------------------------------------------------------------------------
 // Task tree node (used by tasks.tree operation)
