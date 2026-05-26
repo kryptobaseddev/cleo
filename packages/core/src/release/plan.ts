@@ -54,8 +54,8 @@ import { WriterRegistry } from '../docs/writer-registry.js';
 import { getLogger } from '../logger.js';
 import { getCleoDirAbsolute, getProjectRoot } from '../paths.js';
 import { getProjectInfoSync } from '../project-info.js';
-import { SAGA_GROUPS_RELATION } from '../sagas/constants.js';
 import { isSagaShape } from '../sagas/enforcement.js';
+import { resolveSagaMemberIds } from '../sagas/storage.js';
 import { atomicWrite } from '../store/atomic.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { getDb } from '../store/sqlite.js';
@@ -422,9 +422,9 @@ interface SagaResolution {
   tasks: Task[];
   /** True iff the Saga ID resolves to a task. */
   sagaExists: boolean;
-  /** True iff the resolved task carries `labels.includes('saga')`. */
+  /** True iff the resolved task is a saga (type='saga'). */
   isSaga: boolean;
-  /** IDs of member Epics linked to the Saga via `relation_type='groups'`. */
+  /** IDs of member Epics linked to the Saga via parent_id containment. */
   memberEpicIds: string[];
   /**
    * Per-member resolution outcomes — useful to surface a leaf-Epic member's
@@ -434,23 +434,24 @@ interface SagaResolution {
 }
 
 /**
- * Resolve a Saga (ADR-073 labeled Epic) and aggregate its member Epics into
- * a single task list for `cleo release plan --saga T####`.
+ * Resolve a Saga (ADR-073 type='saga') and aggregate its member Epics via
+ * parent_id containment into a single task list for `cleo release plan --saga`.
  *
- * Saga membership lives in `task_relations.relation_type='groups'` rows
- * sourced from `from_id = sagaId`. This helper:
+ * After T10638, Saga membership uses `parent_id` containment rather than
+ * `task_relations.type='groups'`. This helper:
  *
- *  1. Loads the saga task and verifies `labels.includes('saga')`.
- *  2. Walks `relates[]` (populated by `loadSingleTask`) for `type='groups'` edges.
+ *  1. Loads the saga task and verifies `type='saga'`.
+ *  2. Resolves member Epics via `parentId = sagaId`.
  *  3. For each member Epic, runs the same {@link resolveEpicTasks} walk and
  *     unions the result. Leaf-Epic members contribute the Epic itself.
  *
  * Returns `{ sagaExists: false }` when the ID doesn't resolve, `{ isSaga: false }`
- * when the task exists but lacks `labels.includes('saga')`. The caller maps
- * these into `E_NOT_FOUND` / `E_INVALID_INPUT` respectively.
+ * when the task exists but `type !== 'saga'`. The caller maps these into
+ * `E_NOT_FOUND` / `E_INVALID_INPUT` respectively.
  *
  * @internal
  * @task T9838
+ * @task T10638 — E10.W5 switch to parent_id containment
  */
 async function resolveSagaTasks(sagaId: string, projectRoot: string): Promise<SagaResolution> {
   const accessor = await getTaskAccessor(projectRoot);
@@ -465,9 +466,7 @@ async function resolveSagaTasks(sagaId: string, projectRoot: string): Promise<Sa
         memberResolutions: new Map(),
       };
     }
-    // T10331 (Saga T10326 W2.B): dual-shape saga detection — accept both the
-    // canonical `type='saga'` row and the legacy label-encoded epic until
-    // W3.C T10334 drops the old clause.
+    // T10638 (E10.W5): saga detected via type='saga' (isSagaShape).
     if (!isSagaShape(saga)) {
       return {
         tasks: [],
@@ -477,15 +476,16 @@ async function resolveSagaTasks(sagaId: string, projectRoot: string): Promise<Sa
         memberResolutions: new Map(),
       };
     }
-    // Walk groups relations. `loadSingleTask` hydrates `relates[]` from
-    // `task_relations` so we don't need a separate query.
-    const seen = new Set<string>();
-    const memberEpicIds: string[] = [];
-    for (const relation of saga.relates ?? []) {
-      if (relation.type !== SAGA_GROUPS_RELATION) continue;
-      if (seen.has(relation.taskId)) continue;
-      seen.add(relation.taskId);
-      memberEpicIds.push(relation.taskId);
+    // Resolve members via parent_id containment (T10638).
+    const memberEpicIds = await resolveSagaMemberIds(accessor, sagaId);
+    if (memberEpicIds === null) {
+      return {
+        tasks: [],
+        sagaExists: true,
+        isSaga: true,
+        memberEpicIds: [],
+        memberResolutions: new Map(),
+      };
     }
 
     // Aggregate each member's task subtree. Leaf-Epic members contribute the

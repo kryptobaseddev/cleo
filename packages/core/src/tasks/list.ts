@@ -15,7 +15,7 @@ import { paginate } from '../pagination.js';
 // Epic T10208). Re-exported below for backwards-compat with consumers that
 // still import them from this module — new code should import from
 // `@cleocode/core` (which re-exports via `../sagas/index.ts`).
-import { LIST_BINDING_SAGA_GROUPS, SAGA_GROUPS_RELATION, SAGA_LABEL } from '../sagas/constants.js'; // saga-label-ok: T10638 — SSoT re-export
+import { LIST_BINDING_SAGA_GROUPS, SAGA_GROUPS_RELATION, SAGA_LABEL } from '../sagas/constants.js'; // saga-label-ok: T10638 — SSoT backward-compat re-export
 import { resolveSagaMemberIds } from '../sagas/storage.js';
 import type { TaskQueryFilters } from '../store/data-accessor.js';
 import { type DataAccessor, getTaskAccessor } from '../store/data-accessor.js';
@@ -24,7 +24,7 @@ import { tasksToRecords } from './engine-converters.js';
 // Re-export saga constants for backwards-compat (T10123).
 // Test fixtures and external consumers historically imported these from
 // `./list.js`; the canonical home is now `../sagas/constants.ts`.
-export { LIST_BINDING_SAGA_GROUPS, SAGA_GROUPS_RELATION, SAGA_LABEL }; // saga-label-ok: T10638 — SSoT re-export
+export { LIST_BINDING_SAGA_GROUPS, SAGA_GROUPS_RELATION, SAGA_LABEL }; // saga-label-ok: T10638 — SSoT backward-compat re-export
 
 const TASK_LIST_DEFAULT_LIMIT = 10;
 
@@ -118,11 +118,15 @@ export interface ListTasksResult {
 /**
  * List tasks with optional filtering and pagination.
  *
- * When `options.parentId` resolves to a Saga (type='saga'), children are
- * resolved via `parent_id` containment (T10637 migration).
+ * When `options.parentId` resolves to a Saga (Epic with `labels.includes('saga')`),
+ * children are resolved via `task_relations.type='groups'` edges instead of the
+ * default `parentId` column query (ADR-073 §1). All other filters (`status`,
+ * `priority`, `type`, `phase`, `label`, `excludeArchived`) are applied to the
+ * resolved member set in-memory. The returned `bindingSource` field is set to
+ * `'saga.groups'` so dispatch layers can surface the routing in envelope meta.
  *
  * @task T4460
- * @task T10638 — E10.W5 switch to parent_id containment
+ * @task T9658 — Saga-aware --parent routing
  */
 export async function listTasks(
   options: ListTasksOptions = {},

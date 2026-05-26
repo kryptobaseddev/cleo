@@ -245,10 +245,7 @@ async function buildFocusEnvelope(
   const task = showResult.data!.task;
 
   // ── 2. Determine entity tier ──────────────────────────────────────────────
-  // Dual-shape saga detection (T10331, Saga T10326 W2.B): accept both the
-  // canonical post-migration shape (`type === 'saga'`) and the legacy
-  // label-encoded shape (`type === 'epic' && labels.includes('saga')`).
-  // W3.C T10334 drops the legacy clause.
+  // T10638 (E10.W5): saga detected via type='saga' (isSagaType) only.
   const isSaga = sagas.isSagaType(task);
   const isEpic = task.type === 'epic' && !isSaga;
   const entityType = isSaga ? 'saga' : isEpic ? 'epic' : 'task';

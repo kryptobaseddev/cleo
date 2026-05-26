@@ -34,12 +34,15 @@
  * @see ADR-073-above-epic-naming.md §1.2
  */
 
-import type { SagaAuditEntry, SagaAuditResult, SagaAuditViolation } from '@cleocode/contracts';
-import {
-  assertSagaInvariantI7,
-  isSagaInvariantViolationError,
-  SAGA_GROUPS_RELATION,
-} from '../sagas/index.js';
+import type {
+  SagaAuditEntry,
+  SagaAuditResult,
+  SagaAuditViolation,
+  Task,
+} from '@cleocode/contracts';
+import { assertSagaInvariantI7, isSagaInvariantViolationError } from '../sagas/index.js';
+import { resolveSagaMemberIds } from '../sagas/storage.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { taskList } from '../tasks/list.js';
 import { taskShow } from '../tasks/show.js';
 
@@ -71,6 +74,7 @@ const SAGA_HIERARCHY_MAX_DEPTH = 3;
 interface TaskLike {
   id: string;
   title?: string;
+  type?: string;
   status?: string;
   parentId?: string | null;
   labels?: string[];
@@ -143,36 +147,17 @@ async function measureMemberSubtreeDepth(
  * ```
  */
 export async function auditSagaHierarchy(projectRoot: string): Promise<SagaAuditResult> {
-  // Step 1 — list every saga row (ADR-073 I1). T10331 (Saga T10326 W2.B):
-  // dual-shape sweep — query BOTH the canonical `type='saga'` rows AND the
-  // legacy `type='epic' + label='saga'` rows so not-yet-migrated rows still
-  // surface during the deprecation window. W3.C T10334 collapses to one query.
-  const [newShape, oldShape] = await Promise.all([
-    taskList(projectRoot, { type: 'saga' }),
-    taskList(projectRoot, { type: 'epic', label: 'saga' }),
-  ]);
-  const sagas: SagaAuditEntry[] = [];
-  if (!newShape.success && !oldShape.success) {
+  // Step 1 — list every saga row via type='saga' (T10638: collapsed from
+  // dual-shape sweep after T10636 migration).
+  const result = await taskList(projectRoot, { type: 'saga' });
+  const sagaRows: TaskLike[] = result.success ? (result.data.tasks as TaskLike[]) : [];
+  if (sagaRows.length === 0) {
     return { sagas: [], count: 0, driftCount: 0 };
   }
 
   let totalInvariantViolations = 0;
   let totalDrift = 0;
-
-  // Merge + dedupe by id, then iterate in stable id order so the doctor
-  // output is deterministic across runs.
-  const seenIds = new Set<string>();
-  const mergedRows: TaskLike[] = [];
-  const newShapeRows: TaskLike[] = newShape.success ? (newShape.data.tasks as TaskLike[]) : [];
-  const oldShapeRows: TaskLike[] = oldShape.success ? (oldShape.data.tasks as TaskLike[]) : [];
-  for (const row of [...newShapeRows, ...oldShapeRows]) {
-    if (!row.id || seenIds.has(row.id)) continue;
-    seenIds.add(row.id);
-    mergedRows.push(row);
-  }
-  const sagaRows = mergedRows.slice().sort((a, b) => {
-    return (a.id ?? '').localeCompare(b.id ?? '');
-  });
+  const sagas: SagaAuditEntry[] = [];
 
   for (const sagaRow of sagaRows) {
     if (!sagaRow.id) continue;
@@ -180,14 +165,8 @@ export async function auditSagaHierarchy(projectRoot: string): Promise<SagaAudit
     const violations: SagaAuditViolation[] = [];
 
     // --- I5 check (sagaRow.parentId IS NULL) ---
-    // T10331 (Saga T10326 W2.B): the audit iterates rows already known to
-    // be sagas (returned by the dual-shape merged query above), so the I5
-    // invariant — `parentId MUST be NULL` (ADR-073 §1.2) — reduces to a
-    // direct field check. We previously cast `TaskLike` to `SagaTask` to
-    // route through `assertSagaInvariantI5`; that cast carried an
-    // `as unknown as` escape hatch and the gate only inspects `parentId`
-    // anyway. Inlining keeps the no-escape-hatch rule (AGENTS.md Type
-    // Safety) and preserves the violation message verbatim.
+    // T10638 (E10.W5): sagas are identified by type='saga'. The I5 invariant —
+    // `parentId MUST be NULL` (ADR-073 §1.2) — reduces to a direct field check.
     const sagaParentId = sagaRow.parentId ?? null;
     if (sagaParentId !== null && sagaParentId !== '') {
       violations.push({
@@ -201,17 +180,14 @@ export async function auditSagaHierarchy(projectRoot: string): Promise<SagaAudit
       });
     }
 
-    // --- Load relates so we can audit members ---
-    const showResult = await taskShow(projectRoot, sagaRow.id);
-    const relates =
-      showResult.success && showResult.data?.task.relates ? showResult.data.task.relates : [];
-    const memberIds: string[] = [];
-    const seenMembers = new Set<string>();
-    for (const rel of relates) {
-      if (rel.type !== SAGA_GROUPS_RELATION) continue;
-      if (seenMembers.has(rel.taskId)) continue;
-      seenMembers.add(rel.taskId);
-      memberIds.push(rel.taskId);
+    // --- Resolve members via parent_id containment (T10638) ---
+    const accessor = await getTaskAccessor(projectRoot);
+    let memberIds: string[] = [];
+    try {
+      const resolved = await resolveSagaMemberIds(accessor, sagaRow.id);
+      memberIds = resolved ?? [];
+    } finally {
+      await accessor.close();
     }
 
     let doneCount = 0;
@@ -225,9 +201,14 @@ export async function auditSagaHierarchy(projectRoot: string): Promise<SagaAudit
         doneCount += 1;
       }
 
-      // --- I7 check (member must NOT be label=saga) ---
+      // --- I7 check (member must NOT be type='saga') ---
       try {
-        assertSagaInvariantI7(memberId, member.labels ?? [], sagaRow.id);
+        assertSagaInvariantI7(
+          memberId,
+          member.labels ?? [],
+          sagaRow.id,
+          member.type as Task['type'],
+        );
       } catch (err) {
         if (isSagaInvariantViolationError(err) && err.diag.invariant === 'I7') {
           violations.push({
@@ -235,7 +216,7 @@ export async function auditSagaHierarchy(projectRoot: string): Promise<SagaAudit
             sagaId: sagaRow.id,
             offendingId: memberId,
             message:
-              `Saga ${sagaRow.id} violates I7: member ${memberId} has label=saga` +
+              `Saga ${sagaRow.id} violates I7: member ${memberId} has type=saga` +
               ` — run \`cleo saga detach ${sagaRow.id} ${memberId}\``,
             repairCommand: `cleo saga detach ${sagaRow.id} ${memberId}`,
           });

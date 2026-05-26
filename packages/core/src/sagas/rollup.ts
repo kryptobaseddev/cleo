@@ -1,8 +1,9 @@
 /**
  * saga.rollup — aggregate member Epic statuses for a Saga.
  *
- * Reads every member Epic and tallies their statuses into a structured
- * counter (done/active/blocked/pending + completionPct).
+ * Reads every member Epic via parent_id containment and tallies their
+ * statuses into a structured counter (done/active/blocked/pending +
+ * completionPct).
  *
  * Returns an EngineResult; the dispatch layer wraps it in a LAFS envelope.
  *
@@ -11,14 +12,15 @@
  *
  * @task T10124
  * @task T10120
+ * @task T10638 — E10.W5 switch to parent_id containment
  * @epic T10208
  * @see ADR-073-above-epic-naming.md §1
  */
 
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { taskShow } from '../tasks/show.js';
-import { taskRelates } from '../tasks/task-ops.js';
-import { SAGA_GROUPS_RELATION } from './constants.js';
+import { resolveSagaMemberIds } from './storage.js';
 
 /** Input parameters for {@link sagaRollup}. */
 export interface SagaRollupParams {
@@ -51,39 +53,40 @@ export async function sagaRollup(
   if (!sagaId) {
     return engineError('E_INVALID_INPUT', 'sagaId is required');
   }
-  const relResult = await taskRelates(projectRoot, sagaId);
-  if (!relResult.success) {
-    return engineError(
-      'E_GENERAL',
-      relResult.error?.message ?? 'Failed to fetch Saga members for rollup',
-    );
+  const accessor = await getTaskAccessor(projectRoot);
+  try {
+    const memberIds = await resolveSagaMemberIds(accessor, sagaId);
+    if (memberIds === null) {
+      return engineError('E_NOT_FOUND', `Saga ${sagaId} not found or is not a saga`);
+    }
+    const total = memberIds.length;
+    if (total === 0) {
+      return engineSuccess({
+        sagaId,
+        total: 0,
+        done: 0,
+        active: 0,
+        blocked: 0,
+        pending: 0,
+        completionPct: 0,
+      });
+    }
+    const shows = await Promise.all(memberIds.map((id) => taskShow(projectRoot, id)));
+    let done = 0;
+    let active = 0;
+    let blocked = 0;
+    let pending = 0;
+    for (const r of shows) {
+      if (!r.success) continue;
+      const status = r.data?.task.status ?? 'pending';
+      if (status === 'done') done++;
+      else if (status === 'active') active++;
+      else if (status === 'blocked') blocked++;
+      else pending++;
+    }
+    const completionPct = total > 0 ? Math.round((done / total) * 100) : 0;
+    return engineSuccess({ sagaId, total, done, active, blocked, pending, completionPct });
+  } finally {
+    await accessor.close();
   }
-  const members = (relResult.data?.relations ?? []).filter((r) => r.type === SAGA_GROUPS_RELATION);
-  const total = members.length;
-  if (total === 0) {
-    return engineSuccess({
-      sagaId,
-      total: 0,
-      done: 0,
-      active: 0,
-      blocked: 0,
-      pending: 0,
-      completionPct: 0,
-    });
-  }
-  const shows = await Promise.all(members.map((m) => taskShow(projectRoot, m.taskId)));
-  let done = 0;
-  let active = 0;
-  let blocked = 0;
-  let pending = 0;
-  for (const r of shows) {
-    if (!r.success) continue;
-    const status = r.data?.task.status ?? 'pending';
-    if (status === 'done') done++;
-    else if (status === 'active') active++;
-    else if (status === 'blocked') blocked++;
-    else pending++;
-  }
-  const completionPct = total > 0 ? Math.round((done / total) * 100) : 0;
-  return engineSuccess({ sagaId, total, done, active, blocked, pending, completionPct });
 }
