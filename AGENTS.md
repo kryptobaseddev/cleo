@@ -548,36 +548,112 @@ When a task introduces new modules, the orchestrator MUST include an acceptance 
 
 If existing files violate the boundary, flag as a separate cleanup task (e.g., T1015-style relocation epic). Do NOT continue appending to the wrong package.
 
-## Task Hierarchy
+## Task Hierarchy (PM-Core V2 — ADR-088)
 
-**Canonical source:** `docs/adr/ADR-088-pm-core-v2-workgraph-relations-completion-criteria.md` (PM-Core V2).
-ADR-073 (above-epic naming) is superseded by ADR-088 for PM-Core V2 target semantics; see ADR-073
-amendment block for legacy/migration notes. This section is a human-facing pointer — DO NOT
-redefine tier semantics, sizing, or ownership here. All edits happen in ADR-088.
+**Canonical source:** `docs/adr/ADR-088-pm-core-v2-workgraph-relations-completion-criteria.md`.
+Legacy charter ADR-073 remains authoritative for pre-PM-Core V2 semantics; ADR-088 governs the PM-Core V2 target.
 
-PM-Core V2 (active since T10638 migration, verified by T10643): `type='saga'` is canonical.
-`parent_id` is the sole containment edge — Saga parent is null, Epic parent is a Saga (or null),
-Task parent is an Epic, Subtask parent is a Task. `task_relations` is non-containment only
-(dependencies, ordering, cross-reference, evidence, supersession, provenance) and MUST NOT
-drive hierarchy, rollups, or parent completion. The `task_relations_non_containment_insert`
-trigger (T10638) enforces this constraint at the DB level.
+| Tier    | Prefix | type value | Scope-of-change                                    | Owner (ADR-070)       |
+|---------|--------|------------|----------------------------------------------------|------------------------|
+| Saga    | `SG-`  | `saga`     | Theme grouping ≥2 Epics across ≥2 releases         | Orchestrator (read)    |
+| Epic    | `E-`   | `epic`     | One releasable slice; ≥1 PR to `main`              | Orchestrator (HITL)    |
+| Task    | `T-`   | `task`     | One atomic PR-sized change; single wave            | Phase Lead             |
+| Subtask | (none) | `subtask`  | One commit; ≤2 files; contributes to Task's PR     | Worker (leaf)          |
 
-| Tier    | Prefix | Storage              | Parent matrix                          | Scope-of-change                                    | Owner (ADR-070)       |
-|---------|--------|----------------------|----------------------------------------|----------------------------------------------------|------------------------|
-| Saga    | `SG-`  | `type='saga'`        | `parent_id IS NULL`                    | Theme grouping ≥2 Epics across ≥2 releases         | Orchestrator (read)    |
-| Epic    | `E-`   | `type='epic'`        | `parent_id` = Saga (or null)           | One releasable slice; ≥1 PR to `main`              | Orchestrator (HITL)    |
-| Task    | `T-`   | `type='task'`        | `parent_id` = Epic                     | One atomic PR-sized change; single wave            | Phase Lead             |
-| Subtask | (none) | `type='subtask'`     | `parent_id` = Task                     | One commit; ≤2 files; contributes to Task's PR     | Worker (leaf)          |
+**Containment (I1):** `tasks.parent_id` is the **only** containment edge. Direct children,
+ancestor/descendant traversal, closure rollups, and default parent completion are all derived
+from `parent_id`. The parent matrix is:
 
-**Storage rule (I1):** All IDs stored as `T####`; `type` column discriminates tier.
-Saga is a peer `type` value, not a label convention. Prefixes are DISPLAY + import-mapping only (I2).
-**I3:** `parent_id` is the single containment tree; `task_relations` is a secondary, non-containment
-relation graph. See ADR-088 for the full invariant set and ADR-073 amendment for legacy migration notes.
+| Child type | Parent type |
+|------------|-------------|
+| `subtask`  | `task`      |
+| `task`     | `epic`      |
+| `epic`     | `saga` or `null` |
+| `saga`     | `null`      |
 
-**Completion criteria:** `task_acceptance_criteria.kind` is one of `text`, `child_task`, or
-`evidence_bound`. Parents with children use `child_task` criteria by default, binding direct
-child `T####` IDs deterministically. Mixed criteria mode (text + child_task) is migration-only
-or explicit advanced scope. Cancelled children require waiver or replacement evidence.
+**Storage (I2):** All IDs stored as `T####`; `type` column discriminates tier (not `label`).
+Prefixes (`SG-`, `E-`) are DISPLAY + import-mapping only.
+
+**Non-containment (I3):** `task_relations` is for secondary graph semantics ONLY — dependency,
+ordering, cross-reference, evidence, supersession, provenance. `task_relations` MUST NOT satisfy
+containment, child listing, ancestor/descendant traversal, parent rollup, parent completion,
+nesting-budget, or closure semantics. A relation can explain why work is associated, but it
+cannot make that work a parent or child.
+
+**Migration note:** T10638 (E10.W5) removed legacy `task_relations.groups` hierarchy reads and
+dual-shape `label='saga'` fallbacks. Saga detection now uses `type='saga'`. Some CLI help text
+in the released v2026.5.122 still references `label='saga'` — these help strings are cosmetic
+and will be updated in a follow-up.
+
+## Completion Criteria (PM-Core V2 — Typed ACs)
+
+PM-Core V2 introduces typed acceptance criteria so parent completion can be derived
+deterministically from child state (ADR-088 §4, T10639 backfill).
+
+`task_acceptance_criteria.kind` is one of:
+
+| Kind | Requires `target_task_id` | Purpose |
+|------|--------------------------|---------|
+| `text` | No | Human-authored acceptance criterion |
+| `child_task` | **Yes** | Deterministic projection from a direct `parent_id` child |
+| `evidence_bound` | No | Gate-backed criterion (`implemented`, `testsPassed`, `qaPassed`) |
+
+**Key rules:**
+- A parent with children uses `child_task` criteria by default; these are **deterministic
+  projections** from `parent_id` containment. T10639 backfill ensures all existing
+  parent→child relationships have corresponding `child_task` rows.
+- `text` and `evidence_bound` criteria must NOT use `target_task_id`.
+- Mixed criteria mode (`child_task` + `text` on the same parent) is **migration-only**
+  or explicit advanced scope.
+- Cancelled children do NOT automatically satisfy parent completion; they require waiver
+  or replacement evidence.
+- Adding or reopening required child work under a done parent reopens affected ancestors
+  or creates explicit regression/rework tasks.
+
+## Saga Operations (PM-Core V2)
+
+Saga-level orchestration is first-class in PM-Core V2. Saga membership uses `parent_id`
+containment (not `task_relations.groups`). Use `cleo orchestrate` commands directly on
+saga IDs:
+
+```bash
+# Saga-level ready frontier — parallel-safe tasks across all member epics
+cleo orchestrate ready <sagaId>
+
+# Saga-level dependency waves — unified wave plan across all member epics
+cleo orchestrate waves <sagaId>
+
+# Saga status rollup — completion %, member counts
+cleo saga rollup <sagaId>
+
+# Saga membership listing via parent_id containment
+cleo saga members <sagaId>
+```
+
+**Epic-level fallback:** If saga-level orchestrate fails, enumerate member epics from
+`cleo saga members <sagaId>` and call `cleo orchestrate ready <epicId>` for each member
+individually. Do not use `task_relations.groups` as a fallback for hierarchy —
+it is non-containment only per I3.
+
+## WorkGraph (PM-Core V2 — T10632/T10633/T10634)
+
+The WorkGraph subsystem provides scaffold validation, atomic application, and planning
+document generation.
+
+| Feature | Task | What it does |
+|---------|------|--------------|
+| Scaffold Dry-Run Validator | T10632 | Validates WorkGraph JSON payloads against schema invariants before mutation. Returns `wouldCreate`/`wouldUpdate`/`wouldDelete`/`wouldAffect` without side effects. |
+| Scaffold Apply Engine | T10633 | Atomically applies validated WorkGraph scaffolds to the task database. Creates, updates, and deletes tasks/relations/ACs in a single transaction. Sibling-relation-based (SQLite trigger blocks parent-child relation edges). |
+| Planning Doc Generator | T10634 | `generatePlanningDoc()` produces structured markdown plans from the WorkGraph. Supports "agent" (compact) and "maintainer" (prose) output modes. |
+
+## Task Context (PM-Core V2 — T10629/T10630/T10631)
+
+Bounded task context with token budgeting for agent ergonomics.
+
+| Feature | Task | What it does |
+|---------|------|--------------|
+| Task Context Pack | T10629 | `coreTaskContext` returns targeted task information (identity, acceptance criteria, blockers, edges, activity) respecting a configurable token budget. Uses `TasksContextOmission` to track overages and provides expansion hints. |
+| Saga Context & Readiness | T10630/T10631 | Saga-level aggregate rollups: completion percentages, ready-frontiers, and blocker enumeration across all member epics via `parent_id` containment. |
 
 ## Sentient / Tier-2 Proposals
 
