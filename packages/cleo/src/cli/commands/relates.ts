@@ -14,8 +14,7 @@
  */
 
 import { defineCommand, showUsage } from 'citty';
-import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
-import { cliOutput } from '../renderers/index.js';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /** cleo relates suggest — suggest related tasks based on shared attributes */
 const suggestCommand = defineCommand({
@@ -33,13 +32,17 @@ const suggestCommand = defineCommand({
     },
   },
   async run({ args }) {
-    const response = await dispatchRaw('query', 'tasks', 'relates', {
-      taskId: args.taskId,
-      mode: 'suggest',
-      threshold: Number(args.threshold),
-    });
-    handleRawError(response, { command: 'relates', operation: 'relates' });
-    cliOutput(response.data ?? {}, { command: 'relates' });
+    await dispatchFromCli(
+      'query',
+      'tasks',
+      'relates',
+      {
+        taskId: args.taskId,
+        mode: 'suggest',
+        threshold: Number(args.threshold),
+      },
+      { command: 'relates' },
+    );
   },
 });
 
@@ -94,12 +97,16 @@ const discoverCommand = defineCommand({
     },
   },
   async run({ args }) {
-    const response = await dispatchRaw('query', 'tasks', 'relates', {
-      taskId: args.taskId,
-      mode: 'discover',
-    });
-    handleRawError(response, { command: 'relates', operation: 'relates' });
-    cliOutput(response.data ?? {}, { command: 'relates' });
+    await dispatchFromCli(
+      'query',
+      'tasks',
+      'relates',
+      {
+        taskId: args.taskId,
+        mode: 'discover',
+      },
+      { command: 'relates' },
+    );
   },
 });
 
