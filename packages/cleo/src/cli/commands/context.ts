@@ -12,9 +12,8 @@
  */
 
 import { ExitCode } from '@cleocode/contracts';
-import { getContextWindow, resolveProjectRoot } from '@cleocode/core/internal';
 import { defineCommand } from 'citty';
-import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
 
 /** Map context status strings to exit codes for scripting. */
@@ -64,10 +63,12 @@ const checkCommand = defineCommand({
     },
   },
   async run({ args }) {
-    const cwd = resolveProjectRoot();
-    const data = getContextWindow(cwd, {
+    const response = await dispatchRaw('query', 'admin', 'context', {
+      action: 'check',
       session: args.session as string | undefined,
     });
+    handleRawError(response, { command: 'context', operation: 'admin.context' });
+    const data = response.data as { status?: string };
     cliOutput(data, { command: 'context', operation: 'admin.context' });
     const exitCode = STATUS_EXIT_CODE[data.status] ?? ExitCode.SUCCESS;
     if (exitCode !== ExitCode.SUCCESS) {

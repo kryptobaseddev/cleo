@@ -64,21 +64,36 @@ import {
   allocateAutoSlugForDispatch,
   consumeReservedSlug,
   createAttachmentStore,
+  createAttachmentStoreDocsAccessor,
   createAttachmentStoreV2,
   type DerefResult,
+  exportDocument,
+  findSimilarDocs,
   generateDocsLlmsTxt,
   getCleoDirAbsolute,
   getProjectRoot,
   isLifecycleStatus,
+  listDocVersions,
+  makeClassifierForScanRoot,
   memoryObserve,
+  mergeDocs,
   parseChangesetFrontmatter,
+  publishDocs,
+  publishDocsAsPr,
+  rankDocs,
+  recordPublication,
   releaseReservedSlug,
   reserveSlugForDispatch,
   resolveAttachmentBackend,
+  runDocsImport,
   SlugCollisionError,
   SUPERSEDE_NOT_FOUND_CODE,
   SUPERSEDE_SAME_SLUG_CODE,
+  searchAllProjectDocs,
+  searchDocs,
+  statusDocs,
   supersedeDoc,
+  syncFromGit,
   updateDocBySlug,
   validateDocBody,
   writeChangesetEntry,
@@ -1696,8 +1711,165 @@ function docsEnvelopeToResponse(
 
 // ─── DocsHandler ──────────────────────────────────────────────────────────────
 
-const QUERY_OPS = new Set<string>(['list', 'fetch', 'generate']);
-const MUTATE_OPS = new Set<string>(['add', 'remove', 'update', 'supersede']);
+const QUERY_OPS = new Set<string>([
+  'list',
+  'fetch',
+  'generate',
+  'export',
+  'search',
+  'find',
+  'merge',
+  'rank',
+  'versions',
+  'status',
+]);
+const MUTATE_OPS = new Set<string>([
+  'add',
+  'remove',
+  'update',
+  'supersede',
+  'publish',
+  'publish-pr',
+  'sync',
+  'import',
+]);
+
+async function dispatchDocsLegacyQuery(
+  operation: string,
+  params: Record<string, unknown>,
+): Promise<unknown> {
+  const projectRoot = getProjectRoot();
+  switch (operation) {
+    case 'export':
+      return exportDocument({
+        taskId: String(params['taskId']),
+        includeAttachments: params['includeAttachments'] !== false,
+        includeMemoryRefs: params['includeMemoryRefs'] === true,
+        projectRoot,
+      });
+    case 'search': {
+      const limit = typeof params['limit'] === 'number' ? params['limit'] : 10;
+      if (typeof params['ownerId'] === 'string' && params['ownerId'].length > 0) {
+        return searchDocs(String(params['query']), {
+          ownerId: params['ownerId'],
+          limit,
+          projectRoot,
+        });
+      }
+      return searchAllProjectDocs(String(params['query']), {
+        limit,
+        type: typeof params['type'] === 'string' ? params['type'] : undefined,
+        projectRoot,
+      });
+    }
+    case 'find':
+      return findSimilarDocs(String(params['similarSlug']), {
+        ...(typeof params['limit'] === 'number' ? { limit: params['limit'] } : {}),
+        ...(typeof params['threshold'] === 'number' ? { threshold: params['threshold'] } : {}),
+        allKinds: params['allKinds'] === true,
+        projectRoot,
+      });
+    case 'merge':
+      return mergeDocs(String(params['attA']), String(params['attB']), {
+        strategy:
+          params['strategy'] === 'cherry-pick' || params['strategy'] === 'multi-diff'
+            ? params['strategy']
+            : 'three-way',
+        base: typeof params['base'] === 'string' ? params['base'] : undefined,
+      });
+    case 'rank':
+      return rankDocs({
+        ownerId: String(params['ownerId']),
+        query: typeof params['query'] === 'string' ? params['query'] : undefined,
+        projectRoot,
+      });
+    case 'versions':
+      return listDocVersions({
+        ownerId: String(params['ownerId']),
+        name: typeof params['name'] === 'string' ? params['name'] : undefined,
+        projectRoot,
+      });
+    case 'status':
+      return statusDocs({ projectRoot });
+    default:
+      throw new Error(`Unsupported docs query operation: ${operation}`);
+  }
+}
+
+async function dispatchDocsLegacyMutate(
+  operation: string,
+  params: Record<string, unknown>,
+): Promise<unknown> {
+  const projectRoot = getProjectRoot();
+  switch (operation) {
+    case 'publish': {
+      const result = await publishDocs({
+        ownerId: String(params['ownerId']),
+        toPath: String(params['toPath']),
+        attachmentId:
+          typeof params['attachmentId'] === 'string' ? params['attachmentId'] : undefined,
+        projectRoot,
+      });
+      try {
+        await recordPublication({
+          ownerId: result.ownerId,
+          blobName: result.blobName,
+          publishedPath: result.relativePath,
+          lastBlobSha: result.blobSha256,
+          projectRoot,
+        });
+      } catch {
+        /* Ledger write is best-effort. */
+      }
+      return result;
+    }
+    case 'publish-pr':
+      return publishDocsAsPr({
+        slugOrId: String(params['slugOrId']),
+        ...(typeof params['slug'] === 'string' ? { slug: params['slug'] } : {}),
+        ...(typeof params['type'] === 'string' ? { type: params['type'] } : {}),
+        ...(typeof params['title'] === 'string' ? { title: params['title'] } : {}),
+        ...(typeof params['body'] === 'string' ? { body: params['body'] } : {}),
+        ...(typeof params['base'] === 'string' ? { base: params['base'] } : {}),
+      });
+    case 'sync':
+      return syncFromGit({
+        ownerId: String(params['ownerId']),
+        fromPath: String(params['fromPath']),
+        blobName: typeof params['blobName'] === 'string' ? params['blobName'] : undefined,
+        contentType: typeof params['contentType'] === 'string' ? params['contentType'] : undefined,
+        projectRoot,
+      });
+    case 'import': {
+      const scanRoot = String(params['scanRoot']);
+      const accessor = createAttachmentStoreDocsAccessor(projectRoot);
+      try {
+        const result = await runDocsImport({
+          root: scanRoot,
+          accessor,
+          dryRun: params['dryRun'] === true,
+          force: params['force'] === true,
+          manifestPath:
+            typeof params['manifestPath'] === 'string' ? params['manifestPath'] : undefined,
+          auditDir: projectRoot,
+          classify: makeClassifierForScanRoot(scanRoot, projectRoot),
+        });
+        return {
+          dryRun: result.dryRun,
+          counters: result.counters,
+          entries: result.entries,
+          manifestPath: result.manifestPath ?? null,
+        };
+      } finally {
+        await accessor.close().catch(() => {
+          /* never fail on close */
+        });
+      }
+    }
+    default:
+      throw new Error(`Unsupported docs mutate operation: ${operation}`);
+  }
+}
 
 /**
  * Domain handler for `cleo docs` attachment operations.
@@ -1729,12 +1901,20 @@ export class DocsHandler implements DomainHandler {
     }
 
     try {
-      const envelope = await typedDispatch(
-        _docsTypedHandler,
-        operation as keyof DocsTypedOps & string,
-        params ?? {},
-      );
-      return docsEnvelopeToResponse(envelope, 'query', operation, startTime);
+      if (operation in _docsTypedHandler.operations) {
+        const envelope = await typedDispatch(
+          _docsTypedHandler,
+          operation as keyof DocsTypedOps & string,
+          params ?? {},
+        );
+        return docsEnvelopeToResponse(envelope, 'query', operation, startTime);
+      }
+
+      return {
+        meta: dispatchMeta('query', 'docs', operation, startTime),
+        success: true,
+        data: await dispatchDocsLegacyQuery(operation, params ?? {}),
+      };
     } catch (error) {
       return handleErrorResult('query', 'docs', operation, error, startTime);
     }
@@ -1758,12 +1938,20 @@ export class DocsHandler implements DomainHandler {
     }
 
     try {
-      const envelope = await typedDispatch(
-        _docsTypedHandler,
-        operation as keyof DocsTypedOps & string,
-        params ?? {},
-      );
-      return docsEnvelopeToResponse(envelope, 'mutate', operation, startTime);
+      if (operation in _docsTypedHandler.operations) {
+        const envelope = await typedDispatch(
+          _docsTypedHandler,
+          operation as keyof DocsTypedOps & string,
+          params ?? {},
+        );
+        return docsEnvelopeToResponse(envelope, 'mutate', operation, startTime);
+      }
+
+      return {
+        meta: dispatchMeta('mutate', 'docs', operation, startTime),
+        success: true,
+        data: await dispatchDocsLegacyMutate(operation, params ?? {}),
+      };
     } catch (error) {
       return handleErrorResult('mutate', 'docs', operation, error, startTime);
     }
@@ -1776,8 +1964,19 @@ export class DocsHandler implements DomainHandler {
   /** Declared operations for introspection and validation. */
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['list', 'fetch', 'generate'],
-      mutate: ['add', 'remove', 'update', 'supersede'],
+      query: [
+        'list',
+        'fetch',
+        'generate',
+        'export',
+        'search',
+        'find',
+        'merge',
+        'rank',
+        'versions',
+        'status',
+      ],
+      mutate: ['add', 'remove', 'update', 'supersede', 'publish', 'publish-pr', 'sync', 'import'],
     };
   }
 }
