@@ -59,6 +59,8 @@ export const auditLog = sqliteTable(
     operation: text('operation'),
     sessionId: text('session_id'),
     requestId: text('request_id'),
+    // Optional caller-supplied retry token for idempotent mutate operations (T10600).
+    idempotencyKey: text('idempotency_key'),
     durationMs: integer('duration_ms'),
     success: integer('success'),
     source: text('source'),
@@ -73,11 +75,18 @@ export const auditLog = sqliteTable(
     index('idx_audit_log_timestamp').on(table.timestamp),
     index('idx_audit_log_domain').on(table.domain),
     index('idx_audit_log_request_id').on(table.requestId),
+    index('idx_audit_log_idempotency_key').on(table.idempotencyKey),
     index('idx_audit_log_project_hash').on(table.projectHash),
     index('idx_audit_log_actor').on(table.actor),
     // T033 composite indexes
     index('idx_audit_log_session_timestamp').on(table.sessionId, table.timestamp),
     index('idx_audit_log_domain_operation').on(table.domain, table.operation),
+    index('idx_audit_log_idempotency_lookup').on(
+      table.projectHash,
+      table.domain,
+      table.operation,
+      table.idempotencyKey,
+    ),
   ],
 );
 

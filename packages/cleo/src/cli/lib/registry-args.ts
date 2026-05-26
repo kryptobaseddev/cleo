@@ -21,6 +21,14 @@ import type { CittyArgDef, ParamDef } from '@cleocode/contracts';
 import { OPERATIONS } from '../../dispatch/registry.js';
 import type { Gateway } from '../../dispatch/types.js';
 
+const IDEMPOTENCY_KEY_PARAM: ParamDef = {
+  name: 'idempotencyKey',
+  type: 'string',
+  required: false,
+  description: 'Optional retry token for safely replaying idempotent mutating commands.',
+  cli: { flag: 'idempotency-key' },
+};
+
 /**
  * Retrieve the declared `params[]` for a specific operation from the registry.
  *
@@ -41,7 +49,10 @@ export function getOperationParams(
   const def = OPERATIONS.find(
     (o) => o.gateway === gateway && o.domain === domain && o.operation === operation,
   );
-  return def?.params ?? [];
+  const params = def?.params ?? [];
+  if (!def || def.gateway !== 'mutate' || !def.idempotent) return params;
+  if (params.some((param) => param.name === IDEMPOTENCY_KEY_PARAM.name)) return params;
+  return [...params, IDEMPOTENCY_KEY_PARAM];
 }
 
 export { paramsToCittyArgs } from '@cleocode/contracts';
