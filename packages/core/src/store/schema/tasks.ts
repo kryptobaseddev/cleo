@@ -297,6 +297,96 @@ export const taskAcceptanceCriteria = sqliteTable(
   ],
 );
 
+// === ACCEPTANCE PROJECTION STATE (T10570 · PM-Core V2) ===
+
+/** Projection freshness status values for derived acceptance row materializations. */
+export const ACCEPTANCE_PROJECTION_STATUSES = ['fresh', 'stale', 'rebuilding'] as const;
+
+/** Dirty queue reason values for acceptance projection invalidation. */
+export const ACCEPTANCE_PROJECTION_DIRTY_REASONS = [
+  'task_acceptance_changed',
+  'task_reparented',
+  'child_completion_changed',
+  'manual_rebuild',
+] as const;
+
+/**
+ * Per-projection freshness state for PM-Core V2 acceptance projections.
+ *
+ * `schemaVersion` stores the projection contract version so future rebuilders can
+ * detect stale rows after a projection-shape change. The timestamp fields are
+ * indexed by the hand-authored T10570 SQL migration for rebuild scheduling.
+ *
+ * @saga T10538
+ * @task T10570
+ */
+export const acceptanceProjectionState = sqliteTable(
+  'acceptance_projection_state',
+  {
+    /** Stable projection key, e.g. `task_acceptance`. */
+    projectionKey: text('projection_key').primaryKey(),
+    /** Monotonic schema version for this projection contract. */
+    schemaVersion: integer('schema_version').notNull().default(1),
+    /** Freshness lifecycle for the projected rowset. */
+    status: text('status', { enum: ACCEPTANCE_PROJECTION_STATUSES }).notNull().default('fresh'),
+    /** Last time the projection was fully rebuilt. */
+    lastProjectedAt: text('last_projected_at'),
+    /** Max source update observed by the last rebuild. */
+    lastSourceUpdatedAt: text('last_source_updated_at'),
+    /** Optional content fingerprint of the projected source frontier. */
+    sourceFingerprint: text('source_fingerprint'),
+    /** Row creation timestamp. */
+    createdAt: text('created_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
+    /** Row update timestamp. */
+    updatedAt: text('updated_at'),
+  },
+  (table) => [
+    index('idx_acceptance_projection_state_status_freshness').on(
+      table.status,
+      table.lastSourceUpdatedAt,
+      table.lastProjectedAt,
+    ),
+  ],
+);
+
+/**
+ * Per-task dirty queue for acceptance projection rebuilds.
+ *
+ * The `(projection_key, task_id)` primary key coalesces repeated invalidations;
+ * writers update reason/timestamps rather than enqueue unbounded duplicate work.
+ *
+ * @saga T10538
+ * @task T10570
+ */
+export const acceptanceProjectionDirty = sqliteTable(
+  'acceptance_projection_dirty',
+  {
+    /** Projection requiring rebuild. */
+    projectionKey: text('projection_key')
+      .notNull()
+      .references(() => acceptanceProjectionState.projectionKey, { onDelete: 'cascade' }),
+    /** Task whose projected AC rowset is dirty. */
+    taskId: text('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    /** Why this task was invalidated. */
+    reason: text('reason', { enum: ACCEPTANCE_PROJECTION_DIRTY_REASONS })
+      .notNull()
+      .default('manual_rebuild'),
+    /** Source-side updated_at that triggered this invalidation, if known. */
+    sourceUpdatedAt: text('source_updated_at'),
+    /** Queue insertion timestamp. */
+    queuedAt: text('queued_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
+    /** Optional producer-specific context for rebuilders. */
+    payloadJson: text('payload_json'),
+  },
+  (table) => [
+    primaryKey({ columns: [table.projectionKey, table.taskId] }),
+    index('idx_acceptance_projection_dirty_task_id').on(table.taskId),
+    index('idx_acceptance_projection_dirty_queued_at').on(table.queuedAt),
+  ],
+);
+
 // === TASK DEPENDENCIES ===
 
 export const taskDependencies = sqliteTable(
