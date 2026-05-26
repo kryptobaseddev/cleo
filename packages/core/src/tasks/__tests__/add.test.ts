@@ -370,6 +370,10 @@ describe('addTask (integration)', () => {
     const parentRows = await accessor.getAcRows('T001');
     expect(parentRows).toHaveLength(1);
     expect(parentRows[0]?.text).toBe('Complete child T002: Child projection');
+    expect(parentRows[0]?.kind).toBe('child_task');
+    expect(parentRows[0]?.sourceKey).toBe('child:T002');
+    expect(parentRows[0]?.targetTaskId).toBe('T002');
+    expect(parentRows[0]?.projection).toBe('parent-child');
     expect(child.createdIds?.acceptanceCriteria).toContain(parentRows[0]?.id);
 
     const parent = await accessor.loadSingleTask('T001');

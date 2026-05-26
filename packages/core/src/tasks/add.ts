@@ -1325,11 +1325,20 @@ export async function addTask(
     // compatibility projection until typed child_task AC columns land.
     if (parentId && parentTaskForProjection) {
       const parentAcRows = await tx.getAcRows(parentId);
+      // PM-Core V2 typed child_task AC projection. The legacy parent
+      // acceptance JSON remains text-only compatibility state, but the row
+      // table now carries machine-checkable target_task_id/source_key fields.
       const parentChildAcText = `Complete child ${taskId}: ${options.title.trim()}`;
+      const parentChildOrdinal =
+        parentAcRows.reduce((max, row) => Math.max(max, row.ordinal), 0) + 1;
       const parentChildAcRow = {
         id: randomUUID(),
         taskId: parentId,
-        ordinal: parentAcRows.reduce((max, row) => Math.max(max, row.ordinal), 0) + 1,
+        ordinal: parentChildOrdinal,
+        kind: 'child_task' as const,
+        sourceKey: `child:${taskId}`,
+        targetTaskId: taskId,
+        projection: 'parent-child',
         text: parentChildAcText,
       };
       await tx.insertAcRows([parentChildAcRow]);

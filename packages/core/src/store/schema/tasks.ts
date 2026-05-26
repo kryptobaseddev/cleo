@@ -265,6 +265,18 @@ export const taskAcceptanceCriteria = sqliteTable(
       .references(() => tasks.id, { onDelete: 'cascade' }),
     /** 1-based insertion-order alias used by the AC<n> display label. */
     ordinal: integer('ordinal').notNull(),
+    /** Typed completion criterion discriminator per ADR-088. */
+    kind: text('kind', { enum: ['text', 'child_task', 'evidence_bound'] })
+      .notNull()
+      .default('text'),
+    /** Stable per-task source key for idempotent criteria projection/upsert. */
+    sourceKey: text('source_key'),
+    /** Optional child task target; only `kind='child_task'` may populate it. */
+    targetTaskId: text('target_task_id').references((): AnySQLiteColumn => tasks.id, {
+      onDelete: 'set null',
+    }),
+    /** Compatibility projection owner (for example: legacy, direct, parent-child). */
+    projection: text('projection').notNull().default('legacy'),
     /** The AC statement itself — editable; edits append to _history (T10503). */
     text: text('text').notNull(),
     /** ISO-8601 creation timestamp. */
@@ -277,8 +289,11 @@ export const taskAcceptanceCriteria = sqliteTable(
   (table) => [
     // FK lookup path — `WHERE task_id = ?` is the dominant access pattern.
     index('idx_task_acceptance_criteria_task_id').on(table.taskId),
+    index('idx_task_acceptance_criteria_target_task_id').on(table.targetTaskId),
     // Alias-resolution + invariant: no two ACs share an ordinal on the same task.
     unique('uq_task_acceptance_criteria_task_ordinal').on(table.taskId, table.ordinal),
+    // PM-Core V2 typed criteria idempotency: each source projection is unique per task.
+    unique('uq_task_acceptance_criteria_task_source_key').on(table.taskId, table.sourceKey),
   ],
 );
 

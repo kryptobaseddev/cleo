@@ -119,6 +119,14 @@ export interface AcRow {
   taskId: string;
   /** 1-based ordinal — never reused per task (gaps remain on shrink). */
   ordinal: number;
+  /** Typed completion criterion discriminator per ADR-088. */
+  kind: 'text' | 'child_task' | 'evidence_bound';
+  /** Stable per-task source key for idempotent criteria projection/upsert. */
+  sourceKey: string;
+  /** Optional child task target; only `kind='child_task'` may populate it. */
+  targetTaskId: string | null;
+  /** Compatibility projection owner (for example: legacy, direct, parent-child). */
+  projection: string;
   /** The AC statement text. Structured gates are serialised as JSON. */
   text: string;
   /** ISO-8601 timestamp the row was created. */
@@ -179,7 +187,16 @@ export interface TransactionAccessor {
    * @task T10508
    */
   insertAcRows(
-    rows: Array<{ id: string; taskId: string; ordinal: number; text: string }>,
+    rows: Array<{
+      id: string;
+      taskId: string;
+      ordinal: number;
+      text: string;
+      kind?: 'text' | 'child_task' | 'evidence_bound';
+      sourceKey?: string;
+      targetTaskId?: string | null;
+      projection?: string;
+    }>,
   ): Promise<void>;
   /**
    * Read all AC rows for a task, ordered by ordinal ASC.
