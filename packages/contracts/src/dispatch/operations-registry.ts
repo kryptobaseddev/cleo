@@ -77,6 +77,12 @@ export const OPERATIONS: OperationDef[] = [
         required: false,
         description: 'Include IVTR phase chain history in the response',
       },
+      {
+        name: 'relations',
+        type: 'boolean',
+        required: false,
+        description: 'Expand relation/doc lists while preserving compact MVI counts',
+      },
     ] satisfies ParamDef[],
   },
   {

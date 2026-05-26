@@ -46,7 +46,16 @@ export type ProjectionKind = 'task' | 'epic' | 'saga' | 'doc' | 'unknown';
  * documented escape hatch for callers who need the full record.
  */
 const MVI_FIELDS: Record<Exclude<ProjectionKind, 'unknown'>, ReadonlySet<string>> = {
-  task: new Set(['id', 'title', 'status', 'priority', 'parentId', 'type', 'kind']),
+  task: new Set([
+    'id',
+    'title',
+    'status',
+    'priority',
+    'parentId',
+    'type',
+    'kind',
+    'relationCounts',
+  ]),
   epic: new Set(['id', 'title', 'status', 'priority', 'parentId', 'type', 'kind', 'childRollup']),
   saga: new Set(['id', 'title', 'status', 'priority', 'type', 'label', 'childRollup']),
   doc: new Set([
