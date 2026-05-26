@@ -2,7 +2,9 @@
  * Schema barrel — re-exports all domain modules.
  *
  * Domain breakdown:
- *   tasks         — tasks, sessions, task_dependencies, task_relations,
+ *   tasks         — tasks, sessions, task_acceptance_criteria,
+ *                   acceptance_projection_state, acceptance_projection_dirty,
+ *                   task_dependencies, task_relations,
  *                   session_handoff_entries, task_work_history, external_task_links
  *   lifecycle     — lifecycle_pipelines, lifecycle_stages, lifecycle_gate_results,
  *                   lifecycle_evidence, lifecycle_transitions
