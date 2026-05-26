@@ -11,6 +11,9 @@
 
 import type { TaskPriority, TaskStatus, TaskType } from './task.js';
 
+/** Stable error code for WorkGraph parent/type matrix violations. */
+export const E_WORKGRAPH_PARENT_TYPE_MATRIX = 'E_WORKGRAPH_PARENT_TYPE_MATRIX';
+
 /** Stable relation categories exposed by the WorkGraph public API. */
 export type WorkGraphRelationKind =
   | 'contains'
@@ -79,4 +82,171 @@ export interface WorkGraphReader {
   snapshot(): Promise<WorkGraphSnapshot> | WorkGraphSnapshot;
   /** Traverse from a root node using storage-hidden graph semantics. */
   traverse(options: WorkGraphTraversalOptions): Promise<WorkGraphSnapshot> | WorkGraphSnapshot;
+}
+
+/** Task vertex returned by containment-only WorkGraph queries. */
+export type WorkGraphContainmentNode = WorkGraphNode;
+
+/** Ancestor chain for one requested WorkGraph root. */
+export interface WorkGraphContainmentAncestorsResult {
+  /** Requested task ID. */
+  readonly rootId: string;
+  /** Ancestors ordered from hierarchy root down to direct parent. */
+  readonly ancestors: readonly WorkGraphContainmentNode[];
+}
+
+/** Direct children for one requested WorkGraph parent. */
+export interface WorkGraphContainmentChildrenResult {
+  /** Requested parent task ID. */
+  readonly rootId: string;
+  /** Direct children ordered by task position/creation order. */
+  readonly children: readonly WorkGraphContainmentNode[];
+}
+
+/**
+ * Storage-backed containment lookup facade.
+ *
+ * Implementations MUST answer from `tasks.parent_id` only. They MUST NOT read
+ * `task_relations`, including `groups`, because Saga membership is not direct
+ * containment.
+ */
+export interface WorkGraphContainmentQueryService {
+  /** Load ancestor chains for many roots in one batched query. */
+  getAncestors(rootIds: readonly string[]): readonly WorkGraphContainmentAncestorsResult[];
+  /** Load direct children for many parents in one batched query. */
+  getChildren(parentIds: readonly string[]): readonly WorkGraphContainmentChildrenResult[];
+}
+
+/** Minimal task hierarchy row accepted by the WorkGraph invariant validator. */
+export interface WorkGraphHierarchyInputNode {
+  /** Stable task, saga, epic, or subtask identifier. */
+  readonly id: string;
+  /** Canonical hierarchy discriminator for the node. */
+  readonly type: TaskType;
+  /** Direct containment parent; absent/null means root. */
+  readonly parentId?: string | null;
+}
+
+/** Structured hierarchy invariant violation for CLI/API callers. */
+export interface WorkGraphHierarchyViolation {
+  /** Stable machine-readable error code. */
+  readonly code: typeof E_WORKGRAPH_PARENT_TYPE_MATRIX;
+  /** Child node that violates the parent/type matrix. */
+  readonly taskId: string;
+  /** Child node type. */
+  readonly taskType: TaskType;
+  /** Parent ID when present; null for invalid root/non-root shape. */
+  readonly parentId: string | null;
+  /** Parent type when parent row is known. */
+  readonly parentType?: TaskType;
+  /** Human-readable remediation summary. */
+  readonly message: string;
+}
+
+/** Result returned by the WorkGraph hierarchy invariant validator. */
+export interface WorkGraphHierarchyValidationResult {
+  /** True when every node satisfies the parent/type matrix. */
+  readonly valid: boolean;
+  /** Ordered list of matrix violations in input order. */
+  readonly violations: readonly WorkGraphHierarchyViolation[];
+}
+
+/** Options for WorkGraph hierarchy invariant validation. */
+export interface WorkGraphHierarchyValidationOptions {
+  /** Throw on the first violation instead of returning all diagnostics. */
+  readonly throwOnViolation?: boolean;
+}
+
+const PARENT_TYPE_MATRIX: Readonly<Record<TaskType, readonly TaskType[]>> = {
+  saga: [],
+  epic: [],
+  task: ['epic'],
+  subtask: ['epic', 'task'],
+};
+
+function describeAllowedParents(type: TaskType): string {
+  const allowed = PARENT_TYPE_MATRIX[type];
+  return allowed.length === 0 ? 'root only' : allowed.join('|');
+}
+
+function formatHierarchyViolation(violation: WorkGraphHierarchyViolation): string {
+  return `${violation.code}: task ${violation.taskId} type=${violation.taskType} parent=${violation.parentId ?? '<root>'} parentType=${violation.parentType ?? '<missing>'}; ${violation.message}`;
+}
+
+/** Error thrown by fail-fast WorkGraph hierarchy validation. */
+export class WorkGraphHierarchyInvariantError extends Error {
+  /** Stable machine-readable code for the invariant breach. */
+  readonly code = E_WORKGRAPH_PARENT_TYPE_MATRIX;
+
+  /** Structured diagnostic for the first hierarchy invariant violation. */
+  readonly violation: WorkGraphHierarchyViolation;
+
+  /**
+   * Build a WorkGraph hierarchy invariant error from a structured violation.
+   * @param violation - The first violation encountered by the validator.
+   */
+  constructor(violation: WorkGraphHierarchyViolation) {
+    super(formatHierarchyViolation(violation));
+    this.name = 'WorkGraphHierarchyInvariantError';
+    this.violation = violation;
+  }
+}
+
+function makeViolation(
+  node: WorkGraphHierarchyInputNode,
+  parent: WorkGraphHierarchyInputNode | undefined,
+): WorkGraphHierarchyViolation {
+  const parentId = node.parentId ?? null;
+  const parentType = parent?.type;
+  const expected = describeAllowedParents(node.type);
+  const actual = parentId === null ? 'root' : (parentType ?? 'missing parent');
+  return {
+    code: E_WORKGRAPH_PARENT_TYPE_MATRIX,
+    taskId: node.id,
+    taskType: node.type,
+    parentId,
+    parentType,
+    message: `tasks.parent_id must follow saga/epic roots, epic->task|subtask, and task->subtask; expected ${node.type} parent ${expected}, got ${actual}`,
+  };
+}
+
+/**
+ * Validate WorkGraph hierarchy rows against CLEO's canonical type/parent matrix.
+ *
+ * The validator mirrors the SQLite trigger invariant in a storage-agnostic form
+ * for core adapters, projections, and API callers: sagas and epics are roots,
+ * epics may contain tasks or subtasks, tasks may contain subtasks, and subtasks
+ * are leaves. Saga membership remains a `groups` relation, never `parentId`.
+ *
+ * @param nodes - Task-like hierarchy rows to validate.
+ * @param options - Optional fail-fast behavior for enforcement call sites.
+ * @returns Structured validation result with all violations in input order.
+ * @task T10576
+ * @saga T10538
+ */
+export function validateWorkGraphHierarchy(
+  nodes: readonly WorkGraphHierarchyInputNode[],
+  options: WorkGraphHierarchyValidationOptions = {},
+): WorkGraphHierarchyValidationResult {
+  const byId = new Map<string, WorkGraphHierarchyInputNode>();
+  for (const node of nodes) byId.set(node.id, node);
+
+  const violations: WorkGraphHierarchyViolation[] = [];
+  for (const node of nodes) {
+    const parentId = node.parentId ?? null;
+    const parent = parentId === null ? undefined : byId.get(parentId);
+    const allowedParents = PARENT_TYPE_MATRIX[node.type];
+    const valid =
+      parentId === null
+        ? allowedParents.length === 0
+        : parent !== undefined && allowedParents.includes(parent.type);
+
+    if (!valid) {
+      const violation = makeViolation(node, parent);
+      if (options.throwOnViolation) throw new WorkGraphHierarchyInvariantError(violation);
+      violations.push(violation);
+    }
+  }
+
+  return { valid: violations.length === 0, violations };
 }

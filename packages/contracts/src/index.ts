@@ -211,17 +211,6 @@ export type {
   CodeSymbolKind,
   ParseResult,
 } from './code-symbol.js';
-// === PM-Core V2 WorkGraph public contracts ===
-export type {
-  WorkGraphEdge,
-  WorkGraphNode,
-  WorkGraphNodeRef,
-  WorkGraphReader,
-  WorkGraphRelationKind,
-  WorkGraphSnapshot,
-  WorkGraphTraversalDirection,
-  WorkGraphTraversalOptions,
-} from './workgraph.js';
 // === Conduit Protocol (agent-to-agent communication) ===
 export type {
   Conduit,
@@ -2057,4 +2046,28 @@ export type {
   WarpLink,
   WarpStage,
 } from './warp-chain.js';
+export type {
+  WorkGraphContainmentAncestorsResult,
+  WorkGraphContainmentChildrenResult,
+  WorkGraphContainmentNode,
+  WorkGraphContainmentQueryService,
+  WorkGraphEdge,
+  WorkGraphHierarchyInputNode,
+  WorkGraphHierarchyValidationOptions,
+  WorkGraphHierarchyValidationResult,
+  WorkGraphHierarchyViolation,
+  WorkGraphNode,
+  WorkGraphNodeRef,
+  WorkGraphReader,
+  WorkGraphRelationKind,
+  WorkGraphSnapshot,
+  WorkGraphTraversalDirection,
+  WorkGraphTraversalOptions,
+} from './workgraph.js';
+// === PM-Core V2 WorkGraph public contracts ===
+export {
+  E_WORKGRAPH_PARENT_TYPE_MATRIX,
+  validateWorkGraphHierarchy,
+  WorkGraphHierarchyInvariantError,
+} from './workgraph.js';
 // === WASM SDK (Rust crate bindings) ===
