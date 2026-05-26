@@ -121,6 +121,31 @@ metadata:
       expect(() => JSON.stringify(result)).not.toThrow();
     });
 
+    it("handles invalid Date objects from YAML parsing without throwing", async () => {
+      // gray-matter/js-yaml may produce Date instances where getTime()
+      // returns NaN (e.g., malformed date scalars). These still pass
+      // `instanceof Date` but throw RangeError on toISOString().
+      // The fix guards with Number.isNaN(value.getTime()) before calling
+      // toISOString(), falling back to String(value) for invalid Dates.
+      mocks.readFile.mockResolvedValue(`---
+name: safe-skill
+description: Safe even with broken dates
+version: 2026-02-30
+---
+
+# Safe Skill`);
+
+      const result = await parseSkillFile("/path/to/SKILL.md");
+
+      // Must not throw — accept whatever gray-matter produces for the version
+      expect(result).not.toBeNull();
+      expect(result?.name).toBe("safe-skill");
+      expect(result?.description).toBe("Safe even with broken dates");
+      // The version field exists (gray-matter parsed something), and
+      // JSON.stringify must succeed regardless of its shape
+      expect(() => JSON.stringify(result)).not.toThrow();
+    });
+
     it("parses skill with compatibility", async () => {
       mocks.readFile.mockResolvedValue(`---
 name: compat-skill

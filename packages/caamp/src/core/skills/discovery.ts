@@ -20,6 +20,12 @@ import type { SkillEntry, SkillMetadata } from '../../types.js';
  */
 function toJsonCompatibleYamlValue(value: unknown): unknown {
   if (value instanceof Date) {
+    // Guard against invalid Date objects (e.g., from malformed YAML date
+    // scalars). An invalid Date still passes `instanceof Date` but
+    // `getTime()` returns NaN, and `toISOString()` throws RangeError.
+    if (Number.isNaN(value.getTime())) {
+      return String(value); // "Invalid Date"
+    }
     const iso = value.toISOString();
     return iso.endsWith('T00:00:00.000Z') ? iso.slice(0, 10) : iso;
   }
