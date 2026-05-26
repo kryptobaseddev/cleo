@@ -114,6 +114,7 @@ export * as ui from './ui/index.js';
  */
 export * as check from './validation/index.js';
 export * as validation from './validation/index.js';
+export * as workGraph from './workgraph/index.js';
 
 // ---------------------------------------------------------------------------
 // Canonical Zod enum schemas (flat re-exports for Pattern 3 imports)

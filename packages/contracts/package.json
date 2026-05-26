@@ -34,6 +34,14 @@
       "types": "./dist/enums.d.ts",
       "import": "./dist/enums.js"
     },
+    "./workgraph": {
+      "types": "./dist/workgraph.d.ts",
+      "import": "./dist/workgraph.js"
+    },
+    "./workgraph.js": {
+      "types": "./dist/workgraph.d.ts",
+      "import": "./dist/workgraph.js"
+    },
     "./nexus-contract-ops": {
       "types": "./dist/nexus-contract-ops.d.ts",
       "import": "./dist/nexus-contract-ops.js"
