@@ -27,33 +27,18 @@ import {
   CleoError,
   CounterMismatchError,
   checkSlugSimilarity,
-  createAttachmentStoreDocsAccessor,
   DEFAULT_SIMILARITY_MODE,
   DEFAULT_SIMILARITY_THRESHOLD,
   detectStrayCleoDb,
-  exportDocument,
-  findSimilarDocs,
   getAgentOutputsAbsolute,
   getProjectRoot,
-  listDocVersions,
-  makeClassifierForScanRoot,
-  mergeDocs,
-  publishDocs,
-  publishDocsAsPr,
-  rankDocs,
   readJson,
-  recordPublication,
   resolveWorktreeFilePath,
   resolveWorktreeRouting,
-  runDocsImport,
-  searchAllProjectDocs,
-  searchDocs,
-  statusDocs,
-  syncFromGit,
 } from '@cleocode/core/internal';
 import { describeOperation } from '@cleocode/lafs';
 import { defineCommand, showUsage } from 'citty';
-import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { loadCanonRegistry } from '../../dispatch/domains/check/canon-docs.js';
 import { resolve as resolveOperation } from '../../dispatch/registry.js';
 import { getOperationParams, paramsToCittyArgs } from '../lib/registry-args.js';
@@ -79,6 +64,16 @@ const docsOutputArgs = {
       'Output mode: envelope|id|table|count|silent (global output flag; accepted here for docs-command consistency).',
   },
 } as const;
+
+async function dispatchDocsRaw(
+  gateway: 'query' | 'mutate',
+  operation: string,
+  params: Record<string, unknown>,
+): Promise<unknown> {
+  const response = await dispatchRaw(gateway, 'docs', operation, params);
+  handleRawError(response, { command: 'docs', operation: `docs.${operation}` });
+  return response.data;
+}
 
 /** Drift detection result. */
 interface DriftResult {
@@ -907,12 +902,11 @@ const exportCommand = defineCommand({
     const projectRoot = getProjectRoot();
 
     try {
-      const result = await exportDocument({
+      const result = (await dispatchDocsRaw('query', 'export', {
         taskId,
         includeAttachments,
         includeMemoryRefs,
-        projectRoot,
-      });
+      })) as { markdown: string; pages: number };
 
       let writtenPath: string | undefined;
       if (typeof args.out === 'string' && args.out.length > 0) {
@@ -990,20 +984,14 @@ const searchCommand = defineCommand({
     },
   },
   async run({ args }) {
-    const projectRoot = getProjectRoot();
     const limit = args.limit ? Number.parseInt(String(args.limit), 10) : 10;
     try {
-      const result = args.owner
-        ? await searchDocs(String(args.query), {
-            ownerId: String(args.owner),
-            limit,
-            projectRoot,
-          })
-        : await searchAllProjectDocs(String(args.query), {
-            limit,
-            type: args.type ? String(args.type) : undefined,
-            projectRoot,
-          });
+      const result = await dispatchDocsRaw('query', 'search', {
+        query: String(args.query),
+        ...(args.owner ? { ownerId: String(args.owner) } : {}),
+        limit,
+        ...(args.type ? { type: String(args.type) } : {}),
+      });
 
       cliOutput(result, { command: 'docs search', operation: 'docs.search' });
     } catch (err) {
@@ -1128,14 +1116,13 @@ const findCommand = defineCommand({
     }
 
     const allKinds = args['all-kinds'] === true;
-    const projectRoot = getProjectRoot();
 
     try {
-      const result = await findSimilarDocs(similarSlug, {
+      const result = await dispatchDocsRaw('query', 'find', {
+        similarSlug,
         ...(limit !== undefined ? { limit } : {}),
         ...(threshold !== undefined ? { threshold } : {}),
         allKinds,
-        projectRoot,
       });
       cliOutput(result, { command: 'docs find', operation: 'docs.find' });
     } catch (err) {
@@ -1197,10 +1184,12 @@ const mergeCommand = defineCommand({
       rawStrategy === 'cherry-pick' || rawStrategy === 'multi-diff' ? rawStrategy : 'three-way';
 
     try {
-      const result = await mergeDocs(String(args.attA), String(args.attB), {
+      const result = (await dispatchDocsRaw('query', 'merge', {
+        attA: String(args.attA),
+        attB: String(args.attB),
         strategy,
         base: args.base ?? undefined,
-      });
+      })) as { merged: string };
 
       if (typeof args.out === 'string' && args.out.length > 0) {
         const outPath = isAbsolute(args.out) ? args.out : resolve(projectRoot, args.out);
@@ -1257,12 +1246,10 @@ const rankCommand = defineCommand({
     },
   },
   async run({ args }) {
-    const projectRoot = getProjectRoot();
     try {
-      const result = await rankDocs({
+      const result = await dispatchDocsRaw('query', 'rank', {
         ownerId: String(args.for),
         query: args.query ?? undefined,
-        projectRoot,
       });
 
       cliOutput(result, { command: 'docs rank', operation: 'docs.rank' });
@@ -1448,12 +1435,10 @@ const versionsCommand = defineCommand({
     },
   },
   async run({ args }) {
-    const projectRoot = getProjectRoot();
     try {
-      const result = await listDocVersions({
+      const result = await dispatchDocsRaw('query', 'versions', {
         ownerId: String(args.for),
         name: args.name ?? undefined,
-        projectRoot,
       });
 
       cliOutput(result, { command: 'docs versions', operation: 'docs.versions' });
@@ -1501,30 +1486,12 @@ const publishCommand = defineCommand({
     },
   },
   async run({ args }) {
-    const projectRoot = getProjectRoot();
     try {
-      const result = await publishDocs({
+      const result = await dispatchDocsRaw('mutate', 'publish', {
         ownerId: String(args.for),
         toPath: String(args.to),
         attachmentId: args.attachment ?? undefined,
-        projectRoot,
       });
-
-      // Persist the publication in the docs-publications ledger so the
-      // `cleo docs status` drift detector can subsequently check this path.
-      // Failure here MUST NOT mask publish success — the file is already on
-      // disk and reachable; ledger drift is recoverable on the next publish.
-      try {
-        await recordPublication({
-          ownerId: result.ownerId,
-          blobName: result.blobName,
-          publishedPath: result.relativePath,
-          lastBlobSha: result.blobSha256,
-          projectRoot,
-        });
-      } catch {
-        /* Ledger write is best-effort. */
-      }
 
       cliOutput(result, { command: 'docs publish', operation: 'docs.publish' });
     } catch (err) {
@@ -1599,14 +1566,25 @@ const publishPrCommand = defineCommand({
   async run({ args }) {
     const slugOrId = String(args['slug-or-id']);
 
-    const result = await publishDocsAsPr({
+    const result = (await dispatchDocsRaw('mutate', 'publish-pr', {
       slugOrId,
       ...(typeof args.slug === 'string' ? { slug: args.slug } : {}),
       ...(typeof args.type === 'string' ? { type: args.type } : {}),
       ...(typeof args.title === 'string' ? { title: args.title } : {}),
       ...(typeof args.body === 'string' ? { body: args.body } : {}),
       ...(typeof args.base === 'string' ? { base: args.base } : {}),
-    });
+    })) as
+      | { success: true; data: unknown }
+      | {
+          success: false;
+          error: {
+            message: string;
+            codeName: string;
+            fix?: string;
+            alternatives?: string[];
+            details?: Record<string, unknown>;
+          };
+        };
 
     if (result.success) {
       cliOutput(result.data, { command: 'docs publish-pr', operation: 'docs.publish-pr' });
@@ -1690,7 +1668,6 @@ const syncCommand = defineCommand({
   async run({ args }) {
     // Reverse-ingest mode (T9702).
     if (args.from) {
-      const projectRoot = getProjectRoot();
       const ownerId = args.for ?? undefined;
       if (!ownerId) {
         cliError(
@@ -1702,12 +1679,11 @@ const syncCommand = defineCommand({
       }
 
       try {
-        const result = await syncFromGit({
+        const result = await dispatchDocsRaw('mutate', 'sync', {
           ownerId: String(ownerId),
           fromPath: String(args.from),
           blobName: args.name ?? undefined,
           contentType: args['content-type'] ?? undefined,
-          projectRoot,
         });
         cliOutput(result, { command: 'docs sync', operation: 'docs.sync' });
       } catch (err) {
@@ -1783,9 +1759,8 @@ const statusCommand = defineCommand({
     },
   },
   async run() {
-    const projectRoot = getProjectRoot();
     try {
-      const result = await statusDocs({ projectRoot });
+      const result = (await dispatchDocsRaw('query', 'status', {})) as { allInSync: boolean };
       cliOutput(result, { command: 'docs status', operation: 'docs.status' });
       if (!result.allInSync) {
         process.exit(2);
@@ -1929,36 +1904,15 @@ const importCommand = defineCommand({
       }
     }
 
-    // T9791 — use the AttachmentStore-backed accessor for production runs so
-    // imported docs land in tasks.db with queryable slug + type columns
-    // (default DocsAccessorImpl writes to manifest.db with in-memory state,
-    // which breaks idempotency across processes + slug→sha lookups).
-    const accessor = createAttachmentStoreDocsAccessor(projectRoot);
-
-    // Resolve a source-dir-aware classifier so files scanned from inside
-    // .cleo/adrs/ (etc.) still receive their correct DocImportType.
-    const classify = makeClassifierForScanRoot(scanRoot, projectRoot);
-
     try {
-      const result = await runDocsImport({
-        root: scanRoot,
-        accessor,
+      const result = await dispatchDocsRaw('mutate', 'import', {
+        scanRoot,
         dryRun,
         force,
         manifestPath,
-        auditDir: projectRoot,
-        classify,
       });
 
-      cliOutput(
-        {
-          dryRun: result.dryRun,
-          counters: result.counters,
-          entries: result.entries,
-          manifestPath: result.manifestPath ?? null,
-        },
-        { command: 'docs import', operation: 'docs.import' },
-      );
+      cliOutput(result, { command: 'docs import', operation: 'docs.import' });
     } catch (err) {
       if (err instanceof CounterMismatchError) {
         cliError(err.message, ExitCode.GENERAL_ERROR, {
@@ -1971,10 +1925,6 @@ const importCommand = defineCommand({
         name: 'E_DOCS_IMPORT_FAILED',
       });
       process.exit(ExitCode.GENERAL_ERROR);
-    } finally {
-      await accessor.close().catch(() => {
-        /* never fail on close */
-      });
     }
   },
 });
