@@ -99,6 +99,17 @@ export {
   E_WORKGRAPH_REPARENT_TARGET_NOT_FOUND,
   preflightWorkGraphReparent,
 } from './reparent-preflight.js';
+export type { WorkGraphScaffoldValidateOptions } from './scaffold-validate.js';
+export {
+  E_WORKGRAPH_SCAFFOLD_DUPLICATE_ID,
+  E_WORKGRAPH_SCAFFOLD_FANOUT_EXCEEDED,
+  E_WORKGRAPH_SCAFFOLD_INVALID_EDGE_KIND,
+  E_WORKGRAPH_SCAFFOLD_INVALID_TYPE,
+  E_WORKGRAPH_SCAFFOLD_MISSING_ENDPOINT,
+  E_WORKGRAPH_SCAFFOLD_MISSING_ID,
+  E_WORKGRAPH_SCAFFOLD_SELF_LOOP,
+  validateWorkGraphScaffold,
+} from './scaffold-validate.js';
 export type {
   WorkGraphStructureCycleFinding,
   WorkGraphStructureDepthFinding,
