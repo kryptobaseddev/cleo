@@ -70,7 +70,17 @@ function setupAccessor(tasks: Task[], extraMethods: Record<string, unknown> = {}
     getChildren: vi
       .fn()
       .mockImplementation(async (parentId: string) => tasks.filter((t) => t.parentId === parentId)),
-    getAncestorChain: vi.fn().mockResolvedValue([]),
+    getAncestorChain: vi.fn().mockImplementation(async (taskId: string) => {
+      const result: Task[] = [];
+      let current = tasks.find((t) => t.id === taskId);
+      while (current?.parentId) {
+        const parent = tasks.find((t) => t.id === current?.parentId);
+        if (!parent) break;
+        result.unshift(parent);
+        current = parent;
+      }
+      return result;
+    }),
     getSubtree: vi.fn().mockImplementation(async (id: string) => {
       const result: Task[] = [];
       const collect = (parentId: string) => {
@@ -86,6 +96,7 @@ function setupAccessor(tasks: Task[], extraMethods: Record<string, unknown> = {}
     }),
     addRelation: vi.fn().mockResolvedValue(undefined),
     updateTaskFields: vi.fn().mockResolvedValue(undefined),
+    appendLog: vi.fn().mockResolvedValue(undefined),
     claimTask: vi.fn().mockResolvedValue(undefined),
     unclaimTask: vi.fn().mockResolvedValue(undefined),
     ...extraMethods,
@@ -417,6 +428,56 @@ describe('coreTaskReparent — characterization', () => {
     setupAccessor(tasks);
     await expect(coreTaskReparent('/mock', 'T002', 'T001')).rejects.toThrow(
       "Cannot parent under subtask 'T001'",
+    );
+  });
+
+  it('rejects self-parent cycles', async () => {
+    setupAccessor([makeTask({ id: 'T001', title: 'Task to reparent' })]);
+    await expect(coreTaskReparent('/mock', 'T001', 'T001')).rejects.toThrow(
+      "Moving 'T001' under itself would create circular reference",
+    );
+  });
+
+  it('rebuilds moved subtree projections when promoting to root', async () => {
+    const appendLog = vi.fn().mockResolvedValue(undefined);
+    const tasks = [
+      makeTask({ id: 'T001', title: 'Old parent' }),
+      makeTask({ id: 'T002', title: 'Moved', parentId: 'T001', type: 'subtask' }),
+      makeTask({ id: 'T003', title: 'Moved child', parentId: 'T002', type: 'task' }),
+    ];
+    setupAccessor(tasks, { appendLog });
+
+    const result = await coreTaskReparent('/mock', 'T002', null);
+
+    expect(result.subtreeUpdated).toEqual(['T002', 'T003']);
+    expect(tasks.find((t) => t.id === 'T002')!.parentId).toBeNull();
+    expect(tasks.find((t) => t.id === 'T002')!.type).toBe('task');
+    expect(tasks.find((t) => t.id === 'T003')!.type).toBe('subtask');
+    expect(tasks.find((t) => t.id === 'T001')!.updatedAt).toBeTruthy();
+    expect(appendLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'task_reparented' }));
+  });
+
+  it('reopens done ancestors dirtied by a move', async () => {
+    const appendLog = vi.fn().mockResolvedValue(undefined);
+    const tasks = [
+      makeTask({ id: 'T001', title: 'Done destination', status: 'done', completedAt: 'then' }),
+      makeTask({ id: 'T002', title: 'Moved' }),
+    ];
+    setupAccessor(tasks, { appendLog });
+
+    const result = await coreTaskReparent('/mock', 'T002', 'T001');
+
+    expect(result.ancestorsReopened).toEqual(['T001']);
+    expect(tasks.find((t) => t.id === 'T001')!.status).toBe('pending');
+    expect(tasks.find((t) => t.id === 'T001')!.completedAt).toBeUndefined();
+    expect(tasks.find((t) => t.id === 'T001')!.notes).toEqual([
+      expect.stringContaining('Reopened by reparent of T002'),
+    ]);
+    expect(appendLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'task_reparented',
+        details: expect.objectContaining({ ancestorsReopened: ['T001'] }),
+      }),
     );
   });
 });
