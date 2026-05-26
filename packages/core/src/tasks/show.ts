@@ -7,8 +7,10 @@
 import type {
   Task,
   TaskRecord,
+  TaskRecordRelationCounts,
   TaskRef,
   TaskShowAttachmentEntry,
+  TaskShowRelationsEntry,
   TasksShowResult,
   TaskView,
 } from '@cleocode/contracts';
@@ -71,6 +73,8 @@ export interface TaskDetail extends Task {
    * @task T10508
    */
   acRows?: AcDetail[];
+  /** Compact counts for relations and docs surfaced on default MVI projection. */
+  relationCounts?: TaskRecordRelationCounts;
   /** Progressive disclosure directives for follow-up operations. */
   _next?: NextDirectives;
 }
@@ -243,6 +247,53 @@ async function fetchTaskAttachmentsForShow(
   }
 }
 
+function buildRelationCounts(
+  detail: TaskDetail,
+  attachments: readonly TaskShowAttachmentEntry[],
+): TaskRecordRelationCounts {
+  return {
+    depends: detail.depends?.length ?? 0,
+    blockedBy: detail.blockedBy ? 1 : 0,
+    relates: detail.relates?.length ?? 0,
+    children: detail.children?.length ?? 0,
+    docs: attachments.length,
+  };
+}
+
+function buildExpandedRelations(
+  detail: TaskDetail,
+  attachments: readonly TaskShowAttachmentEntry[],
+): TaskShowRelationsEntry {
+  return {
+    depends: detail.depends ?? [],
+    blockedBy: detail.blockedBy ? [detail.blockedBy] : [],
+    relates:
+      detail.relates?.map((relation) => ({
+        taskId: relation.taskId,
+        type: relation.type,
+        ...(relation.reason ? { reason: relation.reason } : {}),
+      })) ?? [],
+    children: detail.children ?? [],
+    docs: attachments.map((attachment) => ({
+      attachmentId: attachment.attachmentId,
+      kind: attachment.kind,
+      ...(attachment.slug != null ? { slug: attachment.slug } : {}),
+      ...(attachment.type != null ? { type: attachment.type } : {}),
+    })),
+  };
+}
+
+async function taskToShowRecord(
+  projectRoot: string,
+  detail: TaskDetail,
+  attachments?: readonly TaskShowAttachmentEntry[],
+): Promise<TaskRecord> {
+  const attachmentList = attachments ?? (await fetchTaskAttachmentsForShow(projectRoot, detail.id));
+  const record = taskToRecord(detail);
+  record.relationCounts = buildRelationCounts(detail, attachmentList);
+  return record;
+}
+
 // ---------------------------------------------------------------------------
 // EngineResult-returning wrappers (T1568 / ADR-057 / ADR-058)
 // These wrappers allow the dispatch layer to import from @cleocode/core/internal
@@ -283,7 +334,7 @@ function caughtToEngineError<T>(
  */
 export async function taskShowOperation(
   projectRoot: string,
-  params: { taskId: string; history?: boolean; ivtrHistory?: boolean },
+  params: { taskId: string; history?: boolean; ivtrHistory?: boolean; relations?: boolean },
 ): Promise<
   EngineResult<
     | TasksShowResult
@@ -305,10 +356,12 @@ export async function taskShowOperation(
       fetchTaskAttachmentsForShow(projectRoot, params.taskId),
     ]);
     const view = await computeTaskView(params.taskId, accessor);
+    const task = await taskToShowRecord(projectRoot, detail, attachments);
     return engineSuccess({
-      task: taskToRecord(detail),
+      task,
       view,
       attachments,
+      ...(params.relations ? { relations: buildExpandedRelations(detail, attachments) } : {}),
       ...(detail.acRows != null && detail.acRows.length > 0 ? { acRows: detail.acRows } : {}),
     });
   } catch (err: unknown) {
@@ -336,7 +389,7 @@ export async function taskShow(
     const accessor = await getTaskAccessor(projectRoot);
     const detail = await showTask(taskId, projectRoot, accessor);
     const view = await computeTaskView(taskId, accessor);
-    return engineSuccess({ task: taskToRecord(detail), view });
+    return engineSuccess({ task: await taskToShowRecord(projectRoot, detail), view });
   } catch (err: unknown) {
     return caughtToEngineError(err, 'E_NOT_INITIALIZED', 'Task database not initialized');
   }
@@ -361,7 +414,7 @@ export async function taskShowWithHistory(
   try {
     const accessor = await getTaskAccessor(projectRoot);
     const detail = await showTask(taskId, projectRoot, accessor);
-    const task = taskToRecord(detail);
+    const task = await taskToShowRecord(projectRoot, detail);
 
     if (!includeHistory) {
       return engineSuccess({ task });

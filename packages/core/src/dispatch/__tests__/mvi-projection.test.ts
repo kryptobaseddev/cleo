@@ -146,8 +146,9 @@ describe('PROJECTION_PLANS — SSoT for read ops', () => {
 });
 
 describe('applyProjectionPlan', () => {
-  it('projects tasks.show data.task under mvi mode', () => {
-    const data = { task: FULL_TASK, view: null, attachments: [] };
+  it('projects tasks.show data.task under mvi mode while preserving relation counts', () => {
+    const relationCounts = { depends: 1, blockedBy: 0, relates: 2, children: 3, docs: 4 };
+    const data = { task: { ...FULL_TASK, relationCounts }, view: null, attachments: [] };
     const out = applyProjectionPlan(data, 'tasks.show', 'mvi') as {
       task: Record<string, unknown>;
       view: null;
@@ -156,6 +157,7 @@ describe('applyProjectionPlan', () => {
     expect(out.task['description']).toBeUndefined();
     expect(out.task['verification']).toBeUndefined();
     expect(out.task['id']).toBe('T9922');
+    expect(out.task['relationCounts']).toEqual(relationCounts);
     // sibling fields preserved
     expect(out.view).toBeNull();
     expect(out.attachments).toEqual([]);

@@ -190,13 +190,15 @@ export interface TasksCurrentResult {
   sessionId?: string;
 }
 
-// tasks.show (with optional history/ivtrHistory flags)
+// tasks.show (with optional history/ivtrHistory/relations flags)
 export interface TasksShowParams {
   taskId: string;
   /** When true, include task change history. */
   history?: boolean;
   /** When true, include IVTR phase history. */
   ivtrHistory?: boolean;
+  /** When true, include expanded relation/doc ID lists alongside compact counts. */
+  relations?: boolean;
 }
 
 /**
@@ -224,6 +226,19 @@ export interface TaskShowAttachmentEntry {
   type?: DocsType;
   /** Storage kind — discriminant for the full attachment variant. */
   kind: string;
+}
+
+export interface TaskShowRelationsEntry {
+  /** Direct dependency IDs. */
+  depends: string[];
+  /** Explicit blockedBy entries from the task record. */
+  blockedBy: string[];
+  /** Non-dependency task relation links. */
+  relates: Array<{ taskId: string; type: string; reason?: string }>;
+  /** Direct child task IDs. */
+  children: string[];
+  /** Linked docs attachment IDs/slugs. */
+  docs: Array<{ attachmentId: string; slug?: string; type?: DocsType; kind: string }>;
 }
 
 /**
@@ -261,6 +276,8 @@ export interface TasksShowResult {
    * @epic T10381
    */
   acRows?: TaskShowAcRowEntry[];
+  /** Expanded relation/doc lists returned only when `cleo show --relations` is requested. */
+  relations?: TaskShowRelationsEntry;
 }
 
 /**
