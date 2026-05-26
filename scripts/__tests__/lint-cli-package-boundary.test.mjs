@@ -44,11 +44,15 @@ const SCRIPT = join(REPO_ROOT, 'scripts/lint-cli-package-boundary.mjs');
 let tmpRoot;
 /** The synthetic commands directory inside the project root. */
 let commandsDir;
+/** The synthetic dispatch domains directory inside the project root. */
+let domainsDir;
 
 beforeEach(() => {
   tmpRoot = mkdtempSync(join(tmpdir(), 'cleo-cli-boundary-lint-'));
   commandsDir = join(tmpRoot, 'packages', 'cleo', 'src', 'cli', 'commands');
+  domainsDir = join(tmpRoot, 'packages', 'cleo', 'src', 'dispatch', 'domains');
   mkdirSync(commandsDir, { recursive: true });
+  mkdirSync(domainsDir, { recursive: true });
 });
 
 afterEach(() => {
@@ -70,6 +74,11 @@ function runLint(extraArgs = []) {
 /** Write a synthetic TypeScript command file into the commands dir. */
 function writeCommandFile(name, content) {
   writeFileSync(join(commandsDir, name), content);
+}
+
+/** Write a synthetic TypeScript dispatch domain file into the domains dir. */
+function writeDomainFile(name, content) {
+  writeFileSync(join(domainsDir, name), content);
 }
 
 /** Build a function body string that is guaranteed to be exactly `loc` lines long. */
@@ -194,6 +203,45 @@ describe('lint-cli-package-boundary — violations (default mode)', () => {
     writeCommandFile('boundary.ts', buildFunctionBody('boundaryHelper', 31));
     const result = runLint();
     expect(result.status).toBe(1);
+  });
+
+  it('exits 1 when a CLI command imports the dispatch registry compatibility layer', () => {
+    writeCommandFile(
+      'registry-backedge.ts',
+      `import { OPERATIONS } from '../../dispatch/registry.js';\n` +
+        `export const names = OPERATIONS.map((op) => op.operation);\n`,
+    );
+    const result = runLint();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('RULE-2');
+    expect(result.stderr).toContain('dispatch/registry.js');
+  });
+
+  it('exits 1 when a dispatch domain handler imports the dispatch registry compatibility layer', () => {
+    writeDomainFile(
+      'tasks.ts',
+      `import { resolve } from '../registry.js';\n` +
+        `export function handle() { return resolve('query', 'tasks', 'show'); }\n`,
+    );
+    const result = runLint();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('RULE-2');
+    expect(result.stderr).toContain('../registry.js');
+  });
+
+  it('does not flag CLI/domain adapters that import operation metadata from contracts', () => {
+    writeCommandFile(
+      'contracts-registry.ts',
+      `import { OPERATIONS } from '@cleocode/contracts';\n` +
+        `export const names = OPERATIONS.map((op) => op.operation);\n`,
+    );
+    writeDomainFile(
+      'contracts-domain.ts',
+      `import { type OperationDef } from '@cleocode/contracts';\n` +
+        `export function handle(def: OperationDef) { return def.operation; }\n`,
+    );
+    const result = runLint();
+    expect(result.status).toBe(0);
   });
 
   it('does NOT flag exactly 30 LOC (at threshold, not over)', () => {
