@@ -63,6 +63,23 @@ import { cliError, cliOutput, humanInfo } from '../renderers/index.js';
 import { graphCommand as provenanceGraphCommand } from './docs/graph.js';
 import { docsViewerSubcommands } from './docs-viewer.js';
 
+const docsOutputFlagHelp =
+  '  --json                 Emit the canonical LAFS JSON envelope (also accepted as a global flag)\n' +
+  '  --output <mode>        Re-render the result as envelope|id|table|count|silent (also accepted as a global flag)';
+
+const docsOutputArgs = {
+  json: {
+    type: 'boolean',
+    description:
+      'Emit the canonical LAFS JSON envelope (global output flag; accepted here for docs-command consistency).',
+  },
+  output: {
+    type: 'string',
+    description:
+      'Output mode: envelope|id|table|count|silent (global output flag; accepted here for docs-command consistency).',
+  },
+} as const;
+
 /** Drift detection result. */
 interface DriftResult {
   status: 'clean' | 'warning' | 'error';
@@ -223,7 +240,9 @@ const addCommand = defineCommand({
       '  --allow-similar        Bypass the slug-similarity warn — every bypass is audited\n' +
       '                         to .cleo/audit/similar-bypass.jsonl (T10361)\n' +
       '  --strict               Enforce body-schema (requiredSections) — fail with\n' +
-      '                         E_DOC_SCHEMA_MISMATCH instead of warning (T10160)\n\n' +
+      '                         E_DOC_SCHEMA_MISMATCH instead of warning (T10160)\n' +
+      docsOutputFlagHelp +
+      '\n\n' +
       'Validation behaviors:\n' +
       '  • Unknown flags → E_UNKNOWN_FLAG with did-you-mean suggestions (T10359)\n' +
       '  • Slug collision → E_SLUG_RESERVED + 3 alternative slugs (T10386)\n' +
@@ -291,6 +310,7 @@ const addCommand = defineCommand({
         'When set, a missing H2 section fails the write with E_DOC_SCHEMA_MISMATCH. ' +
         'Default (advisory) surfaces missing sections as a W_DOC_SCHEMA_MISMATCH warning.',
     },
+    ...docsOutputArgs,
   },
   async run({ args, rawArgs }) {
     // T10359 — pre-parse strict flag validation. citty's underlying
@@ -527,7 +547,8 @@ const listCommand = defineCommand({
       'a hint to narrow with --task, --session, or --observation. ' +
       '--type filters across any scope (T9637/T9638). ' +
       '--limit <N> (default 50) and --orderBy <newest|sha|slug> (default newest) ' +
-      'control the browsing window (T9792).',
+      'control the browsing window (T9792). ' +
+      'Output flags: --json and --output envelope|id|table|count|silent are accepted consistently.',
   },
   args: {
     task: {
@@ -574,6 +595,7 @@ const listCommand = defineCommand({
       type: 'boolean',
       description: 'Alias for --verbose. T9922.',
     },
+    ...docsOutputArgs,
   },
   async run({ args }) {
     const task = args.task ?? undefined;
@@ -647,7 +669,8 @@ const fetchCommand = defineCommand({
     name: 'fetch',
     description:
       'Retrieve attachment metadata and bytes by attachment ID (att_*) or SHA-256 hex. ' +
-      'Files <= 1 MB are returned base64-encoded inline; larger files report the storage path only.',
+      'Files <= 1 MB are returned base64-encoded inline; larger files report the storage path only. ' +
+      'Output flags: --json and --output envelope|id|table|count|silent are accepted consistently.',
   },
   args: {
     'attachment-ref': {
@@ -665,6 +688,7 @@ const fetchCommand = defineCommand({
       type: 'boolean',
       description: 'Alias for --verbose. T9922.',
     },
+    ...docsOutputArgs,
   },
   async run({ args }) {
     await dispatchFromCli(
@@ -685,7 +709,8 @@ const removeCommand = defineCommand({
     name: 'remove',
     description:
       'Remove an attachment ref from an owner entity. ' +
-      'When refCount reaches zero the blob file is purged from disk.',
+      'When refCount reaches zero the blob file is purged from disk. ' +
+      'Output flags: --json and --output envelope|id|table|count|silent are accepted consistently.',
   },
   args: {
     'attachment-ref': {
@@ -697,6 +722,7 @@ const removeCommand = defineCommand({
       type: 'string',
       description: 'Owner entity ID to remove the attachment ref from (required)',
     },
+    ...docsOutputArgs,
   },
   async run({ args }) {
     const from = args.from ?? undefined;
@@ -1262,6 +1288,10 @@ const docsUpdateSchema = describeOperation(docsUpdateOperation, {
   includeExamples: true,
 });
 const docsUpdateArgs = paramsToCittyArgs(getOperationParams('mutate', 'docs', 'update'));
+const docsUpdateCliArgs = {
+  ...docsUpdateArgs,
+  ...docsOutputArgs,
+} as const;
 
 function toKebabFlag(name: string): string {
   return name.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`);
@@ -1290,6 +1320,9 @@ function formatDocsUpdateContractHelp(): string {
     }
   }
   lines.push(
+    '',
+    'Output flags:',
+    docsOutputFlagHelp,
     '',
     'Renderer support: this command shares the registry schema surfaced by `cleo schema docs.update --format human --include-examples`.',
   );
@@ -1322,7 +1355,7 @@ const updateCommand = defineCommand({
     name: 'update',
     description: formatDocsUpdateContractHelp(),
   },
-  args: docsUpdateArgs,
+  args: docsUpdateCliArgs,
   async run({ args, rawArgs }) {
     try {
       assertKnownFlags(rawArgs, updateCommand.args, 'docs update');

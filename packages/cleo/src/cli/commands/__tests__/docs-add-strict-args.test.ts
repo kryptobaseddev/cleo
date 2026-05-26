@@ -47,6 +47,8 @@ const docsAddSchema = {
     description: 'Bypass slug similarity check (T10361)',
   },
   strict: { type: 'boolean' as const, description: 'Enforce body-schema validation (T10160)' },
+  json: { type: 'boolean' as const, description: 'Emit JSON output envelope' },
+  output: { type: 'string' as const, description: 'Output mode' },
 };
 
 describe('docs add — strict flag validation (T10359 / closes T10238)', () => {
@@ -105,24 +107,51 @@ describe('docs add — strict flag validation (T10359 / closes T10238)', () => {
     ).toThrow(UnknownFlagError);
   });
 
-  it('(d) accepts the happy path with all known long flags', () => {
+  it('(d) accepts the happy path with all known long flags, including global output flags', () => {
     expect(() =>
       assertKnownFlags(
-        ['T123', 'file.md', '--type', 'spec', '--slug', 's', '--desc', 'a desc'],
+        [
+          'T123',
+          'file.md',
+          '--type',
+          'spec',
+          '--slug',
+          's',
+          '--desc',
+          'a desc',
+          '--json',
+          '--output',
+          'envelope',
+        ],
         docsAddSchema,
         'docs add',
       ),
     ).not.toThrow();
   });
 
-  it('(e) accepts the --flag=value form for every named arg', () => {
+  it('(e) accepts the --flag=value form for every named arg, including --output', () => {
     expect(() =>
       assertKnownFlags(
-        ['T123', 'file.md', '--type=spec', '--slug=s', '--desc=hello'],
+        ['T123', 'file.md', '--type=spec', '--slug=s', '--desc=hello', '--output=table'],
         docsAddSchema,
         'docs add',
       ),
     ).not.toThrow();
+  });
+
+  it('keeps did-you-mean suggestions for mistyped output flags', () => {
+    try {
+      assertKnownFlags(['T123', 'file.md', '--outpu', 'table'], docsAddSchema, 'docs add');
+      throw new Error('expected UnknownFlagError');
+    } catch (err) {
+      expect(err).toBeInstanceOf(UnknownFlagError);
+      const ufe = err as UnknownFlagError;
+      expect(ufe.code).toBe(E_UNKNOWN_FLAG);
+      expect(ufe.flag).toBe('--outpu');
+      expect(ufe.suggestions).toContain('--output');
+      expect(ufe.knownFlags).toContain('--json');
+      expect(ufe.knownFlags).toContain('--output');
+    }
   });
 
   it('honours the `--` terminator: tokens after it are positional, not validated', () => {
