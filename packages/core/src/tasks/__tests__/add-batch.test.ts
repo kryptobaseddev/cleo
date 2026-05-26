@@ -213,10 +213,7 @@ describe('addBatchTasks', () => {
   it('(T10599 AC2) dryRun: insertedCount is 0, separate from wouldCreate', async () => {
     const result = await addBatchTasks(
       {
-        tasks: [
-          { title: 'Dry AC2 A' },
-          { title: 'Dry AC2 B' },
-        ],
+        tasks: [{ title: 'Dry AC2 A' }, { title: 'Dry AC2 B' }],
         dryRun: true,
       },
       accessor,
@@ -232,10 +229,7 @@ describe('addBatchTasks', () => {
   it('(T10599 AC2) live run: insertedCount equals created', async () => {
     const result = await addBatchTasks(
       {
-        tasks: [
-          { title: 'Live AC2 A' },
-          { title: 'Live AC2 B' },
-        ],
+        tasks: [{ title: 'Live AC2 A' }, { title: 'Live AC2 B' }],
       },
       accessor,
       env.tempDir,
@@ -250,10 +244,7 @@ describe('addBatchTasks', () => {
   it('(T10599 AC3) dryRun: validatedCount matches task count when no warnings', async () => {
     const result = await addBatchTasks(
       {
-        tasks: [
-          { title: 'Dry AC3 A' },
-          { title: 'Dry AC3 B' },
-        ],
+        tasks: [{ title: 'Dry AC3 A' }, { title: 'Dry AC3 B' }],
         dryRun: true,
       },
       accessor,

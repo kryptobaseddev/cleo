@@ -192,8 +192,7 @@ export const MUTATE_PROJECTION_PLANS: Readonly<Record<string, MutateProjectionPl
           typeof wouldAffectRaw === 'number' ? wouldAffectRaw : effectiveCount;
         // insertedCount — always 0 in dry-run (AC2: kept separate from wouldCreate)
         const insertedCountRaw = data['insertedCount'];
-        envelope['insertedCount'] =
-          typeof insertedCountRaw === 'number' ? insertedCountRaw : 0;
+        envelope['insertedCount'] = typeof insertedCountRaw === 'number' ? insertedCountRaw : 0;
         // validatedCount — specs that passed validation (AC3)
         const validatedCountRaw = data['validatedCount'];
         if (typeof validatedCountRaw === 'number') {
