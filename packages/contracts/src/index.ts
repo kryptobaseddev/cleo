@@ -1419,6 +1419,9 @@ export type {
   TasksContextOmission,
   TasksContextParams,
   TasksContextResult,
+  TasksScopeMember,
+  TasksScopeReadyEntry,
+  TasksScopeRollup,
 } from './operations/tasks.js';
 // === T9917 tasks.* schema-first input contracts (Saga T9855 / Epic T9903) ===
 // Top-level exports so the core dispatch registry (input-contracts.ts) can
