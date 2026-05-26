@@ -8,7 +8,9 @@
  * @task T10575
  * @saga T10538
  */
-
+import { z } from 'zod';
+import { TASK_RELATION_TYPES } from './enums.js';
+import { TASK_STATUSES } from './status-registry.js';
 import type { TaskPriority, TaskStatus, TaskType, VerificationGate } from './task.js';
 
 /** Stable error code for WorkGraph parent/type matrix violations. */
@@ -265,6 +267,288 @@ export interface WorkGraphReadyFrontierResult {
     readonly blockedBy: readonly WorkGraphReadyFrontierBlockedBy[];
   };
 }
+
+/** Direction filter for direct WorkGraph relation edge reads. */
+export type WorkGraphEdgeDirection = 'out' | 'in' | 'both';
+
+/** Public source bucket for relation-edge reads that merge tables. */
+export type WorkGraphEdgeSource = 'relation' | 'dependency';
+
+/** Task relation table relation type exposed by direct relation-edge reads. */
+export type WorkGraphTaskRelationType = (typeof TASK_RELATION_TYPES)[number];
+
+/** Options for direct relation/dependency edge reads around a WorkGraph root. */
+export interface WorkGraphRelationEdgesOptions {
+  /** Root task ID whose direct relation edges should be projected. */
+  readonly rootId: string;
+  /** Edge direction relative to root. */
+  readonly direction?: WorkGraphEdgeDirection;
+  /** Optional relation type filters for task_relations rows. */
+  readonly relationTypes?: readonly WorkGraphTaskRelationType[];
+  /** Include legacy task dependency edges. Defaults to true. */
+  readonly includeDependencies?: boolean;
+}
+
+/** Direct task_relations edge with optional reason text. */
+export interface WorkGraphRelationEdge extends WorkGraphEdge {
+  readonly source: 'relation';
+  readonly relationType: WorkGraphTaskRelationType;
+  readonly reason?: string;
+}
+
+/** Direct task_dependencies-style edge. */
+export interface WorkGraphDependencyEdge extends WorkGraphEdge {
+  readonly source: 'dependency';
+  readonly kind: 'depends_on';
+}
+
+export type WorkGraphDirectEdge = WorkGraphRelationEdge | WorkGraphDependencyEdge;
+
+/** Result for direct relation/dependency edge reads. */
+export interface WorkGraphRelationEdgesResult {
+  readonly rootId: string;
+  readonly direction: WorkGraphEdgeDirection;
+  readonly edges: readonly WorkGraphDirectEdge[];
+}
+
+/** Query service for direct WorkGraph relation edge reads. */
+export interface WorkGraphRelationQueryService {
+  relationEdges(options: WorkGraphRelationEdgesOptions): Promise<WorkGraphRelationEdgesResult>;
+}
+
+/** Options for an aggregate WorkGraph audit read around one scope. */
+export interface WorkGraphAuditOptions extends WorkGraphPaginationOptions {
+  /** Root task ID whose graph projections should be audited. */
+  readonly rootId: string;
+  /** Optional maximum descendant depth for traversal/tree projections. */
+  readonly maxDepth?: number;
+  /** Include direct relation-edge diagnostics. Defaults to false. */
+  readonly includeRelations?: boolean;
+}
+
+/** Aggregate WorkGraph audit result for CLI/API diagnostics. */
+export interface WorkGraphAuditResult {
+  /** Requested audit root. */
+  readonly rootId: string;
+  /** Storage-agnostic hierarchy invariant result. */
+  readonly hierarchy: WorkGraphHierarchyValidationResult;
+  /** Descendant traversal projection used by the audit. */
+  readonly traversal: WorkGraphTraversalResult;
+  /** Runnable/blocked descendant frontier under the same root. */
+  readonly frontier: WorkGraphReadyFrontierResult;
+  /** Direct and subtree rollup summary under the same root. */
+  readonly rollup: WorkGraphSubtreeSummaryResult;
+  /** Optional direct relation/dependency edge projection when requested. */
+  readonly relationEdges?: WorkGraphRelationEdgesResult;
+}
+
+const taskTypeSchema = z.enum(['saga', 'epic', 'task', 'subtask']);
+const taskPrioritySchema = z.enum(['critical', 'high', 'medium', 'low']);
+const taskStatusSchema = z.enum(TASK_STATUSES);
+const verificationGateSchema = z.enum([
+  'implemented',
+  'testsPassed',
+  'qaPassed',
+  'cleanupDone',
+  'securityPassed',
+  'documented',
+  'nexusImpact',
+]);
+const workGraphRelationKindSchema = z.enum([
+  'contains',
+  'depends_on',
+  'blocks',
+  'relates_to',
+  'groups',
+  'satisfies',
+]);
+const workGraphTraversalDirectionSchema = z.enum([
+  'ancestors',
+  'descendants',
+  'upstream',
+  'downstream',
+]);
+const workGraphEdgeDirectionSchema = z.enum(['out', 'in', 'both']);
+const paginationParamsSchema = z.object({
+  cursor: z.string().min(1).optional(),
+  limit: z.number().int().positive().max(500).optional(),
+});
+const workGraphNodeSchema = z.object({
+  id: z.string().min(1),
+  type: taskTypeSchema,
+  title: z.string(),
+  status: taskStatusSchema,
+  priority: taskPrioritySchema,
+  parentId: z.string().min(1).optional(),
+});
+const workGraphEdgeSchema = z.object({
+  fromId: z.string().min(1),
+  toId: z.string().min(1),
+  kind: workGraphRelationKindSchema,
+});
+const workGraphPageInfoSchema = z.object({
+  nextCursor: z.string().min(1).optional(),
+  hasMore: z.boolean(),
+});
+const workGraphRollupCountsSchema = z.object({
+  total: z.number().int().nonnegative(),
+  byStatus: z.partialRecord(taskStatusSchema, z.number().int().nonnegative()),
+  byType: z.partialRecord(taskTypeSchema, z.number().int().nonnegative()),
+});
+const workGraphSubtreePercentagesSchema = z.object({
+  done: z.number().nonnegative(),
+  active: z.number().nonnegative(),
+  blocked: z.number().nonnegative(),
+  pending: z.number().nonnegative(),
+  cancelled: z.number().nonnegative(),
+});
+const workGraphProjectionMismatchSchema = z.object({
+  field: z.string().min(1),
+  expected: z.number().int().nonnegative(),
+  actual: z.number().int().nonnegative(),
+});
+const workGraphReadyFrontierTaskSchema = workGraphNodeSchema.extend({
+  role: z.string().min(1).optional(),
+  dependencyBlockers: z.array(z.object({ taskId: z.string().min(1), status: taskStatusSchema })),
+  gateBlockers: z.array(z.object({ gate: verificationGateSchema })),
+});
+const workGraphRelationEdgeSchema = workGraphEdgeSchema.extend({
+  source: z.literal('relation'),
+  relationType: z.enum(TASK_RELATION_TYPES),
+  reason: z.string().min(1).optional(),
+});
+const workGraphDependencyEdgeSchema = workGraphEdgeSchema.extend({
+  source: z.literal('dependency'),
+  kind: z.literal('depends_on'),
+});
+
+/** Zod params for `tasks.traverse`. */
+export const tasksTraverseParamsSchema = paginationParamsSchema.extend({
+  rootId: z.string().min(1),
+  direction: workGraphTraversalDirectionSchema,
+  maxDepth: z.number().int().nonnegative().optional(),
+  includeRelations: z.boolean().optional(),
+});
+
+/** Zod result contract for `tasks.traverse`. */
+export const tasksTraverseResultSchema = z.object({
+  rootId: z.string().min(1),
+  direction: workGraphTraversalDirectionSchema,
+  nodes: z.array(workGraphNodeSchema),
+  edges: z.array(workGraphEdgeSchema),
+  pageInfo: workGraphPageInfoSchema,
+});
+
+/** Zod params for `tasks.tree`. */
+export const tasksTreeParamsSchema = paginationParamsSchema.extend({
+  rootId: z.string().min(1),
+  maxDepth: z.number().int().nonnegative().optional(),
+});
+
+/** Zod result contract for `tasks.tree`. */
+export const tasksTreeResultSchema = z.object({
+  rootId: z.string().min(1),
+  nodes: z.array(workGraphNodeSchema.extend({ depth: z.number().int().positive() })),
+  edges: z.array(workGraphEdgeSchema),
+  pageInfo: workGraphPageInfoSchema,
+});
+
+/** Zod params for `tasks.rollup`. */
+export const tasksRollupParamsSchema = z.object({
+  rootId: z.string().min(1),
+  expectedDirectRollup: workGraphRollupCountsSchema.optional(),
+});
+
+/** Zod result contract for `tasks.rollup`. */
+export const tasksRollupResultSchema = z.object({
+  rootId: z.string().min(1),
+  direct: workGraphRollupCountsSchema,
+  subtree: workGraphRollupCountsSchema,
+  percentDenominator: z.object({
+    basis: z.literal('subtree-total'),
+    total: z.number().int().nonnegative(),
+    description: z.string().min(1),
+  }),
+  percentages: workGraphSubtreePercentagesSchema,
+  staleProjection: z.boolean(),
+  projectionMismatches: z.array(workGraphProjectionMismatchSchema),
+});
+
+/** Zod params for `tasks.frontier`. */
+export const tasksFrontierParamsSchema = z.object({
+  rootId: z.string().min(1),
+  role: z.string().min(1).optional(),
+});
+
+/** Zod result contract for `tasks.frontier`. */
+export const tasksFrontierResultSchema = z.object({
+  rootId: z.string().min(1),
+  role: z.string().min(1).optional(),
+  groups: z.object({
+    ready: z.array(workGraphReadyFrontierTaskSchema),
+    blocked: z.array(workGraphReadyFrontierTaskSchema),
+    blockedBy: z.array(
+      z.discriminatedUnion('kind', [
+        z.object({
+          kind: z.literal('dependency'),
+          blockerId: z.string().min(1),
+          blocks: z.array(z.string().min(1)),
+        }),
+        z.object({
+          kind: z.literal('gate'),
+          gate: verificationGateSchema,
+          blocks: z.array(z.string().min(1)),
+        }),
+      ]),
+    ),
+  }),
+});
+
+/** Zod params for `tasks.workgraph.audit`. */
+export const tasksWorkGraphAuditParamsSchema = paginationParamsSchema.extend({
+  rootId: z.string().min(1),
+  maxDepth: z.number().int().nonnegative().optional(),
+  includeRelations: z.boolean().optional(),
+});
+
+/** Zod result contract for `tasks.workgraph.audit`. */
+export const tasksWorkGraphAuditResultSchema = z.object({
+  rootId: z.string().min(1),
+  hierarchy: z.object({
+    valid: z.boolean(),
+    violations: z.array(
+      z.object({
+        code: z.literal(E_WORKGRAPH_PARENT_TYPE_MATRIX),
+        taskId: z.string().min(1),
+        taskType: taskTypeSchema,
+        parentId: z.string().min(1).nullable(),
+        parentType: taskTypeSchema.optional(),
+        message: z.string().min(1),
+      }),
+    ),
+  }),
+  traversal: tasksTraverseResultSchema,
+  frontier: tasksFrontierResultSchema,
+  rollup: tasksRollupResultSchema,
+  relationEdges: z
+    .object({
+      rootId: z.string().min(1),
+      direction: workGraphEdgeDirectionSchema,
+      edges: z.array(
+        z.discriminatedUnion('source', [
+          workGraphRelationEdgeSchema,
+          workGraphDependencyEdgeSchema,
+        ]),
+      ),
+    })
+    .optional(),
+});
+
+export type TasksTraverseParamsInput = z.input<typeof tasksTraverseParamsSchema>;
+export type TasksTreeParamsInput = z.input<typeof tasksTreeParamsSchema>;
+export type TasksRollupParamsInput = z.input<typeof tasksRollupParamsSchema>;
+export type TasksFrontierParamsInput = z.input<typeof tasksFrontierParamsSchema>;
+export type TasksWorkGraphAuditParamsInput = z.input<typeof tasksWorkGraphAuditParamsSchema>;
 
 /** Minimal public reader facade for future WorkGraph implementations. */
 export interface WorkGraphReader {
