@@ -269,7 +269,14 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
         'relates',
       );
     }
-    return wrapCoreResult(await taskRelates(projectRoot, params.taskId), 'relates');
+    return wrapCoreResult(
+      await taskRelates(projectRoot, params.taskId, {
+        direction: params.direction,
+        type: params.type,
+        includeDependencies: params.includeDependencies,
+      }),
+      'relates',
+    );
   },
 
   'complexity.estimate': async (params) => {

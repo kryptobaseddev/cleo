@@ -13,6 +13,7 @@ import type { Task } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
 import { addRelation, listRelations, removeRelation } from '../relates.js';
+import { coreTaskRelates } from '../task-data.js';
 
 describe('relates.ts addRelation persistence (T5168)', () => {
   let testDir: string;
@@ -150,6 +151,52 @@ describe('relates.ts addRelation persistence (T5168)', () => {
       relations: [],
       count: 0,
     });
+  });
+
+  it('coreTaskRelates lists relation reasons plus dependency readiness with type/direction filters (T10626)', async () => {
+    await accessor.upsertSingleTask({
+      id: 'T003',
+      title: 'Third task',
+      description: 'Depends on first task',
+      status: 'pending',
+      priority: 'medium',
+      depends: ['T001'],
+      createdAt: new Date().toISOString(),
+    });
+    await addRelation('T002', 'T001', 'blocks', 'T002 blocks T001', testDir, accessor);
+
+    const incoming = await coreTaskRelates(testDir, 'T001', { direction: 'in' });
+
+    expect(incoming.relations).toContainEqual({
+      taskId: 'T002',
+      type: 'blocks',
+      reason: 'T002 blocks T001',
+      direction: 'in',
+      source: 'relation',
+    });
+    expect(incoming.relations).toContainEqual({
+      taskId: 'T003',
+      type: 'depends',
+      direction: 'in',
+      source: 'dependency',
+      ready: false,
+      status: 'pending',
+    });
+
+    const dependsOnly = await coreTaskRelates(testDir, 'T001', {
+      direction: 'in',
+      type: 'depends',
+    });
+    expect(dependsOnly.relations).toEqual([
+      {
+        taskId: 'T003',
+        type: 'depends',
+        direction: 'in',
+        source: 'dependency',
+        ready: false,
+        status: 'pending',
+      },
+    ]);
   });
 
   it('removeRelation rejects non-existent source task (T10111)', async () => {
