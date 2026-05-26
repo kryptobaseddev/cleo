@@ -2684,7 +2684,8 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'saga.create',
-    description: 'tasks.saga.create (mutate) — create a Saga as a first-class TaskType (type=saga) per ADR-083',
+    description:
+      'tasks.saga.create (mutate) — create a Saga as a first-class TaskType (type=saga) per ADR-083',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
