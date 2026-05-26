@@ -30,7 +30,12 @@ export type { TaskStatus };
  * A single acceptance criterion — either a free-text string (legacy) or a
  * structured {@link AcceptanceGate} (machine-verifiable).
  *
- * Mixed arrays of these are stored as JSON in the `acceptance_json` column.
+ * Mixed arrays of these were historically stored as JSON in the
+ * `acceptance_json` column. T10574 deprecates that column for completion:
+ * post-migration completion/readiness/AC-coverage logic must use canonical
+ * `task_acceptance_criteria` rows and `evidence_ac_bindings` instead.
+ * `acceptance_json` remains only for legacy import/backfill compatibility
+ * until all display fallbacks and historical fixtures have been removed.
  *
  * @epic T760
  * @task T780
