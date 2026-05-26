@@ -137,6 +137,56 @@ export interface AcRow {
   contentHash: string | null;
 }
 
+/** Machine-readable AC child-projection drift codes for doctor/audit output. */
+export type AcProjectionAuditFindingCode =
+  | 'missing_child_task_row'
+  | 'extra_child_task_row'
+  | 'mismatched_child_task_row'
+  | 'stale_child_task_projection';
+
+/** Dirty/clean status for an AC projection audit scan. */
+export type AcProjectionAuditStatus = 'clean' | 'dirty';
+
+/** Field-level child projection mismatch surfaced by doctor/audit callers. */
+export interface AcProjectionAuditFinding {
+  /** Stable machine-readable finding code. */
+  code: AcProjectionAuditFindingCode;
+  /** Parent task whose AC rows were audited. */
+  parentId: string;
+  /** Direct child expected by WorkGraph containment, when applicable. */
+  childId?: string;
+  /** Existing AC row id involved in the finding, when applicable. */
+  acId?: string;
+  /** Compared row field, or `row` for whole-row missing/extra findings. */
+  field: 'row' | 'kind' | 'sourceKey' | 'targetTaskId' | 'projection' | 'text' | 'contentHash';
+  /** Expected canonical value. */
+  expected: string | null;
+  /** Actual observed value. */
+  actual: string | null;
+  /** True when this finding proves cached projection state is dirty/stale. */
+  dirty: true;
+}
+
+/** Typed result returned by AC projection doctor/audit scanners. */
+export interface AcProjectionAuditResult {
+  /** Parent task whose child_task projection rows were audited. */
+  parentId: string;
+  /** Clean when no findings were emitted, dirty otherwise. */
+  status: AcProjectionAuditStatus;
+  /** Boolean convenience flag for CLIs that render dirty state. */
+  dirty: boolean;
+  /** Number of direct children WorkGraph says should be projected. */
+  expectedRows: number;
+  /** Number of existing child_task projection rows observed on the parent. */
+  actualRows: number;
+  /** Stable sha256 over the expected child projection state. */
+  freshnessFingerprint: string;
+  /** True when at least one finding indicates stale/missing/extra projection state. */
+  staleProjection: boolean;
+  /** Typed findings suitable for JSON doctor/audit output. */
+  findings: readonly AcProjectionAuditFinding[];
+}
+
 /**
  * A row of the `evidence_ac_bindings` table (T10503) — the M:N join between
  * evidence atoms and acceptance criteria. Powers the AC-coverage gate

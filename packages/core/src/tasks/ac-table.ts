@@ -16,6 +16,8 @@ import { createHash } from 'node:crypto';
 import type {
   AcceptanceGate,
   AcceptanceItem,
+  AcProjectionAuditFinding,
+  AcProjectionAuditResult,
   AcRow,
   TransactionAccessor,
 } from '@cleocode/contracts';
@@ -217,6 +219,187 @@ export function buildFreshAcRows(
 /** Parent-owned AC projection text for a direct child task. */
 export function buildChildProjectionAcText(childId: string, childTitle: string): string {
   return `Complete child ${childId}: ${childTitle.trim()}`;
+}
+
+/** Minimal direct child state needed to audit parent-owned child_task AC projections. */
+export interface ChildProjectionAuditInput {
+  readonly id: string;
+  readonly title: string;
+}
+
+type ExpectedChildProjection = {
+  childId: string;
+  text: string;
+  sourceKey: string;
+  contentHash: string;
+};
+
+/** Freshness fingerprint for one parent-owned child projection row. */
+export function childProjectionFreshnessFingerprint(childId: string, childTitle: string): string {
+  const text = buildChildProjectionAcText(childId, childTitle);
+  return acTextHash(`${childProjectionSourceKey(childId)}\0${text}`);
+}
+
+function expectedChildProjection(child: ChildProjectionAuditInput): ExpectedChildProjection {
+  const text = buildChildProjectionAcText(child.id, child.title);
+  return {
+    childId: child.id,
+    text,
+    sourceKey: childProjectionSourceKey(child.id),
+    contentHash: childProjectionFreshnessFingerprint(child.id, child.title),
+  };
+}
+
+function isChildProjectionCandidate(row: AcRow): boolean {
+  return (
+    row.kind === 'child_task' ||
+    row.projection === 'parent-child' ||
+    row.sourceKey.startsWith('child:') ||
+    row.targetTaskId !== null
+  );
+}
+
+function childIdForProjectionRow(row: AcRow): string | null {
+  if (row.targetTaskId !== null && row.targetTaskId.length > 0) return row.targetTaskId;
+  if (row.sourceKey.startsWith('child:')) return row.sourceKey.slice('child:'.length);
+  const match = /^Complete child ([^:]+): /.exec(row.text);
+  return match?.[1] ?? null;
+}
+
+function acFinding(finding: Omit<AcProjectionAuditFinding, 'dirty'>): AcProjectionAuditFinding {
+  return { ...finding, dirty: true };
+}
+
+/**
+ * Audit parent-owned `child_task` AC projections against current WorkGraph direct children.
+ *
+ * The result is intentionally typed for doctor/audit JSON output: missing rows,
+ * extra rows, field mismatches, and stale text/fingerprint projections are all
+ * surfaced as stable finding codes with a `dirty` flag.
+ */
+export function auditChildProjectionAcRows(
+  parentId: string,
+  children: readonly ChildProjectionAuditInput[],
+  rows: readonly AcRow[],
+): AcProjectionAuditResult {
+  const expected = children
+    .map(expectedChildProjection)
+    .sort((a, b) => a.childId.localeCompare(b.childId));
+  const expectedByChild = new Map(expected.map((projection) => [projection.childId, projection]));
+  const actualRows = rows.filter(isChildProjectionCandidate);
+  const actualByChild = new Map<string, AcRow[]>();
+
+  for (const row of actualRows) {
+    const childId = childIdForProjectionRow(row);
+    if (childId === null) continue;
+    const bucket = actualByChild.get(childId) ?? [];
+    bucket.push(row);
+    actualByChild.set(childId, bucket);
+  }
+
+  const findings: AcProjectionAuditFinding[] = [];
+
+  for (const projection of expected) {
+    const matchingRows = actualByChild.get(projection.childId) ?? [];
+    const row = matchingRows[0];
+    if (row === undefined) {
+      findings.push(
+        acFinding({
+          code: 'missing_child_task_row',
+          parentId,
+          childId: projection.childId,
+          field: 'row',
+          expected: projection.sourceKey,
+          actual: null,
+        }),
+      );
+      continue;
+    }
+
+    for (const extraRow of matchingRows.slice(1)) {
+      findings.push(
+        acFinding({
+          code: 'extra_child_task_row',
+          parentId,
+          childId: projection.childId,
+          acId: extraRow.id,
+          field: 'row',
+          expected: projection.sourceKey,
+          actual: extraRow.sourceKey,
+        }),
+      );
+    }
+
+    const comparisons: Array<{
+      field: AcProjectionAuditFinding['field'];
+      expected: string | null;
+      actual: string | null;
+    }> = [
+      { field: 'kind', expected: 'child_task', actual: row.kind },
+      { field: 'sourceKey', expected: projection.sourceKey, actual: row.sourceKey },
+      { field: 'targetTaskId', expected: projection.childId, actual: row.targetTaskId },
+      { field: 'projection', expected: 'parent-child', actual: row.projection },
+      { field: 'text', expected: projection.text, actual: row.text },
+    ];
+
+    if (row.contentHash !== null) {
+      comparisons.push({
+        field: 'contentHash',
+        expected: projection.contentHash,
+        actual: row.contentHash,
+      });
+    }
+
+    for (const comparison of comparisons) {
+      if (comparison.expected === comparison.actual) continue;
+      findings.push(
+        acFinding({
+          code:
+            comparison.field === 'text' || comparison.field === 'contentHash'
+              ? 'stale_child_task_projection'
+              : 'mismatched_child_task_row',
+          parentId,
+          childId: projection.childId,
+          acId: row.id,
+          field: comparison.field,
+          expected: comparison.expected,
+          actual: comparison.actual,
+        }),
+      );
+    }
+  }
+
+  for (const row of actualRows) {
+    const childId = childIdForProjectionRow(row);
+    if (childId !== null && expectedByChild.has(childId)) continue;
+    findings.push(
+      acFinding({
+        code: 'extra_child_task_row',
+        parentId,
+        childId: childId ?? undefined,
+        acId: row.id,
+        field: 'row',
+        expected: null,
+        actual: row.sourceKey,
+      }),
+    );
+  }
+
+  const freshnessFingerprint = createHash('sha256')
+    .update(expected.map((projection) => projection.contentHash).join('\n'))
+    .digest('hex');
+  const dirty = findings.length > 0;
+
+  return {
+    parentId,
+    status: dirty ? 'dirty' : 'clean',
+    dirty,
+    expectedRows: expected.length,
+    actualRows: actualRows.length,
+    freshnessFingerprint,
+    staleProjection: dirty,
+    findings,
+  };
 }
 
 /** Returns true when an AC row is the compatibility/typed projection for `childId`. */

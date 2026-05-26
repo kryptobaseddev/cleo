@@ -28,11 +28,11 @@ import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor, TransactionAccessor } from '../store/data-accessor.js';
 import {
   acItemToText,
-  acTextHash,
   applyAcPlan,
   buildAcRowId,
   buildChildProjectionAcText,
   buildFreshAcRows,
+  childProjectionFreshnessFingerprint,
   childProjectionSourceKey,
 } from './ac-table.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
@@ -1350,7 +1350,7 @@ export async function addTask(
         targetTaskId: taskId,
         projection: 'parent-child',
         text: parentChildAcText,
-        contentHash: acTextHash(parentChildAcText),
+        contentHash: childProjectionFreshnessFingerprint(taskId, options.title),
       };
       await tx.insertAcRows([parentChildAcRow]);
       createdAcceptanceCriteriaIds.push(parentChildAcRow.id);
