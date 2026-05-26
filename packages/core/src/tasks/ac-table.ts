@@ -13,7 +13,12 @@
  */
 
 import { createHash } from 'node:crypto';
-import type { AcceptanceItem, AcRow, TransactionAccessor } from '@cleocode/contracts';
+import type {
+  AcceptanceGate,
+  AcceptanceItem,
+  AcRow,
+  TransactionAccessor,
+} from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 
@@ -54,7 +59,10 @@ export type AcInsertRow = {
   sourceKey?: string;
   targetTaskId?: string | null;
   projection?: string;
+  contentHash?: string | null;
 };
+
+type AcCriterionKind = NonNullable<AcInsertRow['kind']>;
 
 type CanonicalJson =
   | null
@@ -91,6 +99,13 @@ export function acTextHash(text: string): string {
 /** Default direct-text source key. Deterministic from monotonic ordinal + canonical content only. */
 export function directTextSourceKey(ordinal: number, text: string): string {
   return `text:${ordinal}:${acTextHash(text).slice(0, 32)}`;
+}
+
+/** Stable source key for a T760 structured gate projected into an evidence-bound AC row. */
+export function evidenceBoundSourceKey(gate: AcceptanceGate, canonicalText: string): string {
+  const req = typeof gate.req === 'string' ? gate.req.trim() : '';
+  if (req.length > 0) return `evidence:${req}`;
+  return `evidence:${acTextHash(canonicalText).slice(0, 32)}`;
 }
 
 /** Source key for parent-owned child projections. Excludes child title/status. */
@@ -152,6 +167,40 @@ function assertUniqueGeneratedRows(taskId: string, rows: readonly AcInsertRow[])
   }
 }
 
+function criterionKindForItem(item: AcceptanceItem): AcCriterionKind {
+  return typeof item === 'string' ? 'text' : 'evidence_bound';
+}
+
+function sourceKeyForItem(ordinal: number, item: AcceptanceItem, text: string): string {
+  return typeof item === 'string'
+    ? directTextSourceKey(ordinal, text)
+    : evidenceBoundSourceKey(item, text);
+}
+
+function buildInsertRow(
+  taskId: string,
+  item: AcceptanceItem,
+  ordinal: number,
+  idOverride?: string,
+): AcInsertRow {
+  const text = acItemToText(item);
+  const kind = criterionKindForItem(item);
+  const sourceKey = sourceKeyForItem(ordinal, item, text);
+  const canonicalIdentity = kind === 'text' ? text : sourceKey;
+
+  return {
+    id: idOverride ?? buildAcRowId(taskId, canonicalIdentity),
+    taskId,
+    ordinal,
+    text,
+    kind,
+    sourceKey,
+    targetTaskId: null,
+    projection: 'legacy',
+    contentHash: acTextHash(text),
+  };
+}
+
 export function buildFreshAcRows(
   taskId: string,
   acceptance: readonly AcceptanceItem[] | undefined,
@@ -159,18 +208,7 @@ export function buildFreshAcRows(
   if (!acceptance || acceptance.length === 0) return [];
   const rows = acceptance.map((item, idx) => {
     const ordinal = idx + 1;
-    const text = acItemToText(item);
-    const sourceKey = directTextSourceKey(ordinal, text);
-    return {
-      id: buildAcRowId(taskId, text),
-      taskId,
-      ordinal,
-      text,
-      kind: 'text' as const,
-      sourceKey,
-      targetTaskId: null,
-      projection: 'legacy',
-    };
+    return buildInsertRow(taskId, item, ordinal);
   });
   assertUniqueGeneratedRows(taskId, rows);
   return rows;
@@ -253,19 +291,9 @@ export function planAcUpdate(
       // ordinal + 1, OR 1 if there were none. Ordinals are NEVER reused,
       // and the schema's UNIQUE (task_id, ordinal) enforces this.
       const maxOrdinal = existing.reduce((m, row) => (row.ordinal > m ? row.ordinal : m), 0);
-      const tail = incomingTexts.slice(existing.length).map((text, i) => {
+      const tail = incoming.slice(existing.length).map((item, i) => {
         const ordinal = maxOrdinal + 1 + i;
-        const sourceKey = directTextSourceKey(ordinal, text);
-        return {
-          id: buildAcRowId(taskId, text),
-          taskId,
-          ordinal,
-          text,
-          kind: 'text' as const,
-          sourceKey,
-          targetTaskId: null,
-          projection: 'legacy',
-        };
+        return buildInsertRow(taskId, item, ordinal);
       });
       assertUniqueGeneratedRows(taskId, tail);
       return { inserts: tail, history: [], fullDelete: false };
@@ -295,6 +323,7 @@ export function planAcUpdate(
         sourceKey: row.sourceKey,
         targetTaskId: row.targetTaskId,
         projection: row.projection,
+        contentHash: row.contentHash,
       }));
       return { inserts: keepInserts, history, fullDelete: true };
     }
@@ -306,19 +335,9 @@ export function planAcUpdate(
     previousText: row.text,
     reason: 'edit',
   }));
-  const inserts = incomingTexts.map((text, idx) => {
+  const inserts = incoming.map((item, idx) => {
     const ordinal = idx + 1;
-    const sourceKey = directTextSourceKey(ordinal, text);
-    return {
-      id: buildAcRowId(taskId, text),
-      taskId,
-      ordinal,
-      text,
-      kind: 'text' as const,
-      sourceKey,
-      targetTaskId: null,
-      projection: 'legacy',
-    };
+    return buildInsertRow(taskId, item, ordinal);
   });
   assertUniqueGeneratedRows(taskId, inserts);
   return { inserts, history, fullDelete: true };
@@ -348,6 +367,7 @@ export function planChildProjectionRemoval(
       sourceKey: row.sourceKey,
       targetTaskId: row.targetTaskId,
       projection: row.projection,
+      contentHash: row.contentHash,
     }));
   const history = removed.map((row) => ({
     acId: row.id,

@@ -28,6 +28,7 @@ import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor, TransactionAccessor } from '../store/data-accessor.js';
 import {
   acItemToText,
+  acTextHash,
   applyAcPlan,
   buildAcRowId,
   buildChildProjectionAcText,
@@ -1349,6 +1350,7 @@ export async function addTask(
         targetTaskId: taskId,
         projection: 'parent-child',
         text: parentChildAcText,
+        contentHash: acTextHash(parentChildAcText),
       };
       await tx.insertAcRows([parentChildAcRow]);
       createdAcceptanceCriteriaIds.push(parentChildAcRow.id);
