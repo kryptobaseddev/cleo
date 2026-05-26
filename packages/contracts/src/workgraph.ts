@@ -348,6 +348,168 @@ export interface WorkGraphAuditResult {
   readonly relationEdges?: WorkGraphRelationEdgesResult;
 }
 
+/** Reason a requested WorkGraph payload member was omitted from a bounded result. @task T10609 */
+export type WorkGraphOmissionReason =
+  | 'budget_exceeded'
+  | 'not_requested'
+  | 'not_available'
+  | 'redacted'
+  | 'truncated';
+
+/** Bounded context-accounting summary shared by WorkGraph context pack and scaffold calls. @task T10609 */
+export interface WorkGraphContextBudget {
+  /** Caller-provided token budget for the response. */
+  readonly tokenBudget: number;
+  /** Estimated token usage of the returned payload. */
+  readonly estimatedTokens: number;
+  /** Remaining token budget after payload selection. */
+  readonly remainingTokens: number;
+  /** True when one or more requested payload members were omitted or truncated. */
+  readonly truncated: boolean;
+}
+
+/** Machine-readable omission emitted when bounded WorkGraph payloads drop data. @task T10609 */
+export interface WorkGraphOmission {
+  /** Stable path/key of the omitted member. */
+  readonly path: string;
+  /** Why the member is absent from the result. */
+  readonly reason: WorkGraphOmissionReason;
+  /** Human-readable explanation for operators and prompt builders. */
+  readonly message: string;
+  /** Estimated tokens saved by omitting this member, when known. */
+  readonly estimatedTokens?: number;
+}
+
+/** Parameters for building a bounded WorkGraph context pack. @task T10609 */
+export interface WorkGraphContextPackParams extends WorkGraphPaginationOptions {
+  /** Root task/saga/epic whose graph context should be packed. */
+  readonly rootId: string;
+  /** Maximum token budget for selected graph payloads. */
+  readonly tokenBudget?: number;
+  /** Include direct relation/dependency edges in the returned context. */
+  readonly includeRelations?: boolean;
+  /** Include readiness grouping under the requested scope. */
+  readonly includeReadiness?: boolean;
+  /** Include subtree rollup summary under the requested scope. */
+  readonly includeRollup?: boolean;
+}
+
+/** Bounded graph context pack for orchestration prompts and API consumers. @task T10609 */
+export interface WorkGraphContextPack {
+  /** Requested graph scope root. */
+  readonly rootId: string;
+  /** ISO timestamp when the pack was generated. */
+  readonly generatedAt: string;
+  /** Budget accounting for the selected payload. */
+  readonly budget: WorkGraphContextBudget;
+  /** Hierarchy/tree slice selected for the pack. */
+  readonly slice: WorkGraphSlice;
+  /** Optional relation/dependency edges when requested and within budget. */
+  readonly relationEdges?: WorkGraphRelationEdgesResult;
+  /** Optional readiness grouping when requested and within budget. */
+  readonly readiness?: WorkGraphReadinessResult;
+  /** Optional subtree rollup when requested and within budget. */
+  readonly rollup?: WorkGraphSubtreeSummaryResult;
+  /** Omitted/truncated members with reasons. */
+  readonly omissions: readonly WorkGraphOmission[];
+}
+
+/** Parameters for reading a bounded graph slice around a root. @task T10609 */
+export interface WorkGraphSliceParams extends WorkGraphPaginationOptions {
+  /** Root task/saga/epic whose slice should be projected. */
+  readonly rootId: string;
+  /** Traversal direction for the slice. */
+  readonly direction?: WorkGraphTraversalDirection;
+  /** Optional maximum edge depth for the slice. */
+  readonly maxDepth?: number;
+  /** Include direct relation/dependency edges adjacent to returned nodes. */
+  readonly includeRelations?: boolean;
+}
+
+/** Bounded graph slice that carries nodes, edges, and pagination metadata together. @task T10609 */
+export interface WorkGraphSlice extends WorkGraphSnapshot {
+  /** Requested graph scope root. */
+  readonly rootId: string;
+  /** Direction used to materialize this slice. */
+  readonly direction: WorkGraphTraversalDirection;
+  /** Page metadata for cursor-based follow-up calls. */
+  readonly pageInfo: WorkGraphPageInfo;
+  /** Optional omission diagnostics when budget or pagination trims the slice. */
+  readonly omissions?: readonly WorkGraphOmission[];
+}
+
+/** Parameters for direct WorkGraph readiness checks. @task T10609 */
+export interface WorkGraphReadinessParams {
+  /** Root task/saga/epic whose descendants should be checked. */
+  readonly rootId: string;
+  /** Optional SQL task-role/kind filter applied before grouping. */
+  readonly role?: string;
+  /** Include gate blockers in addition to dependency blockers. */
+  readonly includeGateBlockers?: boolean;
+}
+
+/** Contract-backed readiness result with an explicit ready boolean. @task T10609 */
+export interface WorkGraphReadinessResult extends WorkGraphReadyFrontierResult {
+  /** True when at least one task is ready and no requested scope invariant failed. */
+  readonly ready: boolean;
+  /** Non-fatal readiness diagnostics. */
+  readonly warnings: readonly string[];
+}
+
+/** Parameters for validating WorkGraph scaffold inputs before applying them. @task T10609 */
+export interface WorkGraphScaffoldValidateParams {
+  /** Root task/saga/epic that owns the scaffold proposal. */
+  readonly rootId: string;
+  /** Proposed nodes to create or reconcile. */
+  readonly nodes: readonly WorkGraphHierarchyInputNode[];
+  /** Proposed direct edges/relations to create or reconcile. */
+  readonly edges?: readonly WorkGraphDirectEdge[];
+  /** Preview validation only; echoed for callers that share validate/apply plumbing. */
+  readonly dryRun?: boolean;
+}
+
+/** Validation diagnostic for a WorkGraph scaffold proposal. @task T10609 */
+export interface WorkGraphScaffoldValidationIssue {
+  /** Stable validation code. */
+  readonly code: string;
+  /** Human-readable validation message. */
+  readonly message: string;
+  /** Task or edge endpoint associated with the issue, when available. */
+  readonly taskId?: string;
+  /** Severity controls whether apply may proceed. */
+  readonly severity: 'error' | 'warning';
+}
+
+/** Result contract for WorkGraph scaffold validation. @task T10609 */
+export interface WorkGraphScaffoldValidateResult {
+  /** Root task/saga/epic used for validation. */
+  readonly rootId: string;
+  /** True when no error-severity issues were found. */
+  readonly valid: boolean;
+  /** Echoes whether this was a dry-run validation. */
+  readonly dryRun: boolean;
+  /** Structured validation issues. */
+  readonly issues: readonly WorkGraphScaffoldValidationIssue[];
+  /** Hierarchy invariant result for the proposed nodes. */
+  readonly hierarchy: WorkGraphHierarchyValidationResult;
+}
+
+/** Parameters for applying a previously validated WorkGraph scaffold proposal. @task T10609 */
+export interface WorkGraphScaffoldApplyParams extends WorkGraphScaffoldValidateParams {
+  /** Require callers to pass true to perform writes; false/omitted means preview. */
+  readonly apply?: boolean;
+}
+
+/** Result contract for applying a WorkGraph scaffold proposal. @task T10609 */
+export interface WorkGraphScaffoldApplyResult extends WorkGraphScaffoldValidateResult {
+  /** True when mutations were written. */
+  readonly applied: boolean;
+  /** Number of nodes created or reconciled. */
+  readonly nodesChanged: number;
+  /** Number of edges created or reconciled. */
+  readonly edgesChanged: number;
+}
+
 const taskTypeSchema = z.enum(['saga', 'epic', 'task', 'subtask']);
 const taskPrioritySchema = z.enum(['critical', 'high', 'medium', 'low']);
 const taskStatusSchema = z.enum(TASK_STATUSES);
@@ -426,6 +588,162 @@ const workGraphRelationEdgeSchema = workGraphEdgeSchema.extend({
 const workGraphDependencyEdgeSchema = workGraphEdgeSchema.extend({
   source: z.literal('dependency'),
   kind: z.literal('depends_on'),
+});
+
+const workGraphOmissionReasonSchema = z.enum([
+  'budget_exceeded',
+  'not_requested',
+  'not_available',
+  'redacted',
+  'truncated',
+]);
+const workGraphContextBudgetSchema = z.object({
+  tokenBudget: z.number().int().nonnegative(),
+  estimatedTokens: z.number().int().nonnegative(),
+  remainingTokens: z.number().int().nonnegative(),
+  truncated: z.boolean(),
+});
+const workGraphOmissionSchema = z.object({
+  path: z.string().min(1),
+  reason: workGraphOmissionReasonSchema,
+  message: z.string().min(1),
+  estimatedTokens: z.number().int().nonnegative().optional(),
+});
+const workGraphDirectEdgeSchema = z.discriminatedUnion('source', [
+  workGraphRelationEdgeSchema,
+  workGraphDependencyEdgeSchema,
+]);
+
+/** Zod params for a bounded WorkGraph context pack. @task T10609 */
+export const workGraphContextPackParamsSchema = paginationParamsSchema.extend({
+  rootId: z.string().min(1),
+  tokenBudget: z.number().int().positive().optional(),
+  includeRelations: z.boolean().optional(),
+  includeReadiness: z.boolean().optional(),
+  includeRollup: z.boolean().optional(),
+});
+
+/** Zod params for a bounded WorkGraph graph slice. @task T10609 */
+export const workGraphSliceParamsSchema = paginationParamsSchema.extend({
+  rootId: z.string().min(1),
+  direction: workGraphTraversalDirectionSchema.optional(),
+  maxDepth: z.number().int().nonnegative().optional(),
+  includeRelations: z.boolean().optional(),
+});
+
+/** Zod result contract for a bounded WorkGraph graph slice. @task T10609 */
+export const workGraphSliceSchema = z.object({
+  rootId: z.string().min(1),
+  direction: workGraphTraversalDirectionSchema,
+  nodes: z.array(workGraphNodeSchema),
+  edges: z.array(workGraphEdgeSchema),
+  pageInfo: workGraphPageInfoSchema,
+  omissions: z.array(workGraphOmissionSchema).optional(),
+});
+
+/** Zod params for direct WorkGraph readiness checks. @task T10609 */
+export const workGraphReadinessParamsSchema = z.object({
+  rootId: z.string().min(1),
+  role: z.string().min(1).optional(),
+  includeGateBlockers: z.boolean().optional(),
+});
+
+/** Zod result contract for direct WorkGraph readiness checks. @task T10609 */
+export const workGraphReadinessResultSchema = z.object({
+  rootId: z.string().min(1),
+  role: z.string().min(1).optional(),
+  ready: z.boolean(),
+  warnings: z.array(z.string()),
+  groups: z.object({
+    ready: z.array(workGraphReadyFrontierTaskSchema),
+    blocked: z.array(workGraphReadyFrontierTaskSchema),
+    blockedBy: z.array(
+      z.discriminatedUnion('kind', [
+        z.object({
+          kind: z.literal('dependency'),
+          blockerId: z.string().min(1),
+          blocks: z.array(z.string().min(1)),
+        }),
+        z.object({
+          kind: z.literal('gate'),
+          gate: verificationGateSchema,
+          blocks: z.array(z.string().min(1)),
+        }),
+      ]),
+    ),
+  }),
+});
+
+/** Zod result contract for a bounded WorkGraph context pack. @task T10609 */
+export const workGraphContextPackSchema = z.object({
+  rootId: z.string().min(1),
+  generatedAt: z.string().min(1),
+  budget: workGraphContextBudgetSchema,
+  slice: workGraphSliceSchema,
+  relationEdges: z
+    .object({
+      rootId: z.string().min(1),
+      direction: workGraphEdgeDirectionSchema,
+      edges: z.array(workGraphDirectEdgeSchema),
+    })
+    .optional(),
+  readiness: workGraphReadinessResultSchema.optional(),
+  rollup: z.lazy(() => tasksRollupResultSchema).optional(),
+  omissions: z.array(workGraphOmissionSchema),
+});
+
+/** Zod params for WorkGraph scaffold validation. @task T10609 */
+export const workGraphScaffoldValidateParamsSchema = z.object({
+  rootId: z.string().min(1),
+  nodes: z.array(
+    z.object({
+      id: z.string().min(1),
+      type: taskTypeSchema,
+      parentId: z.string().min(1).nullable().optional(),
+    }),
+  ),
+  edges: z.array(workGraphDirectEdgeSchema).optional(),
+  dryRun: z.boolean().optional(),
+});
+
+const workGraphScaffoldValidationIssueSchema = z.object({
+  code: z.string().min(1),
+  message: z.string().min(1),
+  taskId: z.string().min(1).optional(),
+  severity: z.enum(['error', 'warning']),
+});
+
+/** Zod result contract for WorkGraph scaffold validation. @task T10609 */
+export const workGraphScaffoldValidateResultSchema = z.object({
+  rootId: z.string().min(1),
+  valid: z.boolean(),
+  dryRun: z.boolean(),
+  issues: z.array(workGraphScaffoldValidationIssueSchema),
+  hierarchy: z.object({
+    valid: z.boolean(),
+    violations: z.array(
+      z.object({
+        code: z.literal(E_WORKGRAPH_PARENT_TYPE_MATRIX),
+        taskId: z.string().min(1),
+        taskType: taskTypeSchema,
+        parentId: z.string().min(1).nullable(),
+        parentType: taskTypeSchema.optional(),
+        message: z.string().min(1),
+      }),
+    ),
+  }),
+});
+
+/** Zod params for WorkGraph scaffold apply. @task T10609 */
+export const workGraphScaffoldApplyParamsSchema = workGraphScaffoldValidateParamsSchema.extend({
+  apply: z.boolean().optional(),
+});
+
+/** Zod result contract for WorkGraph scaffold apply. @task T10609 */
+export const workGraphScaffoldApplyResultSchema = workGraphScaffoldValidateResultSchema.extend({
+  applied: z.boolean(),
+  nodesChanged: z.number().int().nonnegative(),
+  edgesChanged: z.number().int().nonnegative(),
 });
 
 /** Zod params for `tasks.traverse`. */
