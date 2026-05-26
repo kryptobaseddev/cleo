@@ -2068,6 +2068,13 @@ export type {
   WarpStage,
 } from './warp-chain.js';
 export type {
+  TasksFrontierParamsInput,
+  TasksRollupParamsInput,
+  TasksTraverseParamsInput,
+  TasksTreeParamsInput,
+  TasksWorkGraphAuditParamsInput,
+  WorkGraphAuditOptions,
+  WorkGraphAuditResult,
   WorkGraphContainmentAncestorsResult,
   WorkGraphContainmentChildrenResult,
   WorkGraphContainmentNode,
@@ -2113,6 +2120,16 @@ export type {
 // === PM-Core V2 WorkGraph public contracts ===
 export {
   E_WORKGRAPH_PARENT_TYPE_MATRIX,
+  tasksFrontierParamsSchema,
+  tasksFrontierResultSchema,
+  tasksRollupParamsSchema,
+  tasksRollupResultSchema,
+  tasksTraverseParamsSchema,
+  tasksTraverseResultSchema,
+  tasksTreeParamsSchema,
+  tasksTreeResultSchema,
+  tasksWorkGraphAuditParamsSchema,
+  tasksWorkGraphAuditResultSchema,
   validateWorkGraphHierarchy,
   WorkGraphHierarchyInvariantError,
 } from './workgraph.js';
