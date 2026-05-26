@@ -77,6 +77,13 @@ const docsUpdateDef: RegistryOperationDef = {
       description: 'Agent identity that performed the update',
       cli: { flag: 'attached-by' },
     },
+    {
+      name: 'allowExternal',
+      type: 'boolean',
+      required: false,
+      description: 'Permit --file to resolve outside the canonical project root',
+      cli: { flag: 'allow-external' },
+    },
   ],
 };
 
@@ -278,8 +285,11 @@ describe('describeOperation()', () => {
     const slug = schema.params.find((p) => p.name === 'slug');
     const status = schema.params.find((p) => p.name === 'status');
     const attachedBy = schema.params.find((p) => p.name === 'attachedBy');
+    const allowExternal = schema.params.find((p) => p.name === 'allowExternal');
 
     expect(slug?.cli?.positional).toBe(true);
+    expect(allowExternal?.type).toBe('boolean');
+    expect(allowExternal?.cli?.flag).toBe('allow-external');
     expect(status?.enum).toEqual([
       'draft',
       'proposed',
