@@ -1550,7 +1550,13 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     const outcome = await updateDocBySlug(projectRoot, resolvedParams);
 
     if (!outcome.ok) {
-      return lafsError(outcome.error.code, outcome.error.message, 'update');
+      return lafsError(
+        outcome.error.code,
+        outcome.error.message,
+        'update',
+        undefined,
+        'details' in outcome.error ? outcome.error.details : undefined,
+      );
     }
 
     return lafsSuccess<DocsUpdateResult>(
@@ -1566,6 +1572,13 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         updatedAt: outcome.result.updatedAt,
         version: outcome.result.version,
         squashed: outcome.result.squashed,
+        ...(outcome.result.dryRun === true ? { dryRun: true as const } : {}),
+        ...(outcome.result.wouldWrite !== undefined
+          ? { wouldWrite: outcome.result.wouldWrite }
+          : {}),
+        ...(outcome.result.wouldChange !== undefined
+          ? { wouldChange: outcome.result.wouldChange }
+          : {}),
       },
       'update',
     );
@@ -1657,6 +1670,7 @@ function docsEnvelopeToResponse(
 
   // Extract attachmentBackend from data (if present) and lift into meta.
   let attachmentBackend: AttachmentBackend | undefined;
+  let dryRun: true | undefined;
   // T9792 — also lift `hint` (added by `docs.list` when defaults kick in)
   // so JSON consumers can read it from `meta.hint` without poking into the
   // result body.
@@ -1678,6 +1692,9 @@ function docsEnvelopeToResponse(
       // Keep `hint` on the data payload too so direct result consumers see
       // it; meta.hint is a parallel surface for `--field meta.hint` queries.
     }
+    if (cleanedData['dryRun'] === true) {
+      dryRun = true;
+    }
     if (cleaned) {
       responseData = cleanedData;
     }
@@ -1687,6 +1704,7 @@ function docsEnvelopeToResponse(
     meta: {
       ...dispatchMeta(gateway, 'docs', operation, startTime),
       ...(attachmentBackend !== undefined ? { attachmentBackend } : {}),
+      ...(dryRun === true ? { dryRun: true } : {}),
       ...(hint !== undefined ? { hint } : {}),
     },
     success: true,

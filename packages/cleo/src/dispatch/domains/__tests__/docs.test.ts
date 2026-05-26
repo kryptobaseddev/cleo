@@ -72,6 +72,15 @@ describe('Docs Domain Registry (T797)', () => {
     expect(updateOp!.gateway).toBe('mutate');
   });
 
+  it('docs.update exposes dryRun and strict preflight flags (T10617)', () => {
+    const updateOp = OPERATIONS.find((o) => o.domain === 'docs' && o.operation === 'update');
+    expect(updateOp).toBeDefined();
+    const dryRun = updateOp!.params?.find((p) => p.name === 'dryRun');
+    const strict = updateOp!.params?.find((p) => p.name === 'strict');
+    expect(dryRun).toMatchObject({ type: 'boolean', required: false, cli: { flag: 'dry-run' } });
+    expect(strict).toMatchObject({ type: 'boolean', required: false });
+  });
+
   it('all docs operations have valid structure', () => {
     const docsOps = getByDomain('docs');
     for (const op of docsOps) {
