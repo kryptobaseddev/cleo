@@ -28,6 +28,7 @@ import {
   coreTaskImport,
   coreTaskLint,
 } from './task-import.js';
+import { coreTaskContext } from './task-context.js';
 import { computeCriticalPath, renderMermaidTree, renderTextTree } from './tree-render.js';
 
 /**
@@ -444,5 +445,21 @@ export async function taskUnclaim(
     return engineSuccess({ taskId });
   } catch (err: unknown) {
     return cleoErrorToEngineResult(err, 'E_INTERNAL', 'Failed to unclaim task');
+  }
+}
+
+/**
+ * Build a bounded task-scoped context pack.
+ * @task T10629
+ */
+export async function taskContext(
+  projectRoot: string,
+  params: import('@cleocode/contracts').TasksContextParams,
+): Promise<EngineResult<import('@cleocode/contracts').TasksContextResult>> {
+  try {
+    const result = await coreTaskContext(projectRoot, params);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    return nonCrudEngineError(err, 'Task database not initialized');
   }
 }

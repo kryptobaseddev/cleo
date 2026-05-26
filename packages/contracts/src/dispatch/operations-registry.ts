@@ -8581,4 +8581,80 @@ export const OPERATIONS: OperationDef[] = [
       },
     ] satisfies ParamDef[],
   },
+
+  // ---------------------------------------------------------------------------
+  // T10629 — tasks.context: bounded task-scoped context pack with token budget
+  // ---------------------------------------------------------------------------
+  {
+    gateway: 'query' as const,
+    domain: 'tasks',
+    operation: 'context',
+    description:
+      'tasks.context (query) — bounded context pack for a single task. ' +
+      'Combines identity + acceptance criteria + blockers + attached docs + ' +
+      'graph edges (from tasks.slice) + recent activity within a configurable ' +
+      'token budget, with explicit omission tracking and expansion hints.',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['taskId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string' as const,
+        required: true,
+        description: 'Task ID to build context for (e.g. T10629)',
+        cli: { positional: true },
+      },
+      {
+        name: 'budgetTokens',
+        type: 'number' as const,
+        required: false,
+        description: 'Maximum token budget for the returned pack. Default: 1500',
+      },
+      {
+        name: 'includeAcceptance',
+        type: 'boolean' as const,
+        required: false,
+        description: 'Include acceptance criteria in the pack. Default: true',
+      },
+      {
+        name: 'includeBlockers',
+        type: 'boolean' as const,
+        required: false,
+        description: 'Include blocker summary in the pack. Default: true',
+      },
+      {
+        name: 'includeDocs',
+        type: 'boolean' as const,
+        required: false,
+        description: 'Include attached docs in the pack. Default: true',
+      },
+      {
+        name: 'includeEdges',
+        type: 'boolean' as const,
+        required: false,
+        description:
+          'Include graph edges (upstream/downstream/siblings/related) in the pack. Default: true',
+      },
+      {
+        name: 'includeActivity',
+        type: 'boolean' as const,
+        required: false,
+        description: 'Include recent activity (audit log) in the pack. Default: true',
+      },
+      {
+        name: 'activityLimit',
+        type: 'number' as const,
+        required: false,
+        description: 'Maximum number of recent activity events. Default: 10',
+      },
+      {
+        name: 'edgeDepth',
+        type: 'number' as const,
+        required: false,
+        description: 'Maximum depth for graph edges when includeEdges is true. Default: 1',
+      },
+    ] satisfies ParamDef[],
+  },
 ];
