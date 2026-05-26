@@ -117,6 +117,15 @@ export {
   applyWorkGraphScaffold,
 } from './scaffold-apply.js';
 export type {
+  PlanningDocAudience,
+  PlanningDocBlockedTask,
+  PlanningDocEpicEntry,
+  PlanningDocParams,
+  PlanningDocReadyTask,
+  PlanningDocResult,
+} from './scaffold-plan.js';
+export { generatePlanningDoc } from './scaffold-plan.js';
+export type {
   WorkGraphStructureCycleFinding,
   WorkGraphStructureDepthFinding,
   WorkGraphStructureFanoutFinding,
