@@ -83,6 +83,20 @@ describe('completion evaluation (T10591)', () => {
         parentId: 'T-PARENT',
       },
       {
+        id: 'T-REPLACEMENT',
+        title: 'Replacement child',
+        status: 'done',
+        priority: 'medium',
+        parentId: 'T-PARENT',
+      },
+      {
+        id: 'T-REPLACEMENT-PENDING',
+        title: 'Pending replacement child',
+        status: 'pending',
+        priority: 'medium',
+        parentId: 'T-PARENT',
+      },
+      {
         id: 'T-PENDING',
         title: 'Pending child',
         status: 'pending',
@@ -138,10 +152,11 @@ describe('completion evaluation (T10591)', () => {
     expect(evaluation.satisfied.map((item) => item.alias)).toEqual(['AC3']);
   });
 
-  it('treats a cancelled child as satisfied only when explicitly waived', async () => {
+  it('requires criterion-scoped waiver metadata before waiving a cancelled child', async () => {
     const acRows = await seedParentWithChildren();
     await bind(acRows[0]!.id);
     await bind(acRows[1]!.id);
+    const cancelledChildAc = acRows[3]!;
 
     const withoutWaiver = await evaluateCompletion('T-PARENT', accessor);
     expect(withoutWaiver.unsatisfied.map((item) => item.reason)).toContain(
@@ -149,10 +164,73 @@ describe('completion evaluation (T10591)', () => {
     );
 
     const withWaiver = await evaluateCompletion('T-PARENT', accessor, {
-      waivedChildTaskIds: ['T-CANCELLED'],
+      childWaivers: [
+        {
+          criterionAcId: cancelledChildAc.id,
+          childTaskId: 'T-CANCELLED',
+          reason: 'Scope intentionally cancelled after owner approval',
+          actor: 'keaton',
+          waivedAt: '2026-05-26T08:00:00.000Z',
+        },
+      ],
     });
     expect(withWaiver.waived.map((item) => item.targetTaskId)).toEqual(['T-CANCELLED']);
+    expect(withWaiver.waived[0]!.waiver).toEqual({
+      criterionAcId: cancelledChildAc.id,
+      childTaskId: 'T-CANCELLED',
+      reason: 'Scope intentionally cancelled after owner approval',
+      actor: 'keaton',
+      waivedAt: '2026-05-26T08:00:00.000Z',
+    });
     expect(withWaiver.unsatisfied.map((item) => item.targetTaskId)).not.toContain('T-CANCELLED');
+  });
+
+  it('distinguishes replaced child criteria from satisfied and waived rollup buckets', async () => {
+    const acRows = await seedParentWithChildren();
+    await bind(acRows[0]!.id);
+    await bind(acRows[1]!.id);
+    const cancelledChildAc = acRows[3]!;
+    const pendingChildAc = acRows[4]!;
+
+    const evaluation = await evaluateCompletion('T-PARENT', accessor, {
+      childReplacements: [
+        {
+          criterionAcId: cancelledChildAc.id,
+          originalChildTaskId: 'T-CANCELLED',
+          replacementChildTaskId: 'T-REPLACEMENT',
+          reason: 'Replacement task carries the superseding deliverable',
+          actor: 'prime',
+          replacedAt: '2026-05-26T08:05:00.000Z',
+        },
+        {
+          criterionAcId: pendingChildAc.id,
+          originalChildTaskId: 'T-PENDING',
+          replacementChildTaskId: 'T-REPLACEMENT-PENDING',
+          reason: 'Replacement exists but is not complete yet',
+          actor: 'prime',
+          replacedAt: '2026-05-26T08:06:00.000Z',
+        },
+      ],
+    });
+
+    expect(evaluation.satisfied.map((item) => item.alias)).toEqual(['AC1', 'AC2', 'AC3']);
+    expect(evaluation.replaced.map((item) => item.alias)).toEqual(['AC4']);
+    expect(evaluation.replaced[0]!.replacement).toMatchObject({
+      originalChildTaskId: 'T-CANCELLED',
+      replacementChildTaskId: 'T-REPLACEMENT',
+    });
+    expect(evaluation.replaced[0]!.replacementTaskStatus).toBe('done');
+    expect(evaluation.unsatisfied.map((item) => [item.alias, item.reason])).toEqual([
+      ['AC5', 'child_replacement_not_done'],
+    ]);
+    expect(evaluation.totals).toEqual({
+      criteria: 5,
+      satisfied: 3,
+      unsatisfied: 1,
+      waived: 0,
+      replaced: 1,
+    });
+    expect(explainCompletion(evaluation).summary).toContain('1 replaced criteria');
   });
 
   it('detects stale completion when an already-done parent has unsatisfied criteria', async () => {
