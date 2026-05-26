@@ -111,8 +111,7 @@ describe('T10647: saga.create dry-run', () => {
 
     const createData = createResp.data as SagaCreateData;
     expect(createData.task.id).toBe('T???');
-    expect(createData.task.labels).toContain('saga');
-    expect(createData.task.type).toBe('epic');
+    expect(createData.task.type).toBe('saga');
     expect(createData.dryRun).toBe(true);
     expect(createData.wouldCreate).toBe(1);
     expect(createData.wouldAffect).toBe(1);

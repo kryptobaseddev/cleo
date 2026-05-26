@@ -103,7 +103,7 @@ export type { EngineResult };
 /**
  * Traversal mode for {@link orchestrateReady} and {@link orchestrateWaves}.
  *
- * Sagas (Epics with `labels.includes('saga')`) hold their member Epics via
+ * Sagas (tasks with `type='saga'`) hold their member Epics via
  * `task_relations.type='groups'` edges instead of the `parentId` column
  * (ADR-073). The query-ops historically walked only `parentId`, so sagas
  * appeared childless.

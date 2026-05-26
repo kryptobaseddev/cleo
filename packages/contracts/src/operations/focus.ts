@@ -177,7 +177,7 @@ export interface FocusShowResult {
   scope: FocusScope;
   /**
    * Saga member Epics with rollup statuses.
-   * Populated only when `id` resolves to a Saga (`label='saga'`).
+   * Populated only when `id` resolves to a Saga (`type='saga'`).
    */
   members?: FocusSagaMember[];
   /**
