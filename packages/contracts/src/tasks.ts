@@ -18,6 +18,140 @@
 import { z } from 'zod';
 import { TASK_STATUSES } from './status-registry.js';
 import type { TaskPriority, TaskStatus } from './task.js';
+import type { TaskRecord } from './task-record.js';
+
+// ---------------------------------------------------------------------------
+// Standard task mutation envelopes (T10608)
+// ---------------------------------------------------------------------------
+
+/** Mutation bucket names shared by task create/update/delete result envelopes. @task T10608 */
+export type TaskMutationBucket = 'created' | 'updated' | 'deleted';
+
+/** Severity for non-fatal warnings emitted by task mutation preflights/results. @task T10608 */
+export type TaskMutationWarningSeverity = 'info' | 'warning';
+
+/**
+ * Non-fatal warning surfaced by a task mutation.
+ *
+ * Warnings are structured so callers can distinguish partial-success hazards
+ * from hard validation errors without string parsing.
+ *
+ * @task T10608
+ */
+export interface TaskMutationWarning {
+  /** Stable machine-readable code, e.g. `duplicate_likely` or `cascade_delete`. */
+  code: string;
+  /** Human-readable explanation of the warning. */
+  message: string;
+  /** Warning severity. Defaults to `warning` when omitted by older producers. */
+  severity?: TaskMutationWarningSeverity;
+  /** Task ID associated with the warning, when known. */
+  taskId?: string;
+  /** Input field associated with the warning, when applicable. */
+  field?: string;
+  /** Batch input index associated with the warning, when applicable. */
+  index?: number;
+}
+
+/**
+ * Dry-run/preflight projection for task mutations.
+ *
+ * Counts are split by verb so `created`, `updated`, and `deleted` result
+ * envelopes can all expose the same dry-run shape while preserving the older
+ * operation-specific count names during migration.
+ *
+ * @task T10608
+ */
+export interface TaskMutationDryRunSummary {
+  /** Always true for a dry-run projection. */
+  dryRun: true;
+  /** Number of entities that would be created by executing the mutation. */
+  wouldCreate: number;
+  /** Number of entities that would be updated by executing the mutation. */
+  wouldUpdate: number;
+  /** Number of entities that would be deleted by executing the mutation. */
+  wouldDelete: number;
+  /** Total affected entities across create/update/delete buckets. */
+  wouldAffect: number;
+  /** Number of specs/entities that passed preflight validation. */
+  validatedCount: number;
+  /** Rows durably inserted during dry-run; always 0. */
+  insertedCount: 0;
+  /** Rows durably updated during dry-run; always 0. */
+  updatedCount: 0;
+  /** Rows durably deleted during dry-run; always 0. */
+  deletedCount: 0;
+  /** Non-fatal preflight warnings. Empty when no warnings were emitted. */
+  warnings: TaskMutationWarning[];
+}
+
+/**
+ * Standard envelope appended to task mutation results.
+ *
+ * Existing operation-specific legacy fields (`task`, `deletedTask`, `changes`,
+ * etc.) remain available, while new consumers can read the normalized buckets.
+ *
+ * @task T10608
+ */
+export interface TaskMutationEnvelope<
+  TCreated = TaskRecord[],
+  TUpdated = TaskRecord[],
+  TDeleted = TaskRecord[],
+> {
+  /** Whether this was a preview-only mutation. */
+  dryRun?: boolean;
+  /** Created task records. Empty for update/delete-only mutations. */
+  created: TCreated;
+  /** Updated task records. Empty for create/delete-only mutations. */
+  updated: TUpdated;
+  /** Deleted task records. Empty for create/update-only mutations. */
+  deleted: TDeleted;
+  /** Total number of live rows/entities affected by the mutation. */
+  affectedCount: number;
+  /** Structured partial-success/preflight warnings. */
+  mutationWarnings: TaskMutationWarning[];
+  /** Standard dry-run projection. Present only for dry-run/preflight responses. */
+  dryRunSummary?: TaskMutationDryRunSummary;
+}
+
+const taskMutationWarningSeveritySchema = z.enum(['info', 'warning']);
+
+/** Zod schema for structured task mutation warnings. @task T10608 */
+export const taskMutationWarningSchema = z.object({
+  code: z.string().min(1),
+  message: z.string().min(1),
+  severity: taskMutationWarningSeveritySchema.optional(),
+  taskId: z.string().min(1).optional(),
+  field: z.string().min(1).optional(),
+  index: z.number().int().nonnegative().optional(),
+});
+
+/** Zod schema for the standardized task mutation dry-run/preflight summary. @task T10608 */
+export const taskMutationDryRunSummarySchema = z.object({
+  dryRun: z.literal(true),
+  wouldCreate: z.number().int().nonnegative(),
+  wouldUpdate: z.number().int().nonnegative(),
+  wouldDelete: z.number().int().nonnegative(),
+  wouldAffect: z.number().int().nonnegative(),
+  validatedCount: z.number().int().nonnegative(),
+  insertedCount: z.literal(0),
+  updatedCount: z.literal(0),
+  deletedCount: z.literal(0),
+  warnings: z.array(taskMutationWarningSchema),
+});
+
+const taskMutationTaskRecordSchema = z.object({ id: z.string().min(1) }).passthrough();
+
+/** Zod schema for the standardized task mutation envelope. @task T10608 */
+export const taskMutationEnvelopeSchema = z.object({
+  dryRun: z.boolean().optional(),
+  created: z.array(taskMutationTaskRecordSchema),
+  updated: z.array(taskMutationTaskRecordSchema),
+  deleted: z.array(taskMutationTaskRecordSchema),
+  affectedCount: z.number().int().nonnegative(),
+  mutationWarnings: z.array(taskMutationWarningSchema),
+  dryRunSummary: taskMutationDryRunSummarySchema.optional(),
+});
 
 // ---------------------------------------------------------------------------
 // TaskView types (canonical task projection consumed by SDK, CLI, and REST)
