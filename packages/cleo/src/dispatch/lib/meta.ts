@@ -20,6 +20,8 @@ import type { DispatchResponse, Source } from '../types.js';
  * @param source    - Where the request originated
  * @param requestId - Optional pre-generated request ID
  * @param sessionId - Optional session ID to include in metadata
+ * @param originSessionId - Optional root workflow/saga session ID
+ * @param executionSessionId - Optional execution-attempt session ID
  * @returns Metadata conforming to DispatchResponse['meta']
  *
  * @task T4772
@@ -33,6 +35,8 @@ export function createDispatchMeta(
   source: Source = 'cli',
   requestId?: string,
   sessionId?: string | null,
+  originSessionId?: string | null,
+  executionSessionId?: string | null,
 ): DispatchResponse['meta'] {
   return {
     gateway: gateway as DispatchResponse['meta']['gateway'],
@@ -43,5 +47,7 @@ export function createDispatchMeta(
     source,
     requestId: requestId ?? randomUUID(),
     ...(sessionId != null && { sessionId }),
+    ...(originSessionId != null && { originSessionId }),
+    ...(executionSessionId != null && { executionSessionId }),
   };
 }

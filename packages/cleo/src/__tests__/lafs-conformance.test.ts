@@ -717,6 +717,34 @@ describe('Session ID in meta (T4702)', () => {
       }
     }
   });
+
+  it('originSessionId and executionSessionId included in CLI and gateway meta', () => {
+    const origOrigin = process.env['CLEO_ORIGIN_SESSION_ID'];
+    const origExecution = process.env['CLEO_EXECUTION_SESSION_ID'];
+    process.env['CLEO_ORIGIN_SESSION_ID'] = 'origin-session-42';
+    process.env['CLEO_EXECUTION_SESSION_ID'] = 'execution-session-42';
+    try {
+      const json = formatSuccess({ ok: true });
+      const parsed = JSON.parse(json);
+      expect(parsed.meta.originSessionId).toBe('origin-session-42');
+      expect(parsed.meta.executionSessionId).toBe('execution-session-42');
+
+      const meta = createGatewayMeta('query', 'tasks', 'list', Date.now());
+      expect(meta.originSessionId).toBe('origin-session-42');
+      expect(meta.executionSessionId).toBe('execution-session-42');
+    } finally {
+      if (origOrigin !== undefined) {
+        process.env['CLEO_ORIGIN_SESSION_ID'] = origOrigin;
+      } else {
+        delete process.env['CLEO_ORIGIN_SESSION_ID'];
+      }
+      if (origExecution !== undefined) {
+        process.env['CLEO_EXECUTION_SESSION_ID'] = origExecution;
+      } else {
+        delete process.env['CLEO_EXECUTION_SESSION_ID'];
+      }
+    }
+  });
 });
 
 // ============================

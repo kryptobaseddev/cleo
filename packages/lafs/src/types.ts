@@ -187,6 +187,28 @@ export interface LAFSMeta {
    */
   sessionId?: string;
   /**
+   * Root session that originally initiated the workflow or saga.
+   *
+   * @remarks
+   * Distinct from {@link LAFSMeta.sessionId}: `sessionId` identifies the
+   * session that processed this request, while `originSessionId` remains stable
+   * across delegated executions for cross-session tracing and replay.
+   *
+   * @defaultValue undefined
+   */
+  originSessionId?: string;
+  /**
+   * Specific execution instance for the command, saga step, or delegated worker.
+   *
+   * @remarks
+   * Direct executions commonly use the same value for `originSessionId` and
+   * `executionSessionId`; delegated or replayed work keeps the origin stable
+   * and changes the execution ID for each attempt.
+   *
+   * @defaultValue undefined
+   */
+  executionSessionId?: string;
+  /**
    * Non-fatal warnings to surface to the consuming agent.
    *
    * @defaultValue undefined

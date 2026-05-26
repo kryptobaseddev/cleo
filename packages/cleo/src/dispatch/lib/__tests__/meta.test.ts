@@ -41,6 +41,23 @@ describe('createDispatchMeta', () => {
     expect(meta.requestId).toBe('custom-req-id');
   });
 
+  it('should include provided session lineage IDs', () => {
+    const meta = createDispatchMeta(
+      'query',
+      'tasks',
+      'list',
+      Date.now(),
+      'cli',
+      'custom-req-id',
+      'processor-session-1',
+      'origin-session-1',
+      'execution-session-1',
+    );
+    expect(meta.sessionId).toBe('processor-session-1');
+    expect(meta.originSessionId).toBe('origin-session-1');
+    expect(meta.executionSessionId).toBe('execution-session-1');
+  });
+
   it('should generate unique requestIds when not provided', () => {
     const meta1 = createDispatchMeta('query', 'tasks', 'show', Date.now());
     const meta2 = createDispatchMeta('query', 'tasks', 'show', Date.now());

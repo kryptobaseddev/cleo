@@ -94,6 +94,18 @@ export interface CreateEnvelopeMetaInput {
    */
   sessionId?: string;
   /**
+   * Root session that originally initiated this workflow/saga.
+   *
+   * @defaultValue undefined
+   */
+  originSessionId?: string;
+  /**
+   * Specific execution attempt/session carrying this envelope.
+   *
+   * @defaultValue undefined
+   */
+  executionSessionId?: string;
+  /**
    * Non-fatal warnings to attach to the envelope metadata.
    *
    * @defaultValue undefined
@@ -226,6 +238,8 @@ function createMeta(input: CreateEnvelopeMetaInput): LAFSMeta {
     mvi: resolveMviLevel(input.mvi),
     contextVersion: input.contextVersion ?? 0,
     ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+    ...(input.originSessionId ? { originSessionId: input.originSessionId } : {}),
+    ...(input.executionSessionId ? { executionSessionId: input.executionSessionId } : {}),
     ...(input.warnings ? { warnings: input.warnings } : {}),
   };
 }
@@ -744,6 +758,10 @@ export interface CliMeta {
   timestamp: string;
   /** Active session identifier, if present. */
   sessionId?: string;
+  /** Root session that originated this workflow/saga, if present. */
+  originSessionId?: string;
+  /** Specific execution instance for this command/step, if present. */
+  executionSessionId?: string;
   /**
    * Array of suggested follow-up commands (LAFS hint for chained reasoning).
    *
