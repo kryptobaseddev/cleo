@@ -1,5 +1,11 @@
 # Changelog
 
+## [2026.5.123] (2026-05-26)
+
+_No changeset entries parsed for this release._
+
+_Add entries under `.changeset/*.md` and re-run `cleo release plan` to populate this section._
+
 ## [2026.5.122] (2026-05-25)
 
 ### Saga T10377 SG-IVTR-AC-BINDING closure
