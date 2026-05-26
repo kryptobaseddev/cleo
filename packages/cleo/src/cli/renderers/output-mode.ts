@@ -206,9 +206,22 @@ function renderTableGeneric(data: Record<string, unknown>): string {
  * `text` is the bytes the caller should write to stdout — `null` means
  * the mode requested silence and stdout MUST be left untouched.
  */
+export type OutputEmptyReason = 'no-renderable-records' | 'no-renderable-ids' | 'silent-mode';
+
 export interface OutputModeResult {
   /** Bytes to write to stdout (no trailing newline added by the renderer). */
   text: string | null;
+  /** Machine-readable reason when a renderer has no success text to emit. */
+  emptyReason?: OutputEmptyReason;
+}
+
+export class UnsupportedRendererError extends Error {
+  readonly code = 'E_RENDERER_UNSUPPORTED';
+
+  constructor(mode: string) {
+    super(`Unsupported output renderer: ${mode}`);
+    this.name = 'UnsupportedRendererError';
+  }
 }
 
 /**
@@ -230,18 +243,18 @@ export interface OutputModeResult {
  */
 export function renderSummary(data: unknown): OutputModeResult {
   if (data === null || typeof data !== 'object') {
-    return { text: '' };
+    return { text: 'No rows.', emptyReason: 'no-renderable-records' };
   }
   const rec = data as Record<string, unknown>;
 
   // 1. List shapes — {tasks: [...]} or {items: [...]} from SDK ListResponse.
   const tasks = rec['tasks'];
   if (Array.isArray(tasks)) {
-    return { text: renderSummaryList(tasks as unknown[]) };
+    return renderSummaryList(tasks as unknown[]);
   }
   const items = rec['items'];
   if (Array.isArray(items)) {
-    return { text: renderSummaryList(items as unknown[]) };
+    return renderSummaryList(items as unknown[]);
   }
 
   // 2. Single nested task ({task: {id, status, title}}) — e.g. `cleo show`.
@@ -255,7 +268,7 @@ export function renderSummary(data: unknown): OutputModeResult {
     return { text: renderSummaryRow(rec) };
   }
 
-  return { text: '' };
+  return { text: 'No rows.', emptyReason: 'no-renderable-records' };
 }
 
 /** Render a single record line: `<id> [<status>] <title-truncated-60>`. */
@@ -267,8 +280,8 @@ function renderSummaryRow(record: Record<string, unknown>): string {
 }
 
 /** Render a list of records, one line each. Skips rows lacking an id. */
-function renderSummaryList(rows: unknown[]): string {
-  if (rows.length === 0) return 'No rows.';
+function renderSummaryList(rows: unknown[]): OutputModeResult {
+  if (rows.length === 0) return { text: 'No rows.', emptyReason: 'no-renderable-records' };
   const lines: string[] = [];
   for (const row of rows) {
     if (!row || typeof row !== 'object') continue;
@@ -276,7 +289,9 @@ function renderSummaryList(rows: unknown[]): string {
     if (typeof rec['id'] !== 'string') continue;
     lines.push(renderSummaryRow(rec));
   }
-  return lines.length === 0 ? 'No rows.' : lines.join('\n');
+  return lines.length === 0
+    ? { text: 'No rows.', emptyReason: 'no-renderable-records' }
+    : { text: lines.join('\n') };
 }
 
 /**
@@ -301,7 +316,9 @@ export function renderOutputMode(mode: OutputMode, data: unknown): OutputModeRes
   switch (mode) {
     case 'id': {
       const ids = extractIds(data);
-      return { text: ids.length === 0 ? '' : ids.join('\n') };
+      return ids.length === 0
+        ? { text: 'No ids.', emptyReason: 'no-renderable-ids' }
+        : { text: ids.join('\n') };
     }
     case 'count': {
       return { text: String(extractCount(data)) };
@@ -322,11 +339,13 @@ export function renderOutputMode(mode: OutputMode, data: unknown): OutputModeRes
       return { text: data === null || data === undefined ? '(empty)' : String(data) };
     }
     case 'silent': {
-      return { text: null };
+      return { text: null, emptyReason: 'silent-mode' };
     }
     case 'envelope':
       // Caller is responsible for short-circuiting envelope mode — emitting
       // here would double-render. Throwing keeps the contract explicit.
-      throw new Error('renderOutputMode: envelope mode must be handled by caller');
+      throw new UnsupportedRendererError(mode);
+    default:
+      throw new UnsupportedRendererError(String(mode));
   }
 }
