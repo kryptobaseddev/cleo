@@ -33,6 +33,7 @@ const CORE_HIERARCHY_STORAGE_OWNERS = new Set([
   'packages/core/src/tasks/task-tree.ts',
   'packages/core/src/tasks/generic-tree.ts',
   'packages/core/src/tasks/graph-cache.ts',
+  'packages/core/src/workgraph/containment.ts',
 ]);
 
 /** Legacy saga relation modules may mention groups, but not as hierarchy storage. */
@@ -132,9 +133,9 @@ function readRepoFile(path: string): string {
 }
 
 function publicBoundaryImports(text: string): string[] {
-  return Array.from(text.matchAll(/^import\s+(?:type\s+)?(?:[^'";]+\s+from\s+)?['"]([^'"]+)['"];?/gm)).map(
-    (match) => match[1] ?? '',
-  );
+  return Array.from(
+    text.matchAll(/^import\s+(?:type\s+)?(?:[^'";]+\s+from\s+)?['"]([^'"]+)['"];?/gm),
+  ).map((match) => match[1] ?? '');
 }
 
 describe('PM-Core V2 WorkGraph architecture', () => {
