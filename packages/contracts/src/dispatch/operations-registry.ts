@@ -7205,6 +7205,14 @@ export const OPERATIONS: OperationDef[] = [
         description: 'Path to a local file containing the new content',
       },
       {
+        name: 'allowExternal',
+        type: 'boolean' as const,
+        required: false,
+        description:
+          'Permit --file to resolve outside the canonical project root; required for explicit external/worktree update ingestion.',
+        cli: { flag: 'allow-external' },
+      },
+      {
         name: 'content',
         type: 'string' as const,
         required: false,

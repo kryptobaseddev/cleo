@@ -400,16 +400,22 @@ export function sanitizeParams(
       //
       // T10389 / ADR-068 amendment §3.1 — `docs.add` intentionally accepts
       // worktree-resident paths that resolve OUTSIDE the canonical project
-      // root. The CLI layer (`packages/cleo/src/cli/commands/docs.ts`) pre-
+      // root. T10616 extends the same policy to `docs.update`, but only when
+      // the caller explicitly opted in via `--allow-external` / `allowExternal`.
+      // The CLI layer (`packages/cleo/src/cli/commands/docs.ts`) pre-
       // resolves the path against the worktree's cwd via
       // `resolveWorktreeRouting` + `resolveWorktreeFilePath` so the dispatch
       // receives an absolute path that the sanitizer would otherwise reject
       // as `E_PATH_TRAVERSAL`. Allowing the exemption here closes the
       // 3-guard collision class observed by T10353+T10354+T10294 workers.
+      const allowDocsExternalPath =
+        context?.domain === 'docs' &&
+        (context?.operation === 'add' ||
+          (context?.operation === 'update' && sanitized['allowExternal'] === true));
       const allowExternalPath =
         (context?.domain === 'nexus' &&
           (context?.operation === 'register' || context?.operation === 'reconcile')) ||
-        (context?.domain === 'docs' && context?.operation === 'add');
+        allowDocsExternalPath;
       if (!allowExternalPath) {
         sanitized[key] = sanitizePath(value, projectRoot);
         continue;

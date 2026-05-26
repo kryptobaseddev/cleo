@@ -541,6 +541,13 @@ export interface DocsUpdateParams {
   slug: string;
   /** Path to a local file containing the new content. */
   file?: string;
+  /**
+   * Permit `file` to resolve outside the canonical project root.
+   *
+   * Mirrors `docs.add` worktree routing for explicitly opted-in callers while
+   * preserving path-traversal protection for default `docs.update` usage.
+   */
+  allowExternal?: boolean;
   /** Inline UTF-8 content (mutually exclusive with `file`). */
   content?: string;
   /** Optional one-line summary describing the change (recorded in the audit log). */
