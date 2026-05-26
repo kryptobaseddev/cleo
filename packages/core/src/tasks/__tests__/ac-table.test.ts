@@ -17,9 +17,11 @@ import type { AcRow } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
 import {
   acItemToText,
+  acTextHash,
   buildAcRowId,
   buildFreshAcRows,
   directTextSourceKey,
+  evidenceBoundSourceKey,
   planAcUpdate,
 } from '../ac-table.js';
 
@@ -35,7 +37,7 @@ function row(taskId: string, ordinal: number, text: string, id = `uuid-${ordinal
     text,
     createdAt: '2026-05-24T00:00:00.000Z',
     updatedAt: null,
-    contentHash: null,
+    contentHash: acTextHash(text),
   };
 }
 
@@ -87,6 +89,8 @@ describe('buildFreshAcRows', () => {
       expect(r.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
       expect(r.sourceKey).toBe(directTextSourceKey(r.ordinal, r.text));
       expect(r.id).toBe(buildAcRowId('T001', r.text));
+      expect(r.kind).toBe('text');
+      expect(r.contentHash).toBe(acTextHash(r.text));
     }
   });
 
@@ -113,6 +117,31 @@ describe('buildFreshAcRows', () => {
     const rows = buildFreshAcRows('T002', [' alpha ', 'beta']);
     expect(rows[0].text).toBe('alpha');
     expect(rows[1].text).toBe('beta');
+  });
+
+  it('projects structured gates as evidence_bound AC rows with canonical hashes', () => {
+    const gate = {
+      kind: 'test' as const,
+      req: 'unit suite passes',
+      command: 'pnpm vitest run packages/core/src/tasks/__tests__/ac-table.test.ts',
+    };
+    const text = acItemToText(gate);
+    const rows = buildFreshAcRows('T003', ['plain text', gate]);
+
+    expect(rows[0]).toMatchObject({
+      kind: 'text',
+      sourceKey: directTextSourceKey(1, 'plain text'),
+      contentHash: acTextHash('plain text'),
+      projection: 'legacy',
+    });
+    expect(rows[1]).toMatchObject({
+      kind: 'evidence_bound',
+      sourceKey: evidenceBoundSourceKey(gate, text),
+      contentHash: acTextHash(text),
+      projection: 'legacy',
+      targetTaskId: null,
+    });
+    expect(rows[1].id).toBe(buildAcRowId('T003', rows[1].sourceKey ?? ''));
   });
 });
 

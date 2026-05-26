@@ -196,6 +196,7 @@ export interface TransactionAccessor {
       sourceKey?: string;
       targetTaskId?: string | null;
       projection?: string;
+      contentHash?: string | null;
     }>,
   ): Promise<void>;
   /**
