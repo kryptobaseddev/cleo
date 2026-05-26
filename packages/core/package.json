@@ -41,6 +41,11 @@
       "import": "./dist/tasks/index.js",
       "require": "./dist/tasks/index.js"
     },
+    "./workgraph": {
+      "types": "./dist/workgraph/index.d.ts",
+      "import": "./dist/workgraph/index.js",
+      "require": "./dist/workgraph/index.js"
+    },
     "./sagas": {
       "types": "./dist/sagas/index.d.ts",
       "import": "./dist/sagas/index.js",

@@ -211,6 +211,17 @@ export type {
   CodeSymbolKind,
   ParseResult,
 } from './code-symbol.js';
+// === PM-Core V2 WorkGraph public contracts ===
+export type {
+  WorkGraphEdge,
+  WorkGraphNode,
+  WorkGraphNodeRef,
+  WorkGraphReader,
+  WorkGraphRelationKind,
+  WorkGraphSnapshot,
+  WorkGraphTraversalDirection,
+  WorkGraphTraversalOptions,
+} from './workgraph.js';
 // === Conduit Protocol (agent-to-agent communication) ===
 export type {
   Conduit,
