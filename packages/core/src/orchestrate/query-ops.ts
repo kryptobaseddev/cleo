@@ -893,7 +893,7 @@ export async function orchestrateReport(
 
     // Dependency analysis for invalid detection
     const depAnalysis = analyzeDependencies(children, tasks);
-    const missingDepIds = new Set(depAnalysis.missingDependencies);
+    const missingDepIds = new Set(depAnalysis.missingDependencies.map((m) => m.missingDep));
     const circularInvolved = new Set<string>();
     for (const chain of depAnalysis.circularDependencies) {
       for (const id of chain) circularInvolved.add(id);
