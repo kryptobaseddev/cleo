@@ -1600,7 +1600,7 @@ export interface TasksSagaCreateParams {
  * @task T9521
  */
 export interface TasksSagaCreateResult {
-  /** The created task record (type=epic, labels includes 'saga'). */
+  /** The created task record (type='saga'). */
   task: TaskRecord;
   /** True when this is a validation-only preview. */
   dryRun?: boolean;
@@ -1616,7 +1616,7 @@ export interface TasksSagaCreateResult {
 
 /** Params for `tasks.saga.add` — link an Epic to a Saga. */
 export interface TasksSagaAddParams {
-  /** Saga task ID (must have label='saga'). */
+  /** Saga task ID (must have type='saga'). */
   sagaId: string;
   /** Epic task ID to link as a member. */
   epicId: string;
@@ -1735,7 +1735,7 @@ export interface TasksSagaMembersResult {
  * @see ADR-073-above-epic-naming.md §1.2 — invariant I5
  */
 export interface TasksSagaRepairParams {
-  /** Saga task ID (must have `label='saga'`). */
+  /** Saga task ID (must have type='saga'). */
   sagaId: string;
 }
 
@@ -1783,7 +1783,7 @@ export type TasksSagaReconcileAction = 'close' | 'no-op' | 'blocked' | 'error';
 export interface TasksSagaReconcileParams {
   /**
    * Optional single saga to reconcile. When omitted, the verb walks every
-   * saga returned by `taskList({ type: 'epic', label: 'saga' })`.
+   * saga returned by `taskList({ type: 'saga' })`.
    */
   sagaId?: string;
   /**

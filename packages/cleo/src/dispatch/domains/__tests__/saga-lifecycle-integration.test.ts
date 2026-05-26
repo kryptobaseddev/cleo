@@ -6,7 +6,7 @@
  * real TasksHandler dispatch pipeline.
  *
  * Steps asserted:
- *   1. saga.create  → success, id captured, label='saga', type='epic'
+ *   1. saga.create  → success, id captured, type='saga'
  *   2. tasks.add    → eid1 (epic A)
  *   3. tasks.add    → eid2 (epic B)
  *   4. saga.add     → link eid1 into saga (task_relations type='groups')
@@ -127,7 +127,7 @@ describe('T9522: saga lifecycle end-to-end integration', () => {
     const handler = new TasksHandler();
 
     // -----------------------------------------------------------------------
-    // Step 1: saga.create — creates an Epic with label='saga'
+    // Step 1: saga.create — creates a Saga with type='saga'
     // -----------------------------------------------------------------------
     const createResp = await handler.mutate('saga.create', {
       title: 'Test Saga',
@@ -140,8 +140,7 @@ describe('T9522: saga lifecycle end-to-end integration', () => {
     const sid = createData.task.id;
     expect(sid).toBeTruthy();
     expect(sid).toMatch(/^T\d+$/);
-    expect(createData.task.labels).toContain('saga');
-    expect(createData.task.type).toBe('epic');
+    expect(createData.task.type).toBe('saga');
 
     // -----------------------------------------------------------------------
     // Step 2: tasks.add — create Member Epic A

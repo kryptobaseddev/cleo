@@ -1,5 +1,5 @@
 /**
- * saga.create — create a labeled top-level Epic as a Saga.
+ * saga.create — create a Saga as a first-class TaskType (type='saga') per ADR-083.
  *
  * Pure business logic. Returns an EngineResult; the dispatch layer
  * (`packages/cleo/src/dispatch/domains/tasks.ts`) wraps it in a LAFS
@@ -17,7 +17,6 @@
 import type { TaskRecord } from '@cleocode/contracts';
 import type { EngineResult } from '../engine-result.js';
 import { addTaskWithSessionScope } from '../tasks/session-scope.js';
-import { SAGA_LABEL } from './constants.js';
 
 /** Input parameters for {@link sagaCreate}. */
 export interface SagaCreateParams {
@@ -48,7 +47,7 @@ export interface SagaCreateResult {
 }
 
 /**
- * Create a Saga — a top-level Epic with `label='saga'` per ADR-073 §1.
+ * Create a Saga — a top-level task with `type='saga'` per ADR-083 §2.5.
  *
  * @param projectRoot - Absolute path to the project root.
  * @param params - Saga creation parameters.
@@ -61,8 +60,7 @@ export async function sagaCreate(
   const result = await addTaskWithSessionScope(projectRoot, {
     title: params.title,
     description: params.description,
-    labels: [SAGA_LABEL],
-    type: 'epic',
+    type: 'saga',
     acceptance: params.acceptance,
     dryRun: params.dryRun,
   });
