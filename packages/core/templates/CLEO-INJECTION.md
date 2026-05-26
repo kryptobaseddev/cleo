@@ -76,13 +76,18 @@ Use `--dry-run` first; the projected mutation envelope reports `/data/count` and
 `/data/wouldCreate` as the predicted create count while `/data/insertedCount` remains `0`.
 See `ct-cleo` skill section "Decomposing an epic into N tasks" for the JSON schema and rollback semantic.
 
-### Sagas — above-Epic grouping (ADR-073)
+### Sagas — PM-Core V2 containment (ADR-088 supersedes ADR-073)
 
-A **Saga** (`SG-`) is a multi-release theme grouping multiple Epics. It is a labeled top-level
-Epic (`label='saga'`), NOT a new TaskType. Members are linked via `task_relations.relation_type='groups'` —
-Sagas do NOT use parent edges, so `cleo list --parent` will not surface members.
+A **Saga** (`SG-`) is a multi-release theme grouping multiple Epics. PM-Core V2
+(T10638 migration, verified T10643) makes `type='saga'` canonical — Saga is a peer
+task type, not a label-on-epic convention. Member Epics are linked via `tasks.parent_id`
+containment, not `task_relations.groups`. `cleo list --parent <sagaId>` now surfaces
+member Epics; `cleo saga members` resolves via the containment tree.
 
-Available since v2026.5.77 (T9518 epic; T9514 relates-writer fix as gating dep).
+Legacy `task_relations.groups` edges are preserved as non-containment provenance only.
+The `task_relations_non_containment_insert` trigger blocks new containment misuse.
+
+Available since v2026.5.77 (T9518 epic); PM-Core V2 since v2026.5.122 (T10638/T10639).
 
 | Goal | Command |
 |------|---------|
@@ -92,8 +97,9 @@ Available since v2026.5.77 (T9518 epic; T9514 relates-writer fix as gating dep).
 | List member Epics of a Saga | `cleo saga members <sagaId>` |
 | Aggregate status across members | `cleo saga rollup <sagaId>` |
 
-Sagas hold N Epics at zero nesting-budget cost — the Epic→Task→Subtask depth ladder (maxDepth=3) stays
-untouched under each member Epic. Use Sagas for release themes that span multiple shippable Epics.
+Parent matrix: Saga `parent_id IS NULL`; Epic `parent_id` = Saga (or null for standalone);
+Task `parent_id` = Epic; Subtask `parent_id` = Task. `task_relations` is non-containment
+only — dependencies, ordering, cross-reference, evidence, supersession, provenance.
 <!-- /CLEO-INJECTION:section=task-creation -->
 
 <!-- CLEO-INJECTION:section=task-discovery -->

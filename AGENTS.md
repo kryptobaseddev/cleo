@@ -550,20 +550,34 @@ If existing files violate the boundary, flag as a separate cleanup task (e.g., T
 
 ## Task Hierarchy
 
-**Canonical source:** `.cleo/adrs/ADR-073-above-epic-naming.md` §1 (Task Hierarchy Charter).
-This section is a human-facing pointer — DO NOT redefine tier semantics, sizing, or
-ownership here. All edits to the charter happen in ADR-073.
+**Canonical source:** `docs/adr/ADR-088-pm-core-v2-workgraph-relations-completion-criteria.md` (PM-Core V2).
+ADR-073 (above-epic naming) is superseded by ADR-088 for PM-Core V2 target semantics; see ADR-073
+amendment block for legacy/migration notes. This section is a human-facing pointer — DO NOT
+redefine tier semantics, sizing, or ownership here. All edits happen in ADR-088.
 
-| Tier    | Prefix | Storage                                  | Scope-of-change                                    | Owner (ADR-070)       |
-|---------|--------|------------------------------------------|----------------------------------------------------|------------------------|
-| Saga    | `SG-`  | `type='epic'` + `label='saga'`           | Theme grouping ≥2 Epics across ≥2 releases         | Orchestrator (read)    |
-| Epic    | `E-`   | `type='epic'`                            | One releasable slice; ≥1 PR to `main`              | Orchestrator (HITL)    |
-| Task    | `T-`   | `type='task'`                            | One atomic PR-sized change; single wave            | Phase Lead             |
-| Subtask | (none) | `type='subtask'`                         | One commit; ≤2 files; contributes to Task's PR     | Worker (leaf)          |
+PM-Core V2 (active since T10638 migration, verified by T10643): `type='saga'` is canonical.
+`parent_id` is the sole containment edge — Saga parent is null, Epic parent is a Saga (or null),
+Task parent is an Epic, Subtask parent is a Task. `task_relations` is non-containment only
+(dependencies, ordering, cross-reference, evidence, supersession, provenance) and MUST NOT
+drive hierarchy, rollups, or parent completion. The `task_relations_non_containment_insert`
+trigger (T10638) enforces this constraint at the DB level.
 
-**Storage rule (I1):** All IDs stored as `T####`; `type` column discriminates tier; `label='saga'`
-elevates Epic to Saga. Prefixes are DISPLAY + import-mapping only (I2). See ADR-073 §1.2 for the
-8 invariants (I1–I8) and §1.3 for the lifecycle decision table.
+| Tier    | Prefix | Storage              | Parent matrix                          | Scope-of-change                                    | Owner (ADR-070)       |
+|---------|--------|----------------------|----------------------------------------|----------------------------------------------------|------------------------|
+| Saga    | `SG-`  | `type='saga'`        | `parent_id IS NULL`                    | Theme grouping ≥2 Epics across ≥2 releases         | Orchestrator (read)    |
+| Epic    | `E-`   | `type='epic'`        | `parent_id` = Saga (or null)           | One releasable slice; ≥1 PR to `main`              | Orchestrator (HITL)    |
+| Task    | `T-`   | `type='task'`        | `parent_id` = Epic                     | One atomic PR-sized change; single wave            | Phase Lead             |
+| Subtask | (none) | `type='subtask'`     | `parent_id` = Task                     | One commit; ≤2 files; contributes to Task's PR     | Worker (leaf)          |
+
+**Storage rule (I1):** All IDs stored as `T####`; `type` column discriminates tier.
+Saga is a peer `type` value, not a label convention. Prefixes are DISPLAY + import-mapping only (I2).
+**I3:** `parent_id` is the single containment tree; `task_relations` is a secondary, non-containment
+relation graph. See ADR-088 for the full invariant set and ADR-073 amendment for legacy migration notes.
+
+**Completion criteria:** `task_acceptance_criteria.kind` is one of `text`, `child_task`, or
+`evidence_bound`. Parents with children use `child_task` criteria by default, binding direct
+child `T####` IDs deterministically. Mixed criteria mode (text + child_task) is migration-only
+or explicit advanced scope. Cancelled children require waiver or replacement evidence.
 
 ## Sentient / Tier-2 Proposals
 
