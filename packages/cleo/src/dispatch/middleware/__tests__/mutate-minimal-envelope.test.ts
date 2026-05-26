@@ -242,6 +242,41 @@ describe('createMutateMinimalEnvelope middleware', () => {
     });
   });
 
+  it('returns partial success with created IDs when post-write projection fails', async () => {
+    const mw = createMutateMinimalEnvelope();
+    const req = makeRequest('tasks', 'add', { title: 'x' });
+    const taskWithThrowingProjectionField = {
+      id: 'T10601',
+      get status(): string {
+        throw new Error('projection boom');
+      },
+    };
+
+    const response = await mw(req, async () =>
+      makeSuccessResponse('add', {
+        task: taskWithThrowingProjectionField,
+        createdIds: { tasks: ['T10601'], acceptanceCriteria: ['AC1'] },
+      }),
+    );
+
+    expect(response.success).toBe(true);
+    expect(response.partial).toBe(true);
+    expect(response.data).toMatchObject({
+      task: { id: 'T10601' },
+      createdIds: { tasks: ['T10601'], acceptanceCriteria: ['AC1'] },
+    });
+    expect(response.meta.mutateProjection).toBe('projection-failed');
+    expect(response.meta.warning).toMatchObject({
+      code: 'W_MUTATE_PROJECTION_FAILED',
+      created: ['T10601'],
+      acceptanceCriteriaIds: ['AC1'],
+    });
+    const warning = response.meta.warning as { message: string; retryHazard: boolean };
+    expect(warning.message).toContain('T10601');
+    expect(warning.message).toContain('Do not retry creation');
+    expect(warning.retryHazard).toBe(true);
+  });
+
   // ---------------------------------------------------------------------
   // Meta preservation
   // ---------------------------------------------------------------------
