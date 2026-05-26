@@ -140,6 +140,7 @@ export {
   orchestrateParallelStart,
   orchestratePlan,
   orchestrateReady,
+  orchestrateReport,
   orchestrateSkillInject,
   orchestrateSpawn,
   orchestrateSpawnExecute,

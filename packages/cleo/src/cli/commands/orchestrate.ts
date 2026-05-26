@@ -304,6 +304,43 @@ const readyCommand = defineCommand({
   },
 });
 
+/** cleo orchestrate report — grouped readiness report */
+const reportCommand = defineCommand({
+  meta: {
+    name: 'report',
+    description:
+      'Grouped readiness report: ready, blocked, blockedBy, gate-blocked, invalid. Aligns with orchestrate.ready frontier. Supports pagination.',
+  },
+  args: {
+    epicId: {
+      type: 'positional',
+      description: 'Epic ID to generate the report for',
+      required: true,
+    },
+    page: {
+      type: 'string',
+      description: 'Page number for paginated output (1-indexed, default 1)',
+    },
+    'page-size': {
+      type: 'string',
+      description: 'Page size for paginated output (default 50, max 200)',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'orchestrate',
+      'report',
+      {
+        epicId: args.epicId,
+        ...(args.page !== undefined && { page: Number(args.page) }),
+        ...(args['page-size'] !== undefined && { pageSize: Number(args['page-size']) }),
+      },
+      { command: 'orchestrate' },
+    );
+  },
+});
+
 /** cleo orchestrate next — get next task to spawn */
 const nextCommand = defineCommand({
   meta: { name: 'next', description: 'Get next task to spawn' },
@@ -1163,6 +1200,7 @@ export const orchestrateCommand = defineCommand({
     'roll-up': rollupCommand,
     analyze: analyzeCommand,
     ready: readyCommand,
+    report: reportCommand,
     next: nextCommand,
     waves: wavesCommand,
     plan: planCommand,
