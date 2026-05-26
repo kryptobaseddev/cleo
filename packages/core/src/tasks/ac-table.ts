@@ -234,6 +234,14 @@ type ExpectedChildProjection = {
   contentHash: string;
 };
 
+/** Result emitted after an idempotent child-projection rebuild attempt. */
+export interface ChildProjectionRebuildResult {
+  parentId: string;
+  rebuilt: boolean;
+  auditBefore: AcProjectionAuditResult;
+  auditAfter: AcProjectionAuditResult;
+}
+
 /** Freshness fingerprint for one parent-owned child projection row. */
 export function childProjectionFreshnessFingerprint(childId: string, childTitle: string): string {
   const text = buildChildProjectionAcText(childId, childTitle);
@@ -257,6 +265,46 @@ function isChildProjectionCandidate(row: AcRow): boolean {
     row.sourceKey.startsWith('child:') ||
     row.targetTaskId !== null
   );
+}
+
+function acRowToInsertRow(row: AcRow): AcInsertRow {
+  return {
+    id: row.id,
+    taskId: row.taskId,
+    ordinal: row.ordinal,
+    text: row.text,
+    kind: row.kind,
+    sourceKey: row.sourceKey,
+    targetTaskId: row.targetTaskId,
+    projection: row.projection,
+    contentHash: row.contentHash,
+  };
+}
+
+function buildChildProjectionInsertRow(
+  parentId: string,
+  child: ChildProjectionAuditInput,
+  ordinal: number,
+): AcInsertRow {
+  const sourceKey = childProjectionSourceKey(child.id);
+  return {
+    id: buildAcRowId(parentId, sourceKey),
+    taskId: parentId,
+    ordinal,
+    kind: 'child_task',
+    sourceKey,
+    targetTaskId: child.id,
+    projection: 'parent-child',
+    text: buildChildProjectionAcText(child.id, child.title),
+    contentHash: childProjectionFreshnessFingerprint(child.id, child.title),
+  };
+}
+
+function legacyAcceptanceFromRows(rows: readonly AcInsertRow[]): string[] {
+  return rows
+    .slice()
+    .sort((a, b) => a.ordinal - b.ordinal)
+    .map((row) => row.text);
 }
 
 function childIdForProjectionRow(row: AcRow): string | null {
@@ -400,6 +448,84 @@ export function auditChildProjectionAcRows(
     staleProjection: dirty,
     findings,
   };
+}
+
+/**
+ * Plan a full parent-owned child_task projection rebuild.
+ *
+ * The function is idempotent: a clean audit emits a no-op plan. Dirty parents
+ * get a delete/reinsert plan that preserves non-child AC rows, rewrites the
+ * complete child_task set from current direct children, and records previous
+ * child projection rows to history before deletion.
+ */
+export function planChildProjectionRebuild(
+  parentId: string,
+  children: readonly ChildProjectionAuditInput[],
+  existing: readonly AcRow[],
+): { plan: AcUpdatePlan; legacyAcceptance: string[]; auditBefore: AcProjectionAuditResult } {
+  const auditBefore = auditChildProjectionAcRows(parentId, children, existing);
+  if (!auditBefore.dirty) {
+    return {
+      plan: { inserts: [], history: [], fullDelete: false },
+      legacyAcceptance: [],
+      auditBefore,
+    };
+  }
+
+  const nonChildRows = existing.filter((row) => !isChildProjectionCandidate(row));
+  const childRows = existing.filter(isChildProjectionCandidate);
+  const nonChildInserts = nonChildRows.map(acRowToInsertRow);
+  const maxNonChildOrdinal = nonChildInserts.reduce(
+    (max, row) => (row.ordinal > max ? row.ordinal : max),
+    0,
+  );
+  const childInserts = children.map((child, index) =>
+    buildChildProjectionInsertRow(parentId, child, maxNonChildOrdinal + index + 1),
+  );
+  const inserts = [...nonChildInserts, ...childInserts];
+  assertUniqueGeneratedRows(parentId, inserts);
+
+  return {
+    plan: {
+      inserts,
+      history: childRows.map((row) => ({
+        acId: row.id,
+        previousText: row.text,
+        reason: 'projection_rebuild',
+      })),
+      fullDelete: true,
+    },
+    legacyAcceptance: legacyAcceptanceFromRows(inserts),
+    auditBefore,
+  };
+}
+
+/** Rebuild one parent's child_task projection rows inside a caller-owned transaction. */
+export async function rebuildChildProjectionAc(
+  tx: TransactionAccessor,
+  parentId: string,
+  children: readonly ChildProjectionAuditInput[],
+  updatedAt: string,
+): Promise<ChildProjectionRebuildResult> {
+  const existing = await tx.getAcRows(parentId);
+  const { plan, legacyAcceptance, auditBefore } = planChildProjectionRebuild(
+    parentId,
+    children,
+    existing,
+  );
+  if (!auditBefore.dirty) {
+    return { parentId, rebuilt: false, auditBefore, auditAfter: auditBefore };
+  }
+
+  await applyAcPlan(tx, parentId, plan);
+  await tx.updateTaskFields(parentId, {
+    acceptanceJson: JSON.stringify(legacyAcceptance),
+    updatedAt,
+  });
+
+  const rebuiltRows = await tx.getAcRows(parentId);
+  const auditAfter = auditChildProjectionAcRows(parentId, children, rebuiltRows);
+  return { parentId, rebuilt: true, auditBefore, auditAfter };
 }
 
 /** Returns true when an AC row is the compatibility/typed projection for `childId`. */

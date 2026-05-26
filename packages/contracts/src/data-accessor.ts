@@ -218,6 +218,8 @@ export interface TransactionAccessor {
   removeSingleTask(taskId: string): Promise<void>;
   setMetaValue(key: string, value: unknown): Promise<void>;
   updateTaskFields(taskId: string, fields: TaskFieldUpdates): Promise<void>;
+  /** Get direct non-archived children inside the caller-owned transaction. @task T10590 */
+  getChildren(parentId: string): Promise<Task[]>;
   appendLog(entry: Record<string, unknown>): Promise<void>;
   /** Persist a relation row to task_relations. @task T9514 */
   addRelation(
