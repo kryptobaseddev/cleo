@@ -1316,6 +1316,7 @@ export type {
   DepsTreeNode,
   TaskShowAcRowEntry,
   TaskShowAttachmentEntry,
+  TaskShowRelationsEntry,
   TasksAddBatchEntry,
   TasksAddBatchParams,
   TasksAddBatchResult,
@@ -1390,6 +1391,9 @@ export type {
   TasksSagaRollupResult,
   TasksShowParams,
   TasksShowResult,
+  TasksSliceNode,
+  TasksSliceParams,
+  TasksSliceResult,
   TasksStartQueryParams,
   TasksStartQueryResult,
   TasksStopQueryParams,
@@ -1924,6 +1928,7 @@ export type {
   MinimalTaskRecord,
   TaskRecord,
   TaskRecordRelation,
+  TaskRecordRelationCounts,
   ValidationHistoryEntry,
 } from './task-record.js';
 // === Task Sync Types (provider-agnostic reconciliation) ===

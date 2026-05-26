@@ -9,6 +9,8 @@ import type {
   TaskRef,
   TasksRelatesAddBatchEntry,
   TasksRelatesAddBatchResult,
+  TasksSliceNode,
+  TasksSliceResult,
 } from '@cleocode/contracts';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import {
@@ -319,6 +321,199 @@ export async function coreTaskDepends(
     allDepsReady,
     ...(hint && { hint }),
     ...(upstreamTree && { upstreamTree }),
+  };
+}
+
+function normalizeTaskSliceDepth(radius: number | undefined, depth: number | undefined): number {
+  const requested = depth ?? radius;
+  if (requested === undefined) return 1;
+  if (!Number.isFinite(requested)) return 1;
+  return Math.max(1, Math.floor(requested));
+}
+
+function normalizeTaskSliceBudget(budget: number | undefined): number | undefined {
+  if (budget === undefined) return undefined;
+  if (!Number.isFinite(budget)) return undefined;
+  return Math.max(0, Math.floor(budget));
+}
+
+function applyTaskSliceBudget(tasks: TaskRecord[], budget: number | undefined): TaskRecord[] {
+  return budget === undefined ? tasks : tasks.slice(0, budget);
+}
+
+function normalizeTaskSliceDirection(
+  direction: 'upstream' | 'downstream' | 'around' | undefined,
+): 'upstream' | 'downstream' | 'around' {
+  return direction ?? 'around';
+}
+
+function computeTaskDepth(task: TaskRecord, taskMap: Map<string, TaskRecord>): number {
+  let depth = 0;
+  let currentParent = task.parentId ?? undefined;
+  const seen = new Set<string>([task.id]);
+
+  while (currentParent) {
+    if (seen.has(currentParent)) break;
+    seen.add(currentParent);
+    const parent = taskMap.get(currentParent);
+    if (!parent) break;
+    depth += 1;
+    currentParent = parent.parentId ?? undefined;
+  }
+
+  return depth;
+}
+
+function collectDependencyRadius(
+  startIds: string[],
+  radius: number,
+  neighborsOf: (task: TaskRecord) => string[],
+  taskMap: Map<string, TaskRecord>,
+  excludeId: string,
+): TaskRecord[] {
+  const seen = new Set<string>([excludeId]);
+  const collected: TaskRecord[] = [];
+  let frontier = startIds;
+
+  for (let depth = 0; depth < radius && frontier.length > 0; depth += 1) {
+    const next: string[] = [];
+    for (const id of frontier) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const task = taskMap.get(id);
+      if (!task) continue;
+      collected.push(task);
+      next.push(...neighborsOf(task));
+    }
+    frontier = next;
+  }
+
+  return collected;
+}
+
+function makeSliceNode(
+  task: TaskRecord,
+  allTasks: TaskRecord[],
+  taskMap: Map<string, TaskRecord>,
+): TasksSliceNode {
+  const children = allTasks
+    .filter((candidate) => candidate.parentId === task.id)
+    .map((child) => child.id);
+  const dependents = allTasks
+    .filter((candidate) => (candidate.depends ?? []).includes(task.id))
+    .map((dependent) => dependent.id);
+
+  return {
+    id: task.id,
+    title: task.title,
+    status: task.status,
+    ...(task.type && { type: task.type }),
+    priority: task.priority,
+    ...(task.parentId ? { parent: task.parentId } : {}),
+    children,
+    depends: task.depends ?? [],
+    dependents,
+    depth: computeTaskDepth(task, taskMap),
+  };
+}
+
+/**
+ * Return a localized WorkGraph slice around one task.
+ *
+ * The default radius is 1, which returns the task itself, its direct upstream
+ * dependencies, direct downstream dependents, and siblings (other children of
+ * the same parent). A larger radius expands only the upstream/downstream
+ * dependency neighborhoods; siblings remain the center task's direct siblings.
+ *
+ * @task T10628
+ */
+export async function coreTaskSlice(
+  projectRoot: string,
+  taskId: string,
+  options: {
+    radius?: number;
+    depth?: number;
+    budget?: number;
+    direction?: 'upstream' | 'downstream' | 'around';
+    includeRelates?: boolean;
+  } = {},
+): Promise<TasksSliceResult> {
+  const allTasks = await loadAllTasks(projectRoot);
+  const taskMap = new Map(allTasks.map((task) => [task.id, task]));
+  const task = taskMap.get(taskId);
+  if (!task) {
+    throw new Error(`Task '${taskId}' not found`);
+  }
+
+  const depth = normalizeTaskSliceDepth(options.radius, options.depth);
+  const radius = depth;
+  const budget = normalizeTaskSliceBudget(options.budget);
+  const direction = normalizeTaskSliceDirection(options.direction);
+  const includeRelates = options.includeRelates ?? false;
+  const downstreamStartIds = allTasks
+    .filter((candidate) => (candidate.depends ?? []).includes(taskId))
+    .map((dependent) => dependent.id);
+
+  const upstreamTasks =
+    direction === 'downstream'
+      ? []
+      : collectDependencyRadius(
+          task.depends ?? [],
+          depth,
+          (candidate) => candidate.depends ?? [],
+          taskMap,
+          task.id,
+        );
+  const downstreamTasks =
+    direction === 'upstream'
+      ? []
+      : collectDependencyRadius(
+          downstreamStartIds,
+          depth,
+          (candidate) =>
+            allTasks
+              .filter((dependent) => (dependent.depends ?? []).includes(candidate.id))
+              .map((dependent) => dependent.id),
+          taskMap,
+          task.id,
+        );
+  const siblingTasks =
+    direction === 'around' && task.parentId
+      ? allTasks.filter(
+          (candidate) => candidate.parentId === task.parentId && candidate.id !== task.id,
+        )
+      : [];
+  const relatedIds = includeRelates
+    ? new Set((task.relates ?? []).map((relation) => relation.taskId).filter(Boolean))
+    : new Set<string>();
+  const relatedTasks = includeRelates
+    ? allTasks.filter((candidate) => relatedIds.has(candidate.id))
+    : [];
+
+  return {
+    taskId,
+    direction,
+    depth,
+    radius,
+    ...(budget !== undefined ? { budget } : {}),
+    includeRelates,
+    center: makeSliceNode(task, allTasks, taskMap),
+    upstream: applyTaskSliceBudget(upstreamTasks, budget).map((candidate) =>
+      makeSliceNode(candidate, allTasks, taskMap),
+    ),
+    downstream: applyTaskSliceBudget(downstreamTasks, budget).map((candidate) =>
+      makeSliceNode(candidate, allTasks, taskMap),
+    ),
+    siblings: applyTaskSliceBudget(siblingTasks, budget).map((candidate) =>
+      makeSliceNode(candidate, allTasks, taskMap),
+    ),
+    ...(includeRelates
+      ? {
+          related: applyTaskSliceBudget(relatedTasks, budget).map((candidate) =>
+            makeSliceNode(candidate, allTasks, taskMap),
+          ),
+        }
+      : {}),
   };
 }
 
