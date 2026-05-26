@@ -110,6 +110,12 @@ export {
   E_WORKGRAPH_SCAFFOLD_SELF_LOOP,
   validateWorkGraphScaffold,
 } from './scaffold-validate.js';
+export {
+  E_WORKGRAPH_SCAFFOLD_APPLY_INVALID,
+  E_WORKGRAPH_SCAFFOLD_APPLY_MISSING_PARENT,
+  E_WORKGRAPH_SCAFFOLD_APPLY_NO_DB,
+  applyWorkGraphScaffold,
+} from './scaffold-apply.js';
 export type {
   WorkGraphStructureCycleFinding,
   WorkGraphStructureDepthFinding,
