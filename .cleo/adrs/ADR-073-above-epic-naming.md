@@ -7,10 +7,17 @@ amendedDate: 2026-05-25
 task: T9520
 linkedTasks: [T9518, T9514, T9519, T9624, T10551]
 supersedes: null
-supersededBy: null
+supersededBy: ADR-088-pm-core-v2-workgraph-relations-completion-criteria
 ---
 
 # ADR-073: Task Hierarchy Charter — Saga / Epic / Task / Subtask
+
+> **⚠️ SUPERSEDED by [ADR-088](docs/adr/ADR-088-pm-core-v2-workgraph-relations-completion-criteria.md) for PM-Core V2 target semantics.**
+> This ADR remains as a historical record and legacy migration reference. For current
+> doctrine on Saga/Epic/Task/Subtask hierarchy, containment edges, relation graphs, and
+> completion criteria, consult ADR-088 (canonical since PM-Core V2 migration T10638/T10639,
+> verified T10643). Key changes: `type='saga'` is canonical (not `label='saga'`);
+> `parent_id` is the sole containment edge; `task_relations` is non-containment only.
 
 **Status:** Accepted (amended 2026-05-25)
 **Date:** 2026-05-17 (Charter §0–§2 added 2026-05-18 under T9624; PM-Core V2 containment amendment added 2026-05-25 under T10551)
