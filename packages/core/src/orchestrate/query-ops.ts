@@ -874,7 +874,6 @@ export async function orchestrateReport(
 
   try {
     const root = getProjectRoot(projectRoot);
-    const accessor = await getTaskAccessor(root);
     const tasks = await loadTasks(root);
 
     const epic = tasks.find((t) => t.id === epicId);
