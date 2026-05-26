@@ -49,6 +49,37 @@ const unknownDef: RegistryOperationDef = {
   requiredParams: [],
 };
 
+const docsUpdateDef: RegistryOperationDef = {
+  gateway: 'mutate',
+  domain: 'docs',
+  operation: 'update',
+  description: 'docs.update (mutate)',
+  requiredParams: ['slug'],
+  params: [
+    {
+      name: 'slug',
+      type: 'string',
+      required: true,
+      description: 'Slug of the existing attachment to update',
+      cli: { positional: true },
+    },
+    {
+      name: 'status',
+      type: 'string',
+      required: false,
+      description: 'Override lifecycle status',
+      enum: ['draft', 'proposed', 'accepted', 'superseded', 'archived', 'deprecated'] as const,
+    },
+    {
+      name: 'attachedBy',
+      type: 'string',
+      required: false,
+      description: 'Agent identity that performed the update',
+      cli: { flag: 'attached-by' },
+    },
+  ],
+};
+
 const defWithFullParams: RegistryOperationDef = {
   gateway: 'query',
   domain: 'tasks',
@@ -240,6 +271,25 @@ describe('describeOperation()', () => {
   it('examples for unknown operation are empty array when includeExamples=true', () => {
     const schema = describeOperation(unknownDef, { includeExamples: true });
     expect(schema.examples).toEqual([]);
+  });
+
+  it('docs.update preserves CLI metadata, lifecycle enum, and examples from the operation contract', () => {
+    const schema = describeOperation(docsUpdateDef, { includeExamples: true });
+    const slug = schema.params.find((p) => p.name === 'slug');
+    const status = schema.params.find((p) => p.name === 'status');
+    const attachedBy = schema.params.find((p) => p.name === 'attachedBy');
+
+    expect(slug?.cli?.positional).toBe(true);
+    expect(status?.enum).toEqual([
+      'draft',
+      'proposed',
+      'accepted',
+      'superseded',
+      'archived',
+      'deprecated',
+    ]);
+    expect(attachedBy?.cli?.flag).toBe('attached-by');
+    expect(schema.examples?.some((ex) => ex.command.includes('--status proposed'))).toBe(true);
   });
 
   // -------------------------------------------------------------------------
