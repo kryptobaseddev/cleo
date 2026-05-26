@@ -1328,8 +1328,9 @@ export async function addTask(
     // PM-Core V2 WorkGraph projection sync: parent_id is the containment edge,
     // and each newly-added direct child is mirrored as a parent-owned AC row so
     // completion criteria readers can resolve child work without inspecting
-    // task_relations. Keep the legacy parent acceptance JSON in sync as the
-    // compatibility projection until typed child_task AC columns land.
+    // task_relations. Keep the legacy parent acceptance JSON in sync as a
+    // text-only compatibility projection while the row table carries typed
+    // child_task, source_key, and target_task_id state.
     if (parentId && parentTaskForProjection) {
       const parentAcRows = await tx.getAcRows(parentId);
       // PM-Core V2 typed child_task AC projection. The legacy parent

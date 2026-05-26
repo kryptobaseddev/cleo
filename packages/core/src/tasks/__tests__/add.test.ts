@@ -380,6 +380,39 @@ describe('addTask (integration)', () => {
     expect(parent?.acceptance).toEqual(['Complete child T002: Child projection']);
   });
 
+  it('projects one typed child_task acceptance row per direct child with unique source keys', async () => {
+    await addTask(
+      { title: 'Parent', description: 'Parent epic task', type: 'epic' },
+      env.tempDir,
+      accessor,
+    );
+
+    await addTask(
+      { title: 'First child', description: 'First direct child', parentId: 'T001' },
+      env.tempDir,
+      accessor,
+    );
+    await addTask(
+      { title: 'Second child', description: 'Second direct child', parentId: 'T001' },
+      env.tempDir,
+      accessor,
+    );
+
+    const parentRows = await accessor.getAcRows('T001');
+    expect(parentRows).toHaveLength(2);
+    expect(parentRows.map((row) => row.kind)).toEqual(['child_task', 'child_task']);
+    expect(parentRows.map((row) => row.targetTaskId)).toEqual(['T002', 'T003']);
+    expect(parentRows.map((row) => row.sourceKey)).toEqual(['child:T002', 'child:T003']);
+    expect(new Set(parentRows.map((row) => row.sourceKey)).size).toBe(parentRows.length);
+    expect(parentRows.every((row) => row.targetTaskId !== null)).toBe(true);
+
+    const parent = await accessor.loadSingleTask('T001');
+    expect(parent?.acceptance).toEqual([
+      'Complete child T002: First child',
+      'Complete child T003: Second child',
+    ]);
+  });
+
   it('rejects invalid parent', async () => {
     await expect(
       addTask(
