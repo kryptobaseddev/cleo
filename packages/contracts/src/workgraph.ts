@@ -9,6 +9,7 @@
  * @saga T10538
  */
 
+import type { TASK_RELATION_TYPES } from './enums.js';
 import type { TaskPriority, TaskStatus, TaskType, VerificationGate } from './task.js';
 
 /** Stable error code for WorkGraph parent/type matrix violations. */
@@ -25,6 +26,12 @@ export type WorkGraphRelationKind =
 
 /** Direction to traverse from a starting WorkGraph node. */
 export type WorkGraphTraversalDirection = 'ancestors' | 'descendants' | 'upstream' | 'downstream';
+
+/** Direction filter for direct non-containment edge reads around one root node. */
+export type WorkGraphEdgeDirection = 'out' | 'in' | 'both';
+
+/** Raw `task_relations.relation_type` values preserved for relation-edge callers. */
+export type WorkGraphTaskRelationType = (typeof TASK_RELATION_TYPES)[number];
 
 /** Stable identifier for a task-like WorkGraph vertex. */
 export interface WorkGraphNodeRef {
@@ -55,6 +62,30 @@ export interface WorkGraphEdge {
   /** Public relation kind; storage-specific relation names are not exposed. */
   readonly kind: WorkGraphRelationKind;
 }
+
+/** Storage source for semantically distinct WorkGraph edge projections. */
+export type WorkGraphEdgeSource = 'relation' | 'dependency';
+
+/** Non-containment relation edge backed by one `task_relations` row. */
+export interface WorkGraphRelationEdge extends WorkGraphEdge {
+  /** Relation rows are advisory graph links, not scheduler blockers. */
+  readonly source: 'relation';
+  /** Raw relation type stored in `task_relations.relation_type`. */
+  readonly relationType: WorkGraphTaskRelationType;
+  /** Optional human-authored relation rationale from `task_relations.reason`. */
+  readonly reason?: string;
+}
+
+/** Scheduler dependency edge backed by one `task_dependencies` row. */
+export interface WorkGraphDependencyEdge extends WorkGraphEdge {
+  /** Dependency rows drive scheduler blocking and are distinct from relation rows. */
+  readonly source: 'dependency';
+  /** Dependency edges always use the public dependency kind. */
+  readonly kind: 'depends_on';
+}
+
+/** Direct edge returned by the relation edge query service. */
+export type WorkGraphDirectEdge = WorkGraphRelationEdge | WorkGraphDependencyEdge;
 
 /** A fully materialized WorkGraph projection. */
 export interface WorkGraphSnapshot {
@@ -266,6 +297,30 @@ export interface WorkGraphReadyFrontierResult {
   };
 }
 
+/** Options for direct relation-edge reads around one WorkGraph node. */
+export interface WorkGraphRelationEdgesOptions {
+  /** Root task ID used by the direction filter. */
+  readonly rootId: string;
+  /** Which side of the stored edge should match `rootId`. Defaults to `both`. */
+  readonly direction?: WorkGraphEdgeDirection;
+  /**
+   * Include `task_dependencies` edges in addition to `task_relations` rows.
+   * Dependency edges stay tagged as `source: 'dependency'` and never carry a
+   * relation reason.
+   */
+  readonly includeDependencies?: boolean;
+}
+
+/** Direct relation-edge read result with the normalized direction echoed. */
+export interface WorkGraphRelationEdgesResult {
+  /** Requested root task ID. */
+  readonly rootId: string;
+  /** Direction filter applied by the reader. */
+  readonly direction: WorkGraphEdgeDirection;
+  /** Relation rows, plus dependency rows only when explicitly requested. */
+  readonly edges: readonly WorkGraphDirectEdge[];
+}
+
 /** Minimal public reader facade for future WorkGraph implementations. */
 export interface WorkGraphReader {
   /** Read a graph snapshot for the current project context. */
@@ -315,6 +370,17 @@ export interface WorkGraphContainmentQueryService {
   getChildren(parentIds: readonly string[]): readonly WorkGraphContainmentChildrenResult[];
   /** Group dependency-ready and dependency-blocked descendants for one scope. */
   readyFrontier(options: WorkGraphReadyFrontierOptions): WorkGraphReadyFrontierResult;
+}
+
+/** Storage-backed relation lookup facade for direct non-containment graph edges. */
+export interface WorkGraphRelationQueryService {
+  /**
+   * List direct edges around `rootId` using `task_relations` by default.
+   * Implementations MUST NOT conflate scheduler dependencies with relation rows;
+   * dependency edges are included only when explicitly requested and remain
+   * tagged as `source: 'dependency'`.
+   */
+  listRelationEdges(options: WorkGraphRelationEdgesOptions): WorkGraphRelationEdgesResult;
 }
 
 /** Minimal task hierarchy row accepted by the WorkGraph invariant validator. */

@@ -15,7 +15,11 @@ export type {
   WorkGraphContainmentChildrenResult,
   WorkGraphContainmentNode,
   WorkGraphContainmentQueryService,
+  WorkGraphDependencyEdge,
+  WorkGraphDirectEdge,
   WorkGraphEdge,
+  WorkGraphEdgeDirection,
+  WorkGraphEdgeSource,
   WorkGraphHierarchyInputNode,
   WorkGraphHierarchyValidationOptions,
   WorkGraphHierarchyValidationResult,
@@ -31,12 +35,17 @@ export type {
   WorkGraphReadyFrontierOptions,
   WorkGraphReadyFrontierResult,
   WorkGraphReadyFrontierTask,
+  WorkGraphRelationEdge,
+  WorkGraphRelationEdgesOptions,
+  WorkGraphRelationEdgesResult,
   WorkGraphRelationKind,
+  WorkGraphRelationQueryService,
   WorkGraphRollupCounts,
   WorkGraphSnapshot,
   WorkGraphSubtreePercentages,
   WorkGraphSubtreeSummaryOptions,
   WorkGraphSubtreeSummaryResult,
+  WorkGraphTaskRelationType,
   WorkGraphTraversalDirection,
   WorkGraphTraversalOptions,
   WorkGraphTraversalResult,
@@ -54,6 +63,11 @@ export {
   createSqliteWorkGraphContainmentQueryService,
   SqliteWorkGraphContainmentQueryService,
 } from './containment.js';
+export type { SqliteWorkGraphRelationReader } from './relations.js';
+export {
+  createSqliteWorkGraphRelationQueryService,
+  SqliteWorkGraphRelationQueryService,
+} from './relations.js';
 export type {
   WorkGraphContainmentCycleFinding,
   WorkGraphMaxDepthFinding,
