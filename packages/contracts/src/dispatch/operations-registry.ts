@@ -9,6 +9,7 @@
  * @since SG-ARCH-SOLID Saga T9831 · E-CLI-BOUNDARY T9833 · T10061
  */
 
+import { DOCS_LIFECYCLE_STATUSES } from '../operations/docs.js';
 import type { CanonicalDomain, Gateway, OperationDef, ParamDef, Tier } from './operation-def.js';
 
 export type { CanonicalDomain, Gateway, OperationDef, ParamDef, Tier };
@@ -7195,6 +7196,7 @@ export const OPERATIONS: OperationDef[] = [
         type: 'string' as const,
         required: true,
         description: 'Slug of the existing attachment to update',
+        cli: { positional: true },
       },
       {
         name: 'file',
@@ -7218,15 +7220,17 @@ export const OPERATIONS: OperationDef[] = [
         name: 'status',
         type: 'string' as const,
         required: false,
+        enum: DOCS_LIFECYCLE_STATUSES,
         description:
           'Override the new lifecycle status. Defaults to "draft" on every update. ' +
-          'Valid: draft|proposed|accepted|superseded|archived|deprecated.',
+          `Valid: ${DOCS_LIFECYCLE_STATUSES.join('|')}.`,
       },
       {
         name: 'attachedBy',
         type: 'string' as const,
         required: false,
         description: 'Agent identity that performed the update (defaults to "human")',
+        cli: { flag: 'attached-by' },
       },
     ],
   },

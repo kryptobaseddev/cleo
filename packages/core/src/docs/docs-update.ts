@@ -25,7 +25,11 @@ import { createHash, randomUUID } from 'node:crypto';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { DocsLifecycleStatus, DocsUpdateParams } from '@cleocode/contracts/operations/docs';
+import {
+  DOCS_LIFECYCLE_STATUSES,
+  type DocsLifecycleStatus,
+  type DocsUpdateParams,
+} from '@cleocode/contracts/operations/docs';
 import { and, eq } from 'drizzle-orm';
 import { getCleoDirAbsolute } from '../paths.js';
 import { attachmentRefs, attachments } from '../store/schema/attachments.js';
@@ -48,21 +52,8 @@ export const DOCS_UPDATE_SQUASH_WINDOW_MS = 5 * 60 * 1000;
  */
 export const DOCS_VERSIONING_AUDIT_FILE = '.cleo/audit/docs-versioning.jsonl';
 
-/**
- * Allowed lifecycle statuses — mirrors `ATTACHMENT_LIFECYCLE_STATUSES`
- * from the attachments schema. Kept inline to avoid pulling the schema
- * module into the contracts surface.
- *
- * @internal
- */
-const ALLOWED_STATUSES: readonly DocsLifecycleStatus[] = [
-  'draft',
-  'proposed',
-  'accepted',
-  'superseded',
-  'archived',
-  'deprecated',
-] as const;
+/** Allowed lifecycle statuses from the docs.update operation contract SSoT. */
+const ALLOWED_STATUSES: readonly DocsLifecycleStatus[] = DOCS_LIFECYCLE_STATUSES;
 
 /**
  * Discriminated error for `updateDocBySlug` failures.
