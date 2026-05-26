@@ -17,6 +17,12 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../
 /** Production roots that may accidentally grow task hierarchy traversal. */
 const PRODUCTION_ROOTS = ['packages/core/src', 'packages/cleo/src', 'packages/studio/src'] as const;
 
+/** Public WorkGraph boundary files that must stay storage- and CLI-agnostic. */
+const WORKGRAPH_PUBLIC_BOUNDARY_FILES = [
+  'packages/contracts/src/workgraph.ts',
+  'packages/core/src/workgraph/index.ts',
+] as const;
+
 /** Core modules allowed to own physical hierarchy reads until WorkGraph is the sole facade. */
 const CORE_HIERARCHY_STORAGE_OWNERS = new Set([
   'packages/core/src/store/tasks-sqlite.ts',
@@ -121,7 +127,43 @@ function hasLegacyGroupsHierarchyTraversal(text: string): boolean {
   return mentionsLegacyGroups && readsRelationRows && mentionsTraversal;
 }
 
+function readRepoFile(path: string): string {
+  return readFileSync(resolve(REPO_ROOT, path), 'utf8');
+}
+
+function publicBoundaryImports(text: string): string[] {
+  return Array.from(text.matchAll(/^import\s+(?:type\s+)?(?:[^'";]+\s+from\s+)?['"]([^'"]+)['"];?/gm)).map(
+    (match) => match[1] ?? '',
+  );
+}
+
 describe('PM-Core V2 WorkGraph architecture', () => {
+  it('exposes WorkGraph public types from contracts and core without exposing storage', () => {
+    const missingFiles = WORKGRAPH_PUBLIC_BOUNDARY_FILES.filter(
+      (path) => !existsSync(resolve(REPO_ROOT, path)),
+    );
+    expect(missingFiles).toEqual([]);
+
+    const contractsIndex = readRepoFile('packages/contracts/src/index.ts');
+    const coreIndex = readRepoFile('packages/core/src/index.ts');
+    const corePackageJson = readRepoFile('packages/core/package.json');
+    const coreBoundary = readRepoFile('packages/core/src/workgraph/index.ts');
+
+    expect(contractsIndex).toContain("from './workgraph.js'");
+    expect(coreIndex).toContain("export * as workGraph from './workgraph/index.js'");
+    expect(corePackageJson).toContain('"./workgraph"');
+    expect(coreBoundary).toContain("from '@cleocode/contracts'");
+
+    const forbiddenImports = publicBoundaryImports(coreBoundary).filter(
+      (specifier) =>
+        specifier.includes('/store') ||
+        specifier.startsWith('../store') ||
+        specifier.includes('/cleo') ||
+        specifier.startsWith('@cleocode/cleo'),
+    );
+    expect(forbiddenImports).toEqual([]);
+  });
+
   it('keeps recursive task hierarchy SQL inside core-owned storage/traversal modules', () => {
     const offenders = productionFiles()
       .filter((file) => hasTaskHierarchyRecursiveSql(file.text))
