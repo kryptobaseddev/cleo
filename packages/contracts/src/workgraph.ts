@@ -64,8 +64,24 @@ export interface WorkGraphSnapshot {
   readonly edges: readonly WorkGraphEdge[];
 }
 
+/** Cursor/limit controls shared by WorkGraph paginated readers. */
+export interface WorkGraphPaginationOptions {
+  /** Opaque cursor returned by the previous page. Omitted starts at the first row. */
+  readonly cursor?: string;
+  /** Maximum number of nodes to return. Implementations clamp invalid values. */
+  readonly limit?: number;
+}
+
+/** Page metadata returned by WorkGraph paginated readers. */
+export interface WorkGraphPageInfo {
+  /** Cursor to pass to the next request when more rows exist. */
+  readonly nextCursor?: string;
+  /** True when additional rows are available after this page. */
+  readonly hasMore: boolean;
+}
+
 /** Options shared by WorkGraph traversal readers. */
-export interface WorkGraphTraversalOptions {
+export interface WorkGraphTraversalOptions extends WorkGraphPaginationOptions {
   /** Starting node ID for the traversal. */
   readonly rootId: string;
   /** Direction to traverse from `rootId`. */
@@ -76,12 +92,52 @@ export interface WorkGraphTraversalOptions {
   readonly includeRelations?: boolean;
 }
 
+/** Paginated traversal projection with explicit page metadata. */
+export interface WorkGraphTraversalResult extends WorkGraphSnapshot {
+  /** Requested traversal root. */
+  readonly rootId: string;
+  /** Direction traversed from the requested root. */
+  readonly direction: WorkGraphTraversalDirection;
+  /** Page metadata for cursor-based follow-up calls. */
+  readonly pageInfo: WorkGraphPageInfo;
+}
+
+/** Options for descendant tree readers. */
+export interface WorkGraphTreeOptions extends WorkGraphPaginationOptions {
+  /** Starting parent ID whose descendants should be projected. */
+  readonly rootId: string;
+  /** Optional maximum descendant depth; omitted means unbounded. */
+  readonly maxDepth?: number;
+}
+
+/** Node returned by a paginated descendant tree projection. */
+export interface WorkGraphTreeNode extends WorkGraphNode {
+  /** One-based edge depth from the requested root. */
+  readonly depth: number;
+}
+
+/** Paginated descendant tree projection. */
+export interface WorkGraphTreeResult {
+  /** Requested tree root. */
+  readonly rootId: string;
+  /** Descendant nodes ordered breadth-first by depth, position, creation time, and ID. */
+  readonly nodes: readonly WorkGraphTreeNode[];
+  /** Containment edges connecting the returned nodes to the requested root or page peers. */
+  readonly edges: readonly WorkGraphEdge[];
+  /** Page metadata for cursor-based follow-up calls. */
+  readonly pageInfo: WorkGraphPageInfo;
+}
+
 /** Minimal public reader facade for future WorkGraph implementations. */
 export interface WorkGraphReader {
   /** Read a graph snapshot for the current project context. */
   snapshot(): Promise<WorkGraphSnapshot> | WorkGraphSnapshot;
   /** Traverse from a root node using storage-hidden graph semantics. */
-  traverse(options: WorkGraphTraversalOptions): Promise<WorkGraphSnapshot> | WorkGraphSnapshot;
+  traverse(
+    options: WorkGraphTraversalOptions,
+  ): Promise<WorkGraphTraversalResult> | WorkGraphTraversalResult;
+  /** Read a paginated descendant tree rooted at a task-like node. */
+  tree(options: WorkGraphTreeOptions): Promise<WorkGraphTreeResult> | WorkGraphTreeResult;
 }
 
 /** Task vertex returned by containment-only WorkGraph queries. */
