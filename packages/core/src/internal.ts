@@ -1947,6 +1947,7 @@ export {
   taskToRecord,
   toHistoryEntry,
 } from './tasks/engine-converters.js';
+export { taskContext } from './tasks/engine-wrap-ops.js';
 export { taskFind } from './tasks/find.js';
 export { taskLabelList, taskLabelShow } from './tasks/labels.js';
 export { taskList } from './tasks/list.js';
@@ -2001,7 +2002,6 @@ export {
   taskUnclaim,
 } from './tasks/task-ops.js';
 export { taskUpdate } from './tasks/update.js';
-export { taskContext } from './tasks/engine-wrap-ops.js';
 
 // ---------------------------------------------------------------------------
 // Additional flat exports (required by @cleocode/cleo)
