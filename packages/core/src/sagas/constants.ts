@@ -40,19 +40,24 @@
  * @see ADR-073-above-epic-naming.md §1.2 — invariant I3 (label is migration-only)
  * @see ADR-073-above-epic-naming.md §1 — Task Hierarchy Charter
  */
-export const SAGA_LABEL = 'saga' as const;
+export const SAGA_LABEL = 'saga' as const; // saga-label-ok: T10638 — SSoT canonical definition
 
 /**
- * Relation type that links a Saga to its member Epics (ADR-073 §1).
+ * Relation type that linked a Saga to its member Epics (ADR-073 §1).
  *
- * Written by `tasks.saga.add` and read by `tasks.saga.members`.
+ * @deprecated Since T10638 (E10.W5), Saga membership uses `parent_id`
+ *   containment rather than `task_relations.type='groups'`. This constant
+ *   is retained only for backward-compatible read paths during migration
+ *   and will be removed once all references are cleared.
  */
 export const SAGA_GROUPS_RELATION = 'groups' as const;
 
 /**
- * Binding-source tag used in `ListTasksResult.bindingSource` (and propagated
- * upstream into LAFS envelope meta by the dispatch layer) whenever
- * `listTasks` resolved children via the Saga `task_relations.type='groups'`
- * path instead of the default `parentId` filter.
+ * Binding-source tag used in `ListTasksResult.bindingSource` whenever
+ * `listTasks` resolved children via the Saga membership path instead of
+ * the default `parentId` filter.
+ *
+ * @deprecated Since T10638, saga membership is parent_id-based so this
+ *   binding source distinction is no longer meaningful.
  */
 export const LIST_BINDING_SAGA_GROUPS = 'saga.groups' as const;

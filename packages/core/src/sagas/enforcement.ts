@@ -6,91 +6,46 @@
  * guards perform NO database access — callers (dispatch handlers, doctor
  * audits) are responsible for resolving rows first and passing them in.
  *
- * Wiring into the saga-write paths (`sagaAdd`, `sagaCreate`, ...) is the
- * scope of T10118. Wiring into the doctor audit is T10119. This module
- * exposes the guards in isolation so they can be unit-tested without a
- * database fixture and reused by both runtime + audit callers.
+ * After T10636 (E10.W5 type=saga migration) and T10638 (legacy fallback
+ * removal), Sagas are identified solely by `type='saga'`. The legacy
+ * `labels.includes('saga')` fallback, `hasSagaLabel` helper, and
+ * `SagaTask` discriminated union have been removed.
  *
  * @task T10115
+ * @task T10638 — E10.W5 legacy fallback removal
  * @saga T10113 — SG-SAGA-FIRST-CLASS
  * @epic T10209 — E-SAGA-ENFORCEMENT
  * @see ADR-073-above-epic-naming.md §1.2
  */
 
 import type { Task } from '@cleocode/contracts';
-import { SAGA_LABEL } from './constants.js';
-
-/**
- * Determine whether a task row carries the `'saga'` label.
- *
- * @param labels - The task's labels array (may be undefined / empty).
- * @returns True when `'saga'` appears in the label list.
- */
-function hasSagaLabel(labels: readonly string[] | undefined): boolean {
-  return Array.isArray(labels) && labels.includes(SAGA_LABEL);
-}
 
 /**
  * SagaTask — the narrowed Task shape the saga invariant gates operate on.
  *
- * This is a deprecation-window discriminated union (T10330, Saga T10326
- * SG-SUBSTRATE-RECONCILIATION). It accepts EITHER:
- *
- * - **New shape** (post-T10277): `type === 'saga'` — the first-class TaskType
- *   introduced by Wave 1 (T10328 contracts + T10329 schema migration).
- * - **Old shape** (deprecation window): `type === 'epic' && labels.includes('saga')`
- *   — the pre-T10277 storage shape, still present for not-yet-migrated rows
- *   in long-lived sessions. Removed in W3.C cutover (T10334).
- *
- * Callers narrow with {@link isSagaShape} before invoking the gates. The
- * gate bodies never read `type`, so the union is safe — they only check
- * `id`, `parentId`, `depends` which are common to both shapes.
+ * After T10638, only `type='saga'` rows are recognised as sagas.
+ * Callers narrow with {@link isSagaShape} before invoking the gates.
  *
  * @see ADR-083 §2.5 — Saga as first-class TaskType
  * @see ADR-073 §1.2 — Invariants I3 / I5 / I7
- * @task T10330
- * @saga T10326
+ * @task T10638
  */
-export type SagaTask = (Task & { type: 'saga' }) | (Task & { type: 'epic' });
+export type SagaTask = Task & { type: 'saga' };
 
 /**
- * Type predicate — true when `task` carries either the new-shape saga
- * discriminator (`type === 'saga'`) or the old-shape saga marker
- * (`type === 'epic' && labels.includes('saga')`).
+ * Type predicate — true when `task.type === 'saga'`.
  *
- * The deprecation-window dual acceptance is intentional: while not-yet-
- * migrated rows still exist in long-lived sessions, both shapes MUST be
- * recognised as sagas. W3.C cutover (T10334) drops the old-shape branch.
- *
- * Use this BEFORE passing a {@link Task} to the saga invariant gates —
- * replaces the legacy soft early-return on `labels.includes('saga')`.
+ * After T10638, only the canonical `type='saga'` shape is recognised.
+ * Use this BEFORE passing a {@link Task} to the saga invariant gates.
  *
  * @param task - Task row to inspect.
- * @returns True when the task is a saga in either shape.
+ * @returns True when the task is a saga.
  *
- * @example
- * ```typescript
- * if (isSagaShape(task)) {
- *   // task is now narrowed to SagaTask — safe to pass to gates.
- *   assertSagaInvariantI3(task);
- *   assertSagaInvariantI5(task);
- * }
- * ```
- *
- * @task T10330
- * @saga T10326
+ * @task T10638
  * @see ADR-083 §2.5
  */
 export function isSagaShape(task: Task): task is SagaTask {
-  // New shape — first-class 'saga' TaskType (T10277 cutover).
-  if (task.type === 'saga') {
-    return true;
-  }
-  // Old shape — labelled epic (deprecation-window dual acceptance, T10334 drops).
-  if (task.type === 'epic' && hasSagaLabel(task.labels)) {
-    return true;
-  }
-  return false;
+  return task.type === 'saga';
 }
 
 /**
@@ -184,34 +139,24 @@ export function isSagaInvariantViolationError(
 }
 
 /**
- * ADR-073 §1.2 invariant **I3** — sagas link via
- * `task_relations.type='groups'` only.
+ * ADR-073 §1.2 invariant **I3** — sagas are top-level, no parent/depends edges.
  *
  * A saga MUST NOT carry `parentId` or any entries in `depends`. Member
- * discovery flows through `task_relations.type='groups'`; a parent or
- * depends edge would re-introduce the depth-budget consumption the saga
- * tier was created to avoid.
- *
- * The gate accepts a {@link SagaTask} (new or old shape — see
- * deprecation-window dual acceptance). Callers narrow via {@link isSagaShape}
- * before invoking — the soft `labels.includes('saga')` early-return that
- * previously lived in this function has been REMOVED in favour of
- * compile-time TypeScript narrowing (T10330, ADR-083 §2.5).
+ * Epics link to the saga via `parent_id` containment (T10637 migration).
  *
  * @param saga - Saga-shaped task row, pre-narrowed by {@link isSagaShape}.
  * @throws {@link SagaInvariantViolationError} with
  *   {@link E_SAGA_INVARIANT_VIOLATION_I3} when the row violates I3.
  *
  * @see ADR-073-above-epic-naming.md §1.2
- * @task T10330
- * @saga T10326
+ * @task T10638
  */
 export function assertSagaInvariantI3(saga: SagaTask): void {
   if (saga.parentId != null && saga.parentId !== '') {
     throw new SagaInvariantViolationError(
       E_SAGA_INVARIANT_VIOLATION_I3,
       `E_SAGA_INVARIANT_VIOLATION_I3: saga '${saga.id}' has parentId='${saga.parentId}'; ` +
-        "sagas MUST link to members via task_relations.type='groups' (ADR-073 §1.2 I3).",
+        'sagas MUST be top-level (ADR-073 §1.2 I3).',
       { sagaId: saga.id, offendingId: saga.id, invariant: 'I3' },
     );
   }
@@ -219,7 +164,7 @@ export function assertSagaInvariantI3(saga: SagaTask): void {
     throw new SagaInvariantViolationError(
       E_SAGA_INVARIANT_VIOLATION_I3,
       `E_SAGA_INVARIANT_VIOLATION_I3: saga '${saga.id}' has ${saga.depends.length} depends edge(s); ` +
-        "sagas MUST link only via task_relations.type='groups' (ADR-073 §1.2 I3).",
+        'sagas MUST be top-level (ADR-073 §1.2 I3).',
       { sagaId: saga.id, offendingId: saga.id, invariant: 'I3' },
     );
   }
@@ -231,19 +176,12 @@ export function assertSagaInvariantI3(saga: SagaTask): void {
  * Sagas are top-level groupings; they do not nest under any task. A non-null
  * `parentId` on a saga row is a storage corruption / import bug.
  *
- * The gate accepts a {@link SagaTask} (new or old shape — see
- * deprecation-window dual acceptance). Callers narrow via {@link isSagaShape}
- * before invoking — the soft `labels.includes('saga')` early-return that
- * previously lived in this function has been REMOVED in favour of
- * compile-time TypeScript narrowing (T10330, ADR-083 §2.5).
- *
  * @param saga - Saga-shaped task row, pre-narrowed by {@link isSagaShape}.
  * @throws {@link SagaInvariantViolationError} with
  *   {@link E_SAGA_INVARIANT_VIOLATION_I5} when the row violates I5.
  *
  * @see ADR-073-above-epic-naming.md §1.2
- * @task T10330
- * @saga T10326
+ * @task T10638
  */
 export function assertSagaInvariantI5(saga: SagaTask): void {
   if (saga.parentId != null && saga.parentId !== '') {
@@ -259,55 +197,32 @@ export function assertSagaInvariantI5(saga: SagaTask): void {
 /**
  * ADR-073 §1.2 invariant **I7** — no nested sagas.
  *
- * A saga-member candidate (i.e. a task being linked into a saga via
- * `task_relations.type='groups'`) MUST NOT itself be saga-shaped. Nested
- * sagas would re-introduce the multi-release grouping depth the tier was
- * created to flatten.
+ * A saga-member candidate MUST NOT itself be saga-shaped (`type='saga'`).
+ * Nested sagas would re-introduce the multi-release grouping depth the
+ * tier was created to flatten.
  *
- * The retained `(candidateId, candidateLabels, sagaId?)` signature exists
- * for caller compat during the Saga T10326 sweep — callers that hold only
- * an ID + labels (e.g. partial task rows from saga-audit) can still invoke
- * it directly. Internally the predicate runs both shapes:
- *
- * - **New shape**: `candidateType === 'saga'` (synthesised by the typed
- *   overload below).
- * - **Old shape**: `candidateLabels.includes('saga')` (deprecation window).
- *
- * The {@link assertSagaInvariantI7Typed} overload accepts a pre-narrowed
- * {@link SagaTask} for callers that already hold a full task — passing a
- * `SagaTask` is itself proof of the violation (the candidate IS saga-shaped),
- * so the typed overload always throws.
+ * After T10638, only `candidateType === 'saga'` triggers the guard.
  *
  * @param candidateId - Task ID being considered as a saga member.
- * @param candidateLabels - The candidate's labels array.
- * @param sagaId - Optional ID of the saga the candidate would be linked into
- *   (surfaced in the diag payload when provided).
- * @param candidateType - Optional new-shape TaskType discriminator. When
- *   `'saga'` is supplied, the gate fires regardless of `candidateLabels`.
+ * @param _candidateLabels - Deprecated; no longer used post-T10638.
+ * @param sagaId - Optional ID of the saga the candidate would be linked into.
+ * @param candidateType - The candidate's TaskType discriminator.
  * @throws {@link SagaInvariantViolationError} with
- *   {@link E_SAGA_INVARIANT_VIOLATION_I7} when the candidate is a saga
- *   under either shape.
+ *   {@link E_SAGA_INVARIANT_VIOLATION_I7} when the candidate is a saga.
  *
  * @see ADR-073-above-epic-naming.md §1.2
- * @task T10330
- * @saga T10326
+ * @task T10638
  */
 export function assertSagaInvariantI7(
   candidateId: string,
-  candidateLabels: readonly string[],
+  _candidateLabels: readonly string[],
   sagaId?: string,
   candidateType?: Task['type'],
 ): void {
-  // New-shape acceptance: type='saga' discriminator (post-T10277 cutover).
-  const isNewShapeSaga = candidateType === 'saga';
-  // Old-shape acceptance: epic + 'saga' label (deprecation window — T10334 drops).
-  const isOldShapeSaga = hasSagaLabel(candidateLabels);
-  if (!isNewShapeSaga && !isOldShapeSaga) {
-    return;
-  }
+  if (candidateType !== 'saga') return;
   throw new SagaInvariantViolationError(
     E_SAGA_INVARIANT_VIOLATION_I7,
-    `E_SAGA_INVARIANT_VIOLATION_I7: candidate '${candidateId}' already has label='${SAGA_LABEL}'; ` +
+    `E_SAGA_INVARIANT_VIOLATION_I7: candidate '${candidateId}' has type='saga'; ` +
       'nested sagas are forbidden (ADR-073 §1.2 I7).',
     { sagaId, offendingId: candidateId, invariant: 'I7' },
   );
@@ -326,8 +241,7 @@ export function assertSagaInvariantI7(
  * @throws {@link SagaInvariantViolationError} with
  *   {@link E_SAGA_INVARIANT_VIOLATION_I7} — always, since input is saga-shaped.
  *
- * @task T10330
- * @saga T10326
+ * @task T10638
  */
 export function assertSagaInvariantI7Typed(candidate: SagaTask, sagaId?: string): void {
   assertSagaInvariantI7(candidate.id, candidate.labels ?? [], sagaId, candidate.type);

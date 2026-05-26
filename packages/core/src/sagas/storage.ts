@@ -20,29 +20,22 @@
 
 import type { GateEvidence, Task, TaskVerification, VerificationGate } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { SAGA_GROUPS_RELATION } from './constants.js';
 import { isSagaShape } from './enforcement.js';
 
 /**
- * Resolve Saga member Epic IDs through `task_relations.type='groups'` edges.
+ * Resolve Saga member Epic IDs through `parent_id` containment.
  *
- * Sagas (Epics with `labels` containing `'saga'`) hold their member Epics via
- * `task_relations.type='groups'` rows, not via the `parentId` column. This
- * helper loads the saga task, walks its populated `relates` array, and
- * returns the member task IDs in stable order.
- *
- * Reused by `listTasks` when `--parent` targets a Saga to mirror the
- * resolution `tasks.saga.members` performs at the dispatch layer (ADR-073).
+ * After T10637 (E10.W5), Saga membership moved from
+ * `task_relations.type='groups'` to `parent_id` containment. Member
+ * Epics carry `parentId` pointing at the Saga. This helper queries
+ * tasks with `parentId = sagaId` and returns their IDs.
  *
  * @param accessor - Data accessor backing the lookup.
- * @param sagaId - The Saga task ID (must have `labels.includes('saga')`).
- * @returns Member Epic IDs (deduplicated, insertion-order stable). Empty if
- *          the saga has no `groups` edges. `null` if no task with `sagaId`
- *          exists or the task is not labeled `'saga'`.
+ * @param sagaId - The Saga task ID (must have `type='saga'`).
+ * @returns Member Epic IDs in stable order. Empty if no members.
+ *          `null` if no task with `sagaId` exists or the task is not a saga.
  *
- * @task T9658
- * @task T10123
- * @see ADR-073-above-epic-naming.md §1
+ * @task T10638 — E10.W5 switch to parent_id containment
  */
 export async function resolveSagaMemberIds(
   accessor: DataAccessor,
@@ -50,77 +43,35 @@ export async function resolveSagaMemberIds(
 ): Promise<string[] | null> {
   const sagaTask = await accessor.loadSingleTask(sagaId);
   if (!sagaTask) return null;
-  // T10331 (Saga T10326 W2.B): dual-shape acceptance via isSagaShape.
   if (!isSagaShape(sagaTask)) return null;
-  const seen = new Set<string>();
-  const memberIds: string[] = [];
-  for (const relation of sagaTask.relates ?? []) {
-    if (relation.type !== SAGA_GROUPS_RELATION) continue;
-    if (seen.has(relation.taskId)) continue;
-    seen.add(relation.taskId);
-    memberIds.push(relation.taskId);
-  }
-  return memberIds;
+  const result = await accessor.queryTasks({ parentId: sagaId });
+  return (result?.tasks ?? []).map((t) => t.id);
 }
 
 /**
- * Find every saga that groups the given task as a member.
+ * Find every saga that contains the given task as a member via `parent_id`.
  *
- * Walks the saga catalog (every row with `type='epic'` AND
- * `labels.includes('saga')`) and returns the subset whose populated
- * `relates` array contains a `task_relations.type='groups'` edge pointing
- * at `memberId`.
+ * Loads the task, checks if its `parentId` points to a saga (type='saga'),
+ * and returns the saga task if so. After T10637, membership is via
+ * `parent_id` containment rather than `task_relations.type='groups'`.
  *
- * Consumed by the saga auto-close branch in `tasks/complete.ts` — when a
- * task transitions to `done`, the completion path needs to know which
- * sagas (if any) should be considered for auto-close as a side-effect of
- * that transition. The returned sagas are loaded with their full
- * `relates` array so the caller can immediately resolve their member IDs
- * without a second round-trip.
- *
- * Implementation notes:
- *   - Uses `queryTasks({ type: 'epic', label: 'saga' })`, which already
- *     populates `relates` via `loadRelationsForTasks` in the SQLite
- *     accessor — no additional `loadSingleTask` calls per saga are
- *     needed.
- *   - Filters out any saga whose row no longer carries the `'saga'`
- *     label after rehydration (defence-in-depth — `queryTasks` is
- *     authoritative, but a future schema migration could relax the
- *     label index without notice).
+ * Consumed by the saga auto-close branch in `tasks/complete.ts`.
  *
  * @param accessor - Data accessor backing the lookup.
  * @param memberId - Task ID to test for saga membership.
- * @returns Every saga grouping `memberId`, in stable saga-ID order.
+ * @returns The saga task containing `memberId`, or empty array.
  *
- * @task T10116
- * @epic T10210
- * @see ADR-073-above-epic-naming.md §1
+ * @task T10638 — E10.W5 switch to parent_id containment
  */
 export async function findSagasGroupingTask(
   accessor: DataAccessor,
   memberId: string,
 ): Promise<Task[]> {
-  // T10331 (Saga T10326 W2.B): dual-shape sweep — query BOTH the canonical
-  // `type='saga'` rows AND the legacy `type='epic' + label='saga'` rows so
-  // not-yet-migrated rows in long-lived sessions still surface during the
-  // deprecation window. W3.C T10334 collapses to the single new-shape query.
-  const [newShape, oldShape] = await Promise.all([
-    accessor.queryTasks({ type: 'saga' }),
-    accessor.queryTasks({ type: 'epic', label: 'saga' }),
-  ]);
-  const seenIds = new Set<string>();
-  const matches: Task[] = [];
-  for (const saga of [...newShape.tasks, ...oldShape.tasks]) {
-    if (seenIds.has(saga.id)) continue;
-    seenIds.add(saga.id);
-    if (!isSagaShape(saga)) continue;
-    const hasMemberEdge = (saga.relates ?? []).some(
-      (relation) => relation.type === SAGA_GROUPS_RELATION && relation.taskId === memberId,
-    );
-    if (!hasMemberEdge) continue;
-    matches.push(saga);
-  }
-  return matches;
+  const memberTask = await accessor.loadSingleTask(memberId);
+  if (!memberTask?.parentId) return [];
+  const parentTask = await accessor.loadSingleTask(memberTask.parentId);
+  if (!parentTask || !isSagaShape(parentTask)) return [];
+  return [parentTask];
 }
 
 /**

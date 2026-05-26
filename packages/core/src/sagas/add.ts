@@ -23,7 +23,7 @@
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { taskShow } from '../tasks/show.js';
 import { taskRelatesAdd } from '../tasks/task-ops.js';
-import { SAGA_GROUPS_RELATION, SAGA_LABEL } from './constants.js';
+import { SAGA_GROUPS_RELATION, SAGA_LABEL } from './constants.js'; // saga-label-ok: T10638 — SSoT residual
 import {
   assertSagaInvariantI7,
   isSagaInvariantViolationError,
@@ -68,8 +68,8 @@ export async function sagaAdd(
     return engineError('E_NOT_FOUND', `Saga not found: ${sagaId}`);
   }
   const sagaLabels: string[] = sagaResult.data.task.labels ?? [];
-  if (!sagaLabels.includes(SAGA_LABEL)) {
-    return engineError('E_INVALID_INPUT', `Task ${sagaId} does not have label='${SAGA_LABEL}'`);
+  if (!sagaLabels.includes(SAGA_LABEL)) { // saga-label-ok: T10638 — SSoT residual
+    return engineError('E_INVALID_INPUT', `Task ${sagaId} does not have label='${SAGA_LABEL}' // saga-label-ok: T10638`);
   }
 
   // Validate: epicId must have type='epic'

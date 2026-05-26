@@ -29,9 +29,8 @@ import { validateSpawnReadiness } from '../orchestration/validate-spawn.js';
 import type { EnrichedWave } from '../orchestration/waves.js';
 import { getEnrichedWaves } from '../orchestration/waves.js';
 import { getProjectRoot } from '../paths.js';
-import { SAGA_GROUPS_RELATION, SAGA_LABEL } from '../sagas/constants.js';
 import { isSagaShape } from '../sagas/enforcement.js';
-import { getTaskAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor, type DataAccessor } from '../store/data-accessor.js';
 import type { DepGraphIssue } from '../tasks/dep-graph-validator.js';
 import { runValidation } from '../tasks/dep-graph-validator.js';
 
@@ -109,87 +108,56 @@ export type { EngineResult };
 /**
  * Traversal mode for {@link orchestrateReady} and {@link orchestrateWaves}.
  *
- * Sagas (tasks with `type='saga'`) hold their member Epics via
- * `task_relations.type='groups'` edges instead of the `parentId` column
- * (ADR-073). The query-ops historically walked only `parentId`, so sagas
- * appeared childless.
+ * After T10638, sagas (tasks with `type='saga'`) hold their member Epics
+ * via `parent_id` containment (T10637 migration). The saga walk is
+ * equivalent to the parent walk — both use `parentId` filtering.
  *
- * - `'parent'` — legacy behaviour: walk `parentId` only (sagas return empty).
- * - `'saga'`   — walk `relates[type='groups']` only (regular epics return empty).
- * - `'both'`   — auto-detect: walk groups when the target is saga-labeled,
- *                otherwise walk `parentId`. Default for callers that don't
- *                care which storage shape the epic uses.
+ * - `'parent'` — walk `parentId` (default).
+ * - `'saga'`   — same as parent walk; retained for backward compatibility.
+ * - `'both'`   — auto-detect: same as parent walk (default for all callers).
  *
- * @bug gh-390
- * @adr ADR-073
- * @task T9839
+ * @task T10638 — E10.W5 merge saga/parent walk paths
  */
 export type OrchestrateTraversal = 'parent' | 'saga' | 'both';
 
 /**
- * Single source of truth for the saga-shaped-epic check (ADR-073).
+ * Single source of truth for the saga check (ADR-073).
  *
- * Dual-shape acceptance (T10331, Saga T10326 W2.B):
- *   - Canonical post-migration shape: `type === 'saga'` — first-class
- *     {@link TaskType} value introduced by W1.A T10328 (ADR-083 §2.5).
- *   - Legacy label-encoded shape: `type === 'epic' && labels.includes('saga')`
- *     — still produced by fixtures and not-yet-migrated rows during the
- *     deprecation window. Removed in W3.C cutover (T10334).
+ * After T10638, only `type === 'saga'` identifies a saga.
  *
  * Sagas are top-level grouping nodes whose members are linked via
- * `task_relations.type='groups'` rather than `parentId`.
+ * `parent_id` containment rather than `task_relations.type='groups'`
+ * (T10637 migration).
  *
- * @param task - The task to inspect. Pass either a fully-loaded {@link Task}
- *               (with `labels` populated by `loadSingleTask` / `queryTasks`)
- *               or `null`/`undefined` (returns `false`).
- * @returns `true` when `task` is a saga under either shape.
+ * @param task - The task to inspect.
+ * @returns `true` when `task.type === 'saga'`.
  *
- * @deprecated Prefer {@link isSagaShape} (`packages/core/src/sagas/enforcement.ts`)
- *   when the caller holds a fully-typed {@link Task} — it returns a
- *   compile-time type-narrowing predicate (`task is SagaTask`) instead of a
- *   plain `boolean`. `isSagaEpic` remains for the in-file query-ops callers
- *   that hold `Pick<Task,'type'|'labels'>` rows.
- *
- * @bug gh-390
- * @adr ADR-073
- * @adr ADR-083 — Saga as first-class TaskType
- * @task T9839
- * @task T10331
+ * @task T10638
  */
-export function isSagaEpic(task: Pick<Task, 'type' | 'labels'> | null | undefined): boolean {
+export function isSagaEpic(task: Pick<Task, 'type'> | null | undefined): boolean { // saga-label-ok: T10638 — SSoT residual, consumed by query-ops internals
   if (!task) return false;
-  // New shape — first-class 'saga' TaskType (T10277 cutover).
-  if (task.type === 'saga') return true;
-  // Old shape — labelled epic (deprecation-window dual acceptance, T10334 drops).
-  if (task.type !== 'epic') return false;
-  return (task.labels ?? []).includes(SAGA_LABEL);
+  return task.type === 'saga';
 }
 
 /**
- * Extract member-Epic IDs from a saga's `relates` array.
+ * Extract member-Epic IDs from a saga via `parent_id` containment.
  *
- * Walks {@link Task.relates} and returns the `taskId` of every entry whose
- * `type === 'groups'`. Order is preserved (insertion order from the
- * data-accessor) and duplicates are removed. Non-saga tasks return an empty
- * array — callers MUST gate on {@link isSagaEpic} first.
+ * After T10637, Saga membership is via `parent_id` rather than
+ * `task_relations.type='groups'`. This helper queries tasks with
+ * `parentId = sagaId`.
  *
- * @param sagaTask - A saga-labeled epic with `relates` populated.
- * @returns Deduplicated list of member Epic IDs in stable order.
+ * @param accessor - Data accessor for task lookups.
+ * @param sagaId - The saga task ID.
+ * @returns List of member Epic IDs.
  *
- * @bug gh-390
- * @adr ADR-073
- * @task T9839
+ * @task T10638 — E10.W5 switch to parent_id containment
  */
-export function resolveSagaMembers(sagaTask: Pick<Task, 'relates'>): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const relation of sagaTask.relates ?? []) {
-    if (relation.type !== SAGA_GROUPS_RELATION) continue;
-    if (seen.has(relation.taskId)) continue;
-    seen.add(relation.taskId);
-    out.push(relation.taskId);
-  }
-  return out;
+export async function resolveSagaMembers(
+  accessor: DataAccessor,
+  sagaId: string,
+): Promise<string[]> {
+  const result = await accessor.queryTasks({ parentId: sagaId });
+  return result?.tasks?.map((t) => t.id) ?? [];
 }
 
 /**
@@ -460,10 +428,7 @@ export async function orchestrateReady(
     };
 
     if (useSagaWalk) {
-      // We need the saga's `relates` populated. `tasks` from queryTasks does
-      // not include relations by default — pull the saga via loadSingleTask.
-      const sagaWithRelates = await accessor.loadSingleTask(epicId);
-      const members = sagaWithRelates ? resolveSagaMembers(sagaWithRelates) : [];
+      const members = await resolveSagaMembers(accessor, epicId);
 
       const seenIds = new Set<string>();
       const aggregated: ReadyTaskOut[] = [];
@@ -704,7 +669,7 @@ export async function orchestrateWaves(
     }
 
     // Saga walk: compute per-member waves and merge by index.
-    const members = resolveSagaMembers(epic);
+    const members = await resolveSagaMembers(accessor, epicId);
     const skippedNested: string[] = [];
     const perMemberWaves: EnrichedWave[][] = [];
     let totalChildren = 0;

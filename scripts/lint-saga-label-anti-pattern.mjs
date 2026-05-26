@@ -25,8 +25,10 @@
  *    (`isSagaEpic`, label-encoded reads in `tasks/list.ts`,
  *    `release/plan.ts`, `orchestrate/query-ops.ts`,
  *    `dispatch/domains/focus.ts`, `tasks/generic-tree.ts`).
- *  - Wave 3C (T10334, future) — full cutover removes the deprecated symbols
- *    entirely. THIS gate flips to `--strict` (zero-tolerance) at that point.
+ *  - Wave 3C (T10638, this commit) — full cutover: dual-shape fallback removed,
+ *    `labels.includes('saga')` and `hasSagaLabel` deleted, CI flipped to
+ *    `--strict` (zero-tolerance). Any remaining anti-pattern references are
+ *    now blocking CI.
  *
  * Anti-patterns
  * -------------

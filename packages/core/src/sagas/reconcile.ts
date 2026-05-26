@@ -43,8 +43,6 @@ import { getLogger } from '../logger.js';
 import { acquireLock } from '../store/lock.js';
 import { taskList } from '../tasks/list.js';
 import { taskShow } from '../tasks/show.js';
-import { taskRelates } from '../tasks/task-ops.js';
-import { SAGA_GROUPS_RELATION, SAGA_LABEL } from './constants.js';
 import { buildSagaAutoCloseEvidence } from './storage.js';
 
 const log = getLogger('sagas:reconcile');
@@ -188,31 +186,21 @@ function ensureLockFile(lockPath: string): void {
 }
 
 /**
- * Resolve the member task IDs for a given saga via `taskRelates`.
+ * Resolve the member task IDs for a given saga via `parent_id` containment.
  *
- * Mirrors the resolution `tasks.saga.members` performs at the dispatch
- * layer, but stays inside core (no envelope hop).
+ * After T10637, Saga members are linked via `parent_id` rather than
+ * to find member epics.
  */
 async function resolveMembersForSaga(
   projectRoot: string,
   sagaId: string,
 ): Promise<{ ok: true; memberIds: string[] } | { ok: false; message: string }> {
-  const relResult = await taskRelates(projectRoot, sagaId);
-  if (!relResult.success) {
-    return {
-      ok: false,
-      message: relResult.error?.message ?? 'Failed to fetch saga relations for reconcile',
-    };
+  const listResult = await taskList(projectRoot, { parent: sagaId });
+  if (!listResult.success) {
+    return { ok: false, message: listResult.error?.message ?? 'Failed to list saga members' };
   }
-  const relations = relResult.data?.relations ?? [];
-  const seen = new Set<string>();
-  const memberIds: string[] = [];
-  for (const r of relations) {
-    if (r.type !== SAGA_GROUPS_RELATION) continue;
-    if (seen.has(r.taskId)) continue;
-    seen.add(r.taskId);
-    memberIds.push(r.taskId);
-  }
+  const tasks = listResult.data?.tasks ?? [];
+  const memberIds = tasks.map((t) => t.id);
   return { ok: true, memberIds };
 }
 
@@ -631,37 +619,17 @@ export async function reconcileSaga(
   if (params.sagaId && params.sagaId.length > 0) {
     sagaIds = [params.sagaId];
   } else {
-    // T10331 (Saga T10326 W2.B): dual-shape sweep — query BOTH the canonical
-    // `type='saga'` rows AND the legacy `type='epic' + label='saga'` rows so
-    // not-yet-migrated rows still surface during the deprecation window.
-    // W3.C T10334 collapses to a single new-shape query.
-    const [newShape, oldShape] = await Promise.all([
-      taskList(projectRoot, { type: 'saga' }),
-      taskList(projectRoot, { type: 'epic', label: SAGA_LABEL }),
-    ]);
-    if (!newShape.success) {
+    // T10638: after type='saga' migration, only query the canonical shape.
+    const result = await taskList(projectRoot, { type: 'saga' });
+    if (!result.success) {
       return engineError(
         'E_GENERAL',
-        newShape.error?.message ?? 'Failed to list sagas for reconcile',
+        result.error?.message ?? 'Failed to list sagas for reconcile',
       );
     }
-    if (!oldShape.success) {
-      return engineError(
-        'E_GENERAL',
-        oldShape.error?.message ?? 'Failed to list sagas for reconcile',
-      );
-    }
-    const seenSagaIds = new Set<string>();
-    const mergedIds: string[] = [];
-    for (const t of [...(newShape.data?.tasks ?? []), ...(oldShape.data?.tasks ?? [])]) {
-      const id = (t as { id?: string }).id;
-      if (typeof id !== 'string' || id.length === 0) continue;
-      if (seenSagaIds.has(id)) continue;
-      seenSagaIds.add(id);
-      mergedIds.push(id);
-    }
+    sagaIds = result.data?.tasks.map((t: { id: string }) => t.id) ?? [];
     // Stable order so cron output is deterministic across runs.
-    sagaIds = mergedIds.sort((a, b) => a.localeCompare(b));
+    sagaIds = sagaIds.sort((a, b) => a.localeCompare(b));
   }
 
   const entries: SagaReconcileEntry[] = [];

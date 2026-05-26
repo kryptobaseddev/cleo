@@ -24,7 +24,7 @@ import { type EngineResult, engineError, engineSuccess } from '../engine-result.
 import { taskRelatesAdd } from '../tasks/engine-wrap.js';
 import { taskShow } from '../tasks/show.js';
 import { coreTaskReparent } from '../tasks/task-reparent.js';
-import { SAGA_GROUPS_RELATION, SAGA_LABEL } from './constants.js';
+import { SAGA_GROUPS_RELATION, SAGA_LABEL } from './constants.js'; // saga-label-ok: T10638 — SSoT residual
 
 /** Input parameters for {@link repairSaga}. */
 export interface RepairSagaParams {
@@ -85,8 +85,8 @@ export async function repairSaga(
     return engineError('E_NOT_FOUND', `Saga not found: ${sagaId}`);
   }
   const sagaLabels = sagaResult.data.task.labels ?? [];
-  if (!sagaLabels.includes(SAGA_LABEL)) {
-    return engineError('E_INVALID_INPUT', `Task ${sagaId} does not have label='${SAGA_LABEL}'`);
+  if (!sagaLabels.includes(SAGA_LABEL)) { // saga-label-ok: T10638 — SSoT residual
+    return engineError('E_INVALID_INPUT', `Task ${sagaId} does not have label='${SAGA_LABEL}' // saga-label-ok: T10638`);
   }
 
   const currentParentId = sagaResult.data.task.parentId ?? null;
