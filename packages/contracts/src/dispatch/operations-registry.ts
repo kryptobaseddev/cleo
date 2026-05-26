@@ -979,6 +979,37 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'orchestrate',
+    operation: 'report',
+    description: 'orchestrate.report (query) — grouped readiness report: ready, blocked, blockedBy, gate-blocked, invalid (T10631)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['epicId'],
+    params: [
+      {
+        name: 'epicId',
+        type: 'string',
+        required: true,
+        description: 'Epic ID to generate the report for',
+        cli: { positional: true },
+      },
+      {
+        name: 'page',
+        type: 'number',
+        required: false,
+        description: 'Page number for paginated output (1-indexed, default 1)',
+      },
+      {
+        name: 'pageSize',
+        type: 'number',
+        required: false,
+        description: 'Page size for paginated output (default 50, max 200)',
+      },
+    ],
+  },
+  {
+    gateway: 'query',
+    domain: 'orchestrate',
     operation: 'plan',
     description: 'orchestrate.plan (query) — deterministic wave+worker plan (T889)',
     tier: 1,

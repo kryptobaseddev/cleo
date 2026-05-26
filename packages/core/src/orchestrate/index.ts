@@ -50,6 +50,7 @@ export {
   orchestrateContext,
   orchestrateNext,
   orchestrateReady,
+  orchestrateReport,
   orchestrateStatus,
   orchestrateValidate,
   orchestrateWaves,
