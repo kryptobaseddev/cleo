@@ -85,6 +85,8 @@ const SUBPATH_DIRS = [
   // import @cleocode/core/hygiene/validate-spawn-readiness.js so the
   // `./hygiene/*` subpath must be scanned for esbuild entry points.
   'hygiene',
+  // T10575 — public WorkGraph boundary exposed as @cleocode/core/workgraph.
+  'workgraph',
 ];
 
 
