@@ -828,6 +828,18 @@ function buildExamples(def: RegistryOperationDef): OperationExample[] {
         description: 'Show full details for task T123',
       },
     ],
+    'docs.update': [
+      {
+        command: 'cleo docs update design-note --file ./docs/design-note.md --message "fix typo"',
+        description:
+          'Replace an existing slug with bytes from a local file and record an audit message',
+      },
+      {
+        command: 'cleo docs update design-note --content "updated text" --status proposed',
+        description:
+          'Update inline content and leave the new attachment row in proposed review state',
+      },
+    ],
   };
   return EXAMPLES[key] ?? [];
 }

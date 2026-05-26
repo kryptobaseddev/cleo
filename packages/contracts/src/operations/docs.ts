@@ -512,13 +512,16 @@ export interface DocsRemoveResult {
  *
  * @task T10161 (Epic T10157 / Saga T9855)
  */
-export type DocsLifecycleStatus =
-  | 'draft'
-  | 'proposed'
-  | 'accepted'
-  | 'superseded'
-  | 'archived'
-  | 'deprecated';
+export const DOCS_LIFECYCLE_STATUSES = [
+  'draft',
+  'proposed',
+  'accepted',
+  'superseded',
+  'archived',
+  'deprecated',
+] as const;
+
+export type DocsLifecycleStatus = (typeof DOCS_LIFECYCLE_STATUSES)[number];
 
 /**
  * Parameters for `docs.update`.

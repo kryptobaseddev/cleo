@@ -51,9 +51,12 @@ import {
   statusDocs,
   syncFromGit,
 } from '@cleocode/core/internal';
+import { describeOperation } from '@cleocode/lafs';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { loadCanonRegistry } from '../../dispatch/domains/check/canon-docs.js';
+import { resolve as resolveOperation } from '../../dispatch/registry.js';
+import { getOperationParams, paramsToCittyArgs } from '../lib/registry-args.js';
 import { assertKnownFlags, UnknownFlagError } from '../lib/strict-args.js';
 import { cliError, cliOutput, humanInfo } from '../renderers/index.js';
 // T10164 — DocProvenanceResponse-typed graph verb (`--root <slug>|<taskId>`).
@@ -1250,6 +1253,49 @@ const rankCommand = defineCommand({
 
 // ── cleo docs update ──────────────────────────────────────────────────────────
 
+const docsUpdateOperation = resolveOperation('mutate', 'docs', 'update')?.def;
+if (docsUpdateOperation === undefined) {
+  throw new Error('docs.update operation is missing from the registry');
+}
+const docsUpdateSchema = describeOperation(docsUpdateOperation, {
+  includeGates: false,
+  includeExamples: true,
+});
+const docsUpdateArgs = paramsToCittyArgs(getOperationParams('mutate', 'docs', 'update'));
+
+function toKebabFlag(name: string): string {
+  return name.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`);
+}
+
+function formatDocsUpdateContractHelp(): string {
+  const positional = docsUpdateSchema.params.filter((param) => param.cli?.positional === true);
+  const named = docsUpdateSchema.params.filter((param) => param.cli?.positional !== true);
+  const lines: string[] = [
+    docsUpdateSchema.description,
+    '',
+    'Positional arguments:',
+    ...positional.map((param) => `  <${param.name}>                 ${param.description}`),
+    '',
+    'Named arguments:',
+    ...named.map((param) => {
+      const flag = param.cli?.flag ?? toKebabFlag(param.name);
+      const enumSuffix = param.enum !== undefined ? ` (${param.enum.join('|')})` : '';
+      return `  --${flag} <${param.type}>          ${param.description}${enumSuffix}`;
+    }),
+  ];
+  if ((docsUpdateSchema.examples ?? []).length > 0) {
+    lines.push('', 'Examples:');
+    for (const example of docsUpdateSchema.examples ?? []) {
+      lines.push(`  ${example.command}`, `    ${example.description}`);
+    }
+  }
+  lines.push(
+    '',
+    'Renderer support: this command shares the registry schema surfaced by `cleo schema docs.update --format human --include-examples`.',
+  );
+  return lines.join('\n');
+}
+
 /**
  * `cleo docs update <slug>` — UPDATE-in-place via slug (T10161).
  *
@@ -1274,49 +1320,9 @@ const rankCommand = defineCommand({
 const updateCommand = defineCommand({
   meta: {
     name: 'update',
-    description:
-      'Replace blob content for an existing slug while preserving the slug. ' +
-      'Pass --file <path> OR --content <text> (exactly one). Defaults --status to "draft" ' +
-      'on every update so explicit `accepted` docs get back-pressured to draft on edit. ' +
-      'Audit log entry appended to .cleo/audit/docs-versioning.jsonl (squashed within 5 min).\n\n' +
-      'Positional arguments:\n' +
-      '  <slug>                 Slug of the attachment to update (required)\n\n' +
-      'Named arguments:\n' +
-      '  --file <path>          Local file containing the new content\n' +
-      '  --content <text>       Inline UTF-8 content (mutually exclusive with --file)\n' +
-      '  --message <text>       One-line summary of the change (audit log)\n' +
-      '  --status <status>      Override lifecycle status — default "draft"\n' +
-      '  --attached-by <name>   Agent identity for this revision (default "human")',
+    description: formatDocsUpdateContractHelp(),
   },
-  args: {
-    slug: {
-      type: 'positional',
-      description: 'Slug of the attachment to update',
-      required: true,
-    },
-    file: {
-      type: 'string',
-      description: 'Local file containing the new content',
-    },
-    content: {
-      type: 'string',
-      description: 'Inline UTF-8 content (mutually exclusive with --file)',
-    },
-    message: {
-      type: 'string',
-      description: 'One-line summary of the change (recorded in the audit log)',
-    },
-    status: {
-      type: 'string',
-      description:
-        'Lifecycle status to set on the new row. Valid: ' +
-        'draft|proposed|accepted|superseded|archived|deprecated. Default: draft.',
-    },
-    'attached-by': {
-      type: 'string',
-      description: 'Agent identity that performed the update (default: "human")',
-    },
-  },
+  args: docsUpdateArgs,
   async run({ args, rawArgs }) {
     try {
       assertKnownFlags(rawArgs, updateCommand.args, 'docs update');
