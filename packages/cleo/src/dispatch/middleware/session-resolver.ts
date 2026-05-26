@@ -2,7 +2,7 @@
  * Session Resolver Middleware for CQRS Dispatch Layer.
  *
  * Runs FIRST in the CLI middleware pipeline.
- * Populates request.sessionId from the best available source:
+ * Populates request.sessionId and session-lineage fields from the best available source:
  *
  *   1. request.sessionId already set (explicit)  -> use it
  *   2. getBoundSession() has context              -> stamp it
@@ -15,8 +15,27 @@
  * @epic T4959
  */
 
+import { randomUUID } from 'node:crypto';
 import { getBoundSession } from '../context/session-context.js';
 import type { DispatchNext, DispatchRequest, DispatchResponse, Middleware } from '../types.js';
+
+function resolveOriginSessionId(
+  sessionId?: string,
+  executionSessionId?: string,
+): string | undefined {
+  return (
+    process.env.CLEO_ORIGIN_SESSION_ID ??
+    process.env.CLEO_SESSION_ORIGIN_ID ??
+    sessionId ??
+    executionSessionId
+  );
+}
+
+function resolveExecutionSessionId(): string {
+  return (
+    process.env.CLEO_EXECUTION_SESSION_ID ?? process.env.CLEO_SESSION_EXECUTION_ID ?? randomUUID()
+  );
+}
 
 /**
  * Creates the session resolver middleware.
@@ -27,8 +46,13 @@ import type { DispatchNext, DispatchRequest, DispatchResponse, Middleware } from
  */
 export function createSessionResolver(cliSessionLookup?: () => Promise<string | null>): Middleware {
   return async (req: DispatchRequest, next: DispatchNext): Promise<DispatchResponse> => {
+    if (!req.executionSessionId) {
+      req.executionSessionId = resolveExecutionSessionId();
+    }
+
     // Tier 1: Explicit — already populated by adapter
     if (req.sessionId) {
+      req.originSessionId ??= resolveOriginSessionId(req.sessionId, req.executionSessionId);
       return next();
     }
 
@@ -36,6 +60,7 @@ export function createSessionResolver(cliSessionLookup?: () => Promise<string | 
     const bound = getBoundSession();
     if (bound) {
       req.sessionId = bound.sessionId;
+      req.originSessionId ??= resolveOriginSessionId(req.sessionId, req.executionSessionId);
       return next();
     }
 
@@ -45,6 +70,7 @@ export function createSessionResolver(cliSessionLookup?: () => Promise<string | 
         const activeId = await cliSessionLookup();
         if (activeId) {
           req.sessionId = activeId;
+          req.originSessionId ??= resolveOriginSessionId(req.sessionId, req.executionSessionId);
           return next();
         }
       } catch {
@@ -56,15 +82,18 @@ export function createSessionResolver(cliSessionLookup?: () => Promise<string | 
     const envGradeId = process.env.CLEO_SESSION_GRADE_ID;
     if (envGradeId && process.env.CLEO_SESSION_GRADE === 'true') {
       req.sessionId = envGradeId;
+      req.originSessionId ??= resolveOriginSessionId(req.sessionId, req.executionSessionId);
       return next();
     }
     const envId = process.env.CLEO_SESSION_ID;
     if (envId) {
       req.sessionId = envId;
+      req.originSessionId ??= resolveOriginSessionId(req.sessionId, req.executionSessionId);
       return next();
     }
 
     // Tier 5: No session — leave undefined
+    req.originSessionId ??= resolveOriginSessionId(req.sessionId, req.executionSessionId);
     return next();
   };
 }

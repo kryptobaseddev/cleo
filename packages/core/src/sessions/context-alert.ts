@@ -66,6 +66,16 @@ export function getCurrentSessionId(cwd?: string): string | null {
   return null;
 }
 
+/** Get the root session ID that originated the current workflow/saga, if any. */
+export function getCurrentOriginSessionId(): string | null {
+  return process.env.CLEO_ORIGIN_SESSION_ID ?? process.env.CLEO_SESSION_ORIGIN_ID ?? null;
+}
+
+/** Get the execution/session attempt ID for the current command, if any. */
+export function getCurrentExecutionSessionId(): string | null {
+  return process.env.CLEO_EXECUTION_SESSION_ID ?? process.env.CLEO_SESSION_EXECUTION_ID ?? null;
+}
+
 /** Get context state file path for a session. */
 export function getContextStatePath(sessionId?: string, cwd?: string): string {
   const cleoDir = getCleoDir(cwd);
