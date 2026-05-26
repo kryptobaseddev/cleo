@@ -10,6 +10,7 @@
  */
 
 import type {
+  VerificationGate,
   WorkGraphContainmentAncestorsResult,
   WorkGraphContainmentChildrenResult,
   WorkGraphContainmentNode,
@@ -18,6 +19,10 @@ import type {
   WorkGraphNode,
   WorkGraphPageInfo,
   WorkGraphProjectionMismatch,
+  WorkGraphReadyFrontierBlockedBy,
+  WorkGraphReadyFrontierOptions,
+  WorkGraphReadyFrontierResult,
+  WorkGraphReadyFrontierTask,
   WorkGraphRollupCounts,
   WorkGraphSubtreePercentages,
   WorkGraphSubtreeSummaryOptions,
@@ -53,6 +58,14 @@ type DescendantTaskRow = TaskRow & {
   sort_cursor: string;
 };
 
+type ReadyFrontierRow = TaskRow & {
+  root_id: string;
+  role: string | null;
+  verification_json: string | null;
+  depends_on: string | null;
+  dep_status: WorkGraphNode['status'] | null;
+};
+
 type WorkGraphTaskStatus = WorkGraphNode['status'];
 type WorkGraphTaskType = WorkGraphNode['type'];
 
@@ -68,6 +81,16 @@ const TASK_STATUS_ORDER: readonly WorkGraphTaskStatus[] = [
   'proposed',
 ];
 const TASK_TYPE_ORDER: readonly WorkGraphTaskType[] = ['saga', 'epic', 'task', 'subtask'];
+const VERIFICATION_GATE_ORDER: readonly VerificationGate[] = [
+  'implemented',
+  'testsPassed',
+  'qaPassed',
+  'cleanupDone',
+  'securityPassed',
+  'documented',
+  'nexusImpact',
+];
+const DEPENDENCY_READY_STATUSES: ReadonlySet<WorkGraphTaskStatus> = new Set(['done', 'cancelled']);
 
 export interface SqliteWorkGraphContainmentReader {
   prepare(sql: string): {
@@ -102,6 +125,94 @@ function toNode(row: TaskRow): WorkGraphContainmentNode {
 
 function toTreeNode(row: DescendantTaskRow): WorkGraphTreeNode {
   return { ...toNode(row), depth: row.depth };
+}
+
+function parseGateBlockers(verificationJson: string | null): { gate: VerificationGate }[] {
+  if (verificationJson === null || verificationJson.trim() === '') return [];
+  try {
+    const parsed = JSON.parse(verificationJson) as {
+      gates?: Partial<Record<VerificationGate, boolean | null>>;
+    };
+    const gates = parsed.gates ?? {};
+    return VERIFICATION_GATE_ORDER.filter((gate) => gate in gates && gates[gate] !== true).map(
+      (gate) => ({ gate }),
+    );
+  } catch {
+    return [];
+  }
+}
+
+function rollupBlockedBy(
+  tasks: readonly WorkGraphReadyFrontierTask[],
+): WorkGraphReadyFrontierBlockedBy[] {
+  const dependencies = new Map<string, string[]>();
+  const gates = new Map<VerificationGate, string[]>();
+
+  for (const task of tasks) {
+    for (const blocker of task.dependencyBlockers) {
+      const blocks = dependencies.get(blocker.taskId) ?? [];
+      blocks.push(task.id);
+      dependencies.set(blocker.taskId, blocks);
+    }
+    for (const blocker of task.gateBlockers) {
+      const blocks = gates.get(blocker.gate) ?? [];
+      blocks.push(task.id);
+      gates.set(blocker.gate, blocks);
+    }
+  }
+
+  return [
+    ...[...dependencies.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([blockerId, blocks]) => ({ kind: 'dependency' as const, blockerId, blocks })),
+    ...[...gates.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([gate, blocks]) => ({ kind: 'gate' as const, gate, blocks })),
+  ];
+}
+
+function groupReadyFrontierRows(
+  rootId: string,
+  role: string | undefined,
+  rows: readonly ReadyFrontierRow[],
+): WorkGraphReadyFrontierResult {
+  const byTask = new Map<string, WorkGraphReadyFrontierTask>();
+
+  for (const row of rows) {
+    const existing = byTask.get(row.id);
+    const task =
+      existing ??
+      ({
+        ...toNode(row),
+        role: row.role ?? undefined,
+        dependencyBlockers: [],
+        gateBlockers: parseGateBlockers(row.verification_json),
+      } satisfies WorkGraphReadyFrontierTask);
+
+    if (
+      row.depends_on !== null &&
+      row.dep_status !== null &&
+      !DEPENDENCY_READY_STATUSES.has(row.dep_status) &&
+      !task.dependencyBlockers.some((blocker) => blocker.taskId === row.depends_on)
+    ) {
+      byTask.set(row.id, {
+        ...task,
+        dependencyBlockers: [
+          ...task.dependencyBlockers,
+          { taskId: row.depends_on, status: row.dep_status },
+        ],
+      });
+      continue;
+    }
+
+    byTask.set(row.id, task);
+  }
+
+  const tasks = [...byTask.values()];
+  const ready = tasks.filter((task) => task.dependencyBlockers.length === 0);
+  const blocked = tasks.filter((task) => task.dependencyBlockers.length > 0);
+
+  return { rootId, role, groups: { ready, blocked, blockedBy: rollupBlockedBy(tasks) } };
 }
 
 function normalizeLimit(limit: number | undefined): number {
@@ -350,6 +461,49 @@ ORDER BY sort_cursor ASC`;
       staleProjection: projectionMismatches.length > 0,
       projectionMismatches,
     };
+  }
+
+  /**
+   * Group runnable frontier descendants by dependency readiness while preserving
+   * gate metadata for verification diagnostics.
+   */
+  readyFrontier(options: WorkGraphReadyFrontierOptions): WorkGraphReadyFrontierResult {
+    const roleFilter = options.role === undefined ? '' : 'AND t.role = ?';
+    const sql = `WITH RECURSIVE ready_frontier_scope(root_id, id) AS (
+  SELECT ? AS root_id, child.id
+  FROM tasks child
+  WHERE child.parent_id = ?
+  UNION ALL
+  SELECT ready_frontier_scope.root_id, child.id
+  FROM ready_frontier_scope
+  JOIN tasks parent ON parent.id = ready_frontier_scope.id
+  JOIN tasks child ON child.parent_id = parent.id
+)
+SELECT ready_frontier_scope.root_id,
+       t.id,
+       t.title,
+       t.type,
+       t.status,
+       t.priority,
+       t.parent_id,
+       t.role,
+       t.verification_json,
+       td.depends_on,
+       dep.status AS dep_status
+FROM ready_frontier_scope
+JOIN tasks t ON t.id = ready_frontier_scope.id
+LEFT JOIN task_dependencies td ON td.task_id = t.id
+LEFT JOIN tasks dep ON dep.id = td.depends_on
+WHERE t.status IN ('pending', 'active', 'blocked', 'proposed')
+${roleFilter}
+ORDER BY t.priority ASC, t.created_at ASC, t.id ASC, td.depends_on ASC`;
+
+    const params =
+      options.role === undefined
+        ? [options.rootId, options.rootId]
+        : [options.rootId, options.rootId, options.role];
+    const rows = this.#db.prepare(sql).all(...params) as ReadyFrontierRow[];
+    return groupReadyFrontierRows(options.rootId, options.role, rows);
   }
 
   /** Traverse descendant containment from a root with cursor/limit and max depth support. */
