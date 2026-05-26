@@ -474,4 +474,5 @@ export declare const tasksCoreOps: {
   readonly 'sync.links.remove': TaskCoreOperation<'sync.links.remove'>;
   readonly claim: TaskCoreOperation<'claim'>;
   readonly unclaim: TaskCoreOperation<'unclaim'>;
+  readonly context: TaskCoreOperation<'context'>;
 };

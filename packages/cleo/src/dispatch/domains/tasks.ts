@@ -92,6 +92,7 @@ import {
   taskUpdate,
   taskWorkHistory,
 } from '../lib/engine.js';
+import { taskContext } from '@cleocode/core/internal';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import {
   envelopeToEngineResult,
@@ -227,6 +228,11 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
       }),
       'slice',
     );
+  },
+
+  context: async (params) => {
+    const projectRoot = getProjectRoot();
+    return wrapCoreResult(await taskContext(projectRoot, params), 'context');
   },
 
   'deps.validate': async (params) => {
