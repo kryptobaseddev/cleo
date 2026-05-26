@@ -25,7 +25,7 @@ import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { enforceAcceptanceImmutability } from './ac-immutability.js';
-import { applyAcPlan, planAcUpdate } from './ac-table.js';
+import { applyAcPlan, planAcUpdate, rebuildChildProjectionAc } from './ac-table.js';
 import {
   normalizePriority,
   validateLabels,
@@ -176,6 +176,7 @@ export async function updateTask(
 
   const changes: string[] = [];
   const now = new Date().toISOString();
+  const originalParentId = task.parentId ?? null;
 
   const isStatusOnlyDoneTransition =
     options.status === 'done' && task.status !== 'done' && !hasNonStatusDoneFields(options);
@@ -558,6 +559,7 @@ export async function updateTask(
   const finalRelates = task.relates ?? [];
   const isRelatesChange = changes.includes('relates');
   const isAcceptanceChange = changes.includes('acceptance');
+  const isReparent = changes.includes('parentId');
 
   // Wrap writes in a transaction for TOCTOU safety (T023)
   await acc.transaction(async (tx) => {
@@ -598,6 +600,40 @@ export async function updateTask(
       const existing = await tx.getAcRows(options.taskId);
       const plan = planAcUpdate(options.taskId, existing, options.acceptance);
       await applyAcPlan(tx, options.taskId, plan);
+    }
+
+    if (isReparent) {
+      const parentIds = [originalParentId, task.parentId ?? null].filter(
+        (parentId): parentId is string => parentId !== null,
+      );
+      const uniqueParentIds = [...new Set(parentIds)];
+      const projectionAudits: Awaited<ReturnType<typeof rebuildChildProjectionAc>>[] = [];
+      for (const parentId of uniqueParentIds) {
+        const children = await tx.getChildren(parentId);
+        const audit = await rebuildChildProjectionAc(
+          tx,
+          parentId,
+          children.map((child) => ({ id: child.id, title: child.title })),
+          now,
+        );
+        projectionAudits.push(audit);
+      }
+
+      await tx.appendLog({
+        id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
+        timestamp: new Date().toISOString(),
+        action: 'ac_projection_rebuilt',
+        taskId: options.taskId,
+        actor: 'system',
+        details: {
+          reason: 'reparent',
+          oldParentId: originalParentId,
+          newParentId: task.parentId ?? null,
+          audits: projectionAudits,
+        },
+        before: null,
+        after: { parentIds: uniqueParentIds },
+      });
     }
 
     await tx.appendLog({

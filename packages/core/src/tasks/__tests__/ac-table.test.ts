@@ -27,6 +27,7 @@ import {
   directTextSourceKey,
   evidenceBoundSourceKey,
   planAcUpdate,
+  planChildProjectionRebuild,
 } from '../ac-table.js';
 
 /**
@@ -378,5 +379,65 @@ describe('child_task AC projection audit', () => {
         actual: childProjectionFreshnessFingerprint('C1', 'Old child title'),
       }),
     ]);
+  });
+});
+
+describe('planChildProjectionRebuild', () => {
+  it('is idempotent when parent-owned child projections are clean', () => {
+    const existing = [childRow('P1', 'C1', 'Child one')];
+    const result = planChildProjectionRebuild('P1', [{ id: 'C1', title: 'Child one' }], existing);
+
+    expect(result.auditBefore.status).toBe('clean');
+    expect(result.plan).toEqual({ inserts: [], history: [], fullDelete: false });
+    expect(result.legacyAcceptance).toEqual([]);
+  });
+
+  it('rebuilds old parent projection by removing reparented child rows', () => {
+    const existing = [
+      row('P1', 1, 'manual AC'),
+      childRow('P1', 'C1', 'Moved child', { ordinal: 2 }),
+    ];
+    const result = planChildProjectionRebuild('P1', [], existing);
+
+    expect(result.auditBefore.findings).toEqual([
+      expect.objectContaining({ code: 'extra_child_task_row', childId: 'C1' }),
+    ]);
+    expect(result.plan.fullDelete).toBe(true);
+    expect(result.plan.history).toEqual([
+      {
+        acId: buildAcRowId('P1', childProjectionSourceKey('C1')),
+        previousText: 'Complete child C1: Moved child',
+        reason: 'projection_rebuild',
+      },
+    ]);
+    expect(result.plan.inserts).toEqual([
+      expect.objectContaining({ text: 'manual AC', kind: 'text', ordinal: 1 }),
+    ]);
+    expect(result.legacyAcceptance).toEqual(['manual AC']);
+  });
+
+  it('rebuilds new parent projection by adding deterministic child_task rows', () => {
+    const existing = [row('P2', 1, 'manual AC')];
+    const result = planChildProjectionRebuild('P2', [{ id: 'C1', title: 'Moved child' }], existing);
+
+    expect(result.auditBefore.findings).toEqual([
+      expect.objectContaining({ code: 'missing_child_task_row', childId: 'C1' }),
+    ]);
+    expect(result.plan.fullDelete).toBe(true);
+    expect(result.plan.inserts).toEqual([
+      expect.objectContaining({ text: 'manual AC', kind: 'text', ordinal: 1 }),
+      expect.objectContaining({
+        id: buildAcRowId('P2', childProjectionSourceKey('C1')),
+        taskId: 'P2',
+        ordinal: 2,
+        kind: 'child_task',
+        sourceKey: 'child:C1',
+        targetTaskId: 'C1',
+        projection: 'parent-child',
+        text: 'Complete child C1: Moved child',
+        contentHash: childProjectionFreshnessFingerprint('C1', 'Moved child'),
+      }),
+    ]);
+    expect(result.legacyAcceptance).toEqual(['manual AC', 'Complete child C1: Moved child']);
   });
 });
