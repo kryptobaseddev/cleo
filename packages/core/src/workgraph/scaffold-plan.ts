@@ -8,8 +8,8 @@
  */
 
 import type { Task } from '@cleocode/contracts';
-import { getTaskAccessor } from '../store/data-accessor.js';
 import { resolveSagaMemberIds } from '../sagas/storage.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -100,8 +100,6 @@ function statusEmoji(status: string): string {
     case 'done':
       return '✅';
     case 'active':
-    case 'in_progress':
-    case 'running':
       return '🔄';
     case 'blocked':
       return '🚫';
@@ -129,10 +127,7 @@ function priorityEmoji(priority: string): string {
   }
 }
 
-async function buildEpicEntry(
-  epic: Task,
-  children: Task[],
-): Promise<PlanningDocEpicEntry> {
+async function buildEpicEntry(epic: Task, children: Task[]): Promise<PlanningDocEpicEntry> {
   let done = 0;
   let active = 0;
   let blocked = 0;
@@ -286,7 +281,9 @@ function generateMaintainerDoc(
     lines.push(`### ${icon} ${epic.epicId}: ${epic.title}`);
     lines.push('');
     lines.push(`- **Status:** ${epic.status}`);
-    lines.push(`- **Completion:** ${epic.completionPct}% (${epic.doneChildren}/${epic.totalChildren} tasks done)`);
+    lines.push(
+      `- **Completion:** ${epic.completionPct}% (${epic.doneChildren}/${epic.totalChildren} tasks done)`,
+    );
 
     if (epic.activeChildren > 0) {
       lines.push(`- **Active tasks:** ${epic.activeChildren} in progress`);
@@ -356,9 +353,7 @@ function generateMaintainerDoc(
     );
   }
 
-  const bottleneckEpics = epics.filter(
-    (e) => e.blockedChildren > 0 && e.status !== 'done',
-  );
+  const bottleneckEpics = epics.filter((e) => e.blockedChildren > 0 && e.status !== 'done');
   if (bottleneckEpics.length > 0) {
     lines.push(
       `- **Focus:** Epics ${bottleneckEpics.map((e) => e.epicId).join(', ')} ` +
@@ -479,7 +474,9 @@ export async function generatePlanningDoc(
         if (dep) dep.blocksCount++;
       }
     }
-    blockedTasks.sort((a, b) => b.blockedBy.length - a.blockedBy.length || a.id.localeCompare(b.id));
+    blockedTasks.sort(
+      (a, b) => b.blockedBy.length - a.blockedBy.length || a.id.localeCompare(b.id),
+    );
 
     // Generate markdown
     let markdown: string;
