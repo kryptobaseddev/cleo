@@ -743,3 +743,74 @@ export interface OrchestrateParallelEndResult {
   /** Wave duration (ISO 8601 duration string). @task T963 */
   duration: string;
 }
+
+// orchestrate.report
+/** Parameters for `orchestrate.report`. @task T10631 */
+export interface OrchestrateReportParams {
+  /** Epic to compute the readiness report for (required). @task T10631 */
+  epicId: string;
+  /** Page number (1-indexed) for paginated output. @task T10631 */
+  page?: number;
+  /** Page size for paginated output (default 50, max 200). @task T10631 */
+  pageSize?: number;
+}
+
+/**
+ * A group of tasks sharing the same readiness classification.
+ * @task T10631
+ */
+export interface OrchestrateReportGroup {
+  /** Group label: ready, blocked, blockedBy, gateBlocked, invalid. @task T10631 */
+  group: 'ready' | 'blocked' | 'blockedBy' | 'gateBlocked' | 'invalid';
+  /** Human-readable group description. @task T10631 */
+  label: string;
+  /** Count of tasks in this group (before pagination). @task T10631 */
+  count: number;
+  /** Tasks in this group (paginated). @task T10631 */
+  tasks: OrchestrateReportEntry[];
+}
+
+/**
+ * A single task entry in the readiness report.
+ * @task T10631
+ */
+export interface OrchestrateReportEntry {
+  /** Task id. @task T10631 */
+  id: string;
+  /** Task title. @task T10631 */
+  title: string;
+  /** Task priority. @task T10631 */
+  priority: string;
+  /** Task status. @task T10631 */
+  status: string;
+  /** Reason for the classification (e.g. blockedBy ids, gate names). @task T10631 */
+  reason: string;
+  /** Gate status summary (only for gateBlocked group). @task T10631 */
+  gates?: Record<string, boolean>;
+}
+
+/**
+ * Result of `orchestrate.report`.
+ * @task T10631
+ */
+export interface OrchestrateReportResult {
+  /** Epic id that was queried. @task T10631 */
+  epicId: string;
+  /** Epic title. @task T10631 */
+  epicTitle: string;
+  /** Total child task count (before grouping/pagination). @task T10631 */
+  totalTasks: number;
+  /** Grouped readiness report. @task T10631 */
+  groups: OrchestrateReportGroup[];
+  /** Pagination metadata. @task T10631 */
+  pagination: {
+    /** Current page (1-indexed). @task T10631 */
+    page: number;
+    /** Page size. @task T10631 */
+    pageSize: number;
+    /** Total pages available. @task T10631 */
+    totalPages: number;
+    /** Total entries across all groups (before pagination). @task T10631 */
+    totalEntries: number;
+  };
+}
