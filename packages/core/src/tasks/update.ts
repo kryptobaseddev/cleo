@@ -177,6 +177,14 @@ export async function updateTask(
   const changes: string[] = [];
   const now = new Date().toISOString();
   const originalParentId = task.parentId ?? null;
+  let lifecycleEvent:
+    | 'task_completed'
+    | 'task_reopened'
+    | 'task_cancelled'
+    | 'task_uncancelled'
+    | null = null;
+  let lifecycleBeforeStatus: string | null = null;
+  let lifecycleAfterStatus: string | null = null;
 
   const isStatusOnlyDoneTransition =
     options.status === 'done' && task.status !== 'done' && !hasNonStatusDoneFields(options);
@@ -246,11 +254,21 @@ export async function updateTask(
     const oldStatus = task.status;
     task.status = options.status;
     changes.push('status');
+    lifecycleBeforeStatus = oldStatus;
+    lifecycleAfterStatus = options.status;
     if (options.status === 'done' && oldStatus !== 'done') {
       task.completedAt = now;
+      lifecycleEvent = 'task_completed';
+    }
+    if ((options.status === 'pending' || options.status === 'active') && oldStatus === 'done') {
+      lifecycleEvent = 'task_reopened';
+    }
+    if (options.status === 'pending' && oldStatus === 'cancelled') {
+      lifecycleEvent = 'task_uncancelled';
     }
     if (options.status === 'cancelled' && oldStatus !== 'cancelled') {
       task.cancelledAt = now;
+      lifecycleEvent = 'task_cancelled';
       // T9838-D: keep pipelineStage in lock-step with status=cancelled to
       // satisfy the T877 invariant trigger (`status=cancelled requires
       // pipeline_stage=cancelled`). The DB invariant (Part B of T877) is
@@ -633,6 +651,19 @@ export async function updateTask(
         },
         before: null,
         after: { parentIds: uniqueParentIds },
+      });
+    }
+
+    if (lifecycleEvent) {
+      await tx.appendLog({
+        id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
+        timestamp: new Date().toISOString(),
+        action: lifecycleEvent,
+        taskId: options.taskId,
+        actor: 'system',
+        details: { title: task.title, changes },
+        before: { status: lifecycleBeforeStatus },
+        after: { status: lifecycleAfterStatus },
       });
     }
 

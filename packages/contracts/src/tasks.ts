@@ -240,6 +240,61 @@ export interface CompletionCriterionEvaluation {
 
 export type CompletionStaleReason = 'done_parent_has_unsatisfied_criteria';
 
+/** Lifecycle/audit actions included in completion context packs. @task T10594 */
+export type CompletionHistoryEventAction =
+  | 'task_completed'
+  | 'task_reopened'
+  | 'task_cancelled'
+  | 'task_uncancelled'
+  | 'task_reparented'
+  | 'ac_projection_rebuilt';
+
+/** Task relation bucket for an audit event carried by a completion context pack. @task T10594 */
+export type CompletionHistoryEventRelation = 'self' | 'parent' | 'child' | 'sibling' | 'related';
+
+/** Structured lifecycle/audit event available to completion evaluation. @task T10594 */
+export interface CompletionHistoryEvent {
+  id: string;
+  timestamp: string;
+  action: CompletionHistoryEventAction;
+  taskId: string;
+  relation: CompletionHistoryEventRelation;
+  actor: string;
+  details?: Record<string, unknown>;
+  before?: Record<string, unknown>;
+  after?: Record<string, unknown>;
+}
+
+/** Event counts precomputed for explainCompletion and machine consumers. @task T10594 */
+export interface CompletionContextPackSummary {
+  totalEvents: number;
+  byAction: Record<CompletionHistoryEventAction, number>;
+  byRelation: Record<CompletionHistoryEventRelation, number>;
+  latestEventAt: string | null;
+}
+
+/** Bounded recent lifecycle context sourced from audit_log. @task T10594 */
+export interface CompletionContextPack {
+  taskId: string;
+  generatedAt: string;
+  source: 'audit_log';
+  window: {
+    limit: number;
+    since?: string;
+    relationDepth: number;
+    relatedTaskIds: string[];
+  };
+  events: CompletionHistoryEvent[];
+  summary: CompletionContextPackSummary;
+}
+
+/** Builder query controls for completion context packs. @task T10594 */
+export interface CompletionContextPackOptions {
+  limit?: number;
+  since?: string;
+  relationDepth?: number;
+}
+
 /** Contract-backed aggregate returned by `evaluateCompletion`. @task T10591 */
 export interface CompletionEvaluation {
   taskId: string;
@@ -248,6 +303,8 @@ export interface CompletionEvaluation {
   ready: boolean;
   stale: boolean;
   staleReasons: CompletionStaleReason[];
+  /** Optional bounded audit context used by explanation/evaluation consumers. @task T10594 */
+  contextPack?: CompletionContextPack;
   satisfied: CompletionCriterionEvaluation[];
   unsatisfied: CompletionCriterionEvaluation[];
   waived: CompletionCriterionEvaluation[];
@@ -267,6 +324,8 @@ export interface CompletionExplanation {
   ready: boolean;
   stale: boolean;
   summary: string;
+  /** Recent lifecycle context referenced by the summary/blockers when available. @task T10594 */
+  contextPack?: CompletionContextPack;
   blockers: CompletionCriterionEvaluation[];
 }
 
