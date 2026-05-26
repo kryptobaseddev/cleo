@@ -9,7 +9,13 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { createSqliteWorkGraphRelationQueryService } from '../index.js';
+import {
+  createSqliteWorkGraphRelationQueryService,
+  E_WORKGRAPH_DEPENDS_RELATES_MISUSE,
+  E_WORKGRAPH_GROUPS_AS_HIERARCHY,
+  E_WORKGRAPH_RELATION_REASON_MISSING,
+  validateWorkGraphRelationQuality,
+} from '../index.js';
 
 type RelationRow = {
   task_id: string;
@@ -201,5 +207,93 @@ describe('SqliteWorkGraphRelationQueryService', () => {
         source: 'dependency',
       },
     ]);
+  });
+});
+
+describe('validateWorkGraphRelationQuality', () => {
+  it('flags groups-as-hierarchy misuse, missing reasons, and depends-vs-relates ambiguity', () => {
+    const result = validateWorkGraphRelationQuality({
+      nodes: [
+        { id: 'SG1', type: 'saga' },
+        { id: 'E1', type: 'epic', parentId: 'SG1' },
+        { id: 'T1', type: 'task', parentId: 'E1' },
+        { id: 'T2', type: 'task', parentId: 'E1' },
+      ],
+      relations: [
+        {
+          fromId: 'SG1',
+          toId: 'E1',
+          relationType: 'groups',
+          reason: 'hierarchy mirror should stay out of task_relations',
+        },
+        { fromId: 'T1', toId: 'T2', relationType: 'related', reason: '   ' },
+        {
+          fromId: 'T2',
+          toId: 'T1',
+          relationType: 'blocks',
+          reason: 'advisory relation overlaps a scheduler dependency',
+        },
+      ],
+      dependencies: [{ fromId: 'T1', toId: 'T2' }],
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.findings).toEqual([
+      expect.objectContaining({
+        code: E_WORKGRAPH_GROUPS_AS_HIERARCHY,
+        fromId: 'SG1',
+        toId: 'E1',
+        relationType: 'groups',
+      }),
+      expect.objectContaining({
+        code: E_WORKGRAPH_RELATION_REASON_MISSING,
+        fromId: 'T1',
+        toId: 'T2',
+        relationType: 'related',
+      }),
+      expect.objectContaining({
+        code: E_WORKGRAPH_DEPENDS_RELATES_MISUSE,
+        fromId: 'T1',
+        toId: 'T2',
+        dependencyFromId: 'T1',
+        dependencyToId: 'T2',
+        relationType: 'related',
+      }),
+      expect.objectContaining({
+        code: E_WORKGRAPH_DEPENDS_RELATES_MISUSE,
+        fromId: 'T2',
+        toId: 'T1',
+        dependencyFromId: 'T1',
+        dependencyToId: 'T2',
+        relationType: 'blocks',
+      }),
+    ]);
+    expect(result.findings.map((finding) => finding.message).join('\n')).toContain(
+      'hierarchy must use parent_id',
+    );
+    expect(result.findings.map((finding) => finding.message).join('\n')).toContain(
+      'missing a non-empty reason',
+    );
+    expect(result.findings.map((finding) => finding.message).join('\n')).toContain(
+      'scheduler blockers must use dependencies',
+    );
+  });
+
+  it('accepts reasoned advisory relations that stay distinct from containment and dependencies', () => {
+    const result = validateWorkGraphRelationQuality({
+      nodes: [
+        { id: 'E1', type: 'epic' },
+        { id: 'T1', type: 'task', parentId: 'E1' },
+        { id: 'T2', type: 'task', parentId: 'E1' },
+        { id: 'T3', type: 'task', parentId: 'E1' },
+      ],
+      relations: [
+        { fromId: 'T1', toId: 'T2', relationType: 'related', reason: 'shared API surface' },
+        { fromId: 'T3', toId: 'T2', relationType: 'blocks', reason: 'manual review ordering only' },
+      ],
+      dependencies: [{ fromId: 'T2', toId: 'E1' }],
+    });
+
+    expect(result).toEqual({ valid: true, findings: [] });
   });
 });
