@@ -202,6 +202,7 @@ export type {
   UpdateDocBySlugResult,
 } from './docs/docs-update.js';
 export {
+  DOCS_UPDATE_LIFECYCLE_STATUS_LIST,
   DOCS_UPDATE_SQUASH_WINDOW_MS,
   DOCS_VERSIONING_AUDIT_FILE,
   docsUpdateMimeFromPath,

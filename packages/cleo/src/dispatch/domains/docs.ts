@@ -66,6 +66,7 @@ import {
   createAttachmentStore,
   createAttachmentStoreV2,
   type DerefResult,
+  DOCS_UPDATE_LIFECYCLE_STATUS_LIST,
   generateDocsLlmsTxt,
   getCleoDirAbsolute,
   getProjectRoot,
@@ -1535,7 +1536,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     if (rawStatus !== undefined && !isLifecycleStatus(rawStatus)) {
       return lafsError(
         'E_INVALID_INPUT',
-        `status must be one of: draft|proposed|accepted|superseded|archived|deprecated — got '${String(rawStatus)}'`,
+        `status must be one of: ${DOCS_UPDATE_LIFECYCLE_STATUS_LIST} — got '${String(rawStatus)}'`,
         'update',
       );
     }
