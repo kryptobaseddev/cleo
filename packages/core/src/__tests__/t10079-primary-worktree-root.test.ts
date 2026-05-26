@@ -48,7 +48,7 @@ describe('T10079 primary worktree root routing', () => {
     const routing = resolveWorktreeRouting(secondarySubdir);
 
     expect(routing.isWorktree).toBe(true);
-    expect(routing.worktreePath).toBe(secondary);
+    expect(routing.worktreePath).toBe(realpathSync(secondary));
     expect(routing.canonicalRoot).toBe(realpathSync(primary));
   });
 });

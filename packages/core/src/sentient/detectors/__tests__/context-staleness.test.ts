@@ -59,6 +59,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -117,7 +118,10 @@ describe('detectContextStaleness', () => {
 
   it('returns null exactly at the staleness boundary (age == threshold)', async () => {
     // Age strictly equal to the threshold is NOT stale; detector emits only when age > threshold.
-    const detectedAt = new Date(Date.now() - CONTEXT_STALENESS_MS).toISOString();
+    const now = new Date('2026-05-24T00:00:00.000Z');
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    const detectedAt = new Date(now.getTime() - CONTEXT_STALENESS_MS).toISOString();
     mockLoadProjectContext.mockResolvedValue(makeContext(detectedAt));
 
     const proposal = await detectContextStaleness(PROJECT_ROOT);
