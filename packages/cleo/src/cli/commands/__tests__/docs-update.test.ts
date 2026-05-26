@@ -74,6 +74,7 @@ interface LafsEnvelope<TData = unknown> {
     readonly operation?: string;
     readonly command?: string;
     readonly timestamp?: string;
+    readonly dryRun?: true;
   };
 }
 
@@ -101,6 +102,9 @@ interface UpdateResultShape {
   updatedAt: string;
   version: number;
   squashed: boolean;
+  dryRun?: true;
+  wouldWrite?: boolean;
+  wouldChange?: boolean;
 }
 
 interface AddResultShape {
@@ -254,6 +258,114 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
     const data = parseEnvelope<UpdateResultShape>(upRes.stdout).data;
     expect(data?.changed).toBe(false);
     expect(data?.sha256).toBe(originalSha);
+    expect(data?.previousSha256).toBe(originalSha);
+  });
+
+  it('(f) --dry-run returns preview metadata without mutating rows or audit log', async () => {
+    const original = join(projectRoot, 'orig-f.md');
+    await writeFile(original, 'rev 0\n', 'utf-8');
+
+    const addRes = runCli(
+      ['docs', 'add', 'T-T10617-f', original, '--slug', 't10617-doc-f', '--type', 'note'],
+      projectRoot,
+    );
+    expect(addRes.status, `add failed; stdout=${addRes.stdout} stderr=${addRes.stderr}`).toBe(0);
+    const originalSha = parseEnvelope<AddResultShape>(addRes.stdout).data?.sha256;
+
+    const dryRun = runCli(
+      [
+        'docs',
+        'update',
+        't10617-doc-f',
+        '--content',
+        'rev 1\n',
+        '--dry-run',
+        '--message',
+        'preview only',
+      ],
+      projectRoot,
+    );
+    expect(dryRun.status, `dry-run failed; stdout=${dryRun.stdout} stderr=${dryRun.stderr}`).toBe(
+      0,
+    );
+    const dryEnv = parseEnvelope<UpdateResultShape>(dryRun.stdout);
+    expect(dryEnv.success).toBe(true);
+    expect(dryEnv.meta).toMatchObject({ dryRun: true });
+    expect(dryEnv.data?.dryRun).toBe(true);
+    expect(dryEnv.data?.changed).toBe(false);
+    expect(dryEnv.data?.wouldWrite).toBe(false);
+    expect(dryEnv.data?.wouldChange).toBe(true);
+    expect(dryEnv.data?.previousSha256).toBe(originalSha);
+    expect(dryEnv.data?.sha256).not.toBe(originalSha);
+    expect(existsSync(join(projectRoot, '.cleo', 'audit', 'docs-versioning.jsonl'))).toBe(false);
+
+    const realUpdate = runCli(
+      ['docs', 'update', 't10617-doc-f', '--content', 'rev 1\n', '--message', 'real edit'],
+      projectRoot,
+    );
+    expect(realUpdate.status, `real update failed; stdout=${realUpdate.stdout}`).toBe(0);
+    const realData = parseEnvelope<UpdateResultShape>(realUpdate.stdout).data;
+    expect(realData?.changed).toBe(true);
+    expect(realData?.previousSha256).toBe(originalSha);
+  });
+
+  it('(g) --strict fails body-schema diagnostics before any write', async () => {
+    const original = join(projectRoot, 'orig-g.md');
+    await writeFile(
+      original,
+      '## Context\n\nInitial ADR body.\n\n## Decision\n\nShip it.\n',
+      'utf-8',
+    );
+
+    const addRes = runCli(
+      [
+        'docs',
+        'add',
+        'T-T10617-g',
+        original,
+        '--slug',
+        't10617-doc-g',
+        '--type',
+        'adr',
+        '--strict',
+      ],
+      projectRoot,
+    );
+    expect(addRes.status, `add failed; stdout=${addRes.stdout} stderr=${addRes.stderr}`).toBe(0);
+    const originalSha = parseEnvelope<AddResultShape>(addRes.stdout).data?.sha256;
+
+    const strictUpdate = runCli(
+      [
+        'docs',
+        'update',
+        't10617-doc-g',
+        '--content',
+        '## Context\n\nMissing decision section.\n',
+        '--strict',
+      ],
+      projectRoot,
+    );
+    expect(strictUpdate.status).not.toBe(0);
+    const env = parseEnvelope(strictUpdate.stdout);
+    expect(env.success).toBe(false);
+    const symbolic = env.error?.codeName ?? String(env.error?.code ?? '');
+    expect(symbolic).toBe('E_DOC_SCHEMA_MISMATCH');
+    expect(env.error?.details).toMatchObject({ kind: 'adr', strict: true });
+    expect(existsSync(join(projectRoot, '.cleo', 'audit', 'docs-versioning.jsonl'))).toBe(false);
+
+    const validUpdate = runCli(
+      [
+        'docs',
+        'update',
+        't10617-doc-g',
+        '--content',
+        '## Context\n\nStill original until now.\n\n## Decision\n\nUpdated.\n',
+      ],
+      projectRoot,
+    );
+    expect(validUpdate.status, `valid update failed; stdout=${validUpdate.stdout}`).toBe(0);
+    const data = parseEnvelope<UpdateResultShape>(validUpdate.stdout).data;
+    expect(data?.changed).toBe(true);
     expect(data?.previousSha256).toBe(originalSha);
   });
 });
