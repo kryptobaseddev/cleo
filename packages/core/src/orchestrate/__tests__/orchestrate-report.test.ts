@@ -30,6 +30,7 @@ beforeEach(async () => {
   TEST_ROOT = await mkdtemp(join(tmpdir(), 'cleo-report-test-'));
   CLEO_DIR = join(TEST_ROOT, '.cleo');
   mkdirSync(CLEO_DIR, { recursive: true });
+  mkdirSync(join(TEST_ROOT, '.git'), { recursive: true });
 });
 
 afterEach(async () => {
