@@ -1232,6 +1232,11 @@ export type {
 } from './operations/nexus-user-profile.js';
 // Commonly used ops types re-exported at top level for convenience
 export type { BrainState } from './operations/orchestrate.js';
+export type {
+  OrchestrateReportEntry,
+  OrchestrateReportGroup,
+  OrchestrateReportParams,
+} from './operations/orchestrate.js';
 // ParamDef contract — re-exported at top level (SSoT for all operation param descriptors)
 export type {
   CittyArgDef,
