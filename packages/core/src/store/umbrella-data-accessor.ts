@@ -25,6 +25,8 @@ import type {
   Session,
   SignaldockAccessor,
   Task,
+  TaskAuditLogQuery,
+  TaskAuditLogRow,
   TaskFieldUpdates,
   TaskQueryFilters,
   TelemetryAccessor,
@@ -260,6 +262,10 @@ export class UmbrellaDataAccessor implements DataAccessor {
 
   async queryTasks(filters: TaskQueryFilters): Promise<QueryTasksResult> {
     return (await this.tasks()).queryTasks(filters);
+  }
+
+  async queryAuditLog(query: TaskAuditLogQuery): Promise<TaskAuditLogRow[]> {
+    return (await this.tasks()).queryAuditLog(query);
   }
 
   async countTasks(filters?: { status?: string | string[]; parentId?: string }): Promise<number> {

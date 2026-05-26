@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import type { AcRow, DataAccessor, TaskStatus } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
+import { buildCompletionContextPack } from '../completion-context-pack.js';
 import { evaluateCompletion, explainCompletion } from '../completion-evaluation.js';
 
 describe('completion evaluation (T10591)', () => {
@@ -244,5 +245,53 @@ describe('completion evaluation (T10591)', () => {
     expect(evaluation.staleReasons).toEqual(['done_parent_has_unsatisfied_criteria']);
     expect(explanation.summary).toContain('already done but has 4 unsatisfied completion criteria');
     expect(explanation.blockers.map((blocker) => blocker.reason)).toContain('done_parent_stale');
+  });
+
+  it('builds and attaches recent lifecycle context from audit log entries', async () => {
+    await seedParentWithChildren();
+    await accessor.appendLog({
+      id: 'log-context-completed',
+      timestamp: '2026-05-26T08:00:00.000Z',
+      action: 'task_completed',
+      taskId: 'T-DONE',
+      actor: 'system',
+      details: { title: 'Done child' },
+      before: { status: 'active' },
+      after: { status: 'done' },
+    });
+    await accessor.appendLog({
+      id: 'log-context-cancelled',
+      timestamp: '2026-05-26T08:01:00.000Z',
+      action: 'task_cancelled',
+      taskId: 'T-CANCELLED',
+      actor: 'system',
+      details: { title: 'Cancelled child' },
+      before: { status: 'active' },
+      after: { status: 'cancelled' },
+    });
+    await accessor.appendLog({
+      id: 'log-context-reopened',
+      timestamp: '2026-05-26T08:02:00.000Z',
+      action: 'task_reopened',
+      taskId: 'T-PARENT',
+      actor: 'system',
+      details: { title: 'Parent' },
+      before: { status: 'done' },
+      after: { status: 'pending' },
+    });
+
+    const pack = await buildCompletionContextPack('T-PARENT', accessor, { limit: 10 });
+    expect(pack.events.map((event) => [event.action, event.taskId, event.relation])).toEqual([
+      ['task_reopened', 'T-PARENT', 'self'],
+      ['task_cancelled', 'T-CANCELLED', 'child'],
+      ['task_completed', 'T-DONE', 'child'],
+    ]);
+    expect(pack.summary.byAction.task_cancelled).toBe(1);
+    expect(pack.summary.byRelation.child).toBe(2);
+
+    const evaluation = await evaluateCompletion('T-PARENT', accessor, { contextPack: pack });
+    expect(evaluation.contextPack?.summary.totalEvents).toBe(3);
+    expect(explainCompletion(evaluation).contextPack?.events).toHaveLength(3);
+    expect(explainCompletion(evaluation).summary).toContain('Recent history: 3 lifecycle event(s)');
   });
 });

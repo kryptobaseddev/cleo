@@ -20,6 +20,8 @@ import type {
   ArchiveFile,
   DataAccessor,
   QueryTasksResult,
+  TaskAuditLogQuery,
+  TaskAuditLogRow,
   TaskFieldUpdates,
   TaskQueryFilters,
   TransactionAccessor,
@@ -227,6 +229,10 @@ export class SafetyDataAccessor implements DataAccessor {
 
   async queryTasks(filters: TaskQueryFilters): Promise<QueryTasksResult> {
     return this.inner.queryTasks(filters);
+  }
+
+  async queryAuditLog(query: TaskAuditLogQuery): Promise<TaskAuditLogRow[]> {
+    return this.inner.queryAuditLog(query);
   }
 
   async countTasks(filters?: {
