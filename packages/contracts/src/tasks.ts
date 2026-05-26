@@ -153,6 +153,73 @@ export interface TaskView {
 }
 
 // ---------------------------------------------------------------------------
+// Completion evaluation types (T10591)
+// ---------------------------------------------------------------------------
+
+export type CompletionCriterionKind = 'text' | 'evidence_bound' | 'child_task';
+
+export type CompletionCriterionStatus = 'satisfied' | 'unsatisfied' | 'waived';
+
+export type CompletionBlockerReason =
+  | 'missing_evidence_binding'
+  | 'child_not_done'
+  | 'child_cancelled_requires_waiver'
+  | 'child_missing'
+  | 'done_parent_stale';
+
+/** A typed per-AC completion evaluation row. @task T10591 */
+export interface CompletionCriterionEvaluation {
+  /** Stable AC row id from `task_acceptance_criteria.id`. */
+  acId: string;
+  /** Human alias derived from ordinal, e.g. AC1. */
+  alias: string;
+  /** Stored AC text. */
+  text: string;
+  /** Criteria kind from the AC table. */
+  kind: CompletionCriterionKind;
+  /** Whether this criterion is satisfied, unsatisfied, or explicitly waived. */
+  status: CompletionCriterionStatus;
+  /** Blocking reason when status is unsatisfied. */
+  reason?: CompletionBlockerReason;
+  /** Target child task id for child_task rows. */
+  targetTaskId?: string;
+  /** Observed child task status for child_task rows. */
+  targetTaskStatus?: TaskStatus;
+  /** Number of evidence bindings attached to this AC. */
+  evidenceBindings: number;
+}
+
+export type CompletionStaleReason = 'done_parent_has_unsatisfied_criteria';
+
+/** Contract-backed aggregate returned by `evaluateCompletion`. @task T10591 */
+export interface CompletionEvaluation {
+  taskId: string;
+  taskStatus: TaskStatus;
+  /** True only when there are no unsatisfied criteria and the parent is not stale. */
+  ready: boolean;
+  stale: boolean;
+  staleReasons: CompletionStaleReason[];
+  satisfied: CompletionCriterionEvaluation[];
+  unsatisfied: CompletionCriterionEvaluation[];
+  waived: CompletionCriterionEvaluation[];
+  totals: {
+    criteria: number;
+    satisfied: number;
+    unsatisfied: number;
+    waived: number;
+  };
+}
+
+/** Human-readable explanation generated from a CompletionEvaluation. @task T10591 */
+export interface CompletionExplanation {
+  taskId: string;
+  ready: boolean;
+  stale: boolean;
+  summary: string;
+  blockers: CompletionCriterionEvaluation[];
+}
+
+// ---------------------------------------------------------------------------
 // Task tree node (used by tasks.tree operation)
 // ---------------------------------------------------------------------------
 
