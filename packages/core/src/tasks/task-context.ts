@@ -59,9 +59,7 @@ async function loadTaskWithAccessor(
   return { task };
 }
 
-async function buildIdentity(
-  task: Task,
-): Promise<TasksContextResult['identity']> {
+async function buildIdentity(task: Task): Promise<TasksContextResult['identity']> {
   return {
     id: task.id,
     title: task.title,
@@ -73,9 +71,7 @@ async function buildIdentity(
   };
 }
 
-async function buildAcceptance(
-  task: Task,
-): Promise<TasksContextAcceptanceEntry[]> {
+async function buildAcceptance(task: Task): Promise<TasksContextAcceptanceEntry[]> {
   if (!task.acceptance || task.acceptance.length === 0) return [];
   const acEntries: TasksContextAcceptanceEntry[] = [];
   for (let i = 0; i < task.acceptance.length; i++) {
@@ -119,10 +115,7 @@ async function buildBlockers(
   return blockers;
 }
 
-async function buildDocs(
-  _task: Task,
-  _accessor: DataAccessor,
-): Promise<TasksContextDocEntry[]> {
+async function buildDocs(_task: Task, _accessor: DataAccessor): Promise<TasksContextDocEntry[]> {
   return [];
 }
 
@@ -158,12 +151,19 @@ async function buildActivity(
     limit,
   });
 
-  return rows.map((row: { timestamp: string; action: string; actor?: string | null; detailsJson?: string | null }) => ({
-    timestamp: row.timestamp,
-    action: row.action,
-    actor: row.actor ?? undefined,
-    details: row.detailsJson ?? undefined,
-  }));
+  return rows.map(
+    (row: {
+      timestamp: string;
+      action: string;
+      actor?: string | null;
+      detailsJson?: string | null;
+    }) => ({
+      timestamp: row.timestamp,
+      action: row.action,
+      actor: row.actor ?? undefined,
+      details: row.detailsJson ?? undefined,
+    }),
+  );
 }
 
 function makeOmission(
@@ -239,10 +239,18 @@ async function buildSagaScope(
     if (!epic) continue;
     members.push({ epicId: epic.id, title: epic.title, status: epic.status });
     switch (epic.status) {
-      case 'done': done++; break;
-      case 'active': active++; break;
-      case 'blocked': blocked++; break;
-      default: pending++; break;
+      case 'done':
+        done++;
+        break;
+      case 'active':
+        active++;
+        break;
+      case 'blocked':
+        blocked++;
+        break;
+      default:
+        pending++;
+        break;
     }
   }
 
@@ -266,7 +274,14 @@ async function buildSagaScope(
         const readyResult = await orchestrateReady(epicId, projectRoot);
         if (!readyResult.success) continue;
         const rData = readyResult.data as
-          | { readyTasks?: Array<{ id: string; title: string; priority: string; depends: string[] }> }
+          | {
+              readyTasks?: Array<{
+                id: string;
+                title: string;
+                priority: string;
+                depends: string[];
+              }>;
+            }
           | undefined;
         for (const t of rData?.readyTasks ?? []) {
           if (seenIds.has(t.id)) continue;
@@ -316,10 +331,18 @@ async function buildEpicScope(
 
   for (const child of children) {
     switch (child.status) {
-      case 'done': done++; break;
-      case 'active': activeC++; break;
-      case 'blocked': blocked++; break;
-      default: pending++; break;
+      case 'done':
+        done++;
+        break;
+      case 'active':
+        activeC++;
+        break;
+      case 'blocked':
+        blocked++;
+        break;
+      default:
+        pending++;
+        break;
     }
   }
 
@@ -449,9 +472,7 @@ export async function coreTaskContext(
           'budget_exceeded',
           `Rollup summary omitted: exceeds remaining budget`,
           undefined,
-          scope === 'saga'
-            ? `cleo saga rollup ${task.id}`
-            : `cleo orchestrate status ${task.id}`,
+          scope === 'saga' ? `cleo saga rollup ${task.id}` : `cleo orchestrate status ${task.id}`,
         ),
       );
       rollup = undefined;
@@ -514,10 +535,17 @@ export async function coreTaskContext(
           acEntries.length,
         ),
       );
-      expansionHints['acceptance'] = `Re-run with higher budgetTokens to include ${acEntries.length} acceptance criteria`;
+      expansionHints['acceptance'] =
+        `Re-run with higher budgetTokens to include ${acEntries.length} acceptance criteria`;
     }
   } else {
-    omissions.push(makeOmission('acceptance', 'not_requested', 'Acceptance criteria excluded by includeAcceptance=false'));
+    omissions.push(
+      makeOmission(
+        'acceptance',
+        'not_requested',
+        'Acceptance criteria excluded by includeAcceptance=false',
+      ),
+    );
   }
 
   let blockers: TasksContextBlockerEntry[] | undefined;
@@ -536,10 +564,13 @@ export async function coreTaskContext(
           blockerEntries.length,
         ),
       );
-      expansionHints['blockers'] = `Re-run with higher budgetTokens to include ${blockerEntries.length} blockers`;
+      expansionHints['blockers'] =
+        `Re-run with higher budgetTokens to include ${blockerEntries.length} blockers`;
     }
   } else {
-    omissions.push(makeOmission('blockers', 'not_requested', 'Blockers excluded by includeBlockers=false'));
+    omissions.push(
+      makeOmission('blockers', 'not_requested', 'Blockers excluded by includeBlockers=false'),
+    );
   }
 
   let docs: TasksContextDocEntry[] | undefined;
@@ -558,7 +589,8 @@ export async function coreTaskContext(
           docEntries.length,
         ),
       );
-      expansionHints['docs'] = `Re-run with higher budgetTokens to include ${docEntries.length} attached docs`;
+      expansionHints['docs'] =
+        `Re-run with higher budgetTokens to include ${docEntries.length} attached docs`;
     }
   } else {
     omissions.push(makeOmission('docs', 'not_requested', 'Docs excluded by includeDocs=false'));
@@ -584,10 +616,13 @@ export async function coreTaskContext(
           upstreamCount + downstreamCount + siblingCount + relatedCount,
         ),
       );
-      expansionHints['edges'] = `Re-run with higher budgetTokens or reduce edgeDepth to include graph edges (upstream=${upstreamCount}, downstream=${downstreamCount}, siblings=${siblingCount}, related=${relatedCount})`;
+      expansionHints['edges'] =
+        `Re-run with higher budgetTokens or reduce edgeDepth to include graph edges (upstream=${upstreamCount}, downstream=${downstreamCount}, siblings=${siblingCount}, related=${relatedCount})`;
     }
   } else {
-    omissions.push(makeOmission('edges', 'not_requested', 'Graph edges excluded by includeEdges=false'));
+    omissions.push(
+      makeOmission('edges', 'not_requested', 'Graph edges excluded by includeEdges=false'),
+    );
   }
 
   let activity: TasksContextActivityEvent[] | undefined;
@@ -606,10 +641,13 @@ export async function coreTaskContext(
           activityEntries.length,
         ),
       );
-      expansionHints['activity'] = `Re-run with higher budgetTokens or reduce activityLimit to include ${activityEntries.length} activity events`;
+      expansionHints['activity'] =
+        `Re-run with higher budgetTokens or reduce activityLimit to include ${activityEntries.length} activity events`;
     }
   } else {
-    omissions.push(makeOmission('activity', 'not_requested', 'Activity excluded by includeActivity=false'));
+    omissions.push(
+      makeOmission('activity', 'not_requested', 'Activity excluded by includeActivity=false'),
+    );
   }
 
   const budget: TasksContextBudget = {

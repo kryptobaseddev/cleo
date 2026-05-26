@@ -14,6 +14,7 @@ import type { DepGraphValidateResult, DepValidateScope } from './dep-graph-valid
 import { runValidation } from './dep-graph-validator.js';
 import type { ComplexityFactor } from './task-analyze.js';
 import { coreTaskComplexityEstimate } from './task-analyze.js';
+import { coreTaskContext } from './task-context.js';
 import {
   coreTaskDepends,
   coreTaskDepsCycles,
@@ -28,8 +29,8 @@ import {
   coreTaskImport,
   coreTaskLint,
 } from './task-import.js';
-import { coreTaskContext } from './task-context.js';
 import { computeCriticalPath, renderMermaidTree, renderTextTree } from './tree-render.js';
+
 /**
  * Convert a caught error to an EngineResult failure.
  *
