@@ -2,7 +2,7 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.4.0
+  version: 2.5.0
   lastReviewed: 2026-05-26
   stability: stable
 ---
@@ -33,64 +33,6 @@ Supported sections: `session-start` · `work-loop` · `triggers` · `task-creati
 | Saga-level waves | `cleo orchestrate waves <sagaId>` |
 | Saga rollup | `cleo saga rollup <sagaId>` |
 | List Saga members | `cleo saga members <sagaId>` |
-
-## PM-Core V2 — Task Hierarchy (ADR-088)
-
-**Canonical source:** `docs/adr/ADR-088-pm-core-v2-workgraph-relations-completion-criteria.md`.
-Legacy charter ADR-073 remains authoritative for pre-PM-Core V2 semantics; ADR-088
-governs the PM-Core V2 target. T10638 migration removes legacy `task_relations.groups`
-hierarchy reads and dual-shape `label='saga'` fallbacks.
-
-| Tier    | Prefix | `type` value | Scope-of-change                         |
-|---------|--------|-------------|-----------------------------------------|
-| Saga    | `SG-`  | `saga`      | Theme grouping ≥2 Epics across releases |
-| Epic    | `E-`   | `epic`      | One releasable slice; ≥1 PR to `main`   |
-| Task    | `T-`   | `task`      | One atomic PR-sized change; single wave |
-| Subtask | (none) | `subtask`   | One commit; ≤2 files                    |
-
-**I1 — Containment:** `tasks.parent_id` is the **only** containment edge.
-Direct children, ancestor/descendant traversal, closure rollups, and default
-parent completion are all derived from `parent_id`.
-
-**I2 — Storage:** All IDs stored as `T####`; `type` column discriminates tier
-(not `label`). Prefixes (`SG-`, `E-`) are DISPLAY + import-mapping only.
-
-**I3 — Non-containment:** `task_relations` is for secondary graph semantics ONLY
-(dependency, ordering, cross-reference, evidence, supersession, provenance).
-`task_relations` MUST NOT satisfy containment, child listing, ancestor/descendant
-traversal, parent rollup, parent completion, nesting-budget, or closure semantics.
-
-### Parent matrix
-
-| Child type | Parent type    |
-|------------|----------------|
-| `subtask`  | `task`         |
-| `task`     | `epic`         |
-| `epic`     | `saga` or null |
-| `saga`     | null           |
-
-### Saga Operations (PM-Core V2)
-
-Saga membership uses `parent_id` containment, not `task_relations.groups`.
-Saga-level orchestration commands accept saga IDs directly:
-
-```bash
-# Saga-level ready frontier — parallel-safe tasks across all member epics
-cleo orchestrate ready <sagaId>
-
-# Saga-level dependency waves — unified wave plan
-cleo orchestrate waves <sagaId>
-
-# Saga status rollup — completion %, member counts
-cleo saga rollup <sagaId>
-
-# Membership via parent_id containment
-cleo saga members <sagaId>
-```
-
-**Epic-level fallback:** If saga-level orchestrate fails, enumerate member epics
-from `cleo saga members <sagaId>` and call `cleo orchestrate ready <epicId>` for
-each member individually. Do not use `task_relations.groups` for hierarchy.
 
 ## Skill-Specific Extensions
 
@@ -165,50 +107,40 @@ Valid relation types: `blocks`, `related`, `duplicates`, `absorbs`, `fixes`, `ex
 
 The DB schema `TASK_RELATION_TYPES` (`related`, `blocks`, `duplicates`, `absorbs`, `fixes`, `extends`, `supersedes`) must match the runtime types. The CLI `cleo relates add` accepts the DB schema types. Always normalize to the DB enum before persisting.
 
-### Task Context (PM-Core V2 — T10629/T10630/T10631)
+## Task Hierarchy (PM-Core V2 — ADR-088)
 
-Bounded task context with token budgeting for agent ergonomics. Use `cleo context`
-to get targeted task information without pulling full records:
+**Canonical source:** `docs/adr/ADR-088-pm-core-v2-workgraph-relations-completion-criteria.md`.
 
-```bash
-# Get task context pack (identity, ACs, blockers, edges, activity)
-cleo context T1234
+| Tier    | Prefix | type value | Scope-of-change                                    |
+|---------|--------|------------|----------------------------------------------------|
+| Saga    | `SG-`  | `saga`     | Theme grouping ≥2 Epics across ≥2 releases         |
+| Epic    | `E-`   | `epic`     | One releasable slice; ≥1 PR to `main`              |
+| Task    | `T-`   | `task`     | One atomic PR-sized change; single wave            |
+| Subtask | (none) | `subtask`  | One commit; ≤2 files; contributes to Task's PR     |
 
-# Get context with explicit token budget
-cleo context T1234 --budget 800
+**Containment (I1):** `tasks.parent_id` is the **only** containment edge. Direct children,
+ancestor/descendant traversal, closure rollups, and default parent completion are all derived
+from `parent_id`. The parent matrix is:
 
-# Saga-level aggregate rollup (completion %, ready-frontier, blockers)
-cleo saga rollup <sagaId>
-```
+| Child type | Parent type     |
+|------------|-----------------|
+| `subtask`  | `task`          |
+| `task`     | `epic`          |
+| `epic`     | `saga` or `null`|
+| `saga`     | `null`          |
 
-`coreTaskContext` returns identity, acceptance criteria, blockers, edges, and recent
-activity respecting a configurable token budget. `TasksContextOmission` tracks budget
-overages and provides expansion hints for scope refinement.
+**Storage (I2):** All IDs stored as `T####`; `type` column discriminates tier (not `label`).
+Prefixes (`SG-`, `E-`) are DISPLAY + import-mapping only.
 
-### WorkGraph (PM-Core V2 — T10632/T10633/T10634)
+**Non-containment (I3):** `task_relations` is for secondary graph semantics ONLY — dependency,
+ordering, cross-reference, evidence, supersession, provenance. `task_relations` MUST NOT satisfy
+containment, child listing, ancestor/descendant traversal, parent rollup, parent completion,
+nesting-budget, or closure semantics. The `groups` relation type is retired; do not use it for
+hierarchy.
 
-The WorkGraph subsystem validates and applies task graph scaffolds atomically:
+## Typed Completion Criteria (PM-Core V2)
 
-```bash
-# Validate a WorkGraph JSON payload against schema invariants (dry-run)
-cleo graph validate --file workgraph.json
-
-# Apply a validated WorkGraph scaffold (atomic create/update/delete)
-cleo graph apply --file workgraph.json
-
-# Generate a planning document from the WorkGraph
-cleo graph plan T1234 --mode agent      # compact mode
-cleo graph plan T1234 --mode maintainer  # prose mode
-```
-
-Scaffold validation returns `wouldCreate`/`wouldUpdate`/`wouldDelete`/`wouldAffect`
-without side effects. `applyWorkGraphScaffold()` executes atomically in a single
-transaction. `generatePlanningDoc()` produces structured markdown plans with
-"agent" (compact) and "maintainer" (prose) output modes.
-
-### Completion Criteria (PM-Core V2 — Typed ACs)
-
-PM-Core V2 introduces typed acceptance criteria (`task_acceptance_criteria.kind`):
+`task_acceptance_criteria.kind` is one of:
 
 | Kind | Requires `target_task_id` | Purpose |
 |------|--------------------------|---------|
@@ -216,6 +148,71 @@ PM-Core V2 introduces typed acceptance criteria (`task_acceptance_criteria.kind`
 | `child_task` | **Yes** | Deterministic projection from a direct `parent_id` child |
 | `evidence_bound` | No | Gate-backed criterion (`implemented`, `testsPassed`, `qaPassed`) |
 
-Parent completion is derived deterministically from child state via `child_task`
-projections (T10639 backfill). Mixed criteria mode is migration-only or explicit
-advanced scope. Cancelled children require waiver or replacement evidence.
+**Key rules:**
+- A parent with children uses `child_task` criteria by default; these are **deterministic
+  projections** from `parent_id` containment.
+- `text` and `evidence_bound` criteria must NOT use `target_task_id`.
+- Cancelled children do NOT automatically satisfy parent completion.
+- Adding child work under a done parent reopens affected ancestors.
+
+## Saga Operations (PM-Core V2)
+
+Saga-level orchestration is first-class. Saga membership uses `parent_id`
+containment (NOT `task_relations.groups`). Use saga IDs directly with orchestrate commands:
+
+```bash
+# Saga-level ready frontier — parallel-safe tasks across all member epics
+cleo orchestrate ready <sagaId>
+
+# Saga-level dependency waves — unified wave plan across all member epics
+cleo orchestrate waves <sagaId>
+
+# Saga status rollup — completion %, member counts
+cleo saga rollup <sagaId>
+
+# Saga membership listing via parent_id containment
+cleo saga members <sagaId>
+```
+
+**Epic-level fallback:** If saga-level orchestrate fails, enumerate member epics from
+`cleo saga members <sagaId>` and call `cleo orchestrate ready <epicId>` for each member
+individually. Do not use `task_relations.groups` as a fallback for hierarchy — it is
+non-containment only per I3.
+
+## WorkGraph (PM-Core V2)
+
+The WorkGraph subsystem provides scaffold validation, atomic application, and planning
+document generation:
+
+| Feature | What it does |
+|---------|--------------|
+| Scaffold Dry-Run Validator | Validates WorkGraph JSON payloads against schema invariants before mutation. Returns `wouldCreate`/`wouldUpdate`/`wouldDelete` without side effects. |
+| Scaffold Apply Engine | Atomically applies validated WorkGraph scaffolds to the task database. Creates, updates, and deletes tasks/relations/ACs in a single transaction. Sibling-relation-based (SQLite trigger blocks parent-child relation edges). |
+| Planning Doc Generator | `generatePlanningDoc()` produces structured markdown plans from the WorkGraph. Supports "agent" (compact) and "maintainer" (prose) output modes. |
+
+Example — dry-run a scaffold before applying:
+```bash
+# Validate scaffold payload
+cleo workgraph validate --file scaffold.json --dry-run
+
+# Apply validated scaffold atomically
+cleo workgraph apply --file scaffold.json
+```
+
+## Task Context (PM-Core V2)
+
+Bounded task context with token budgeting for agent ergonomics:
+
+| Feature | What it does |
+|---------|--------------|
+| Task Context Pack | `coreTaskContext` returns targeted task information (identity, acceptance criteria, blockers, edges, activity) respecting a configurable token budget. Uses `TasksContextOmission` to track overages and provides expansion hints. |
+| Saga Context & Readiness | Saga-level aggregate rollups: completion percentages, ready-frontiers, and blocker enumeration across all member epics via `parent_id` containment. |
+
+Example — get task context for agent use:
+```bash
+# Full context with budget
+cleo orchestrate report <taskId>
+
+# Compact context for prompt injection
+cleo focus <taskId>
+```

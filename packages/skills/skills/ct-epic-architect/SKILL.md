@@ -105,18 +105,19 @@ that single PR. Subtasks never own a PR — if a unit warrants its own PR, it MU
 When decomposing, ask: "does this unit need its own PR?" → Task. "Is this a commit inside a
 larger PR?" → Subtask.
 
-### Above-Epic: Sagas (ADR-073, v2026.5.77+)
+### Above-Epic: Sagas (PM-Core V2 — ADR-088)
 
 A **Saga** groups multiple Epics into a multi-release theme. Use a Saga when the work spans
-more than one releasable Epic and you want a stable handle for rollup/reporting. A Saga is a
-labeled top-level Epic (`label='saga'`) — NOT a new TaskType — so the parent ladder (maxDepth=3)
-under each member Epic is unaffected.
+more than one releasable Epic and you want a stable handle for rollup/reporting. A Saga uses
+`type='saga'` (NOT `label='saga'`) — it is a peer type discriminator at the top of the
+parent ladder. All IDs are stored as `T####`; prefixes (`SG-`, `E-`) are display-only.
+Saga membership uses `parent_id` containment (NOT `task_relations.groups`).
 
 ```bash
 cleo saga create --title "Auth Modernization" --description "..." --acceptance "ac1|ac2|ac3|ac4|ac5"
-# returns SG-id (stored as T#### with label=saga)
-cleo saga add <sagaId> <epicId>          # links member Epic via task_relations.type='groups'
-cleo saga members <sagaId>               # returns member list (NOT cleo list --parent)
+# returns SG-id (stored as T#### with type=saga)
+cleo saga add <sagaId> <epicId>          # sets epic.parent_id = sagaId (containment edge)
+cleo saga members <sagaId>               # returns members via parent_id containment
 cleo saga rollup <sagaId>                # aggregates child statuses + completionPct
 ```
 
