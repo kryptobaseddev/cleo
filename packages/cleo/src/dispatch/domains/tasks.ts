@@ -535,7 +535,16 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
 
   cancel: async (params) => {
     const projectRoot = getProjectRoot();
-    return wrapCoreResult(await taskCancel(projectRoot, params.taskId, params.reason), 'cancel');
+    return wrapCoreResult(
+      await taskCancel(projectRoot, params.taskId, {
+        reason: params.reason,
+        children: params.children,
+        force: params.force,
+        cascadeThreshold: params.cascadeThreshold,
+        allowCascade: params.allowCascade,
+      }),
+      'cancel',
+    );
   },
 
   delete: async (params) => {

@@ -23,7 +23,7 @@ import { coreTaskCancel, taskCancel } from '../task-ops.js';
 
 async function seedTask(
   env: TestDbEnv,
-  overrides: { id: string; status?: string; pipelineStage?: string },
+  overrides: { id: string; status?: string; pipelineStage?: string; parentId?: string | null },
 ): Promise<void> {
   const now = new Date().toISOString();
   // Cast through `unknown` rather than `any` — we provide the minimal shape
@@ -36,6 +36,7 @@ async function seedTask(
     createdAt: now,
     updatedAt: now,
     pipelineStage: overrides.pipelineStage ?? null,
+    parentId: overrides.parentId ?? null,
   } as unknown as Task;
   await env.accessor.upsertSingleTask(seed);
 }
@@ -98,6 +99,77 @@ describe('coreTaskCancel (engine, with live T877 trigger)', () => {
     expect(second.cancelledAt).toBe(first.cancelledAt);
     // Echoes the original reason, not the new one — true no-op semantics.
     expect(second.reason).toBe('first');
+  });
+
+  it('blocks parent cancellation unless child propagation is explicit', async () => {
+    await seedTask(env, { id: 'T0020', status: 'pending' });
+    await seedTask(env, { id: 'T0021', status: 'pending', parentId: 'T0020' });
+
+    await expect(coreTaskCancel(env.tempDir, 'T0020')).rejects.toThrow(/E_HAS_CHILDREN/);
+
+    const parent = await env.accessor.loadSingleTask('T0020');
+    const child = await env.accessor.loadSingleTask('T0021');
+    expect(parent?.status).toBe('pending');
+    expect(child?.status).toBe('pending');
+  });
+
+  it('cascades cancellation to descendants only when children=cascade is explicit', async () => {
+    await seedTask(env, { id: 'T0030', status: 'pending' });
+    await seedTask(env, { id: 'T0031', status: 'pending', parentId: 'T0030' });
+    await seedTask(env, { id: 'T0032', status: 'pending', parentId: 'T0031' });
+
+    const result = await coreTaskCancel(env.tempDir, 'T0030', {
+      reason: 'scope removed',
+      children: 'cascade',
+    });
+
+    expect(result.childStrategy).toBe('cascade');
+    expect(result.affectedTasks?.sort()).toEqual(['T0031', 'T0032']);
+    expect(result.affectedCount).toBe(2);
+
+    for (const taskId of ['T0030', 'T0031', 'T0032']) {
+      const task = await env.accessor.loadSingleTask(taskId);
+      expect(task?.status).toBe('cancelled');
+      expect(task?.pipelineStage).toBe('cancelled');
+    }
+  });
+
+  it('orphans direct children when children=orphan is explicit', async () => {
+    await seedTask(env, { id: 'T0040', status: 'pending' });
+    await seedTask(env, { id: 'T0041', status: 'pending', parentId: 'T0040' });
+
+    const result = await coreTaskCancel(env.tempDir, 'T0040', { children: 'orphan' });
+
+    expect(result.childStrategy).toBe('orphan');
+    expect(result.affectedTasks).toEqual(['T0041']);
+    const parent = await env.accessor.loadSingleTask('T0040');
+    const child = await env.accessor.loadSingleTask('T0041');
+    expect(parent?.status).toBe('cancelled');
+    expect(child?.status).toBe('pending');
+    expect(child?.parentId ?? null).toBeNull();
+  });
+
+  it('requires force waiver and audit log for large subtree cascade', async () => {
+    await seedTask(env, { id: 'T0050', status: 'pending' });
+    await seedTask(env, { id: 'T0051', status: 'pending', parentId: 'T0050' });
+    await seedTask(env, { id: 'T0052', status: 'pending', parentId: 'T0050' });
+
+    await expect(
+      coreTaskCancel(env.tempDir, 'T0050', { children: 'cascade', cascadeThreshold: 1 }),
+    ).rejects.toThrow(/E_CASCADE_THRESHOLD_EXCEEDED/);
+
+    const result = await coreTaskCancel(env.tempDir, 'T0050', {
+      children: 'cascade',
+      cascadeThreshold: 1,
+      force: true,
+      reason: 'operator waiver',
+    });
+
+    expect(result.affectedCount).toBe(2);
+    const child1 = await env.accessor.loadSingleTask('T0051');
+    const child2 = await env.accessor.loadSingleTask('T0052');
+    expect(child1?.status).toBe('cancelled');
+    expect(child2?.status).toBe('cancelled');
   });
 });
 

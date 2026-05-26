@@ -12,6 +12,7 @@ import { predictImpact } from '../intelligence/impact.js';
 import type { ImpactReport } from '../intelligence/types.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { canCancel } from './cancel-ops.js';
+import type { ChildStrategy } from './deletion-strategy.js';
 import { discoverRelated, suggestRelated } from './relates.js';
 import { coreTaskAnalyze } from './task-analyze.js';
 import { coreTaskBlockers } from './task-blockers.js';
@@ -118,13 +119,26 @@ function nonCrudEngineError<T>(err: unknown, fallbackMsg: string): EngineResult<
 export async function coreTaskCancel(
   projectRoot: string,
   taskId: string,
-  params?: { reason?: string },
+  params?: {
+    reason?: string;
+    /** Explicit child handling mode. Defaults to 'block' so propagation is never implicit. */
+    children?: ChildStrategy;
+    /** Required when cascade affects more than cascadeThreshold descendants. */
+    force?: boolean;
+    /** Large-subtree guard threshold. Defaults to 10 descendants. */
+    cascadeThreshold?: number;
+    /** Config-level escape hatch for installations that forbid cascade cancellation. */
+    allowCascade?: boolean;
+  },
 ): Promise<{
   task: string;
   cancelled: boolean;
   reason?: string;
   cancelledAt: string;
   alreadyCancelled?: boolean;
+  childStrategy?: ChildStrategy;
+  affectedTasks?: string[];
+  affectedCount?: number;
 }> {
   const accessor = await getTaskAccessor(projectRoot);
   const task = await accessor.loadSingleTask(taskId);
@@ -151,7 +165,85 @@ export async function coreTaskCancel(
     throw new Error(`E_INVALID_STATE: ${check.reason!}`);
   }
 
+  const childStrategy = params?.children ?? 'block';
+  const children = await accessor.getChildren(taskId);
+  const affectedTasks: string[] = [];
+
+  if (children.length > 0) {
+    if (childStrategy === 'block') {
+      throw new Error(
+        `E_HAS_CHILDREN: Task ${taskId} has ${children.length} child task(s); pass children='cascade' or children='orphan' explicitly`,
+      );
+    }
+
+    if (childStrategy === 'cascade') {
+      if (params?.allowCascade === false) {
+        throw new Error('E_CASCADE_DISABLED: Cascade cancellation is disabled');
+      }
+
+      const descendants = (await accessor.getSubtree(taskId)).filter(
+        (candidate: { id: string }) => candidate.id !== taskId,
+      );
+      const cascadeThreshold = params?.cascadeThreshold ?? 10;
+      if (descendants.length > cascadeThreshold && !params?.force) {
+        throw new Error(
+          `E_CASCADE_THRESHOLD_EXCEEDED: Cascade would affect ${descendants.length} tasks, exceeding threshold ${cascadeThreshold}; pass force=true with an operator waiver`,
+        );
+      }
+
+      for (const descendant of descendants) {
+        if (descendant.status === 'cancelled') continue;
+        const descendantCheck = canCancel(descendant);
+        if (!descendantCheck.allowed) {
+          throw new Error(
+            `E_INVALID_STATE: Cannot cascade-cancel ${descendant.id}: ${descendantCheck.reason!}`,
+          );
+        }
+        affectedTasks.push(descendant.id);
+      }
+
+      if (descendants.length > cascadeThreshold && params?.force) {
+        await accessor.appendLog({
+          action: 'task_cancel_large_subtree_waiver',
+          taskId,
+          details: {
+            affectedCount: descendants.length,
+            affectedTasks: descendants.map((descendant: { id: string }) => descendant.id),
+            reason: params.reason ?? null,
+          },
+          timestamp: new Date().toISOString(),
+        });
+      }
+    } else if (childStrategy === 'orphan') {
+      affectedTasks.push(...children.map((child: { id: string }) => child.id));
+    } else {
+      throw new Error(`E_INVALID_STRATEGY: Unknown child handling strategy: ${childStrategy}`);
+    }
+  }
+
   const cancelledAt = new Date().toISOString();
+
+  if (childStrategy === 'cascade') {
+    for (const descendantId of affectedTasks) {
+      const descendant = await accessor.loadSingleTask(descendantId);
+      if (!descendant) continue;
+      descendant.status = 'cancelled';
+      descendant.cancelledAt = cancelledAt;
+      descendant.cancellationReason = `Parent task ${taskId} cancelled (cascade)${params?.reason ? `: ${params.reason}` : ''}`;
+      descendant.updatedAt = cancelledAt;
+      descendant.pipelineStage = 'cancelled';
+      await accessor.upsertSingleTask(descendant);
+    }
+  } else if (childStrategy === 'orphan') {
+    for (const childId of affectedTasks) {
+      const child = await accessor.loadSingleTask(childId);
+      if (!child) continue;
+      child.parentId = null;
+      child.updatedAt = cancelledAt;
+      await accessor.upsertSingleTask(child);
+    }
+  }
+
   task.status = 'cancelled';
   task.cancelledAt = cancelledAt;
   task.cancellationReason = params?.reason ?? undefined;
@@ -168,7 +260,15 @@ export async function coreTaskCancel(
   const { teardownWorktree } = await import('../sentient/worktree-dispatch.js');
   teardownWorktree(projectRoot, { taskId }).catch(() => {});
 
-  return { task: taskId, cancelled: true, reason: params?.reason, cancelledAt };
+  return {
+    task: taskId,
+    cancelled: true,
+    reason: params?.reason,
+    cancelledAt,
+    childStrategy,
+    affectedTasks,
+    affectedCount: affectedTasks.length,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -561,7 +661,15 @@ export async function taskReopen(
 export async function taskCancel(
   projectRoot: string,
   taskId: string,
-  reason?: string,
+  reasonOrParams?:
+    | string
+    | {
+        reason?: string;
+        children?: ChildStrategy;
+        force?: boolean;
+        cascadeThreshold?: number;
+        allowCascade?: boolean;
+      },
 ): Promise<
   EngineResult<{
     task: string;
@@ -569,10 +677,14 @@ export async function taskCancel(
     reason?: string;
     cancelledAt: string;
     alreadyCancelled?: boolean;
+    childStrategy?: ChildStrategy;
+    affectedTasks?: string[];
+    affectedCount?: number;
   }>
 > {
   try {
-    const result = await coreTaskCancel(projectRoot, taskId, { reason });
+    const params = typeof reasonOrParams === 'string' ? { reason: reasonOrParams } : reasonOrParams;
+    const result = await coreTaskCancel(projectRoot, taskId, params);
     return engineSuccess(result);
   } catch (err: unknown) {
     // T9838: distinguish "task missing" from "task exists but cannot be
@@ -585,6 +697,21 @@ export async function taskCancel(
     const message = e?.message ?? 'Failed to cancel task';
     if (message.startsWith('E_INVALID_STATE:')) {
       return engineError('E_INVALID_STATE', message.replace(/^E_INVALID_STATE:\s*/, ''));
+    }
+    if (message.startsWith('E_HAS_CHILDREN:')) {
+      return engineError('E_HAS_CHILDREN', message.replace(/^E_HAS_CHILDREN:\s*/, ''));
+    }
+    if (message.startsWith('E_CASCADE_THRESHOLD_EXCEEDED:')) {
+      return engineError(
+        'E_CASCADE_THRESHOLD_EXCEEDED',
+        message.replace(/^E_CASCADE_THRESHOLD_EXCEEDED:\s*/, ''),
+      );
+    }
+    if (message.startsWith('E_CASCADE_DISABLED:')) {
+      return engineError('E_CASCADE_DISABLED', message.replace(/^E_CASCADE_DISABLED:\s*/, ''));
+    }
+    if (message.startsWith('E_INVALID_STRATEGY:')) {
+      return engineError('E_INVALID_STRATEGY', message.replace(/^E_INVALID_STRATEGY:\s*/, ''));
     }
     if (message.includes(' not found')) {
       return engineError('E_NOT_FOUND', message);
