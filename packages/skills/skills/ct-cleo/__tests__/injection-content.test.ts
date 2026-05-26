@@ -109,6 +109,19 @@ describe('CLEO-INJECTION.md — command correctness', () => {
   it('contains "cleo find" command', () => {
     expect(injectionContent).toContain('cleo find');
   });
+
+  it('documents add-batch array input and dry-run count fields', () => {
+    expect(injectionContent).toContain('top-level JSON array of task objects');
+    expect(injectionContent).toContain('/data/wouldCreate');
+    expect(injectionContent).toContain('/data/insertedCount');
+  });
+
+  it('uses contract-backed mutate field paths', () => {
+    expect(injectionContent).toContain('/data/created/0');
+    expect(injectionContent).toContain('/data/updated/0');
+    expect(injectionContent).toContain('/data/deleted/0');
+    expect(injectionContent).not.toContain('--field /data/task/id');
+  });
 });
 
 // ---------------------------------------------------------------------------

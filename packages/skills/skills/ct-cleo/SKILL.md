@@ -113,7 +113,8 @@ cleo add-batch --file tasks.json --parent <epicId>
 
 ### Minimal JSON example
 
-Create a `tasks.json` file (array of task objects):
+Create a `tasks.json` file. The top-level JSON MUST be an array of task objects,
+not an object wrapper like `{ "tasks": [...] }`:
 
 ```json
 [
@@ -134,6 +135,7 @@ Create a `tasks.json` file (array of task objects):
 
 Every object in the array supports the same fields as `cleo add` (`title`, `acceptance`,
 `kind`, `priority`, `size`, `labels`, `depends`). The `--parent` flag applies to all items.
+Use a pipe-separated `acceptance` string for multiple acceptance criteria.
 
 ### Flags
 
@@ -142,7 +144,7 @@ Every object in the array supports the same fields as `cleo add` (`title`, `acce
 | `--file <path>` | Path to JSON file (array of task objects) |
 | `-` | Read JSON array from stdin (`echo '[...]' \| cleo add-batch --file - --parent <id>`) |
 | `--parent <id>` | Parent epic/task ID. All created tasks become direct children. |
-| `--dry-run` | Validate and preview all tasks without inserting. Shows what would be created. |
+| `--dry-run` | Validate and preview all tasks without inserting. Shows predicted counts (`count`, `wouldCreate`, `wouldAffect`) while `insertedCount` remains `0`. |
 
 ### Rollback semantic
 
@@ -151,7 +153,10 @@ ANY task fails → ALL inserts rolled back (zero partial state)
 ```
 
 Run `--dry-run` first to catch validation errors (missing `acceptance`, title too long, etc.)
-before committing the batch.
+before committing the batch. In the projected mutation envelope, `--dry-run` reports the
+number of tasks that would be created via `/data/count` and `/data/wouldCreate`; it does
+not mean rows were inserted. Use `/data/insertedCount` when you need the actual write count
+(`0` for dry-run).
 
 ### Meta-dogfood: how T9813 itself was decomposed
 
@@ -208,21 +213,23 @@ stderr in automation.
 
 | Need | Flag | Example |
 |------|------|---------|
-| Scalar extract (no jq) | `--field <jsonpointer>` | `cleo add 'X' --acceptance "..." --field /data/task/id` |
+| Scalar extract (no jq) | `--field <jsonpointer>` | `cleo add 'X' --acceptance "..." --field /data/created/0` |
 | ID-only pipeline | `--output id` | `cleo list --parent EPIC --output id \| while read c; do …; done` |
 | Affected count | `--output count` | `cleo list --parent EPIC --status pending --output count` |
 | TSV (no header) | `--output table` | `cleo list --parent EPIC --output table` |
 | Silent (exit code only) | `--output silent` | `cleo update T123 --status done --output silent` |
 | 1-line per record | `--summary` | `cleo list --parent EPIC --summary` |
-| Suppress stderr noise | `--quiet` | `id=$(cleo add 'X' --acceptance "..." --quiet --field /data/task/id)` |
+| Suppress stderr noise | `--quiet` | `id=$(cleo add 'X' --acceptance "..." --quiet --field /data/created/0)` |
 | Full record (legacy) | `--full` | `cleo show T123 --full` |
 
 ### Defaults
 
 - **Read ops** (`show`, `list`, `find`) — return the full LAFS envelope.
-- **Mutate ops** (`add`, `add-batch`, `update`, `complete`) — return a
-  minimal envelope `{success, data: {count, ids[]}}` (T9931). Use `--full`
-  to opt back into the full record set.
+- **Mutate ops** (`add`, `add-batch`, `update`, `complete`, `delete`) — return a
+  minimal contract-backed envelope `{success, data: {count, created[], updated[], deleted[], ids[]}}`
+  (T9931). Prefer operation-specific field paths (`/data/created/0`, `/data/updated/0`,
+  `/data/deleted/0`, `/data/count`). `ids[]` remains only as a deprecated compatibility alias.
+  Use `--full` to opt back into the full record set.
 - **stdout** carries exactly ONE LAFS envelope terminated by a single
   newline. Sub-step logs/progress/warnings route through Pino → stderr.
   This is regression-locked by CI gates `lint-stdout-discipline` (T10135)
@@ -231,9 +238,19 @@ stderr in automation.
 ### Canonical agent patterns
 
 ```bash
-# Scalar extract — no jq needed.
+# Scalar extract — no jq needed; mutations use projection-backed paths.
 id=$(cleo add 'Title' --type task --parent T9927 --acceptance "..." \
-       --field /data/task/id)
+       --field /data/created/0)
+
+# Batch creation returns an array of created IDs; keep the top-level JSON input an array.
+cleo add-batch --file tasks.json --parent T9927 --quiet --output id
+
+# Dry-run validates without writes: /data/count mirrors wouldCreate, insertedCount stays 0.
+would_create=$(cleo add-batch --file tasks.json --parent T9927 --dry-run --field /data/count)
+inserted=$(cleo add-batch --file tasks.json --parent T9927 --dry-run --field /data/insertedCount)
+
+# Update/complete use updated[]; delete uses deleted[].
+updated=$(cleo update T123 --status active --field /data/updated/0)
 
 # ID-only pipeline — no JSON parsing.
 cleo list --parent T9927 --output id | while read child; do
@@ -244,14 +261,14 @@ done
 remaining=$(cleo list --parent T9927 --status pending --output count)
 
 # Fully clean pipeline — stdout has IDs, stderr is empty unless error.
-cleo add-batch --file /tmp/batch.json --parent T9927 --quiet --output id
+cleo add-batch --file tasks.json --parent T9927 --quiet --output id
 ```
 
 ### Anti-patterns (REJECTED — these are CLI bugs if they appear post-E9)
 
-- ❌ `cleo show T123 | tail -1 | jq -r .data.task.id` → use `--field /data/task/id`
+- ❌ `cleo show T123 | tail -1 | jq -r .data.task.id` → use read-op `--field` paths from that command's contract
 - ❌ `cleo list --parent E1 | jq -r '.data.tasks[].id'` → use `--output id`
 - ❌ `cleo show T123 | python3 -c 'import json,sys; …'` → use `--field`
-- ❌ `cleo add 'X' 2>&1 | grep -oE 'T[0-9]+'` → use `--field /data/task/id`
+- ❌ `cleo add 'X' 2>&1 | grep -oE 'T[0-9]+'` → use `--field /data/created/0`
 
 Full contract + RFC 2119 invariants: `cleo docs fetch adr-086-cli-output-contract-e9`.
