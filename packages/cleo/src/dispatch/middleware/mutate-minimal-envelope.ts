@@ -121,6 +121,92 @@ function fieldNotFoundResponse(req: DispatchRequest, message: string): DispatchR
   };
 }
 
+type ProjectionFailureWarningCode = 'W_MUTATE_PROJECTION_FAILED';
+
+interface ProjectionFailureWarning {
+  code: ProjectionFailureWarningCode;
+  message: string;
+  created: string[];
+  acceptanceCriteriaIds: string[];
+  retryHazard: true;
+  recoveryHint: string;
+  cause?: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object';
+}
+
+function safeRead(value: Record<string, unknown>, key: string): unknown {
+  try {
+    return value[key];
+  } catch {
+    return undefined;
+  }
+}
+
+function safeStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === 'string')
+    : [];
+}
+
+function addUnique(target: string[], values: string[]): void {
+  for (const value of values) {
+    if (!target.includes(value)) target.push(value);
+  }
+}
+
+function collectCreatedIds(data: unknown): { created: string[]; acceptanceCriteriaIds: string[] } {
+  if (!isRecord(data)) return { created: [], acceptanceCriteriaIds: [] };
+  const created: string[] = [];
+  const acceptanceCriteriaIds: string[] = [];
+
+  const task = safeRead(data, 'task');
+  if (isRecord(task)) {
+    const id = safeRead(task, 'id');
+    if (typeof id === 'string') created.push(id);
+  }
+
+  const createdIds = safeRead(data, 'createdIds');
+  if (isRecord(createdIds)) {
+    addUnique(created, safeStringArray(safeRead(createdIds, 'tasks')));
+    addUnique(acceptanceCriteriaIds, safeStringArray(safeRead(createdIds, 'acceptanceCriteria')));
+  }
+
+  const tasks = safeRead(data, 'tasks');
+  if (Array.isArray(tasks)) {
+    for (const entry of tasks) {
+      if (!isRecord(entry)) continue;
+      const nestedTask = safeRead(entry, 'task');
+      const id = isRecord(nestedTask) ? safeRead(nestedTask, 'id') : safeRead(entry, 'id');
+      if (typeof id === 'string' && !created.includes(id)) created.push(id);
+    }
+  }
+
+  return { created, acceptanceCriteriaIds };
+}
+
+function buildProjectionFailureWarning(data: unknown, error: unknown): ProjectionFailureWarning {
+  const { created, acceptanceCriteriaIds } = collectCreatedIds(data);
+  const createdSuffix = created.length > 0 ? ` Created task IDs: ${created.join(', ')}.` : '';
+  const acSuffix =
+    acceptanceCriteriaIds.length > 0
+      ? ` Acceptance criteria IDs: ${acceptanceCriteriaIds.join(', ')}.`
+      : '';
+  const warning: ProjectionFailureWarning = {
+    code: 'W_MUTATE_PROJECTION_FAILED',
+    message: `Mutation succeeded, but the response projection failed.${createdSuffix}${acSuffix} Do not retry creation; inspect the IDs above or rerun with --full if you need the unprojected payload.`,
+    created,
+    acceptanceCriteriaIds,
+    retryHazard: true,
+    recoveryHint:
+      'Do not retry creation. Use the emitted IDs with cleo show, or rerun the command with --full only for inspection.',
+  };
+  if (error instanceof Error && error.message.length > 0) warning.cause = error.message;
+  return warning;
+}
+
 /**
  * Create the minimal mutate envelope middleware.
  *
@@ -157,7 +243,14 @@ export function createMutateMinimalEnvelope(): Middleware {
     if (!hasPlan) return response;
 
     if (response.success && response.data !== undefined) {
-      response.data = applyMutateProjection(response.data, opKey, mode);
+      try {
+        response.data = applyMutateProjection(response.data, opKey, mode);
+      } catch (error) {
+        response.partial = true;
+        response.meta.mutateProjection = 'projection-failed';
+        response.meta.warning = buildProjectionFailureWarning(response.data, error);
+        return response;
+      }
     }
     // Stamp the choice on every response that ran through a planned mutate
     // op, including errors — agents inspecting an error envelope can still
