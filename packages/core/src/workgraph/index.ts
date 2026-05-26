@@ -11,6 +11,10 @@
 
 export type {
   WorkGraphEdge,
+  WorkGraphHierarchyInputNode,
+  WorkGraphHierarchyValidationOptions,
+  WorkGraphHierarchyValidationResult,
+  WorkGraphHierarchyViolation,
   WorkGraphNode,
   WorkGraphNodeRef,
   WorkGraphReader,
@@ -18,4 +22,9 @@ export type {
   WorkGraphSnapshot,
   WorkGraphTraversalDirection,
   WorkGraphTraversalOptions,
+} from '@cleocode/contracts';
+export {
+  E_WORKGRAPH_PARENT_TYPE_MATRIX,
+  validateWorkGraphHierarchy,
+  WorkGraphHierarchyInvariantError,
 } from '@cleocode/contracts';
