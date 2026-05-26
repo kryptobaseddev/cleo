@@ -1953,6 +1953,7 @@ export {
   taskExists,
   taskShow,
   taskShowIvtrHistory,
+  taskShowOperation,
   taskShowWithHistory,
 } from './tasks/show.js';
 // Sync sub-domain (T1568 / ADR-057 / ADR-058) — Wave 3
