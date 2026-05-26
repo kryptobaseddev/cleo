@@ -58,6 +58,7 @@ export const showCommand = defineCommand({
         taskId: args['taskId'] as string,
         history: args['history'] === true,
         ivtrHistory: args['ivtr-history'] === true,
+        relations: args['relations'] === true,
       },
       { command: 'show' },
     );
