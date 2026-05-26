@@ -24,7 +24,11 @@ import type { LafsEnvelope, LafsError, LafsSuccess } from '@cleocode/contracts';
 import type { CliEnvelope, CliEnvelopeError, CliMeta, LAFSPage, Warning } from '@cleocode/lafs';
 import { getCurrentWarningCollector } from '@cleocode/lafs';
 import { CleoError } from './errors.js';
-import { getCurrentSessionId } from './sessions/context-alert.js';
+import {
+  getCurrentExecutionSessionId,
+  getCurrentOriginSessionId,
+  getCurrentSessionId,
+} from './sessions/context-alert.js';
 
 export type { CliEnvelope, CliEnvelopeError, CliMeta, LafsEnvelope, LafsError, LafsSuccess };
 
@@ -129,6 +133,10 @@ function createCliMeta(operation: string, duration_ms = 0): CliMeta {
   if (sessionId) {
     meta['sessionId'] = sessionId;
   }
+  const executionSessionId = getCurrentExecutionSessionId() ?? randomUUID();
+  const originSessionId = getCurrentOriginSessionId() ?? sessionId ?? executionSessionId;
+  meta['originSessionId'] = originSessionId;
+  meta['executionSessionId'] = executionSessionId;
   if (warnings && warnings.length > 0) {
     meta['warnings'] = warnings;
   }

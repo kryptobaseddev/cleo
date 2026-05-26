@@ -73,6 +73,18 @@
           "maxLength": 256,
           "description": "Session identifier for correlating multi-step agent workflows"
         },
+        "originSessionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Root session that originally initiated the workflow or saga"
+        },
+        "executionSessionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Specific execution instance for the command, saga step, or delegated worker"
+        },
         "warnings": {
           "type": "array",
           "items": {

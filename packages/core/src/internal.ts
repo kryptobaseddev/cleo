@@ -1137,7 +1137,11 @@ export { allocateNextTaskId, repairSequence } from './sequence/index.js';
 export { recordAssumption } from './sessions/assumptions.js';
 export type { SessionBriefing } from './sessions/briefing.js';
 export { computeBriefing } from './sessions/briefing.js';
-export { getCurrentSessionId } from './sessions/context-alert.js';
+export {
+  getCurrentExecutionSessionId,
+  getCurrentOriginSessionId,
+  getCurrentSessionId,
+} from './sessions/context-alert.js';
 export type { ContextInjectionData } from './sessions/context-inject.js';
 export { injectContext } from './sessions/context-inject.js';
 export { getDecisionLog, recordDecision } from './sessions/decisions.js';
