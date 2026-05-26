@@ -4,7 +4,14 @@
  * @epic T4454
  */
 
-import type { Task, TaskRecord, TaskRef, TaskView } from '@cleocode/contracts';
+import type {
+  Task,
+  TaskRecord,
+  TaskRef,
+  TaskShowAttachmentEntry,
+  TaskView,
+  TasksShowResult,
+} from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
@@ -14,6 +21,7 @@ import { getIvtrState } from '../lifecycle/ivtr-loop.js';
 import type { NextDirectives } from '../mvi-helpers.js';
 import { taskShowNext } from '../mvi-helpers.js';
 import { resolveOrCwd } from '../paths.js';
+import { createAttachmentStore } from '../store/attachment-store.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { computeTaskView } from './compute-task-view.js';
@@ -201,6 +209,40 @@ export async function showTask(
   return detail;
 }
 
+/**
+ * Fetch docs attachments linked to a task and project them into the public
+ * `tasks.show` result shape.
+ *
+ * This lives in Core so the CLI/dispatch layer can remain a thin operation
+ * wrapper with no direct store imports.
+ *
+ * @task T10612
+ */
+async function fetchTaskAttachmentsForShow(
+  projectRoot: string,
+  taskId: string,
+): Promise<TaskShowAttachmentEntry[]> {
+  try {
+    const store = createAttachmentStore();
+    const metas = await store.listByOwner('task', taskId, projectRoot);
+    const entries: TaskShowAttachmentEntry[] = [];
+    for (const meta of metas) {
+      const extras = await store.getExtras(meta.id, projectRoot);
+      entries.push({
+        attachmentId: meta.id,
+        kind: meta.attachment.kind,
+        ...(extras?.slug != null ? { slug: extras.slug } : {}),
+        ...(extras?.type != null ? { type: extras.type as TaskShowAttachmentEntry['type'] } : {}),
+      });
+    }
+    return entries;
+  } catch {
+    // Attachment metadata is optional context. A missing docs DB must never make
+    // `cleo show` fail.
+    return [];
+  }
+}
+
 // ---------------------------------------------------------------------------
 // EngineResult-returning wrappers (T1568 / ADR-057 / ADR-058)
 // These wrappers allow the dispatch layer to import from @cleocode/core/internal
@@ -228,6 +270,50 @@ function caughtToEngineError<T>(
   fallbackMsg: string,
 ): EngineResult<T> {
   return cleoErrorToEngineResult<T>(err, fallbackCode, fallbackMsg);
+}
+
+/**
+ * Operation-shaped `tasks.show` wrapper used by dispatch.
+ *
+ * Handles the query-mode switches (`history`, `ivtrHistory`) and enriches the
+ * standard show envelope with attachments and AC rows entirely inside Core.
+ * Dispatch should only call this function and wrap its EngineResult.
+ *
+ * @task T10612
+ */
+export async function taskShowOperation(
+  projectRoot: string,
+  params: { taskId: string; history?: boolean; ivtrHistory?: boolean },
+): Promise<
+  EngineResult<
+    | TasksShowResult
+    | { task: TaskRecord; history?: LifecycleStageEntry[] }
+    | { ivtrHistory: IvtrHistoryEntry[] }
+  >
+> {
+  if (params.ivtrHistory) {
+    return taskShowIvtrHistory(projectRoot, params.taskId);
+  }
+  if (params.history) {
+    return taskShowWithHistory(projectRoot, params.taskId, true);
+  }
+
+  try {
+    const accessor = await getTaskAccessor(projectRoot);
+    const [detail, attachments] = await Promise.all([
+      showTask(params.taskId, projectRoot, accessor),
+      fetchTaskAttachmentsForShow(projectRoot, params.taskId),
+    ]);
+    const view = await computeTaskView(params.taskId, accessor);
+    return engineSuccess({
+      task: taskToRecord(detail),
+      view,
+      attachments,
+      ...(detail.acRows != null && detail.acRows.length > 0 ? { acRows: detail.acRows } : {}),
+    });
+  } catch (err: unknown) {
+    return caughtToEngineError(err, 'E_NOT_INITIALIZED', 'Task database not initialized');
+  }
 }
 
 /**

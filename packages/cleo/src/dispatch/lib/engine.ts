@@ -253,6 +253,7 @@ export {
   taskRestore,
   taskShow,
   taskShowIvtrHistory,
+  taskShowOperation,
   taskShowWithHistory,
   taskStart,
   taskStats,
