@@ -87,6 +87,20 @@ export function buildFreshAcRows(
   });
 }
 
+/** Parent-owned AC projection text for a direct child task. */
+export function buildChildProjectionAcText(childId: string, childTitle: string): string {
+  return `Complete child ${childId}: ${childTitle.trim()}`;
+}
+
+/** Returns true when an AC row is the compatibility/typed projection for `childId`. */
+export function isChildProjectionAcRow(row: AcRow, childId: string): boolean {
+  return (
+    row.targetTaskId === childId ||
+    row.sourceKey === `child:${childId}` ||
+    row.text.startsWith(`Complete child ${childId}: `)
+  );
+}
+
 /**
  * Result of `planAcUpdate` — the row + history mutations the caller must
  * apply inside a transaction.
@@ -215,6 +229,64 @@ export function planAcUpdate(
     };
   });
   return { inserts, history, fullDelete: true };
+}
+
+/**
+ * Plan removal of a parent-owned child projection row while preserving the
+ * remaining AC UUIDs, ordinals, kind/source metadata, and bindings.
+ */
+export function planChildProjectionRemoval(
+  parentId: string,
+  existing: readonly AcRow[],
+  childId: string,
+  reason: 'delete' | 'archive',
+): AcUpdatePlan {
+  const removed = existing.filter((row) => isChildProjectionAcRow(row, childId));
+  if (removed.length === 0) return { inserts: [], history: [], fullDelete: false };
+
+  const inserts = existing
+    .filter((row) => !isChildProjectionAcRow(row, childId))
+    .map((row) => ({
+      id: row.id,
+      taskId: parentId,
+      ordinal: row.ordinal,
+      text: row.text,
+      kind: row.kind,
+      sourceKey: row.sourceKey,
+      targetTaskId: row.targetTaskId,
+      projection: row.projection,
+    }));
+  const history = removed.map((row) => ({
+    acId: row.id,
+    previousText: row.text,
+    reason,
+  }));
+
+  return { inserts, history, fullDelete: true };
+}
+
+/** Remove a direct child's parent-owned AC projection from row + legacy views. */
+export async function removeChildProjectionAc(
+  tx: TransactionAccessor,
+  parentId: string,
+  childId: string,
+  reason: 'delete' | 'archive',
+  updatedAt: string,
+): Promise<boolean> {
+  const existing = await tx.getAcRows(parentId);
+  const plan = planChildProjectionRemoval(parentId, existing, childId, reason);
+  if (plan.history.length === 0) return false;
+
+  await applyAcPlan(tx, parentId, plan);
+  const legacyAcceptance = plan.inserts
+    .slice()
+    .sort((a, b) => a.ordinal - b.ordinal)
+    .map((row) => row.text);
+  await tx.updateTaskFields(parentId, {
+    acceptanceJson: JSON.stringify(legacyAcceptance),
+    updatedAt,
+  });
+  return true;
 }
 
 /**

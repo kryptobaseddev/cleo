@@ -12,6 +12,7 @@ import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { removeChildProjectionAc } from './ac-table.js';
 import { taskToRecord } from './engine-converters.js';
 
 /** Options for deleting a task. */
@@ -98,6 +99,7 @@ export async function deleteTask(
 
   // Determine IDs to delete
   const idsToDelete = new Set<string>([options.taskId, ...cascadeDeleted]);
+  const tasksById = new Map((await acc.loadTasks([...idsToDelete])).map((t) => [t.id, t]));
 
   // Gather dependency cleanup data before the transaction (reads outside)
   const depsToUpdate: Task[] = [];
@@ -128,6 +130,10 @@ export async function deleteTask(
     // 6-value enum (no 'deleted'). Map delete-flow archives to 'cancelled'
     // — semantically equivalent and within the enum.
     for (const id of idsToDelete) {
+      const deletingTask = tasksById.get(id);
+      if (deletingTask?.parentId) {
+        await removeChildProjectionAc(tx, deletingTask.parentId, id, 'delete', now);
+      }
       await tx.archiveSingleTask(id, {
         archivedAt: now,
         archiveReason: 'cancelled',
