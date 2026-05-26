@@ -28,4 +28,5 @@ export * from './experiments.js';
 export * from './lifecycle.js';
 export * from './manifest.js';
 export * from './provenance/index.js';
+export * from './sqlite-feature-expressiveness.js';
 export * from './tasks.js';

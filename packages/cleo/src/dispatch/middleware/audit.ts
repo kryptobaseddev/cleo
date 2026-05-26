@@ -29,7 +29,7 @@ function resolveProjectHash(): string | null {
   } catch {
     cachedProjectHash = null;
   }
-  return cachedProjectHash;
+  return cachedProjectHash ?? null;
 }
 
 // AuditEntry type re-exported from core (canonical location)
@@ -73,7 +73,11 @@ async function getActiveSessionInfo(): Promise<{ id: string; gradeMode: boolean 
  *
  * @task T4848
  */
-async function writeToSqlite(entry: AuditEntry, requestId?: string): Promise<void> {
+async function writeToSqlite(
+  entry: AuditEntry,
+  requestId?: string,
+  response?: DispatchResponse,
+): Promise<void> {
   try {
     const { getDb } = await import('@cleocode/core/internal');
     const { auditLog } = await import('@cleocode/core/internal');
@@ -92,11 +96,23 @@ async function writeToSqlite(entry: AuditEntry, requestId?: string): Promise<voi
       operation: entry.operation,
       sessionId: entry.sessionId,
       requestId: requestId ?? null,
+      idempotencyKey:
+        typeof entry.params['idempotencyKey'] === 'string' ? entry.params['idempotencyKey'] : null,
       durationMs: entry.result.duration,
       success: entry.result.success ? 1 : 0,
       source: entry.metadata.source,
       gateway: entry.metadata.gateway ?? null,
       errorMessage: entry.error ?? null,
+      afterJson:
+        typeof entry.params['idempotencyKey'] === 'string' && response
+          ? JSON.stringify({
+              success: response.success,
+              ...(response.data !== undefined ? { data: response.data } : {}),
+              ...(response.page !== undefined ? { page: response.page } : {}),
+              ...(response.partial !== undefined ? { partial: response.partial } : {}),
+              ...(response.error !== undefined ? { error: response.error } : {}),
+            })
+          : null,
       // Project correlation (T5337)
       projectHash: resolveProjectHash(),
     };
@@ -172,16 +188,23 @@ export function createAudit(): Middleware {
         success: entry.result.success,
         exitCode: entry.result.exitCode,
         durationMs: entry.result.duration,
+        idempotencyKey:
+          typeof entry.params['idempotencyKey'] === 'string'
+            ? entry.params['idempotencyKey']
+            : undefined,
       },
       `${entry.metadata.gateway ?? 'dispatch'} ${entry.domain}.${entry.operation}`,
     );
 
     // SQLite write — await in grade mode to avoid race with grading query;
     // fire-and-forget otherwise for performance.
-    if (isGradeSession) {
-      await writeToSqlite(entry, req.requestId);
+    const shouldAwaitSqlite =
+      isGradeSession ||
+      (req.gateway === 'mutate' && typeof req.params?.['idempotencyKey'] === 'string');
+    if (shouldAwaitSqlite) {
+      await writeToSqlite(entry, req.requestId, response);
     } else {
-      writeToSqlite(entry, req.requestId).catch((err) => {
+      writeToSqlite(entry, req.requestId, response).catch((err) => {
         log.error({ err }, 'Failed to persist audit entry to SQLite');
       });
     }
