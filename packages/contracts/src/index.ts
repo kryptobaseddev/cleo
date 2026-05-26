@@ -2047,6 +2047,10 @@ export type {
   WarpStage,
 } from './warp-chain.js';
 export type {
+  WorkGraphContainmentAncestorsResult,
+  WorkGraphContainmentChildrenResult,
+  WorkGraphContainmentNode,
+  WorkGraphContainmentQueryService,
   WorkGraphEdge,
   WorkGraphHierarchyInputNode,
   WorkGraphHierarchyValidationOptions,
