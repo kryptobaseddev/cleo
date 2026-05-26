@@ -1,0 +1,22 @@
+{
+  "numTotalTests": 3,
+  "numPassedTests": 3,
+  "numFailedTests": 0,
+  "testResults": [
+    {
+      "name": "AC1: depends vs relates guidance added",
+      "status": "passed",
+      "duration": 1
+    },
+    {
+      "name": "AC2: verify relations command documented",
+      "status": "passed",
+      "duration": 1
+    },
+    {
+      "name": "AC3: do not use relates for execution gates",
+      "status": "passed",
+      "duration": 1
+    }
+  ]
+}
