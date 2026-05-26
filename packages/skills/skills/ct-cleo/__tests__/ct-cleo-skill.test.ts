@@ -142,4 +142,75 @@ describe('ct-cleo SKILL.md — phase coverage via emittable sections', () => {
   it('mentions work-loop section (core workflow loop)', () => {
     expect(skillContent).toContain('work-loop');
   });
+
+  it('mentions task-relationships section (PM-Core V2 relationship systems)', () => {
+    expect(skillContent).toContain('task-relationships');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PM-Core V2 doctrine coverage (T10645)
+// ---------------------------------------------------------------------------
+
+describe('ct-cleo SKILL.md — PM-Core V2 doctrine (T10645)', () => {
+  it('documents PM-Core V2 task hierarchy with type=saga canonical', () => {
+    expect(skillContent).toContain('PM-Core V2');
+    expect(skillContent).toContain('ADR-088');
+    // Table shows `saga` as the type value in the hierarchy table
+    expect(skillContent).toMatch(/`saga`/);
+    expect(skillContent).toContain('parent_id');
+  });
+
+  it('documents I1 containment invariant (parent_id is only containment edge)', () => {
+    expect(skillContent).toContain('containment edge');
+    expect(skillContent).toContain('I1');
+  });
+
+  it('documents I3 non-containment invariant (task_relations is secondary only)', () => {
+    expect(skillContent).toContain('I3');
+    expect(skillContent).toContain('MUST NOT satisfy containment');
+  });
+
+  it('documents Saga operations via parent_id containment', () => {
+    expect(skillContent).toContain('cleo orchestrate ready <sagaId>');
+    expect(skillContent).toContain('cleo orchestrate waves <sagaId>');
+    expect(skillContent).toContain('cleo saga rollup <sagaId>');
+  });
+
+  it('does NOT present task_relations.groups as active hierarchy guidance', () => {
+    // Migration context references (e.g. "T10638 migration removes legacy groups")
+    // are acceptable; active guidance must not recommend groups for hierarchy.
+    // Must contain explicit anti-groups guidance.
+    expect(skillContent).toMatch(/not.*task_relations\.groups|Do not use.*task_relations\.groups/);
+    expect(skillContent).not.toMatch(/^[^#]*use.*task_relations\.groups.*for hierarchy/);
+  });
+
+  it('documents Task Context subsystem (T10629/T10630/T10631)', () => {
+    expect(skillContent).toContain('Task Context');
+    expect(skillContent).toContain('T10629');
+    expect(skillContent).toContain('cleo context');
+  });
+
+  it('documents WorkGraph scaffold subsystem (T10632/T10633/T10634)', () => {
+    expect(skillContent).toContain('WorkGraph');
+    expect(skillContent).toContain('T10632');
+    expect(skillContent).toContain('cleo graph validate');
+    expect(skillContent).toContain('cleo graph apply');
+  });
+
+  it('documents Completion Criteria with typed ACs (child_task / text / evidence_bound)', () => {
+    expect(skillContent).toContain('child_task');
+    expect(skillContent).toContain('evidence_bound');
+    expect(skillContent).toContain('typed acceptance criteria');
+    expect(skillContent).toContain('T10639');
+  });
+
+  it('indicates T10638 migration removed legacy groups hierarchy reads', () => {
+    expect(skillContent).toContain('T10638');
+  });
+
+  it('documents epic-level fallback for saga orchestrate', () => {
+    expect(skillContent).toContain('cleo saga members');
+    expect(skillContent).toMatch(/[Ee]pic-level/);
+  });
 });

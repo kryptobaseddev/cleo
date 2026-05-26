@@ -2,8 +2,8 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.3.0
-  lastReviewed: 2026-05-24
+  version: 2.4.0
+  lastReviewed: 2026-05-26
   stability: stable
 ---
 
@@ -14,8 +14,8 @@ Full protocol content lives in `~/.cleo/templates/CLEO-INJECTION.md`.
 Emit any section with: `cleo briefing inject --section <name>`
 
 Supported sections: `session-start` · `work-loop` · `triggers` · `task-creation`
-· `task-discovery` · `session-commands` · `memory` · `nexus` · `orchestration`
-· `playbooks` · `documents` · `error-handling` · `pre-complete-gate`
+· `task-discovery` · `task-relationships` · `session-commands` · `memory` · `nexus`
+· `orchestration` · `playbooks` · `documents` · `error-handling` · `pre-complete-gate`
 · `spawn-tiers` · `rules` · `memory-jit` · `escalation`
 
 ## Quick Reference
@@ -23,14 +23,74 @@ Supported sections: `session-start` · `work-loop` · `triggers` · `task-creati
 | Need | Command |
 |------|---------|
 | Start session | `cleo session status` → `cleo briefing` |
-| Find work | `cleo next` → `cleo show <id>` |
+| Find work | `cleo next` → `cleo focus <id>` |
 | Search tasks | `cleo find "query"` |
 | Complete task | `cleo verify T### --gate ... --evidence "..."` → `cleo complete T###` |
 | Save memory | `cleo memory observe "..." --title "..."` |
 | Spawn subagent | `cleo orchestrate spawn <taskId> --tier 2` |
 | Create a Saga | `cleo saga create --title "..." --acceptance "..."` |
-| Link Epic to Saga | `cleo saga add <sagaId> <epicId>` |
+| Saga-level ready | `cleo orchestrate ready <sagaId>` |
+| Saga-level waves | `cleo orchestrate waves <sagaId>` |
+| Saga rollup | `cleo saga rollup <sagaId>` |
 | List Saga members | `cleo saga members <sagaId>` |
+
+## PM-Core V2 — Task Hierarchy (ADR-088)
+
+**Canonical source:** `docs/adr/ADR-088-pm-core-v2-workgraph-relations-completion-criteria.md`.
+Legacy charter ADR-073 remains authoritative for pre-PM-Core V2 semantics; ADR-088
+governs the PM-Core V2 target. T10638 migration removes legacy `task_relations.groups`
+hierarchy reads and dual-shape `label='saga'` fallbacks.
+
+| Tier    | Prefix | `type` value | Scope-of-change                         |
+|---------|--------|-------------|-----------------------------------------|
+| Saga    | `SG-`  | `saga`      | Theme grouping ≥2 Epics across releases |
+| Epic    | `E-`   | `epic`      | One releasable slice; ≥1 PR to `main`   |
+| Task    | `T-`   | `task`      | One atomic PR-sized change; single wave |
+| Subtask | (none) | `subtask`   | One commit; ≤2 files                    |
+
+**I1 — Containment:** `tasks.parent_id` is the **only** containment edge.
+Direct children, ancestor/descendant traversal, closure rollups, and default
+parent completion are all derived from `parent_id`.
+
+**I2 — Storage:** All IDs stored as `T####`; `type` column discriminates tier
+(not `label`). Prefixes (`SG-`, `E-`) are DISPLAY + import-mapping only.
+
+**I3 — Non-containment:** `task_relations` is for secondary graph semantics ONLY
+(dependency, ordering, cross-reference, evidence, supersession, provenance).
+`task_relations` MUST NOT satisfy containment, child listing, ancestor/descendant
+traversal, parent rollup, parent completion, nesting-budget, or closure semantics.
+
+### Parent matrix
+
+| Child type | Parent type    |
+|------------|----------------|
+| `subtask`  | `task`         |
+| `task`     | `epic`         |
+| `epic`     | `saga` or null |
+| `saga`     | null           |
+
+### Saga Operations (PM-Core V2)
+
+Saga membership uses `parent_id` containment, not `task_relations.groups`.
+Saga-level orchestration commands accept saga IDs directly:
+
+```bash
+# Saga-level ready frontier — parallel-safe tasks across all member epics
+cleo orchestrate ready <sagaId>
+
+# Saga-level dependency waves — unified wave plan
+cleo orchestrate waves <sagaId>
+
+# Saga status rollup — completion %, member counts
+cleo saga rollup <sagaId>
+
+# Membership via parent_id containment
+cleo saga members <sagaId>
+```
+
+**Epic-level fallback:** If saga-level orchestrate fails, enumerate member epics
+from `cleo saga members <sagaId>` and call `cleo orchestrate ready <epicId>` for
+each member individually. Do not use `task_relations.groups` for hierarchy.
 
 ## Skill-Specific Extensions
 
@@ -104,3 +164,58 @@ Valid relation types: `blocks`, `related`, `duplicates`, `absorbs`, `fixes`, `ex
 #### Schema types mismatch note
 
 The DB schema `TASK_RELATION_TYPES` (`related`, `blocks`, `duplicates`, `absorbs`, `fixes`, `extends`, `supersedes`) must match the runtime types. The CLI `cleo relates add` accepts the DB schema types. Always normalize to the DB enum before persisting.
+
+### Task Context (PM-Core V2 — T10629/T10630/T10631)
+
+Bounded task context with token budgeting for agent ergonomics. Use `cleo context`
+to get targeted task information without pulling full records:
+
+```bash
+# Get task context pack (identity, ACs, blockers, edges, activity)
+cleo context T1234
+
+# Get context with explicit token budget
+cleo context T1234 --budget 800
+
+# Saga-level aggregate rollup (completion %, ready-frontier, blockers)
+cleo saga rollup <sagaId>
+```
+
+`coreTaskContext` returns identity, acceptance criteria, blockers, edges, and recent
+activity respecting a configurable token budget. `TasksContextOmission` tracks budget
+overages and provides expansion hints for scope refinement.
+
+### WorkGraph (PM-Core V2 — T10632/T10633/T10634)
+
+The WorkGraph subsystem validates and applies task graph scaffolds atomically:
+
+```bash
+# Validate a WorkGraph JSON payload against schema invariants (dry-run)
+cleo graph validate --file workgraph.json
+
+# Apply a validated WorkGraph scaffold (atomic create/update/delete)
+cleo graph apply --file workgraph.json
+
+# Generate a planning document from the WorkGraph
+cleo graph plan T1234 --mode agent      # compact mode
+cleo graph plan T1234 --mode maintainer  # prose mode
+```
+
+Scaffold validation returns `wouldCreate`/`wouldUpdate`/`wouldDelete`/`wouldAffect`
+without side effects. `applyWorkGraphScaffold()` executes atomically in a single
+transaction. `generatePlanningDoc()` produces structured markdown plans with
+"agent" (compact) and "maintainer" (prose) output modes.
+
+### Completion Criteria (PM-Core V2 — Typed ACs)
+
+PM-Core V2 introduces typed acceptance criteria (`task_acceptance_criteria.kind`):
+
+| Kind | Requires `target_task_id` | Purpose |
+|------|--------------------------|---------|
+| `text` | No | Human-authored acceptance criterion |
+| `child_task` | **Yes** | Deterministic projection from a direct `parent_id` child |
+| `evidence_bound` | No | Gate-backed criterion (`implemented`, `testsPassed`, `qaPassed`) |
+
+Parent completion is derived deterministically from child state via `child_task`
+projections (T10639 backfill). Mixed criteria mode is migration-only or explicit
+advanced scope. Cancelled children require waiver or replacement evidence.
