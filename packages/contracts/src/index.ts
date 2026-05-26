@@ -946,6 +946,14 @@ export type {
   EvaluateDialecticParams,
   EvaluateDialecticResult,
 } from './operations/dialectic.js';
+// === Docs Operation Types (T10618 — docs.update lifecycle status SSoT) ===
+// Re-exported at top level so core and CLI layers can consume the same
+// operation contract without relying on an unexported package subpath.
+export {
+  DOCS_LIFECYCLE_STATUSES,
+  type DocsLifecycleStatus,
+  type DocsUpdateParams,
+} from './operations/docs.js';
 // === Operations Types (API wire format, namespaced to avoid collision with domain types) ===
 export * as ops from './operations/index.js';
 // === Operation Input Contracts (T9914 / Saga T9855 / E7) ===

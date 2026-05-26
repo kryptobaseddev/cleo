@@ -278,6 +278,10 @@ describe('DocsHandler parameter validation', () => {
     });
 
     it('returns E_INVALID_INPUT when status is invalid', async () => {
+      const updateOp = OPERATIONS.find((op) => op.domain === 'docs' && op.operation === 'update');
+      const statusParam = updateOp?.params?.find((param) => param.name === 'status');
+      const allowedStatuses = statusParam?.enum?.join('|');
+
       const result = await handler.mutate('update', {
         slug: 'some-slug',
         content: 'x',
@@ -285,6 +289,7 @@ describe('DocsHandler parameter validation', () => {
       });
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_INVALID_INPUT');
+      expect(result.error?.message).toContain(`status must be one of: ${allowedStatuses}`);
     });
 
     it('does not return E_INVALID_OPERATION', async () => {
