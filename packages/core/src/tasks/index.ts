@@ -5,6 +5,13 @@
  */
 
 export type {
+  CompletionBlockerReason,
+  CompletionCriterionEvaluation,
+  CompletionCriterionKind,
+  CompletionCriterionStatus,
+  CompletionEvaluation,
+  CompletionExplanation,
+  CompletionStaleReason,
   TaskView,
   TaskViewChildRollup,
   TaskViewGatesStatus,
@@ -54,6 +61,8 @@ export {
   completeTaskStrict,
   taskComplete,
 } from './complete.js';
+// Typed completion analysis — AC + evidence + child criteria (T10591)
+export { evaluateCompletion, explainCompletion } from './completion-evaluation.js';
 // Canonical task view — unified derivation (T943)
 export { computeTaskView, computeTaskViews } from './compute-task-view.js';
 export {

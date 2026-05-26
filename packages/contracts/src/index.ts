@@ -1927,6 +1927,13 @@ export {
 } from './tasks/archive.js';
 // === Task Domain Result Types (T1703 — canonical shapes for operations/tasks.ts stubs) ===
 export type {
+  CompletionBlockerReason,
+  CompletionCriterionEvaluation,
+  CompletionCriterionKind,
+  CompletionCriterionStatus,
+  CompletionEvaluation,
+  CompletionExplanation,
+  CompletionStaleReason,
   TaskComplexityFactor,
   TaskDependsRef,
   TaskDependsResult,
