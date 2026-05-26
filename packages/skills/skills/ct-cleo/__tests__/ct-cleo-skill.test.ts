@@ -90,6 +90,13 @@ describe('ct-cleo SKILL.md — command correctness', () => {
     expect(skillContent).toContain('/data/insertedCount');
     expect(skillContent).toContain('`0` for dry-run');
   });
+
+  it('documents docs path policy and runtime doc kind discovery', () => {
+    expect(skillContent).toContain('Docs path policy and strict preflight');
+    expect(skillContent).toContain('Do not pass arbitrary external absolute paths');
+    expect(skillContent).toContain('cleo docs list-types');
+    expect(skillContent).toContain('DocKindRegistry');
+  });
 });
 
 // ---------------------------------------------------------------------------
