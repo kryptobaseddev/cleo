@@ -71,6 +71,7 @@ import {
   taskPlan,
   taskRelates,
   taskRelatesAdd,
+  taskRelatesAddBatch,
   taskRelatesFind,
   taskRelatesRemove,
   taskReopen,
@@ -519,6 +520,11 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
       await taskRelatesAdd(projectRoot, params.taskId, relatedId, params.type, params.reason),
       'relates.add',
     );
+  },
+
+  'relates.add-batch': async (params) => {
+    const projectRoot = getProjectRoot();
+    return wrapCoreResult(await taskRelatesAddBatch(projectRoot, params), 'relates.add-batch');
   },
 
   'relates.remove': async (params) => {

@@ -4,11 +4,82 @@
  * @epic T4454
  */
 
-import type { TaskRef } from '@cleocode/contracts';
+import type {
+  TaskRef,
+  TasksRelatesAddBatchEntry,
+  TasksRelatesAddBatchResult,
+} from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+
+const VALID_RELATION_TYPES = [
+  'related',
+  'blocks',
+  'duplicates',
+  'absorbs',
+  'fixes',
+  'extends',
+  'supersedes',
+  'groups',
+] as const;
+
+type ValidRelationType = (typeof VALID_RELATION_TYPES)[number];
+
+function isValidRelationType(type: string): type is ValidRelationType {
+  return VALID_RELATION_TYPES.includes(type as ValidRelationType);
+}
+
+function normalizeBatchEntry(
+  entry: TasksRelatesAddBatchEntry,
+  index: number,
+  reasonWaiver?: string,
+): TasksRelatesAddBatchResult['relations'][number] {
+  const from = entry.taskId ?? entry.from;
+  const to = entry.relatedId ?? entry.to;
+  if (!from) {
+    throw new CleoError(
+      ExitCode.VALIDATION_ERROR,
+      `Relation edge ${index} is missing source taskId/from`,
+      {
+        details: { index, field: 'taskId' },
+      },
+    );
+  }
+  if (!to) {
+    throw new CleoError(
+      ExitCode.VALIDATION_ERROR,
+      `Relation edge ${index} is missing target relatedId/to`,
+      {
+        details: { index, field: 'relatedId' },
+      },
+    );
+  }
+  if (!entry.type || !isValidRelationType(entry.type)) {
+    throw new CleoError(
+      ExitCode.VALIDATION_ERROR,
+      `Relation edge ${index} has invalid relation type: ${entry.type ?? '<missing>'}`,
+      { details: { field: 'type', index, validTypes: [...VALID_RELATION_TYPES] } },
+    );
+  }
+  const reason = entry.reason?.trim();
+  const waiver = reasonWaiver?.trim();
+  if (!reason && !waiver) {
+    throw new CleoError(
+      ExitCode.VALIDATION_ERROR,
+      `Relation edge ${index} requires a reason or batch reasonWaiver`,
+      { details: { field: 'reason', index, code: 'E_WORKGRAPH_RELATION_REASON_MISSING' } },
+    );
+  }
+  return {
+    from,
+    to,
+    type: entry.type,
+    reason: reason || waiver,
+    waivedReason: !reason,
+  };
+}
 
 /** Suggest related tasks based on shared attributes. */
 export async function suggestRelated(
@@ -101,6 +172,105 @@ export async function addRelation(
   await acc.addRelation(from, to, type, reason);
 
   return { from, to, type, reason, added: true };
+}
+
+/** Add multiple relation edges after prevalidating the full batch. */
+export async function addBatchRelations(
+  entries: TasksRelatesAddBatchEntry[],
+  opts: { dryRun?: boolean; reasonWaiver?: string; cwd?: string } = {},
+  accessor?: DataAccessor,
+): Promise<TasksRelatesAddBatchResult> {
+  if (!Array.isArray(entries) || entries.length === 0) {
+    throw new CleoError(ExitCode.VALIDATION_ERROR, 'relations/edges must be a non-empty array', {
+      details: { field: 'relations' },
+    });
+  }
+
+  const acc = accessor ?? (await getTaskAccessor(opts.cwd));
+  const relations = entries.map((entry, index) =>
+    normalizeBatchEntry(entry, index, opts.reasonWaiver),
+  );
+
+  const uniqueTaskIds = new Set<string>();
+  for (const relation of relations) {
+    uniqueTaskIds.add(relation.from);
+    uniqueTaskIds.add(relation.to);
+  }
+  for (const taskId of uniqueTaskIds) {
+    if (!(await acc.taskExists(taskId))) {
+      throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found`, {
+        fix: `cleo find "${taskId}"`,
+        details: { field: 'taskId', actual: taskId },
+      });
+    }
+  }
+
+  const warnings: TasksRelatesAddBatchResult['warnings'] = relations
+    .filter((relation) => relation.waivedReason)
+    .map((relation) => ({
+      code: 'E_WORKGRAPH_RELATION_REASON_WAIVED',
+      message: `Relation ${relation.from} -> ${relation.to} (${relation.type}) used batch reasonWaiver`,
+      edge: { from: relation.from, to: relation.to, type: relation.type },
+    }));
+
+  for (const relation of relations.filter((edge) => edge.type === 'blocks')) {
+    warnings.push({
+      code: 'E_WORKGRAPH_DEPENDS_RELATES_MISUSE',
+      message: `Relation ${relation.from} -> ${relation.to} is advisory; use task_dependencies for scheduler dependency edges`,
+      edge: { from: relation.from, to: relation.to, type: relation.type },
+    });
+  }
+
+  const groupsGraph = new Map<string, Set<string>>();
+  for (const taskId of uniqueTaskIds) {
+    const task = await acc.loadSingleTask(taskId);
+    for (const relation of task?.relates ?? []) {
+      if (relation.type !== 'groups') continue;
+      const next = groupsGraph.get(taskId) ?? new Set<string>();
+      next.add(relation.taskId);
+      groupsGraph.set(taskId, next);
+    }
+  }
+  for (const relation of relations.filter((edge) => edge.type === 'groups')) {
+    const next = groupsGraph.get(relation.from) ?? new Set<string>();
+    next.add(relation.to);
+    groupsGraph.set(relation.from, next);
+  }
+  const reaches = (from: string, target: string, seen = new Set<string>()): boolean => {
+    if (from === target) return true;
+    if (seen.has(from)) return false;
+    seen.add(from);
+    for (const child of groupsGraph.get(from) ?? []) {
+      if (reaches(child, target, seen)) return true;
+    }
+    return false;
+  };
+  for (const relation of relations.filter((edge) => edge.type === 'groups')) {
+    if (reaches(relation.to, relation.from)) {
+      warnings.push({
+        code: 'E_WORKGRAPH_CONTAINMENT_CYCLE',
+        message: `Relation ${relation.from} -> ${relation.to} would introduce a groups containment cycle`,
+        edge: { from: relation.from, to: relation.to, type: relation.type },
+      });
+    }
+  }
+
+  if (!opts.dryRun) {
+    // All validation happens before the first write. The storage layer uses
+    // idempotent INSERT ... ON CONFLICT DO NOTHING for duplicate-safe edges.
+    for (const relation of relations) {
+      await acc.addRelation(relation.from, relation.to, relation.type, relation.reason);
+    }
+  }
+
+  return {
+    dryRun: Boolean(opts.dryRun),
+    validatedCount: relations.length,
+    created: opts.dryRun ? 0 : relations.length,
+    wouldCreate: opts.dryRun ? relations.length : 0,
+    relations,
+    warnings,
+  };
 }
 
 /** Remove a relation between tasks. */
