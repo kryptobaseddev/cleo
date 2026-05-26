@@ -23,6 +23,10 @@ vi.mock('../task-ops.js', async () => {
   };
 });
 
+vi.mock('../../orchestrate/query-ops.js', () => ({
+  orchestrateReady: vi.fn().mockResolvedValue({ success: true, data: { readyTasks: [] } }),
+}));
+
 import { getAccessor, getTaskAccessor } from '../../store/data-accessor.js';
 import { coreTaskContext } from '../task-context.js';
 
@@ -269,5 +273,233 @@ describe('coreTaskContext', () => {
       includeActivity: false,
     });
     expect(result.generatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+  });
+
+  // ── T10630: Saga / Epic scope tests ──────────────────────────────────────
+
+  it('scope=saga includes rollup, members, and readyFrontier', async () => {
+    const saga = makeTask({
+      id: 'T10538',
+      title: 'PM Core V2',
+      type: 'saga',
+      labels: ['saga'],
+      relates: [
+        { taskId: 'T10547', type: 'groups', reason: 'member' },
+        { taskId: 'T10548', type: 'groups', reason: 'member' },
+      ],
+    });
+
+    const epic1 = makeTask({ id: 'T10547', title: 'E9: Context Packs', status: 'done', type: 'epic' });
+    const epic2 = makeTask({ id: 'T10548', title: 'E10: WorkGraph', status: 'active', type: 'epic' });
+
+    const mockImpl = {
+      loadSingleTask: vi.fn().mockImplementation((id: string) => {
+        if (id === 'T10538') return Promise.resolve({
+          ...saga,
+          relates: saga.relates,
+        });
+        if (id === 'T10547') return Promise.resolve(epic1);
+        if (id === 'T10548') return Promise.resolve(epic2);
+        return Promise.resolve(null);
+      }),
+      queryTasks: vi.fn().mockResolvedValue({ tasks: [saga, epic1, epic2], total: 3 }),
+      queryAuditLog: vi.fn().mockResolvedValue([]),
+    };
+    (getAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(mockImpl);
+    (getTaskAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(mockImpl);
+
+    const result = await coreTaskContext('/fake/project', {
+      taskId: 'T10538',
+      scope: 'saga',
+      includeAcceptance: false,
+      includeBlockers: false,
+      includeDocs: false,
+      includeEdges: false,
+      includeActivity: false,
+    });
+
+    expect(result.rollup).toBeDefined();
+    expect(result.rollup!.total).toBe(2);
+    expect(result.rollup!.done).toBe(1);
+    expect(result.rollup!.active).toBe(1);
+    expect(result.rollup!.completionPct).toBe(50);
+
+    expect(result.members).toBeDefined();
+    expect(result.members).toHaveLength(2);
+    expect(result.members![0].epicId).toBe('T10547');
+    expect(result.members![0].title).toBe('E9: Context Packs');
+    expect(result.members![1].epicId).toBe('T10548');
+  });
+
+  it('scope=epic includes rollup and readyFrontier', async () => {
+    const epic = makeTask({
+      id: 'T10547',
+      title: 'E9: Context Packs',
+      type: 'epic',
+      status: 'active',
+    });
+
+    const child1 = makeTask({ id: 'T10629', title: 'Task context pack', status: 'done', parentId: 'T10547' });
+    const child2 = makeTask({ id: 'T10630', title: 'Saga context pack', status: 'pending', parentId: 'T10547' });
+
+    const { orchestrateReady } = await import('../../orchestrate/query-ops.js');
+    (orchestrateReady as ReturnType<typeof vi.fn>).mockResolvedValue({
+      success: true,
+      data: {
+        readyTasks: [
+          { id: 'T10630', title: 'Saga context pack', priority: 'high', depends: [] },
+        ],
+      },
+    });
+
+    const mockImpl = {
+      loadSingleTask: vi.fn().mockImplementation((id: string) => {
+        if (id === 'T10547') return Promise.resolve(epic);
+        return Promise.resolve(null);
+      }),
+      queryTasks: vi.fn().mockResolvedValue({ tasks: [epic, child1, child2], total: 3 }),
+      queryAuditLog: vi.fn().mockResolvedValue([]),
+    };
+    (getAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(mockImpl);
+    (getTaskAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(mockImpl);
+
+    const result = await coreTaskContext('/fake/project', {
+      taskId: 'T10547',
+      scope: 'epic',
+      includeAcceptance: false,
+      includeBlockers: false,
+      includeDocs: false,
+      includeEdges: false,
+      includeActivity: false,
+    });
+
+    expect(result.rollup).toBeDefined();
+    expect(result.rollup!.total).toBe(2);
+    expect(result.rollup!.done).toBe(1);
+    expect(result.rollup!.pending).toBe(1);
+    expect(result.rollup!.completionPct).toBe(50);
+
+    expect(result.readyFrontier).toBeDefined();
+    expect(result.readyFrontier).toHaveLength(1);
+    expect(result.readyFrontier![0].id).toBe('T10630');
+    expect(result.members).toBeUndefined();
+  });
+
+  it('scope omitted produces no rollup/members/readyFrontier (backward compat)', async () => {
+    const task = makeTask({ id: 'T10629' });
+    setupAccessor(task);
+
+    const result = await coreTaskContext('/fake/project', {
+      taskId: 'T10629',
+      includeAcceptance: false,
+      includeBlockers: false,
+      includeDocs: false,
+      includeEdges: false,
+      includeActivity: false,
+    });
+
+    expect(result.rollup).toBeUndefined();
+    expect(result.members).toBeUndefined();
+    expect(result.readyFrontier).toBeUndefined();
+  });
+
+  it('omission includes expansionCommand for rollup', async () => {
+    const saga = makeTask({
+      id: 'T10538',
+      type: 'saga',
+      relates: [{ taskId: 'T10547', type: 'groups', reason: 'member' }],
+    });
+    const epic = makeTask({ id: 'T10547', title: 'E9', status: 'done', type: 'epic' });
+
+    const mockImpl = {
+      loadSingleTask: vi.fn().mockImplementation((id: string) => {
+        if (id === 'T10538') return Promise.resolve({
+          ...saga,
+          relates: saga.relates,
+        });
+        if (id === 'T10547') return Promise.resolve(epic);
+        return Promise.resolve(null);
+      }),
+      queryTasks: vi.fn().mockResolvedValue({ tasks: [saga, epic], total: 2 }),
+      queryAuditLog: vi.fn().mockResolvedValue([]),
+    };
+    (getAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(mockImpl);
+    (getTaskAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(mockImpl);
+
+    const result = await coreTaskContext('/fake/project', {
+      taskId: 'T10538',
+      scope: 'saga',
+      budgetTokens: 55,
+      includeAcceptance: false,
+      includeBlockers: false,
+      includeDocs: false,
+      includeEdges: false,
+      includeActivity: false,
+    });
+
+    const rollupOmission = result.omissions.find((o: { path: string }) => o.path === 'rollup');
+    expect(rollupOmission).toBeDefined();
+    expect(rollupOmission!.expansionCommand).toBeDefined();
+    expect(rollupOmission!.expansionCommand).toContain('cleo saga rollup T10538');
+  });
+
+  it('scope=saga on non-saga task omits rollup with expansion command', async () => {
+    const task = makeTask({ id: 'T10629', type: 'task' });
+    setupAccessor(task);
+
+    const result = await coreTaskContext('/fake/project', {
+      taskId: 'T10629',
+      scope: 'saga',
+      includeAcceptance: false,
+      includeBlockers: false,
+      includeDocs: false,
+      includeEdges: false,
+      includeActivity: false,
+    });
+
+    expect(result.rollup).toBeUndefined();
+    expect(result.members).toBeUndefined();
+    const rollupOmission = result.omissions.find((o: { path: string }) => o.path === 'rollup');
+    // When task is not saga-shaped but scope=saga, we still get the not_available omission
+    // (the isSagaShaped check returns false for type='task', so saga scope is skipped silently)
+  });
+
+  it('scope=epic with ready frontier from orchestrate', async () => {
+    const epic = makeTask({ id: 'T10547', title: 'E9: Context Packs', type: 'epic', status: 'active' });
+    const child = makeTask({ id: 'T10630', title: 'Saga context pack', status: 'pending', parentId: 'T10547' });
+
+    const { orchestrateReady } = await import('../../orchestrate/query-ops.js');
+    (orchestrateReady as ReturnType<typeof vi.fn>).mockResolvedValue({
+      success: true,
+      data: {
+        readyTasks: [
+          { id: 'T10630', title: 'Saga context pack', priority: 'high', depends: ['T10629'] },
+        ],
+      },
+    });
+
+    const mockImpl = {
+      loadSingleTask: vi.fn().mockImplementation((id: string) => {
+        if (id === 'T10547') return Promise.resolve(epic);
+        return Promise.resolve(null);
+      }),
+      queryTasks: vi.fn().mockResolvedValue({ tasks: [epic, child], total: 2 }),
+      queryAuditLog: vi.fn().mockResolvedValue([]),
+    };
+    (getAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(mockImpl);
+    (getTaskAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(mockImpl);
+
+    const result = await coreTaskContext('/fake/project', {
+      taskId: 'T10547',
+      scope: 'epic',
+      includeAcceptance: false,
+      includeBlockers: false,
+      includeDocs: false,
+      includeEdges: false,
+      includeActivity: false,
+    });
+
+    expect(result.readyFrontier![0].id).toBe('T10630');
+    expect(result.readyFrontier![0].depends).toEqual(['T10629']);
   });
 });

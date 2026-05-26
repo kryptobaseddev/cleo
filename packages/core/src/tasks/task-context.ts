@@ -5,7 +5,11 @@
  * (from taskSlice) + recent activity within a configurable token budget,
  * with explicit omission tracking and expansion hints.
  *
+ * When `scope` is `'saga'` or `'epic'`, also includes rollup summaries
+ * and the ready frontier for the scope.
+ *
  * @task T10629
+ * @task T10630
  */
 
 import type {
@@ -19,8 +23,12 @@ import type {
   TasksContextOmission,
   TasksContextParams,
   TasksContextResult,
+  TasksScopeMember,
+  TasksScopeReadyEntry,
+  TasksScopeRollup,
   TasksSliceResult,
 } from '@cleocode/contracts';
+import { SAGA_GROUPS_RELATION } from '../sagas/constants.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { coreTaskSlice } from './task-data.js';
 
@@ -163,18 +171,207 @@ function makeOmission(
   reason: TasksContextOmission['reason'],
   message: string,
   count?: number,
+  expansionCommand?: string,
 ): TasksContextOmission {
-  return { path, reason, message, ...(count !== undefined ? { count } : {}) };
+  return {
+    path,
+    reason,
+    message,
+    ...(count !== undefined ? { count } : {}),
+    ...(expansionCommand !== undefined ? { expansionCommand } : {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Saga / Epic scope helpers (T10630)
+// ---------------------------------------------------------------------------
+
+/**
+ * Determine if a task is saga-shaped (first-class `type='saga'` or
+ * legacy `type='epic'` with `labels` containing `'saga'`).
+ *
+ * @task T10630
+ */
+function isSagaShaped(task: Task): boolean {
+  if (task.type === 'saga') return true;
+  if (task.type !== 'epic') return false;
+  return (task.labels ?? []).includes('saga');
+}
+
+/**
+ * Build rollup + members + ready frontier for a saga.
+ *
+ * Resolves member epics via `task_relations.type='groups'` edges,
+ * computes aggregate status rollup, and fetches the ready frontier
+ * across all member epics.
+ *
+ * @task T10630
+ */
+async function buildSagaScope(
+  projectRoot: string,
+  saga: Task,
+  accessor: DataAccessor,
+): Promise<{
+  rollup: TasksScopeRollup;
+  members: TasksScopeMember[];
+  readyFrontier: TasksScopeReadyEntry[];
+}> {
+  // Resolve member epics via relates
+  const sagaWithRelates = await accessor.loadSingleTask(saga.id);
+  const memberIds: string[] = [];
+  if (sagaWithRelates?.relates) {
+    for (const rel of sagaWithRelates.relates) {
+      if (rel.type === SAGA_GROUPS_RELATION) {
+        memberIds.push(rel.taskId);
+      }
+    }
+  }
+
+  // Load member epic details
+  const members: TasksScopeMember[] = [];
+  let done = 0;
+  let active = 0;
+  let blocked = 0;
+  let pending = 0;
+
+  for (const epicId of memberIds) {
+    const epic = await accessor.loadSingleTask(epicId);
+    if (!epic) continue;
+    members.push({ epicId: epic.id, title: epic.title, status: epic.status });
+    switch (epic.status) {
+      case 'done': done++; break;
+      case 'active': active++; break;
+      case 'blocked': blocked++; break;
+      default: pending++; break;
+    }
+  }
+
+  const total = members.length;
+  const rollup: TasksScopeRollup = {
+    total,
+    done,
+    active,
+    blocked,
+    pending,
+    completionPct: total > 0 ? Math.round((done / total) * 100) : 0,
+  };
+
+  // Resolve ready frontier across member epics via orchestrate ready
+  const readyFrontier: TasksScopeReadyEntry[] = [];
+  try {
+    const { orchestrateReady } = await import('../orchestrate/query-ops.js');
+    const seenIds = new Set<string>();
+    for (const epicId of memberIds) {
+      try {
+        const readyResult = await orchestrateReady(epicId, projectRoot);
+        if (!readyResult.success) continue;
+        const rData = readyResult.data as
+          | { readyTasks?: Array<{ id: string; title: string; priority: string; depends: string[] }> }
+          | undefined;
+        for (const t of rData?.readyTasks ?? []) {
+          if (seenIds.has(t.id)) continue;
+          seenIds.add(t.id);
+          readyFrontier.push({
+            id: t.id,
+            title: t.title,
+            priority: t.priority,
+            depends: t.depends,
+          });
+        }
+      } catch {
+        // Skip member epics that fail ready resolution
+      }
+    }
+  } catch {
+    // orchestrateReady module unavailable — omit ready frontier
+  }
+
+  return { rollup, members, readyFrontier };
+}
+
+/**
+ * Build rollup + ready frontier for an epic.
+ *
+ * Computes aggregate status rollup across child tasks and
+ * fetches the ready frontier.
+ *
+ * @task T10630
+ */
+async function buildEpicScope(
+  projectRoot: string,
+  epic: Task,
+  accessor: DataAccessor,
+): Promise<{
+  rollup: TasksScopeRollup;
+  readyFrontier: TasksScopeReadyEntry[];
+}> {
+  // Get child tasks
+  const { tasks: allTasks } = await accessor.queryTasks({});
+  const children = allTasks.filter((t) => t.parentId === epic.id);
+
+  let done = 0;
+  let activeC = 0;
+  let blocked = 0;
+  let pending = 0;
+
+  for (const child of children) {
+    switch (child.status) {
+      case 'done': done++; break;
+      case 'active': activeC++; break;
+      case 'blocked': blocked++; break;
+      default: pending++; break;
+    }
+  }
+
+  const total = children.length;
+  const rollup: TasksScopeRollup = {
+    total,
+    done,
+    active: activeC,
+    blocked,
+    pending,
+    completionPct: total > 0 ? Math.round((done / total) * 100) : 0,
+  };
+
+  // Resolve ready frontier via orchestrate ready
+  const readyFrontier: TasksScopeReadyEntry[] = [];
+  try {
+    const { orchestrateReady } = await import('../orchestrate/query-ops.js');
+    const readyResult = await orchestrateReady(epic.id, projectRoot);
+    if (readyResult.success) {
+      const rData = readyResult.data as
+        | { readyTasks?: Array<{ id: string; title: string; priority: string; depends: string[] }> }
+        | undefined;
+      for (const t of rData?.readyTasks ?? []) {
+        readyFrontier.push({
+          id: t.id,
+          title: t.title,
+          priority: t.priority,
+          depends: t.depends,
+        });
+      }
+    }
+  } catch {
+    // orchestrateReady module unavailable — omit ready frontier
+  }
+
+  return { rollup, readyFrontier };
 }
 
 /**
  * Build a bounded task-scoped context pack.
+ *
+ * When `params.scope` is `'saga'`, resolves member-epic rollup + ready
+ * frontier across all members. When `'epic'`, resolves child-task rollup
+ * + ready frontier. Otherwise behaves as a single-task pack (T10629
+ * baseline).
  *
  * @param projectRoot - Absolute path to the CLEO project root
  * @param params - Context pack parameters
  * @returns Bounded context pack with omission tracking
  *
  * @task T10629
+ * @task T10630
  */
 export async function coreTaskContext(
   projectRoot: string,
@@ -188,6 +385,7 @@ export async function coreTaskContext(
   const includeActivity = params.includeActivity ?? true;
   const activityLimit = clampPositiveInteger(params.activityLimit, DEFAULT_ACTIVITY_LIMIT);
   const edgeDepth = clampPositiveInteger(params.edgeDepth, DEFAULT_EDGE_DEPTH);
+  const scope = params.scope;
 
   const accessor = await getTaskAccessor(projectRoot);
   const { task } = await loadTaskWithAccessor(params.taskId, accessor);
@@ -198,6 +396,107 @@ export async function coreTaskContext(
 
   const identity = await buildIdentity(task);
   estimatedTokens += estimateObjectTokens(identity);
+
+  // ── Scope-aware data (T10630) ─────────────────────────────────────────
+  let rollup: TasksScopeRollup | undefined;
+  let members: TasksScopeMember[] | undefined;
+  let readyFrontier: TasksScopeReadyEntry[] | undefined;
+
+  if (scope === 'saga' && isSagaShaped(task)) {
+    try {
+      const sagaData = await buildSagaScope(projectRoot, task, accessor);
+      rollup = sagaData.rollup;
+      members = sagaData.members;
+      readyFrontier = sagaData.readyFrontier;
+    } catch {
+      omissions.push(
+        makeOmission(
+          'rollup',
+          'not_available',
+          'Saga rollup unavailable: failed to resolve member epics',
+          undefined,
+          `cleo saga rollup ${task.id}`,
+        ),
+      );
+    }
+  } else if (scope === 'epic' && task.type === 'epic') {
+    try {
+      const epicData = await buildEpicScope(projectRoot, task, accessor);
+      rollup = epicData.rollup;
+      readyFrontier = epicData.readyFrontier;
+    } catch {
+      omissions.push(
+        makeOmission(
+          'rollup',
+          'not_available',
+          'Epic rollup unavailable: failed to resolve child tasks',
+          undefined,
+          `cleo orchestrate status ${task.id}`,
+        ),
+      );
+    }
+  }
+
+  // Budget rollup data
+  if (rollup !== undefined) {
+    const rollupTokens = estimateObjectTokens(rollup);
+    if (estimatedTokens + rollupTokens <= budgetTokens) {
+      estimatedTokens += rollupTokens;
+    } else {
+      omissions.push(
+        makeOmission(
+          'rollup',
+          'budget_exceeded',
+          `Rollup summary omitted: exceeds remaining budget`,
+          undefined,
+          scope === 'saga'
+            ? `cleo saga rollup ${task.id}`
+            : `cleo orchestrate status ${task.id}`,
+        ),
+      );
+      rollup = undefined;
+    }
+  }
+
+  if (members !== undefined && members.length > 0) {
+    const memberTokens = estimateObjectTokens(members);
+    if (estimatedTokens + memberTokens <= budgetTokens) {
+      estimatedTokens += memberTokens;
+    } else {
+      omissions.push(
+        makeOmission(
+          'members',
+          'budget_exceeded',
+          `Saga members (${members.length}) omitted: exceed remaining budget`,
+          members.length,
+          `cleo saga members ${task.id}`,
+        ),
+      );
+      members = undefined;
+    }
+  }
+
+  if (readyFrontier !== undefined && readyFrontier.length > 0) {
+    const frontierTokens = estimateObjectTokens(readyFrontier);
+    if (estimatedTokens + frontierTokens <= budgetTokens) {
+      estimatedTokens += frontierTokens;
+    } else {
+      omissions.push(
+        makeOmission(
+          'readyFrontier',
+          'budget_exceeded',
+          `Ready frontier (${readyFrontier.length} tasks) omitted: exceeds remaining budget`,
+          readyFrontier.length,
+          scope === 'saga'
+            ? `cleo orchestrate ready ${task.id}`
+            : `cleo orchestrate ready ${task.id}`,
+        ),
+      );
+      readyFrontier = undefined;
+    }
+  }
+
+  // ── Per-task sections (existing T10629 behaviour) ─────────────────────
 
   let acceptance: TasksContextAcceptanceEntry[] | undefined;
   if (includeAcceptance) {
@@ -330,6 +629,9 @@ export async function coreTaskContext(
     ...(docs ? { docs } : {}),
     ...(edges ? { edges } : {}),
     ...(activity ? { activity } : {}),
+    ...(rollup ? { rollup } : {}),
+    ...(members ? { members } : {}),
+    ...(readyFrontier ? { readyFrontier } : {}),
     omissions,
     expansionHints,
   };
