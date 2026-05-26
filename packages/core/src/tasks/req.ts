@@ -14,6 +14,7 @@ import { acceptanceGateSchema, ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { applyAcPlan, planAcUpdate } from './ac-table.js';
 
 // ─── Heuristic regex patterns ─────────────────────────────────────────────────
 
@@ -68,6 +69,23 @@ async function loadTask(accessor: DataAccessor, taskId: string) {
     });
   }
   return task;
+}
+
+async function persistAcceptanceProjection(
+  accessor: DataAccessor,
+  taskId: string,
+  acceptance: readonly AcceptanceItem[],
+  updatedAt: string,
+): Promise<void> {
+  await accessor.transaction(async (tx) => {
+    await tx.updateTaskFields(taskId, {
+      acceptanceJson: JSON.stringify(acceptance),
+      updatedAt,
+    });
+    const existing = await tx.getAcRows(taskId);
+    const plan = planAcUpdate(taskId, existing, acceptance);
+    await applyAcPlan(tx, taskId, plan);
+  });
 }
 
 /**
@@ -200,10 +218,7 @@ export async function reqAdd(
   }
 
   const updated: AcceptanceItem[] = [...existing, gate];
-  await acc.updateTaskFields(taskId, {
-    acceptanceJson: JSON.stringify(updated),
-    updatedAt: new Date().toISOString(),
-  });
+  await persistAcceptanceProjection(acc, taskId, updated, new Date().toISOString());
 
   return { task: { id: taskId, acceptance: updated } };
 }
@@ -314,10 +329,7 @@ export async function reqMigrate(
     return item;
   });
 
-  await acc.updateTaskFields(taskId, {
-    acceptanceJson: JSON.stringify(updated),
-    updatedAt: new Date().toISOString(),
-  });
+  await persistAcceptanceProjection(acc, taskId, updated, new Date().toISOString());
 
   return {
     proposals,
