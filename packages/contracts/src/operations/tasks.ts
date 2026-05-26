@@ -1147,6 +1147,8 @@ export interface TasksSagaCreateParams {
   description?: string;
   /** Pipe-separated acceptance criteria. */
   acceptance?: string[];
+  /** Validate and preview the Saga without writing rows. */
+  dryRun?: boolean;
 }
 
 /**
@@ -1158,6 +1160,16 @@ export interface TasksSagaCreateParams {
 export interface TasksSagaCreateResult {
   /** The created task record (type=epic, labels includes 'saga'). */
   task: TaskRecord;
+  /** True when this is a validation-only preview. */
+  dryRun?: boolean;
+  /** Number of Saga tasks that would be created by a successful dry-run. */
+  wouldCreate?: number;
+  /** Generic affected-entity count for dry-run projection. */
+  wouldAffect?: number;
+  /** Number of Saga specs validated during dry-run preflight. */
+  validatedCount?: number;
+  /** Number of rows durably inserted; always 0 for dry-run. */
+  insertedCount?: number;
 }
 
 /** Params for `tasks.saga.add` — link an Epic to a Saga. */
