@@ -63,10 +63,25 @@ export {
   createSqliteWorkGraphContainmentQueryService,
   SqliteWorkGraphContainmentQueryService,
 } from './containment.js';
-export type { SqliteWorkGraphRelationReader } from './relations.js';
+export type {
+  SqliteWorkGraphRelationReader,
+  WorkGraphDependsRelatesMisuseFinding,
+  WorkGraphGroupsAsHierarchyFinding,
+  WorkGraphRelationQualityContainmentInput,
+  WorkGraphRelationQualityDependencyInput,
+  WorkGraphRelationQualityFinding,
+  WorkGraphRelationQualityRelationInput,
+  WorkGraphRelationQualityValidationOptions,
+  WorkGraphRelationQualityValidationResult,
+  WorkGraphRelationReasonMissingFinding,
+} from './relations.js';
 export {
   createSqliteWorkGraphRelationQueryService,
+  E_WORKGRAPH_DEPENDS_RELATES_MISUSE,
+  E_WORKGRAPH_GROUPS_AS_HIERARCHY,
+  E_WORKGRAPH_RELATION_REASON_MISSING,
   SqliteWorkGraphRelationQueryService,
+  validateWorkGraphRelationQuality,
 } from './relations.js';
 export type {
   WorkGraphContainmentCycleFinding,
