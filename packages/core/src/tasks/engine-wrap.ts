@@ -388,15 +388,25 @@ export async function taskDeps(
 export async function taskRelates(
   projectRoot: string,
   taskId: string,
+  options?: { direction?: 'out' | 'in' | 'both'; type?: string; includeDependencies?: boolean },
 ): Promise<
   EngineResult<{
     taskId: string;
-    relations: Array<{ taskId: string; type: string; reason?: string }>;
+    direction: 'out' | 'in' | 'both';
+    relations: Array<{
+      taskId: string;
+      type: string;
+      reason?: string;
+      direction?: 'out' | 'in';
+      source?: 'relation' | 'dependency';
+      ready?: boolean;
+      status?: string;
+    }>;
     count: number;
   }>
 > {
   try {
-    const result = await coreTaskRelates(projectRoot, taskId);
+    const result = await coreTaskRelates(projectRoot, taskId, options);
     return engineSuccess(result);
   } catch (err: unknown) {
     return cleoErrorToEngineResult(err, 'E_GENERAL', 'Failed to read task relations');
