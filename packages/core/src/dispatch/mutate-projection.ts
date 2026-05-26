@@ -100,6 +100,23 @@ function readTaskId(record: unknown): string | undefined {
   return typeof id === 'string' ? id : undefined;
 }
 
+/** Read operation-order task IDs from a standardized TaskMutationEnvelope bucket. */
+function readTaskIdsFromBucket(record: Record<string, unknown>, key: string): string[] {
+  const value = record[key];
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => readTaskId(entry))
+    .filter((id): id is string => typeof id === 'string');
+}
+
+/** Read the T10608 dry-run summary shape when present. */
+function readDryRunSummary(record: Record<string, unknown>): Record<string, unknown> | undefined {
+  const value = record['dryRunSummary'];
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
 /**
  * Read a string-typed field from a record.
  *
@@ -139,14 +156,17 @@ export const MUTATE_PROJECTION_PLANS: Readonly<Record<string, MutateProjectionPl
     operation: 'tasks.add',
     extract: (data) => {
       const task = data['task'];
-      const id = readTaskId(task);
+      const createdIds = readTaskIdsFromBucket(data, 'created');
+      const id = readTaskId(task) ?? createdIds[0];
       const status =
         task && typeof task === 'object' ? (task as Record<string, unknown>)['status'] : undefined;
       const envelope = makeEnvelope('created', id ? [id] : []);
       if (typeof status === 'string') envelope['status'] = status;
-      const createdIds = data['createdIds'];
-      if (createdIds && typeof createdIds === 'object') {
-        const acceptanceCriteria = (createdIds as Record<string, unknown>)['acceptanceCriteria'];
+      const createdIdsField = data['createdIds'];
+      if (createdIdsField && typeof createdIdsField === 'object') {
+        const acceptanceCriteria = (createdIdsField as Record<string, unknown>)[
+          'acceptanceCriteria'
+        ];
         if (Array.isArray(acceptanceCriteria)) {
           envelope['acceptanceCriteriaIds'] = acceptanceCriteria.filter(
             (entry): entry is string => typeof entry === 'string',
@@ -162,21 +182,23 @@ export const MUTATE_PROJECTION_PLANS: Readonly<Record<string, MutateProjectionPl
     operation: 'tasks.add-batch',
     extract: (data) => {
       const tasksField = data['tasks'];
-      const ids: string[] = [];
+      const ids: string[] = readTaskIdsFromBucket(data, 'created');
+      const hasStandardizedCreatedIds = ids.length > 0;
       if (Array.isArray(tasksField)) {
         for (const entry of tasksField) {
           if (entry === null || typeof entry !== 'object') continue;
           const inner = (entry as Record<string, unknown>)['task'];
           const id = readTaskId(inner) ?? readTaskId(entry);
-          if (id) ids.push(id);
+          if (id && (!hasStandardizedCreatedIds || !ids.includes(id))) ids.push(id);
         }
       }
-      const isDryRun = data['dryRun'] === true;
+      const dryRunSummary = readDryRunSummary(data);
+      const isDryRun = data['dryRun'] === true || dryRunSummary?.['dryRun'] === true;
       const createdRaw = data['created'];
       const created = typeof createdRaw === 'number' ? createdRaw : ids.length;
       // T10599: in dry-run mode the meaningful count is wouldCreate, not the
       // always-zero `created` field. Fall back to ids.length when absent.
-      const wouldCreateRaw = data['wouldCreate'];
+      const wouldCreateRaw = data['wouldCreate'] ?? dryRunSummary?.['wouldCreate'];
       const wouldCreate = typeof wouldCreateRaw === 'number' ? wouldCreateRaw : undefined;
       const effectiveCount = isDryRun ? (wouldCreate ?? ids.length) : created;
       const envelope = makeEnvelope('created', ids);
@@ -187,14 +209,14 @@ export const MUTATE_PROJECTION_PLANS: Readonly<Record<string, MutateProjectionPl
         if (wouldCreate !== undefined) envelope['wouldCreate'] = wouldCreate;
         // wouldAffect — generic dry-run affected count. Prefer Core's explicit
         // value, otherwise mirror the effective count for legacy callers.
-        const wouldAffectRaw = data['wouldAffect'];
+        const wouldAffectRaw = data['wouldAffect'] ?? dryRunSummary?.['wouldAffect'];
         envelope['wouldAffect'] =
           typeof wouldAffectRaw === 'number' ? wouldAffectRaw : effectiveCount;
         // insertedCount — always 0 in dry-run (AC2: kept separate from wouldCreate)
-        const insertedCountRaw = data['insertedCount'];
+        const insertedCountRaw = data['insertedCount'] ?? dryRunSummary?.['insertedCount'];
         envelope['insertedCount'] = typeof insertedCountRaw === 'number' ? insertedCountRaw : 0;
         // validatedCount — specs that passed validation (AC3)
-        const validatedCountRaw = data['validatedCount'];
+        const validatedCountRaw = data['validatedCount'] ?? dryRunSummary?.['validatedCount'];
         if (typeof validatedCountRaw === 'number') {
           envelope['validatedCount'] = validatedCountRaw;
         }
@@ -202,6 +224,10 @@ export const MUTATE_PROJECTION_PLANS: Readonly<Record<string, MutateProjectionPl
         const findings = data['validationFindings'];
         if (Array.isArray(findings) && findings.length > 0) {
           envelope['validationFindings'] = findings;
+        }
+        const warnings = dryRunSummary?.['warnings'];
+        if (Array.isArray(warnings) && warnings.length > 0) {
+          envelope['validationFindings'] ??= warnings;
         }
       } else {
         // Live run: expose insertedCount for parity (AC2)
@@ -217,7 +243,8 @@ export const MUTATE_PROJECTION_PLANS: Readonly<Record<string, MutateProjectionPl
     operation: 'tasks.update',
     extract: (data) => {
       const task = data['task'];
-      const id = readTaskId(task);
+      const updatedIds = readTaskIdsFromBucket(data, 'updated');
+      const id = readTaskId(task) ?? updatedIds[0];
       const envelope = makeEnvelope('updated', id ? [id] : []);
       const changes = data['changes'];
       if (Array.isArray(changes)) envelope['changes'] = changes;
@@ -232,7 +259,8 @@ export const MUTATE_PROJECTION_PLANS: Readonly<Record<string, MutateProjectionPl
     operation: 'tasks.complete',
     extract: (data) => {
       const task = data['task'];
-      const id = readTaskId(task);
+      const updatedIds = readTaskIdsFromBucket(data, 'updated');
+      const id = readTaskId(task) ?? updatedIds[0];
       const envelope = makeEnvelope('updated', id ? [id] : []);
       if (task && typeof task === 'object') {
         const inner = task as Record<string, unknown>;
@@ -252,7 +280,8 @@ export const MUTATE_PROJECTION_PLANS: Readonly<Record<string, MutateProjectionPl
     operation: 'tasks.delete',
     extract: (data) => {
       const deleted = data['deletedTask'] ?? data['task'];
-      const id = readTaskId(deleted);
+      const deletedIds = readTaskIdsFromBucket(data, 'deleted');
+      const id = readTaskId(deleted) ?? deletedIds[0];
       const envelope = makeEnvelope('deleted', id ? [id] : []);
       if (deleted && typeof deleted === 'object') {
         const status = readString(deleted as Record<string, unknown>, 'status');
