@@ -558,6 +558,10 @@ export interface DocsUpdateParams {
    * `--status accepted` (or any other valid status) to override.
    */
   status?: DocsLifecycleStatus;
+  /** Validate/preflight only; do not mutate attachment rows, blob storage, or audit logs. */
+  dryRun?: boolean;
+  /** Fail body-schema diagnostics instead of surfacing advisory warnings. */
+  strict?: boolean;
   /** Agent identity that performed the update (default: `'human'`). */
   attachedBy?: string;
 }
@@ -602,6 +606,12 @@ export interface DocsUpdateResult {
    * the 5-minute squash window (no new audit line was written).
    */
   squashed: boolean;
+  /** Present when this response came from a preview-only update. */
+  dryRun?: true;
+  /** False for dry-runs because no write was actually performed. */
+  wouldWrite?: boolean;
+  /** Preview-only indicator that the requested bytes/status differ from the active row. */
+  wouldChange?: boolean;
 }
 
 // --------------------------------------------------------------------------

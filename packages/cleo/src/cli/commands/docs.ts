@@ -1411,6 +1411,8 @@ const updateCommand = defineCommand({
         ...(inlineContent !== undefined ? { content: inlineContent } : {}),
         ...(typeof args.message === 'string' ? { message: args.message } : {}),
         ...(typeof args.status === 'string' ? { status: args.status } : {}),
+        ...(args['dry-run'] === true ? { dryRun: true } : {}),
+        ...(args.strict === true ? { strict: true } : {}),
         ...(typeof args['attached-by'] === 'string' ? { attachedBy: args['attached-by'] } : {}),
       },
       { command: 'docs update' },

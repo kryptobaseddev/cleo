@@ -31,9 +31,11 @@ import {
   type DocsUpdateParams,
 } from '@cleocode/contracts/operations/docs';
 import { and, eq } from 'drizzle-orm';
+import { pushWarning } from '../output.js';
 import { getCleoDirAbsolute } from '../paths.js';
 import { attachmentRefs, attachments } from '../store/schema/attachments.js';
 import { getDb, getNativeTasksDb } from '../store/sqlite.js';
+import { validateDocBody } from './validate-body.js';
 
 /**
  * 5-minute squash window for audit-log entries. A second update for the
@@ -66,6 +68,7 @@ const ALLOWED_STATUSES: readonly DocsLifecycleStatus[] = DOCS_LIFECYCLE_STATUSES
 export type DocsUpdateError =
   | { code: 'E_NOT_FOUND'; message: string }
   | { code: 'E_INVALID_INPUT'; message: string }
+  | { code: 'E_DOC_SCHEMA_MISMATCH'; message: string; details?: Record<string, unknown> }
   | { code: 'E_INVALID_STATUS'; message: string }
   | { code: 'E_FILE_ERROR'; message: string };
 
@@ -90,6 +93,9 @@ export interface DocsUpdateOk {
   updatedAt: string;
   version: number;
   squashed: boolean;
+  dryRun?: true;
+  wouldWrite?: boolean;
+  wouldChange?: boolean;
 }
 
 /**
@@ -394,6 +400,50 @@ export async function updateDocBySlug(
 
   const previousAttachmentId = oldRow.id;
   const previousSha256 = oldRow.sha256;
+  const wouldChange = newSha256 !== previousSha256 || oldRow.lifecycleStatus !== status;
+
+  if (oldRow.type !== null && oldRow.type !== undefined) {
+    const check = validateDocBody(oldRow.type, buf.toString('utf-8'));
+    if (!check.ok) {
+      const missingList = check.missing.join(', ');
+      if (params.strict === true) {
+        return {
+          ok: false,
+          error: {
+            code: 'E_DOC_SCHEMA_MISMATCH',
+            message: `body for kind '${oldRow.type}' is missing required section(s): ${missingList}`,
+            details: { kind: oldRow.type, missing: check.missing, strict: true },
+          },
+        };
+      }
+      pushWarning({
+        code: 'W_DOC_SCHEMA_MISMATCH',
+        message: `body for kind '${oldRow.type}' is missing required section(s): ${missingList}. Add '--strict' to fail on schema violations.`,
+      });
+    }
+  }
+
+  if (params.dryRun === true) {
+    return {
+      ok: true,
+      result: {
+        slug,
+        type: oldRow.type ?? null,
+        attachmentId: oldRow.id,
+        previousAttachmentId,
+        sha256: newSha256,
+        previousSha256,
+        changed: false,
+        lifecycleStatus: status,
+        updatedAt: nowIso,
+        version: countVersionsForSlug(projectRoot, slug),
+        squashed: false,
+        dryRun: true,
+        wouldWrite: false,
+        wouldChange,
+      },
+    };
+  }
 
   // NOOP fast-path: identical content. Still surface the lifecycle status
   // update if the caller asked for one, and still write an audit entry so

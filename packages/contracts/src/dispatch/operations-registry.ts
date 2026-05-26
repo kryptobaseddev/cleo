@@ -7234,6 +7234,21 @@ export const OPERATIONS: OperationDef[] = [
           `Valid: ${DOCS_LIFECYCLE_STATUSES.join('|')}.`,
       },
       {
+        name: 'dryRun',
+        type: 'boolean' as const,
+        required: false,
+        description:
+          'Preview validation and resulting envelope without mutating attachment rows, blob storage, or audit logs.',
+        cli: { flag: 'dry-run' },
+      },
+      {
+        name: 'strict',
+        type: 'boolean' as const,
+        required: false,
+        description:
+          'Fail body-schema diagnostics instead of surfacing advisory warnings before the write.',
+      },
+      {
         name: 'attachedBy',
         type: 'string' as const,
         required: false,
