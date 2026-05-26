@@ -19,6 +19,8 @@ import type {
   ArchiveFile,
   DataAccessor,
   QueryTasksResult,
+  TaskAuditLogQuery,
+  TaskAuditLogRow,
   TaskFieldUpdates,
   TaskQueryFilters,
   TransactionAccessor,
@@ -328,6 +330,47 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
           })
           .run(),
       );
+    },
+
+    async queryAuditLog(query: TaskAuditLogQuery): Promise<TaskAuditLogRow[]> {
+      const db = await getDb(cwd);
+      const conditions = [];
+      if (query.taskIds && query.taskIds.length > 0) {
+        conditions.push(inArray(schema.auditLog.taskId, [...query.taskIds]));
+      }
+      if (query.actions && query.actions.length > 0) {
+        conditions.push(inArray(schema.auditLog.action, [...query.actions]));
+      }
+      if (query.since) {
+        conditions.push(sql`${schema.auditLog.timestamp} >= ${query.since}`);
+      }
+      const limit = Math.max(1, Math.floor(query.limit ?? 100));
+      const rows = await db
+        .select({
+          id: schema.auditLog.id,
+          timestamp: schema.auditLog.timestamp,
+          action: schema.auditLog.action,
+          taskId: schema.auditLog.taskId,
+          actor: schema.auditLog.actor,
+          detailsJson: schema.auditLog.detailsJson,
+          beforeJson: schema.auditLog.beforeJson,
+          afterJson: schema.auditLog.afterJson,
+        })
+        .from(schema.auditLog)
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(sql`${schema.auditLog.timestamp} DESC`)
+        .limit(limit)
+        .all();
+      return rows.map((row) => ({
+        id: row.id,
+        timestamp: row.timestamp,
+        action: row.action,
+        taskId: row.taskId,
+        actor: row.actor,
+        detailsJson: row.detailsJson ?? null,
+        beforeJson: row.beforeJson ?? null,
+        afterJson: row.afterJson ?? null,
+      }));
     },
 
     // ---- Fine-grained task operations (T5034) ----

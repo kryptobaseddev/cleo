@@ -14,6 +14,8 @@ export type {
   ArchiveFile,
   DataAccessor,
   QueryTasksResult,
+  TaskAuditLogQuery,
+  TaskAuditLogRow,
   TaskFieldUpdates,
   TaskQueryFilters,
   TransactionAccessor,

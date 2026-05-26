@@ -2,6 +2,8 @@ import type {
   AcBindingRow,
   AcRow,
   CompletionBlockerReason,
+  CompletionContextPack,
+  CompletionContextPackOptions,
   CompletionCriterionEvaluation,
   CompletionCriterionReplacement,
   CompletionCriterionWaiver,
@@ -12,6 +14,7 @@ import type {
   Task,
   TaskStatus,
 } from '@cleocode/contracts';
+import { buildCompletionContextPack } from './completion-context-pack.js';
 
 export interface EvaluateCompletionOptions {
   /**
@@ -23,6 +26,12 @@ export interface EvaluateCompletionOptions {
   readonly childWaivers?: readonly CompletionCriterionWaiver[];
   /** Criterion-scoped replacement policies for cancelled or superseded children. */
   readonly childReplacements?: readonly CompletionCriterionReplacement[];
+  /** Prebuilt context pack; when omitted, evaluateCompletion builds one from audit_log. */
+  readonly contextPack?: CompletionContextPack;
+  /** Builder options used when evaluateCompletion creates the context pack. */
+  readonly contextPackOptions?: CompletionContextPackOptions;
+  /** Disable audit-log context construction for narrow callers/tests. */
+  readonly includeContextPack?: boolean;
 }
 
 const CHILD_SATISFIED_STATUS: ReadonlySet<TaskStatus> = new Set(['done']);
@@ -216,6 +225,11 @@ export async function evaluateCompletion(
       ? ['done_parent_has_unsatisfied_criteria']
       : [];
   const stale = staleReasons.length > 0;
+  const contextPack =
+    options.contextPack ??
+    (options.includeContextPack === false
+      ? undefined
+      : await buildCompletionContextPack(taskId, accessor, options.contextPackOptions));
 
   return {
     taskId,
@@ -223,6 +237,7 @@ export async function evaluateCompletion(
     ready: unsatisfied.length === 0 && !stale,
     stale,
     staleReasons,
+    ...(contextPack ? { contextPack } : {}),
     satisfied,
     unsatisfied,
     waived,
@@ -250,13 +265,16 @@ function blockerForStale(evaluation: CompletionEvaluation): CompletionCriterionE
 }
 
 function summarize(evaluation: CompletionEvaluation): string {
+  const contextSuffix = evaluation.contextPack?.summary.totalEvents
+    ? ` Recent history: ${evaluation.contextPack.summary.totalEvents} lifecycle event(s), latest ${evaluation.contextPack.summary.latestEventAt}.`
+    : '';
   if (evaluation.ready) {
-    return `Task ${evaluation.taskId} is ready to complete: ${evaluation.totals.satisfied} satisfied, ${evaluation.totals.waived} waived, ${evaluation.totals.replaced} replaced, 0 unsatisfied criteria.`;
+    return `Task ${evaluation.taskId} is ready to complete: ${evaluation.totals.satisfied} satisfied, ${evaluation.totals.waived} waived, ${evaluation.totals.replaced} replaced, 0 unsatisfied criteria.${contextSuffix}`;
   }
   if (evaluation.stale) {
-    return `Task ${evaluation.taskId} is already done but has ${evaluation.totals.unsatisfied} unsatisfied completion criteria.`;
+    return `Task ${evaluation.taskId} is already done but has ${evaluation.totals.unsatisfied} unsatisfied completion criteria.${contextSuffix}`;
   }
-  return `Task ${evaluation.taskId} is not ready to complete: ${evaluation.totals.unsatisfied} unsatisfied, ${evaluation.totals.satisfied} satisfied, ${evaluation.totals.waived} waived, ${evaluation.totals.replaced} replaced criteria.`;
+  return `Task ${evaluation.taskId} is not ready to complete: ${evaluation.totals.unsatisfied} unsatisfied, ${evaluation.totals.satisfied} satisfied, ${evaluation.totals.waived} waived, ${evaluation.totals.replaced} replaced criteria.${contextSuffix}`;
 }
 
 /** Format a CompletionEvaluation into a compact, human-readable explanation. */
@@ -266,6 +284,7 @@ export function explainCompletion(evaluation: CompletionEvaluation): CompletionE
     ready: evaluation.ready,
     stale: evaluation.stale,
     summary: summarize(evaluation),
+    ...(evaluation.contextPack ? { contextPack: evaluation.contextPack } : {}),
     blockers: evaluation.stale
       ? [blockerForStale(evaluation), ...evaluation.unsatisfied]
       : evaluation.unsatisfied,
