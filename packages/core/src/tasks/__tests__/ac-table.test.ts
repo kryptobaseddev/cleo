@@ -15,7 +15,13 @@
 
 import type { AcRow } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
-import { acItemToText, buildFreshAcRows, planAcUpdate } from '../ac-table.js';
+import {
+  acItemToText,
+  buildAcRowId,
+  buildFreshAcRows,
+  directTextSourceKey,
+  planAcUpdate,
+} from '../ac-table.js';
 
 /**
  * Build a synthetic AC row matching the shape `getAcRows` returns.
@@ -39,11 +45,21 @@ describe('acItemToText', () => {
     expect(acItemToText('plain text')).toBe('plain text');
   });
 
-  it('JSON-serialises structured acceptance gates', () => {
+  it('canonical JSON-serialises structured acceptance gates with stable key order', () => {
     const gate = { kind: 'test', description: 'unit run', command: 'pnpm test', expect: 'pass' };
+    const reorderedGate = {
+      expect: 'pass',
+      command: 'pnpm test',
+      description: 'unit run',
+      kind: 'test',
+    };
     const out = acItemToText(gate as never);
     expect(out.startsWith('{')).toBe(true);
     expect(JSON.parse(out)).toEqual(gate);
+    expect(acItemToText(reorderedGate as never)).toBe(out);
+    expect(out).toBe(
+      '{"command":"pnpm test","description":"unit run","expect":"pass","kind":"test"}',
+    );
   });
 });
 
@@ -53,19 +69,44 @@ describe('buildFreshAcRows', () => {
     expect(buildFreshAcRows('T001', [])).toEqual([]);
   });
 
-  it('assigns UUIDs + 1-based ordinals matching input order', () => {
+  it('assigns deterministic UUID-shaped IDs + source keys and 1-based ordinals', () => {
     const rows = buildFreshAcRows('T001', ['AC1', 'AC2', 'AC3']);
+    const secondPass = buildFreshAcRows('T001', ['AC1', 'AC2', 'AC3']);
     expect(rows).toHaveLength(3);
     expect(rows[0].ordinal).toBe(1);
     expect(rows[1].ordinal).toBe(2);
     expect(rows[2].ordinal).toBe(3);
     expect(rows.every((r) => r.taskId === 'T001')).toBe(true);
-    // Each id is a unique UUIDv4 (loose pattern check — randomUUID guarantees v4).
+    expect(secondPass.map((r) => r.id)).toEqual(rows.map((r) => r.id));
+    expect(secondPass.map((r) => r.sourceKey)).toEqual(rows.map((r) => r.sourceKey));
+
+    // Each id is a unique deterministic UUIDv5-shaped value.
     const ids = new Set(rows.map((r) => r.id));
     expect(ids.size).toBe(3);
     for (const r of rows) {
-      expect(r.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+      expect(r.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+      expect(r.sourceKey).toBe(directTextSourceKey(r.ordinal, r.text));
+      expect(r.id).toBe(buildAcRowId('T001', r.text));
     }
+  });
+
+  it('keeps AC ids independent from ordinal while source keys retain ordinal provenance', () => {
+    const firstOrdinal = buildFreshAcRows('T001', ['same body'])[0];
+    const secondOrdinal = planAcUpdate(
+      'T001',
+      [row('T001', 1, 'different existing')],
+      ['different existing', 'same body'],
+    ).inserts[0];
+
+    expect(firstOrdinal.id).toBe(secondOrdinal.id);
+    expect(firstOrdinal.sourceKey).toBe(directTextSourceKey(1, 'same body'));
+    expect(secondOrdinal.sourceKey).toBe(directTextSourceKey(2, 'same body'));
+  });
+
+  it('fails loudly before DB write when duplicate canonical AC bodies collide', () => {
+    expect(() => buildFreshAcRows('T001', ['same body', 'same body'])).toThrow(
+      'Duplicate acceptance criterion id',
+    );
   });
 
   it('preserves AC text via acItemToText', () => {

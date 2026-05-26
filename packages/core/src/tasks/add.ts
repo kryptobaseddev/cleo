@@ -5,7 +5,7 @@
  * @task T1633 — BRAIN-powered duplicate detection
  */
 
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import type {
   ProjectMeta,
   Task,
@@ -29,8 +29,10 @@ import type { DataAccessor, TransactionAccessor } from '../store/data-accessor.j
 import {
   acItemToText,
   applyAcPlan,
+  buildAcRowId,
   buildChildProjectionAcText,
   buildFreshAcRows,
+  childProjectionSourceKey,
 } from './ac-table.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
 import {
@@ -1336,12 +1338,13 @@ export async function addTask(
       const parentChildAcText = buildChildProjectionAcText(taskId, options.title);
       const parentChildOrdinal =
         parentAcRows.reduce((max, row) => Math.max(max, row.ordinal), 0) + 1;
+      const parentChildSourceKey = childProjectionSourceKey(taskId);
       const parentChildAcRow = {
-        id: randomUUID(),
+        id: buildAcRowId(parentId, parentChildSourceKey),
         taskId: parentId,
         ordinal: parentChildOrdinal,
         kind: 'child_task' as const,
-        sourceKey: `child:${taskId}`,
+        sourceKey: parentChildSourceKey,
         targetTaskId: taskId,
         projection: 'parent-child',
         text: parentChildAcText,

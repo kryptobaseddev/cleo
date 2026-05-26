@@ -200,10 +200,10 @@ export const callsiteCoverageAtomSchema = z.object({
 // ---------------------------------------------------------------------------
 
 /**
- * Strict UUIDv4 regex (lowercase, hyphenated 8-4-4-4-12 with the `4` major
- * version nibble and `[89ab]` variant nibble) per ADR-079-r2 §2.1 ABNF
- * (`ac-uuid` production) and RFC 9562 §5.4. Used by the `satisfies:` atom
- * to validate the target-AC UUID form.
+ * Strict AC UUID regex (lowercase, hyphenated 8-4-4-4-12 with v4/v5 major
+ * version nibble and `[89ab]` variant nibble). T10586 keeps legacy random
+ * UUIDv4 AC ids valid while allowing deterministic UUIDv5-shaped ids derived
+ * from task id + source key.
  *
  * Validators MUST reject mixed-case to prevent silent dedupe failures — the
  * canonical column casing is lowercase per ADR-079-r1 §2.1.
@@ -212,7 +212,7 @@ export const callsiteCoverageAtomSchema = z.object({
  * @adr ADR-079-r2 §2.1
  */
 export const AC_UUID_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[45][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 /**
  * Positional-alias regex for `satisfies:` atom target-AC identifiers per
@@ -286,10 +286,10 @@ export const satisfiesAtomSchema = z.object({
   targetTaskId: z
     .string()
     .regex(SATISFIES_TASK_ID_REGEX, 'satisfies atom targetTaskId must match /^T[0-9]{1,7}$/'),
-  /** Lowercase UUIDv4 — populated for the canonical form; undefined for alias form. */
+  /** Lowercase UUIDv4/v5 — populated for the canonical form; undefined for alias form. */
   targetAcId: z
     .string()
-    .regex(AC_UUID_REGEX, 'satisfies atom targetAcId must be a lowercase UUIDv4')
+    .regex(AC_UUID_REGEX, 'satisfies atom targetAcId must be a lowercase UUIDv4/v5')
     .optional(),
   /** Positional alias `AC<1-4 digits>` — populated for alias form; undefined for UUID form. */
   targetAcAlias: z
@@ -882,7 +882,7 @@ export function parseEvidenceString(raw: string): EvidenceAtom[] {
           }
         }
 
-        // ac-id is EITHER a strict UUIDv4 OR an AC<digits> alias — exactly one.
+        // ac-id is EITHER a strict UUIDv4/v5 OR an AC<digits> alias — exactly one.
         let targetAcId: string | undefined;
         let targetAcAlias: string | undefined;
         if (AC_UUID_REGEX.test(acIdRaw)) {
@@ -891,8 +891,8 @@ export function parseEvidenceString(raw: string): EvidenceAtom[] {
           targetAcAlias = acIdRaw;
         } else {
           throw new EvidenceParseError(
-            `satisfies atom ac-id "${acIdRaw}" must be either a lowercase UUIDv4 or AC<1-4 digits> in "${chunk}"`,
-            'Use format: satisfies:T1234#AC2 (alias) or satisfies:T1234#<lowercase-uuidv4> (canonical)',
+            `satisfies atom ac-id "${acIdRaw}" must be either a lowercase UUIDv4/v5 or AC<1-4 digits> in "${chunk}"`,
+            'Use format: satisfies:T1234#AC2 (alias) or satisfies:T1234#<lowercase-uuidv4-or-v5> (canonical)',
           );
         }
 
