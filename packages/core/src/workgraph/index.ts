@@ -38,3 +38,19 @@ export {
   createSqliteWorkGraphContainmentQueryService,
   SqliteWorkGraphContainmentQueryService,
 } from './containment.js';
+export type {
+  WorkGraphContainmentCycleFinding,
+  WorkGraphMaxDepthFinding,
+  WorkGraphReparentFinding,
+  WorkGraphReparentNodeType,
+  WorkGraphReparentParentTypeFinding,
+  WorkGraphReparentPreflightInput,
+  WorkGraphReparentPreflightResult,
+  WorkGraphReparentTargetNotFoundFinding,
+} from './reparent-preflight.js';
+export {
+  E_WORKGRAPH_CONTAINMENT_CYCLE,
+  E_WORKGRAPH_MAX_DEPTH_EXCEEDED,
+  E_WORKGRAPH_REPARENT_TARGET_NOT_FOUND,
+  preflightWorkGraphReparent,
+} from './reparent-preflight.js';
