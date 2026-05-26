@@ -72,6 +72,24 @@ describe('ct-cleo SKILL.md — command correctness', () => {
   it('references cleo orchestrate spawn (the canonical spawn command)', () => {
     expect(skillContent).toContain('cleo orchestrate spawn');
   });
+
+  it('documents add-batch input as a top-level JSON array', () => {
+    expect(skillContent).toContain('The top-level JSON MUST be an array of task objects');
+    expect(skillContent).toContain('not an object wrapper like `{ "tasks": [...] }`');
+  });
+
+  it('uses mutation projection field paths instead of legacy full-record paths', () => {
+    expect(skillContent).toContain('/data/created/0');
+    expect(skillContent).toContain('/data/updated/0');
+    expect(skillContent).toContain('/data/deleted/0');
+    expect(skillContent).not.toContain('--field /data/task/id');
+  });
+
+  it('documents add-batch dry-run count semantics', () => {
+    expect(skillContent).toContain('/data/wouldCreate');
+    expect(skillContent).toContain('/data/insertedCount');
+    expect(skillContent).toContain('`0` for dry-run');
+  });
 });
 
 // ---------------------------------------------------------------------------
