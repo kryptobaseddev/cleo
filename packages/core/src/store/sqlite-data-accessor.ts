@@ -426,6 +426,10 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
           id: schema.taskAcceptanceCriteria.id,
           taskId: schema.taskAcceptanceCriteria.taskId,
           ordinal: schema.taskAcceptanceCriteria.ordinal,
+          kind: schema.taskAcceptanceCriteria.kind,
+          sourceKey: schema.taskAcceptanceCriteria.sourceKey,
+          targetTaskId: schema.taskAcceptanceCriteria.targetTaskId,
+          projection: schema.taskAcceptanceCriteria.projection,
           text: schema.taskAcceptanceCriteria.text,
           createdAt: schema.taskAcceptanceCriteria.createdAt,
           updatedAt: schema.taskAcceptanceCriteria.updatedAt,
@@ -439,6 +443,10 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
         id: r.id,
         taskId: r.taskId,
         ordinal: r.ordinal,
+        kind: r.kind,
+        sourceKey: r.sourceKey ?? `text:${r.ordinal}`,
+        targetTaskId: r.targetTaskId ?? null,
+        projection: r.projection,
         text: r.text,
         createdAt: r.createdAt,
         updatedAt: r.updatedAt ?? null,
@@ -1068,7 +1076,16 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
           },
           // ---- AC rows (T10508) ----
           async insertAcRows(
-            rows: Array<{ id: string; taskId: string; ordinal: number; text: string }>,
+            rows: Array<{
+              id: string;
+              taskId: string;
+              ordinal: number;
+              text: string;
+              kind?: 'text' | 'child_task' | 'evidence_bound';
+              sourceKey?: string;
+              targetTaskId?: string | null;
+              projection?: string;
+            }>,
           ): Promise<void> {
             if (rows.length === 0) return;
             await db
@@ -1078,6 +1095,10 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
                   id: r.id,
                   taskId: r.taskId,
                   ordinal: r.ordinal,
+                  kind: r.kind ?? 'text',
+                  sourceKey: r.sourceKey ?? `text:${r.ordinal}`,
+                  targetTaskId: r.targetTaskId ?? null,
+                  projection: r.projection ?? 'legacy',
                   text: r.text,
                 })),
               )
@@ -1089,6 +1110,10 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
                 id: schema.taskAcceptanceCriteria.id,
                 taskId: schema.taskAcceptanceCriteria.taskId,
                 ordinal: schema.taskAcceptanceCriteria.ordinal,
+                kind: schema.taskAcceptanceCriteria.kind,
+                sourceKey: schema.taskAcceptanceCriteria.sourceKey,
+                targetTaskId: schema.taskAcceptanceCriteria.targetTaskId,
+                projection: schema.taskAcceptanceCriteria.projection,
                 text: schema.taskAcceptanceCriteria.text,
                 createdAt: schema.taskAcceptanceCriteria.createdAt,
                 updatedAt: schema.taskAcceptanceCriteria.updatedAt,
@@ -1102,6 +1127,10 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
               id: r.id,
               taskId: r.taskId,
               ordinal: r.ordinal,
+              kind: r.kind,
+              sourceKey: r.sourceKey ?? `text:${r.ordinal}`,
+              targetTaskId: r.targetTaskId ?? null,
+              projection: r.projection,
               text: r.text,
               createdAt: r.createdAt,
               updatedAt: r.updatedAt ?? null,
