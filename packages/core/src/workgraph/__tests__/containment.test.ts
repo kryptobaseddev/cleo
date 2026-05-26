@@ -303,4 +303,103 @@ describe('SqliteWorkGraphContainmentQueryService', () => {
       pageInfo: { hasMore: false },
     });
   });
+
+  it('summarizes direct and subtree rollup counts with explicit percent denominator rules', () => {
+    const db = new FakeDb({
+      descendants: [
+        {
+          root_id: 'E1',
+          depth: 1,
+          sort_cursor: '00000001:T1',
+          id: 'T1',
+          title: 'Task 1',
+          type: 'task',
+          status: 'done',
+          priority: 'high',
+          parent_id: 'E1',
+        },
+        {
+          root_id: 'E1',
+          depth: 1,
+          sort_cursor: '00000001:T2',
+          id: 'T2',
+          title: 'Task 2',
+          type: 'task',
+          status: 'blocked',
+          priority: 'medium',
+          parent_id: 'E1',
+        },
+        {
+          root_id: 'E1',
+          depth: 2,
+          sort_cursor: '00000002:ST1',
+          id: 'ST1',
+          title: 'Subtask 1',
+          type: 'subtask',
+          status: 'pending',
+          priority: 'low',
+          parent_id: 'T2',
+        },
+      ],
+    });
+
+    const service = createSqliteWorkGraphContainmentQueryService(db);
+    const result = service.summarizeSubtree({ rootId: 'E1' });
+
+    expect(db.prepared).toHaveLength(1);
+    expect(db.prepared[0]?.sql).toContain('WITH RECURSIVE summary_descendants');
+    expect(db.prepared[0]?.sql).not.toContain('task_relations');
+    expect(result.direct.total).toBe(2);
+    expect(result.direct.byStatus).toEqual({ blocked: 1, done: 1 });
+    expect(result.subtree.total).toBe(3);
+    expect(result.subtree.byStatus).toEqual({ blocked: 1, done: 1, pending: 1 });
+    expect(result.subtree.byType).toEqual({ subtask: 1, task: 2 });
+    expect(result.percentDenominator).toEqual({
+      basis: 'subtree-total',
+      description:
+        'percentages use subtree.total as the denominator, include archived descendants, and exclude the root node',
+      total: 3,
+    });
+    expect(result.percentages).toEqual({
+      active: 0,
+      blocked: 33.33,
+      cancelled: 0,
+      done: 33.33,
+      pending: 33.33,
+    });
+    expect(result.staleProjection).toBe(false);
+    expect(result.projectionMismatches).toEqual([]);
+  });
+
+  it('flags stale direct-child projections when expected rollup counts disagree with storage', () => {
+    const db = new FakeDb({
+      descendants: [
+        {
+          root_id: 'E1',
+          depth: 1,
+          sort_cursor: '00000001:T1',
+          id: 'T1',
+          title: 'Task 1',
+          type: 'task',
+          status: 'done',
+          priority: 'high',
+          parent_id: 'E1',
+        },
+      ],
+    });
+
+    const service = createSqliteWorkGraphContainmentQueryService(db);
+    const result = service.summarizeSubtree({
+      rootId: 'E1',
+      expectedDirectRollup: { total: 2, byStatus: { done: 2 }, byType: { task: 2 } },
+    });
+
+    expect(result.direct.total).toBe(1);
+    expect(result.staleProjection).toBe(true);
+    expect(result.projectionMismatches).toEqual([
+      { actual: 1, expected: 2, field: 'total' },
+      { actual: 1, expected: 2, field: 'status:done' },
+      { actual: 1, expected: 2, field: 'type:task' },
+    ]);
+  });
 });
