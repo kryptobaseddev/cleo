@@ -79,6 +79,7 @@ import {
   taskReparent,
   taskRestore,
   taskShowOperation,
+  taskSlice,
   taskStart,
   taskStop,
   taskSyncLinks,
@@ -211,6 +212,20 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return wrapCoreResult(
       await taskDepends(projectRoot, params.taskId, params.direction, params.tree),
       'depends',
+    );
+  },
+
+  slice: async (params) => {
+    const projectRoot = getProjectRoot();
+    return wrapCoreResult(
+      await taskSlice(projectRoot, params.taskId, {
+        radius: params.radius,
+        depth: params.depth,
+        budget: params.budget,
+        direction: params.direction,
+        includeRelates: params.includeRelates,
+      }),
+      'slice',
     );
   },
 

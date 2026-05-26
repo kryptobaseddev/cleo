@@ -363,6 +363,52 @@ export interface TasksDependsParams {
  */
 export type TasksDependsResult = TaskDependsResult;
 
+// tasks.slice
+/** Localized task/workgraph node returned by `tasks.slice`. */
+export interface TasksSliceNode {
+  id: string;
+  title: string;
+  status: TaskStatus;
+  type?: TaskType;
+  priority?: TaskPriority;
+  /** Canonical wire field for parent task ID (ADR-057 D2). */
+  parent?: string;
+  children: string[];
+  depends: string[];
+  dependents: string[];
+  depth: number;
+}
+
+/** Params for `tasks.slice` — fixed-radius local WorkGraph context around a task. */
+export interface TasksSliceParams {
+  taskId: string;
+  /** Slice direction. `around` returns upstream, downstream, and siblings. Defaults to `around`. */
+  direction?: 'upstream' | 'downstream' | 'around';
+  /** Back-compat alias for dependency traversal depth. */
+  radius?: number;
+  /** Dependency traversal depth for upstream/downstream. Defaults to 1. */
+  depth?: number;
+  /** Maximum nodes per returned section. Defaults to unbounded. */
+  budget?: number;
+  /** Include direct non-dependency `relates` neighbors in a `related` bucket. */
+  includeRelates?: boolean;
+}
+
+/** Result of `tasks.slice` — center task, deps, dependents, siblings, and optional relations. */
+export interface TasksSliceResult {
+  taskId: string;
+  direction: 'upstream' | 'downstream' | 'around';
+  depth: number;
+  radius: number;
+  budget?: number;
+  includeRelates: boolean;
+  center: TasksSliceNode;
+  upstream: TasksSliceNode[];
+  downstream: TasksSliceNode[];
+  siblings: TasksSliceNode[];
+  related?: TasksSliceNode[];
+}
+
 // tasks.analyze dispatch params (with optional taskId and tierLimit)
 export interface TasksAnalyzeQueryParams {
   taskId?: string;
@@ -1643,6 +1689,7 @@ export type TasksOps = {
   readonly tree: readonly [TasksTreeDispatchParams, TasksTreeDispatchResult];
   readonly blockers: readonly [TasksBlockersQueryParams, TasksBlockersQueryResult];
   readonly depends: readonly [TasksDependsParams, TasksDependsResult];
+  readonly slice: readonly [TasksSliceParams, TasksSliceResult];
   readonly 'deps.validate': readonly [TasksDepsValidateParams, TasksDepsValidateResult];
   readonly 'deps.tree': readonly [TasksDepsTreeParams, TasksDepsTreeResult];
   readonly analyze: readonly [TasksAnalyzeQueryParams, TasksAnalyzeQueryResult];

@@ -12,6 +12,7 @@
  *   cleo tasks current         — show currently active task
  *   cleo tasks plan            — composite planning view
  *   cleo tasks analyze         — leverage-sorted discovery
+ *   cleo tasks slice <id>      — localized WorkGraph slice around a task
  *
  * Note: Mutation commands (add, update, complete, delete, etc.) retain their
  * top-level flat names (`cleo add`, `cleo complete`, etc.) per the original
@@ -106,6 +107,47 @@ const analyzeSub = defineCommand({
   },
 });
 
+const sliceSub = defineCommand({
+  meta: {
+    name: 'slice',
+    description: 'Show a localized WorkGraph slice around a task',
+  },
+  args: {
+    id: { type: 'positional', description: 'Task ID (e.g. T1234)', required: true },
+    upstream: { type: 'boolean', description: 'Return upstream dependency slice only' },
+    downstream: { type: 'boolean', description: 'Return downstream dependent slice only' },
+    around: {
+      type: 'boolean',
+      description: 'Return upstream, downstream, and sibling context (default)',
+    },
+    depth: { type: 'string', description: 'Dependency traversal depth (default 1)' },
+    radius: { type: 'string', description: 'Alias for --depth' },
+    budget: { type: 'string', description: 'Maximum nodes per returned section' },
+    'include-relates': {
+      type: 'boolean',
+      description: 'Include direct non-dependency related tasks',
+    },
+    json: { type: 'boolean', description: 'Emit JSON output' },
+  },
+  async run({ args }) {
+    const direction = args.upstream ? 'upstream' : args.downstream ? 'downstream' : 'around';
+    await dispatchFromCli(
+      'query',
+      'tasks',
+      'slice',
+      {
+        taskId: args.id,
+        direction,
+        radius: args.radius ? parseInt(args.radius as string, 10) : undefined,
+        depth: args.depth ? parseInt(args.depth as string, 10) : undefined,
+        budget: args.budget ? parseInt(args.budget as string, 10) : undefined,
+        includeRelates: Boolean(args['include-relates']),
+      },
+      { command: 'tasks slice' },
+    );
+  },
+});
+
 // ---------------------------------------------------------------------------
 // Root command
 // ---------------------------------------------------------------------------
@@ -118,7 +160,7 @@ const analyzeSub = defineCommand({
 export const tasksCommand = defineCommand({
   meta: {
     name: 'tasks',
-    description: 'Task query namespace: show, find, next, current, plan, analyze',
+    description: 'Task query namespace: show, find, next, current, plan, analyze, slice',
   },
   subCommands: {
     show: showSub,
@@ -127,6 +169,7 @@ export const tasksCommand = defineCommand({
     current: currentSub,
     plan: planSub,
     analyze: analyzeSub,
+    slice: sliceSub,
   },
   async run({ cmd, rawArgs }) {
     if (isSubCommandDispatch(rawArgs, cmd.subCommands)) return;
