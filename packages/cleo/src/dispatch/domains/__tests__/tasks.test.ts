@@ -11,6 +11,7 @@ vi.mock('@cleocode/core/internal', () => ({
 // Mock engine functions before importing the handler
 vi.mock('../../lib/engine.js', () => ({
   taskShow: vi.fn(),
+  taskShowOperation: vi.fn(),
   taskShowWithHistory: vi.fn(),
   taskShowIvtrHistory: vi.fn(),
   taskList: vi.fn(),
