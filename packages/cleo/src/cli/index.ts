@@ -174,10 +174,15 @@ async function startCli(): Promise<void> {
   // valid-modes list instead of silently falling through to the default.
   if (outputModeRaw !== undefined) {
     if (!isOutputMode(outputModeRaw)) {
+      const validModes = ['envelope', 'id', 'table', 'count', 'silent'];
+      const suggestions = didYouMean(outputModeRaw, validModes, 3);
       process.stderr.write(
         `Error: invalid --output mode "${outputModeRaw}"\n` +
-          `Valid modes: envelope, id, table, count, silent\n`,
+          `Valid modes: ${validModes.join(', ')}\n`,
       );
+      if (suggestions.length > 0) {
+        process.stderr.write(`Did you mean: ${suggestions.join(', ')}?\n`);
+      }
       process.exit(2);
     }
     setOutputMode(outputModeRaw as OutputMode);
