@@ -2883,6 +2883,35 @@ export const OPERATIONS: OperationDef[] = [
     ] satisfies ParamDef[],
   },
   {
+    // T10637 — migrate parent_id-based Saga membership to groups relations.
+    // Converts Epics whose parent_id points to a type='saga' task into proper
+    // groups relations. Non-Epic tasks are documented as conflicts.
+    gateway: 'mutate',
+    domain: 'tasks',
+    operation: 'saga.migrate-containment',
+    description:
+      'tasks.saga.migrate-containment (mutate) — convert parent_id-based Saga membership to groups relations; idempotent; audits to saga-contain-migration.jsonl',
+    tier: 0,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'sagaId',
+        type: 'string',
+        required: false,
+        description: 'Optional saga task ID. Omit to migrate all sagas.',
+        cli: { positional: true },
+      },
+      {
+        name: 'dryRun',
+        type: 'boolean',
+        required: false,
+        description: 'Report what would happen without mutating rows or writing audit log',
+      },
+    ] satisfies ParamDef[],
+  },
+  {
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'start',

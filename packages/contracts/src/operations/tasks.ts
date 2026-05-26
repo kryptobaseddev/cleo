@@ -1765,6 +1765,70 @@ export interface TasksSagaRepairResult {
 }
 
 /**
+ * Params for `tasks.saga.migrate-containment` — migrate parent_id-based Saga
+ * membership to `task_relations.type='groups'` (ADR-073 §1.2 invariant I5).
+ *
+ * Converts Epics whose `parent_id` points to a `type='saga'` task into
+ * proper `groups` relations. Non-Epic tasks with Saga parents are documented
+ * as conflicts requiring manual resolution.
+ *
+ * @task T10637
+ * @see ADR-073-above-epic-naming.md §1.2 — invariant I5
+ */
+export interface TasksSagaMigrateContainmentParams {
+  /** Specific Saga ID to migrate. When omitted, migrates ALL sagas. */
+  sagaId?: string;
+  /** Dry-run mode: scan only, no mutations performed. */
+  dryRun?: boolean;
+}
+
+/**
+ * A single Epic that was migrated from parent_id to groups relation.
+ *
+ * @task T10637
+ */
+export interface TasksSagaMigratedEpic {
+  epicId: string;
+  sagaId: string;
+  oldParentId: string | null;
+  groupsRelation: { from: string; to: string; type: 'groups' };
+}
+
+/**
+ * A task (non-Epic) with a Saga parent — cannot be auto-migrated.
+ *
+ * @task T10637
+ */
+export interface TasksSagaContainmentConflict {
+  taskId: string;
+  sagaId: string;
+  taskType: string;
+  taskTitle: string;
+  reason: string;
+}
+
+/**
+ * Result of `tasks.saga.migrate-containment` — reports every Epic migrated
+ * and every non-Epic conflict that needs manual resolution.
+ *
+ * @task T10637
+ */
+export interface TasksSagaMigrateContainmentResult {
+  /** Total sagas scanned. */
+  sagasScanned: number;
+  /** Number of Epics successfully migrated. */
+  migrated: number;
+  /** Number of already-correct Epics skipped (idempotent no-op). */
+  skipped: number;
+  /** Detailed list of migrated Epics. */
+  migratedEpics: TasksSagaMigratedEpic[];
+  /** Non-Epic tasks with Saga parents — need manual resolution. */
+  conflicts: TasksSagaContainmentConflict[];
+  /** Whether this was a dry run (no mutations). */
+  dryRun: boolean;
+}
+
+/**
  * Per-saga reconciliation action returned by `tasks.saga.reconcile`.
  *
  * @task T10121
@@ -1950,6 +2014,8 @@ export type TasksOps = {
   readonly 'saga.repair': readonly [TasksSagaRepairParams, TasksSagaRepairResult];
   /** T10121 — idempotent cron-safe auto-close repair (supersedes T10098 scope). */
   readonly 'saga.reconcile': readonly [TasksSagaReconcileParams, TasksSagaReconcileResult];
+  /** T10637 — migrate parent_id-based Saga membership to groups relations. */
+  readonly 'saga.migrate-containment': readonly [TasksSagaMigrateContainmentParams, TasksSagaMigrateContainmentResult];
 };
 
 // ---------------------------------------------------------------------------
