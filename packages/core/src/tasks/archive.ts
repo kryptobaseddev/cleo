@@ -16,6 +16,7 @@ import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { safeAppendLog } from '../store/data-safety-central.js';
+import { removeChildProjectionAc } from './ac-table.js';
 
 /**
  * Truth-grade `archiveReason` values stamped by the bulk-archive path.
@@ -173,12 +174,17 @@ export async function archiveTasks(
   const priorTombstoneFlag = process.env[ARCHIVE_REASON_TOMBSTONE_ENV];
   process.env[ARCHIVE_REASON_TOMBSTONE_ENV] = '1';
   try {
-    for (const t of tasksToArchive) {
-      await acc.archiveSingleTask(t.id, {
-        archivedAt: now,
-        archiveReason: deriveArchiveReason(t),
-      });
-    }
+    await acc.transaction(async (tx) => {
+      for (const t of tasksToArchive) {
+        if (t.parentId) {
+          await removeChildProjectionAc(tx, t.parentId, t.id, 'archive', now);
+        }
+        await tx.archiveSingleTask(t.id, {
+          archivedAt: now,
+          archiveReason: deriveArchiveReason(t),
+        });
+      }
+    });
   } finally {
     if (priorTombstoneFlag === undefined) {
       delete process.env[ARCHIVE_REASON_TOMBSTONE_ENV];

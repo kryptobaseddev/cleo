@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import { addTask } from '../add.js';
 import { archiveTasks } from '../archive.js';
 
 describe('archiveTasks', () => {
@@ -151,6 +152,60 @@ describe('archiveTasks', () => {
     // Verify no changes were made
     const { tasks: remaining } = await accessor.queryTasks({});
     expect(remaining).toHaveLength(1);
+  });
+
+  it('removes parent child_task AC projection and records history when archiving a child task', async () => {
+    await addTask(
+      {
+        title: 'Parent',
+        description: 'Parent epic task',
+        type: 'epic',
+        acceptance: ['manual parent AC'],
+      },
+      env.tempDir,
+      accessor,
+    );
+    const child = await addTask(
+      { title: 'Child projection', description: 'Child of parent epic', parentId: 'T001' },
+      env.tempDir,
+      accessor,
+    );
+    await accessor.upsertSingleTask({
+      ...child.task,
+      status: 'done',
+      completedAt: '2025-01-02T00:00:00Z',
+      pipelineStage: 'contribution',
+    });
+
+    const beforeRows = await accessor.getAcRows('T001');
+    const manualRow = beforeRows.find((row) => row.text === 'manual parent AC');
+    const childProjection = beforeRows.find((row) => row.targetTaskId === 'T002');
+    expect(manualRow).toBeTruthy();
+    expect(childProjection?.kind).toBe('child_task');
+
+    const result = await archiveTasks({ taskIds: ['T002'] }, env.tempDir, accessor);
+    expect(result.archived).toEqual(['T002']);
+
+    const afterRows = await accessor.getAcRows('T001');
+    expect(afterRows.map((row) => row.text)).toEqual(['manual parent AC']);
+    expect(afterRows[0]?.id).toBe(manualRow!.id);
+
+    const parent = await accessor.loadSingleTask('T001');
+    expect(parent?.acceptance).toEqual(['manual parent AC']);
+
+    const { getNativeTasksDb } = await import('../../store/sqlite.js');
+    const historyRows = getNativeTasksDb()!
+      .prepare(
+        'SELECT ac_id, previous_text, reason FROM task_acceptance_criteria_history ORDER BY id ASC',
+      )
+      .all() as Array<{ ac_id: string; previous_text: string; reason: string }>;
+    expect(historyRows).toEqual([
+      {
+        ac_id: childProjection!.id,
+        previous_text: 'Complete child T002: Child projection',
+        reason: 'archive',
+      },
+    ]);
   });
 
   it('skips epics with active children', async () => {
