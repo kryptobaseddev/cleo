@@ -279,6 +279,33 @@ describe('validateWorkGraphRelationQuality', () => {
     );
   });
 
+  it('flags groups-as-hierarchy in either direction across parent_id containment', () => {
+    const result = validateWorkGraphRelationQuality({
+      nodes: [
+        { id: 'SG1', type: 'saga' },
+        { id: 'E1', type: 'epic', parentId: 'SG1' },
+      ],
+      relations: [
+        {
+          fromId: 'E1',
+          toId: 'SG1',
+          relationType: 'groups',
+          reason: 'reverse edge still mirrors parent_id hierarchy',
+        },
+      ],
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.findings).toEqual([
+      expect.objectContaining({
+        code: E_WORKGRAPH_GROUPS_AS_HIERARCHY,
+        fromId: 'E1',
+        toId: 'SG1',
+        relationType: 'groups',
+      }),
+    ]);
+  });
+
   it('accepts reasoned advisory relations that stay distinct from containment and dependencies', () => {
     const result = validateWorkGraphRelationQuality({
       nodes: [
