@@ -301,6 +301,8 @@ export type {
   DataAccessor,
   DataAccessorAgentInstance,
   QueryTasksResult,
+  TaskAuditLogQuery,
+  TaskAuditLogRow,
   TaskFieldUpdates,
   TaskQueryFilters,
   TransactionAccessor,
@@ -1928,6 +1930,9 @@ export {
 // === Task Domain Result Types (T1703 — canonical shapes for operations/tasks.ts stubs) ===
 export type {
   CompletionBlockerReason,
+  CompletionContextPack,
+  CompletionContextPackOptions,
+  CompletionContextPackSummary,
   CompletionCriterionEvaluation,
   CompletionCriterionKind,
   CompletionCriterionReplacement,
@@ -1935,6 +1940,9 @@ export type {
   CompletionCriterionWaiver,
   CompletionEvaluation,
   CompletionExplanation,
+  CompletionHistoryEvent,
+  CompletionHistoryEventAction,
+  CompletionHistoryEventRelation,
   CompletionStaleReason,
   TaskComplexityFactor,
   TaskDependsRef,

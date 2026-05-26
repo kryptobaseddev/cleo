@@ -6,6 +6,9 @@
 
 export type {
   CompletionBlockerReason,
+  CompletionContextPack,
+  CompletionContextPackOptions,
+  CompletionContextPackSummary,
   CompletionCriterionEvaluation,
   CompletionCriterionKind,
   CompletionCriterionReplacement,
@@ -13,6 +16,9 @@ export type {
   CompletionCriterionWaiver,
   CompletionEvaluation,
   CompletionExplanation,
+  CompletionHistoryEvent,
+  CompletionHistoryEventAction,
+  CompletionHistoryEventRelation,
   CompletionStaleReason,
   TaskView,
   TaskViewChildRollup,
@@ -64,6 +70,10 @@ export {
   taskComplete,
 } from './complete.js';
 // Typed completion analysis — AC + evidence + child criteria (T10591)
+export {
+  buildCompletionContextPack,
+  COMPLETION_HISTORY_ACTIONS,
+} from './completion-context-pack.js';
 export { evaluateCompletion, explainCompletion } from './completion-evaluation.js';
 // Canonical task view — unified derivation (T943)
 export { computeTaskView, computeTaskViews } from './compute-task-view.js';

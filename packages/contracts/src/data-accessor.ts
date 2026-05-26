@@ -208,6 +208,26 @@ export interface AcBindingRow {
   createdAt: string;
 }
 
+/** Query options for bounded reads from the append-only task audit log. @task T10594 */
+export interface TaskAuditLogQuery {
+  taskIds?: readonly string[];
+  actions?: readonly string[];
+  since?: string;
+  limit?: number;
+}
+
+/** DataAccessor-facing shape of audit_log rows used by completion context packs. @task T10594 */
+export interface TaskAuditLogRow {
+  id: string;
+  timestamp: string;
+  action: string;
+  taskId: string;
+  actor: string;
+  detailsJson: string | null;
+  beforeJson: string | null;
+  afterJson: string | null;
+}
+
 /**
  * Subset of DataAccessor methods available inside a transaction callback.
  * Write-only — reads use the outer accessor (snapshot isolation).
@@ -337,6 +357,9 @@ export interface DataAccessor {
 
   /** Append an entry to the audit log. */
   appendLog(entry: Record<string, unknown>): Promise<void>;
+
+  /** Query recent task audit rows by task id/action, newest first. @task T10594 */
+  queryAuditLog(query: TaskAuditLogQuery): Promise<TaskAuditLogRow[]>;
 
   // ---- Lifecycle ----
 
