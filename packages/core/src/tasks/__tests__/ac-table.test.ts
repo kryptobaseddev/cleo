@@ -18,8 +18,12 @@ import { describe, expect, it } from 'vitest';
 import {
   acItemToText,
   acTextHash,
+  auditChildProjectionAcRows,
   buildAcRowId,
+  buildChildProjectionAcText,
   buildFreshAcRows,
+  childProjectionFreshnessFingerprint,
+  childProjectionSourceKey,
   directTextSourceKey,
   evidenceBoundSourceKey,
   planAcUpdate,
@@ -34,10 +38,37 @@ function row(taskId: string, ordinal: number, text: string, id = `uuid-${ordinal
     id,
     taskId,
     ordinal,
+    kind: 'text',
+    sourceKey: directTextSourceKey(ordinal, text),
+    targetTaskId: null,
+    projection: 'legacy',
     text,
     createdAt: '2026-05-24T00:00:00.000Z',
     updatedAt: null,
     contentHash: acTextHash(text),
+  };
+}
+
+function childRow(
+  parentId: string,
+  childId: string,
+  childTitle: string,
+  overrides: Partial<AcRow> = {},
+): AcRow {
+  const text = buildChildProjectionAcText(childId, childTitle);
+  return {
+    id: buildAcRowId(parentId, childProjectionSourceKey(childId)),
+    taskId: parentId,
+    ordinal: 1,
+    kind: 'child_task',
+    sourceKey: childProjectionSourceKey(childId),
+    targetTaskId: childId,
+    projection: 'parent-child',
+    text,
+    createdAt: '2026-05-24T00:00:00.000Z',
+    updatedAt: null,
+    contentHash: childProjectionFreshnessFingerprint(childId, childTitle),
+    ...overrides,
   };
 }
 
@@ -259,5 +290,93 @@ describe('planAcUpdate — edge cases', () => {
     expect(plan.history).toHaveLength(2);
     expect(plan.fullDelete).toBe(true);
     expect(plan.inserts).toEqual([]);
+  });
+});
+
+describe('child_task AC projection audit', () => {
+  it('returns typed clean output with a stable freshness fingerprint', () => {
+    const result = auditChildProjectionAcRows(
+      'P1',
+      [{ id: 'C1', title: 'Child one' }],
+      [childRow('P1', 'C1', 'Child one')],
+    );
+
+    expect(result).toMatchObject({
+      parentId: 'P1',
+      status: 'clean',
+      dirty: false,
+      expectedRows: 1,
+      actualRows: 1,
+      staleProjection: false,
+      findings: [],
+    });
+    expect(result.freshnessFingerprint).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('detects missing and extra child_task rows', () => {
+    const result = auditChildProjectionAcRows(
+      'P1',
+      [
+        { id: 'C1', title: 'Child one' },
+        { id: 'C2', title: 'Child two' },
+      ],
+      [childRow('P1', 'C1', 'Child one'), childRow('P1', 'C99', 'Orphan child', { ordinal: 2 })],
+    );
+
+    expect(result.status).toBe('dirty');
+    expect(result.staleProjection).toBe(true);
+    expect(result.findings).toEqual([
+      expect.objectContaining({
+        code: 'missing_child_task_row',
+        childId: 'C2',
+        field: 'row',
+        expected: 'child:C2',
+        actual: null,
+        dirty: true,
+      }),
+      expect.objectContaining({
+        code: 'extra_child_task_row',
+        childId: 'C99',
+        field: 'row',
+        expected: null,
+        actual: 'child:C99',
+        dirty: true,
+      }),
+    ]);
+  });
+
+  it('detects mismatched row identity fields separately from stale projection text', () => {
+    const result = auditChildProjectionAcRows(
+      'P1',
+      [{ id: 'C1', title: 'Fresh child title' }],
+      [
+        childRow('P1', 'C1', 'Old child title', {
+          projection: 'legacy',
+          contentHash: childProjectionFreshnessFingerprint('C1', 'Old child title'),
+        }),
+      ],
+    );
+
+    expect(result.dirty).toBe(true);
+    expect(result.findings).toEqual([
+      expect.objectContaining({
+        code: 'mismatched_child_task_row',
+        field: 'projection',
+        expected: 'parent-child',
+        actual: 'legacy',
+      }),
+      expect.objectContaining({
+        code: 'stale_child_task_projection',
+        field: 'text',
+        expected: 'Complete child C1: Fresh child title',
+        actual: 'Complete child C1: Old child title',
+      }),
+      expect.objectContaining({
+        code: 'stale_child_task_projection',
+        field: 'contentHash',
+        expected: childProjectionFreshnessFingerprint('C1', 'Fresh child title'),
+        actual: childProjectionFreshnessFingerprint('C1', 'Old child title'),
+      }),
+    ]);
   });
 });

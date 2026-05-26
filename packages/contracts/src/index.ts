@@ -291,6 +291,10 @@ export { parseClaudeCodeCredentials } from './credentials.js';
 // === DataAccessor Interface ===
 export type {
   AcBindingRow,
+  AcProjectionAuditFinding,
+  AcProjectionAuditFindingCode,
+  AcProjectionAuditResult,
+  AcProjectionAuditStatus,
   AcRow,
   ArchiveFields,
   ArchiveFile,
