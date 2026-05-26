@@ -12,6 +12,7 @@
  * @epic T1566
  */
 
+import { randomUUID } from 'node:crypto';
 import type {
   EvidenceAtom,
   GateEvidence,
@@ -152,6 +153,36 @@ function getMissingGates(
   requiredGates: VerificationGate[] = DEFAULT_REQUIRED_GATES,
 ): VerificationGate[] {
   return requiredGates.filter((g) => verification.gates[g] !== true);
+}
+
+type SatisfiesEvidenceAtom = Extract<EvidenceAtom, { kind: 'satisfies' }>;
+
+function buildSatisfiesEvidenceAtomId(sourceTaskId: string, atom: SatisfiesEvidenceAtom): string {
+  const acRef = atom.targetAcAlias ?? atom.targetAcId ?? atom.resolvedAcUuid ?? 'unknown-ac';
+  const pin = atom.versionPin ? `@${atom.versionPin}` : '';
+  return `satisfies:${sourceTaskId}->${atom.targetTaskId}#${acRef}${pin}`;
+}
+
+function buildSatisfiesAcBindingRows(
+  sourceTaskId: string,
+  atoms: EvidenceAtom[],
+): Array<{
+  id: string;
+  evidenceAtomId: string;
+  acId: string;
+  bindingType: 'satisfies';
+}> {
+  return atoms.flatMap((atom) => {
+    if (atom.kind !== 'satisfies' || !atom.resolvedAcUuid) return [];
+    return [
+      {
+        id: randomUUID(),
+        evidenceAtomId: buildSatisfiesEvidenceAtomId(sourceTaskId, atom),
+        acId: atom.resolvedAcUuid,
+        bindingType: 'satisfies' as const,
+      },
+    ];
+  });
 }
 
 /** Load required gates from project config, falling back to hardcoded defaults. */
@@ -595,7 +626,11 @@ export async function validateGateVerify(
     task.verification = verification;
     task.updatedAt = now;
 
-    await accessor.upsertSingleTask(task);
+    const satisfiesBindingRows = buildSatisfiesAcBindingRows(taskId, evidenceStored);
+    await accessor.transaction(async (tx) => {
+      await tx.upsertSingleTask(task);
+      await tx.insertAcBindings(satisfiesBindingRows);
+    });
 
     // Emit audit line for every non-view action.  Best-effort: audit write
     // failures are logged but do not block the operation.
