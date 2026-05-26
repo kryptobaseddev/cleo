@@ -908,12 +908,12 @@ export async function orchestrateReport(
       // Skip terminal states
       if (task.status === 'done' || task.status === 'cancelled') continue;
 
-      const deps = task.depends ?? [];
-      const unmetDeps = deps.filter((d) => !completedIds.has(d));
+      const deps: string[] = task.depends ?? [];
+      const unmetDeps = deps.filter((d: string) => !completedIds.has(d));
       const gates = task.gates ?? {};
 
       // --- Invalid classification ---
-      const hasMissingDeps = deps.some((d) => missingDepIds.has(d));
+      const hasMissingDeps = deps.some((d: string) => missingDepIds.has(d));
       const isCircular = circularInvolved.has(task.id);
 
       if (hasMissingDeps || isCircular) {

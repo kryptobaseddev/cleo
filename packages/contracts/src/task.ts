@@ -513,6 +513,9 @@ export interface Task {
   /** Related task entries (non-dependency relationships). @defaultValue undefined */
   relates?: TaskRelation[];
 
+  /** Gate status map (implemented/testsPassed/qaPassed). @defaultValue undefined */
+  gates?: Record<string, boolean>;
+
   /** Epic lifecycle state. Only meaningful when `type = 'epic'`. @defaultValue undefined */
   epicLifecycle?: EpicLifecycle | null;
 
