@@ -340,7 +340,7 @@ export type EvidenceAtom =
       kind: 'satisfies';
       /** Target task ID — `T<1-7 digits>` per ADR-079-r2 §2.1. */
       targetTaskId: string;
-      /** Lowercase UUIDv4 — populated for canonical form; undefined for alias form. */
+      /** Lowercase UUIDv4/v5 — populated for canonical form; undefined for alias form. */
       targetAcId?: string;
       /** `AC<1-4 digits>` alias — populated for alias form; undefined for UUID form. */
       targetAcAlias?: string;

@@ -87,7 +87,7 @@ export interface ParsedSatisfiesAtom {
   kind: 'satisfies';
   /** `T<1-7 digits>` per ADR-079-r2 §2.1. */
   targetTaskId: string;
-  /** Lowercase UUIDv4 — populated for canonical form. */
+  /** Lowercase UUIDv4/v5 — populated for canonical form. */
   targetAcId?: string;
   /** `AC<1-4 digits>` alias — populated for alias form. */
   targetAcAlias?: string;
@@ -144,9 +144,11 @@ function isMalformed(atom: ParsedSatisfiesAtom): string | null {
   }
   if (hasUuid && atom.targetAcId !== undefined) {
     if (
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(atom.targetAcId)
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[45][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+        atom.targetAcId,
+      )
     ) {
-      return `targetAcId "${atom.targetAcId}" must be a lowercase UUIDv4`;
+      return `targetAcId "${atom.targetAcId}" must be a lowercase UUIDv4/v5`;
     }
   }
   if (hasAlias && atom.targetAcAlias !== undefined) {

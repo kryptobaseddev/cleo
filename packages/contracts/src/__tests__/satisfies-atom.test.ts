@@ -58,17 +58,18 @@ describe('satisfies atom regexes (ADR-079-r2 §2.1)', () => {
   });
 
   describe('AC_UUID_REGEX', () => {
-    it('accepts strict lowercase UUIDv4', () => {
+    it('accepts strict lowercase UUIDv4 and deterministic UUIDv5-shaped AC ids', () => {
       expect(AC_UUID_REGEX.test('a1b2c3d4-5e6f-4890-abcd-ef1234567890')).toBe(true);
       expect(AC_UUID_REGEX.test('00000000-0000-4000-8000-000000000000')).toBe(true);
+      expect(AC_UUID_REGEX.test('a1b2c3d4-5e6f-5890-abcd-ef1234567890')).toBe(true);
     });
     it('rejects mixed-case', () => {
       // Council-mandated strictness (ADR-079-r2 §2.2): "Validators MUST
       // reject mixed-case to prevent silent dedupe failures."
       expect(AC_UUID_REGEX.test('A1B2C3D4-5E6F-4890-ABCD-EF1234567890')).toBe(false);
     });
-    it('rejects wrong version nibble (not 4)', () => {
-      expect(AC_UUID_REGEX.test('a1b2c3d4-5e6f-5890-abcd-ef1234567890')).toBe(false);
+    it('rejects wrong version nibble (not 4/5)', () => {
+      expect(AC_UUID_REGEX.test('a1b2c3d4-5e6f-6890-abcd-ef1234567890')).toBe(false);
     });
     it('rejects wrong variant nibble (not 8/9/a/b)', () => {
       expect(AC_UUID_REGEX.test('a1b2c3d4-5e6f-4890-cbcd-ef1234567890')).toBe(false);
@@ -124,6 +125,15 @@ describe('satisfiesAtomSchema (ADR-079-r2 §5.2)', () => {
     expect(a.targetAcId).toBe('8f4a2c1e-b09d-4f6a-9c3e-7a1d4f8c0b2e');
     expect(a.targetAcAlias).toBeUndefined();
     expect(a.versionPin).toBeUndefined();
+  });
+
+  it('accepts deterministic UUIDv5-shaped AC id form without version-pin', () => {
+    const a = satisfiesAtomSchema.parse({
+      kind: 'satisfies',
+      targetTaskId: 'T10495',
+      targetAcId: '8f4a2c1e-b09d-5f6a-9c3e-7a1d4f8c0b2e',
+    });
+    expect(a.targetAcId).toBe('8f4a2c1e-b09d-5f6a-9c3e-7a1d4f8c0b2e');
   });
 
   it('accepts alias form without version-pin', () => {
@@ -207,6 +217,16 @@ describe('parseEvidenceString — satisfies atom (T10506)', () => {
       kind: 'satisfies',
       targetTaskId: 'T10495',
       targetAcId: '8f4a2c1e-b09d-4f6a-9c3e-7a1d4f8c0b2e',
+    });
+  });
+
+  it('parses deterministic UUIDv5-shaped AC id form', () => {
+    const atoms = parseEvidenceString('satisfies:T10495#8f4a2c1e-b09d-5f6a-9c3e-7a1d4f8c0b2e');
+    expect(atoms).toHaveLength(1);
+    expect(atoms[0]).toEqual({
+      kind: 'satisfies',
+      targetTaskId: 'T10495',
+      targetAcId: '8f4a2c1e-b09d-5f6a-9c3e-7a1d4f8c0b2e',
     });
   });
 

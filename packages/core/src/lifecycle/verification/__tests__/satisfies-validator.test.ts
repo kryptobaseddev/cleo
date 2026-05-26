@@ -533,6 +533,38 @@ describe('validateSatisfiesAtom — 5-check pipeline (T10507 · ADR-079-r2 §2.4
       expect(result.atom.resolvedAcUuid).toBe(acId);
     });
 
+    it('accepts deterministic UUIDv5-shaped AC ids when same-saga + AC exists', async () => {
+      const acId = '8f4a2c1e-b09d-5f6a-9c3e-7a1d4f8c0b2e';
+      await seedTasks(env.accessor, [
+        {
+          id: 'TS-SAGA-1',
+          title: 'saga',
+          type: 'epic',
+          status: 'pending',
+          priority: 'high',
+          labels: ['saga'],
+        },
+        { id: 'T100', title: 'source', type: 'task', status: 'pending', priority: 'medium' },
+        { id: 'T200', title: 'target', type: 'task', status: 'pending', priority: 'medium' },
+      ]);
+      await linkSagaMember(env.tempDir, 'TS-SAGA-1', 'T100');
+      await linkSagaMember(env.tempDir, 'TS-SAGA-1', 'T200');
+      await insertAc(env.tempDir, acId, 'T200', 1);
+
+      const result = await validateSatisfiesAtom(
+        {
+          kind: 'satisfies',
+          targetTaskId: 'T200',
+          targetAcId: acId,
+        },
+        'T100',
+        env.tempDir,
+      );
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error(`expected ok, got ${result.codeName}: ${result.reason}`);
+      expect(result.atom.resolvedAcUuid).toBe(acId);
+    });
+
     it('accepts alias form and populates resolvedAcUuid from the alias lookup', async () => {
       const acId = uuid();
       await seedTasks(env.accessor, [
