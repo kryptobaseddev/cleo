@@ -11,6 +11,7 @@ vi.mock('@cleocode/core/internal', () => ({
 // Mock engine functions before importing the handler
 vi.mock('../../lib/engine.js', () => ({
   taskShow: vi.fn(),
+  taskShowOperation: vi.fn(),
   taskShowWithHistory: vi.fn(),
   taskShowIvtrHistory: vi.fn(),
   taskList: vi.fn(),
@@ -421,13 +422,53 @@ describe('TasksHandler', () => {
     it('relates - delegates to taskRelates', async () => {
       vi.mocked(taskRelates).mockResolvedValue({
         success: true,
-        data: { taskId: 'T001', relations: [], count: 0 },
+        data: { taskId: 'T001', direction: 'both', relations: [], count: 0 },
       });
 
       const result = await handler.query('relates', { taskId: 'T001' });
 
       expect(result.success).toBe(true);
-      expect(taskRelates).toHaveBeenCalledWith('/mock/project', 'T001');
+      expect(taskRelates).toHaveBeenCalledWith('/mock/project', 'T001', {
+        direction: undefined,
+        type: undefined,
+        includeDependencies: undefined,
+      });
+    });
+
+    it('relates - delegates type/direction filters and dependency visibility', async () => {
+      vi.mocked(taskRelates).mockResolvedValue({
+        success: true,
+        data: {
+          taskId: 'T001',
+          direction: 'in',
+          relations: [
+            {
+              taskId: 'T002',
+              type: 'depends',
+              direction: 'in',
+              source: 'dependency',
+              ready: false,
+              status: 'pending',
+            },
+          ],
+          count: 1,
+        },
+      });
+
+      const result = await handler.query('relates', {
+        taskId: 'T001',
+        direction: 'in',
+        type: 'depends',
+        includeDependencies: true,
+      });
+
+      expect(result.success).toBe(true);
+      expect(taskRelates).toHaveBeenCalledWith('/mock/project', 'T001', {
+        direction: 'in',
+        type: 'depends',
+        includeDependencies: true,
+      });
+      expect(result.data).toMatchObject({ count: 1, relations: [{ ready: false }] });
     });
 
     it('complexity.estimate - delegates to taskComplexityEstimate', async () => {
