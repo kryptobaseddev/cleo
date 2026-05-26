@@ -84,6 +84,39 @@ export interface WorkGraphReader {
   traverse(options: WorkGraphTraversalOptions): Promise<WorkGraphSnapshot> | WorkGraphSnapshot;
 }
 
+/** Task vertex returned by containment-only WorkGraph queries. */
+export type WorkGraphContainmentNode = WorkGraphNode;
+
+/** Ancestor chain for one requested WorkGraph root. */
+export interface WorkGraphContainmentAncestorsResult {
+  /** Requested task ID. */
+  readonly rootId: string;
+  /** Ancestors ordered from hierarchy root down to direct parent. */
+  readonly ancestors: readonly WorkGraphContainmentNode[];
+}
+
+/** Direct children for one requested WorkGraph parent. */
+export interface WorkGraphContainmentChildrenResult {
+  /** Requested parent task ID. */
+  readonly rootId: string;
+  /** Direct children ordered by task position/creation order. */
+  readonly children: readonly WorkGraphContainmentNode[];
+}
+
+/**
+ * Storage-backed containment lookup facade.
+ *
+ * Implementations MUST answer from `tasks.parent_id` only. They MUST NOT read
+ * `task_relations`, including `groups`, because Saga membership is not direct
+ * containment.
+ */
+export interface WorkGraphContainmentQueryService {
+  /** Load ancestor chains for many roots in one batched query. */
+  getAncestors(rootIds: readonly string[]): readonly WorkGraphContainmentAncestorsResult[];
+  /** Load direct children for many parents in one batched query. */
+  getChildren(parentIds: readonly string[]): readonly WorkGraphContainmentChildrenResult[];
+}
+
 /** Minimal task hierarchy row accepted by the WorkGraph invariant validator. */
 export interface WorkGraphHierarchyInputNode {
   /** Stable task, saga, epic, or subtask identifier. */
