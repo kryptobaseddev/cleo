@@ -631,6 +631,14 @@ export interface TasksSyncLinksRemoveResult {
 export interface TasksCancelParams {
   taskId: string;
   reason?: string;
+  /** Explicit child handling mode. Defaults to 'block' so propagation is never implicit. */
+  children?: 'block' | 'cascade' | 'orphan';
+  /** Operator waiver for large cascade cancellation. */
+  force?: boolean;
+  /** Large-subtree cascade guard threshold. Defaults to 10 descendants. */
+  cascadeThreshold?: number;
+  /** Config-level cascade permission. Defaults to true. */
+  allowCascade?: boolean;
 }
 /**
  * Result of `tasks.cancel` — cancellation confirmation.
@@ -655,6 +663,12 @@ export interface TasksCancelResult {
    * @defaultValue undefined
    */
   alreadyCancelled?: boolean;
+  /** Explicit child handling mode applied by the operation. */
+  childStrategy?: 'block' | 'cascade' | 'orphan';
+  /** Child or descendant tasks affected by cascade/orphan handling. */
+  affectedTasks?: string[];
+  /** Count of affected child/descendant tasks. */
+  affectedCount?: number;
 }
 
 // tasks.restore (with from routing: done → reopen, archived → unarchive)
