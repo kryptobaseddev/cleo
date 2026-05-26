@@ -22,6 +22,7 @@ import {
   lookupRenderer,
   registerRenderer,
   renderEnvelopeForHuman,
+  renderEnvelopeResultForHuman,
 } from '../index.js';
 
 describe('renderEnvelopeForHuman', () => {
@@ -119,12 +120,35 @@ describe('renderEnvelopeForHuman', () => {
     expect(out).toContain('[subtask]');
   });
 
-  it('fallback renders empty tree as empty string', () => {
+  it('fallback renders empty tree as a compact empty state', () => {
     const env: RenderableEnvelope<unknown> = {
       kind: 'tree',
       data: { tree: [], root: '', totalNodes: 0, maxDepth: 0 },
     };
-    expect(renderEnvelopeForHuman(env, 'unknown', {})).toBe('');
+    expect(renderEnvelopeForHuman(env, 'unknown', {})).toBe('No tree nodes.');
+  });
+
+  it('returns typed emptyReason metadata for compact empty output', () => {
+    const env: RenderableEnvelope<unknown> = {
+      kind: 'list',
+      data: { items: [], total: 0 },
+    };
+    expect(renderEnvelopeResultForHuman(env, 'unknown', { quiet: true })).toEqual({
+      ok: true,
+      text: 'No list items.',
+      emptyReason: 'empty-list',
+    });
+  });
+
+  it('returns E_RENDERER_UNSUPPORTED for unsupported envelope kinds', () => {
+    const env = { kind: 'matrix', data: {} } as unknown as RenderableEnvelope<unknown>;
+    expect(renderEnvelopeResultForHuman(env, 'unknown', {})).toEqual({
+      ok: false,
+      code: 'E_RENDERER_UNSUPPORTED',
+      text: '',
+      emptyReason: 'renderer-unsupported',
+      message: 'Unsupported renderer envelope kind: matrix',
+    });
   });
 
   it('fallback renders table via dataTable helper from B4', () => {

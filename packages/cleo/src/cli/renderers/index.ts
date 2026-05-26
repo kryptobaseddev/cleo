@@ -345,8 +345,9 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
   // `envelope` mode (default) falls through to the existing human/JSON paths.
   if (outputMode !== 'envelope' && !fieldCtx.field) {
     const out = renderOutputMode(outputMode, data);
-    if (out.text !== null && out.text.length > 0) {
-      process.stdout.write(out.text + '\n');
+    if (out.text !== null) {
+      const text = out.text.length > 0 ? out.text : `No output (${out.emptyReason ?? 'empty'}).`;
+      process.stdout.write(text + '\n');
     }
     return;
   }
@@ -358,8 +359,9 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
   //   `--summary` runs here, BEFORE the default JSON/human paths.
   if (summary && !fieldCtx.field) {
     const out = renderSummary(data);
-    if (out.text !== null && out.text.length > 0) {
-      process.stdout.write(out.text + '\n');
+    if (out.text !== null) {
+      const text = out.text.length > 0 ? out.text : `No output (${out.emptyReason ?? 'empty'}).`;
+      process.stdout.write(text + '\n');
     }
     return;
   }

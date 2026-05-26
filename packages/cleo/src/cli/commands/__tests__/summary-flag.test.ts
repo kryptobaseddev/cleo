@@ -119,18 +119,27 @@ describe('renderSummary — title truncation', () => {
 });
 
 describe('renderSummary — unrecognised shapes', () => {
-  it('returns empty text for an object with no id / tasks / items / task key', () => {
+  it('returns typed empty reason text for an object with no id / tasks / items / task key', () => {
     const out = renderSummary({ foo: 'bar', count: 7 });
-    expect(out.text).toBe('');
+    expect(out.text).toBe('No rows.');
+    expect(out.emptyReason).toBe('no-renderable-records');
   });
 
-  it('returns empty text for null', () => {
-    expect(renderSummary(null).text).toBe('');
+  it('returns typed empty reason text for null', () => {
+    const out = renderSummary(null);
+    expect(out.text).toBe('No rows.');
+    expect(out.emptyReason).toBe('no-renderable-records');
   });
 
-  it('returns empty text for primitive data', () => {
-    expect(renderSummary('a-string').text).toBe('');
-    expect(renderSummary(42).text).toBe('');
+  it('returns typed empty reason text for primitive data', () => {
+    expect(renderSummary('a-string')).toMatchObject({
+      text: 'No rows.',
+      emptyReason: 'no-renderable-records',
+    });
+    expect(renderSummary(42)).toMatchObject({
+      text: 'No rows.',
+      emptyReason: 'no-renderable-records',
+    });
   });
 });
 
