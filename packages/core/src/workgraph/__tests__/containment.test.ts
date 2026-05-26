@@ -26,23 +26,33 @@ type Row = {
   sort_cursor?: string;
   id: string;
   title: string;
-  type: 'epic' | 'task' | 'subtask';
-  status: 'pending' | 'in_progress' | 'done';
-  priority: 'low' | 'medium' | 'high';
+  type: 'saga' | 'epic' | 'task' | 'subtask';
+  status: 'pending' | 'active' | 'blocked' | 'done' | 'cancelled' | 'archived' | 'proposed';
+  priority: 'low' | 'medium' | 'high' | 'critical';
   parent_id: string | null;
+  role?: string | null;
+  verification_json?: string | null;
+  depends_on?: string | null;
+  dep_status?: Row['status'] | null;
 };
 
 class FakeDb {
   readonly prepared: PreparedQuery[] = [];
 
   constructor(
-    private readonly rowsByKind: { ancestors?: Row[]; children?: Row[]; descendants?: Row[] },
+    private readonly rowsByKind: {
+      ancestors?: Row[];
+      children?: Row[];
+      descendants?: Row[];
+      frontier?: Row[];
+    },
   ) {}
 
   prepare(sql: string): Statement<Row> {
     return {
       all: (...params: readonly unknown[]) => {
         this.prepared.push({ sql, params: params.map(String) });
+        if (sql.includes('ready_frontier_scope')) return this.rowsByKind.frontier ?? [];
         if (sql.includes('ancestor_edges')) return this.rowsByKind.ancestors ?? [];
         if (sql.includes('descendants')) return this.rowsByKind.descendants ?? [];
         return this.rowsByKind.children ?? [];
@@ -71,7 +81,7 @@ describe('SqliteWorkGraphContainmentQueryService', () => {
           id: 'T1',
           title: 'Task',
           type: 'task',
-          status: 'in_progress',
+          status: 'active',
           priority: 'medium',
           parent_id: 'E1',
         },
@@ -103,7 +113,7 @@ describe('SqliteWorkGraphContainmentQueryService', () => {
             id: 'T1',
             title: 'Task',
             type: 'task',
-            status: 'in_progress',
+            status: 'active',
             priority: 'medium',
             parentId: 'E1',
           },
@@ -400,6 +410,83 @@ describe('SqliteWorkGraphContainmentQueryService', () => {
       { actual: 1, expected: 2, field: 'total' },
       { actual: 1, expected: 2, field: 'status:done' },
       { actual: 1, expected: 2, field: 'type:task' },
+    ]);
+  });
+
+  it('groups role-filtered ready frontier tasks and separates dependency blockers from gate blockers', () => {
+    const db = new FakeDb({
+      frontier: [
+        {
+          root_id: 'E1',
+          id: 'T-ready',
+          title: 'Ready task',
+          type: 'task',
+          status: 'pending',
+          priority: 'high',
+          parent_id: 'E1',
+          role: 'worker',
+          verification_json: JSON.stringify({
+            gates: { implemented: false, testsPassed: false, qaPassed: false },
+          }),
+          depends_on: 'T-done',
+          dep_status: 'done',
+        },
+        {
+          root_id: 'E1',
+          id: 'T-blocked',
+          title: 'Blocked task',
+          type: 'task',
+          status: 'pending',
+          priority: 'medium',
+          parent_id: 'E1',
+          role: 'worker',
+          verification_json: JSON.stringify({
+            gates: { implemented: true, testsPassed: false, qaPassed: false },
+          }),
+          depends_on: 'T-open',
+          dep_status: 'active',
+        },
+      ],
+    });
+
+    const service = createSqliteWorkGraphContainmentQueryService(db);
+    const result = service.readyFrontier({ rootId: 'E1', role: 'worker' });
+
+    expect(db.prepared).toHaveLength(1);
+    expect(db.prepared[0]?.sql).toContain('ready_frontier_scope');
+    expect(db.prepared[0]?.sql).toContain('t.role = ?');
+    expect(db.prepared[0]?.params).toEqual(['E1', 'E1', 'worker']);
+    expect(result.groups.ready.map((task) => task.id)).toEqual(['T-ready']);
+    expect(result.groups.blocked.map((task) => task.id)).toEqual(['T-blocked']);
+    expect(result.groups.ready[0]?.gateBlockers.map((blocker) => blocker.gate)).toEqual([
+      'implemented',
+      'testsPassed',
+      'qaPassed',
+    ]);
+    expect(result.groups.blocked[0]?.dependencyBlockers).toEqual([
+      { taskId: 'T-open', status: 'active' },
+    ]);
+    expect(result.groups.blockedBy).toEqual([
+      {
+        kind: 'dependency',
+        blockerId: 'T-open',
+        blocks: ['T-blocked'],
+      },
+      {
+        kind: 'gate',
+        gate: 'implemented',
+        blocks: ['T-ready'],
+      },
+      {
+        kind: 'gate',
+        gate: 'qaPassed',
+        blocks: ['T-ready', 'T-blocked'],
+      },
+      {
+        kind: 'gate',
+        gate: 'testsPassed',
+        blocks: ['T-ready', 'T-blocked'],
+      },
     ]);
   });
 });
