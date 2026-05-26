@@ -13,6 +13,7 @@
  * @task T9240
  */
 
+import { readFile } from 'node:fs/promises';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
@@ -81,6 +82,55 @@ const addCommand = defineCommand({
       'tasks',
       'relates.add',
       { taskId: args.from, relatedId: args.to, type: args.type, reason: args.reason },
+      { command: 'relates' },
+    );
+  },
+});
+
+/** cleo relates add-batch — add advisory relation edges from a JSON file/stdin */
+const addBatchCommand = defineCommand({
+  meta: {
+    name: 'add-batch',
+    description:
+      'Add multiple advisory relation edges from JSON. Accepts {relations:[...]} or {edges:[...]}; use --dry-run to preview.',
+  },
+  args: {
+    file: {
+      type: 'string',
+      description: 'JSON file path, or - for stdin',
+      required: true,
+    },
+    dryRun: {
+      type: 'boolean',
+      description: 'Validate and print what would be created without writing',
+      required: false,
+    },
+    reasonWaiver: {
+      type: 'string',
+      description: 'Explicit audit waiver text for edges without per-edge reasons',
+      required: false,
+    },
+  },
+  async run({ args }) {
+    const input =
+      args.file === '-'
+        ? await new Promise<string>((resolve, reject) => {
+            let data = '';
+            process.stdin.setEncoding('utf8');
+            process.stdin.on('data', (chunk) => {
+              data += chunk;
+            });
+            process.stdin.on('end', () => resolve(data));
+            process.stdin.on('error', reject);
+          })
+        : await readFile(args.file, 'utf8');
+    const parsed = JSON.parse(input) as { relations?: unknown[]; edges?: unknown[] } | unknown[];
+    const payload = Array.isArray(parsed) ? { relations: parsed } : parsed;
+    await dispatchFromCli(
+      'mutate',
+      'tasks',
+      'relates.add-batch',
+      { ...payload, dryRun: args.dryRun, reasonWaiver: args.reasonWaiver },
       { command: 'relates' },
     );
   },
@@ -199,6 +249,7 @@ export const relatesCommand = defineCommand({
   subCommands: {
     suggest: suggestCommand,
     add: addCommand,
+    'add-batch': addBatchCommand,
     remove: removeCommand,
     discover: discoverCommand,
     list: listCommand,

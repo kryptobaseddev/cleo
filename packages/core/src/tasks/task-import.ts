@@ -25,6 +25,7 @@ export {
   coreTaskDepsOverview,
   coreTaskRelates,
   coreTaskRelatesAdd,
+  coreTaskRelatesAddBatch,
   coreTaskRelatesRemove,
   coreTaskStats,
 } from './task-data.js';

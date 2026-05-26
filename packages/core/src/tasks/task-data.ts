@@ -4,7 +4,12 @@
  * @epic T9834
  */
 
-import type { Task, TaskRef } from '@cleocode/contracts';
+import type {
+  Task,
+  TaskRef,
+  TasksRelatesAddBatchEntry,
+  TasksRelatesAddBatchResult,
+} from '@cleocode/contracts';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import {
   detectCircularDeps,
@@ -14,6 +19,7 @@ import {
   getTransitiveBlockers,
   validateDependencies,
 } from './dependency-check.js';
+import { addBatchRelations } from './relates.js';
 
 /** Task record shape expected from the data layer. */
 type TaskRecord = Task;
@@ -572,6 +578,23 @@ export async function coreTaskRelatesAdd(
  *
  * @task T9240
  */
+export async function coreTaskRelatesAddBatch(
+  projectRoot: string,
+  params: {
+    relations?: TasksRelatesAddBatchEntry[];
+    edges?: TasksRelatesAddBatchEntry[];
+    dryRun?: boolean;
+    reasonWaiver?: string;
+  },
+): Promise<TasksRelatesAddBatchResult> {
+  const relations = params.relations ?? params.edges ?? [];
+  return addBatchRelations(relations, {
+    cwd: projectRoot,
+    dryRun: params.dryRun,
+    reasonWaiver: params.reasonWaiver,
+  });
+}
+
 export async function coreTaskRelatesRemove(
   projectRoot: string,
   taskId: string,
