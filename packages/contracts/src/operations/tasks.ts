@@ -432,6 +432,13 @@ export type TasksAnalyzeQueryResult = TaskAnalysisResult & { tierLimit: number }
 export interface TasksContextParams {
   /** Task ID to build context for. */
   taskId: string;
+  /**
+   * Scope mode: `saga` resolves member-epic rollup + ready frontier across
+   * all members; `epic` resolves child-task rollup + ready frontier for the
+   * epic. When omitted or `undefined`, behaves as a single-task context pack
+   * (T10629 baseline). @defaultValue undefined (task-only)
+   */
+  scope?: 'saga' | 'epic';
   /** Maximum token budget for the returned pack. @defaultValue 1500 */
   budgetTokens?: number;
   /** Include acceptance criteria in the pack. @defaultValue true */
@@ -460,6 +467,12 @@ export interface TasksContextOmission {
   message: string;
   /** Number of items omitted, when countable. */
   count?: number;
+  /**
+   * CLI command to expand this section, when an expansion path exists
+   * (e.g. `"cleo orchestrate ready T10547"`, `"cleo saga rollup T10538"`).
+   * @task T10630
+   */
+  expansionCommand?: string;
 }
 
 /** Budget accounting for a task context pack. */
@@ -518,6 +531,49 @@ export interface TasksContextActivityEvent {
   details?: string;
 }
 
+/**
+ * Rollup summary for a saga or epic scope.
+ * @task T10630
+ */
+export interface TasksScopeRollup {
+  /** Total number of member epics (saga) or child tasks (epic). */
+  total: number;
+  done: number;
+  active: number;
+  blocked: number;
+  pending: number;
+  /** Completion percentage (0–100). */
+  completionPct: number;
+}
+
+/**
+ * A single member epic entry in a saga context pack.
+ * @task T10630
+ */
+export interface TasksScopeMember {
+  /** Epic task ID. */
+  epicId: string;
+  /** Epic title. */
+  title: string;
+  /** Current status. */
+  status: string;
+}
+
+/**
+ * A single ready-frontier entry in a saga/epic context pack.
+ * @task T10630
+ */
+export interface TasksScopeReadyEntry {
+  /** Task ID that is ready to execute. */
+  id: string;
+  /** Task title. */
+  title: string;
+  /** Priority level. */
+  priority: string;
+  /** Declared dependency IDs. */
+  depends: string[];
+}
+
 /** Result of `tasks.context` — bounded task context pack with omission tracking. */
 export interface TasksContextResult {
   /** Task ID this pack describes. */
@@ -551,6 +607,22 @@ export interface TasksContextResult {
   };
   /** Recent activity events, when requested and within budget. */
   activity?: TasksContextActivityEvent[];
+  /**
+   * Saga/epic rollup summary — present when `scope` is `'saga'` or
+   * `'epic'` and rollup data is available. @task T10630
+   */
+  rollup?: TasksScopeRollup;
+  /**
+   * Saga member epics — present when `scope` is `'saga'` and member data
+   * is available. @task T10630
+   */
+  members?: TasksScopeMember[];
+  /**
+   * Ready frontier — parallel-safe tasks that can be dispatched now.
+   * Present when `scope` is `'saga'` or `'epic'` and ready data is
+   * available. @task T10630
+   */
+  readyFrontier?: TasksScopeReadyEntry[];
   /** Omitted/truncated sections with reasons and counts. */
   omissions: TasksContextOmission[];
   /** Expansion hints for omitted sections. */
