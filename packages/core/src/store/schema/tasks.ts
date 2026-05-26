@@ -139,6 +139,12 @@ export const tasks = sqliteTable(
      * See {@link TASK_SEVERITIES}. Added by T944, widened by T9073.
      */
     severity: text('severity', { enum: TASK_SEVERITIES }),
+    /**
+     * Containment edge. Cross-row hierarchy invariants that Drizzle cannot
+     * express (parent type matrix and cycle rejection) are enforced by raw
+     * SQLite triggers in
+     * `20260525000072_t10572-task-hierarchy-invariant-guards`.
+     */
     parentId: text('parent_id').references((): AnySQLiteColumn => tasks.id, {
       onDelete: 'set null',
     }),
@@ -271,7 +277,11 @@ export const taskAcceptanceCriteria = sqliteTable(
       .default('text'),
     /** Stable per-task source key for idempotent criteria projection/upsert. */
     sourceKey: text('source_key'),
-    /** Optional child task target; only `kind='child_task'` may populate it. */
+    /**
+     * Optional child task target. Raw SQLite triggers in
+     * `20260525000072_t10572-task-hierarchy-invariant-guards` enforce that only
+     * `kind='child_task'` may set it, and only to a direct child of `task_id`.
+     */
     targetTaskId: text('target_task_id').references((): AnySQLiteColumn => tasks.id, {
       onDelete: 'set null',
     }),
@@ -406,6 +416,9 @@ export const taskDependencies = sqliteTable(
 );
 
 // === TASK RELATIONS ===
+// Non-containment edge graph only. Raw SQLite triggers in
+// `20260525000072_t10572-task-hierarchy-invariant-guards` reject attempts to
+// encode parent/child containment here; use `tasks.parent_id` for containment.
 
 export const taskRelations = sqliteTable(
   'task_relations',
