@@ -31,6 +31,20 @@ export const cancelCommand = defineCommand({
       type: 'string',
       description: 'Reason for cancellation',
     },
+    children: {
+      type: 'string',
+      description: 'Child handling mode: block (default), cascade, or orphan',
+      default: 'block',
+    },
+    force: {
+      type: 'boolean',
+      description: 'Required waiver for cascade cancellation above the subtree threshold',
+      default: false,
+    },
+    cascadeThreshold: {
+      type: 'string',
+      description: 'Maximum descendant count allowed for cascade without --force (default: 10)',
+    },
   },
   async run({ args }) {
     await dispatchFromCli(
@@ -40,6 +54,12 @@ export const cancelCommand = defineCommand({
       {
         taskId: args.taskId,
         reason: args.reason as string | undefined,
+        children: args.children as 'block' | 'cascade' | 'orphan' | undefined,
+        force: args.force === true,
+        cascadeThreshold:
+          typeof args.cascadeThreshold === 'string' && args.cascadeThreshold.length > 0
+            ? Number.parseInt(args.cascadeThreshold, 10)
+            : undefined,
       },
       { command: 'cancel', operation: 'tasks.cancel' },
     );
