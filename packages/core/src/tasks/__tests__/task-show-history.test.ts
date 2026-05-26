@@ -30,13 +30,29 @@ vi.mock('../../lifecycle/index.js', () => ({
   getLifecycleStatus: vi.fn(),
 }));
 
+vi.mock('../../store/attachment-store.js', () => ({
+  createAttachmentStore: vi.fn(() => ({
+    listByOwner: vi.fn(async () => [
+      { id: 'att_design', attachment: { kind: 'blob' } },
+      { id: 'att_adr', attachment: { kind: 'url' } },
+    ]),
+    getExtras: vi.fn(async (id: string) =>
+      id === 'att_design' ? { slug: 'design-note', type: 'research' } : { type: 'adr' },
+    ),
+  })),
+}));
+
+vi.mock('../compute-task-view.js', () => ({
+  computeTaskView: vi.fn(async () => null),
+}));
+
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
 import { getLifecycleStatus } from '../../lifecycle/index.js';
 import { getAccessor, getTaskAccessor } from '../../store/data-accessor.js';
-import { taskShowWithHistory } from '../show.js';
+import { taskShowOperation, taskShowWithHistory } from '../show.js';
 
 const mockGetAccessor = vi.mocked(getAccessor);
 // canonical replacement (T9054) — show.ts calls getTaskAccessor
@@ -63,8 +79,8 @@ const MOCK_TASK = {
   parentId: undefined,
   position: 0,
   positionVersion: 0,
-  depends: [],
-  relates: [],
+  depends: ['T000'],
+  relates: [{ taskId: 'T002', type: 'references' as const, reason: 'context' }],
   files: [],
   acceptance: [],
   notes: undefined,
@@ -75,7 +91,7 @@ const MOCK_TASK = {
   verification: null,
   origin: null,
   cancellationReason: undefined,
-  blockedBy: undefined,
+  blockedBy: 'T999',
   pipelineStage: null,
 };
 
@@ -84,8 +100,10 @@ function makeAccessorStub() {
   return {
     loadSingleTask: vi.fn(async (id: string) => (id === 'T001' ? MOCK_TASK : null)),
     loadArchive: vi.fn().mockResolvedValue(null),
-    getChildren: vi.fn().mockResolvedValue([]),
-    loadTasks: vi.fn().mockResolvedValue([]),
+    getChildren: vi.fn().mockResolvedValue([{ ...MOCK_TASK, id: 'T003', title: 'Child task' }]),
+    loadTasks: vi
+      .fn()
+      .mockResolvedValue([{ ...MOCK_TASK, id: 'T000', title: 'Dependency', status: 'done' }]),
     getDependents: vi.fn().mockResolvedValue([]),
     getAncestorChain: vi.fn().mockResolvedValue([]),
   };
@@ -144,6 +162,13 @@ describe('taskShowWithHistory', () => {
       expect(result.success).toBe(true);
       expect(result.data?.task).toBeDefined();
       expect(result.data?.task.id).toBe('T001');
+      expect(result.data?.task.relationCounts).toEqual({
+        depends: 1,
+        blockedBy: 1,
+        relates: 1,
+        children: 1,
+        docs: 2,
+      });
       // history key must be absent when flag is not set
       expect('history' in (result.data ?? {})).toBe(false);
       expect(mockGetLifecycleStatus).not.toHaveBeenCalled();
@@ -248,6 +273,32 @@ describe('taskShowWithHistory', () => {
       // Uninitialized pipeline still returns stage list with not_started statuses
       const history = result.data?.history ?? [];
       expect(history.every((e) => e.status === 'not_started')).toBe(true);
+    });
+  });
+
+  describe('taskShowOperation --relations', () => {
+    it('returns compact counts by default and expands relation/doc lists when requested', async () => {
+      const result = await taskShowOperation(projectRoot, { taskId: 'T001', relations: true });
+
+      expect(result.success).toBe(true);
+      if (!result.success) throw new Error('expected success');
+      expect(result.data.task.relationCounts).toEqual({
+        depends: 1,
+        blockedBy: 1,
+        relates: 1,
+        children: 1,
+        docs: 2,
+      });
+      expect(result.data.relations).toEqual({
+        depends: ['T000'],
+        blockedBy: ['T999'],
+        relates: [{ taskId: 'T002', type: 'references', reason: 'context' }],
+        children: ['T003'],
+        docs: [
+          { attachmentId: 'att_design', kind: 'blob', slug: 'design-note', type: 'research' },
+          { attachmentId: 'att_adr', kind: 'url', type: 'adr' },
+        ],
+      });
     });
   });
 });

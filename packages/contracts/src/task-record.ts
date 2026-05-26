@@ -25,6 +25,20 @@ export interface ValidationHistoryEntry {
   timestamp: string;
 }
 
+/** Compact relation/document counts surfaced on default `cleo show` MVI output. */
+export interface TaskRecordRelationCounts {
+  /** Direct dependencies declared by the task. */
+  depends: number;
+  /** Explicit blockedBy entries on the task record. */
+  blockedBy: number;
+  /** Non-dependency task relation links. */
+  relates: number;
+  /** Direct child tasks. */
+  children: number;
+  /** Docs attachments linked to the task. */
+  docs: number;
+}
+
 /** String-widened Task for JSON serialization in dispatch/LAFS layer. */
 export interface TaskRecord {
   id: string;
@@ -58,6 +72,8 @@ export interface TaskRecord {
   lifecycleState?: string | null;
   validationHistory?: ValidationHistoryEntry[];
   blockedBy?: string[];
+  /** Compact counts for relationships and docs, kept in default MVI projection. */
+  relationCounts?: TaskRecordRelationCounts;
   cancellationReason?: string;
   /** RCASD-IVTR+C pipeline stage. @task T060 */
   pipelineStage?: string | null;

@@ -14,7 +14,12 @@
  * @adr ADR-058
  */
 
-import type { Task, TaskRecord, TaskRecordRelation } from '@cleocode/contracts';
+import type {
+  Task,
+  TaskRecord,
+  TaskRecordRelation,
+  TaskRecordRelationCounts,
+} from '@cleocode/contracts';
 import type { IvtrPhase, IvtrPhaseEntry } from '../lifecycle/ivtr-loop.js';
 
 /**
@@ -78,6 +83,8 @@ export function taskToRecord(task: Task): TaskRecord {
     type: r.type,
     ...(r.reason && { reason: r.reason }),
   }));
+  const relationCounts = (task as Task & { relationCounts?: TaskRecordRelationCounts })
+    .relationCounts;
   return {
     id: task.id,
     title: task.title,
@@ -106,6 +113,7 @@ export function taskToRecord(task: Task): TaskRecord {
     origin: task.origin ?? null,
     cancellationReason: task.cancellationReason,
     blockedBy: task.blockedBy ? [task.blockedBy] : undefined,
+    ...(relationCounts ? { relationCounts } : {}),
     pipelineStage: task.pipelineStage ?? null,
     // T944/T9072: orthogonal axes (kind → DB col 'role')
     kind: task.kind ?? null,
