@@ -116,6 +116,13 @@ describe('CLEO-INJECTION.md — command correctness', () => {
     expect(injectionContent).toContain('/data/insertedCount');
   });
 
+  it('documents docs path policy, strict preflight, and runtime doc kinds', () => {
+    expect(injectionContent).toContain('repo-relative paths');
+    expect(injectionContent).toContain('arbitrary external absolute paths');
+    expect(injectionContent).toContain('cleo docs list-types');
+    expect(injectionContent).toContain('DocKindRegistry');
+  });
+
   it('uses contract-backed mutate field paths', () => {
     expect(injectionContent).toContain('/data/created/0');
     expect(injectionContent).toContain('/data/updated/0');
