@@ -224,9 +224,9 @@ describe('WorkGraph planning doc generator', () => {
     it('throws when saga is not found', async () => {
       const { generatePlanningDoc } = await import('../scaffold-plan.js');
 
-      await expect(
-        generatePlanningDoc(tempDir, { sagaId: 'NONEXISTENT' }),
-      ).rejects.toThrow(/not found/);
+      await expect(generatePlanningDoc(tempDir, { sagaId: 'NONEXISTENT' })).rejects.toThrow(
+        /not found/,
+      );
     });
   });
 
@@ -357,9 +357,7 @@ describe('WorkGraph planning doc generator', () => {
       expect(maintainerResult.audience).toBe('maintainer');
 
       // Agent mode is more compact
-      expect(agentResult.estimatedTokens).toBeLessThanOrEqual(
-        maintainerResult.estimatedTokens,
-      );
+      expect(agentResult.estimatedTokens).toBeLessThanOrEqual(maintainerResult.estimatedTokens);
 
       // Agent mode uses compact formatting
       expect(agentResult.markdown).toContain('## ');

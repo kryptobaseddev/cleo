@@ -16,8 +16,8 @@
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import {
-  rebuildChildProjectionAc,
   auditChildProjectionAcRows,
+  rebuildChildProjectionAc,
   type ChildProjectionAuditInput,
 } from './ac-table.js';
 

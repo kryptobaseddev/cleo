@@ -500,6 +500,54 @@ export interface WorkGraphScaffoldApplyParams extends WorkGraphScaffoldValidateP
   readonly apply?: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// Planning Doc Generator (T10634)
+// ---------------------------------------------------------------------------
+
+/** Target audience for planning doc output. @task T10634 */
+export type WorkGraphAudienceMode = 'agent' | 'maintainer';
+
+/** Parameters for generating a planning doc from WorkGraph data. @task T10634 */
+export interface WorkGraphPlanningDocParams {
+  /** Root saga/epic whose graph should drive the planning doc. */
+  readonly rootId: string;
+  /** Audience mode — 'agent' for terse/LLM-optimized, 'maintainer' for human-readable. */
+  readonly audience: WorkGraphAudienceMode;
+  /** Optional token budget for agent-mode truncation. */
+  readonly tokenBudget?: number;
+  /** Include direct relation/dependency edges in the doc. */
+  readonly includeRelations?: boolean;
+  /** Include readiness grouping. */
+  readonly includeReadiness?: boolean;
+  /** Include rollup summary. */
+  readonly includeRollup?: boolean;
+}
+
+/** Planning doc generated from WorkGraph data. @task T10634 */
+export interface WorkGraphPlanningDoc {
+  /** Requested root saga/epic ID. */
+  readonly rootId: string;
+  /** ISO timestamp when the doc was generated. */
+  readonly generatedAt: string;
+  /** Audience mode used for generation. */
+  readonly audience: WorkGraphAudienceMode;
+  /** Document title derived from the root task. */
+  readonly title: string;
+  /** Generated markdown content. */
+  readonly content: string;
+  /** Top-level section headings for TOC/navigation. */
+  readonly sections: readonly string[];
+  /** Estimated token count for the generated content. */
+  readonly estimatedTokens: number;
+  /** Budget accounting when tokenBudget is provided. */
+  readonly budget?: {
+    /** Caller-provided token budget. */
+    readonly tokenBudget: number;
+    /** Whether content was truncated to fit budget. */
+    readonly truncated: boolean;
+  };
+}
+
 /** Result contract for applying a WorkGraph scaffold proposal. @task T10609 */
 export interface WorkGraphScaffoldApplyResult extends WorkGraphScaffoldValidateResult {
   /** True when mutations were written. */
@@ -751,6 +799,33 @@ export const workGraphScaffoldApplyResultSchema = workGraphScaffoldValidateResul
   applied: z.boolean(),
   nodesChanged: z.number().int().nonnegative(),
   edgesChanged: z.number().int().nonnegative(),
+});
+
+/** Zod params for WorkGraph planning doc generation. @task T10634 */
+export const workGraphPlanningDocParamsSchema = z.object({
+  rootId: z.string().min(1),
+  audience: z.enum(['agent', 'maintainer']),
+  tokenBudget: z.number().int().positive().optional(),
+  includeRelations: z.boolean().optional(),
+  includeReadiness: z.boolean().optional(),
+  includeRollup: z.boolean().optional(),
+});
+
+/** Zod result contract for WorkGraph planning doc. @task T10634 */
+export const workGraphPlanningDocSchema = z.object({
+  rootId: z.string().min(1),
+  generatedAt: z.string().min(1),
+  audience: z.enum(['agent', 'maintainer']),
+  title: z.string().min(1),
+  content: z.string(),
+  sections: z.array(z.string().min(1)),
+  estimatedTokens: z.number().int().nonnegative(),
+  budget: z
+    .object({
+      tokenBudget: z.number().int().positive(),
+      truncated: z.boolean(),
+    })
+    .optional(),
 });
 
 /** Zod params for `tasks.traverse`. */
