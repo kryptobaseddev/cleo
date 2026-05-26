@@ -84,3 +84,20 @@ export {
   E_WORKGRAPH_REPARENT_TARGET_NOT_FOUND,
   preflightWorkGraphReparent,
 } from './reparent-preflight.js';
+export type {
+  WorkGraphStructureCycleFinding,
+  WorkGraphStructureDepthFinding,
+  WorkGraphStructureFanoutFinding,
+  WorkGraphStructureFinding,
+  WorkGraphStructureInputNode,
+  WorkGraphStructureMissingWaveZeroFinding,
+  WorkGraphStructureOrphanFinding,
+  WorkGraphStructureValidationOptions,
+  WorkGraphStructureValidationResult,
+} from './structure-validation.js';
+export {
+  E_WORKGRAPH_FANOUT_EXCEEDED,
+  E_WORKGRAPH_MISSING_WAVE_ZERO,
+  E_WORKGRAPH_ORPHANED_NODE,
+  validateWorkGraphStructure,
+} from './structure-validation.js';
