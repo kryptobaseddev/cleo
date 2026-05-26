@@ -891,8 +891,13 @@ export async function orchestrateReport(
     const gateBlocked: OrchestrateReportEntry[] = [];
     const invalid: OrchestrateReportEntry[] = [];
 
-    // Dependency analysis for invalid detection
-    const depAnalysis = analyzeDependencies(children, tasks);
+    // Dependency analysis for invalid detection — swallow errors gracefully
+    let depAnalysis: { missingDependencies: Array<{ taskId: string; missingDep: string }>; circularDependencies: string[][] } = { missingDependencies: [], circularDependencies: [] };
+    try {
+      depAnalysis = analyzeDependencies(children, tasks);
+    } catch {
+      // Non-fatal: dependency analysis failed, skip invalid classification
+    }
     const missingDepIds = new Set(depAnalysis.missingDependencies.map((m) => m.missingDep));
     const circularInvolved = new Set<string>();
     for (const chain of depAnalysis.circularDependencies) {
