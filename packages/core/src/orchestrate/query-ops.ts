@@ -933,17 +933,9 @@ export async function orchestrateReport(
       // --- Gate-blocked classification ---
       const requiredGates = ['implemented', 'testsPassed', 'qaPassed'];
       const failedGates = requiredGates.filter((g) => gates[g] === false);
-      const hasPendingGates = requiredGates.some(
-        (g) => gates[g] === undefined || gates[g] === null,
-      );
-      // A task is gate-blocked if any required gate is explicitly false,
-      // or if gates are absent/undefined AND the task is pending (not yet started)
-      if (
-        failedGates.length > 0 ||
-        (hasPendingGates &&
-          task.status === 'pending' &&
-          !(gates as Record<string, unknown>)['implemented'])
-      ) {
+      // A task is gate-blocked only if at least one required gate is explicitly false.
+      // Missing/undefined gates (common for pending tasks) do NOT classify as gate-blocked.
+      if (failedGates.length > 0) {
         const gateSummary: Record<string, boolean> = {};
         for (const g of requiredGates) {
           gateSummary[g] = gates[g] === true;
