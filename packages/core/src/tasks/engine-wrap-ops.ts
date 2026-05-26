@@ -5,7 +5,7 @@
  * @epic T9834
  */
 
-import type { TaskStatus } from '@cleocode/contracts';
+import type { TaskStatus, TasksContextParams, TasksContextResult } from '@cleocode/contracts';
 import { TASK_STATUSES } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
@@ -30,7 +30,6 @@ import {
 } from './task-import.js';
 import { coreTaskContext } from './task-context.js';
 import { computeCriticalPath, renderMermaidTree, renderTextTree } from './tree-render.js';
-
 /**
  * Convert a caught error to an EngineResult failure.
  *
@@ -451,11 +450,12 @@ export async function taskUnclaim(
 /**
  * Build a bounded task-scoped context pack.
  * @task T10629
+ * @task T10630
  */
 export async function taskContext(
   projectRoot: string,
-  params: import('@cleocode/contracts').TasksContextParams,
-): Promise<EngineResult<import('@cleocode/contracts').TasksContextResult>> {
+  params: TasksContextParams,
+): Promise<EngineResult<TasksContextResult>> {
   try {
     const result = await coreTaskContext(projectRoot, params);
     return engineSuccess(result);
