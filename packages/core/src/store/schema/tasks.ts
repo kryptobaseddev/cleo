@@ -156,6 +156,17 @@ export const tasks = sqliteTable(
     // JSON-serialized complex fields (avoids excessive normalization)
     labelsJson: text('labels_json').default('[]'),
     notesJson: text('notes_json').default('[]'),
+    /**
+     * Legacy AC storage column.
+     *
+     * T10574 deprecation policy: retained only for legacy import/backfill
+     * compatibility and historical migrations. Post-migration completion and
+     * AC coverage must not read this column; canonical reads/writes use
+     * `task_acceptance_criteria`, `task_acceptance_criteria_history`, and
+     * `evidence_ac_bindings`. Removal is allowed only after legacy import,
+     * Studio/API display fallback, and migration fixtures no longer depend on
+     * it.
+     */
     acceptanceJson: text('acceptance_json').default('[]'),
     filesJson: text('files_json').default('[]'),
 
