@@ -424,6 +424,139 @@ export interface TasksAnalyzeQueryParams {
  */
 export type TasksAnalyzeQueryResult = TaskAnalysisResult & { tierLimit: number };
 
+// ---------------------------------------------------------------------------
+// tasks.context — Task-scoped context pack with token budget (T10629)
+// ---------------------------------------------------------------------------
+
+/** Params for `tasks.context` — bounded task context pack. */
+export interface TasksContextParams {
+  /** Task ID to build context for. */
+  taskId: string;
+  /** Maximum token budget for the returned pack. @defaultValue 1500 */
+  budgetTokens?: number;
+  /** Include acceptance criteria in the pack. @defaultValue true */
+  includeAcceptance?: boolean;
+  /** Include blocker summary in the pack. @defaultValue true */
+  includeBlockers?: boolean;
+  /** Include attached docs in the pack. @defaultValue true */
+  includeDocs?: boolean;
+  /** Include graph edges (upstream/downstream/siblings/related) in the pack. @defaultValue true */
+  includeEdges?: boolean;
+  /** Include recent activity (audit log) in the pack. @defaultValue true */
+  includeActivity?: boolean;
+  /** Maximum number of recent activity events. @defaultValue 10 */
+  activityLimit?: number;
+  /** Maximum depth for graph edges when includeEdges is true. @defaultValue 1 */
+  edgeDepth?: number;
+}
+
+/** A single omitted section with reason and count. */
+export interface TasksContextOmission {
+  /** Section path that was omitted (e.g. "acceptance", "blockers", "docs", "edges.upstream", "activity"). */
+  path: string;
+  /** Reason for omission. */
+  reason: 'budget_exceeded' | 'not_requested' | 'not_available';
+  /** Human-readable explanation. */
+  message: string;
+  /** Number of items omitted, when countable. */
+  count?: number;
+}
+
+/** Budget accounting for a task context pack. */
+export interface TasksContextBudget {
+  /** Caller-provided token budget. */
+  tokenBudget: number;
+  /** Estimated tokens consumed by the returned payload. */
+  estimatedTokens: number;
+  /** Remaining tokens after payload selection. */
+  remainingTokens: number;
+  /** True when one or more sections were truncated or omitted. */
+  truncated: boolean;
+}
+
+/** Single AC entry in the context pack. */
+export interface TasksContextAcceptanceEntry {
+  /** AC alias (e.g. "AC1") or UUID. */
+  alias: string;
+  /** Full acceptance criterion text. */
+  text: string;
+  /** Whether this AC has evidence bindings. */
+  hasEvidence?: boolean;
+}
+
+/** Single blocker entry in the context pack. */
+export interface TasksContextBlockerEntry {
+  /** Blocking task ID. */
+  taskId: string;
+  /** Title of the blocking task. */
+  title: string;
+  /** Status of the blocking task. */
+  status: string;
+  /** Blocker kind: dependency or gate. */
+  kind: 'dependency' | 'gate';
+}
+
+/** Single doc entry in the context pack. */
+export interface TasksContextDocEntry {
+  /** Doc slug or attachment identifier. */
+  slug: string;
+  /** Doc type. */
+  type: string;
+  /** Human-readable title or description. */
+  title: string;
+}
+
+/** Single activity event in the context pack. */
+export interface TasksContextActivityEvent {
+  /** ISO timestamp. */
+  timestamp: string;
+  /** Action type. */
+  action: string;
+  /** Actor who performed the action. */
+  actor?: string;
+  /** Free-form details. */
+  details?: string;
+}
+
+/** Result of `tasks.context` — bounded task context pack with omission tracking. */
+export interface TasksContextResult {
+  /** Task ID this pack describes. */
+  taskId: string;
+  /** ISO timestamp when the pack was generated. */
+  generatedAt: string;
+  /** Budget accounting. */
+  budget: TasksContextBudget;
+  /** Task identity (title, status, type, priority, description). */
+  identity: {
+    id: string;
+    title: string;
+    status: string;
+    type?: string;
+    priority?: string;
+    description?: string;
+    parentId?: string | null;
+  };
+  /** Acceptance criteria, when requested and within budget. */
+  acceptance?: TasksContextAcceptanceEntry[];
+  /** Blockers, when requested and within budget. */
+  blockers?: TasksContextBlockerEntry[];
+  /** Attached docs, when requested and within budget. */
+  docs?: TasksContextDocEntry[];
+  /** Graph edges, when requested and within budget. */
+  edges?: {
+    upstream: TasksSliceNode[];
+    downstream: TasksSliceNode[];
+    siblings: TasksSliceNode[];
+    related?: TasksSliceNode[];
+  };
+  /** Recent activity events, when requested and within budget. */
+  activity?: TasksContextActivityEvent[];
+  /** Omitted/truncated sections with reasons and counts. */
+  omissions: TasksContextOmission[];
+  /** Expansion hints for omitted sections. */
+  expansionHints: Record<string, string>;
+}
+
 // tasks.deps.validate
 /**
  * Parameters for `tasks.deps.validate`.
@@ -1712,6 +1845,8 @@ export type TasksOps = {
   readonly current: readonly [TasksCurrentParams, TasksCurrentResult];
   readonly 'label.list': readonly [TasksLabelListParams, TasksLabelListResult];
   readonly 'sync.links': readonly [TasksSyncLinksParams, TasksSyncLinksResult];
+  // T10629 — task-scoped context pack with token budget
+  readonly context: readonly [TasksContextParams, TasksContextResult];
   // Mutate ops
   readonly add: readonly [TasksAddParams, TasksAddResult];
   readonly 'add-batch': readonly [TasksAddBatchParams, TasksAddBatchResult];
