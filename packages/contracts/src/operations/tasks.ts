@@ -39,6 +39,9 @@ import type {
   TaskComplexityFactor,
   TaskDependsResult,
   TaskLabelInfo,
+  TaskMutationDryRunSummary,
+  TaskMutationEnvelope,
+  TaskMutationWarning,
   TaskPlanResult,
   TaskTreeNode,
   TaskView,
@@ -845,7 +848,7 @@ export interface TasksAddBatchParams {
  * @task T9814
  * @task T10599 (dry-run semantics: wouldCreate, wouldAffect, validatedCount, insertedCount, validationFindings)
  */
-export interface TasksAddBatchResult {
+export interface TasksAddBatchResult extends TaskMutationEnvelope<number, [], []> {
   /** Number of tasks actually created (0 on rollback or dry-run). */
   created: number;
   /** Per-task results in input order. */
@@ -895,6 +898,16 @@ export interface TasksAddBatchResult {
    * @task T10599
    */
   validationFindings?: Array<{ index: number; warnings: string[] }>;
+  /** Standard dry-run/preflight projection shared by task mutations. @task T10608 */
+  dryRunSummary?: TaskMutationDryRunSummary;
+  /** Structured partial-success warnings, flattened across batch entries. @task T10608 */
+  mutationWarnings: TaskMutationWarning[];
+  /** Updated task records; empty for add-batch. @task T10608 */
+  updated: [];
+  /** Deleted task records; empty for add-batch. @task T10608 */
+  deleted: [];
+  /** Total number of live rows/entities affected. @task T10608 */
+  affectedCount: number;
 }
 
 // tasks.add (dispatch-level params — extends TasksCreateParams)
@@ -934,7 +947,7 @@ export interface TasksAddParams {
  *
  * @task T1703
  */
-export interface TasksAddResult {
+export interface TasksAddResult extends TaskMutationEnvelope<TaskRecord[], [], []> {
   /** The created task record. */
   task: TaskRecord;
   /** Whether a duplicate was detected (but bypassed via forceDuplicate). */
@@ -943,6 +956,18 @@ export interface TasksAddResult {
   dryRun?: boolean;
   /** Non-blocking validation warnings. @defaultValue undefined */
   warnings?: string[];
+  /** Standardized created bucket; contains `task` on live create, empty on dry-run. @task T10608 */
+  created: TaskRecord[];
+  /** Standardized updated bucket; empty for create. @task T10608 */
+  updated: [];
+  /** Standardized deleted bucket; empty for create. @task T10608 */
+  deleted: [];
+  /** Total number of live rows/entities affected. @task T10608 */
+  affectedCount: number;
+  /** Structured partial-success/preflight warnings. @task T10608 */
+  mutationWarnings: TaskMutationWarning[];
+  /** Standard dry-run/preflight projection. @task T10608 */
+  dryRunSummary?: TaskMutationDryRunSummary;
 }
 
 // tasks.update (dispatch-level params — extends TasksUpdateParams)
@@ -1000,11 +1025,25 @@ export interface TasksUpdateQueryParams {
  *
  * @task T1703
  */
-export interface TasksUpdateQueryResult {
+export interface TasksUpdateQueryResult extends TaskMutationEnvelope<[], TaskRecord[], []> {
   /** Updated task record. */
   task: TaskRecord;
   /** Human-readable list of fields that were changed. @defaultValue undefined */
   changes?: string[];
+  /** Whether this was a dry run (no mutation persisted). @defaultValue undefined */
+  dryRun?: boolean;
+  /** Standardized created bucket; empty for update. @task T10608 */
+  created: [];
+  /** Standardized updated bucket; contains the updated task on live update, empty on dry-run. @task T10608 */
+  updated: TaskRecord[];
+  /** Standardized deleted bucket; empty for update. @task T10608 */
+  deleted: [];
+  /** Total number of live rows/entities affected. @task T10608 */
+  affectedCount: number;
+  /** Structured partial-success/preflight warnings. @task T10608 */
+  mutationWarnings: TaskMutationWarning[];
+  /** Standard dry-run/preflight projection. @task T10608 */
+  dryRunSummary?: TaskMutationDryRunSummary;
 }
 
 // tasks.complete (dispatch-level params)
@@ -1067,13 +1106,25 @@ export interface TasksDeleteQueryParams {
  *
  * @task T1703
  */
-export interface TasksDeleteQueryResult {
+export interface TasksDeleteQueryResult extends TaskMutationEnvelope<[], [], boolean> {
   /** The deleted task record. */
   deletedTask: TaskRecord;
   /** Whether the deletion was applied (always true on success). */
   deleted: boolean;
   /** IDs of child tasks cascade-deleted along with the parent. @defaultValue undefined */
   cascadeDeleted?: string[];
+  /** Whether this was a dry run (no mutation persisted). @defaultValue undefined */
+  dryRun?: boolean;
+  /** Standardized created bucket; empty for delete. @task T10608 */
+  created: [];
+  /** Standardized updated bucket; empty for delete. @task T10608 */
+  updated: [];
+  /** Total number of live rows/entities affected. @task T10608 */
+  affectedCount: number;
+  /** Structured partial-success/preflight warnings. @task T10608 */
+  mutationWarnings: TaskMutationWarning[];
+  /** Standard dry-run/preflight projection. @task T10608 */
+  dryRunSummary?: TaskMutationDryRunSummary;
 }
 
 // tasks.archive (dispatch-level params)
