@@ -16,9 +16,9 @@
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import {
+  type ChildProjectionAuditInput,
   auditChildProjectionAcRows,
   rebuildChildProjectionAc,
-  type ChildProjectionAuditInput,
 } from './ac-table.js';
 
 const _require = createRequire(import.meta.url ?? 'file:///');
