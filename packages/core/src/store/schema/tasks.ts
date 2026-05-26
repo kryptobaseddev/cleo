@@ -424,8 +424,10 @@ export const taskRelations = sqliteTable(
     reason: text('reason'),
   },
   (table) => [
-    primaryKey({ columns: [table.taskId, table.relatedTo] }),
-    index('idx_task_relations_related_to').on(table.relatedTo),
+    primaryKey({ columns: [table.taskId, table.relatedTo, table.relationType] }),
+    index('idx_task_relations_task_id_relation_type').on(table.taskId, table.relationType),
+    index('idx_task_relations_related_to_relation_type').on(table.relatedTo, table.relationType),
+    index('idx_task_relations_relation_type').on(table.relationType),
   ],
 );
 
