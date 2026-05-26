@@ -847,6 +847,20 @@ export type {
   WikiStateFile,
   WikiSymbolRow,
 } from './nexus-wiki-ops.js';
+// === Operation-aware LAFS envelope validation (T10610) ===
+export type {
+  OperationEnvelopeName,
+  OperationEnvelopeValidationIssue,
+  OperationEnvelopeValidationOptions,
+  OperationEnvelopeValidationResult,
+} from './operation-envelope-validation.js';
+export {
+  E_LAFS_OPERATION_ERROR_SHAPE,
+  E_LAFS_OPERATION_RESULT_SCHEMA,
+  E_LAFS_OPERATION_UNREGISTERED,
+  OPERATION_RESULT_SCHEMAS,
+  validateOperationEnvelope,
+} from './operation-envelope-validation.js';
 // Admin operation param/result types — re-exported at top level for typed-dispatch consumers
 // (T1426 Wave D · typed-narrowing migration for admin domain)
 export type {
