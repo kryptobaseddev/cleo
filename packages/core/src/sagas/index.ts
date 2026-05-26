@@ -72,6 +72,13 @@ export {
 export { type RepairSagaParams, type RepairSagaResult, repairSaga } from './repair.js';
 export { type SagaRollupParams, type SagaRollupResult, sagaRollup } from './rollup.js';
 export {
+  type ContainmentConflict,
+  type MigrateSagaContainmentParams,
+  type MigrateSagaContainmentResult,
+  type MigratedEpic,
+  migrateSagaContainment,
+} from './migrate-containment.js';
+export {
   buildSagaAutoCloseEvidence,
   findSagasGroupingTask,
   resolveSagaMemberIds,
