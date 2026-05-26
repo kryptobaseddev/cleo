@@ -225,6 +225,7 @@ export {
   taskReorder,
   taskReparent,
   taskRestore,
+  taskSlice,
   taskStats,
   taskTree,
   taskUnarchive,

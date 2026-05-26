@@ -54,6 +54,7 @@ export {
   taskHistory,
   taskImport,
   taskLint,
+  taskSlice,
   taskStats,
   taskUnclaim,
 } from './engine-wrap-ops.js';
@@ -73,6 +74,7 @@ export {
   coreTaskRelates,
   coreTaskRelatesAdd,
   coreTaskRelatesRemove,
+  coreTaskSlice,
   coreTaskStats,
 } from './task-data.js';
 

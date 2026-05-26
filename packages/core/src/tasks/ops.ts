@@ -39,6 +39,7 @@ import { type DeleteTaskResult, deleteTask } from './delete.js';
 import { type FindTasksResult, findTasks } from './find.js';
 import { type ListTasksResult, listTasks } from './list.js';
 import { showTask, type TaskDetail } from './show.js';
+import { coreTaskSlice } from './task-data.js';
 import { type UpdateTaskResult, updateTask } from './update.js';
 
 // ---------------------------------------------------------------------------
@@ -137,6 +138,25 @@ export async function tasksFindOp(
     },
     projectRoot,
   );
+}
+
+/**
+ * Normalized wrapper for {@link coreTaskSlice}.
+ * ADR-057 D1 shape: (projectRoot: string, params: TasksSliceParams)
+ *
+ * @task T10628
+ */
+export async function tasksSliceOp(
+  projectRoot: string,
+  params: TasksOps['slice'][0],
+): Promise<TasksOps['slice'][1]> {
+  return coreTaskSlice(projectRoot, params.taskId, {
+    radius: params.radius,
+    depth: params.depth,
+    budget: params.budget,
+    direction: params.direction,
+    includeRelates: params.includeRelates,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -421,6 +441,7 @@ export declare const tasksCoreOps: {
   readonly tree: TaskCoreOperation<'tree'>;
   readonly blockers: TaskCoreOperation<'blockers'>;
   readonly depends: TaskCoreOperation<'depends'>;
+  readonly slice: TaskCoreOperation<'slice'>;
   readonly 'deps.validate': TaskCoreOperation<'deps.validate'>;
   readonly 'deps.tree': TaskCoreOperation<'deps.tree'>;
   readonly analyze: TaskCoreOperation<'analyze'>;
