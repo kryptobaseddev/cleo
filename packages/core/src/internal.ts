@@ -2001,6 +2001,7 @@ export {
   taskUnclaim,
 } from './tasks/task-ops.js';
 export { taskUpdate } from './tasks/update.js';
+export { taskContext } from './tasks/engine-wrap-ops.js';
 
 // ---------------------------------------------------------------------------
 // Additional flat exports (required by @cleocode/cleo)

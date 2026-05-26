@@ -1410,6 +1410,15 @@ export type {
   TasksUnclaimResult,
   TasksUpdateQueryParams,
   TasksUpdateQueryResult,
+  // T10629 — task context pack types
+  TasksContextAcceptanceEntry,
+  TasksContextActivityEvent,
+  TasksContextBlockerEntry,
+  TasksContextBudget,
+  TasksContextDocEntry,
+  TasksContextOmission,
+  TasksContextParams,
+  TasksContextResult,
 } from './operations/tasks.js';
 // === T9917 tasks.* schema-first input contracts (Saga T9855 / Epic T9903) ===
 // Top-level exports so the core dispatch registry (input-contracts.ts) can
