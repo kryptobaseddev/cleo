@@ -128,6 +128,76 @@ export interface WorkGraphTreeResult {
   readonly pageInfo: WorkGraphPageInfo;
 }
 
+/** Sparse status/type bucket counts returned by WorkGraph subtree rollups. */
+export interface WorkGraphRollupCounts {
+  /** Total nodes counted for this bucket. */
+  readonly total: number;
+  /** Counts by canonical task status. Statuses with zero rows may be omitted. */
+  readonly byStatus: Partial<Record<TaskStatus, number>>;
+  /** Counts by canonical task type. Types with zero rows may be omitted. */
+  readonly byType: Partial<Record<TaskType, number>>;
+}
+
+/** Explicit denominator contract used for percentage fields in subtree summaries. */
+export interface WorkGraphPercentDenominator {
+  /** Stable denominator basis. */
+  readonly basis: 'subtree-total';
+  /** Numeric denominator used to compute every percentage in the result. */
+  readonly total: number;
+  /** Human-readable rule statement for CLIs and APIs. */
+  readonly description: string;
+}
+
+/** Completion-style percentages derived from a subtree summary. */
+export interface WorkGraphSubtreePercentages {
+  /** Done descendants divided by `percentDenominator.total`. */
+  readonly done: number;
+  /** Active descendants divided by `percentDenominator.total`. */
+  readonly active: number;
+  /** Blocked descendants divided by `percentDenominator.total`. */
+  readonly blocked: number;
+  /** Pending descendants divided by `percentDenominator.total`. */
+  readonly pending: number;
+  /** Cancelled descendants divided by `percentDenominator.total`. */
+  readonly cancelled: number;
+}
+
+/** Field-level mismatch proving a cached direct-child projection is stale. */
+export interface WorkGraphProjectionMismatch {
+  /** Compared rollup field. */
+  readonly field: 'total' | `status:${TaskStatus}` | `type:${TaskType}`;
+  /** Count supplied by the caller's projection. */
+  readonly expected: number;
+  /** Count observed from current WorkGraph storage. */
+  readonly actual: number;
+}
+
+/** Options for storage-backed subtree summary and rollup reads. */
+export interface WorkGraphSubtreeSummaryOptions {
+  /** Root node whose descendants are summarized. The root node itself is excluded. */
+  readonly rootId: string;
+  /** Optional direct-child projection to compare against current storage. */
+  readonly expectedDirectRollup?: WorkGraphRollupCounts;
+}
+
+/** Direct-child and full-subtree rollup summary for one WorkGraph root. */
+export interface WorkGraphSubtreeSummaryResult {
+  /** Requested summary root. */
+  readonly rootId: string;
+  /** Counts for depth=1 descendants only. */
+  readonly direct: WorkGraphRollupCounts;
+  /** Counts for all descendants below the root. */
+  readonly subtree: WorkGraphRollupCounts;
+  /** Explicit denominator rules used by `percentages`. */
+  readonly percentDenominator: WorkGraphPercentDenominator;
+  /** Percentage values rounded to two decimals. */
+  readonly percentages: WorkGraphSubtreePercentages;
+  /** True when `expectedDirectRollup` disagrees with current storage. */
+  readonly staleProjection: boolean;
+  /** Field-level projection drift details. */
+  readonly projectionMismatches: readonly WorkGraphProjectionMismatch[];
+}
+
 /** Minimal public reader facade for future WorkGraph implementations. */
 export interface WorkGraphReader {
   /** Read a graph snapshot for the current project context. */
@@ -138,6 +208,10 @@ export interface WorkGraphReader {
   ): Promise<WorkGraphTraversalResult> | WorkGraphTraversalResult;
   /** Read a paginated descendant tree rooted at a task-like node. */
   tree(options: WorkGraphTreeOptions): Promise<WorkGraphTreeResult> | WorkGraphTreeResult;
+  /** Read direct and full-subtree rollup counts rooted at a task-like node. */
+  summarizeSubtree(
+    options: WorkGraphSubtreeSummaryOptions,
+  ): Promise<WorkGraphSubtreeSummaryResult> | WorkGraphSubtreeSummaryResult;
 }
 
 /** Task vertex returned by containment-only WorkGraph queries. */

@@ -17,6 +17,11 @@ import type {
   WorkGraphEdge,
   WorkGraphNode,
   WorkGraphPageInfo,
+  WorkGraphProjectionMismatch,
+  WorkGraphRollupCounts,
+  WorkGraphSubtreePercentages,
+  WorkGraphSubtreeSummaryOptions,
+  WorkGraphSubtreeSummaryResult,
   WorkGraphTraversalOptions,
   WorkGraphTraversalResult,
   WorkGraphTreeNode,
@@ -47,6 +52,22 @@ type DescendantTaskRow = TaskRow & {
   depth: number;
   sort_cursor: string;
 };
+
+type WorkGraphTaskStatus = WorkGraphNode['status'];
+type WorkGraphTaskType = WorkGraphNode['type'];
+
+const PERCENT_DENOMINATOR_DESCRIPTION =
+  'percentages use subtree.total as the denominator, include archived descendants, and exclude the root node';
+const TASK_STATUS_ORDER: readonly WorkGraphTaskStatus[] = [
+  'pending',
+  'active',
+  'blocked',
+  'done',
+  'cancelled',
+  'archived',
+  'proposed',
+];
+const TASK_TYPE_ORDER: readonly WorkGraphTaskType[] = ['saga', 'epic', 'task', 'subtask'];
 
 export interface SqliteWorkGraphContainmentReader {
   prepare(sql: string): {
@@ -100,6 +121,61 @@ function pageInfo(rows: readonly DescendantTaskRow[], limit: number): WorkGraphP
   const pageRows = hasMore ? rows.slice(0, limit) : rows;
   const nextCursor = pageRows.at(-1)?.sort_cursor;
   return hasMore && nextCursor !== undefined ? { hasMore, nextCursor } : { hasMore };
+}
+
+function incrementBucket<T extends string>(bucket: Partial<Record<T, number>>, key: T): void {
+  bucket[key] = (bucket[key] ?? 0) + 1;
+}
+
+function rollupRows(rows: readonly DescendantTaskRow[]): WorkGraphRollupCounts {
+  const byStatus: Partial<Record<WorkGraphTaskStatus, number>> = {};
+  const byType: Partial<Record<WorkGraphTaskType, number>> = {};
+  for (const row of rows) {
+    incrementBucket(byStatus, row.status);
+    incrementBucket(byType, row.type);
+  }
+  return { total: rows.length, byStatus, byType };
+}
+
+function percentage(count: number, denominator: number): number {
+  if (denominator === 0) return 0;
+  return Math.round((count / denominator) * 10000) / 100;
+}
+
+function subtreePercentages(rollup: WorkGraphRollupCounts): WorkGraphSubtreePercentages {
+  return {
+    active: percentage(rollup.byStatus.active ?? 0, rollup.total),
+    blocked: percentage(rollup.byStatus.blocked ?? 0, rollup.total),
+    cancelled: percentage(rollup.byStatus.cancelled ?? 0, rollup.total),
+    done: percentage(rollup.byStatus.done ?? 0, rollup.total),
+    pending: percentage(rollup.byStatus.pending ?? 0, rollup.total),
+  };
+}
+
+function compareProjectedRollup(
+  actual: WorkGraphRollupCounts,
+  expected: WorkGraphRollupCounts | undefined,
+): WorkGraphProjectionMismatch[] {
+  if (expected === undefined) return [];
+  const mismatches: WorkGraphProjectionMismatch[] = [];
+  if (actual.total !== expected.total) {
+    mismatches.push({ field: 'total', expected: expected.total, actual: actual.total });
+  }
+  for (const status of TASK_STATUS_ORDER) {
+    const actualCount = actual.byStatus[status] ?? 0;
+    const expectedCount = expected.byStatus[status] ?? 0;
+    if (actualCount !== expectedCount) {
+      mismatches.push({ field: `status:${status}`, expected: expectedCount, actual: actualCount });
+    }
+  }
+  for (const type of TASK_TYPE_ORDER) {
+    const actualCount = actual.byType[type] ?? 0;
+    const expectedCount = expected.byType[type] ?? 0;
+    if (actualCount !== expectedCount) {
+      mismatches.push({ field: `type:${type}`, expected: expectedCount, actual: actualCount });
+    }
+  }
+  return mismatches;
 }
 
 function containmentEdge(parentId: string, childId: string): WorkGraphEdge {
@@ -228,6 +304,52 @@ LIMIT ?`;
     const edges = pageRows.map((row) => containmentEdge(row.parent_id ?? options.rootId, row.id));
 
     return { rootId: options.rootId, nodes, edges, pageInfo: info };
+  }
+
+  /**
+   * Summarize direct and full-subtree descendant counts for one root.
+   *
+   * Percentages are intentionally tied to the full subtree denominator and the
+   * optional direct projection comparison lets callers detect stale cached child
+   * rollups without trusting any derived storage column.
+   */
+  summarizeSubtree(options: WorkGraphSubtreeSummaryOptions): WorkGraphSubtreeSummaryResult {
+    const sql = `WITH RECURSIVE summary_descendants(root_id, id, depth) AS (
+  SELECT ? AS root_id, child.id, 1
+  FROM tasks child
+  WHERE child.parent_id = ?
+  UNION ALL
+  SELECT summary_descendants.root_id, child.id, summary_descendants.depth + 1
+  FROM summary_descendants
+  JOIN tasks parent ON parent.id = summary_descendants.id
+  JOIN tasks child ON child.parent_id = parent.id
+)
+SELECT summary_descendants.root_id,
+       summary_descendants.depth,
+       printf('%08d:%s', summary_descendants.depth, t.id) AS sort_cursor,
+       ${TASK_COLUMNS}
+FROM summary_descendants
+JOIN tasks t ON t.id = summary_descendants.id
+ORDER BY sort_cursor ASC`;
+
+    const rows = this.#db.prepare(sql).all(options.rootId, options.rootId) as DescendantTaskRow[];
+    const direct = rollupRows(rows.filter((row) => row.depth === 1));
+    const subtree = rollupRows(rows);
+    const projectionMismatches = compareProjectedRollup(direct, options.expectedDirectRollup);
+
+    return {
+      rootId: options.rootId,
+      direct,
+      subtree,
+      percentDenominator: {
+        basis: 'subtree-total',
+        total: subtree.total,
+        description: PERCENT_DENOMINATOR_DESCRIPTION,
+      },
+      percentages: subtreePercentages(subtree),
+      staleProjection: projectionMismatches.length > 0,
+      projectionMismatches,
+    };
   }
 
   /** Traverse descendant containment from a root with cursor/limit and max depth support. */
