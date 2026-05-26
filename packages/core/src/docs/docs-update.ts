@@ -29,7 +29,7 @@ import {
   DOCS_LIFECYCLE_STATUSES,
   type DocsLifecycleStatus,
   type DocsUpdateParams,
-} from '@cleocode/contracts/operations/docs';
+} from '@cleocode/contracts';
 import { and, eq } from 'drizzle-orm';
 import { pushWarning } from '../output.js';
 import { getCleoDirAbsolute } from '../paths.js';
@@ -56,6 +56,9 @@ export const DOCS_VERSIONING_AUDIT_FILE = '.cleo/audit/docs-versioning.jsonl';
 
 /** Allowed lifecycle statuses from the docs.update operation contract SSoT. */
 const ALLOWED_STATUSES: readonly DocsLifecycleStatus[] = DOCS_LIFECYCLE_STATUSES;
+
+/** Pipe-delimited lifecycle status list for dispatch/CLI validation messages. */
+export const DOCS_UPDATE_LIFECYCLE_STATUS_LIST = ALLOWED_STATUSES.join('|');
 
 /**
  * Discriminated error for `updateDocBySlug` failures.
