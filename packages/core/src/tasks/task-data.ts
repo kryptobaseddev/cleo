@@ -391,12 +391,45 @@ export async function coreTaskDeps(
  *
  * @task T4790
  */
+export type TaskRelatesDirection = 'out' | 'in' | 'both';
+
+export interface CoreTaskRelatesOptions {
+  /** Which side of a stored edge should match `taskId`. Defaults to both. */
+  direction?: TaskRelatesDirection;
+  /** Relation/dependency type filter. Use `depends`/`depends_on` for scheduler dependency edges. */
+  type?: string;
+  /** Include scheduler dependency edges alongside task_relations edges. Defaults to true. */
+  includeDependencies?: boolean;
+}
+
+type CoreTaskRelationEntry = {
+  taskId: string;
+  type: string;
+  reason?: string;
+  direction?: 'out' | 'in';
+  source?: 'relation' | 'dependency';
+  ready?: boolean;
+  status?: string;
+};
+
+function dependencyReady(task: TaskRecord | undefined): boolean {
+  return task?.status === 'done';
+}
+
+function relationTypeMatches(type: string, requested: string | undefined): boolean {
+  if (!requested) return true;
+  if (requested === 'depends' || requested === 'depends_on') return type === 'depends';
+  return type === requested;
+}
+
 export async function coreTaskRelates(
   projectRoot: string,
   taskId: string,
+  options: CoreTaskRelatesOptions = {},
 ): Promise<{
   taskId: string;
-  relations: Array<{ taskId: string; type: string; reason?: string }>;
+  direction: TaskRelatesDirection;
+  relations: CoreTaskRelationEntry[];
   count: number;
 }> {
   const allTasks = await loadAllTasks(projectRoot);
@@ -405,8 +438,67 @@ export async function coreTaskRelates(
     throw new Error(`Task '${taskId}' not found`);
   }
 
-  const relations = task.relates ?? [];
-  return { taskId, relations, count: relations.length };
+  const direction = options.direction ?? 'both';
+  const includeDependencies = options.includeDependencies ?? true;
+  const taskById = new Map(allTasks.map((t) => [t.id, t]));
+  const relations: CoreTaskRelationEntry[] = [];
+
+  if (direction === 'out' || direction === 'both') {
+    for (const relation of task.relates ?? []) {
+      if (!relationTypeMatches(relation.type, options.type)) continue;
+      relations.push({ ...relation, direction: 'out', source: 'relation' });
+    }
+  }
+
+  if (direction === 'in' || direction === 'both') {
+    for (const other of allTasks) {
+      if (other.id === taskId) continue;
+      for (const relation of other.relates ?? []) {
+        if (relation.taskId !== taskId || !relationTypeMatches(relation.type, options.type))
+          continue;
+        relations.push({
+          taskId: other.id,
+          type: relation.type,
+          reason: relation.reason,
+          direction: 'in',
+          source: 'relation',
+        });
+      }
+    }
+  }
+
+  if (includeDependencies && relationTypeMatches('depends', options.type)) {
+    if (direction === 'out' || direction === 'both') {
+      for (const depId of task.depends ?? []) {
+        const dep = taskById.get(depId);
+        relations.push({
+          taskId: depId,
+          type: 'depends',
+          direction: 'out',
+          source: 'dependency',
+          ready: dependencyReady(dep),
+          status: dep?.status,
+        });
+      }
+    }
+
+    if (direction === 'in' || direction === 'both') {
+      for (const other of allTasks) {
+        if (other.id === taskId) continue;
+        if (!(other.depends ?? []).includes(taskId)) continue;
+        relations.push({
+          taskId: other.id,
+          type: 'depends',
+          direction: 'in',
+          source: 'dependency',
+          ready: dependencyReady(task),
+          status: other.status,
+        });
+      }
+    }
+  }
+
+  return { taskId, direction, relations, count: relations.length };
 }
 
 /**

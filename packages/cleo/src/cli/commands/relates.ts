@@ -153,13 +153,34 @@ const listCommand = defineCommand({
       description: 'Task ID to list relations for',
       required: true,
     },
+    type: {
+      type: 'string',
+      description: 'Filter by relation type (or depends/depends_on)',
+      required: false,
+    },
+    direction: {
+      type: 'string',
+      description: 'Filter direction: out|in|both (default: both)',
+      default: 'both',
+      required: false,
+    },
+    noDepends: {
+      type: 'boolean',
+      description: 'Hide scheduler dependency edges from relation list output',
+      required: false,
+    },
   },
   async run({ args }) {
     await dispatchFromCli(
       'query',
       'tasks',
       'relates',
-      { taskId: args.taskId },
+      {
+        taskId: args.taskId,
+        type: args.type,
+        direction: args.direction,
+        includeDependencies: !args.noDepends,
+      },
       { command: 'relates' },
     );
   },

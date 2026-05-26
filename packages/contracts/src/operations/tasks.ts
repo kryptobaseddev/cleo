@@ -537,6 +537,12 @@ export interface TasksRelatesParams {
   taskId: string;
   mode?: 'suggest' | 'discover';
   threshold?: number;
+  /** List edges where taskId is the source, target, or either side. Defaults to both. */
+  direction?: 'out' | 'in' | 'both';
+  /** Filter by relation type, or `depends`/`depends_on` for dependency edges. */
+  type?: string;
+  /** Include scheduler dependency edges in list output. Defaults to true. */
+  includeDependencies?: boolean;
 }
 /**
  * Result of `tasks.relates` — task relations list.
@@ -547,7 +553,17 @@ export interface TasksRelatesResult {
   /** The task ID whose relations were loaded. */
   taskId: string;
   /** All relations for this task. */
-  relations: Array<{ taskId: string; type: string; reason?: string }>;
+  relations: Array<{
+    taskId: string;
+    type: string;
+    reason?: string;
+    direction?: 'out' | 'in';
+    source?: 'relation' | 'dependency';
+    ready?: boolean;
+    status?: string;
+  }>;
+  /** Direction filter applied by list output. */
+  direction?: 'out' | 'in' | 'both';
   /** Total number of relations. */
   count: number;
 }
