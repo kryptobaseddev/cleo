@@ -743,8 +743,9 @@ async function sagaCreate(params: Record<string, unknown>): Promise<LafsEnvelope
   const title = typeof params.title === 'string' ? params.title : '';
   const description = typeof params.description === 'string' ? params.description : undefined;
   const acceptance = Array.isArray(params.acceptance) ? (params.acceptance as string[]) : undefined;
+  const dryRun = params.dryRun === true;
   return wrapCoreResult(
-    await coreSagaCreate(getProjectRoot(), { title, description, acceptance }),
+    await coreSagaCreate(getProjectRoot(), { title, description, acceptance, dryRun }),
     'saga.create',
   );
 }
