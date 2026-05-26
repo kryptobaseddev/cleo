@@ -9,8 +9,8 @@ import type {
   TaskRecord,
   TaskRef,
   TaskShowAttachmentEntry,
-  TaskView,
   TasksShowResult,
+  TaskView,
 } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
