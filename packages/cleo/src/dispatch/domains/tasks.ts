@@ -29,6 +29,7 @@ import { taskContext } from '@cleocode/core/internal';
 // T10117 adds `sagaRepair` (`saga.repair`) for I5 violation cleanup.
 // T10118 adds the `detach` op for repair of nested-saga relations.
 // T10121 adds the `reconcile` op for idempotent cron-safe auto-close repair.
+// T10637 adds `migrate-containment` — convert parent_id->Saga membership to groups relations.
 import {
   sagaAdd as coreSagaAdd,
   sagaCreate as coreSagaCreate,
@@ -38,6 +39,7 @@ import {
   reconcileSaga as coreSagaReconcile,
   repairSaga as coreSagaRepair,
   sagaRollup as coreSagaRollup,
+  migrateSagaContainment as coreSagaMigrateContainment,
 } from '@cleocode/core/sagas';
 import {
   defineTypedHandler,
@@ -660,6 +662,8 @@ const MUTATE_OPS = new Set<string>([
   'saga.detach',
   // T10121 — idempotent cron-safe auto-close repair (supersedes T10098 scope).
   'saga.reconcile',
+  // T10637 — migrate parent_id-based Saga membership to groups relations.
+  'saga.migrate-containment',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -756,6 +760,28 @@ async function sagaReconcile(params: Record<string, unknown>): Promise<LafsEnvel
   return wrapCoreResult(
     await coreSagaReconcile(getProjectRoot(), { sagaId, dryRun }),
     'saga.reconcile',
+  );
+}
+
+/**
+ * saga.migrate-containment — convert parent_id-based Saga membership to
+ * `task_relations.type='groups'` for Epics. Non-Epic children are
+ * documented as conflicts.
+ *
+ * Idempotent — re-running on an already-migrated state returns skipped=N.
+ *
+ * See `core/sagas/migrate-containment.ts`.
+ *
+ * @task T10637
+ */
+async function sagaMigrateContainment(
+  params: Record<string, unknown>,
+): Promise<LafsEnvelope<unknown>> {
+  const sagaId = typeof params.sagaId === 'string' ? params.sagaId : undefined;
+  const dryRun = params.dryRun === true;
+  return wrapCoreResult(
+    await coreSagaMigrateContainment(getProjectRoot(), { sagaId, dryRun }),
+    'saga.migrate-containment',
   );
 }
 
@@ -972,6 +998,16 @@ export class TasksHandler implements DomainHandler {
       }
       if (operation === 'saga.reconcile') {
         const envelope = await sagaReconcile(params ?? {});
+        return wrapResult(
+          envelopeToEngineResult(envelope),
+          'mutate',
+          'tasks',
+          operation,
+          startTime,
+        );
+      }
+      if (operation === 'saga.migrate-containment') {
+        const envelope = await sagaMigrateContainment(params ?? {});
         return wrapResult(
           envelopeToEngineResult(envelope),
           'mutate',
