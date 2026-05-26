@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Lint rule: enforce CLI package boundary — no business-logic helpers > 30 LOC
- * in packages/cleo/src/cli/commands/*.ts.
+ * in packages/cleo/src/cli/commands/*.ts, and no dispatch registry back-edges
+ * from CLI/domain adapter code.
  *
  * Why this matters (SG-ARCH-SOLID T9837e, E-SSOT-ENFORCEMENT T9837)
  * ------------------------------------------------------------------
@@ -23,6 +24,14 @@
  * `*.test.ts`) whose body spans > 30 lines is a violation. "Dispatch
  * wrappers" — functions that solely call `defineCommand`, `dispatchFromCli`,
  * or `showUsage` — are exempt.
+ *
+ * What is flagged (RULE-2)
+ * -----------------------
+ * Imports from the compatibility dispatch registry (`packages/cleo/src/dispatch/registry`)
+ * inside CLI command files or dispatch domain handlers. The operation registry is
+ * contract data; CLI/domain adapters must consume `@cleocode/contracts` metadata
+ * or receive resolved operations from dispatch plumbing instead of reaching back
+ * into the compatibility registry and re-growing business logic.
  *
  * What is NOT flagged
  * -------------------
@@ -102,6 +111,13 @@ const SCAN_EXTENSIONS = new Set(['.ts', '.mts']);
 
 /** Directory to scan (relative to repo root). */
 const SCAN_DIR = 'packages/cleo/src/cli/commands';
+
+/** Adapter directories whose imports must not reach back into dispatch registry compatibility. */
+const IMPORT_SCAN_DIRS = ['packages/cleo/src/cli/commands', 'packages/cleo/src/dispatch/domains'];
+
+/** Import specifiers that indicate CLI/domain adapters are reading dispatch registry state. */
+const FORBIDDEN_REGISTRY_IMPORT_RE =
+  /(?:^|\/)(?:packages\/cleo\/src\/)?dispatch\/registry(?:\.js|\.ts)?$|^\.{1,2}\/(?:.*\/)?registry(?:\.js|\.ts)?$/;
 
 /**
  * Function names matching these patterns are treated as dispatch-related
@@ -190,6 +206,19 @@ function fileIsAllowed(lines) {
 const violations = [];
 
 /**
+ * @typedef {{
+ *   file: string;
+ *   line: number;
+ *   rule: string;
+ *   specifier: string;
+ *   text: string;
+ * }} ImportViolation
+ */
+
+/** @type {ImportViolation[]} */
+const importViolations = [];
+
+/**
  * Named-function declaration pattern.
  * Matches:
  *   function foo(
@@ -201,6 +230,9 @@ const violations = [];
  * typically either very short wrappers or `defineCommand` shapes.
  */
 const FUNC_DECL_RE = /^(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*[<(]/;
+
+/** Static ESM import pattern. */
+const IMPORT_RE = /^\s*import\s+(?:type\s+)?(?:[^'";]+?\s+from\s+)?['"]([^'"]+)['"];?/;
 
 /**
  * Scan a single TypeScript file for oversized non-dispatch helper functions.
@@ -262,6 +294,34 @@ function scanFile(absPath) {
 }
 
 /**
+ * Scan a single TypeScript file for forbidden registry imports.
+ *
+ * @param {string} absPath
+ */
+function scanImportFile(absPath) {
+  const relPath = relative(ROOT, absPath).split(sep).join('/');
+  if (relPath.includes('__tests__/') || relPath.endsWith('.test.ts')) return;
+  if (relPath === 'packages/cleo/src/dispatch/registry.ts') return;
+
+  const lines = readFileSync(absPath, 'utf-8').split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const match = IMPORT_RE.exec(line);
+    const specifier = match?.[1];
+    if (specifier === undefined) continue;
+    if (!FORBIDDEN_REGISTRY_IMPORT_RE.test(specifier)) continue;
+
+    importViolations.push({
+      file: relPath,
+      line: i + 1,
+      rule: 'RULE-2',
+      specifier,
+      text: line.trim(),
+    });
+  }
+}
+
+/**
  * Walk a directory recursively, scanning `.ts` / `.mts` files.
  *
  * @param {string} absDir
@@ -286,6 +346,27 @@ function walkDir(absDir) {
   }
 }
 
+/** Walk a directory recursively, running the registry-import scanner. */
+function walkImportDir(absDir) {
+  let entries;
+  try {
+    entries = readdirSync(absDir);
+  } catch {
+    return;
+  }
+
+  for (const entry of entries) {
+    if (SKIP_DIR_SEGMENTS.has(entry)) continue;
+    const full = join(absDir, entry);
+    const st = statSync(full);
+    if (st.isDirectory()) {
+      walkImportDir(full);
+    } else if (st.isFile() && SCAN_EXTENSIONS.has(extname(entry))) {
+      scanImportFile(full);
+    }
+  }
+}
+
 // Run the scan
 const scanAbsDir = join(ROOT, SCAN_DIR);
 if (!existsSync(scanAbsDir)) {
@@ -296,16 +377,23 @@ if (!existsSync(scanAbsDir)) {
   walkDir(scanAbsDir);
 }
 
+for (const importScanDir of IMPORT_SCAN_DIRS) {
+  const absDir = join(ROOT, importScanDir);
+  if (existsSync(absDir)) walkImportDir(absDir);
+}
+
+violations.push(...importViolations);
+
 // ============================================================================
 // Output helpers
 // ============================================================================
 
-/** @returns {Record<string, number>} map of "RULE-1::file:funcName" → count */
+/** @returns {Record<string, number>} map of "RULE::file:identifier" → count */
 function buildCountMap() {
   /** @type {Record<string, number>} */
   const map = {};
   for (const v of violations) {
-    const key = `${v.rule}::${v.file}::${v.funcName}`;
+    const key = `${v.rule}::${v.file}::${v.funcName ?? v.specifier}`;
     map[key] = (map[key] ?? 0) + 1;
   }
   return map;
@@ -347,6 +435,7 @@ if (MODE_BASELINE) {
       line: v.line,
       funcName: v.funcName,
       loc: v.loc,
+      specifier: v.specifier,
       rule: v.rule,
     })),
   };
@@ -387,12 +476,14 @@ if (MODE_STRICT) {
     process.stderr.write(`\n`);
     process.stderr.write(`=============================================================\n`);
     process.stderr.write(
-      `CLI-BOUNDARY VIOLATION (strict mode) — ${violations.length} helper function(s) > ${LOC_THRESHOLD} LOC\n`,
+      `CLI-BOUNDARY VIOLATION (strict mode) — ${violations.length} boundary violation(s)\n`,
     );
     process.stderr.write(`=============================================================\n\n`);
 
     for (const v of violations) {
-      process.stderr.write(`  ${v.file}:${v.line}  [${v.rule}]  ${v.funcName} (${v.loc} LOC)\n`);
+      const detail =
+        v.rule === 'RULE-1' ? `${v.funcName} (${v.loc} LOC)` : `forbidden import ${v.specifier}`;
+      process.stderr.write(`  ${v.file}:${v.line}  [${v.rule}]  ${detail}\n`);
       process.stderr.write(`    ${v.text}\n`);
     }
 
@@ -464,13 +555,19 @@ if (MODE_CHECK) {
     process.stderr.write(`=============================================================\n\n`);
 
     // Identify new violations by diffing against baseline set
-    const baselineSet = new Set((baseline.violations ?? []).map((v) => `${v.file}:${v.funcName}`));
-    const newViols = violations.filter((v) => !baselineSet.has(`${v.file}:${v.funcName}`));
+    const baselineSet = new Set(
+      (baseline.violations ?? []).map((v) => `${v.file}:${v.rule}:${v.funcName ?? v.specifier}`),
+    );
+    const newViols = violations.filter(
+      (v) => !baselineSet.has(`${v.file}:${v.rule}:${v.funcName ?? v.specifier}`),
+    );
 
     if (newViols.length > 0) {
       process.stderr.write(`New violations:\n`);
       for (const v of newViols) {
-        process.stderr.write(`  ${v.file}:${v.line}  [${v.rule}]  ${v.funcName} (${v.loc} LOC)\n`);
+        const detail =
+          v.rule === 'RULE-1' ? `${v.funcName} (${v.loc} LOC)` : `forbidden import ${v.specifier}`;
+        process.stderr.write(`  ${v.file}:${v.line}  [${v.rule}]  ${detail}\n`);
         process.stderr.write(`    ${v.text}\n`);
       }
       process.stderr.write(`\n`);
