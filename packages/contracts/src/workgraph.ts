@@ -9,7 +9,7 @@
  * @saga T10538
  */
 
-import type { TaskPriority, TaskStatus, TaskType } from './task.js';
+import type { TaskPriority, TaskStatus, TaskType, VerificationGate } from './task.js';
 
 /** Stable error code for WorkGraph parent/type matrix violations. */
 export const E_WORKGRAPH_PARENT_TYPE_MATRIX = 'E_WORKGRAPH_PARENT_TYPE_MATRIX';
@@ -198,6 +198,74 @@ export interface WorkGraphSubtreeSummaryResult {
   readonly projectionMismatches: readonly WorkGraphProjectionMismatch[];
 }
 
+/** Options for reading the ready frontier under a WorkGraph scope. */
+export interface WorkGraphReadyFrontierOptions {
+  /** Root node whose descendant scope should be grouped by readiness. */
+  readonly rootId: string;
+  /** Optional SQL task-role/kind filter applied before grouping. */
+  readonly role?: string;
+}
+
+/** Dependency edge that keeps a frontier task from being runnable. */
+export interface WorkGraphDependencyBlocker {
+  /** Upstream dependency task ID. */
+  readonly taskId: string;
+  /** Current upstream dependency status. */
+  readonly status: TaskStatus;
+}
+
+/** Verification gate that is not yet satisfied for a frontier task. */
+export interface WorkGraphGateBlocker {
+  /** Gate name from the task verification state. */
+  readonly gate: VerificationGate;
+}
+
+/** Ready-frontier task with blocker metadata attached. */
+export interface WorkGraphReadyFrontierTask extends WorkGraphNode {
+  /** SQL task-role/kind value copied from the task row when available. */
+  readonly role?: string;
+  /** Upstream dependencies whose status is not done/cancelled. */
+  readonly dependencyBlockers: readonly WorkGraphDependencyBlocker[];
+  /** Verification gates whose value is not true. */
+  readonly gateBlockers: readonly WorkGraphGateBlocker[];
+}
+
+/** Aggregate blocker -> task rollup for frontier diagnostics. */
+export type WorkGraphReadyFrontierBlockedBy =
+  | {
+      /** Blocker category. */
+      readonly kind: 'dependency';
+      /** Dependency task ID blocking one or more frontier tasks. */
+      readonly blockerId: string;
+      /** Frontier task IDs blocked by this dependency. */
+      readonly blocks: readonly string[];
+    }
+  | {
+      /** Blocker category. */
+      readonly kind: 'gate';
+      /** Gate blocking one or more frontier tasks. */
+      readonly gate: VerificationGate;
+      /** Frontier task IDs blocked by this gate. */
+      readonly blocks: readonly string[];
+    };
+
+/** Ready-frontier grouping result for a WorkGraph scope. */
+export interface WorkGraphReadyFrontierResult {
+  /** Requested scope root. */
+  readonly rootId: string;
+  /** Optional role filter echoed from the request. */
+  readonly role?: string;
+  /** Grouped frontier rows. */
+  readonly groups: {
+    /** Tasks with no dependency blockers. */
+    readonly ready: readonly WorkGraphReadyFrontierTask[];
+    /** Tasks with one or more dependency blockers. */
+    readonly blocked: readonly WorkGraphReadyFrontierTask[];
+    /** Aggregate blocker rollup across both groups. */
+    readonly blockedBy: readonly WorkGraphReadyFrontierBlockedBy[];
+  };
+}
+
 /** Minimal public reader facade for future WorkGraph implementations. */
 export interface WorkGraphReader {
   /** Read a graph snapshot for the current project context. */
@@ -245,6 +313,8 @@ export interface WorkGraphContainmentQueryService {
   getAncestors(rootIds: readonly string[]): readonly WorkGraphContainmentAncestorsResult[];
   /** Load direct children for many parents in one batched query. */
   getChildren(parentIds: readonly string[]): readonly WorkGraphContainmentChildrenResult[];
+  /** Group dependency-ready and dependency-blocked descendants for one scope. */
+  readyFrontier(options: WorkGraphReadyFrontierOptions): WorkGraphReadyFrontierResult;
 }
 
 /** Minimal task hierarchy row accepted by the WorkGraph invariant validator. */
