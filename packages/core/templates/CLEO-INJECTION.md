@@ -109,6 +109,20 @@ untouched under each member Epic. Use Sagas for release themes that span multipl
 | `cleo list --parent <id>` | 1000-5000 | Direct children only |
 <!-- /CLEO-INJECTION:section=task-discovery -->
 
+<!-- CLEO-INJECTION:section=task-relationships -->
+## Task Relationships — depends, blockedBy, relates
+
+CLEO has **three distinct relationship systems**. Do not conflate them.
+
+| System | Semantics | CLI |
+|--------|-----------|-----|
+| `depends` | **Blocking execution dependency** — task cannot start until all `depends` tasks are `done` | `cleo add --depends T1,T2` / `cleo update --depends ...` |
+| `blockedBy` | **Free-text reason** why a task is blocked (e.g. "waiting for API key") | `cleo update --blocked-by "reason"` / `--clear-blocked-by` |
+| `relates` | **Semantic, non-blocking** linkage (`blocks`, `related`, `duplicates`, `absorbs`, `fixes`, `extends`, `supersedes`) | `cleo relates add <from> <to> <type> <reason>` |
+
+**Rule:** `relates` is **never** a blocking dependency. If task B must wait for task A, use `--depends`. `blocked-by` is a human-readable string, not a task ID. For full guidance, see `ct-cleo` skill section "Task Relationship Systems".
+<!-- /CLEO-INJECTION:section=task-relationships -->
+
 <!-- CLEO-INJECTION:section=session-commands -->
 ## Session Commands
 
