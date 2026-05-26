@@ -37,6 +37,40 @@ export interface RenderOptions {
   readonly quiet?: boolean;
 }
 
+/** Stable machine-readable reason a human render result had to synthesize empty output. */
+export type RenderEmptyReason =
+  | 'json-format'
+  | 'empty-tree'
+  | 'empty-table'
+  | 'empty-list'
+  | 'empty-grouped-list'
+  | 'empty-section'
+  | 'empty-single'
+  | 'empty-generic'
+  | 'renderer-returned-empty'
+  | 'renderer-unsupported';
+
+/** Stable machine-readable renderer error code. */
+export type RenderErrorCode = 'E_RENDERER_UNSUPPORTED';
+
+/**
+ * Structured result for callers that need to distinguish rendered text from
+ * synthesized empty-state text or renderer contract errors.
+ */
+export type RenderEnvelopeResult =
+  | {
+      readonly ok: true;
+      readonly text: string;
+      readonly emptyReason?: RenderEmptyReason;
+    }
+  | {
+      readonly ok: false;
+      readonly code: RenderErrorCode;
+      readonly text: '';
+      readonly emptyReason: 'renderer-unsupported';
+      readonly message: string;
+    };
+
 /**
  * A renderer accepts a typed envelope plus per-call options and returns the
  * string to write to stdout. Returning `''` suppresses output for that call.

@@ -45,9 +45,10 @@ describe('renderOutputMode — id', () => {
     expect(out.text).toBe('S-42');
   });
 
-  it('returns empty text for an unrecognised shape', () => {
+  it('returns typed empty reason text for an unrecognised shape', () => {
     const out = renderOutputMode('id', { value: 7, foo: 'bar' });
-    expect(out.text).toBe('');
+    expect(out.text).toBe('No ids.');
+    expect(out.emptyReason).toBe('no-renderable-ids');
   });
 
   it('skips list entries that lack an id', () => {
@@ -171,18 +172,26 @@ describe('renderOutputMode — silent', () => {
       total: 2,
     });
     expect(out.text).toBeNull();
+    expect(out.emptyReason).toBe('silent-mode');
   });
 
   it('returns null even for a single-record envelope', () => {
     const out = renderOutputMode('silent', { task: { id: 'X' } });
     expect(out.text).toBeNull();
+    expect(out.emptyReason).toBe('silent-mode');
   });
 });
 
 describe('renderOutputMode — envelope', () => {
-  it('throws — envelope mode must be handled by the caller', () => {
+  it('throws E_RENDERER_UNSUPPORTED — envelope mode must be handled by the caller', () => {
     expect(() => renderOutputMode('envelope', { task: { id: 'T1' } })).toThrow(
-      /envelope mode must be handled by caller/,
+      /Unsupported output renderer: envelope/,
     );
+    try {
+      renderOutputMode('bogus' as never, { task: { id: 'T1' } });
+      throw new Error('expected renderOutputMode to throw');
+    } catch (err) {
+      expect((err as { code?: string }).code).toBe('E_RENDERER_UNSUPPORTED');
+    }
   });
 });
