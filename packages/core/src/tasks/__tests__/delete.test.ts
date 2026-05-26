@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import { addTask } from '../add.js';
 import { deleteTask } from '../delete.js';
 
 describe('deleteTask', () => {
@@ -208,5 +209,52 @@ describe('deleteTask', () => {
 
     const t002 = await accessor.loadSingleTask('T002');
     expect(t002?.depends).toEqual(['T003']);
+  });
+
+  it('removes parent child_task AC projection and records history when deleting a child task', async () => {
+    await addTask(
+      {
+        title: 'Parent',
+        description: 'Parent epic task',
+        type: 'epic',
+        acceptance: ['manual parent AC'],
+      },
+      env.tempDir,
+      accessor,
+    );
+    await addTask(
+      { title: 'Child projection', description: 'Child of parent epic', parentId: 'T001' },
+      env.tempDir,
+      accessor,
+    );
+
+    const beforeRows = await accessor.getAcRows('T001');
+    const manualRow = beforeRows.find((row) => row.text === 'manual parent AC');
+    const childProjection = beforeRows.find((row) => row.targetTaskId === 'T002');
+    expect(manualRow).toBeTruthy();
+    expect(childProjection?.kind).toBe('child_task');
+
+    await deleteTask({ taskId: 'T002' }, env.tempDir, accessor);
+
+    const afterRows = await accessor.getAcRows('T001');
+    expect(afterRows.map((row) => row.text)).toEqual(['manual parent AC']);
+    expect(afterRows[0]?.id).toBe(manualRow!.id);
+
+    const parent = await accessor.loadSingleTask('T001');
+    expect(parent?.acceptance).toEqual(['manual parent AC']);
+
+    const { getNativeTasksDb } = await import('../../store/sqlite.js');
+    const historyRows = getNativeTasksDb()!
+      .prepare(
+        'SELECT ac_id, previous_text, reason FROM task_acceptance_criteria_history ORDER BY id ASC',
+      )
+      .all() as Array<{ ac_id: string; previous_text: string; reason: string }>;
+    expect(historyRows).toEqual([
+      {
+        ac_id: childProjection!.id,
+        previous_text: 'Complete child T002: Child projection',
+        reason: 'delete',
+      },
+    ]);
   });
 });

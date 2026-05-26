@@ -26,7 +26,12 @@ import { resolveOrCwd } from '../paths.js';
 import { allocateNextTaskId } from '../sequence/index.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor, TransactionAccessor } from '../store/data-accessor.js';
-import { acItemToText, applyAcPlan, buildFreshAcRows } from './ac-table.js';
+import {
+  acItemToText,
+  applyAcPlan,
+  buildChildProjectionAcText,
+  buildFreshAcRows,
+} from './ac-table.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
 import {
   findEpicAncestor,
@@ -1328,7 +1333,7 @@ export async function addTask(
       // PM-Core V2 typed child_task AC projection. The legacy parent
       // acceptance JSON remains text-only compatibility state, but the row
       // table now carries machine-checkable target_task_id/source_key fields.
-      const parentChildAcText = `Complete child ${taskId}: ${options.title.trim()}`;
+      const parentChildAcText = buildChildProjectionAcText(taskId, options.title);
       const parentChildOrdinal =
         parentAcRows.reduce((max, row) => Math.max(max, row.ordinal), 0) + 1;
       const parentChildAcRow = {
