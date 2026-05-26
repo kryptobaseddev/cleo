@@ -15,8 +15,6 @@
  * @task T10638 — E10.W5 legacy fallback removal
  * @see ADR-083-saga-as-tasktype.md §2.5
  */
-export function isSagaType(t: {
-  type?: string | null;
-}): boolean {
+export function isSagaType(t: { type?: string | null }): boolean {
   return t.type === 'saga';
 }

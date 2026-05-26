@@ -8,9 +8,9 @@
  * @see packages/core/src/workgraph/
  */
 
-import { defineCommand, showUsage } from 'citty';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { defineCommand, showUsage } from 'citty';
 
 const validateCommand = defineCommand({
   meta: {
@@ -32,14 +32,20 @@ const validateCommand = defineCommand({
     try {
       raw = readFileSync(filePath, 'utf-8');
     } catch {
-      cliOutput({ error: `Cannot read file: ${filePath}` }, { command: 'workgraph', operation: 'validate' });
+      cliOutput(
+        { error: `Cannot read file: ${filePath}` },
+        { command: 'workgraph', operation: 'validate' },
+      );
       return;
     }
     let payload: unknown;
     try {
       payload = JSON.parse(raw);
     } catch {
-      cliOutput({ error: `Invalid JSON in ${filePath}` }, { command: 'workgraph', operation: 'validate' });
+      cliOutput(
+        { error: `Invalid JSON in ${filePath}` },
+        { command: 'workgraph', operation: 'validate' },
+      );
       return;
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -73,14 +79,20 @@ const applyCommand = defineCommand({
     try {
       raw = readFileSync(filePath, 'utf-8');
     } catch {
-      cliOutput({ error: `Cannot read file: ${filePath}` }, { command: 'workgraph', operation: 'apply' });
+      cliOutput(
+        { error: `Cannot read file: ${filePath}` },
+        { command: 'workgraph', operation: 'apply' },
+      );
       return;
     }
     let payload: Record<string, unknown>;
     try {
       payload = JSON.parse(raw);
     } catch {
-      cliOutput({ error: `Invalid JSON in ${filePath}` }, { command: 'workgraph', operation: 'apply' });
+      cliOutput(
+        { error: `Invalid JSON in ${filePath}` },
+        { command: 'workgraph', operation: 'apply' },
+      );
       return;
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

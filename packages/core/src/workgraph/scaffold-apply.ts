@@ -27,7 +27,8 @@ import { validateWorkGraphScaffold } from './scaffold-validate.js';
 export const E_WORKGRAPH_SCAFFOLD_APPLY_INVALID = 'E_WORKGRAPH_SCAFFOLD_APPLY_INVALID';
 
 /** Stable error code for apply failures where a referenced parent does not exist. */
-export const E_WORKGRAPH_SCAFFOLD_APPLY_MISSING_PARENT = 'E_WORKGRAPH_SCAFFOLD_APPLY_MISSING_PARENT';
+export const E_WORKGRAPH_SCAFFOLD_APPLY_MISSING_PARENT =
+  'E_WORKGRAPH_SCAFFOLD_APPLY_MISSING_PARENT';
 
 /** Stable error code for apply failures where the database is not initialized. */
 export const E_WORKGRAPH_SCAFFOLD_APPLY_NO_DB = 'E_WORKGRAPH_SCAFFOLD_APPLY_NO_DB';
@@ -70,7 +71,16 @@ function nodeToInsertRow(node: { id: string; type: string; parentId?: string | n
  */
 function edgeKindToRelationType(
   kind: string,
-): 'related' | 'blocks' | 'duplicates' | 'absorbs' | 'fixes' | 'extends' | 'supersedes' | 'groups' | undefined {
+):
+  | 'related'
+  | 'blocks'
+  | 'duplicates'
+  | 'absorbs'
+  | 'fixes'
+  | 'extends'
+  | 'supersedes'
+  | 'groups'
+  | undefined {
   switch (kind) {
     case 'contains':
       return 'groups';
@@ -151,7 +161,10 @@ export async function applyWorkGraphScaffold(
       edgesChanged: 0,
       issues: [
         ...baseResult.issues,
-        makeIssue(E_WORKGRAPH_SCAFFOLD_APPLY_NO_DB, 'Database not initialized — cannot apply scaffold'),
+        makeIssue(
+          E_WORKGRAPH_SCAFFOLD_APPLY_NO_DB,
+          'Database not initialized — cannot apply scaffold',
+        ),
       ],
     };
   }

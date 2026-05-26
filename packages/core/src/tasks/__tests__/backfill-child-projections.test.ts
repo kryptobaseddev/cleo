@@ -13,7 +13,7 @@
  * @task T10639
  */
 
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -21,8 +21,8 @@ import {
   auditChildProjectionAcRows,
   buildAcRowId,
   buildChildProjectionAcText,
-  childProjectionSourceKey,
   childProjectionFreshnessFingerprint,
+  childProjectionSourceKey,
 } from '../ac-table.js';
 
 vi.mock('../../logger.js', () => ({

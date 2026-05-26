@@ -17,7 +17,6 @@ import {
   assertSagaInvariantI7,
   assertSagaInvariantI7Typed,
   E_SAGA_INVARIANT_VIOLATION_I3,
-  E_SAGA_INVARIANT_VIOLATION_I5,
   E_SAGA_INVARIANT_VIOLATION_I7,
   isSagaInvariantViolationError,
   isSagaShape,
@@ -71,7 +70,11 @@ describe('assertSagaInvariantI3 — sagas must be top-level', () => {
   it('throws E_SAGA_INVARIANT_VIOLATION_I3 when saga has a parentId', () => {
     const saga = makeSaga({ id: 'T9000', parentId: 'T8000' });
     let caught: unknown;
-    try { assertSagaInvariantI3(saga); } catch (err) { caught = err; }
+    try {
+      assertSagaInvariantI3(saga);
+    } catch (err) {
+      caught = err;
+    }
     expect(isSagaInvariantViolationError(caught)).toBe(true);
     const error = caught as SagaInvariantViolationError;
     expect(error.code).toBe(E_SAGA_INVARIANT_VIOLATION_I3);
@@ -105,13 +108,18 @@ describe('assertSagaInvariantI7 — no nested sagas', () => {
   });
 
   it('throws E_SAGA_INVARIANT_VIOLATION_I7 when candidate has type=saga', () => {
-    expect(() => assertSagaInvariantI7('T9100', [], 'T9000', 'saga'))
-      .toThrow(SagaInvariantViolationError);
+    expect(() => assertSagaInvariantI7('T9100', [], 'T9000', 'saga')).toThrow(
+      SagaInvariantViolationError,
+    );
   });
 
   it('regression: rejects linking a type=saga task as a member', () => {
     let caught: unknown;
-    try { assertSagaInvariantI7('T9831', [], 'T9799', 'saga'); } catch (err) { caught = err; }
+    try {
+      assertSagaInvariantI7('T9831', [], 'T9799', 'saga');
+    } catch (err) {
+      caught = err;
+    }
     expect(isSagaInvariantViolationError(caught)).toBe(true);
     const error = caught as SagaInvariantViolationError;
     expect(error.code).toBe(E_SAGA_INVARIANT_VIOLATION_I7);
@@ -121,14 +129,17 @@ describe('assertSagaInvariantI7 — no nested sagas', () => {
 
 describe('assertSagaInvariantI7Typed — typed overload', () => {
   it('always throws when passed a SagaTask', () => {
-    expect(() => assertSagaInvariantI7Typed(makeSaga({ id: 'T9831' }), 'T9799'))
-      .toThrow(SagaInvariantViolationError);
+    expect(() => assertSagaInvariantI7Typed(makeSaga({ id: 'T9831' }), 'T9799')).toThrow(
+      SagaInvariantViolationError,
+    );
   });
 });
 
 describe('SagaInvariantViolationError shape', () => {
   it('extends Error with name="SagaInvariantViolationError"', () => {
-    const err = new SagaInvariantViolationError(E_SAGA_INVARIANT_VIOLATION_I3, 'test', { invariant: 'I3' });
+    const err = new SagaInvariantViolationError(E_SAGA_INVARIANT_VIOLATION_I3, 'test', {
+      invariant: 'I3',
+    });
     expect(err).toBeInstanceOf(Error);
     expect(err.name).toBe('SagaInvariantViolationError');
   });

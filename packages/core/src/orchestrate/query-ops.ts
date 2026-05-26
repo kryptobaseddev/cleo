@@ -30,7 +30,7 @@ import type { EnrichedWave } from '../orchestration/waves.js';
 import { getEnrichedWaves } from '../orchestration/waves.js';
 import { getProjectRoot } from '../paths.js';
 import { isSagaShape } from '../sagas/enforcement.js';
-import { getTaskAccessor, type DataAccessor } from '../store/data-accessor.js';
+import { type DataAccessor, getTaskAccessor } from '../store/data-accessor.js';
 import type { DepGraphIssue } from '../tasks/dep-graph-validator.js';
 import { runValidation } from '../tasks/dep-graph-validator.js';
 
@@ -134,7 +134,8 @@ export type OrchestrateTraversal = 'parent' | 'saga' | 'both';
  *
  * @task T10638
  */
-export function isSagaEpic(task: Pick<Task, 'type'> | null | undefined): boolean { // saga-label-ok: T10638 — SSoT residual, consumed by query-ops internals
+export function isSagaEpic(task: Pick<Task, 'type'> | null | undefined): boolean {
+  // saga-label-ok: T10638 — SSoT residual, consumed by query-ops internals
   if (!task) return false;
   return task.type === 'saga';
 }

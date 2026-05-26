@@ -13,12 +13,12 @@ PROJECT_DIR = "/tmp/cleo-dogfood-large"
 NUM_EPICS = 55
 TASKS_PER_EPIC = 10
 SAGA_TITLE = "Dogfood Large Test Saga"
-CLEO_JS = "/mnt/projects/cleocode/packages/cleo/bin/cleo.js"
+CLEO_JS = "cleo"  # use global cleo binary (avoids dist nuke race)
 
 
 def run_cleo(cmd, cwd=PROJECT_DIR, check=True, timeout=120):
     """Run cleo via node in the given directory."""
-    full_cmd = f"cd {cwd} && node {CLEO_JS} {cmd}"
+    full_cmd = f"cd {cwd} && {CLEO_JS} {cmd}"
     result = subprocess.run(
         full_cmd, shell=True, capture_output=True, text=True, timeout=timeout
     )
@@ -46,6 +46,15 @@ def main():
     result = run_cleo_ok(f"init --name dogfood-large --yes", timeout=60)
     print(result.stdout[:300].strip())
 
+    # 2a. Switch to advisory mode (sagas need root-level epics without parents)
+    print("\n=== Switching to advisory mode ===")
+    with open(os.path.join(PROJECT_DIR, ".cleo", "config.json")) as f:
+        cfg = json.load(f)
+    cfg["lifecycle"] = {"mode": "advisory"}
+    with open(os.path.join(PROJECT_DIR, ".cleo", "config.json"), "w") as f:
+        json.dump(cfg, f, indent=2)
+    print("  lifecycle mode -> advisory")
+
     # 3. Start a session (required for mutations)
     print("\n=== Starting session ===")
     result = run_cleo_ok(f"session start --scope global --name Dogfood")
@@ -62,8 +71,15 @@ def main():
     if not saga_data.get("success"):
         print(f"Saga creation failed: {result.stdout}")
         sys.exit(1)
-    saga_id = saga_data["data"]["sagaId"]
+    saga_id = saga_data["data"]["task"]["id"]
     print(f"Saga created: {saga_id}")
+
+    # Fix: T10638 migration — saga type doesn't auto-set label='saga'
+    subprocess.run(
+        f"cd {PROJECT_DIR} && sqlite3 .cleo/tasks.db \"UPDATE tasks SET labels_json='[\\\"saga\\\"]' WHERE id='{saga_id}'\"",
+        shell=True, capture_output=True, timeout=10
+    )
+    print(f"  label=saga set on {saga_id}")
 
     # 5. Create epics
     print(f"\n=== Creating {NUM_EPICS} epics ===")
@@ -104,7 +120,10 @@ def main():
             print(f"Epic creation failed for '{title}': {data}")
             sys.exit(1)
 
-        epic_id = data["data"].get("taskId") or data["data"].get("id", "")
+        epic_id = (data["data"].get("created", [None])[0] 
+                   or data["data"].get("ids", [None])[0] 
+                   or data["data"].get("taskId") 
+                   or data["data"].get("id", ""))
         if not epic_id:
             print(f"Could not extract epic ID: {data}")
             sys.exit(1)

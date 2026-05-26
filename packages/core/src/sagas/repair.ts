@@ -85,8 +85,12 @@ export async function repairSaga(
     return engineError('E_NOT_FOUND', `Saga not found: ${sagaId}`);
   }
   const sagaLabels = sagaResult.data.task.labels ?? [];
-  if (!sagaLabels.includes(SAGA_LABEL)) { // saga-label-ok: T10638 — SSoT residual
-    return engineError('E_INVALID_INPUT', `Task ${sagaId} does not have label='${SAGA_LABEL}' // saga-label-ok: T10638`);
+  if (!sagaLabels.includes(SAGA_LABEL)) {
+    // saga-label-ok: T10638 — SSoT residual
+    return engineError(
+      'E_INVALID_INPUT',
+      `Task ${sagaId} does not have label='${SAGA_LABEL}' // saga-label-ok: T10638`,
+    );
   }
 
   const currentParentId = sagaResult.data.task.parentId ?? null;

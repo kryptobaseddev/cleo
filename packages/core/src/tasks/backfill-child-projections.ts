@@ -16,8 +16,8 @@
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import {
-  type ChildProjectionAuditInput,
   auditChildProjectionAcRows,
+  type ChildProjectionAuditInput,
   rebuildChildProjectionAc,
 } from './ac-table.js';
 
@@ -121,9 +121,7 @@ export async function backfillChildProjections(
       parentSql += ' ORDER BY t.parent_id';
     }
 
-    const parentRows = db
-      .prepare(parentSql)
-      .all(...(parentIds ?? [])) as ParentRow[];
+    const parentRows = db.prepare(parentSql).all(...(parentIds ?? [])) as ParentRow[];
 
     // Get children SQL template
     const childrenStmt = db.prepare(
@@ -164,7 +162,9 @@ export async function backfillChildProjections(
         rebuilt: auditBefore.dirty,
         auditBeforeStatus: auditBefore.status,
         auditAfterStatus: auditBefore.dirty
-          ? (dryRun ? 'clean (would rebuild)' : 'clean')
+          ? dryRun
+            ? 'clean (would rebuild)'
+            : 'clean'
           : auditBefore.status,
       });
 
@@ -237,10 +237,7 @@ function dbToAcRow(dbRow: AcDbRow) {
   };
 }
 
-function buildDbTransactionAccessor(
-  db: NativeDb,
-  _parentId: string,
-) {
+function buildDbTransactionAccessor(db: NativeDb, _parentId: string) {
   return {
     getAcRows: async (taskId: string) => {
       const rows = db

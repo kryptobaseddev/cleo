@@ -27,12 +27,12 @@
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { taskShow } from '../tasks/show.js';
 import { coreTaskReparent } from '../tasks/task-reparent.js';
-import { isSagaType } from './is-saga-type.js';
 import {
   assertSagaInvariantI7,
   isSagaInvariantViolationError,
   type SagaInvariantViolationError,
 } from './enforcement.js';
+import { isSagaType } from './is-saga-type.js';
 
 /** Input parameters for {@link sagaAdd}. */
 export interface SagaAddParams {

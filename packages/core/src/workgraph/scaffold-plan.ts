@@ -484,7 +484,6 @@ export async function generatePlanningDoc(
       case 'agent':
         markdown = generateAgentDoc(saga, epicEntries, readyTasks, blockedTasks);
         break;
-      case 'maintainer':
       default:
         markdown = generateMaintainerDoc(saga, epicEntries, readyTasks, blockedTasks);
         break;

@@ -99,6 +99,21 @@ export {
   E_WORKGRAPH_REPARENT_TARGET_NOT_FOUND,
   preflightWorkGraphReparent,
 } from './reparent-preflight.js';
+export {
+  applyWorkGraphScaffold,
+  E_WORKGRAPH_SCAFFOLD_APPLY_INVALID,
+  E_WORKGRAPH_SCAFFOLD_APPLY_MISSING_PARENT,
+  E_WORKGRAPH_SCAFFOLD_APPLY_NO_DB,
+} from './scaffold-apply.js';
+export type {
+  PlanningDocAudience,
+  PlanningDocBlockedTask,
+  PlanningDocEpicEntry,
+  PlanningDocParams,
+  PlanningDocReadyTask,
+  PlanningDocResult,
+} from './scaffold-plan.js';
+export { generatePlanningDoc } from './scaffold-plan.js';
 export type { WorkGraphScaffoldValidateOptions } from './scaffold-validate.js';
 export {
   E_WORKGRAPH_SCAFFOLD_DUPLICATE_ID,
@@ -110,21 +125,6 @@ export {
   E_WORKGRAPH_SCAFFOLD_SELF_LOOP,
   validateWorkGraphScaffold,
 } from './scaffold-validate.js';
-export {
-  E_WORKGRAPH_SCAFFOLD_APPLY_INVALID,
-  E_WORKGRAPH_SCAFFOLD_APPLY_MISSING_PARENT,
-  E_WORKGRAPH_SCAFFOLD_APPLY_NO_DB,
-  applyWorkGraphScaffold,
-} from './scaffold-apply.js';
-export type {
-  PlanningDocAudience,
-  PlanningDocBlockedTask,
-  PlanningDocEpicEntry,
-  PlanningDocParams,
-  PlanningDocReadyTask,
-  PlanningDocResult,
-} from './scaffold-plan.js';
-export { generatePlanningDoc } from './scaffold-plan.js';
 export type {
   WorkGraphStructureCycleFinding,
   WorkGraphStructureDepthFinding,

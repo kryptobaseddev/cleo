@@ -60,7 +60,12 @@ function sagaNode(id: string): WorkGraphHierarchyInputNode {
 }
 
 function depEdge(fromId: string, toId: string): WorkGraphDirectEdge {
-  return { source: 'dependency' as const, fromId, toId, kind: 'depends_on' as const } as WorkGraphDirectEdge;
+  return {
+    source: 'dependency' as const,
+    fromId,
+    toId,
+    kind: 'depends_on' as const,
+  } as WorkGraphDirectEdge;
 }
 
 function blockEdge(fromId: string, toId: string): WorkGraphDirectEdge {
@@ -348,10 +353,10 @@ describe('WorkGraph scaffold apply engine', () => {
       // Relation edges between siblings (not parent-child) to satisfy
       // the task_relations non-containment trigger constraint
       const edges: WorkGraphDirectEdge[] = [
-        depEdge('T3', 'T2'),           // subtask depends on sibling task
-        blockEdge('T1', 'T2'),         // sibling blocks sibling
-        relEdge('T2', 'T3'),           // sibling relates to subtask
-        groupEdge('EPIC', 'SAGA'),     // epic grouped under saga
+        depEdge('T3', 'T2'), // subtask depends on sibling task
+        blockEdge('T1', 'T2'), // sibling blocks sibling
+        relEdge('T2', 'T3'), // sibling relates to subtask
+        groupEdge('EPIC', 'SAGA'), // epic grouped under saga
       ];
 
       // First apply

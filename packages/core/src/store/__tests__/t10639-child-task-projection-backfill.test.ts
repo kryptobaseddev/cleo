@@ -114,7 +114,9 @@ describe('T10639 backfill migration SQL', () => {
 
   it('idempotency: history insert gated by NOT EXISTS on reason=backfill', () => {
     const sql = readMigrationSql();
-    expect(sql).toMatch(/NOT EXISTS\s*\(\s*SELECT\s+1\s+FROM\s+`task_acceptance_criteria_history`/i);
+    expect(sql).toMatch(
+      /NOT EXISTS\s*\(\s*SELECT\s+1\s+FROM\s+`task_acceptance_criteria_history`/i,
+    );
     expect(sql).toMatch(/'backfill'/);
   });
 
@@ -396,25 +398,39 @@ describe('T10639 backfill end-to-end on fresh tasks.db', () => {
   it('is idempotent: re-running produces zero new child_task rows', async () => {
     await applyMigrationsAndBackfill(join(tempDir, 't10639-idempotency.db'));
     const acCountBefore = (
-      nativeDb.prepare('SELECT count(*) AS c FROM `task_acceptance_criteria` WHERE `kind` = ?').get('child_task') as { c: number }
+      nativeDb
+        .prepare('SELECT count(*) AS c FROM `task_acceptance_criteria` WHERE `kind` = ?')
+        .get('child_task') as { c: number }
     ).c;
     const historyCountBefore = (
-      nativeDb.prepare("SELECT count(*) AS c FROM `task_acceptance_criteria_history` WHERE `reason` = 'backfill'").get() as { c: number }
+      nativeDb
+        .prepare(
+          "SELECT count(*) AS c FROM `task_acceptance_criteria_history` WHERE `reason` = 'backfill'",
+        )
+        .get() as { c: number }
     ).c;
     expect(acCountBefore).toBeGreaterThan(0);
     expect(historyCountBefore).toBe(acCountBefore);
     nativeDb.exec(readMigrationSql());
     const acCountAfter = (
-      nativeDb.prepare('SELECT count(*) AS c FROM `task_acceptance_criteria` WHERE `kind` = ?').get('child_task') as { c: number }
+      nativeDb
+        .prepare('SELECT count(*) AS c FROM `task_acceptance_criteria` WHERE `kind` = ?')
+        .get('child_task') as { c: number }
     ).c;
     const historyCountAfter = (
-      nativeDb.prepare("SELECT count(*) AS c FROM `task_acceptance_criteria_history` WHERE `reason` = 'backfill'").get() as { c: number }
+      nativeDb
+        .prepare(
+          "SELECT count(*) AS c FROM `task_acceptance_criteria_history` WHERE `reason` = 'backfill'",
+        )
+        .get() as { c: number }
     ).c;
     expect(acCountAfter).toBe(acCountBefore);
     expect(historyCountAfter).toBe(historyCountBefore);
     nativeDb.exec(readMigrationSql());
     const acCountThird = (
-      nativeDb.prepare('SELECT count(*) AS c FROM `task_acceptance_criteria` WHERE `kind` = ?').get('child_task') as { c: number }
+      nativeDb
+        .prepare('SELECT count(*) AS c FROM `task_acceptance_criteria` WHERE `kind` = ?')
+        .get('child_task') as { c: number }
     ).c;
     expect(acCountThird).toBe(acCountBefore);
   });
@@ -422,29 +438,43 @@ describe('T10639 backfill end-to-end on fresh tasks.db', () => {
   it('revert: removes backfill-created rows only, preserves non-backfill rows', async () => {
     await applyMigrationsAndBackfill(join(tempDir, 't10639-revert.db'));
     const totalAcBefore = (
-      nativeDb.prepare('SELECT count(*) AS c FROM `task_acceptance_criteria`').get() as { c: number }
+      nativeDb.prepare('SELECT count(*) AS c FROM `task_acceptance_criteria`').get() as {
+        c: number;
+      }
     ).c;
     expect(totalAcBefore).toBeGreaterThan(0);
     nativeDb.exec(readRevertSql());
     const childTaskAfter = (
-      nativeDb.prepare('SELECT count(*) AS c FROM `task_acceptance_criteria` WHERE `kind` = ?').get('child_task') as { c: number }
+      nativeDb
+        .prepare('SELECT count(*) AS c FROM `task_acceptance_criteria` WHERE `kind` = ?')
+        .get('child_task') as { c: number }
     ).c;
     expect(childTaskAfter).toBe(0);
     const textAcAfter = (
-      nativeDb.prepare('SELECT count(*) AS c FROM `task_acceptance_criteria` WHERE `kind` = ?').get('text') as { c: number }
+      nativeDb
+        .prepare('SELECT count(*) AS c FROM `task_acceptance_criteria` WHERE `kind` = ?')
+        .get('text') as { c: number }
     ).c;
     expect(textAcAfter).toBe(8);
     const historyBackfillAfter = (
-      nativeDb.prepare("SELECT count(*) AS c FROM `task_acceptance_criteria_history` WHERE `reason` = 'backfill'").get() as { c: number }
+      nativeDb
+        .prepare(
+          "SELECT count(*) AS c FROM `task_acceptance_criteria_history` WHERE `reason` = 'backfill'",
+        )
+        .get() as { c: number }
     ).c;
     expect(historyBackfillAfter).toBe(0);
   });
 
   it('AC3: evidence bindings survive', async () => {
     await applyMigrationsAndBackfill(join(tempDir, 't10639-evidence-safe.db'));
-    const child3Texts = getAcRows('T-child3').filter((r) => r.kind === 'text').map((r) => r.text);
+    const child3Texts = getAcRows('T-child3')
+      .filter((r) => r.kind === 'text')
+      .map((r) => r.text);
     expect(child3Texts).toEqual(['child3 AC a', 'child3 AC b']);
-    const noChildrenTexts = getAcRows('T-nochildren').filter((r) => r.kind === 'text').map((r) => r.text);
+    const noChildrenTexts = getAcRows('T-nochildren')
+      .filter((r) => r.kind === 'text')
+      .map((r) => r.text);
     expect(noChildrenTexts).toEqual(['leaf AC 1', 'leaf AC 2', 'leaf AC 3']);
   });
 });
