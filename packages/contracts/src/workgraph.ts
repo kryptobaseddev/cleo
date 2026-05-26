@@ -554,6 +554,13 @@ const workGraphEdgeSchema = z.object({
   toId: z.string().min(1),
   kind: workGraphRelationKindSchema,
 });
+const workGraphHierarchyEdgeSchema = z
+  .object({
+    fromId: z.string().min(1),
+    toId: z.string().min(1),
+    kind: z.literal('contains'),
+  })
+  .strict();
 const workGraphPageInfoSchema = z.object({
   nextCursor: z.string().min(1).optional(),
   hasMore: z.boolean(),
@@ -773,7 +780,7 @@ export const tasksTreeParamsSchema = paginationParamsSchema.extend({
 export const tasksTreeResultSchema = z.object({
   rootId: z.string().min(1),
   nodes: z.array(workGraphNodeSchema.extend({ depth: z.number().int().positive() })),
-  edges: z.array(workGraphEdgeSchema),
+  edges: z.array(workGraphHierarchyEdgeSchema),
   pageInfo: workGraphPageInfoSchema,
 });
 
