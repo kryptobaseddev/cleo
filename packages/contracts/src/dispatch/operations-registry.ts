@@ -2402,6 +2402,13 @@ export const OPERATIONS: OperationDef[] = [
         description: 'Pipe-separated acceptance criteria',
         cli: { flag: 'acceptance' },
       },
+      {
+        name: 'dryRun',
+        type: 'boolean',
+        required: false,
+        description: 'Validate and preview without writing task, relation, or doc rows',
+        cli: { flag: 'dry-run' },
+      },
     ] satisfies ParamDef[],
   },
   {

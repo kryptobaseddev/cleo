@@ -52,6 +52,11 @@ const createCommand = defineCommand({
       description: 'Pipe-separated acceptance criteria (e.g. "AC1|AC2")',
       required: false,
     },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Validate and preview the Saga without writing task, relation, or doc rows',
+      required: false,
+    },
   },
   async run({ args }) {
     await dispatchFromCli(
@@ -64,6 +69,7 @@ const createCommand = defineCommand({
         // T9839/gh-409: route through bracket+quote-aware parser so criteria
         // containing `ENUM (a|b|c)` or quoted unions aren't shredded.
         acceptance: args.acceptance ? parseAcceptanceCriteria(args.acceptance) : undefined,
+        dryRun: args['dry-run'] === true,
       },
       { command: 'saga', operation: 'tasks.saga.create' },
     );

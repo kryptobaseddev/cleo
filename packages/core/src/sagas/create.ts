@@ -27,6 +27,24 @@ export interface SagaCreateParams {
   description?: string;
   /** Optional acceptance criteria. */
   acceptance?: string[];
+  /** Validate and preview the Saga without writing task, relation, or doc rows. */
+  dryRun?: boolean;
+}
+
+/** Result shape for {@link sagaCreate}. */
+export interface SagaCreateResult {
+  task: TaskRecord;
+  duplicate: boolean;
+  dryRun?: boolean;
+  warnings?: string[];
+  /** Number of Saga tasks that would be created by a successful dry-run. */
+  wouldCreate?: number;
+  /** Generic affected-entity count for dry-run projection. */
+  wouldAffect?: number;
+  /** Number of Saga specs validated during dry-run preflight. */
+  validatedCount?: number;
+  /** Number of rows durably inserted; always 0 for dry-run. */
+  insertedCount?: number;
 }
 
 /**
@@ -39,14 +57,29 @@ export interface SagaCreateParams {
 export async function sagaCreate(
   projectRoot: string,
   params: SagaCreateParams,
-): Promise<
-  EngineResult<{ task: TaskRecord; duplicate: boolean; dryRun?: boolean; warnings?: string[] }>
-> {
-  return addTaskWithSessionScope(projectRoot, {
+): Promise<EngineResult<SagaCreateResult>> {
+  const result = await addTaskWithSessionScope(projectRoot, {
     title: params.title,
     description: params.description,
     labels: [SAGA_LABEL],
     type: 'epic',
     acceptance: params.acceptance,
+    dryRun: params.dryRun,
   });
+
+  if (!result.success || !params.dryRun) {
+    return result;
+  }
+
+  return {
+    ...result,
+    data: {
+      ...result.data,
+      dryRun: true,
+      wouldCreate: result.data.duplicate ? 0 : 1,
+      wouldAffect: result.data.duplicate ? 0 : 1,
+      validatedCount: 1,
+      insertedCount: 0,
+    },
+  };
 }
