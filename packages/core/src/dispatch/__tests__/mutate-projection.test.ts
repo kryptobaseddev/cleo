@@ -77,6 +77,21 @@ describe('applyMutateProjection — tasks.add', () => {
     expect(out['dryRun']).toBe(true);
   });
 
+  it('uses the standardized created bucket when legacy task is absent', () => {
+    const data = {
+      created: [FULL_TASK],
+      updated: [],
+      deleted: [],
+      affectedCount: 1,
+      mutationWarnings: [],
+    };
+    const out = applyMutateProjection(data, 'tasks.add', 'mvi') as Record<string, unknown>;
+    expect(out['count']).toBe(1);
+    expect(out['created']).toEqual(['T9931']);
+    expect(out['ids']).toEqual(['T9931']);
+    expect(out['task']).toBeUndefined();
+  });
+
   it('falls back to original data when the task id is missing', () => {
     const data = { task: { title: 'nope' }, duplicate: false };
     // No id → envelope would be {count:0, ids:[]} → caller sees full payload
@@ -101,6 +116,25 @@ describe('applyMutateProjection — tasks.add-batch', () => {
     expect(out['deleted']).toEqual([]);
     expect(out['ids']).toEqual(['T100', 'T101', 'T102']);
     expect(out['tasks']).toBeUndefined();
+  });
+
+  it('uses standardized created bucket IDs before legacy nested task results', () => {
+    const data = {
+      created: [
+        { id: 'T300', title: 'a' },
+        { id: 'T301', title: 'b' },
+      ],
+      updated: [],
+      deleted: [],
+      affectedCount: 2,
+      mutationWarnings: [],
+      insertedCount: 2,
+    };
+    const out = applyMutateProjection(data, 'tasks.add-batch', 'mvi') as Record<string, unknown>;
+    expect(out['count']).toBe(2);
+    expect(out['created']).toEqual(['T300', 'T301']);
+    expect(out['ids']).toEqual(['T300', 'T301']);
+    expect(out['insertedCount']).toBe(2);
   });
 
   it('reflects dryRun in the envelope', () => {
@@ -130,6 +164,38 @@ describe('applyMutateProjection — tasks.add-batch', () => {
       expect(out['count']).toBe(3); // wouldCreate, not 0
       expect(out['wouldAffect']).toBe(3);
       expect(out['dryRun']).toBe(true);
+    });
+
+    it('reads standardized dryRunSummary when legacy top-level dry-run fields are absent', () => {
+      const warnings = [{ code: 'duplicate_likely', message: 'Similar title', index: 0 }];
+      const data = {
+        created: [],
+        updated: [],
+        deleted: [],
+        affectedCount: 0,
+        mutationWarnings: warnings,
+        dryRunSummary: {
+          dryRun: true,
+          wouldCreate: 2,
+          wouldUpdate: 0,
+          wouldDelete: 0,
+          wouldAffect: 2,
+          validatedCount: 2,
+          insertedCount: 0,
+          updatedCount: 0,
+          deletedCount: 0,
+          warnings,
+        },
+        tasks: [{ task: { id: 'T???' } }, { task: { id: 'T???' } }],
+      };
+      const out = applyMutateProjection(data, 'tasks.add-batch', 'mvi') as Record<string, unknown>;
+      expect(out['count']).toBe(2);
+      expect(out['dryRun']).toBe(true);
+      expect(out['wouldCreate']).toBe(2);
+      expect(out['wouldAffect']).toBe(2);
+      expect(out['insertedCount']).toBe(0);
+      expect(out['validatedCount']).toBe(2);
+      expect(out['validationFindings']).toEqual(warnings);
     });
 
     it('AC2: insertedCount is separate from wouldCreate in dry-run', () => {
@@ -241,6 +307,20 @@ describe('applyMutateProjection — tasks.update', () => {
     expect(out['task']).toBeUndefined();
     expect(out['description']).toBeUndefined();
   });
+
+  it('uses the standardized updated bucket when legacy task is absent', () => {
+    const data = {
+      created: [],
+      updated: [FULL_TASK],
+      deleted: [],
+      affectedCount: 1,
+      mutationWarnings: [],
+    };
+    const out = applyMutateProjection(data, 'tasks.update', 'mvi') as Record<string, unknown>;
+    expect(out['count']).toBe(1);
+    expect(out['updated']).toEqual(['T9931']);
+    expect(out['ids']).toEqual(['T9931']);
+  });
 });
 
 describe('applyMutateProjection — tasks.complete', () => {
@@ -267,6 +347,20 @@ describe('applyMutateProjection — tasks.complete', () => {
     const out = applyMutateProjection(data, 'tasks.complete', 'mvi') as Record<string, unknown>;
     expect(out['autoCompleted']).toEqual(['T9932', 'T9933']);
   });
+
+  it('uses the standardized updated bucket when legacy task is absent', () => {
+    const data = {
+      created: [],
+      updated: [FULL_TASK],
+      deleted: [],
+      affectedCount: 1,
+      mutationWarnings: [],
+    };
+    const out = applyMutateProjection(data, 'tasks.complete', 'mvi') as Record<string, unknown>;
+    expect(out['count']).toBe(1);
+    expect(out['updated']).toEqual(['T9931']);
+    expect(out['ids']).toEqual(['T9931']);
+  });
 });
 
 describe('applyMutateProjection — tasks.delete', () => {
@@ -288,6 +382,20 @@ describe('applyMutateProjection — tasks.delete', () => {
     expect(out['deleted']).toEqual(['T9931', 'T1', 'T2']);
     expect(out['ids']).toEqual(['T9931', 'T1', 'T2']);
     expect(out['cascadeDeleted']).toEqual(['T1', 'T2']);
+  });
+
+  it('uses the standardized deleted bucket when legacy deletedTask is absent', () => {
+    const data = {
+      created: [],
+      updated: [],
+      deleted: [FULL_TASK],
+      affectedCount: 1,
+      mutationWarnings: [],
+    };
+    const out = applyMutateProjection(data, 'tasks.delete', 'mvi') as Record<string, unknown>;
+    expect(out['count']).toBe(1);
+    expect(out['deleted']).toEqual(['T9931']);
+    expect(out['ids']).toEqual(['T9931']);
   });
 });
 
