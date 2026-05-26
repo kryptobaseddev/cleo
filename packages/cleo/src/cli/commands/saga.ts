@@ -274,8 +274,7 @@ const reconcileCommand = defineCommand({
 const migrateContainmentCommand = defineCommand({
   meta: {
     name: 'migrate-containment',
-    description:
-      'Migrate parent_id-based Saga membership to groups relations — idempotent',
+    description: 'Migrate parent_id-based Saga membership to groups relations — idempotent',
   },
   args: {
     sagaId: {

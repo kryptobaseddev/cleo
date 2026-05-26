@@ -2015,7 +2015,10 @@ export type TasksOps = {
   /** T10121 — idempotent cron-safe auto-close repair (supersedes T10098 scope). */
   readonly 'saga.reconcile': readonly [TasksSagaReconcileParams, TasksSagaReconcileResult];
   /** T10637 — migrate parent_id-based Saga membership to groups relations. */
-  readonly 'saga.migrate-containment': readonly [TasksSagaMigrateContainmentParams, TasksSagaMigrateContainmentResult];
+  readonly 'saga.migrate-containment': readonly [
+    TasksSagaMigrateContainmentParams,
+    TasksSagaMigrateContainmentResult,
+  ];
 };
 
 // ---------------------------------------------------------------------------

@@ -36,10 +36,10 @@ import {
   detachSagaMember as coreSagaDetach,
   sagaList as coreSagaList,
   sagaMembers as coreSagaMembers,
+  migrateSagaContainment as coreSagaMigrateContainment,
   reconcileSaga as coreSagaReconcile,
   repairSaga as coreSagaRepair,
   sagaRollup as coreSagaRollup,
-  migrateSagaContainment as coreSagaMigrateContainment,
 } from '@cleocode/core/sagas';
 import {
   defineTypedHandler,

@@ -892,7 +892,10 @@ export async function orchestrateReport(
     const invalid: OrchestrateReportEntry[] = [];
 
     // Dependency analysis for invalid detection — swallow errors gracefully
-    let depAnalysis: { missingDependencies: Array<{ taskId: string; missingDep: string }>; circularDependencies: string[][] } = { missingDependencies: [], circularDependencies: [] };
+    let depAnalysis: {
+      missingDependencies: Array<{ taskId: string; missingDep: string }>;
+      circularDependencies: string[][];
+    } = { missingDependencies: [], circularDependencies: [] };
     try {
       depAnalysis = analyzeDependencies(children, tasks);
     } catch {
