@@ -868,7 +868,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'tasksCommand',
     name: 'tasks',
-    description: 'Task query namespace: show, find, next, current, plan, analyze',
+    description: 'Task query namespace: show, find, next, current, plan, analyze, slice',
     load: async () => (await import('../commands/tasks.js')).tasksCommand as CommandDef,
   },
   {

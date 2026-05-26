@@ -24,6 +24,7 @@
 
 import type { tasks as coreTasks } from '@cleocode/core';
 import { getLogger, getProjectRoot, TASKS_SUGGESTED_NEXT_BUILDERS } from '@cleocode/core';
+import { taskContext } from '@cleocode/core/internal';
 // Saga core ops — pure business logic moved out of dispatch in T10124.
 // T10117 adds `sagaRepair` (`saga.repair`) for I5 violation cleanup.
 // T10118 adds the `detach` op for repair of nested-saga relations.
@@ -92,7 +93,6 @@ import {
   taskUpdate,
   taskWorkHistory,
 } from '../lib/engine.js';
-import { taskContext } from '@cleocode/core/internal';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import {
   envelopeToEngineResult,
