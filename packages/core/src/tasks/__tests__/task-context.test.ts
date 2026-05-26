@@ -44,13 +44,28 @@ function makeTask(overrides: Partial<Task> & { id: string }): Task {
   } as Task;
 }
 
-function mockAuditLog(rows: Array<{ timestamp: string; action: string; actor?: string | null; detailsJson?: string | null }>) {
+function mockAuditLog(
+  rows: Array<{
+    timestamp: string;
+    action: string;
+    actor?: string | null;
+    detailsJson?: string | null;
+  }>,
+) {
   return {
     queryAuditLog: vi.fn().mockResolvedValue(rows),
   };
 }
 
-function setupAccessor(task: Task, auditRows: Array<{ timestamp: string; action: string; actor?: string | null; detailsJson?: string | null }> = []) {
+function setupAccessor(
+  task: Task,
+  auditRows: Array<{
+    timestamp: string;
+    action: string;
+    actor?: string | null;
+    detailsJson?: string | null;
+  }> = [],
+) {
   const mockImpl = {
     loadSingleTask: vi.fn().mockImplementation((id: string) => {
       if (id === task.id) return Promise.resolve(task);
@@ -195,7 +210,20 @@ describe('coreTaskContext', () => {
   it('omits sections when budget is exceeded', async () => {
     const task = makeTask({
       id: 'T10629',
-      acceptance: ['AC1', 'AC2', 'AC3', 'AC4', 'AC5', 'AC6', 'AC7', 'AC8', 'AC9', 'AC10', 'AC11', 'AC12'],
+      acceptance: [
+        'AC1',
+        'AC2',
+        'AC3',
+        'AC4',
+        'AC5',
+        'AC6',
+        'AC7',
+        'AC8',
+        'AC9',
+        'AC10',
+        'AC11',
+        'AC12',
+      ],
     });
     setupAccessor(task);
     const result = await coreTaskContext('/fake/project', {
@@ -233,7 +261,20 @@ describe('coreTaskContext', () => {
   it('returns expansion hints for omitted sections', async () => {
     const task = makeTask({
       id: 'T10629',
-      acceptance: ['AC1', 'AC2', 'AC3', 'AC4', 'AC5', 'AC6', 'AC7', 'AC8', 'AC9', 'AC10', 'AC11', 'AC12'],
+      acceptance: [
+        'AC1',
+        'AC2',
+        'AC3',
+        'AC4',
+        'AC5',
+        'AC6',
+        'AC7',
+        'AC8',
+        'AC9',
+        'AC10',
+        'AC11',
+        'AC12',
+      ],
     });
     setupAccessor(task);
     const result = await coreTaskContext('/fake/project', {
@@ -256,9 +297,9 @@ describe('coreTaskContext', () => {
     };
     (getAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(mockImpl);
     (getTaskAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(mockImpl);
-    await expect(
-      coreTaskContext('/fake/project', { taskId: 'T99999' }),
-    ).rejects.toThrow("Task 'T99999' not found");
+    await expect(coreTaskContext('/fake/project', { taskId: 'T99999' })).rejects.toThrow(
+      "Task 'T99999' not found",
+    );
   });
 
   it('generatedAt is an ISO timestamp', async () => {
@@ -289,15 +330,26 @@ describe('coreTaskContext', () => {
       ],
     });
 
-    const epic1 = makeTask({ id: 'T10547', title: 'E9: Context Packs', status: 'done', type: 'epic' });
-    const epic2 = makeTask({ id: 'T10548', title: 'E10: WorkGraph', status: 'active', type: 'epic' });
+    const epic1 = makeTask({
+      id: 'T10547',
+      title: 'E9: Context Packs',
+      status: 'done',
+      type: 'epic',
+    });
+    const epic2 = makeTask({
+      id: 'T10548',
+      title: 'E10: WorkGraph',
+      status: 'active',
+      type: 'epic',
+    });
 
     const mockImpl = {
       loadSingleTask: vi.fn().mockImplementation((id: string) => {
-        if (id === 'T10538') return Promise.resolve({
-          ...saga,
-          relates: saga.relates,
-        });
+        if (id === 'T10538')
+          return Promise.resolve({
+            ...saga,
+            relates: saga.relates,
+          });
         if (id === 'T10547') return Promise.resolve(epic1);
         if (id === 'T10548') return Promise.resolve(epic2);
         return Promise.resolve(null);
@@ -339,16 +391,24 @@ describe('coreTaskContext', () => {
       status: 'active',
     });
 
-    const child1 = makeTask({ id: 'T10629', title: 'Task context pack', status: 'done', parentId: 'T10547' });
-    const child2 = makeTask({ id: 'T10630', title: 'Saga context pack', status: 'pending', parentId: 'T10547' });
+    const child1 = makeTask({
+      id: 'T10629',
+      title: 'Task context pack',
+      status: 'done',
+      parentId: 'T10547',
+    });
+    const child2 = makeTask({
+      id: 'T10630',
+      title: 'Saga context pack',
+      status: 'pending',
+      parentId: 'T10547',
+    });
 
     const { orchestrateReady } = await import('../../orchestrate/query-ops.js');
     (orchestrateReady as ReturnType<typeof vi.fn>).mockResolvedValue({
       success: true,
       data: {
-        readyTasks: [
-          { id: 'T10630', title: 'Saga context pack', priority: 'high', depends: [] },
-        ],
+        readyTasks: [{ id: 'T10630', title: 'Saga context pack', priority: 'high', depends: [] }],
       },
     });
 
@@ -413,10 +473,11 @@ describe('coreTaskContext', () => {
 
     const mockImpl = {
       loadSingleTask: vi.fn().mockImplementation((id: string) => {
-        if (id === 'T10538') return Promise.resolve({
-          ...saga,
-          relates: saga.relates,
-        });
+        if (id === 'T10538')
+          return Promise.resolve({
+            ...saga,
+            relates: saga.relates,
+          });
         if (id === 'T10547') return Promise.resolve(epic);
         return Promise.resolve(null);
       }),
@@ -465,8 +526,18 @@ describe('coreTaskContext', () => {
   });
 
   it('scope=epic with ready frontier from orchestrate', async () => {
-    const epic = makeTask({ id: 'T10547', title: 'E9: Context Packs', type: 'epic', status: 'active' });
-    const child = makeTask({ id: 'T10630', title: 'Saga context pack', status: 'pending', parentId: 'T10547' });
+    const epic = makeTask({
+      id: 'T10547',
+      title: 'E9: Context Packs',
+      type: 'epic',
+      status: 'active',
+    });
+    const child = makeTask({
+      id: 'T10630',
+      title: 'Saga context pack',
+      status: 'pending',
+      parentId: 'T10547',
+    });
 
     const { orchestrateReady } = await import('../../orchestrate/query-ops.js');
     (orchestrateReady as ReturnType<typeof vi.fn>).mockResolvedValue({
