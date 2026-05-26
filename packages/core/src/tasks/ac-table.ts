@@ -12,7 +12,7 @@
  * @decision D013
  */
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { AcceptanceItem, AcRow, TransactionAccessor } from '@cleocode/contracts';
 
 /**
@@ -42,17 +42,49 @@ export function acItemToText(item: AcceptanceItem): string {
  * @param acceptance — pipe-split AC items in display order
  * @returns rows ready for {@link TransactionAccessor.insertAcRows}
  */
+export type AcInsertRow = {
+  id: string;
+  taskId: string;
+  ordinal: number;
+  text: string;
+  kind?: 'text' | 'child_task' | 'evidence_bound';
+  sourceKey?: string;
+  targetTaskId?: string | null;
+  projection?: string;
+};
+
+/** Build a short deterministic sha256 prefix for human-debuggable source keys. */
+export function acTextHash(text: string): string {
+  return createHash('sha256').update(text).digest('hex');
+}
+
+/**
+ * Default direct-text source key. Keeps duplicates legal by including the
+ * monotonic ordinal; content_hash still records text drift separately.
+ */
+export function directTextSourceKey(ordinal: number, text: string): string {
+  return `text:${ordinal}:${acTextHash(text).slice(0, 12)}`;
+}
+
 export function buildFreshAcRows(
   taskId: string,
   acceptance: readonly AcceptanceItem[] | undefined,
-): Array<{ id: string; taskId: string; ordinal: number; text: string }> {
+): AcInsertRow[] {
   if (!acceptance || acceptance.length === 0) return [];
-  return acceptance.map((item, idx) => ({
-    id: randomUUID(),
-    taskId,
-    ordinal: idx + 1,
-    text: acItemToText(item),
-  }));
+  return acceptance.map((item, idx) => {
+    const ordinal = idx + 1;
+    const text = acItemToText(item);
+    return {
+      id: randomUUID(),
+      taskId,
+      ordinal,
+      text,
+      kind: 'text',
+      sourceKey: directTextSourceKey(ordinal, text),
+      targetTaskId: null,
+      projection: 'legacy',
+    };
+  });
 }
 
 /**
@@ -61,7 +93,7 @@ export function buildFreshAcRows(
  */
 export interface AcUpdatePlan {
   /** AC rows to INSERT (new, never-before-seen AC text). */
-  inserts: Array<{ id: string; taskId: string; ordinal: number; text: string }>;
+  inserts: AcInsertRow[];
   /** History rows to append BEFORE deleting any rows. */
   history: Array<{ acId: string; previousText: string; reason: string }>;
   /**
@@ -118,12 +150,19 @@ export function planAcUpdate(
       // ordinal + 1, OR 1 if there were none. Ordinals are NEVER reused,
       // and the schema's UNIQUE (task_id, ordinal) enforces this.
       const maxOrdinal = existing.reduce((m, row) => (row.ordinal > m ? row.ordinal : m), 0);
-      const tail = incomingTexts.slice(existing.length).map((text, i) => ({
-        id: randomUUID(),
-        taskId,
-        ordinal: maxOrdinal + 1 + i,
-        text,
-      }));
+      const tail = incomingTexts.slice(existing.length).map((text, i) => {
+        const ordinal = maxOrdinal + 1 + i;
+        return {
+          id: randomUUID(),
+          taskId,
+          ordinal,
+          text,
+          kind: 'text' as const,
+          sourceKey: directTextSourceKey(ordinal, text),
+          targetTaskId: null,
+          projection: 'legacy',
+        };
+      });
       return { inserts: tail, history: [], fullDelete: false };
     }
   }
@@ -147,6 +186,10 @@ export function planAcUpdate(
         taskId,
         ordinal: row.ordinal,
         text: row.text,
+        kind: row.kind,
+        sourceKey: row.sourceKey,
+        targetTaskId: row.targetTaskId,
+        projection: row.projection,
       }));
       return { inserts: keepInserts, history, fullDelete: true };
     }
@@ -158,12 +201,19 @@ export function planAcUpdate(
     previousText: row.text,
     reason: 'edit',
   }));
-  const inserts = incomingTexts.map((text, idx) => ({
-    id: randomUUID(),
-    taskId,
-    ordinal: idx + 1,
-    text,
-  }));
+  const inserts = incomingTexts.map((text, idx) => {
+    const ordinal = idx + 1;
+    return {
+      id: randomUUID(),
+      taskId,
+      ordinal,
+      text,
+      kind: 'text' as const,
+      sourceKey: directTextSourceKey(ordinal, text),
+      targetTaskId: null,
+      projection: 'legacy',
+    };
+  });
   return { inserts, history, fullDelete: true };
 }
 

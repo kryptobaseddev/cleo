@@ -142,6 +142,10 @@ describe('T10502 Drizzle schema parity', () => {
       'id',
       'task_id',
       'ordinal',
+      'kind',
+      'source_key',
+      'target_task_id',
+      'projection',
       'text',
       'created_at',
       'updated_at',
@@ -151,16 +155,31 @@ describe('T10502 Drizzle schema parity', () => {
     expect(cols.id.name).toBe('id');
     expect(cols.taskId.name).toBe('task_id');
     expect(cols.ordinal.name).toBe('ordinal');
+    expect(cols.kind.name).toBe('kind');
+    expect(cols.sourceKey.name).toBe('source_key');
+    expect(cols.targetTaskId.name).toBe('target_task_id');
+    expect(cols.projection.name).toBe('projection');
     expect(cols.text.name).toBe('text');
     expect(cols.createdAt.name).toBe('created_at');
     expect(cols.updatedAt.name).toBe('updated_at');
     expect(cols.contentHash.name).toBe('content_hash');
     // Sanity: nothing else added inadvertently in this snapshot.
     expect(Object.keys(cols)).toEqual(
-      expect.arrayContaining(['id', 'taskId', 'ordinal', 'text', 'createdAt', 'updatedAt']),
+      expect.arrayContaining([
+        'id',
+        'taskId',
+        'ordinal',
+        'kind',
+        'sourceKey',
+        'targetTaskId',
+        'projection',
+        'text',
+        'createdAt',
+        'updatedAt',
+      ]),
     );
     // Use expectedColNames to silence unused-var linter while documenting parity.
-    expect(expectedColNames.length).toBe(7);
+    expect(expectedColNames.length).toBe(11);
   });
 });
 
@@ -225,6 +244,10 @@ describe('T10502 fresh migration apply', () => {
       'id',
       'task_id',
       'ordinal',
+      'kind',
+      'source_key',
+      'target_task_id',
+      'projection',
       'text',
       'created_at',
       'updated_at',
@@ -237,6 +260,10 @@ describe('T10502 fresh migration apply', () => {
     expect(colByName.id.pk).toBeGreaterThan(0);
     expect(colByName.task_id.notnull).toBe(1);
     expect(colByName.ordinal.notnull).toBe(1);
+    expect(colByName.kind.notnull).toBe(1);
+    expect(colByName.source_key.notnull).toBe(0);
+    expect(colByName.target_task_id.notnull).toBe(0);
+    expect(colByName.projection.notnull).toBe(1);
     expect(colByName.text.notnull).toBe(1);
     expect(colByName.created_at.notnull).toBe(1);
     // updated_at and content_hash are nullable per ADR-079-r1.
@@ -269,11 +296,19 @@ describe('T10502 fresh migration apply', () => {
     const indexNames = new Set(indexes.map((r) => r.name));
 
     expect(indexNames).toContain('idx_task_acceptance_criteria_task_id');
+    expect(indexNames).toContain('idx_task_acceptance_criteria_target_task_id');
     expect(indexNames).toContain('uq_task_acceptance_criteria_task_ordinal');
+    expect(indexNames).toContain('uq_task_acceptance_criteria_task_source_key');
 
     const uqIndex = indexes.find((r) => r.name === 'uq_task_acceptance_criteria_task_ordinal');
     expect(uqIndex?.sql).toMatch(/UNIQUE INDEX/);
     expect(uqIndex?.sql).toMatch(/`task_id`,\s*`ordinal`/);
+
+    const sourceKeyIndex = indexes.find(
+      (r) => r.name === 'uq_task_acceptance_criteria_task_source_key',
+    );
+    expect(sourceKeyIndex?.sql).toMatch(/UNIQUE INDEX/);
+    expect(sourceKeyIndex?.sql).toMatch(/`task_id`,\s*`source_key`/);
 
     nativeDb.close();
   });
