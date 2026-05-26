@@ -1049,6 +1049,15 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
             // Delegate to the outer accessor's implementation
             await accessor.updateTaskFields(taskId, flds);
           },
+          async getChildren(parentId: string): Promise<Task[]> {
+            const rows = await db
+              .select()
+              .from(schema.tasks)
+              .where(and(eq(schema.tasks.parentId, parentId), ne(schema.tasks.status, 'archived')))
+              .orderBy(sql`${schema.tasks.position} ASC, ${schema.tasks.createdAt} ASC`)
+              .all();
+            return rows.map(rowToTask);
+          },
           async appendLog(entry: Record<string, unknown>): Promise<void> {
             await accessor.appendLog(entry);
           },
