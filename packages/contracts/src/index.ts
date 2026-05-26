@@ -2058,11 +2058,17 @@ export type {
   WorkGraphHierarchyViolation,
   WorkGraphNode,
   WorkGraphNodeRef,
+  WorkGraphPageInfo,
+  WorkGraphPaginationOptions,
   WorkGraphReader,
   WorkGraphRelationKind,
   WorkGraphSnapshot,
   WorkGraphTraversalDirection,
   WorkGraphTraversalOptions,
+  WorkGraphTraversalResult,
+  WorkGraphTreeNode,
+  WorkGraphTreeOptions,
+  WorkGraphTreeResult,
 } from './workgraph.js';
 // === PM-Core V2 WorkGraph public contracts ===
 export {

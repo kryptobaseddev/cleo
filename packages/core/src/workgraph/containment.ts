@@ -14,7 +14,14 @@ import type {
   WorkGraphContainmentChildrenResult,
   WorkGraphContainmentNode,
   WorkGraphContainmentQueryService,
+  WorkGraphEdge,
   WorkGraphNode,
+  WorkGraphPageInfo,
+  WorkGraphTraversalOptions,
+  WorkGraphTraversalResult,
+  WorkGraphTreeNode,
+  WorkGraphTreeOptions,
+  WorkGraphTreeResult,
 } from '@cleocode/contracts';
 
 type TaskRow = {
@@ -35,9 +42,15 @@ type ChildTaskRow = TaskRow & {
   root_id: string;
 };
 
+type DescendantTaskRow = TaskRow & {
+  root_id: string;
+  depth: number;
+  sort_cursor: string;
+};
+
 export interface SqliteWorkGraphContainmentReader {
   prepare(sql: string): {
-    all(...params: readonly string[]): unknown[];
+    all(...params: readonly unknown[]): unknown[];
   };
 }
 
@@ -64,6 +77,33 @@ function toNode(row: TaskRow): WorkGraphContainmentNode {
     priority: row.priority,
     parentId: row.parent_id ?? undefined,
   };
+}
+
+function toTreeNode(row: DescendantTaskRow): WorkGraphTreeNode {
+  return { ...toNode(row), depth: row.depth };
+}
+
+function normalizeLimit(limit: number | undefined): number {
+  if (limit === undefined) return 100;
+  if (!Number.isFinite(limit) || limit <= 0) return 100;
+  return Math.min(Math.floor(limit), 500);
+}
+
+function normalizeMaxDepth(maxDepth: number | undefined): number | null {
+  if (maxDepth === undefined) return null;
+  if (!Number.isFinite(maxDepth)) return null;
+  return Math.max(0, Math.floor(maxDepth));
+}
+
+function pageInfo(rows: readonly DescendantTaskRow[], limit: number): WorkGraphPageInfo {
+  const hasMore = rows.length > limit;
+  const pageRows = hasMore ? rows.slice(0, limit) : rows;
+  const nextCursor = pageRows.at(-1)?.sort_cursor;
+  return hasMore && nextCursor !== undefined ? { hasMore, nextCursor } : { hasMore };
+}
+
+function containmentEdge(parentId: string, childId: string): WorkGraphEdge {
+  return { fromId: parentId, toId: childId, kind: 'contains' };
 }
 
 function resultBuckets(rootIds: readonly string[]): Map<string, WorkGraphContainmentNode[]> {
@@ -131,6 +171,85 @@ ORDER BY t.parent_id ASC, t.position ASC, t.created_at ASC, t.id ASC`;
     for (const row of rows) buckets.get(row.root_id)?.push(toNode(row));
 
     return ids.map((rootId) => ({ rootId, children: buckets.get(rootId) ?? [] }));
+  }
+
+  /**
+   * Read a paginated descendant tree using one recursive CTE.
+   *
+   * The final row order is breadth-first and stable, and `limit + 1` rows are
+   * fetched so callers can page without issuing per-node child lookups.
+   */
+  tree(options: WorkGraphTreeOptions): WorkGraphTreeResult {
+    const limit = normalizeLimit(options.limit);
+    const maxDepth = normalizeMaxDepth(options.maxDepth);
+    if (maxDepth === 0) {
+      return { rootId: options.rootId, nodes: [], edges: [], pageInfo: { hasMore: false } };
+    }
+
+    const sql = `WITH RECURSIVE descendants(root_id, id, depth) AS (
+  SELECT ? AS root_id, child.id, 1
+  FROM tasks child
+  WHERE child.parent_id = ?
+  UNION ALL
+  SELECT descendants.root_id, child.id, descendants.depth + 1
+  FROM descendants
+  JOIN tasks parent ON parent.id = descendants.id
+  JOIN tasks child ON child.parent_id = parent.id
+  WHERE (? IS NULL OR descendants.depth < ?)
+), ordered AS (
+  SELECT descendants.root_id,
+         descendants.depth,
+         printf('%08d:%s', descendants.depth, t.id) AS sort_cursor,
+         ${TASK_COLUMNS}
+  FROM descendants
+  JOIN tasks t ON t.id = descendants.id
+)
+SELECT *
+FROM ordered
+WHERE (? IS NULL OR sort_cursor > ?)
+ORDER BY sort_cursor ASC
+LIMIT ?`;
+
+    const cursor = options.cursor ?? null;
+    const rows = this.#db
+      .prepare(sql)
+      .all(
+        options.rootId,
+        options.rootId,
+        maxDepth,
+        maxDepth,
+        cursor,
+        cursor,
+        limit + 1,
+      ) as DescendantTaskRow[];
+    const info = pageInfo(rows, limit);
+    const pageRows = info.hasMore ? rows.slice(0, limit) : rows;
+    const nodes = pageRows.map(toTreeNode);
+    const edges = pageRows.map((row) => containmentEdge(row.parent_id ?? options.rootId, row.id));
+
+    return { rootId: options.rootId, nodes, edges, pageInfo: info };
+  }
+
+  /** Traverse descendant containment from a root with cursor/limit and max depth support. */
+  traverse(options: WorkGraphTraversalOptions): WorkGraphTraversalResult {
+    if (options.direction !== 'descendants') {
+      return {
+        rootId: options.rootId,
+        direction: options.direction,
+        nodes: [],
+        edges: [],
+        pageInfo: { hasMore: false },
+      };
+    }
+
+    const tree = this.tree(options);
+    return {
+      rootId: options.rootId,
+      direction: options.direction,
+      nodes: tree.nodes,
+      edges: tree.edges,
+      pageInfo: tree.pageInfo,
+    };
   }
 }
 

@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 import { createSqliteWorkGraphContainmentQueryService } from '../index.js';
 
 type Statement<Row> = {
-  all(...params: readonly string[]): Row[];
+  all(...params: readonly unknown[]): Row[];
 };
 
 type PreparedQuery = {
@@ -23,6 +23,7 @@ type PreparedQuery = {
 type Row = {
   root_id: string;
   depth?: number;
+  sort_cursor?: string;
   id: string;
   title: string;
   type: 'epic' | 'task' | 'subtask';
@@ -34,15 +35,17 @@ type Row = {
 class FakeDb {
   readonly prepared: PreparedQuery[] = [];
 
-  constructor(private readonly rowsByKind: { ancestors?: Row[]; children?: Row[] }) {}
+  constructor(
+    private readonly rowsByKind: { ancestors?: Row[]; children?: Row[]; descendants?: Row[] },
+  ) {}
 
   prepare(sql: string): Statement<Row> {
     return {
-      all: (...params: readonly string[]) => {
-        this.prepared.push({ sql, params });
-        return sql.includes('ancestor_edges')
-          ? (this.rowsByKind.ancestors ?? [])
-          : (this.rowsByKind.children ?? []);
+      all: (...params: readonly unknown[]) => {
+        this.prepared.push({ sql, params: params.map(String) });
+        if (sql.includes('ancestor_edges')) return this.rowsByKind.ancestors ?? [];
+        if (sql.includes('descendants')) return this.rowsByKind.descendants ?? [];
+        return this.rowsByKind.children ?? [];
       },
     };
   }
@@ -171,5 +174,133 @@ describe('SqliteWorkGraphContainmentQueryService', () => {
         ],
       },
     ]);
+  });
+
+  it('projects a descendant tree with cursor pagination and max depth using one recursive query', () => {
+    const db = new FakeDb({
+      descendants: [
+        {
+          root_id: 'E1',
+          depth: 1,
+          sort_cursor: '00000001:T1',
+          id: 'T1',
+          title: 'Task 1',
+          type: 'task',
+          status: 'pending',
+          priority: 'high',
+          parent_id: 'E1',
+        },
+        {
+          root_id: 'E1',
+          depth: 2,
+          sort_cursor: '00000002:ST1',
+          id: 'ST1',
+          title: 'Subtask 1',
+          type: 'subtask',
+          status: 'done',
+          priority: 'low',
+          parent_id: 'T1',
+        },
+        {
+          root_id: 'E1',
+          depth: 2,
+          sort_cursor: '00000002:ST2',
+          id: 'ST2',
+          title: 'Subtask 2',
+          type: 'subtask',
+          status: 'pending',
+          priority: 'medium',
+          parent_id: 'T1',
+        },
+      ],
+    });
+
+    const service = createSqliteWorkGraphContainmentQueryService(db);
+    const result = service.tree({ rootId: 'E1', maxDepth: 2, limit: 2, cursor: '00000001:T0' });
+
+    expect(db.prepared).toHaveLength(1);
+    expect(db.prepared[0]?.sql).toContain('WITH RECURSIVE descendants');
+    expect(db.prepared[0]?.sql).toContain('descendants.depth < ?');
+    expect(db.prepared[0]?.sql).toContain('sort_cursor > ?');
+    expect(db.prepared[0]?.sql).toContain('LIMIT ?');
+    expect(db.prepared[0]?.sql).not.toContain('task_relations');
+    expect(db.prepared[0]?.sql).not.toContain('groups');
+    expect(db.prepared[0]?.params).toEqual([
+      'E1',
+      'E1',
+      '2',
+      '2',
+      '00000001:T0',
+      '00000001:T0',
+      '3',
+    ]);
+    expect(result).toEqual({
+      rootId: 'E1',
+      nodes: [
+        {
+          id: 'T1',
+          title: 'Task 1',
+          type: 'task',
+          status: 'pending',
+          priority: 'high',
+          parentId: 'E1',
+          depth: 1,
+        },
+        {
+          id: 'ST1',
+          title: 'Subtask 1',
+          type: 'subtask',
+          status: 'done',
+          priority: 'low',
+          parentId: 'T1',
+          depth: 2,
+        },
+      ],
+      edges: [
+        { fromId: 'E1', toId: 'T1', kind: 'contains' },
+        { fromId: 'T1', toId: 'ST1', kind: 'contains' },
+      ],
+      pageInfo: { hasMore: true, nextCursor: '00000002:ST1' },
+    });
+  });
+
+  it('uses the paginated tree projection for descendant traversal', () => {
+    const db = new FakeDb({
+      descendants: [
+        {
+          root_id: 'E1',
+          depth: 1,
+          sort_cursor: '00000001:T1',
+          id: 'T1',
+          title: 'Task 1',
+          type: 'task',
+          status: 'pending',
+          priority: 'high',
+          parent_id: 'E1',
+        },
+      ],
+    });
+
+    const service = createSqliteWorkGraphContainmentQueryService(db);
+    const result = service.traverse({ rootId: 'E1', direction: 'descendants', limit: 25 });
+
+    expect(db.prepared).toHaveLength(1);
+    expect(result).toEqual({
+      rootId: 'E1',
+      direction: 'descendants',
+      nodes: [
+        {
+          id: 'T1',
+          title: 'Task 1',
+          type: 'task',
+          status: 'pending',
+          priority: 'high',
+          parentId: 'E1',
+          depth: 1,
+        },
+      ],
+      edges: [{ fromId: 'E1', toId: 'T1', kind: 'contains' }],
+      pageInfo: { hasMore: false },
+    });
   });
 });

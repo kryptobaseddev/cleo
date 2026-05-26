@@ -22,11 +22,17 @@ export type {
   WorkGraphHierarchyViolation,
   WorkGraphNode,
   WorkGraphNodeRef,
+  WorkGraphPageInfo,
+  WorkGraphPaginationOptions,
   WorkGraphReader,
   WorkGraphRelationKind,
   WorkGraphSnapshot,
   WorkGraphTraversalDirection,
   WorkGraphTraversalOptions,
+  WorkGraphTraversalResult,
+  WorkGraphTreeNode,
+  WorkGraphTreeOptions,
+  WorkGraphTreeResult,
 } from '@cleocode/contracts';
 export {
   E_WORKGRAPH_PARENT_TYPE_MATRIX,
