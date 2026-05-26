@@ -36,7 +36,7 @@ import {
  * @epic T10381
  */
 export interface AcDetail {
-  /** UUIDv4 stable identifier, immutable for the AC's lifetime. */
+  /** Stable UUID-shaped identifier, immutable for the AC's lifetime (legacy v4 or deterministic v5-shaped). */
   id: string;
   /** Display alias derived from ordinal — `AC1`, `AC2`, etc. */
   alias: string;

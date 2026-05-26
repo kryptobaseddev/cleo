@@ -3,7 +3,7 @@
  *
  * Verifies that the addTask + updateTask handlers correctly:
  *   1. Insert AC rows into `task_acceptance_criteria` on creation.
- *   2. Generate UUIDv4 per AC and 1-based ordinals matching input order.
+ *   2. Generate deterministic UUID-shaped ids/source keys per AC and 1-based ordinals matching input order.
  *   3. Dual-write the legacy `tasks.acceptance` string in lock-step.
  *   4. Append history rows BEFORE deleting on shrink/replace-all updates.
  *   5. Keep extend updates ordinal-monotonic (never reuse ordinals).
@@ -41,7 +41,7 @@ describe('addTask — AC dual-write (T10508)', () => {
     await env.cleanup();
   });
 
-  it('writes AC rows with UUIDs + 1-based ordinals on create', async () => {
+  it('writes AC rows with deterministic ids/source keys + 1-based ordinals on create', async () => {
     const result = await addTask(
       {
         title: 'AC create test',
@@ -61,9 +61,10 @@ describe('addTask — AC dual-write (T10508)', () => {
     expect(rows[1].text).toBe('Second AC');
     expect(rows[2].text).toBe('Third AC');
 
-    // Every AC row id is a UUIDv4.
+    // Every AC row id is a deterministic UUIDv5-shaped value and has a stable source key.
     for (const r of rows) {
-      expect(r.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+      expect(r.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+      expect(r.sourceKey).toMatch(/^text:\d+:[0-9a-f]{32}$/);
     }
     // All ids are unique.
     expect(new Set(rows.map((r) => r.id)).size).toBe(3);
@@ -146,7 +147,7 @@ describe('updateTask — AC dual-write update paths (T10508)', () => {
     expect(afterRows.map((r) => r.ordinal)).toEqual([1, 2, 3]);
     expect(afterRows.map((r) => r.text)).toEqual(['AC1', 'AC2', 'AC3']);
 
-    // Original rows preserved by id (no shift) — the new tail has a fresh id.
+    // Original rows preserved by id (no shift) — the new tail has a deterministic new id.
     expect(originalIds.has(afterRows[0].id)).toBe(true);
     expect(originalIds.has(afterRows[1].id)).toBe(true);
     expect(originalIds.has(afterRows[2].id)).toBe(false);
@@ -234,7 +235,7 @@ describe('updateTask — AC dual-write update paths (T10508)', () => {
     expect(afterRows).toHaveLength(2);
     expect(afterRows.map((r) => r.text)).toEqual(['New A', 'New B']);
     expect(afterRows.map((r) => r.ordinal)).toEqual([1, 2]);
-    // Brand-new UUIDs (no id stability across replace-all).
+    // Brand-new deterministic ids because source keys include ordinal + canonical content.
     expect(afterRows.every((r) => !oldIds.includes(r.id))).toBe(true);
 
     // History captured both old rows.

@@ -12,8 +12,10 @@
  * @decision D013
  */
 
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import type { AcceptanceItem, AcRow, TransactionAccessor } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts';
+import { CleoError } from '../errors.js';
 
 /**
  * Coerce an {@link AcceptanceItem} into the canonical row `text` form.
@@ -27,16 +29,17 @@ import type { AcceptanceItem, AcRow, TransactionAccessor } from '@cleocode/contr
  */
 export function acItemToText(item: AcceptanceItem): string {
   if (typeof item === 'string') return item.trim();
-  // Structured gate — preserve full shape as JSON. Readers may JSON-parse
-  // when they detect a leading `{`.
-  return JSON.stringify(item);
+  // Structured gate — preserve full shape as canonical JSON. Readers may
+  // JSON-parse when they detect a leading `{`.
+  return stableStringify(item as unknown as CanonicalJson);
 }
 
 /**
  * Compute the row payload for a fresh task with no pre-existing AC rows.
  *
- * Generates a UUIDv4 per AC and assigns 1-based ordinals matching the
- * insertion order. Returns the empty array if the input is empty/undefined.
+ * Generates deterministic UUID-shaped AC ids from task id + source key and
+ * assigns 1-based ordinals matching insertion order. Returns the empty array
+ * if the input is empty/undefined.
  *
  * @param taskId — owning task ID
  * @param acceptance — pipe-split AC items in display order
@@ -53,17 +56,100 @@ export type AcInsertRow = {
   projection?: string;
 };
 
-/** Build a short deterministic sha256 prefix for human-debuggable source keys. */
-export function acTextHash(text: string): string {
-  return createHash('sha256').update(text).digest('hex');
+type CanonicalJson =
+  | null
+  | boolean
+  | number
+  | string
+  | CanonicalJson[]
+  | { [key: string]: CanonicalJson };
+
+/** Deterministically stringify structured AC objects by sorting object keys recursively. */
+function stableStringify(value: CanonicalJson): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(',')}]`;
+  const entries = Object.entries(value).sort(([a], [b]) => a.localeCompare(b));
+  return `{${entries
+    .map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`)
+    .join(',')}}`;
 }
 
 /**
- * Default direct-text source key. Keeps duplicates legal by including the
- * monotonic ordinal; content_hash still records text drift separately.
+ * Canonical text used for AC hashing/idempotency. It deliberately ignores
+ * display-only ordering and task lifecycle fields: ordinals, titles, and
+ * statuses never enter this value.
  */
+export function canonicalizeAcText(text: string): string {
+  return text.normalize('NFKC').replace(/\r\n?/g, '\n').trim();
+}
+
+/** Build a deterministic sha256 over the canonical AC representation. */
+export function acTextHash(text: string): string {
+  return createHash('sha256').update(canonicalizeAcText(text)).digest('hex');
+}
+
+/** Default direct-text source key. Deterministic from monotonic ordinal + canonical content only. */
 export function directTextSourceKey(ordinal: number, text: string): string {
-  return `text:${ordinal}:${acTextHash(text).slice(0, 12)}`;
+  return `text:${ordinal}:${acTextHash(text).slice(0, 32)}`;
+}
+
+/** Source key for parent-owned child projections. Excludes child title/status. */
+export function childProjectionSourceKey(childId: string): string {
+  return `child:${childId}`;
+}
+
+/**
+ * Deterministic UUID-shaped AC id derived only from owning task + canonical AC identity.
+ * This is UUIDv5-shaped for ecosystem compatibility, but it is intentionally
+ * implemented with SHA-256 so we do not introduce a new runtime dependency.
+ */
+export function buildAcRowId(taskId: string, canonicalIdentity: string): string {
+  const hex = createHash('sha256')
+    .update(`cleo-ac-row\0${taskId}\0${canonicalIdentity}`)
+    .digest('hex');
+  const chars = hex.split('');
+  chars[12] = '5';
+  chars[16] = ((Number.parseInt(chars[16] ?? '0', 16) & 0x3) | 0x8).toString(16);
+  return `${chars.slice(0, 8).join('')}-${chars.slice(8, 12).join('')}-${chars
+    .slice(12, 16)
+    .join('')}-${chars.slice(16, 20).join('')}-${chars.slice(20, 32).join('')}`;
+}
+
+function assertUniqueGeneratedRows(taskId: string, rows: readonly AcInsertRow[]): void {
+  const seenSourceKeys = new Map<string, number>();
+  const seenIds = new Map<string, number>();
+  for (const row of rows) {
+    const previousIdOrdinal = seenIds.get(row.id);
+    if (previousIdOrdinal !== undefined) {
+      throw new CleoError(ExitCode.VALIDATION_ERROR, 'Duplicate acceptance criterion id', {
+        fix: 'Make each acceptance criterion semantically distinct; duplicate canonical AC bodies now fail before DB write.',
+        details: {
+          field: 'acceptance',
+          taskId,
+          acId: row.id,
+          firstOrdinal: previousIdOrdinal,
+          duplicateOrdinal: row.ordinal,
+        },
+      });
+    }
+    seenIds.set(row.id, row.ordinal);
+
+    if (!row.sourceKey) continue;
+    const previousOrdinal = seenSourceKeys.get(row.sourceKey);
+    if (previousOrdinal !== undefined) {
+      throw new CleoError(ExitCode.VALIDATION_ERROR, 'Duplicate acceptance criterion source_key', {
+        fix: 'Make each acceptance criterion semantically distinct; duplicate canonical AC source keys now fail before DB write.',
+        details: {
+          field: 'acceptance',
+          taskId,
+          sourceKey: row.sourceKey,
+          firstOrdinal: previousOrdinal,
+          duplicateOrdinal: row.ordinal,
+        },
+      });
+    }
+    seenSourceKeys.set(row.sourceKey, row.ordinal);
+  }
 }
 
 export function buildFreshAcRows(
@@ -71,20 +157,23 @@ export function buildFreshAcRows(
   acceptance: readonly AcceptanceItem[] | undefined,
 ): AcInsertRow[] {
   if (!acceptance || acceptance.length === 0) return [];
-  return acceptance.map((item, idx) => {
+  const rows = acceptance.map((item, idx) => {
     const ordinal = idx + 1;
     const text = acItemToText(item);
+    const sourceKey = directTextSourceKey(ordinal, text);
     return {
-      id: randomUUID(),
+      id: buildAcRowId(taskId, text),
       taskId,
       ordinal,
       text,
-      kind: 'text',
-      sourceKey: directTextSourceKey(ordinal, text),
+      kind: 'text' as const,
+      sourceKey,
       targetTaskId: null,
       projection: 'legacy',
     };
   });
+  assertUniqueGeneratedRows(taskId, rows);
+  return rows;
 }
 
 /** Parent-owned AC projection text for a direct child task. */
@@ -166,17 +255,19 @@ export function planAcUpdate(
       const maxOrdinal = existing.reduce((m, row) => (row.ordinal > m ? row.ordinal : m), 0);
       const tail = incomingTexts.slice(existing.length).map((text, i) => {
         const ordinal = maxOrdinal + 1 + i;
+        const sourceKey = directTextSourceKey(ordinal, text);
         return {
-          id: randomUUID(),
+          id: buildAcRowId(taskId, text),
           taskId,
           ordinal,
           text,
           kind: 'text' as const,
-          sourceKey: directTextSourceKey(ordinal, text),
+          sourceKey,
           targetTaskId: null,
           projection: 'legacy',
         };
       });
+      assertUniqueGeneratedRows(taskId, tail);
       return { inserts: tail, history: [], fullDelete: false };
     }
   }
@@ -217,17 +308,19 @@ export function planAcUpdate(
   }));
   const inserts = incomingTexts.map((text, idx) => {
     const ordinal = idx + 1;
+    const sourceKey = directTextSourceKey(ordinal, text);
     return {
-      id: randomUUID(),
+      id: buildAcRowId(taskId, text),
       taskId,
       ordinal,
       text,
       kind: 'text' as const,
-      sourceKey: directTextSourceKey(ordinal, text),
+      sourceKey,
       targetTaskId: null,
       projection: 'legacy',
     };
   });
+  assertUniqueGeneratedRows(taskId, inserts);
   return { inserts, history, fullDelete: true };
 }
 

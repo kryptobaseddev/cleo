@@ -245,7 +245,8 @@ export const tasks = sqliteTable(
  * Epic T10381 E-AC-MIGRATION, Task T10502 Wave 2a).
  *
  * Identity model:
- *   - `id` is a canonical UUIDv4 generated at creation (`crypto.randomUUID()`).
+ *   - `id` is a canonical UUID-shaped AC id generated at creation. Legacy rows may be UUIDv4;
+ *     new rows are deterministic UUIDv5-shaped ids derived from task id + source key.
  *     Immutable across edits; binds Validator verdicts, `satisfies:` evidence
  *     atoms, and CI gate references.
  *   - `ordinal` is the 1-based positional alias (`AC<n>`) for human + agent
@@ -274,7 +275,7 @@ export const tasks = sqliteTable(
 export const taskAcceptanceCriteria = sqliteTable(
   'task_acceptance_criteria',
   {
-    /** Canonical stable ID — UUIDv4 generated at AC creation, immutable. */
+    /** Canonical stable ID — legacy UUIDv4 or deterministic UUIDv5-shaped, immutable. */
     id: text('id').primaryKey(),
     /** Owning task. ON DELETE CASCADE — ACs are owned by the task lifecycle. */
     taskId: text('task_id')
