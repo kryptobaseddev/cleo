@@ -22,15 +22,8 @@
  * @task T1445 — OpsFromCore inference migration
  */
 
-import type {
-  LafsEnvelope,
-  TaskShowAcRowEntry,
-  TaskShowAttachmentEntry,
-  TasksShowResult,
-} from '@cleocode/contracts';
 import type { tasks as coreTasks } from '@cleocode/core';
 import { getLogger, getProjectRoot, TASKS_SUGGESTED_NEXT_BUILDERS } from '@cleocode/core';
-import { createAttachmentStore, getTaskAccessor } from '@cleocode/core/internal';
 // Saga core ops — pure business logic moved out of dispatch in T10124.
 // T10117 adds `sagaRepair` (`saga.repair`) for I5 violation cleanup.
 // T10118 adds the `detach` op for repair of nested-saga relations.
@@ -84,9 +77,7 @@ import {
   taskReorder,
   taskReparent,
   taskRestore,
-  taskShow,
-  taskShowIvtrHistory,
-  taskShowWithHistory,
+  taskShowOperation,
   taskStart,
   taskStop,
   taskSyncLinks,
@@ -117,84 +108,7 @@ import {
 // ---------------------------------------------------------------------------
 
 type TasksOps = OpsFromCore<typeof coreTasks.tasksCoreOps>;
-
-// ---------------------------------------------------------------------------
-// Attachment helper (T9966 — surface docs attachments in tasks.show envelope)
-// ---------------------------------------------------------------------------
-
-/**
- * Fetch all attachments linked to a task from the docs store and project them
- * into the minimal {@link TaskShowAttachmentEntry} shape.
- *
- * Always resolves to an array — empty (`[]`) when no attachments exist or when
- * the store cannot be reached. Failures are silently swallowed so a missing
- * attachment DB never blocks `cleo show`.
- *
- * @param projectRoot - Absolute path to the project root.
- * @param taskId      - Task identifier (e.g. `"T9831"`).
- * @returns Resolved array of attachment entries, never rejects.
- *
- * @task T9966
- * @epic T9964
- */
-async function fetchTaskAttachments(
-  projectRoot: string,
-  taskId: string,
-): Promise<TaskShowAttachmentEntry[]> {
-  try {
-    const store = createAttachmentStore();
-    const metas = await store.listByOwner('task', taskId, projectRoot);
-    const entries: TaskShowAttachmentEntry[] = [];
-    for (const meta of metas) {
-      const extras = await store.getExtras(meta.id, projectRoot);
-      const entry: TaskShowAttachmentEntry = {
-        attachmentId: meta.id,
-        kind: meta.attachment.kind,
-        ...(extras?.slug != null ? { slug: extras.slug } : {}),
-        ...(extras?.type != null ? { type: extras.type as TaskShowAttachmentEntry['type'] } : {}),
-      };
-      entries.push(entry);
-    }
-    return entries;
-  } catch {
-    // Attachment store not initialised or DB missing — return empty array
-    // so tasks.show always includes `attachments: []` (T9966 AC2).
-    return [];
-  }
-}
-
-/**
- * Fetch acceptance-criterion rows for a task from `task_acceptance_criteria`
- * (T10502) and project them into the {@link TaskShowAcRowEntry} shape used
- * by the `cleo show` envelope.
- *
- * Always resolves — returns the empty array on any failure (legacy DB
- * pre-migration, missing table, etc.). Consumers that observe `[]` should
- * fall back to the legacy `task.acceptance` JSON string field.
- *
- * @param projectRoot - Absolute path to the project root.
- * @param taskId      - Task identifier (e.g. `"T10508"`).
- * @returns Resolved array of AC entries, never rejects.
- *
- * @task T10508
- * @epic T10381
- */
-async function fetchTaskAcRows(projectRoot: string, taskId: string): Promise<TaskShowAcRowEntry[]> {
-  try {
-    const accessor = await getTaskAccessor(projectRoot);
-    const rows = await accessor.getAcRows(taskId);
-    return rows.map((row) => ({
-      id: row.id,
-      alias: `AC${row.ordinal}`,
-      ordinal: row.ordinal,
-      text: row.text,
-    }));
-  } catch {
-    // AC table missing or read failed — return empty array so the
-    // dispatch envelope omits the optional `acRows` key.
-    return [];
-  }
-}
+type LafsEnvelope<T = unknown> = ReturnType<typeof wrapCoreResult<T>>;
 
 // ---------------------------------------------------------------------------
 // Typed inner handler (T1425 / T1445 — typed-dispatch + OpsFromCore migration)
@@ -211,30 +125,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
 
   show: async (params) => {
     const projectRoot = getProjectRoot();
-    if (params.ivtrHistory) {
-      return wrapCoreResult(await taskShowIvtrHistory(projectRoot, params.taskId), 'show');
-    }
-    if (params.history) {
-      return wrapCoreResult(await taskShowWithHistory(projectRoot, params.taskId, true), 'show');
-    }
-    // Standard show: fetch task + attachments + AC rows in parallel
-    // (T9966 — AC1: attachments[] always present; T10508 — acRows from
-    // task_acceptance_criteria when populated).
-    const [coreResult, attachments, acRows] = await Promise.all([
-      taskShow(projectRoot, params.taskId),
-      fetchTaskAttachments(projectRoot, params.taskId),
-      fetchTaskAcRows(projectRoot, params.taskId),
-    ]);
-    if (!coreResult.success) {
-      return wrapCoreResult(coreResult, 'show');
-    }
-    const showResult: TasksShowResult = {
-      task: coreResult.data!.task,
-      view: coreResult.data!.view,
-      attachments,
-      ...(acRows.length > 0 ? { acRows } : {}),
-    };
-    return { success: true as const, data: showResult };
+    return wrapCoreResult(await taskShowOperation(projectRoot, params), 'show');
   },
 
   list: async (params) => {
