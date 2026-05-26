@@ -28,7 +28,7 @@ export {
   type RegisteredInvariant,
 } from '@cleocode/contracts';
 export { type SagaAddParams, type SagaAddResult, sagaAdd } from './add.js';
-export { LIST_BINDING_SAGA_GROUPS, SAGA_GROUPS_RELATION, SAGA_LABEL } from './constants.js';
+export { LIST_BINDING_SAGA_GROUPS, SAGA_GROUPS_RELATION, SAGA_LABEL } from './constants.js'; // saga-label-ok: T10638 — SSoT re-export
 export { type SagaCreateParams, sagaCreate } from './create.js';
 export {
   type DetachResult,

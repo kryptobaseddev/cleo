@@ -299,7 +299,7 @@ jobs:
         with:
           node-version: '24'
       - name: Lint saga-label anti-patterns in packages/
-        run: node scripts/lint-saga-label-anti-pattern.mjs
+        run: node scripts/lint-saga-label-anti-pattern.mjs --strict
 
   invariant-registry-lint:
     # T10338 / Saga T10326 SG-SUBSTRATE-RECONCILIATION Wave 3 R4 — validate
