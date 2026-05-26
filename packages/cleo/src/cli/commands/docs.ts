@@ -1407,6 +1407,7 @@ const updateCommand = defineCommand({
       {
         slug,
         ...(resolvedFile !== undefined ? { file: resolvedFile } : {}),
+        ...(args['allow-external'] === true ? { allowExternal: true } : {}),
         ...(inlineContent !== undefined ? { content: inlineContent } : {}),
         ...(typeof args.message === 'string' ? { message: args.message } : {}),
         ...(typeof args.status === 'string' ? { status: args.status } : {}),
