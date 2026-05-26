@@ -259,6 +259,49 @@ const reconcileCommand = defineCommand({
   },
 });
 
+/**
+ * cleo saga migrate-containment [<sagaId>] [--dry-run]
+ *
+ * T10637 — migrate parent_id-based Saga membership to groups relations.
+ * Converts Epics whose parent_id points to a type='saga' task into proper
+ * groups relations. Non-Epic tasks with Saga parents are documented as
+ * conflicts. Idempotent — re-running skips already-migrated rows.
+ *
+ * @task T10637
+ * @epic T10548
+ * @saga T10538
+ */
+const migrateContainmentCommand = defineCommand({
+  meta: {
+    name: 'migrate-containment',
+    description:
+      'Migrate parent_id-based Saga membership to groups relations — idempotent',
+  },
+  args: {
+    sagaId: {
+      type: 'positional',
+      description: 'Optional saga task ID. Omit to migrate all sagas.',
+      required: false,
+    },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Report what would happen without mutating rows or writing audit log',
+      required: false,
+    },
+  },
+  async run({ args }) {
+    const sagaId =
+      typeof args.sagaId === 'string' && args.sagaId.length > 0 ? args.sagaId : undefined;
+    await dispatchFromCli(
+      'mutate',
+      'tasks',
+      'saga.migrate-containment',
+      { sagaId, dryRun: args['dry-run'] === true },
+      { command: 'saga', operation: 'tasks.saga.migrate-containment' },
+    );
+  },
+});
+
 /** cleo saga rollup <sagaId> — aggregate status counts across all member Epics */
 const rollupCommand = defineCommand({
   meta: {
@@ -303,6 +346,7 @@ export const sagaCommand = defineCommand({
     rollup: rollupCommand,
     repair: repairCommand,
     reconcile: reconcileCommand,
+    'migrate-containment': migrateContainmentCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
