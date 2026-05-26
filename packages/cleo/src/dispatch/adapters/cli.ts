@@ -314,6 +314,12 @@ export async function dispatchFromCli(
         duration_ms: response.meta.duration_ms,
         timestamp: response.meta.timestamp,
         ...(response.meta.sessionId ? { sessionId: response.meta.sessionId } : {}),
+        ...(response.meta.originSessionId
+          ? { originSessionId: response.meta.originSessionId }
+          : {}),
+        ...(response.meta.executionSessionId
+          ? { executionSessionId: response.meta.executionSessionId }
+          : {}),
       },
     );
     process.exit(exitCode);
@@ -348,6 +354,10 @@ export function handleRawError(
       duration_ms: response.meta.duration_ms,
       timestamp: response.meta.timestamp,
       ...(response.meta.sessionId ? { sessionId: response.meta.sessionId } : {}),
+      ...(response.meta.originSessionId ? { originSessionId: response.meta.originSessionId } : {}),
+      ...(response.meta.executionSessionId
+        ? { executionSessionId: response.meta.executionSessionId }
+        : {}),
     },
   );
   process.exit(exitCode);

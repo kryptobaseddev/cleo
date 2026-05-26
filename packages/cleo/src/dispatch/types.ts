@@ -65,6 +65,10 @@ export interface DispatchRequest {
   requestId: string;
   /** Bound session ID, if any. */
   sessionId?: string;
+  /** Root session that originated the workflow/saga, if any. */
+  originSessionId?: string;
+  /** Specific execution instance for this command/step, if any. */
+  executionSessionId?: string;
   /** LAFS field selection: filter response data to these fields only. */
   _fields?: string[];
   /** LAFS envelope verbosity. Defaults to 'standard'. 'custom' is server-set via _fields. */
@@ -129,6 +133,10 @@ export interface DispatchResponseMeta {
   rateLimit?: RateLimitMeta;
   /** Session ID that processed this request (T4959). */
   sessionId?: string;
+  /** Root session that originated the workflow/saga. */
+  originSessionId?: string;
+  /** Specific execution instance for this command/step. */
+  executionSessionId?: string;
   /** Preserves protocol-level version for backward compat. */
   version?: string;
   /** Extensible metadata (verification gate info, etc.). */

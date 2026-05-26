@@ -15,7 +15,11 @@
 
 import { randomUUID } from 'node:crypto';
 import type { GatewayMeta } from '@cleocode/contracts';
-import { getCurrentSessionId } from '@cleocode/core/internal';
+import {
+  getCurrentExecutionSessionId,
+  getCurrentOriginSessionId,
+  getCurrentSessionId,
+} from '@cleocode/core/internal';
 
 /**
  * GatewayMeta with an index signature for DomainResponse.meta
@@ -45,6 +49,8 @@ export function createGatewayMeta(
   startTime: number,
 ): GatewayMetaRecord {
   const sessionId = getCurrentSessionId();
+  const executionSessionId = getCurrentExecutionSessionId() ?? randomUUID();
+  const originSessionId = getCurrentOriginSessionId() ?? sessionId ?? executionSessionId;
   return {
     // LAFS canonical fields
     specVersion: '1.2.3',
@@ -57,6 +63,8 @@ export function createGatewayMeta(
     mvi: 'minimal',
     contextVersion: 1,
     ...(sessionId && { sessionId }),
+    originSessionId,
+    executionSessionId,
     // CLEO gateway extensions
     gateway,
     domain,

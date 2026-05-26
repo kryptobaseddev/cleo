@@ -61,6 +61,25 @@ describe("envelope API helpers", () => {
     expect(validateEnvelope(envelope).valid).toBe(true);
   });
 
+  it("preserves session lineage metadata", () => {
+    const envelope = createEnvelope({
+      success: true,
+      result: { message: "ok" },
+      meta: {
+        operation: "example.lineage",
+        requestId: "req_lineage",
+        sessionId: "processor-session-1",
+        originSessionId: "origin-session-1",
+        executionSessionId: "execution-session-1",
+      },
+    });
+
+    expect(envelope._meta.sessionId).toBe("processor-session-1");
+    expect(envelope._meta.originSessionId).toBe("origin-session-1");
+    expect(envelope._meta.executionSessionId).toBe("execution-session-1");
+    expect(validateEnvelope(envelope).valid).toBe(true);
+  });
+
   it("parseLafsResponse returns result for success", () => {
     const envelope = createEnvelope({
       success: true,

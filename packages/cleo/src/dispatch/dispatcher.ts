@@ -24,6 +24,7 @@
  * @task T1088
  */
 
+import { randomUUID } from 'node:crypto';
 import { getLogger, getProjectRoot } from '@cleocode/core';
 import { createDispatchMeta } from './lib/meta.js';
 import { compose } from './middleware/pipeline.js';
@@ -39,6 +40,16 @@ const DIALECTIC_RATE_LIMIT_MS = 10_000;
 
 /** In-memory last-evaluation timestamp per session ID. */
 const _dialecticLastEvalMs = new Map<string, number>();
+
+function ensureRequestSessionLineage(request: DispatchRequest): void {
+  request.executionSessionId ??=
+    process.env.CLEO_EXECUTION_SESSION_ID ?? process.env.CLEO_SESSION_EXECUTION_ID ?? randomUUID();
+  request.originSessionId ??=
+    process.env.CLEO_ORIGIN_SESSION_ID ??
+    process.env.CLEO_SESSION_ORIGIN_ID ??
+    request.sessionId ??
+    request.executionSessionId;
+}
 
 /**
  * Check whether a new dialectic evaluation is allowed for a session.
@@ -81,6 +92,7 @@ export class Dispatcher {
 
   async dispatch(request: DispatchRequest): Promise<DispatchResponse> {
     const startTime = Date.now();
+    ensureRequestSessionLineage(request);
 
     // 1. Resolve operation from registry
     const resolved = resolve(request.gateway, request.domain, request.operation);
@@ -93,6 +105,9 @@ export class Dispatcher {
           startTime,
           request.source,
           request.requestId,
+          request.sessionId,
+          request.originSessionId,
+          request.executionSessionId,
         ),
         success: false,
         error: {
@@ -113,6 +128,9 @@ export class Dispatcher {
           startTime,
           request.source,
           request.requestId,
+          request.sessionId,
+          request.originSessionId,
+          request.executionSessionId,
         ),
         success: false,
         error: {
@@ -134,6 +152,9 @@ export class Dispatcher {
           startTime,
           request.source,
           request.requestId,
+          request.sessionId,
+          request.originSessionId,
+          request.executionSessionId,
         ),
         success: false,
         error: {
@@ -159,9 +180,15 @@ export class Dispatcher {
     response.meta.requestId = request.requestId;
     response.meta.source = request.source;
 
-    // 6. Stamp session identity (T4959)
+    // 6. Stamp session identity and lineage (T4959/T10620)
     if (request.sessionId) {
       response.meta.sessionId = request.sessionId;
+    }
+    if (request.originSessionId) {
+      response.meta.originSessionId = request.originSessionId;
+    }
+    if (request.executionSessionId) {
+      response.meta.executionSessionId = request.executionSessionId;
     }
 
     // 7. T1088: Background dialectic evaluation hook
