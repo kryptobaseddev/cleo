@@ -1231,8 +1231,8 @@ export type {
   UserProfileTrait,
 } from './operations/nexus-user-profile.js';
 // Commonly used ops types re-exported at top level for convenience
-export type { BrainState } from './operations/orchestrate.js';
 export type {
+  BrainState,
   OrchestrateReportEntry,
   OrchestrateReportGroup,
   OrchestrateReportParams,

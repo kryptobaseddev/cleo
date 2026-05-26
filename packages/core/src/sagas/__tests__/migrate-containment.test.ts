@@ -14,7 +14,7 @@
  * @saga T10538
  */
 
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -29,7 +29,11 @@ type DbHandle = {
  * Create a minimal isolated test DB with a tasks table.
  * Uses bare better-sqlite3 to bypass Drizzle's constraint layer.
  */
-async function createRawTestDb(): Promise<{ db: DbHandle; projectRoot: string; cleanup: () => void }> {
+async function createRawTestDb(): Promise<{
+  db: DbHandle;
+  projectRoot: string;
+  cleanup: () => void;
+}> {
   const tempDir = mkdtempSync(join(tmpdir(), 'cleo-test-migrate-'));
   const cleoDir = join(tempDir, '.cleo');
   mkdirSync(cleoDir, { recursive: true });
@@ -113,13 +117,19 @@ async function createRawTestDb(): Promise<{ db: DbHandle; projectRoot: string; c
     projectRoot: tempDir,
     cleanup: () => {
       sqlite.close();
-      try { rmSync(tempDir, { recursive: true, force: true }); } catch { /* best-effort */ }
+      try {
+        rmSync(tempDir, { recursive: true, force: true });
+      } catch {
+        /* best-effort */
+      }
     },
   };
 }
 
 function seedSaga(db: DbHandle, id: string) {
-  db.exec(`INSERT INTO tasks (id, title, type, status) VALUES ('${id}', 'Saga ${id}', 'saga', 'active')`);
+  db.exec(
+    `INSERT INTO tasks (id, title, type, status) VALUES ('${id}', 'Saga ${id}', 'saga', 'active')`,
+  );
 }
 
 function seedEpic(db: DbHandle, id: string, parentId: string) {
@@ -141,7 +151,9 @@ function getRelations(db: DbHandle): Array<{ task_id: string; related_to: string
 }
 
 function getParentId(db: DbHandle, taskId: string): string | null {
-  const rows = db.all('SELECT parent_id FROM tasks WHERE id = ?', taskId) as Array<{ parent_id: string | null }>;
+  const rows = db.all('SELECT parent_id FROM tasks WHERE id = ?', taskId) as Array<{
+    parent_id: string | null;
+  }>;
   return rows[0]?.parent_id ?? null;
 }
 
@@ -272,7 +284,9 @@ describe('migrateSagaContainment', () => {
   it('skips epics that already have groups relations', async () => {
     seedSaga(db, 'T100');
     seedEpic(db, 'T200', 'T100');
-    db.exec("INSERT INTO task_relations (task_id, related_to, relation_type) VALUES ('T100', 'T200', 'groups')");
+    db.exec(
+      "INSERT INTO task_relations (task_id, related_to, relation_type) VALUES ('T100', 'T200', 'groups')",
+    );
 
     const result = await migrateSagaContainment(projectRoot, { sagaId: 'T100' });
     expect(result.success).toBe(true);

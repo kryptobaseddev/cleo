@@ -39,16 +39,35 @@ describe('orchestrateReport', () => {
   it('classifies ready tasks correctly', async () => {
     await seedTasks(TEST_ROOT, [
       {
-        id: 'E1', title: 'Epic', type: 'epic', status: 'active', priority: 'high',
-        createdAt: '2026-01-01T00:00:00Z', updatedAt: null,
+        id: 'E1',
+        title: 'Epic',
+        type: 'epic',
+        status: 'active',
+        priority: 'high',
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: null,
       },
       {
-        id: 'T1', title: 'Ready task', type: 'task', status: 'pending', priority: 'high',
-        parentId: 'E1', depends: [], createdAt: '2026-01-01T00:00:00Z', updatedAt: null,
+        id: 'T1',
+        title: 'Ready task',
+        type: 'task',
+        status: 'pending',
+        priority: 'high',
+        parentId: 'E1',
+        depends: [],
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: null,
       },
       {
-        id: 'T2', title: 'Another ready', type: 'task', status: 'pending', priority: 'medium',
-        parentId: 'E1', depends: [], createdAt: '2026-01-01T00:00:00Z', updatedAt: null,
+        id: 'T2',
+        title: 'Another ready',
+        type: 'task',
+        status: 'pending',
+        priority: 'medium',
+        parentId: 'E1',
+        depends: [],
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: null,
       },
     ]);
 
@@ -64,17 +83,35 @@ describe('orchestrateReport', () => {
   it('classifies blockedBy tasks with unmet dependencies', async () => {
     await seedTasks(TEST_ROOT, [
       {
-        id: 'E1', title: 'Epic', type: 'epic', status: 'active', priority: 'high',
-        createdAt: '2026-01-01T00:00:00Z', updatedAt: null,
+        id: 'E1',
+        title: 'Epic',
+        type: 'epic',
+        status: 'active',
+        priority: 'high',
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: null,
       },
       {
-        id: 'T1', title: 'Blocked task', type: 'task', status: 'pending', priority: 'high',
-        parentId: 'E1', depends: ['T2'],
-        createdAt: '2026-01-01T00:00:00Z', updatedAt: null,
+        id: 'T1',
+        title: 'Blocked task',
+        type: 'task',
+        status: 'pending',
+        priority: 'high',
+        parentId: 'E1',
+        depends: ['T2'],
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: null,
       },
       {
-        id: 'T2', title: 'Unfinished dep', type: 'task', status: 'pending', priority: 'medium',
-        parentId: 'E1', depends: [], createdAt: '2026-01-01T00:00:00Z', updatedAt: null,
+        id: 'T2',
+        title: 'Unfinished dep',
+        type: 'task',
+        status: 'pending',
+        priority: 'medium',
+        parentId: 'E1',
+        depends: [],
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: null,
       },
     ]);
 
@@ -91,12 +128,24 @@ describe('orchestrateReport', () => {
   it('gate-blocked group exists with count 0 when no gates persisted', async () => {
     await seedTasks(TEST_ROOT, [
       {
-        id: 'E1', title: 'Epic', type: 'epic', status: 'active', priority: 'high',
-        createdAt: '2026-01-01T00:00:00Z', updatedAt: null,
+        id: 'E1',
+        title: 'Epic',
+        type: 'epic',
+        status: 'active',
+        priority: 'high',
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: null,
       },
       {
-        id: 'T1', title: 'Pending task', type: 'task', status: 'pending', priority: 'high',
-        parentId: 'E1', depends: [], createdAt: '2026-01-01T00:00:00Z', updatedAt: null,
+        id: 'T1',
+        title: 'Pending task',
+        type: 'task',
+        status: 'pending',
+        priority: 'high',
+        parentId: 'E1',
+        depends: [],
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: null,
       },
     ]);
 
@@ -112,20 +161,46 @@ describe('orchestrateReport', () => {
   it('skips done and cancelled tasks', async () => {
     await seedTasks(TEST_ROOT, [
       {
-        id: 'E1', title: 'Epic', type: 'epic', status: 'active', priority: 'high',
-        createdAt: '2026-01-01T00:00:00Z', updatedAt: null,
+        id: 'E1',
+        title: 'Epic',
+        type: 'epic',
+        status: 'active',
+        priority: 'high',
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: null,
       },
       {
-        id: 'T1', title: 'Done task', type: 'task', status: 'done', priority: 'high',
-        parentId: 'E1', depends: [], createdAt: '2026-01-01T00:00:00Z', updatedAt: null,
+        id: 'T1',
+        title: 'Done task',
+        type: 'task',
+        status: 'done',
+        priority: 'high',
+        parentId: 'E1',
+        depends: [],
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: null,
       },
       {
-        id: 'T2', title: 'Cancelled', type: 'task', status: 'cancelled', priority: 'low',
-        parentId: 'E1', depends: [], createdAt: '2026-01-01T00:00:00Z', updatedAt: null,
+        id: 'T2',
+        title: 'Cancelled',
+        type: 'task',
+        status: 'cancelled',
+        priority: 'low',
+        parentId: 'E1',
+        depends: [],
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: null,
       },
       {
-        id: 'T3', title: 'Ready', type: 'task', status: 'pending', priority: 'medium',
-        parentId: 'E1', depends: [], createdAt: '2026-01-01T00:00:00Z', updatedAt: null,
+        id: 'T3',
+        title: 'Ready',
+        type: 'task',
+        status: 'pending',
+        priority: 'medium',
+        parentId: 'E1',
+        depends: [],
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: null,
       },
     ]);
 
@@ -140,15 +215,26 @@ describe('orchestrateReport', () => {
   it('handles pagination', async () => {
     const tasks: any[] = [
       {
-        id: 'E1', title: 'Epic', type: 'epic', status: 'active', priority: 'high',
-        createdAt: '2026-01-01T00:00:00Z', updatedAt: null,
+        id: 'E1',
+        title: 'Epic',
+        type: 'epic',
+        status: 'active',
+        priority: 'high',
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: null,
       },
     ];
     for (let i = 1; i <= 5; i++) {
       tasks.push({
-        id: `T${i}`, title: `Task ${i}`, type: 'task', status: 'pending', priority: 'medium',
-        parentId: 'E1', depends: [],
-        createdAt: '2026-01-01T00:00:00Z', updatedAt: null,
+        id: `T${i}`,
+        title: `Task ${i}`,
+        type: 'task',
+        status: 'pending',
+        priority: 'medium',
+        parentId: 'E1',
+        depends: [],
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: null,
       });
     }
     await seedTasks(TEST_ROOT, tasks);
@@ -175,16 +261,35 @@ describe('orchestrateReport', () => {
   it('all groups have correct labels and shapes', async () => {
     await seedTasks(TEST_ROOT, [
       {
-        id: 'E1', title: 'Epic', type: 'epic', status: 'active', priority: 'high',
-        createdAt: '2026-01-01T00:00:00Z', updatedAt: null,
+        id: 'E1',
+        title: 'Epic',
+        type: 'epic',
+        status: 'active',
+        priority: 'high',
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: null,
       },
       {
-        id: 'T1', title: 'Ready', type: 'task', status: 'pending', priority: 'high',
-        parentId: 'E1', depends: [], createdAt: '2026-01-01T00:00:00Z', updatedAt: null,
+        id: 'T1',
+        title: 'Ready',
+        type: 'task',
+        status: 'pending',
+        priority: 'high',
+        parentId: 'E1',
+        depends: [],
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: null,
       },
       {
-        id: 'T2', title: 'Blocked', type: 'task', status: 'pending', priority: 'medium',
-        parentId: 'E1', depends: ['T99'], createdAt: '2026-01-01T00:00:00Z', updatedAt: null,
+        id: 'T2',
+        title: 'Blocked',
+        type: 'task',
+        status: 'pending',
+        priority: 'medium',
+        parentId: 'E1',
+        depends: ['T99'],
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: null,
       },
     ]);
 
