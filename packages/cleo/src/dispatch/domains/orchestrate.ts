@@ -41,6 +41,7 @@ import {
   orchestrateParallelStart,
   orchestratePlan,
   orchestrateReady,
+  orchestrateReport,
   orchestrateSpawn,
   orchestrateSpawnExecute,
   orchestrateStartup,
@@ -115,6 +116,12 @@ interface OrchestrateWavesParams {
    * Traversal mode (gh-390 / ADR-073). See {@link OrchestrateReadyParams.via}.
    */
   via?: 'parent' | 'saga' | 'both';
+}
+
+interface OrchestrateReportParams {
+  epicId: string;
+  page?: number;
+  pageSize?: number;
 }
 
 interface OrchestratePlanParams {
@@ -314,6 +321,10 @@ async function orchestrateReadyOp(params: OrchestrateReadyParams) {
   });
 }
 
+async function orchestrateReportOp(params: OrchestrateReportParams) {
+  return orchestrateReport(params.epicId, getProjectRoot(), params);
+}
+
 async function orchestrateAnalyzeOp(params: OrchestrateAnalyzeParams) {
   if (params.mode === 'parallel-safety') {
     return orchestrateAnalyzeParallelSafety(params.taskIds ?? [], getProjectRoot());
@@ -508,6 +519,7 @@ const coreOps = {
   status: orchestrateStatusOp,
   next: orchestrateNextOp,
   ready: orchestrateReadyOp,
+  report: orchestrateReportOp,
   analyze: orchestrateAnalyzeOp,
   classify: orchestrateClassifyOp,
   'fanout.status': orchestrateFanoutStatusOp,
@@ -594,6 +606,24 @@ export class OrchestrateHandler implements DomainHandler {
             ...(via !== undefined && { via }),
           };
           return wrapResult(await coreOps.ready(p), 'query', 'orchestrate', operation, startTime);
+        }
+
+        case 'report': {
+          if (!params?.epicId)
+            return errorResult(
+              'query',
+              'orchestrate',
+              operation,
+              'E_INVALID_INPUT',
+              'epicId is required',
+              startTime,
+            );
+          const rp: OrchestrateReportParams = {
+            epicId: params.epicId as string,
+            page: params.page as number | undefined,
+            pageSize: params.pageSize as number | undefined,
+          };
+          return wrapResult(await coreOps.report(rp), 'query', 'orchestrate', operation, startTime);
         }
 
         case 'analyze': {

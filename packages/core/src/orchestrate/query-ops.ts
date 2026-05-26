@@ -11,7 +11,13 @@
 
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { Task, TaskStatus } from '@cleocode/contracts';
+import type {
+  OrchestrateReportEntry,
+  OrchestrateReportGroup,
+  OrchestrateReportParams,
+  Task,
+  TaskStatus,
+} from '@cleocode/contracts';
 import { TASK_STATUSES } from '@cleocode/contracts';
 import { loadConfig } from '../config.js';
 import { type EngineResult, engineError } from '../engine-result.js';
@@ -827,5 +833,239 @@ export async function orchestrateValidate(
     return { success: true, data: result };
   } catch (err: unknown) {
     return engineError('E_VALIDATION', (err as Error).message);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// orchestrate.report — grouped readiness report
+// ---------------------------------------------------------------------------
+
+/** @task T10631 */
+const DEFAULT_REPORT_PAGE_SIZE = 50;
+/** @task T10631 */
+const MAX_REPORT_PAGE_SIZE = 200;
+
+/**
+ * orchestrate.report — Grouped readiness report
+ *
+ * Classifies every non-done, non-cancelled child task of an epic into one of
+ * five readiness groups: ready, blocked (has unmet deps), blockedBy (lists
+ * specific blocker IDs), gateBlocked (gates like implemented/testsPassed/
+ * qaPassed not satisfied), or invalid (structural issues like missing
+ * dependencies or circular chains).
+ *
+ * Supports pagination via `page` and `pageSize`. Aligns its ready-group
+ * frontier with `orchestrate.ready` / `orchestrate.next`.
+ *
+ * @param epicId - Epic to compute the report for.
+ * @param projectRoot - Optional project root path.
+ * @param params - Pagination options.
+ * @returns Engine result with grouped readiness report.
+ * @task T10631
+ */
+export async function orchestrateReport(
+  epicId: string,
+  projectRoot?: string,
+  params?: OrchestrateReportParams,
+): Promise<EngineResult> {
+  if (!epicId) {
+    return engineError('E_INVALID_INPUT', 'epicId is required');
+  }
+
+  try {
+    const root = getProjectRoot(projectRoot);
+    const accessor = await getTaskAccessor(root);
+    const tasks = await loadTasks(root);
+
+    const epic = tasks.find((t) => t.id === epicId);
+    if (!epic) {
+      return engineError('E_NOT_FOUND', `Epic ${epicId} not found`);
+    }
+
+    const children = tasks.filter((t) => t.parentId === epicId);
+    const completedIds = new Set(tasks.filter((t) => t.status === 'done').map((t) => t.id));
+
+    // Classification buckets
+    const ready: OrchestrateReportEntry[] = [];
+    const blocked: OrchestrateReportEntry[] = [];
+    const blockedBy: OrchestrateReportEntry[] = [];
+    const gateBlocked: OrchestrateReportEntry[] = [];
+    const invalid: OrchestrateReportEntry[] = [];
+
+    // Dependency analysis for invalid detection
+    const depAnalysis = analyzeDependencies(children, tasks);
+    const missingDepIds = new Set(depAnalysis.missingDependencies);
+    const circularInvolved = new Set<string>();
+    for (const chain of depAnalysis.circularDependencies) {
+      for (const id of chain) circularInvolved.add(id);
+    }
+
+    for (const task of children) {
+      // Skip terminal states
+      if (task.status === 'done' || task.status === 'cancelled') continue;
+
+      const deps = task.depends ?? [];
+      const unmetDeps = deps.filter((d) => !completedIds.has(d));
+      const gates = task.gates ?? {};
+
+      // --- Invalid classification ---
+      const hasMissingDeps = deps.some((d) => missingDepIds.has(d));
+      const isCircular = circularInvolved.has(task.id);
+
+      if (hasMissingDeps || isCircular) {
+        const reasons: string[] = [];
+        if (hasMissingDeps) reasons.push('missing-dep');
+        if (isCircular) reasons.push('circular-dep');
+        invalid.push({
+          id: task.id,
+          title: task.title,
+          priority: task.priority ?? 'medium',
+          status: task.status,
+          reason: reasons.join(', '),
+        });
+        continue;
+      }
+
+      // --- Gate-blocked classification ---
+      const requiredGates = ['implemented', 'testsPassed', 'qaPassed'];
+      const failedGates = requiredGates.filter((g) => gates[g] === false);
+      const hasPendingGates = requiredGates.some(
+        (g) => gates[g] === undefined || gates[g] === null,
+      );
+      // A task is gate-blocked if any required gate is explicitly false,
+      // or if gates are absent/undefined AND the task is pending (not yet started)
+      if (
+        failedGates.length > 0 ||
+        (hasPendingGates &&
+          task.status === 'pending' &&
+          !(gates as Record<string, unknown>)['implemented'])
+      ) {
+        const gateSummary: Record<string, boolean> = {};
+        for (const g of requiredGates) {
+          gateSummary[g] = gates[g] === true;
+        }
+        gateBlocked.push({
+          id: task.id,
+          title: task.title,
+          priority: task.priority ?? 'medium',
+          status: task.status,
+          reason:
+            failedGates.length > 0 ? `gates-failed: ${failedGates.join(',')}` : 'gates-incomplete',
+          gates: gateSummary,
+        });
+        continue;
+      }
+
+      // --- Blocked-by classification ---
+      if (unmetDeps.length > 0) {
+        blockedBy.push({
+          id: task.id,
+          title: task.title,
+          priority: task.priority ?? 'medium',
+          status: task.status,
+          reason: unmetDeps.join(', '),
+        });
+        // Also add to plain "blocked" for the broader blocked group
+        blocked.push({
+          id: task.id,
+          title: task.title,
+          priority: task.priority ?? 'medium',
+          status: task.status,
+          reason: `${unmetDeps.length} unmet dep(s)`,
+        });
+        continue;
+      }
+
+      // --- Ready classification ---
+      ready.push({
+        id: task.id,
+        title: task.title,
+        priority: task.priority ?? 'medium',
+        status: task.status,
+        reason: 'ready',
+      });
+    }
+
+    // Build groups
+    const groups: OrchestrateReportGroup[] = [
+      {
+        group: 'ready',
+        label: 'Ready — parallel-safe, actionable now',
+        count: ready.length,
+        tasks: ready,
+      },
+      {
+        group: 'blocked',
+        label: 'Blocked — has unmet dependency counts',
+        count: blocked.length,
+        tasks: blocked,
+      },
+      {
+        group: 'blockedBy',
+        label: 'Blocked-by — lists specific blocker task IDs',
+        count: blockedBy.length,
+        tasks: blockedBy,
+      },
+      {
+        group: 'gateBlocked',
+        label: 'Gate-blocked — gates (implemented/testsPassed/qaPassed) not satisfied',
+        count: gateBlocked.length,
+        tasks: gateBlocked,
+      },
+      {
+        group: 'invalid',
+        label: 'Invalid — missing or circular dependencies',
+        count: invalid.length,
+        tasks: invalid,
+      },
+    ];
+
+    // Pagination
+    const pageSize = Math.min(params?.pageSize ?? DEFAULT_REPORT_PAGE_SIZE, MAX_REPORT_PAGE_SIZE);
+    const page = Math.max(params?.page ?? 1, 1);
+    const totalEntries = groups.reduce((sum, g) => sum + g.count, 0);
+    const totalPages = Math.max(1, Math.ceil(totalEntries / pageSize));
+
+    // Apply pagination — slice tasks across all groups
+    if (totalEntries > pageSize) {
+      const startIdx = (page - 1) * pageSize;
+      const endIdx = startIdx + pageSize;
+      let globalIdx = 0;
+
+      for (const group of groups) {
+        const groupStart = globalIdx;
+        const groupEnd = globalIdx + group.tasks.length;
+
+        if (groupEnd <= startIdx || groupStart >= endIdx) {
+          // Group entirely outside the current page
+          group.tasks = [];
+        } else {
+          const sliceStart = Math.max(0, startIdx - groupStart);
+          const sliceEnd = Math.min(group.tasks.length, endIdx - groupStart);
+          group.tasks = group.tasks.slice(sliceStart, sliceEnd);
+        }
+
+        globalIdx = groupEnd;
+      }
+    }
+
+    return {
+      success: true,
+      data: {
+        epicId,
+        epicTitle: epic.title,
+        totalTasks: children.length,
+        groups,
+        pagination: {
+          page,
+          pageSize,
+          totalPages,
+          totalEntries,
+        },
+      },
+    };
+  } catch (err: unknown) {
+    const code = (err as { code?: string }).code ?? 'E_GENERAL';
+    return engineError(code, (err as Error).message);
   }
 }
