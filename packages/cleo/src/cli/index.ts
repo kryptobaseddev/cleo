@@ -53,6 +53,7 @@ import { resolveFieldContext, setFieldContext } from './field-context.js';
 import { setFormatContext } from './format-context.js';
 import { COMMAND_MANIFEST } from './generated/command-manifest.js';
 import { buildAliasMap, createCustomShowUsage } from './help-renderer.js';
+import { extractIdempotencyKeyArg, setIdempotencyKeyContext } from './idempotency-context.js';
 import { lazyCommand } from './lazy-command.js';
 import { didYouMean } from './lib/did-you-mean.js';
 import { maybePromptFirstRun } from './lib/first-run-detection.js';
@@ -128,7 +129,8 @@ alias('pipeline', 'phaseCommand');
  * avoid loading CORE on the fast path.
  */
 async function startCli(): Promise<void> {
-  const argv = process.argv.slice(2);
+  const { argv, idempotencyKey } = extractIdempotencyKeyArg(process.argv.slice(2));
+  setIdempotencyKeyContext(idempotencyKey);
 
   // Parse global format + field flags from argv.
   const rawOpts: Record<string, unknown> = {};

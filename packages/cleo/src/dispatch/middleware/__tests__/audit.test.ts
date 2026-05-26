@@ -175,6 +175,24 @@ describe('createAudit middleware', () => {
     expect(insertedValues.gateway).toBe('mutate');
   });
 
+  it('should persist requestId, idempotencyKey, and replay payload for idempotent retries', async () => {
+    const middleware = createAudit();
+    const response = makeResponse({ data: { taskId: 'T100', applied: true } });
+    const next = vi.fn(() => Promise.resolve(response));
+    const request = makeRequest({ params: { taskId: 'T100', idempotencyKey: 'retry-1' } });
+
+    await middleware(request, next);
+
+    expect(mockInsertValues).toHaveBeenCalled();
+    const insertedValues = (mockInsertValues.mock.calls as any)[0]![0];
+    expect(insertedValues.requestId).toBe('req-001');
+    expect(insertedValues.idempotencyKey).toBe('retry-1');
+    expect(JSON.parse(insertedValues.afterJson)).toEqual({
+      success: true,
+      data: { taskId: 'T100', applied: true },
+    });
+  });
+
   it('should NOT audit query operations (non-grade session)', async () => {
     const middleware = createAudit();
     const response = makeResponse({ meta: { ...makeResponse().meta, gateway: 'query' } });
