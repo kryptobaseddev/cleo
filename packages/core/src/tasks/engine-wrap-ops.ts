@@ -18,6 +18,7 @@ import {
   coreTaskDepends,
   coreTaskDepsCycles,
   coreTaskDepsOverview,
+  coreTaskSlice,
   coreTaskStats,
 } from './task-data.js';
 import {
@@ -87,6 +88,29 @@ export async function taskDepends(
       direction,
       tree ? { tree } : undefined,
     );
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    return nonCrudEngineError(err, 'Task database not initialized');
+  }
+}
+
+/**
+ * Return a localized WorkGraph slice around one task.
+ * @task T10628
+ */
+export async function taskSlice(
+  projectRoot: string,
+  taskId: string,
+  options: {
+    radius?: number;
+    depth?: number;
+    budget?: number;
+    direction?: 'upstream' | 'downstream' | 'around';
+    includeRelates?: boolean;
+  } = {},
+): Promise<EngineResult> {
+  try {
+    const result = await coreTaskSlice(projectRoot, taskId, options);
     return engineSuccess(result);
   } catch (err: unknown) {
     return nonCrudEngineError(err, 'Task database not initialized');

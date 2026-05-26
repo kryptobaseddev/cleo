@@ -256,6 +256,7 @@ export {
   taskShowIvtrHistory,
   taskShowOperation,
   taskShowWithHistory,
+  taskSlice,
   taskStart,
   taskStats,
   taskStop,
