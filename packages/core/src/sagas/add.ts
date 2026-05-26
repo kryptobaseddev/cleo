@@ -1,29 +1,33 @@
 /**
- * saga.add — link a member Epic to a Saga via `task_relations.type='groups'`.
+ * saga.add — link a member Epic to a Saga via `parent_id` containment.
+ *
+ * After T10638 (E10.W5), Saga membership uses canonical `parent_id`
+ * containment rather than `task_relations.type='groups'`. Sagas are
+ * identified by `type='saga'` (ADR-083 §2.5), not by label.
  *
  * Validates that:
- *   - the saga task exists and carries `label='saga'`
+ *   - the saga task exists and has `type='saga'`
  *   - the epic task exists and has `type='epic'`
- *   - the epic candidate is NOT itself a saga (ADR-073 §1.2 invariant I7 —
- *     wired in T10118 via `assertSagaInvariantI7`)
+ *   - the epic is NOT already parented to another saga (idempotent re-add ok)
+ *   - the epic candidate is NOT itself a saga (ADR-073 §1.2 invariant I7)
  *
  * Returns an EngineResult — the dispatch layer wraps it in a LAFS envelope.
  *
- * Moved from `packages/cleo/src/dispatch/domains/tasks.ts::sagaAdd` per
- * AGENTS.md Package-Boundary Check (Saga T10113 / Epic T10208).
- *
  * @task T10124
  * @task T10120
- * @task T10118 — wire I7 enforcement gate before persisting
+ * @task T10118 — wire I7 enforcement gate
+ * @task T10638 — E10.W5 type='saga' + parent_id containment
  * @epic T10208
  * @epic T10209 — E-SAGA-ENFORCEMENT
+ * @saga T10538 — SG-PM-CORE-V2
  * @see ADR-073-above-epic-naming.md §1
+ * @see ADR-083-saga-as-tasktype.md §2.5
  */
 
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { taskShow } from '../tasks/show.js';
-import { taskRelatesAdd } from '../tasks/task-ops.js';
-import { SAGA_GROUPS_RELATION, SAGA_LABEL } from './constants.js'; // saga-label-ok: T10638 — SSoT residual
+import { coreTaskReparent } from '../tasks/task-reparent.js';
+import { isSagaType } from './is-saga-type.js';
 import {
   assertSagaInvariantI7,
   isSagaInvariantViolationError,
@@ -32,7 +36,7 @@ import {
 
 /** Input parameters for {@link sagaAdd}. */
 export interface SagaAddParams {
-  /** Saga task ID (must have `label='saga'`). */
+  /** Saga task ID (must have `type='saga'`). */
   sagaId: string;
   /** Epic task ID to link (must have `type='epic'`). */
   epicId: string;
@@ -46,8 +50,8 @@ export interface SagaAddResult {
 }
 
 /**
- * Link an Epic into a Saga as a member, via a `task_relations.type='groups'`
- * edge. Validates the saga / epic preconditions per ADR-073 §1.
+ * Link an Epic into a Saga as a member via `parent_id` containment.
+ * Validates saga/epic preconditions per ADR-073 §1 + ADR-083 §2.5.
  *
  * @param projectRoot - Absolute path to the project root.
  * @param params - sagaId + epicId to link.
@@ -62,14 +66,16 @@ export async function sagaAdd(
     return engineError('E_INVALID_INPUT', 'sagaId and epicId are required');
   }
 
-  // Validate: sagaId must have label='saga'
+  // Validate: sagaId must have type='saga'
   const sagaResult = await taskShow(projectRoot, sagaId);
   if (!sagaResult.success || !sagaResult.data) {
     return engineError('E_NOT_FOUND', `Saga not found: ${sagaId}`);
   }
-  const sagaLabels: string[] = sagaResult.data.task.labels ?? [];
-  if (!sagaLabels.includes(SAGA_LABEL)) { // saga-label-ok: T10638 — SSoT residual
-    return engineError('E_INVALID_INPUT', `Task ${sagaId} does not have label='${SAGA_LABEL}' // saga-label-ok: T10638`);
+  if (!isSagaType(sagaResult.data.task)) {
+    return engineError(
+      'E_INVALID_INPUT',
+      `Task ${sagaId} has type='${String(sagaResult.data.task.type)}', expected type='saga'`,
+    );
   }
 
   // Validate: epicId must have type='epic'
@@ -85,30 +91,36 @@ export async function sagaAdd(
     );
   }
 
+  // Idempotent: already parented to this saga
+  if (epicResult.data.task.parentId === sagaId) {
+    return engineSuccess({ sagaId, epicId, added: false });
+  }
+
   // ADR-073 §1.2 invariant I7 — no nested sagas. The candidate epic MUST NOT
-  // itself carry label='saga'. Wired in T10118 after T10115 shipped the
-  // pure-function guard. The structured `SagaInvariantViolationError` thrown
-  // here is converted into a typed `engineError` so the dispatch layer can
-  // surface a LAFS envelope with the stable I7 code + diag payload.
-  const candidateLabels: readonly string[] = epicResult.data.task.labels ?? [];
+  // itself be saga-shaped (type='saga').
   try {
-    assertSagaInvariantI7(epicId, candidateLabels, sagaId);
+    assertSagaInvariantI7(epicId, epicResult.data.task.labels ?? [], sagaId, epicType);
   } catch (err: unknown) {
     if (isSagaInvariantViolationError(err)) {
       const violation = err as SagaInvariantViolationError;
       return engineError(violation.code, violation.message, {
         details: violation.diag,
-        fix:
-          `Use 'cleo saga detach ${sagaId} ${epicId}' if this row was previously linked, ` +
-          'or relabel the candidate so it no longer carries the saga label.',
+        fix: `Epic ${epicId} is itself a saga — nested sagas are forbidden (ADR-073 §1.2 I7).`,
       });
     }
     throw err;
   }
 
-  const relResult = await taskRelatesAdd(projectRoot, sagaId, epicId, SAGA_GROUPS_RELATION);
-  if (!relResult.success) {
-    return engineError('E_GENERAL', relResult.error?.message ?? 'Failed to link Epic to Saga');
+  // Reparent the epic under the saga using parent_id containment
+  try {
+    const reparentResult = await coreTaskReparent(projectRoot, epicId, sagaId);
+    return engineSuccess({
+      sagaId,
+      epicId,
+      added: reparentResult.reparented,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return engineError('E_GENERAL', `Failed to link Epic to Saga via parent_id: ${message}`);
   }
-  return engineSuccess({ sagaId, epicId, added: relResult.data?.added ?? true });
 }

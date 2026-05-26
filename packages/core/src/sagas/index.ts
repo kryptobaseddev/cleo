@@ -61,13 +61,6 @@ export {
   sagaMembers,
 } from './members.js';
 export {
-  type ContainmentConflict,
-  type MigratedEpic,
-  type MigrateSagaContainmentParams,
-  type MigrateSagaContainmentResult,
-  migrateSagaContainment,
-} from './migrate-containment.js';
-export {
   type ReconcileResult,
   type ReconcileSagaParams,
   reconcileSaga,
