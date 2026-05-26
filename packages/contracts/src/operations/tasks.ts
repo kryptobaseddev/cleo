@@ -28,6 +28,14 @@ import type { TaskPriority, TaskType } from '../task.js';
 import type { TaskRecord } from '../task-record.js';
 import type { ExternalTask, ExternalTaskLink, ReconcileResult } from '../task-sync.js';
 import type {
+  CompletionEvaluateParams,
+  CompletionEvaluateResult,
+  CompletionExplainParams,
+  CompletionExplainResult,
+  CompletionListParams,
+  CompletionListResult,
+  CompletionProjectionRepairParams,
+  CompletionProjectionRepairResult,
   TaskComplexityFactor,
   TaskDependsResult,
   TaskLabelInfo,
@@ -1472,6 +1480,13 @@ export type TasksOps = {
   readonly impact: readonly [TasksImpactParams, TasksImpactResult];
   readonly next: readonly [TasksNextQueryParams, TasksNextQueryResult];
   readonly plan: readonly [TasksPlanParams, TasksPlanResult];
+  readonly 'completion.list': readonly [CompletionListParams, CompletionListResult];
+  readonly 'completion.evaluate': readonly [CompletionEvaluateParams, CompletionEvaluateResult];
+  readonly 'completion.explain': readonly [CompletionExplainParams, CompletionExplainResult];
+  readonly 'projection.repair': readonly [
+    CompletionProjectionRepairParams,
+    CompletionProjectionRepairResult,
+  ];
   readonly relates: readonly [TasksRelatesParams, TasksRelatesResult];
   readonly 'complexity.estimate': readonly [
     TasksComplexityEstimateParams,
