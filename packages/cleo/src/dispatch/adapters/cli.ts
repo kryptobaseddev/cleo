@@ -17,11 +17,13 @@ import { fileURLToPath } from 'node:url';
 import { catalog, registerSkillLibraryFromPath } from '@cleocode/caamp';
 import { autoRecordDispatchTokenUsage, getProjectRoot, hooks } from '@cleocode/core/internal';
 import { createDispatchSpinner } from '../../cli/animation-bridge.js';
+import { getIdempotencyKeyContext } from '../../cli/idempotency-context.js';
 import { type CliOutputOptions, cliError, cliOutput } from '../../cli/renderers/index.js';
 import { Dispatcher } from '../dispatcher.js';
 import { createDomainHandlers } from '../domains/index.js';
 import { createAudit } from '../middleware/audit.js';
 import { createFieldFilter } from '../middleware/field-filter.js';
+import { createIdempotency } from '../middleware/idempotency.js';
 import { createMutateMinimalEnvelope } from '../middleware/mutate-minimal-envelope.js';
 import { createMviRecordProjection } from '../middleware/mvi-record-projection.js';
 import { createSanitizer } from '../middleware/sanitizer.js';
@@ -173,6 +175,7 @@ export function createCliDispatcher(): Dispatcher {
       // so audit/telemetry record the trimmed bytes.
       createMutateMinimalEnvelope(),
       createAudit(), // T4959: CLI now gets audit trail
+      createIdempotency(), // T10600: duplicate retry protection after audit wraps the response
       createTelemetry(), // T624: opt-in self-improvement telemetry
     ],
   });
@@ -235,12 +238,13 @@ export async function dispatchFromCli(
   spinner.start();
 
   let response: DispatchResponse;
+  const mergedParams = mergeIdempotencyParam(gateway, params);
   try {
     response = await dispatcher.dispatch({
       gateway,
       domain,
       operation,
-      params,
+      params: mergedParams,
       source: 'cli',
       requestId: randomUUID(),
     });
@@ -265,7 +269,7 @@ export async function dispatchFromCli(
 
   if (response.success) {
     await autoRecordDispatchTokenUsage({
-      requestPayload: params,
+      requestPayload: mergedParams,
       responsePayload: { data: response.data, page: response.page },
       transport: 'cli',
       gateway,
@@ -382,12 +386,13 @@ export async function dispatchRaw(
   spinner.start();
 
   let response: DispatchResponse;
+  const mergedParams = mergeIdempotencyParam(gateway, params);
   try {
     response = await dispatcher.dispatch({
       gateway,
       domain,
       operation,
-      params,
+      params: mergedParams,
       source: 'cli',
       requestId: randomUUID(),
     });
@@ -411,4 +416,14 @@ export async function dispatchRaw(
     });
 
   return response;
+}
+
+function mergeIdempotencyParam(
+  gateway: Gateway,
+  params?: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (gateway !== 'mutate') return params;
+  const idempotencyKey = getIdempotencyKeyContext();
+  if (!idempotencyKey || params?.['idempotencyKey'] !== undefined) return params;
+  return { ...(params ?? {}), idempotencyKey };
 }
