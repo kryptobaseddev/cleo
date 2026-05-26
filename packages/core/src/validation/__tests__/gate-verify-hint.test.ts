@@ -16,6 +16,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -27,6 +28,8 @@ import {
 } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { seedTasks } from '../../store/__tests__/test-db-helper.js';
+import { getDb } from '../../store/sqlite.js';
+import * as schema from '../../store/tasks-schema.js';
 
 /** Absolute project root for each test — recreated per test. */
 let TEST_ROOT: string;
@@ -96,6 +99,23 @@ async function seedTask(taskId: string): Promise<void> {
   ]);
   await accessor.close();
   resetDbState();
+}
+
+async function insertAcRow(taskId: string, ordinal: number): Promise<string> {
+  const acId = randomUUID();
+  const db = await getDb(TEST_ROOT);
+  await db
+    .insert(schema.taskAcceptanceCriteria)
+    .values({ id: acId, taskId, ordinal, text: `AC body ${ordinal}` })
+    .run();
+  return acId;
+}
+
+async function getBindingsForAc(acId: string) {
+  const accessor = await createSqliteDataAccessor(TEST_ROOT);
+  const bindings = await accessor.getAcBindings([acId]);
+  await accessor.close();
+  return bindings;
 }
 
 /**
@@ -328,5 +348,57 @@ describe('validateGateVerify — hint field (GH #94 / T919)', () => {
     expect(reloaded).toBeDefined();
     expect(reloaded?.status).toBe('pending');
     expect(reloaded?.verification?.passed).toBe(true);
+  });
+
+  it('persists satisfies evidence as an AC binding against the canonical AC UUID', async () => {
+    const taskId = 'T10593';
+    await seedTask(taskId);
+    const acId = await insertAcRow(taskId, 1);
+    resetDbState();
+
+    const result = await validateGateVerify(TEST_ROOT, {
+      taskId,
+      gate: 'implemented',
+      value: true,
+      evidence: `${evidenceFor('implemented')};satisfies:${taskId}#AC1`,
+    });
+
+    expect(result.success).toBe(true);
+    const bindings = await getBindingsForAc(acId);
+    expect(bindings).toHaveLength(1);
+    expect(bindings[0]).toMatchObject({
+      acId,
+      bindingType: 'satisfies',
+      evidenceAtomId: `satisfies:${taskId}->${taskId}#AC1`,
+    });
+  });
+
+  it('collapses duplicate satisfies bindings for the same atom/ac/type triple', async () => {
+    const taskId = 'T10594';
+    await seedTask(taskId);
+    const acId = await insertAcRow(taskId, 1);
+    const evidence = `${evidenceFor('implemented')};satisfies:${taskId}#AC1`;
+    resetDbState();
+
+    const first = await validateGateVerify(TEST_ROOT, {
+      taskId,
+      gate: 'implemented',
+      value: true,
+      evidence,
+    });
+    expect(first.success).toBe(true);
+    resetDbState();
+    const second = await validateGateVerify(TEST_ROOT, {
+      taskId,
+      gate: 'implemented',
+      value: true,
+      evidence,
+    });
+    expect(second.success).toBe(true);
+
+    const bindings = await getBindingsForAc(acId);
+    expect(bindings).toHaveLength(1);
+    expect(bindings[0]?.acId).toBe(acId);
+    expect(bindings[0]?.bindingType).toBe('satisfies');
   });
 });
