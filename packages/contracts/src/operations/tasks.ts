@@ -568,6 +568,40 @@ export interface TasksRelatesResult {
   count: number;
 }
 
+// tasks.relates.add-batch
+export interface TasksRelatesAddBatchEntry {
+  taskId?: string;
+  from?: string;
+  relatedId?: string;
+  to?: string;
+  type: string;
+  reason?: string;
+}
+export interface TasksRelatesAddBatchParams {
+  relations?: TasksRelatesAddBatchEntry[];
+  edges?: TasksRelatesAddBatchEntry[];
+  dryRun?: boolean;
+  reasonWaiver?: string;
+}
+export interface TasksRelatesAddBatchResult {
+  dryRun: boolean;
+  validatedCount: number;
+  created: number;
+  wouldCreate: number;
+  relations: Array<{
+    from: string;
+    to: string;
+    type: string;
+    reason?: string;
+    waivedReason?: boolean;
+  }>;
+  warnings: Array<{
+    code: string;
+    message: string;
+    edge?: { from: string; to: string; type: string };
+  }>;
+}
+
 // tasks.complexity.estimate
 export interface TasksComplexityEstimateParams {
   taskId: string;
@@ -807,6 +841,57 @@ export interface TasksRelatesAddResult {
   type: string;
   /** Whether the relation was newly created (false if it already existed). */
   added: boolean;
+}
+
+export interface TasksRelatesAddBatchEntry {
+  /** Source task ID. */
+  taskId?: string;
+  /** Source task ID alias accepted by file payloads. */
+  from?: string;
+  /** Target task ID. */
+  relatedId?: string;
+  /** Target task ID alias accepted by file payloads. */
+  to?: string;
+  /** Relation type: related|blocks|duplicates|absorbs|fixes|extends|supersedes|groups. */
+  type: string;
+  /** Audit reason for creating this advisory relation. Required unless reasonWaiver is set. */
+  reason?: string;
+}
+
+export interface TasksRelatesAddBatchParams {
+  /** Relation edges to add atomically. */
+  relations?: TasksRelatesAddBatchEntry[];
+  /** Relation edges alias for WorkGraph-flavored callers. */
+  edges?: TasksRelatesAddBatchEntry[];
+  /** Validate and report without writing. */
+  dryRun?: boolean;
+  /** Explicit reason-waiver text applied to any edge missing an edge-level reason. */
+  reasonWaiver?: string;
+}
+
+export interface TasksRelatesAddBatchResult {
+  /** Whether this dispatch only previewed writes. */
+  dryRun: boolean;
+  /** Validated relation count. */
+  validatedCount: number;
+  /** Number of relation rows inserted or previewed. */
+  created: number;
+  /** Dry-run prediction of rows that would be inserted. */
+  wouldCreate: number;
+  /** Accepted normalized relation edges. */
+  relations: Array<{
+    from: string;
+    to: string;
+    type: string;
+    reason?: string;
+    waivedReason?: boolean;
+  }>;
+  /** Non-fatal audit notes, including explicit missing-reason waivers. */
+  warnings: Array<{
+    code: string;
+    message: string;
+    edge?: { from: string; to: string; type: string };
+  }>;
 }
 
 // tasks.relates.remove
@@ -1592,6 +1677,7 @@ export type TasksOps = {
   readonly reparent: readonly [TasksReparentQueryParams, TasksReparentDispatchResult];
   readonly reorder: readonly [TasksReorderQueryParams, TasksReorderDispatchResult];
   readonly 'relates.add': readonly [TasksRelatesAddParams, TasksRelatesAddResult];
+  readonly 'relates.add-batch': readonly [TasksRelatesAddBatchParams, TasksRelatesAddBatchResult];
   readonly 'relates.remove': readonly [TasksRelatesRemoveParams, TasksRelatesRemoveResult];
   readonly start: readonly [TasksStartQueryParams, TasksStartQueryResult];
   readonly stop: readonly [TasksStopQueryParams, TasksStopQueryResult];
