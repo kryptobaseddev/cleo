@@ -20,6 +20,7 @@ import {
   coreTaskDeps,
   coreTaskRelates,
   coreTaskRelatesAdd,
+  coreTaskRelatesAddBatch,
   coreTaskRelatesRemove,
 } from './task-import.js';
 import { coreTaskNext } from './task-next.js';
@@ -437,6 +438,18 @@ export async function taskRelatesAdd(
  * Remove a relation between two tasks.
  * @task T9240
  */
+export async function taskRelatesAddBatch(
+  projectRoot: string,
+  params: Parameters<typeof coreTaskRelatesAddBatch>[1],
+): Promise<EngineResult<Awaited<ReturnType<typeof coreTaskRelatesAddBatch>>>> {
+  try {
+    const result = await coreTaskRelatesAddBatch(projectRoot, params);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    return cleoErrorToEngineResult(err, 'E_GENERAL', 'Failed to add task relation batch');
+  }
+}
+
 export async function taskRelatesRemove(
   projectRoot: string,
   taskId: string,

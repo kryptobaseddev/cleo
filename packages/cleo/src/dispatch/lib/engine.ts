@@ -245,6 +245,7 @@ export {
   taskPromote,
   taskRelates,
   taskRelatesAdd,
+  taskRelatesAddBatch,
   taskRelatesFind,
   taskRelatesRemove,
   taskReopen,

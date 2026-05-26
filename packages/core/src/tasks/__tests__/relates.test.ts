@@ -12,8 +12,8 @@ import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
-import { addRelation, listRelations, removeRelation } from '../relates.js';
-import { coreTaskRelates } from '../task-data.js';
+import { addBatchRelations, addRelation, listRelations, removeRelation } from '../relates.js';
+import { coreTaskRelates, coreTaskRelatesAddBatch } from '../task-data.js';
 
 describe('relates.ts addRelation persistence (T5168)', () => {
   let testDir: string;
@@ -197,6 +197,115 @@ describe('relates.ts addRelation persistence (T5168)', () => {
         status: 'pending',
       },
     ]);
+  });
+
+  it('addBatchRelations validates a dry-run without writing relation rows (T10627)', async () => {
+    const result = await addBatchRelations(
+      [
+        { from: 'T001', to: 'T002', type: 'extends', reason: 'bulk map extends edge' },
+        { taskId: 'T002', relatedId: 'T001', type: 'related', reason: 'bulk map related edge' },
+      ],
+      { cwd: testDir, dryRun: true },
+      accessor,
+    );
+
+    expect(result).toMatchObject({
+      dryRun: true,
+      validatedCount: 2,
+      created: 0,
+      wouldCreate: 2,
+      warnings: [],
+    });
+    expect(result.relations).toEqual([
+      {
+        from: 'T001',
+        to: 'T002',
+        type: 'extends',
+        reason: 'bulk map extends edge',
+        waivedReason: false,
+      },
+      {
+        from: 'T002',
+        to: 'T001',
+        type: 'related',
+        reason: 'bulk map related edge',
+        waivedReason: false,
+      },
+    ]);
+    expect(await listRelations('T001', testDir, accessor)).toEqual({
+      taskId: 'T001',
+      relations: [],
+      count: 0,
+    });
+  });
+
+  it('addBatchRelations writes all validated advisory edges and records explicit reason waivers (T10627)', async () => {
+    const result = await coreTaskRelatesAddBatch(testDir, {
+      edges: [
+        { from: 'T001', to: 'T002', type: 'extends' },
+        { from: 'T002', to: 'T001', type: 'supersedes', reason: 'replacement direction' },
+      ],
+      reasonWaiver: 'legacy import did not carry per-edge reasons',
+    });
+
+    expect(result.created).toBe(2);
+    expect(result.warnings).toEqual([
+      {
+        code: 'E_WORKGRAPH_RELATION_REASON_WAIVED',
+        message: 'Relation T001 -> T002 (extends) used batch reasonWaiver',
+        edge: { from: 'T001', to: 'T002', type: 'extends' },
+      },
+    ]);
+    expect(await listRelations('T001', testDir, accessor)).toEqual({
+      taskId: 'T001',
+      relations: [
+        {
+          taskId: 'T002',
+          type: 'extends',
+          reason: 'legacy import did not carry per-edge reasons',
+        },
+      ],
+      count: 1,
+    });
+  });
+
+  it('addBatchRelations returns dependency and containment-cycle warnings (T10627)', async () => {
+    await addRelation('T001', 'T002', 'groups', 'existing containment edge', testDir, accessor);
+
+    const result = await addBatchRelations(
+      [
+        { from: 'T002', to: 'T001', type: 'groups', reason: 'would close containment cycle' },
+        { from: 'T001', to: 'T002', type: 'blocks', reason: 'advisory blocker import' },
+      ],
+      { cwd: testDir, dryRun: true },
+      accessor,
+    );
+
+    expect(result.warnings.map((warning) => warning.code)).toEqual(
+      expect.arrayContaining([
+        'E_WORKGRAPH_CONTAINMENT_CYCLE',
+        'E_WORKGRAPH_DEPENDS_RELATES_MISUSE',
+      ]),
+    );
+  });
+
+  it('addBatchRelations rejects missing reasons before writing any edge (T10627)', async () => {
+    await expect(
+      addBatchRelations(
+        [
+          { from: 'T001', to: 'T002', type: 'blocks', reason: 'valid edge' },
+          { from: 'T002', to: 'T001', type: 'related' },
+        ],
+        { cwd: testDir },
+        accessor,
+      ),
+    ).rejects.toThrow('requires a reason or batch reasonWaiver');
+
+    expect(await listRelations('T001', testDir, accessor)).toEqual({
+      taskId: 'T001',
+      relations: [],
+      count: 0,
+    });
   });
 
   it('removeRelation rejects non-existent source task (T10111)', async () => {
