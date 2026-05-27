@@ -840,14 +840,18 @@ export async function nexusReconcile(
         return { status: 'ok' };
       }
 
-      // Scenario 2: path changed — update path, hash, and lastSeen
+      // Scenario 2: path changed — update path, hash, lastSeen, and DB paths
       const oldPath = existing.projectPath;
+      const newBrainDbPath = join(projectRoot, '.cleo', 'brain.db');
+      const newTasksDbPath = join(projectRoot, '.cleo', 'tasks.db');
       await db
         .update(projectRegistry)
         .set({
           projectPath: projectRoot,
           projectHash: currentHash,
           lastSeen: now,
+          brainDbPath: newBrainDbPath,
+          tasksDbPath: newTasksDbPath,
         })
         .where(eq(projectRegistry.projectId, projectId));
       await writeNexusAudit({
@@ -903,6 +907,129 @@ export async function nexusReconcile(
     details: { status: 'auto_registered' },
   });
   return { status: 'auto_registered' };
+}
+
+/**
+ * Update a project's registry entry after a filesystem move.
+ *
+ * Called by the project lifecycle engine after the project directory has been
+ * physically moved to `newPath`. Updates projectPath, projectHash, lastSeen,
+ * brainDbPath, and tasksDbPath. Persisted via a single UPDATE with an audit
+ * log entry — the caller is responsible for ensuring the project-info.json
+ * projectId is preserved across the move.
+ *
+ * AC coverage: AC1, AC3, AC5, AC7, AC8
+ * @task T11024
+ */
+export async function nexusMoveProject(
+  projectId: string,
+  newPath: string,
+): Promise<NexusProject> {
+  if (!projectId) throw new CleoError(ExitCode.INVALID_INPUT, 'projectId required');
+  if (!newPath) throw new CleoError(ExitCode.INVALID_INPUT, 'newPath required');
+
+  await nexusInit();
+  const { getNexusDb } = await import('../store/nexus-sqlite.js');
+  const { eq } = await import('drizzle-orm');
+  const db = await getNexusDb();
+
+  const rows = await db
+    .select()
+    .from(projectRegistry)
+    .where(eq(projectRegistry.projectId, projectId))
+    .limit(1);
+  const existing = rows[0];
+  if (!existing) {
+    throw new CleoError(ExitCode.NOT_FOUND, `Project not found in registry: ${projectId}`);
+  }
+
+  const resolvedPath = resolve(newPath);
+  const newHash = generateProjectHash(resolvedPath);
+  const now = new Date().toISOString();
+  const newBrainDbPath = join(resolvedPath, '.cleo', 'brain.db');
+  const newTasksDbPath = join(resolvedPath, '.cleo', 'tasks.db');
+  const oldPath = existing.projectPath;
+
+  await db
+    .update(projectRegistry)
+    .set({
+      projectPath: resolvedPath,
+      projectHash: newHash,
+      lastSeen: now,
+      brainDbPath: newBrainDbPath,
+      tasksDbPath: newTasksDbPath,
+    })
+    .where(eq(projectRegistry.projectId, projectId));
+
+  await writeNexusAudit({
+    action: 'move',
+    projectHash: newHash,
+    projectId,
+    operation: 'move',
+    success: true,
+    details: { oldPath, newPath: resolvedPath, newHash },
+  });
+
+  // AC3: Call nexusReconcile as final step for consistency
+  await nexusReconcile(resolvedPath, {});
+
+  return rowToProject({ ...existing, projectPath: resolvedPath, projectHash: newHash, lastSeen: now, brainDbPath: newBrainDbPath, tasksDbPath: newTasksDbPath });
+}
+
+/**
+ * Update a project's name in the registry after a rename.
+ *
+ * Lookup by projectId (stable across renames).  The projectHash is recomputed
+ * from the current path because the hash is path-derived.  Name changes do not
+ * affect the hash.  Audit log entry is written for traceability.
+ *
+ * AC coverage: AC2, AC4, AC5
+ * @task T11024
+ */
+export async function nexusRenameProject(
+  projectId: string,
+  newName: string,
+): Promise<NexusProject> {
+  if (!projectId) throw new CleoError(ExitCode.INVALID_INPUT, 'projectId required');
+  if (!newName) throw new CleoError(ExitCode.INVALID_INPUT, 'newName required');
+
+  await nexusInit();
+  const { getNexusDb } = await import('../store/nexus-sqlite.js');
+  const { eq } = await import('drizzle-orm');
+  const db = await getNexusDb();
+
+  const rows = await db
+    .select()
+    .from(projectRegistry)
+    .where(eq(projectRegistry.projectId, projectId))
+    .limit(1);
+  const existing = rows[0];
+  if (!existing) {
+    throw new CleoError(ExitCode.NOT_FOUND, `Project not found in registry: ${projectId}`);
+  }
+
+  const now = new Date().toISOString();
+  const currentHash = generateProjectHash(existing.projectPath);
+  const oldName = existing.name;
+
+  await db
+    .update(projectRegistry)
+    .set({
+      name: newName,
+      lastSeen: now,
+    })
+    .where(eq(projectRegistry.projectId, projectId));
+
+  await writeNexusAudit({
+    action: 'rename',
+    projectHash: currentHash,
+    projectId,
+    operation: 'rename',
+    success: true,
+    details: { oldName, newName },
+  });
+
+  return rowToProject({ ...existing, name: newName, lastSeen: now });
 }
 
 /**

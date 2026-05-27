@@ -40,7 +40,8 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { resolveCanonicalCleoDir } from '@cleocode/paths';
 import { getLogger } from '../logger.js';
 import type { WorktreeIntegrationResult } from '../spawn/branch-lock.js';
 import {
@@ -142,6 +143,89 @@ export interface CompleteWorktreeForTaskResult {
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Resolve the parent project root for a worktree by reading the worktree's
+ * `.cleo/project-info.json` (placed there by T11033 at provision time) and
+ * using the `projectId` field to look up the canonical project root via the
+ * nexus registry.
+ *
+ * This provides a stable identity-based fallback that does not depend on the
+ * caller-supplied `projectRoot` being correct — useful when the cleanup
+ * operation runs from inside a worktree or when path-based hash resolution
+ * produces a mismatch.
+ *
+ * Returns the absolute parent project root path, or `null` when the worktree
+ * lacks a valid `project-info.json` or the nexus registry lookup fails.
+ *
+ * @param worktreePath - Absolute path to the worktree directory.
+ * @returns The parent project root path, or `null`.
+ *
+ * @task T11039
+ * @epic T10299
+ * @saga T10295
+ */
+function resolveParentRootFromWorktreeIdentity(worktreePath: string): string | null {
+  const infoPath = join(worktreePath, '.cleo', 'project-info.json');
+  if (!existsSync(infoPath)) return null;
+  try {
+    const raw = readFileSync(infoPath, 'utf-8');
+    const info = JSON.parse(raw) as Record<string, unknown>;
+    if (typeof info.projectId === 'string' && info.projectId.length > 0) {
+      const cleoDir = resolveCanonicalCleoDir(info.projectId);
+      if (cleoDir) {
+        // cleoDir is `<parentProject>/.cleo` — the parent is one level up.
+        return dirname(cleoDir);
+      }
+    }
+  } catch {
+    // Parse error or missing projectId — treat as no identity available.
+  }
+  return null;
+}
+
+/**
+ * Verify that the worktree's project-info.json identity matches the
+ * expected parent project. When the worktree exists and has a valid
+ * project-info.json, cross-checks the resolved parent root against
+ * the caller-supplied `projectRoot`.
+ *
+ * Mismatch is logged as a warning but is NOT fatal — the caller's
+ * `projectRoot` takes precedence. The identity check is advisory.
+ *
+ * @param worktreePath - Absolute path to the worktree directory.
+ * @param projectRoot - Caller-supplied parent project root.
+ * @returns `true` when identity matches or cannot be verified; `false`
+ *          when a mismatch is detected.
+ *
+ * @task T11039
+ */
+function verifyWorktreeIdentity(
+  worktreePath: string,
+  projectRoot: string,
+): boolean {
+  const resolvedParent = resolveParentRootFromWorktreeIdentity(worktreePath);
+  if (resolvedParent === null) {
+    // No project-info.json — identity cannot be verified (pre-T11033 worktree
+    // or migration hasn't run yet). This is expected for older worktrees.
+    return true;
+  }
+  if (resolvedParent !== projectRoot) {
+    const log = getLogger('orchestrate:worktree-complete');
+    log.warn(
+      {
+        worktreePath,
+        expectedParent: projectRoot,
+        resolvedParent,
+      },
+      'Worktree project-info.json identity mismatch — cleanup proceeding with ' +
+        'caller-supplied projectRoot. The worktree may have been copied or the ' +
+        'project root resolved differently.',
+    );
+    return false;
+  }
+  return true;
+}
 
 /**
  * Scan the worktree-integration audit log for a prior successful merge of
@@ -255,6 +339,15 @@ export function completeWorktreeForTask(
   const worktreeRoot = resolveAgentWorktreeRoot(projectRoot);
   const worktreePath = join(worktreeRoot, taskId);
   const branch = `task/${taskId}`;
+
+  // T11039 — Verify worktree identity via project-info.json (T11033).
+  // When the worktree exists and has a .cleo/project-info.json, cross-check
+  // that the projectId resolves back to the same parent project. A mismatch
+  // is logged but NOT fatal — the caller-supplied projectRoot takes
+  // precedence for the actual merge operation.
+  if (existsSync(worktreePath)) {
+    verifyWorktreeIdentity(worktreePath, projectRoot);
+  }
 
   // ---- Manual resolve: write audit row and return. -----------------------
   if (resolve === 'manual') {

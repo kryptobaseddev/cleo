@@ -23,7 +23,9 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { resolveCanonicalCleoDir } from '@cleocode/paths';
 import {
   type EngineResult,
   engineError,
@@ -41,6 +43,65 @@ const log = getLogger('worktree:prune');
 
 /** Default supervisor timeout for every git invocation. Matches list.ts. */
 const GIT_TIMEOUT_MS = 60_000;
+
+// ---------------------------------------------------------------------------
+// Worktree identity resolution (T11039)
+// ---------------------------------------------------------------------------
+
+/**
+ * Read the worktree's `.cleo/project-info.json` (placed by T11033 at
+ * provision time) and verify it resolves back to the expected parent
+ * project root.
+ *
+ * When the worktree has a valid `projectId`, this function cross-checks
+ * the resolved parent against the caller-supplied `projectRoot`. A mismatch
+ * is logged as a warning but is NOT fatal — the caller's `projectRoot`
+ * takes precedence.
+ *
+ * Returns the resolved parent project root from the nexus registry if
+ * available, or `null` when identity cannot be verified.
+ *
+ * @param worktreePath - Absolute path to the worktree directory.
+ * @param projectRoot - Caller-supplied parent project root.
+ * @returns The resolved parent from nexus, or `null`.
+ *
+ * @task T11039
+ * @epic T10299
+ * @saga T10295
+ */
+function verifyPruneWorktreeIdentity(
+  worktreePath: string,
+  projectRoot: string,
+): string | null {
+  const infoPath = join(worktreePath, '.cleo', 'project-info.json');
+  if (!existsSync(infoPath)) return null;
+  try {
+    const raw = readFileSync(infoPath, 'utf-8');
+    const info = JSON.parse(raw) as Record<string, unknown>;
+    if (typeof info.projectId !== 'string' || info.projectId.length === 0) {
+      return null;
+    }
+    const cleoDir = resolveCanonicalCleoDir(info.projectId);
+    if (!cleoDir) return null;
+    const resolvedParent = dirname(cleoDir);
+    if (resolvedParent !== projectRoot) {
+      log.warn(
+        {
+          worktreePath,
+          expectedParent: projectRoot,
+          resolvedParent,
+          projectId: info.projectId,
+        },
+        'Prune candidate worktree project-info.json identity mismatch — ' +
+          'proceeding with caller-supplied projectRoot. The worktree may have ' +
+          'been copied or the project root resolved differently.',
+      );
+    }
+    return resolvedParent;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Drive the orphan / merged worktree prune flow used by
@@ -126,6 +187,12 @@ export async function pruneOrphanedWorktreesByStatus(
 
   for (const wt of candidates) {
     const reason = reasonForStatus(wt);
+
+    // T11039 — Verify prune target identity via project-info.json.
+    // Cross-check the worktree's projectId against the parent project
+    // before any filesystem mutation. Mismatches are logged but the
+    // prune proceeds with the caller-supplied projectRoot.
+    verifyPruneWorktreeIdentity(wt.path, opts.projectRoot);
 
     if (dryRun) {
       outcomes.push({

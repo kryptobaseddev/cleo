@@ -78,6 +78,18 @@ export {
   type ResolvePlaybookOptions,
   resolvePlaybook,
 } from './playbooks/playbook-resolver.js';
+export type {
+  MoveProjectResult,
+  RenameProjectResult,
+  ReregisterProjectResult,
+} from './project-lifecycle.js';
+export * as projectLifecycle from './project-lifecycle.js';
+// Flat re-exports for direct imports (AC2)
+export {
+  moveProject,
+  renameProject,
+  reregisterProject,
+} from './project-lifecycle.js';
 export * as reconciliation from './reconciliation/index.js';
 export * as release from './release/index.js';
 export * as remote from './remote/index.js';
@@ -355,8 +367,8 @@ export {
   getProjectRoot,
   isProjectInitialized,
   resolveCanonicalCleoDir,
-  resolveProjectByCwd,
   resolveOrCwd,
+  resolveProjectByCwd,
   resolveProjectPath,
   resolveWorktreeFilePath,
   resolveWorktreeRouting,
@@ -374,6 +386,17 @@ export {
   PLATFORM,
   sha256,
 } from './platform.js';
+export type {
+  MoveProjectResult,
+  RenameProjectResult,
+  ReregisterProjectResult,
+} from './project/lifecycle.js';
+// Project lifecycle (T11010)
+export {
+  moveProject,
+  renameProject,
+  reregisterProject,
+} from './project/lifecycle.js';
 export type { ProjectInfo } from './project-info.js';
 // Project info
 export { getProjectInfo, getProjectInfoSync, updateProjectName } from './project-info.js';

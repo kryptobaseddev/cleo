@@ -541,6 +541,10 @@ export {
   skipStageWithReason,
   TIER_0_SKILLS,
 } from './lifecycle/index.js';
+// Project lifecycle — move/rename/re-register (T11010)
+export { moveProject } from './project/lifecycle.js';
+export type { MoveProjectResult } from './project/lifecycle.js';
+
 // IVTR orchestration harness (T811 + T813 + T814)
 export type {
   AutoRunGatesResult,
@@ -784,6 +788,7 @@ export {
   nexusInitialize,
   nexusList,
   nexusListProjects,
+  nexusMoveProject,
   nexusProjectsList,
   nexusProjectsRegister,
   nexusProjectsRemove,
@@ -791,6 +796,7 @@ export {
   nexusReconcileProject,
   nexusRegister,
   nexusRegisterProject,
+  nexusRenameProject,
   nexusShowProject,
   nexusStatus,
   nexusSync,
