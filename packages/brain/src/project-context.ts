@@ -19,6 +19,7 @@
 
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { resolveProjectByCwd } from '@cleocode/paths';
 import { getCleoProjectDir } from './cleo-home.js';
 
 /**
@@ -38,14 +39,25 @@ export interface ProjectContext {
 }
 
 /**
- * Resolve the default project context (current project from `CLEO_ROOT` / cwd).
- * Used as fallback when no explicit project context is supplied.
+ * Resolve the default project context using projectId-based resolution.
  *
- * @returns A context whose paths derive from `getCleoProjectDir()`.
+ * Derives `projectPath` from {@link resolveProjectByCwd} (canonical project
+ * root), falling back to the `.cleo`-relative path for non-project contexts.
+ * DB paths flow through {@link getCleoProjectDir}, which now uses
+ * projectId→nexus.db resolution instead of CWD-walk-up (T11040).
+ *
+ * @returns A context whose paths derive from projectId resolution where possible.
+ * @task T11040 — migrate from CWD-walk-up to projectId-based resolution
  */
 export function resolveDefaultProjectContext(): ProjectContext {
+  const project = resolveProjectByCwd();
   const projectDir = getCleoProjectDir();
-  const projectPath = projectDir.replace(/\/.cleo$/, '');
+  // Use canonical project root from projectId resolution when available;
+  // fall back to regex-stripping .cleo/ for non-project contexts.
+  const projectPath =
+    project !== null
+      ? project.projectRoot
+      : projectDir.replace(/\/.cleo$/, '');
   const brainDbPath = join(projectDir, 'brain.db');
   const tasksDbPath = join(projectDir, 'tasks.db');
   // existsSync is referenced to match the studio surface, and documents intent;
