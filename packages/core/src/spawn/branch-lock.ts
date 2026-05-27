@@ -1,11 +1,6 @@
 /**
  * Branch-lock engine — runtime enforcement for agent git isolation (T1118).
  *
- * **T11064 AUDIT (2026-05-27)**: This file is a parallel lifecycle owner with
- * 36 git shell-outs across 6 functions. Per ADR-087-A, lifecycle operations
- * should migrate to @cleocode/worktree (canonical owner). See T10853 for the
- * consolidation epic and .cleo/rcasd/T11064/branch-lock-audit.md for full inventory.
- *
  * Implements all four protection layers:
  *
  * - L1: Git worktree creation, merge-completion (ADR-062), and cleanup.
@@ -51,7 +46,17 @@ import type {
 } from '@cleocode/contracts';
 import { computeProjectHash, resolveWorktreeRootForHash } from '@cleocode/paths';
 
-import { getGitRoot, gitSilent, gitSync } from '@cleocode/worktree/git.js';
+// ---------------------------------------------------------------------------
+// Re-exports from @cleocode/worktree
+// ---------------------------------------------------------------------------
+
+import {
+  destroyWorktree as napiDestroyWorktree,
+  integrateWorktree,
+  provisionWorktree,
+  pruneWorktrees,
+} from '@cleocode/worktree';
+import { getGitRoot, gitSilent, gitSync } from '@cleocode/worktree';
 
 // Re-export getGitRoot for barrel consumers
 export { getGitRoot };
@@ -99,6 +104,8 @@ export function resolveAgentWorktreeRoot(projectRoot: string): string {
  *
  * @task T1118
  * @task T1120
+ * @task T11122
+ * @task T11123
  */
 export function createAgentWorktree(taskId: string, projectRoot: string): AgentWorktreeState {
   const gitRoot = getGitRoot(projectRoot);
@@ -116,24 +123,39 @@ export function createAgentWorktree(taskId: string, projectRoot: string): AgentW
     baseRef = 'main';
   }
 
-  // Remove stale worktree at this path if it exists.
+  // T11123: Remove stale worktree via NAPI destroyWorktree instead of raw
+  // git worktree unlock + remove + branch delete shell-outs.
   if (existsSync(worktreePath)) {
-    gitSilent(['worktree', 'unlock', worktreePath], gitRoot); // raw-git-worktree-ok: T11122 stale cleanup before NAPI
-    if (!gitSilent(['worktree', 'remove', '--force', worktreePath], gitRoot)) { // raw-git-worktree-ok: T11122 stale remove before NAPI
-      rmSync(worktreePath, { recursive: true, force: true });
+    try {
+      napiDestroyWorktree({
+        repoRoot: gitRoot,
+        worktreePath,
+        force: true,
+      });
+    } catch {
+      // Fallback: brute-force filesystem + git removal for stale entries
+      // that NAPI cannot resolve (corrupted admin dirs, detached worktrees).
+      gitSilent(['worktree', 'unlock', worktreePath], gitRoot);
+      if (!gitSilent(['worktree', 'remove', '--force', worktreePath], gitRoot)) {
+        try {
+          rmSync(worktreePath, { recursive: true, force: true });
+        } catch {
+          /* best-effort */
+        }
+      }
+      // Attempt to delete the leftover branch.
+      gitSilent(['branch', '-D', branch], gitRoot);
     }
-    // Attempt to delete the leftover branch.
-    gitSilent(['branch', '-D', branch], gitRoot);
   }
 
-  // Create the worktree with a new branch.
-  gitSync(['worktree', 'add', worktreePath, '-b', branch, baseRef], gitRoot); // raw-git-worktree-ok: T9984 legacy createAgentWorktree; prod @cleocode/worktree
-
-  // Apply git worktree lock to prevent accidental pruning.
-  // Try with --reason first (git ≥ 2.37), fall back without.
-  if (!gitSilent(['worktree', 'lock', '--reason', `cleo-agent-${taskId}`, worktreePath], gitRoot)) { // raw-git-worktree-ok: T9984 legacy lock; prod @cleocode/worktree
-    gitSilent(['worktree', 'lock', worktreePath], gitRoot); // raw-git-worktree-ok: T9984 legacy lock fallback; prod @cleocode/worktree
-  }
+  // T11122: Provision the worktree and lock it via the NAPI binding.
+  provisionWorktree({
+    repoRoot: gitRoot,
+    targetPath: worktreePath,
+    branch,
+    baseRef,
+    lockReason: `cleo-agent-${taskId}`,
+  });
 
   // T9984: route projectHash through @cleocode/paths SSoT.
   const projectHash = computeProjectHash(projectRoot);
@@ -203,53 +225,24 @@ export function buildWorktreeSpawnResult(
 /**
  * Prune orphaned agent worktrees for a project.
  *
+ * T11123: Delegates to `pruneWorktrees` from `@cleocode/worktree` which uses
+ * the NAPI `pruneWorktrees` / `destroyWorktree` bindings (Rust worktrunk-core)
+ * instead of raw `git worktree prune/unlock/remove` shell-outs.
+ *
  * @param projectRoot - Absolute path to the project root.
  * @param taskIds - Optional set of known-active task IDs to preserve.
  * @returns Cleanup result.
  *
  * @task T1118
  * @task T1120
+ * @task T11123
  */
 export function pruneOrphanedWorktrees(
   projectRoot: string,
   taskIds?: Set<string>,
 ): WorktreeCleanupResult {
-  const gitRoot = getGitRoot(projectRoot);
-  const worktreeRoot = resolveAgentWorktreeRoot(projectRoot);
-  const removed: string[] = [];
-  const errors: Array<{ path: string; reason: string }> = [];
-
-  // Run git worktree prune to clean up stale administrative entries.
-  gitSilent(['worktree', 'prune'], gitRoot); // raw-git-worktree-ok: T9984 legacy pruneOrphanedWorktrees; prod @cleocode/worktree
-
-  if (taskIds !== undefined && existsSync(worktreeRoot)) {
-    let entries: string[] = [];
-    try {
-      entries = readdirSync(worktreeRoot);
-    } catch {
-      // ignore
-    }
-    for (const entry of entries) {
-      if (taskIds.has(entry)) continue;
-      const worktreePath = join(worktreeRoot, entry);
-      gitSilent(['worktree', 'unlock', worktreePath], gitRoot); // raw-git-worktree-ok: T9984 legacy pruneOrphanedWorktrees; prod @cleocode/worktree
-      if (gitSilent(['worktree', 'remove', '--force', worktreePath], gitRoot)) { // raw-git-worktree-ok: T9984 legacy pruneOrphanedWorktrees; prod @cleocode/worktree
-        removed.push(worktreePath);
-      } else {
-        try {
-          rmSync(worktreePath, { recursive: true, force: true });
-          removed.push(worktreePath);
-        } catch (err2) {
-          errors.push({
-            path: worktreePath,
-            reason: err2 instanceof Error ? err2.message : String(err2),
-          });
-        }
-      }
-    }
-  }
-
-  return { removed: removed.length, removedPaths: removed, errors };
+  const result = pruneWorktrees({ projectRoot, preserveTaskIds: taskIds });
+  return { removed: result.removed, removedPaths: result.removedPaths, errors: result.errors };
 }
 
 /**
@@ -372,16 +365,34 @@ export function pruneWorktree(
     }
   }
 
-  // Unlock and remove the worktree.
+  // T11123: Unlock and remove the worktree via NAPI destroyWorktree
+  // (Rust worktrunk-core) instead of raw git worktree unlock + remove
+  // shell-outs. Keeps filesystem rmSync fallback for stale/corrupted
+  // directories that NAPI cannot resolve.
   let worktreeRemoved = false;
-  gitSilent(['worktree', 'unlock', worktreePath], gitRoot); // raw-git-worktree-ok: T9984 legacy pruneWorktree; prod @cleocode/worktree
-  if (gitSilent(['worktree', 'remove', '--force', worktreePath], gitRoot)) { // raw-git-worktree-ok: T9984 legacy pruneWorktree; prod @cleocode/worktree
-    worktreeRemoved = true;
-  } else {
+  try {
+    const napiResult = napiDestroyWorktree({
+      repoRoot: gitRoot,
+      worktreePath,
+      force: true,
+    });
+    worktreeRemoved = napiResult.removed;
+    // T11033 — NAPI may report success even when untracked directories
+    // survive. Verify on-disk reality.
+    if (worktreeRemoved && existsSync(worktreePath)) {
+      worktreeRemoved = false;
+    }
+  } catch {
+    // napi failed — fall through to filesystem removal
+  }
+
+  if (!worktreeRemoved) {
+    // Filesystem fallback: unlock via git, then brute-force rmSync.
+    gitSilent(['worktree', 'unlock', worktreePath], gitRoot);
     try {
       rmSync(worktreePath, { recursive: true, force: true });
       // Prune stale git admin entries.
-      gitSilent(['worktree', 'prune'], gitRoot); // raw-git-worktree-ok: T9984 legacy pruneWorktree fallback; prod @cleocode/worktree
+      gitSilent(['worktree', 'prune'], gitRoot);
       worktreeRemoved = true;
     } catch (err) {
       return {
@@ -573,179 +584,36 @@ export function completeAgentWorktreeViaMerge(
   const worktreeRoot = resolveAgentWorktreeRoot(projectRoot);
   const worktreePath = join(worktreeRoot, taskId);
 
-  // Step 1: verify the worktree branch exists.
-  let branchExists = '';
-  try {
-    branchExists = gitSync(['branch', '--list', branch], gitRoot);
-  } catch (err) {
+  // T11124: Delegate to Rust NAPI SSoT
+  const result = integrateWorktree({
+    repoRoot: gitRoot,
+    worktreePath,
+    branch,
+    targetBranch,
+    taskTitle: opts.taskTitle,
+    skipFetch: opts.skipFetch ?? false,
+  });
+  if (!result.merged) {
     return {
       taskId,
       targetBranch,
       merged: false,
       mergeCommit: '',
-      commitCount: 0,
-      rebased: false,
+      commitCount: result.commitCount,
+      rebased: result.rebased,
       worktreeRemoved: false,
       branchDeleted: false,
-      error: `Failed to query branch: ${err instanceof Error ? err.message : String(err)}`,
+      error: result.error,
     };
   }
-  if (!branchExists) {
-    return {
-      taskId,
-      targetBranch,
-      merged: false,
-      mergeCommit: '',
-      commitCount: 0,
-      rebased: false,
-      worktreeRemoved: false,
-      branchDeleted: false,
-      error: `Branch ${branch} does not exist`,
-    };
-  }
-
-  // Step 2: rebase inside the worktree (only when worktree dir present).
-  let rebased = false;
-  if (existsSync(worktreePath)) {
-    if (!opts.skipFetch) {
-      gitSilent(['fetch', 'origin'], worktreePath);
-    }
-    // Prefer remote target if available, else local.
-    const rebaseOnto = (() => {
-      const hasRemote = gitSilent(
-        ['rev-parse', '--verify', `refs/remotes/origin/${targetBranch}`],
-        worktreePath,
-      );
-      return hasRemote ? `origin/${targetBranch}` : targetBranch;
-    })();
-    try {
-      gitSync(['rebase', rebaseOnto], worktreePath);
-      rebased = true;
-    } catch (err) {
-      gitSilent(['rebase', '--abort'], worktreePath);
-      return {
-        taskId,
-        targetBranch,
-        merged: false,
-        mergeCommit: '',
-        commitCount: 0,
-        rebased: false,
-        worktreeRemoved: false,
-        branchDeleted: false,
-        error: `Rebase onto ${rebaseOnto} failed: ${err instanceof Error ? err.message : String(err)}`,
-      };
-    }
-  }
-
-  // Step 3: count commits ahead before merge (for reporting).
-  let commitCount = 0;
-  try {
-    const aheadLog = gitSync(['log', '--format=%H', `${targetBranch}..${branch}`], gitRoot);
-    commitCount = aheadLog
-      .split('\n')
-      .map((s) => s.trim())
-      .filter(Boolean).length;
-  } catch {
-    /* best-effort */
-  }
-
-  if (commitCount === 0) {
-    // Nothing to merge — proceed straight to prune.
-    const pruneResult = pruneWorktree(taskId, projectRoot);
-    return {
-      taskId,
-      targetBranch,
-      merged: true,
-      mergeCommit: '',
-      commitCount: 0,
-      rebased,
-      worktreeRemoved: pruneResult.worktreeRemoved,
-      branchDeleted: pruneResult.branchDeleted,
-    };
-  }
-
-  // Step 4: merge --no-ff into target branch.
-  const subject = opts.taskTitle
-    ? `Merge ${taskId}: ${opts.taskTitle}`
-    : `Merge ${taskId}: worktree integration`;
-
-  // Capture current branch in gitRoot so we can restore it.
-  let originalBranch: string | null = null;
-  try {
-    originalBranch = gitSync(['rev-parse', '--abbrev-ref', 'HEAD'], gitRoot);
-  } catch {
-    /* ignore */
-  }
-
-  let checkedOut = false;
-  if (originalBranch !== targetBranch) {
-    if (gitSilent(['checkout', targetBranch], gitRoot)) {
-      checkedOut = true;
-    } else {
-      return {
-        taskId,
-        targetBranch,
-        merged: false,
-        mergeCommit: '',
-        commitCount,
-        rebased,
-        worktreeRemoved: false,
-        branchDeleted: false,
-        error: `Failed to checkout ${targetBranch} in main worktree`,
-      };
-    }
-  }
-
-  let mergeCommit = '';
-  let merged = false;
-  let mergeError: string | undefined;
-  try {
-    // T1591: set CLEO_ORCHESTRATE_MERGE=1 so a PATH-shimmed git accepts this
-    // merge. The shim refuses `git merge` from agent worktrees unless this env
-    // is set — completeAgentWorktreeViaMerge is the ONLY sanctioned call site.
-    execFileSync('git', ['merge', '--no-ff', branch, '-m', subject], {
-      cwd: gitRoot,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, CLEO_ORCHESTRATE_MERGE: '1' },
-    });
-    mergeCommit = gitSync(['rev-parse', 'HEAD'], gitRoot);
-    merged = true;
-  } catch (err) {
-    gitSilent(['merge', '--abort'], gitRoot);
-    mergeError = `Merge --no-ff failed: ${err instanceof Error ? err.message : String(err)}`;
-  } finally {
-    // Restore previous branch if we changed it (only on failure — on success
-    // staying on target is the expected post-condition).
-    if (!merged && checkedOut && originalBranch && originalBranch !== targetBranch) {
-      gitSilent(['checkout', originalBranch], gitRoot);
-    }
-  }
-
-  if (!merged) {
-    return {
-      taskId,
-      targetBranch,
-      merged: false,
-      mergeCommit: '',
-      commitCount,
-      rebased,
-      worktreeRemoved: false,
-      branchDeleted: false,
-      error: mergeError,
-    };
-  }
-
-  // Step 5: prune worktree + branch (T1462).
   const pruneResult = pruneWorktree(taskId, projectRoot);
-
   return {
     taskId,
     targetBranch,
     merged: true,
-    mergeCommit,
-    commitCount,
-    rebased,
+    mergeCommit: result.mergeCommit,
+    commitCount: result.commitCount,
+    rebased: result.rebased,
     worktreeRemoved: pruneResult.worktreeRemoved,
     branchDeleted: pruneResult.branchDeleted,
     error: pruneResult.error,
