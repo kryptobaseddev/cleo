@@ -1,5 +1,21 @@
 # Changelog
 
+## [2026.5.125] (2026-05-27)
+
+### Added
+
+- SG-PROJECT-AUTHORITY (T10295): ID-aware path resolver, project lifecycle engine, worktree-projectId binding, CWD-walk-up migration, strict CI gate _(provenance: [T10295](https://github.com/kryptobaseddev/cleo/search?q=T10295&type=commits))_
+
+### Changed
+
+- Migrate all getCleoDirAbsolute callsites to resolveProjectByCwd + resolveCanonicalCleoDir
+
+### Fixed
+
+- fix(worktree): bundle napi binaries in trusted package
+- test(worktree): register CLEO project in spawn E2E
+- Fix pre-existing biome errors and TS dead-code issues blocking release
+
 ## [2026.5.124] (2026-05-27)
 
 ### Added
