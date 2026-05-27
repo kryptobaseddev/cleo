@@ -22,7 +22,6 @@
  * @epic T9515
  */
 
-import { execFileSync } from 'node:child_process';
 import { existsSync, rmSync } from 'node:fs';
 import {
   type EngineResult,
@@ -33,6 +32,7 @@ import {
   type PruneOrphanedWorktreesResult,
   type WorktreeInfo,
 } from '@cleocode/contracts';
+import { gitSilent } from '@cleocode/worktree';
 import { getLogger } from '../logger.js';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from './audit.js';
 import { isPrimaryWorktree, listWorktrees, resolvePrimaryWorktreePath } from './list.js';
@@ -287,23 +287,3 @@ export function removeWorktreeFromDisk(
   return { success: true, branchDeleted };
 }
 
-/**
- * Run a git command and return `true` on exit-0, `false` otherwise. Mirrors
- * `gitSilent` in `branch-lock.ts` but lives here so the worktree-lifecycle
- * module is self-contained (no cross-module import cycle).
- *
- * @internal
- */
-function gitSilent(args: readonly string[], cwd: string): boolean {
-  try {
-    execFileSync('git', args as string[], {
-      cwd,
-      timeout: GIT_TIMEOUT_MS,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    return true;
-  } catch (err) {
-    log.debug({ err: err instanceof Error ? err.message : String(err), args }, 'git silent failed');
-    return false;
-  }
-}

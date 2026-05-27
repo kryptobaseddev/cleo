@@ -1,0 +1,37 @@
+{
+  "numTotalTests": 6,
+  "numPassedTests": 6,
+  "numFailedTests": 0,
+  "testResults": [
+    {
+      "name": "D087-A7: branch-lock.ts createAgentWorktree covered",
+      "status": "passed",
+      "duration": 0
+    },
+    {
+      "name": "D087-A7: branch-lock.ts completeAgentWorktreeViaMerge covered",
+      "status": "passed",
+      "duration": 0
+    },
+    {
+      "name": "D087-A7: branch-lock.ts pruneWorktree covered",
+      "status": "passed",
+      "duration": 0
+    },
+    {
+      "name": "D087-A7: branch-lock.ts pruneOrphanedWorktrees covered",
+      "status": "passed",
+      "duration": 0
+    },
+    {
+      "name": "D087-A7: branch-lock.ts getDefaultBranch covered",
+      "status": "passed",
+      "duration": 0
+    },
+    {
+      "name": "D087-A7: branch-lock.ts getGitRoot covered",
+      "status": "passed",
+      "duration": 0
+    }
+  ]
+}

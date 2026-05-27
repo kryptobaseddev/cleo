@@ -1,5 +1,22 @@
 # Changelog
 
+## [2026.5.126] (2026-05-27)
+
+### Added
+
+- SG-WORKTRUNK-OWN (T9977): Worktrunk Rust SSoT formalized — vendored crate ownership, 42 git shell-outs migrated to NAPI, branch-lock.ts lifecycle unified _(provenance: [T9977](https://github.com/kryptobaseddev/cleo/search?q=T9977&type=commits))_
+
+### Changed
+
+- branch-lock.ts: replace local gitSync/gitSilent/getGitRoot with @cleocode/worktree imports
+- Migrate createAgentWorktree, pruneWorktree, completeAgentWorktreeViaMerge to Rust NAPI
+
+### Fixed
+
+- CODEOWNERS + crate-level README for crates/worktrunk-core and crates/worktree-napi
+- Cross-platform NAPI build verification gate for all 4 targets
+- JSDoc @deprecated tags for legacy git helpers
+
 ## [2026.5.125] (2026-05-27)
 
 ### Added

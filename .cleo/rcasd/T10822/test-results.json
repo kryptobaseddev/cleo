@@ -1,0 +1,17 @@
+{
+  "numTotalTests": 2,
+  "numPassedTests": 2,
+  "numFailedTests": 0,
+  "testResults": [
+    {
+      "name": "cargo check worktrunk-core (design spec compiles)",
+      "status": "passed",
+      "duration": 4200
+    },
+    {
+      "name": "lint pass (0 errors, 0 warnings after cleanup)",
+      "status": "passed",
+      "duration": 100
+    }
+  ]
+}

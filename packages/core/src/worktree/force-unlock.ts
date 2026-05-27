@@ -33,6 +33,7 @@ import {
   type ForceUnlockWorktreeOpts,
   type ForceUnlockWorktreeResult,
 } from '@cleocode/contracts';
+import { gitSilent } from '@cleocode/worktree';
 import { getLogger } from '../logger.js';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from './audit.js';
 import { listWorktrees } from './list.js';
@@ -247,23 +248,3 @@ export function detectUncommittedChanges(worktreePath: string): boolean {
   }
 }
 
-/**
- * Run a git command and return `true` on exit-0, `false` otherwise. Local
- * mirror of the helper in `prune.ts` — duplicated intentionally so each
- * lifecycle module is self-contained.
- *
- * @internal
- */
-function gitSilent(args: readonly string[], cwd: string): boolean {
-  try {
-    execFileSync('git', args as string[], {
-      cwd,
-      timeout: GIT_TIMEOUT_MS,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    return true;
-  } catch (err) {
-    log.debug({ err: err instanceof Error ? err.message : String(err), args }, 'git silent failed');
-    return false;
-  }
-}

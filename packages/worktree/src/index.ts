@@ -71,3 +71,10 @@ export {
 } from './worktree-migrate.js';
 export { installWorktreeDependencies } from './worktree-pnpm.js';
 export { pruneWorktrees } from './worktree-prune.js';
+
+// T11123: Export napi bindings so branch-lock.ts can replace raw
+// git worktree unlock/remove shell-outs with atomic Rust calls.
+export {
+  destroyWorktree as napiDestroyWorktree,
+  pruneWorktrees as napiPruneWorktrees,
+} from './napi-binding.js';
