@@ -65,3 +65,9 @@ export {
   resolveWorktreeRoot,
 } from './worktree-list.js';
 export { pruneWorktrees } from './worktree-prune.js';
+export type { MigrateWorktreeResult } from './worktree-migrate.js';
+export {
+  discoverParentProjectRoot,
+  migrateAllWorktreeIdentities,
+  migrateWorktreeIdentity,
+} from './worktree-migrate.js';
