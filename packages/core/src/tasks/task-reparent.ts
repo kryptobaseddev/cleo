@@ -13,7 +13,10 @@ import { getHierarchyLimits } from './task-tree.js';
 /** Task record shape expected from the data layer. */
 type TaskRecord = Task;
 
-function typeForDepth(depth: number): TaskRecord['type'] {
+function typeForDepth(depth: number, currentType?: TaskRecord['type']): TaskRecord['type'] {
+  // Preserve saga and epic types through reparenting (saga stays saga, epic stays epic)
+  if (currentType === 'saga') return 'saga';
+  if (currentType === 'epic') return 'epic';
   return depth >= 2 ? 'subtask' : 'task';
 }
 
@@ -127,7 +130,7 @@ export async function coreTaskReparent(
   visitDescendants(task.id, newDepth);
 
   const deepestDepth = Math.max(...plannedDepths.values());
-  if (deepestDepth >= reparentLimits.maxDepth) {
+  if (deepestDepth > reparentLimits.maxDepth) {
     throw new Error(`Move would exceed max depth of ${reparentLimits.maxDepth}`);
   }
 
@@ -155,7 +158,7 @@ export async function coreTaskReparent(
   for (const node of tasksToPersist) {
     const depth = plannedDepths.get(node.id);
     if (depth === undefined) continue;
-    node.type = typeForDepth(depth);
+    node.type = typeForDepth(depth, node.type);
     node.updatedAt = now;
     subtreeUpdated.push(node.id);
   }
