@@ -45,19 +45,18 @@ import type {
   WorktreeSpawnResult,
 } from '@cleocode/contracts';
 import { computeProjectHash, resolveWorktreeRootForHash } from '@cleocode/paths';
-import { getGitRoot, gitSilent, gitSync } from '@cleocode/worktree';
-export { getGitRoot };
 
 // ---------------------------------------------------------------------------
 // Re-exports from @cleocode/worktree
 // ---------------------------------------------------------------------------
 
-import { getGitRoot, gitSilent, gitSync } from '@cleocode/worktree/git.js';
 import {
-  provisionWorktree,
   destroyWorktree as napiDestroyWorktree,
+  integrateWorktree,
+  provisionWorktree,
   pruneWorktrees,
 } from '@cleocode/worktree';
+import { getGitRoot, gitSilent, gitSync } from '@cleocode/worktree';
 
 // Re-export getGitRoot for barrel consumers
 export { getGitRoot };
@@ -587,19 +586,38 @@ export function completeAgentWorktreeViaMerge(
 
   // T11124: Delegate to Rust NAPI SSoT
   const result = integrateWorktree({
-    repoRoot: gitRoot, worktreePath, branch, targetBranch,
-    taskTitle: opts.taskTitle, skipFetch: opts.skipFetch ?? false,
+    repoRoot: gitRoot,
+    worktreePath,
+    branch,
+    targetBranch,
+    taskTitle: opts.taskTitle,
+    skipFetch: opts.skipFetch ?? false,
   });
   if (!result.merged) {
-    return { taskId, targetBranch, merged: false, mergeCommit: '',
-      commitCount: result.commitCount, rebased: result.rebased,
-      worktreeRemoved: false, branchDeleted: false, error: result.error };
+    return {
+      taskId,
+      targetBranch,
+      merged: false,
+      mergeCommit: '',
+      commitCount: result.commitCount,
+      rebased: result.rebased,
+      worktreeRemoved: false,
+      branchDeleted: false,
+      error: result.error,
+    };
   }
   const pruneResult = pruneWorktree(taskId, projectRoot);
-  return { taskId, targetBranch, merged: true, mergeCommit: result.mergeCommit,
-    commitCount: result.commitCount, rebased: result.rebased,
-    worktreeRemoved: pruneResult.worktreeRemoved, branchDeleted: pruneResult.branchDeleted,
-    error: pruneResult.error };
+  return {
+    taskId,
+    targetBranch,
+    merged: true,
+    mergeCommit: result.mergeCommit,
+    commitCount: result.commitCount,
+    rebased: result.rebased,
+    worktreeRemoved: pruneResult.worktreeRemoved,
+    branchDeleted: pruneResult.branchDeleted,
+    error: pruneResult.error,
+  };
 }
 
 // ---------------------------------------------------------------------------
