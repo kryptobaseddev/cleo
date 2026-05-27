@@ -4,13 +4,13 @@
 > **Layer owned**: Tier 0 Harness Layer (Cockpit TUI · TS Daemon · ZeroMQ IPC · VCM mutex · PTY isolation)
 > **Sibling canon**: [`docs/plans/CLEO-PRIME-SENTIENT-MASTERPLAN.md`](../plans/CLEO-PRIME-SENTIENT-MASTERPLAN.md) — persona/memory layer (Tier 1-14)
 > **Seam between layers**: LAFS envelope (ADR-039); contract hardened by saga **T10343 SG-ENVELOPE-FIRST**
-> **Filed sagas covering this doc's scope** (per `cleo docs fetch sg-canonical-saga-mesh-2026-05-23` + `sg-mesh-decisions-ledger-2026-05-24`):
+> **Filed sagas covering this doc's scope** (per `cleo docs fetch sg-canonical-saga-mesh-2026-05-23`; decisions ratified in BRAIN D018-D024):
 > - **T10401 SG-HARNESS-DAEMON-IPC** — `cleo daemon serve` + VCM mutex queue + ZeroMQ data plane + WASI/Docker sandbox (§§2, 7, 8.D, 8.E)
 > - **T10402 SG-COCKPIT-HARNESS** — Rust `ratatui` TUI as separate process consuming envelope-over-IPC (§§2, 6)
 > - **T10409 SG-VAULT-CORE** — vendored `crates/cleo-gateway` (axum + hyper + tokio-rustls + rcgen MITM CA) hosting the SDK API surface
 > - **T10403 SG-GENKIT-MIDDLEWARE** — context compression (LLMLingua-2) + bidirectional PII (gaze-pii NAPI-RS) addresses §8.C context window exhaustion
 > - **T9800 SG-WORKTREE-CANON** + **T9977 SG-WORKTRUNK-OWN** — addresses §8.A worktree dependency management
-> **2026-05-24 update**: HTTPS via vendored `crates/cleo-gateway` is the **primary** transport for the SDK API control plane; ZeroMQ retained for streaming/PUB-SUB only (heartbeats, brain pulses, PTY firehose) per §8.D heartbeat protocol. See decisions ledger D2.
+> **2026-05-24 update**: HTTPS via vendored `crates/cleo-gateway` is the **primary** transport for the SDK API control plane; ZeroMQ retained for streaming/PUB-SUB only (heartbeats, brain pulses, PTY firehose) per §8.D heartbeat protocol. See BRAIN D019.
 > **Promotion-to-plans/ pending**: when first Tier 0 wave ships, move this doc into `docs/plan/` via `cleo docs add --type plan`.
 
 ## **1\. Executive Summary**

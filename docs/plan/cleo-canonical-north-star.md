@@ -1,6 +1,6 @@
 # CLEO — Canonical North Star
 
-> **Status**: canonical · 2026-05-25 (v3 — full reconstruction after raw-write loss; integrates both work streams + decisions ledger inline with verified D1-D7 from actual `sg-mesh-decisions-ledger-2026-05-24-home-t10400` ledger blob)
+> **Status**: canonical · 2026-05-25 (v3 — full reconstruction after raw-write loss; integrates both work streams + BRAIN decisions D018-D024)
 > **Supersedes**: nothing — consolidates two pre-existing canonical docs into a single navigable index
 > **Purpose**: single entrypoint for "where does this work fit?" — links the persona/memory roadmap (`CLEO-PRIME-SENTIENT-MASTERPLAN.md`) with the harness/IPC architecture (`CleoCode-Architecture-Harness-Planning.md`) and maps every live saga onto a tier.
 
@@ -139,21 +139,24 @@ Dependency-ordered ship sequence (post 2026-05-24 deltas):
 16. **THEN** — T10406 SG-FOUR-BUS-INTEGRATION (consumes T10405 Mem0 chokepoint + T10295 projectId + T9144 partial ship)
 17. **FUTURE** — Tier 8 Continuous Living + Tier 11-14 from masterplan §17
 
-## 5. Genkit + CANT integration map + decisions ledger (inline)
+## 5. Genkit + CANT integration map + decisions (BRAIN-referenced)
 
-### 5.1 Decisions D1-D7 (ratified 2026-05-24, source: `sg-mesh-decisions-ledger-2026-05-24-home-t10400`)
+### 5.1 Decisions D1-D7 (ratified 2026-05-24, persisted in BRAIN)
 
-Mirrored from the actual decisions ledger blob attached to T10400 (slug suffix `-home-t10400` was auto-added by the docs SSoT). Decisions govern the data flow diagram in §5.2.
+Full decision text and rationale are stored as durable BRAIN decision records — the SSoT for architectural decisions.
+Retrieve any via `cleo memory fetch <id>` or sqlite3 on `.cleo/brain.db`.
 
-| ID | Decision | Why |
-|---|---|---|
-| **D1** | **SDK-API + envelope-first split: KEEP AS PROPOSED** — T10343 = doctrine saga (LAFS envelope as canonical boundary); T10400 = implementation saga (OpenAPI 3.2 + `@cleocode/cleo-sdk` + CI gate). Relation: `T10343 supersedes T10400` (doctrine ratified by implementation), `T10400 extends T10343` | Clean separation of "rule" from "surface" makes both stable; doctrine changes infrequently, implementation evolves per provider/version drift |
-| **D2** | **Gateway transport: HYBRID** — HTTPS control plane (axum + hyper + tokio-rustls + rcgen MITM CA per T10409 AC2) for SDK API requests + JWT Proxy-Authorization (T10409 AC7); Unix socket fallback at `~/.local/share/cleo/daemon.sock` for same-machine high-trust ops; ZeroMQ PUB/SUB data plane for streaming (heartbeats 1Hz, brain pulses, PTY firehose per Harness doc §2) | REST ecosystem for control plane; skip TLS overhead for local ops; ZeroMQ for high-volume unidirectional streaming |
-| **D3** | **LLMLingua model: TinyBERT (57MB) default**; MobileBERT (99MB) / BERT-Base (710MB) / XLM-RoBERTa-Large (2.2GB GPU) selectable via `CLEO_LLMLINGUA_MODEL=<variant>` env OR `.cleo/config.json` `llmlingua.model` key. First use of non-default triggers HuggingFace download with operator confirmation prompt (no silent multi-GB downloads). T10403 AC9 locked 2026-05-24 | Ergonomics > accuracy in default install; opt-in for accuracy-critical workloads; per-project override > env |
-| **D4** | **PII engine: `gaze-pii` Rust crate via NAPI-RS bridge** (REPLACES OpenRedaction). gaze-pii v0.9.0 on crates.io 2026-05-16 + gaze-assembly v0.9.0 (StandardRulepack with GDPR/HIPAA presets). License: Apache-2.0 OR MIT (safe to consume). 10-50μs NAPI round-trip vs OpenRedaction's 300ms REST | Major architecture change: Rust NER+regex with cryptographic Manifest vs Node.js regex-first; bidirectional rehydration preserved; Rust hot path per ADR-078 |
-| **D5** | **CANT discretion rate limit: 100 evaluations/workflow default**; per-`.cant`-file override via frontmatter `discretion_budget: 500`; per-evaluator cost tracking surfaced via `cleo doctor cant` | Most workflows <10 discretion conditions; tight loops are rare and should be explicit opt-in; 100 is generous enough that legitimate single-workflow use never hits it; cost cap matters per CANT spec §7.3 |
-| **D6** | **Approval token state: `conduit.db` (`conduit_approvals` table)** — CANT spec §8 approval gates have 24h expiration; TS Daemon crash during window must NOT lose pending approvals. State persists to conduit.db, NOT a new dedicated DB | Approval gates ARE inter-agent communication artifacts (semantic fit); conduit already has `attachment_approvals` table as precedent for approval-pattern naming + schema; no new DB topology required (reduces T10281 BRAIN-DB-RESILIENCE inventory pressure) |
-| **D7** | **CANT discretion rate (confirmed by owner)** — owner agreed with D5 recommendation; no further action | Closes the open question from `sg-canonical-saga-mesh-2026-05-23` charter §7 |
+| Ref | BRAIN ID | Decision summary | Context saga | Lookup |
+|---|---|---|---|---|
+| **D1** | D018 | SDK-API + envelope-first split: KEEP AS PROPOSED — T10343 doctrine, T10400 implementation | T10400 | `cleo memory fetch D018` |
+| **D2** | D019 | Gateway transport: HYBRID — HTTPS control plane + Unix socket fallback + ZeroMQ streaming data plane | T10401 | `cleo memory fetch D019` |
+| **D3** | D020 | LLMLingua model: TinyBERT (57MB) default; larger variants opt-in via env or project config | T10403 | `cleo memory fetch D020` |
+| **D4** | D021 | PII engine: gaze-pii Rust crate via NAPI-RS bridge (replaces OpenRedaction) | T10403 | `cleo memory fetch D021` |
+| **D5** | D022 | CANT discretion rate limit: 100 evaluations/workflow default, per-`.cant` override available | T10404 | `cleo memory fetch D022` |
+| **D6** | D023 | Approval token state: conduit.db `conduit_approvals` table (survives daemon crash) | T10404 | `cleo memory fetch D023` |
+| **D7** | D024 | CANT discretion rate: owner-confirmed — closes open question from saga mesh charter | T10404 | `cleo memory fetch D024` |
+
+The previous inline ledger (source: `sg-mesh-decisions-ledger-2026-05-24-home-t10400`) is superseded by the above BRAIN records. The ledger blob remains attached to T10400 for provenance but is no longer the decision SSoT.
 
 **Open decisions** (TBD by next planning agent):
 - **D8** — RMUX adoption for Cockpit multiplexer infra (gated by T10420 council review; ADOPT default per owner intent in `cockpit-competitive-intel-seed-2026-05-24`)
@@ -239,8 +242,9 @@ The original of this doc was written via raw `Write` to `docs/plans/` (wrong pat
 ### 6.6 T1806 Web UI placement TBD (D10)
 T1806 (Web UI for daemon management) lives in `packages/cleo-os/src/web/` — daemon-side code, not cockpit-side. Currently under T10402 but may move to T10401 (daemon admin surface) or T10419 (operator web channel surface). Decision deferred to T10420 council review of OpenCode Webapp evaluation.
 
-### 6.7 Decisions ledger doc slug suffix discovered (RESOLVED in v3)
-v2 incorrectly stated `sg-mesh-decisions-ledger-2026-05-24` was missing. In v3 the actual slug `sg-mesh-decisions-ledger-2026-05-24-home-t10400` was discovered (docs SSoT appends `-home-<ownerId>` for clarity). The ledger blob is 17,434 bytes and IS attached to T10400 with full D1-D7 ratification + investigation findings §3. The inline §5.1 above mirrors the ledger; for full investigation findings §3 (existing surfaces audit + dependency availability) run `cleo docs fetch sg-mesh-decisions-ledger-2026-05-24-home-t10400`.
+### 6.7 Decisions ledger migrated to BRAIN (RESOLVED in v3 → v4)
+
+v2 incorrectly stated `sg-mesh-decisions-ledger-2026-05-24` was missing. In v3 the actual slug `sg-mesh-decisions-ledger-2026-05-24-home-t10400` was discovered. In v4 (T11058), the inline D1-D7 decisions table has been migrated to durable BRAIN decision records (D018-D024). The ledger blob remains attached to T10400 for provenance but is no longer the decision SSoT. For full investigation findings §3 (existing surfaces audit + dependency availability) run `cleo docs fetch sg-mesh-decisions-ledger-2026-05-24-home-t10400`.
 
 ## 7. Maintenance contract
 
@@ -276,7 +280,7 @@ Do NOT update this doc to:
 
 ### Research doc slugs (via `cleo docs fetch <slug>`)
 - `sg-canonical-saga-mesh-2026-05-23` — original mesh charter (7 sagas → expanded to 10)
-- `sg-mesh-decisions-ledger-2026-05-24-home-t10400` — D1-D7 decisions ratification + investigation findings §3 (existing surfaces + dependency availability); mirrored inline in §5.1
+- `sg-mesh-decisions-ledger-2026-05-24-home-t10400` — D1-D7 decisions ratification + investigation findings §3 (provenance only; decision SSoT is now BRAIN D018-D024 per §5.1)
 - `sg-brain-db-resilience-deep-audit-2026-05-23` — BRAIN substrate audit
 - `sg-project-authority-charter-2026-05-23` — projectId-as-truth charter
 - `sg-envelope-first-doctrine-2026-05-23` — envelope SSoT doctrine
