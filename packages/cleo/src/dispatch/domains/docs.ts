@@ -1606,6 +1606,10 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         lifecycleStatus: outcome.result.lifecycleStatus,
         updatedAt: outcome.result.updatedAt,
         version: outcome.result.version,
+        /** Version SSoT (T11181) — canonical version identifiers. */
+        ownerVersion: outcome.result.ownerVersion,
+        /** Sequential doc version counter (T11181). */
+        docVersion: outcome.result.docVersion,
         squashed: outcome.result.squashed,
         summary: outcome.result.summary,
         // T11053 — surface which backend stored the updated blob so

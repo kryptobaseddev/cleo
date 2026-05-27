@@ -158,6 +158,24 @@ export const attachments = sqliteTable(
      * @task T10158 (Epic T10157 / Saga T9855)
      */
     relatedTasks: text('related_tasks'),
+    /**
+     * CLEO release version that wrote this row (canonical SSoT).
+     *
+     * Derived from @cleocode/cleo/package.json → version at write time.
+     * Used by the docs version SSoT to anchor docs to their release cycle.
+     *
+     * @task T11181 (Epic T10518 / Saga T10516)
+     */
+    ownerVersion: text('owner_version'),
+    /**
+     * Sequential doc version counter for this slug.
+     *
+     * Auto-incremented on every `docs.update` call: oldRow.docVersion + 1.
+     * Defaults to 1 for newly created rows.
+     *
+     * @task T11181 (Epic T10518 / Saga T10516)
+     */
+    docVersion: integer('doc_version').notNull().default(1),
   },
   (table) => [
     index('idx_attachments_sha256').on(table.sha256),

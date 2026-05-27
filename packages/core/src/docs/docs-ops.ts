@@ -165,6 +165,10 @@ export interface DocsVersionEntry {
   readonly sizeBytes: number;
   /** IANA MIME type, when known. */
   readonly mimeType?: string;
+  /** CLEO release version that wrote this version (T11181). */
+  readonly ownerVersion?: string;
+  /** Sequential doc version counter (T11181). */
+  readonly docVersion?: number;
 }
 
 /**

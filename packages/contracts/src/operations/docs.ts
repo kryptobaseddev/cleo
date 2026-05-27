@@ -600,7 +600,12 @@ export interface DocsUpdateResult {
    * underlying store cannot enumerate history this falls back to `2` for the
    * first update and increments by 1 thereafter.
    */
+  /** @deprecated Legacy version field (audit-log-based). Use ownerVersion + docVersion instead (T11181). */
   version: number;
+  /** CLEO release version that wrote this row (canonical SSoT, T11181). */
+  ownerVersion: string;
+  /** Sequential doc version counter for this slug (T11181). */
+  docVersion: number;
   /**
    * True when this update was squashed into an existing audit entry within
    * the 5-minute squash window (no new audit line was written).
