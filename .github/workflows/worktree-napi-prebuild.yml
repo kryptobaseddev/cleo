@@ -1,6 +1,8 @@
 name: worktree-napi prebuild
 
 # @task T10178
+# @task T11127 — gate job added to aggregate all 4 platform builds into a
+#   single pass/fail signal consumed by CI's worktree-napi-gate.
 # Cross-platform dogfood prebuild of the worktree-napi addon for PR/path
 # validation. Release publishing no longer consumes artifacts from this
 # workflow; release.yml has its own in-run prebuild job (T10434 / T10438).
@@ -103,3 +105,24 @@ jobs:
           path: crates/worktree-napi/worktree-napi.*.node
           if-no-files-found: error
           retention-days: 14
+
+  gate:
+    name: gate
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    if: always()
+    steps:
+      - name: Verify all 4 platform builds passed
+        shell: bash
+        run: |
+          if [[ "${{ needs.build.result }}" == "success" ]]; then
+            echo "✓ worktree-napi prebuild passed on all 4 platform targets"
+            exit 0
+          elif [[ "${{ needs.build.result }}" == "skipped" ]]; then
+            echo "○ No matching paths — gate is not applicable"
+            exit 0
+          else
+            echo "✗ worktree-napi prebuild failed (result: ${{ needs.build.result }})"
+            exit 1
+          fi

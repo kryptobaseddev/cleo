@@ -1489,6 +1489,65 @@ jobs:
         if: always()
         run: pnpm unlink --global @cleocode/cleo
 
+  worktree-napi-gate:
+    name: Worktree NAPI Prebuild Gate (T11127)
+    needs: [changes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wait for worktree-napi prebuild on all 4 targets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          COMMIT_SHA="${{ github.event.pull_request.head.sha || github.sha }}"
+
+          # Check if the prebuild workflow has any runs for this commit
+          RUN_JSON=$(gh run list \
+            --workflow=worktree-napi-prebuild.yml \
+            --branch="${{ github.head_ref || github.ref_name }}" \
+            --limit=5 --json status,conclusion,headSha,databaseId,event \
+            2>/dev/null || echo '[]')
+
+          MATCHING_RUN=$(echo "$RUN_JSON" | jq -r --arg sha "$COMMIT_SHA" \
+            'map(select(.headSha == $sha and .event != "workflow_dispatch")) | sort_by(.databaseId) | last // empty')
+
+          if [ -z "$MATCHING_RUN" ] || [ "$MATCHING_RUN" = "null" ]; then
+            echo "○ No prebuild workflow run triggered for $COMMIT_SHA"
+            echo "  (no matching paths — gate passes)"
+            exit 0
+          fi
+
+          RUN_STATUS=$(echo "$MATCHING_RUN" | jq -r '.status')
+          RUN_ID=$(echo "$MATCHING_RUN" | jq -r '.databaseId')
+
+          echo "Found prebuild run #$RUN_ID (status: $RUN_STATUS)"
+
+          if [ "$RUN_STATUS" = "completed" ]; then
+            CONCLUSION=$(echo "$MATCHING_RUN" | jq -r '.conclusion')
+            if [ "$CONCLUSION" = "success" ]; then
+              echo "✓ worktree-napi prebuild passed on all 4 platform targets"
+              exit 0
+            else
+              echo "✗ worktree-napi prebuild completed with conclusion: $CONCLUSION"
+              echo "  View: ${{ github.server_url }}/${{ github.repository }}/actions/runs/$RUN_ID"
+              exit 1
+            fi
+          fi
+
+          # Wait for the run to complete (up to 12 minutes)
+          echo "Waiting for prebuild run #$RUN_ID to complete..."
+          if gh run watch "$RUN_ID" --exit-status 2>/dev/null; then
+            echo "✓ worktree-napi prebuild passed on all 4 platform targets"
+            exit 0
+          else
+            echo "✗ worktree-napi prebuild failed or timed out"
+            echo "  View: ${{ github.server_url }}/${{ github.repository }}/actions/runs/$RUN_ID"
+            exit 1
+          fi
+
   forge-ts-check:
     name: Documentation Coverage (forge-ts)
     needs: [biome, changes]
