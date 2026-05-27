@@ -965,7 +965,15 @@ export async function addTask(
       );
     }
 
-    if (!isAllowedWorkGraphParentType(taskType, parentTask.type)) {
+    const parentTypeForValidation: TaskType = parentTask.type ?? 'task';
+    const childTypeForParent: TaskType =
+      taskType ??
+      (parentTypeForValidation === 'saga'
+        ? 'epic'
+        : parentTypeForValidation === 'task'
+          ? 'subtask'
+          : 'task');
+    if (!isAllowedWorkGraphParentType(childTypeForParent, parentTypeForValidation)) {
       throw new CleoError(
         ExitCode.VALIDATION_ERROR,
         `Invalid parent type for ${taskType}: parent ${parentId} has type '${parentTask.type}'.`,
@@ -975,8 +983,8 @@ export async function addTask(
             field: 'parentId',
             expected: 'saga->epic | epic->task | task->subtask',
             actual: {
-              parentType: parentTask.type,
-              childType: taskType,
+              parentType: parentTypeForValidation,
+              childType: childTypeForParent,
               ancestorTypes: ancestors.map((a) => a.type),
             },
           },
@@ -1003,6 +1011,8 @@ export async function addTask(
       const parent = await dataAccessor.loadSingleTask(parentId);
       if (!parent) {
         taskType = 'task';
+      } else if (parent.type === 'saga') {
+        taskType = 'epic';
       } else if (parent.type === 'epic') {
         taskType = 'task';
       } else {

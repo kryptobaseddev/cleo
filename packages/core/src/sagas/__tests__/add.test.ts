@@ -16,28 +16,20 @@
  * @see ADR-073-above-epic-naming.md §1.2
  */
 
-import { mkdirSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { createTask, getDb } from '@cleocode/core/internal';
+import { createTask } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import { sagaAdd } from '../add.js';
 import { E_SAGA_INVARIANT_VIOLATION_I7 } from '../enforcement.js';
 
 let TEST_ROOT: string;
+let env: TestDbEnv;
 
 /**
  * Seed two sagas (T9101 + T9102) and a regular epic (T9201) so we can assert
  * both the happy path and the nested-saga rejection path.
  */
 async function seedTwoSagasFixture(testRoot: string): Promise<void> {
-  const cleoDir = join(testRoot, '.cleo');
-  mkdirSync(cleoDir, { recursive: true });
-  // validateProjectRoot requires `.git/` sibling for the walk-up.
-  mkdirSync(join(testRoot, '.git'), { recursive: true });
-  await getDb(testRoot);
-
   const ts = '2026-05-22T00:00:00Z';
   const rows = [
     {
@@ -78,7 +70,8 @@ async function seedTwoSagasFixture(testRoot: string): Promise<void> {
 }
 
 beforeEach(async () => {
-  TEST_ROOT = await mkdtemp(join(tmpdir(), 'cleo-saga-add-i7-test-'));
+  env = await createTestDb();
+  TEST_ROOT = env.tempDir;
   await seedTwoSagasFixture(TEST_ROOT);
 });
 
@@ -89,7 +82,7 @@ afterEach(async () => {
   } catch {
     // ignore cleanup errors
   }
-  await rm(TEST_ROOT, { recursive: true, force: true });
+  await env.cleanup();
 });
 
 describe('sagaAdd — ADR-073 §1.2 invariant I7 (no nested sagas)', () => {
@@ -141,33 +134,30 @@ describe('sagaAdd — ADR-073 §1.2 invariant I7 (no nested sagas)', () => {
   // uses real-world IDs so the failure message matches what an operator sees.
   // ────────────────────────────────────────────────────────────────────────
   it('regression: rejects linking T9831 (saga) as a member of T9799 (saga)', async () => {
-    // Override the fixture with real-world IDs.
-    const realRoot = await mkdtemp(join(tmpdir(), 'cleo-saga-add-t9831-test-'));
+    const realEnv = await createTestDb();
+    const realRoot = realEnv.tempDir;
     try {
-      mkdirSync(join(realRoot, '.cleo'), { recursive: true });
-      mkdirSync(join(realRoot, '.git'), { recursive: true });
-      await getDb(realRoot);
       const ts = '2026-05-22T00:00:00Z';
       const rows = [
         {
-            id: 'T9799',
-            title: 'Saga T9799 (skill maintenance)',
-            description: 'Top-level saga',
-            type: 'saga' as const,
-            status: 'active' as const,
-            priority: 'high' as const,
-            createdAt: ts,
-            updatedAt: null,
+          id: 'T9799',
+          title: 'Saga T9799 (skill maintenance)',
+          description: 'Top-level saga',
+          type: 'saga' as const,
+          status: 'active' as const,
+          priority: 'high' as const,
+          createdAt: ts,
+          updatedAt: null,
         },
         {
-            id: 'T9831',
-            title: 'Saga T9831 (SG-ARCH-SOLID)',
-            description: 'Top-level saga that must NOT nest under T9799',
-            type: 'saga' as const,
-            status: 'active' as const,
-            priority: 'high' as const,
-            createdAt: ts,
-            updatedAt: null,
+          id: 'T9831',
+          title: 'Saga T9831 (SG-ARCH-SOLID)',
+          description: 'Top-level saga that must NOT nest under T9799',
+          type: 'saga' as const,
+          status: 'active' as const,
+          priority: 'high' as const,
+          createdAt: ts,
+          updatedAt: null,
         },
       ];
       for (const row of rows) {
@@ -189,7 +179,7 @@ describe('sagaAdd — ADR-073 §1.2 invariant I7 (no nested sagas)', () => {
       } catch {
         // ignore cleanup errors
       }
-      await rm(realRoot, { recursive: true, force: true });
+      await realEnv.cleanup();
     }
   });
 });

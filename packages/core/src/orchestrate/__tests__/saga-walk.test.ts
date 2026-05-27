@@ -32,30 +32,22 @@
  * @task T10969 — Add saga ready frontier tests
  */
 
-import { mkdirSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import {
   createTask,
-  getDb,
   orchestrateReady,
   orchestrateWaves,
   sagas,
 } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 
 let TEST_ROOT: string;
+let env: TestDbEnv;
 
 /**
  * Seed the saga fixture with type='saga' and parent_id containment.
  */
 async function seedSagaFixture(testRoot: string): Promise<void> {
-  const cleoDir = join(testRoot, '.cleo');
-  mkdirSync(cleoDir, { recursive: true });
-  mkdirSync(join(testRoot, '.git'), { recursive: true });
-  await getDb(testRoot);
-
   const ts = '2026-05-21T00:00:00Z';
 
   const tasks = [
@@ -193,7 +185,8 @@ async function seedSagaFixture(testRoot: string): Promise<void> {
 }
 
 beforeEach(async () => {
-  TEST_ROOT = await mkdtemp(join(tmpdir(), 'cleo-saga-walk-test-'));
+  env = await createTestDb();
+  TEST_ROOT = env.tempDir;
   await seedSagaFixture(TEST_ROOT);
 });
 
@@ -204,7 +197,7 @@ afterEach(async () => {
   } catch {
     // ignore cleanup errors
   }
-  await rm(TEST_ROOT, { recursive: true, force: true });
+  await env.cleanup();
 });
 
 // ---------------------------------------------------------------------------

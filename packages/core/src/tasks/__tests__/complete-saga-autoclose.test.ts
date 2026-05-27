@@ -7,8 +7,7 @@
  *
  *   - Auto-closes any saga whose remaining members are all terminal
  *     (`done` or `cancelled`).
- *   - Resolves saga members via `task_relations.type='groups'` rather
- *     than the `parentId` column (ADR-073 §1.2 invariants I3/I5).
+ *   - Resolves saga members via canonical `parentId` containment.
  *   - Synthesizes a verification envelope citing the closing event,
  *     the member rollup digest, and ADR-073.
  *   - Stays idempotent — a saga that is already `done` MUST NOT be
@@ -28,7 +27,6 @@
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { SAGA_GROUPS_RELATION } from '../../sagas/constants.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { resetDbState } from '../../store/sqlite.js';
@@ -71,10 +69,9 @@ describe('completeTask — saga auto-close (T10116)', () => {
       {
         id: 'TS-T9800',
         title: 'SG-WORKTREE-CANON',
-        type: 'epic',
+        type: 'saga',
         status: 'pending',
         priority: 'high',
-        labels: ['saga'],
         createdAt: now,
       },
       {
@@ -83,6 +80,7 @@ describe('completeTask — saga auto-close (T10116)', () => {
         type: 'epic',
         status: 'done',
         priority: 'high',
+        parentId: 'TS-T9800',
         createdAt: now,
         completedAt: now,
       },
@@ -92,6 +90,7 @@ describe('completeTask — saga auto-close (T10116)', () => {
         type: 'epic',
         status: 'done',
         priority: 'high',
+        parentId: 'TS-T9800',
         createdAt: now,
         completedAt: now,
       },
@@ -101,13 +100,10 @@ describe('completeTask — saga auto-close (T10116)', () => {
         type: 'epic',
         status: 'pending',
         priority: 'high',
+        parentId: 'TS-T9800',
         createdAt: now,
       },
     ]);
-    await accessor.addRelation('TS-T9800', 'TM-E1', SAGA_GROUPS_RELATION);
-    await accessor.addRelation('TS-T9800', 'TM-E2', SAGA_GROUPS_RELATION);
-    await accessor.addRelation('TS-T9800', 'TM-E3', SAGA_GROUPS_RELATION);
-
     const result = await completeTask({ taskId: 'TM-E3' }, env.tempDir, accessor);
 
     expect(result.task.status).toBe('done');
@@ -138,10 +134,9 @@ describe('completeTask — saga auto-close (T10116)', () => {
       {
         id: 'TS-T9831',
         title: 'SG-ARCH-SOLID',
-        type: 'epic',
+        type: 'saga',
         status: 'pending',
         priority: 'high',
-        labels: ['saga'],
         createdAt: now,
       },
       {
@@ -150,6 +145,7 @@ describe('completeTask — saga auto-close (T10116)', () => {
         type: 'epic',
         status: 'done',
         priority: 'high',
+        parentId: 'TS-T9831',
         createdAt: now,
         completedAt: now,
       },
@@ -159,6 +155,7 @@ describe('completeTask — saga auto-close (T10116)', () => {
         type: 'epic',
         status: 'cancelled',
         priority: 'high',
+        parentId: 'TS-T9831',
         createdAt: now,
         cancelledAt: now,
       },
@@ -168,6 +165,7 @@ describe('completeTask — saga auto-close (T10116)', () => {
         type: 'epic',
         status: 'done',
         priority: 'high',
+        parentId: 'TS-T9831',
         createdAt: now,
         completedAt: now,
       },
@@ -177,14 +175,10 @@ describe('completeTask — saga auto-close (T10116)', () => {
         type: 'epic',
         status: 'pending',
         priority: 'high',
+        parentId: 'TS-T9831',
         createdAt: now,
       },
     ]);
-    await accessor.addRelation('TS-T9831', 'TM-A1', SAGA_GROUPS_RELATION);
-    await accessor.addRelation('TS-T9831', 'TM-A2', SAGA_GROUPS_RELATION);
-    await accessor.addRelation('TS-T9831', 'TM-A3', SAGA_GROUPS_RELATION);
-    await accessor.addRelation('TS-T9831', 'TM-A4', SAGA_GROUPS_RELATION);
-
     const result = await completeTask({ taskId: 'TM-A4' }, env.tempDir, accessor);
     expect(result.autoCompleted).toContain('TS-T9831');
 
@@ -201,10 +195,9 @@ describe('completeTask — saga auto-close (T10116)', () => {
       {
         id: 'TS-MIX',
         title: 'SG-MIXED-STATE',
-        type: 'epic',
+        type: 'saga',
         status: 'pending',
         priority: 'high',
-        labels: ['saga'],
         createdAt: now,
       },
       {
@@ -213,6 +206,7 @@ describe('completeTask — saga auto-close (T10116)', () => {
         type: 'epic',
         status: 'done',
         priority: 'high',
+        parentId: 'TS-MIX',
         createdAt: now,
         completedAt: now,
       },
@@ -222,6 +216,7 @@ describe('completeTask — saga auto-close (T10116)', () => {
         type: 'epic',
         status: 'pending',
         priority: 'high',
+        parentId: 'TS-MIX',
         createdAt: now,
       },
       {
@@ -230,13 +225,10 @@ describe('completeTask — saga auto-close (T10116)', () => {
         type: 'epic',
         status: 'pending',
         priority: 'high',
+        parentId: 'TS-MIX',
         createdAt: now,
       },
     ]);
-    await accessor.addRelation('TS-MIX', 'TM-X1', SAGA_GROUPS_RELATION);
-    await accessor.addRelation('TS-MIX', 'TM-X2', SAGA_GROUPS_RELATION);
-    await accessor.addRelation('TS-MIX', 'TM-X3', SAGA_GROUPS_RELATION);
-
     const result = await completeTask({ taskId: 'TM-X3' }, env.tempDir, accessor);
     expect(result.task.status).toBe('done');
     expect(result.autoCompleted ?? []).not.toContain('TS-MIX');
@@ -255,10 +247,9 @@ describe('completeTask — saga auto-close (T10116)', () => {
       {
         id: 'TS-IDEM',
         title: 'SG-IDEMPOTENCY',
-        type: 'epic',
+        type: 'saga',
         status: 'pending',
         priority: 'high',
-        labels: ['saga'],
         createdAt: now,
       },
       {
@@ -267,6 +258,7 @@ describe('completeTask — saga auto-close (T10116)', () => {
         type: 'epic',
         status: 'done',
         priority: 'high',
+        parentId: 'TS-IDEM',
         createdAt: now,
         completedAt: now,
       },
@@ -276,12 +268,10 @@ describe('completeTask — saga auto-close (T10116)', () => {
         type: 'epic',
         status: 'pending',
         priority: 'high',
+        parentId: 'TS-IDEM',
         createdAt: now,
       },
     ]);
-    await accessor.addRelation('TS-IDEM', 'TM-I1', SAGA_GROUPS_RELATION);
-    await accessor.addRelation('TS-IDEM', 'TM-I2', SAGA_GROUPS_RELATION);
-
     // First completion fires the saga auto-close.
     const first = await completeTask({ taskId: 'TM-I2' }, env.tempDir, accessor);
     expect(first.autoCompleted).toContain('TS-IDEM');
@@ -300,28 +290,23 @@ describe('completeTask — saga auto-close (T10116)', () => {
     expect(sagaAfterSecond?.completedAt).toBe(completedAtAfterFirst);
   });
 
-  it('auto-closes multiple sagas in a single completion when the same task is a member of several', async () => {
-    // The completing task is a member of TWO sagas. Both have every
-    // other member done. Completing this task MUST flip BOTH sagas in
-    // the same transaction.
+  it('auto-closes only the containing saga for a canonical parentId member', async () => {
     const now = new Date().toISOString();
     await seedTasks(accessor, [
       {
         id: 'TS-MULT-A',
         title: 'SG-A',
-        type: 'epic',
+        type: 'saga',
         status: 'pending',
         priority: 'high',
-        labels: ['saga'],
         createdAt: now,
       },
       {
         id: 'TS-MULT-B',
         title: 'SG-B',
-        type: 'epic',
+        type: 'saga',
         status: 'pending',
         priority: 'high',
-        labels: ['saga'],
         createdAt: now,
       },
       {
@@ -330,6 +315,7 @@ describe('completeTask — saga auto-close (T10116)', () => {
         type: 'epic',
         status: 'pending',
         priority: 'high',
+        parentId: 'TS-MULT-A',
         createdAt: now,
       },
       {
@@ -338,6 +324,7 @@ describe('completeTask — saga auto-close (T10116)', () => {
         type: 'epic',
         status: 'done',
         priority: 'high',
+        parentId: 'TS-MULT-A',
         createdAt: now,
         completedAt: now,
       },
@@ -347,22 +334,19 @@ describe('completeTask — saga auto-close (T10116)', () => {
         type: 'epic',
         status: 'done',
         priority: 'high',
+        parentId: 'TS-MULT-B',
         createdAt: now,
         completedAt: now,
       },
     ]);
-    await accessor.addRelation('TS-MULT-A', 'TM-SHARED', SAGA_GROUPS_RELATION);
-    await accessor.addRelation('TS-MULT-A', 'TM-A-OTHER', SAGA_GROUPS_RELATION);
-    await accessor.addRelation('TS-MULT-B', 'TM-SHARED', SAGA_GROUPS_RELATION);
-    await accessor.addRelation('TS-MULT-B', 'TM-B-OTHER', SAGA_GROUPS_RELATION);
-
     const result = await completeTask({ taskId: 'TM-SHARED' }, env.tempDir, accessor);
-    expect(result.autoCompleted).toEqual(expect.arrayContaining(['TS-MULT-A', 'TS-MULT-B']));
+    expect(result.autoCompleted).toEqual(expect.arrayContaining(['TS-MULT-A']));
+    expect(result.autoCompleted ?? []).not.toContain('TS-MULT-B');
 
     const sagaA = await accessor.loadSingleTask('TS-MULT-A');
     const sagaB = await accessor.loadSingleTask('TS-MULT-B');
     expect(sagaA?.status).toBe('done');
-    expect(sagaB?.status).toBe('done');
+    expect(sagaB?.status).toBe('pending');
   });
 
   it('skips a saga whose status is already terminal (done)', async () => {
@@ -373,10 +357,9 @@ describe('completeTask — saga auto-close (T10116)', () => {
       {
         id: 'TS-DONE',
         title: 'Already-done saga',
-        type: 'epic',
+        type: 'saga',
         status: 'done',
         priority: 'high',
-        labels: ['saga'],
         createdAt: now,
         completedAt: '2026-01-01T00:00:00.000Z',
       },
@@ -386,6 +369,7 @@ describe('completeTask — saga auto-close (T10116)', () => {
         type: 'epic',
         status: 'done',
         priority: 'high',
+        parentId: 'TS-DONE',
         createdAt: now,
         completedAt: now,
       },
@@ -395,12 +379,10 @@ describe('completeTask — saga auto-close (T10116)', () => {
         type: 'epic',
         status: 'pending',
         priority: 'high',
+        parentId: 'TS-DONE',
         createdAt: now,
       },
     ]);
-    await accessor.addRelation('TS-DONE', 'TM-D1', SAGA_GROUPS_RELATION);
-    await accessor.addRelation('TS-DONE', 'TM-D2', SAGA_GROUPS_RELATION);
-
     const result = await completeTask({ taskId: 'TM-D2' }, env.tempDir, accessor);
     expect(result.autoCompleted ?? []).not.toContain('TS-DONE');
 
@@ -464,6 +446,7 @@ describe('completeTask — saga auto-close (T10116)', () => {
         type: 'epic',
         status: 'done',
         priority: 'high',
+        parentId: 'TS-NEW',
         createdAt: now,
         completedAt: now,
       },
@@ -473,12 +456,10 @@ describe('completeTask — saga auto-close (T10116)', () => {
         type: 'epic',
         status: 'pending',
         priority: 'high',
+        parentId: 'TS-NEW',
         createdAt: now,
       },
     ]);
-    await accessor.addRelation('TS-NEW', 'TM-N1', SAGA_GROUPS_RELATION);
-    await accessor.addRelation('TS-NEW', 'TM-N2', SAGA_GROUPS_RELATION);
-
     const result = await completeTask({ taskId: 'TM-N2' }, env.tempDir, accessor);
 
     expect(result.task.status).toBe('done');

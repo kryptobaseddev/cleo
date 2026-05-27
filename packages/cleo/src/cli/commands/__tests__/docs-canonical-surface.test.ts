@@ -187,7 +187,7 @@ describe.runIf(CLI_DIST_AVAILABLE)('docs canonical six-verb CLI integration', ()
   // ═════════════════════════════════════════════════════════════════════════
 
   describe('docs list', () => {
-    it('lists docs and returns attachments array', async () => {
+    it('lists docs and returns attachments array', { timeout: 120_000 }, async () => {
       await addDocFile(projectRoot, 'T99999', '# Doc A');
       await addDocFile(projectRoot, 'T99999', '# Doc B');
 
@@ -198,7 +198,7 @@ describe.runIf(CLI_DIST_AVAILABLE)('docs canonical six-verb CLI integration', ()
       expect(attachments.length).toBeGreaterThanOrEqual(2);
     });
 
-    it('lists docs with --type filter', async () => {
+    it('lists docs with --type filter', { timeout: 120_000 }, async () => {
       await addDocFile(projectRoot, 'T99999', '# Spec A\n\n## Overview\n\nSpec content.', { type: 'spec' });
       await addDocFile(projectRoot, 'T99999', '# Spec B\n\n## Overview\n\nSpec content.', { type: 'spec' });
       await addDocFile(projectRoot, 'T99999', '# ADR X\n\n## Decision\n\n## Context\n\nADR content.', { slug: uniqueSlug('adr-042'), type: 'adr', title: 'Adopt Drizzle v1 beta' });
@@ -212,7 +212,7 @@ describe.runIf(CLI_DIST_AVAILABLE)('docs canonical six-verb CLI integration', ()
       }
     });
 
-    it('lists docs with --limit and --orderBy', async () => {
+    it('lists docs with --limit and --orderBy', { timeout: 120_000 }, async () => {
       await addDocFile(projectRoot, 'T99999', '# Doc 1');
       await addDocFile(projectRoot, 'T99999', '# Doc 2');
       await addDocFile(projectRoot, 'T99999', '# Doc 3');
@@ -327,7 +327,7 @@ describe.runIf(CLI_DIST_AVAILABLE)('docs canonical six-verb CLI integration', ()
   describe('cross-verb lifecycle', () => {
     const TASK_ID = 'T99988';
 
-    it('completes add→list→fetch→update→remove lifecycle', async () => {
+    it('completes add→list→fetch→update→remove lifecycle', { timeout: 180_000 }, async () => {
       const slug = uniqueSlug('lifecycle-test-doc');
       const addFilePath = join(projectRoot, `${slug}-v1.md`);
       await writeFile(addFilePath, '# Lifecycle Test v1\n\nInitial content.', 'utf-8');

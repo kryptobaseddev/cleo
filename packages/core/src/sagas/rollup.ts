@@ -23,7 +23,6 @@
 
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { type DataAccessor, getTaskAccessor } from '../store/data-accessor.js';
-import { taskShow } from '../tasks/show.js';
 import { resolveSagaMemberIds } from './storage.js';
 
 // ---------------------------------------------------------------------------
@@ -223,14 +222,14 @@ export async function sagaRollup(
         completionPct: 0,
       });
     }
-    const shows = await Promise.all(memberIds.map((id) => taskShow(projectRoot, id)));
+    const memberTasks = await Promise.all(memberIds.map((id) => accessor.loadSingleTask(id)));
     let done = 0;
     let active = 0;
     let blocked = 0;
     let pending = 0;
-    for (const r of shows) {
-      if (!r.success) continue;
-      const status = r.data?.task.status ?? 'pending';
+    for (const member of memberTasks) {
+      if (!member) continue;
+      const status = member.status ?? 'pending';
       if (status === 'done') done++;
       else if (status === 'active') active++;
       else if (status === 'blocked') blocked++;
@@ -254,11 +253,11 @@ export async function sagaRollup(
       let totalDescendant = 0;
       let totalDescendantDone = 0;
 
-      for (const r of shows) {
-        if (!r.success) continue;
-        const epicId = r.data.task.id;
-        const epicTitle = r.data.task.title ?? epicId;
-        const epicStatus = r.data.task.status ?? 'pending';
+      for (const member of memberTasks) {
+        if (!member) continue;
+        const epicId = member.id;
+        const epicTitle = member.title ?? epicId;
+        const epicStatus = member.status ?? 'pending';
         const progress = await computeEpicTaskProgress(accessor, epicId, epicTitle, epicStatus);
         memberEpics.push(progress);
         totalDescendant += progress.descendantTaskCount;

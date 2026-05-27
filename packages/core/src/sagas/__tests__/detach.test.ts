@@ -12,24 +12,20 @@
  * @see ADR-073-above-epic-naming.md §1.2 invariant I7
  */
 
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createTask, getDb } from '@cleocode/core/internal';
+import { createTask } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import { detachSagaMember, SAGA_DETACH_AUDIT_FILE, SAGA_DETACH_DEFAULT_REASON } from '../detach.js';
 
 let TEST_ROOT: string;
+let env: TestDbEnv;
 
 /**
  * Seed one saga (T9100) + two member epics (T9201, T9202).
  */
 async function seedFixture(testRoot: string): Promise<void> {
-  mkdirSync(join(testRoot, '.cleo'), { recursive: true });
-  mkdirSync(join(testRoot, '.git'), { recursive: true });
-  await getDb(testRoot);
-
   const ts = '2026-05-22T00:00:00Z';
   const rows = [
     {
@@ -91,7 +87,8 @@ function readAuditLines(testRoot: string): SagaDetachAuditLine[] {
 }
 
 beforeEach(async () => {
-  TEST_ROOT = await mkdtemp(join(tmpdir(), 'cleo-saga-detach-test-'));
+  env = await createTestDb();
+  TEST_ROOT = env.tempDir;
   await seedFixture(TEST_ROOT);
 });
 
@@ -102,7 +99,7 @@ afterEach(async () => {
   } catch {
     // ignore cleanup errors
   }
-  await rm(TEST_ROOT, { recursive: true, force: true });
+  await env.cleanup();
 });
 
 describe('detachSagaMember — parent_id detach + audit log', () => {

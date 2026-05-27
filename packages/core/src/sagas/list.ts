@@ -1,21 +1,15 @@
 /**
- * saga.list — list all Sagas (labeled top-level Epics).
+ * saga.list — list all first-class Saga rows.
  *
- * Returns every row with `type='epic'` + `label='saga'`, INCLUDING any rows
- * that carry a non-null `parentId` (which is itself an invariant-I5 violation
- * per ADR-073 §1.2). The historical `!parentId` filter silently hid those
- * rows; that bug is fixed here under T10117.
+ * Returns every row with `type='saga'`. Legacy `type='epic'` + `label='saga'`
+ * rows were migrated by T10636/T10638 and are no longer part of the canonical
+ * query path.
  *
  * Behaviour:
- * - All saga-labeled rows are returned in `data.sagas`.
- * - For each row with `parentId != null`, a structured
- *   `E_SAGA_INVARIANT_VIOLATION_I5` warning is appended to the result
- *   payload (`data.warnings`) AND pushed onto the active LAFS
- *   `WarningCollector` so the dispatch layer surfaces it via
- *   `_meta.warnings[]` on the envelope.
- * - When no row has a `parentId`, the `warnings` array is omitted entirely
- *   (no zero-length array), preserving the pre-T10117 envelope shape for
- *   the well-formed case (AC5).
+ * - All `type='saga'` rows are returned in `data.sagas`.
+ * - If a legacy/corrupt row somehow carries `parentId != null`, a structured
+ *   `E_SAGA_INVARIANT_VIOLATION_I5` warning is surfaced instead of hiding it.
+ * - When no row has a `parentId`, the `warnings` array is omitted entirely.
  *
  * Moved from `packages/cleo/src/dispatch/domains/tasks.ts::sagaList` per
  * AGENTS.md Package-Boundary Check (Saga T10113 / Epic T10208).
@@ -39,9 +33,8 @@ import { E_SAGA_INVARIANT_VIOLATION_I5 } from './enforcement.js';
  * Single I5-violation warning entry attached to `SagaListResult.warnings`.
  *
  * The shape is intentionally narrow: `code` is fixed, `sagaId` is the saga
- * that broke the invariant, and `offendingParentId` is the non-null
- * `parentId` value that should have lived in a `task_relations.type='groups'`
- * edge instead.
+   * that broke the invariant, and `offendingParentId` is the non-null
+   * `parentId` value that must be cleared.
  *
  * @task T10117
  */
@@ -56,7 +49,7 @@ export interface SagaInvariantI5Warning {
 
 /** Result payload for {@link sagaList}. */
 export interface SagaListResult {
-  /** Every saga-labeled row, regardless of `parentId`. */
+  /** Every `type='saga'` row, regardless of `parentId`. */
   sagas: Array<TaskRecord | CompactTask>;
   /** Total count — always equal to `sagas.length`. */
   total: number;
@@ -98,8 +91,8 @@ function readParentId(task: TaskRecord | CompactTask): string | null {
 const SAGA_LIST_HARD_LIMIT = 1000;
 
 /**
- * List every top-level Saga, including rows whose `parentId` is non-null
- * (a known invariant-I5 violation surfaced as a structured warning).
+  * List every first-class Saga, including corrupt legacy rows whose `parentId`
+  * is non-null as structured warnings.
  *
  * Passes `limit: ${SAGA_LIST_HARD_LIMIT}` to the underlying `taskList` call.
  * The default `taskList` limit is 10 — small enough that a 19-saga repo
@@ -120,7 +113,7 @@ export async function sagaList(projectRoot: string): Promise<EngineResult<SagaLi
   }
   const tasks = result.data?.tasks ?? [];
 
-  // T10117: loud-include — every saga-labeled row surfaces, with one warning
+  // T10117: loud-include — every Saga row surfaces, with one warning
   // per I5 violator. We collect warnings inline rather than filtering them
   // out so consumers see what's wrong without a second round trip.
   const warnings: SagaInvariantI5Warning[] = [];
@@ -138,7 +131,7 @@ export async function sagaList(projectRoot: string): Promise<EngineResult<SagaLi
     // when no collector is bound (test harness, SDK consumers, etc.).
     pushWarning({
       code: E_SAGA_INVARIANT_VIOLATION_I5,
-      message: `Saga ${task.id} has non-null parentId='${offendingParentId}' (ADR-073 §1.2 invariant I5). Run \`cleo saga repair ${task.id}\` to detach and re-attach via task_relations.type='groups'.`,
+      message: `Saga ${task.id} has non-null parentId='${offendingParentId}' (ADR-073 §1.2 invariant I5). Run \`cleo saga repair ${task.id}\` to clear the invalid containment edge.`,
       severity: 'warn',
       context: { sagaId: task.id, offendingParentId },
     });

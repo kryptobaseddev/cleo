@@ -76,12 +76,15 @@ const NON_STATUS_DONE_FIELDS: Array<keyof Omit<UpdateTaskOptions, 'taskId' | 'st
   'removeRelates',
 ];
 
-function typeForParent(parentType: Task['type'] | null, currentType: Task['type']): Task['type'] {
+function typeForParent(
+  parentType: Task['type'] | null | undefined,
+  currentType: Task['type'] | undefined,
+): TaskType {
   if (currentType === 'saga') return 'saga';
   if (currentType === 'epic') return 'epic';
   if (parentType === 'task') return 'subtask';
   if (parentType === 'epic') return 'task';
-  return currentType === 'subtask' ? 'task' : currentType;
+  return currentType === 'subtask' ? 'task' : (currentType ?? 'task');
 }
 
 function hasNonStatusDoneFields(options: UpdateTaskOptions): boolean {
@@ -516,17 +519,18 @@ export async function updateTask(
             details: { field: 'parentId', actual: newParentId },
           });
         }
-        const updatedType = typeForParent(newParent.type, task.type);
-        if (!isAllowedWorkGraphParentType(updatedType, newParent.type)) {
+        const newParentType = newParent.type ?? 'task';
+        const updatedType = typeForParent(newParentType, task.type);
+        if (!isAllowedWorkGraphParentType(updatedType, newParentType)) {
           throw new CleoError(
             ExitCode.INVALID_PARENT_TYPE,
-            `Invalid parent type for ${updatedType}: parent ${newParentId} has type '${newParent.type}'.`,
+            `Invalid parent type for ${updatedType}: parent ${newParentId} has type '${newParentType}'.`,
             {
               fix: 'Use Saga→Epic, Epic→Task, and Task→Subtask containment.',
               details: {
                 field: 'parentId',
                 expected: 'saga->epic | epic->task | task->subtask',
-                actual: { parentType: newParent.type, childType: updatedType },
+                actual: { parentType: newParentType, childType: updatedType },
               },
             },
           );

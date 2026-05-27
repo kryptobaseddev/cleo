@@ -5,7 +5,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import type { Task, TaskStatus } from '@cleocode/contracts';
+import type { Task, TaskStatus, TaskType } from '@cleocode/contracts';
 import { isAllowedWorkGraphParentType, TASK_STATUSES } from '@cleocode/contracts';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { getHierarchyLimits } from './task-tree.js';
@@ -14,9 +14,9 @@ import { getHierarchyLimits } from './task-tree.js';
 type TaskRecord = Task;
 
 function typeForParent(
-  parentType: TaskRecord['type'] | null,
+  parentType: TaskRecord['type'] | null | undefined,
   currentType?: TaskRecord['type'],
-): TaskRecord['type'] {
+): TaskType {
   if (currentType === 'saga') return 'saga';
   if (currentType === 'epic') return 'epic';
   if (parentType === 'task') return 'subtask';
@@ -72,7 +72,7 @@ export async function coreTaskReparent(
   const oldParent = task.parentId ?? null;
   const effectiveParentId = newParentId || null;
   const now = new Date().toISOString();
-  const subtree = await accessor.getSubtree(taskId);
+  const subtree = (await accessor.getSubtree(taskId)).filter((node) => node.id !== taskId);
   const reparentLimits = getHierarchyLimits(projectRoot);
 
   if (effectiveParentId === taskId) {

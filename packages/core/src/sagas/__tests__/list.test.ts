@@ -2,16 +2,15 @@
  * Tests for `sagaList` (T10117) and `repairSaga` (T10117).
  *
  * Asserts:
- * - `sagaList()` returns ALL saga-labeled rows, including those with a
- *   non-null `parentId` (the 5 historically-hidden sagas surface again).
- * - Each I5-violating row emits a structured warning in `data.warnings[]`
- *   AND through the LAFS WarningCollector (`pushWarning`).
+ * - `sagaList()` returns all `type='saga'` rows, including the saga IDs that
+ *   were historically hidden by the legacy label/parent filter.
+ * - Canonical saga rows have no `parentId`, so no I5 warnings are emitted.
  * - When no I5 violators are present, the `warnings` array is omitted
  *   entirely (AC5: unchanged envelope shape for the well-formed case).
  * - `repairSaga()` is idempotent and:
- *     - clears `parentId` on the saga,
- *     - writes a `groups` edge from the former parent → the saga,
- *     - returns `repaired: false` on a second invocation.
+ *     - leaves canonical root sagas untouched,
+ *     - never writes legacy `groups` edges,
+ *     - returns `repaired: false` for already-canonical rows.
  *
  * @task T10117
  * @saga T10113
@@ -23,15 +22,14 @@ import { WarningCollector, withWarningCollector } from '@cleocode/lafs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
-import { resetDbState } from '../../store/sqlite.js';
-import { E_SAGA_INVARIANT_VIOLATION_I5 } from '../enforcement.js';
 import { sagaList } from '../list.js';
 import { repairSaga } from '../repair.js';
 
 /**
  * Five saga task IDs that the historical `!parentId` filter hid in the
- * production database (per T10117 dispatch contract). The test fixture
- * mirrors that shape by assigning each a non-null `parentId`.
+ * production database (per T10117 dispatch contract). They are now canonical
+ * root `type='saga'` rows because the DB parent-type trigger rejects sagas
+ * with a non-null `parentId`.
  */
 const HIDDEN_SAGAS = ['T9855', 'T9862', 'T9863', 'T9977', 'T10099'] as const;
 
@@ -39,41 +37,19 @@ const HIDDEN_SAGAS = ['T9855', 'T9862', 'T9863', 'T9977', 'T10099'] as const;
 const WELL_FORMED_SAGAS = ['T9831', 'T10113'] as const;
 
 /**
- * Seed the 5 historically-hidden sagas (with non-null parentId) and a
- * matching set of "former parent" rows so the I5-violation shape is
- * fully realised. Returns a map of sagaId → former parentId.
+ * Seed the 5 historically-hidden saga IDs as canonical root Saga rows.
  */
-async function seedHiddenSagas(accessor: DataAccessor): Promise<Record<string, string>> {
+async function seedFormerlyHiddenSagas(accessor: DataAccessor): Promise<void> {
   const now = new Date().toISOString();
-  // Each former-parent must exist as a task row so FK constraints pass.
-  const formerParents = HIDDEN_SAGAS.map((id, idx) => ({
-    id: `T${9000 + idx}`,
-    title: `Former parent for ${id}`,
-    status: 'pending' as const,
-    priority: 'medium' as const,
-    type: 'epic' as const,
-    createdAt: now,
-  }));
-  const sagas = HIDDEN_SAGAS.map((id, idx) => ({
+  const sagas = HIDDEN_SAGAS.map((id) => ({
     id,
     title: `Hidden saga ${id}`,
     status: 'active' as const,
     priority: 'high' as const,
-    type: 'epic' as const,
-    labels: ['saga'],
-    parentId: formerParents[idx]?.id,
+    type: 'saga' as const,
     createdAt: now,
   }));
-  await seedTasks(accessor, [...formerParents, ...sagas]);
-  const mapping: Record<string, string> = {};
-  for (let i = 0; i < HIDDEN_SAGAS.length; i++) {
-    const sagaId = HIDDEN_SAGAS[i];
-    const parent = formerParents[i];
-    if (sagaId && parent) {
-      mapping[sagaId] = parent.id;
-    }
-  }
-  return mapping;
+  await seedTasks(accessor, sagas);
 }
 
 /** Seed well-formed sagas (no parentId). */
@@ -86,8 +62,7 @@ async function seedWellFormedSagas(accessor: DataAccessor): Promise<void> {
       title: `Well-formed saga ${id}`,
       status: 'active' as const,
       priority: 'high' as const,
-      type: 'epic' as const,
-      labels: ['saga'],
+      type: 'saga' as const,
       createdAt: now,
     })),
   );
@@ -105,26 +80,25 @@ describe('sagaList (T10117)', () => {
 
   afterEach(async () => {
     delete process.env['CLEO_DIR'];
-    resetDbState();
     await env.cleanup();
   });
 
-  it('returns ALL saga-labeled rows including those with non-null parentId (AC1)', async () => {
+  it('returns all canonical saga rows including historically hidden saga IDs (AC1)', async () => {
     await seedWellFormedSagas(accessor);
-    await seedHiddenSagas(accessor);
+    await seedFormerlyHiddenSagas(accessor);
 
     const result = await sagaList(env.tempDir);
 
     expect(result.success).toBe(true);
     if (!result.success) return;
     const sagaIds = result.data.sagas.map((s) => s.id).sort();
-    // 2 well-formed + 5 hidden = 7 sagas total
+    // 2 well-formed + 5 historically hidden = 7 sagas total
     expect(result.data.total).toBe(7);
     expect(sagaIds).toEqual([...WELL_FORMED_SAGAS, ...HIDDEN_SAGAS].sort());
   });
 
-  it('includes each previously-hidden saga (T9855, T9862, T9863, T9977, T10099) (AC1)', async () => {
-    await seedHiddenSagas(accessor);
+  it('includes each previously hidden saga (T9855, T9862, T9863, T9977, T10099) (AC1)', async () => {
+    await seedFormerlyHiddenSagas(accessor);
 
     const result = await sagaList(env.tempDir);
 
@@ -136,26 +110,19 @@ describe('sagaList (T10117)', () => {
     }
   });
 
-  it('emits one structured I5 warning per saga with non-null parentId (AC2/AC4)', async () => {
-    const parentMap = await seedHiddenSagas(accessor);
+  it('omits I5 warnings for canonical formerly hidden sagas', async () => {
+    await seedFormerlyHiddenSagas(accessor);
 
     const result = await sagaList(env.tempDir);
 
     expect(result.success).toBe(true);
     if (!result.success) return;
-    expect(result.data.warnings).toBeDefined();
-    expect(result.data.warnings).toHaveLength(HIDDEN_SAGAS.length);
-    const warningBySaga = new Map((result.data.warnings ?? []).map((w) => [w.sagaId, w]));
-    for (const hidden of HIDDEN_SAGAS) {
-      const entry = warningBySaga.get(hidden);
-      expect(entry).toBeDefined();
-      expect(entry?.code).toBe(E_SAGA_INVARIANT_VIOLATION_I5);
-      expect(entry?.offendingParentId).toBe(parentMap[hidden]);
-    }
+    expect(result.data.total).toBe(HIDDEN_SAGAS.length);
+    expect(result.data.warnings).toBeUndefined();
   });
 
-  it('pushes I5 warnings into the active WarningCollector (LAFS envelope path)', async () => {
-    await seedHiddenSagas(accessor);
+  it('does not push I5 warnings into the active WarningCollector for canonical rows', async () => {
+    await seedFormerlyHiddenSagas(accessor);
 
     const collector = new WarningCollector();
     await withWarningCollector(collector, async () => {
@@ -164,16 +131,7 @@ describe('sagaList (T10117)', () => {
     });
 
     const drained = collector.drain();
-    expect(drained).toBeDefined();
-    expect(drained).toHaveLength(HIDDEN_SAGAS.length);
-    for (const warning of drained ?? []) {
-      expect(warning.code).toBe(E_SAGA_INVARIANT_VIOLATION_I5);
-      const context = warning.context as
-        | { sagaId?: string; offendingParentId?: string }
-        | undefined;
-      expect(context?.sagaId).toBeDefined();
-      expect(context?.offendingParentId).toBeDefined();
-    }
+    expect(drained ?? []).toHaveLength(0);
   });
 
   it('omits the warnings array when no I5 violators are present (AC5)', async () => {
@@ -210,8 +168,7 @@ describe('sagaList (T10117)', () => {
       title: `Bulk saga ${idx}`,
       status: 'active' as const,
       priority: 'high' as const,
-      type: 'epic' as const,
-      labels: ['saga'],
+      type: 'saga' as const,
       createdAt: now,
     }));
     await seedTasks(accessor, manySagas);
@@ -243,42 +200,34 @@ describe('repairSaga (T10117) — AC3', () => {
 
   afterEach(async () => {
     delete process.env['CLEO_DIR'];
-    resetDbState();
     await env.cleanup();
   });
 
-  it('detaches parentId without writing legacy groups edges', async () => {
-    const parentMap = await seedHiddenSagas(accessor);
+  it('leaves canonical sagas untouched without writing legacy groups edges', async () => {
+    await seedFormerlyHiddenSagas(accessor);
     const sagaId = 'T9855';
-    const formerParent = parentMap[sagaId];
-    expect(formerParent).toBeDefined();
-    if (!formerParent) return;
 
     const result = await repairSaga(env.tempDir, { sagaId });
 
     expect(result.success).toBe(true);
     if (!result.success) return;
-    expect(result.data.repaired).toBe(true);
-    expect(result.data.detachedParentId).toBe(formerParent);
+    expect(result.data.repaired).toBe(false);
+    expect(result.data.detachedParentId).toBeNull();
 
     // Verify on-disk: saga has no parentId; no legacy relation is written.
     const repaired = await accessor.loadSingleTask(sagaId);
     expect(repaired?.parentId ?? null).toBeNull();
-    const parent = await accessor.loadSingleTask(formerParent);
-    const groupsEdges = (parent?.relates ?? []).filter(
-      (r) => r.type === 'groups' && r.taskId === sagaId,
-    );
-    expect(groupsEdges).toHaveLength(0);
+    expect(repaired?.relates?.filter((r) => r.type === 'groups')).toHaveLength(0);
   });
 
   it('is idempotent: a second call on the same saga reports repaired=false', async () => {
-    await seedHiddenSagas(accessor);
+    await seedFormerlyHiddenSagas(accessor);
     const sagaId = 'T9855';
 
     const first = await repairSaga(env.tempDir, { sagaId });
     expect(first.success).toBe(true);
     if (!first.success) return;
-    expect(first.data.repaired).toBe(true);
+    expect(first.data.repaired).toBe(false);
 
     const second = await repairSaga(env.tempDir, { sagaId });
     expect(second.success).toBe(true);
