@@ -1,0 +1,19 @@
+{
+  "$schema": "https://lafs.dev/schemas/v1/envelope.schema.json",
+  "_meta": {
+    "specVersion": "1.0.0",
+    "schemaVersion": "1.0.0",
+    "timestamp": "2026-02-26T00:00:00Z",
+    "operation": "tasks.list",
+    "requestId": "req_field_02",
+    "transport": "sdk",
+    "strict": true,
+    "mvi": "standard",
+    "contextVersion": 0
+  },
+  "success": true,
+  "result": [
+    { "id": "T001", "title": "Task One", "status": "active" },
+    { "id": "T002", "title": "Task Two", "status": "pending" }
+  ]
+}

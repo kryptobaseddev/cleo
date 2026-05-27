@@ -1,0 +1,19 @@
+{
+  "numTotalTests": 2,
+  "numPassedTests": 2,
+  "numFailedTests": 0,
+  "testResults": [
+    {
+      "name": "YAML validation: worktree-napi-prebuild.yml",
+      "status": "passed",
+      "duration": 0.01
+    },
+    {
+      "name": "YAML validation: ci.yml worktree-napi-gate job",
+      "status": "passed",
+      "duration": 0.01
+    }
+  ],
+  "startTime": 1748364200,
+  "success": true
+}

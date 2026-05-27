@@ -1,0 +1,35 @@
+/**
+ * @cleocode/core/sentient — Tier-1/Tier-2/Tier-3 sentient daemon public API.
+ *
+ * Provides the autonomous loop logic: tick execution, Tier-2 proposal
+ * generation, state management, rate limiting, ingesters, and Tier-3
+ * cryptographic primitives (KMS adapter, signed event chain, baseline capture).
+ *
+ * @see ADR-054 — Sentient Loop Tier-1
+ * @package @cleocode/core
+ */
+
+export * from './allowlist.js';
+export * from './background-review.js';
+export * from './baseline.js';
+export * from './cross-project-hygiene.js';
+export * from './curator.js';
+export * from './daemon.js';
+export * from './daemon-api.js';
+export * from './events.js';
+export * from './execute-action.js';
+export * from './hygiene-scan.js';
+export * from './ingesters/brain-ingester.js';
+export * from './ingesters/nexus-ingester.js';
+export * from './ingesters/test-ingester.js';
+export * from './kms.js';
+export * from './local-patch.js';
+export * from './ops.js';
+export * from './proposal-dedup.js';
+export * from './proposal-rate-limiter.js';
+export * from './propose-tick.js';
+export * from './skill-provenance.js';
+export * from './skill-review-prompt.js';
+export * from './stage-drift-tick.js';
+export * from './state.js';
+export * from './tick.js';

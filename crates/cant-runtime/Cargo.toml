@@ -1,0 +1,33 @@
+[package]
+name = "cant-runtime"
+version.workspace = true
+edition = "2024"
+rust-version = "1.94"
+description = "CANT DSL runtime - pipeline executor"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/kryptobaseddev/cleo"
+keywords = ["cleo", "cant", "runtime", "pipeline", "agent"]
+categories = ["development-tools", "asynchronous"]
+publish = true
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+cant-core = { path = "../cant-core", version = "2026.5.99" }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", "time", "io-util"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }
+criterion = "0.5"
+
+[[bench]]
+name = "env_resolve"
+harness = false
+
+[lints]
+workspace = true

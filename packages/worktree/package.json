@@ -1,0 +1,47 @@
+{
+  "name": "@cleocode/worktree",
+  "version": "2026.5.122",
+  "private": false,
+  "type": "module",
+  "description": "Native CLEO worktree backend SDK",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/",
+    "native/",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "cleo",
+    "worktree",
+    "git",
+    "agent",
+    "sdk",
+    "isolation"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "author": "CLEO Code <hello@cleocode.dev>",
+  "license": "MIT",
+  "dependencies": {
+    "@cleocode/contracts": "workspace:*",
+    "@cleocode/paths": "workspace:*"
+  },
+  "devDependencies": {
+    "@cleocode/core": "workspace:*",
+    "@types/node": "^24.3.0",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.4"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kryptobaseddev/cleo",
+    "directory": "packages/worktree"
+  }
+}

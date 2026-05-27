@@ -1,0 +1,485 @@
+/**
+ * CLI add command — create a new task.
+ *
+ * Task CLI command convention: CLEO intentionally exposes task operations as
+ * split root commands (`add`, `update`, `list`, etc.) instead of a
+ * `tasks.ts` command group. Keep CLI-only compatibility aliases in the
+ * command file that owns the flag, then dispatch only canonical task params.
+ *
+ * Dispatches to `tasks.add` via dispatchRaw and emits advisory warnings and
+ * duplicate / dry-run notices from the response payload.
+ *
+ * @task T4460
+ * @epic T4454
+ */
+
+import { ExitCode, TASK_SEVERITIES } from '@cleocode/contracts';
+import {
+  appendSignedSeverityAttestation,
+  getProjectRoot,
+  INPUT_CONTRACTS,
+  inferTaskAddParams,
+  validateOperationInput,
+} from '@cleocode/core';
+import { defineCommand, showUsage } from 'citty';
+import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
+import { collectMutateInput } from '../lib/collect-input.js';
+import { cliError, cliOutput, humanInfo, humanWarn } from '../renderers/index.js';
+
+/**
+ * cleo add — create a new task.
+ *
+ * Accepts a positional title plus a full suite of optional flags that map
+ * directly to the `tasks.add` operation parameters.  Pipe-separated
+ * acceptance criteria (`--acceptance "AC1|AC2"`) and JSON array format are
+ * both supported.
+ *
+ * T944 additions: `--role` (intent axis) and `--scope` (granularity axis).
+ * `--kind` is accepted as a backward-compatible alias for `--role`.
+ * `--parent-id` and `--note` are CLI-only compatibility aliases for
+ * `--parent` and `--notes`.
+ *
+ * T1329: In strict mode, if no explicit `--parent` is provided and the task
+ * type is not 'epic', the command attempts to infer `--parent` from the active
+ * session's current task (`session.taskWork.taskId`). This reduces friction for
+ * creating subtasks under the active focus task.
+ */
+export const addCommand = defineCommand({
+  meta: {
+    name: 'add',
+    description: `Create a new task (requires active session)\nFor 2+ tasks at once: cleo add-batch --file tasks.json (single transaction, atomic rollback)`,
+  },
+  args: {
+    /**
+     * Schema-first input — supersedes all flag-based args when present.
+     *
+     * Accepts a JSON object that matches `INPUT_CONTRACTS['tasks.add']`.
+     * When provided, the command short-circuits the flag-mapping path
+     * entirely and goes straight to validate→dispatch.
+     *
+     * @task T9917
+     */
+    params: {
+      type: 'string',
+      description:
+        'Inline JSON object matching INPUT_CONTRACTS["tasks.add"] (T9917). Overrides positional + flags.',
+    },
+    /**
+     * Schema-first input from a JSON file. Same semantics as --params.
+     *
+     * @task T9917
+     */
+    'params-file': {
+      type: 'string',
+      description: 'Path to JSON file matching INPUT_CONTRACTS["tasks.add"] (T9917).',
+    },
+    title: {
+      type: 'positional',
+      description: 'Task title (3–500 characters)',
+      required: false,
+    },
+    status: {
+      type: 'string',
+      alias: 's',
+      description: 'Task status (pending | active | blocked | done)',
+    },
+    priority: {
+      type: 'string',
+      alias: 'p',
+      description: 'Task priority (low | medium | high | critical)',
+    },
+    type: {
+      type: 'string',
+      alias: 't',
+      description: 'Task type (epic | task | subtask)',
+    },
+    parent: {
+      type: 'string',
+      description: 'Parent task ID (makes this task a subtask)',
+    },
+    'parent-id': {
+      type: 'string',
+      description: 'Alias for --parent (legacy parentId compatibility)',
+    },
+    size: {
+      type: 'string',
+      description: 'Scope size estimate (small | medium | large)',
+    },
+    phase: {
+      type: 'string',
+      alias: 'P',
+      description: 'Phase slug to assign the task to',
+    },
+    description: {
+      type: 'string',
+      alias: 'd',
+      description: 'Detailed task description (must differ meaningfully from title)',
+    },
+    desc: {
+      type: 'string',
+      description: 'Task description (alias for --description)',
+    },
+    labels: {
+      type: 'string',
+      alias: 'l',
+      description:
+        'Comma-separated labels (lowercase alphanumeric + hyphens + periods only, e.g. "track-b,wave.1") (gh-392)',
+    },
+    files: {
+      type: 'string',
+      description: 'Comma-separated file paths',
+    },
+    'files-infer': {
+      type: 'boolean',
+      description: 'Infer touched files from task title and description using GitNexus',
+    },
+    acceptance: {
+      type: 'string',
+      description: 'Pipe-separated acceptance criteria (e.g. "AC1|AC2|AC3")',
+    },
+    depends: {
+      type: 'string',
+      alias: 'D',
+      description: 'Comma-separated dependency task IDs',
+    },
+    notes: {
+      type: 'string',
+      description: 'Initial note entry for the task',
+    },
+    note: {
+      type: 'string',
+      description: 'Alias for --notes',
+    },
+    position: {
+      type: 'string',
+      description: 'Position within sibling group',
+    },
+    'parent-search': {
+      type: 'string',
+      description: 'Resolve parent by title substring instead of exact ID (T090)',
+    },
+    'add-phase': {
+      type: 'boolean',
+      description: 'Create new phase if it does not exist',
+    },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Show what would be created without making changes',
+    },
+    /**
+     * Task kind axis — intent of work.
+     * Values: work | research | experiment | bug | spike | release
+     * @task T944
+     * @task T9072
+     */
+    kind: {
+      type: 'string',
+      description:
+        'Task kind / intent axis (work|research|experiment|bug|spike|release) — orthogonal to --type (T944)',
+    },
+    /**
+     * Task scope axis — granularity of work.
+     * Values: project | feature | unit
+     * @task T944
+     */
+    scope: {
+      type: 'string',
+      description:
+        'Task scope / granularity axis (project|feature|unit) — orthogonal to --type (T944)',
+    },
+    /**
+     * Severity level for any task kind (not just bug).
+     * Values: P0 | P1 | P2 | P3
+     * Orthogonal to --priority — does NOT auto-map priority.
+     * Appends a signed attestation to .cleo/audit/severity-attestation.jsonl (T9071/T9073).
+     * @task T944
+     * @task T9073
+     */
+    severity: {
+      type: 'string',
+      description:
+        'Severity level (P0|P1|P2|P3) — valid for any --kind (T9073). Orthogonal to priority. Appends signed attestation.',
+    },
+    /**
+     * Bypass the E_DUPLICATE_TASK_LIKELY rejection guard.
+     *
+     * When passed, `cleo add` proceeds even if BRAIN similarity scoring
+     * determines the task is very likely a duplicate (score >= 0.92).
+     * The bypass is audited to `.cleo/audit/duplicate-bypass.jsonl`.
+     *
+     * @task T1633
+     */
+    'force-duplicate': {
+      type: 'boolean',
+      description:
+        'Bypass BRAIN duplicate-task rejection (audited to .cleo/audit/duplicate-bypass.jsonl) (T1633)',
+    },
+    /**
+     * Waiver for the critical-priority dependency declaration requirement.
+     *
+     * Critical-priority tasks without declared dependencies silently break
+     * wave-order spawning when downstream work assumes they are load-bearing.
+     * Provide a justification string to waive the `--depends` requirement.
+     * The waiver is stored in task metadata for auditability.
+     *
+     * @task T1856
+     * @epic T1855
+     */
+    'depends-waiver': {
+      type: 'string',
+      description:
+        'Justification for creating a critical-priority task without --depends (T1856). Records waiver in task metadata.',
+    },
+    /**
+     * Related tasks — semantic relationships (non-dependency).
+     * Comma-separated task IDs with optional type suffix (e.g. "T001:blocks,T002:related").
+     * Default type is 'related'.
+     */
+    relates: {
+      type: 'string',
+      description:
+        'Comma-separated related task IDs with optional type suffix (e.g. "T001:blocks,T002")',
+    },
+  },
+  async run({ args, cmd }) {
+    // T9917: schema-first input path. When --params or --params-file is
+    // supplied, collect → validate against INPUT_CONTRACTS['tasks.add'] →
+    // dispatch directly. The legacy flag-mapping path is skipped entirely.
+    const paramsArg = args.params as string | undefined;
+    const paramsFileArg = args['params-file'] as string | undefined;
+    if (paramsArg !== undefined || paramsFileArg !== undefined) {
+      const collectArgs: { params?: string; file?: string } = {};
+      if (paramsArg !== undefined) collectArgs.params = paramsArg;
+      if (paramsFileArg !== undefined) collectArgs.file = paramsFileArg;
+
+      let raw: unknown;
+      try {
+        raw = await collectMutateInput(
+          collectArgs,
+          process.stdin as NodeJS.ReadableStream & { isTTY?: boolean },
+        );
+      } catch (err) {
+        cliError(
+          (err as Error).message,
+          ExitCode.VALIDATION_ERROR,
+          {
+            name: 'E_VALIDATION_FAILED',
+            fix: 'Verify the JSON syntax of your --params / --params-file input',
+          },
+          { operation: 'tasks.add' },
+        );
+        process.exit(ExitCode.VALIDATION_ERROR);
+        return;
+      }
+
+      const contract = INPUT_CONTRACTS['tasks.add'];
+      if (!contract) {
+        cliError(
+          'tasks.add contract missing from INPUT_CONTRACTS registry',
+          ExitCode.GENERAL_ERROR,
+          { name: 'E_INTERNAL', fix: 'This is a CLI bug — file an issue' },
+          { operation: 'tasks.add' },
+        );
+        process.exit(ExitCode.GENERAL_ERROR);
+        return;
+      }
+      const validation = validateOperationInput(contract, raw);
+      if (!validation.ok) {
+        cliError(
+          'tasks.add failed: validation',
+          ExitCode.VALIDATION_ERROR,
+          {
+            name: 'E_VALIDATION_FAILED',
+            fix: validation.errors[0]?.fix ?? 'Inspect errors[] and correct the input',
+            details: { errors: validation.errors },
+          },
+          { operation: 'tasks.add' },
+        );
+        process.exit(ExitCode.VALIDATION_ERROR);
+        return;
+      }
+
+      // `raw` is the parsed object that the validator accepted; reuse it
+      // directly as the wire shape (Record<string, unknown>-compatible).
+      const validatedPayload = raw as Record<string, unknown>;
+      const response = await dispatchRaw('mutate', 'tasks', 'add', validatedPayload);
+      if (!response.success) {
+        handleRawError(response, { command: 'add', operation: 'tasks.add' });
+      }
+      const data = response.data as Record<string, unknown>;
+      const dataWarnings = data?.warnings as string[] | undefined;
+      if (dataWarnings?.length) {
+        for (const w of dataWarnings) {
+          humanWarn(`⚠ ${w}`);
+        }
+      }
+      cliOutput(data, { command: 'add', operation: 'tasks.add' });
+      return;
+    }
+
+    if (!args.title) {
+      await showUsage(cmd);
+      return;
+    }
+
+    // T10341: validate --severity against the canonical TaskSeverity enum
+    // BEFORE dispatch. Replaces the late-stage SQLite
+    // `CHECK constraint failed: severity` failure mode with a typed
+    // E_INVALID_SEVERITY_VALUE that names the valid enum members.
+    if (
+      args.severity !== undefined &&
+      !TASK_SEVERITIES.includes(args.severity as (typeof TASK_SEVERITIES)[number])
+    ) {
+      const valid = TASK_SEVERITIES.join(', ');
+      cliError(
+        `severity must be one of: ${valid} — got '${args.severity}'`,
+        6,
+        {
+          name: 'E_INVALID_SEVERITY_VALUE',
+          fix: `Pass --severity with one of: ${valid}`,
+        },
+        { operation: 'tasks.add' },
+      );
+      process.exit(6);
+      return;
+    }
+
+    const params: Record<string, unknown> = { title: args.title };
+
+    if (args.status !== undefined) params['status'] = args.status;
+    if (args.priority !== undefined) params['priority'] = args.priority;
+    if (args.type !== undefined) params['type'] = args.type;
+    if (args.parent !== undefined) params['parent'] = args.parent;
+    if (args['parent-id'] !== undefined) params['parent'] = params['parent'] ?? args['parent-id'];
+    if (args.size !== undefined) params['size'] = args.size;
+    if (args.phase !== undefined) params['phase'] = args.phase;
+    if (args['add-phase'] !== undefined) params['addPhase'] = args['add-phase'];
+    if (args.description !== undefined) {
+      params['description'] = args.description;
+    } else if (args.desc !== undefined) {
+      params['description'] = args.desc;
+    }
+    if (args.labels) params['labels'] = (args.labels as string).split(',').map((s) => s.trim());
+
+    if (args.depends) params['depends'] = (args.depends as string).split(',').map((s) => s.trim());
+    if (args.relates) {
+      params['relates'] = (args.relates as string).split(',').map((s) => {
+        const [taskId, relType = 'related'] = s.trim().split(':');
+        return { taskId: taskId.trim(), type: relType.trim() };
+      });
+    }
+    if (args.notes !== undefined) params['notes'] = args.notes;
+    if (args.note !== undefined) params['notes'] = params['notes'] ?? args.note;
+    if (args.position !== undefined)
+      params['position'] = Number.parseInt(args.position as string, 10);
+    if (args['dry-run'] !== undefined) params['dryRun'] = args['dry-run'];
+    if (args['parent-search'] !== undefined) params['parentSearch'] = args['parent-search'];
+    // T944/T9072: --kind is canonical; wire format uses 'kind'.
+    if (args.kind !== undefined) params['kind'] = args.kind;
+    if (args.scope !== undefined) params['scope'] = args.scope;
+    if (args.severity !== undefined) params['severity'] = args.severity;
+    // T1633: BRAIN duplicate-bypass flag
+    if (args['force-duplicate'] !== undefined) params['forceDuplicate'] = args['force-duplicate'];
+
+    // T1856: Critical-priority tasks MUST declare dependencies or provide a waiver.
+    // Undeclared dependencies on critical tasks silently break wave-order spawning
+    // when downstream work assumes they are load-bearing (T1855 guardrail #1).
+    if (args.priority === 'critical' && !args.depends && args['depends-waiver'] === undefined) {
+      cliError(
+        'Critical-priority tasks must declare at least one dependency (--depends) or provide a waiver (--depends-waiver "<reason>").',
+        'E_VALIDATION',
+        {
+          name: 'E_VALIDATION',
+          fix:
+            'Add --depends <taskId> to declare a dependency, or use --depends-waiver "<reason>" ' +
+            'to waive the requirement. Use `cleo find "<topic>"` to discover candidate dependencies.',
+        },
+        { operation: 'tasks.add' },
+      );
+      process.exit(6);
+      return;
+    }
+    if (args['depends-waiver'] !== undefined) params['dependsWaiver'] = args['depends-waiver'];
+
+    // T1490: Delegate file inference, acceptance parsing, and parent inference
+    // to Core so the CLI layer stays a thin parse-and-delegate shell.
+    // Stderr output (warnings, notices) remains here in the CLI layer.
+    const inferred = await inferTaskAddParams(getProjectRoot(), {
+      title: args.title,
+      description: (args.description ?? args.desc) as string | undefined,
+      filesInfer: args['files-infer'] as boolean | undefined,
+      filesRaw: args.files as string | undefined,
+      acceptanceRaw: args.acceptance as string | undefined,
+      parentRaw: params['parent'] as string | undefined,
+      type: params['type'] as string | undefined,
+    });
+
+    // Emit stderr notices (CLI responsibility — Core never writes to stderr)
+    if (inferred.filesInferWarning) {
+      humanWarn(
+        '⚠ No files inferred by GitNexus. Use --files to specify files explicitly, or leave empty for atomicity check at spawn time.',
+      );
+    }
+    if (inferred.files) params['files'] = inferred.files;
+    if (inferred.acceptance) params['acceptance'] = inferred.acceptance;
+    // T1329: parent inference from active session's current task
+    if (inferred.inferredParent) {
+      params['parent'] = inferred.inferredParent;
+      humanInfo(`[cleo add] inferred --parent from current task: ${inferred.inferredParent}`);
+    }
+
+    // T9073 / T9071: fire signed severity attestation for any role.
+    // Severity is orthogonal to priority — no auto-mapping here.
+    // Skip for --dry-run; non-fatal outside CLEO project (falls through).
+    if (args.severity !== undefined && !args['dry-run']) {
+      try {
+        await appendSignedSeverityAttestation({
+          timestamp: new Date().toISOString(),
+          title: args.title,
+          severity: args.severity,
+          ...(params['parent'] !== undefined ? { epic: params['parent'] as string } : {}),
+        });
+      } catch (err) {
+        const code = (err as { code?: string }).code;
+        if (code === 'E_OWNER_ONLY') {
+          cliError((err as Error).message, 72, { name: 'E_OWNER_ONLY' });
+          process.exit(72);
+          return;
+        }
+        // Any other failure (e.g. not inside a CLEO project) is non-fatal.
+      }
+    }
+
+    const response = await dispatchRaw('mutate', 'tasks', 'add', params);
+
+    if (!response.success) {
+      handleRawError(response, { command: 'add', operation: 'tasks.add' });
+    }
+
+    const data = response.data as Record<string, unknown>;
+
+    // Display advisory warnings (T089: orphan prevention, etc.)
+    const dataWarnings = data?.warnings as string[] | undefined;
+    if (dataWarnings?.length) {
+      for (const w of dataWarnings) {
+        humanWarn(`⚠ ${w}`);
+      }
+    }
+
+    if (data?.duplicate) {
+      cliOutput(data, {
+        command: 'add',
+        message: 'Task with identical title was created recently',
+        operation: 'tasks.add',
+      });
+    } else if (data?.dryRun) {
+      cliOutput(data, {
+        command: 'add',
+        message: 'Dry run - no changes made',
+        operation: 'tasks.add',
+      });
+    } else {
+      cliOutput(data, { command: 'add', operation: 'tasks.add' });
+    }
+  },
+});

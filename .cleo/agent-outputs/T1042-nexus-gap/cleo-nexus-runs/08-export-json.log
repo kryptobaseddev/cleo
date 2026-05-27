@@ -1,0 +1,51 @@
+(node:198604) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+{
+  "nodes": [
+    {
+      "id": "README.md",
+      "kind": "file",
+      "label": "README.md",
+      "name": "README.md",
+      "filePath": "README.md",
+      "language": "markdown",
+      "isExported": false,
+      "startLine": 1,
+      "endLine": 1,
+      "projectId": "L21udC9wcm9qZWN0cy9jbGVvY29kZS9w"
+    },
+    {
+      "id": "package.json",
+      "kind": "file",
+      "label": "package.json",
+      "name": "package.json",
+      "filePath": "package.json",
+      "language": "json",
+      "isExported": false,
+      "startLine": 1,
+      "endLine": 1,
+      "projectId": "L21udC9wcm9qZWN0cy9jbGVvY29kZS9w"
+    },
+    {
+      "id": "tsconfig.json",
+      "kind": "file",
+      "label": "tsconfig.json",
+      "name": "tsconfig.json",
+      "filePath": "tsconfig.json",
+      "language": "json",
+      "isExported": false,
+      "startLine": 1,
+      "endLine": 1,
+      "projectId": "L21udC9wcm9qZWN0cy9jbGVvY29kZS9w"
+    },
+    {
+      "id": "tsconfig.tsbuildinfo",
+      "kind": "file",
+      "label": "tsconfig.tsbuildinfo",
+      "name": "tsconfig.tsbuildinfo",
+      "filePath": "tsconfig.tsbuildinfo",
+      "language": "unknown",
+      "isExported": false,
+      "startLine": 1,
+      "endLine": 1,
+[output potentially truncated]

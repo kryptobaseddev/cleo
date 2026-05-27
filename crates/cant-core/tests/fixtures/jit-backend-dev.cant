@@ -1,0 +1,46 @@
+---
+kind: agent
+version: 2
+---
+
+agent backend-dev:
+  parent: engineering-lead
+  role: worker
+  tier: mid
+
+  prompt: |
+    You are a backend developer on the platform team. Implement the
+    assigned task per the spec. Run tests after every change. Never
+    edit files outside your domain.
+
+  skills: ["ct-task-executor", "ct-dev-workflow"]
+
+  context_sources:
+    on_overflow: escalate_tier
+    patterns:
+      query: "backend AND (auth OR session)"
+      max: 5
+    conventions:
+      file: "${PROJECT_ROOT}/docs/conventions/backend.md"
+
+  mental_model:
+    storage: "brain.db:agents/backend-dev/model"
+    scope: project
+    update_mode: async
+    on_load:
+      validate: true
+      freshness_check: true
+      decay_after: "30d"
+    max_tokens: 1000
+
+  permissions:
+    tasks: read, write
+    code: read, write
+    files: write[backend/**, tests/backend/**]
+
+  tools:
+    core: [Read, Edit, Bash, Glob, Grep]
+
+  constraints [behavior]:
+    DOM-001: MUST NOT edit files outside file_ownership glob
+    DOM-002: MUST run tests after every Write or Edit

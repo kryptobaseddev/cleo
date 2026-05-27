@@ -1,0 +1,601 @@
+---
+title: ''
+---
+
+API reference for the `.` package.
+
+## Functions & Classes
+
+| Symbol                                                                                                   | Kind     | Description                                                                       |
+| -------------------------------------------------------------------------------------------------------- | -------- | --------------------------------------------------------------------------------- |
+| [`getPlatformPaths()`](/packages/./api/functions#getplatformpaths)                                       | function | Get OS-appropriate paths for CAAMP's global directories.                          |
+| [`getSystemInfo()`](/packages/./api/functions#getsysteminfo)                                             | function | Get a cached system information snapshot.                                         |
+| [`_resetPlatformPathsCache()`](/packages/./api/functions#resetplatformpathscache)                        | function | Invalidate the path and system info caches. Use in tests after mutating AGENT...  |
+| [`getPlatformLocations()`](/packages/./api/functions#getplatformlocations)                               | function | Resolves platform-specific directory locations for the current OS.                |
+| [`getAgentsHome()`](/packages/./api/functions#getagentshome)                                             | function | Returns the global agents home directory path.                                    |
+| [`getProjectAgentsDir()`](/packages/./api/functions#getprojectagentsdir)                                 | function | Returns the project-local `.agents` directory path.                               |
+| [`resolveProjectPath()`](/packages/./api/functions#resolveprojectpath)                                   | function | Resolves a relative path against a project directory.                             |
+| [`getCanonicalSkillsDir()`](/packages/./api/functions#getcanonicalskillsdir)                             | function | Returns the canonical skills storage directory path.                              |
+| [`getLockFilePath()`](/packages/./api/functions#getlockfilepath)                                         | function | Returns the path to the CAAMP lock file.                                          |
+| [`getAgentsMcpDir()`](/packages/./api/functions#getagentsmcpdir)                                         | function | Gets the MCP directory within the `.agents/` standard structure.                  |
+| [`getAgentsMcpServersPath()`](/packages/./api/functions#getagentsmcpserverspath)                         | function | Gets the MCP servers.json path within the `.agents/` standard structure.          |
+| [`getAgentsInstructFile()`](/packages/./api/functions#getagentsinstructfile)                             | function | Gets the primary AGENTS.md instruction file path within `.agents/`.               |
+| [`getAgentsConfigPath()`](/packages/./api/functions#getagentsconfigpath)                                 | function | Gets the config.toml path within the `.agents/` standard structure.               |
+| [`getAgentsWikiDir()`](/packages/./api/functions#getagentswikidir)                                       | function | Gets the wiki directory within the `.agents/` standard structure.                 |
+| [`getAgentsSpecDir()`](/packages/./api/functions#getagentsspecdir)                                       | function | Gets the spec directory within the `.agents/` standard structure.                 |
+| [`getAgentsLinksDir()`](/packages/./api/functions#getagentslinksdir)                                     | function | Gets the links directory within the `.agents/` standard structure.                |
+| [`resolveRegistryTemplatePath()`](/packages/./api/functions#resolveregistrytemplatepath)                 | function | Resolves a registry template path by substituting platform variables.             |
+| [`resolveProviderConfigPath()`](/packages/./api/functions#resolveproviderconfigpath)                     | function | Resolves the configuration file path for a provider at the given scope.           |
+| [`resolvePreferredConfigScope()`](/packages/./api/functions#resolvepreferredconfigscope)                 | function | Determines the preferred configuration scope for a provider.                      |
+| [`resolveProviderSkillsDir()`](/packages/./api/functions#resolveproviderskillsdir)                       | function | Resolves the skills directory path for a provider at the given scope.             |
+| [`resolveProviderSkillsDirs()`](/packages/./api/functions#resolveproviderskillsdirs)                     | function | Gets all target directories for skill installation based on provider precedence.  |
+| [`resolveProviderProjectPath()`](/packages/./api/functions#resolveproviderprojectpath)                   | function | Resolves a provider's project-level path against a project directory.             |
+| [`resolveProvidersRegistryPath()`](/packages/./api/functions#resolveprovidersregistrypath)               | function | Locates the providers registry.json file by searching up from a start directory.  |
+| [`normalizeSkillSubPath()`](/packages/./api/functions#normalizeskillsubpath)                             | function | Normalizes a skill sub-path by cleaning separators and removing SKILL.md suffix.  |
+| [`buildSkillSubPathCandidates()`](/packages/./api/functions#buildskillsubpathcandidates)                 | function | Builds a list of candidate sub-paths for skill file resolution.                   |
+| [`getAllProviders()`](/packages/./api/functions#getallproviders)                                         | function | Retrieve all registered providers with resolved platform paths.  Providers ar...  |
+| [`getProvider()`](/packages/./api/functions#getprovider)                                                 | function | Look up a provider by its ID or any of its aliases.                               |
+| [`resolveAlias()`](/packages/./api/functions#resolvealias)                                               | function | Resolve an alias to its canonical provider ID.  If the input is already a can...  |
+| [`getProvidersByPriority()`](/packages/./api/functions#getprovidersbypriority)                           | function | Filter providers by their priority tier.                                          |
+| [`getPrimaryProvider()`](/packages/./api/functions#getprimaryprovider)                                   | function | Get the single primary harness provider, if any is registered.                    |
+| [`getProvidersByStatus()`](/packages/./api/functions#getprovidersbystatus)                               | function | Filter providers by their lifecycle status.                                       |
+| [`getProvidersByInstructFile()`](/packages/./api/functions#getprovidersbyinstructfile)                   | function | Filter providers that use a specific instruction file.  Multiple providers of...  |
+| [`getInstructionFiles()`](/packages/./api/functions#getinstructionfiles)                                 | function | Get the set of all unique instruction file names across all providers.            |
+| [`getProviderCount()`](/packages/./api/functions#getprovidercount)                                       | function | Get the total number of registered providers.                                     |
+| [`getRegistryVersion()`](/packages/./api/functions#getregistryversion)                                   | function | Get the semantic version string of the provider registry.                         |
+| [`getProvidersByHookEvent()`](/packages/./api/functions#getprovidersbyhookevent)                         | function | Filter providers that support a specific hook event.                              |
+| [`getCommonHookEvents()`](/packages/./api/functions#getcommonhookevents)                                 | function | Get hook events common to all specified providers.  If providerIds is provide...  |
+| [`providerSupports()`](/packages/./api/functions#providersupports)                                       | function | Check whether a provider supports a specific capability via dot-path query....    |
+| [`getSpawnCapableProviders()`](/packages/./api/functions#getspawncapableproviders)                       | function | Filter providers that support spawning subagents.                                 |
+| [`getProvidersBySpawnCapability()`](/packages/./api/functions#getprovidersbyspawncapability)             | function | Filter providers by a specific boolean spawn capability flag.                     |
+| [`resetRegistry()`](/packages/./api/functions#resetregistry)                                             | function | Reset cached registry data, forcing a reload on next access.                      |
+| [`getProvidersBySkillsPrecedence()`](/packages/./api/functions#getprovidersbyskillsprecedence)           | function | Filter providers by their skills precedence value.                                |
+| [`getEffectiveSkillsPaths()`](/packages/./api/functions#geteffectiveskillspaths)                         | function | Get the effective skills paths for a provider, ordered by precedence.             |
+| [`buildSkillsMap()`](/packages/./api/functions#buildskillsmap)                                           | function | Build a full skills map for all providers.                                        |
+| [`getProviderCapabilities()`](/packages/./api/functions#getprovidercapabilities)                         | function | Get capabilities for a provider by ID or alias.                                   |
+| [`providerSupportsById()`](/packages/./api/functions#providersupportsbyid)                               | function | Check if a provider supports a capability using ID/alias lookup.  Convenience...  |
+| [`buildInjectionContent()`](/packages/./api/functions#buildinjectioncontent)                             | function | Build injection content from a structured template.  Produces a string suitab...  |
+| [`parseInjectionContent()`](/packages/./api/functions#parseinjectioncontent)                             | function | Parse injection content back into template form.  Lines starting with `@` are...  |
+| [`generateInjectionContent()`](/packages/./api/functions#generateinjectioncontent)                       | function | Generate a standard CAAMP injection block for instruction files.  Produces ma...  |
+| [`generateSkillsSection()`](/packages/./api/functions#generateskillssection)                             | function | Generate a skills discovery section for instruction files.                        |
+| [`getInstructFile()`](/packages/./api/functions#getinstructfile)                                         | function | Get the correct instruction file name for a provider.                             |
+| [`groupByInstructFile()`](/packages/./api/functions#groupbyinstructfile)                                 | function | Group providers by their instruction file name.  Useful for determining which...  |
+| [`checkInjection()`](/packages/./api/functions#checkinjection)                                           | function | Check the status of a CAAMP injection block in an instruction file.  Returns...   |
+| [`inject()`](/packages/./api/functions#inject)                                                           | function | Inject content into an instruction file between CAAMP markers.  Behavior depe...  |
+| [`removeInjection()`](/packages/./api/functions#removeinjection)                                         | function | Remove the CAAMP injection block from an instruction file.  If removing the b...  |
+| [`checkAllInjections()`](/packages/./api/functions#checkallinjections)                                   | function | Check injection status across all providers' instruction files.  Deduplicates...  |
+| [`injectAll()`](/packages/./api/functions#injectall)                                                     | function | Inject content into all providers' instruction files.  Deduplicates by file p...  |
+| [`ensureProviderInstructionFile()`](/packages/./api/functions#ensureproviderinstructionfile)             | function | Ensure a provider's instruction file exists with the correct CAAMP block.  Th...  |
+| [`ensureAllProviderInstructionFiles()`](/packages/./api/functions#ensureallproviderinstructionfiles)     | function | Ensure instruction files for multiple providers at once.  Deduplicates by fil...  |
+| [`setVerbose()`](/packages/./api/functions#setverbose)                                                   | function | Enable or disable verbose (debug) logging mode.  When enabled, debug messages...  |
+| [`setQuiet()`](/packages/./api/functions#setquiet)                                                       | function | Enable or disable quiet mode.  When enabled, info and warning messages are su...  |
+| [`debug()`](/packages/./api/functions#debug)                                                             | function | Log a debug message to stderr when verbose mode is enabled.                       |
+| [`info()`](/packages/./api/functions#info)                                                               | function | Log an informational message to stdout.                                           |
+| [`warn()`](/packages/./api/functions#warn)                                                               | function | Log a warning message to stderr.                                                  |
+| [`error()`](/packages/./api/functions#error)                                                             | function | Log an error message to stderr.                                                   |
+| [`isVerbose()`](/packages/./api/functions#isverbose)                                                     | function | Check if verbose (debug) logging is currently enabled.                            |
+| [`isQuiet()`](/packages/./api/functions#isquiet)                                                         | function | Check if quiet mode is currently enabled.                                         |
+| [`setHuman()`](/packages/./api/functions#sethuman)                                                       | function | Enable or disable human-readable output mode.  When enabled, commands output...   |
+| [`isHuman()`](/packages/./api/functions#ishuman)                                                         | function | Check if human-readable output mode is currently enabled.                         |
+| [`detectProvider()`](/packages/./api/functions#detectprovider)                                           | function | Detect if a single provider is installed on the system.  Checks each detectio...  |
+| [`detectProjectProvider()`](/packages/./api/functions#detectprojectprovider)                             | function | Detect if a provider has project-level config in the given directory.             |
+| [`detectAllProviders()`](/packages/./api/functions#detectallproviders)                                   | function | Detect all registered providers and return their installation status.  Runs d...  |
+| [`getInstalledProviders()`](/packages/./api/functions#getinstalledproviders)                             | function | Get only providers that are currently installed on the system.  Convenience w\... |
+| [`detectProjectProviders()`](/packages/./api/functions#detectprojectproviders)                           | function | Detect all providers and enrich results with project-level presence.  Extends...  |
+| [`resetDetectionCache()`](/packages/./api/functions#resetdetectioncache)                                 | function | Reset the detection result cache, forcing fresh detection on next call.           |
+| [`installToCanonical()`](/packages/./api/functions#installtocanonical)                                   | function | Copy skill files to the canonical location.                                       |
+| [`installSkill()`](/packages/./api/functions#installskill)                                               | function | Install a skill from a local path to the canonical location and link to agents.   |
+| [`removeSkill()`](/packages/./api/functions#removeskill)                                                 | function | Remove a skill from the canonical location and all agent symlinks.                |
+| [`listCanonicalSkills()`](/packages/./api/functions#listcanonicalskills)                                 | function | List all skills installed in the canonical skills directory.                      |
+| [`selectProvidersByMinimumPriority()`](/packages/./api/functions#selectprovidersbyminimumpriority)       | function | Filters providers by minimum priority and returns them in deterministic tier...   |
+| [`installBatchWithRollback()`](/packages/./api/functions#installbatchwithrollback)                       | function | Installs multiple skills across filtered providers with rollback.                 |
+| [`updateInstructionsSingleOperation()`](/packages/./api/functions#updateinstructionssingleoperation)     | function | Updates instruction files across providers as a single operation.                 |
+| [`resolveTierDir()`](/packages/./api/functions#resolvetierdir)                                           | function | Resolve the on-disk directory for an asset at a given tier.                       |
+| [`resolveAllTiers()`](/packages/./api/functions#resolvealltiers)                                         | function | Resolve every tier directory for a given asset kind, in precedence order.         |
+| [`hasPiAbsentAutoWarned()`](/packages/./api/functions#haspiabsentautowarned)                             | function | Read whether the `auto` + Pi-absent boot warning has already fired for this p...  |
+| [`hasExplicitNonPiAutoWarned()`](/packages/./api/functions#hasexplicitnonpiautowarned)                   | function | Read whether the `auto` + explicit-non-Pi deprecation warning has already fir...  |
+| [`markPiAbsentAutoWarned()`](/packages/./api/functions#markpiabsentautowarned)                           | function | Mark the `auto` + Pi-absent warning as already emitted for this process.          |
+| [`markExplicitNonPiAutoWarned()`](/packages/./api/functions#markexplicitnonpiautowarned)                 | function | Mark the `auto` + explicit-non-Pi deprecation warning as already emitted for...   |
+| [`resetExclusivityWarningState()`](/packages/./api/functions#resetexclusivitywarningstate)               | function | Reset both per-process exclusivity warning latches.                               |
+| [`PiRequiredError`](/packages/./api/functions#pirequirederror)                                           | class    | Error raised when `getExclusivityMode` resolves to `'force-pi'` but Pi is not...  |
+| [`isExclusivityMode()`](/packages/./api/functions#isexclusivitymode)                                     | function | Type guard that narrows an arbitrary string to `ExclusivityMode`.                 |
+| [`getExclusivityMode()`](/packages/./api/functions#getexclusivitymode)                                   | function | Resolve the active CAAMP exclusivity mode using the layered precedence docume...  |
+| [`setExclusivityMode()`](/packages/./api/functions#setexclusivitymode)                                   | function | Install a programmatic override for the exclusivity mode.                         |
+| [`resetExclusivityModeOverride()`](/packages/./api/functions#resetexclusivitymodeoverride)               | function | Clear any programmatic override installed by `setExclusivityMode`.                |
+| [`PiHarness`](/packages/./api/functions#piharness)                                                       | class    | Pi coding agent harness — CAAMP's first-class primary harness.                    |
+| [`getHarnessFor()`](/packages/./api/functions#getharnessfor)                                             | function | Return the harness implementation for a provider, or `null` if the provider h...  |
+| [`getPrimaryHarness()`](/packages/./api/functions#getprimaryharness)                                     | function | Return the primary harness declared in the registry, if any.                      |
+| [`getAllHarnesses()`](/packages/./api/functions#getallharnesses)                                         | function | Return every provider that has a harness implementation.                          |
+| [`resolveDefaultTargetProviders()`](/packages/./api/functions#resolvedefaulttargetproviders)             | function | Resolve the default set of target providers when the user has not passed...       |
+| [`dispatchInstallSkillAcrossProviders()`](/packages/./api/functions#dispatchinstallskillacrossproviders) | function | Install a skill across a mixed set of providers, dispatching each provider to...  |
+| [`dispatchRemoveSkillAcrossProviders()`](/packages/./api/functions#dispatchremoveskillacrossproviders)   | function | Remove a skill across a mixed set of providers, dispatching each provider to...   |
+| [`resolveFormat()`](/packages/./api/functions#resolveformat)                                             | function | Resolves output format based on flags and defaults.                               |
+| [`buildEnvelope()`](/packages/./api/functions#buildenvelope)                                             | function | Builds a standard LAFS envelope.                                                  |
+| [`emitError()`](/packages/./api/functions#emiterror)                                                     | function | Emits a JSON error envelope to stderr and exits the process.                      |
+| [`emitJsonError()`](/packages/./api/functions#emitjsonerror)                                             | function | Emits a JSON error envelope without exiting (for catch blocks).                   |
+| [`outputSuccess()`](/packages/./api/functions#outputsuccess)                                             | function | Outputs a successful LAFS envelope to stdout.                                     |
+| [`handleFormatError()`](/packages/./api/functions#handleformaterror)                                     | function | Handles format resolution errors consistently.                                    |
+| [`LAFSCommandError`](/packages/./api/functions#lafscommanderror)                                         | class    | Structured error class for LAFS-compliant command failures with error codes a...  |
+| [`emitSuccess()`](/packages/./api/functions#emitsuccess)                                                 | function | Emits a successful LAFS result envelope to stdout.                                |
+| [`emitError()`](/packages/./api/functions#emiterror)                                                     | function | Emits a failed LAFS error envelope to stderr.                                     |
+| [`runLafsCommand()`](/packages/./api/functions#runlafscommand)                                           | function | Runs an async action and emits the result as a LAFS success or error envelope.    |
+| [`parsePriority()`](/packages/./api/functions#parsepriority)                                             | function | Parses and validates a provider priority tier string.                             |
+| [`resolveProviders()`](/packages/./api/functions#resolveproviders)                                       | function | Resolves the set of target providers from CLI targeting options.                  |
+| [`readJsonFile()`](/packages/./api/functions#readjsonfile)                                               | function | Reads and parses a JSON file from disk.                                           |
+| [`readSkillOperations()`](/packages/./api/functions#readskilloperations)                                 | function | Reads and validates a JSON file containing skill batch operations.                |
+| [`readTextInput()`](/packages/./api/functions#readtextinput)                                             | function | Reads text input from either inline content or a file path, enforcing mutual...   |
+| [`registerAdvancedBatch()`](/packages/./api/functions#registeradvancedbatch)                             | function | Registers the `advanced batch` subcommand for rollback-capable batch install...   |
+| [`registerAdvancedInstructions()`](/packages/./api/functions#registeradvancedinstructions)               | function | Registers the `advanced instructions` subcommand for single-operation instruc...  |
+| [`registerAdvancedProviders()`](/packages/./api/functions#registeradvancedproviders)                     | function | Registers the `advanced providers` subcommand for selecting providers by prio...  |
+| [`registerAdvancedCommands()`](/packages/./api/functions#registeradvancedcommands)                       | function | Registers the `advanced` command group with providers, batch, and instruction...  |
+| [`deepMerge()`](/packages/./api/functions#deepmerge)                                                     | function | Deep merge two objects, with `source` values winning on conflict.  Recursivel...  |
+| [`setNestedValue()`](/packages/./api/functions#setnestedvalue)                                           | function | Set a nested value using a dot-notation key path.                                 |
+| [`getNestedValue()`](/packages/./api/functions#getnestedvalue)                                           | function | Get a nested value from an object using a dot-notation key path.                  |
+| [`ensureDir()`](/packages/./api/functions#ensuredir)                                                     | function | Ensure that the parent directories of a file path exist.  Creates directories...  |
+| [`readJsonConfig()`](/packages/./api/functions#readjsonconfig)                                           | function | Read and parse a JSON or JSONC config file.                                       |
+| [`writeJsonConfig()`](/packages/./api/functions#writejsonconfig)                                         | function | Write a server config entry to a JSON/JSONC file, preserving comments.            |
+| [`removeJsonConfig()`](/packages/./api/functions#removejsonconfig)                                       | function | Remove a server entry from a JSON/JSONC config file.                              |
+| [`readTomlConfig()`](/packages/./api/functions#readtomlconfig)                                           | function | Read and parse a TOML config file.                                                |
+| [`writeTomlConfig()`](/packages/./api/functions#writetomlconfig)                                         | function | Write a server config entry to a TOML file.                                       |
+| [`removeTomlConfig()`](/packages/./api/functions#removetomlconfig)                                       | function | Remove a server entry from a TOML config file.                                    |
+| [`readYamlConfig()`](/packages/./api/functions#readyamlconfig)                                           | function | Read and parse a YAML config file.                                                |
+| [`writeYamlConfig()`](/packages/./api/functions#writeyamlconfig)                                         | function | Write a server config entry to a YAML file.                                       |
+| [`removeYamlConfig()`](/packages/./api/functions#removeyamlconfig)                                       | function | Remove a server entry from a YAML config file.                                    |
+| [`readConfig()`](/packages/./api/functions#readconfig)                                                   | function | Read and parse a config file in the specified format.  Dispatches to the appr...  |
+| [`writeConfig()`](/packages/./api/functions#writeconfig)                                                 | function | Write a server entry to a config file, preserving existing content.  Dispatch...  |
+| [`removeConfig()`](/packages/./api/functions#removeconfig)                                               | function | Remove a server entry from a config file in the specified format.                 |
+| [`registerConfigCommand()`](/packages/./api/functions#registerconfigcommand)                             | function | Registers the `config` command group with show and path subcommands for viewi...  |
+| [`readLockFile()`](/packages/./api/functions#readlockfile)                                               | function | Read and parse the CAAMP lock file from disk.                                     |
+| [`writeLockFile()`](/packages/./api/functions#writelockfile)                                             | function | Write the lock file atomically under a process lock guard.                        |
+| [`updateLockFile()`](/packages/./api/functions#updatelockfile)                                           | function | Safely read-modify-write the lock file under a process lock guard.                |
+| [`getCaampVersion()`](/packages/./api/functions#getcaampversion)                                         | function | Retrieve the current CAAMP package version from the nearest `package.json`.       |
+| [`registerDoctorCommand()`](/packages/./api/functions#registerdoctorcommand)                             | function | Registers the `doctor` command for diagnosing configuration issues and overal...  |
+| [`registerInstructionsCheck()`](/packages/./api/functions#registerinstructionscheck)                     | function | Registers the `instructions check` subcommand for verifying injection status...   |
+| [`registerInstructionsInject()`](/packages/./api/functions#registerinstructionsinject)                   | function | Registers the `instructions inject` subcommand for injecting instruction bloc...  |
+| [`registerInstructionsUpdate()`](/packages/./api/functions#registerinstructionsupdate)                   | function | Registers the `instructions update` subcommand for refreshing all instruction...  |
+| [`registerInstructionsCommands()`](/packages/./api/functions#registerinstructionscommands)               | function | Registers the `instructions` command group with inject, check, and update sub...  |
+| [`resolveMcpConfigPath()`](/packages/./api/functions#resolvemcpconfigpath)                               | function | Resolve a provider's MCP config file path for the given scope, or `null` if t...  |
+| [`listMcpServers()`](/packages/./api/functions#listmcpservers)                                           | function | List MCP server entries declared in a single provider's config file.              |
+| [`listAllMcpServers()`](/packages/./api/functions#listallmcpservers)                                     | function | List MCP server entries for every MCP-capable provider in the registry at the...  |
+| [`detectMcpInstallations()`](/packages/./api/functions#detectmcpinstallations)                           | function | Probe every MCP-capable provider in the registry to determine which ones have...  |
+| [`installMcpServer()`](/packages/./api/functions#installmcpserver)                                       | function | Install an MCP server entry into a single provider's config file.                 |
+| [`removeMcpServer()`](/packages/./api/functions#removemcpserver)                                         | function | Remove an MCP server entry from a single provider's config file.                  |
+| [`removeMcpServerFromAll()`](/packages/./api/functions#removemcpserverfromall)                           | function | Remove an MCP server entry from every MCP-capable provider in the registry th...  |
+| [`requireMcpProvider()`](/packages/./api/functions#requiremcpprovider)                                   | function | Look up an MCP-capable provider in the registry by id, throwing a typed...        |
+| [`parseScope()`](/packages/./api/functions#parsescope)                                                   | function | Parse and validate a `--scope` option value into a typed `McpScope`.              |
+| [`resolveProjectDir()`](/packages/./api/functions#resolveprojectdir)                                     | function | Resolve the project directory used for the `project` scope.                       |
+| [`parseEnvAssignment()`](/packages/./api/functions#parseenvassignment)                                   | function | Parse a single `--env KEY=VALUE` option value into a `[key, value]` pair, thr...  |
+| [`registerMcpDetectCommand()`](/packages/./api/functions#registermcpdetectcommand)                       | function | Registers the `caamp mcp detect` subcommand.                                      |
+| [`registerMcpInstallCommand()`](/packages/./api/functions#registermcpinstallcommand)                     | function | Registers the `caamp mcp install` subcommand.                                     |
+| [`registerMcpListCommand()`](/packages/./api/functions#registermcplistcommand)                           | function | Registers the `caamp mcp list` subcommand.                                        |
+| [`registerMcpRemoveCommand()`](/packages/./api/functions#registermcpremovecommand)                       | function | Registers the `caamp mcp remove` subcommand.                                      |
+| [`registerMcpCommands()`](/packages/./api/functions#registermcpcommands)                                 | function | Register the `mcp` command group and all sub-verbs on the root program.           |
+| [`NetworkError`](/packages/./api/functions#networkerror)                                                 | class    | Structured error for network failures with categorized kind.                      |
+| [`fetchWithTimeout()`](/packages/./api/functions#fetchwithtimeout)                                       | function | Fetch a URL with an automatic timeout via `AbortSignal.timeout`.                  |
+| [`ensureOkResponse()`](/packages/./api/functions#ensureokresponse)                                       | function | Assert that a `Response` has an OK status, throwing on failure.                   |
+| [`formatNetworkError()`](/packages/./api/functions#formatnetworkerror)                                   | function | Format a network error into a user-friendly message string.                       |
+| [`cloneRepo()`](/packages/./api/functions#clonerepo)                                                     | function | Clone a GitHub repo to a temp directory.                                          |
+| [`fetchRawFile()`](/packages/./api/functions#fetchrawfile)                                               | function | Fetch a specific file from GitHub using the raw API.                              |
+| [`repoExists()`](/packages/./api/functions#repoexists)                                                   | function | Check if a GitHub repo exists.                                                    |
+| [`cloneGitLabRepo()`](/packages/./api/functions#clonegitlabrepo)                                         | function | Clone a GitLab repo to a temp directory.                                          |
+| [`fetchGitLabRawFile()`](/packages/./api/functions#fetchgitlabrawfile)                                   | function | Fetch a specific file from GitLab using the raw API.                              |
+| [`parseSource()`](/packages/./api/functions#parsesource)                                                 | function | Parse and classify a source string into a typed `ParsedSource`.                   |
+| [`isMarketplaceScoped()`](/packages/./api/functions#ismarketplacescoped)                                 | function | Check if a source string looks like a marketplace scoped name (`@author/name`).   |
+| [`requirePiHarness()`](/packages/./api/functions#requirepiharness)                                       | function | Resolve and validate Pi's installation, returning a ready-to-use `PiHarness`.     |
+| [`parseScope()`](/packages/./api/functions#parsescope)                                                   | function | Parse and validate a `--scope` option value into a typed tier.                    |
+| [`resolveProjectDir()`](/packages/./api/functions#resolveprojectdir)                                     | function | Resolve the project directory to use for the `project` tier, honouring an exp...  |
+| [`registerPiCantCommands()`](/packages/./api/functions#registerpicantcommands)                           | function | Registers the `caamp pi cant` command group.                                      |
+| [`registerPiExtensionsCommands()`](/packages/./api/functions#registerpiextensionscommands)               | function | Registers the `caamp pi extensions` command group.                                |
+| [`registerPiModelsCommands()`](/packages/./api/functions#registerpimodelscommands)                       | function | Registers the `caamp pi models` command group.                                    |
+| [`registerPiPromptsCommands()`](/packages/./api/functions#registerpipromptscommands)                     | function | Registers the `caamp pi prompts` command group.                                   |
+| [`registerPiSessionsCommands()`](/packages/./api/functions#registerpisessionscommands)                   | function | Registers the `caamp pi sessions` command group.                                  |
+| [`registerPiThemesCommands()`](/packages/./api/functions#registerpithemescommands)                       | function | Registers the `caamp pi themes` command group.                                    |
+| [`registerPiCommands()`](/packages/./api/functions#registerpicommands)                                   | function | Register the `pi` command group and all Wave-1 sub-verbs on the root program.     |
+| [`resetHookMappings()`](/packages/./api/functions#resethookmappings)                                     | function | Reset the cached hook mappings data.                                              |
+| [`getCanonicalEvent()`](/packages/./api/functions#getcanonicalevent)                                     | function | Get the canonical event definition (category, description, canBlock).             |
+| [`getAllCanonicalEvents()`](/packages/./api/functions#getallcanonicalevents)                             | function | Get all canonical event definitions.                                              |
+| [`getCanonicalEventsByCategory()`](/packages/./api/functions#getcanonicaleventsbycategory)               | function | Get canonical events filtered by category.                                        |
+| [`getProviderHookProfile()`](/packages/./api/functions#getproviderhookprofile)                           | function | Get the full hook profile for a provider.                                         |
+| [`getMappedProviderIds()`](/packages/./api/functions#getmappedproviderids)                               | function | Get all provider IDs that have hook mappings.                                     |
+| [`toNative()`](/packages/./api/functions#tonative)                                                       | function | Translate a CAAMP canonical event name to the provider's native name.             |
+| [`toCanonical()`](/packages/./api/functions#tocanonical)                                                 | function | Translate a provider-native event name to the CAAMP canonical name.               |
+| [`toNativeBatch()`](/packages/./api/functions#tonativebatch)                                             | function | Batch-translate multiple canonical events to native names for a provider.         |
+| [`supportsHook()`](/packages/./api/functions#supportshook)                                               | function | Check if a provider supports a specific canonical hook event.                     |
+| [`getHookSupport()`](/packages/./api/functions#gethooksupport)                                           | function | Get full hook support details for a canonical event on a provider.                |
+| [`getSupportedEvents()`](/packages/./api/functions#getsupportedevents)                                   | function | Get all supported canonical events for a provider.                                |
+| [`getUnsupportedEvents()`](/packages/./api/functions#getunsupportedevents)                               | function | Get all unsupported canonical events for a provider.                              |
+| [`getProvidersForEvent()`](/packages/./api/functions#getprovidersforevent)                               | function | Get providers that support a specific canonical event.                            |
+| [`getCommonEvents()`](/packages/./api/functions#getcommonevents)                                         | function | Get canonical events common to all specified providers.                           |
+| [`getProviderSummary()`](/packages/./api/functions#getprovidersummary)                                   | function | Get a summary of hook support for a provider.                                     |
+| [`buildHookMatrix()`](/packages/./api/functions#buildhookmatrix)                                         | function | Build a cross-provider hook support matrix.                                       |
+| [`getHookSystemType()`](/packages/./api/functions#gethooksystemtype)                                     | function | Get the hook system type for a provider.                                          |
+| [`getHookConfigPath()`](/packages/./api/functions#gethookconfigpath)                                     | function | Get the resolved hook config path for a provider.                                 |
+| [`getProviderOnlyEvents()`](/packages/./api/functions#getprovideronlyevents)                             | function | Get provider-only events (native events with no canonical mapping).               |
+| [`translateToAll()`](/packages/./api/functions#translatetoall)                                           | function | Translate a canonical event to native names across multiple providers.            |
+| [`resolveNativeEvent()`](/packages/./api/functions#resolvenativeevent)                                   | function | Find the best canonical match for a native event name across all providers.       |
+| [`getHookMappingsVersion()`](/packages/./api/functions#gethookmappingsversion)                           | function | Get the version of the hook mappings data.                                        |
+| [`registerProvidersCommand()`](/packages/./api/functions#registerproviderscommand)                       | function | Registers the `providers` command group with list, detect, show, skills-map,...   |
+| [`getRulesByCategory()`](/packages/./api/functions#getrulesbycategory)                                   | function | Get audit rules filtered by category.                                             |
+| [`getRulesBySeverity()`](/packages/./api/functions#getrulesbyseverity)                                   | function | Get audit rules filtered by severity level.                                       |
+| [`getCategories()`](/packages/./api/functions#getcategories)                                             | function | Get all unique rule categories.                                                   |
+| [`scanFile()`](/packages/./api/functions#scanfile)                                                       | function | Scan a single file against security audit rules.                                  |
+| [`scanDirectory()`](/packages/./api/functions#scandirectory)                                             | function | Scan a directory of skills for security issues.                                   |
+| [`toSarif()`](/packages/./api/functions#tosarif)                                                         | function | Convert audit results to SARIF 2.1.0 format (Static Analysis Results Intercha...  |
+| [`registerSkillsAudit()`](/packages/./api/functions#registerskillsaudit)                                 | function | Registers the `skills audit` subcommand for security scanning skill files.        |
+| [`recordSkillInstall()`](/packages/./api/functions#recordskillinstall)                                   | function | Record a skill installation in the lock file.                                     |
+| [`removeSkillFromLock()`](/packages/./api/functions#removeskillfromlock)                                 | function | Remove a skill entry from the lock file.                                          |
+| [`getTrackedSkills()`](/packages/./api/functions#gettrackedskills)                                       | function | Get all skills tracked in the lock file.                                          |
+| [`checkSkillUpdate()`](/packages/./api/functions#checkskillupdate)                                       | function | Check if a skill has updates available by comparing the installed version aga...  |
+| [`checkAllSkillUpdates()`](/packages/./api/functions#checkallskillupdates)                               | function | Check for updates across all tracked skills.                                      |
+| [`registerSkillsCheck()`](/packages/./api/functions#registerskillscheck)                                 | function | Registers the `skills check` subcommand for checking available skill updates.     |
+| [`SkillsMPAdapter`](/packages/./api/functions#skillsmpadapter)                                           | class    | Marketplace adapter for the agentskills.in API.                                   |
+| [`SkillsShAdapter`](/packages/./api/functions#skillsshadapter)                                           | class    | Marketplace adapter for the skills.sh API.                                        |
+| [`MarketplaceUnavailableError`](/packages/./api/functions#marketplaceunavailableerror)                   | class    | Error thrown when all marketplace sources fail to respond.                        |
+| [`MarketplaceClient`](/packages/./api/functions#marketplaceclient)                                       | class    | Unified marketplace client that aggregates results from multiple marketplace...   |
+| [`tokenizeCriteriaValue()`](/packages/./api/functions#tokenizecriteriavalue)                             | function | Splits a comma-separated criteria string into normalized tokens.                  |
+| [`validateRecommendationCriteria()`](/packages/./api/functions#validaterecommendationcriteria)           | function | Validates recommendation criteria input for correctness and consistency.          |
+| [`normalizeRecommendationCriteria()`](/packages/./api/functions#normalizerecommendationcriteria)         | function | Normalizes raw recommendation criteria into a consistent tokenized form.          |
+| [`scoreSkillRecommendation()`](/packages/./api/functions#scoreskillrecommendation)                       | function | Computes a recommendation score for a single skill against normalized criteria.   |
+| [`recommendSkills()`](/packages/./api/functions#recommendskills)                                         | function | Validates, normalizes, scores, and ranks a list of skills against criteria.       |
+| [`formatSkillRecommendations()`](/packages/./api/functions#formatskillrecommendations)                   | function | Format skill recommendation results for display or serialization.                 |
+| [`searchSkills()`](/packages/./api/functions#searchskills)                                               | function | Search for skills via marketplace APIs.                                           |
+| [`recommendSkills()`](/packages/./api/functions#recommendskills)                                         | function | Search and rank skills based on query and recommendation criteria.                |
+| [`registerSkillsFind()`](/packages/./api/functions#registerskillsfind)                                   | function | Registers the `skills find` subcommand for searching marketplaces and recomme...  |
+| [`registerSkillsInit()`](/packages/./api/functions#registerskillsinit)                                   | function | Registers the `skills init` subcommand for scaffolding new SKILL.md templates.    |
+| [`loadLibraryFromModule()`](/packages/./api/functions#loadlibraryfrommodule)                             | function | Load a SkillLibrary from a module (index.js) at the given root directory.         |
+| [`buildLibraryFromFiles()`](/packages/./api/functions#buildlibraryfromfiles)                             | function | Build a SkillLibrary from raw files in a directory.                               |
+| [`registerSkillLibrary()`](/packages/./api/functions#registerskilllibrary)                               | function | Registers a SkillLibrary instance directly as the active catalog.                 |
+| [`registerSkillLibraryFromPath()`](/packages/./api/functions#registerskilllibraryfrompath)               | function | Registers a skill library by loading it from a directory path.                    |
+| [`clearRegisteredLibrary()`](/packages/./api/functions#clearregisteredlibrary)                           | function | Clears the registered skill library instance.                                     |
+| [`isCatalogAvailable()`](/packages/./api/functions#iscatalogavailable)                                   | function | Checks whether a skill library is available for use.                              |
+| [`getSkills()`](/packages/./api/functions#getskills)                                                     | function | Returns all skill entries from the catalog.                                       |
+| [`getManifest()`](/packages/./api/functions#getmanifest)                                                 | function | Returns the parsed skill library manifest.                                        |
+| [`listSkills()`](/packages/./api/functions#listskills)                                                   | function | Lists all available skill names in the catalog.                                   |
+| [`getSkill()`](/packages/./api/functions#getskill)                                                       | function | Gets skill metadata by name from the catalog.                                     |
+| [`getSkillPath()`](/packages/./api/functions#getskillpath)                                               | function | Resolves the absolute path to a skill's SKILL.md file.                            |
+| [`getSkillDir()`](/packages/./api/functions#getskilldir)                                                 | function | Resolves the absolute path to a skill's directory.                                |
+| [`readSkillContent()`](/packages/./api/functions#readskillcontent)                                       | function | Reads a skill's SKILL.md content as a string.                                     |
+| [`getCoreSkills()`](/packages/./api/functions#getcoreskills)                                             | function | Returns all skills marked as core in the catalog.                                 |
+| [`getSkillsByCategory()`](/packages/./api/functions#getskillsbycategory)                                 | function | Returns skills filtered by category.                                              |
+| [`getSkillDependencies()`](/packages/./api/functions#getskilldependencies)                               | function | Gets the direct dependency names for a skill.                                     |
+| [`resolveDependencyTree()`](/packages/./api/functions#resolvedependencytree)                             | function | Resolves the full dependency tree for a set of skill names.                       |
+| [`listProfiles()`](/packages/./api/functions#listprofiles)                                               | function | Lists all available profile names in the catalog.                                 |
+| [`getProfile()`](/packages/./api/functions#getprofile)                                                   | function | Gets a profile definition by name from the catalog.                               |
+| [`resolveProfile()`](/packages/./api/functions#resolveprofile)                                           | function | Resolves a profile to its full skill list including inherited skills.             |
+| [`listSharedResources()`](/packages/./api/functions#listsharedresources)                                 | function | Lists all available shared resource names in the catalog.                         |
+| [`getSharedResourcePath()`](/packages/./api/functions#getsharedresourcepath)                             | function | Gets the absolute path to a shared resource file.                                 |
+| [`readSharedResource()`](/packages/./api/functions#readsharedresource)                                   | function | Reads a shared resource file's content as a string.                               |
+| [`listProtocols()`](/packages/./api/functions#listprotocols)                                             | function | Lists all available protocol names in the catalog.                                |
+| [`getProtocolPath()`](/packages/./api/functions#getprotocolpath)                                         | function | Gets the absolute path to a protocol file.                                        |
+| [`readProtocol()`](/packages/./api/functions#readprotocol)                                               | function | Reads a protocol file's content as a string.                                      |
+| [`validateSkillFrontmatter()`](/packages/./api/functions#validateskillfrontmatter)                       | function | Validates a single skill's frontmatter against the schema.                        |
+| [`validateAll()`](/packages/./api/functions#validateall)                                                 | function | Validates all skills in the catalog and returns results per skill.                |
+| [`getDispatchMatrix()`](/packages/./api/functions#getdispatchmatrix)                                     | function | Gets the dispatch matrix from the skill library manifest.                         |
+| [`getVersion()`](/packages/./api/functions#getversion)                                                   | function | Returns the skill library version string.                                         |
+| [`getLibraryRoot()`](/packages/./api/functions#getlibraryroot)                                           | function | Returns the absolute path to the skill library root directory.                    |
+| [`parseSkillFile()`](/packages/./api/functions#parseskillfile)                                           | function | Parse a SKILL.md file and extract its frontmatter metadata.                       |
+| [`discoverSkill()`](/packages/./api/functions#discoverskill)                                             | function | Discover a single skill at a given directory path.                                |
+| [`discoverSkills()`](/packages/./api/functions#discoverskills)                                           | function | Scan a directory for skill subdirectories, each containing a SKILL.md file.       |
+| [`discoverSkillsMulti()`](/packages/./api/functions#discoverskillsmulti)                                 | function | Discover skills across multiple directories.                                      |
+| [`registerSkillsInstall()`](/packages/./api/functions#registerskillsinstall)                             | function | Registers the `skills install` subcommand for installing skills from various...   |
+| [`registerSkillsList()`](/packages/./api/functions#registerskillslist)                                   | function | Registers the `skills list` subcommand for listing installed skills.              |
+| [`registerSkillsRemove()`](/packages/./api/functions#registerskillsremove)                               | function | Registers the `skills remove` subcommand for removing installed skills.           |
+| [`registerSkillsUpdate()`](/packages/./api/functions#registerskillsupdate)                               | function | Registers the `skills update` subcommand for updating all outdated skills.        |
+| [`validateSkill()`](/packages/./api/functions#validateskill)                                             | function | Validate a SKILL.md file against the Agent Skills standard.                       |
+| [`registerSkillsValidate()`](/packages/./api/functions#registerskillsvalidate)                           | function | Registers the `skills validate` subcommand for validating SKILL.md file format.   |
+| [`registerSkillsCommands()`](/packages/./api/functions#registerskillscommands)                           | function | Registers the `skills` command group with all skill management subcommands.       |
+| [`isCaampOwnedSkill()`](/packages/./api/functions#iscaampownedskill)                                     | function | Check whether a skill name is reserved by CAAMP (ct-\* prefix).                   |
+| [`checkSkillIntegrity()`](/packages/./api/functions#checkskillintegrity)                                 | function | Check the integrity of a single installed skill.                                  |
+| [`checkAllSkillIntegrity()`](/packages/./api/functions#checkallskillintegrity)                           | function | Check integrity of all tracked skills.                                            |
+| [`shouldOverrideSkill()`](/packages/./api/functions#shouldoverrideskill)                                 | function | Resolve a skill name conflict where a user-installed skill collides with a CA...  |
+| [`validateInstructionIntegrity()`](/packages/./api/functions#validateinstructionintegrity)               | function | Validate instruction file injection status across all providers.                  |
+| [`resolveCantImports()`](/packages/./api/functions#resolvecantimports)                                   | function | Resolve `@import *.cant` references in instruction file content.                  |
+| [`cantToMarkdown()`](/packages/./api/functions#canttomarkdown)                                           | function | Convert a `.cant` file's content to markdown equivalent.                          |
+| [`discoverWellKnown()`](/packages/./api/functions#discoverwellknown)                                     | function | Discover skills from a well-known URL.                                            |
+
+## Types & Interfaces
+
+| Symbol                                                                                               | Kind      | Description                                                                      |
+| ---------------------------------------------------------------------------------------------------- | --------- | -------------------------------------------------------------------------------- |
+| [`SkillLibraryEntry`](/packages/./api/types#skilllibraryentry)                                       | interface | A single skill entry in a library catalog.                                       |
+| [`SkillLibraryValidationResult`](/packages/./api/types#skilllibraryvalidationresult)                 | interface | Validation result from skill frontmatter validation.                             |
+| [`SkillLibraryValidationIssue`](/packages/./api/types#skilllibraryvalidationissue)                   | interface | A single validation issue.                                                       |
+| [`SkillLibraryProfile`](/packages/./api/types#skilllibraryprofile)                                   | interface | Profile definition for grouped skill installation.                               |
+| [`SkillLibraryDispatchMatrix`](/packages/./api/types#skilllibrarydispatchmatrix)                     | interface | Dispatch matrix for task routing to skills.                                      |
+| [`SkillLibraryManifestSkill`](/packages/./api/types#skilllibrarymanifestskill)                       | interface | Skill entry within the library manifest.                                         |
+| [`SkillLibraryManifest`](/packages/./api/types#skilllibrarymanifest)                                 | interface | Full manifest structure for a skill library.                                     |
+| [`SkillLibrary`](/packages/./api/types#skilllibrary)                                                 | interface | Standard interface for a skill library.  Any directory or module providing sk... |
+| [`RegistryDetection`](/packages/./api/types#registrydetection)                                       | interface | Raw detection configuration as stored in registry.json.                          |
+| [`ProviderPriority`](/packages/./api/types#providerpriority)                                         | type      | Priority tier identifier stored in registry.json.                                |
+| [`ProviderStatus`](/packages/./api/types#providerstatus)                                             | type      | Lifecycle status identifier stored in registry.json.                             |
+| [`RegistryProvider`](/packages/./api/types#registryprovider)                                         | interface | Raw provider definition as stored in registry.json before path resolution.       |
+| [`McpConfigFormat`](/packages/./api/types#mcpconfigformat)                                           | type      | Supported MCP config file formats.                                               |
+| [`McpTransportType`](/packages/./api/types#mcptransporttype)                                         | type      | MCP transport protocols a provider may advertise.                                |
+| [`RegistryMcpIntegration`](/packages/./api/types#registrymcpintegration)                             | interface | MCP server integration metadata for providers that consume MCP servers via a...  |
+| [`RegistryHarnessKind`](/packages/./api/types#registryharnesskind)                                   | type      | Harness role category for a primary or standalone harness.                       |
+| [`RegistryHarnessCapability`](/packages/./api/types#registryharnesscapability)                       | interface | First-class harness role declaration.                                            |
+| [`SkillsPrecedence`](/packages/./api/types#skillsprecedence)                                         | type      | How a provider resolves skill file precedence between vendor and agents direc... |
+| [`RegistrySkillsCapability`](/packages/./api/types#registryskillscapability)                         | interface | Raw skills capability definition as stored in registry.json.                     |
+| [`HookEvent`](/packages/./api/types#hookevent)                                                       | type      | Hook lifecycle event identifier from registry.json.                              |
+| [`RegistryHookFormat`](/packages/./api/types#registryhookformat)                                     | type      | The on-disk layout of a provider's hook configuration.                           |
+| [`RegistryHookCatalog`](/packages/./api/types#registryhookcatalog)                                   | type      | Which native event catalog a provider's hook system uses.                        |
+| [`RegistryHooksCapability`](/packages/./api/types#registryhookscapability)                           | interface | Raw hooks capability definition as stored in registry.json.                      |
+| [`SpawnMechanism`](/packages/./api/types#spawnmechanism)                                             | type      | Mechanism a provider uses to spawn subagents.                                    |
+| [`RegistrySpawnCapability`](/packages/./api/types#registryspawncapability)                           | interface | Raw spawn capability definition as stored in registry.json.                      |
+| [`RegistryCapabilities`](/packages/./api/types#registrycapabilities)                                 | interface | Aggregate capability block for a provider in registry.json.                      |
+| [`ProviderRegistry`](/packages/./api/types#providerregistry)                                         | interface | Top-level structure of the provider registry JSON file.                          |
+| [`CtSkillEntry`](/packages/./api/types#ctskillentry)                                                 | type      | Backward-compatible alias for `SkillLibraryEntry`.                               |
+| [`CtValidationResult`](/packages/./api/types#ctvalidationresult)                                     | type      | Backward-compatible alias for `SkillLibraryValidationResult`.                    |
+| [`CtValidationIssue`](/packages/./api/types#ctvalidationissue)                                       | type      | Backward-compatible alias for `SkillLibraryValidationIssue`.                     |
+| [`CtProfileDefinition`](/packages/./api/types#ctprofiledefinition)                                   | type      | Backward-compatible alias for `SkillLibraryProfile`.                             |
+| [`CtDispatchMatrix`](/packages/./api/types#ctdispatchmatrix)                                         | type      | Backward-compatible alias for `SkillLibraryDispatchMatrix`.                      |
+| [`CtManifest`](/packages/./api/types#ctmanifest)                                                     | type      | Backward-compatible alias for `SkillLibraryManifest`.                            |
+| [`CtManifestSkill`](/packages/./api/types#ctmanifestskill)                                           | type      | Backward-compatible alias for `SkillLibraryManifestSkill`.                       |
+| [`ConfigFormat`](/packages/./api/types#configformat)                                                 | type      | Supported configuration file formats.  - `"json"` - Standard JSON - `"jsonc"`... |
+| [`TransportType`](/packages/./api/types#transporttype)                                               | type      | MCP server transport protocol type.  - `"stdio"` - Standard input/output (loc... |
+| [`DetectionMethod`](/packages/./api/types#detectionmethod)                                           | type      | Method used to detect whether an AI agent is installed on the system.  -...      |
+| [`DetectionConfig`](/packages/./api/types#detectionconfig)                                           | interface | Configuration for detecting whether a provider is installed.                     |
+| [`ProviderMcpCapability`](/packages/./api/types#providermcpcapability)                               | interface | Resolved MCP server integration metadata for a provider.                         |
+| [`ProviderHarnessCapability`](/packages/./api/types#providerharnesscapability)                       | interface | Resolved first-class harness capability for a provider.                          |
+| [`ProviderSkillsCapability`](/packages/./api/types#providerskillscapability)                         | interface | Resolved skills capability for a provider at runtime.                            |
+| [`ProviderHooksCapability`](/packages/./api/types#providerhookscapability)                           | interface | Resolved hooks capability for a provider at runtime.                             |
+| [`ProviderSpawnCapability`](/packages/./api/types#providerspawncapability)                           | interface | Resolved spawn capability for a provider at runtime.                             |
+| [`ProviderCapabilities`](/packages/./api/types#providercapabilities)                                 | interface | Aggregate provider capabilities for MCP, harness role, skills, hooks, and spawn. |
+| [`Provider`](/packages/./api/types#provider)                                                         | interface | A resolved AI agent provider definition with platform-specific paths.            |
+| [`McpServerConfig`](/packages/./api/types#mcpserverconfig)                                           | interface | Canonical MCP server configuration.                                              |
+| [`SourceType`](/packages/./api/types#sourcetype)                                                     | type      | Classified type of an MCP server or skill source.  - `"remote"` - HTTP/HTTPS...  |
+| [`ParsedSource`](/packages/./api/types#parsedsource)                                                 | interface | Result of parsing a source string into its typed components.                     |
+| [`SkillMetadata`](/packages/./api/types#skillmetadata)                                               | interface | Metadata extracted from a SKILL.md frontmatter.                                  |
+| [`SkillEntry`](/packages/./api/types#skillentry)                                                     | interface | A discovered skill entry with its location and metadata.                         |
+| [`LockEntry`](/packages/./api/types#lockentry)                                                       | interface | A single entry in the CAAMP lock file tracking an installed skill or MCP server. |
+| [`CaampLockFile`](/packages/./api/types#caamplockfile)                                               | interface | The CAAMP lock file structure, stored at the resolved canonical lock path.       |
+| [`MarketplaceSkill`](/packages/./api/types#marketplaceskill)                                         | interface | A skill listing from a marketplace search result.                                |
+| [`MarketplaceSearchResult`](/packages/./api/types#marketplacesearchresult)                           | interface | Paginated search results from a marketplace API.                                 |
+| [`AuditSeverity`](/packages/./api/types#auditseverity)                                               | type      | Severity level for a security audit finding.  Ordered from most to least seve... |
+| [`AuditRule`](/packages/./api/types#auditrule)                                                       | interface | A security audit rule definition with a regex pattern to match against skill...  |
+| [`AuditFinding`](/packages/./api/types#auditfinding)                                                 | interface | A single finding from a security audit scan, with line-level location.           |
+| [`AuditResult`](/packages/./api/types#auditresult)                                                   | interface | Aggregate audit result for a single file.                                        |
+| [`InjectionStatus`](/packages/./api/types#injectionstatus)                                           | type      | Status of a CAAMP injection block in an instruction file.  - `"current"` - In... |
+| [`InjectionCheckResult`](/packages/./api/types#injectioncheckresult)                                 | interface | Result of checking a single instruction file for CAAMP injection status.         |
+| [`McpServerEntry`](/packages/./api/types#mcpserverentry)                                             | interface | An MCP server entry read from a provider's config file.                          |
+| [`GlobalOptions`](/packages/./api/types#globaloptions)                                               | interface | Global CLI options shared across all CAAMP commands.                             |
+| [`PlatformPaths`](/packages/./api/types#platformpaths)                                               | interface | OS-appropriate directory paths for CAAMP's global storage.                       |
+| [`SystemInfo`](/packages/./api/types#systeminfo)                                                     | interface | Snapshot of the current system environment and resolved platform paths.          |
+| [`PathScope`](/packages/./api/types#pathscope)                                                       | type      | Scope for path resolution, either global (user home) or project-local.           |
+| [`PlatformLocations`](/packages/./api/types#platformlocations)                                       | interface | Platform-specific directory locations for agent configuration.                   |
+| [`InjectionTemplate`](/packages/./api/types#injectiontemplate)                                       | interface | Structured template for injection content.                                       |
+| [`EnsureProviderInstructionFileOptions`](/packages/./api/types#ensureproviderinstructionfileoptions) | interface | Options for ensuring a provider instruction file.                                |
+| [`EnsureProviderInstructionFileResult`](/packages/./api/types#ensureproviderinstructionfileresult)   | interface | Result of ensuring a provider instruction file.                                  |
+| [`DetectionResult`](/packages/./api/types#detectionresult)                                           | interface | Result of detecting whether a provider is installed on the system.               |
+| [`DetectionCacheOptions`](/packages/./api/types#detectioncacheoptions)                               | interface | Options for controlling the detection result cache.                              |
+| [`SkillInstallResult`](/packages/./api/types#skillinstallresult)                                     | interface | Result of installing a skill to the canonical location and linking to agents.    |
+| [`SkillBatchOperation`](/packages/./api/types#skillbatchoperation)                                   | interface | Single skill operation entry used by batch orchestration.                        |
+| [`BatchInstallOptions`](/packages/./api/types#batchinstalloptions)                                   | interface | Options for rollback-capable batch installation.                                 |
+| [`BatchInstallResult`](/packages/./api/types#batchinstallresult)                                     | interface | Result of rollback-capable batch installation.                                   |
+| [`InstructionUpdateSummary`](/packages/./api/types#instructionupdatesummary)                         | interface | Result of a single-operation instruction update across providers.                |
+| [`HarnessTier`](/packages/./api/types#harnesstier)                                                   | type      | Three-tier scope identifier for Pi harness operations.                           |
+| [`HarnessAssetKind`](/packages/./api/types#harnessassetkind)                                         | type      | Asset kinds managed by the three-tier scope model.                               |
+| [`ResolveTierDirOptions`](/packages/./api/types#resolvetierdiroptions)                               | interface | Options accepted by `resolveTierDir`.                                            |
+| [`HarnessScope`](/packages/./api/types#harnessscope)                                                 | type      | Scope at which a harness operation should be performed.                          |
+| [`ResolveDefaultTargetProvidersOptions`](/packages/./api/types#resolvedefaulttargetprovidersoptions) | interface | Options accepted by `resolveDefaultTargetProviders` (defined in `./index.ts`).   |
+| [`ExclusivityMode`](/packages/./api/types#exclusivitymode)                                           | type      | Controls how `resolveDefaultTargetProviders` (defined in `./index.ts`) select... |
+| [`ExtensionEntry`](/packages/./api/types#extensionentry)                                             | interface | Metadata describing a Pi extension discovered on disk.                           |
+| [`PromptEntry`](/packages/./api/types#promptentry)                                                   | interface | Metadata describing a Pi prompt directory discovered on disk.                    |
+| [`ThemeEntry`](/packages/./api/types#themeentry)                                                     | interface | Metadata describing a Pi theme discovered on disk.                               |
+| [`HarnessInstallOptions`](/packages/./api/types#harnessinstalloptions)                               | interface | Options accepted by the Pi install verbs (extensions, prompts, themes).          |
+| [`CantProfileCounts`](/packages/./api/types#cantprofilecounts)                                       | interface | Counts of top-level CANT sections discovered in a `.cant` file.                  |
+| [`CantProfileEntry`](/packages/./api/types#cantprofileentry)                                         | interface | Metadata describing a `.cant` profile installed at one of the three Pi harnes... |
+| [`CantValidationDiagnostic`](/packages/./api/types#cantvalidationdiagnostic)                         | interface | Diagnostic emitted by the cant-core 42-rule validator, normalised to the harn... |
+| [`ValidateCantProfileResult`](/packages/./api/types#validatecantprofileresult)                       | interface | Result of validating a `.cant` profile via the cant-core 42-rule engine.         |
+| [`SessionSummary`](/packages/./api/types#sessionsummary)                                             | interface | Summary header extracted from the first line of a Pi session JSONL file.         |
+| [`SessionDocument`](/packages/./api/types#sessiondocument)                                           | interface | Raw content of a Pi session JSONL file, preserved line-by-line.                  |
+| [`PiModelDefinition`](/packages/./api/types#pimodeldefinition)                                       | interface | Pi model definition as recorded under `models.json:providers[].models`.          |
+| [`PiModelProvider`](/packages/./api/types#pimodelprovider)                                           | interface | Pi provider block as recorded under `models.json:providers[id]`.                 |
+| [`PiModelsConfig`](/packages/./api/types#pimodelsconfig)                                             | interface | Entire `models.json` document shape used by Pi.                                  |
+| [`ModelListEntry`](/packages/./api/types#modellistentry)                                             | interface | A model entry as surfaced by `Harness.listModels`.                               |
+| [`SubagentTask`](/packages/./api/types#subagenttask)                                                 | interface | Description of a subagent task to be spawned under a harness.                    |
+| [`SubagentSpawnOptions`](/packages/./api/types#subagentspawnoptions)                                 | interface | Per-call options that override harness-wide spawn defaults.                      |
+| [`SubagentStreamEvent`](/packages/./api/types#subagentstreamevent)                                   | interface | One streaming event surfaced through `SubagentSpawnOptions.onStream`.            |
+| [`SubagentExitResult`](/packages/./api/types#subagentexitresult)                                     | interface | Resolution value of `SubagentHandle.exitPromise`.                                |
+| [`SubagentLinkEntry`](/packages/./api/types#subagentlinkentry)                                       | interface | `subagent_link` custom entry written into the parent session JSONL.              |
+| [`SubagentResult`](/packages/./api/types#subagentresult)                                             | interface | Final result of a subagent's execution (legacy v1 shape).                        |
+| [`SubagentHandle`](/packages/./api/types#subagenthandle)                                             | interface | Live handle to a running subagent.                                               |
+| [`Harness`](/packages/./api/types#harness)                                                           | interface | Contract every first-class harness must implement.                               |
+| [`MVILevel`](/packages/./api/types#mvilevel)                                                         | type      | LAFS MVI disclosure level - defined locally to avoid CI module resolution iss... |
+| [`LAFSErrorShape`](/packages/./api/types#lafserrorshape)                                             | type      | LAFS Error structure - re-exported from protocol as LAFSErrorShape for CAAMP...  |
+| [`LAFSWarning`](/packages/./api/types#lafswarning)                                                   | type      | LAFS Warning structure - re-exported from protocol.                              |
+| [`LAFSEnvelope`](/packages/./api/types#lafsenvelope)                                                 | interface | Generic LAFS Envelope structure for type-safe command results.                   |
+| [`FormatOptions`](/packages/./api/types#formatoptions)                                               | interface | Format resolution options.                                                       |
+| [`LAFSCommandOptions`](/packages/./api/types#lafscommandoptions)                                     | interface | Standard command options interface for LAFS-compliant commands.                  |
+| [`ProviderTargetOptions`](/packages/./api/types#providertargetoptions)                               | interface | Options for resolving which providers to target in advanced commands.            |
+| [`McpScope`](/packages/./api/types#mcpscope)                                                         | type      | Scope identifier for MCP config file resolution.                                 |
+| [`McpDetectionEntry`](/packages/./api/types#mcpdetectionentry)                                       | interface | Result of a single provider's MCP installation probe.                            |
+| [`McpServerEntriesByProvider`](/packages/./api/types#mcpserverentriesbyprovider)                     | type      | Map of provider id → MCP server entries for that provider.                       |
+| [`InstallMcpServerOptions`](/packages/./api/types#installmcpserveroptions)                           | interface | Options accepted by `installMcpServer`.                                          |
+| [`InstallMcpServerResult`](/packages/./api/types#installmcpserverresult)                             | interface | Result of an `installMcpServer` call.                                            |
+| [`RemoveMcpServerOptions`](/packages/./api/types#removemcpserveroptions)                             | interface | Options accepted by `removeMcpServer` and `removeMcpServerFromAll`.              |
+| [`RemoveMcpServerResult`](/packages/./api/types#removemcpserverresult)                               | interface | Result of a single-provider `removeMcpServer` call.                              |
+| [`McpCommandBaseOptions`](/packages/./api/types#mcpcommandbaseoptions)                               | interface | Standard option shape accepted by every `caamp mcp <verb>` command.              |
+| [`McpDetectOptions`](/packages/./api/types#mcpdetectoptions)                                         | interface | Options accepted by `caamp mcp detect`.                                          |
+| [`McpInstallOptions`](/packages/./api/types#mcpinstalloptions)                                       | interface | Options accepted by `caamp mcp install`.                                         |
+| [`McpListOptions`](/packages/./api/types#mcplistoptions)                                             | interface | Options accepted by `caamp mcp list`.                                            |
+| [`McpRemoveOptions`](/packages/./api/types#mcpremoveoptions)                                         | interface | Options accepted by `caamp mcp remove`.                                          |
+| [`GitFetchResult`](/packages/./api/types#gitfetchresult)                                             | interface | Result of fetching a Git repository to a local temporary directory.              |
+| [`PiCommandBaseOptions`](/packages/./api/types#picommandbaseoptions)                                 | interface | Standard option shape accepted by every `caamp pi <verb>` command.               |
+| [`PiCantListOptions`](/packages/./api/types#picantlistoptions)                                       | interface | Options accepted by `caamp pi cant list`.                                        |
+| [`PiCantInstallOptions`](/packages/./api/types#picantinstalloptions)                                 | interface | Options accepted by `caamp pi cant install`.                                     |
+| [`PiCantRemoveOptions`](/packages/./api/types#picantremoveoptions)                                   | type      | Options accepted by `caamp pi cant remove`.                                      |
+| [`PiExtensionsListOptions`](/packages/./api/types#piextensionslistoptions)                           | interface | Options accepted by `caamp pi extensions list`.                                  |
+| [`PiExtensionsInstallOptions`](/packages/./api/types#piextensionsinstalloptions)                     | interface | Options accepted by `caamp pi extensions install`.                               |
+| [`PiExtensionsRemoveOptions`](/packages/./api/types#piextensionsremoveoptions)                       | type      | Options accepted by `caamp pi extensions remove`.                                |
+| [`PiModelsCommandOptions`](/packages/./api/types#pimodelscommandoptions)                             | interface | Options accepted by every `caamp pi models` verb.                                |
+| [`PiModelsAddOptions`](/packages/./api/types#pimodelsaddoptions)                                     | interface | Options accepted by `caamp pi models add`.                                       |
+| [`PiPromptsInstallOptions`](/packages/./api/types#pipromptsinstalloptions)                           | interface | Options accepted by `caamp pi prompts install`.                                  |
+| [`PiPromptsListOptions`](/packages/./api/types#pipromptslistoptions)                                 | type      | Options accepted by `caamp pi prompts list`.                                     |
+| [`PiPromptsRemoveOptions`](/packages/./api/types#pipromptsremoveoptions)                             | type      | Options accepted by `caamp pi prompts remove`.                                   |
+| [`PiSessionsListOptions`](/packages/./api/types#pisessionslistoptions)                               | interface | Options accepted by `caamp pi sessions list`.                                    |
+| [`PiSessionsExportOptions`](/packages/./api/types#pisessionsexportoptions)                           | interface | Options accepted by `caamp pi sessions export`.                                  |
+| [`PiThemesInstallOptions`](/packages/./api/types#pithemesinstalloptions)                             | interface | Options accepted by `caamp pi themes install`.                                   |
+| [`PiThemesListOptions`](/packages/./api/types#pithemeslistoptions)                                   | type      | Options accepted by `caamp pi themes list`.                                      |
+| [`PiThemesRemoveOptions`](/packages/./api/types#pithemesremoveoptions)                               | type      | Options accepted by `caamp pi themes remove`.                                    |
+| [`HookCategory`](/packages/./api/types#hookcategory)                                                 | type      | Union type of valid hook category strings.                                       |
+| [`EventSource`](/packages/./api/types#eventsource)                                                   | type      | Union type of valid event source types.                                          |
+| [`CanonicalHookEvent`](/packages/./api/types#canonicalhookevent)                                     | type      | Union type of all canonical hook event names.                                    |
+| [`CanonicalEventDefinition`](/packages/./api/types#canonicaleventdefinition)                         | interface | Definition of a canonical hook event including its category and behavior.        |
+| [`HookSystemType`](/packages/./api/types#hooksystemtype)                                             | type      | The type of hook system a provider uses.                                         |
+| [`HookHandlerType`](/packages/./api/types#hookhandlertype)                                           | type      | The mechanism a provider uses to execute hook handlers.                          |
+| [`HookMapping`](/packages/./api/types#hookmapping)                                                   | interface | Mapping of a single canonical event to a provider's native representation.       |
+| [`ProviderHookProfile`](/packages/./api/types#providerhookprofile)                                   | interface | Complete hook profile for a single provider.                                     |
+| [`NormalizedHookEvent`](/packages/./api/types#normalizedhookevent)                                   | interface | A fully resolved hook event with both canonical and native names.                |
+| [`HookSupportResult`](/packages/./api/types#hooksupportresult)                                       | interface | Result of querying whether a provider supports a specific canonical event.       |
+| [`ProviderHookSummary`](/packages/./api/types#providerhooksummary)                                   | interface | Aggregated hook support summary for a single provider.                           |
+| [`CrossProviderMatrix`](/packages/./api/types#crossprovidermatrix)                                   | interface | Cross-provider hook support matrix comparing multiple providers.                 |
+| [`HookMappingsFile`](/packages/./api/types#hookmappingsfile)                                         | interface | Schema for the `providers/hook-mappings.json` data file.                         |
+| [`MarketplaceAdapter`](/packages/./api/types#marketplaceadapter)                                     | interface | Contract that each marketplace backend adapter must implement.                   |
+| [`MarketplaceResult`](/packages/./api/types#marketplaceresult)                                       | interface | Normalized marketplace record returned by all adapters.                          |
+| [`SearchOptions`](/packages/./api/types#searchoptions)                                               | interface | Options for marketplace search requests.                                         |
+| [`RecommendationErrorCode`](/packages/./api/types#recommendationerrorcode)                           | type      | Union type of all recommendation error code string literals.                     |
+| [`RecommendationValidationIssue`](/packages/./api/types#recommendationvalidationissue)               | interface | Describes a single validation issue found in recommendation criteria.            |
+| [`RecommendationValidationResult`](/packages/./api/types#recommendationvalidationresult)             | interface | Result of validating recommendation criteria input.                              |
+| [`RecommendationCriteriaInput`](/packages/./api/types#recommendationcriteriainput)                   | interface | Raw user-provided criteria for skill recommendations.                            |
+| [`NormalizedRecommendationCriteria`](/packages/./api/types#normalizedrecommendationcriteria)         | interface | Normalized and tokenized form of recommendation criteria.                        |
+| [`RecommendationReasonCode`](/packages/./api/types#recommendationreasoncode)                         | type      | String literal union of all reason codes emitted during skill scoring.           |
+| [`RecommendationReason`](/packages/./api/types#recommendationreason)                                 | interface | A single reason contributing to a skill's recommendation score.                  |
+| [`RecommendationScoreBreakdown`](/packages/./api/types#recommendationscorebreakdown)                 | interface | Detailed breakdown of a skill's recommendation score by category.                |
+| [`RankedSkillRecommendation`](/packages/./api/types#rankedskillrecommendation)                       | interface | A single skill recommendation with its computed score and explanations.          |
+| [`RecommendationOptions`](/packages/./api/types#recommendationoptions)                               | interface | Configuration options for the skill recommendation engine.                       |
+| [`RecommendationWeights`](/packages/./api/types#recommendationweights)                               | interface | Numeric weights controlling the recommendation scoring algorithm.                |
+| [`RecommendSkillsResult`](/packages/./api/types#recommendskillsresult)                               | interface | The complete result of a skill recommendation operation.                         |
+| [`SearchSkillsOptions`](/packages/./api/types#searchskillsoptions)                                   | interface | Options for searching skills via marketplace APIs.                               |
+| [`RecommendSkillsQueryOptions`](/packages/./api/types#recommendskillsqueryoptions)                   | interface | Options for the recommendation query combining ranking options with a result...  |
+| [`ValidationIssue`](/packages/./api/types#validationissue)                                           | interface | A single validation issue found during SKILL.md validation.                      |
+| [`ValidationResult`](/packages/./api/types#validationresult)                                         | interface | Result of validating a SKILL.md file against the Agent Skills standard.          |
+| [`SpawnOptions`](/packages/./api/types#spawnoptions)                                                 | interface | Options for spawning a subagent.                                                 |
+| [`SpawnResult`](/packages/./api/types#spawnresult)                                                   | interface | Result from a spawn operation.                                                   |
+| [`SpawnAdapter`](/packages/./api/types#spawnadapter)                                                 | interface | Provider-neutral interface for spawning and managing subagents.  Concrete imp... |
+| [`SkillIntegrityStatus`](/packages/./api/types#skillintegritystatus)                                 | type      | Status of a single skill's integrity check.                                      |
+| [`SkillIntegrityResult`](/packages/./api/types#skillintegrityresult)                                 | interface | Result of checking a single skill's integrity.                                   |
+| [`ResolvedImports`](/packages/./api/types#resolvedimports)                                           | interface | Result of resolving `@import` lines in content.                                  |
+| [`WellKnownSkill`](/packages/./api/types#wellknownskill)                                             | interface | A skill entry discovered via the RFC 8615 well-known endpoint.                   |
+
+## Other Exports
+
+| Symbol                                                                             | Kind     | Description                                                                      |
+| ---------------------------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------- |
+| [`skill-library.ts`](/packages/./api/functions#skill-libraryts)                    | file     |                                                                                  |
+| [`types.ts`](/packages/./api/functions#typests)                                    | file     |                                                                                  |
+| [`types.ts`](/packages/./api/functions#typests)                                    | file     |                                                                                  |
+| [`platform-paths.ts`](/packages/./api/functions#platform-pathsts)                  | file     |                                                                                  |
+| [`standard.ts`](/packages/./api/functions#standardts)                              | file     |                                                                                  |
+| [`providers.ts`](/packages/./api/functions#providersts)                            | file     |                                                                                  |
+| [`templates.ts`](/packages/./api/functions#templatests)                            | file     |                                                                                  |
+| [`injector.ts`](/packages/./api/functions#injectorts)                              | file     |                                                                                  |
+| [`AGENTS_HOME`](/packages/./api/functions#agentshome)                              | variable | Global `.agents/` home directory (`~/.agents/` or `$AGENTS_HOME`).               |
+| [`LOCK_FILE_PATH`](/packages/./api/functions#lockfilepath)                         | variable | CAAMP lock file path (`~/.agents/.caamp-lock.json`).                             |
+| [`CANONICAL_SKILLS_DIR`](/packages/./api/functions#canonicalskillsdir)             | variable | Canonical skills directory (`~/.agents/skills/`).                                |
+| [`AGENTS_MCP_DIR`](/packages/./api/functions#agentsmcpdir)                         | variable | Global MCP directory (`~/.agents/mcp/`).                                         |
+| [`AGENTS_MCP_SERVERS_PATH`](/packages/./api/functions#agentsmcpserverspath)        | variable | Global MCP servers.json path (`~/.agents/mcp/servers.json`).                     |
+| [`AGENTS_CONFIG_PATH`](/packages/./api/functions#agentsconfigpath)                 | variable | Global agents config.toml path (`~/.agents/config.toml`).                        |
+| [`agents.ts`](/packages/./api/functions#agentsts)                                  | file     |                                                                                  |
+| [`logger.ts`](/packages/./api/functions#loggerts)                                  | file     |                                                                                  |
+| [`detection.ts`](/packages/./api/functions#detectionts)                            | file     |                                                                                  |
+| [`installer.ts`](/packages/./api/functions#installerts)                            | file     |                                                                                  |
+| [`orchestration.ts`](/packages/./api/functions#orchestrationts)                    | file     |                                                                                  |
+| [`TIER_PRECEDENCE`](/packages/./api/functions#tierprecedence)                      | variable | Precedence-ordered iteration of tiers for read operations.                       |
+| [`scope.ts`](/packages/./api/functions#scopets)                                    | file     | Three-tier scope helper for Pi harness operations.                               |
+| [`types.ts`](/packages/./api/functions#typests)                                    | file     | Harness layer type definitions.                                                  |
+| [`DEFAULT_EXCLUSIVITY_MODE`](/packages/./api/functions#defaultexclusivitymode)     | variable | Default exclusivity mode used when no override is configured.                    |
+| [`EXCLUSIVITY_MODE_ENV_VAR`](/packages/./api/functions#exclusivitymodeenvvar)      | variable | Environment variable name read by `getExclusivityMode` when no programmatic o... |
+| [`caamp-config.ts`](/packages/./api/functions#caamp-configts)                      | file     | CAAMP-wide configuration accessors.                                              |
+| [`pi.ts`](/packages/./api/functions#pits)                                          | file     | Pi coding agent harness.                                                         |
+| [`index.ts`](/packages/./api/functions#indexts)                                    | file     | Harness layer dispatcher.                                                        |
+| [`ErrorCategories`](/packages/./api/functions#errorcategories)                     | variable | Common error categories mapping for convenience.                                 |
+| [`ErrorCodes`](/packages/./api/functions#errorcodes)                               | variable | Common error codes for consistency.                                              |
+| [`lafs.ts`](/packages/./api/functions#lafsts)                                      | file     |                                                                                  |
+| [`lafs.ts`](/packages/./api/functions#lafsts)                                      | file     |                                                                                  |
+| [`common.ts`](/packages/./api/functions#commonts)                                  | file     |                                                                                  |
+| [`batch.ts`](/packages/./api/functions#batchts)                                    | file     |                                                                                  |
+| [`instructions.ts`](/packages/./api/functions#instructionsts)                      | file     |                                                                                  |
+| [`providers.ts`](/packages/./api/functions#providersts)                            | file     |                                                                                  |
+| [`index.ts`](/packages/./api/functions#indexts)                                    | file     | Advanced orchestration command group providing LAFS-compliant wrappers for ba... |
+| [`utils.ts`](/packages/./api/functions#utilsts)                                    | file     |                                                                                  |
+| [`json.ts`](/packages/./api/functions#jsonts)                                      | file     |                                                                                  |
+| [`toml.ts`](/packages/./api/functions#tomlts)                                      | file     |                                                                                  |
+| [`yaml.ts`](/packages/./api/functions#yamlts)                                      | file     |                                                                                  |
+| [`index.ts`](/packages/./api/functions#indexts)                                    | file     | Provides format-agnostic config read, write, and remove operations that dispa... |
+| [`config.ts`](/packages/./api/functions#configts)                                  | file     |                                                                                  |
+| [`lock-utils.ts`](/packages/./api/functions#lock-utilsts)                          | file     |                                                                                  |
+| [`version.ts`](/packages/./api/functions#versionts)                                | file     |                                                                                  |
+| [`doctor.ts`](/packages/./api/functions#doctorts)                                  | file     |                                                                                  |
+| [`check.ts`](/packages/./api/functions#checkts)                                    | file     |                                                                                  |
+| [`inject.ts`](/packages/./api/functions#injectts)                                  | file     |                                                                                  |
+| [`update.ts`](/packages/./api/functions#updatets)                                  | file     |                                                                                  |
+| [`index.ts`](/packages/./api/functions#indexts)                                    | file     | Instruction file management command group for injecting, checking, and updati... |
+| [`reader.ts`](/packages/./api/functions#readerts)                                  | file     | MCP server config reader.                                                        |
+| [`installer.ts`](/packages/./api/functions#installerts)                            | file     | MCP server config installer.                                                     |
+| [`remover.ts`](/packages/./api/functions#removerts)                                | file     | MCP server config remover.                                                       |
+| [`index.ts`](/packages/./api/functions#indexts)                                    | file     | Core MCP server config management module.                                        |
+| [`MCP_ERROR_CODES`](/packages/./api/functions#mcperrorcodes)                       | variable | Canonical LAFS error codes used by the `caamp mcp` command group.                |
+| [`common.ts`](/packages/./api/functions#commonts)                                  | file     | Shared helpers for the `caamp mcp <verb>` command group.                         |
+| [`detect.ts`](/packages/./api/functions#detectts)                                  | file     | `caamp mcp detect` command.                                                      |
+| [`install.ts`](/packages/./api/functions#installts)                                | file     | `caamp mcp install` command.                                                     |
+| [`list.ts`](/packages/./api/functions#listts)                                      | file     | `caamp mcp list` command.                                                        |
+| [`remove.ts`](/packages/./api/functions#removets)                                  | file     | `caamp mcp remove` command.                                                      |
+| [`index.ts`](/packages/./api/functions#indexts)                                    | file     | `caamp mcp` command group — MCP server config management across providers.       |
+| [`DEFAULT_FETCH_TIMEOUT_MS`](/packages/./api/functions#defaultfetchtimeoutms)      | variable | Default timeout in milliseconds for outbound HTTP requests.                      |
+| [`fetch.ts`](/packages/./api/functions#fetchts)                                    | file     |                                                                                  |
+| [`github.ts`](/packages/./api/functions#githubts)                                  | file     |                                                                                  |
+| [`gitlab.ts`](/packages/./api/functions#gitlabts)                                  | file     |                                                                                  |
+| [`parser.ts`](/packages/./api/functions#parserts)                                  | file     |                                                                                  |
+| [`PI_ERROR_CODES`](/packages/./api/functions#pierrorcodes)                         | variable | Canonical LAFS error codes used by the `caamp pi` command group.                 |
+| [`common.ts`](/packages/./api/functions#commonts)                                  | file     | Shared helpers for the `caamp pi <verb>` command group.                          |
+| [`cant.ts`](/packages/./api/functions#cantts)                                      | file     | `caamp pi cant` command group.                                                   |
+| [`extensions.ts`](/packages/./api/functions#extensionsts)                          | file     | `caamp pi extensions` command group.                                             |
+| [`models.ts`](/packages/./api/functions#modelsts)                                  | file     | `caamp pi models` command group.                                                 |
+| [`prompts.ts`](/packages/./api/functions#promptsts)                                | file     | `caamp pi prompts` command group.                                                |
+| [`sessions.ts`](/packages/./api/functions#sessionsts)                              | file     | `caamp pi sessions` command group.                                               |
+| [`themes.ts`](/packages/./api/functions#themests)                                  | file     | `caamp pi themes` command group.                                                 |
+| [`index.ts`](/packages/./api/functions#indexts)                                    | file     | `caamp pi` command group — Pi-specific verbs for the Pi coding agent harness.    |
+| [`HOOK_CATEGORIES`](/packages/./api/functions#hookcategories)                      | variable | All hook event categories (8 total).                                             |
+| [`EVENT_SOURCES`](/packages/./api/functions#eventsources)                          | variable | Event source types: domain, provider.                                            |
+| [`CANONICAL_HOOK_EVENTS`](/packages/./api/functions#canonicalhookevents)           | variable | All canonical hook events (31 total: 16 provider, 15 domain).  This replaces...  |
+| [`PROVIDER_HOOK_EVENTS`](/packages/./api/functions#providerhookevents)             | variable | Provider-sourced events only (original 16 CAAMP events).                         |
+| [`DOMAIN_HOOK_EVENTS`](/packages/./api/functions#domainhookevents)                 | variable | Domain-sourced events only (CLEO business events).                               |
+| [`EVENT_METADATA`](/packages/./api/functions#eventmetadata)                        | variable | Metadata for each canonical event, derived from hook-mappings.json.              |
+| [`generated.ts`](/packages/./api/functions#generatedts)                            | file     |                                                                                  |
+| [`types.ts`](/packages/./api/functions#typests)                                    | file     |                                                                                  |
+| [`normalizer.ts`](/packages/./api/functions#normalizerts)                          | file     |                                                                                  |
+| [`index.ts`](/packages/./api/functions#indexts)                                    | file     | CAAMP Hooks Module  Unified hook normalization layer that translates between...  |
+| [`providers.ts`](/packages/./api/functions#providersts)                            | file     |                                                                                  |
+| [`AUDIT_RULES`](/packages/./api/functions#auditrules)                              | variable | Complete set of security audit rules for SKILL.md scanning.                      |
+| [`rules.ts`](/packages/./api/functions#rulests)                                    | file     |                                                                                  |
+| [`scanner.ts`](/packages/./api/functions#scannerts)                                | file     |                                                                                  |
+| [`audit.ts`](/packages/./api/functions#auditts)                                    | file     |                                                                                  |
+| [`lock.ts`](/packages/./api/functions#lockts)                                      | file     |                                                                                  |
+| [`check.ts`](/packages/./api/functions#checkts)                                    | file     |                                                                                  |
+| [`types.ts`](/packages/./api/functions#typests)                                    | file     |                                                                                  |
+| [`skillsmp.ts`](/packages/./api/functions#skillsmpts)                              | file     |                                                                                  |
+| [`skillssh.ts`](/packages/./api/functions#skillsshts)                              | file     |                                                                                  |
+| [`client.ts`](/packages/./api/functions#clientts)                                  | file     |                                                                                  |
+| [`RECOMMENDATION_ERROR_CODES`](/packages/./api/functions#recommendationerrorcodes) | variable | Error codes used in skill recommendation validation.                             |
+| [`rankSkills`](/packages/./api/functions#rankskills)                               | variable | Alias for `recommendSkills` providing a shorter function name.                   |
+| [`recommendation.ts`](/packages/./api/functions#recommendationts)                  | file     |                                                                                  |
+| [`recommendation-api.ts`](/packages/./api/functions#recommendation-apits)          | file     |                                                                                  |
+| [`find.ts`](/packages/./api/functions#findts)                                      | file     |                                                                                  |
+| [`init.ts`](/packages/./api/functions#initts)                                      | file     |                                                                                  |
+| [`library-loader.ts`](/packages/./api/functions#library-loaderts)                  | file     |                                                                                  |
+| [`catalog.ts`](/packages/./api/functions#catalogts)                                | file     |                                                                                  |
+| [`discovery.ts`](/packages/./api/functions#discoveryts)                            | file     |                                                                                  |
+| [`install.ts`](/packages/./api/functions#installts)                                | file     |                                                                                  |
+| [`list.ts`](/packages/./api/functions#listts)                                      | file     |                                                                                  |
+| [`remove.ts`](/packages/./api/functions#removets)                                  | file     |                                                                                  |
+| [`update.ts`](/packages/./api/functions#updatets)                                  | file     |                                                                                  |
+| [`validator.ts`](/packages/./api/functions#validatorts)                            | file     |                                                                                  |
+| [`validate.ts`](/packages/./api/functions#validatets)                              | file     |                                                                                  |
+| [`index.ts`](/packages/./api/functions#indexts)                                    | file     | Skills management command group for installing, removing, listing, finding, c... |
+| [`cli.ts`](/packages/./api/functions#clits)                                        | file     |                                                                                  |
+| [`spawn-adapter.ts`](/packages/./api/functions#spawn-adapterts)                    | file     |                                                                                  |
+| [`integrity.ts`](/packages/./api/functions#integrityts)                            | file     |                                                                                  |
+| [`index.ts`](/packages/./api/functions#indexts)                                    | file     | Provides the public API surface for the CAAMP library, re-exporting types, re... |
+| [`cant-resolver.ts`](/packages/./api/functions#cant-resolverts)                    | file     |                                                                                  |
+| [`wellknown.ts`](/packages/./api/functions#wellknownts)                            | file     |                                                                                  |

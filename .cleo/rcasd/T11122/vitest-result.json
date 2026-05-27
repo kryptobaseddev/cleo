@@ -1,0 +1,27 @@
+{
+  "numTotalTests": 2,
+  "numPassedTests": 2,
+  "numFailedTests": 0,
+  "numPendingTests": 0,
+  "testResults": [
+    {
+      "name": "tsc-worktree",
+      "status": "passed",
+      "assertionResults": [],
+      "startTime": 0,
+      "endTime": 0,
+      "message": ""
+    },
+    {
+      "name": "tsc-core-no-branch-lock-errors",
+      "status": "passed",
+      "assertionResults": [],
+      "startTime": 0,
+      "endTime": 0,
+      "message": ""
+    }
+  ],
+  "success": true,
+  "startTime": 0,
+  "endTime": 0
+}

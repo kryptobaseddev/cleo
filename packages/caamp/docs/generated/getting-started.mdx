@@ -1,0 +1,67 @@
+---
+title: ''
+---
+
+Get up and running with **caamp** in minutes.
+
+## Step 1: Install
+
+```bash
+npm install -D @cleocode/caamp
+```
+
+## Step 2: Add TSDoc to your code
+
+Add TSDoc comments to your exported functions and types:
+
+````typescript
+/**
+ * Adds two numbers together.
+ * @param a - First number
+ * @param b - Second number
+ * @returns The sum of a and b
+ * @example
+ * ```typescript
+ * const result = add(1, 2); // => 3
+ * ```
+ */
+export function add(a: number, b: number): number {
+  return a + b;
+}
+````
+
+## Step 3: Run forge-ts check
+
+Lint your TSDoc coverage before generating docs:
+
+```bash
+npx forge-ts check
+```
+
+Expected output:
+
+```typescript
+forge-ts: checking TSDoc coverage...
+  ✓ All public symbols documented
+```
+
+## Step 4: Generate docs
+
+Build your documentation site:
+
+```bash
+npx forge-ts build
+```
+
+Your code examples become live documentation:
+
+```typescript
+const paths = getPlatformPaths();
+console.log(paths.data); // e.g. "/home/user/.local/share/agents"
+```
+
+## What's Next?
+
+- [Concepts](/concepts) — Understand how forge-ts works
+- [API Reference](/packages) — Full API documentation
+- [Guides](/guides) — Practical how-to guides

@@ -1,0 +1,26 @@
+-- BASELINE MARKER — T1407 Hybrid Path A+ (ADR-054, T1165 pattern).
+-- Schema state for conduit captured in snapshot.json. No DDL to apply here.
+--
+-- This is the comment-only baseline marker for the conduit.db Drizzle journal.
+-- The full conduit schema (17 tables + 11 indexes + 6 FTS5 triggers + 1 FTS5
+-- virtual table) is bootstrapped by `applyConduitSchema()` in
+-- conduit-sqlite.ts using `CREATE TABLE IF NOT EXISTS` for both fresh and
+-- existing databases. After bootstrap, reconcileJournal() runs:
+--
+--   * Existing DB (already populated)  -> Scenario 1 detects the
+--     `conversations` sentinel table and inserts this baseline as
+--     applied without re-running any DDL.
+--   * Existing DB (already journalled) -> Scenario 3 detects this
+--     comment-only marker and inserts the journal row.
+--   * Fresh DB -> applyConduitSchema() creates tables first; then
+--     reconcileJournal Scenario 1 marks this baseline applied.
+--
+-- Snapshot.json MUST be preserved — it is the anchor for drizzle-kit
+-- generate going forward. New migrations placed in this folder after
+-- this baseline will be picked up normally by drizzle-kit + the
+-- migration-manager.ts runner.
+--
+-- @task T1407
+-- @related T1166 (signaldock unification — pattern reference)
+-- @related T1176 (telemetry baseline reset — pattern reference)
+-- @related ADR-037 (signaldock/conduit split)

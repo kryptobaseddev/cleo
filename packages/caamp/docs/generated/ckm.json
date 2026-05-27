@@ -1,0 +1,5390 @@
+{
+  "$schema": "https://ckm.dev/schemas/v2.json",
+  "version": "2.0.0",
+  "meta": {
+    "project": "@cleocode/caamp",
+    "language": "typescript",
+    "generator": "forge-ts@2026.4.8",
+    "generated": "2026-04-07T23:28:49.052Z"
+  },
+  "concepts": [
+    {
+      "id": "concept-SkillLibraryEntry",
+      "name": "SkillLibraryEntry",
+      "slug": "skilllibraryentry",
+      "what": "A single skill entry in a library catalog.",
+      "tags": [
+        "data"
+      ],
+      "properties": [
+        {
+          "name": "name",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Skill name (e.g. `\"ct-research-agent\"`).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "description",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Human-readable description.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "version",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Semantic version string.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "path",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Relative path within the skills library.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "references",
+          "type": {
+            "canonical": "array",
+            "original": "string[]"
+          },
+          "description": "File references used by the skill.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "core",
+          "type": {
+            "canonical": "boolean"
+          },
+          "description": "Whether this is a core skill.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "category",
+          "type": {
+            "canonical": "string",
+            "original": "\"core\" | \"recommended\" | \"specialist\" | \"composition\" | \"meta\""
+          },
+          "description": "Skill category tier.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "tier",
+          "type": {
+            "canonical": "number"
+          },
+          "description": "Numeric tier (0-3).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "protocol",
+          "type": {
+            "canonical": "string",
+            "original": "string | null"
+          },
+          "description": "Associated protocol name, or `null`.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "dependencies",
+          "type": {
+            "canonical": "array",
+            "original": "string[]"
+          },
+          "description": "Direct dependency skill names.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "sharedResources",
+          "type": {
+            "canonical": "array",
+            "original": "string[]"
+          },
+          "description": "Shared resource names this skill uses.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "compatibility",
+          "type": {
+            "canonical": "array",
+            "original": "string[]"
+          },
+          "description": "Compatible agent/context types.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "license",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "SPDX license identifier.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "metadata",
+          "type": {
+            "canonical": "object",
+            "original": "Record<string, unknown>"
+          },
+          "description": "Arbitrary metadata.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-SkillLibraryValidationResult",
+      "name": "SkillLibraryValidationResult",
+      "slug": "skilllibraryvalidation",
+      "what": "Validation result from skill frontmatter validation.",
+      "tags": [
+        "result"
+      ],
+      "properties": [
+        {
+          "name": "valid",
+          "type": {
+            "canonical": "boolean"
+          },
+          "description": "Whether the skill passed validation (no error-level issues).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "issues",
+          "type": {
+            "canonical": "array",
+            "original": "SkillLibraryValidationIssue[]"
+          },
+          "description": "Individual validation issues.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-ProviderStatus",
+      "name": "ProviderStatus",
+      "slug": "providerstatus",
+      "what": "Lifecycle status identifier stored in registry.json.",
+      "tags": [
+        "state"
+      ]
+    },
+    {
+      "id": "concept-McpConfigFormat",
+      "name": "McpConfigFormat",
+      "slug": "mcpconfigformat",
+      "what": "Supported MCP config file formats.",
+      "tags": [
+        "domain"
+      ]
+    },
+    {
+      "id": "concept-HookEvent",
+      "name": "HookEvent",
+      "slug": "hookevent",
+      "what": "Hook lifecycle event identifier from registry.json.",
+      "tags": [
+        "event"
+      ]
+    },
+    {
+      "id": "concept-CtSkillEntry",
+      "name": "CtSkillEntry",
+      "slug": "ctskillentry",
+      "what": "Backward-compatible alias for `SkillLibraryEntry`.",
+      "tags": [
+        "data"
+      ]
+    },
+    {
+      "id": "concept-CtValidationResult",
+      "name": "CtValidationResult",
+      "slug": "ctvalidation",
+      "what": "Backward-compatible alias for `SkillLibraryValidationResult`.",
+      "tags": [
+        "result"
+      ]
+    },
+    {
+      "id": "concept-ConfigFormat",
+      "name": "ConfigFormat",
+      "slug": "configformat",
+      "what": "Supported configuration file formats.  - `\"json\"` - Standard JSON - `\"jsonc\"` - JSON with comments (comment-preserving via jsonc-parser) - `\"yaml\"` - YAML (via js-yaml) - `\"toml\"` - TOML (via iarna/toml)",
+      "tags": [
+        "domain"
+      ]
+    },
+    {
+      "id": "concept-DetectionConfig",
+      "name": "DetectionConfig",
+      "slug": "detection",
+      "what": "Configuration for detecting whether a provider is installed.",
+      "tags": [
+        "config"
+      ],
+      "properties": [
+        {
+          "name": "methods",
+          "type": {
+            "canonical": "array",
+            "original": "DetectionMethod[]"
+          },
+          "description": "Detection methods to try, in order.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "binary",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Binary name to look up on PATH (for `\"binary\"` method).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "directories",
+          "type": {
+            "canonical": "array",
+            "original": "string[] | undefined"
+          },
+          "description": "Directories to check for existence (for `\"directory\"` method).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "appBundle",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "macOS .app bundle name (for `\"appBundle\"` method).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "flatpakId",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Flatpak application ID (for `\"flatpak\"` method).",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-McpServerConfig",
+      "name": "McpServerConfig",
+      "slug": "mcpserver",
+      "what": "Canonical MCP server configuration.",
+      "tags": [
+        "config"
+      ],
+      "properties": [
+        {
+          "name": "type",
+          "type": {
+            "canonical": "string",
+            "original": "TransportType | undefined"
+          },
+          "description": "Transport type (`\"stdio\"`, `\"sse\"`, or `\"http\"`).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "url",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "URL for remote MCP servers.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "headers",
+          "type": {
+            "canonical": "object",
+            "original": "Record<string, string> | undefined"
+          },
+          "description": "HTTP headers for remote MCP servers.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "command",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Command to run for stdio MCP servers.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "args",
+          "type": {
+            "canonical": "array",
+            "original": "string[] | undefined"
+          },
+          "description": "Arguments for the stdio command.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "env",
+          "type": {
+            "canonical": "object",
+            "original": "Record<string, string> | undefined"
+          },
+          "description": "Environment variables for the stdio process.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-SkillEntry",
+      "name": "SkillEntry",
+      "slug": "skillentry",
+      "what": "A discovered skill entry with its location and metadata.",
+      "tags": [
+        "data"
+      ],
+      "properties": [
+        {
+          "name": "name",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Skill name.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "scopedName",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Scoped name (may include marketplace scope).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "path",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Absolute path to the skill directory.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "metadata",
+          "type": {
+            "canonical": "object",
+            "original": "SkillMetadata"
+          },
+          "description": "Parsed SKILL.md frontmatter metadata.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "source",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Original source from which the skill was installed.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-LockEntry",
+      "name": "LockEntry",
+      "slug": "lockentry",
+      "what": "A single entry in the CAAMP lock file tracking an installed skill or MCP server.",
+      "tags": [
+        "data"
+      ],
+      "properties": [
+        {
+          "name": "name",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Skill or server name.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "scopedName",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Scoped name (may include marketplace scope).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "source",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Original source string.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "sourceType",
+          "type": {
+            "canonical": "object",
+            "original": "SourceType"
+          },
+          "description": "Classified source type.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "version",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Version string or commit SHA.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "installedAt",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "ISO 8601 timestamp of first installation.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "updatedAt",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "ISO 8601 timestamp of last update.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "agents",
+          "type": {
+            "canonical": "array",
+            "original": "string[]"
+          },
+          "description": "Provider IDs this entry is linked to.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "canonicalPath",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Absolute path to canonical installation.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "isGlobal",
+          "type": {
+            "canonical": "boolean"
+          },
+          "description": "Whether this was installed globally.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "projectDir",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Project directory (for project-scoped installs).",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-MarketplaceSearchResult",
+      "name": "MarketplaceSearchResult",
+      "slug": "marketplacesearch",
+      "what": "Paginated search results from a marketplace API.",
+      "tags": [
+        "result"
+      ],
+      "properties": [
+        {
+          "name": "skills",
+          "type": {
+            "canonical": "array",
+            "original": "MarketplaceSkill[]"
+          },
+          "description": "Array of matching skills.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "total",
+          "type": {
+            "canonical": "number"
+          },
+          "description": "Total number of matching results.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "limit",
+          "type": {
+            "canonical": "number"
+          },
+          "description": "Maximum results per page.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "offset",
+          "type": {
+            "canonical": "number"
+          },
+          "description": "Offset into the result set.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-AuditResult",
+      "name": "AuditResult",
+      "slug": "audit",
+      "what": "Aggregate audit result for a single file.",
+      "tags": [
+        "result"
+      ],
+      "properties": [
+        {
+          "name": "file",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Path to the scanned file.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "findings",
+          "type": {
+            "canonical": "array",
+            "original": "AuditFinding[]"
+          },
+          "description": "All findings for this file.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "score",
+          "type": {
+            "canonical": "number"
+          },
+          "description": "Security score from 0 (dangerous) to 100 (clean).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "passed",
+          "type": {
+            "canonical": "boolean"
+          },
+          "description": "Whether the file passed the audit (no critical/high findings).",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-InjectionStatus",
+      "name": "InjectionStatus",
+      "slug": "injectionstatus",
+      "what": "Status of a CAAMP injection block in an instruction file.  - `\"current\"` - Injection block exists and matches expected content - `\"outdated\"` - Injection block exists but content differs - `\"missing\"` - Instruction file does not exist - `\"none\"` - File exists but has no CAAMP injection block",
+      "tags": [
+        "state"
+      ]
+    },
+    {
+      "id": "concept-InjectionCheckResult",
+      "name": "InjectionCheckResult",
+      "slug": "injectioncheck",
+      "what": "Result of checking a single instruction file for CAAMP injection status.",
+      "tags": [
+        "result"
+      ],
+      "properties": [
+        {
+          "name": "file",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Absolute path to the instruction file.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "provider",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Provider ID that owns this instruction file.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "status",
+          "type": {
+            "canonical": "object",
+            "original": "InjectionStatus"
+          },
+          "description": "Current injection status.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "fileExists",
+          "type": {
+            "canonical": "boolean"
+          },
+          "description": "Whether the instruction file exists on disk.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-McpServerEntry",
+      "name": "McpServerEntry",
+      "slug": "mcpserverentry",
+      "what": "An MCP server entry read from a provider's config file.",
+      "tags": [
+        "data"
+      ],
+      "properties": [
+        {
+          "name": "name",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Server name (the key in the config file).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "providerId",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Provider ID that owns this config file.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "providerName",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Human-readable provider name.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "scope",
+          "type": {
+            "canonical": "string",
+            "original": "\"project\" | \"global\""
+          },
+          "description": "Whether from project or global config.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "configPath",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Absolute path to the config file.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "config",
+          "type": {
+            "canonical": "object",
+            "original": "Record<string, unknown>"
+          },
+          "description": "Raw server configuration object.",
+          "required": true,
+          "default": null
+        }
+      ],
+      "relatedTo": [
+        "`McpServerConfig` for the canonical server configuration format."
+      ]
+    },
+    {
+      "id": "concept-GlobalOptions",
+      "name": "GlobalOptions",
+      "slug": "global",
+      "what": "Global CLI options shared across all CAAMP commands.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "agent",
+          "type": {
+            "canonical": "array",
+            "original": "string[] | undefined"
+          },
+          "description": "Target agent IDs (repeatable).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "global",
+          "type": {
+            "canonical": "string",
+            "original": "boolean | undefined"
+          },
+          "description": "Operate on global config instead of project.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "yes",
+          "type": {
+            "canonical": "string",
+            "original": "boolean | undefined"
+          },
+          "description": "Skip confirmation prompts.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "all",
+          "type": {
+            "canonical": "string",
+            "original": "boolean | undefined"
+          },
+          "description": "Target all detected agents.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "json",
+          "type": {
+            "canonical": "string",
+            "original": "boolean | undefined"
+          },
+          "description": "Output as JSON.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "dryRun",
+          "type": {
+            "canonical": "string",
+            "original": "boolean | undefined"
+          },
+          "description": "Preview changes without writing.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "verbose",
+          "type": {
+            "canonical": "string",
+            "original": "boolean | undefined"
+          },
+          "description": "Enable debug logging.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "quiet",
+          "type": {
+            "canonical": "string",
+            "original": "boolean | undefined"
+          },
+          "description": "Suppress non-error output.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-EnsureProviderInstructionFileOptions",
+      "name": "EnsureProviderInstructionFileOptions",
+      "slug": "ensureproviderinstructionfile",
+      "what": "Options for ensuring a provider instruction file.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "references",
+          "type": {
+            "canonical": "array",
+            "original": "string[]"
+          },
+          "description": "`\\@` references to inject (e.g. `[\"\\@AGENTS.md\"]`).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "content",
+          "type": {
+            "canonical": "array",
+            "original": "string[] | undefined"
+          },
+          "description": "Optional inline content blocks.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "scope",
+          "type": {
+            "canonical": "string",
+            "original": "\"project\" | \"global\" | undefined"
+          },
+          "description": "Whether this is a global or project-level file.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-EnsureProviderInstructionFileResult",
+      "name": "EnsureProviderInstructionFileResult",
+      "slug": "ensureproviderinstructionfile",
+      "what": "Result of ensuring a provider instruction file.",
+      "tags": [
+        "result"
+      ],
+      "properties": [
+        {
+          "name": "filePath",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Absolute path to the instruction file.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "instructFile",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Instruction file name from the provider registry.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "action",
+          "type": {
+            "canonical": "string",
+            "original": "\"created\" | \"added\" | \"consolidated\" | \"updated\" | \"intact\""
+          },
+          "description": "Action taken.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "providerId",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Provider ID.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-DetectionResult",
+      "name": "DetectionResult",
+      "slug": "detection",
+      "what": "Result of detecting whether a provider is installed on the system.",
+      "tags": [
+        "result"
+      ],
+      "properties": [
+        {
+          "name": "provider",
+          "type": {
+            "canonical": "object",
+            "original": "Provider"
+          },
+          "description": "The provider that was checked.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "installed",
+          "type": {
+            "canonical": "boolean"
+          },
+          "description": "Whether the provider was detected as installed.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "methods",
+          "type": {
+            "canonical": "array",
+            "original": "string[]"
+          },
+          "description": "Detection methods that matched (e.g. `[\"binary\", \"directory\"]`).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "projectDetected",
+          "type": {
+            "canonical": "boolean"
+          },
+          "description": "Whether the provider has project-level config in the current directory.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-DetectionCacheOptions",
+      "name": "DetectionCacheOptions",
+      "slug": "detectioncache",
+      "what": "Options for controlling the detection result cache.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "forceRefresh",
+          "type": {
+            "canonical": "string",
+            "original": "boolean | undefined"
+          },
+          "description": "Whether to bypass the cache and force a fresh detection scan.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "ttlMs",
+          "type": {
+            "canonical": "string",
+            "original": "number | undefined"
+          },
+          "description": "Time-to-live for cached results in milliseconds.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-SkillInstallResult",
+      "name": "SkillInstallResult",
+      "slug": "skillinstall",
+      "what": "Result of installing a skill to the canonical location and linking to agents.",
+      "tags": [
+        "result"
+      ],
+      "properties": [
+        {
+          "name": "name",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Skill name.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "canonicalPath",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Absolute path to the canonical installation directory.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "linkedAgents",
+          "type": {
+            "canonical": "array",
+            "original": "string[]"
+          },
+          "description": "Provider IDs that were successfully linked.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "errors",
+          "type": {
+            "canonical": "array",
+            "original": "string[]"
+          },
+          "description": "Error messages from failed link operations.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "success",
+          "type": {
+            "canonical": "boolean"
+          },
+          "description": "Whether at least one agent was successfully linked.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-BatchInstallOptions",
+      "name": "BatchInstallOptions",
+      "slug": "batchinstall",
+      "what": "Options for rollback-capable batch installation.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "providers",
+          "type": {
+            "canonical": "array",
+            "original": "Provider[] | undefined"
+          },
+          "description": "Explicit list of providers to target, auto-detected if omitted.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "minimumPriority",
+          "type": {
+            "canonical": "string",
+            "original": "ProviderPriority | undefined"
+          },
+          "description": "Minimum provider priority threshold for filtering.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "skills",
+          "type": {
+            "canonical": "array",
+            "original": "SkillBatchOperation[] | undefined"
+          },
+          "description": "Skill operations to apply in the batch.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "projectDir",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Project root directory, defaults to `process.cwd()`.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-BatchInstallResult",
+      "name": "BatchInstallResult",
+      "slug": "batchinstall",
+      "what": "Result of rollback-capable batch installation.",
+      "tags": [
+        "result"
+      ],
+      "properties": [
+        {
+          "name": "success",
+          "type": {
+            "canonical": "boolean"
+          },
+          "description": "Whether all operations completed successfully.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "providerIds",
+          "type": {
+            "canonical": "array",
+            "original": "string[]"
+          },
+          "description": "IDs of providers that were targeted.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "skillsApplied",
+          "type": {
+            "canonical": "number"
+          },
+          "description": "Number of skill installations that were applied.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "rollbackPerformed",
+          "type": {
+            "canonical": "boolean"
+          },
+          "description": "Whether rollback was performed due to a failure.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "rollbackErrors",
+          "type": {
+            "canonical": "array",
+            "original": "string[]"
+          },
+          "description": "Error messages from any failures during rollback.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "error",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Error message from the operation that triggered rollback.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-ResolveTierDirOptions",
+      "name": "ResolveTierDirOptions",
+      "slug": "resolvetierdir",
+      "what": "Options accepted by `resolveTierDir`.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "tier",
+          "type": {
+            "canonical": "object",
+            "original": "HarnessTier"
+          },
+          "description": "Tier to resolve.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "kind",
+          "type": {
+            "canonical": "object",
+            "original": "HarnessAssetKind"
+          },
+          "description": "Asset kind (extensions, prompts, themes, sessions, cant).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "projectDir",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Project directory used when `tier` is `project`. Ignored for other tiers. When omitted with `tier='project'` the caller MUST substitute `process.cwd()` before invoking the resolver, so the harness never silently resolves to an unexpected working directory.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-ResolveDefaultTargetProvidersOptions",
+      "name": "ResolveDefaultTargetProvidersOptions",
+      "slug": "resolvedefaulttargetproviders",
+      "what": "Options accepted by `resolveDefaultTargetProviders` (defined in `./index.ts`).",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "explicit",
+          "type": {
+            "canonical": "array",
+            "original": "Provider[] | undefined"
+          },
+          "description": "Explicit list of providers requested by the user (e.g. via `--agent`).",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-ExtensionEntry",
+      "name": "ExtensionEntry",
+      "slug": "extensionentry",
+      "what": "Metadata describing a Pi extension discovered on disk.",
+      "tags": [
+        "data"
+      ],
+      "properties": [
+        {
+          "name": "name",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Extension name (file basename without the `.ts` extension).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "tier",
+          "type": {
+            "canonical": "object",
+            "original": "HarnessTier"
+          },
+          "description": "Tier at which this entry lives.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "path",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Absolute on-disk path to the extension file.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "shadowed",
+          "type": {
+            "canonical": "string",
+            "original": "boolean | undefined"
+          },
+          "description": "When `true`, this entry is shadowed by a higher-precedence entry with the same name. Exposed so list output can warn about cross-tier name collisions per ADR-035 §D1.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-PromptEntry",
+      "name": "PromptEntry",
+      "slug": "promptentry",
+      "what": "Metadata describing a Pi prompt directory discovered on disk.",
+      "tags": [
+        "data"
+      ],
+      "properties": [
+        {
+          "name": "name",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Prompt name (directory basename).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "tier",
+          "type": {
+            "canonical": "object",
+            "original": "HarnessTier"
+          },
+          "description": "Tier at which this entry lives.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "path",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Absolute on-disk path to the prompt directory.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "shadowed",
+          "type": {
+            "canonical": "string",
+            "original": "boolean | undefined"
+          },
+          "description": "See `ExtensionEntry.shadowed`.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-ThemeEntry",
+      "name": "ThemeEntry",
+      "slug": "themeentry",
+      "what": "Metadata describing a Pi theme discovered on disk.",
+      "tags": [
+        "data"
+      ],
+      "properties": [
+        {
+          "name": "name",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Theme name (file basename without the extension).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "tier",
+          "type": {
+            "canonical": "object",
+            "original": "HarnessTier"
+          },
+          "description": "Tier at which this entry lives.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "path",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Absolute on-disk path to the theme file.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "fileExt",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "File extension of the theme file (e.g. `\".ts\"`, `\".json\"`).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "shadowed",
+          "type": {
+            "canonical": "string",
+            "original": "boolean | undefined"
+          },
+          "description": "See `ExtensionEntry.shadowed`.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-HarnessInstallOptions",
+      "name": "HarnessInstallOptions",
+      "slug": "harnessinstall",
+      "what": "Options accepted by the Pi install verbs (extensions, prompts, themes).",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "force",
+          "type": {
+            "canonical": "string",
+            "original": "boolean | undefined"
+          },
+          "description": "When `true`, overwrite an existing file at the target tier. When `false` (the default) the install verb throws if the target exists.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-CantProfileEntry",
+      "name": "CantProfileEntry",
+      "slug": "cantprofileentry",
+      "what": "Metadata describing a `.cant` profile installed at one of the three Pi harness tiers.",
+      "tags": [
+        "data"
+      ],
+      "properties": [
+        {
+          "name": "name",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Profile name (basename of the `.cant` file without the extension).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "tier",
+          "type": {
+            "canonical": "object",
+            "original": "HarnessTier"
+          },
+          "description": "Tier at which this entry lives.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "sourcePath",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Absolute on-disk path to the `.cant` file.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "counts",
+          "type": {
+            "canonical": "object",
+            "original": "CantProfileCounts"
+          },
+          "description": "Parsed section counts for the profile.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "shadowedByHigherTier",
+          "type": {
+            "canonical": "string",
+            "original": "boolean | undefined"
+          },
+          "description": "When `true`, this entry is shadowed by a higher-precedence entry with the same name. Mirrors the shadow flag emitted by `Harness.listExtensions` so the same UI logic applies.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-ValidateCantProfileResult",
+      "name": "ValidateCantProfileResult",
+      "slug": "validatecantprofile",
+      "what": "Result of validating a `.cant` profile via the cant-core 42-rule engine.",
+      "tags": [
+        "result"
+      ],
+      "properties": [
+        {
+          "name": "valid",
+          "type": {
+            "canonical": "boolean"
+          },
+          "description": "Whether validation passed (no error-severity diagnostics).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "errors",
+          "type": {
+            "canonical": "array",
+            "original": "CantValidationDiagnostic[]"
+          },
+          "description": "All diagnostics emitted by the 42-rule engine, in source order.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "counts",
+          "type": {
+            "canonical": "object",
+            "original": "CantProfileCounts"
+          },
+          "description": "Section counts for the profile (zero when parsing failed).",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-PiModelsConfig",
+      "name": "PiModelsConfig",
+      "slug": "pimodels",
+      "what": "Entire `models.json` document shape used by Pi.",
+      "tags": [
+        "config"
+      ],
+      "properties": [
+        {
+          "name": "providers",
+          "type": {
+            "canonical": "object",
+            "original": "Record<string, PiModelProvider>"
+          },
+          "description": "Map of provider id → provider block.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-ModelListEntry",
+      "name": "ModelListEntry",
+      "slug": "modellistentry",
+      "what": "A model entry as surfaced by `Harness.listModels`.",
+      "tags": [
+        "data"
+      ],
+      "properties": [
+        {
+          "name": "provider",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Provider id (e.g. `\"anthropic\"`).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "id",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Model id within the provider.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "name",
+          "type": {
+            "canonical": "string",
+            "original": "string | null"
+          },
+          "description": "Human-readable name, from `models.json` when available.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "enabled",
+          "type": {
+            "canonical": "boolean"
+          },
+          "description": "`true` when the model is present in `settings.json:enabledModels`.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "isDefault",
+          "type": {
+            "canonical": "boolean"
+          },
+          "description": "`true` when the model is the configured default.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "custom",
+          "type": {
+            "canonical": "boolean"
+          },
+          "description": "`true` when this model is defined in `models.json` (custom). When `false`, the entry originates from `settings.json:enabledModels` only and is assumed to resolve against Pi's built-in registry.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-SubagentSpawnOptions",
+      "name": "SubagentSpawnOptions",
+      "slug": "subagentspawn",
+      "what": "Per-call options that override harness-wide spawn defaults.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "onStream",
+          "type": {
+            "canonical": "string",
+            "original": "((event: SubagentStreamEvent) => void) | undefined"
+          },
+          "description": "Streaming callback invoked once per parsed event from the child.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "terminateGraceMs",
+          "type": {
+            "canonical": "string",
+            "original": "number | undefined"
+          },
+          "description": "Override the SIGTERM grace window before SIGKILL fires.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "env",
+          "type": {
+            "canonical": "object",
+            "original": "Record<string, string> | undefined"
+          },
+          "description": "Environment variable overrides layered atop the task-level env.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "cwd",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Working directory override that wins over `SubagentTask.cwd`.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-SubagentStreamEvent",
+      "name": "SubagentStreamEvent",
+      "slug": "subagentstreamevent",
+      "what": "One streaming event surfaced through `SubagentSpawnOptions.onStream`.",
+      "tags": [
+        "event"
+      ],
+      "properties": [
+        {
+          "name": "kind",
+          "type": {
+            "canonical": "string",
+            "original": "\"message\" | \"stderr\" | \"exit\" | \"link\""
+          },
+          "description": "Event kind discriminator.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "subagentId",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Subagent identifier (matches `SubagentHandle.subagentId`).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "lineNumber",
+          "type": {
+            "canonical": "string",
+            "original": "number | undefined"
+          },
+          "description": "1-based line number within the child's stdout stream. Only set for `\"message\"` events that originated from a parsed stdout line.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "payload",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "description": "Event payload, shaped according to `kind`.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-SubagentExitResult",
+      "name": "SubagentExitResult",
+      "slug": "subagentexit",
+      "what": "Resolution value of `SubagentHandle.exitPromise`.",
+      "tags": [
+        "result"
+      ],
+      "properties": [
+        {
+          "name": "code",
+          "type": {
+            "canonical": "string",
+            "original": "number | null"
+          },
+          "description": "Process exit code, or `null` when the child was terminated by a signal before exiting normally.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "signal",
+          "type": {
+            "canonical": "string",
+            "original": "NodeJS.Signals | null"
+          },
+          "description": "Terminating signal, or `null` when the child exited normally.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "childSessionPath",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Absolute path to the child session JSONL file on disk.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "durationMs",
+          "type": {
+            "canonical": "number"
+          },
+          "description": "Wall-clock duration from spawn to exit, in milliseconds.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-SubagentLinkEntry",
+      "name": "SubagentLinkEntry",
+      "slug": "subagentlinkentry",
+      "what": "`subagent_link` custom entry written into the parent session JSONL.",
+      "tags": [
+        "data"
+      ],
+      "properties": [
+        {
+          "name": "type",
+          "type": {
+            "canonical": "object",
+            "original": "\"subagent_link\""
+          },
+          "description": "Entry type discriminator (always `\"subagent_link\"`).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "subagentId",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Subagent identifier matching `SubagentHandle.subagentId`.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "taskId",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Task identifier from `SubagentTask.taskId`.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "childSessionPath",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Absolute path to the child session JSONL file.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "startedAt",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "ISO-8601 timestamp captured when the child was spawned.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-SubagentResult",
+      "name": "SubagentResult",
+      "slug": "subagent",
+      "what": "Final result of a subagent's execution (legacy v1 shape).",
+      "tags": [
+        "result"
+      ],
+      "properties": [
+        {
+          "name": "exitCode",
+          "type": {
+            "canonical": "string",
+            "original": "number | null"
+          },
+          "description": "Process exit code, or `null` if the process was killed by a signal.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "stdout",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Full stdout captured from the subagent.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "stderr",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Full stderr captured from the subagent.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "parsed",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "description": "Parsed JSON output, when the target supports a JSON output mode and emitted well-formed JSON on stdout.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-FormatOptions",
+      "name": "FormatOptions",
+      "slug": "format",
+      "what": "Format resolution options.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "jsonFlag",
+          "type": {
+            "canonical": "string",
+            "original": "boolean | undefined"
+          },
+          "description": "Whether `--json` was explicitly passed.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "humanFlag",
+          "type": {
+            "canonical": "string",
+            "original": "boolean | undefined"
+          },
+          "description": "Whether `--human` was explicitly passed.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "projectDefault",
+          "type": {
+            "canonical": "string",
+            "original": "\"json\" | \"human\" | undefined"
+          },
+          "description": "Project-level default format when no flag is given.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-LAFSCommandOptions",
+      "name": "LAFSCommandOptions",
+      "slug": "lafscommand",
+      "what": "Standard command options interface for LAFS-compliant commands.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "json",
+          "type": {
+            "canonical": "string",
+            "original": "boolean | undefined"
+          },
+          "description": "Whether to force JSON output.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "human",
+          "type": {
+            "canonical": "string",
+            "original": "boolean | undefined"
+          },
+          "description": "Whether to force human-readable output.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-ProviderTargetOptions",
+      "name": "ProviderTargetOptions",
+      "slug": "providertarget",
+      "what": "Options for resolving which providers to target in advanced commands.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "all",
+          "type": {
+            "canonical": "string",
+            "original": "boolean | undefined"
+          },
+          "description": "When true, target all registry providers including undetected ones.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "agent",
+          "type": {
+            "canonical": "array",
+            "original": "string[] | undefined"
+          },
+          "description": "Specific provider IDs or aliases to target.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-McpDetectionEntry",
+      "name": "McpDetectionEntry",
+      "slug": "mcpdetectionentry",
+      "what": "Result of a single provider's MCP installation probe.",
+      "tags": [
+        "data"
+      ],
+      "properties": [
+        {
+          "name": "providerId",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Provider id (e.g. `\"claude-code\"`).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "providerName",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Human-readable provider name.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "scope",
+          "type": {
+            "canonical": "object",
+            "original": "McpScope"
+          },
+          "description": "Resolved scope of the probed config file.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "configPath",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Absolute path to the provider's MCP config file.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "exists",
+          "type": {
+            "canonical": "boolean"
+          },
+          "description": "Whether the config file exists on disk.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "serverCount",
+          "type": {
+            "canonical": "string",
+            "original": "number | null"
+          },
+          "description": "Number of server entries found, or `null` when the file is missing/unparseable.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "lastModified",
+          "type": {
+            "canonical": "string",
+            "original": "string | null"
+          },
+          "description": "ISO 8601 timestamp of the file's last modification, or `null` when the file is missing.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-InstallMcpServerOptions",
+      "name": "InstallMcpServerOptions",
+      "slug": "installmcpserver",
+      "what": "Options accepted by `installMcpServer`.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "scope",
+          "type": {
+            "canonical": "object",
+            "original": "McpScope"
+          },
+          "description": "Scope to write to (project|global).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "force",
+          "type": {
+            "canonical": "string",
+            "original": "boolean | undefined"
+          },
+          "description": "When `true`, overwrite an existing server entry instead of failing.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "projectDir",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Project directory used for the `project` scope.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-InstallMcpServerResult",
+      "name": "InstallMcpServerResult",
+      "slug": "installmcpserver",
+      "what": "Result of an `installMcpServer` call.",
+      "tags": [
+        "result"
+      ],
+      "properties": [
+        {
+          "name": "installed",
+          "type": {
+            "canonical": "boolean"
+          },
+          "description": "Whether the entry was written to the config file.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "conflicted",
+          "type": {
+            "canonical": "boolean"
+          },
+          "description": "Whether the target server name already existed before the call.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "sourcePath",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Absolute path to the config file that was (or would have been) written.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "providerId",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Provider id the entry was written for.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "serverName",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Server name that was written.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-RemoveMcpServerOptions",
+      "name": "RemoveMcpServerOptions",
+      "slug": "removemcpserver",
+      "what": "Options accepted by `removeMcpServer` and `removeMcpServerFromAll`.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "scope",
+          "type": {
+            "canonical": "object",
+            "original": "McpScope"
+          },
+          "description": "Scope to target (project|global).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "projectDir",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Project directory used for the `project` scope.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-RemoveMcpServerResult",
+      "name": "RemoveMcpServerResult",
+      "slug": "removemcpserver",
+      "what": "Result of a single-provider `removeMcpServer` call.",
+      "tags": [
+        "result"
+      ],
+      "properties": [
+        {
+          "name": "providerId",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Provider id the call targeted.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "serverName",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Server name the call targeted.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "sourcePath",
+          "type": {
+            "canonical": "string",
+            "original": "string | null"
+          },
+          "description": "Resolved config file path, or `null` when the provider had no MCP capability.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "removed",
+          "type": {
+            "canonical": "boolean"
+          },
+          "description": "Whether an entry was actually deleted.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "reason",
+          "type": {
+            "canonical": "string",
+            "original": "\"no-mcp-capability\" | \"no-config-path\" | \"file-missing\" | \"entry-missing\" | null"
+          },
+          "description": "Diagnostic discriminator when `removed` is `false`.  - `\"no-mcp-capability\"` — provider does not consume MCP servers - `\"no-config-path\"` — provider has no config path for the scope - `\"file-missing\"` — config file does not exist on disk - `\"entry-missing\"` — config file exists but had no matching entry  Set to `null` when `removed` is `true`.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-McpCommandBaseOptions",
+      "name": "McpCommandBaseOptions",
+      "slug": "mcpcommandbase",
+      "what": "Standard option shape accepted by every `caamp mcp <verb>` command.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "scope",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "`--scope project|global` (default: project).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "projectDir",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "`--project-dir <path>` — override cwd for the `project` scope.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-McpDetectOptions",
+      "name": "McpDetectOptions",
+      "slug": "mcpdetect",
+      "what": "Options accepted by `caamp mcp detect`.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "onlyExisting",
+          "type": {
+            "canonical": "string",
+            "original": "boolean | undefined"
+          },
+          "description": "Show only providers that actually have a config file on disk.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-McpInstallOptions",
+      "name": "McpInstallOptions",
+      "slug": "mcpinstall",
+      "what": "Options accepted by `caamp mcp install`.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "provider",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Provider id to install into (required).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "from",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Optional path to a JSON file containing an `McpServerConfig`.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "env",
+          "type": {
+            "canonical": "array",
+            "original": "string[] | undefined"
+          },
+          "description": "Repeatable `KEY=VALUE` env assignments.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "force",
+          "type": {
+            "canonical": "string",
+            "original": "boolean | undefined"
+          },
+          "description": "Overwrite an existing entry instead of failing.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-McpListOptions",
+      "name": "McpListOptions",
+      "slug": "mcplist",
+      "what": "Options accepted by `caamp mcp list`.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "provider",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Restrict the listing to a single provider id.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-McpRemoveOptions",
+      "name": "McpRemoveOptions",
+      "slug": "mcpremove",
+      "what": "Options accepted by `caamp mcp remove`.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "provider",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Provider id to remove from (mutually exclusive with --all-providers).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "allProviders",
+          "type": {
+            "canonical": "string",
+            "original": "boolean | undefined"
+          },
+          "description": "Remove from every MCP-capable provider in the registry.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-GitFetchResult",
+      "name": "GitFetchResult",
+      "slug": "gitfetch",
+      "what": "Result of fetching a Git repository to a local temporary directory.",
+      "tags": [
+        "result"
+      ],
+      "properties": [
+        {
+          "name": "localPath",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Absolute path to the fetched content on disk.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "cleanup",
+          "type": {
+            "canonical": "object",
+            "original": "() => Promise<void>"
+          },
+          "description": "Cleanup function that removes the temporary directory.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-PiCommandBaseOptions",
+      "name": "PiCommandBaseOptions",
+      "slug": "picommandbase",
+      "what": "Standard option shape accepted by every `caamp pi <verb>` command.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "scope",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "`--scope project|user|global`.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "force",
+          "type": {
+            "canonical": "string",
+            "original": "boolean | undefined"
+          },
+          "description": "`--force` — overwrite existing targets on install verbs.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "projectDir",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "`--project-dir <path>` — override cwd for the `project` tier.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-PiCantListOptions",
+      "name": "PiCantListOptions",
+      "slug": "picantlist",
+      "what": "Options accepted by `caamp pi cant list`.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "projectDir",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Project directory used for the `project` tier.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-PiCantInstallOptions",
+      "name": "PiCantInstallOptions",
+      "slug": "picantinstall",
+      "what": "Options accepted by `caamp pi cant install`.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "name",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Profile name override. Defaults to the inferred source name.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-PiCantRemoveOptions",
+      "name": "PiCantRemoveOptions",
+      "slug": "picantremove",
+      "what": "Options accepted by `caamp pi cant remove`.",
+      "tags": [
+        "options"
+      ]
+    },
+    {
+      "id": "concept-PiExtensionsListOptions",
+      "name": "PiExtensionsListOptions",
+      "slug": "piextensionslist",
+      "what": "Options accepted by `caamp pi extensions list`.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "projectDir",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Project directory used for the `project` tier.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-PiExtensionsInstallOptions",
+      "name": "PiExtensionsInstallOptions",
+      "slug": "piextensionsinstall",
+      "what": "Options accepted by `caamp pi extensions install`.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "name",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Extension name override. Defaults to the inferred source name.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-PiExtensionsRemoveOptions",
+      "name": "PiExtensionsRemoveOptions",
+      "slug": "piextensionsremove",
+      "what": "Options accepted by `caamp pi extensions remove`.",
+      "tags": [
+        "options"
+      ]
+    },
+    {
+      "id": "concept-PiModelsCommandOptions",
+      "name": "PiModelsCommandOptions",
+      "slug": "pimodelscommand",
+      "what": "Options accepted by every `caamp pi models` verb.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "global",
+          "type": {
+            "canonical": "string",
+            "original": "boolean | undefined"
+          },
+          "description": "`--global` targets the Pi global state root instead of the project.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-PiModelsAddOptions",
+      "name": "PiModelsAddOptions",
+      "slug": "pimodelsadd",
+      "what": "Options accepted by `caamp pi models add`.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "displayName",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Human-readable model name.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "baseUrl",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Override the provider base URL.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "reasoning",
+          "type": {
+            "canonical": "string",
+            "original": "boolean | undefined"
+          },
+          "description": "Reasoning-capable flag.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "contextWindow",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Context window size in tokens.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "maxTokens",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Maximum output tokens.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-PiPromptsInstallOptions",
+      "name": "PiPromptsInstallOptions",
+      "slug": "pipromptsinstall",
+      "what": "Options accepted by `caamp pi prompts install`.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "name",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Override the inferred prompt directory name.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-PiPromptsListOptions",
+      "name": "PiPromptsListOptions",
+      "slug": "pipromptslist",
+      "what": "Options accepted by `caamp pi prompts list`.",
+      "tags": [
+        "options"
+      ]
+    },
+    {
+      "id": "concept-PiPromptsRemoveOptions",
+      "name": "PiPromptsRemoveOptions",
+      "slug": "pipromptsremove",
+      "what": "Options accepted by `caamp pi prompts remove`.",
+      "tags": [
+        "options"
+      ]
+    },
+    {
+      "id": "concept-PiSessionsListOptions",
+      "name": "PiSessionsListOptions",
+      "slug": "pisessionslist",
+      "what": "Options accepted by `caamp pi sessions list`.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "includeSubagents",
+          "type": {
+            "canonical": "string",
+            "original": "boolean | undefined"
+          },
+          "description": "Include sessions under the `subagents/` subdirectory (default: true).",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-PiSessionsExportOptions",
+      "name": "PiSessionsExportOptions",
+      "slug": "pisessionsexport",
+      "what": "Options accepted by `caamp pi sessions export`.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "jsonl",
+          "type": {
+            "canonical": "string",
+            "original": "boolean | undefined"
+          },
+          "description": "Emit raw JSONL. Mutually exclusive with `md`.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "md",
+          "type": {
+            "canonical": "string",
+            "original": "boolean | undefined"
+          },
+          "description": "Emit Markdown (filtered to message/custom_message entries).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "output",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Write to this file path instead of stdout.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-PiThemesInstallOptions",
+      "name": "PiThemesInstallOptions",
+      "slug": "pithemesinstall",
+      "what": "Options accepted by `caamp pi themes install`.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "name",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Override the inferred theme name.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-PiThemesListOptions",
+      "name": "PiThemesListOptions",
+      "slug": "pithemeslist",
+      "what": "Options accepted by `caamp pi themes list`.",
+      "tags": [
+        "options"
+      ]
+    },
+    {
+      "id": "concept-PiThemesRemoveOptions",
+      "name": "PiThemesRemoveOptions",
+      "slug": "pithemesremove",
+      "what": "Options accepted by `caamp pi themes remove`.",
+      "tags": [
+        "options"
+      ]
+    },
+    {
+      "id": "concept-EventSource",
+      "name": "EventSource",
+      "slug": "eventsource",
+      "what": "Union type of valid event source types.",
+      "tags": [
+        "domain"
+      ]
+    },
+    {
+      "id": "concept-CanonicalHookEvent",
+      "name": "CanonicalHookEvent",
+      "slug": "canonicalhookevent",
+      "what": "Union type of all canonical hook event names.",
+      "tags": [
+        "event"
+      ]
+    },
+    {
+      "id": "concept-CanonicalEventDefinition",
+      "name": "CanonicalEventDefinition",
+      "slug": "canonicaleventdefinition",
+      "what": "Definition of a canonical hook event including its category and behavior.",
+      "tags": [
+        "domain"
+      ],
+      "properties": [
+        {
+          "name": "category",
+          "type": {
+            "canonical": "string",
+            "original": "\"agent\" | \"context\" | \"memory\" | \"pipeline\" | \"prompt\" | \"session\" | \"task\" | \"tool\""
+          },
+          "description": "The lifecycle category this event belongs to (e.g. `\"session\"`, `\"tool\"`).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "description",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Human-readable description of when this event fires.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "canBlock",
+          "type": {
+            "canonical": "boolean"
+          },
+          "description": "Whether a hook handler can block or cancel the associated action.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-NormalizedHookEvent",
+      "name": "NormalizedHookEvent",
+      "slug": "normalizedhookevent",
+      "what": "A fully resolved hook event with both canonical and native names.",
+      "tags": [
+        "event"
+      ],
+      "properties": [
+        {
+          "name": "canonical",
+          "type": {
+            "canonical": "string",
+            "original": "\"ConfigChange\" | \"Notification\" | \"PermissionRequest\" | \"PostCompact\" | \"PostModel\" | \"PostToolUse\" | \"PostToolUseFailure\" | \"PreCompact\" | \"PreModel\" | \"PreToolUse\" | \"PromptSubmit\" | \"ResponseComplete\" | \"SessionEnd\" | \"SessionStart\" | \"SubagentStart\" | \"SubagentStop\" | \"ApprovalExpired\" | \"ApprovalGranted\" | \"ApprovalRequested\" | \"MemoryDecisionStored\" | \"MemoryLearningStored\" | \"MemoryObserved\" | \"MemoryPatternStored\" | \"PipelineManifestAppended\" | \"PipelineStageCompleted\" | \"SessionEnded\" | \"SessionStarted\" | \"TaskBlocked\" | \"TaskCompleted\" | \"TaskCreated\" | \"TaskStarted\""
+          },
+          "description": "The CAAMP canonical event name.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "native",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "The provider-native event name.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "providerId",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "The provider this event was resolved for.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "category",
+          "type": {
+            "canonical": "string",
+            "original": "\"agent\" | \"context\" | \"memory\" | \"pipeline\" | \"prompt\" | \"session\" | \"task\" | \"tool\""
+          },
+          "description": "The lifecycle category of this event.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "canBlock",
+          "type": {
+            "canonical": "boolean"
+          },
+          "description": "Whether a handler for this event can block the associated action.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-HookSupportResult",
+      "name": "HookSupportResult",
+      "slug": "hooksupport",
+      "what": "Result of querying whether a provider supports a specific canonical event.",
+      "tags": [
+        "result"
+      ],
+      "properties": [
+        {
+          "name": "canonical",
+          "type": {
+            "canonical": "string",
+            "original": "\"ConfigChange\" | \"Notification\" | \"PermissionRequest\" | \"PostCompact\" | \"PostModel\" | \"PostToolUse\" | \"PostToolUseFailure\" | \"PreCompact\" | \"PreModel\" | \"PreToolUse\" | \"PromptSubmit\" | \"ResponseComplete\" | \"SessionEnd\" | \"SessionStart\" | \"SubagentStart\" | \"SubagentStop\" | \"ApprovalExpired\" | \"ApprovalGranted\" | \"ApprovalRequested\" | \"MemoryDecisionStored\" | \"MemoryLearningStored\" | \"MemoryObserved\" | \"MemoryPatternStored\" | \"PipelineManifestAppended\" | \"PipelineStageCompleted\" | \"SessionEnded\" | \"SessionStarted\" | \"TaskBlocked\" | \"TaskCompleted\" | \"TaskCreated\" | \"TaskStarted\""
+          },
+          "description": "The canonical event that was queried.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "supported",
+          "type": {
+            "canonical": "boolean"
+          },
+          "description": "Whether the provider supports this event.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "native",
+          "type": {
+            "canonical": "string",
+            "original": "string | null"
+          },
+          "description": "The provider-native event name, or `null` if unsupported.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "notes",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Optional notes about support caveats.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-MarketplaceResult",
+      "name": "MarketplaceResult",
+      "slug": "marketplace",
+      "what": "Normalized marketplace record returned by all adapters.",
+      "tags": [
+        "result"
+      ],
+      "properties": [
+        {
+          "name": "name",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Short skill name (e.g. `\"memory\"`).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "scopedName",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Scoped name including author prefix (e.g. `\"\\@anthropic/memory\"`).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "description",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Short description of what the skill does.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "author",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Author or organization name.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "stars",
+          "type": {
+            "canonical": "number"
+          },
+          "description": "GitHub star count.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "githubUrl",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Full GitHub repository URL.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "repoFullName",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "GitHub `owner/repo` path.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "path",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Path within the repository to the skill file.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "source",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Name of the marketplace source this result came from.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-SearchOptions",
+      "name": "SearchOptions",
+      "slug": "search",
+      "what": "Options for marketplace search requests.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "query",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Free-text search query.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "limit",
+          "type": {
+            "canonical": "string",
+            "original": "number | undefined"
+          },
+          "description": "Maximum number of results.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "offset",
+          "type": {
+            "canonical": "string",
+            "original": "number | undefined"
+          },
+          "description": "Pagination offset.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "sortBy",
+          "type": {
+            "canonical": "string",
+            "original": "\"stars\" | \"recent\" | \"name\" | undefined"
+          },
+          "description": "Sort order for results.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "category",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Filter by skill category.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "author",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Filter by author name.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-RecommendationValidationResult",
+      "name": "RecommendationValidationResult",
+      "slug": "recommendationvalidation",
+      "what": "Result of validating recommendation criteria input.",
+      "tags": [
+        "result"
+      ],
+      "properties": [
+        {
+          "name": "valid",
+          "type": {
+            "canonical": "boolean"
+          },
+          "description": "Whether the criteria passed all validation checks.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "issues",
+          "type": {
+            "canonical": "array",
+            "original": "RecommendationValidationIssue[]"
+          },
+          "description": "List of validation issues found, empty when valid.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-RecommendationOptions",
+      "name": "RecommendationOptions",
+      "slug": "recommendation",
+      "what": "Configuration options for the skill recommendation engine.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "top",
+          "type": {
+            "canonical": "string",
+            "original": "number | undefined"
+          },
+          "description": "Maximum number of results to return from the ranked list.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "includeDetails",
+          "type": {
+            "canonical": "string",
+            "original": "boolean | undefined"
+          },
+          "description": "Whether to include detailed score breakdown in each result.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "weights",
+          "type": {
+            "canonical": "string",
+            "original": "Partial<RecommendationWeights> | undefined"
+          },
+          "description": "Partial weight overrides for individual scoring factors.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "modernMarkers",
+          "type": {
+            "canonical": "array",
+            "original": "string[] | undefined"
+          },
+          "description": "Custom modern technology marker strings for modernity scoring.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "legacyMarkers",
+          "type": {
+            "canonical": "array",
+            "original": "string[] | undefined"
+          },
+          "description": "Custom legacy technology marker strings for modernity scoring.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-RecommendSkillsResult",
+      "name": "RecommendSkillsResult",
+      "slug": "recommendskills",
+      "what": "The complete result of a skill recommendation operation.",
+      "tags": [
+        "result"
+      ],
+      "properties": [
+        {
+          "name": "criteria",
+          "type": {
+            "canonical": "object",
+            "original": "NormalizedRecommendationCriteria"
+          },
+          "description": "The normalized criteria used for scoring.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "ranking",
+          "type": {
+            "canonical": "array",
+            "original": "RankedSkillRecommendation[]"
+          },
+          "description": "Skills ranked by recommendation score, highest first.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-SearchSkillsOptions",
+      "name": "SearchSkillsOptions",
+      "slug": "searchskills",
+      "what": "Options for searching skills via marketplace APIs.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "limit",
+          "type": {
+            "canonical": "string",
+            "original": "number | undefined"
+          },
+          "description": "Maximum number of results to return.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-RecommendSkillsQueryOptions",
+      "name": "RecommendSkillsQueryOptions",
+      "slug": "recommendskillsquery",
+      "what": "Options for the recommendation query combining ranking options with a result limit.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "limit",
+          "type": {
+            "canonical": "string",
+            "original": "number | undefined"
+          },
+          "description": "Maximum number of results to return.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-ValidationResult",
+      "name": "ValidationResult",
+      "slug": "validation",
+      "what": "Result of validating a SKILL.md file against the Agent Skills standard.",
+      "tags": [
+        "result"
+      ],
+      "properties": [
+        {
+          "name": "valid",
+          "type": {
+            "canonical": "boolean"
+          },
+          "description": "Whether the skill passed validation (no error-level issues).",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "issues",
+          "type": {
+            "canonical": "array",
+            "original": "ValidationIssue[]"
+          },
+          "description": "All issues found during validation.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "metadata",
+          "type": {
+            "canonical": "object",
+            "original": "Record<string, unknown> | null"
+          },
+          "description": "Parsed frontmatter metadata, or `null` if parsing failed.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-SpawnOptions",
+      "name": "SpawnOptions",
+      "slug": "spawn",
+      "what": "Options for spawning a subagent.",
+      "tags": [
+        "options"
+      ],
+      "properties": [
+        {
+          "name": "prompt",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "The prompt or instruction to give the spawned agent.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "model",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Model to use for the spawned agent.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "tools",
+          "type": {
+            "canonical": "array",
+            "original": "string[] | undefined"
+          },
+          "description": "Tools to make available to the spawned agent.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "timeout",
+          "type": {
+            "canonical": "string",
+            "original": "number | undefined"
+          },
+          "description": "Timeout in milliseconds for the spawned agent.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "isolate",
+          "type": {
+            "canonical": "string",
+            "original": "boolean | undefined"
+          },
+          "description": "Whether to isolate the spawned agent (e.g. in a worktree).",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-SpawnResult",
+      "name": "SpawnResult",
+      "slug": "spawn",
+      "what": "Result from a spawn operation.",
+      "tags": [
+        "result"
+      ],
+      "properties": [
+        {
+          "name": "instanceId",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Unique identifier for the spawned agent instance.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "status",
+          "type": {
+            "canonical": "string",
+            "original": "\"running\" | \"completed\" | \"failed\""
+          },
+          "description": "Current status of the spawned agent.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "output",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Output produced by the spawned agent.",
+          "required": true,
+          "default": null
+        }
+      ]
+    },
+    {
+      "id": "concept-SkillIntegrityStatus",
+      "name": "SkillIntegrityStatus",
+      "slug": "skillintegritystatus",
+      "what": "Status of a single skill's integrity check.",
+      "tags": [
+        "state"
+      ]
+    },
+    {
+      "id": "concept-SkillIntegrityResult",
+      "name": "SkillIntegrityResult",
+      "slug": "skillintegrity",
+      "what": "Result of checking a single skill's integrity.",
+      "tags": [
+        "result"
+      ],
+      "properties": [
+        {
+          "name": "name",
+          "type": {
+            "canonical": "string"
+          },
+          "description": "Skill name.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "status",
+          "type": {
+            "canonical": "object",
+            "original": "SkillIntegrityStatus"
+          },
+          "description": "Overall integrity status.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "canonicalExists",
+          "type": {
+            "canonical": "boolean"
+          },
+          "description": "Whether the canonical directory exists.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "canonicalPath",
+          "type": {
+            "canonical": "string",
+            "original": "string | null"
+          },
+          "description": "Expected canonical path from lock file.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "linkStatuses",
+          "type": {
+            "canonical": "array",
+            "original": "{ providerId: string; linkPath: string; exists: boolean; isSymlink: boolean; pointsToCanonical: boolean; }[]"
+          },
+          "description": "Provider link statuses — which agents have valid symlinks.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "isCaampOwned",
+          "type": {
+            "canonical": "boolean"
+          },
+          "description": "Whether this is a CAAMP-reserved (ct-*) skill.",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "issue",
+          "type": {
+            "canonical": "string",
+            "original": "string | undefined"
+          },
+          "description": "Human-readable issue description, if any.",
+          "required": true,
+          "default": null
+        }
+      ]
+    }
+  ],
+  "operations": [
+    {
+      "id": "op-buildSkillSubPathCandidates",
+      "name": "buildSkillSubPathCandidates",
+      "what": "Builds a list of candidate sub-paths for skill file resolution.",
+      "tags": [],
+      "inputs": [
+        {
+          "name": "marketplacePath",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "The sub-path from the marketplace listing"
+        },
+        {
+          "name": "parsedPath",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "The sub-path parsed from the source URL"
+        }
+      ],
+      "outputs": {
+        "type": {
+          "canonical": "object",
+          "original": "A deduplicated array of candidate sub-paths"
+        },
+        "description": "A deduplicated array of candidate sub-paths"
+      }
+    },
+    {
+      "id": "op-buildSkillsMap",
+      "name": "buildSkillsMap",
+      "what": "Build a full skills map for all providers.",
+      "tags": [],
+      "inputs": [],
+      "outputs": {
+        "type": {
+          "canonical": "array",
+          "original": "Array of skills map entries with provider ID, tool name, precedence, and paths"
+        },
+        "description": "Array of skills map entries with provider ID, tool name, precedence, and paths"
+      }
+    },
+    {
+      "id": "op-buildInjectionContent",
+      "name": "buildInjectionContent",
+      "what": "Build injection content from a structured template.  Produces a string suitable for injection between CAAMP markers. References are output as `@` lines, content blocks are appended as-is.",
+      "tags": [],
+      "inputs": [
+        {
+          "name": "template",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Template defining references and content"
+        }
+      ],
+      "outputs": {
+        "type": {
+          "canonical": "object",
+          "original": "Formatted injection content string"
+        },
+        "description": "Formatted injection content string"
+      }
+    },
+    {
+      "id": "op-generateInjectionContent",
+      "name": "generateInjectionContent",
+      "what": "Generate a standard CAAMP injection block for instruction files.  Produces markdown content suitable for injection between CAAMP markers. Optionally includes MCP server and custom content sections.",
+      "tags": [],
+      "inputs": [
+        {
+          "name": "options",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Optional configuration for the generated content"
+        }
+      ],
+      "outputs": {
+        "type": {
+          "canonical": "object",
+          "original": "Generated markdown string"
+        },
+        "description": "Generated markdown string"
+      }
+    },
+    {
+      "id": "op-generateSkillsSection",
+      "name": "generateSkillsSection",
+      "what": "Generate a skills discovery section for instruction files.",
+      "tags": [],
+      "inputs": [
+        {
+          "name": "skillNames",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Array of skill names to list"
+        }
+      ],
+      "outputs": {
+        "type": {
+          "canonical": "object",
+          "original": "Markdown string listing installed skills"
+        },
+        "description": "Markdown string listing installed skills"
+      }
+    },
+    {
+      "id": "op-checkInjection",
+      "name": "checkInjection",
+      "what": "Check the status of a CAAMP injection block in an instruction file.  Returns the injection status: - `\"missing\"` - File does not exist - `\"none\"` - File exists but has no CAAMP markers - `\"current\"` - CAAMP block exists and matches expected content (or no expected content given) - `\"outdated\"` - CAAMP block exists but differs from expected content",
+      "tags": [],
+      "inputs": [
+        {
+          "name": "filePath",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Absolute path to the instruction file"
+        },
+        {
+          "name": "expectedContent",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Optional expected content to compare against"
+        }
+      ],
+      "outputs": {
+        "type": {
+          "canonical": "object",
+          "original": "The injection status"
+        },
+        "description": "The injection status"
+      }
+    },
+    {
+      "id": "op-checkAllInjections",
+      "name": "checkAllInjections",
+      "what": "Check injection status across all providers' instruction files.  Deduplicates by file path since multiple providers may share the same instruction file (e.g. many providers use `AGENTS.md`).",
+      "tags": [],
+      "inputs": [
+        {
+          "name": "providers",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Array of providers to check"
+        },
+        {
+          "name": "projectDir",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Absolute path to the project directory"
+        },
+        {
+          "name": "scope",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Whether to check project or global instruction files"
+        },
+        {
+          "name": "expectedContent",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Optional expected content to compare against"
+        }
+      ],
+      "outputs": {
+        "type": {
+          "canonical": "array",
+          "original": "Array of injection check results, one per unique instruction file"
+        },
+        "description": "Array of injection check results, one per unique instruction file"
+      }
+    },
+    {
+      "id": "op-buildEnvelope",
+      "name": "buildEnvelope",
+      "what": "Builds a standard LAFS envelope.",
+      "tags": [],
+      "inputs": [
+        {
+          "name": "operation",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Operation identifier (e.g., `\"skills.list\"`, `\"doctor.check\"`)"
+        },
+        {
+          "name": "mvi",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Machine-Verified Instruction disclosure level"
+        },
+        {
+          "name": "result",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Operation result data (`null` if error)"
+        },
+        {
+          "name": "error",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Error details (`null` if success)"
+        },
+        {
+          "name": "page",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Pagination info (`null` if not applicable)"
+        },
+        {
+          "name": "sessionId",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Optional session identifier"
+        },
+        {
+          "name": "warnings",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Optional array of warnings to attach"
+        }
+      ],
+      "outputs": {
+        "type": {
+          "canonical": "object",
+          "original": "LAFS-compliant envelope"
+        },
+        "description": "LAFS-compliant envelope"
+      }
+    },
+    {
+      "id": "op-runLafsCommand",
+      "name": "runLafsCommand",
+      "what": "Runs an async action and emits the result as a LAFS success or error envelope.",
+      "tags": [
+        "lafscommand"
+      ],
+      "inputs": [
+        {
+          "name": "command",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "The LAFS operation identifier"
+        },
+        {
+          "name": "mvi",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "The minimum viable information level"
+        },
+        {
+          "name": "action",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "The async function to execute"
+        }
+      ]
+    },
+    {
+      "id": "op-registerConfigCommand",
+      "name": "registerConfigCommand",
+      "what": "Registers the `config` command group with show and path subcommands for viewing provider configurations.",
+      "tags": [],
+      "inputs": [
+        {
+          "name": "program",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "The root Commander program to attach the config command group to"
+        }
+      ]
+    },
+    {
+      "id": "op-registerDoctorCommand",
+      "name": "registerDoctorCommand",
+      "what": "Registers the `doctor` command for diagnosing configuration issues and overall system health.",
+      "tags": [],
+      "inputs": [
+        {
+          "name": "program",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "The root Commander program to attach the doctor command to"
+        }
+      ]
+    },
+    {
+      "id": "op-registerMcpDetectCommand",
+      "name": "registerMcpDetectCommand",
+      "what": "Registers the `caamp mcp detect` subcommand.",
+      "tags": [
+        "mcpdetect"
+      ],
+      "inputs": [
+        {
+          "name": "parent",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Parent `mcp` Command to attach the subcommand to."
+        }
+      ]
+    },
+    {
+      "id": "op-registerMcpInstallCommand",
+      "name": "registerMcpInstallCommand",
+      "what": "Registers the `caamp mcp install` subcommand.",
+      "tags": [
+        "mcpinstall"
+      ],
+      "inputs": [
+        {
+          "name": "parent",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Parent `mcp` Command to attach the subcommand to."
+        }
+      ]
+    },
+    {
+      "id": "op-registerMcpListCommand",
+      "name": "registerMcpListCommand",
+      "what": "Registers the `caamp mcp list` subcommand.",
+      "tags": [
+        "mcplist"
+      ],
+      "inputs": [
+        {
+          "name": "parent",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Parent `mcp` Command to attach the subcommand to."
+        }
+      ]
+    },
+    {
+      "id": "op-registerMcpRemoveCommand",
+      "name": "registerMcpRemoveCommand",
+      "what": "Registers the `caamp mcp remove` subcommand.",
+      "tags": [
+        "mcpremove"
+      ],
+      "inputs": [
+        {
+          "name": "parent",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Parent `mcp` Command to attach the subcommand to."
+        }
+      ]
+    },
+    {
+      "id": "op-buildHookMatrix",
+      "name": "buildHookMatrix",
+      "what": "Build a cross-provider hook support matrix.",
+      "tags": [],
+      "inputs": [
+        {
+          "name": "providerIds",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Optional array of provider IDs to include. Defaults to all mapped providers."
+        }
+      ],
+      "outputs": {
+        "type": {
+          "canonical": "object",
+          "original": "The cross-provider matrix with events, providers, and mapping data."
+        },
+        "description": "The cross-provider matrix with events, providers, and mapping data."
+      }
+    },
+    {
+      "id": "op-registerProvidersCommand",
+      "name": "registerProvidersCommand",
+      "what": "Registers the `providers` command group with list, detect, show, skills-map, hooks, and capabilities subcommands.",
+      "tags": [],
+      "inputs": [
+        {
+          "name": "program",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "The root Commander program to attach the providers command group to"
+        }
+      ]
+    },
+    {
+      "id": "op-checkSkillUpdate",
+      "name": "checkSkillUpdate",
+      "what": "Check if a skill has updates available by comparing the installed version against the latest remote commit SHA.",
+      "tags": [],
+      "inputs": [
+        {
+          "name": "skillName",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Name of the installed skill to check"
+        }
+      ],
+      "outputs": {
+        "type": {
+          "canonical": "object",
+          "original": "Object with update status, current version, and latest version"
+        },
+        "description": "Object with update status, current version, and latest version"
+      }
+    },
+    {
+      "id": "op-checkAllSkillUpdates",
+      "name": "checkAllSkillUpdates",
+      "what": "Check for updates across all tracked skills.",
+      "tags": [],
+      "inputs": [],
+      "outputs": {
+        "type": {
+          "canonical": "object",
+          "original": "Object mapping skill names to their update status"
+        },
+        "description": "Object mapping skill names to their update status"
+      }
+    },
+    {
+      "id": "op-validateRecommendationCriteria",
+      "name": "validateRecommendationCriteria",
+      "what": "Validates recommendation criteria input for correctness and consistency.",
+      "tags": [
+        "recommendation"
+      ],
+      "inputs": [
+        {
+          "name": "input",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "The raw recommendation criteria to validate"
+        }
+      ],
+      "outputs": {
+        "type": {
+          "canonical": "object",
+          "original": "A validation result indicating success or listing all issues"
+        },
+        "description": "A validation result indicating success or listing all issues"
+      }
+    },
+    {
+      "id": "op-buildLibraryFromFiles",
+      "name": "buildLibraryFromFiles",
+      "what": "Build a SkillLibrary from raw files in a directory.",
+      "tags": [],
+      "preconditions": [
+        "If skills.json is not found at the root"
+      ],
+      "inputs": [
+        {
+          "name": "root",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Absolute path to the library root directory"
+        }
+      ],
+      "outputs": {
+        "type": {
+          "canonical": "object",
+          "original": "A SkillLibrary instance backed by filesystem reads"
+        },
+        "description": "A SkillLibrary instance backed by filesystem reads"
+      }
+    },
+    {
+      "id": "op-validateSkillFrontmatter",
+      "name": "validateSkillFrontmatter",
+      "what": "Validates a single skill's frontmatter against the schema.",
+      "tags": [],
+      "inputs": [
+        {
+          "name": "name",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "The skill name to validate"
+        }
+      ],
+      "outputs": {
+        "type": {
+          "canonical": "object",
+          "original": "A validation result indicating success or listing errors"
+        },
+        "description": "A validation result indicating success or listing errors"
+      }
+    },
+    {
+      "id": "op-validateAll",
+      "name": "validateAll",
+      "what": "Validates all skills in the catalog and returns results per skill.",
+      "tags": [],
+      "inputs": [],
+      "outputs": {
+        "type": {
+          "canonical": "object",
+          "original": "A map of skill names to their validation results"
+        },
+        "description": "A map of skill names to their validation results"
+      }
+    },
+    {
+      "id": "op-validateSkill",
+      "name": "validateSkill",
+      "what": "Validate a SKILL.md file against the Agent Skills standard.",
+      "tags": [],
+      "inputs": [
+        {
+          "name": "filePath",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Absolute path to the SKILL.md file to validate"
+        }
+      ],
+      "outputs": {
+        "type": {
+          "canonical": "object",
+          "original": "Validation result with issues and parsed metadata"
+        },
+        "description": "Validation result with issues and parsed metadata"
+      }
+    },
+    {
+      "id": "op-checkSkillIntegrity",
+      "name": "checkSkillIntegrity",
+      "what": "Check the integrity of a single installed skill.",
+      "tags": [
+        "skillintegrity"
+      ],
+      "inputs": [
+        {
+          "name": "skillName",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Name of the skill to check"
+        },
+        {
+          "name": "providers",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Providers to check symlinks for"
+        },
+        {
+          "name": "scope",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Whether to check global or project links"
+        },
+        {
+          "name": "projectDir",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Project directory (for project scope)"
+        }
+      ],
+      "outputs": {
+        "type": {
+          "canonical": "object",
+          "original": "Integrity check result"
+        },
+        "description": "Integrity check result"
+      }
+    },
+    {
+      "id": "op-checkAllSkillIntegrity",
+      "name": "checkAllSkillIntegrity",
+      "what": "Check integrity of all tracked skills.",
+      "tags": [
+        "skillintegrity"
+      ],
+      "inputs": [
+        {
+          "name": "providers",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Providers to check symlinks for"
+        },
+        {
+          "name": "scope",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Whether to check global or project links"
+        },
+        {
+          "name": "projectDir",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Project directory (for project scope)"
+        }
+      ],
+      "outputs": {
+        "type": {
+          "canonical": "object",
+          "original": "Map of skill name to integrity result"
+        },
+        "description": "Map of skill name to integrity result"
+      }
+    },
+    {
+      "id": "op-validateInstructionIntegrity",
+      "name": "validateInstructionIntegrity",
+      "what": "Validate instruction file injection status across all providers.",
+      "tags": [],
+      "inputs": [
+        {
+          "name": "providers",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Providers to check"
+        },
+        {
+          "name": "projectDir",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Project directory"
+        },
+        {
+          "name": "scope",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Whether to check global or project files"
+        },
+        {
+          "name": "expectedContent",
+          "type": {
+            "canonical": "any",
+            "original": "unknown"
+          },
+          "required": true,
+          "description": "Expected CAAMP block content"
+        }
+      ],
+      "outputs": {
+        "type": {
+          "canonical": "array",
+          "original": "Array of file paths with issues"
+        },
+        "description": "Array of file paths with issues"
+      }
+    }
+  ],
+  "constraints": [
+    {
+      "id": "constraint-resolveProvidersRegistryPath-Error-if--providers-registry-j",
+      "rule": "Error if `providers/registry.json` cannot be found within 8 parent levels",
+      "enforcedBy": "resolveProvidersRegistryPath",
+      "severity": "error"
+    },
+    {
+      "id": "constraint-ensureProviderInstructionFile-Error-if-the-provider-ID-is-no",
+      "rule": "Error if the provider ID is not found in the registry",
+      "enforcedBy": "ensureProviderInstructionFile",
+      "severity": "error"
+    },
+    {
+      "id": "constraint-ensureAllProviderInstructionFiles-Error-if-any-provider-ID-is-no",
+      "rule": "Error if any provider ID is not found in the registry",
+      "enforcedBy": "ensureAllProviderInstructionFiles",
+      "severity": "error"
+    },
+    {
+      "id": "constraint-resolveTierDir--Error--when--tier--project---",
+      "rule": "`Error` when `tier='project'` and no `projectDir` is supplied",
+      "enforcedBy": "resolveTierDir",
+      "severity": "error"
+    },
+    {
+      "id": "constraint-resolveDefaultTargetProviders--PiRequiredError--when-mode-is",
+      "rule": "`PiRequiredError` when mode is `'force-pi'` and Pi is not   installed.",
+      "enforcedBy": "resolveDefaultTargetProviders",
+      "severity": "error"
+    },
+    {
+      "id": "constraint-resolveFormat-Error-if-format-flags-conflict",
+      "rule": "Error if format flags conflict",
+      "enforcedBy": "resolveFormat",
+      "severity": "error"
+    },
+    {
+      "id": "constraint-readConfig-If-the-file-cannot-be-read-or-",
+      "rule": "If the file cannot be read or the format is unsupported",
+      "enforcedBy": "readConfig",
+      "severity": "error"
+    },
+    {
+      "id": "constraint-writeConfig-If-the-format-is-unsupported",
+      "rule": "If the format is unsupported",
+      "enforcedBy": "writeConfig",
+      "severity": "error"
+    },
+    {
+      "id": "constraint-removeConfig-If-the-format-is-unsupported",
+      "rule": "If the format is unsupported",
+      "enforcedBy": "removeConfig",
+      "severity": "error"
+    },
+    {
+      "id": "constraint-installMcpServer--Error--when-the-provider-has-",
+      "rule": "`Error` when the provider has no MCP capability or no   project-scoped config path is available.",
+      "enforcedBy": "installMcpServer",
+      "severity": "error"
+    },
+    {
+      "id": "constraint-requireMcpProvider--LAFSCommandError--when-the-pr",
+      "rule": "`LAFSCommandError` when the provider is unknown or has no   MCP capability.",
+      "enforcedBy": "requireMcpProvider",
+      "severity": "error"
+    },
+    {
+      "id": "constraint-parseScope--LAFSCommandError--when--raw--",
+      "rule": "`LAFSCommandError` when `raw` is set to an invalid value.",
+      "enforcedBy": "parseScope",
+      "severity": "error"
+    },
+    {
+      "id": "constraint-parseEnvAssignment--LAFSCommandError--when-the-to",
+      "rule": "`LAFSCommandError` when the token is malformed.",
+      "enforcedBy": "parseEnvAssignment",
+      "severity": "error"
+    },
+    {
+      "id": "constraint-fetchWithTimeout--NetworkError--on-timeout-or-n",
+      "rule": "`NetworkError` on timeout or network failure",
+      "enforcedBy": "fetchWithTimeout",
+      "severity": "error"
+    },
+    {
+      "id": "constraint-ensureOkResponse--NetworkError--when--response-",
+      "rule": "`NetworkError` when `response.ok` is `false`",
+      "enforcedBy": "ensureOkResponse",
+      "severity": "error"
+    },
+    {
+      "id": "constraint-requirePiHarness--LAFSCommandError--when-Pi-is-",
+      "rule": "`LAFSCommandError` when Pi is not installed.",
+      "enforcedBy": "requirePiHarness",
+      "severity": "error"
+    },
+    {
+      "id": "constraint-recommendSkills-Error-with--code--and--issues-",
+      "rule": "Error with `code` and `issues` properties when criteria are invalid",
+      "enforcedBy": "recommendSkills",
+      "severity": "error"
+    },
+    {
+      "id": "constraint-loadLibraryFromModule-If-the-module-cannot-be-loaded",
+      "rule": "If the module cannot be loaded or does not implement SkillLibrary",
+      "enforcedBy": "loadLibraryFromModule",
+      "severity": "error"
+    },
+    {
+      "id": "constraint-buildLibraryFromFiles-If-skills-json-is-not-found-at",
+      "rule": "If skills.json is not found at the root",
+      "enforcedBy": "buildLibraryFromFiles",
+      "severity": "error"
+    },
+    {
+      "id": "constraint-registerSkillLibraryFromPath-Error-if-the-library-cannot-be",
+      "rule": "Error if the library cannot be loaded from the given path",
+      "enforcedBy": "registerSkillLibraryFromPath",
+      "severity": "error"
+    }
+  ],
+  "workflows": [],
+  "configSchema": [
+    {
+      "key": "detection.methods",
+      "type": {
+        "canonical": "array",
+        "original": "DetectionMethod[]"
+      },
+      "description": "Detection methods to try, in order.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "detection.binary",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "Binary name to look up on PATH (for `\"binary\"` method).",
+      "required": true,
+      "default": "undefined"
+    },
+    {
+      "key": "detection.directories",
+      "type": {
+        "canonical": "array",
+        "original": "string[] | undefined"
+      },
+      "description": "Directories to check for existence (for `\"directory\"` method).",
+      "required": true,
+      "default": "undefined"
+    },
+    {
+      "key": "detection.appBundle",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "macOS .app bundle name (for `\"appBundle\"` method).",
+      "required": true,
+      "default": "undefined"
+    },
+    {
+      "key": "detection.flatpakId",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "Flatpak application ID (for `\"flatpak\"` method).",
+      "required": true,
+      "default": "undefined"
+    },
+    {
+      "key": "mcpserver.type",
+      "type": {
+        "canonical": "string",
+        "original": "TransportType | undefined"
+      },
+      "description": "Transport type (`\"stdio\"`, `\"sse\"`, or `\"http\"`).",
+      "required": true,
+      "default": "undefined"
+    },
+    {
+      "key": "mcpserver.url",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "URL for remote MCP servers.",
+      "required": true,
+      "default": "undefined"
+    },
+    {
+      "key": "mcpserver.headers",
+      "type": {
+        "canonical": "object",
+        "original": "Record<string, string> | undefined"
+      },
+      "description": "HTTP headers for remote MCP servers.",
+      "required": true,
+      "default": "undefined"
+    },
+    {
+      "key": "mcpserver.command",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "Command to run for stdio MCP servers.",
+      "required": true,
+      "default": "undefined"
+    },
+    {
+      "key": "mcpserver.args",
+      "type": {
+        "canonical": "array",
+        "original": "string[] | undefined"
+      },
+      "description": "Arguments for the stdio command.",
+      "required": true,
+      "default": "undefined"
+    },
+    {
+      "key": "mcpserver.env",
+      "type": {
+        "canonical": "object",
+        "original": "Record<string, string> | undefined"
+      },
+      "description": "Environment variables for the stdio process.",
+      "required": true,
+      "default": "undefined"
+    },
+    {
+      "key": "global.agent",
+      "type": {
+        "canonical": "array",
+        "original": "string[] | undefined"
+      },
+      "description": "Target agent IDs (repeatable).",
+      "required": true,
+      "default": "undefined"
+    },
+    {
+      "key": "global.global",
+      "type": {
+        "canonical": "string",
+        "original": "boolean | undefined"
+      },
+      "description": "Operate on global config instead of project.",
+      "required": true,
+      "default": "false"
+    },
+    {
+      "key": "global.yes",
+      "type": {
+        "canonical": "string",
+        "original": "boolean | undefined"
+      },
+      "description": "Skip confirmation prompts.",
+      "required": true,
+      "default": "false"
+    },
+    {
+      "key": "global.all",
+      "type": {
+        "canonical": "string",
+        "original": "boolean | undefined"
+      },
+      "description": "Target all detected agents.",
+      "required": true,
+      "default": "false"
+    },
+    {
+      "key": "global.json",
+      "type": {
+        "canonical": "string",
+        "original": "boolean | undefined"
+      },
+      "description": "Output as JSON.",
+      "required": true,
+      "default": "false"
+    },
+    {
+      "key": "global.dryRun",
+      "type": {
+        "canonical": "string",
+        "original": "boolean | undefined"
+      },
+      "description": "Preview changes without writing.",
+      "required": true,
+      "default": "false"
+    },
+    {
+      "key": "global.verbose",
+      "type": {
+        "canonical": "string",
+        "original": "boolean | undefined"
+      },
+      "description": "Enable debug logging.",
+      "required": true,
+      "default": "false"
+    },
+    {
+      "key": "global.quiet",
+      "type": {
+        "canonical": "string",
+        "original": "boolean | undefined"
+      },
+      "description": "Suppress non-error output.",
+      "required": true,
+      "default": "false"
+    },
+    {
+      "key": "ensureproviderinstructionfile.references",
+      "type": {
+        "canonical": "array",
+        "original": "string[]"
+      },
+      "description": "`\\@` references to inject (e.g. `[\"\\@AGENTS.md\"]`).",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "ensureproviderinstructionfile.content",
+      "type": {
+        "canonical": "array",
+        "original": "string[] | undefined"
+      },
+      "description": "Optional inline content blocks.",
+      "required": true,
+      "default": "`undefined`"
+    },
+    {
+      "key": "ensureproviderinstructionfile.scope",
+      "type": {
+        "canonical": "string",
+        "original": "\"project\" | \"global\" | undefined"
+      },
+      "description": "Whether this is a global or project-level file.",
+      "required": true,
+      "default": "`\"project\"`"
+    },
+    {
+      "key": "detectioncache.forceRefresh",
+      "type": {
+        "canonical": "string",
+        "original": "boolean | undefined"
+      },
+      "description": "Whether to bypass the cache and force a fresh detection scan.",
+      "required": true,
+      "default": "false"
+    },
+    {
+      "key": "detectioncache.ttlMs",
+      "type": {
+        "canonical": "string",
+        "original": "number | undefined"
+      },
+      "description": "Time-to-live for cached results in milliseconds.",
+      "required": true,
+      "default": "30000"
+    },
+    {
+      "key": "batchinstall.providers",
+      "type": {
+        "canonical": "array",
+        "original": "Provider[] | undefined"
+      },
+      "description": "Explicit list of providers to target, auto-detected if omitted.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "batchinstall.minimumPriority",
+      "type": {
+        "canonical": "string",
+        "original": "ProviderPriority | undefined"
+      },
+      "description": "Minimum provider priority threshold for filtering.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "batchinstall.skills",
+      "type": {
+        "canonical": "array",
+        "original": "SkillBatchOperation[] | undefined"
+      },
+      "description": "Skill operations to apply in the batch.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "batchinstall.projectDir",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "Project root directory, defaults to `process.cwd()`.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "resolvetierdir.tier",
+      "type": {
+        "canonical": "object",
+        "original": "HarnessTier"
+      },
+      "description": "Tier to resolve.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "resolvetierdir.kind",
+      "type": {
+        "canonical": "object",
+        "original": "HarnessAssetKind"
+      },
+      "description": "Asset kind (extensions, prompts, themes, sessions, cant).",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "resolvetierdir.projectDir",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "Project directory used when `tier` is `project`. Ignored for other tiers. When omitted with `tier='project'` the caller MUST substitute `process.cwd()` before invoking the resolver, so the harness never silently resolves to an unexpected working directory.",
+      "required": true,
+      "default": "undefined"
+    },
+    {
+      "key": "resolvedefaulttargetproviders.explicit",
+      "type": {
+        "canonical": "array",
+        "original": "Provider[] | undefined"
+      },
+      "description": "Explicit list of providers requested by the user (e.g. via `--agent`).",
+      "required": true,
+      "default": "undefined",
+      "effect": "When supplied, this list signals that the caller is honouring an explicit user selection rather than asking for the implicit default. In `auto` mode, an explicit list that excludes Pi while Pi is installed triggers a one-time deprecation warning per process. In `force-pi` mode the explicit list is ignored if it does not contain Pi (Pi is still required). In `legacy` mode the list is returned verbatim with no warning.  Pass `undefined` (or omit entirely) to request the implicit default resolution."
+    },
+    {
+      "key": "harnessinstall.force",
+      "type": {
+        "canonical": "string",
+        "original": "boolean | undefined"
+      },
+      "description": "When `true`, overwrite an existing file at the target tier. When `false` (the default) the install verb throws if the target exists.",
+      "required": true,
+      "default": "false"
+    },
+    {
+      "key": "pimodels.providers",
+      "type": {
+        "canonical": "object",
+        "original": "Record<string, PiModelProvider>"
+      },
+      "description": "Map of provider id → provider block.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "subagentspawn.onStream",
+      "type": {
+        "canonical": "string",
+        "original": "((event: SubagentStreamEvent) => void) | undefined"
+      },
+      "description": "Streaming callback invoked once per parsed event from the child.",
+      "required": true,
+      "default": "undefined",
+      "effect": "The harness fires this for every line of stdout (parsed as JSON when possible), every line of stderr, the final exit, and the `subagent_link` write. Callbacks are best-effort: throwing from the callback is caught and recorded as a stderr line so the spawn loop is never aborted by user code."
+    },
+    {
+      "key": "subagentspawn.terminateGraceMs",
+      "type": {
+        "canonical": "string",
+        "original": "number | undefined"
+      },
+      "description": "Override the SIGTERM grace window before SIGKILL fires.",
+      "required": true,
+      "default": "undefined",
+      "effect": "When omitted, the harness reads `settings.json:pi.subagent.terminateGraceMs` (global scope) and falls back to `5000` ms if absent or invalid. Tests use very small values to keep cleanup checks fast."
+    },
+    {
+      "key": "subagentspawn.env",
+      "type": {
+        "canonical": "object",
+        "original": "Record<string, string> | undefined"
+      },
+      "description": "Environment variable overrides layered atop the task-level env.",
+      "required": true,
+      "default": "undefined",
+      "effect": "Convenience hook for per-call secrets that should not live on the task object itself. Merged after `SubagentTask.env` so call-site keys win."
+    },
+    {
+      "key": "subagentspawn.cwd",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "Working directory override that wins over `SubagentTask.cwd`.",
+      "required": true,
+      "default": "undefined",
+      "effect": "Useful when the same task description is reused across multiple working directories."
+    },
+    {
+      "key": "format.jsonFlag",
+      "type": {
+        "canonical": "string",
+        "original": "boolean | undefined"
+      },
+      "description": "Whether `--json` was explicitly passed.",
+      "required": true,
+      "default": "`false`"
+    },
+    {
+      "key": "format.humanFlag",
+      "type": {
+        "canonical": "string",
+        "original": "boolean | undefined"
+      },
+      "description": "Whether `--human` was explicitly passed.",
+      "required": true,
+      "default": "`false`"
+    },
+    {
+      "key": "format.projectDefault",
+      "type": {
+        "canonical": "string",
+        "original": "\"json\" | \"human\" | undefined"
+      },
+      "description": "Project-level default format when no flag is given.",
+      "required": true,
+      "default": "`\"json\"`"
+    },
+    {
+      "key": "lafscommand.json",
+      "type": {
+        "canonical": "string",
+        "original": "boolean | undefined"
+      },
+      "description": "Whether to force JSON output.",
+      "required": true,
+      "default": "`false`"
+    },
+    {
+      "key": "lafscommand.human",
+      "type": {
+        "canonical": "string",
+        "original": "boolean | undefined"
+      },
+      "description": "Whether to force human-readable output.",
+      "required": true,
+      "default": "`false`"
+    },
+    {
+      "key": "providertarget.all",
+      "type": {
+        "canonical": "string",
+        "original": "boolean | undefined"
+      },
+      "description": "When true, target all registry providers including undetected ones.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "providertarget.agent",
+      "type": {
+        "canonical": "array",
+        "original": "string[] | undefined"
+      },
+      "description": "Specific provider IDs or aliases to target.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "installmcpserver.scope",
+      "type": {
+        "canonical": "object",
+        "original": "McpScope"
+      },
+      "description": "Scope to write to (project|global).",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "installmcpserver.force",
+      "type": {
+        "canonical": "string",
+        "original": "boolean | undefined"
+      },
+      "description": "When `true`, overwrite an existing server entry instead of failing.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "installmcpserver.projectDir",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "Project directory used for the `project` scope.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "removemcpserver.scope",
+      "type": {
+        "canonical": "object",
+        "original": "McpScope"
+      },
+      "description": "Scope to target (project|global).",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "removemcpserver.projectDir",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "Project directory used for the `project` scope.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "mcpcommandbase.scope",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "`--scope project|global` (default: project).",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "mcpcommandbase.projectDir",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "`--project-dir <path>` — override cwd for the `project` scope.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "mcpdetect.onlyExisting",
+      "type": {
+        "canonical": "string",
+        "original": "boolean | undefined"
+      },
+      "description": "Show only providers that actually have a config file on disk.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "mcpinstall.provider",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "Provider id to install into (required).",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "mcpinstall.from",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "Optional path to a JSON file containing an `McpServerConfig`.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "mcpinstall.env",
+      "type": {
+        "canonical": "array",
+        "original": "string[] | undefined"
+      },
+      "description": "Repeatable `KEY=VALUE` env assignments.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "mcpinstall.force",
+      "type": {
+        "canonical": "string",
+        "original": "boolean | undefined"
+      },
+      "description": "Overwrite an existing entry instead of failing.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "mcplist.provider",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "Restrict the listing to a single provider id.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "mcpremove.provider",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "Provider id to remove from (mutually exclusive with --all-providers).",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "mcpremove.allProviders",
+      "type": {
+        "canonical": "string",
+        "original": "boolean | undefined"
+      },
+      "description": "Remove from every MCP-capable provider in the registry.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "picommandbase.scope",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "`--scope project|user|global`.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "picommandbase.force",
+      "type": {
+        "canonical": "string",
+        "original": "boolean | undefined"
+      },
+      "description": "`--force` — overwrite existing targets on install verbs.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "picommandbase.projectDir",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "`--project-dir <path>` — override cwd for the `project` tier.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "picantlist.projectDir",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "Project directory used for the `project` tier.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "picantinstall.name",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "Profile name override. Defaults to the inferred source name.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "piextensionslist.projectDir",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "Project directory used for the `project` tier.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "piextensionsinstall.name",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "Extension name override. Defaults to the inferred source name.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "pimodelscommand.global",
+      "type": {
+        "canonical": "string",
+        "original": "boolean | undefined"
+      },
+      "description": "`--global` targets the Pi global state root instead of the project.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "pimodelsadd.displayName",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "Human-readable model name.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "pimodelsadd.baseUrl",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "Override the provider base URL.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "pimodelsadd.reasoning",
+      "type": {
+        "canonical": "string",
+        "original": "boolean | undefined"
+      },
+      "description": "Reasoning-capable flag.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "pimodelsadd.contextWindow",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "Context window size in tokens.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "pimodelsadd.maxTokens",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "Maximum output tokens.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "pipromptsinstall.name",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "Override the inferred prompt directory name.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "pisessionslist.includeSubagents",
+      "type": {
+        "canonical": "string",
+        "original": "boolean | undefined"
+      },
+      "description": "Include sessions under the `subagents/` subdirectory (default: true).",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "pisessionsexport.jsonl",
+      "type": {
+        "canonical": "string",
+        "original": "boolean | undefined"
+      },
+      "description": "Emit raw JSONL. Mutually exclusive with `md`.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "pisessionsexport.md",
+      "type": {
+        "canonical": "string",
+        "original": "boolean | undefined"
+      },
+      "description": "Emit Markdown (filtered to message/custom_message entries).",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "pisessionsexport.output",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "Write to this file path instead of stdout.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "pithemesinstall.name",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "Override the inferred theme name.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "search.query",
+      "type": {
+        "canonical": "string"
+      },
+      "description": "Free-text search query.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "search.limit",
+      "type": {
+        "canonical": "string",
+        "original": "number | undefined"
+      },
+      "description": "Maximum number of results.",
+      "required": true,
+      "default": "`20`"
+    },
+    {
+      "key": "search.offset",
+      "type": {
+        "canonical": "string",
+        "original": "number | undefined"
+      },
+      "description": "Pagination offset.",
+      "required": true,
+      "default": "`0`"
+    },
+    {
+      "key": "search.sortBy",
+      "type": {
+        "canonical": "string",
+        "original": "\"stars\" | \"recent\" | \"name\" | undefined"
+      },
+      "description": "Sort order for results.",
+      "required": true,
+      "default": "`\"stars\"`"
+    },
+    {
+      "key": "search.category",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "Filter by skill category.",
+      "required": true,
+      "default": "`undefined`"
+    },
+    {
+      "key": "search.author",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "Filter by author name.",
+      "required": true,
+      "default": "`undefined`"
+    },
+    {
+      "key": "recommendation.top",
+      "type": {
+        "canonical": "string",
+        "original": "number | undefined"
+      },
+      "description": "Maximum number of results to return from the ranked list.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "recommendation.includeDetails",
+      "type": {
+        "canonical": "string",
+        "original": "boolean | undefined"
+      },
+      "description": "Whether to include detailed score breakdown in each result.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "recommendation.weights",
+      "type": {
+        "canonical": "string",
+        "original": "Partial<RecommendationWeights> | undefined"
+      },
+      "description": "Partial weight overrides for individual scoring factors.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "recommendation.modernMarkers",
+      "type": {
+        "canonical": "array",
+        "original": "string[] | undefined"
+      },
+      "description": "Custom modern technology marker strings for modernity scoring.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "recommendation.legacyMarkers",
+      "type": {
+        "canonical": "array",
+        "original": "string[] | undefined"
+      },
+      "description": "Custom legacy technology marker strings for modernity scoring.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "searchskills.limit",
+      "type": {
+        "canonical": "string",
+        "original": "number | undefined"
+      },
+      "description": "Maximum number of results to return.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "recommendskillsquery.limit",
+      "type": {
+        "canonical": "string",
+        "original": "number | undefined"
+      },
+      "description": "Maximum number of results to return.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "spawn.prompt",
+      "type": {
+        "canonical": "string"
+      },
+      "description": "The prompt or instruction to give the spawned agent.",
+      "required": true,
+      "default": null
+    },
+    {
+      "key": "spawn.model",
+      "type": {
+        "canonical": "string",
+        "original": "string | undefined"
+      },
+      "description": "Model to use for the spawned agent.",
+      "required": true,
+      "default": "undefined"
+    },
+    {
+      "key": "spawn.tools",
+      "type": {
+        "canonical": "array",
+        "original": "string[] | undefined"
+      },
+      "description": "Tools to make available to the spawned agent.",
+      "required": true,
+      "default": "undefined"
+    },
+    {
+      "key": "spawn.timeout",
+      "type": {
+        "canonical": "string",
+        "original": "number | undefined"
+      },
+      "description": "Timeout in milliseconds for the spawned agent.",
+      "required": true,
+      "default": "undefined"
+    },
+    {
+      "key": "spawn.isolate",
+      "type": {
+        "canonical": "string",
+        "original": "boolean | undefined"
+      },
+      "description": "Whether to isolate the spawned agent (e.g. in a worktree).",
+      "required": true,
+      "default": "undefined"
+    }
+  ]
+}

@@ -1,0 +1,186 @@
+{
+  "$schema": "https://lafs.dev/schemas/v1/envelope.schema.json",
+  "_testScenario": {
+    "name": "Simple Query Chain",
+    "description": "Agent queries weather API, parses result, formats response. Demonstrates basic context preservation across a 3-step workflow.",
+    "agentObjective": "Get weather for San Francisco and format a user-friendly response",
+    "ledgerId": "ctx_weather_simple_001",
+    "expectedBehavior": [
+      "Each envelope shows sequential contextVersion (0→1→2)",
+      "Context preserves location and units across calls",
+      "Final response includes formatted weather report",
+      "Ledger tracks all three operations in sequence"
+    ]
+  },
+  "ledger": {
+    "ledgerId": "ctx_weather_simple_001",
+    "version": 3,
+    "createdAt": "2026-02-16T09:00:00Z",
+    "updatedAt": "2026-02-16T09:00:08Z",
+    "checksum": "sha256:a1b2c3d4e5f6...",
+    "maxEntries": 100,
+    "entries": [
+      {
+        "entryId": "ent_weather_001",
+        "version": 1,
+        "timestamp": "2026-02-16T09:00:02Z",
+        "operation": "weather.query",
+        "requestId": "req_wx_query_001",
+        "contextDelta": {
+          "agentIntent": "Query weather for San Francisco",
+          "parameters": {
+            "location": "San Francisco, CA",
+            "units": "celsius",
+            "includeForecast": false
+          },
+          "state": { "phase": "querying" }
+        }
+      },
+      {
+        "entryId": "ent_weather_002",
+        "version": 2,
+        "timestamp": "2026-02-16T09:00:05Z",
+        "operation": "weather.parse",
+        "requestId": "req_wx_parse_001",
+        "contextDelta": {
+          "intermediate": {
+            "rawApiResponse": {
+              "temperature": 18.5,
+              "humidity": 72,
+              "condition": "partly cloudy",
+              "windSpeed": 12
+            }
+          },
+          "state": { "phase": "parsing" }
+        }
+      },
+      {
+        "entryId": "ent_weather_003",
+        "version": 3,
+        "timestamp": "2026-02-16T09:00:08Z",
+        "operation": "weather.format",
+        "requestId": "req_wx_format_001",
+        "contextDelta": {
+          "final": {
+            "formattedResponse": "Current weather in San Francisco, CA: 18.5°C and partly cloudy. Wind: 12 km/h, Humidity: 72%"
+          },
+          "state": { "phase": "complete" }
+        }
+      }
+    ]
+  },
+  "envelopes": [
+    {
+      "_description": "Step 1: Initial query to weather API",
+      "envelope": {
+        "$schema": "https://lafs.dev/schemas/v1/envelope.schema.json",
+        "_meta": {
+          "specVersion": "1.0.0",
+          "schemaVersion": "1.0.0",
+          "timestamp": "2026-02-16T09:00:02Z",
+          "operation": "weather.query",
+          "requestId": "req_wx_query_001",
+          "transport": "http",
+          "strict": true,
+          "mvi": "standard",
+          "contextVersion": 1
+        },
+        "success": true,
+        "result": {
+          "request": {
+            "location": "San Francisco, CA",
+            "units": "celsius"
+          },
+          "weather": {
+            "temperature": 18.5,
+            "condition": "partly cloudy",
+            "humidity": 72,
+            "windSpeed": 12,
+            "timestamp": "2026-02-16T09:00:00Z"
+          }
+        },
+        "page": { "mode": "none" }
+      }
+    },
+    {
+      "_description": "Step 2: Parse weather data into structured format",
+      "envelope": {
+        "$schema": "https://lafs.dev/schemas/v1/envelope.schema.json",
+        "_meta": {
+          "specVersion": "1.0.0",
+          "schemaVersion": "1.0.0",
+          "timestamp": "2026-02-16T09:00:05Z",
+          "operation": "weather.parse",
+          "requestId": "req_wx_parse_001",
+          "transport": "sdk",
+          "strict": true,
+          "mvi": "standard",
+          "contextVersion": 2
+        },
+        "success": true,
+        "result": {
+          "parsed": {
+            "location": "San Francisco, CA",
+            "temperature": {
+              "value": 18.5,
+              "unit": "celsius",
+              "formatted": "18.5°C"
+            },
+            "condition": {
+              "raw": "partly cloudy",
+              "icon": "cloud-sun",
+              "description": "Partly cloudy skies"
+            },
+            "comfortIndex": "comfortable"
+          }
+        },
+        "page": { "mode": "none" }
+      }
+    },
+    {
+      "_description": "Step 3: Format final user-facing response",
+      "envelope": {
+        "$schema": "https://lafs.dev/schemas/v1/envelope.schema.json",
+        "_meta": {
+          "specVersion": "1.0.0",
+          "schemaVersion": "1.0.0",
+          "timestamp": "2026-02-16T09:00:08Z",
+          "operation": "weather.format",
+          "requestId": "req_wx_format_001",
+          "transport": "sdk",
+          "strict": true,
+          "mvi": "minimal",
+          "contextVersion": 3
+        },
+        "success": true,
+        "result": {
+          "formatted": "Current weather in San Francisco, CA: 18.5°C and partly cloudy. Wind: 12 km/h, Humidity: 72%",
+          "short": "18.5°C, partly cloudy in SF"
+        },
+        "page": { "mode": "none" }
+      }
+    }
+  ],
+  "validationTests": {
+    "validVariants": [
+      {
+        "name": "Standard flow",
+        "description": "Normal 3-step weather query workflow"
+      }
+    ],
+    "invalidVariants": [
+      {
+        "name": "Missing contextVersion increment",
+        "description": "All envelopes have contextVersion: 1 - should fail validation",
+        "modification": "Set all _meta.contextVersion to 1",
+        "expectedFailure": "CONTEXT_VERSION_MISMATCH"
+      },
+      {
+        "name": "Wrong operation sequence",
+        "description": "Operations out of logical order",
+        "modification": "Swap operation names: format before parse",
+        "expectedFailure": "WORKFLOW_LOGIC_ERROR"
+      }
+    ]
+  }
+}

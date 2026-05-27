@@ -1,0 +1,3247 @@
+---
+title: lafs — Functions
+description: Functions and classes for the lafs package
+---
+
+Functions and classes exported by this package.
+
+## parseExtensionsHeader(headerValue)
+
+Parse A2A-Extensions header value into URI array.
+
+**Signature**
+
+```typescript
+(headerValue: string | undefined) => string[]
+```
+
+**Parameters**
+
+| Name          | Type                  | Description                                     |
+| ------------- | --------------------- | ----------------------------------------------- |
+| `headerValue` | `string \| undefined` | Raw header value string, or undefined if absent |
+
+**Returns** — Array of trimmed extension URI strings
+
+**Example**
+
+```typescript
+const uris = parseExtensionsHeader('https://lafs.dev/ext/v1, https://example.com/ext');
+// => ['https://lafs.dev/ext/v1', 'https://example.com/ext']
+```
+
+## negotiateExtensions(requestedUris, agentExtensions)
+
+Negotiate extensions between client-requested and agent-declared sets.
+
+**Signature**
+
+```typescript
+(requestedUris: string[], agentExtensions: AgentExtension[]) => ExtensionNegotiationResult
+```
+
+**Parameters**
+
+| Name              | Type               | Description                                   |
+| ----------------- | ------------------ | --------------------------------------------- |
+| `requestedUris`   | `string[]`         | Extension URIs requested by the client        |
+| `agentExtensions` | `AgentExtension[]` | Extensions declared in the agent's Agent Card |
+
+**Returns** — Negotiation result with activated, unsupported, and missing required sets
+
+**Example**
+
+```typescript
+const result = negotiateExtensions(
+  ['https://lafs.dev/extensions/envelope/v1'],
+  agentCard.capabilities.extensions,
+);
+if (result.missingRequired.length > 0) {
+  throw new ExtensionSupportRequiredError(result.missingRequired);
+}
+```
+
+## formatExtensionsHeader(activatedUris)
+
+Format activated extension URIs into header value.
+
+**Signature**
+
+```typescript
+(activatedUris: string[]) => string
+```
+
+**Parameters**
+
+| Name            | Type       | Description                                      |
+| --------------- | ---------- | ------------------------------------------------ |
+| `activatedUris` | `string[]` | Extension URIs that were successfully negotiated |
+
+**Returns** — Comma-separated header value string
+
+**Example**
+
+```typescript
+res.setHeader('A2A-Extensions', formatExtensionsHeader(result.activated));
+```
+
+## buildLafsExtension(options)
+
+Build an A2A AgentExtension object declaring LAFS support.
+
+**Signature**
+
+```typescript
+(options?: BuildLafsExtensionOptions) => AgentExtension
+```
+
+**Parameters**
+
+| Name      | Type                          | Description                                              |
+| --------- | ----------------------------- | -------------------------------------------------------- |
+| `options` | `: BuildLafsExtensionOptions` | Configuration options for the LAFS extension declaration |
+
+**Returns** — A2A AgentExtension object ready for inclusion in an Agent Card
+
+**Example**
+
+```typescript
+const ext = buildLafsExtension({ required: true, supportsTokenBudgets: true });
+agentCard.capabilities.extensions.push(ext);
+```
+
+## buildExtension(options)
+
+Build a generic A2A AgentExtension object.
+
+**Signature**
+
+```typescript
+(options: BuildExtensionOptions) => AgentExtension
+```
+
+**Parameters**
+
+| Name      | Type                    | Description                                 |
+| --------- | ----------------------- | ------------------------------------------- |
+| `options` | `BuildExtensionOptions` | Configuration for the extension declaration |
+
+**Returns** — A2A AgentExtension object
+
+**Example**
+
+```typescript
+const ext = buildExtension({
+  uri: 'https://example.com/ext/v1',
+  description: 'Custom extension',
+  kind: 'data-only',
+});
+```
+
+## isValidExtensionKind(kind)
+
+Check whether a string is a valid extension kind.
+
+**Signature**
+
+```typescript
+(kind: string) => kind is ExtensionKind
+```
+
+**Parameters**
+
+| Name   | Type     | Description              |
+| ------ | -------- | ------------------------ |
+| `kind` | `string` | String value to validate |
+
+**Returns** — True if the value is a recognized ExtensionKind
+
+**Example**
+
+```typescript
+if (isValidExtensionKind(userInput)) {
+  // userInput is now typed as ExtensionKind
+}
+```
+
+## validateExtensionDeclaration(extension)
+
+Validate an A2A extension declaration for correctness.
+
+**Signature**
+
+```typescript
+(extension: AgentExtension) => { valid: boolean; error?: string; }
+```
+
+**Parameters**
+
+| Name        | Type             | Description                    |
+| ----------- | ---------------- | ------------------------------ |
+| `extension` | `AgentExtension` | The AgentExtension to validate |
+
+**Returns** — Object with `valid` boolean and optional `error` message
+
+**Example**
+
+```typescript
+const { valid, error } = validateExtensionDeclaration(ext);
+if (!valid) {
+  console.error('Invalid extension:', error);
+}
+```
+
+## ExtensionSupportRequiredError
+
+Error thrown when required A2A extensions are not supported by the client.
+
+**Signature**
+
+```typescript
+typeof ExtensionSupportRequiredError
+```
+
+**Methods**
+
+### toJSONRPCError()
+
+Convert to JSON-RPC error object.
+
+```typescript
+() => { code: number; message: string; data: Record<string, unknown>; }
+```
+
+### toProblemDetails()
+
+Convert to RFC 9457 Problem Details object with agent-actionable fields.
+
+```typescript
+() => Record<string, unknown> & { agentAction: string; }
+```
+
+### toLafsError()
+
+Convert to a LAFSError-compatible object.
+
+```typescript
+() => { code: string; message: string; category: "CONTRACT"; retryable: boolean; retryAfterMs: null; details: Record<string, unknown>; }
+```
+
+## extensionNegotiationMiddleware(options)
+
+Express middleware for A2A extension negotiation.
+
+**Signature**
+
+```typescript
+(options: ExtensionNegotiationMiddlewareOptions) => RequestHandler
+```
+
+**Parameters**
+
+| Name      | Type                                    | Description                                                       |
+| --------- | --------------------------------------- | ----------------------------------------------------------------- |
+| `options` | `ExtensionNegotiationMiddlewareOptions` | Middleware configuration with extensions and enforcement settings |
+
+**Returns** — Express RequestHandler that performs extension negotiation
+
+**Example**
+
+```typescript
+app.use(extensionNegotiationMiddleware({
+  extensions: agentCard.capabilities.extensions,
+  enforceRequired: true,
+}));
+```
+
+## discoveryMiddleware(config, options)
+
+Create Express middleware for serving A2A Agent Card.
+
+**Signature**
+
+```typescript
+(config: DiscoveryConfig, options?: DiscoveryMiddlewareOptions) => RequestHandler
+```
+
+**Parameters**
+
+| Name      | Type                           | Description                                     |
+| --------- | ------------------------------ | ----------------------------------------------- |
+| `config`  | `DiscoveryConfig`              | Discovery configuration (A2A v1.0 format)       |
+| `options` | `: DiscoveryMiddlewareOptions` | Middleware options for path routing and caching |
+
+**Returns** — Express RequestHandler that serves the Agent Card
+
+**Example**
+
+```typescript
+import express from "express";
+import { discoveryMiddleware } from "@cleocode/lafs/discovery";
+
+const app = express();
+
+app.use(discoveryMiddleware({
+  agent: {
+    name: "my-lafs-agent",
+    description: "A LAFS-compliant agent with A2A support",
+    version: "1.0.0",
+    url: "https://api.example.com",
+    capabilities: {
+      streaming: true,
+      pushNotifications: false,
+      extensions: []
+    },
+    defaultInputModes: ["application/json", "text/plain"],
+    defaultOutputModes: ["application/json"],
+    skills: [
+      {
+        id: "envelope-processor",
+        name: "Envelope Processor",
+        description: "Process LAFS envelopes",
+        tags: ["lafs", "envelope", "validation"],
+        examples: ["Validate this envelope", "Process envelope data"]
+      }
+    ]
+  }
+}));
+```
+
+## discoveryFastifyPlugin(fastify, options)
+
+Fastify plugin for A2A Agent Card discovery.
+
+**Signature**
+
+```typescript
+(fastify: unknown, options: { config: DiscoveryConfig; path?: string; }) => Promise<void>
+```
+
+**Parameters**
+
+| Name      | Type                                          | Description                                            |
+| --------- | --------------------------------------------- | ------------------------------------------------------ |
+| `fastify` | `unknown`                                     | Fastify instance                                       |
+| `options` | `{ config: DiscoveryConfig; path?: string; }` | Plugin options containing `config` and optional `path` |
+
+**Returns** — Promise that resolves when the plugin is registered
+
+**Example**
+
+```typescript
+import Fastify from "fastify";
+import { discoveryFastifyPlugin } from "@cleocode/lafs/discovery";
+
+const app = Fastify();
+app.register(discoveryFastifyPlugin, {
+  config: { agent: { name: "my-agent", ... } },
+});
+```
+
+## TokenEstimator
+
+Character-based token estimator for JSON payloads.
+
+**Signature**
+
+```typescript
+typeof TokenEstimator
+```
+
+**Example**
+
+```typescript
+const estimator = new TokenEstimator({ charsPerToken: 4 });
+const tokens = estimator.estimate({ name: "hello", items: [1, 2, 3] });
+```
+
+**Methods**
+
+### estimate()
+
+Estimate tokens for any JavaScript value. Handles circular references, nested objects, arrays, and Unicode.
+
+```typescript
+(value: unknown) => number
+```
+
+### estimateJSON()
+
+Estimate tokens from a JSON string. More efficient if you already have the JSON string.
+
+```typescript
+(json: string) => number
+```
+
+### estimateWithTracking()
+
+Internal recursive estimation with circular reference tracking.
+
+```typescript
+(value: unknown, seen: WeakSet<object>, depth: number) => number
+```
+
+### estimateArray()
+
+Estimate tokens for an array.
+
+```typescript
+(arr: unknown[], seen: WeakSet<object>, depth: number) => number
+```
+
+### estimateObject()
+
+Estimate tokens for a plain object.
+
+```typescript
+(obj: Record<string, unknown>, seen: WeakSet<object>, depth: number) => number
+```
+
+### canSerialize()
+
+Check if a value can be safely serialized (no circular refs).
+
+```typescript
+(value: unknown) => boolean
+```
+
+### safeStringify()
+
+Serialize a value to JSON with circular reference handling.
+
+```typescript
+(value: unknown) => string
+```
+
+### safeCopy()
+
+Create a deep copy of a value with circular refs replaced by `"[Circular]"`.
+
+```typescript
+<T>(value: T) => T
+```
+
+## estimateTokens(value, options)
+
+Convenience function to estimate tokens for a value.
+
+**Signature**
+
+```typescript
+(value: unknown, options?: TokenEstimatorOptions) => number
+```
+
+**Parameters**
+
+| Name      | Type                      | Description                                |
+| --------- | ------------------------- | ------------------------------------------ |
+| `value`   | `unknown`                 | Any JavaScript value to estimate           |
+| `options` | `: TokenEstimatorOptions` | Optional estimator configuration overrides |
+
+**Returns** — Estimated token count
+
+**Example**
+
+```typescript
+const tokens = estimateTokens({ data: [1, 2, 3] });
+```
+
+## estimateTokensJSON(json, options)
+
+Convenience function to estimate tokens from a JSON string.
+
+**Signature**
+
+```typescript
+(json: string, options?: TokenEstimatorOptions) => number
+```
+
+**Parameters**
+
+| Name      | Type                      | Description                                |
+| --------- | ------------------------- | ------------------------------------------ |
+| `json`    | `string`                  | Pre-serialized JSON string                 |
+| `options` | `: TokenEstimatorOptions` | Optional estimator configuration overrides |
+
+**Returns** — Estimated token count
+
+**Example**
+
+```typescript
+const tokens = estimateTokensJSON('{"key": "value"}');
+```
+
+## isMVILevel(value)
+
+Type guard that checks whether an unknown value is a valid `MVILevel`.
+
+**Signature**
+
+```typescript
+(value: unknown) => value is MVILevel
+```
+
+**Parameters**
+
+| Name    | Type      | Description        |
+| ------- | --------- | ------------------ |
+| `value` | `unknown` | The value to test. |
+
+**Returns** — `true` if `value` is one of the recognised MVI level strings.
+
+**Example**
+
+```ts
+const level: unknown = 'minimal';
+if (isMVILevel(level)) {
+  // level is narrowed to MVILevel
+}
+```
+
+## isAgentAction(value)
+
+Type guard that checks whether an unknown value is a valid `LAFSAgentAction`.
+
+**Signature**
+
+```typescript
+(value: unknown) => value is LAFSAgentAction
+```
+
+**Parameters**
+
+| Name    | Type      | Description        |
+| ------- | --------- | ------------------ |
+| `value` | `unknown` | The value to test. |
+
+**Returns** — `true` if `value` is one of the recognised agent action strings.
+
+**Example**
+
+```ts
+const action: unknown = 'retry';
+if (isAgentAction(action)) {
+  // action is narrowed to LAFSAgentAction
+}
+```
+
+## applyBudgetEnforcement(envelope, budget, options)
+
+Apply budget enforcement to an envelope.
+
+**Signature**
+
+```typescript
+(envelope: LAFSEnvelope, budget: number, options?: BudgetEnforcementOptions) => BudgetEnforcementResult
+```
+
+**Parameters**
+
+| Name       | Type                         | Description                                        |
+| ---------- | ---------------------------- | -------------------------------------------------- |
+| `envelope` | `LAFSEnvelope`               | The LAFS envelope to check                         |
+| `budget`   | `number`                     | Maximum allowed token count                        |
+| `options`  | `: BudgetEnforcementOptions` | Budget enforcement options (truncation, callbacks) |
+
+**Returns** — Enforcement result with the (possibly modified) envelope, budget status, and token estimates
+
+**Example**
+
+```typescript
+const result = applyBudgetEnforcement(envelope, 1000, { truncateOnExceed: true });
+if (!result.withinBudget) {
+  console.warn("Budget exceeded:", result.estimatedTokens);
+}
+```
+
+## withBudget(budget, options)
+
+Create a budget enforcement middleware function.
+
+**Signature**
+
+```typescript
+(budget: number, options?: BudgetEnforcementOptions) => EnvelopeMiddleware
+```
+
+**Parameters**
+
+| Name      | Type                         | Description                                        |
+| --------- | ---------------------------- | -------------------------------------------------- |
+| `budget`  | `number`                     | Maximum allowed token count for the response       |
+| `options` | `: BudgetEnforcementOptions` | Budget enforcement options (truncation, callbacks) |
+
+**Returns** — Async middleware function that enforces the token budget
+
+**Example**
+
+```typescript
+const middleware = withBudget(1000, { truncateOnExceed: true });
+const result = await middleware(envelope, async () => nextEnvelope);
+```
+
+## checkBudget(envelope, budget)
+
+Check if an envelope has exceeded its budget without modifying it.
+
+**Signature**
+
+```typescript
+(envelope: LAFSEnvelope, budget: number) => { exceeded: boolean; estimated: number; remaining: number; }
+```
+
+**Parameters**
+
+| Name       | Type           | Description                 |
+| ---------- | -------------- | --------------------------- |
+| `envelope` | `LAFSEnvelope` | The LAFS envelope to check  |
+| `budget`   | `number`       | Maximum allowed token count |
+
+**Returns** — Object with `exceeded` flag, `estimated` token count, and `remaining` budget
+
+**Example**
+
+```typescript
+const { exceeded, estimated, remaining } = checkBudget(envelope, 500);
+if (exceeded) {
+  console.warn(`Over budget by ${estimated - 500} tokens`);
+}
+```
+
+## withBudgetSync(budget, options)
+
+Synchronous version of withBudget for non-async contexts.
+
+**Signature**
+
+```typescript
+(budget: number, options?: BudgetEnforcementOptions) => (envelope: LAFSEnvelope, next: () => LAFSEnvelope) => LAFSEnvelope
+```
+
+**Parameters**
+
+| Name      | Type                         | Description                                        |
+| --------- | ---------------------------- | -------------------------------------------------- |
+| `budget`  | `number`                     | Maximum allowed token count for the response       |
+| `options` | `: BudgetEnforcementOptions` | Budget enforcement options (truncation, callbacks) |
+
+**Returns** — Synchronous middleware function that enforces the token budget
+
+**Example**
+
+```typescript
+const middleware = withBudgetSync(500);
+const result = middleware(envelope, () => nextEnvelope);
+```
+
+## wrapWithBudget(handler, handler, budget, options)
+
+Higher-order function that wraps a handler with budget enforcement.
+
+**Signature**
+
+```typescript
+<TArgs extends unknown[], TResult extends LAFSEnvelope>(handler: (...args: TArgs) => TResult | Promise<TResult>, budget: number, options?: BudgetEnforcementOptions) => (...args: TArgs) => Promise<LAFSEnvelope>
+```
+
+**Parameters**
+
+| Name      | Type                         | Description                                          |
+| --------- | ---------------------------- | ---------------------------------------------------- |
+| `handler` | `(...args: TArgs`            | The handler function to wrap                         |
+| `handler` | `(...args: TArgs`            | The handler function to wrap with budget enforcement |
+| `budget`  | `number`                     | Maximum allowed tokens                               |
+| `options` | `: BudgetEnforcementOptions` | Budget enforcement options                           |
+
+**Returns** — Wrapped handler with budget enforcement
+
+**Example**
+
+```typescript
+const myHandler = async (request: Request) => ({ success: true, result: { data } });
+const budgetedHandler = wrapWithBudget(myHandler, 1000, { truncateOnExceed: true });
+const result = await budgetedHandler(request);
+```
+
+## composeMiddleware(middlewares)
+
+Compose multiple middleware functions into a single middleware.
+
+**Signature**
+
+```typescript
+(...middlewares: EnvelopeMiddleware[]) => EnvelopeMiddleware
+```
+
+**Parameters**
+
+| Name          | Type                   | Description                                              |
+| ------------- | ---------------------- | -------------------------------------------------------- |
+| `middlewares` | `EnvelopeMiddleware[]` | Middleware functions to compose (executed left to right) |
+
+**Returns** — A single middleware function that chains all provided middlewares
+
+**Example**
+
+```typescript
+const pipeline = composeMiddleware(
+  withBudget(1000),
+  loggingMiddleware,
+);
+const result = await pipeline(envelope, () => finalEnvelope);
+```
+
+## getConformanceProfiles()
+
+Loads the conformance profiles from the bundled JSON schema.
+
+**Signature**
+
+```typescript
+() => ConformanceProfiles
+```
+
+**Returns** — The full `ConformanceProfiles` object.
+
+**Example**
+
+```ts
+const profiles = getConformanceProfiles();
+console.log(profiles.tiers.core);
+```
+
+## getChecksForTier(tier)
+
+Returns the list of check names that belong to the given conformance tier.
+
+**Signature**
+
+```typescript
+(tier: ConformanceTier) => string[]
+```
+
+**Parameters**
+
+| Name   | Type              | Description                                  |
+| ------ | ----------------- | -------------------------------------------- |
+| `tier` | `ConformanceTier` | The conformance tier to retrieve checks for. |
+
+**Returns** — An array of check name strings for the specified tier.
+
+**Example**
+
+```ts
+const coreChecks = getChecksForTier('core');
+```
+
+## validateConformanceProfiles(availableChecks)
+
+Validates that the conformance profiles are internally consistent and reference only known checks.
+
+**Signature**
+
+```typescript
+(availableChecks: string[]) => { valid: boolean; errors: string[]; }
+```
+
+**Parameters**
+
+| Name              | Type       | Description                                                         |
+| ----------------- | ---------- | ------------------------------------------------------------------- |
+| `availableChecks` | `string[]` | The full list of check names implemented by the conformance runner. |
+
+**Returns** — An object with `valid` (true when no errors) and an `errors` array of diagnostic strings.
+
+**Example**
+
+```ts
+const result = validateConformanceProfiles(['envelope_schema_valid', 'envelope_invariants']);
+if (!result.valid) {
+  console.error(result.errors);
+}
+```
+
+## getErrorRegistry()
+
+Loads the full LAFS error registry from the bundled JSON.
+
+**Signature**
+
+```typescript
+() => ErrorRegistry
+```
+
+**Returns** — The complete error registry with version and all registered codes.
+
+**Example**
+
+```ts
+const registry = getErrorRegistry();
+console.log(registry.version, registry.codes.length);
+```
+
+## isRegisteredErrorCode(code)
+
+Checks whether a given error code exists in the LAFS error registry.
+
+**Signature**
+
+```typescript
+(code: string) => boolean
+```
+
+**Parameters**
+
+| Name   | Type     | Description                                                     |
+| ------ | -------- | --------------------------------------------------------------- |
+| `code` | `string` | The error code string to look up (e.g., `"E_FORMAT_CONFLICT"`). |
+
+**Returns** — `true` if the code is registered, `false` otherwise.
+
+**Example**
+
+```ts
+isRegisteredErrorCode('E_FORMAT_CONFLICT'); // true
+isRegisteredErrorCode('E_UNKNOWN');         // false
+```
+
+## getRegistryCode(code)
+
+Retrieves the full registry entry for a given error code.
+
+**Signature**
+
+```typescript
+(code: string) => RegistryCode | undefined
+```
+
+**Parameters**
+
+| Name   | Type     | Description                       |
+| ------ | -------- | --------------------------------- |
+| `code` | `string` | The error code string to look up. |
+
+**Returns** — The matching `RegistryCode` or `undefined` if not found.
+
+**Example**
+
+```ts
+const entry = getRegistryCode('E_FORMAT_CONFLICT');
+if (entry) {
+  console.log(entry.httpStatus); // 409
+}
+```
+
+## getAgentAction(code)
+
+Returns the default agent action for a given error code.
+
+**Signature**
+
+```typescript
+(code: string) => LAFSAgentAction | undefined
+```
+
+**Parameters**
+
+| Name   | Type     | Description                       |
+| ------ | -------- | --------------------------------- |
+| `code` | `string` | The error code string to look up. |
+
+**Returns** — The `LAFSAgentAction` or `undefined` if unavailable.
+
+**Example**
+
+```ts
+const action = getAgentAction('E_RATE_LIMIT');
+console.log(action); // "retry"
+```
+
+## getTypeUri(code)
+
+Returns the RFC 9457 type URI for a given error code.
+
+**Signature**
+
+```typescript
+(code: string) => string | undefined
+```
+
+**Parameters**
+
+| Name   | Type     | Description                       |
+| ------ | -------- | --------------------------------- |
+| `code` | `string` | The error code string to look up. |
+
+**Returns** — The type URI string or `undefined` if unavailable.
+
+**Example**
+
+```ts
+const uri = getTypeUri('E_VALIDATION');
+// "https://lafs.dev/errors/E_VALIDATION"
+```
+
+## getDocUrl(code)
+
+Returns the documentation URL for a given error code.
+
+**Signature**
+
+```typescript
+(code: string) => string | undefined
+```
+
+**Parameters**
+
+| Name   | Type     | Description                       |
+| ------ | -------- | --------------------------------- |
+| `code` | `string` | The error code string to look up. |
+
+**Returns** — The documentation URL string or `undefined` if unavailable.
+
+**Example**
+
+```ts
+const url = getDocUrl('E_VALIDATION');
+// "https://lafs.dev/docs/errors/E_VALIDATION"
+```
+
+## getTransportMapping(code, transport)
+
+Resolves the transport-specific status value for a given error code and transport.
+
+**Signature**
+
+```typescript
+(code: string, transport: "http" | "grpc" | "cli") => TransportMapping | null
+```
+
+**Parameters**
+
+| Name        | Type                        | Description                                      |
+| ----------- | --------------------------- | ------------------------------------------------ |
+| `code`      | `string`                    | The error code string to look up.                |
+| `transport` | `"http" \| "grpc" \| "cli"` | The transport protocol to resolve a mapping for. |
+
+**Returns** — A `TransportMapping` or `null` if the code is unregistered.
+
+**Example**
+
+```ts
+const mapping = getTransportMapping('E_NOT_FOUND', 'http');
+console.log(mapping); // { transport: 'http', value: 404 }
+```
+
+## LAFSFlagError
+
+Error thrown when LAFS flag validation fails.
+
+**Signature**
+
+```typescript
+typeof LAFSFlagError
+```
+
+## resolveOutputFormat(input)
+
+Resolve the output format from flag inputs using the LAFS precedence chain.
+
+**Signature**
+
+```typescript
+(input: FlagInput) => FlagResolution
+```
+
+**Parameters**
+
+| Name    | Type        | Description                                                                    |
+| ------- | ----------- | ------------------------------------------------------------------------------ |
+| `input` | `FlagInput` | The flag inputs including explicit flags, project/user defaults, and TTY state |
+
+**Returns** — The resolved format, its source layer, and quiet mode status
+
+**Throws**
+
+- `LAFSFlagError` When `humanFlag` and `jsonFlag` are both truthy.
+
+**Example**
+
+```ts
+const resolution = resolveOutputFormat({ humanFlag: true });
+// => { format: 'human', source: 'flag', quiet: false }
+```
+
+## isNativeAvailable()
+
+Check if the native addon is available.
+
+**Signature**
+
+```typescript
+() => boolean
+```
+
+**Returns** — `true` if the native Rust binding was loaded successfully.
+
+## getNativeModule()
+
+Get the native module, or `null` if unavailable.
+
+**Signature**
+
+```typescript
+() => LafsNativeModule | null
+```
+
+**Returns** — The loaded native module, or `null` for AJV fallback.
+
+## validateEnvelope(input)
+
+Validates an unknown input against the LAFS envelope JSON Schema (Draft-07).
+
+**Signature**
+
+```typescript
+(input: unknown) => EnvelopeValidationResult
+```
+
+**Parameters**
+
+| Name    | Type      | Description                |
+| ------- | --------- | -------------------------- |
+| `input` | `unknown` | The raw value to validate. |
+
+**Returns** — An `EnvelopeValidationResult` with validity status and any errors.
+
+**Example**
+
+```ts
+const result = validateEnvelope(JSON.parse(rawJson));
+if (!result.valid) {
+  console.error(result.errors);
+}
+```
+
+## assertEnvelope(input)
+
+Validates input and throws on schema failure, returning a typed envelope on success.
+
+**Signature**
+
+```typescript
+(input: unknown) => LAFSEnvelope
+```
+
+**Parameters**
+
+| Name    | Type      | Description                                   |
+| ------- | --------- | --------------------------------------------- |
+| `input` | `unknown` | The raw value to validate as a LAFS envelope. |
+
+**Returns** — The input cast to `LAFSEnvelope` when schema validation passes.
+
+**Throws**
+
+- Error When the input does not conform to the envelope schema.
+
+**Example**
+
+```ts
+const envelope = assertEnvelope(parsed);
+console.log(envelope.success);
+```
+
+## runEnvelopeConformance(envelope, options)
+
+Runs the full suite of LAFS envelope conformance checks.
+
+**Signature**
+
+```typescript
+(envelope: unknown, options?: EnvelopeConformanceOptions) => ConformanceReport
+```
+
+**Parameters**
+
+| Name       | Type                           | Description                                      |
+| ---------- | ------------------------------ | ------------------------------------------------ |
+| `envelope` | `unknown`                      | The raw value to validate as a LAFS envelope.    |
+| `options`  | `: EnvelopeConformanceOptions` | Optional tier filter for the conformance checks. |
+
+**Returns** — A `ConformanceReport` with individual check results and an overall pass/fail.
+
+**Example**
+
+```ts
+const report = runEnvelopeConformance(parsedJson, { tier: 'core' });
+if (!report.ok) {
+  console.error(report.checks.filter(c => !c.pass));
+}
+```
+
+## runFlagConformance(flags)
+
+Runs LAFS flag-semantics conformance checks against a set of flag inputs.
+
+**Signature**
+
+```typescript
+(flags: FlagInput) => ConformanceReport
+```
+
+**Parameters**
+
+| Name    | Type        | Description                 |
+| ------- | ----------- | --------------------------- |
+| `flags` | `FlagInput` | The flag input to validate. |
+
+**Returns** — A `ConformanceReport` with individual check results and an overall pass/fail.
+
+**Example**
+
+```ts
+const report = runFlagConformance({ humanFlag: true, jsonFlag: false });
+console.log(report.ok); // true
+```
+
+## ComplianceError
+
+Error thrown when `assertCompliance` or `withCompliance` detects failures.
+
+**Signature**
+
+```typescript
+typeof ComplianceError
+```
+
+**Example**
+
+```ts
+try {
+  assertCompliance(envelope);
+} catch (err) {
+  if (err instanceof ComplianceError) {
+    console.log(err.issues);
+  }
+}
+```
+
+## enforceCompliance(input, options)
+
+Runs the full LAFS compliance pipeline against an unknown input value.
+
+**Signature**
+
+```typescript
+(input: unknown, options?: EnforceComplianceOptions) => ComplianceResult
+```
+
+**Parameters**
+
+| Name      | Type                         | Description                                   |
+| --------- | ---------------------------- | --------------------------------------------- |
+| `input`   | `unknown`                    | The raw value to validate as a LAFS envelope. |
+| `options` | `: EnforceComplianceOptions` | Controls which optional stages execute.       |
+
+**Returns** — A `ComplianceResult` with the aggregate pass/fail status and per-stage reports.
+
+**Example**
+
+```ts
+const result = enforceCompliance(rawJson, { checkFlags: true, flags: { jsonFlag: true } });
+if (!result.ok) {
+  console.error(result.issues);
+}
+```
+
+## assertCompliance(input, options)
+
+Validates input and throws `ComplianceError` on any failure.
+
+**Signature**
+
+```typescript
+(input: unknown, options?: EnforceComplianceOptions) => LAFSEnvelope
+```
+
+**Parameters**
+
+| Name      | Type                         | Description                                   |
+| --------- | ---------------------------- | --------------------------------------------- |
+| `input`   | `unknown`                    | The raw value to validate as a LAFS envelope. |
+| `options` | `: EnforceComplianceOptions` | Controls which optional stages execute.       |
+
+**Returns** — The validated `LAFSEnvelope` when all stages pass.
+
+**Throws**
+
+- `ComplianceError` When any compliance stage fails.
+
+**Example**
+
+```ts
+const envelope = assertCompliance(rawJson);
+```
+
+## withCompliance(producer, options)
+
+Wraps an envelope-producing function with automatic compliance enforcement.
+
+**Signature**
+
+```typescript
+<TArgs extends unknown[], TResult extends LAFSEnvelope>(producer: (...args: TArgs) => TResult | Promise<TResult>, options?: EnforceComplianceOptions) => (...args: TArgs) => Promise<LAFSEnvelope>
+```
+
+**Parameters**
+
+| Name       | Type                         | Description                                             |
+| ---------- | ---------------------------- | ------------------------------------------------------- |
+| `producer` | `(...args: TArgs`            | A sync or async function that produces a LAFS envelope. |
+| `options`  | `: EnforceComplianceOptions` | Compliance options forwarded to `assertCompliance`.     |
+
+**Returns** — An async function with the same signature that enforces compliance on every call.
+
+**Example**
+
+```ts
+const safeFetch = withCompliance(fetchEnvelope, { checkConformance: true });
+const envelope = await safeFetch('/api/data');
+```
+
+## createComplianceMiddleware(options)
+
+Creates a `ComplianceMiddleware` that enforces LAFS compliance on the next handler's output.
+
+**Signature**
+
+```typescript
+(options?: EnforceComplianceOptions) => ComplianceMiddleware
+```
+
+**Parameters**
+
+| Name      | Type                         | Description                                         |
+| --------- | ---------------------------- | --------------------------------------------------- |
+| `options` | `: EnforceComplianceOptions` | Compliance options forwarded to `assertCompliance`. |
+
+**Returns** — A middleware function that validates the downstream envelope.
+
+**Example**
+
+```ts
+const mw = createComplianceMiddleware({ checkConformance: true });
+const result = await mw(currentEnvelope, () => produceEnvelope());
+```
+
+## getDeprecationRegistry()
+
+Retrieve all registered deprecation entries.
+
+**Signature**
+
+```typescript
+() => DeprecationEntry[]
+```
+
+**Returns** — Array of all `DeprecationEntry` rules in the registry
+
+**Example**
+
+```typescript
+const entries = getDeprecationRegistry();
+console.log(entries.length); // number of registered deprecations
+```
+
+## detectDeprecatedEnvelopeFields(envelope)
+
+Detect deprecated field usage in a LAFS envelope.
+
+**Signature**
+
+```typescript
+(envelope: LAFSEnvelope) => Warning[]
+```
+
+**Parameters**
+
+| Name       | Type           | Description                  |
+| ---------- | -------------- | ---------------------------- |
+| `envelope` | `LAFSEnvelope` | The LAFS envelope to inspect |
+
+**Returns** — Array of `Warning` objects for each detected deprecation
+
+**Example**
+
+```typescript
+const warnings = detectDeprecatedEnvelopeFields(envelope);
+for (const w of warnings) {
+  console.warn(`${w.code}: ${w.message}`);
+}
+```
+
+## emitDeprecationWarnings(envelope)
+
+Emit deprecation warnings by attaching them to the envelope metadata.
+
+**Signature**
+
+```typescript
+(envelope: LAFSEnvelope) => LAFSEnvelope
+```
+
+**Parameters**
+
+| Name       | Type           | Description                  |
+| ---------- | -------------- | ---------------------------- |
+| `envelope` | `LAFSEnvelope` | The LAFS envelope to augment |
+
+**Returns** — A new envelope with deprecation warnings appended to `_meta.warnings`
+
+**Example**
+
+```typescript
+const enriched = emitDeprecationWarnings(envelope);
+console.log(enriched._meta.warnings); // includes any deprecation warnings
+```
+
+## createEnvelope(input)
+
+Create a fully validated LAFS envelope from a success or error input.
+
+**Signature**
+
+```typescript
+(input: CreateEnvelopeInput) => LAFSEnvelope
+```
+
+**Parameters**
+
+| Name    | Type                  | Description                                         |
+| ------- | --------------------- | --------------------------------------------------- |
+| `input` | `CreateEnvelopeInput` | Discriminated union of success or error input data. |
+
+**Returns** — A complete `LAFSEnvelope` ready for serialization.
+
+**Example**
+
+```ts
+import { createEnvelope } from '@cleocode/lafs';
+
+const envelope = createEnvelope({
+  success: true,
+  result: { items: [] },
+  meta: { operation: 'tasks.list', requestId: 'req-1' },
+});
+```
+
+## LafsError
+
+Error subclass that carries the full `LAFSError` payload.
+
+**Signature**
+
+```typescript
+typeof LafsError
+```
+
+**Example**
+
+```ts
+try {
+  parseLafsResponse(envelope);
+} catch (err) {
+  if (err instanceof LafsError) {
+    console.log(err.code, err.agentAction);
+  }
+}
+```
+
+## parseLafsResponse(input, options)
+
+Parse and unwrap a raw LAFS envelope, returning the result or throwing on error.
+
+**Signature**
+
+```typescript
+<T = unknown>(input: unknown, options?: ParseLafsResponseOptions) => T
+```
+
+**Parameters**
+
+| Name      | Type                         | Description                                        |
+| --------- | ---------------------------- | -------------------------------------------------- |
+| `input`   | `unknown`                    | Raw value expected to be a valid `LAFSEnvelope`.   |
+| `options` | `: ParseLafsResponseOptions` | Parsing options controlling error-code validation. |
+
+**Returns** — The `result` field of the envelope cast to `T`.
+
+**Throws**
+
+- LafsError When the envelope indicates failure (`success=false`).
+- Error When the envelope is structurally invalid or   `requireRegisteredErrorCode` is `true` and the code is unregistered.
+
+**Example**
+
+```ts
+import { parseLafsResponse } from '@cleocode/lafs';
+
+interface TaskList { items: Task[] }
+const tasks = parseLafsResponse<TaskList>(rawEnvelope);
+```
+
+## resolveFieldExtraction(input)
+
+Resolve field extraction flags into a validated configuration.
+
+**Signature**
+
+```typescript
+(input: FieldExtractionInput) => FieldExtractionResolution
+```
+
+**Parameters**
+
+| Name    | Type                   | Description                      |
+| ------- | ---------------------- | -------------------------------- |
+| `input` | `FieldExtractionInput` | The field extraction flag inputs |
+
+**Returns** — The resolved extraction configuration with mvi level and source
+
+**Throws**
+
+- `LAFSFlagError` When both `fieldFlag` and `fieldsFlag` are set.
+
+**Example**
+
+```ts
+const resolution = resolveFieldExtraction({ fieldsFlag: 'id,title' });
+// => { fields: ['id', 'title'], mvi: 'minimal', mviSource: 'default', expectsCustomMvi: true }
+```
+
+## extractFieldFromResult(result, field)
+
+Extract a named field from a LAFS result object.
+
+**Signature**
+
+```typescript
+(result: LAFSEnvelope["result"], field: string) => unknown
+```
+
+**Parameters**
+
+| Name     | Type                     | Description                                        |
+| -------- | ------------------------ | -------------------------------------------------- |
+| `result` | `LAFSEnvelope["result"]` | The envelope result value (object, array, or null) |
+| `field`  | `string`                 | The field name to extract                          |
+
+**Returns** — The extracted value, or `undefined` if not found at any level
+
+**Example**
+
+```ts
+const result = { task: { id: 'T1', title: 'Fix bug' } };
+extractFieldFromResult(result, 'title'); // => 'Fix bug'
+```
+
+## extractFieldFromEnvelope(envelope, field)
+
+Extract a named field from an envelope's result.
+
+**Signature**
+
+```typescript
+(envelope: LAFSEnvelope, field: string) => unknown
+```
+
+**Parameters**
+
+| Name       | Type           | Description                       |
+| ---------- | -------------- | --------------------------------- |
+| `envelope` | `LAFSEnvelope` | The LAFS envelope to extract from |
+| `field`    | `string`       | The field name to extract         |
+
+**Returns** — The extracted value, or `undefined` if not found
+
+**Example**
+
+```ts
+const value = extractFieldFromEnvelope(envelope, 'title');
+```
+
+## applyFieldFilter(envelope, fields)
+
+Filter result fields in a LAFS envelope to the requested subset.
+
+**Signature**
+
+```typescript
+(envelope: LAFSEnvelope, fields: string[]) => LAFSEnvelope
+```
+
+**Parameters**
+
+| Name       | Type           | Description                                     |
+| ---------- | -------------- | ----------------------------------------------- |
+| `envelope` | `LAFSEnvelope` | The LAFS envelope whose result will be filtered |
+| `fields`   | `string[]`     | Array of field names to retain in the result    |
+
+**Returns** — A new envelope with the filtered result and `_meta.mvi` set to `'custom'`
+
+**Example**
+
+```ts
+const filtered = applyFieldFilter(envelope, ['id', 'title']);
+// filtered.result contains only 'id' and 'title' fields
+// filtered._meta.mvi === 'custom'
+```
+
+## resolveFlags(input)
+
+Resolve all flags across both layers and validate cross-layer semantics.
+
+**Signature**
+
+```typescript
+(input: UnifiedFlagInput) => UnifiedFlagResolution
+```
+
+**Parameters**
+
+| Name    | Type               | Description                                |
+| ------- | ------------------ | ------------------------------------------ |
+| `input` | `UnifiedFlagInput` | Combined format and field extraction flags |
+
+**Returns** — The unified resolution containing format, fields, and any cross-layer warnings
+
+**Throws**
+
+- `LAFSFlagError` When format or field layer flags conflict.
+
+**Example**
+
+```ts
+const result = resolveFlags({ human: true, field: 'title' });
+// result.format => { format: 'human', source: 'flag', quiet: false }
+// result.fields => { field: 'title', mvi: 'minimal', ... }
+// result.warnings => ['Cross-layer: --human + --field "title". ...']
+```
+
+## LafsA2AResult
+
+Wrapper for A2A responses with LAFS envelope support.
+
+**Signature**
+
+```typescript
+typeof LafsA2AResult
+```
+
+**Methods**
+
+### getA2AResult()
+
+Get the raw A2A response.
+
+```typescript
+() => SendMessageResponse
+```
+
+### isError()
+
+Check if the result is an error response.
+
+```typescript
+() => boolean
+```
+
+### getError()
+
+Get error details if the result is an error.
+
+```typescript
+() => JSONRPCErrorResponse | null
+```
+
+### getSuccess()
+
+Get the success result.
+
+```typescript
+() => SendMessageSuccessResponse | null
+```
+
+### getTask()
+
+Extract a Task from the response (if present).
+
+```typescript
+() => Task | null
+```
+
+### getMessage()
+
+Extract a Message from the response (if present).
+
+```typescript
+() => Message | null
+```
+
+### hasLafsEnvelope()
+
+Check if the response contains a LAFS envelope.
+
+```typescript
+() => boolean
+```
+
+### getLafsEnvelope()
+
+Extract a LAFS envelope from A2A artifact.
+
+```typescript
+() => LAFSEnvelope | null
+```
+
+### getTokenEstimate()
+
+Get token estimate from LAFS envelope.
+
+```typescript
+() => { estimated: number; budget?: number; truncated?: boolean; } | null
+```
+
+### getTaskStatus()
+
+Get the task status.
+
+```typescript
+() => TaskStatus | null
+```
+
+### getTaskState()
+
+Get the task state.
+
+```typescript
+() => TaskState | null
+```
+
+### isTerminal()
+
+Check if the task is in a terminal state.
+
+```typescript
+() => boolean
+```
+
+### isInputRequired()
+
+Check if the task requires user input.
+
+```typescript
+() => boolean
+```
+
+### isAuthRequired()
+
+Check if the task requires authentication.
+
+```typescript
+() => boolean
+```
+
+### getArtifacts()
+
+Get all artifacts from the task.
+
+```typescript
+() => Artifact[]
+```
+
+### isDataPart()
+
+Type guard: checks whether a Part is a DataPart by inspecting its `kind` field.
+
+```typescript
+(part: Part) => part is DataPart
+```
+
+### isLafsEnvelope()
+
+Heuristic check: returns true if the data object looks like a LAFS envelope (has `$schema`, `_meta`, `success`).
+
+```typescript
+(data: unknown) => boolean
+```
+
+## createLafsArtifact(envelope)
+
+Create a LAFS envelope artifact for A2A.
+
+**Signature**
+
+```typescript
+(envelope: LAFSEnvelope) => Artifact
+```
+
+**Parameters**
+
+| Name       | Type           | Description                          |
+| ---------- | -------------- | ------------------------------------ |
+| `envelope` | `LAFSEnvelope` | LAFS envelope to wrap as an artifact |
+
+**Returns** — A2A Artifact containing the envelope as a DataPart
+
+**Example**
+
+```typescript
+const envelope = createEnvelope({
+  success: true,
+  result: { data: '...' },
+  meta: { operation: 'analysis.run' }
+});
+
+const artifact = createLafsArtifact(envelope);
+task.artifacts.push(artifact);
+```
+
+## createTextArtifact(text, name)
+
+Create a text artifact.
+
+**Signature**
+
+```typescript
+(text: string, name?: string) => Artifact
+```
+
+**Parameters**
+
+| Name   | Type       | Description                   |
+| ------ | ---------- | ----------------------------- |
+| `text` | `string`   | Text content for the artifact |
+| `name` | `: string` | Display name for the artifact |
+
+**Returns** — A2A Artifact containing the text as a TextPart
+
+**Example**
+
+```typescript
+const artifact = createTextArtifact('Hello, world!', 'greeting');
+```
+
+## createFileArtifact(fileUrl, mediaType, filename)
+
+Create a file artifact.
+
+**Signature**
+
+```typescript
+(fileUrl: string, mediaType: string, filename?: string) => Artifact
+```
+
+**Parameters**
+
+| Name        | Type       | Description                                     |
+| ----------- | ---------- | ----------------------------------------------- |
+| `fileUrl`   | `string`   | URI pointing to the file resource               |
+| `mediaType` | `string`   | MIME type of the file (e.g., `application/pdf`) |
+| `filename`  | `: string` | Optional display filename for the artifact      |
+
+**Returns** — A2A Artifact containing the file reference as a FilePart
+
+**Example**
+
+```typescript
+const artifact = createFileArtifact(
+  'https://example.com/report.pdf',
+  'application/pdf',
+  'report.pdf',
+);
+```
+
+## isExtensionRequired(agentCard, extensionUri)
+
+Check if an extension is required in an Agent Card.
+
+**Signature**
+
+```typescript
+(agentCard: AgentCard, extensionUri: string) => boolean
+```
+
+**Parameters**
+
+| Name           | Type        | Description                   |
+| -------------- | ----------- | ----------------------------- |
+| `agentCard`    | `AgentCard` | Agent Card to inspect         |
+| `extensionUri` | `string`    | URI of the extension to check |
+
+**Returns** — True if the extension is declared as required
+
+**Example**
+
+```typescript
+if (isExtensionRequired(agentCard, LAFS_EXTENSION_URI)) {
+  console.log('LAFS extension is mandatory for this agent');
+}
+```
+
+## getExtensionParams(agentCard, extensionUri)
+
+Get extension parameters from an Agent Card.
+
+**Signature**
+
+```typescript
+(agentCard: AgentCard, extensionUri: string) => Record<string, unknown> | undefined
+```
+
+**Parameters**
+
+| Name           | Type        | Description                     |
+| -------------- | ----------- | ------------------------------- |
+| `agentCard`    | `AgentCard` | Agent Card to inspect           |
+| `extensionUri` | `string`    | URI of the extension to look up |
+
+**Returns** — The extension's params object, or undefined if not found
+
+**Example**
+
+```typescript
+const params = getExtensionParams(agentCard, LAFS_EXTENSION_URI);
+if (params?.supportsTokenBudgets) {
+  // Enable budget tracking
+}
+```
+
+## isValidTransition(from, to)
+
+Check if a transition from one state to another is valid.
+
+**Signature**
+
+```typescript
+(from: TaskState, to: TaskState) => boolean
+```
+
+**Parameters**
+
+| Name   | Type        | Description          |
+| ------ | ----------- | -------------------- |
+| `from` | `TaskState` | Current task state   |
+| `to`   | `TaskState` | Desired target state |
+
+**Returns** — True if the transition is allowed by the state machine
+
+**Example**
+
+```typescript
+if (!isValidTransition('submitted', 'completed')) {
+  throw new Error('Cannot go directly from submitted to completed');
+}
+```
+
+## isTerminalState(state)
+
+Check if a state is terminal (no further transitions allowed).
+
+**Signature**
+
+```typescript
+(state: TaskState) => boolean
+```
+
+**Parameters**
+
+| Name    | Type        | Description         |
+| ------- | ----------- | ------------------- |
+| `state` | `TaskState` | Task state to check |
+
+**Returns** — True if the state is terminal
+
+**Example**
+
+```typescript
+if (isTerminalState(task.status.state)) {
+  console.log('Task has reached a final state');
+}
+```
+
+## isInterruptedState(state)
+
+Check if a state is interrupted (paused awaiting input).
+
+**Signature**
+
+```typescript
+(state: TaskState) => boolean
+```
+
+**Parameters**
+
+| Name    | Type        | Description         |
+| ------- | ----------- | ------------------- |
+| `state` | `TaskState` | Task state to check |
+
+**Returns** — True if the state indicates the task is waiting for external input
+
+**Example**
+
+```typescript
+if (isInterruptedState(task.status.state)) {
+  promptUserForInput(task);
+}
+```
+
+## InvalidStateTransitionError
+
+Thrown when attempting an invalid state transition.
+
+**Signature**
+
+```typescript
+typeof InvalidStateTransitionError
+```
+
+## TaskImmutabilityError
+
+Thrown when attempting to modify a task in a terminal state.
+
+**Signature**
+
+```typescript
+typeof TaskImmutabilityError
+```
+
+## TaskNotFoundError
+
+Thrown when a task is not found.
+
+**Signature**
+
+```typescript
+typeof TaskNotFoundError
+```
+
+## TaskRefinementError
+
+Thrown when a refinement/follow-up task references invalid parent tasks.
+
+**Signature**
+
+```typescript
+typeof TaskRefinementError
+```
+
+## TaskManager
+
+In-memory task manager implementing A2A task lifecycle.
+
+**Signature**
+
+```typescript
+typeof TaskManager
+```
+
+**Methods**
+
+### createTask()
+
+Create a new task in the submitted state.
+
+```typescript
+(options?: CreateTaskOptions) => Task
+```
+
+### createRefinedTask()
+
+Create a refinement/follow-up task referencing existing task(s).
+
+```typescript
+(referenceTaskIds: string[], options?: Omit<CreateTaskOptions, "referenceTaskIds">) => Task
+```
+
+### getTask()
+
+Get a task by ID.
+
+```typescript
+(taskId: string) => Task
+```
+
+### listTasks()
+
+List tasks with optional filtering and pagination.
+
+```typescript
+(options?: ListTasksOptions) => ListTasksResult
+```
+
+### updateTaskStatus()
+
+Update task status. Enforces valid transitions and terminal state immutability.
+
+```typescript
+(taskId: string, state: TaskState, message?: Message) => Task
+```
+
+### addArtifact()
+
+Add an artifact to a task.
+
+```typescript
+(taskId: string, artifact: Artifact) => Task
+```
+
+### addHistory()
+
+Add a message to task history.
+
+```typescript
+(taskId: string, message: Message) => Task
+```
+
+### cancelTask()
+
+Cancel a task by transitioning to canceled state.
+
+```typescript
+(taskId: string) => Task
+```
+
+### getTasksByContext()
+
+Get all tasks in a given context.
+
+```typescript
+(contextId: string) => Task[]
+```
+
+### isTerminal()
+
+Check if a task is in a terminal state.
+
+```typescript
+(taskId: string) => boolean
+```
+
+### resolveContextForReferenceTasks()
+
+Derive a contextId from the first referenced task, if any reference tasks are provided.
+
+```typescript
+(referenceTaskIds: string[] | undefined) => string | undefined
+```
+
+### validateReferenceTasks()
+
+Validate that all referenced tasks exist and share the same contextId.
+
+```typescript
+(referenceTaskIds: string[], contextId: string) => void
+```
+
+## attachLafsEnvelope(manager, taskId, envelope)
+
+Attach a LAFS envelope as an artifact to an A2A task.
+
+**Signature**
+
+```typescript
+(manager: TaskManager, taskId: string, envelope: LAFSEnvelope) => Task
+```
+
+**Parameters**
+
+| Name       | Type           | Description                              |
+| ---------- | -------------- | ---------------------------------------- |
+| `manager`  | `TaskManager`  | TaskManager instance managing the task   |
+| `taskId`   | `string`       | ID of the task to attach the envelope to |
+| `envelope` | `LAFSEnvelope` | LAFS envelope to attach as an artifact   |
+
+**Returns** — Deep clone of the updated task with the new artifact
+
+**Example**
+
+```typescript
+const envelope: LAFSEnvelope = { success: true, result: { data: 'ok' }, error: null, _meta: meta };
+const updated = attachLafsEnvelope(manager, 'task-1', envelope);
+```
+
+## TaskEventBus
+
+In-memory event bus for task lifecycle streaming events.
+
+**Signature**
+
+```typescript
+typeof TaskEventBus
+```
+
+**Methods**
+
+### publishStatusUpdate()
+
+Publish a task status update event.
+
+```typescript
+(event: TaskStatusUpdateEvent) => void
+```
+
+### publishArtifactUpdate()
+
+Publish a task artifact update event.
+
+```typescript
+(event: TaskArtifactUpdateEvent) => void
+```
+
+### publish()
+
+Publish a task stream event to all listeners and history.
+
+```typescript
+(event: TaskStreamEvent) => void
+```
+
+### subscribe()
+
+Subscribe to events for a specific task.
+
+```typescript
+(taskId: string, listener: StreamListener) => () => void
+```
+
+### getHistory()
+
+Get the full event history for a task.
+
+```typescript
+(taskId: string) => TaskStreamEvent[]
+```
+
+## streamTaskEvents(bus, taskId, options)
+
+Build an async iterator for real-time task stream events.
+
+**Signature**
+
+```typescript
+(bus: TaskEventBus, taskId: string, options?: StreamIteratorOptions) => AsyncGenerator<TaskStreamEvent>
+```
+
+**Parameters**
+
+| Name      | Type                      | Description                         |
+| --------- | ------------------------- | ----------------------------------- |
+| `bus`     | `TaskEventBus`            | TaskEventBus to subscribe to        |
+| `taskId`  | `string`                  | ID of the task to stream events for |
+| `options` | `: StreamIteratorOptions` | Iterator options including timeout  |
+
+**Returns** — Async generator yielding task stream events
+
+**Example**
+
+```typescript
+for await (const event of streamTaskEvents(bus, 'task-1', { timeoutMs: 5000 })) {
+  console.log('Received:', event);
+}
+```
+
+## PushNotificationConfigStore
+
+In-memory manager for async push-notification configs.
+
+**Signature**
+
+```typescript
+typeof PushNotificationConfigStore
+```
+
+**Methods**
+
+### set()
+
+Store a push-notification config for a task.
+
+```typescript
+(taskId: string, configId: string, config: PushNotificationConfig) => void
+```
+
+### get()
+
+Retrieve a push-notification config by task and config ID.
+
+```typescript
+(taskId: string, configId: string) => PushNotificationConfig | undefined
+```
+
+### list()
+
+List all push-notification configs for a task.
+
+```typescript
+(taskId: string) => PushNotificationConfig[]
+```
+
+### delete()
+
+Delete a push-notification config.
+
+```typescript
+(taskId: string, configId: string) => boolean
+```
+
+## PushNotificationDispatcher
+
+Deliver task updates to registered push-notification webhooks.
+
+**Signature**
+
+```typescript
+typeof PushNotificationDispatcher
+```
+
+**Methods**
+
+### dispatch()
+
+Dispatch a task event to all registered webhooks for the task.
+
+```typescript
+(taskId: string, event: TaskStreamEvent) => Promise<PushNotificationDeliveryResult[]>
+```
+
+### buildHeaders()
+
+Build HTTP headers for push notification delivery including auth tokens.
+
+```typescript
+(config: PushNotificationConfig) => Record<string, string>
+```
+
+## TaskArtifactAssembler
+
+Applies append/lastChunk artifact deltas into task-local snapshots.
+
+**Signature**
+
+```typescript
+typeof TaskArtifactAssembler
+```
+
+**Methods**
+
+### applyUpdate()
+
+Apply an artifact update event to the assembled snapshot.
+
+```typescript
+(event: TaskArtifactUpdateEvent) => Artifact
+```
+
+### get()
+
+Get a specific assembled artifact by task and artifact ID.
+
+```typescript
+(taskId: string, artifactId: string) => Artifact | undefined
+```
+
+### list()
+
+List all assembled artifacts for a task.
+
+```typescript
+(taskId: string) => Artifact[]
+```
+
+### mergeArtifact()
+
+Merge a new artifact update event into an existing artifact snapshot, handling append semantics.
+
+```typescript
+(prior: Artifact | undefined, event: TaskArtifactUpdateEvent) => Artifact
+```
+
+### withLastChunk()
+
+Inject the `a2a:last_chunk` marker into artifact metadata.
+
+```typescript
+(metadata: Record<string, unknown> | undefined, lastChunk: boolean) => Record<string, unknown>
+```
+
+## createJsonRpcRequest(id, method, params)
+
+Create a JSON-RPC 2.0 request object.
+
+**Signature**
+
+```typescript
+(id: string | number, method: string, params?: Record<string, unknown>) => JsonRpcRequest
+```
+
+**Parameters**
+
+| Name     | Type               | Description                                   |
+| -------- | ------------------ | --------------------------------------------- |
+| `id`     | `string \| number` | Client-assigned request identifier            |
+| `method` | `string`           | The RPC method name to invoke                 |
+| `params` | `: Record<string`  | Optional named parameters for the method call |
+
+**Returns** — A fully formed `JsonRpcRequest` object
+
+**Example**
+
+```ts
+const req = createJsonRpcRequest(1, 'tasks/get', { id: 'abc' });
+// { jsonrpc: '2.0', id: 1, method: 'tasks/get', params: { id: 'abc' } }
+```
+
+## createJsonRpcResponse(id, result)
+
+Create a JSON-RPC 2.0 success response.
+
+**Signature**
+
+```typescript
+(id: string | number | null, result: unknown) => JsonRpcResponse
+```
+
+**Parameters**
+
+| Name     | Type                       | Description                                                              |
+| -------- | -------------------------- | ------------------------------------------------------------------------ |
+| `id`     | `string \| number \| null` | Identifier matching the originating request, or `null` for notifications |
+| `result` | `unknown`                  | The return value of the invoked method                                   |
+
+**Returns** — A fully formed `JsonRpcResponse` object
+
+**Example**
+
+```ts
+const res = createJsonRpcResponse(1, { status: 'ok' });
+// { jsonrpc: '2.0', id: 1, result: { status: 'ok' } }
+```
+
+## createJsonRpcErrorResponse(id, code, message, data)
+
+Create a JSON-RPC 2.0 error response.
+
+**Signature**
+
+```typescript
+(id: string | number | null, code: number, message: string, data?: Record<string, unknown>) => JsonRpcErrorResponse
+```
+
+**Parameters**
+
+| Name      | Type                       | Description                                                              |
+| --------- | -------------------------- | ------------------------------------------------------------------------ |
+| `id`      | `string \| number \| null` | Identifier matching the originating request, or `null` for notifications |
+| `code`    | `number`                   | Numeric error code (standard or A2A-specific)                            |
+| `message` | `string`                   | Short human-readable description of the error                            |
+| `data`    | `: Record<string`          | Optional additional structured error data                                |
+
+**Returns** — A fully formed `JsonRpcErrorResponse` object
+
+**Example**
+
+```ts
+const err = createJsonRpcErrorResponse(1, -32001, 'Task not found');
+// { jsonrpc: '2.0', id: 1, error: { code: -32001, message: 'Task not found' } }
+```
+
+## createA2AErrorResponse(id, errorType, message, data)
+
+Create an A2A-specific JSON-RPC error response by error type name.
+
+**Signature**
+
+```typescript
+(id: string | number | null, errorType: A2AErrorType, message: string, data?: Record<string, unknown>) => JsonRpcErrorResponse
+```
+
+**Parameters**
+
+| Name        | Type                       | Description                                                              |
+| ----------- | -------------------------- | ------------------------------------------------------------------------ |
+| `id`        | `string \| number \| null` | Identifier matching the originating request, or `null` for notifications |
+| `errorType` | `A2AErrorType`             | The A2A error type name (e.g. `"TaskNotFound"`)                          |
+| `message`   | `string`                   | Short human-readable description of the error                            |
+| `data`      | `: Record<string`          | Optional additional structured error data                                |
+
+**Returns** — A fully formed `JsonRpcErrorResponse` with the resolved A2A error code
+
+**Example**
+
+```ts
+const err = createA2AErrorResponse(1, 'TaskNotFound', 'No task with id xyz');
+// error.code === -32001
+```
+
+## validateJsonRpcRequest(input)
+
+Validate the structure of a JSON-RPC request.
+
+**Signature**
+
+```typescript
+(input: unknown) => { valid: boolean; errors: string[]; }
+```
+
+**Parameters**
+
+| Name    | Type      | Description                   |
+| ------- | --------- | ----------------------------- |
+| `input` | `unknown` | The unknown value to validate |
+
+**Returns** — An object with `valid` indicating success and `errors` listing any violations
+
+**Example**
+
+```ts
+const { valid, errors } = validateJsonRpcRequest({ jsonrpc: '2.0', id: 1, method: 'tasks/get' });
+// valid === true, errors === []
+```
+
+## isA2AError(code)
+
+Check if a numeric error code is an A2A-specific error.
+
+**Signature**
+
+```typescript
+(code: number) => boolean
+```
+
+**Parameters**
+
+| Name   | Type     | Description                              |
+| ------ | -------- | ---------------------------------------- |
+| `code` | `number` | The numeric JSON-RPC error code to check |
+
+**Returns** — `true` if the code falls within the A2A error range
+
+**Example**
+
+```ts
+isA2AError(-32001); // true  (TaskNotFound)
+isA2AError(-32700); // false (standard ParseError)
+```
+
+## createGrpcStatus(errorType, message, metadata)
+
+Create a gRPC Status object for an A2A error type.
+
+**Signature**
+
+```typescript
+(errorType: A2AErrorType, message: string, metadata?: Record<string, string>) => GrpcStatus
+```
+
+**Parameters**
+
+| Name        | Type              | Description                                                    |
+| ----------- | ----------------- | -------------------------------------------------------------- |
+| `errorType` | `A2AErrorType`    | The A2A error type name (e.g. `"TaskNotFound"`)                |
+| `message`   | `string`          | Human-readable error message                                   |
+| `metadata`  | `: Record<string` | Optional key-value metadata to include in the ErrorInfo detail |
+
+**Returns** — A fully formed `GrpcStatus` object with ErrorInfo details
+
+**Example**
+
+```ts
+const status = createGrpcStatus('TaskNotFound', 'No task with id xyz');
+// { code: 5, message: '...', details: [{ reason: 'TASK_NOT_FOUND', domain: 'a2a-protocol.org' }] }
+```
+
+## createProblemDetails(errorType, detail, extensions)
+
+Create an RFC 9457 Problem Details object for an A2A error.
+
+**Signature**
+
+```typescript
+(errorType: A2AErrorType, detail: string, extensions?: Record<string, unknown>) => ProblemDetails
+```
+
+**Parameters**
+
+| Name         | Type              | Description                                            |
+| ------------ | ----------------- | ------------------------------------------------------ |
+| `errorType`  | `A2AErrorType`    | The A2A error type name (e.g. `"TaskNotFound"`)        |
+| `detail`     | `string`          | Human-readable explanation specific to this occurrence |
+| `extensions` | `: Record<string` | Optional additional members to include in the response |
+
+**Returns** — A fully formed `ProblemDetails` object
+
+**Example**
+
+```ts
+const problem = createProblemDetails('TaskNotFound', 'No task with id xyz');
+// { type: 'https://a2a-protocol.org/errors/task-not-found', title: 'Task Not Found', status: 404, detail: '...' }
+```
+
+## createLafsProblemDetails(errorType, lafsError, requestId)
+
+Create an RFC 9457 Problem Details object bridging A2A error types with LAFS error data.
+
+**Signature**
+
+```typescript
+(errorType: A2AErrorType, lafsError: LAFSError, requestId?: string) => ProblemDetails
+```
+
+**Parameters**
+
+| Name        | Type           | Description                                              |
+| ----------- | -------------- | -------------------------------------------------------- |
+| `errorType` | `A2AErrorType` | The A2A error type name (e.g. `"InvalidAgentResponse"`)  |
+| `lafsError` | `LAFSError`    | The LAFS error object to extract extension fields from   |
+| `requestId` | `: string`     | Optional request identifier used as the `instance` field |
+
+**Returns** — A `ProblemDetails` object with LAFS extension fields
+
+**Example**
+
+```ts
+const problem = createLafsProblemDetails('InvalidAgentResponse', {
+  code: 'E_AGENT_RESPONSE',
+  message: 'Upstream agent returned invalid JSON',
+  retryable: true,
+  retryAfterMs: 5000,
+}, 'req-123');
+```
+
+## buildUrl(endpoint, params)
+
+Build a URL by substituting path parameters.
+
+**Signature**
+
+```typescript
+(endpoint: HttpEndpoint, params?: Record<string, string>) => string
+```
+
+**Parameters**
+
+| Name       | Type              | Description                                                 |
+| ---------- | ----------------- | ----------------------------------------------------------- |
+| `endpoint` | `HttpEndpoint`    | HTTP endpoint definition from `HTTP_ENDPOINTS`              |
+| `params`   | `: Record<string` | Path parameter values keyed by name (without leading colon) |
+
+**Returns** — The resolved URL path string with parameters substituted
+
+**Example**
+
+```ts
+const url = buildUrl(HTTP_ENDPOINTS.GetTask, { id: 'task-42' });
+// '/tasks/task-42'
+```
+
+## parseListTasksQuery(query)
+
+Parse camelCase query parameters for the ListTasks endpoint.
+
+**Signature**
+
+```typescript
+(query: Record<string, string | undefined>) => ListTasksQueryParams
+```
+
+**Parameters**
+
+| Name    | Type            | Description                                   |
+| ------- | --------------- | --------------------------------------------- |
+| `query` | `Record<string` | Raw query parameter map from the HTTP request |
+
+**Returns** — A typed `ListTasksQueryParams` object with coerced values
+
+**Example**
+
+```ts
+const params = parseListTasksQuery({ contextId: 'ctx-1', limit: '10' });
+// { contextId: 'ctx-1', limit: 10 }
+```
+
+## getErrorCodeMapping(errorType)
+
+Get the complete error code mapping for a given A2A error type.
+
+**Signature**
+
+```typescript
+(errorType: A2AErrorType) => ErrorCodeMapping
+```
+
+**Parameters**
+
+| Name        | Type           | Description                                     |
+| ----------- | -------------- | ----------------------------------------------- |
+| `errorType` | `A2AErrorType` | The A2A error type name (e.g. `"TaskNotFound"`) |
+
+**Returns** — The `ErrorCodeMapping` with JSON-RPC, HTTP, and gRPC codes
+
+**Throws**
+
+- Error if the error type is not a known A2A error type
+
+**Example**
+
+```ts
+const mapping = getErrorCodeMapping('TaskNotFound');
+// { jsonRpcCode: -32001, httpStatus: 404, httpTypeUri: '...', grpcStatus: 'NOT_FOUND', grpcCode: 5 }
+```
+
+## parseA2AVersionHeader(headerValue)
+
+Parse the `a2a-version` header into an array of version strings.
+
+**Signature**
+
+```typescript
+(headerValue: string | undefined) => string[]
+```
+
+**Parameters**
+
+| Name          | Type                  | Description                                                  |
+| ------------- | --------------------- | ------------------------------------------------------------ |
+| `headerValue` | `string \| undefined` | The raw `a2a-version` header value, or `undefined` if absent |
+
+**Returns** — An array of version strings extracted from the header
+
+**Example**
+
+```ts
+parseA2AVersionHeader('1.0, 2.0'); // ['1.0', '2.0']
+parseA2AVersionHeader(undefined);   // []
+```
+
+## negotiateA2AVersion(requestedVersions)
+
+Negotiate an A2A protocol version from the client's requested versions.
+
+**Signature**
+
+```typescript
+(requestedVersions: string[]) => string | null
+```
+
+**Parameters**
+
+| Name                | Type       | Description                                      |
+| ------------------- | ---------- | ------------------------------------------------ |
+| `requestedVersions` | `string[]` | Array of version strings requested by the client |
+
+**Returns** — The negotiated version string, or `null` if no common version exists
+
+**Example**
+
+```ts
+negotiateA2AVersion(['1.0', '2.0']); // '1.0'
+negotiateA2AVersion([]);              // '1.0' (default)
+negotiateA2AVersion(['3.0']);          // null
+```
+
+## CircuitBreakerError
+
+Error thrown when a circuit breaker rejects a call.
+
+**Signature**
+
+```typescript
+typeof CircuitBreakerError
+```
+
+**Example**
+
+```typescript
+try {
+  await breaker.execute(() => fetch('/api'));
+} catch (err) {
+  if (err instanceof CircuitBreakerError) {
+    console.log('Circuit open, using fallback');
+  }
+}
+```
+
+## CircuitBreaker
+
+Circuit breaker for protecting against cascading failures.
+
+**Signature**
+
+```typescript
+typeof CircuitBreaker
+```
+
+**Example**
+
+```typescript
+import { CircuitBreaker } from '@cleocode/lafs/circuit-breaker';
+
+const breaker = new CircuitBreaker({
+  name: 'external-api',
+  failureThreshold: 5,
+  resetTimeout: 30000
+});
+
+try {
+  const result = await breaker.execute(async () => {
+    return await externalApi.call();
+  });
+} catch (error) {
+  if (error instanceof CircuitBreakerError) {
+    console.log('Circuit breaker is open');
+  }
+}
+```
+
+**Methods**
+
+### execute()
+
+Execute a function with circuit breaker protection.
+
+```typescript
+<T>(fn: () => Promise<T>) => Promise<T>
+```
+
+### getState()
+
+Get the current circuit breaker state.
+
+```typescript
+() => CircuitState
+```
+
+### getMetrics()
+
+Get a snapshot of the circuit breaker's runtime metrics.
+
+```typescript
+() => CircuitBreakerMetrics
+```
+
+### forceOpen()
+
+Manually open the circuit breaker, rejecting all subsequent calls.
+
+```typescript
+() => void
+```
+
+### forceClose()
+
+Manually close the circuit breaker and reset all counters.
+
+```typescript
+() => void
+```
+
+### onSuccess()
+
+Records a successful call and may transition from HALF\_OPEN to CLOSED.
+
+```typescript
+() => void
+```
+
+### onFailure()
+
+Records a failed call and may trip the circuit to OPEN.
+
+```typescript
+() => void
+```
+
+### transitionTo()
+
+Transitions the circuit to the given state, resetting HALF\_OPEN call count when entering HALF\_OPEN.
+
+```typescript
+(newState: CircuitState) => void
+```
+
+### shouldAttemptReset()
+
+Returns `true` if enough time has elapsed since the last failure to attempt a reset.
+
+```typescript
+() => boolean
+```
+
+### scheduleReset()
+
+Schedules a timer to transition from OPEN to HALF\_OPEN after the configured reset timeout.
+
+```typescript
+() => void
+```
+
+### reset()
+
+Resets all failure/success counters and clears the pending reset timer.
+
+```typescript
+() => void
+```
+
+## CircuitBreakerRegistry
+
+Registry for managing multiple named circuit breakers.
+
+**Signature**
+
+```typescript
+typeof CircuitBreakerRegistry
+```
+
+**Example**
+
+```typescript
+const registry = new CircuitBreakerRegistry();
+
+registry.add('payment-api', {
+  failureThreshold: 3,
+  resetTimeout: 60000
+});
+
+const paymentBreaker = registry.get('payment-api');
+```
+
+**Methods**
+
+### add()
+
+Register a new circuit breaker with the given name and configuration.
+
+```typescript
+(name: string, config: Omit<CircuitBreakerConfig, "name">) => CircuitBreaker
+```
+
+### get()
+
+Retrieve a circuit breaker by name.
+
+```typescript
+(name: string) => CircuitBreaker | undefined
+```
+
+### getOrCreate()
+
+Retrieve an existing circuit breaker or create one if it does not exist.
+
+```typescript
+(name: string, config: Omit<CircuitBreakerConfig, "name">) => CircuitBreaker
+```
+
+### getAllMetrics()
+
+Collect metrics from all registered circuit breakers.
+
+```typescript
+() => Record<string, CircuitBreakerMetrics>
+```
+
+### resetAll()
+
+Force-close all registered circuit breakers, resetting their counters.
+
+```typescript
+() => void
+```
+
+## circuitBreakerMiddleware(config)
+
+Create an Express middleware that wraps downstream handlers with a circuit breaker.
+
+**Signature**
+
+```typescript
+(config: CircuitBreakerConfig) => (_req: unknown, res: { status: (code: number) => { json: (body: unknown) => void; }; }, next: () => void) => Promise<void>
+```
+
+**Parameters**
+
+| Name     | Type                   | Description                                               |
+| -------- | ---------------------- | --------------------------------------------------------- |
+| `config` | `CircuitBreakerConfig` | Circuit breaker configuration for the middleware instance |
+
+**Returns** — An Express-compatible middleware function
+
+**Example**
+
+```typescript
+app.use('/external-api', circuitBreakerMiddleware({
+  name: 'external-api',
+  failureThreshold: 5
+}));
+```
+
+## healthCheck(config)
+
+Health check middleware for Express applications.
+
+**Signature**
+
+```typescript
+(config?: HealthCheckConfig) => (_req: unknown, res: { status: (code: number) => { json: (body: unknown) => void; }; }) => Promise<void>
+```
+
+**Parameters**
+
+| Name     | Type                  | Description                         |
+| -------- | --------------------- | ----------------------------------- |
+| `config` | `: HealthCheckConfig` | Optional health check configuration |
+
+**Returns** — An Express-compatible middleware function that serves the health endpoint
+
+**Example**
+
+```typescript
+import express from 'express';
+import { healthCheck } from '@cleocode/lafs/health';
+
+const app = express();
+
+// Basic health check
+app.use('/health', healthCheck());
+
+// Custom health checks
+app.use('/health', healthCheck({
+  checks: [
+    async () => ({
+      name: 'database',
+      status: await checkDatabase() ? 'ok' : 'error'
+    })
+  ]
+}));
+```
+
+## createDatabaseHealthCheck(config, , )
+
+Create a health check function that verifies database connectivity.
+
+**Signature**
+
+```typescript
+(config: { checkConnection: () => Promise<boolean>; name?: string; }) => HealthCheckFunction
+```
+
+**Parameters**
+
+| Name     | Type                   | Description                                                                           |
+| -------- | ---------------------- | ------------------------------------------------------------------------------------- |
+| `config` | `{ checkConnection: (` | Database check configuration                                                          |
+| ``       | `{ checkConnection: (` | config.checkConnection - Async function returning `true` if the database is reachable |
+| ``       | `{ checkConnection: (` | config.name - Display name for this check in health output                            |
+
+**Returns** — A `HealthCheckFunction` suitable for use in `HealthCheckConfig.checks`
+
+**Example**
+
+```typescript
+const dbCheck = createDatabaseHealthCheck({
+  checkConnection: async () => await db.ping()
+});
+
+app.use('/health', healthCheck({
+  checks: [dbCheck]
+}));
+```
+
+## createExternalServiceHealthCheck(config, , , )
+
+Create a health check function that probes an external HTTP service.
+
+**Signature**
+
+```typescript
+(config: { name: string; url: string; timeout?: number; }) => HealthCheckFunction
+```
+
+**Parameters**
+
+| Name     | Type                                               | Description                                                |
+| -------- | -------------------------------------------------- | ---------------------------------------------------------- |
+| `config` | `{ name: string; url: string; timeout?: number; }` | External service check configuration                       |
+| ``       | `{ name: string; url: string; timeout?: number; }` | config.name - Display name for this check in health output |
+| ``       | `{ name: string; url: string; timeout?: number; }` | config.url - URL to probe for health status                |
+| ``       | `{ name: string; url: string; timeout?: number; }` | config.timeout - Request timeout in milliseconds           |
+
+**Returns** — A `HealthCheckFunction` suitable for use in `HealthCheckConfig.checks`
+
+**Example**
+
+```typescript
+const apiCheck = createExternalServiceHealthCheck({
+  name: 'payment-api',
+  url: 'https://api.payment.com/health',
+  timeout: 5000
+});
+```
+
+## livenessProbe()
+
+Liveness probe -- a minimal check confirming the process is running.
+
+**Signature**
+
+```typescript
+() => (_req: unknown, res: { status: (code: number) => { json: (body: unknown) => void; }; }) => void
+```
+
+**Returns** — An Express-compatible middleware function
+
+**Example**
+
+```typescript
+app.get('/health/live', livenessProbe());
+```
+
+## readinessProbe(config)
+
+Readiness probe -- verifies the service can accept traffic.
+
+**Signature**
+
+```typescript
+(config?: { checks?: HealthCheckFunction[]; }) => (_req: unknown, res: { status: (code: number) => { json: (body: unknown) => void; }; }) => Promise<void>
+```
+
+**Parameters**
+
+| Name     | Type                                    | Description                                               |
+| -------- | --------------------------------------- | --------------------------------------------------------- |
+| `config` | `: { checks?: HealthCheckFunction[]; }` | Optional configuration with custom health check functions |
+
+**Returns** — An Express-compatible async middleware function
+
+**Example**
+
+```typescript
+app.get('/health/ready', readinessProbe({
+  checks: [dbCheck, cacheCheck]
+}));
+```
+
+## projectEnvelope(envelope, mviLevel)
+
+Project an envelope to the declared MVI verbosity level.
+
+**Signature**
+
+```typescript
+(envelope: LAFSEnvelope, mviLevel?: MVILevel) => Record<string, unknown>
+```
+
+**Parameters**
+
+| Name       | Type           | Description                                                               |
+| ---------- | -------------- | ------------------------------------------------------------------------- |
+| `envelope` | `LAFSEnvelope` | The full LAFS envelope to project                                         |
+| `mviLevel` | `: MVILevel`   | Override MVI level; falls back to `envelope._meta.mvi`, then `'standard'` |
+
+**Returns** — A plain object containing only the fields appropriate for the resolved MVI level
+
+**Example**
+
+```ts
+const minimal = projectEnvelope(envelope, 'minimal');
+// minimal contains only: success, _meta (requestId, contextVersion), result/error
+```
+
+## estimateProjectedTokens(projected)
+
+Estimate token count for a projected envelope.
+
+**Signature**
+
+```typescript
+(projected: Record<string, unknown>) => number
+```
+
+**Parameters**
+
+| Name        | Type            | Description                               |
+| ----------- | --------------- | ----------------------------------------- |
+| `projected` | `Record<string` | The projected envelope object to estimate |
+
+**Returns** — The estimated token count based on JSON serialization length
+
+**Example**
+
+```ts
+const tokens = estimateProjectedTokens(projectEnvelope(envelope, 'minimal'));
+// tokens ~= Math.ceil(JSON.stringify(projected).length / 4)
+```
+
+## lafsErrorToProblemDetails(error, requestId)
+
+Convert a LAFSError to an RFC 9457 Problem Details object.
+
+**Signature**
+
+```typescript
+(error: LAFSError, requestId?: string) => LafsProblemDetails
+```
+
+**Parameters**
+
+| Name        | Type        | Description                                        |
+| ----------- | ----------- | -------------------------------------------------- |
+| `error`     | `LAFSError` | The LAFS error to convert                          |
+| `requestId` | `: string`  | Optional request ID to set as the `instance` field |
+
+**Returns** — An RFC 9457-compliant `LafsProblemDetails` object
+
+**Example**
+
+```typescript
+import { lafsErrorToProblemDetails } from "@cleocode/lafs";
+
+const pd = lafsErrorToProblemDetails(envelope.error!, envelope._meta.requestId);
+// pd.status === 400, pd.type === "https://lafs.dev/errors/v1/E_VALIDATION"
+```
+
+## gracefulShutdown(server, config)
+
+Enable graceful shutdown for an HTTP server.
+
+**Signature**
+
+```typescript
+(server: Server, config?: GracefulShutdownConfig) => void
+```
+
+**Parameters**
+
+| Name     | Type                       | Description                       |
+| -------- | -------------------------- | --------------------------------- |
+| `server` | `Server`                   | The Node.js HTTP server to manage |
+| `config` | `: GracefulShutdownConfig` | Optional shutdown configuration   |
+
+**Example**
+
+```typescript
+import express from 'express';
+import { gracefulShutdown } from '@cleocode/lafs/shutdown';
+
+const app = express();
+const server = app.listen(3000);
+
+gracefulShutdown(server, {
+  timeout: 30000,
+  signals: ['SIGTERM', 'SIGINT'],
+  onShutdown: async () => {
+    console.log('Shutting down...');
+    await db.close();
+  }
+});
+```
+
+## isShuttingDown()
+
+Check whether a shutdown sequence is currently in progress.
+
+**Signature**
+
+```typescript
+() => boolean
+```
+
+**Returns** — `true` if the server is shutting down, `false` otherwise
+
+**Example**
+
+```typescript
+if (isShuttingDown()) {
+  return; // skip expensive work
+}
+```
+
+## getShutdownState()
+
+Get a snapshot of the current shutdown state.
+
+**Signature**
+
+```typescript
+() => ShutdownState
+```
+
+**Returns** — A copy of the current `ShutdownState`
+
+**Example**
+
+```typescript
+const state = getShutdownState();
+console.log(`Connections: ${state.activeConnections}`);
+```
+
+## forceShutdown(exitCode)
+
+Terminate the process immediately without waiting for connections to drain.
+
+**Signature**
+
+```typescript
+(exitCode?: number) => void
+```
+
+**Parameters**
+
+| Name       | Type       | Description       |
+| ---------- | ---------- | ----------------- |
+| `exitCode` | `: number` | Process exit code |
+
+**Example**
+
+```typescript
+forceShutdown(1);
+```
+
+## shutdownMiddleware()
+
+Express middleware that rejects requests with 503 while the server is shutting down.
+
+**Signature**
+
+```typescript
+() => (_req: unknown, res: { status: (code: number) => { json: (body: unknown) => void; }; }, next: () => void) => void
+```
+
+**Returns** — An Express-compatible middleware function
+
+**Example**
+
+```typescript
+app.use(shutdownMiddleware());
+```
+
+## waitForShutdown()
+
+Wait until a shutdown sequence begins.
+
+**Signature**
+
+```typescript
+() => Promise<void>
+```
+
+**Returns** — A promise that resolves when shutdown has started
+
+**Example**
+
+```typescript
+await waitForShutdown();
+```

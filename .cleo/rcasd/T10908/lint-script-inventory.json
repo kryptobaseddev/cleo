@@ -1,0 +1,662 @@
+{
+  "generated": "2026-05-27 16:21:07 UTC",
+  "task": "T10908",
+  "summary": {
+    "total": 42,
+    "wired": 35,
+    "unwired": 7,
+    "tested": 15,
+    "baseline": 9
+  },
+  "coe_jobs": {
+    "ci.yml": [
+      "core-first-lint",
+      "forge-ts-check"
+    ],
+    "release-prepare.yml": [
+      "cleanup-on-failure"
+    ],
+    "release.yml": [
+      "execute-payload"
+    ]
+  },
+  "coe_steps": {
+    "ci.yml": 1,
+    "release.yml": 1
+  },
+  "scripts": [
+    {
+      "script": "lint-adr-index-jsonl-frozen.mjs",
+      "path": "scripts/lint-adr-index-jsonl-frozen.mjs",
+      "wired": true,
+      "workflows": [
+        "ci.yml"
+      ],
+      "ci_jobs": [
+        "ci.yml::biome"
+      ],
+      "tested": false,
+      "test_paths": [],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-agent-outputs-registration.mjs",
+      "path": "scripts/lint-agent-outputs-registration.mjs",
+      "wired": true,
+      "workflows": [
+        "ci.yml"
+      ],
+      "ci_jobs": [
+        "ci.yml::biome"
+      ],
+      "tested": true,
+      "test_paths": [
+        "scripts/__tests__/lint-agent-outputs-registration.test.mjs"
+      ],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-agent-worktree-isolation.mjs",
+      "path": "scripts/lint-agent-worktree-isolation.mjs",
+      "wired": false,
+      "workflows": [],
+      "ci_jobs": [],
+      "tested": true,
+      "test_paths": [
+        "scripts/__tests__/lint-agent-worktree-isolation.test.mjs"
+      ],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-boundary-registry.mjs",
+      "path": "scripts/lint-boundary-registry.mjs",
+      "wired": true,
+      "workflows": [
+        "boundary-registry-lint.yml"
+      ],
+      "ci_jobs": [
+        "boundary-registry-lint.yml::boundary-registry-lint"
+      ],
+      "tested": true,
+      "test_paths": [
+        "scripts/__tests__/lint-boundary-registry.test.mjs"
+      ],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-cant-core-hook-mappings-parity.mjs",
+      "path": "scripts/lint-cant-core-hook-mappings-parity.mjs",
+      "wired": true,
+      "workflows": [
+        "ci.yml"
+      ],
+      "ci_jobs": [
+        "ci.yml::ssot-lint"
+      ],
+      "tested": false,
+      "test_paths": [],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-changesets.mjs",
+      "path": "scripts/lint-changesets.mjs",
+      "wired": false,
+      "workflows": [],
+      "ci_jobs": [],
+      "tested": true,
+      "test_paths": [
+        "scripts/__tests__/lint-changesets.test.mjs"
+      ],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-claim-sync.mjs",
+      "path": "scripts/lint-claim-sync.mjs",
+      "wired": false,
+      "workflows": [],
+      "ci_jobs": [],
+      "tested": true,
+      "test_paths": [
+        "scripts/__tests__/lint-claim-sync.test.mjs"
+      ],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-cleo-errors.mjs",
+      "path": "scripts/lint-cleo-errors.mjs",
+      "wired": false,
+      "workflows": [],
+      "ci_jobs": [],
+      "tested": false,
+      "test_paths": [],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-cli-package-boundary.mjs",
+      "path": "scripts/lint-cli-package-boundary.mjs",
+      "wired": true,
+      "workflows": [
+        "ci.yml"
+      ],
+      "ci_jobs": [
+        "ci.yml::core-first-lint"
+      ],
+      "tested": true,
+      "test_paths": [
+        "scripts/__tests__/lint-cli-package-boundary.test.mjs"
+      ],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-contracts-core-ssot.mjs",
+      "path": "scripts/lint-contracts-core-ssot.mjs",
+      "wired": true,
+      "workflows": [
+        "ci.yml"
+      ],
+      "ci_jobs": [
+        "ci.yml::ssot-lint"
+      ],
+      "tested": false,
+      "test_paths": [],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-contracts-dep.mjs",
+      "path": "scripts/lint-contracts-dep.mjs",
+      "wired": true,
+      "workflows": [
+        "ci.yml"
+      ],
+      "ci_jobs": [
+        "ci.yml::contracts-dep-lint"
+      ],
+      "tested": false,
+      "test_paths": [],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-contracts-fan-out.mjs",
+      "path": "scripts/lint-contracts-fan-out.mjs",
+      "wired": true,
+      "workflows": [
+        "ci.yml"
+      ],
+      "ci_jobs": [
+        "ci.yml::contracts-dep-lint"
+      ],
+      "tested": false,
+      "test_paths": [],
+      "baseline": true,
+      "baseline_path": "scripts/.lint-contracts-fan-out-baseline.json"
+    },
+    {
+      "script": "lint-core-first.mjs",
+      "path": "scripts/lint-core-first.mjs",
+      "wired": true,
+      "workflows": [
+        "ci.yml"
+      ],
+      "ci_jobs": [
+        "ci.yml::core-first-lint"
+      ],
+      "tested": false,
+      "test_paths": [],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-cross-db-annotations.mjs",
+      "path": "scripts/lint-cross-db-annotations.mjs",
+      "wired": true,
+      "workflows": [
+        "ci.yml"
+      ],
+      "ci_jobs": [
+        "ci.yml::cross-db-annotation-lint"
+      ],
+      "tested": true,
+      "test_paths": [
+        "scripts/__tests__/lint-cross-db-annotations.test.mjs"
+      ],
+      "baseline": true,
+      "baseline_path": "scripts/.lint-cross-db-annotations-baseline.json"
+    },
+    {
+      "script": "lint-deployed-template-parity.mjs",
+      "path": "scripts/lint-deployed-template-parity.mjs",
+      "wired": true,
+      "workflows": [
+        "ci.yml"
+      ],
+      "ci_jobs": [
+        "ci.yml::changes",
+        "ci.yml::core-first-lint"
+      ],
+      "tested": true,
+      "test_paths": [
+        "scripts/__tests__/lint-deployed-template-parity.test.mjs"
+      ],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-deprecations.mjs",
+      "path": "scripts/lint-deprecations.mjs",
+      "wired": false,
+      "workflows": [],
+      "ci_jobs": [],
+      "tested": false,
+      "test_paths": [],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-dockind-writer-uniqueness.mjs",
+      "path": "scripts/lint-dockind-writer-uniqueness.mjs",
+      "wired": true,
+      "workflows": [
+        "ci.yml"
+      ],
+      "ci_jobs": [
+        "ci.yml::core-first-lint"
+      ],
+      "tested": true,
+      "test_paths": [
+        "scripts/__tests__/lint-dockind-writer-uniqueness.test.mjs"
+      ],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-docs-similarity.mjs",
+      "path": "scripts/lint-docs-similarity.mjs",
+      "wired": true,
+      "workflows": [
+        "ci.yml"
+      ],
+      "ci_jobs": [
+        "ci.yml::core-first-lint"
+      ],
+      "tested": true,
+      "test_paths": [
+        "scripts/__tests__/lint-docs-similarity.test.mjs"
+      ],
+      "baseline": true,
+      "baseline_path": "scripts/.lint-docs-similarity-baseline.json"
+    },
+    {
+      "script": "lint-dual-implementation.mjs",
+      "path": "scripts/lint-dual-implementation.mjs",
+      "wired": true,
+      "workflows": [
+        "dual-implementation-lint.yml"
+      ],
+      "ci_jobs": [
+        "dual-implementation-lint.yml::dual-implementation-lint"
+      ],
+      "tested": true,
+      "test_paths": [
+        "scripts/__tests__/lint-dual-implementation.test.mjs"
+      ],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-envelope-compliance.mjs",
+      "path": "scripts/lint-envelope-compliance.mjs",
+      "wired": true,
+      "workflows": [
+        "envelope-compliance-lint.yml"
+      ],
+      "ci_jobs": [
+        "envelope-compliance-lint.yml::lint"
+      ],
+      "tested": false,
+      "test_paths": [],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-format-error-misuse.mjs",
+      "path": "scripts/lint-format-error-misuse.mjs",
+      "wired": true,
+      "workflows": [
+        "ci.yml"
+      ],
+      "ci_jobs": [
+        "ci.yml::contracts-dep-lint"
+      ],
+      "tested": false,
+      "test_paths": [],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-invariant-registry.mjs",
+      "path": "scripts/lint-invariant-registry.mjs",
+      "wired": true,
+      "workflows": [
+        "ci.yml"
+      ],
+      "ci_jobs": [
+        "ci.yml::ssot-lint"
+      ],
+      "tested": false,
+      "test_paths": [],
+      "baseline": true,
+      "baseline_path": "scripts/.lint-invariant-registry-baseline.json"
+    },
+    {
+      "script": "lint-json-stream-hygiene.mjs",
+      "path": "scripts/lint-json-stream-hygiene.mjs",
+      "wired": true,
+      "workflows": [
+        "ci.yml"
+      ],
+      "ci_jobs": [
+        "ci.yml::ssot-lint"
+      ],
+      "tested": false,
+      "test_paths": [],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-lafs-schema-parity.mjs",
+      "path": "scripts/lint-lafs-schema-parity.mjs",
+      "wired": true,
+      "workflows": [
+        "ci.yml"
+      ],
+      "ci_jobs": [
+        "ci.yml::ssot-lint"
+      ],
+      "tested": false,
+      "test_paths": [],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-migrations.mjs",
+      "path": "scripts/lint-migrations.mjs",
+      "wired": true,
+      "workflows": [
+        "ci.yml"
+      ],
+      "ci_jobs": [
+        "ci.yml::canon-drift"
+      ],
+      "tested": false,
+      "test_paths": [],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-no-cwd-walkup.mjs",
+      "path": "scripts/lint-no-cwd-walkup.mjs",
+      "wired": true,
+      "workflows": [
+        "ci.yml"
+      ],
+      "ci_jobs": [
+        "ci.yml::ssot-lint"
+      ],
+      "tested": true,
+      "test_paths": [
+        "scripts/__tests__/lint-no-cwd-walkup.test.mjs"
+      ],
+      "baseline": true,
+      "baseline_path": "scripts/.lint-no-cwd-walkup-baseline.json"
+    },
+    {
+      "script": "lint-no-deprecated-template-resolvers.mjs",
+      "path": "scripts/lint-no-deprecated-template-resolvers.mjs",
+      "wired": false,
+      "workflows": [],
+      "ci_jobs": [],
+      "tested": false,
+      "test_paths": [],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-no-direct-db-open.mjs",
+      "path": "scripts/lint-no-direct-db-open.mjs",
+      "wired": true,
+      "workflows": [
+        "arch-boundary-check.yml"
+      ],
+      "ci_jobs": [
+        "arch-boundary-check.yml::db-open-guard"
+      ],
+      "tested": false,
+      "test_paths": [],
+      "baseline": true,
+      "baseline_path": "scripts/.lint-no-direct-db-open-baseline.json"
+    },
+    {
+      "script": "lint-no-raw-cr-writes.mjs",
+      "path": "scripts/lint-no-raw-cr-writes.mjs",
+      "wired": false,
+      "workflows": [],
+      "ci_jobs": [],
+      "tested": false,
+      "test_paths": [],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-no-raw-db-opens.mjs",
+      "path": "scripts/lint-no-raw-db-opens.mjs",
+      "wired": true,
+      "workflows": [
+        "ci.yml"
+      ],
+      "ci_jobs": [
+        "ci.yml::db-open-guard"
+      ],
+      "tested": false,
+      "test_paths": [],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-no-raw-define-command.mjs",
+      "path": "scripts/lint-no-raw-define-command.mjs",
+      "wired": true,
+      "workflows": [
+        "arch-boundary-check.yml"
+      ],
+      "ci_jobs": [
+        "arch-boundary-check.yml::db-open-guard"
+      ],
+      "tested": false,
+      "test_paths": [],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-no-raw-git-worktree.mjs",
+      "path": "scripts/lint-no-raw-git-worktree.mjs",
+      "wired": true,
+      "workflows": [
+        "ci.yml"
+      ],
+      "ci_jobs": [
+        "ci.yml::ssot-lint"
+      ],
+      "tested": false,
+      "test_paths": [],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-no-ssot-exempt.mjs",
+      "path": "scripts/lint-no-ssot-exempt.mjs",
+      "wired": true,
+      "workflows": [
+        "ci.yml"
+      ],
+      "ci_jobs": [
+        "ci.yml::core-first-lint"
+      ],
+      "tested": false,
+      "test_paths": [],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-orphan-cleo-dir.mjs",
+      "path": "scripts/lint-orphan-cleo-dir.mjs",
+      "wired": true,
+      "workflows": [
+        "ci.yml"
+      ],
+      "ci_jobs": [
+        "ci.yml::biome"
+      ],
+      "tested": true,
+      "test_paths": [
+        "scripts/__tests__/lint-orphan-cleo-dir.test.mjs"
+      ],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-path-drift.mjs",
+      "path": "scripts/lint-path-drift.mjs",
+      "wired": true,
+      "workflows": [
+        "ci.yml"
+      ],
+      "ci_jobs": [
+        "ci.yml::ssot-lint"
+      ],
+      "tested": false,
+      "test_paths": [],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-paths-ssot.mjs",
+      "path": "scripts/lint-paths-ssot.mjs",
+      "wired": true,
+      "workflows": [
+        "ci.yml"
+      ],
+      "ci_jobs": [
+        "ci.yml::ssot-lint"
+      ],
+      "tested": false,
+      "test_paths": [],
+      "baseline": true,
+      "baseline_path": "scripts/.lint-paths-ssot-baseline.json"
+    },
+    {
+      "script": "lint-project-root-anti-pattern.mjs",
+      "path": "scripts/lint-project-root-anti-pattern.mjs",
+      "wired": true,
+      "workflows": [
+        "ci.yml"
+      ],
+      "ci_jobs": [
+        "ci.yml::ssot-lint"
+      ],
+      "tested": false,
+      "test_paths": [],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-saga-label-anti-pattern.mjs",
+      "path": "scripts/lint-saga-label-anti-pattern.mjs",
+      "wired": true,
+      "workflows": [
+        "ci.yml"
+      ],
+      "ci_jobs": [
+        "ci.yml::ssot-lint"
+      ],
+      "tested": false,
+      "test_paths": [],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-saga-symbol-leakage.mjs",
+      "path": "scripts/lint-saga-symbol-leakage.mjs",
+      "wired": true,
+      "workflows": [
+        "ci.yml"
+      ],
+      "ci_jobs": [
+        "ci.yml::ssot-lint"
+      ],
+      "tested": false,
+      "test_paths": [],
+      "baseline": false,
+      "baseline_path": null
+    },
+    {
+      "script": "lint-stdout-discipline.mjs",
+      "path": "scripts/lint-stdout-discipline.mjs",
+      "wired": true,
+      "workflows": [
+        "arch-boundary-check.yml"
+      ],
+      "ci_jobs": [
+        "arch-boundary-check.yml::db-open-guard"
+      ],
+      "tested": true,
+      "test_paths": [
+        "scripts/__tests__/lint-stdout-discipline.test.mjs"
+      ],
+      "baseline": true,
+      "baseline_path": "scripts/.lint-stdout-discipline-baseline.json"
+    },
+    {
+      "script": "lint-stdout-write-allowlist.mjs",
+      "path": "scripts/lint-stdout-write-allowlist.mjs",
+      "wired": true,
+      "workflows": [
+        "arch-boundary-check.yml"
+      ],
+      "ci_jobs": [
+        "arch-boundary-check.yml::db-open-guard"
+      ],
+      "tested": true,
+      "test_paths": [
+        "scripts/__tests__/lint-stdout-write-allowlist.test.mjs"
+      ],
+      "baseline": true,
+      "baseline_path": "scripts/.lint-stdout-write-allowlist-baseline.json"
+    },
+    {
+      "script": "lint-worktree-location.mjs",
+      "path": "scripts/lint-worktree-location.mjs",
+      "wired": true,
+      "workflows": [
+        "ci.yml"
+      ],
+      "ci_jobs": [
+        "ci.yml::biome"
+      ],
+      "tested": false,
+      "test_paths": [],
+      "baseline": false,
+      "baseline_path": null
+    }
+  ]
+}

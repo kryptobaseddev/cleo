@@ -1,0 +1,58 @@
+{
+  "$schema": "./schemas/global-config.schema.json",
+  "version": "{{SCHEMA_VERSION_GLOBAL_CONFIG}}",
+  "output": {
+    "defaultFormat": "text",
+    "showColor": true,
+    "showUnicode": true,
+    "showProgressBars": true,
+    "dateFormat": "iso8601"
+  },
+  "enforcement": {
+    "acceptance": {
+      "mode": "block",
+      "requiredForPriorities": ["critical", "high", "medium", "low"],
+      "minimumCriteria": 3
+    },
+    "session": {
+      "requiredForMutate": true
+    },
+    "pipeline": {
+      "bindTasksToStage": true
+    }
+  },
+  "verification": {
+    "enabled": true,
+    "requiredForTypes": ["epic", "task", "subtask"],
+    "autoInitialize": true,
+    "maxRounds": 5,
+    "requiredGates": ["implemented", "testsPassed", "qaPassed"],
+    "autoSetImplementedOnComplete": true,
+    "requireForParentAutoComplete": true,
+    "allowManualOverride": true
+  },
+  "lifecycle": {
+    "mode": "strict"
+  },
+  "defaults": {
+    "priority": "medium"
+  },
+
+  "brain": {
+    "autoCapture": true,
+    "captureFiles": false,
+    "captureWork": false,
+    "embedding": {
+      "enabled": true,
+      "provider": "local"
+    },
+    "memoryBridge": {
+      "autoRefresh": true,
+      "contextAware": true,
+      "maxTokens": 2000
+    },
+    "summarization": {
+      "enabled": true
+    }
+  }
+}

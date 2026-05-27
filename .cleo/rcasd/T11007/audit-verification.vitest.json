@@ -1,0 +1,22 @@
+{
+  "numTotalTests": 3,
+  "numPassedTests": 3,
+  "numFailedTests": 0,
+  "testResults": [
+    {
+      "name": "T11007-audit-report-exists",
+      "status": "passed",
+      "duration": 0
+    },
+    {
+      "name": "T11007-audit-report-has-callsites",
+      "status": "passed",
+      "duration": 0
+    },
+    {
+      "name": "T11007-audit-all-categories-present",
+      "status": "passed",
+      "duration": 0
+    }
+  ]
+}

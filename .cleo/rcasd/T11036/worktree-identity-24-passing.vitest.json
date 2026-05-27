@@ -1,0 +1,31 @@
+{
+  "numTotalTests": 24,
+  "numPassedTests": 24,
+  "numFailedTests": 0,
+  "testResults": [
+    {"status": "passed", "fullName": "T11033: copies project-info.json into the worktree .cleo/ on creation"},
+    {"status": "passed", "fullName": "T11033: preserves the inherited projectId across spawns"},
+    {"status": "passed", "fullName": "T11033: gets the correct projectInfo from inside the worktree"},
+    {"status": "passed", "fullName": "T11033: getProjectInfoSync returns matching identity"},
+    {"status": "passed", "fullName": "T11034: resolves to parent project .cleo/ when called from a worktree"},
+    {"status": "passed", "fullName": "T11034: resolves to parent .cleo/ from a subdirectory of the worktree"},
+    {"status": "passed", "fullName": "T11034: does NOT create an orphan .cleo/ inside the worktree"},
+    {"status": "passed", "fullName": "T11034: throws when worktree has no parent project"},
+    {"status": "passed", "fullName": "T11035: accepts spawn when worktree project-info.json matches parent projectId"},
+    {"status": "passed", "fullName": "T11035: rejects spawn when worktree project-info.json has mismatched projectId"},
+    {"status": "passed", "fullName": "T11035: accepts spawn when parent has no project-info.json (legacy mode)"},
+    {"status": "passed", "fullName": "T11035: handles corrupt project-info.json in worktree gracefully"},
+    {"status": "passed", "fullName": "T11036: backfills project-info.json into a worktree that lacks it"},
+    {"status": "passed", "fullName": "T11036: skips backfill when project-info.json already exists"},
+    {"status": "passed", "fullName": "T11036: migration handles worktree with .cleo/ dir but no project-info.json"},
+    {"status": "passed", "fullName": "T11036: migration is idempotent — running twice produces same result"},
+    {"status": "passed", "fullName": "Edge: handles bare repository as parent project"},
+    {"status": "passed", "fullName": "Edge: getCleoDirAbsolute resolves from detached worktree"},
+    {"status": "passed", "fullName": "Edge: getCleoDirAbsolute from nested worktree resolves to parent project"},
+    {"status": "passed", "fullName": "Edge: handles parent project without project-info.json"},
+    {"status": "passed", "fullName": "Edge: handles empty project-info.json in parent"},
+    {"status": "passed", "fullName": "Edge: handles pre-T5333 project-info.json (no projectId)"},
+    {"status": "passed", "fullName": "Edge: handles worktree that has no .cleo/ directory"},
+    {"status": "passed", "fullName": "Edge: all worktrees inherit the same parent identity"}
+  ]
+}

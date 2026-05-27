@@ -1,0 +1,86 @@
+{
+  "name": "@cleocode/cleo",
+  "version": "2026.5.126",
+  "description": "CLEO CLI — the assembled product consuming @cleocode/core",
+  "type": "module",
+  "main": "./dist/cli/index.js",
+  "exports": {
+    ".": "./dist/cli/index.js"
+  },
+  "bin": {
+    "cleo": "bin/cleo.js",
+    "ct": "bin/cleo.js"
+  },
+  "scripts": {
+    "gen:manifest": "node scripts/generate-command-manifest.mjs",
+    "prebuild": "node scripts/generate-command-manifest.mjs",
+    "build": "tsc",
+    "postbuild": "node scripts/assert-shebang.mjs",
+    "pretypecheck": "node scripts/generate-command-manifest.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "cd ../.. && vitest run packages/cleo/src",
+    "test:integration": "cd ../.. && vitest run --config packages/cleo/vitest.integration.config.ts",
+    "postinstall": "node bin/postinstall.js && node scripts/postinstall-check-core.mjs"
+  },
+  "dependencies": {
+    "@cleocode/animations": "workspace:*",
+    "@cleocode/caamp": "workspace:*",
+    "@cleocode/cant": "workspace:*",
+    "@cleocode/contracts": "workspace:*",
+    "@cleocode/lafs": "workspace:*",
+    "@cleocode/nexus": "workspace:*",
+    "@cleocode/paths": "workspace:*",
+    "@cleocode/playbooks": "workspace:*",
+    "@cleocode/runtime": "workspace:*",
+    "check-disk-space": "^3.4.0",
+    "citty": "^0.2.1",
+    "graphology": "^0.26.0",
+    "graphology-communities-louvain": "^2.0.2",
+    "graphology-types": "^0.24.8",
+    "llmtxt": "^2026.4.13",
+    "node-cron": "^4.2.1",
+    "tree-sitter": "0.21.1",
+    "tree-sitter-c": "0.23.2",
+    "tree-sitter-cpp": "^0.23.4",
+    "tree-sitter-go": "^0.23.0",
+    "tree-sitter-java": "^0.23.5",
+    "tree-sitter-javascript": "^0.23.0",
+    "tree-sitter-python": "0.23.4",
+    "tree-sitter-ruby": "^0.23.1",
+    "tree-sitter-rust": "0.23.1",
+    "tree-sitter-typescript": "^0.23.2",
+    "yaml": "^2.8.3"
+  },
+  "peerDependencies": {
+    "@cleocode/core": "workspace:*"
+  },
+  "peerDependenciesMeta": {
+    "@cleocode/core": {
+      "optional": false
+    }
+  },
+  "engines": {
+    "node": ">=24.13.0"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "completions",
+    "bin",
+    "scripts",
+    "templates",
+    "assets"
+  ],
+  "devDependencies": {
+    "@types/node-cron": "^3.0.11",
+    "vitest": "^4.1.4"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kryptobaseddev/cleo",
+    "directory": "packages/cleo"
+  }
+}

@@ -1,0 +1,189 @@
+{
+  "status": "found",
+  "symbol": {
+    "uid": "Function:src/config/io.ts:loadConfig",
+    "name": "loadConfig",
+    "filePath": "src/config/io.ts",
+    "startLine": 1105,
+    "endLine": 1233
+  },
+  "incoming": {},
+  "outgoing": {
+    "calls": [
+      {
+        "uid": "Function:src/terminal/safe-text.ts:sanitizeTerminalText",
+        "name": "sanitizeTerminalText",
+        "filePath": "src/terminal/safe-text.ts"
+      },
+      {
+        "uid": "Function:src/infra/shell-env.ts:loadShellEnvFallback",
+        "name": "loadShellEnvFallback",
+        "filePath": "src/infra/shell-env.ts"
+      },
+      {
+        "uid": "Function:src/infra/shell-env.ts:shouldEnableShellEnvFallback",
+        "name": "shouldEnableShellEnvFallback",
+        "filePath": "src/infra/shell-env.ts"
+      },
+      {
+        "uid": "Function:src/infra/shell-env.ts:shouldDeferShellEnvFallback",
+        "name": "shouldDeferShellEnvFallback",
+        "filePath": "src/infra/shell-env.ts"
+      },
+      {
+        "uid": "Function:src/infra/shell-env.ts:resolveShellEnvFallbackTimeoutMs",
+        "name": "resolveShellEnvFallbackTimeoutMs",
+        "filePath": "src/infra/shell-env.ts"
+      },
+      {
+        "uid": "Function:src/config/validation.ts:validateConfigObjectWithPlugins",
+        "name": "validateConfigObjectWithPlugins",
+        "filePath": "src/config/validation.ts"
+      },
+      {
+        "uid": "Function:src/config/shell-env-expected-keys.ts:resolveShellEnvExpectedKeys",
+        "name": "resolveShellEnvExpectedKeys",
+        "filePath": "src/config/shell-env-expected-keys.ts"
+      },
+      {
+        "uid": "Function:src/config/runtime-snapshot.ts:loadPinnedRuntimeConfig",
+        "name": "loadPinnedRuntimeConfig",
+        "filePath": "src/config/runtime-snapshot.ts"
+      },
+      {
+        "uid": "Function:src/config/materialize.ts:materializeRuntimeConfig",
+        "name": "materializeRuntimeConfig",
+        "filePath": "src/config/materialize.ts"
+      },
+      {
+        "uid": "Function:src/config/io.ts:hashConfigRaw",
+        "name": "hashConfigRaw",
+        "filePath": "src/config/io.ts"
+      },
+      {
+        "uid": "Function:src/config/io.ts:coerceConfig",
+        "name": "coerceConfig",
+        "filePath": "src/config/io.ts"
+      },
+      {
+        "uid": "Function:src/config/io.ts:warnOnConfigMiskeys",
+        "name": "warnOnConfigMiskeys",
+        "filePath": "src/config/io.ts"
+      },
+      {
+        "uid": "Function:src/config/io.ts:warnIfConfigFromFuture",
+        "name": "warnIfConfigFromFuture",
+        "filePath": "src/config/io.ts"
+      },
+      {
+        "uid": "Function:src/config/io.ts:maybeLoadDotEnvForConfig",
+        "name": "maybeLoadDotEnvForConfig",
+        "filePath": "src/config/io.ts"
+      },
+      {
+        "uid": "Function:src/config/io.ts:resolveConfigIncludesForRead",
+        "name": "resolveConfigIncludesForRead",
+        "filePath": "src/config/io.ts"
+      },
+      {
+        "uid": "Function:src/config/io.ts:resolveConfigForRead",
+        "name": "resolveConfigForRead",
+        "filePath": "src/config/io.ts"
+      },
+      {
+        "uid": "Function:src/config/io.ts:resolveLegacyConfigForRead",
+        "name": "resolveLegacyConfigForRead",
+        "filePath": "src/config/io.ts"
+      },
+      {
+        "uid": "Function:src/config/io.ts:createConfigFileSnapshot",
+        "name": "createConfigFileSnapshot",
+        "filePath": "src/config/io.ts"
+      },
+      {
+        "uid": "Function:src/config/io.ts:createConfigIO",
+        "name": "createConfigIO",
+        "filePath": "src/config/io.ts"
+      },
+      {
+        "uid": "Function:src/config/io.ts:observeLoadConfigSnapshot",
+        "name": "observeLoadConfigSnapshot",
+        "filePath": "src/config/io.ts"
+      },
+      {
+        "uid": "Function:src/config/io.ts:finalizeLoadedRuntimeConfig",
+        "name": "finalizeLoadedRuntimeConfig",
+        "filePath": "src/config/io.ts"
+      },
+      {
+        "uid": "Function:src/config/io.observe-recovery.ts:maybeRecoverSuspiciousConfigReadSync",
+        "name": "maybeRecoverSuspiciousConfigReadSync",
+        "filePath": "src/config/io.observe-recovery.ts"
+      },
+      {
+        "uid": "Function:src/config/io.invalid-config.ts:throwInvalidConfig",
+        "name": "throwInvalidConfig",
+        "filePath": "src/config/io.invalid-config.ts"
+      },
+      {
+        "uid": "Function:src/config/agent-dirs.ts:findDuplicateAgentDirs",
+        "name": "findDuplicateAgentDirs",
+        "filePath": "src/config/agent-dirs.ts"
+      },
+      {
+        "uid": "Function:test/helpers/node-builtin-mocks.test.ts:readFileSync",
+        "name": "readFileSync",
+        "filePath": "test/helpers/node-builtin-mocks.test.ts"
+      },
+      {
+        "uid": "Class:src/config/agent-dirs.ts:DuplicateAgentDirError",
+        "name": "DuplicateAgentDirError",
+        "filePath": "src/config/agent-dirs.ts"
+      }
+    ]
+  },
+  "processes": [
+    {
+      "id": "proc_90_loadconfig",
+      "name": "LoadConfig → ReadFileSync",
+      "step_index": 1,
+      "step_count": 6
+    },
+    {
+      "id": "proc_91_loadconfig",
+      "name": "LoadConfig → NormalizeEnvVarKey",
+      "step_index": 1,
+      "step_count": 6
+    },
+    {
+      "id": "proc_92_loadconfig",
+      "name": "LoadConfig → Trim",
+      "step_index": 1,
+      "step_count": 6
+    },
+    {
+      "id": "proc_93_loadconfig",
+      "name": "LoadConfig → ResolveUserPath",
+      "step_index": 1,
+      "step_count": 6
+    },
+    {
+      "id": "proc_94_loadconfig",
+      "name": "LoadConfig → Dirname",
+      "step_index": 1,
+      "step_count": 6
+    },
+    {
+      "id": "proc_190_loadconfig",
+      "name": "LoadConfig → ResolveExecCacheId",
+      "step_index": 1,
+      "step_count": 5
+    },
+    {
+      "id": "proc_278_loadconfig",
+      "name": "LoadConfig → ResolveTimeoutMs",
+      "step_index": 1,
+      "step_count": 4
+    }
+  ]
+}

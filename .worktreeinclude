@@ -1,0 +1,45 @@
+# =============================================================================
+# .worktreeinclude — files to copy into agent worktrees on provisioning
+# =============================================================================
+# Canonical location (T9983 · Saga T9977 SG-WORKTRUNK-OWN). Matches Claude
+# Code Desktop, worktrunk-core, and the broader git-worktree-tooling
+# convention.
+#
+# Syntax: gitignore-style globs (parsed by ignore::gitignore via
+# @cleocode/worktree-napi). Lines starting with `!` are negations.
+#
+# CLEO copies these in parallel via @cleocode/worktree-napi (rayon +
+# reflink-or-copy). Reflink (copy-on-write) makes large directory copies
+# effectively free on supported FS (APFS/btrfs/XFS).
+#
+# IMPORTANT: Files are COPIED (not symlinked) into each worktree, preserving
+# full worktree isolation (T10077). Modifications in one worktree do NOT
+# affect any other worktree or the project root.
+#
+# SAFETY: Only list files that are SAFE to propagate across worktrees.
+# Never list secrets, session data, or machine-specific caches here.
+# =============================================================================
+
+# JS/TS — pnpm-managed monorepo
+# NOTE: node_modules/ is intentionally NOT listed here.
+# Symlinking node_modules across worktrees causes pnpm store races that
+# corrupt .pnpm/ with @@-prefixed doubled directories (T9938).
+# Each worktree gets its own node_modules installed during provisioning
+# via a serialized pnpm install step in createWorktree.
+pnpm-lock.yaml
+
+# Rust workspace — cargo build cache + lockfile
+Cargo.lock
+target/release/build/
+target/release/*.so
+target/release/*.node
+
+# Native add-ons (napi-rs prebuilt artefacts)
+crates/cant-napi/*.node
+crates/worktree-napi/*.node
+packages/cant/napi/*.node
+packages/worktree/*.node
+
+# SvelteKit Studio build artefacts
+packages/studio/.svelte-kit/
+packages/studio/build/

@@ -1,0 +1,153 @@
+/**
+ * SQLite store for telemetry.db via drizzle-orm/node-sqlite + node:sqlite.
+ *
+ * Stores opt-in command telemetry in ~/.local/share/cleo/telemetry.db.
+ * Follows the same singleton + WAL + migration pattern as memory-sqlite.ts.
+ * Telemetry is disabled by default — check isTelemetryEnabled() before writing.
+ *
+ * @task T624
+ */
+
+import { mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import type { DatabaseSync } from 'node:sqlite';
+import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
+import { drizzle } from 'drizzle-orm/node-sqlite';
+import { getCleoHome } from '../paths.js';
+import { ensureColumns, migrateWithRetry, reconcileJournal } from '../store/migration-manager.js';
+import { resolveCorePackageMigrationsFolder } from '../store/resolve-migrations-folder.js';
+import { openNativeDatabase } from '../store/sqlite.js';
+import * as telemetrySchema from './schema.js';
+
+/** Database file name in the global CLEO home directory. */
+const DB_FILENAME = 'telemetry.db';
+
+/** Schema version. Single source of truth. */
+export const TELEMETRY_SCHEMA_VERSION = '1.0.0';
+
+/** Singleton state. */
+let _db: NodeSQLiteDatabase<typeof telemetrySchema> | null = null;
+let _nativeDb: DatabaseSync | null = null;
+let _dbPath: string | null = null;
+let _initPromise: Promise<NodeSQLiteDatabase<typeof telemetrySchema>> | null = null;
+
+/**
+ * Get the absolute path to telemetry.db in the global CLEO home directory.
+ * Linux: ~/.local/share/cleo/telemetry.db
+ */
+export function getTelemetryDbPath(): string {
+  return join(getCleoHome(), DB_FILENAME);
+}
+
+/**
+ * Resolve the absolute path to the drizzle-telemetry migrations folder inside
+ * @cleocode/core, using ESM-native module resolution (T1177).
+ *
+ * Delegates to {@link resolveCorePackageMigrationsFolder} which handles
+ * bundled dist/, workspace dev, and global-install layouts uniformly via
+ * `import.meta.resolve()` + `createRequire().resolve()` fallback.
+ */
+export function resolveTelemetryMigrationsFolder(): string {
+  return resolveCorePackageMigrationsFolder('drizzle-telemetry');
+}
+
+/**
+ * Run drizzle migrations to create/update telemetry.db tables.
+ */
+function runTelemetryMigrations(
+  nativeDb: DatabaseSync,
+  db: NodeSQLiteDatabase<typeof telemetrySchema>,
+): void {
+  const migrationsFolder = resolveTelemetryMigrationsFolder();
+
+  reconcileJournal(nativeDb, migrationsFolder, 'telemetry_events', 'telemetry');
+  migrateWithRetry(db, migrationsFolder, nativeDb, 'telemetry_events', 'telemetry');
+
+  // Safety net: ensure core columns exist even if migration was skipped.
+  ensureColumns(
+    nativeDb,
+    'telemetry_events',
+    [
+      { name: 'anonymous_id', ddl: "text NOT NULL DEFAULT ''" },
+      { name: 'domain', ddl: "text NOT NULL DEFAULT ''" },
+      { name: 'gateway', ddl: "text NOT NULL DEFAULT 'query'" },
+      { name: 'operation', ddl: "text NOT NULL DEFAULT ''" },
+      { name: 'command', ddl: "text NOT NULL DEFAULT ''" },
+      { name: 'exit_code', ddl: 'integer NOT NULL DEFAULT 0' },
+      { name: 'duration_ms', ddl: 'integer NOT NULL DEFAULT 0' },
+      { name: 'error_code', ddl: 'text' },
+    ],
+    'telemetry',
+  );
+}
+
+/**
+ * Reset the singleton (used in tests).
+ */
+export function resetTelemetryDbState(): void {
+  try {
+    _nativeDb?.close();
+  } catch {
+    // ignore
+  }
+  _db = null;
+  _nativeDb = null;
+  _dbPath = null;
+  _initPromise = null;
+}
+
+/**
+ * Return the raw `node:sqlite` handle for the open telemetry.db (or `null`
+ * if not yet initialised). Exposed so the backup pipeline can issue
+ * `PRAGMA wal_checkpoint(TRUNCATE)` + `VACUUM INTO` against the live
+ * singleton without re-resolving the path or opening a second handle.
+ *
+ * Mirrors {@link getNexusNativeDb}, {@link getBrainNativeDb}, etc.
+ *
+ * @task T10317 — fleet snapshot coverage for every `DB_INVENTORY` entry
+ *               (Saga T10281 / Epic T10284 / E3)
+ */
+export function getTelemetryNativeDb(): DatabaseSync | null {
+  return _nativeDb;
+}
+
+/**
+ * Initialize telemetry.db (lazy singleton).
+ * Creates the file and runs migrations on first call.
+ */
+export async function getTelemetryDb(): Promise<NodeSQLiteDatabase<typeof telemetrySchema>> {
+  const requestedPath = getTelemetryDbPath();
+
+  if (_db && _dbPath !== requestedPath) {
+    resetTelemetryDbState();
+  }
+
+  if (_db) return _db;
+  if (_initPromise) return _initPromise;
+
+  _initPromise = (async () => {
+    const dbPath = requestedPath;
+    _dbPath = dbPath;
+
+    mkdirSync(dirname(dbPath), { recursive: true });
+
+    const nativeDb = openNativeDatabase(dbPath);
+    _nativeDb = nativeDb;
+
+    const db = drizzle({ client: nativeDb, schema: telemetrySchema });
+
+    runTelemetryMigrations(nativeDb, db);
+
+    // Seed schema version (idempotent)
+    nativeDb
+      .prepare(
+        `INSERT OR IGNORE INTO telemetry_schema_meta (key, value) VALUES ('schemaVersion', '${TELEMETRY_SCHEMA_VERSION}')`,
+      )
+      .run();
+
+    _db = db;
+    return db;
+  })();
+
+  return _initPromise;
+}

@@ -1,0 +1,108 @@
+[
+  {
+    "title": "E-R-AUDIT: Audit and catalog all ~200 operations across 26 domains from OPERATIONS registry",
+    "type": "epic",
+    "kind": "research",
+    "size": "medium",
+    "priority": "high",
+    "acceptance": [
+      "Produce complete inventory of all operations with domain, gateway, params, return type, idempotency, tier, session requirement",
+      "Flag operations with missing/incorrect param definitions and no gate definitions",
+      "Output Markdown catalog at docs/research/T10400-operations-catalog.md",
+      "Covers all 26 domains: tasks, orchestrate, focus, docs, session, memory, brain, daemon, doctor, release, agents, nexus, conduit, dialectic, intelligence, issues, lifecycle, llm, pipeline, playbook, research, sentient, skills, sticky, system, validate, worktree"
+    ]
+  },
+  {
+    "title": "E-R-ENVELOPE-SSOT: Formalize LAFS envelope as canonical SDK boundary from T10343 doctrine",
+    "type": "epic",
+    "kind": "research",
+    "size": "small",
+    "priority": "high",
+    "acceptance": [
+      "Derive canonical LAFS envelope shape from T10343 envelope-first doctrine",
+      "Document required fields, optional fields, extension points, pagination modes, error categories, agent actions, retry semantics",
+      "Document MVI projection levels and transport bindings (HTTP status codes, CLI exit codes)",
+      "Output spec at docs/specs/T10400-lafs-envelope-ssot.md"
+    ]
+  },
+  {
+    "title": "E-R-ERROR-REGISTRY: Audit error code registry and fill gaps for all 10 LAFS error categories",
+    "type": "epic",
+    "kind": "research",
+    "size": "small",
+    "priority": "high",
+    "acceptance": [
+      "Audit packages/lafs/src/errorRegistry.ts for completeness across all 10 categories",
+      "Cross-reference with STATIC_GATE_TABLE and core error usage to identify gaps",
+      "Produce complete error code catalog with code, category, retryable, retryAfterMs, agentAction, docUrl",
+      "Output at docs/specs/T10400-error-code-registry.md"
+    ]
+  },
+  {
+    "title": "E-S-OPENAPI: Author OpenAPI 3.2 specification from audited operations catalog",
+    "type": "epic",
+    "kind": "research",
+    "size": "large",
+    "priority": "high",
+    "acceptance": [
+      "Produce docs/api/cleo-sdk-api.openapi.yaml with all domains as tagged path groups",
+      "Common schema components: LAFSEnvelope, LAFSMeta, LAFSError, LAFSPage, Warning, MVILevel",
+      "Every operation from audit catalog has a path entry with params, requestBody, responses",
+      "HTTP status code mapping complete; pagination supported via query params",
+      "Spec passes openapi-cli lint validation"
+    ]
+  },
+  {
+    "title": "E-S-AUTH: Design auth surface for SDK API access",
+    "type": "epic",
+    "kind": "research",
+    "size": "small",
+    "priority": "medium",
+    "acceptance": [
+      "Document machine-local Unix-socket trust model (default, no auth within ~/.local/share/cleo/)",
+      "Document optional token auth for remote/network exposure via Gateway",
+      "Specify token storage (encrypted) and JWT Proxy-Authorization header per T10409 AC7",
+      "Define auth error responses (401, 403) in OpenAPI spec format"
+    ]
+  },
+  {
+    "title": "E-S-VERSIONING: Define SDK versioning policy and deprecation lifecycle",
+    "type": "epic",
+    "kind": "research",
+    "size": "small",
+    "priority": "medium",
+    "acceptance": [
+      "Document semver policy: MAJOR for envelope shape change, MINOR for new ops, PATCH for fixes",
+      "Define deprecation lifecycle: @deprecated JSDoc -> W_DEPRECATED warning -> removal after 2 minor versions",
+      "Document cleo doctor api command surfacing deprecation registry",
+      "Output VERSIONING.md in SDK package"
+    ]
+  },
+  {
+    "title": "E-I-SDK-SCAFFOLD: Create @cleocode/cleo-sdk package with transport-agnostic client",
+    "type": "epic",
+    "kind": "work",
+    "size": "medium",
+    "priority": "high",
+    "acceptance": [
+      "New package at packages/cleo-sdk/ with package.json (@cleocode/cleo-sdk v0.1.0), tsconfig, build config",
+      "Transport interface: execute<T>(operation, params) returning Promise<LAFSEnvelope<T>>",
+      "InProcessTransport wrapping @cleocode/core dispatch; HttpTransport stub for T10401",
+      "CleoSdkClient class accepting transport; builds with tsc; exports CJS+ESM",
+      "README with basic usage example"
+    ]
+  },
+  {
+    "title": "E-I-CI-GATE: Implement lint-envelope-compliance.mjs CI gate",
+    "type": "epic",
+    "kind": "work",
+    "size": "small",
+    "priority": "high",
+    "acceptance": [
+      "Script at scripts/lint-envelope-compliance.mjs validating LAFSEnvelope against OpenAPI spec",
+      "Checks: $schema, _meta required fields, success, result/error exclusion, error categories, agent actions",
+      "Baseline=0 strict mode; CI integration on every PR touching packages/cleo-sdk/ or packages/core/",
+      "Human-readable violation report with file:line references"
+    ]
+  }
+]

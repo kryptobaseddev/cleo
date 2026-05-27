@@ -1,0 +1,27 @@
+{
+  "$schema": "https://lafs.dev/schemas/v1/envelope.schema.json",
+  "_meta": {
+    "specVersion": "1.0.0",
+    "schemaVersion": "1.0.0",
+    "timestamp": "2026-02-11T00:00:00Z",
+    "operation": "example.create",
+    "requestId": "req_03",
+    "transport": "cli",
+    "strict": true,
+    "mvi": "minimal",
+    "contextVersion": 0
+  },
+  "success": false,
+  "result": null,
+  "error": {
+    "code": "E_VALIDATION_SCHEMA",
+    "message": "Input failed schema validation: 'title' is required",
+    "category": "VALIDATION",
+    "retryable": false,
+    "retryAfterMs": null,
+    "details": {
+      "field": "title",
+      "rule": "required"
+    }
+  }
+}

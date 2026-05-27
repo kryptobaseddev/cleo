@@ -1,0 +1,3655 @@
+---
+title: ''
+---
+
+All usage examples from the package, aggregated for quick reference.
+
+## `ConfigFormat`
+
+*Supported configuration file formats.  - `"json"` - Standard JSON - `"jsonc"` - JSON with comments (comment-preserving via jsonc-parser) - `"yaml"` - YAML (via js-yaml) - `"toml"` - TOML (via iarna/toml)*
+
+[View in API reference](/packages/./api/functions#configformat)
+
+```typescript
+const format: ConfigFormat = "jsonc";
+```
+
+## `TransportType`
+
+*MCP server transport protocol type.  - `"stdio"` - Standard input/output (local process) - `"sse"` - Server-Sent Events (remote) - `"http"` - HTTP/Streamable HTTP (remote) - `"websocket"` - WebSocket full-duplex (remote)*
+
+[View in API reference](/packages/./api/functions#transporttype)
+
+```typescript
+const transport: TransportType = "stdio";
+```
+
+## `DetectionConfig`
+
+*Configuration for detecting whether a provider is installed.*
+
+[View in API reference](/packages/./api/functions#detectionconfig)
+
+```typescript
+const config: DetectionConfig = {
+  methods: ["binary", "directory"],
+  binary: "claude",
+  directories: ["~/.config/claude"],
+};
+```
+
+## `Provider`
+
+*A resolved AI agent provider definition with platform-specific paths.*
+
+[View in API reference](/packages/./api/functions#provider)
+
+```typescript
+const provider = getProvider("claude-code");
+if (provider?.capabilities.mcp) {
+  console.log(provider.capabilities.mcp.configPathGlobal);
+}
+```
+
+## `McpServerConfig`
+
+*Canonical MCP server configuration.*
+
+[View in API reference](/packages/./api/functions#mcpserverconfig)
+
+```typescript
+// Remote server
+const remote: McpServerConfig = {
+  type: "http",
+  url: "https://mcp.example.com/sse",
+};
+
+// Local stdio server
+const local: McpServerConfig = {
+  command: "npx",
+  args: ["-y", "@modelcontextprotocol/server-filesystem"],
+};
+```
+
+## `ParsedSource`
+
+*Result of parsing a source string into its typed components.*
+
+[View in API reference](/packages/./api/functions#parsedsource)
+
+```typescript
+const parsed: ParsedSource = {
+  type: "github",
+  value: "https://github.com/owner/repo",
+  inferredName: "repo",
+  owner: "owner",
+  repo: "repo",
+};
+```
+
+## `SkillMetadata`
+
+*Metadata extracted from a SKILL.md frontmatter.*
+
+[View in API reference](/packages/./api/functions#skillmetadata)
+
+```typescript
+const meta: SkillMetadata = {
+  name: "my-skill",
+  description: "A useful skill for code generation",
+  version: "1.0.0",
+};
+```
+
+## `SkillEntry`
+
+*A discovered skill entry with its location and metadata.*
+
+[View in API reference](/packages/./api/functions#skillentry)
+
+```typescript
+import { getCanonicalSkillsDir } from "./core/paths/standard.js";
+import { join } from "node:path";
+
+const entry: SkillEntry = {
+  name: "my-skill",
+  scopedName: "my-skill",
+  path: join(getCanonicalSkillsDir(), "my-skill"),
+  metadata: { name: "my-skill", description: "A skill" },
+};
+```
+
+## `LockEntry`
+
+*A single entry in the CAAMP lock file tracking an installed skill or MCP server.*
+
+[View in API reference](/packages/./api/functions#lockentry)
+
+```typescript
+import { getCanonicalSkillsDir } from "./core/paths/standard.js";
+import { join } from "node:path";
+
+const entry: LockEntry = {
+  name: "my-skill",
+  scopedName: "my-skill",
+  source: "https://github.com/owner/repo",
+  sourceType: "github",
+  installedAt: "2025-01-15T10:30:00.000Z",
+  agents: ["claude-code", "cursor"],
+  canonicalPath: join(getCanonicalSkillsDir(), "my-skill"),
+  isGlobal: true,
+};
+```
+
+## `CaampLockFile`
+
+*The CAAMP lock file structure, stored at the resolved canonical lock path.*
+
+[View in API reference](/packages/./api/functions#caamplockfile)
+
+```typescript
+const lock: CaampLockFile = {
+  version: 1,
+  skills: {},
+  mcpServers: {},
+  lastSelectedAgents: ["claude-code"],
+};
+```
+
+## `MarketplaceSkill`
+
+*A skill listing from a marketplace search result.*
+
+[View in API reference](/packages/./api/functions#marketplaceskill)
+
+```typescript
+const skill: MarketplaceSkill = {
+  id: "abc123",
+  name: "my-skill",
+  scopedName: "@author/my-skill",
+  description: "A useful skill",
+  author: "author",
+  stars: 42,
+  forks: 5,
+  githubUrl: "https://github.com/author/my-skill",
+  repoFullName: "author/my-skill",
+  path: "/",
+  hasContent: true,
+};
+```
+
+## `MarketplaceSearchResult`
+
+*Paginated search results from a marketplace API.*
+
+[View in API reference](/packages/./api/functions#marketplacesearchresult)
+
+```typescript
+const result: MarketplaceSearchResult = {
+  skills: [],
+  total: 0,
+  limit: 20,
+  offset: 0,
+};
+```
+
+## `AuditRule`
+
+*A security audit rule definition with a regex pattern to match against skill content.*
+
+[View in API reference](/packages/./api/functions#auditrule)
+
+```typescript
+const rule: AuditRule = {
+  id: "SEC001",
+  name: "shell-injection",
+  description: "Potential shell injection vector",
+  severity: "critical",
+  category: "injection",
+  pattern: /rm\s+-rf\s+\//,
+};
+```
+
+## `AuditFinding`
+
+*A single finding from a security audit scan, with line-level location.*
+
+[View in API reference](/packages/./api/functions#auditfinding)
+
+```typescript
+const finding: AuditFinding = {
+  rule: myRule,
+  line: 42,
+  column: 10,
+  match: "rm -rf /",
+  context: "Execute: rm -rf / to clean up",
+};
+```
+
+## `AuditResult`
+
+*Aggregate audit result for a single file.*
+
+[View in API reference](/packages/./api/functions#auditresult)
+
+```typescript
+const result: AuditResult = {
+  file: "/path/to/SKILL.md",
+  findings: [],
+  score: 100,
+  passed: true,
+};
+```
+
+## `InjectionCheckResult`
+
+*Result of checking a single instruction file for CAAMP injection status.*
+
+[View in API reference](/packages/./api/functions#injectioncheckresult)
+
+```typescript
+const check: InjectionCheckResult = {
+  file: "/project/CLAUDE.md",
+  provider: "claude-code",
+  status: "current",
+  fileExists: true,
+};
+```
+
+## `McpServerEntry`
+
+*An MCP server entry read from a provider's config file.*
+
+[View in API reference](/packages/./api/functions#mcpserverentry)
+
+```typescript
+const entry: McpServerEntry = {
+  name: "filesystem",
+  providerId: "claude-code",
+  providerName: "Claude Code",
+  scope: "project",
+  configPath: "/project/.claude.json",
+  config: { command: "npx", args: ["-y", "@mcp/server-filesystem"] },
+};
+```
+
+## `GlobalOptions`
+
+*Global CLI options shared across all CAAMP commands.*
+
+[View in API reference](/packages/./api/functions#globaloptions)
+
+```typescript
+const opts: GlobalOptions = {
+  agent: ["claude-code", "cursor"],
+  global: true,
+  json: true,
+};
+```
+
+## `getPlatformPaths()`
+
+*Get OS-appropriate paths for CAAMP's global directories.*
+
+[View in API reference](/packages/./api/functions#getplatformpaths)
+
+```typescript
+const paths = getPlatformPaths();
+console.log(paths.data); // e.g. "/home/user/.local/share/agents"
+```
+
+## `getSystemInfo()`
+
+*Get a cached system information snapshot.*
+
+[View in API reference](/packages/./api/functions#getsysteminfo)
+
+```typescript
+const info = getSystemInfo();
+console.log(`Running on ${info.platform}/${info.arch}`);
+```
+
+## `getPlatformLocations()`
+
+*Resolves platform-specific directory locations for the current OS.*
+
+[View in API reference](/packages/./api/functions#getplatformlocations)
+
+```typescript
+const locations = getPlatformLocations();
+console.log(locations.config); // e.g., "/home/user/.config"
+```
+
+## `getAgentsHome()`
+
+*Returns the global agents home directory path.*
+
+[View in API reference](/packages/./api/functions#getagentshome)
+
+```typescript
+const home = getAgentsHome();
+// e.g., "/home/user/.local/share/caamp"
+```
+
+## `getProjectAgentsDir()`
+
+*Returns the project-local `.agents` directory path.*
+
+[View in API reference](/packages/./api/functions#getprojectagentsdir)
+
+```typescript
+const dir = getProjectAgentsDir("/home/user/my-project");
+// returns "/home/user/my-project/.agents"
+```
+
+## `resolveProjectPath()`
+
+*Resolves a relative path against a project directory.*
+
+[View in API reference](/packages/./api/functions#resolveprojectpath)
+
+```typescript
+const path = resolveProjectPath(".agents/config.toml", "/home/user/project");
+// returns "/home/user/project/.agents/config.toml"
+```
+
+## `getCanonicalSkillsDir()`
+
+*Returns the canonical skills storage directory path.*
+
+[View in API reference](/packages/./api/functions#getcanonicalskillsdir)
+
+```typescript
+const dir = getCanonicalSkillsDir();
+// e.g., "/home/user/.local/share/caamp/skills"
+```
+
+## `getLockFilePath()`
+
+*Returns the path to the CAAMP lock file.*
+
+[View in API reference](/packages/./api/functions#getlockfilepath)
+
+```typescript
+const lockPath = getLockFilePath();
+// e.g., "/home/user/.local/share/caamp/.caamp-lock.json"
+```
+
+## `getAgentsMcpDir()`
+
+*Gets the MCP directory within the `.agents/` standard structure.*
+
+[View in API reference](/packages/./api/functions#getagentsmcpdir)
+
+```typescript
+const globalMcp = getAgentsMcpDir("global");
+const projectMcp = getAgentsMcpDir("project", "/home/user/project");
+```
+
+## `getAgentsMcpServersPath()`
+
+*Gets the MCP servers.json path within the `.agents/` standard structure.*
+
+[View in API reference](/packages/./api/functions#getagentsmcpserverspath)
+
+```typescript
+const serversPath = getAgentsMcpServersPath("global");
+// e.g., "/home/user/.agents/mcp/servers.json"
+```
+
+## `getAgentsInstructFile()`
+
+*Gets the primary AGENTS.md instruction file path within `.agents/`.*
+
+[View in API reference](/packages/./api/functions#getagentsinstructfile)
+
+```typescript
+const agentsFile = getAgentsInstructFile("project", "/home/user/project");
+// returns "/home/user/project/.agents/AGENTS.md"
+```
+
+## `getAgentsConfigPath()`
+
+*Gets the config.toml path within the `.agents/` standard structure.*
+
+[View in API reference](/packages/./api/functions#getagentsconfigpath)
+
+```typescript
+const configPath = getAgentsConfigPath("global");
+// e.g., "/home/user/.agents/config.toml"
+```
+
+## `getAgentsWikiDir()`
+
+*Gets the wiki directory within the `.agents/` standard structure.*
+
+[View in API reference](/packages/./api/functions#getagentswikidir)
+
+```typescript
+const wikiDir = getAgentsWikiDir("project", "/home/user/project");
+// returns "/home/user/project/.agents/wiki"
+```
+
+## `getAgentsSpecDir()`
+
+*Gets the spec directory within the `.agents/` standard structure.*
+
+[View in API reference](/packages/./api/functions#getagentsspecdir)
+
+```typescript
+const specDir = getAgentsSpecDir("global");
+// e.g., "/home/user/.agents/spec"
+```
+
+## `getAgentsLinksDir()`
+
+*Gets the links directory within the `.agents/` standard structure.*
+
+[View in API reference](/packages/./api/functions#getagentslinksdir)
+
+```typescript
+const linksDir = getAgentsLinksDir("project", "/home/user/project");
+// returns "/home/user/project/.agents/links"
+```
+
+## `resolveRegistryTemplatePath()`
+
+*Resolves a registry template path by substituting platform variables.*
+
+[View in API reference](/packages/./api/functions#resolveregistrytemplatepath)
+
+```typescript
+const path = resolveRegistryTemplatePath("$HOME/.config/claude/settings.json");
+// e.g., "/home/user/.config/claude/settings.json"
+```
+
+## `resolveProviderConfigPath()`
+
+*Resolves the configuration file path for a provider at the given scope.*
+
+[View in API reference](/packages/./api/functions#resolveproviderconfigpath)
+
+```typescript
+const configPath = resolveProviderConfigPath(provider, "project", "/home/user/project");
+if (configPath) {
+  console.log("Config at:", configPath);
+}
+```
+
+## `resolvePreferredConfigScope()`
+
+*Determines the preferred configuration scope for a provider.*
+
+[View in API reference](/packages/./api/functions#resolvepreferredconfigscope)
+
+```typescript
+const scope = resolvePreferredConfigScope(provider, false);
+// returns "project" if provider has configPathProject, otherwise "global"
+```
+
+## `resolveProviderSkillsDir()`
+
+*Resolves the skills directory path for a provider at the given scope.*
+
+[View in API reference](/packages/./api/functions#resolveproviderskillsdir)
+
+```typescript
+const skillsDir = resolveProviderSkillsDir(provider, "global");
+// e.g., "/home/user/.claude/skills"
+```
+
+## `resolveProviderSkillsDirs()`
+
+*Gets all target directories for skill installation based on provider precedence.*
+
+[View in API reference](/packages/./api/functions#resolveproviderskillsdirs)
+
+```typescript
+const dirs = resolveProviderSkillsDirs(provider, "project", "/home/user/project");
+for (const dir of dirs) {
+  console.log("Install skill to:", dir);
+}
+```
+
+## `resolveProviderProjectPath()`
+
+*Resolves a provider's project-level path against a project directory.*
+
+[View in API reference](/packages/./api/functions#resolveproviderprojectpath)
+
+```typescript
+const projectPath = resolveProviderProjectPath(provider, "/home/user/project");
+// e.g., "/home/user/project/.claude"
+```
+
+## `resolveProvidersRegistryPath()`
+
+*Locates the providers registry.json file by searching up from a start directory.*
+
+[View in API reference](/packages/./api/functions#resolveprovidersregistrypath)
+
+```typescript
+const registryPath = resolveProvidersRegistryPath(__dirname);
+// e.g., "/home/user/caamp/providers/registry.json"
+```
+
+## `normalizeSkillSubPath()`
+
+*Normalizes a skill sub-path by cleaning separators and removing SKILL.md suffix.*
+
+[View in API reference](/packages/./api/functions#normalizeskillsubpath)
+
+```typescript
+const normalized = normalizeSkillSubPath("skills/my-skill/SKILL.md");
+// returns "skills/my-skill"
+```
+
+## `buildSkillSubPathCandidates()`
+
+*Builds a list of candidate sub-paths for skill file resolution.*
+
+[View in API reference](/packages/./api/functions#buildskillsubpathcandidates)
+
+```typescript
+const candidates = buildSkillSubPathCandidates("skills/my-skill", undefined);
+// returns ["skills/my-skill", ".agents/skills/my-skill", ".claude/skills/my-skill"]
+```
+
+## `getAllProviders()`
+
+*Retrieve all registered providers with resolved platform paths.  Providers are lazily loaded from `providers/registry.json` on first call and cached for subsequent calls.*
+
+[View in API reference](/packages/./api/functions#getallproviders)
+
+```typescript
+const providers = getAllProviders();
+console.log(`${providers.length} providers registered`);
+```
+
+## `getProvider()`
+
+*Look up a provider by its ID or any of its aliases.*
+
+[View in API reference](/packages/./api/functions#getprovider)
+
+```typescript
+const provider = getProvider("claude");
+// Returns the claude-code provider via alias resolution
+```
+
+## `resolveAlias()`
+
+*Resolve an alias to its canonical provider ID.  If the input is already a canonical ID (or unrecognized), it is returned as-is.*
+
+[View in API reference](/packages/./api/functions#resolvealias)
+
+```typescript
+resolveAlias("claude"); // "claude-code"
+resolveAlias("claude-code"); // "claude-code"
+resolveAlias("unknown"); // "unknown"
+```
+
+## `getProvidersByPriority()`
+
+*Filter providers by their priority tier.*
+
+[View in API reference](/packages/./api/functions#getprovidersbypriority)
+
+```typescript
+const highPriority = getProvidersByPriority("high");
+console.log(highPriority.map(p => p.toolName));
+```
+
+## `getPrimaryProvider()`
+
+*Get the single primary harness provider, if any is registered.*
+
+[View in API reference](/packages/./api/functions#getprimaryprovider)
+
+```typescript
+const primary = getPrimaryProvider();
+if (primary) {
+  console.log(`Primary harness: ${primary.toolName}`);
+}
+```
+
+## `getProvidersByStatus()`
+
+*Filter providers by their lifecycle status.*
+
+[View in API reference](/packages/./api/functions#getprovidersbystatus)
+
+```typescript
+const active = getProvidersByStatus("active");
+console.log(`${active.length} active providers`);
+```
+
+## `getProvidersByInstructFile()`
+
+*Filter providers that use a specific instruction file.  Multiple providers often share the same instruction file (e.g. many use `"AGENTS.md"`).*
+
+[View in API reference](/packages/./api/functions#getprovidersbyinstructfile)
+
+```typescript
+const claudeProviders = getProvidersByInstructFile("CLAUDE.md");
+console.log(claudeProviders.map(p => p.id));
+```
+
+## `getInstructionFiles()`
+
+*Get the set of all unique instruction file names across all providers.*
+
+[View in API reference](/packages/./api/functions#getinstructionfiles)
+
+```typescript
+const files = getInstructionFiles();
+// ["CLAUDE.md", "AGENTS.md", "GEMINI.md"]
+```
+
+## `getProviderCount()`
+
+*Get the total number of registered providers.*
+
+[View in API reference](/packages/./api/functions#getprovidercount)
+
+```typescript
+console.log(`Registry has ${getProviderCount()} providers`);
+```
+
+## `getRegistryVersion()`
+
+*Get the semantic version string of the provider registry.*
+
+[View in API reference](/packages/./api/functions#getregistryversion)
+
+```typescript
+console.log(`Registry version: ${getRegistryVersion()}`);
+```
+
+## `getProvidersByHookEvent()`
+
+*Filter providers that support a specific hook event.*
+
+[View in API reference](/packages/./api/functions#getprovidersbyhookevent)
+
+```typescript
+const providers = getProvidersByHookEvent("onToolComplete");
+console.log(providers.map(p => p.id));
+```
+
+## `getCommonHookEvents()`
+
+*Get hook events common to all specified providers.  If providerIds is provided, returns the intersection of their supported events. If providerIds is undefined or empty, uses all providers.*
+
+[View in API reference](/packages/./api/functions#getcommonhookevents)
+
+```typescript
+const common = getCommonHookEvents(["claude-code", "gemini-cli"]);
+console.log(`${common.length} common hook events`);
+```
+
+## `providerSupports()`
+
+*Check whether a provider supports a specific capability via dot-path query.  The dot-path addresses a value inside `provider.capabilities`. For boolean fields the provider "supports" the capability when the value is `true`. For non-boolean fields the provider "supports" it when the value is neither `null` nor `undefined` (and, for arrays, non-empty).*
+
+[View in API reference](/packages/./api/functions#providersupports)
+
+```typescript
+const claude = getProvider("claude-code");
+providerSupports(claude!, "spawn.supportsSubagents"); // true
+providerSupports(claude!, "hooks.supported"); // true (non-empty array)
+```
+
+## `getSpawnCapableProviders()`
+
+*Filter providers that support spawning subagents.*
+
+[View in API reference](/packages/./api/functions#getspawncapableproviders)
+
+```typescript
+const spawnCapable = getSpawnCapableProviders();
+console.log(spawnCapable.map(p => p.id));
+```
+
+## `getProvidersBySpawnCapability()`
+
+*Filter providers by a specific boolean spawn capability flag.*
+
+[View in API reference](/packages/./api/functions#getprovidersbyspawncapability)
+
+```typescript
+const parallel = getProvidersBySpawnCapability("supportsParallelSpawn");
+console.log(parallel.map(p => p.id));
+```
+
+## `resetRegistry()`
+
+*Reset cached registry data, forcing a reload on next access.*
+
+[View in API reference](/packages/./api/functions#resetregistry)
+
+```typescript
+resetRegistry();
+// Next call to getAllProviders() will re-read registry.json
+```
+
+## `getProvidersBySkillsPrecedence()`
+
+*Filter providers by their skills precedence value.*
+
+[View in API reference](/packages/./api/functions#getprovidersbyskillsprecedence)
+
+```typescript
+const vendorOnly = getProvidersBySkillsPrecedence("vendor-only");
+console.log(vendorOnly.map(p => p.id));
+```
+
+## `getEffectiveSkillsPaths()`
+
+*Get the effective skills paths for a provider, ordered by precedence.*
+
+[View in API reference](/packages/./api/functions#geteffectiveskillspaths)
+
+```typescript
+const provider = getProvider("claude-code")!;
+const paths = getEffectiveSkillsPaths(provider, "global");
+for (const p of paths) {
+  console.log(`${p.source} (${p.scope}): ${p.path}`);
+}
+```
+
+## `buildSkillsMap()`
+
+*Build a full skills map for all providers.*
+
+[View in API reference](/packages/./api/functions#buildskillsmap)
+
+```typescript
+const skillsMap = buildSkillsMap();
+for (const entry of skillsMap) {
+  console.log(`${entry.providerId}: ${entry.precedence}`);
+}
+```
+
+## `getProviderCapabilities()`
+
+*Get capabilities for a provider by ID or alias.*
+
+[View in API reference](/packages/./api/functions#getprovidercapabilities)
+
+```typescript
+const caps = getProviderCapabilities("claude-code");
+if (caps?.spawn.supportsSubagents) {
+  console.log("Supports subagent spawning");
+}
+```
+
+## `providerSupportsById()`
+
+*Check if a provider supports a capability using ID/alias lookup.  Convenience wrapper that resolves the provider first, then delegates to the provider-level `providerSupports`.*
+
+[View in API reference](/packages/./api/functions#providersupportsbyid)
+
+```typescript
+if (providerSupportsById("claude-code", "spawn.supportsSubagents")) {
+  console.log("Claude Code supports subagent spawning");
+}
+```
+
+## `buildInjectionContent()`
+
+*Build injection content from a structured template.  Produces a string suitable for injection between CAAMP markers. References are output as `@` lines, content blocks are appended as-is.*
+
+[View in API reference](/packages/./api/functions#buildinjectioncontent)
+
+```typescript
+const content = buildInjectionContent({
+  references: ["\@AGENTS.md"],
+});
+```
+
+## `parseInjectionContent()`
+
+*Parse injection content back into template form.  Lines starting with `@` are treated as references. All other non-empty lines are treated as content blocks.*
+
+[View in API reference](/packages/./api/functions#parseinjectioncontent)
+
+```typescript
+const template = parseInjectionContent("\@AGENTS.md\n\@.cleo/config.json");
+```
+
+## `generateInjectionContent()`
+
+*Generate a standard CAAMP injection block for instruction files.  Produces markdown content suitable for injection between CAAMP markers. Optionally includes MCP server and custom content sections.*
+
+[View in API reference](/packages/./api/functions#generateinjectioncontent)
+
+```typescript
+const content = generateInjectionContent({ mcpServerName: "filesystem" });
+```
+
+## `generateSkillsSection()`
+
+*Generate a skills discovery section for instruction files.*
+
+[View in API reference](/packages/./api/functions#generateskillssection)
+
+```typescript
+const section = generateSkillsSection(["code-review", "testing"]);
+```
+
+## `getInstructFile()`
+
+*Get the correct instruction file name for a provider.*
+
+[View in API reference](/packages/./api/functions#getinstructfile)
+
+```typescript
+const fileName = getInstructFile(provider);
+// "CLAUDE.md"
+```
+
+## `groupByInstructFile()`
+
+*Group providers by their instruction file name.  Useful for determining which providers share the same instruction file (e.g. multiple providers using `AGENTS.md`).*
+
+[View in API reference](/packages/./api/functions#groupbyinstructfile)
+
+```typescript
+const groups = groupByInstructFile(getAllProviders());
+for (const [file, providers] of groups) {
+  console.log(`${file}: ${providers.map(p => p.id).join(", ")}`);
+}
+```
+
+## `checkInjection()`
+
+*Check the status of a CAAMP injection block in an instruction file.  Returns the injection status: - `"missing"` - File does not exist - `"none"` - File exists but has no CAAMP markers - `"current"` - CAAMP block exists and matches expected content (or no expected content given) - `"outdated"` - CAAMP block exists but differs from expected content*
+
+[View in API reference](/packages/./api/functions#checkinjection)
+
+```typescript
+const status = await checkInjection("/project/CLAUDE.md", expectedContent);
+if (status === "outdated") {
+  console.log("CAAMP injection needs updating");
+}
+```
+
+## `inject()`
+
+*Inject content into an instruction file between CAAMP markers.  Behavior depends on the file state: - File does not exist: creates the file with the injection block → `"created"` - File exists without markers: prepends the injection block → `"added"` - File exists with multiple markers (duplicates): consolidates into single block → `"consolidated"` - File exists with markers, content differs: replaces the block → `"updated"` - File exists with markers, content matches: no-op → `"intact"`  This function is **idempotent** — calling it multiple times with the same content will not modify the file after the first write.*
+
+[View in API reference](/packages/./api/functions#inject)
+
+```typescript
+const action = await inject("/project/CLAUDE.md", "## My Config\nSome content");
+console.log(`File ${action}`); // "created" on first call, "intact" on subsequent
+```
+
+## `removeInjection()`
+
+*Remove the CAAMP injection block from an instruction file.  If removing the block would leave the file empty, the file is deleted entirely.*
+
+[View in API reference](/packages/./api/functions#removeinjection)
+
+```typescript
+const removed = await removeInjection("/project/CLAUDE.md");
+```
+
+## `checkAllInjections()`
+
+*Check injection status across all providers' instruction files.  Deduplicates by file path since multiple providers may share the same instruction file (e.g. many providers use `AGENTS.md`).*
+
+[View in API reference](/packages/./api/functions#checkallinjections)
+
+```typescript
+const results = await checkAllInjections(providers, "/project", "project", expected);
+const outdated = results.filter(r => r.status === "outdated");
+```
+
+## `injectAll()`
+
+*Inject content into all providers' instruction files.  Deduplicates by file path to avoid injecting the same file multiple times.*
+
+[View in API reference](/packages/./api/functions#injectall)
+
+```typescript
+const results = await injectAll(providers, "/project", "project", content);
+for (const [file, action] of results) {
+  console.log(`${file}: ${action}`);
+}
+```
+
+## `ensureProviderInstructionFile()`
+
+*Ensure a provider's instruction file exists with the correct CAAMP block.  This is the canonical API for adapters and external packages to manage provider instruction files. Instead of directly creating/modifying CLAUDE.md, GEMINI.md, etc., callers should use this function to delegate instruction file management to CAAMP.  The instruction file name is resolved from CAAMP's provider registry (single source of truth), not hardcoded by the caller.*
+
+[View in API reference](/packages/./api/functions#ensureproviderinstructionfile)
+
+```typescript
+const result = await ensureProviderInstructionFile("claude-code", "/project", {
+  references: ["\@AGENTS.md"],
+});
+```
+
+## `ensureAllProviderInstructionFiles()`
+
+*Ensure instruction files for multiple providers at once.  Deduplicates by file path — providers sharing the same instruction file (e.g. many providers use AGENTS.md) are only written once.*
+
+[View in API reference](/packages/./api/functions#ensureallproviderinstructionfiles)
+
+```typescript
+const results = await ensureAllProviderInstructionFiles(
+  ["claude-code", "cursor", "gemini-cli"],
+  "/project",
+  { references: ["\@AGENTS.md"] },
+);
+```
+
+## `setVerbose()`
+
+*Enable or disable verbose (debug) logging mode.  When enabled, debug messages are written to stderr.*
+
+[View in API reference](/packages/./api/functions#setverbose)
+
+```typescript
+setVerbose(true);
+```
+
+## `setQuiet()`
+
+*Enable or disable quiet mode.  When enabled, info and warning messages are suppressed. Errors are always shown.*
+
+[View in API reference](/packages/./api/functions#setquiet)
+
+```typescript
+setQuiet(true);
+```
+
+## `debug()`
+
+*Log a debug message to stderr when verbose mode is enabled.*
+
+[View in API reference](/packages/./api/functions#debug)
+
+```typescript
+debug("Loading config from", filePath);
+```
+
+## `info()`
+
+*Log an informational message to stdout.*
+
+[View in API reference](/packages/./api/functions#info)
+
+```typescript
+info("Installed 3 skills");
+```
+
+## `warn()`
+
+*Log a warning message to stderr.*
+
+[View in API reference](/packages/./api/functions#warn)
+
+```typescript
+warn("Deprecated option used");
+```
+
+## `error()`
+
+*Log an error message to stderr.*
+
+[View in API reference](/packages/./api/functions#error)
+
+```typescript
+error("Failed to install skill:", err.message);
+```
+
+## `isVerbose()`
+
+*Check if verbose (debug) logging is currently enabled.*
+
+[View in API reference](/packages/./api/functions#isverbose)
+
+```typescript
+if (isVerbose()) {
+  console.error("Extra debug info");
+}
+```
+
+## `isQuiet()`
+
+*Check if quiet mode is currently enabled.*
+
+[View in API reference](/packages/./api/functions#isquiet)
+
+```typescript
+if (!isQuiet()) {
+  console.log("Status message");
+}
+```
+
+## `setHuman()`
+
+*Enable or disable human-readable output mode.  When enabled, commands output human-readable format instead of JSON.*
+
+[View in API reference](/packages/./api/functions#sethuman)
+
+```typescript
+setHuman(true);
+```
+
+## `isHuman()`
+
+*Check if human-readable output mode is currently enabled.*
+
+[View in API reference](/packages/./api/functions#ishuman)
+
+```typescript
+if (isHuman()) {
+  console.log("Human readable output");
+} else {
+  console.log(JSON.stringify(data));
+}
+```
+
+## `DetectionResult`
+
+*Result of detecting whether a provider is installed on the system.*
+
+[View in API reference](/packages/./api/functions#detectionresult)
+
+```typescript
+const provider = getProvider("claude-code")!;
+const result = detectProvider(provider);
+if (result.installed) {
+  console.log(`Found via: ${result.methods.join(", ")}`);
+}
+```
+
+## `detectProvider()`
+
+*Detect if a single provider is installed on the system.  Checks each detection method configured for the provider (binary, directory, appBundle, flatpak) and returns which methods matched.*
+
+[View in API reference](/packages/./api/functions#detectprovider)
+
+```typescript
+const provider = getProvider("claude-code")!;
+const result = detectProvider(provider);
+if (result.installed) {
+  console.log(`Claude Code found via: ${result.methods.join(", ")}`);
+}
+```
+
+## `detectProjectProvider()`
+
+*Detect if a provider has project-level config in the given directory.*
+
+[View in API reference](/packages/./api/functions#detectprojectprovider)
+
+```typescript
+const provider = getProvider("claude-code")!;
+const hasProjectConfig = detectProjectProvider(provider, "/home/user/my-project");
+```
+
+## `detectAllProviders()`
+
+*Detect all registered providers and return their installation status.  Runs detection for every provider in the registry.*
+
+[View in API reference](/packages/./api/functions#detectallproviders)
+
+```typescript
+const results = detectAllProviders({ forceRefresh: true });
+const installed = results.filter(r => r.installed);
+console.log(`${installed.length} agents detected`);
+```
+
+## `getInstalledProviders()`
+
+*Get only providers that are currently installed on the system.  Convenience wrapper that filters `detectAllProviders` results to only those with `installed === true`.*
+
+[View in API reference](/packages/./api/functions#getinstalledproviders)
+
+```typescript
+const installed = getInstalledProviders({ forceRefresh: true });
+console.log(installed.map(p => p.toolName).join(", "));
+```
+
+## `detectProjectProviders()`
+
+*Detect all providers and enrich results with project-level presence.  Extends `detectAllProviders` by also checking whether each provider has a project-level config file in the given directory.*
+
+[View in API reference](/packages/./api/functions#detectprojectproviders)
+
+```typescript
+const results = detectProjectProviders("/home/user/my-project", { forceRefresh: true });
+for (const r of results) {
+  if (r.projectDetected) {
+    console.log(`${r.provider.toolName} has project config`);
+  }
+}
+```
+
+## `resetDetectionCache()`
+
+*Reset the detection result cache, forcing fresh detection on next call.*
+
+[View in API reference](/packages/./api/functions#resetdetectioncache)
+
+```typescript
+resetDetectionCache();
+// Next detectAllProviders() call will bypass cache
+const fresh = detectAllProviders();
+```
+
+## `SkillInstallResult`
+
+*Result of installing a skill to the canonical location and linking to agents.*
+
+[View in API reference](/packages/./api/functions#skillinstallresult)
+
+```typescript
+const result = await installSkill(sourcePath, "my-skill", providers, true);
+if (result.success) {
+  console.log(`Installed to ${result.canonicalPath}`);
+  console.log(`Linked to: ${result.linkedAgents.join(", ")}`);
+}
+```
+
+## `installToCanonical()`
+
+*Copy skill files to the canonical location.*
+
+[View in API reference](/packages/./api/functions#installtocanonical)
+
+```typescript
+const canonicalPath = await installToCanonical("/tmp/my-skill", "my-skill");
+console.log(`Installed to: ${canonicalPath}`);
+```
+
+## `installSkill()`
+
+*Install a skill from a local path to the canonical location and link to agents.*
+
+[View in API reference](/packages/./api/functions#installskill)
+
+```typescript
+const result = await installSkill("/tmp/my-skill", "my-skill", providers, true, "/my/project");
+if (result.success) {
+  console.log(`Linked to: ${result.linkedAgents.join(", ")}`);
+}
+```
+
+## `removeSkill()`
+
+*Remove a skill from the canonical location and all agent symlinks.*
+
+[View in API reference](/packages/./api/functions#removeskill)
+
+```typescript
+const { removed, errors } = await removeSkill("my-skill", providers, true, "/my/project");
+console.log(`Removed from: ${removed.join(", ")}`);
+```
+
+## `listCanonicalSkills()`
+
+*List all skills installed in the canonical skills directory.*
+
+[View in API reference](/packages/./api/functions#listcanonicalskills)
+
+```typescript
+const skills = await listCanonicalSkills();
+// ["my-skill", "another-skill"]
+```
+
+## `selectProvidersByMinimumPriority()`
+
+*Filters providers by minimum priority and returns them in deterministic tier order.*
+
+[View in API reference](/packages/./api/functions#selectprovidersbyminimumpriority)
+
+```typescript
+const highPriority = selectProvidersByMinimumPriority(allProviders, "high");
+// returns only providers with priority "high"
+```
+
+## `installBatchWithRollback()`
+
+*Installs multiple skills across filtered providers with rollback.*
+
+[View in API reference](/packages/./api/functions#installbatchwithrollback)
+
+```typescript
+const result = await installBatchWithRollback({
+  minimumPriority: "high",
+  skills: [{ sourcePath: "/path/to/skill", skillName: "my-skill" }],
+});
+if (!result.success) {
+  console.error("Failed:", result.error);
+}
+```
+
+## `updateInstructionsSingleOperation()`
+
+*Updates instruction files across providers as a single operation.*
+
+[View in API reference](/packages/./api/functions#updateinstructionssingleoperation)
+
+```typescript
+const summary = await updateInstructionsSingleOperation(
+  providers,
+  "## CAAMP Config\nUse these MCP servers...",
+  "project",
+);
+console.log(`Updated ${summary.updatedFiles} files`);
+```
+
+## `resolveTierDir()`
+
+*Resolve the on-disk directory for an asset at a given tier.*
+
+[View in API reference](/packages/./api/functions#resolvetierdir)
+
+```typescript
+import { resolveTierDir } from "./scope.js";
+
+const projectExt = resolveTierDir({
+  tier: "project",
+  kind: "extensions",
+  projectDir: "/home/alice/repos/cleo",
+});
+// → "/home/alice/repos/cleo/.pi/extensions"
+
+const userExt = resolveTierDir({ tier: "user", kind: "extensions" });
+// → "/home/alice/.pi/agent/extensions"
+
+const globalExt = resolveTierDir({ tier: "global", kind: "extensions" });
+// → "/home/alice/.local/share/cleo/pi-extensions"
+```
+
+## `resolveAllTiers()`
+
+*Resolve every tier directory for a given asset kind, in precedence order.*
+
+[View in API reference](/packages/./api/functions#resolvealltiers)
+
+```typescript
+const tiers = resolveAllTiers("extensions", "/home/alice/repo");
+for (const { tier, dir } of tiers) {
+  for (const entry of await safeReaddir(dir)) {
+    // higher-precedence tier wins on name collision
+  }
+}
+```
+
+## `PiRequiredError`
+
+*Error raised when `getExclusivityMode` resolves to `'force-pi'` but Pi is not installed at the moment a runtime dispatch is requested.*
+
+[View in API reference](/packages/./api/functions#pirequirederror)
+
+```typescript
+try {
+  const targets = resolveDefaultTargetProviders();
+} catch (err) {
+  if (err instanceof PiRequiredError) {
+    process.exit(4);
+  }
+  throw err;
+}
+```
+
+## `isExclusivityMode()`
+
+*Type guard that narrows an arbitrary string to `ExclusivityMode`.*
+
+[View in API reference](/packages/./api/functions#isexclusivitymode)
+
+```typescript
+if (isExclusivityMode(userInput)) {
+  setExclusivityMode(userInput);
+}
+```
+
+## `getExclusivityMode()`
+
+*Resolve the active CAAMP exclusivity mode using the layered precedence documented in `DEFAULT_EXCLUSIVITY_MODE`.*
+
+[View in API reference](/packages/./api/functions#getexclusivitymode)
+
+```typescript
+const mode = getExclusivityMode();
+if (mode === 'force-pi') {
+  // ...
+}
+```
+
+## `setExclusivityMode()`
+
+*Install a programmatic override for the exclusivity mode.*
+
+[View in API reference](/packages/./api/functions#setexclusivitymode)
+
+```typescript
+setExclusivityMode('force-pi');
+try {
+  await runCommand();
+} finally {
+  resetExclusivityModeOverride();
+}
+```
+
+## `resetExclusivityModeOverride()`
+
+*Clear any programmatic override installed by `setExclusivityMode`.*
+
+[View in API reference](/packages/./api/functions#resetexclusivitymodeoverride)
+
+```typescript
+setExclusivityMode("force-pi");
+// ...run test...
+resetExclusivityModeOverride();
+// getExclusivityMode() now reads CAAMP_EXCLUSIVITY_MODE again
+```
+
+## `getHarnessFor()`
+
+*Return the harness implementation for a provider, or `null` if the provider has no first-class harness.*
+
+[View in API reference](/packages/./api/functions#getharnessfor)
+
+```typescript
+const pi = getProvider("pi");
+if (pi) {
+  const harness = getHarnessFor(pi);
+  await harness?.installSkill("/path/to/skill", "my-skill", { kind: "global" });
+}
+```
+
+## `getPrimaryHarness()`
+
+*Return the primary harness declared in the registry, if any.*
+
+[View in API reference](/packages/./api/functions#getprimaryharness)
+
+```typescript
+const primary = getPrimaryHarness();
+if (primary) {
+  console.log(`Primary harness: ${primary.provider.toolName}`);
+}
+```
+
+## `getAllHarnesses()`
+
+*Return every provider that has a harness implementation.*
+
+[View in API reference](/packages/./api/functions#getallharnesses)
+
+```typescript
+for (const harness of getAllHarnesses()) {
+  console.log(harness.provider.id); // "pi", ...
+}
+```
+
+## `resolveDefaultTargetProviders()`
+
+*Resolve the default set of target providers when the user has not passed `--agent`, honouring the active `ExclusivityMode`.*
+
+[View in API reference](/packages/./api/functions#resolvedefaulttargetproviders)
+
+```typescript
+// Implicit default — used by `caamp skills list` and friends.
+const targets = resolveDefaultTargetProviders();
+
+// Explicit user selection — emits a deprecation warning in `auto` mode
+// when the selection excludes Pi and Pi is installed.
+const explicit = resolveDefaultTargetProviders({
+  explicit: [getProvider('claude-code')!],
+});
+```
+
+## `dispatchInstallSkillAcrossProviders()`
+
+*Install a skill across a mixed set of providers, dispatching each provider to its `Harness` implementation when one exists and falling through to the legacy canonical+symlink installer for generic providers.*
+
+[View in API reference](/packages/./api/functions#dispatchinstallskillacrossproviders)
+
+```typescript
+const result = await dispatchInstallSkillAcrossProviders(
+  "/abs/path/to/skill",
+  "my-skill",
+  [getProvider("pi")!, getProvider("claude-code")!],
+  true,
+);
+console.log(result.linkedAgents); // e.g. ["pi", "claude-code"]
+```
+
+## `dispatchRemoveSkillAcrossProviders()`
+
+*Remove a skill across a mixed set of providers, dispatching each provider to its `Harness` implementation when one exists and falling through to the legacy canonical+symlink uninstaller for generic providers.*
+
+[View in API reference](/packages/./api/functions#dispatchremoveskillacrossproviders)
+
+```typescript
+const result = await dispatchRemoveSkillAcrossProviders(
+  "my-skill",
+  [getProvider("pi")!, getProvider("claude-code")!],
+  true,
+);
+console.log(result.removed); // providers the skill was removed from
+```
+
+## `resolveFormat()`
+
+*Resolves output format based on flags and defaults.*
+
+[View in API reference](/packages/./api/functions#resolveformat)
+
+```typescript
+const format = resolveFormat({ jsonFlag: true });
+```
+
+## `buildEnvelope()`
+
+*Builds a standard LAFS envelope.*
+
+[View in API reference](/packages/./api/functions#buildenvelope)
+
+```typescript
+const envelope = buildEnvelope(
+  "skills.list",
+  "full",
+  { skills: [], count: 0 },
+  null,
+);
+```
+
+## `emitError()`
+
+*Emits a JSON error envelope to stderr and exits the process.*
+
+[View in API reference](/packages/./api/functions#emiterror)
+
+```typescript
+emitError(
+  "skills.install",
+  "full",
+  "E_SKILL_NOT_FOUND",
+  "Skill not found",
+  "NOT_FOUND",
+  { skillName: "my-skill" },
+  1,
+);
+```
+
+## `emitJsonError()`
+
+*Emits a JSON error envelope without exiting (for catch blocks).*
+
+[View in API reference](/packages/./api/functions#emitjsonerror)
+
+```typescript
+try {
+  await riskyOperation();
+} catch (err) {
+  emitJsonError("operation", "full", "E_FAILED", "Operation failed", "INTERNAL", {});
+  process.exit(1);
+}
+```
+
+## `outputSuccess()`
+
+*Outputs a successful LAFS envelope to stdout.*
+
+[View in API reference](/packages/./api/functions#outputsuccess)
+
+```typescript
+outputSuccess("skills.list", "full", { skills: [], count: 0 });
+```
+
+## `handleFormatError()`
+
+*Handles format resolution errors consistently.*
+
+[View in API reference](/packages/./api/functions#handleformaterror)
+
+```typescript
+try {
+  format = resolveFormat({ jsonFlag: opts.json, humanFlag: opts.human });
+} catch (error) {
+  handleFormatError(error, "skills.list", "full", opts.json);
+}
+```
+
+## `emitSuccess()`
+
+*Emits a successful LAFS result envelope to stdout.*
+
+[View in API reference](/packages/./api/functions#emitsuccess)
+
+```typescript
+emitSuccess("advanced.providers", { providers: [...] });
+```
+
+## `emitError()`
+
+*Emits a failed LAFS error envelope to stderr.*
+
+[View in API reference](/packages/./api/functions#emiterror)
+
+```typescript
+emitError("advanced.apply", new LAFSCommandError("E_VALIDATION", "bad input", "fix it"));
+```
+
+## `runLafsCommand()`
+
+*Runs an async action and emits the result as a LAFS success or error envelope.*
+
+[View in API reference](/packages/./api/functions#runlafscommand)
+
+```typescript
+await runLafsCommand("advanced.batch", "standard", async () => {
+  return { installed: 3 };
+});
+```
+
+## `parsePriority()`
+
+*Parses and validates a provider priority tier string.*
+
+[View in API reference](/packages/./api/functions#parsepriority)
+
+```typescript
+const tier = parsePriority("high"); // "high"
+```
+
+## `resolveProviders()`
+
+*Resolves the set of target providers from CLI targeting options.*
+
+[View in API reference](/packages/./api/functions#resolveproviders)
+
+```typescript
+const providers = resolveProviders({ all: true });
+```
+
+## `readJsonFile()`
+
+*Reads and parses a JSON file from disk.*
+
+[View in API reference](/packages/./api/functions#readjsonfile)
+
+```typescript
+const data = await readJsonFile("./operations.json");
+```
+
+## `readSkillOperations()`
+
+*Reads and validates a JSON file containing skill batch operations.*
+
+[View in API reference](/packages/./api/functions#readskilloperations)
+
+```typescript
+const ops = await readSkillOperations("./skill-ops.json");
+```
+
+## `readTextInput()`
+
+*Reads text input from either inline content or a file path, enforcing mutual exclusivity.*
+
+[View in API reference](/packages/./api/functions#readtextinput)
+
+```typescript
+const content = await readTextInput(undefined, "./content.txt");
+```
+
+## `registerAdvancedBatch()`
+
+*Registers the `advanced batch` subcommand for rollback-capable batch install of skills.*
+
+[View in API reference](/packages/./api/functions#registeradvancedbatch)
+
+```bash
+caamp advanced batch --skills-file skills.json
+caamp advanced batch --skills-file skills.json --min-tier medium
+```
+
+## `registerAdvancedInstructions()`
+
+*Registers the `advanced instructions` subcommand for single-operation instruction updates.*
+
+[View in API reference](/packages/./api/functions#registeradvancedinstructions)
+
+```bash
+caamp advanced instructions --content "Custom block" --all
+caamp advanced instructions --content-file block.md --min-tier high
+```
+
+## `registerAdvancedProviders()`
+
+*Registers the `advanced providers` subcommand for selecting providers by priority tier.*
+
+[View in API reference](/packages/./api/functions#registeradvancedproviders)
+
+```bash
+caamp advanced providers --min-tier high
+caamp advanced providers --all --details
+```
+
+## `registerAdvancedCommands()`
+
+*Registers the `advanced` command group with providers, batch, and instructions subcommands.*
+
+[View in API reference](/packages/./api/functions#registeradvancedcommands)
+
+```bash
+caamp advanced batch --skills-file skills.json
+caamp advanced instructions --content "## Setup" --all
+```
+
+## `deepMerge()`
+
+*Deep merge two objects, with `source` values winning on conflict.  Recursively merges nested plain objects. Arrays and non-object values from `source` overwrite `target` values.*
+
+[View in API reference](/packages/./api/functions#deepmerge)
+
+```typescript
+const merged = deepMerge({ a: 1, b: { c: 2 } }, { b: { d: 3 } });
+// { a: 1, b: { c: 2, d: 3 } }
+```
+
+## `setNestedValue()`
+
+*Set a nested value using a dot-notation key path.*
+
+[View in API reference](/packages/./api/functions#setnestedvalue)
+
+```typescript
+const result = setNestedValue({}, "a.b", "c", 42);
+// { a: { b: { c: 42 } } }
+```
+
+## `getNestedValue()`
+
+*Get a nested value from an object using a dot-notation key path.*
+
+[View in API reference](/packages/./api/functions#getnestedvalue)
+
+```typescript
+getNestedValue({ a: { b: { c: 42 } } }, "a.b.c"); // 42
+getNestedValue({ a: 1 }, "a.b"); // undefined
+```
+
+## `ensureDir()`
+
+*Ensure that the parent directories of a file path exist.  Creates directories recursively if they do not exist.*
+
+[View in API reference](/packages/./api/functions#ensuredir)
+
+```typescript
+await ensureDir("/path/to/new/dir/file.json");
+// /path/to/new/dir/ now exists
+```
+
+## `readJsonConfig()`
+
+*Read and parse a JSON or JSONC config file.*
+
+[View in API reference](/packages/./api/functions#readjsonconfig)
+
+```typescript
+const config = await readJsonConfig("/home/user/.config/claude/settings.json");
+```
+
+## `writeJsonConfig()`
+
+*Write a server config entry to a JSON/JSONC file, preserving comments.*
+
+[View in API reference](/packages/./api/functions#writejsonconfig)
+
+```typescript
+await writeJsonConfig("/path/to/config.json", "mcpServers", "my-server", { command: "node" });
+```
+
+## `removeJsonConfig()`
+
+*Remove a server entry from a JSON/JSONC config file.*
+
+[View in API reference](/packages/./api/functions#removejsonconfig)
+
+```typescript
+const removed = await removeJsonConfig("/path/to/config.json", "mcpServers", "old-server");
+```
+
+## `readTomlConfig()`
+
+*Read and parse a TOML config file.*
+
+[View in API reference](/packages/./api/functions#readtomlconfig)
+
+```typescript
+const config = await readTomlConfig("/path/to/config.toml");
+```
+
+## `writeTomlConfig()`
+
+*Write a server config entry to a TOML file.*
+
+[View in API reference](/packages/./api/functions#writetomlconfig)
+
+```typescript
+await writeTomlConfig("/path/to/config.toml", "mcpServers", "my-server", { command: "node" });
+```
+
+## `removeTomlConfig()`
+
+*Remove a server entry from a TOML config file.*
+
+[View in API reference](/packages/./api/functions#removetomlconfig)
+
+```typescript
+const removed = await removeTomlConfig("/path/to/config.toml", "mcpServers", "old-server");
+```
+
+## `readYamlConfig()`
+
+*Read and parse a YAML config file.*
+
+[View in API reference](/packages/./api/functions#readyamlconfig)
+
+```typescript
+const config = await readYamlConfig("/path/to/config.yaml");
+```
+
+## `writeYamlConfig()`
+
+*Write a server config entry to a YAML file.*
+
+[View in API reference](/packages/./api/functions#writeyamlconfig)
+
+```typescript
+await writeYamlConfig("/path/to/config.yaml", "mcpServers", "my-server", { command: "node" });
+```
+
+## `removeYamlConfig()`
+
+*Remove a server entry from a YAML config file.*
+
+[View in API reference](/packages/./api/functions#removeyamlconfig)
+
+```typescript
+const removed = await removeYamlConfig("/path/to/config.yaml", "mcpServers", "old-server");
+```
+
+## `readConfig()`
+
+*Read and parse a config file in the specified format.  Dispatches to the appropriate format handler (JSON/JSONC, YAML, or TOML).*
+
+[View in API reference](/packages/./api/functions#readconfig)
+
+```typescript
+const config = await readConfig("/path/to/config.json", "jsonc");
+```
+
+## `writeConfig()`
+
+*Write a server entry to a config file, preserving existing content.  Dispatches to the appropriate format handler. For JSONC files, comments are preserved using `jsonc-parser`.*
+
+[View in API reference](/packages/./api/functions#writeconfig)
+
+```typescript
+await writeConfig("/path/to/config.json", "jsonc", "mcpServers", "my-server", config);
+```
+
+## `removeConfig()`
+
+*Remove a server entry from a config file in the specified format.*
+
+[View in API reference](/packages/./api/functions#removeconfig)
+
+```typescript
+const removed = await removeConfig("/path/to/config.json", "jsonc", "mcpServers", "my-server");
+```
+
+## `registerConfigCommand()`
+
+*Registers the `config` command group with show and path subcommands for viewing provider configurations.*
+
+[View in API reference](/packages/./api/functions#registerconfigcommand)
+
+```bash
+caamp config show claude-code --global
+caamp config path cursor project
+```
+
+## `readLockFile()`
+
+*Read and parse the CAAMP lock file from disk.*
+
+[View in API reference](/packages/./api/functions#readlockfile)
+
+```typescript
+const lock = await readLockFile();
+console.log(Object.keys(lock.mcpServers));
+```
+
+## `writeLockFile()`
+
+*Write the lock file atomically under a process lock guard.*
+
+[View in API reference](/packages/./api/functions#writelockfile)
+
+```typescript
+const lock = await readLockFile();
+lock.mcpServers["my-server"] = entry;
+await writeLockFile(lock);
+```
+
+## `updateLockFile()`
+
+*Safely read-modify-write the lock file under a process lock guard.*
+
+[View in API reference](/packages/./api/functions#updatelockfile)
+
+```typescript
+const updated = await updateLockFile((lock) => {
+  lock.mcpServers["new-server"] = entry;
+});
+```
+
+## `getCaampVersion()`
+
+*Retrieve the current CAAMP package version from the nearest `package.json`.*
+
+[View in API reference](/packages/./api/functions#getcaampversion)
+
+```typescript
+const version = getCaampVersion();
+console.log(`CAAMP v${version}`);
+```
+
+## `registerDoctorCommand()`
+
+*Registers the `doctor` command for diagnosing configuration issues and overall system health.*
+
+[View in API reference](/packages/./api/functions#registerdoctorcommand)
+
+```bash
+caamp doctor --human
+caamp doctor --json
+```
+
+## `registerInstructionsCheck()`
+
+*Registers the `instructions check` subcommand for verifying injection status across providers.*
+
+[View in API reference](/packages/./api/functions#registerinstructionscheck)
+
+```bash
+caamp instructions check --human
+caamp instructions check --agent claude-code
+```
+
+## `registerInstructionsInject()`
+
+*Registers the `instructions inject` subcommand for injecting instruction blocks into provider files.*
+
+[View in API reference](/packages/./api/functions#registerinstructionsinject)
+
+```bash
+caamp instructions inject --all --global
+caamp instructions inject --agent claude-code --dry-run
+```
+
+## `registerInstructionsUpdate()`
+
+*Registers the `instructions update` subcommand for refreshing all instruction file injections.*
+
+[View in API reference](/packages/./api/functions#registerinstructionsupdate)
+
+```bash
+caamp instructions update --yes
+caamp instructions update --global --json
+```
+
+## `registerInstructionsCommands()`
+
+*Registers the `instructions` command group with inject, check, and update subcommands.*
+
+[View in API reference](/packages/./api/functions#registerinstructionscommands)
+
+```bash
+caamp instructions inject --all
+caamp instructions check --human
+caamp instructions update --yes
+```
+
+## `resolveMcpConfigPath()`
+
+*Resolve a provider's MCP config file path for the given scope, or `null` if the provider does not declare an MCP capability or the scope is unsupported.*
+
+[View in API reference](/packages/./api/functions#resolvemcpconfigpath)
+
+```typescript
+const claudeCode = getProvider("claude-code")!;
+const path = resolveMcpConfigPath(claudeCode, "project", "/tmp/app");
+// e.g. "/tmp/app/.mcp.json"
+```
+
+## `listMcpServers()`
+
+*List MCP server entries declared in a single provider's config file.*
+
+[View in API reference](/packages/./api/functions#listmcpservers)
+
+```typescript
+const provider = getProvider("claude-code")!;
+const entries = await listMcpServers(provider, "project");
+for (const entry of entries) {
+  console.log(entry.name, entry.configPath);
+}
+```
+
+## `listAllMcpServers()`
+
+*List MCP server entries for every MCP-capable provider in the registry at the given scope.*
+
+[View in API reference](/packages/./api/functions#listallmcpservers)
+
+```typescript
+const byProvider = await listAllMcpServers("global");
+for (const [providerId, entries] of byProvider) {
+  console.log(`${providerId}: ${entries.length} server(s)`);
+}
+```
+
+## `detectMcpInstallations()`
+
+*Probe every MCP-capable provider in the registry to determine which ones have a config file on disk and how many servers are configured.*
+
+[View in API reference](/packages/./api/functions#detectmcpinstallations)
+
+```typescript
+const hits = await detectMcpInstallations("project");
+const installed = hits.filter((h) => h.exists);
+console.log(`MCP found on ${installed.length} providers`);
+```
+
+## `installMcpServer()`
+
+*Install an MCP server entry into a single provider's config file.*
+
+[View in API reference](/packages/./api/functions#installmcpserver)
+
+```typescript
+const provider = getProvider("claude-code")!;
+const result = await installMcpServer(
+  provider,
+  "github",
+  { command: "npx", args: ["-y", "@modelcontextprotocol/server-github"] },
+  { scope: "project", force: false },
+);
+console.log(result.installed, result.conflicted);
+```
+
+## `removeMcpServer()`
+
+*Remove an MCP server entry from a single provider's config file.*
+
+[View in API reference](/packages/./api/functions#removemcpserver)
+
+```typescript
+const provider = getProvider("claude-code")!;
+const result = await removeMcpServer(provider, "my-server", { scope: "project" });
+console.log(result.removed); // true | false
+```
+
+## `removeMcpServerFromAll()`
+
+*Remove an MCP server entry from every MCP-capable provider in the registry that currently has it configured.*
+
+[View in API reference](/packages/./api/functions#removemcpserverfromall)
+
+```typescript
+const results = await removeMcpServerFromAll("my-server", { scope: "global" });
+const removed = results.filter((r) => r.removed);
+console.log(`Removed from ${removed.length} providers`);
+```
+
+## `requireMcpProvider()`
+
+*Look up an MCP-capable provider in the registry by id, throwing a typed `LAFSCommandError` when the id is unknown or the provider does not declare an MCP capability.*
+
+[View in API reference](/packages/./api/functions#requiremcpprovider)
+
+```typescript
+const provider = requireMcpProvider("claude-code");
+console.log(provider.toolName); // "Claude Code"
+```
+
+## `parseScope()`
+
+*Parse and validate a `--scope` option value into a typed `McpScope`.*
+
+[View in API reference](/packages/./api/functions#parsescope)
+
+```typescript
+parseScope(undefined, "project"); // "project"
+parseScope("global", "project");  // "global"
+parseScope("weird", "project");   // throws LAFSCommandError(E_VALIDATION_SCHEMA)
+```
+
+## `resolveProjectDir()`
+
+*Resolve the project directory used for the `project` scope.*
+
+[View in API reference](/packages/./api/functions#resolveprojectdir)
+
+```typescript
+resolveProjectDir("project", undefined);  // process.cwd()
+resolveProjectDir("project", "/tmp/app"); // "/tmp/app"
+resolveProjectDir("global", "/tmp/app");  // undefined
+```
+
+## `parseEnvAssignment()`
+
+*Parse a single `--env KEY=VALUE` option value into a `[key, value]` pair, throwing a typed validation error when the shape is wrong.*
+
+[View in API reference](/packages/./api/functions#parseenvassignment)
+
+```typescript
+parseEnvAssignment("GITHUB_TOKEN=ghp_abc"); // ["GITHUB_TOKEN", "ghp_abc"]
+parseEnvAssignment("NO_EQUALS");            // throws LAFSCommandError
+```
+
+## `registerMcpDetectCommand()`
+
+*Registers the `caamp mcp detect` subcommand.*
+
+[View in API reference](/packages/./api/functions#registermcpdetectcommand)
+
+```bash
+caamp mcp detect
+caamp mcp detect --scope global
+caamp mcp detect --only-existing
+```
+
+## `registerMcpInstallCommand()`
+
+*Registers the `caamp mcp install` subcommand.*
+
+[View in API reference](/packages/./api/functions#registermcpinstallcommand)
+
+```bash
+
+caamp mcp install github --provider claude-desktop -- \
+  npx -y @modelcontextprotocol/server-github
+
+# From file
+caamp mcp install github --provider cursor --from ./github.json
+
+# With env vars
+caamp mcp install github --provider claude-code \
+  --env GITHUB_TOKEN=ghp_xxx -- \
+  npx -y @modelcontextprotocol/server-github
+```
+
+## `registerMcpListCommand()`
+
+*Registers the `caamp mcp list` subcommand.*
+
+[View in API reference](/packages/./api/functions#registermcplistcommand)
+
+```bash
+caamp mcp list
+caamp mcp list --provider claude-code
+caamp mcp list --provider cursor --scope global
+```
+
+## `registerMcpRemoveCommand()`
+
+*Registers the `caamp mcp remove` subcommand.*
+
+[View in API reference](/packages/./api/functions#registermcpremovecommand)
+
+```bash
+caamp mcp remove github --provider claude-desktop
+caamp mcp remove github --provider cursor --scope global
+caamp mcp remove github --all-providers
+```
+
+## `registerMcpCommands()`
+
+*Register the `mcp` command group and all sub-verbs on the root program.*
+
+[View in API reference](/packages/./api/functions#registermcpcommands)
+
+```bash
+caamp mcp detect
+caamp mcp list --provider claude-code
+caamp mcp install github --provider claude-desktop -- npx -y @modelcontextprotocol/server-github
+caamp mcp remove github --provider claude-desktop
+```
+
+## `fetchWithTimeout()`
+
+*Fetch a URL with an automatic timeout via `AbortSignal.timeout`.*
+
+[View in API reference](/packages/./api/functions#fetchwithtimeout)
+
+```typescript
+const response = await fetchWithTimeout("https://api.example.com/data", undefined, 5000);
+```
+
+## `ensureOkResponse()`
+
+*Assert that a `Response` has an OK status, throwing on failure.*
+
+[View in API reference](/packages/./api/functions#ensureokresponse)
+
+```typescript
+const res = await fetchWithTimeout(url);
+ensureOkResponse(res, url);
+```
+
+## `formatNetworkError()`
+
+*Format a network error into a user-friendly message string.*
+
+[View in API reference](/packages/./api/functions#formatnetworkerror)
+
+```typescript
+try {
+  await fetchWithTimeout(url);
+} catch (err) {
+  console.error(formatNetworkError(err));
+}
+```
+
+## `cloneRepo()`
+
+*Clone a GitHub repo to a temp directory.*
+
+[View in API reference](/packages/./api/functions#clonerepo)
+
+```typescript
+const { localPath, cleanup } = await cloneRepo("anthropics", "courses", "main", "skills");
+try {
+  console.log(`Cloned to: ${localPath}`);
+} finally {
+  await cleanup();
+}
+```
+
+## `fetchRawFile()`
+
+*Fetch a specific file from GitHub using the raw API.*
+
+[View in API reference](/packages/./api/functions#fetchrawfile)
+
+```typescript
+const content = await fetchRawFile("owner", "repo", "skills/my-skill/SKILL.md");
+if (content) {
+  console.log(content);
+}
+```
+
+## `repoExists()`
+
+*Check if a GitHub repo exists.*
+
+[View in API reference](/packages/./api/functions#repoexists)
+
+```typescript
+const exists = await repoExists("anthropics", "courses");
+console.log(exists ? "Repo found" : "Repo not found");
+```
+
+## `cloneGitLabRepo()`
+
+*Clone a GitLab repo to a temp directory.*
+
+[View in API reference](/packages/./api/functions#clonegitlabrepo)
+
+```typescript
+const { localPath, cleanup } = await cloneGitLabRepo("mygroup", "skills-repo");
+try {
+  console.log(`Cloned to: ${localPath}`);
+} finally {
+  await cleanup();
+}
+```
+
+## `fetchGitLabRawFile()`
+
+*Fetch a specific file from GitLab using the raw API.*
+
+[View in API reference](/packages/./api/functions#fetchgitlabrawfile)
+
+```typescript
+const content = await fetchGitLabRawFile("mygroup", "skills", "my-skill/SKILL.md");
+if (content) {
+  console.log(content);
+}
+```
+
+## `parseSource()`
+
+*Parse and classify a source string into a typed `ParsedSource`.*
+
+[View in API reference](/packages/./api/functions#parsesource)
+
+```typescript
+parseSource("owner/repo");
+// { type: "github", value: "https://github.com/owner/repo", inferredName: "repo", ... }
+
+parseSource("https://mcp.example.com/sse");
+// { type: "remote", value: "https://mcp.example.com/sse", inferredName: "example" }
+
+parseSource("@modelcontextprotocol/server-filesystem");
+// { type: "package", value: "@modelcontextprotocol/server-filesystem", inferredName: "filesystem" }
+```
+
+## `isMarketplaceScoped()`
+
+*Check if a source string looks like a marketplace scoped name (`@author/name`).*
+
+[View in API reference](/packages/./api/functions#ismarketplacescoped)
+
+```typescript
+isMarketplaceScoped("@anthropic/my-skill"); // true
+isMarketplaceScoped("my-skill");             // false
+isMarketplaceScoped("owner/repo");           // false
+```
+
+## `requirePiHarness()`
+
+*Resolve and validate Pi's installation, returning a ready-to-use `PiHarness`.*
+
+[View in API reference](/packages/./api/functions#requirepiharness)
+
+```typescript
+// Inside a `caamp pi <verb>` command action:
+const harness = requirePiHarness();
+const skills = await harness.listSkills({ kind: "global" });
+```
+
+## `parseScope()`
+
+*Parse and validate a `--scope` option value into a typed tier.*
+
+[View in API reference](/packages/./api/functions#parsescope)
+
+```typescript
+parseScope(undefined, "project"); // "project"
+parseScope("user", "project");    // "user"
+parseScope("weird", "project");   // throws LAFSCommandError(E_VALIDATION_SCHEMA)
+```
+
+## `resolveProjectDir()`
+
+*Resolve the project directory to use for the `project` tier, honouring an explicit `--project-dir` flag and falling back to cwd.*
+
+[View in API reference](/packages/./api/functions#resolveprojectdir)
+
+```typescript
+resolveProjectDir("project", undefined);  // process.cwd()
+resolveProjectDir("project", "/tmp/app"); // "/tmp/app"
+resolveProjectDir("user", "/tmp/app");    // undefined
+```
+
+## `registerPiCantCommands()`
+
+*Registers the `caamp pi cant` command group.*
+
+[View in API reference](/packages/./api/functions#registerpicantcommands)
+
+```bash
+caamp pi cant list
+caamp pi cant install ./my-profile.cant --scope user
+caamp pi cant install owner/repo/path/profile.cant --scope global
+caamp pi cant remove my-profile --scope user
+caamp pi cant validate ./my-profile.cant
+```
+
+## `registerPiExtensionsCommands()`
+
+*Registers the `caamp pi extensions` command group.*
+
+[View in API reference](/packages/./api/functions#registerpiextensionscommands)
+
+```bash
+caamp pi extensions list
+caamp pi extensions install ./my-ext.ts --scope user
+caamp pi extensions install owner/repo/path/ext.ts --scope global
+caamp pi extensions remove my-ext --scope user
+```
+
+## `registerPiModelsCommands()`
+
+*Registers the `caamp pi models` command group.*
+
+[View in API reference](/packages/./api/functions#registerpimodelscommands)
+
+```bash
+caamp pi models list
+caamp pi models add custom-provider:my-model --display-name "My Model"
+caamp pi models enable anthropic:claude-opus-4-20250514
+caamp pi models default anthropic:claude-sonnet-4-20250514
+```
+
+## `registerPiPromptsCommands()`
+
+*Registers the `caamp pi prompts` command group.*
+
+[View in API reference](/packages/./api/functions#registerpipromptscommands)
+
+```bash
+caamp pi prompts install ./prompts/my-prompt --scope user
+caamp pi prompts list
+caamp pi prompts remove my-prompt --scope user
+```
+
+## `registerPiSessionsCommands()`
+
+*Registers the `caamp pi sessions` command group.*
+
+[View in API reference](/packages/./api/functions#registerpisessionscommands)
+
+```bash
+caamp pi sessions list
+caamp pi sessions show sess-abc123
+caamp pi sessions export sess-abc123 --md --output session.md
+caamp pi sessions resume sess-abc123
+```
+
+## `registerPiThemesCommands()`
+
+*Registers the `caamp pi themes` command group.*
+
+[View in API reference](/packages/./api/functions#registerpithemescommands)
+
+```bash
+caamp pi themes install ./themes/my-theme.json --scope user
+caamp pi themes list
+caamp pi themes remove my-theme --scope user
+```
+
+## `registerPiCommands()`
+
+*Register the `pi` command group and all Wave-1 sub-verbs on the root program.*
+
+[View in API reference](/packages/./api/functions#registerpicommands)
+
+```bash
+caamp pi extensions list
+caamp pi sessions list
+caamp pi models list
+caamp pi prompts list
+caamp pi themes list
+caamp pi cant list
+```
+
+## `resetHookMappings()`
+
+*Reset the cached hook mappings data.*
+
+[View in API reference](/packages/./api/functions#resethookmappings)
+
+```typescript
+import { resetHookMappings, getHookMappingsVersion } from "./normalizer.js";
+
+// Force a fresh load from disk
+resetHookMappings();
+const version = getHookMappingsVersion();
+```
+
+## `getCanonicalEvent()`
+
+*Get the canonical event definition (category, description, canBlock).*
+
+[View in API reference](/packages/./api/functions#getcanonicalevent)
+
+```typescript
+import { getCanonicalEvent } from "./normalizer.js";
+
+const def = getCanonicalEvent("PreToolUse");
+console.log(def.category);  // "tool"
+console.log(def.canBlock);  // true
+```
+
+## `getAllCanonicalEvents()`
+
+*Get all canonical event definitions.*
+
+[View in API reference](/packages/./api/functions#getallcanonicalevents)
+
+```typescript
+import { getAllCanonicalEvents } from "./normalizer.js";
+
+const events = getAllCanonicalEvents();
+for (const [name, def] of Object.entries(events)) {
+  console.log(`${name}: ${def.description}`);
+}
+```
+
+## `getCanonicalEventsByCategory()`
+
+*Get canonical events filtered by category.*
+
+[View in API reference](/packages/./api/functions#getcanonicaleventsbycategory)
+
+```typescript
+import { getCanonicalEventsByCategory } from "./normalizer.js";
+
+const toolEvents = getCanonicalEventsByCategory("tool");
+// ["PreToolUse", "PostToolUse", "PostToolUseFailure"]
+```
+
+## `getProviderHookProfile()`
+
+*Get the full hook profile for a provider.*
+
+[View in API reference](/packages/./api/functions#getproviderhookprofile)
+
+```typescript
+import { getProviderHookProfile } from "./normalizer.js";
+
+const profile = getProviderHookProfile("claude-code");
+if (profile) {
+  console.log(profile.hookSystem); // "config"
+  console.log(profile.experimental); // false
+}
+```
+
+## `getMappedProviderIds()`
+
+*Get all provider IDs that have hook mappings.*
+
+[View in API reference](/packages/./api/functions#getmappedproviderids)
+
+```typescript
+import { getMappedProviderIds } from "./normalizer.js";
+
+const ids = getMappedProviderIds();
+// ["claude-code", "gemini-cli", "cursor", "kimi", ...]
+```
+
+## `toNative()`
+
+*Translate a CAAMP canonical event name to the provider's native name.*
+
+[View in API reference](/packages/./api/functions#tonative)
+
+```typescript
+import { toNative } from "./normalizer.js";
+
+toNative("PreToolUse", "claude-code");   // "PreToolUse"
+toNative("PreToolUse", "gemini-cli");    // "BeforeTool"
+toNative("PreToolUse", "cursor");        // "preToolUse"
+toNative("PreToolUse", "kimi");          // null
+```
+
+## `toCanonical()`
+
+*Translate a provider-native event name to the CAAMP canonical name.*
+
+[View in API reference](/packages/./api/functions#tocanonical)
+
+```typescript
+import { toCanonical } from "./normalizer.js";
+
+toCanonical("BeforeTool", "gemini-cli");     // "PreToolUse"
+toCanonical("stop", "cursor");               // "ResponseComplete"
+toCanonical("UserPromptSubmit", "claude-code"); // "PromptSubmit"
+```
+
+## `toNativeBatch()`
+
+*Batch-translate multiple canonical events to native names for a provider.*
+
+[View in API reference](/packages/./api/functions#tonativebatch)
+
+```typescript
+import { toNativeBatch } from "./normalizer.js";
+
+const events = toNativeBatch(
+  ["PreToolUse", "PostToolUse", "ConfigChange"],
+  "claude-code",
+);
+// Returns NormalizedHookEvent[] for supported events only
+```
+
+## `supportsHook()`
+
+*Check if a provider supports a specific canonical hook event.*
+
+[View in API reference](/packages/./api/functions#supportshook)
+
+```typescript
+import { supportsHook } from "./normalizer.js";
+
+supportsHook("PreToolUse", "claude-code"); // true
+supportsHook("PreToolUse", "kimi");        // false
+```
+
+## `getHookSupport()`
+
+*Get full hook support details for a canonical event on a provider.*
+
+[View in API reference](/packages/./api/functions#gethooksupport)
+
+```typescript
+import { getHookSupport } from "./normalizer.js";
+
+const result = getHookSupport("PreToolUse", "claude-code");
+console.log(result.supported); // true
+console.log(result.native);    // "PreToolUse"
+```
+
+## `getSupportedEvents()`
+
+*Get all supported canonical events for a provider.*
+
+[View in API reference](/packages/./api/functions#getsupportedevents)
+
+```typescript
+import { getSupportedEvents } from "./normalizer.js";
+
+const events = getSupportedEvents("claude-code");
+// ["SessionStart", "SessionEnd", "PreToolUse", ...]
+```
+
+## `getUnsupportedEvents()`
+
+*Get all unsupported canonical events for a provider.*
+
+[View in API reference](/packages/./api/functions#getunsupportedevents)
+
+```typescript
+import { getUnsupportedEvents } from "./normalizer.js";
+
+const missing = getUnsupportedEvents("kimi");
+// Returns all canonical events (kimi has no hook support)
+```
+
+## `getProvidersForEvent()`
+
+*Get providers that support a specific canonical event.*
+
+[View in API reference](/packages/./api/functions#getprovidersforevent)
+
+```typescript
+import { getProvidersForEvent } from "./normalizer.js";
+
+const providers = getProvidersForEvent("PreToolUse");
+// ["claude-code", "gemini-cli", "cursor"]
+```
+
+## `getCommonEvents()`
+
+*Get canonical events common to all specified providers.*
+
+[View in API reference](/packages/./api/functions#getcommonevents)
+
+```typescript
+import { getCommonEvents } from "./normalizer.js";
+
+const common = getCommonEvents(["claude-code", "gemini-cli"]);
+// Returns only events both providers support
+```
+
+## `getProviderSummary()`
+
+*Get a summary of hook support for a provider.*
+
+[View in API reference](/packages/./api/functions#getprovidersummary)
+
+```typescript
+import { getProviderSummary } from "./normalizer.js";
+
+const summary = getProviderSummary("claude-code");
+if (summary) {
+  console.log(`${summary.coverage}% coverage`);
+  console.log(`${summary.supportedCount}/${summary.totalCanonical} events`);
+}
+```
+
+## `buildHookMatrix()`
+
+*Build a cross-provider hook support matrix.*
+
+[View in API reference](/packages/./api/functions#buildhookmatrix)
+
+```typescript
+import { buildHookMatrix } from "./normalizer.js";
+
+const matrix = buildHookMatrix(["claude-code", "gemini-cli"]);
+for (const event of matrix.events) {
+  for (const provider of matrix.providers) {
+    console.log(`${event} @ ${provider}: ${matrix.matrix[event][provider].supported}`);
+  }
+}
+```
+
+## `getHookSystemType()`
+
+*Get the hook system type for a provider.*
+
+[View in API reference](/packages/./api/functions#gethooksystemtype)
+
+```typescript
+import { getHookSystemType } from "./normalizer.js";
+
+getHookSystemType("claude-code"); // "config"
+getHookSystemType("unknown");     // "none"
+```
+
+## `getHookConfigPath()`
+
+*Get the resolved hook config path for a provider.*
+
+[View in API reference](/packages/./api/functions#gethookconfigpath)
+
+```typescript
+import { getHookConfigPath } from "./normalizer.js";
+
+const path = getHookConfigPath("claude-code");
+// "/home/user/.claude/settings.json" (resolved from template)
+```
+
+## `getProviderOnlyEvents()`
+
+*Get provider-only events (native events with no canonical mapping).*
+
+[View in API reference](/packages/./api/functions#getprovideronlyevents)
+
+```typescript
+import { getProviderOnlyEvents } from "./normalizer.js";
+
+const extras = getProviderOnlyEvents("claude-code");
+// Returns any events specific to Claude Code with no canonical equivalent
+```
+
+## `translateToAll()`
+
+*Translate a canonical event to native names across multiple providers.*
+
+[View in API reference](/packages/./api/functions#translatetoall)
+
+```typescript
+import { translateToAll } from "./normalizer.js";
+
+const result = translateToAll("PreToolUse", ["claude-code", "gemini-cli", "kimi"]);
+// { "claude-code": "PreToolUse", "gemini-cli": "BeforeTool" }
+// (kimi excluded — unsupported)
+```
+
+## `resolveNativeEvent()`
+
+*Find the best canonical match for a native event name across all providers.*
+
+[View in API reference](/packages/./api/functions#resolvenativeevent)
+
+```typescript
+import { resolveNativeEvent } from "./normalizer.js";
+
+const matches = resolveNativeEvent("BeforeTool");
+// [{ providerId: "gemini-cli", canonical: "PreToolUse" }]
+```
+
+## `getHookMappingsVersion()`
+
+*Get the version of the hook mappings data.*
+
+[View in API reference](/packages/./api/functions#gethookmappingsversion)
+
+```typescript
+import { getHookMappingsVersion } from "./normalizer.js";
+
+const version = getHookMappingsVersion();
+console.log(`Hook mappings v${version}`);
+```
+
+## `registerProvidersCommand()`
+
+*Registers the `providers` command group with list, detect, show, skills-map, hooks, and capabilities subcommands.*
+
+[View in API reference](/packages/./api/functions#registerproviderscommand)
+
+```bash
+caamp providers list --tier high
+caamp providers detect --project
+caamp providers show claude-code
+```
+
+## `getRulesByCategory()`
+
+*Get audit rules filtered by category.*
+
+[View in API reference](/packages/./api/functions#getrulesbycategory)
+
+```typescript
+const piRules = getRulesByCategory("prompt-injection");
+console.log(`${piRules.length} prompt injection rules`);
+```
+
+## `getRulesBySeverity()`
+
+*Get audit rules filtered by severity level.*
+
+[View in API reference](/packages/./api/functions#getrulesbyseverity)
+
+```typescript
+const criticalRules = getRulesBySeverity("critical");
+console.log(`${criticalRules.length} critical rules`);
+```
+
+## `getCategories()`
+
+*Get all unique rule categories.*
+
+[View in API reference](/packages/./api/functions#getcategories)
+
+```typescript
+const categories = getCategories();
+// ["prompt-injection", "command-injection", "data-exfiltration", ...]
+```
+
+## `scanFile()`
+
+*Scan a single file against security audit rules.*
+
+[View in API reference](/packages/./api/functions#scanfile)
+
+```typescript
+const result = await scanFile("/path/to/SKILL.md");
+console.log(`Score: ${result.score}/100, Passed: ${result.passed}`);
+```
+
+## `scanDirectory()`
+
+*Scan a directory of skills for security issues.*
+
+[View in API reference](/packages/./api/functions#scandirectory)
+
+```typescript
+import { getCanonicalSkillsDir } from "../../paths/standard.js";
+
+const results = await scanDirectory(getCanonicalSkillsDir());
+const failing = results.filter(r => !r.passed);
+```
+
+## `toSarif()`
+
+*Convert audit results to SARIF 2.1.0 format (Static Analysis Results Interchange Format).*
+
+[View in API reference](/packages/./api/functions#tosarif)
+
+```typescript
+const results = await scanDirectory("/path/to/skills");
+const sarif = toSarif(results);
+writeFileSync("audit.sarif", JSON.stringify(sarif, null, 2));
+```
+
+## `registerSkillsAudit()`
+
+*Registers the `skills audit` subcommand for security scanning skill files.*
+
+[View in API reference](/packages/./api/functions#registerskillsaudit)
+
+```bash
+caamp skills audit ./my-skill/SKILL.md
+caamp skills audit ./skills-dir --sarif
+```
+
+## `recordSkillInstall()`
+
+*Record a skill installation in the lock file.*
+
+[View in API reference](/packages/./api/functions#recordskillinstall)
+
+```typescript
+import { getCanonicalSkillsDir } from "../paths/standard.js";
+import { join } from "node:path";
+
+await recordSkillInstall(
+  "my-skill", "my-skill", "owner/repo", "github",
+  ["claude-code"], join(getCanonicalSkillsDir(), "my-skill"), true,
+);
+```
+
+## `removeSkillFromLock()`
+
+*Remove a skill entry from the lock file.*
+
+[View in API reference](/packages/./api/functions#removeskillfromlock)
+
+```typescript
+const removed = await removeSkillFromLock("my-skill");
+console.log(removed ? "Removed" : "Not found");
+```
+
+## `getTrackedSkills()`
+
+*Get all skills tracked in the lock file.*
+
+[View in API reference](/packages/./api/functions#gettrackedskills)
+
+```typescript
+const skills = await getTrackedSkills();
+for (const [name, entry] of Object.entries(skills)) {
+  console.log(`${name}: ${entry.source}`);
+}
+```
+
+## `checkSkillUpdate()`
+
+*Check if a skill has updates available by comparing the installed version against the latest remote commit SHA.*
+
+[View in API reference](/packages/./api/functions#checkskillupdate)
+
+```typescript
+const update = await checkSkillUpdate("my-skill");
+if (update.hasUpdate) {
+  console.log(`Update available: ${update.currentVersion} -> ${update.latestVersion}`);
+}
+```
+
+## `checkAllSkillUpdates()`
+
+*Check for updates across all tracked skills.*
+
+[View in API reference](/packages/./api/functions#checkallskillupdates)
+
+```typescript
+const updates = await checkAllSkillUpdates();
+for (const [name, status] of Object.entries(updates)) {
+  if (status.hasUpdate) {
+    console.log(`${name}: ${status.currentVersion} -> ${status.latestVersion}`);
+  }
+}
+```
+
+## `registerSkillsCheck()`
+
+*Registers the `skills check` subcommand for checking available skill updates.*
+
+[View in API reference](/packages/./api/functions#registerskillscheck)
+
+```bash
+caamp skills check --human
+caamp skills check --json
+```
+
+## `MarketplaceClient`
+
+*Unified marketplace client that aggregates results from multiple marketplace adapters.  Queries all configured marketplaces in parallel, deduplicates results by scoped name, and sorts by star count.*
+
+[View in API reference](/packages/./api/functions#marketplaceclient)
+
+```typescript
+const client = new MarketplaceClient();
+const results = await client.search("filesystem");
+for (const r of results) {
+  console.log(`${r.scopedName} (${r.stars} stars)`);
+}
+```
+
+## `tokenizeCriteriaValue()`
+
+*Splits a comma-separated criteria string into normalized tokens.*
+
+[View in API reference](/packages/./api/functions#tokenizecriteriavalue)
+
+```typescript
+const tokens = tokenizeCriteriaValue("React, TypeScript, svelte");
+// returns ["react", "typescript", "svelte"]
+```
+
+## `validateRecommendationCriteria()`
+
+*Validates recommendation criteria input for correctness and consistency.*
+
+[View in API reference](/packages/./api/functions#validaterecommendationcriteria)
+
+```typescript
+const result = validateRecommendationCriteria({
+  query: "gitbook",
+  mustHave: "api",
+  exclude: "legacy",
+});
+if (!result.valid) {
+  console.error(result.issues);
+}
+```
+
+## `normalizeRecommendationCriteria()`
+
+*Normalizes raw recommendation criteria into a consistent tokenized form.*
+
+[View in API reference](/packages/./api/functions#normalizerecommendationcriteria)
+
+```typescript
+const criteria = normalizeRecommendationCriteria({
+  query: "GitBook API",
+  mustHave: "sync, api",
+  prefer: ["modern"],
+});
+// criteria.queryTokens => ["api", "gitbook"]
+// criteria.mustHave => ["api", "sync"]
+```
+
+## `scoreSkillRecommendation()`
+
+*Computes a recommendation score for a single skill against normalized criteria.*
+
+[View in API reference](/packages/./api/functions#scoreskillrecommendation)
+
+```typescript
+const criteria = normalizeRecommendationCriteria({ query: "gitbook" });
+const ranked = scoreSkillRecommendation(marketplaceSkill, criteria, {
+  includeDetails: true,
+});
+console.log(ranked.score, ranked.reasons);
+```
+
+## `recommendSkills()`
+
+*Validates, normalizes, scores, and ranks a list of skills against criteria.*
+
+[View in API reference](/packages/./api/functions#recommendskills)
+
+```typescript
+const result = recommendSkills(
+  marketplaceResults,
+  { query: "gitbook", mustHave: "api", exclude: "legacy" },
+  { top: 5, includeDetails: true },
+);
+for (const rec of result.ranking) {
+  console.log(rec.skill.name, rec.score);
+}
+```
+
+## `formatSkillRecommendations()`
+
+*Format skill recommendation results for display or serialization.*
+
+[View in API reference](/packages/./api/functions#formatskillrecommendations)
+
+```typescript
+const result = await recommendSkills("testing", { taskType: "test-writing" });
+const output = formatSkillRecommendations(result, { mode: "human" });
+console.log(output);
+```
+
+## `searchSkills()`
+
+*Search for skills via marketplace APIs.*
+
+[View in API reference](/packages/./api/functions#searchskills)
+
+```typescript
+const results = await searchSkills("test runner", { limit: 10 });
+console.log(`Found ${results.length} skills`);
+```
+
+## `recommendSkills()`
+
+*Search and rank skills based on query and recommendation criteria.*
+
+[View in API reference](/packages/./api/functions#recommendskills)
+
+```typescript
+const result = await recommendSkills("testing", { taskType: "test-writing" });
+const best = result.ranking[0];
+console.log(`Top pick: ${best.skill.scopedName} (score: ${best.score})`);
+```
+
+## `registerSkillsFind()`
+
+*Registers the `skills find` subcommand for searching marketplaces and recommending skills.*
+
+[View in API reference](/packages/./api/functions#registerskillsfind)
+
+```bash
+caamp skills find "testing framework"
+caamp skills find --recommend --must-have typescript --prefer vitest
+```
+
+## `registerSkillsInit()`
+
+*Registers the `skills init` subcommand for scaffolding new SKILL.md templates.*
+
+[View in API reference](/packages/./api/functions#registerskillsinit)
+
+```bash
+caamp skills init my-skill
+caamp skills init --dir ./skills/new-skill
+```
+
+## `loadLibraryFromModule()`
+
+*Load a SkillLibrary from a module (index.js) at the given root directory.*
+
+[View in API reference](/packages/./api/functions#loadlibraryfrommodule)
+
+```typescript
+const library = loadLibraryFromModule("/home/user/.agents/libraries/cleocode-skills");
+console.log(`Loaded v${library.version} with ${library.listSkills().length} skills`);
+```
+
+## `buildLibraryFromFiles()`
+
+*Build a SkillLibrary from raw files in a directory.*
+
+[View in API reference](/packages/./api/functions#buildlibraryfromfiles)
+
+```typescript
+const library = buildLibraryFromFiles("/home/user/.agents/libraries/cleocode-skills");
+const coreSkills = library.getCoreSkills();
+console.log(`Core skills: ${coreSkills.map(s => s.name).join(", ")}`);
+```
+
+## `registerSkillLibrary()`
+
+*Registers a SkillLibrary instance directly as the active catalog.*
+
+[View in API reference](/packages/./api/functions#registerskilllibrary)
+
+```typescript
+const library = buildLibraryFromFiles("/path/to/skills");
+registerSkillLibrary(library);
+```
+
+## `registerSkillLibraryFromPath()`
+
+*Registers a skill library by loading it from a directory path.*
+
+[View in API reference](/packages/./api/functions#registerskilllibraryfrompath)
+
+```typescript
+registerSkillLibraryFromPath("/home/user/.agents/skill-library");
+const skills = listSkills();
+```
+
+## `clearRegisteredLibrary()`
+
+*Clears the registered skill library instance.*
+
+[View in API reference](/packages/./api/functions#clearregisteredlibrary)
+
+```typescript
+clearRegisteredLibrary();
+// isCatalogAvailable() will now return false unless auto-discovery succeeds
+```
+
+## `isCatalogAvailable()`
+
+*Checks whether a skill library is available for use.*
+
+[View in API reference](/packages/./api/functions#iscatalogavailable)
+
+```typescript
+if (isCatalogAvailable()) {
+  const skills = listSkills();
+}
+```
+
+## `getSkills()`
+
+*Returns all skill entries from the catalog.*
+
+[View in API reference](/packages/./api/functions#getskills)
+
+```typescript
+const allSkills = getSkills();
+console.log(`Found ${allSkills.length} skills`);
+```
+
+## `getManifest()`
+
+*Returns the parsed skill library manifest.*
+
+[View in API reference](/packages/./api/functions#getmanifest)
+
+```typescript
+const manifest = getManifest();
+console.log(manifest.version);
+```
+
+## `listSkills()`
+
+*Lists all available skill names in the catalog.*
+
+[View in API reference](/packages/./api/functions#listskills)
+
+```typescript
+const names = listSkills();
+// e.g., ["ct-orchestrator", "ct-dev-workflow", "ct-validator"]
+```
+
+## `getSkill()`
+
+*Gets skill metadata by name from the catalog.*
+
+[View in API reference](/packages/./api/functions#getskill)
+
+```typescript
+const skill = getSkill("ct-orchestrator");
+if (skill) {
+  console.log(skill.category);
+}
+```
+
+## `getSkillPath()`
+
+*Resolves the absolute path to a skill's SKILL.md file.*
+
+[View in API reference](/packages/./api/functions#getskillpath)
+
+```typescript
+const path = getSkillPath("ct-orchestrator");
+// e.g., "/home/user/.agents/skill-library/skills/ct-orchestrator/SKILL.md"
+```
+
+## `getSkillDir()`
+
+*Resolves the absolute path to a skill's directory.*
+
+[View in API reference](/packages/./api/functions#getskilldir)
+
+```typescript
+const dir = getSkillDir("ct-orchestrator");
+// e.g., "/home/user/.agents/skill-library/skills/ct-orchestrator"
+```
+
+## `readSkillContent()`
+
+*Reads a skill's SKILL.md content as a string.*
+
+[View in API reference](/packages/./api/functions#readskillcontent)
+
+```typescript
+const content = readSkillContent("ct-orchestrator");
+console.log(content.substring(0, 100));
+```
+
+## `getCoreSkills()`
+
+*Returns all skills marked as core in the catalog.*
+
+[View in API reference](/packages/./api/functions#getcoreskills)
+
+```typescript
+const coreSkills = getCoreSkills();
+console.log(`${coreSkills.length} core skills available`);
+```
+
+## `getSkillsByCategory()`
+
+*Returns skills filtered by category.*
+
+[View in API reference](/packages/./api/functions#getskillsbycategory)
+
+```typescript
+const planningSkills = getSkillsByCategory("planning");
+```
+
+## `getSkillDependencies()`
+
+*Gets the direct dependency names for a skill.*
+
+[View in API reference](/packages/./api/functions#getskilldependencies)
+
+```typescript
+const deps = getSkillDependencies("ct-task-executor");
+// e.g., ["ct-orchestrator"]
+```
+
+## `resolveDependencyTree()`
+
+*Resolves the full dependency tree for a set of skill names.*
+
+[View in API reference](/packages/./api/functions#resolvedependencytree)
+
+```typescript
+const allDeps = resolveDependencyTree(["ct-task-executor", "ct-validator"]);
+// includes all transitive dependencies
+```
+
+## `listProfiles()`
+
+*Lists all available profile names in the catalog.*
+
+[View in API reference](/packages/./api/functions#listprofiles)
+
+```typescript
+const profiles = listProfiles();
+// e.g., ["default", "minimal", "full"]
+```
+
+## `getProfile()`
+
+*Gets a profile definition by name from the catalog.*
+
+[View in API reference](/packages/./api/functions#getprofile)
+
+```typescript
+const profile = getProfile("default");
+if (profile) {
+  console.log(profile.skills);
+}
+```
+
+## `resolveProfile()`
+
+*Resolves a profile to its full skill list including inherited skills.*
+
+[View in API reference](/packages/./api/functions#resolveprofile)
+
+```typescript
+const skills = resolveProfile("default");
+// includes all skills from extended profiles and their dependencies
+```
+
+## `listSharedResources()`
+
+*Lists all available shared resource names in the catalog.*
+
+[View in API reference](/packages/./api/functions#listsharedresources)
+
+```typescript
+const resources = listSharedResources();
+// e.g., ["testing-framework-config.md", "error-handling.md"]
+```
+
+## `getSharedResourcePath()`
+
+*Gets the absolute path to a shared resource file.*
+
+[View in API reference](/packages/./api/functions#getsharedresourcepath)
+
+```typescript
+const path = getSharedResourcePath("testing-framework-config.md");
+```
+
+## `readSharedResource()`
+
+*Reads a shared resource file's content as a string.*
+
+[View in API reference](/packages/./api/functions#readsharedresource)
+
+```typescript
+const content = readSharedResource("testing-framework-config.md");
+if (content) {
+  console.log(content);
+}
+```
+
+## `listProtocols()`
+
+*Lists all available protocol names in the catalog.*
+
+[View in API reference](/packages/./api/functions#listprotocols)
+
+```typescript
+const protocols = listProtocols();
+// e.g., ["research", "implementation", "contribution"]
+```
+
+## `getProtocolPath()`
+
+*Gets the absolute path to a protocol file.*
+
+[View in API reference](/packages/./api/functions#getprotocolpath)
+
+```typescript
+const path = getProtocolPath("research");
+```
+
+## `readProtocol()`
+
+*Reads a protocol file's content as a string.*
+
+[View in API reference](/packages/./api/functions#readprotocol)
+
+```typescript
+const content = readProtocol("research");
+if (content) {
+  console.log(content);
+}
+```
+
+## `validateSkillFrontmatter()`
+
+*Validates a single skill's frontmatter against the schema.*
+
+[View in API reference](/packages/./api/functions#validateskillfrontmatter)
+
+```typescript
+const result = validateSkillFrontmatter("ct-orchestrator");
+if (!result.valid) {
+  console.error(result.errors);
+}
+```
+
+## `validateAll()`
+
+*Validates all skills in the catalog and returns results per skill.*
+
+[View in API reference](/packages/./api/functions#validateall)
+
+```typescript
+const results = validateAll();
+for (const [name, result] of results) {
+  if (!result.valid) console.error(`${name}: invalid`);
+}
+```
+
+## `getDispatchMatrix()`
+
+*Gets the dispatch matrix from the skill library manifest.*
+
+[View in API reference](/packages/./api/functions#getdispatchmatrix)
+
+```typescript
+const matrix = getDispatchMatrix();
+console.log(matrix);
+```
+
+## `getVersion()`
+
+*Returns the skill library version string.*
+
+[View in API reference](/packages/./api/functions#getversion)
+
+```typescript
+const version = getVersion();
+// e.g., "1.0.0"
+```
+
+## `getLibraryRoot()`
+
+*Returns the absolute path to the skill library root directory.*
+
+[View in API reference](/packages/./api/functions#getlibraryroot)
+
+```typescript
+const root = getLibraryRoot();
+// e.g., "/home/user/.agents/skill-library"
+```
+
+## `parseSkillFile()`
+
+*Parse a SKILL.md file and extract its frontmatter metadata.*
+
+[View in API reference](/packages/./api/functions#parseskillfile)
+
+```typescript
+const meta = await parseSkillFile("/path/to/SKILL.md");
+if (meta) {
+  console.log(`${meta.name}: ${meta.description}`);
+}
+```
+
+## `discoverSkill()`
+
+*Discover a single skill at a given directory path.*
+
+[View in API reference](/packages/./api/functions#discoverskill)
+
+```typescript
+import { getCanonicalSkillsDir } from "../paths/standard.js";
+import { join } from "node:path";
+
+const skill = await discoverSkill(join(getCanonicalSkillsDir(), "my-skill"));
+if (skill) {
+  console.log(`Found: ${skill.name}`);
+}
+```
+
+## `discoverSkills()`
+
+*Scan a directory for skill subdirectories, each containing a SKILL.md file.*
+
+[View in API reference](/packages/./api/functions#discoverskills)
+
+```typescript
+import { getCanonicalSkillsDir } from "../paths/standard.js";
+
+const skills = await discoverSkills(getCanonicalSkillsDir());
+console.log(`Found ${skills.length} skills`);
+```
+
+## `discoverSkillsMulti()`
+
+*Discover skills across multiple directories.*
+
+[View in API reference](/packages/./api/functions#discoverskillsmulti)
+
+```typescript
+const skills = await discoverSkillsMulti(["/home/user/.agents/skills", "./project-skills"]);
+console.log(`Found ${skills.length} unique skills`);
+```
+
+## `registerSkillsInstall()`
+
+*Registers the `skills install` subcommand for installing skills from various sources.*
+
+[View in API reference](/packages/./api/functions#registerskillsinstall)
+
+```bash
+caamp skills install owner/repo
+caamp skills install @author/skill-name --agent claude-code
+caamp skills install --profile recommended --all
+```
+
+## `registerSkillsList()`
+
+*Registers the `skills list` subcommand for listing installed skills.*
+
+[View in API reference](/packages/./api/functions#registerskillslist)
+
+```bash
+caamp skills list --human
+caamp skills list --agent claude-code --global
+```
+
+## `registerSkillsRemove()`
+
+*Registers the `skills remove` subcommand for removing installed skills.*
+
+[View in API reference](/packages/./api/functions#registerskillsremove)
+
+```bash
+caamp skills remove my-skill
+caamp skills remove --yes
+```
+
+## `registerSkillsUpdate()`
+
+*Registers the `skills update` subcommand for updating all outdated skills.*
+
+[View in API reference](/packages/./api/functions#registerskillsupdate)
+
+```bash
+caamp skills update --yes
+caamp skills update --json
+```
+
+## `ValidationIssue`
+
+*A single validation issue found during SKILL.md validation.*
+
+[View in API reference](/packages/./api/functions#validationissue)
+
+```typescript
+const issue: ValidationIssue = {
+  level: "error",
+  field: "name",
+  message: "Missing required field: name",
+};
+```
+
+## `ValidationResult`
+
+*Result of validating a SKILL.md file against the Agent Skills standard.*
+
+[View in API reference](/packages/./api/functions#validationresult)
+
+```typescript
+const result = await validateSkill("/path/to/SKILL.md");
+if (!result.valid) {
+  for (const issue of result.issues) {
+    console.log(`[${issue.level}] ${issue.field}: ${issue.message}`);
+  }
+}
+```
+
+## `validateSkill()`
+
+*Validate a SKILL.md file against the Agent Skills standard.*
+
+[View in API reference](/packages/./api/functions#validateskill)
+
+```typescript
+const result = await validateSkill("/path/to/SKILL.md");
+console.log(result.valid ? "Valid" : `${result.issues.length} issues found`);
+```
+
+## `registerSkillsValidate()`
+
+*Registers the `skills validate` subcommand for validating SKILL.md file format.*
+
+[View in API reference](/packages/./api/functions#registerskillsvalidate)
+
+```bash
+caamp skills validate ./my-skill/SKILL.md
+caamp skills validate --json
+```
+
+## `registerSkillsCommands()`
+
+*Registers the `skills` command group with all skill management subcommands.*
+
+[View in API reference](/packages/./api/functions#registerskillscommands)
+
+```bash
+caamp skills install owner/repo
+caamp skills list --human
+caamp skills find "testing"
+```
+
+## `isCaampOwnedSkill()`
+
+*Check whether a skill name is reserved by CAAMP (ct-\* prefix).*
+
+[View in API reference](/packages/./api/functions#iscaampownedskill)
+
+```typescript
+isCaampOwnedSkill("ct-research-agent"); // true
+isCaampOwnedSkill("my-custom-skill");   // false
+```
+
+## `checkSkillIntegrity()`
+
+*Check the integrity of a single installed skill.*
+
+[View in API reference](/packages/./api/functions#checkskillintegrity)
+
+```typescript
+const result = await checkSkillIntegrity("ct-research-agent", providers, "global");
+if (result.status !== "intact") {
+  console.log(`Issue: ${result.issue}`);
+}
+```
+
+## `checkAllSkillIntegrity()`
+
+*Check integrity of all tracked skills.*
+
+[View in API reference](/packages/./api/functions#checkallskillintegrity)
+
+```typescript
+const results = await checkAllSkillIntegrity(providers);
+for (const [name, result] of results) {
+  console.log(`${name}: ${result.status}`);
+}
+```
+
+## `shouldOverrideSkill()`
+
+*Resolve a skill name conflict where a user-installed skill collides with a CAAMP-owned (ct-\*) skill.*
+
+[View in API reference](/packages/./api/functions#shouldoverrideskill)
+
+```typescript
+const proceed = shouldOverrideSkill("ct-research-agent", "library", existingEntry);
+if (proceed) {
+  // Safe to install/override
+}
+```
+
+## `validateInstructionIntegrity()`
+
+*Validate instruction file injection status across all providers.*
+
+[View in API reference](/packages/./api/functions#validateinstructionintegrity)
+
+```typescript
+const issues = await validateInstructionIntegrity(providers, process.cwd(), "project");
+for (const issue of issues) {
+  console.log(`${issue.providerId}: ${issue.issue} (${issue.file})`);
+}
+```
+
+## `resolveCantImports()`
+
+*Resolve `@import *.cant` references in instruction file content.*
+
+[View in API reference](/packages/./api/functions#resolvecantimports)
+
+```typescript
+const result = resolveCantImports(
+  '@import .cleo/agents/core-agent.cant',
+  '/home/user/project',
+);
+console.log(result.resolvedContent);
+// ## Agent: core-agent
+// - **Model**: opus
+// ...
+```
+
+## `cantToMarkdown()`
+
+*Convert a `.cant` file's content to markdown equivalent.*
+
+[View in API reference](/packages/./api/functions#canttomarkdown)
+
+```typescript
+const md = cantToMarkdown(`---
+kind: agent
+version: 1
+---
+
+agent ops-lead:
+  model: opus
+  prompt: "Coordinate operations"
+`);
+// Returns markdown with ## Agent: ops-lead heading
+```
+
+## `discoverWellKnown()`
+
+*Discover skills from a well-known URL.*
+
+[View in API reference](/packages/./api/functions#discoverwellknown)
+
+```typescript
+const skills = await discoverWellKnown("example.com");
+for (const skill of skills) {
+  console.log(`${skill.name}: ${skill.url}`);
+}
+```

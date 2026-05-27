@@ -1,0 +1,55 @@
+{
+  "_comment": "ct-master-tac manifest — merge into packages/skills/skills/manifest.json skills[] array",
+  "name": "ct-master-tac",
+  "version": "1.0.0",
+  "description": "Master Tactical Bundle: installs all 12 CANT protocol files + platform team definition for a batteries-included CleoOS autonomous execution environment.",
+  "path": "skills/ct-master-tac",
+  "tags": ["bundle", "bootstrap", "protocols", "cant", "meta", "install"],
+  "status": "active",
+  "tier": 1,
+  "token_budget": 4000,
+  "protocol": null,
+  "files": [
+    "bundled/protocols/research.cant",
+    "bundled/protocols/consensus.cant",
+    "bundled/protocols/architecture-decision.cant",
+    "bundled/protocols/specification.cant",
+    "bundled/protocols/decomposition.cant",
+    "bundled/protocols/implementation.cant",
+    "bundled/protocols/validation.cant",
+    "bundled/protocols/testing.cant",
+    "bundled/protocols/contribution.cant",
+    "bundled/protocols/release.cant",
+    "bundled/protocols/artifact-publish.cant",
+    "bundled/protocols/provenance.cant",
+    "bundled/teams/platform.cant"
+  ],
+  "install_targets": {
+    "protocols": "packages/core/src/validation/protocols/cant/",
+    "teams": ".cleo/"
+  },
+  "capabilities": {
+    "inputs": ["--verify", "--force"],
+    "outputs": ["install-summary", "verification-report"],
+    "dependencies": [],
+    "dispatch_triggers": [
+      "install master tac",
+      "bootstrap protocols",
+      "tools.skill.install ct-master-tac",
+      "verify protocol bundle",
+      "repair protocol files",
+      "fresh CleoOS install"
+    ],
+    "compatible_subagent_types": ["general-purpose"],
+    "chains_to": ["ct-cleo"],
+    "dispatch_keywords": {
+      "primary": ["master-tac", "bootstrap", "install", "protocol-bundle"],
+      "secondary": ["cant", "protocols", "team", "fresh-install", "recover"]
+    }
+  },
+  "constraints": {
+    "max_context_tokens": 20000,
+    "requires_session": false,
+    "requires_epic": false
+  }
+}

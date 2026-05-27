@@ -1,0 +1,39 @@
+---
+title: runtime
+description: runtime package overview
+---
+
+## Functions & Classes
+
+| Symbol                                                                     | Kind     | Description                                                                      |
+| -------------------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------- |
+| [`AgentPoller`](/packages/runtime/api/index#agentpoller)                   | class    | AgentPoller service — polls peek endpoint AND group conversations. Deduplicat... |
+| [`HeartbeatService`](/packages/runtime/api/index#heartbeatservice)         | class    | HeartbeatService sends periodic online status to the cloud API.                  |
+| [`KeyRotationService`](/packages/runtime/api/index#keyrotationservice)     | class    | KeyRotationService monitors credential age and auto-rotates when threshold is... |
+| [`SseConnectionService`](/packages/runtime/api/index#sseconnectionservice) | class    | SseConnectionService manages a persistent transport with subscribe() support.    |
+| [`createRuntime()`](/packages/runtime/api/index#createruntime)             | function | Create and start a runtime from the agent registry.  Resolves the agent crede... |
+
+## Types & Interfaces
+
+| Symbol                                                                   | Kind      | Description                           |
+| ------------------------------------------------------------------------ | --------- | ------------------------------------- |
+| [`MessageHandler`](/packages/runtime/api/index#messagehandler)           | type      | Message handler callback.             |
+| [`AgentPollerConfig`](/packages/runtime/api/index#agentpollerconfig)     | interface | Poller configuration.                 |
+| [`HeartbeatConfig`](/packages/runtime/api/index#heartbeatconfig)         | interface | Heartbeat service configuration.      |
+| [`KeyRotationConfig`](/packages/runtime/api/index#keyrotationconfig)     | interface | Key rotation service configuration.   |
+| [`SseConnectionConfig`](/packages/runtime/api/index#sseconnectionconfig) | interface | SSE connection service configuration. |
+| [`SseMessageHandler`](/packages/runtime/api/index#ssemessagehandler)     | type      | Message handler callback.             |
+| [`RuntimeConfig`](/packages/runtime/api/index#runtimeconfig)             | interface | Configuration for createRuntime().    |
+| [`RuntimeHandle`](/packages/runtime/api/index#runtimehandle)             | interface | Handle returned by createRuntime().   |
+
+## Other Exports
+
+| Symbol                                                                     | Kind | Description |
+| -------------------------------------------------------------------------- | ---- | ----------- |
+| [`tsup.config.ts`](/packages/runtime/api/index#tsupconfigts)               | file |             |
+| [`agent-poller.ts`](/packages/runtime/api/index#agent-pollerts)            | file |             |
+| [`heartbeat.ts`](/packages/runtime/api/index#heartbeatts)                  | file |             |
+| [`key-rotation.ts`](/packages/runtime/api/index#key-rotationts)            | file |             |
+| [`sse-connection.ts`](/packages/runtime/api/index#sse-connectionts)        | file |             |
+| [`index.ts`](/packages/runtime/api/index#indexts)                          | file |             |
+| [`lifecycle-e2e.test.ts`](/packages/runtime/api/index#lifecycle-e2etestts) | file |             |

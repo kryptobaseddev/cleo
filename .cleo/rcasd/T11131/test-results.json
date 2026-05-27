@@ -1,0 +1,17 @@
+{
+  "numTotalTests": 2,
+  "numPassedTests": 2,
+  "numFailedTests": 0,
+  "testResults": [
+    {
+      "name": "CODEOWNERS declares cleocode stewardship of crates/worktrunk-core/",
+      "status": "passed",
+      "duration": 0
+    },
+    {
+      "name": "crates/worktree-napi/README.md declares cleocode sole stewardship",
+      "status": "passed",
+      "duration": 0
+    }
+  ]
+}

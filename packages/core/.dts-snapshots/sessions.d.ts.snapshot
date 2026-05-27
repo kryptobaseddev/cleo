@@ -1,0 +1,107 @@
+/**
+ * Session management operations.
+ * @task T4463
+ * @epic T4454
+ */
+import type { Session, SessionScope } from '@cleocode/contracts';
+import type { DataAccessor } from '../store/data-accessor.js';
+import '../hooks/handlers/index.js';
+/** Options for starting a session. */
+export interface StartSessionOptions {
+    name: string;
+    scope: string;
+    autoStart?: boolean;
+    startTask?: string;
+    focus?: string;
+    agent?: string;
+    /** Enable full query+mutation audit logging for this session (behavioral grading). */
+    grade?: boolean;
+    /** Provider adapter ID active for this session (T5240). */
+    providerId?: string;
+}
+/** Options for ending a session. */
+export interface EndSessionOptions {
+    sessionId?: string;
+    note?: string;
+}
+/** Options for listing sessions. */
+export interface ListSessionsOptions {
+    status?: string;
+    limit?: number;
+}
+/**
+ * Parse a scope string into a SessionScope.
+ * @task T4463
+ */
+export declare function parseScope(scopeStr: string): SessionScope;
+/**
+ * Read sessions from accessor or JSON file.
+ * @task T4463
+ */
+export declare function readSessions(cwd?: string, accessor?: DataAccessor): Promise<Session[]>;
+/**
+ * Save sessions via accessor or JSON file.
+ * @task T4463
+ */
+export declare function saveSessions(sessions: Session[], cwd?: string, accessor?: DataAccessor): Promise<void>;
+/**
+ * Start a new session.
+ * @task T4463
+ */
+export declare function startSession(options: StartSessionOptions, cwd?: string, accessor?: DataAccessor): Promise<Session>;
+/**
+ * End a session.
+ * @task T4463
+ */
+export declare function endSession(options?: EndSessionOptions, cwd?: string, accessor?: DataAccessor): Promise<Session>;
+/**
+ * Get current session status.
+ * @task T4463
+ */
+export declare function sessionStatus(cwd?: string, accessor?: DataAccessor): Promise<Session | null>;
+/**
+ * Resume an existing session.
+ * @task T4463
+ */
+export declare function resumeSession(sessionId: string, cwd?: string, accessor?: DataAccessor): Promise<Session>;
+/**
+ * List sessions with optional filtering.
+ * @task T4463
+ */
+export declare function listSessions(options?: ListSessionsOptions, cwd?: string, accessor?: DataAccessor): Promise<Session[]>;
+/**
+ * Garbage collect old sessions.
+ * Marks orphaned sessions that have been active too long.
+ * @task T4463
+ */
+export declare function gcSessions(maxAgeHours?: number, cwd?: string, accessor?: DataAccessor): Promise<{
+    orphaned: string[];
+    removed: string[];
+}>;
+export type { Session as SessionRecord } from '@cleocode/contracts';
+export type { RecordAssumptionParams } from './assumptions.js';
+export { recordAssumption } from './assumptions.js';
+export type { BriefingBlockedTask, BriefingBug, BriefingEpic, BriefingOptions, BriefingTask, CurrentTaskInfo, LastSessionInfo, PipelineStageInfo, SessionBriefing, } from './briefing.js';
+export { computeBriefing } from './briefing.js';
+export type { DecisionLogParams, RecordDecisionParams } from './decisions.js';
+export { getDecisionLog, recordDecision } from './decisions.js';
+export type { FindSessionsParams, MinimalSessionRecord } from './find.js';
+export { findSessions } from './find.js';
+export type { ComputeDebriefOptions, ComputeHandoffOptions, DebriefData, DebriefDecision, GitState, HandoffData, } from './handoff.js';
+export { computeDebrief, computeHandoff, getHandoff, getLastHandoff, persistHandoff, } from './handoff.js';
+export { archiveSessions } from './session-archive.js';
+export { cleanupSessions } from './session-cleanup.js';
+export type { ContextDriftResult } from './session-drift.js';
+export { getContextDrift } from './session-drift.js';
+export type { SessionHistoryEntry, SessionHistoryParams } from './session-history.js';
+export { getSessionHistory } from './session-history.js';
+export type { SessionBridgeData } from './session-memory-bridge.js';
+export { bridgeSessionToMemory } from './session-memory-bridge.js';
+export { showSession } from './session-show.js';
+export type { SessionStatsResult } from './session-stats.js';
+export { getSessionStats } from './session-stats.js';
+export { suspendSession } from './session-suspend.js';
+export { switchSession } from './session-switch.js';
+export { SessionView } from './session-view.js';
+export type { AssumptionRecord, DecisionRecord, TaskWorkStateExt, } from './types.js';
+//# sourceMappingURL=index.d.ts.map

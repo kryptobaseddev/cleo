@@ -1,0 +1,77 @@
+{
+  "extends": ["stylelint-config-standard"],
+  "overrides": [
+    {
+      "files": ["**/*.svelte"],
+      "customSyntax": "postcss-html"
+    },
+    {
+      "files": ["src/lib/styles/tokens.css"],
+      "rules": {
+        "color-no-hex": null
+      }
+    }
+  ],
+  "rules": {
+    "color-no-hex": [
+      true,
+      {
+        "message": "Use a token from $lib/styles/tokens.css (e.g. var(--accent)) instead of a raw hex literal — T990.",
+        "severity": "error"
+      }
+    ],
+    "selector-class-pattern": null,
+    "no-descending-specificity": null,
+    "custom-property-pattern": null,
+    "custom-property-empty-line-before": null,
+    "declaration-empty-line-before": null,
+    "declaration-block-single-line-max-declarations": null,
+    "keyframes-name-pattern": null,
+    "alpha-value-notation": null,
+    "color-function-notation": null,
+    "color-function-alias-notation": null,
+    "hue-degree-notation": null,
+    "value-keyword-case": null,
+    "shorthand-property-no-redundant-values": null,
+    "declaration-block-no-redundant-longhand-properties": null,
+    "declaration-block-no-shorthand-property-overrides": null,
+    "no-empty-source": null,
+    "rule-empty-line-before": null,
+    "comment-empty-line-before": null,
+    "length-zero-no-unit": null,
+    "media-feature-range-notation": null,
+    "selector-not-notation": null,
+    "property-no-vendor-prefix": null,
+    "value-no-vendor-prefix": null,
+    "at-rule-no-vendor-prefix": null,
+    "selector-pseudo-class-no-unknown": [
+      true,
+      {
+        "ignorePseudoClasses": ["global"]
+      }
+    ],
+    "at-rule-no-unknown": [
+      true,
+      {
+        "ignoreAtRules": ["tailwind", "apply", "screen"]
+      }
+    ],
+    "declaration-property-value-no-unknown": null,
+    "function-no-unknown": [
+      true,
+      {
+        "ignoreFunctions": ["color-mix", "theme", "clamp"]
+      }
+    ],
+    "function-url-no-scheme-relative": null,
+    "font-family-name-quotes": null,
+    "font-family-no-missing-generic-family-keyword": null,
+    "number-max-precision": null
+  },
+  "ignoreFiles": [
+    "node_modules/**",
+    ".svelte-kit/**",
+    "build/**",
+    "dist/**"
+  ]
+}

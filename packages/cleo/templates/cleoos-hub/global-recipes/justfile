@@ -1,0 +1,68 @@
+# CleoOS Global Justfile Hub
+# Cross-project recipe library managed by humans (via editor) and
+# the meta Cleo Chef Agent (via pm_upsert_global_recipe tool).
+#
+# Location: {cleoHome}/global-recipes/justfile
+# Invoke:   just -f $CLEO_HOME/global-recipes/justfile <recipe>
+#
+# ARCHITECTURE (Phase 4 SSoT):
+#   - Protocol text lives in @cleocode/skills (SKILL.md files)
+#   - Recipes here WRAP 'cleo' CLI commands — they don't re-encode protocol
+#   - Stage-specific behavior goes through 'cleo lifecycle guidance <stage>'
+#   - Agent-facing recipes should invoke skills via 'cleo skills info' or
+#     delegate to 'cleo orchestrate spawn <taskId>' which injects skills
+
+# Default: list recipes
+default:
+    @just --list --justfile "{{justfile()}}"
+
+# Bootstrap a new project (greenfield)
+# Invoked by Phase 5 init flow for empty directories.
+bootstrap project-type="node":
+    @echo "[cleoos] bootstrap {{project-type}} — scaffolds CLEO state + loads Tier 0 skills"
+    @test -d .cleo || cleo init
+    @cleo lifecycle guidance research
+
+# Load stage-aware LLM guidance — used by the Cleo Chef Agent and Pi extensions
+stage-guidance stage="research":
+    @cleo lifecycle guidance {{stage}}
+
+# List all available skills (backed by packages/skills/skills/)
+skills:
+    @cleo skills list
+
+# Inspect a specific skill
+skill-info name:
+    @cleo skills info {{name}}
+
+# Dispatch lint for detected project type
+lint:
+    @if test -f package.json; then \
+        if grep -q '"lint"' package.json 2>/dev/null; then \
+            pnpm lint 2>/dev/null || npm run lint; \
+        else \
+            echo "[cleoos] no lint script in package.json"; \
+        fi; \
+    elif test -f Cargo.toml; then \
+        cargo clippy -- -D warnings; \
+    else \
+        echo "[cleoos] no known project type for lint"; \
+    fi
+
+# Dispatch tests for detected project type
+test:
+    @if test -f package.json; then \
+        if grep -q '"test"' package.json 2>/dev/null; then \
+            pnpm test 2>/dev/null || npm test; \
+        else \
+            echo "[cleoos] no test script in package.json"; \
+        fi; \
+    elif test -f Cargo.toml; then \
+        cargo test; \
+    else \
+        echo "[cleoos] no known project type for test"; \
+    fi
+
+# List all recipes across the global hub (convenience alias for discovery)
+recipes:
+    @just --list --justfile "{{justfile()}}"

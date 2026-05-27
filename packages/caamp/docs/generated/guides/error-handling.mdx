@@ -1,0 +1,297 @@
+---
+title: ''
+---
+
+How to handle errors thrown by the library, including error types and recovery patterns.
+
+> TODO: Add your own content to this guide. The sections below are auto-generated from code.
+
+{/* FORGE:AUTO-START guide-error-handling */}
+
+## Error Types
+
+### `resolveProvidersRegistryPath()`
+
+Locates the providers registry.json file by searching up from a start directory.
+
+```typescript
+(startDir: string) => string
+```
+
+**Throws**
+
+- Error if `providers/registry.json` cannot be found within 8 parent levels
+
+### `ensureProviderInstructionFile()`
+
+Ensure a provider's instruction file exists with the correct CAAMP block.  This is the canonical API for adapters and external packages to manage provider instruction files. Instead of directly creating/modifying CLAUDE.md, GEMINI.md, etc., callers should use this function to delegate instruction file management to CAAMP.  The instruction file name is resolved from CAAMP's provider registry (single source of truth), not hardcoded by the caller.
+
+```typescript
+(providerId: string, projectDir: string, options: EnsureProviderInstructionFileOptions) => Promise<EnsureProviderInstructionFileResult>
+```
+
+**Throws**
+
+- Error if the provider ID is not found in the registry
+
+### `ensureAllProviderInstructionFiles()`
+
+Ensure instruction files for multiple providers at once.  Deduplicates by file path — providers sharing the same instruction file (e.g. many providers use AGENTS.md) are only written once.
+
+```typescript
+(providerIds: string[], projectDir: string, options: EnsureProviderInstructionFileOptions) => Promise<EnsureProviderInstructionFileResult[]>
+```
+
+**Throws**
+
+- Error if any provider ID is not found in the registry
+
+### `resolveTierDir()`
+
+Resolve the on-disk directory for an asset at a given tier.
+
+```typescript
+(opts: ResolveTierDirOptions) => string
+```
+
+**Throws**
+
+- `Error` when `tier='project'` and no `projectDir` is supplied
+
+### `PiRequiredError`
+
+Error raised when `getExclusivityMode` resolves to `'force-pi'` but Pi is not installed at the moment a runtime dispatch is requested.
+
+```typescript
+typeof PiRequiredError
+```
+
+### `resolveDefaultTargetProviders()`
+
+Resolve the default set of target providers when the user has not passed `--agent`, honouring the active `ExclusivityMode`.
+
+```typescript
+(options?: ResolveDefaultTargetProvidersOptions) => Provider[]
+```
+
+**Throws**
+
+- `PiRequiredError` when mode is `'force-pi'` and Pi is not   installed.
+
+### `resolveFormat()`
+
+Resolves output format based on flags and defaults.
+
+```typescript
+(options: FormatOptions) => "json" | "human"
+```
+
+**Throws**
+
+- Error if format flags conflict
+
+### `LAFSCommandError`
+
+Structured error class for LAFS-compliant command failures with error codes and recovery hints.
+
+```typescript
+typeof LAFSCommandError
+```
+
+### `readConfig()`
+
+Read and parse a config file in the specified format.  Dispatches to the appropriate format handler (JSON/JSONC, YAML, or TOML).
+
+```typescript
+(filePath: string, format: ConfigFormat) => Promise<Record<string, unknown>>
+```
+
+**Throws**
+
+- If the file cannot be read or the format is unsupported
+
+### `writeConfig()`
+
+Write a server entry to a config file, preserving existing content.  Dispatches to the appropriate format handler. For JSONC files, comments are preserved using `jsonc-parser`.
+
+```typescript
+(filePath: string, format: ConfigFormat, key: string, serverName: string, serverConfig: unknown) => Promise<void>
+```
+
+**Throws**
+
+- If the format is unsupported
+
+### `removeConfig()`
+
+Remove a server entry from a config file in the specified format.
+
+```typescript
+(filePath: string, format: ConfigFormat, key: string, serverName: string) => Promise<boolean>
+```
+
+**Throws**
+
+- If the format is unsupported
+
+### `installMcpServer()`
+
+Install an MCP server entry into a single provider's config file.
+
+```typescript
+(provider: Provider, serverName: string, config: McpServerConfig, opts: InstallMcpServerOptions) => Promise<InstallMcpServerResult>
+```
+
+**Throws**
+
+- `Error` when the provider has no MCP capability or no   project-scoped config path is available.
+
+### `requireMcpProvider()`
+
+Look up an MCP-capable provider in the registry by id, throwing a typed `LAFSCommandError` when the id is unknown or the provider does not declare an MCP capability.
+
+```typescript
+(providerId: string) => Provider
+```
+
+**Throws**
+
+- `LAFSCommandError` when the provider is unknown or has no   MCP capability.
+
+### `parseScope()`
+
+Parse and validate a `--scope` option value into a typed `McpScope`.
+
+```typescript
+(raw: string | undefined, defaultScope: McpScope) => McpScope
+```
+
+**Throws**
+
+- `LAFSCommandError` when `raw` is set to an invalid value.
+
+### `parseEnvAssignment()`
+
+Parse a single `--env KEY=VALUE` option value into a `[key, value]` pair, throwing a typed validation error when the shape is wrong.
+
+```typescript
+(raw: string) => [string, string]
+```
+
+**Throws**
+
+- `LAFSCommandError` when the token is malformed.
+
+### `NetworkError`
+
+Structured error for network failures with categorized kind.
+
+```typescript
+typeof NetworkError
+```
+
+### `fetchWithTimeout()`
+
+Fetch a URL with an automatic timeout via `AbortSignal.timeout`.
+
+```typescript
+(url: string, init?: RequestInit, timeoutMs?: number) => Promise<Response>
+```
+
+**Throws**
+
+- `NetworkError` on timeout or network failure
+
+### `ensureOkResponse()`
+
+Assert that a `Response` has an OK status, throwing on failure.
+
+```typescript
+(response: Response, url: string) => Response
+```
+
+**Throws**
+
+- `NetworkError` when `response.ok` is `false`
+
+### `requirePiHarness()`
+
+Resolve and validate Pi's installation, returning a ready-to-use `PiHarness`.
+
+```typescript
+() => PiHarness
+```
+
+**Throws**
+
+- `LAFSCommandError` when Pi is not installed.
+
+### `parseScope()`
+
+Parse and validate a `--scope` option value into a typed tier.
+
+```typescript
+(raw: string | undefined, defaultTier: HarnessTier) => HarnessTier
+```
+
+**Throws**
+
+- `LAFSCommandError` when `raw` is set to an invalid value.
+
+### `MarketplaceUnavailableError`
+
+Error thrown when all marketplace sources fail to respond.
+
+```typescript
+typeof MarketplaceUnavailableError
+```
+
+### `recommendSkills()`
+
+Validates, normalizes, scores, and ranks a list of skills against criteria.
+
+```typescript
+(skills: MarketplaceResult[], criteriaInput: RecommendationCriteriaInput, options?: RecommendationOptions) => RecommendSkillsResult
+```
+
+**Throws**
+
+- Error with `code` and `issues` properties when criteria are invalid
+
+### `loadLibraryFromModule()`
+
+Load a SkillLibrary from a module (index.js) at the given root directory.
+
+```typescript
+(root: string) => SkillLibrary
+```
+
+**Throws**
+
+- If the module cannot be loaded or does not implement SkillLibrary
+
+### `buildLibraryFromFiles()`
+
+Build a SkillLibrary from raw files in a directory.
+
+```typescript
+(root: string) => SkillLibrary
+```
+
+**Throws**
+
+- If skills.json is not found at the root
+
+### `registerSkillLibraryFromPath()`
+
+Registers a skill library by loading it from a directory path.
+
+```typescript
+(root: string) => void
+```
+
+**Throws**
+
+- Error if the library cannot be loaded from the given path
+
+{/* FORGE:AUTO-END guide-error-handling */}

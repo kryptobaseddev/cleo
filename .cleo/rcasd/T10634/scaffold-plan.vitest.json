@@ -1,0 +1,15 @@
+{
+  "numTotalTests": 8,
+  "numPassedTests": 8,
+  "numFailedTests": 0,
+  "testResults": [
+    {"name": "AC1 — plan doc draft generated from saga structure > generates a markdown document for a saga with epics and tasks", "status": "passed"},
+    {"name": "AC1 — plan doc draft generated from saga structure > handles empty saga (no member epics)", "status": "passed"},
+    {"name": "AC1 — plan doc draft generated from saga structure > throws when saga is not found", "status": "passed"},
+    {"name": "AC2 — docs SSoT attachment supported > result includes structured entries suitable for attachment", "status": "passed"},
+    {"name": "AC2 — docs SSoT attachment supported > generated markdown has consistent header/footer for SSoT indexing", "status": "passed"},
+    {"name": "AC3 — agent/maintainer audience modes > agent mode produces compact output with structured lists", "status": "passed"},
+    {"name": "AC3 — agent/maintainer audience modes > agent mode includes ready and blocked tasks in compact format", "status": "passed"},
+    {"name": "AC3 — agent/maintainer audience modes > maintainer mode includes recommendations section", "status": "passed"}
+  ]
+}

@@ -1,0 +1,124 @@
+{
+  "umbrella_epic": "T377",
+  "audit_epic": "T378",
+  "audited_at": "2026-04-09T19:10:21Z",
+  "waves": [
+    {
+      "wave": 0,
+      "title": "CANT Grammar Additions",
+      "subtask_id": "T385",
+      "status": "shipped",
+      "evidence": [
+        "crates/cant-core/src/dsl/ast.rs:28-72 — DocumentKind enum includes all 5 new variants: Protocol, Lifecycle, Team, Tool, ModelRouting, MentalModel",
+        "crates/cant-core/src/dsl/team.rs:1-127 — parse_team_block() fully implemented with orchestrator/leads/workers sub-blocks",
+        "crates/cant-core/src/dsl/tool.rs:1-115 — parse_tool_block() fully implemented with description/tier/parameters",
+        "crates/cant-core/src/dsl/agent.rs:78-171 — context_sources: and mental_model: sub-blocks parsed as property lists",
+        "crates/cant-core/src/validate/hierarchy.rs:8-351 — all 8 lint rules present: TEAM-001/002/003, TIER-001/002, JIT-001, MM-001/002"
+      ],
+      "gaps": [
+        "agent.rs context_sources/mental_model parsed as flat property lists (not typed structs) — functional but not the richly-typed AST nodes shown in ULTRAPLAN §9.2",
+        "role and tier as typed agent properties: present as raw property values, not as first-class typed fields on AgentDef struct",
+        "permissions.files: write[glob] extension to permission.rs not verified as shipped (not checked in this audit)"
+      ],
+      "empirical_gate_runnable": true,
+      "notes": "All ULTRAPLAN §8 deliverables are present. Lint rule tests exist for all 8 rules (TEAM-001..003, TIER-001/002, JIT-001, MM-001/002). The empirical gate `cant validate` on cleo-subagent.cant + 3 fixtures is runnable via `cargo test -p cant-core`."
+    },
+    {
+      "wave": 1,
+      "title": "Render Pipeline",
+      "subtask_id": "T386",
+      "status": "partial",
+      "evidence": [
+        "crates/cant-core/src/render/mod.rs:51-92 — render_document() dispatches on all DocumentKind variants including Protocol",
+        "crates/cant-core/src/render/protocol.rs:21-28 — render_protocol() defers to render_generic_document() with explicit Wave-1 comment",
+        "crates/cant-core/tests/render_round_trip.rs:62-72 — byte-identical round-trip test for Protocol fixture passes",
+        "crates/cant-core/tests/fixtures/render-round-trip/ — only 2 fixtures: sample-protocol-research.cant and sample-agent-worker.cant",
+        "packages/cleo/src/cli/commands/cant.ts:79-132 — cleo cant parse/validate/list/execute subcommands; NO `cant render --kind=protocol --to=md` verb"
+      ],
+      "gaps": [
+        "Only 1 protocol fixture in render-round-trip/; ULTRAPLAN gate requires all 12 protocol .cant files byte-identical round-trip",
+        "`cant render --kind=protocol --to=md` CLI verb does not exist — only parse/validate/list/execute/migrate subcommands are registered",
+        "render_team, render_tool, render_lifecycle, render_model_routing, render_mental_model are all placeholder stubs returning empty strings (render/mod.rs:132+)",
+        "No CI step verifying rendered MD matches committed markdown for the 12 protocol files"
+      ],
+      "empirical_gate_runnable": false,
+      "notes": "The Rust render_document() function exists and handles Protocol kind. However the ULTRAPLAN gate — all 12 protocol .cant files rendering byte-identical to committed .md — is not runnable: the CLI verb is missing and fixtures cover only 1 of 12 protocols. The `cant render` command does not exist."
+    },
+    {
+      "wave": 2,
+      "title": "Bridge MVP",
+      "subtask_id": "T387",
+      "status": "partial",
+      "evidence": [
+        "packages/cleo/templates/cleoos-hub/pi-extensions/cleo-cant-bridge.ts:2-180 — bridge exists with compileBundle(), before_agent_start hook, APPEND strategy per L6",
+        "packages/cleo/templates/cleoos-hub/pi-extensions/cleo-cant-bridge.ts:148 — comment 'APPEND — never replace (per ULTRAPLAN L6)' confirmed",
+        "packages/cleo-os/bin/postinstall.js:84-87 — copies bridge from extensions/cleo-cant-bridge.js to XDG extensions path",
+        "packages/cleo-os/src/cli.ts:30 — cli.ts loads bridge from XDG extensions path via resolveCleoOsPaths()"
+      ],
+      "gaps": [
+        "Bridge source is at packages/cleo/templates/cleoos-hub/pi-extensions/cleo-cant-bridge.ts — NOT at packages/cleo-os/extensions/cleo-cant-bridge.ts as ULTRAPLAN Layer 3 specifies",
+        "packages/cleo-os/extensions/ contains ONLY cleo-chatroom.ts; bridge TypeScript source is absent from cleo-os package",
+        "The postinstall deploys cleo-cant-bridge.js (compiled) from packages/cleo-os/extensions/ which does not contain the .ts source — build step for this unclear",
+        "Bridge is ~180 LOC vs ULTRAPLAN target of ~150 LOC (minor gap)",
+        "Empirical gate (5 hand-authored prompts confirming CleoOS persona AND AGENTS.md both present) has no test fixtures or test file"
+      ],
+      "empirical_gate_runnable": false,
+      "notes": "The bridge MVP logic is functionally complete (compileBundle, append-only injection, L6 compliance). The structural gap is that the bridge .ts source lives in the wrong package (cleo/templates vs cleo-os/extensions). The empirical 5-prompt hand-validation test does not exist as an automated test."
+    },
+    {
+      "wave": 4,
+      "title": "Lifecycle + Protocol Lift",
+      "subtask_id": "T388",
+      "status": "partial",
+      "evidence": [
+        "packages/core/src/validation/protocols/cant/ — all 12 protocol .cant files exist: research, consensus, architecture-decision, specification, decomposition, implementation, validation, testing, release, contribution, provenance, artifact-publish",
+        "packages/core/src/validation/protocols/protocols-markdown/ — all 12 corresponding .md files exist for comparison",
+        "packages/core/src/lifecycle/cant/lifecycle-rcasd.cant — lifecycle .cant file exists with kind: lifecycle, v1.0.0",
+        "crates/cant-core/tests/protocol_lift.rs:81-180 — 12 individual parse tests + all_twelve_protocol_files_exist aggregate test"
+      ],
+      "gaps": [
+        "stages.ts does NOT import from lifecycle-rcasd.cant — the .cant file is a parallel comment-format description, not a machine-readable SSoT that generates stages.ts",
+        "No codegen script converting lifecycle-rcasd.cant → TypeScript constants in stages.ts",
+        "CI diff gate (rendered MD matches committed) does not exist — no .github/workflows step references cant render or protocol diff",
+        "render_protocol() is a stub deferring to generic renderer — 12 protocol .cant files do NOT render byte-identical to their committed .md counterparts (render pipeline gap from W1)",
+        "ULTRAPLAN gate `cleo lifecycle status` unchanged not verifiable — no test hooks this command to cant output"
+      ],
+      "empirical_gate_runnable": false,
+      "notes": "The .cant files for all 12 protocols and lifecycle exist. However the W4 gate requires (a) rendered MD byte-identical to committed and (b) lifecycle status output unchanged — neither is runnable because the render pipeline for protocol kind is a stub and no codegen connects .cant to stages.ts."
+    },
+    {
+      "wave": 5,
+      "title": "JIT Agent Composer",
+      "subtask_id": "T389",
+      "status": "partial",
+      "evidence": [
+        "packages/cant/src/composer.ts:1-311 — full JIT composer with TIER_CAPS, escalateTier(), composeSpawnPayload(), context_sources resolver, mental model injection, token budgeting",
+        "packages/cant/src/composer.ts:18-23 — TIER_CAPS matches ULTRAPLAN §9.4 exactly (low/mid/high caps)",
+        "packages/cant/tests/composer.test.ts:130-393 — tests for context injection, mental model injection, tier escalation, overflow to high, fail policy",
+        "packages/cant/src/composer.ts:249-280 — token budget check with escalate_tier loop implemented per L4"
+      ],
+      "gaps": [
+        "composer.ts is in packages/cant/ as a standalone library — it is NOT wired into orchestrate-engine.ts or any spawn path; no import of composeSpawnPayload from orchestrate-engine or prepareSpawn",
+        "BRAIN query integration is an interface (ContextProvider) — no concrete implementation connecting to brain.db exists in the codebase",
+        "Empirical gate (spawn same agent twice; verify 2nd spawn injects >=1 pattern from 1st) has no test case — composer tests use mock providers, no real BRAIN round-trip",
+        "escalate_tier not wired from CLI dispatch tier parameter to composer",
+        "mental_model storage (brain.db:agents/<name>/model) has no backing implementation in packages/core/src/brain/ (directory does not exist)"
+      ],
+      "empirical_gate_runnable": false,
+      "notes": "The JIT composer library is well-implemented as a standalone package with correct token budgeting and tier escalation logic. However it is not integrated into any agent spawn path — it exists as an island. The BRAIN ContextProvider interface is defined but has no concrete implementation against brain.db."
+    }
+  ],
+  "summary": {
+    "shipped_count": 1,
+    "partial_count": 4,
+    "not_started_count": 0,
+    "total_gaps": 22,
+    "recommended_action_order": [
+      "W2 (T387): Move cleo-cant-bridge.ts source into packages/cleo-os/extensions/ and add compiled output to build; W3 launcher depends on this being correct",
+      "W1 (T386): Add `cant render --kind=protocol --to=md` CLI verb and 11 more protocol round-trip fixtures; W4 gate is blocked on this",
+      "W4 (T388): Wire render pipeline to produce byte-identical MD from .cant protocol files; add CI diff gate; connect lifecycle-rcasd.cant to stages.ts via codegen",
+      "W5 (T389): Wire composeSpawnPayload into orchestrate-engine prepareSpawn; implement concrete ContextProvider against brain.db; add empirical 2nd-spawn test",
+      "W0 (T385): Minor polish — typed role/tier fields on AgentDef struct, verify permissions.files write[glob] extension"
+    ]
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "versionScheme": "semver",
+  "tagPrefix": "v",
+  "gitWorkflow": "direct",
+  "registries": ["none"],
+  "changelogFile": "CHANGELOG.md",
+  "changelogFormat": "keepachangelog",
+  "artifactType": "source-only",
+  "skipBuildArtifactGate": true,
+  "versionBump": {
+    "files": []
+  },
+  "security": {
+    "enableProvenance": false,
+    "requireSignedCommits": false
+  }
+}

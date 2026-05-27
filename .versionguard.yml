@@ -1,0 +1,31 @@
+# VersionGuard Configuration
+versioning:
+  type: calver
+  format: "YYYY.M.MICRO"
+
+sync:
+  files:
+    - "packages/core/package.json"
+    - "packages/cleo/package.json"
+    - "packages/contracts/package.json"
+  patterns:
+    - regex: '("version"\s*:\s*")(.+?)(")'
+      template: '$1{{version}}$3'
+
+changelog:
+  enabled: true
+  file: "CHANGELOG.md"
+  strict: true
+  requireEntry: true
+
+git:
+  hooks:
+    pre-commit: true
+    pre-push: true
+    post-tag: true
+  enforceHooks: true
+
+ignore:
+  - "node_modules/**"
+  - "dist/**"
+  - ".git/**"

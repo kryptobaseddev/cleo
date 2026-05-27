@@ -1,0 +1,31 @@
+{
+  "$schema": "https://lafs.dev/schemas/v1/envelope.schema.json",
+  "_meta": {
+    "specVersion": "1.0.0",
+    "schemaVersion": "1.0.0",
+    "timestamp": "2026-03-15T00:00:00Z",
+    "operation": "resource.get",
+    "requestId": "req_action_01",
+    "transport": "http",
+    "strict": true,
+    "mvi": "standard",
+    "contextVersion": 2
+  },
+  "success": false,
+  "result": null,
+  "error": {
+    "code": "E_RATE_LIMITED",
+    "message": "Request rate exceeded. Wait 30 seconds before retrying.",
+    "category": "RATE_LIMIT",
+    "retryable": true,
+    "retryAfterMs": 30000,
+    "details": {
+      "limitRemaining": 0,
+      "limitResetAt": "2026-03-15T12:05:00Z"
+    },
+    "agentAction": "wait",
+    "escalationRequired": false,
+    "suggestedAction": "Wait 30 seconds, then retry with exponential backoff.",
+    "docUrl": "https://lafs.dev/docs/errors/rate-limited"
+  }
+}

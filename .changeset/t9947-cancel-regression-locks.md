@@ -1,0 +1,67 @@
+---
+id: t9947-cancel-regression-locks
+tasks: [T9947]
+kind: fix
+summary: "Regression-lock `cleo cancel <id>` + `cleo update --status cancelled` on pending tasks with no verification gates"
+---
+
+Two CLI cancellation papercuts reported during the v2026.5.93 ship of
+Saga T9787 are already fixed in HEAD (`cancel` is registered in
+`COMMAND_MANIFEST`; the engine wrapper no longer mis-labels
+`E_NOT_INITIALIZED`), but neither code path has been guarded by tests
+that would have caught the original regressions. T9947 adds those tests.
+
+### Bugs that were repro'd as fixed at HEAD (no source changes required)
+
+1. `cleo update <taskId> --status cancelled` succeeds on a pending task
+   whose `verification` row was never initialized via `cleo verify`. The
+   T9838-D + T9940 generalization (`cleoErrorToEngineResult`) closed the
+   misleading `E_NOT_INITIALIZED` blanket label.
+2. `cleo cancel <taskId>` is registered in
+   `packages/cleo/src/cli/generated/command-manifest.ts` and reaches the
+   `tasks.cancel` dispatch handler. The verb is also categorized under
+   "Task Management" in
+   `packages/core/src/routing/build-command-groups.ts`, so help text and
+   actual behavior agree.
+
+### Regression locks added
+
+- `packages/cleo/src/cli/__tests__/cancel.test.ts`:
+  - `cancel verb is registered in COMMAND_MANIFEST` — asserts the
+    manifest entry exists with `exportName: 'cancelCommand'`,
+    name=`cancel`, description matching the soft-terminal-state
+    wording, AND that `load()` resolves to the same `cancelCommand`
+    binding the CLI imports elsewhere (reference identity, so a future
+    generator drift cannot break the dispatch path without flagging).
+- `packages/cleo/src/dispatch/domains/__tests__/tasks.test.ts`:
+  - Four new dispatch tests cover the `mutate:tasks.cancel` handler:
+    delegation to `taskCancel(projectRoot, taskId, reason)`, `--reason`
+    forwarding, idempotent re-cancel surfacing `alreadyCancelled=true`,
+    and engine-error propagation (`E_INVALID_STATE` for a done task).
+  - The `getSupportedOperations` query + mutate expectations are
+    refreshed to include the ADR-073 saga sub-domain operations and the
+    new `cancel` entry is annotated as a T9947 regression lock so future
+    edits know why it MUST stay there.
+- `packages/core/src/tasks/__tests__/update-status-cancellation.test.ts`:
+  - Two new cases assert that a pending task with
+    `verification: undefined` (gates never initialized) cancels
+    cleanly via both `updateTask` (engine) and `taskUpdate` (engine-result
+    wrapper). The wrapper case re-confirms `success=true` rather than the
+    pre-T9838-D `E_NOT_INITIALIZED` failure mode.
+
+### Verified end-to-end
+
+Against the built CLI (v2026.5.116) on a fresh tempdir:
+
+- `cleo cancel T002 --reason "T9947 repro"` →
+  `{"success":true,"data":{"task":"T002","cancelled":true,"reason":"T9947 repro","cancelledAt":"..."}}`
+- `cleo update T003 --status cancelled` →
+  `{"success":true,"data":{"count":1,"ids":["T003"],"changes":["status","pipelineStage"],"status":"cancelled"}}`
+- `cleo --help | grep cancel` continues to list the verb under Task
+  Management; `cleo cancel --help` renders the verb-specific help block
+  (TASKID positional + `--reason` flag).
+
+Total: 8 new test cases added (2 CLI manifest registration + 4 dispatch
+cancel handler + 2 core engine wrapper) plus refreshed
+`getSupportedOperations` expectations to include the ADR-073 saga
+sub-domain operations.

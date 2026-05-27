@@ -1,0 +1,591 @@
+# .
+> Auto-generated API documentation
+
+## Sections
+
+- [API Reference](./api-reference.md): Full API documentation
+- [Full Context](./llms-full.txt): Dense context for LLM consumption
+
+## Quick Reference
+
+SkillLibraryEntry - A single skill entry in a library catalog.
+SkillLibraryValidationResult - Validation result from skill frontmatter validation.
+SkillLibraryValidationIssue - A single validation issue.
+SkillLibraryProfile - Profile definition for grouped skill installation.
+SkillLibraryDispatchMatrix - Dispatch matrix for task routing to skills.
+SkillLibraryManifestSkill - Skill entry within the library manifest.
+SkillLibraryManifest - Full manifest structure for a skill library.
+SkillLibrary - Standard interface for a skill library.  Any directory or module providing skills must implement this contract. CAAMP uses it to discover, resolve, and install skills from any source.
+file skill-library.ts
+RegistryDetection - Raw detection configuration as stored in registry.json.
+ProviderPriority - Priority tier identifier stored in registry.json.
+ProviderStatus - Lifecycle status identifier stored in registry.json.
+RegistryProvider - Raw provider definition as stored in registry.json before path resolution.
+McpConfigFormat - Supported MCP config file formats.
+McpTransportType - MCP transport protocols a provider may advertise.
+RegistryMcpIntegration - MCP server integration metadata for providers that consume MCP servers via a per-agent config file.
+RegistryHarnessKind - Harness role category for a primary or standalone harness.
+RegistryHarnessCapability - First-class harness role declaration.
+SkillsPrecedence - How a provider resolves skill file precedence between vendor and agents directories.
+RegistrySkillsCapability - Raw skills capability definition as stored in registry.json.
+string - Hook lifecycle event identifier from registry.json.
+RegistryHookFormat - The on-disk layout of a provider's hook configuration.
+RegistryHookCatalog - Which native event catalog a provider's hook system uses.
+RegistryHooksCapability - Raw hooks capability definition as stored in registry.json.
+SpawnMechanism - Mechanism a provider uses to spawn subagents.
+RegistrySpawnCapability - Raw spawn capability definition as stored in registry.json.
+RegistryCapabilities - Aggregate capability block for a provider in registry.json.
+ProviderRegistry - Top-level structure of the provider registry JSON file.
+file types.ts
+SkillLibraryEntry - Backward-compatible alias for `SkillLibraryEntry`.
+SkillLibraryValidationResult - Backward-compatible alias for `SkillLibraryValidationResult`.
+SkillLibraryValidationIssue - Backward-compatible alias for `SkillLibraryValidationIssue`.
+SkillLibraryProfile - Backward-compatible alias for `SkillLibraryProfile`.
+SkillLibraryDispatchMatrix - Backward-compatible alias for `SkillLibraryDispatchMatrix`.
+SkillLibraryManifest - Backward-compatible alias for `SkillLibraryManifest`.
+SkillLibraryManifestSkill - Backward-compatible alias for `SkillLibraryManifestSkill`.
+ConfigFormat - Supported configuration file formats.  - `"json"` - Standard JSON - `"jsonc"` - JSON with comments (comment-preserving via jsonc-parser) - `"yaml"` - YAML (via js-yaml) - `"toml"` - TOML (via iarna/toml)
+TransportType - MCP server transport protocol type.  - `"stdio"` - Standard input/output (local process) - `"sse"` - Server-Sent Events (remote) - `"http"` - HTTP/Streamable HTTP (remote) - `"websocket"` - WebSocket full-duplex (remote)
+DetectionMethod - Method used to detect whether an AI agent is installed on the system.  - `"binary"` - Check if a CLI binary exists on PATH - `"directory"` - Check if known config/data directories exist - `"appBundle"` - Check for macOS .app bundle in standard app directories - `"flatpak"` - Check for Flatpak installation on Linux
+DetectionConfig - Configuration for detecting whether a provider is installed.
+ProviderMcpCapability - Resolved MCP server integration metadata for a provider.
+ProviderHarnessCapability - Resolved first-class harness capability for a provider.
+ProviderSkillsCapability - Resolved skills capability for a provider at runtime.
+ProviderHooksCapability - Resolved hooks capability for a provider at runtime.
+ProviderSpawnCapability - Resolved spawn capability for a provider at runtime.
+ProviderCapabilities - Aggregate provider capabilities for MCP, harness role, skills, hooks, and spawn.
+Provider - A resolved AI agent provider definition with platform-specific paths.
+McpServerConfig - Canonical MCP server configuration.
+SourceType - Classified type of an MCP server or skill source.  - `"remote"` - HTTP/HTTPS URL to a remote MCP server - `"package"` - npm package name - `"command"` - Shell command string - `"github"` - GitHub repository (URL or shorthand) - `"gitlab"` - GitLab repository URL - `"local"` - Local filesystem path - `"library"` - Built-in skill library reference
+ParsedSource - Result of parsing a source string into its typed components.
+SkillMetadata - Metadata extracted from a SKILL.md frontmatter.
+SkillEntry - A discovered skill entry with its location and metadata.
+LockEntry - A single entry in the CAAMP lock file tracking an installed skill or MCP server.
+CaampLockFile - The CAAMP lock file structure, stored at the resolved canonical lock path.
+MarketplaceSkill - A skill listing from a marketplace search result.
+MarketplaceSearchResult - Paginated search results from a marketplace API.
+AuditSeverity - Severity level for a security audit finding.  Ordered from most to least severe: `"critical"`  `"high"`  `"medium"`  `"low"`  `"info"`.
+AuditRule - A security audit rule definition with a regex pattern to match against skill content.
+AuditFinding - A single finding from a security audit scan, with line-level location.
+AuditResult - Aggregate audit result for a single file.
+InjectionStatus - Status of a CAAMP injection block in an instruction file.  - `"current"` - Injection block exists and matches expected content - `"outdated"` - Injection block exists but content differs - `"missing"` - Instruction file does not exist - `"none"` - File exists but has no CAAMP injection block
+InjectionCheckResult - Result of checking a single instruction file for CAAMP injection status.
+McpServerEntry - An MCP server entry read from a provider's config file.
+GlobalOptions - Global CLI options shared across all CAAMP commands.
+file types.ts
+PlatformPaths - OS-appropriate directory paths for CAAMP's global storage.
+SystemInfo - Snapshot of the current system environment and resolved platform paths.
+() => PlatformPaths - Get OS-appropriate paths for CAAMP's global directories.
+() => SystemInfo - Get a cached system information snapshot.
+() => void - Invalidate the path and system info caches. Use in tests after mutating AGENTS_HOME env var.
+file platform-paths.ts
+PathScope - Scope for path resolution, either global (user home) or project-local.
+PlatformLocations - Platform-specific directory locations for agent configuration.
+() => PlatformLocations - Resolves platform-specific directory locations for the current OS.
+() => string - Returns the global agents home directory path.
+(projectRoot?: string) => string - Returns the project-local `.agents` directory path.
+(relativePath: string, projectDir?: string) => string - Resolves a relative path against a project directory.
+() => string - Returns the canonical skills storage directory path.
+() => string - Returns the path to the CAAMP lock file.
+(scope?: PathScope, projectDir?: string) => string - Gets the MCP directory within the `.agents/` standard structure.
+(scope?: PathScope, projectDir?: string) => string - Gets the MCP servers.json path within the `.agents/` standard structure.
+(scope?: PathScope, projectDir?: string) => string - Gets the primary AGENTS.md instruction file path within `.agents/`.
+(scope?: PathScope, projectDir?: string) => string - Gets the config.toml path within the `.agents/` standard structure.
+(scope?: PathScope, projectDir?: string) => string - Gets the wiki directory within the `.agents/` standard structure.
+(scope?: PathScope, projectDir?: string) => string - Gets the spec directory within the `.agents/` standard structure.
+(scope?: PathScope, projectDir?: string) => string - Gets the links directory within the `.agents/` standard structure.
+(template: string) => string - Resolves a registry template path by substituting platform variables.
+(provider: Provider, scope: PathScope, projectDir?: string) => string | null - Resolves the configuration file path for a provider at the given scope.
+(provider: Provider, useGlobalFlag?: boolean) => PathScope - Determines the preferred configuration scope for a provider.
+(provider: Provider, scope: PathScope, projectDir?: string) => string - Resolves the skills directory path for a provider at the given scope.
+(provider: Provider, scope: PathScope, projectDir?: string) => string[] - Gets all target directories for skill installation based on provider precedence.
+(provider: Provider, projectDir?: string) => string - Resolves a provider's project-level path against a project directory.
+(startDir: string) => string - Locates the providers registry.json file by searching up from a start directory.
+(path: string | undefined) => string | undefined - Normalizes a skill sub-path by cleaning separators and removing SKILL.md suffix.
+(marketplacePath: string | undefined, parsedPath: string | undefined) => (string | undefined)[] - Builds a list of candidate sub-paths for skill file resolution.
+file standard.ts
+() => Provider[] - Retrieve all registered providers with resolved platform paths.  Providers are lazily loaded from `providers/registry.json` on first call and cached for subsequent calls.
+(idOrAlias: string) => Provider | undefined - Look up a provider by its ID or any of its aliases.
+(idOrAlias: string) => string - Resolve an alias to its canonical provider ID.  If the input is already a canonical ID (or unrecognized), it is returned as-is.
+(priority: ProviderPriority) => Provider[] - Filter providers by their priority tier.
+() => Provider | undefined - Get the single primary harness provider, if any is registered.
+(status: ProviderStatus) => Provider[] - Filter providers by their lifecycle status.
+(file: string) => Provider[] - Filter providers that use a specific instruction file.  Multiple providers often share the same instruction file (e.g. many use `"AGENTS.md"`).
+() => string[] - Get the set of all unique instruction file names across all providers.
+() => number - Get the total number of registered providers.
+() => string - Get the semantic version string of the provider registry.
+(event: HookEvent) => Provider[] - Filter providers that support a specific hook event.
+(providerIds?: string[]) => HookEvent[] - Get hook events common to all specified providers.  If providerIds is provided, returns the intersection of their supported events. If providerIds is undefined or empty, uses all providers.
+(provider: Provider, dotPath: string) => boolean - Check whether a provider supports a specific capability via dot-path query.  The dot-path addresses a value inside `provider.capabilities`. For boolean fields the provider "supports" the capability when the value is `true`. For non-boolean fields the provider "supports" it when the value is neither `null` nor `undefined` (and, for arrays, non-empty).
+() => Provider[] - Filter providers that support spawning subagents.
+(flag: keyof Omit<ProviderSpawnCapability, "spawnMechanism" | "spawnCommand">) => Provider[] - Filter providers by a specific boolean spawn capability flag.
+() => void - Reset cached registry data, forcing a reload on next access.
+(precedence: SkillsPrecedence) => Provider[] - Filter providers by their skills precedence value.
+(provider: Provider, scope: PathScope, projectDir?: string) => Array<{ path: string; source: string; scope: string; }> - Get the effective skills paths for a provider, ordered by precedence.
+() => Array<{ providerId: string; toolName: string; precedence: SkillsPrecedence; paths: { global: string | null; project: string | null; }; }> - Build a full skills map for all providers.
+(idOrAlias: string) => ProviderCapabilities | undefined - Get capabilities for a provider by ID or alias.
+(idOrAlias: string, capabilityPath: string) => boolean - Check if a provider supports a capability using ID/alias lookup.  Convenience wrapper that resolves the provider first, then delegates to the provider-level `providerSupports`.
+file providers.ts
+InjectionTemplate - Structured template for injection content.
+(template: InjectionTemplate) => string - Build injection content from a structured template.  Produces a string suitable for injection between CAAMP markers. References are output as `@` lines, content blocks are appended as-is.
+(content: string) => InjectionTemplate - Parse injection content back into template form.  Lines starting with `@` are treated as references. All other non-empty lines are treated as content blocks.
+(options?: { mcpServerName?: string; customContent?: string; }) => string - Generate a standard CAAMP injection block for instruction files.  Produces markdown content suitable for injection between CAAMP markers. Optionally includes MCP server and custom content sections.
+(skillNames: string[]) => string - Generate a skills discovery section for instruction files.
+(provider: Provider) => string - Get the correct instruction file name for a provider.
+(providers: Provider[]) => Map<string, Provider[]> - Group providers by their instruction file name.  Useful for determining which providers share the same instruction file (e.g. multiple providers using `AGENTS.md`).
+file templates.ts
+(filePath: string, expectedContent?: string) => Promise<InjectionStatus> - Check the status of a CAAMP injection block in an instruction file.  Returns the injection status: - `"missing"` - File does not exist - `"none"` - File exists but has no CAAMP markers - `"current"` - CAAMP block exists and matches expected content (or no expected content given) - `"outdated"` - CAAMP block exists but differs from expected content
+(filePath: string, content: string) => Promise<"created" | "added" | "consolidated" | "updated" | "intact"> - Inject content into an instruction file between CAAMP markers.  Behavior depends on the file state: - File does not exist: creates the file with the injection block → `"created"` - File exists without markers: prepends the injection block → `"added"` - File exists with multiple markers (duplicates): consolidates into single block → `"consolidated"` - File exists with markers, content differs: replaces the block → `"updated"` - File exists with markers, content matches: no-op → `"intact"`  This function is **idempotent** — calling it multiple times with the same content will not modify the file after the first write.
+(filePath: string) => Promise<boolean> - Remove the CAAMP injection block from an instruction file.  If removing the block would leave the file empty, the file is deleted entirely.
+(providers: Provider[], projectDir: string, scope: "project" | "global", expectedContent?: string) => Promise<InjectionCheckResult[]> - Check injection status across all providers' instruction files.  Deduplicates by file path since multiple providers may share the same instruction file (e.g. many providers use `AGENTS.md`).
+(providers: Provider[], projectDir: string, scope: "project" | "global", content: string) => Promise<Map<string, "created" | "added" | "consolidated" | "updated" | "intact">> - Inject content into all providers' instruction files.  Deduplicates by file path to avoid injecting the same file multiple times.
+EnsureProviderInstructionFileOptions - Options for ensuring a provider instruction file.
+EnsureProviderInstructionFileResult - Result of ensuring a provider instruction file.
+(providerId: string, projectDir: string, options: EnsureProviderInstructionFileOptions) => Promise<EnsureProviderInstructionFileResult> - Ensure a provider's instruction file exists with the correct CAAMP block.  This is the canonical API for adapters and external packages to manage provider instruction files. Instead of directly creating/modifying CLAUDE.md, GEMINI.md, etc., callers should use this function to delegate instruction file management to CAAMP.  The instruction file name is resolved from CAAMP's provider registry (single source of truth), not hardcoded by the caller.
+(providerIds: string[], projectDir: string, options: EnsureProviderInstructionFileOptions) => Promise<EnsureProviderInstructionFileResult[]> - Ensure instruction files for multiple providers at once.  Deduplicates by file path — providers sharing the same instruction file (e.g. many providers use AGENTS.md) are only written once.
+file injector.ts
+string - Global `.agents/` home directory (`~/.agents/` or `$AGENTS_HOME`).
+string - CAAMP lock file path (`~/.agents/.caamp-lock.json`).
+string - Canonical skills directory (`~/.agents/skills/`).
+string - Global MCP directory (`~/.agents/mcp/`).
+string - Global MCP servers.json path (`~/.agents/mcp/servers.json`).
+string - Global agents config.toml path (`~/.agents/config.toml`).
+file agents.ts
+(v: boolean) => void - Enable or disable verbose (debug) logging mode.  When enabled, debug messages are written to stderr.
+(q: boolean) => void - Enable or disable quiet mode.  When enabled, info and warning messages are suppressed. Errors are always shown.
+(...args: unknown[]) => void - Log a debug message to stderr when verbose mode is enabled.
+(...args: unknown[]) => void - Log an informational message to stdout.
+(...args: unknown[]) => void - Log a warning message to stderr.
+(...args: unknown[]) => void - Log an error message to stderr.
+() => boolean - Check if verbose (debug) logging is currently enabled.
+() => boolean - Check if quiet mode is currently enabled.
+(h: boolean) => void - Enable or disable human-readable output mode.  When enabled, commands output human-readable format instead of JSON.
+() => boolean - Check if human-readable output mode is currently enabled.
+file logger.ts
+DetectionResult - Result of detecting whether a provider is installed on the system.
+DetectionCacheOptions - Options for controlling the detection result cache.
+(provider: Provider) => DetectionResult - Detect if a single provider is installed on the system.  Checks each detection method configured for the provider (binary, directory, appBundle, flatpak) and returns which methods matched.
+(provider: Provider, projectDir: string) => boolean - Detect if a provider has project-level config in the given directory.
+(options?: DetectionCacheOptions) => DetectionResult[] - Detect all registered providers and return their installation status.  Runs detection for every provider in the registry.
+(options?: DetectionCacheOptions) => Provider[] - Get only providers that are currently installed on the system.  Convenience wrapper that filters `detectAllProviders` results to only those with `installed === true`.
+(projectDir: string, options?: DetectionCacheOptions) => DetectionResult[] - Detect all providers and enrich results with project-level presence.  Extends `detectAllProviders` by also checking whether each provider has a project-level config file in the given directory.
+() => void - Reset the detection result cache, forcing fresh detection on next call.
+file detection.ts
+SkillInstallResult - Result of installing a skill to the canonical location and linking to agents.
+(sourcePath: string, skillName: string) => Promise<string> - Copy skill files to the canonical location.
+(sourcePath: string, skillName: string, providers: Provider[], isGlobal: boolean, projectDir?: string) => Promise<SkillInstallResult> - Install a skill from a local path to the canonical location and link to agents.
+(skillName: string, providers: Provider[], isGlobal: boolean, projectDir?: string) => Promise<{ removed: string[]; errors: string[]; }> - Remove a skill from the canonical location and all agent symlinks.
+() => Promise<string[]> - List all skills installed in the canonical skills directory.
+file installer.ts
+(providers: Provider[], minimumPriority?: ProviderPriority) => Provider[] - Filters providers by minimum priority and returns them in deterministic tier order.
+SkillBatchOperation - Single skill operation entry used by batch orchestration.
+BatchInstallOptions - Options for rollback-capable batch installation.
+BatchInstallResult - Result of rollback-capable batch installation.
+(options: BatchInstallOptions) => Promise<BatchInstallResult> - Installs multiple skills across filtered providers with rollback.
+InstructionUpdateSummary - Result of a single-operation instruction update across providers.
+(providers: Provider[], content: string, scope?: Scope, projectDir?: string) => Promise<InstructionUpdateSummary> - Updates instruction files across providers as a single operation.
+file orchestration.ts
+HarnessTier - Three-tier scope identifier for Pi harness operations.
+HarnessAssetKind - Asset kinds managed by the three-tier scope model.
+readonly HarnessTier[] - Precedence-ordered iteration of tiers for read operations.
+ResolveTierDirOptions - Options accepted by `resolveTierDir`.
+(opts: ResolveTierDirOptions) => string - Resolve the on-disk directory for an asset at a given tier.
+(kind: HarnessAssetKind, projectDir?: string) => Array<{ tier: HarnessTier; dir: string; }> - Resolve every tier directory for a given asset kind, in precedence order.
+file scope.ts - Three-tier scope helper for Pi harness operations.
+HarnessScope - Scope at which a harness operation should be performed.
+ResolveDefaultTargetProvidersOptions - Options accepted by `resolveDefaultTargetProviders` (defined in `./index.ts`).
+ExclusivityMode - Controls how `resolveDefaultTargetProviders` (defined in `./index.ts`) selects target providers at runtime invocation time.
+ExtensionEntry - Metadata describing a Pi extension discovered on disk.
+PromptEntry - Metadata describing a Pi prompt directory discovered on disk.
+ThemeEntry - Metadata describing a Pi theme discovered on disk.
+HarnessInstallOptions - Options accepted by the Pi install verbs (extensions, prompts, themes).
+CantProfileCounts - Counts of top-level CANT sections discovered in a `.cant` file.
+CantProfileEntry - Metadata describing a `.cant` profile installed at one of the three Pi harness tiers.
+CantValidationDiagnostic - Diagnostic emitted by the cant-core 42-rule validator, normalised to the harness layer's vocabulary.
+ValidateCantProfileResult - Result of validating a `.cant` profile via the cant-core 42-rule engine.
+SessionSummary - Summary header extracted from the first line of a Pi session JSONL file.
+SessionDocument - Raw content of a Pi session JSONL file, preserved line-by-line.
+PiModelDefinition - Pi model definition as recorded under `models.json:providers[].models`.
+PiModelProvider - Pi provider block as recorded under `models.json:providers[id]`.
+PiModelsConfig - Entire `models.json` document shape used by Pi.
+ModelListEntry - A model entry as surfaced by `Harness.listModels`.
+SubagentTask - Description of a subagent task to be spawned under a harness.
+SubagentSpawnOptions - Per-call options that override harness-wide spawn defaults.
+SubagentStreamEvent - One streaming event surfaced through `SubagentSpawnOptions.onStream`.
+SubagentExitResult - Resolution value of `SubagentHandle.exitPromise`.
+SubagentLinkEntry - `subagent_link` custom entry written into the parent session JSONL.
+SubagentResult - Final result of a subagent's execution (legacy v1 shape).
+SubagentHandle - Live handle to a running subagent.
+Harness - Contract every first-class harness must implement.
+file types.ts - Harness layer type definitions.
+ExclusivityMode - Default exclusivity mode used when no override is configured.
+"CAAMP_EXCLUSIVITY_MODE" - Environment variable name read by `getExclusivityMode` when no programmatic override is active.
+() => boolean - Read whether the `auto` + Pi-absent boot warning has already fired for this process.
+() => boolean - Read whether the `auto` + explicit-non-Pi deprecation warning has already fired for this process.
+() => void - Mark the `auto` + Pi-absent warning as already emitted for this process.
+() => void - Mark the `auto` + explicit-non-Pi deprecation warning as already emitted for this process.
+() => void - Reset both per-process exclusivity warning latches.
+typeof PiRequiredError - Error raised when `getExclusivityMode` resolves to `'force-pi'` but Pi is not installed at the moment a runtime dispatch is requested.
+(value: string) => value is ExclusivityMode - Type guard that narrows an arbitrary string to `ExclusivityMode`.
+() => ExclusivityMode - Resolve the active CAAMP exclusivity mode using the layered precedence documented in `DEFAULT_EXCLUSIVITY_MODE`.
+(mode: ExclusivityMode) => void - Install a programmatic override for the exclusivity mode.
+() => void - Clear any programmatic override installed by `setExclusivityMode`.
+file caamp-config.ts - CAAMP-wide configuration accessors.
+typeof PiHarness - Pi coding agent harness — CAAMP's first-class primary harness.
+file pi.ts - Pi coding agent harness.
+(provider: Provider) => Harness | null - Return the harness implementation for a provider, or `null` if the provider has no first-class harness.
+() => Harness | null - Return the primary harness declared in the registry, if any.
+() => Harness[] - Return every provider that has a harness implementation.
+(options?: ResolveDefaultTargetProvidersOptions) => Provider[] - Resolve the default set of target providers when the user has not passed `--agent`, honouring the active `ExclusivityMode`.
+(sourcePath: string, skillName: string, providers: Provider[], isGlobal: boolean, projectDir?: string) => Promise<SkillInstallResult> - Install a skill across a mixed set of providers, dispatching each provider to its `Harness` implementation when one exists and falling through to the legacy canonical+symlink installer for generic providers.
+(skillName: string, providers: Provider[], isGlobal: boolean, projectDir?: string) => Promise<{ removed: string[]; errors: string[]; }> - Remove a skill across a mixed set of providers, dispatching each provider to its `Harness` implementation when one exists and falling through to the legacy canonical+symlink uninstaller for generic providers.
+file index.ts - Harness layer dispatcher.
+MVILevel - LAFS MVI disclosure level - defined locally to avoid CI module resolution issues with re-exported types.
+LAFSError - LAFS Error structure - re-exported from protocol as LAFSErrorShape for CAAMP compatibility.
+Warning - LAFS Warning structure - re-exported from protocol.
+LAFSEnvelope<T> - Generic LAFS Envelope structure for type-safe command results.
+FormatOptions - Format resolution options.
+(options: FormatOptions) => "json" | "human" - Resolves output format based on flags and defaults.
+<T>(operation: string, mvi: MVILevel, result: T | null, error: LAFSErrorShape | null, page?: LAFSPage | null, sessionId?: string, warnings?: LAFSWarning[]) => LAFSEnvelope<T> - Builds a standard LAFS envelope.
+(operation: string, mvi: MVILevel, code: string, message: string, category: LAFSErrorCategory, details?: Record<string, unknown>, exitCode?: number) => never - Emits a JSON error envelope to stderr and exits the process.
+(operation: string, mvi: MVILevel, code: string, message: string, category: LAFSErrorCategory, details?: Record<string, unknown>) => void - Emits a JSON error envelope without exiting (for catch blocks).
+<T>(operation: string, mvi: MVILevel, result: T, page?: LAFSPage, sessionId?: string, warnings?: LAFSWarning[]) => void - Outputs a successful LAFS envelope to stdout.
+LAFSCommandOptions - Standard command options interface for LAFS-compliant commands.
+(error: unknown, operation: string, mvi: MVILevel, jsonFlag: boolean | undefined) => never - Handles format resolution errors consistently.
+{ readonly VALIDATION: LAFSErrorCategory; readonly AUTH: LAFSErrorCategory; readonly PERMISSION: LAFSErrorCategory; readonly NOT_FOUND: LAFSErrorCategory; readonly CONFLICT: LAFSErrorCategory; readonly RATE_LIMIT: LAFSErrorCategory; readonly TRANSIENT: LAFSErrorCategory; readonly INTERNAL: LAFSErrorCategory; readonly CONTRACT: LAFSErrorCategory; readonly MIGRATION: LAFSErrorCategory; } - Common error categories mapping for convenience.
+{ readonly FORMAT_CONFLICT: "E_FORMAT_CONFLICT"; readonly INVALID_JSON: "E_INVALID_JSON"; readonly SKILL_NOT_FOUND: "E_SKILL_NOT_FOUND"; readonly PROVIDER_NOT_FOUND: "E_PROVIDER_NOT_FOUND"; readonly MCP_SERVER_NOT_FOUND: "E_MCP_SERVER_NOT_FOUND"; readonly FILE_NOT_FOUND: "E_FILE_NOT_FOUND"; readonly INVALID_INPUT: "E_INVALID_INPUT"; readonly INVALID_CONSTRAINT: "E_INVALID_CONSTRAINT"; readonly INVALID_FORMAT: "E_INVALID_FORMAT"; readonly INSTALL_FAILED: "E_INSTALL_FAILED"; readonly REMOVE_FAILED: "E_REMOVE_FAILED"; readonly UPDATE_FAILED: "E_UPDATE_FAILED"; readonly VALIDATION_FAILED: "E_VALIDATION_FAILED"; readonly AUDIT_FAILED: "E_AUDIT_FAILED"; readonly NETWORK_ERROR: "E_NETWORK_ERROR"; readonly FILE_SYSTEM_ERROR: "E_FILE_SYSTEM_ERROR"; readonly PERMISSION_DENIED: "E_PERMISSION_DENIED"; readonly INTERNAL_ERROR: "E_INTERNAL_ERROR"; } - Common error codes for consistency.
+file lafs.ts
+typeof LAFSCommandError - Structured error class for LAFS-compliant command failures with error codes and recovery hints.
+<T>(operation: string, result: T, mvi?: MVILevel) => void - Emits a successful LAFS result envelope to stdout.
+(operation: string, error: unknown, mvi?: MVILevel) => void - Emits a failed LAFS error envelope to stderr.
+<T>(command: string, mvi: MVILevel, action: () => Promise<T>) => Promise<void> - Runs an async action and emits the result as a LAFS success or error envelope.
+file lafs.ts
+ProviderTargetOptions - Options for resolving which providers to target in advanced commands.
+(value: string) => ProviderPriority - Parses and validates a provider priority tier string.
+(options: ProviderTargetOptions) => Provider[] - Resolves the set of target providers from CLI targeting options.
+(path: string) => Promise<unknown> - Reads and parses a JSON file from disk.
+(path: string) => Promise<SkillBatchOperation[]> - Reads and validates a JSON file containing skill batch operations.
+(inlineContent: string | undefined, filePath: string | undefined) => Promise<string | undefined> - Reads text input from either inline content or a file path, enforcing mutual exclusivity.
+file common.ts
+(parent: Command) => void - Registers the `advanced batch` subcommand for rollback-capable batch install of skills.
+file batch.ts
+(parent: Command) => void - Registers the `advanced instructions` subcommand for single-operation instruction updates.
+file instructions.ts
+(parent: Command) => void - Registers the `advanced providers` subcommand for selecting providers by priority tier.
+file providers.ts
+(program: Command) => void - Registers the `advanced` command group with providers, batch, and instructions subcommands.
+file index.ts - Advanced orchestration command group providing LAFS-compliant wrappers for batch operations, provider selection, and instruction management.
+(target: Record<string, unknown>, source: Record<string, unknown>) => Record<string, unknown> - Deep merge two objects, with `source` values winning on conflict.  Recursively merges nested plain objects. Arrays and non-object values from `source` overwrite `target` values.
+(obj: Record<string, unknown>, keyPath: string, key: string, value: unknown) => Record<string, unknown> - Set a nested value using a dot-notation key path.
+(obj: Record<string, unknown>, keyPath: string) => unknown - Get a nested value from an object using a dot-notation key path.
+(filePath: string) => Promise<void> - Ensure that the parent directories of a file path exist.  Creates directories recursively if they do not exist.
+file utils.ts
+(filePath: string) => Promise<Record<string, unknown>> - Read and parse a JSON or JSONC config file.
+(filePath: string, configKey: string, serverName: string, serverConfig: unknown) => Promise<void> - Write a server config entry to a JSON/JSONC file, preserving comments.
+(filePath: string, configKey: string, serverName: string) => Promise<boolean> - Remove a server entry from a JSON/JSONC config file.
+file json.ts
+(filePath: string) => Promise<Record<string, unknown>> - Read and parse a TOML config file.
+(filePath: string, configKey: string, serverName: string, serverConfig: unknown) => Promise<void> - Write a server config entry to a TOML file.
+(filePath: string, configKey: string, serverName: string) => Promise<boolean> - Remove a server entry from a TOML config file.
+file toml.ts
+(filePath: string) => Promise<Record<string, unknown>> - Read and parse a YAML config file.
+(filePath: string, configKey: string, serverName: string, serverConfig: unknown) => Promise<void> - Write a server config entry to a YAML file.
+(filePath: string, configKey: string, serverName: string) => Promise<boolean> - Remove a server entry from a YAML config file.
+file yaml.ts
+(filePath: string, format: ConfigFormat) => Promise<Record<string, unknown>> - Read and parse a config file in the specified format.  Dispatches to the appropriate format handler (JSON/JSONC, YAML, or TOML).
+(filePath: string, format: ConfigFormat, key: string, serverName: string, serverConfig: unknown) => Promise<void> - Write a server entry to a config file, preserving existing content.  Dispatches to the appropriate format handler. For JSONC files, comments are preserved using `jsonc-parser`.
+(filePath: string, format: ConfigFormat, key: string, serverName: string) => Promise<boolean> - Remove a server entry from a config file in the specified format.
+file index.ts - Provides format-agnostic config read, write, and remove operations that dispatch to JSON/JSONC, YAML, or TOML handlers based on the specified format.
+(program: Command) => void - Registers the `config` command group with show and path subcommands for viewing provider configurations.
+file config.ts
+() => Promise<CaampLockFile> - Read and parse the CAAMP lock file from disk.
+(lock: CaampLockFile) => Promise<void> - Write the lock file atomically under a process lock guard.
+(updater: (lock: CaampLockFile) => void | Promise<void>) => Promise<CaampLockFile> - Safely read-modify-write the lock file under a process lock guard.
+file lock-utils.ts
+() => string - Retrieve the current CAAMP package version from the nearest `package.json`.
+file version.ts
+(program: Command) => void - Registers the `doctor` command for diagnosing configuration issues and overall system health.
+file doctor.ts
+(parent: Command) => void - Registers the `instructions check` subcommand for verifying injection status across providers.
+file check.ts
+(parent: Command) => void - Registers the `instructions inject` subcommand for injecting instruction blocks into provider files.
+file inject.ts
+(parent: Command) => void - Registers the `instructions update` subcommand for refreshing all instruction file injections.
+file update.ts
+(program: Command) => void - Registers the `instructions` command group with inject, check, and update subcommands.
+file index.ts - Instruction file management command group for injecting, checking, and updating CAAMP-managed instruction blocks in provider instruction files (CLAUDE.md, AGENTS.md, GEMINI.md).
+McpScope - Scope identifier for MCP config file resolution.
+McpDetectionEntry - Result of a single provider's MCP installation probe.
+(provider: Provider, scope: McpScope, projectDir?: string) => string | null - Resolve a provider's MCP config file path for the given scope, or `null` if the provider does not declare an MCP capability or the scope is unsupported.
+(provider: Provider, scope: McpScope, projectDir?: string) => Promise<McpServerEntry[]> - List MCP server entries declared in a single provider's config file.
+McpServerEntriesByProvider - Map of provider id → MCP server entries for that provider.
+(scope: McpScope, projectDir?: string) => Promise<McpServerEntriesByProvider> - List MCP server entries for every MCP-capable provider in the registry at the given scope.
+(scope: McpScope, projectDir?: string) => Promise<McpDetectionEntry[]> - Probe every MCP-capable provider in the registry to determine which ones have a config file on disk and how many servers are configured.
+file reader.ts - MCP server config reader.
+InstallMcpServerOptions - Options accepted by `installMcpServer`.
+InstallMcpServerResult - Result of an `installMcpServer` call.
+(provider: Provider, serverName: string, config: McpServerConfig, opts: InstallMcpServerOptions) => Promise<InstallMcpServerResult> - Install an MCP server entry into a single provider's config file.
+file installer.ts - MCP server config installer.
+RemoveMcpServerOptions - Options accepted by `removeMcpServer` and `removeMcpServerFromAll`.
+RemoveMcpServerResult - Result of a single-provider `removeMcpServer` call.
+(provider: Provider, serverName: string, opts: RemoveMcpServerOptions) => Promise<RemoveMcpServerResult> - Remove an MCP server entry from a single provider's config file.
+(serverName: string, opts: RemoveMcpServerOptions) => Promise<RemoveMcpServerResult[]> - Remove an MCP server entry from every MCP-capable provider in the registry that currently has it configured.
+file remover.ts - MCP server config remover.
+file index.ts - Core MCP server config management module.
+{ readonly VALIDATION: "E_VALIDATION_SCHEMA"; readonly NOT_FOUND: "E_NOT_FOUND_RESOURCE"; readonly CONFLICT: "E_CONFLICT_VERSION"; readonly TRANSIENT: "E_TRANSIENT_UPSTREAM"; } - Canonical LAFS error codes used by the `caamp mcp` command group.
+McpCommandBaseOptions - Standard option shape accepted by every `caamp mcp <verb>` command.
+(providerId: string) => Provider - Look up an MCP-capable provider in the registry by id, throwing a typed `LAFSCommandError` when the id is unknown or the provider does not declare an MCP capability.
+(raw: string | undefined, defaultScope: McpScope) => McpScope - Parse and validate a `--scope` option value into a typed `McpScope`.
+(scope: McpScope, explicit: string | undefined) => string | undefined - Resolve the project directory used for the `project` scope.
+(raw: string) => [string, string] - Parse a single `--env KEY=VALUE` option value into a `[key, value]` pair, throwing a typed validation error when the shape is wrong.
+file common.ts - Shared helpers for the `caamp mcp <verb>` command group.
+McpDetectOptions - Options accepted by `caamp mcp detect`.
+(parent: Command) => void - Registers the `caamp mcp detect` subcommand.
+file detect.ts - `caamp mcp detect` command.
+McpInstallOptions - Options accepted by `caamp mcp install`.
+(parent: Command) => void - Registers the `caamp mcp install` subcommand.
+file install.ts - `caamp mcp install` command.
+McpListOptions - Options accepted by `caamp mcp list`.
+(parent: Command) => void - Registers the `caamp mcp list` subcommand.
+file list.ts - `caamp mcp list` command.
+McpRemoveOptions - Options accepted by `caamp mcp remove`.
+(parent: Command) => void - Registers the `caamp mcp remove` subcommand.
+file remove.ts - `caamp mcp remove` command.
+(program: Command) => void - Register the `mcp` command group and all sub-verbs on the root program.
+file index.ts - `caamp mcp` command group — MCP server config management across providers.
+10000 - Default timeout in milliseconds for outbound HTTP requests.
+typeof NetworkError - Structured error for network failures with categorized kind.
+(url: string, init?: RequestInit, timeoutMs?: number) => Promise<Response> - Fetch a URL with an automatic timeout via `AbortSignal.timeout`.
+(response: Response, url: string) => Response - Assert that a `Response` has an OK status, throwing on failure.
+(error: unknown) => string - Format a network error into a user-friendly message string.
+file fetch.ts
+GitFetchResult - Result of fetching a Git repository to a local temporary directory.
+(owner: string, repo: string, ref?: string, subPath?: string) => Promise<GitFetchResult> - Clone a GitHub repo to a temp directory.
+(owner: string, repo: string, path: string, ref?: string) => Promise<string | null> - Fetch a specific file from GitHub using the raw API.
+(owner: string, repo: string) => Promise<boolean> - Check if a GitHub repo exists.
+file github.ts
+(owner: string, repo: string, ref?: string, subPath?: string) => Promise<GitFetchResult> - Clone a GitLab repo to a temp directory.
+(owner: string, repo: string, path: string, ref?: string) => Promise<string | null> - Fetch a specific file from GitLab using the raw API.
+file gitlab.ts
+(input: string) => ParsedSource - Parse and classify a source string into a typed `ParsedSource`.
+(input: string) => boolean - Check if a source string looks like a marketplace scoped name (`@author/name`).
+file parser.ts
+{ readonly VALIDATION: "E_VALIDATION_SCHEMA"; readonly NOT_FOUND: "E_NOT_FOUND_RESOURCE"; readonly CONFLICT: "E_CONFLICT_VERSION"; readonly TRANSIENT: "E_TRANSIENT_UPSTREAM"; } - Canonical LAFS error codes used by the `caamp pi` command group.
+PiCommandBaseOptions - Standard option shape accepted by every `caamp pi <verb>` command.
+() => PiHarness - Resolve and validate Pi's installation, returning a ready-to-use `PiHarness`.
+(raw: string | undefined, defaultTier: HarnessTier) => HarnessTier - Parse and validate a `--scope` option value into a typed tier.
+(tier: HarnessTier, explicit: string | undefined) => string | undefined - Resolve the project directory to use for the `project` tier, honouring an explicit `--project-dir` flag and falling back to cwd.
+file common.ts - Shared helpers for the `caamp pi <verb>` command group.
+PiCantListOptions - Options accepted by `caamp pi cant list`.
+PiCantInstallOptions - Options accepted by `caamp pi cant install`.
+PiCommandBaseOptions - Options accepted by `caamp pi cant remove`.
+(parent: Command) => void - Registers the `caamp pi cant` command group.
+file cant.ts - `caamp pi cant` command group.
+PiExtensionsListOptions - Options accepted by `caamp pi extensions list`.
+PiExtensionsInstallOptions - Options accepted by `caamp pi extensions install`.
+PiCommandBaseOptions - Options accepted by `caamp pi extensions remove`.
+(parent: Command) => void - Registers the `caamp pi extensions` command group.
+file extensions.ts - `caamp pi extensions` command group.
+PiModelsCommandOptions - Options accepted by every `caamp pi models` verb.
+PiModelsAddOptions - Options accepted by `caamp pi models add`.
+(parent: Command) => void - Registers the `caamp pi models` command group.
+file models.ts - `caamp pi models` command group.
+PiPromptsInstallOptions - Options accepted by `caamp pi prompts install`.
+PiCommandBaseOptions - Options accepted by `caamp pi prompts list`.
+PiCommandBaseOptions - Options accepted by `caamp pi prompts remove`.
+(parent: Command) => void - Registers the `caamp pi prompts` command group.
+file prompts.ts - `caamp pi prompts` command group.
+PiSessionsListOptions - Options accepted by `caamp pi sessions list`.
+PiSessionsExportOptions - Options accepted by `caamp pi sessions export`.
+(parent: Command) => void - Registers the `caamp pi sessions` command group.
+file sessions.ts - `caamp pi sessions` command group.
+PiThemesInstallOptions - Options accepted by `caamp pi themes install`.
+PiCommandBaseOptions - Options accepted by `caamp pi themes list`.
+PiCommandBaseOptions - Options accepted by `caamp pi themes remove`.
+(parent: Command) => void - Registers the `caamp pi themes` command group.
+file themes.ts - `caamp pi themes` command group.
+(program: Command) => void - Register the `pi` command group and all Wave-1 sub-verbs on the root program.
+file index.ts - `caamp pi` command group — Pi-specific verbs for the Pi coding agent harness.
+readonly ["agent", "context", "memory", "pipeline", "prompt", "session", "task", "tool"] - All hook event categories (8 total).
+"agent" | "context" | "memory" | "pipeline" | "prompt" | "session" | "task" | "tool" - Union type of valid hook category strings.
+readonly ["domain", "provider"] - Event source types: domain, provider.
+"domain" | "provider" - Union type of valid event source types.
+readonly ["ConfigChange", "Notification", "PermissionRequest", "PostCompact", "PostModel", "PostToolUse", "PostToolUseFailure", "PreCompact", "PreModel", "PreToolUse", "PromptSubmit", "ResponseComplete", "SessionEnd", "SessionStart", "SubagentStart", "SubagentStop", "ApprovalExpired", "ApprovalGranted", "ApprovalRequested", "MemoryDecisionStored", "MemoryLearningStored", "MemoryObserved", "MemoryPatternStored", "PipelineManifestAppended", "PipelineStageCompleted", "SessionEnded", "SessionStarted", "TaskBlocked", "TaskCompleted", "TaskCreated", "TaskStarted"] - All canonical hook events (31 total: 16 provider, 15 domain).  This replaces the previously hardcoded tuple in types.ts. Single source of truth: providers/hook-mappings.json
+"ConfigChange" | "Notification" | "PermissionRequest" | "PostCompact" | "PostModel" | "PostToolUse" | "PostToolUseFailure" | "PreCompact" | "PreModel" | "PreToolUse" | "PromptSubmit" | "ResponseComplete" | "SessionEnd" | "SessionStart" | "SubagentStart" | "SubagentStop" | "ApprovalExpired" | "ApprovalGranted" | "ApprovalRequested" | "MemoryDecisionStored" | "MemoryLearningStored" | "MemoryObserved" | "MemoryPatternStored" | "PipelineManifestAppended" | "PipelineStageCompleted" | "SessionEnded" | "SessionStarted" | "TaskBlocked" | "TaskCompleted" | "TaskCreated" | "TaskStarted" - Union type of all canonical hook event names.
+readonly ["ConfigChange", "Notification", "PermissionRequest", "PostCompact", "PostModel", "PostToolUse", "PostToolUseFailure", "PreCompact", "PreModel", "PreToolUse", "PromptSubmit", "ResponseComplete", "SessionEnd", "SessionStart", "SubagentStart", "SubagentStop"] - Provider-sourced events only (original 16 CAAMP events).
+readonly ["ApprovalExpired", "ApprovalGranted", "ApprovalRequested", "MemoryDecisionStored", "MemoryLearningStored", "MemoryObserved", "MemoryPatternStored", "PipelineManifestAppended", "PipelineStageCompleted", "SessionEnded", "SessionStarted", "TaskBlocked", "TaskCompleted", "TaskCreated", "TaskStarted"] - Domain-sourced events only (CLEO business events).
+Record<"ConfigChange" | "Notification" | "PermissionRequest" | "PostCompact" | "PostModel" | "PostToolUse" | "PostToolUseFailure" | "PreCompact" | "PreModel" | "PreToolUse" | "PromptSubmit" | "ResponseComplete" | "SessionEnd" | "SessionStart" | "SubagentStart" | "SubagentStop" | "ApprovalExpired" | "ApprovalGranted" | "ApprovalRequested" | "MemoryDecisionStored" | "MemoryLearningStored" | "MemoryObserved" | "MemoryPatternStored" | "PipelineManifestAppended" | "PipelineStageCompleted" | "SessionEnded" | "SessionStarted" | "TaskBlocked" | "TaskCompleted" | "TaskCreated" | "TaskStarted", { category: HookCategory; source: EventSource; canBlock: boolean; description: string; }> - Metadata for each canonical event, derived from hook-mappings.json.
+file generated.ts
+CanonicalEventDefinition - Definition of a canonical hook event including its category and behavior.
+HookSystemType - The type of hook system a provider uses.
+HookHandlerType - The mechanism a provider uses to execute hook handlers.
+HookMapping - Mapping of a single canonical event to a provider's native representation.
+ProviderHookProfile - Complete hook profile for a single provider.
+NormalizedHookEvent - A fully resolved hook event with both canonical and native names.
+HookSupportResult - Result of querying whether a provider supports a specific canonical event.
+ProviderHookSummary - Aggregated hook support summary for a single provider.
+CrossProviderMatrix - Cross-provider hook support matrix comparing multiple providers.
+HookMappingsFile - Schema for the `providers/hook-mappings.json` data file.
+file types.ts
+() => void - Reset the cached hook mappings data.
+(event: CanonicalHookEvent) => CanonicalEventDefinition - Get the canonical event definition (category, description, canBlock).
+() => Record<CanonicalHookEvent, CanonicalEventDefinition> - Get all canonical event definitions.
+(category: HookCategory) => CanonicalHookEvent[] - Get canonical events filtered by category.
+(providerId: string) => ProviderHookProfile | undefined - Get the full hook profile for a provider.
+() => string[] - Get all provider IDs that have hook mappings.
+(canonical: CanonicalHookEvent, providerId: string) => string | null - Translate a CAAMP canonical event name to the provider's native name.
+(nativeName: string, providerId: string) => CanonicalHookEvent | null - Translate a provider-native event name to the CAAMP canonical name.
+(canonicals: CanonicalHookEvent[], providerId: string) => NormalizedHookEvent[] - Batch-translate multiple canonical events to native names for a provider.
+(canonical: CanonicalHookEvent, providerId: string) => boolean - Check if a provider supports a specific canonical hook event.
+(canonical: CanonicalHookEvent, providerId: string) => HookSupportResult - Get full hook support details for a canonical event on a provider.
+(providerId: string) => CanonicalHookEvent[] - Get all supported canonical events for a provider.
+(providerId: string) => CanonicalHookEvent[] - Get all unsupported canonical events for a provider.
+(canonical: CanonicalHookEvent) => string[] - Get providers that support a specific canonical event.
+(providerIds: string[]) => CanonicalHookEvent[] - Get canonical events common to all specified providers.
+(providerId: string) => ProviderHookSummary | undefined - Get a summary of hook support for a provider.
+(providerIds?: string[]) => CrossProviderMatrix - Build a cross-provider hook support matrix.
+(providerId: string) => HookSystemType - Get the hook system type for a provider.
+(providerId: string) => string | null - Get the resolved hook config path for a provider.
+(providerId: string) => string[] - Get provider-only events (native events with no canonical mapping).
+(canonical: CanonicalHookEvent, providerIds: string[]) => Record<string, string> - Translate a canonical event to native names across multiple providers.
+(nativeName: string) => Array<{ providerId: string; canonical: CanonicalHookEvent; }> - Find the best canonical match for a native event name across all providers.
+() => string - Get the version of the hook mappings data.
+file normalizer.ts
+file index.ts - CAAMP Hooks Module  Unified hook normalization layer that translates between CAAMP canonical hook events and provider-native names.
+(program: Command) => void - Registers the `providers` command group with list, detect, show, skills-map, hooks, and capabilities subcommands.
+file providers.ts
+AuditRule[] - Complete set of security audit rules for SKILL.md scanning.
+(category: string) => AuditRule[] - Get audit rules filtered by category.
+(severity: AuditSeverity) => AuditRule[] - Get audit rules filtered by severity level.
+() => string[] - Get all unique rule categories.
+file rules.ts
+(filePath: string, rules?: AuditRule[]) => Promise<AuditResult> - Scan a single file against security audit rules.
+(dirPath: string) => Promise<AuditResult[]> - Scan a directory of skills for security issues.
+(results: AuditResult[]) => object - Convert audit results to SARIF 2.1.0 format (Static Analysis Results Interchange Format).
+file scanner.ts
+(parent: Command) => void - Registers the `skills audit` subcommand for security scanning skill files.
+file audit.ts
+(skillName: string, scopedName: string, source: string, sourceType: SourceType, agents: string[], canonicalPath: string, isGlobal: boolean, projectDir?: string, version?: string) => Promise<void> - Record a skill installation in the lock file.
+(skillName: string) => Promise<boolean> - Remove a skill entry from the lock file.
+() => Promise<Record<string, LockEntry>> - Get all skills tracked in the lock file.
+(skillName: string) => Promise<{ hasUpdate: boolean; currentVersion?: string; latestVersion?: string; status: "up-to-date" | "update-available" | "unknown"; }> - Check if a skill has updates available by comparing the installed version against the latest remote commit SHA.
+() => Promise<Record<string, { hasUpdate: boolean; currentVersion?: string; latestVersion?: string; status: "up-to-date" | "update-available" | "unknown"; }>> - Check for updates across all tracked skills.
+file lock.ts
+(parent: Command) => void - Registers the `skills check` subcommand for checking available skill updates.
+file check.ts
+MarketplaceAdapter - Contract that each marketplace backend adapter must implement.
+MarketplaceResult - Normalized marketplace record returned by all adapters.
+SearchOptions - Options for marketplace search requests.
+file types.ts
+typeof SkillsMPAdapter - Marketplace adapter for the agentskills.in API.
+file skillsmp.ts
+typeof SkillsShAdapter - Marketplace adapter for the skills.sh API.
+file skillssh.ts
+typeof MarketplaceUnavailableError - Error thrown when all marketplace sources fail to respond.
+typeof MarketplaceClient - Unified marketplace client that aggregates results from multiple marketplace adapters.  Queries all configured marketplaces in parallel, deduplicates results by scoped name, and sorts by star count.
+file client.ts
+{ readonly QUERY_INVALID: "E_SKILLS_QUERY_INVALID"; readonly NO_MATCHES: "E_SKILLS_NO_MATCHES"; readonly SOURCE_UNAVAILABLE: "E_SKILLS_SOURCE_UNAVAILABLE"; readonly CRITERIA_CONFLICT: "E_SKILLS_CRITERIA_CONFLICT"; } - Error codes used in skill recommendation validation.
+RecommendationErrorCode - Union type of all recommendation error code string literals.
+RecommendationValidationIssue - Describes a single validation issue found in recommendation criteria.
+RecommendationValidationResult - Result of validating recommendation criteria input.
+RecommendationCriteriaInput - Raw user-provided criteria for skill recommendations.
+NormalizedRecommendationCriteria - Normalized and tokenized form of recommendation criteria.
+RecommendationReasonCode - String literal union of all reason codes emitted during skill scoring.
+RecommendationReason - A single reason contributing to a skill's recommendation score.
+RecommendationScoreBreakdown - Detailed breakdown of a skill's recommendation score by category.
+RankedSkillRecommendation - A single skill recommendation with its computed score and explanations.
+RecommendationOptions - Configuration options for the skill recommendation engine.
+RecommendationWeights - Numeric weights controlling the recommendation scoring algorithm.
+RecommendSkillsResult - The complete result of a skill recommendation operation.
+(value: string) => string[] - Splits a comma-separated criteria string into normalized tokens.
+(input: RecommendationCriteriaInput) => RecommendationValidationResult - Validates recommendation criteria input for correctness and consistency.
+(input: RecommendationCriteriaInput) => NormalizedRecommendationCriteria - Normalizes raw recommendation criteria into a consistent tokenized form.
+(skill: MarketplaceResult, criteria: NormalizedRecommendationCriteria, options?: RecommendationOptions) => RankedSkillRecommendation - Computes a recommendation score for a single skill against normalized criteria.
+(skills: MarketplaceResult[], criteriaInput: RecommendationCriteriaInput, options?: RecommendationOptions) => RecommendSkillsResult - Validates, normalizes, scores, and ranks a list of skills against criteria.
+(skills: MarketplaceResult[], criteriaInput: RecommendationCriteriaInput, options?: RecommendationOptions) => RecommendSkillsResult - Alias for `recommendSkills` providing a shorter function name.
+file recommendation.ts
+SearchSkillsOptions - Options for searching skills via marketplace APIs.
+RecommendSkillsQueryOptions - Options for the recommendation query combining ranking options with a result limit.
+(result: RecommendSkillsResult, opts: { mode: "human" | "json"; details?: boolean; }) => string | Record<string, unknown> - Format skill recommendation results for display or serialization.
+(query: string, options?: SearchSkillsOptions) => Promise<import("/mnt/projects/cleocode/.claude/worktrees/agent-aea50da0/packages/caamp/src/index").MarketplaceResult[]> - Search for skills via marketplace APIs.
+(query: string, criteria: Omit<RecommendationCriteriaInput, "query">, options?: RecommendSkillsQueryOptions) => Promise<RecommendSkillsResult> - Search and rank skills based on query and recommendation criteria.
+file recommendation-api.ts
+(parent: Command) => void - Registers the `skills find` subcommand for searching marketplaces and recommending skills.
+file find.ts
+(parent: Command) => void - Registers the `skills init` subcommand for scaffolding new SKILL.md templates.
+file init.ts
+(root: string) => SkillLibrary - Load a SkillLibrary from a module (index.js) at the given root directory.
+(root: string) => SkillLibrary - Build a SkillLibrary from raw files in a directory.
+file library-loader.ts
+(library: SkillLibrary) => void - Registers a SkillLibrary instance directly as the active catalog.
+(root: string) => void - Registers a skill library by loading it from a directory path.
+() => void - Clears the registered skill library instance.
+() => boolean - Checks whether a skill library is available for use.
+() => SkillLibraryEntry[] - Returns all skill entries from the catalog.
+() => SkillLibraryManifest - Returns the parsed skill library manifest.
+() => string[] - Lists all available skill names in the catalog.
+(name: string) => SkillLibraryEntry | undefined - Gets skill metadata by name from the catalog.
+(name: string) => string - Resolves the absolute path to a skill's SKILL.md file.
+(name: string) => string - Resolves the absolute path to a skill's directory.
+(name: string) => string - Reads a skill's SKILL.md content as a string.
+() => SkillLibraryEntry[] - Returns all skills marked as core in the catalog.
+(category: SkillLibraryEntry["category"]) => SkillLibraryEntry[] - Returns skills filtered by category.
+(name: string) => string[] - Gets the direct dependency names for a skill.
+(names: string[]) => string[] - Resolves the full dependency tree for a set of skill names.
+() => string[] - Lists all available profile names in the catalog.
+(name: string) => SkillLibraryProfile | undefined - Gets a profile definition by name from the catalog.
+(name: string) => string[] - Resolves a profile to its full skill list including inherited skills.
+() => string[] - Lists all available shared resource names in the catalog.
+(name: string) => string | undefined - Gets the absolute path to a shared resource file.
+(name: string) => string | undefined - Reads a shared resource file's content as a string.
+() => string[] - Lists all available protocol names in the catalog.
+(name: string) => string | undefined - Gets the absolute path to a protocol file.
+(name: string) => string | undefined - Reads a protocol file's content as a string.
+(name: string) => SkillLibraryValidationResult - Validates a single skill's frontmatter against the schema.
+() => Map<string, SkillLibraryValidationResult> - Validates all skills in the catalog and returns results per skill.
+() => SkillLibraryDispatchMatrix - Gets the dispatch matrix from the skill library manifest.
+() => string - Returns the skill library version string.
+() => string - Returns the absolute path to the skill library root directory.
+file catalog.ts
+(filePath: string) => Promise<SkillMetadata | null> - Parse a SKILL.md file and extract its frontmatter metadata.
+(skillDir: string) => Promise<SkillEntry | null> - Discover a single skill at a given directory path.
+(rootDir: string) => Promise<SkillEntry[]> - Scan a directory for skill subdirectories, each containing a SKILL.md file.
+(dirs: string[]) => Promise<SkillEntry[]> - Discover skills across multiple directories.
+file discovery.ts
+(parent: Command) => void - Registers the `skills install` subcommand for installing skills from various sources.
+file install.ts
+(parent: Command) => void - Registers the `skills list` subcommand for listing installed skills.
+file list.ts
+(parent: Command) => void - Registers the `skills remove` subcommand for removing installed skills.
+file remove.ts
+(parent: Command) => void - Registers the `skills update` subcommand for updating all outdated skills.
+file update.ts
+ValidationIssue - A single validation issue found during SKILL.md validation.
+ValidationResult - Result of validating a SKILL.md file against the Agent Skills standard.
+(filePath: string) => Promise<ValidationResult> - Validate a SKILL.md file against the Agent Skills standard.
+file validator.ts
+(parent: Command) => void - Registers the `skills validate` subcommand for validating SKILL.md file format.
+file validate.ts
+(program: Command) => void - Registers the `skills` command group with all skill management subcommands.
+file index.ts - Skills management command group for installing, removing, listing, finding, checking, updating, initializing, auditing, and validating AI agent skills.
+file cli.ts
+SpawnOptions - Options for spawning a subagent.
+SpawnResult - Result from a spawn operation.
+SpawnAdapter - Provider-neutral interface for spawning and managing subagents.  Concrete implementations will be provider-specific (e.g. ClaudeCodeSpawnAdapter, CodexSpawnAdapter) and registered by CLEO's orchestration layer.
+file spawn-adapter.ts
+SkillIntegrityStatus - Status of a single skill's integrity check.
+SkillIntegrityResult - Result of checking a single skill's integrity.
+(skillName: string) => boolean - Check whether a skill name is reserved by CAAMP (ct-* prefix).
+(skillName: string, providers: Provider[], scope?: "global" | "project", projectDir?: string) => Promise<SkillIntegrityResult> - Check the integrity of a single installed skill.
+(providers: Provider[], scope?: "global" | "project", projectDir?: string) => Promise<Map<string, SkillIntegrityResult>> - Check integrity of all tracked skills.
+(skillName: string, incomingSource: string, existingEntry: LockEntry | undefined) => boolean - Resolve a skill name conflict where a user-installed skill collides with a CAAMP-owned (ct-*) skill.
+(providers: Provider[], projectDir: string, scope: "project" | "global", expectedContent?: string) => Promise<Array<{ file: string; providerId: string; issue: string; }>> - Validate instruction file injection status across all providers.
+file integrity.ts
+file index.ts - Provides the public API surface for the CAAMP library, re-exporting types, registry functions, detection utilities, skill management, instruction file injection, marketplace search, and format-agnostic config read/write operations.
+ResolvedImports - Result of resolving `@import` lines in content.
+(content: string, projectRoot: string) => ResolvedImports - Resolve `@import *.cant` references in instruction file content.
+(cantContent: string) => string - Convert a `.cant` file's content to markdown equivalent.
+file cant-resolver.ts
+WellKnownSkill - A skill entry discovered via the RFC 8615 well-known endpoint.
+(domain: string) => Promise<WellKnownSkill[]> - Discover skills from a well-known URL.
+file wellknown.ts

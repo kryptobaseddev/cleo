@@ -1,0 +1,21 @@
+{
+  "success": true,
+  "numTotalTestSuites": 1,
+  "numPassedTestSuites": 1,
+  "numFailedTestSuites": 0,
+  "numPendingTestSuites": 0,
+  "numTotalTests": 9,
+  "numPassedTests": 9,
+  "numFailedTests": 0,
+  "numPendingTests": 0,
+  "testResults": [],
+  "commands": [
+    "pnpm exec biome check build.mjs packages/core/src/store/sqlite-native.ts packages/core/src/store/__tests__/sqlite-native-vitest-guard.test.ts .github/workflows/ci.yml",
+    "pnpm --filter @cleocode/core exec vitest run src/store/__tests__/sqlite-native-vitest-guard.test.ts",
+    "pnpm --filter @cleocode/core typecheck",
+    "pnpm run build",
+    "local MCP adapter initialize smoke using node spawnSync timeout",
+    "GitHub Actions main run 25505980022: CI success",
+    "GitHub Actions main run 25505979754: Lockfile Check success"
+  ]
+}

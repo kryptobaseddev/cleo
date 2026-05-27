@@ -1,0 +1,193 @@
+/**
+ * Tests for task cancellation operations.
+ * @task T4627
+ * @epic T4454
+ */
+
+import type { Task } from '@cleocode/contracts';
+import { describe, expect, it } from 'vitest';
+import { canCancel, cancelMultiple, cancelTask } from '../cancel-ops.js';
+
+function makeTask(overrides: Partial<Task> & { id: string }): Task {
+  return {
+    title: `Task ${overrides.id}`,
+    status: 'pending',
+    priority: 'medium',
+    createdAt: new Date().toISOString(),
+    ...overrides,
+  } as Task;
+}
+
+describe('canCancel', () => {
+  it('allows cancelling pending tasks', () => {
+    const result = canCancel(makeTask({ id: 'T001', status: 'pending' }));
+    expect(result.allowed).toBe(true);
+  });
+
+  it('allows cancelling active tasks', () => {
+    const result = canCancel(makeTask({ id: 'T001', status: 'active' }));
+    expect(result.allowed).toBe(true);
+  });
+
+  it('allows cancelling blocked tasks', () => {
+    const result = canCancel(makeTask({ id: 'T001', status: 'blocked' }));
+    expect(result.allowed).toBe(true);
+  });
+
+  it('disallows cancelling completed tasks', () => {
+    const result = canCancel(makeTask({ id: 'T001', status: 'done' }));
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain('completed');
+  });
+
+  it('disallows cancelling already cancelled tasks', () => {
+    const result = canCancel(makeTask({ id: 'T001', status: 'cancelled' }));
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain('already cancelled');
+  });
+});
+
+describe('cancelTask', () => {
+  it('cancels a pending task', () => {
+    const tasks = [makeTask({ id: 'T001', status: 'pending' })];
+    const { tasks: updated, result } = cancelTask('T001', tasks, 'No longer needed');
+    expect(result.success).toBe(true);
+    expect(result.taskId).toBe('T001');
+    expect(result.reason).toBe('No longer needed');
+    expect(result.cancelledAt).toBeDefined();
+    expect(updated[0].status).toBe('cancelled');
+  });
+
+  it('fails for nonexistent task', () => {
+    const tasks = [makeTask({ id: 'T001' })];
+    const { result } = cancelTask('T999', tasks);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('E_NOT_FOUND');
+  });
+
+  it('fails for completed task', () => {
+    const tasks = [makeTask({ id: 'T001', status: 'done' })];
+    const { result } = cancelTask('T001', tasks);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('E_CANNOT_CANCEL');
+  });
+
+  it('sets cancellationReason and timestamp', () => {
+    const tasks = [makeTask({ id: 'T001', status: 'active' })];
+    const { tasks: updated } = cancelTask('T001', tasks, 'Duplicate');
+    const cancelled = updated.find((t) => t.id === 'T001')!;
+    expect(cancelled.status).toBe('cancelled');
+    expect(cancelled.cancelledAt).toBeDefined();
+    expect(cancelled.cancellationReason).toBe('Duplicate');
+    expect(cancelled.updatedAt).toBeDefined();
+  });
+
+  it('does not modify other tasks', () => {
+    const tasks = [
+      makeTask({ id: 'T001', status: 'pending' }),
+      makeTask({ id: 'T002', status: 'pending' }),
+    ];
+    const { tasks: updated } = cancelTask('T001', tasks);
+    expect(updated.find((t) => t.id === 'T002')!.status).toBe('pending');
+  });
+
+  it('cancels without reason', () => {
+    const tasks = [makeTask({ id: 'T001', status: 'pending' })];
+    const { tasks: updated, result } = cancelTask('T001', tasks);
+    expect(result.success).toBe(true);
+    expect(updated[0].cancellationReason).toBeUndefined();
+  });
+});
+
+describe('cancelMultiple', () => {
+  it('cancels multiple tasks', () => {
+    const tasks = [
+      makeTask({ id: 'T001', status: 'pending' }),
+      makeTask({ id: 'T002', status: 'active' }),
+      makeTask({ id: 'T003', status: 'pending' }),
+    ];
+    const { tasks: updated, results } = cancelMultiple(['T001', 'T002'], tasks, 'Batch cancel');
+    expect(results).toHaveLength(2);
+    expect(results.every((r) => r.success)).toBe(true);
+    expect(updated.filter((t) => t.status === 'cancelled')).toHaveLength(2);
+    expect(updated.find((t) => t.id === 'T003')!.status).toBe('pending');
+  });
+
+  it('partially succeeds when some tasks cannot be cancelled', () => {
+    const tasks = [
+      makeTask({ id: 'T001', status: 'pending' }),
+      makeTask({ id: 'T002', status: 'done' }),
+    ];
+    const { results } = cancelMultiple(['T001', 'T002'], tasks);
+    expect(results[0].success).toBe(true);
+    expect(results[1].success).toBe(false);
+  });
+
+  it('handles empty ID list', () => {
+    const tasks = [makeTask({ id: 'T001' })];
+    const { results } = cancelMultiple([], tasks);
+    expect(results).toHaveLength(0);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// T871 — status ↔ pipelineStage sync on cancellation
+// ----------------------------------------------------------------------------
+
+describe('cancelTask pipelineStage sync (T871)', () => {
+  it('sets pipelineStage to cancelled when cancelling from research', () => {
+    const tasks = [makeTask({ id: 'T001', status: 'pending', pipelineStage: 'research' })];
+    const { tasks: updated } = cancelTask('T001', tasks, 'dup');
+    expect(updated[0].status).toBe('cancelled');
+    expect(updated[0].pipelineStage).toBe('cancelled');
+  });
+
+  it('sets pipelineStage to cancelled when cancelling from implementation', () => {
+    const tasks = [makeTask({ id: 'T001', status: 'active', pipelineStage: 'implementation' })];
+    const { tasks: updated } = cancelTask('T001', tasks);
+    expect(updated[0].pipelineStage).toBe('cancelled');
+  });
+
+  it('sets pipelineStage to cancelled when previous stage was unset', () => {
+    const tasks = [makeTask({ id: 'T001', status: 'pending' })];
+    const { tasks: updated } = cancelTask('T001', tasks);
+    expect(updated[0].pipelineStage).toBe('cancelled');
+  });
+
+  it('forces pipelineStage to cancelled even when prior stage is contribution (T877 invariant fix)', () => {
+    // T9838: prior to this fix the carve-out left 'contribution' in place,
+    // tripping the T877 BEFORE-UPDATE trigger
+    // (`status=cancelled` MUST imply `pipeline_stage='cancelled'`).
+    const tasks = [makeTask({ id: 'T001', status: 'pending', pipelineStage: 'contribution' })];
+    const { tasks: updated } = cancelTask('T001', tasks);
+    expect(updated[0].status).toBe('cancelled');
+    expect(updated[0].pipelineStage).toBe('cancelled');
+  });
+});
+
+// ----------------------------------------------------------------------------
+// T9838 — idempotent re-cancel
+// ----------------------------------------------------------------------------
+
+describe('cancelTask idempotency (T9838)', () => {
+  it('re-cancelling a cancelled task returns success with alreadyCancelled', () => {
+    const existingCancelledAt = '2026-05-01T00:00:00.000Z';
+    const tasks = [
+      makeTask({
+        id: 'T001',
+        status: 'cancelled',
+        cancelledAt: existingCancelledAt,
+        cancellationReason: 'original reason',
+        pipelineStage: 'cancelled',
+      }),
+    ];
+    const { tasks: updated, result } = cancelTask('T001', tasks, 'ignored');
+    expect(result.success).toBe(true);
+    expect(result.alreadyCancelled).toBe(true);
+    expect(result.cancelledAt).toBe(existingCancelledAt);
+    expect(result.reason).toBe('original reason');
+    // Task state is unchanged (idempotent — no UPDATE issued).
+    expect(updated[0].cancelledAt).toBe(existingCancelledAt);
+    expect(updated[0].cancellationReason).toBe('original reason');
+  });
+});

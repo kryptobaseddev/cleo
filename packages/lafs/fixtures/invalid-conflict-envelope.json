@@ -1,0 +1,27 @@
+{
+  "$schema": "https://lafs.dev/schemas/v1/envelope.schema.json",
+  "_meta": {
+    "specVersion": "1.0.0",
+    "schemaVersion": "1.0.0",
+    "timestamp": "2026-02-11T00:00:00Z",
+    "operation": "example.show",
+    "requestId": "req_02",
+    "transport": "cli",
+    "strict": true,
+    "mvi": "minimal",
+    "contextVersion": 0
+  },
+  "success": true,
+  "result": {
+    "id": "x"
+  },
+  "error": {
+    "code": "E_VALIDATION_SCHEMA",
+    "message": "Should not exist with success=true",
+    "category": "VALIDATION",
+    "retryable": false,
+    "retryAfterMs": null,
+    "details": {}
+  },
+  "page": null
+}

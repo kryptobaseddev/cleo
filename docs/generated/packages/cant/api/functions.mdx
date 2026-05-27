@@ -1,0 +1,354 @@
+---
+title: cant — Functions
+description: Functions and classes for the cant package
+---
+
+Functions and classes exported by this package.
+
+## parseMarkdownSections(content)
+
+Parse markdown content into classified sections.  Splits on `##` and `###` headings, classifies each section by heuristic pattern matching, and returns structured section data with line numbers for source mapping.
+
+**Signature**
+
+```typescript
+(content: string) => MarkdownSection[]
+```
+
+**Parameters**
+
+| Name      | Type     | Description          |
+| --------- | -------- | -------------------- |
+| `content` | `string` | Raw markdown content |
+
+**Returns** — Array of parsed and classified sections
+
+## classifySection(section)
+
+Classify a markdown section based on its heading and content.  Uses heuristic matching against known patterns. Returns 'unknown' for sections that cannot be confidently classified.
+
+**Signature**
+
+```typescript
+(section: MarkdownSection) => SectionClassification
+```
+
+**Parameters**
+
+| Name      | Type              | Description             |
+| --------- | ----------------- | ----------------------- |
+| `section` | `MarkdownSection` | The section to classify |
+
+**Returns** — The classification type
+
+## extractProperties(lines)
+
+Extract key-value properties from markdown bullet lists.  Matches patterns like: - `- **Key**: value` - `- **Key**: value` - `- Key: value`
+
+**Signature**
+
+```typescript
+(lines: string[]) => ExtractedProperty[]
+```
+
+**Parameters**
+
+| Name    | Type       | Description             |
+| ------- | ---------- | ----------------------- |
+| `lines` | `string[]` | Body lines of a section |
+
+**Returns** — Array of extracted properties
+
+## extractPermissions(lines)
+
+Extract permission entries from markdown content.  Handles two formats: 1. Structured: `- Tasks: read, write` 2. Prose: `- Read and write tasks`
+
+**Signature**
+
+```typescript
+(lines: string[]) => ExtractedPermission[]
+```
+
+**Parameters**
+
+| Name    | Type       | Description                         |
+| ------- | ---------- | ----------------------------------- |
+| `lines` | `string[]` | Body lines of a permissions section |
+
+**Returns** — Array of extracted permissions
+
+## headingToIdentifier(heading)
+
+Normalize a heading into a valid CANT identifier.  Converts "Code Review Agent" to "code-review-agent", strips common suffixes like " Agent", lowercases, and replaces non-alphanumeric chars with hyphens.
+
+**Signature**
+
+```typescript
+(heading: string) => string
+```
+
+**Parameters**
+
+| Name      | Type     | Description          |
+| --------- | -------- | -------------------- |
+| `heading` | `string` | The raw heading text |
+
+**Returns** — A valid CANT identifier
+
+## headingToEventName(heading)
+
+Map a hook heading to a CAAMP event name.  Converts headings like "On Session Start" to "SessionStart". Returns null if the heading does not match a known event.
+
+**Signature**
+
+```typescript
+(heading: string) => string | null
+```
+
+**Parameters**
+
+| Name      | Type     | Description          |
+| --------- | -------- | -------------------- |
+| `heading` | `string` | The raw heading text |
+
+**Returns** — The CAAMP PascalCase event name, or null
+
+## getCaampEvents()
+
+Get the full set of CAAMP event names.
+
+**Signature**
+
+```typescript
+() => ReadonlySet<string>
+```
+
+**Returns** — A read-only set of the 16 canonical CAAMP events
+
+## serializeCantDocument(doc)
+
+Serialize a CANT document IR into .cant file text.  Produces a complete .cant file including frontmatter and body. All string values are quoted, arrays use bracket notation, and indentation uses 2 spaces per level.
+
+**Signature**
+
+```typescript
+(doc: CantDocumentIR) => string
+```
+
+**Parameters**
+
+| Name  | Type             | Description                  |
+| ----- | ---------------- | ---------------------------- |
+| `doc` | `CantDocumentIR` | The document IR to serialize |
+
+**Returns** — The complete .cant file content as a string
+
+## formatValue(value)
+
+Format a property value for .cant output.  - Strings are double-quoted - Arrays use bracket notation with quoted elements - Numbers and booleans are bare
+
+**Signature**
+
+```typescript
+(value: string | string[] | number | boolean) => string
+```
+
+**Parameters**
+
+| Name    | Type                                      | Description         |
+| ------- | ----------------------------------------- | ------------------- |
+| `value` | `string \| string[] \| number \| boolean` | The value to format |
+
+**Returns** — Formatted string
+
+## propertiesToIR(properties)
+
+Convert extracted properties to CANT property IR format.  Maps known markdown property keys to their CANT equivalents: - "model" - model - "persistence" / "persist" - persist - "prompt" - prompt - "skills" - skills (as array)
+
+**Signature**
+
+```typescript
+(properties: ExtractedProperty[]) => CantPropertyIR[]
+```
+
+**Parameters**
+
+| Name         | Type                  | Description                   |
+| ------------ | --------------------- | ----------------------------- |
+| `properties` | `ExtractedProperty[]` | Extracted markdown properties |
+
+**Returns** — CANT property IR array
+
+## migrateMarkdown(content, inputFile, options)
+
+Migrate a markdown file to CANT format.  Parses the markdown into sections, classifies each section, converts recognized patterns to .cant files, and flags everything else as unconverted with TODO comments.
+
+**Signature**
+
+```typescript
+(content: string, inputFile: string, options: MigrationOptions) => MigrationResult
+```
+
+**Parameters**
+
+| Name        | Type               | Description                                   |
+| ----------- | ------------------ | --------------------------------------------- |
+| `content`   | `string`           | Raw markdown file content                     |
+| `inputFile` | `string`           | Path to the input file (for diagnostics)      |
+| `options`   | `MigrationOptions` | Migration options (write, verbose, outputDir) |
+
+**Returns** — Migration result with converted files and unconverted sections
+
+## showDiff(result, useColor)
+
+Show a color-coded diff of the migration result.  Displays: - A summary header with conversion stats - Each converted file with green-highlighted content - Each unconverted section with yellow-highlighted warnings
+
+**Signature**
+
+```typescript
+(result: MigrationResult, useColor?: boolean) => string
+```
+
+**Parameters**
+
+| Name       | Type              | Description                                     |
+| ---------- | ----------------- | ----------------------------------------------- |
+| `result`   | `MigrationResult` | The migration result to display                 |
+| `useColor` | `: boolean`       | Whether to use ANSI color codes (default: true) |
+
+**Returns** — The formatted diff string
+
+## showSummary(result)
+
+Generate a simple text-only summary (no color).  Suitable for logging or non-terminal output.
+
+**Signature**
+
+```typescript
+(result: MigrationResult) => string
+```
+
+**Parameters**
+
+| Name     | Type              | Description                       |
+| -------- | ----------------- | --------------------------------- |
+| `result` | `MigrationResult` | The migration result to summarize |
+
+**Returns** — Plain text summary
+
+## isNativeAvailable()
+
+Check if the native addon is available
+
+**Signature**
+
+```typescript
+() => boolean
+```
+
+## cantParseNative()
+
+Parse a CANT message using the native addon
+
+**Signature**
+
+```typescript
+(content: string) => NativeParseResult
+```
+
+## cantClassifyDirectiveNative()
+
+Classify a directive using the native addon
+
+**Signature**
+
+```typescript
+(verb: string) => string
+```
+
+## initCantParser()
+
+Initialize the CANT parser  With napi-rs native addons, this is a no-op (native modules load synchronously). Kept for backward compatibility with code that previously called this for WASM init.
+
+**Signature**
+
+```typescript
+() => Promise<void>
+```
+
+**Example**
+
+```typescript
+import { initCantParser, parseCANTMessage } from '@cleocode/cant';
+
+await initCantParser(); // no-op, kept for compat
+const result = parseCANTMessage('/done @all T1234');
+```
+
+## parseCANTMessage(content)
+
+Parse a CANT message  If the native addon is available, uses the Rust cant-core parser via napi-rs. Falls back to a basic JavaScript implementation if the native addon is not loaded.
+
+**Signature**
+
+```typescript
+(content: string) => ParsedCANTMessage
+```
+
+**Parameters**
+
+| Name      | Type     | Description                       |
+| --------- | -------- | --------------------------------- |
+| `content` | `string` | The CANT message content to parse |
+
+**Returns** — ParsedCANTMessage with directive, addresses, task\_refs, tags
+
+**Example**
+
+```typescript
+const result = parseCANTMessage('/done @all T1234 #shipped');
+console.log(result.directive); // 'done'
+console.log(result.addresses); // ['all']
+console.log(result.task_refs); // ['T1234']
+console.log(result.tags); // ['shipped']
+```
+
+## initWasm()
+
+Initialize the WASM module Must be called before using any WASM functions
+
+**Signature**
+
+```typescript
+() => Promise<void>
+```
+
+## isWasmAvailable()
+
+Check if WASM is available
+
+**Signature**
+
+```typescript
+() => boolean
+```
+
+## cantParseWASM()
+
+Parse a CANT message using WASM
+
+**Signature**
+
+```typescript
+(content: string) => unknown
+```
+
+## cantClassifyDirectiveWASM()
+
+Classify a directive using WASM
+
+**Signature**
+
+```typescript
+(verb: string) => string
+```

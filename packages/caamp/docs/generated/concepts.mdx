@@ -1,0 +1,204 @@
+---
+title: ''
+---
+
+This page explains the core concepts behind **@cleocode/caamp**.
+
+> This is a stub page. Edit this file to add your project's conceptual documentation.
+>
+> Auto-generated sections below (inside FORGE:AUTO markers) update on every build.
+
+{/* FORGE:AUTO-START how-it-works */}
+
+## How It Works
+
+caamp processes your TypeScript source with a single AST traversal, extracting TSDoc comments and type information to generate documentation.
+
+{/* FORGE:AUTO-END how-it-works */}
+
+{/* FORGE:AUTO-START key-abstractions */}
+
+## Key Abstractions
+
+- **`SkillLibraryEntry`** — A single skill entry in a library catalog.
+- **`SkillLibraryValidationResult`** — Validation result from skill frontmatter validation.
+- **`SkillLibraryValidationIssue`** — A single validation issue.
+- **`SkillLibraryProfile`** — Profile definition for grouped skill installation.
+- **`SkillLibraryDispatchMatrix`** — Dispatch matrix for task routing to skills.
+- **`SkillLibraryManifestSkill`** — Skill entry within the library manifest.
+- **`SkillLibraryManifest`** — Full manifest structure for a skill library.
+- **`SkillLibrary`** — Standard interface for a skill library.  Any directory or module providing skills must implement this contract. CAAMP uses it to discover, resolve, and install skills from any source.
+- **`RegistryDetection`** — Raw detection configuration as stored in registry.json.
+- **`ProviderPriority`** — Priority tier identifier stored in registry.json.
+- **`ProviderStatus`** — Lifecycle status identifier stored in registry.json.
+- **`RegistryProvider`** — Raw provider definition as stored in registry.json before path resolution.
+- **`McpConfigFormat`** — Supported MCP config file formats.
+- **`McpTransportType`** — MCP transport protocols a provider may advertise.
+- **`RegistryMcpIntegration`** — MCP server integration metadata for providers that consume MCP servers via a per-agent config file.
+- **`RegistryHarnessKind`** — Harness role category for a primary or standalone harness.
+- **`RegistryHarnessCapability`** — First-class harness role declaration.
+- **`SkillsPrecedence`** — How a provider resolves skill file precedence between vendor and agents directories.
+- **`RegistrySkillsCapability`** — Raw skills capability definition as stored in registry.json.
+- **`HookEvent`** — Hook lifecycle event identifier from registry.json.
+- **`RegistryHookFormat`** — The on-disk layout of a provider's hook configuration.
+- **`RegistryHookCatalog`** — Which native event catalog a provider's hook system uses.
+- **`RegistryHooksCapability`** — Raw hooks capability definition as stored in registry.json.
+- **`SpawnMechanism`** — Mechanism a provider uses to spawn subagents.
+- **`RegistrySpawnCapability`** — Raw spawn capability definition as stored in registry.json.
+- **`RegistryCapabilities`** — Aggregate capability block for a provider in registry.json.
+- **`ProviderRegistry`** — Top-level structure of the provider registry JSON file.
+- **`CtSkillEntry`** — Backward-compatible alias for `SkillLibraryEntry`.
+- **`CtValidationResult`** — Backward-compatible alias for `SkillLibraryValidationResult`.
+- **`CtValidationIssue`** — Backward-compatible alias for `SkillLibraryValidationIssue`.
+- **`CtProfileDefinition`** — Backward-compatible alias for `SkillLibraryProfile`.
+- **`CtDispatchMatrix`** — Backward-compatible alias for `SkillLibraryDispatchMatrix`.
+- **`CtManifest`** — Backward-compatible alias for `SkillLibraryManifest`.
+- **`CtManifestSkill`** — Backward-compatible alias for `SkillLibraryManifestSkill`.
+- **`ConfigFormat`** — Supported configuration file formats.  - `"json"` - Standard JSON - `"jsonc"` - JSON with comments (comment-preserving via jsonc-parser) - `"yaml"` - YAML (via js-yaml) - `"toml"` - TOML (via iarna/toml)
+- **`TransportType`** — MCP server transport protocol type.  - `"stdio"` - Standard input/output (local process) - `"sse"` - Server-Sent Events (remote) - `"http"` - HTTP/Streamable HTTP (remote) - `"websocket"` - WebSocket full-duplex (remote)
+- **`DetectionMethod`** — Method used to detect whether an AI agent is installed on the system.  - `"binary"` - Check if a CLI binary exists on PATH - `"directory"` - Check if known config/data directories exist - `"appBundle"` - Check for macOS .app bundle in standard app directories - `"flatpak"` - Check for Flatpak installation on Linux
+- **`DetectionConfig`** — Configuration for detecting whether a provider is installed.
+- **`ProviderMcpCapability`** — Resolved MCP server integration metadata for a provider.
+- **`ProviderHarnessCapability`** — Resolved first-class harness capability for a provider.
+- **`ProviderSkillsCapability`** — Resolved skills capability for a provider at runtime.
+- **`ProviderHooksCapability`** — Resolved hooks capability for a provider at runtime.
+- **`ProviderSpawnCapability`** — Resolved spawn capability for a provider at runtime.
+- **`ProviderCapabilities`** — Aggregate provider capabilities for MCP, harness role, skills, hooks, and spawn.
+- **`Provider`** — A resolved AI agent provider definition with platform-specific paths.
+- **`McpServerConfig`** — Canonical MCP server configuration.
+- **`SourceType`** — Classified type of an MCP server or skill source.  - `"remote"` - HTTP/HTTPS URL to a remote MCP server - `"package"` - npm package name - `"command"` - Shell command string - `"github"` - GitHub repository (URL or shorthand) - `"gitlab"` - GitLab repository URL - `"local"` - Local filesystem path - `"library"` - Built-in skill library reference
+- **`ParsedSource`** — Result of parsing a source string into its typed components.
+- **`SkillMetadata`** — Metadata extracted from a SKILL.md frontmatter.
+- **`SkillEntry`** — A discovered skill entry with its location and metadata.
+- **`LockEntry`** — A single entry in the CAAMP lock file tracking an installed skill or MCP server.
+- **`CaampLockFile`** — The CAAMP lock file structure, stored at the resolved canonical lock path.
+- **`MarketplaceSkill`** — A skill listing from a marketplace search result.
+- **`MarketplaceSearchResult`** — Paginated search results from a marketplace API.
+- **`AuditSeverity`** — Severity level for a security audit finding.  Ordered from most to least severe: `"critical"`  `"high"`  `"medium"`  `"low"`  `"info"`.
+- **`AuditRule`** — A security audit rule definition with a regex pattern to match against skill content.
+- **`AuditFinding`** — A single finding from a security audit scan, with line-level location.
+- **`AuditResult`** — Aggregate audit result for a single file.
+- **`InjectionStatus`** — Status of a CAAMP injection block in an instruction file.  - `"current"` - Injection block exists and matches expected content - `"outdated"` - Injection block exists but content differs - `"missing"` - Instruction file does not exist - `"none"` - File exists but has no CAAMP injection block
+- **`InjectionCheckResult`** — Result of checking a single instruction file for CAAMP injection status.
+- **`McpServerEntry`** — An MCP server entry read from a provider's config file.
+- **`GlobalOptions`** — Global CLI options shared across all CAAMP commands.
+- **`PlatformPaths`** — OS-appropriate directory paths for CAAMP's global storage.
+- **`SystemInfo`** — Snapshot of the current system environment and resolved platform paths.
+- **`PathScope`** — Scope for path resolution, either global (user home) or project-local.
+- **`PlatformLocations`** — Platform-specific directory locations for agent configuration.
+- **`InjectionTemplate`** — Structured template for injection content.
+- **`EnsureProviderInstructionFileOptions`** — Options for ensuring a provider instruction file.
+- **`EnsureProviderInstructionFileResult`** — Result of ensuring a provider instruction file.
+- **`DetectionResult`** — Result of detecting whether a provider is installed on the system.
+- **`DetectionCacheOptions`** — Options for controlling the detection result cache.
+- **`SkillInstallResult`** — Result of installing a skill to the canonical location and linking to agents.
+- **`SkillBatchOperation`** — Single skill operation entry used by batch orchestration.
+- **`BatchInstallOptions`** — Options for rollback-capable batch installation.
+- **`BatchInstallResult`** — Result of rollback-capable batch installation.
+- **`InstructionUpdateSummary`** — Result of a single-operation instruction update across providers.
+- **`HarnessTier`** — Three-tier scope identifier for Pi harness operations.
+- **`HarnessAssetKind`** — Asset kinds managed by the three-tier scope model.
+- **`ResolveTierDirOptions`** — Options accepted by `resolveTierDir`.
+- **`HarnessScope`** — Scope at which a harness operation should be performed.
+- **`ResolveDefaultTargetProvidersOptions`** — Options accepted by `resolveDefaultTargetProviders` (defined in `./index.ts`).
+- **`ExclusivityMode`** — Controls how `resolveDefaultTargetProviders` (defined in `./index.ts`) selects target providers at runtime invocation time.
+- **`ExtensionEntry`** — Metadata describing a Pi extension discovered on disk.
+- **`PromptEntry`** — Metadata describing a Pi prompt directory discovered on disk.
+- **`ThemeEntry`** — Metadata describing a Pi theme discovered on disk.
+- **`HarnessInstallOptions`** — Options accepted by the Pi install verbs (extensions, prompts, themes).
+- **`CantProfileCounts`** — Counts of top-level CANT sections discovered in a `.cant` file.
+- **`CantProfileEntry`** — Metadata describing a `.cant` profile installed at one of the three Pi harness tiers.
+- **`CantValidationDiagnostic`** — Diagnostic emitted by the cant-core 42-rule validator, normalised to the harness layer's vocabulary.
+- **`ValidateCantProfileResult`** — Result of validating a `.cant` profile via the cant-core 42-rule engine.
+- **`SessionSummary`** — Summary header extracted from the first line of a Pi session JSONL file.
+- **`SessionDocument`** — Raw content of a Pi session JSONL file, preserved line-by-line.
+- **`PiModelDefinition`** — Pi model definition as recorded under `models.json:providers[].models`.
+- **`PiModelProvider`** — Pi provider block as recorded under `models.json:providers[id]`.
+- **`PiModelsConfig`** — Entire `models.json` document shape used by Pi.
+- **`ModelListEntry`** — A model entry as surfaced by `Harness.listModels`.
+- **`SubagentTask`** — Description of a subagent task to be spawned under a harness.
+- **`SubagentSpawnOptions`** — Per-call options that override harness-wide spawn defaults.
+- **`SubagentStreamEvent`** — One streaming event surfaced through `SubagentSpawnOptions.onStream`.
+- **`SubagentExitResult`** — Resolution value of `SubagentHandle.exitPromise`.
+- **`SubagentLinkEntry`** — `subagent_link` custom entry written into the parent session JSONL.
+- **`SubagentResult`** — Final result of a subagent's execution (legacy v1 shape).
+- **`SubagentHandle`** — Live handle to a running subagent.
+- **`Harness`** — Contract every first-class harness must implement.
+- **`MVILevel`** — LAFS MVI disclosure level - defined locally to avoid CI module resolution issues with re-exported types.
+- **`LAFSErrorShape`** — LAFS Error structure - re-exported from protocol as LAFSErrorShape for CAAMP compatibility.
+- **`LAFSWarning`** — LAFS Warning structure - re-exported from protocol.
+- **`LAFSEnvelope`** — Generic LAFS Envelope structure for type-safe command results.
+- **`FormatOptions`** — Format resolution options.
+- **`LAFSCommandOptions`** — Standard command options interface for LAFS-compliant commands.
+- **`ProviderTargetOptions`** — Options for resolving which providers to target in advanced commands.
+- **`McpScope`** — Scope identifier for MCP config file resolution.
+- **`McpDetectionEntry`** — Result of a single provider's MCP installation probe.
+- **`McpServerEntriesByProvider`** — Map of provider id → MCP server entries for that provider.
+- **`InstallMcpServerOptions`** — Options accepted by `installMcpServer`.
+- **`InstallMcpServerResult`** — Result of an `installMcpServer` call.
+- **`RemoveMcpServerOptions`** — Options accepted by `removeMcpServer` and `removeMcpServerFromAll`.
+- **`RemoveMcpServerResult`** — Result of a single-provider `removeMcpServer` call.
+- **`McpCommandBaseOptions`** — Standard option shape accepted by every `caamp mcp <verb>` command.
+- **`McpDetectOptions`** — Options accepted by `caamp mcp detect`.
+- **`McpInstallOptions`** — Options accepted by `caamp mcp install`.
+- **`McpListOptions`** — Options accepted by `caamp mcp list`.
+- **`McpRemoveOptions`** — Options accepted by `caamp mcp remove`.
+- **`GitFetchResult`** — Result of fetching a Git repository to a local temporary directory.
+- **`PiCommandBaseOptions`** — Standard option shape accepted by every `caamp pi <verb>` command.
+- **`PiCantListOptions`** — Options accepted by `caamp pi cant list`.
+- **`PiCantInstallOptions`** — Options accepted by `caamp pi cant install`.
+- **`PiCantRemoveOptions`** — Options accepted by `caamp pi cant remove`.
+- **`PiExtensionsListOptions`** — Options accepted by `caamp pi extensions list`.
+- **`PiExtensionsInstallOptions`** — Options accepted by `caamp pi extensions install`.
+- **`PiExtensionsRemoveOptions`** — Options accepted by `caamp pi extensions remove`.
+- **`PiModelsCommandOptions`** — Options accepted by every `caamp pi models` verb.
+- **`PiModelsAddOptions`** — Options accepted by `caamp pi models add`.
+- **`PiPromptsInstallOptions`** — Options accepted by `caamp pi prompts install`.
+- **`PiPromptsListOptions`** — Options accepted by `caamp pi prompts list`.
+- **`PiPromptsRemoveOptions`** — Options accepted by `caamp pi prompts remove`.
+- **`PiSessionsListOptions`** — Options accepted by `caamp pi sessions list`.
+- **`PiSessionsExportOptions`** — Options accepted by `caamp pi sessions export`.
+- **`PiThemesInstallOptions`** — Options accepted by `caamp pi themes install`.
+- **`PiThemesListOptions`** — Options accepted by `caamp pi themes list`.
+- **`PiThemesRemoveOptions`** — Options accepted by `caamp pi themes remove`.
+- **`HookCategory`** — Union type of valid hook category strings.
+- **`EventSource`** — Union type of valid event source types.
+- **`CanonicalHookEvent`** — Union type of all canonical hook event names.
+- **`CanonicalEventDefinition`** — Definition of a canonical hook event including its category and behavior.
+- **`HookSystemType`** — The type of hook system a provider uses.
+- **`HookHandlerType`** — The mechanism a provider uses to execute hook handlers.
+- **`HookMapping`** — Mapping of a single canonical event to a provider's native representation.
+- **`ProviderHookProfile`** — Complete hook profile for a single provider.
+- **`NormalizedHookEvent`** — A fully resolved hook event with both canonical and native names.
+- **`HookSupportResult`** — Result of querying whether a provider supports a specific canonical event.
+- **`ProviderHookSummary`** — Aggregated hook support summary for a single provider.
+- **`CrossProviderMatrix`** — Cross-provider hook support matrix comparing multiple providers.
+- **`HookMappingsFile`** — Schema for the `providers/hook-mappings.json` data file.
+- **`MarketplaceAdapter`** — Contract that each marketplace backend adapter must implement.
+- **`MarketplaceResult`** — Normalized marketplace record returned by all adapters.
+- **`SearchOptions`** — Options for marketplace search requests.
+- **`RecommendationErrorCode`** — Union type of all recommendation error code string literals.
+- **`RecommendationValidationIssue`** — Describes a single validation issue found in recommendation criteria.
+- **`RecommendationValidationResult`** — Result of validating recommendation criteria input.
+- **`RecommendationCriteriaInput`** — Raw user-provided criteria for skill recommendations.
+- **`NormalizedRecommendationCriteria`** — Normalized and tokenized form of recommendation criteria.
+- **`RecommendationReasonCode`** — String literal union of all reason codes emitted during skill scoring.
+- **`RecommendationReason`** — A single reason contributing to a skill's recommendation score.
+- **`RecommendationScoreBreakdown`** — Detailed breakdown of a skill's recommendation score by category.
+- **`RankedSkillRecommendation`** — A single skill recommendation with its computed score and explanations.
+- **`RecommendationOptions`** — Configuration options for the skill recommendation engine.
+- **`RecommendationWeights`** — Numeric weights controlling the recommendation scoring algorithm.
+- **`RecommendSkillsResult`** — The complete result of a skill recommendation operation.
+- **`SearchSkillsOptions`** — Options for searching skills via marketplace APIs.
+- **`RecommendSkillsQueryOptions`** — Options for the recommendation query combining ranking options with a result limit.
+- **`ValidationIssue`** — A single validation issue found during SKILL.md validation.
+- **`ValidationResult`** — Result of validating a SKILL.md file against the Agent Skills standard.
+- **`SpawnOptions`** — Options for spawning a subagent.
+- **`SpawnResult`** — Result from a spawn operation.
+- **`SpawnAdapter`** — Provider-neutral interface for spawning and managing subagents.  Concrete implementations will be provider-specific (e.g. ClaudeCodeSpawnAdapter, CodexSpawnAdapter) and registered by CLEO's orchestration layer.
+- **`SkillIntegrityStatus`** — Status of a single skill's integrity check.
+- **`SkillIntegrityResult`** — Result of checking a single skill's integrity.
+- **`ResolvedImports`** — Result of resolving `@import` lines in content.
+- **`WellKnownSkill`** — A skill entry discovered via the RFC 8615 well-known endpoint.
+
+{/* FORGE:AUTO-END key-abstractions */}

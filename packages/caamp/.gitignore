@@ -1,0 +1,13 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+coverage/
+.env
+.env.*
+.npmrc
+docs/api/
+.cleo/.current-session
+.cleo/backups/
+.cleo/context-states/
+.cleo/todo-log.jsonl

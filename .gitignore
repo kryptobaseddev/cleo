@@ -1,0 +1,184 @@
+node_modules/
+dist/
+dist
+*.tsbuildinfo
+.fuse_hidden*
+# Pomodoro benchmark used sub-repos as isolated environments — skip embedded .git
+.cleo/agent-outputs/T-POMODORO-BENCH-2026-04-16/
+.pnpm-debug.log
+coverage/
+.test-*
+
+# ---------------------------------------------------------------------------
+# Deprecated in-repo sandbox — removed 2026-05-12.
+# Canonical sandbox lives at the external repo /mnt/projects/cleo-sandbox/
+# (Docker, multi-distro, used by packages/cleo-os/.../pi-coding-agent).
+# Keep this entry so the legacy Podman variant cannot be re-added.
+# ---------------------------------------------------------------------------
+dev/sandbox/
+
+# ---------------------------------------------------------------------------
+# CLEO runtime data — NEVER track (ADR-013 §9, T5158)
+# ---------------------------------------------------------------------------
+# Runtime databases corrupt on branch switch because of WAL-mode sidecar
+# files. Config + project-info are regenerated from defaults by `cleo init`.
+# Recovery is provided by VACUUM INTO snapshots at .cleo/backups/sqlite/
+# (auto-rotated, 10 per DB, refreshed on every `cleo session end`) plus
+# on-demand full-4-file snapshots via `cleo backup add` / `cleo backup list`
+# / `cleo restore backup`. See .cleo/adrs/ADR-013 for full rationale.
+.cleo/tasks.db
+.cleo/tasks.db-wal
+.cleo/tasks.db-shm
+.cleo/brain.db
+.cleo/brain.db-wal
+.cleo/brain.db-shm
+.cleo/config.json
+.cleo/project-info.json
+.cleo/backups/
+.cleo/logs/
+# GC daemon runtime state — ephemeral, not restored from backup (ADR-047)
+.cleo/gc-state.json
+.cleo/logs/gc.log
+.cleo/logs/gc.err
+
+# ---------------------------------------------------------------------------
+# TypeScript compile artifacts — source dirs must ONLY contain .ts files.
+# All emitted .js/.d.ts/.d.ts.map/.js.map belongs in each package's dist/.
+# These patterns are intentionally broad to prevent recurrence.
+# ---------------------------------------------------------------------------
+packages/*/src/**/*.js
+packages/*/src/**/*.js.map
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.d.ts.map
+
+# Test artifacts anywhere in the monorepo
+**/__tests__/**/*.js
+**/__tests__/**/*.js.map
+**/__tests__/**/*.d.ts
+**/__tests__/**/*.d.ts.map
+**/*.test.js
+**/*.test.js.map
+**/*.test.d.ts
+**/*.test.d.ts.map
+
+# Package-root / project-root config file compile artifacts
+# (matches forge-ts.config.*, vitest.config.*, tsup.config.*, drizzle.config.*)
+/forge-ts.config.js
+/forge-ts.config.js.map
+/forge-ts.config.d.ts
+/forge-ts.config.d.ts.map
+/vitest.config.js
+/vitest.config.js.map
+/vitest.config.d.ts
+/vitest.config.d.ts.map
+packages/*/forge-ts.config.js
+packages/*/forge-ts.config.js.map
+packages/*/forge-ts.config.d.ts
+packages/*/forge-ts.config.d.ts.map
+packages/*/vitest.config.js
+packages/*/vitest.config.js.map
+packages/*/vitest.config.d.ts
+packages/*/vitest.config.d.ts.map
+packages/*/tsup.config.js
+packages/*/tsup.config.js.map
+packages/*/tsup.config.d.ts
+packages/*/tsup.config.d.ts.map
+/drizzle/*.config.js
+/drizzle/*.config.js.map
+/drizzle/*.config.d.ts
+/drizzle/*.config.d.ts.map
+
+# Script file compile artifacts (scripts are .ts sources; compiled siblings are junk)
+packages/*/scripts/**/*.js
+packages/*/scripts/**/*.js.map
+packages/*/scripts/**/*.d.ts
+packages/*/scripts/**/*.d.ts.map
+
+# Examples: .ts sources only; compiled siblings are junk
+packages/*/examples/**/*.js
+packages/*/examples/**/*.js.map
+packages/*/examples/**/*.d.ts
+packages/*/examples/**/*.d.ts.map
+
+# Extensions: .ts sources only; compiled siblings are build artifacts
+packages/*/extensions/**/*.js
+packages/*/extensions/**/*.js.map
+packages/*/extensions/**/*.d.ts
+packages/*/extensions/**/*.d.ts.map
+
+# Intentionally tracked hand-written files that match the patterns above
+# (do NOT ignore these — they are the real entry points):
+!packages/cleo/bin/postinstall.js
+!packages/skills/index.js
+!packages/skills/index.d.ts
+# T9318: napi-rs fallback loader — CJS + declarations, not compiled output
+!packages/core/src/llm/rust/index.js
+!packages/core/src/llm/rust/index.d.ts
+
+# Misc noise
+clawmsgr-agent.json
+clawmsgr-*.json
+
+# Tool / editor configs (personal, not project)
+.serena/
+.vscode/
+.cache/
+
+# Packaged skill artifacts (zip bundles, not source)
+*.skill
+
+# Test output artifacts
+vitest-results.json
+
+# Root-level drizzle stub output only. Package migrations MUST be tracked
+# (packages/*/migrations/, crates/*/migrations/). Drizzle-kit sometimes
+# writes stub dirs to the repo root when invoked without a config path;
+# only those should be ignored. This rule is intentionally anchored with
+# a leading slash to prevent matching the real migration dirs that live
+# inside packages/ and crates/.
+#
+# Past incidents (commits e91d3038, c6ae85a3): broad "migrations/" rule
+# silently blocked new migration.sql files from being tracked, causing
+# CI to run against pre-migration schema and fail with "no such column"
+# errors. See .github/workflows/ci.yml "Migration Integrity Check" job.
+/migrations/
+
+# Rust build artifacts
+target/
+types.js
+
+# Rust coverage
+tarpaulin-report.json
+
+# VS Code extension build artifacts
+editors/vscode-cant/src/*.js
+editors/vscode-cant/src/*.js.map
+editors/vscode-cant/src/*.d.ts
+editors/vscode-cant/src/*.d.ts.map
+
+# Nested package .cleo/ dirs (T5158 data-loss vector — never track)
+# ADR-036 closes this for nested scope in v2026.4.11 (T302 / T299)
+packages/*/.cleo/
+packages/*/.cleo/*.db
+packages/*/.cleo/*.db-wal
+packages/*/.cleo/*.db-shm
+packages/*/.cleo/*.db-journal
+.gitnexus
+
+# Claude Code worktrees — transient per-agent clones
+.claude/worktrees/
+
+# Temp folders — ephemeral scratch, not tracked
+temp/
+*.tgz
+# Pomodoro benchmark nested .cleo — has its own git history, skip as submodule
+.cleo/agent-outputs/T-POMODORO-BENCH-2026-04-16/cleo/.cleo/
+
+.gsd/
+
+# napi-rs prebuilt binaries — built by .github/workflows/worktree-napi-prebuild.yml
+# (CI) or `cargo build --release -p worktree-napi` (locally) and copied into
+# the matching per-triple package directory before publish. Never committed.
+# (T10178 — global-install resolution fix for @cleocode/worktree-napi.)
+crates/worktree-napi/worktree-napi.*.node
+packages/worktree-napi-*/worktree-napi.*.node

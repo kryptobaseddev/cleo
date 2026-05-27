@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Todo list with a built-in Pomodoro timer — client-side, keyboard-driven." />
+  <meta name="color-scheme" content="light dark" />
+  <title>Focus — Todo + Pomodoro</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <a href="#todo-list" class="skip-link">Skip to todos</a>
+
+  <header class="app-header" role="banner">
+    <h1 class="app-title">Vanilla + Pomodoro Todo</h1>
+    <div class="header-actions">
+      <button type="button" id="theme-toggle" class="icon-btn" aria-label="Toggle theme" title="Toggle theme (auto/light/dark)">
+        <span id="theme-icon" aria-hidden="true">A</span>
+      </button>
+      <button type="button" id="settings-open" class="icon-btn" aria-label="Open settings" aria-haspopup="dialog" aria-controls="settings-dialog" title="Settings">
+        <span aria-hidden="true">S</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <!-- Timer panel -->
+    <section class="timer-panel" aria-labelledby="timer-heading">
+      <h2 id="timer-heading" class="visually-hidden">Pomodoro timer</h2>
+
+      <div class="ring-wrap" role="group" aria-label="Timer display">
+        <svg class="ring" viewBox="0 0 200 200" aria-hidden="true">
+          <circle class="ring-track" cx="100" cy="100" r="88" />
+          <circle class="ring-progress" cx="100" cy="100" r="88"
+                  pathLength="1" stroke-dasharray="1" stroke-dashoffset="0" />
+        </svg>
+        <div class="ring-center">
+          <div id="timer-phase" class="timer-phase" aria-live="polite">Work</div>
+          <div id="timer-display" class="timer-display" aria-live="polite" aria-atomic="true">25:00</div>
+          <div id="timer-meta" class="timer-meta">Cycle <span id="cycle-count">1</span> · <span id="today-total">0</span> today</div>
+        </div>
+      </div>
+
+      <div class="timer-controls" role="group" aria-label="Timer controls">
+        <button type="button" id="btn-start" class="btn btn-primary" aria-label="Start or pause timer (Space)">Start</button>
+        <button type="button" id="btn-reset" class="btn" aria-label="Reset timer">Reset</button>
+        <button type="button" id="btn-skip" class="btn" aria-label="Skip to next phase">Skip</button>
+      </div>
+
+      <div class="timer-selected" aria-live="polite">
+        <span class="timer-selected-label">Focus on:</span>
+        <span id="timer-selected-text">Select a todo</span>
+      </div>
+    </section>
+
+    <!-- Todo panel -->
+    <section class="todo-panel" aria-labelledby="todos-heading">
+      <div class="todo-header">
+        <h2 id="todos-heading">Todos</h2>
+        <button type="button" id="btn-new" class="btn" aria-label="New todo (N)">+ New</button>
+      </div>
+
+      <form id="new-todo-form" class="new-todo" aria-label="Create todo">
+        <input type="text" id="new-todo-input" class="input" maxlength="200"
+               placeholder="What do you want to focus on?" aria-label="New todo text" required />
+        <button type="submit" class="btn btn-primary">Add</button>
+      </form>
+
+      <ul id="todo-list" class="todo-list" role="list" aria-label="Todos"></ul>
+
+      <p id="todo-empty" class="todo-empty" hidden>No todos yet. Press <kbd>N</kbd> to add one.</p>
+    </section>
+  </main>
+
+  <!-- Settings dialog -->
+  <dialog id="settings-dialog" aria-labelledby="settings-title">
+    <form method="dialog" id="settings-form">
+      <h2 id="settings-title">Settings</h2>
+      <label>
+        Work (minutes)
+        <input type="number" id="set-work" min="1" max="180" step="1" required />
+      </label>
+      <label>
+        Short break (minutes)
+        <input type="number" id="set-short" min="1" max="60" step="1" required />
+      </label>
+      <label>
+        Long break (minutes)
+        <input type="number" id="set-long" min="1" max="120" step="1" required />
+      </label>
+      <label class="row">
+        <input type="checkbox" id="set-chime" />
+        Play chime on phase end
+      </label>
+      <div class="dialog-actions">
+        <button type="button" id="settings-cancel" class="btn">Cancel</button>
+        <button type="submit" id="settings-save" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="live-region" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
+
+  <footer class="shortcuts" aria-label="Keyboard shortcuts">
+    <kbd>Space</kbd> start/pause &nbsp;
+    <kbd>N</kbd> new &nbsp;
+    <kbd>Enter</kbd> edit &nbsp;
+    <kbd>Delete</kbd> remove
+  </footer>
+
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>

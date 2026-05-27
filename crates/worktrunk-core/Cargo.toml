@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 kryptobaseddev
+#
+# This file is part of crates/worktrunk-core in the CleoCode monorepo.
+
+[package]
+name = "worktrunk-core"
+version.workspace = true
+edition = "2024"
+rust-version = "1.94"
+description = "Pure-Rust SDK for parallel git-worktree provisioning + .worktreeinclude parsing (CleoCode internal crate, no CLI)"
+license = "MIT"
+publish = false
+
+[lib]
+name = "worktrunk_core"
+path = "src/lib.rs"
+crate-type = ["rlib"]
+
+[dependencies]
+anyhow = { workspace = true }
+rayon = "1"
+reflink-copy = "0.1"
+ignore = "0.4"
+walkdir = "2"
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

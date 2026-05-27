@@ -1,0 +1,230 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lafs.dev/schemas/v1/agent-card.schema.json",
+  "title": "A2A Agent Card v1.0",
+  "description": "A2A-compliant Agent Card schema for agent discovery. Reference: specs/external/specification.md",
+  "type": "object",
+  "required": [
+    "name",
+    "description",
+    "version",
+    "url",
+    "capabilities",
+    "defaultInputModes",
+    "defaultOutputModes",
+    "skills"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "format": "uri",
+      "description": "JSON Schema URL"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Human-readable agent name"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048,
+      "description": "Detailed description of agent capabilities"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Agent version (SemVer)"
+    },
+    "url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Base URL for A2A endpoints"
+    },
+    "provider": {
+      "type": "object",
+      "required": ["organization", "url"],
+      "properties": {
+        "organization": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Organization name"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Organization URL"
+        }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "required": [],
+      "properties": {
+        "streaming": {
+          "type": "boolean",
+          "description": "Supports streaming responses"
+        },
+        "pushNotifications": {
+          "type": "boolean",
+          "description": "Supports push notifications"
+        },
+        "extendedAgentCard": {
+          "type": "boolean",
+          "description": "Supports extended agent card"
+        },
+        "extensions": {
+          "type": "array",
+          "description": "Supported extensions",
+          "items": {
+            "type": "object",
+            "required": ["uri", "description", "required"],
+            "properties": {
+              "uri": {
+                "type": "string",
+                "format": "uri",
+                "description": "Extension URI (unique identifier)"
+              },
+              "description": {
+                "type": "string",
+                "description": "Human-readable description"
+              },
+              "required": {
+                "type": "boolean",
+                "description": "Whether the extension is required"
+              },
+              "params": {
+                "type": "object",
+                "description": "Extension-specific parameters"
+              }
+            }
+          }
+        }
+      }
+    },
+    "defaultInputModes": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Supported input content types",
+      "items": {
+        "type": "string",
+        "description": "MIME type"
+      }
+    },
+    "defaultOutputModes": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Supported output content types",
+      "items": {
+        "type": "string",
+        "description": "MIME type"
+      }
+    },
+    "skills": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Agent skills/capabilities",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "description", "tags"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Skill unique identifier"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Human-readable name"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Detailed description"
+          },
+          "tags": {
+            "type": "array",
+            "minItems": 1,
+            "description": "Keywords/tags",
+            "items": {
+              "type": "string"
+            }
+          },
+          "examples": {
+            "type": "array",
+            "description": "Example prompts",
+            "items": {
+              "type": "string"
+            }
+          },
+          "inputModes": {
+            "type": "array",
+            "description": "Supported input modes (overrides agent defaults)",
+            "items": {
+              "type": "string"
+            }
+          },
+          "outputModes": {
+            "type": "array",
+            "description": "Supported output modes (overrides agent defaults)",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "type": "object",
+      "description": "Security authentication schemes (OpenAPI 3.0 style)",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["http", "apiKey", "oauth2", "openIdConnect"],
+            "description": "Security scheme type"
+          },
+          "description": {
+            "type": "string",
+            "description": "Description"
+          },
+          "scheme": {
+            "type": "string",
+            "description": "HTTP scheme (e.g., bearer)"
+          },
+          "bearerFormat": {
+            "type": "string",
+            "description": "Bearer token format (e.g., JWT)"
+          }
+        }
+      }
+    },
+    "security": {
+      "type": "array",
+      "description": "Required security schemes",
+      "items": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "documentationUrl": {
+      "type": "string",
+      "format": "uri",
+      "description": "Documentation URL"
+    },
+    "iconUrl": {
+      "type": "string",
+      "format": "uri",
+      "description": "Icon URL"
+    }
+  }
+}

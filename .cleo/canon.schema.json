@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cleocode.io/schemas/canon.schema.json",
+  "title": "CLEO Canonical Doc Routing",
+  "description": "Schema for .cleo/canon.yml — routes every DocKind to its canonical home (SSoT vs SSoT-first dual-write) and declares which raw markdown paths the canon-check CI gate should block (T9796).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "kinds"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Canon schema version. Bumped only on breaking format changes."
+    },
+    "kinds": {
+      "type": "object",
+      "description": "Map of DocKind id (from packages/contracts/src/docs-taxonomy.ts) to its routing entry.",
+      "minProperties": 1,
+      "patternProperties": {
+        "^[a-z][a-z0-9-]*$": {
+          "$ref": "#/$defs/CanonKindEntry"
+        }
+      },
+      "additionalProperties": false
+    },
+    "similarity": {
+      "$ref": "#/$defs/SimilarityConfig"
+    }
+  },
+  "$defs": {
+    "SimilarityConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional configuration for the docs-add slug similarity check (T10361). When omitted, defaults are warnThreshold=0.85 and mode=warn.",
+      "properties": {
+        "warnThreshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Normalised Levenshtein score in [0, 1]. Scores >= threshold (and < 1.0) trigger the warn or block. Default 0.85."
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["warn", "block"],
+          "description": "Policy on hit. 'warn' prints the hint and continues. 'block' exits E_SLUG_SIMILARITY unless --allow-similar is supplied. Default 'warn'."
+        }
+      }
+    },
+    "CanonKindEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["canonicalHome", "publishMirror", "rawMdAllowed"],
+      "properties": {
+        "canonicalHome": {
+          "type": "string",
+          "enum": ["ssot", "ssot-first"],
+          "description": "Where the canonical bytes live. `ssot` = blob/attachment store only; `ssot-first` = dual-write via a dedicated cleo verb (e.g. changeset)."
+        },
+        "publishMirror": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Relative path to the human-reviewable mirror written by `cleo docs publish` (or by the dedicated verb for ssot-first kinds)."
+        },
+        "rawMdAllowed": {
+          "type": "boolean",
+          "description": "When false, NEW *.md files under any `rawMdPaths` directory fail `cleo check canon docs`. When true, raw additions are tolerated (kind is dual-write or repo-root)."
+        },
+        "rawMdPaths": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "Directories the CI gate scans for new *.md additions. When rawMdAllowed is false, additions to these paths fail the gate. Optional — kinds without listed paths have no on-disk surface to police (the SSoT is the only legitimate home).",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

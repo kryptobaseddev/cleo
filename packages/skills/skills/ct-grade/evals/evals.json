@@ -1,0 +1,94 @@
+{
+  "skill_name": "ct-grade",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Grade session S-abc123 and tell me the total score, grade letter, and any flags.",
+      "expected_output": "Calls `query check grade { sessionId }` (preferred canonical op, or legacy `admin.grade`) and reports totalScore/100, grade letter (A-F), and any flags from the result.",
+      "expectations": [
+        "Uses `query check grade` MCP operation with the session ID",
+        "Reports the totalScore out of 100",
+        "Reports the grade letter (A, B, C, D, or F)",
+        "Lists any flags from the grade result",
+        "Shows per-dimension scores"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Run grade scenario S4 (Full Lifecycle) using the MCP interface and grade it.",
+      "expected_output": "Runs a graded session executing the S4 scenario operations via MCP gateway, then calls `check.grade` and reports the result.",
+      "expectations": [
+        "Starts a graded session with `mutate session start { grade: true }`",
+        "Executes session.list as first operation (S1)",
+        "Calls `query admin help` for progressive disclosure (S5)",
+        "Uses `tasks.find` not `tasks.list` for discovery (S2)",
+        "Calls `mutate session end` at conclusion (S1)",
+        "Grades the session via `query check grade { sessionId }` after ending",
+        "Reports score close to 100/100 for correct execution"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "A/B compare MCP vs CLI for the tasks domain using 3 runs. Set up the run and tell me the execution plan.",
+      "expected_output": "Runs setup_run.py with mode=ab, domains=tasks, interface=both, runs=3 and outputs the step-by-step execution plan.",
+      "expectations": [
+        "Calls or references `scripts/setup_run.py --mode ab --domains tasks --interface both --runs 3`",
+        "Creates output directory structure",
+        "Outputs a step-by-step plan with arm-A (MCP) and arm-B (CLI) spawn instructions",
+        "Notes the requirement to capture total_tokens from task notifications",
+        "Includes blind-comparator step after both arms complete"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Run a blind A/B test for scenario S1 and S4. Compare MCP vs CLI. Use 2 runs per configuration.",
+      "expected_output": "Sets up and orchestrates blind A/B comparison for both scenarios, spawning parallel agents, capturing tokens, running comparator, and producing a report.",
+      "expectations": [
+        "Sets up run directory for scenarios s1 and s4",
+        "Spawns arm-A (MCP) and arm-B (CLI) agents in the same turn for each scenario",
+        "Captures total_tokens from each task notification into timing.json",
+        "Spawns blind-comparator agent after both arms complete for each run",
+        "Runs token_tracker.py to aggregate stats",
+        "Generates report.md with comparative results",
+        "Identifies that CLI arm will score 0 on S5 Progressive Disclosure"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "List all past grade results and summarize the average score.",
+      "expected_output": "Calls `query check grade.list` and summarizes the results.",
+      "expectations": [
+        "Uses `query check grade.list` MCP operation",
+        "Reports number of grade results found",
+        "Computes or estimates the average total score",
+        "Identifies any sessions with failing grades (F)"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Run all 5 grade scenarios (S1-S5) via MCP and produce a comparative analysis.",
+      "expected_output": "Runs all 5 scenarios as graded sessions, grades each one, and produces an analysis comparing performance across scenarios.",
+      "expectations": [
+        "Starts 5 separate graded sessions (one per scenario)",
+        "Executes each scenario's operation sequence via MCP",
+        "Grades each session via `check.grade`",
+        "Compares scores across all 5 scenarios",
+        "Identifies which scenarios scored highest and lowest",
+        "Suggests improvements for low-scoring dimensions"
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "What is the expected token cost difference between MCP and CLI for grade scenario S4?",
+      "expected_output": "Explains the token tracking methodology, describes that MCP operations produce richer responses (more tokens) but higher scores, and estimates the delta based on typical operation counts.",
+      "expectations": [
+        "Explains that total_tokens is captured from task notifications",
+        "Notes that MCP responses include _meta envelope with gateway, requestId, etc.",
+        "Notes that CLI responses are typically more compact",
+        "Estimates MCP is likely to use more tokens per operation",
+        "Mentions score-per-token as the key efficiency metric",
+        "References timing.json as where token data is stored"
+      ]
+    }
+  ]
+}

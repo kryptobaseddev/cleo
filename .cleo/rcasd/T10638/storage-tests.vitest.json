@@ -1,0 +1,17 @@
+{
+  "numTotalTests": 10,
+  "numPassedTests": 10,
+  "numFailedTests": 0,
+  "testResults": [
+    {"name": "returns the saga whose parent_id matches the target task", "status": "passed"},
+    {"name": "returns an empty array when no saga parents the target task", "status": "passed"},
+    {"name": "returns empty when parent is not a saga", "status": "passed"},
+    {"name": "returns the saga via non-groups relation (parent_id only)", "status": "passed"},
+    {"name": "returns a single saga when task has parent_id pointing to saga", "status": "passed"},
+    {"name": "produces implemented ... gates", "status": "passed"},
+    {"name": "round = 1", "status": "passed"},
+    {"name": "capturedBy = system:saga-auto-close", "status": "passed"},
+    {"name": "members CSV note appears in every gate", "status": "passed"},
+    {"name": "ADR citation note appears in every gate", "status": "passed"}
+  ]
+}

@@ -1,0 +1,169 @@
+{
+  "generatedAt": "2026-05-24T07:16:18.716Z",
+  "rawMdPaths": [
+    ".cleo/adrs/",
+    ".cleo/research/",
+    ".cleo/rcasd/",
+    ".cleo/agent-outputs/"
+  ],
+  "summary": {
+    "cutoff": "251814e86",
+    "totalFiles": 16,
+    "orphan": 0,
+    "drift": 0,
+    "inSync": 16,
+    "deleted": 0,
+    "unresolved": 0
+  },
+  "grouped": {
+    "orphan": [],
+    "drift": [],
+    "in-sync": [
+      {
+        "file": ".cleo/adrs/ADR-079-docs-sdk-boundary-contract.md",
+        "fileSha": "0113f7f7ab1818fb681c0b7d1f601fb306819686ed08b07e18b1461fa746d22c",
+        "remediation": "in-sync",
+        "ssotSlug": "adr-079-docs-sdk-boundary-contract",
+        "ssotType": "adr",
+        "ssotAttachmentId": "c72ef9db-7155-4671-8fa3-215c15effe26",
+        "ssotSha": "0113f7f7ab1818fb681c0b7d1f601fb306819686ed08b07e18b1461fa746d22c"
+      },
+      {
+        "file": ".cleo/adrs/ADR-083-cleo-persona-and-hierarchy-reconciliation.md",
+        "fileSha": "bd8c14ab55430125c0909e0b42d9f0f1e453c1116e1e25f821c6b34ece6c4c2f",
+        "remediation": "in-sync",
+        "ssotSlug": "adr-083-cleo-persona-and-hierarchy-reconciliation",
+        "ssotType": "adr",
+        "ssotAttachmentId": "69ae26c4-883e-42be-9186-5ab96ebc2a77",
+        "ssotSha": "bd8c14ab55430125c0909e0b42d9f0f1e453c1116e1e25f821c6b34ece6c4c2f"
+      },
+      {
+        "file": ".cleo/adrs/ADR-085-cross-db-invariants.md",
+        "fileSha": "677ad407b1751d889cded48aa7de9cc26274e852cc41ee9c37f8bbedd4625a13",
+        "remediation": "in-sync",
+        "ssotSlug": "adr-085-cross-db-invariants",
+        "ssotType": "adr",
+        "ssotAttachmentId": "a7d1a798-5ee4-4232-b134-9817266dcfa4",
+        "ssotSha": "677ad407b1751d889cded48aa7de9cc26274e852cc41ee9c37f8bbedd4625a13"
+      },
+      {
+        "file": ".cleo/agent-outputs/T10268-saga-closeout.md",
+        "fileSha": "cbc9da442d4d3304fc6fb591275fe8f6b59335256cec1cb5cb3e6944a5fec75d",
+        "remediation": "in-sync",
+        "ssotSlug": "t10268-saga-closeout",
+        "ssotType": "handoff",
+        "ssotAttachmentId": "d35b33cb-4aab-47ee-ab33-0302f5733c79",
+        "ssotSha": "cbc9da442d4d3304fc6fb591275fe8f6b59335256cec1cb5cb3e6944a5fec75d"
+      },
+      {
+        "file": ".cleo/agent-outputs/T10269-ivtr-external-systems.md",
+        "fileSha": "6eb47aeef575b18b77f59cdc2ef8fd91b3b84fbd12c1528e9fbf594eb1ec2437",
+        "remediation": "in-sync",
+        "ssotSlug": "ivtr-external-systems-steal-table",
+        "ssotType": "research",
+        "ssotAttachmentId": "1a68e4c8-fe7f-4bb1-b446-b01416b678b9",
+        "ssotSha": "6eb47aeef575b18b77f59cdc2ef8fd91b3b84fbd12c1528e9fbf594eb1ec2437"
+      },
+      {
+        "file": ".cleo/agent-outputs/T10270/ivtr-audit.md",
+        "fileSha": "5d938074b998e858aae98b9720bd926ff956f31ad4841ace4a3c5d5cf99b4797",
+        "remediation": "in-sync",
+        "ssotSlug": "ivtr-current-state-audit",
+        "ssotType": "research",
+        "ssotAttachmentId": "6ad5cb60-4ed6-4066-807c-4331129ba57b",
+        "ssotSha": "5d938074b998e858aae98b9720bd926ff956f31ad4841ace4a3c5d5cf99b4797"
+      },
+      {
+        "file": ".cleo/agent-outputs/T10271/adr-079-docs-as-active-validator.md",
+        "fileSha": "843dbc8262d605f026b56a4da12ed70d1ef7f8c09fc3e5885a5db3e4d570b125",
+        "remediation": "in-sync",
+        "ssotSlug": "adr-079-docs-as-active-validator",
+        "ssotType": "adr",
+        "ssotAttachmentId": "402fe89c-a0fa-406e-8932-3cc8625ffff9",
+        "ssotSha": "843dbc8262d605f026b56a4da12ed70d1ef7f8c09fc3e5885a5db3e4d570b125"
+      },
+      {
+        "file": ".cleo/agent-outputs/T10271/adr-ac-stable-ids.md",
+        "fileSha": "c9dbe64e656d144adc08b4132c1e17d77c9d181f6f78d1bfc9f7522ddd45cfe5",
+        "remediation": "in-sync",
+        "ssotSlug": "adr-079-ac-stable-ids",
+        "ssotType": "adr",
+        "ssotAttachmentId": "4e972d45-d6e4-418d-a291-c914d3b7e618",
+        "ssotSha": "c9dbe64e656d144adc08b4132c1e17d77c9d181f6f78d1bfc9f7522ddd45cfe5"
+      },
+      {
+        "file": ".cleo/agent-outputs/T10271/adr-independent-validator.md",
+        "fileSha": "d04d3f3313afdfec7da76a7fd90c4cd1b60539c7148a2f225773c1eeaad3ae05",
+        "remediation": "in-sync",
+        "ssotSlug": "adr-079-independent-validator",
+        "ssotType": "adr",
+        "ssotAttachmentId": "7bc414f1-e97d-4624-9c5c-c34fde342348",
+        "ssotSha": "d04d3f3313afdfec7da76a7fd90c4cd1b60539c7148a2f225773c1eeaad3ae05"
+      },
+      {
+        "file": ".cleo/agent-outputs/T10272/ivtr-council-verdict.md",
+        "fileSha": "a539d0bf5aa7a45bd9e96743f6ba047d81b3a7b17eca008e66bd5e0bdedd592c",
+        "remediation": "in-sync",
+        "ssotSlug": "ivtr-council-verdict",
+        "ssotType": "research",
+        "ssotAttachmentId": "eda42785-ef9f-4329-b75b-fee6a31bfee4",
+        "ssotSha": "a539d0bf5aa7a45bd9e96743f6ba047d81b3a7b17eca008e66bd5e0bdedd592c"
+      },
+      {
+        "file": ".cleo/agent-outputs/T10273/ivtr-decomposition-plan.md",
+        "fileSha": "2279e1698bf84c82b8ce2c5d78e86b70c7db50195d28f8f3f31a2e0583f7739b",
+        "remediation": "in-sync",
+        "ssotSlug": "ivtr-decomposition-plan",
+        "ssotType": "research",
+        "ssotAttachmentId": "613bccac-68cf-4663-b29e-61823a5442bb",
+        "ssotSha": "2279e1698bf84c82b8ce2c5d78e86b70c7db50195d28f8f3f31a2e0583f7739b"
+      },
+      {
+        "file": ".cleo/agent-outputs/adr-core-tools-first-class.md",
+        "fileSha": "3a4dd1d59f9c9f5451e98926c32ba98f814c0ccd99248bf587ac81c889b0e9c8",
+        "remediation": "in-sync",
+        "ssotSlug": "adr-079-core-tools-first-class",
+        "ssotType": "adr",
+        "ssotAttachmentId": "26adba95-e56b-4161-b48c-0ae140a7b0af",
+        "ssotSha": "3a4dd1d59f9c9f5451e98926c32ba98f814c0ccd99248bf587ac81c889b0e9c8"
+      },
+      {
+        "file": ".cleo/agent-outputs/sg-signaldock-extract-closure-report.md",
+        "fileSha": "fee0dca1e93f5efb58af4943f6d7f9443560aed7afe5a951967e2d2625856240",
+        "remediation": "in-sync",
+        "ssotSlug": "sg-signaldock-extract-closure-report",
+        "ssotType": "note",
+        "ssotAttachmentId": "83830ba3-6878-4a81-93a8-810e82e20644",
+        "ssotSha": "fee0dca1e93f5efb58af4943f6d7f9443560aed7afe5a951967e2d2625856240"
+      },
+      {
+        "file": ".cleo/research/t10292-e4-cli-verb-matrix.md",
+        "fileSha": "b4b4240616b35f250a1b5aaa3bd84b75a859448a62b7cfa76e3eac5ada150092",
+        "remediation": "in-sync",
+        "ssotSlug": "t10292-e4-cli-verb-matrix",
+        "ssotType": "research",
+        "ssotAttachmentId": "7006abc1-f3e6-4e2e-bd7a-01904a9fca58",
+        "ssotSha": "b4b4240616b35f250a1b5aaa3bd84b75a859448a62b7cfa76e3eac5ada150092"
+      },
+      {
+        "file": ".cleo/research/t10292-e4-gap-verdicts.md",
+        "fileSha": "241d810bf99eb8a417608553aabc7d2ab76f18661075bcfd68e909dd05f848e1",
+        "remediation": "in-sync",
+        "ssotSlug": "t10292-e4-gap-verdicts",
+        "ssotType": "research",
+        "ssotAttachmentId": "b3114265-a0d6-4761-b808-387062ba3b58",
+        "ssotSha": "241d810bf99eb8a417608553aabc7d2ab76f18661075bcfd68e909dd05f848e1"
+      },
+      {
+        "file": ".cleo/research/t10292-e4-sdk-import-edges.md",
+        "fileSha": "9e4d21fd18ad983d98dee545c239f458cbb5c96c9d3574007a030fd0c09b2b64",
+        "remediation": "in-sync",
+        "ssotSlug": "t10292-e4-sdk-import-edges",
+        "ssotType": "research",
+        "ssotAttachmentId": "68c26c11-3881-4f8b-8f8f-d5510d0cd6a2",
+        "ssotSha": "9e4d21fd18ad983d98dee545c239f458cbb5c96c9d3574007a030fd0c09b2b64"
+      }
+    ],
+    "deleted": []
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lafs.dev/schemas/v1/context-ledger.schema.json",
+  "title": "LAFS Context Ledger",
+  "description": "Tracks state across request/response cycles for context preservation",
+  "type": "object",
+  "required": ["ledgerId", "version", "createdAt", "updatedAt", "entries", "checksum", "maxEntries"],
+  "properties": {
+    "ledgerId": {
+      "type": "string",
+      "description": "Unique identifier for this context ledger instance"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Monotonically increasing version number matching _meta.contextVersion"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the ledger was created"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of the last ledger update"
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["entryId", "timestamp", "operation", "contextDelta"],
+        "properties": {
+          "entryId": {
+            "type": "string",
+            "description": "Unique identifier for this ledger entry"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "operation": {
+            "type": "string",
+            "description": "The operation that generated this entry"
+          },
+          "contextDelta": {
+            "type": "object",
+            "description": "The context changes introduced by this operation",
+            "additionalProperties": true
+          },
+          "requestId": {
+            "type": "string",
+            "description": "Correlation with the request that produced this entry"
+          }
+        }
+      },
+      "description": "Ordered array of context entries (append-only)"
+    },
+    "checksum": {
+      "type": "string",
+      "description": "Integrity checksum of the ledger contents"
+    },
+    "maxEntries": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Maximum number of entries before truncation/compaction"
+    }
+  },
+  "additionalProperties": false
+}

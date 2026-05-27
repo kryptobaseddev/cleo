@@ -1,0 +1,151 @@
+---
+title: cant — Types
+description: Type contracts for the cant package
+---
+
+Type contracts exported by this package: interfaces, type aliases, and enums.
+
+## MigrationOptions
+
+Options controlling migration behavior.
+
+| Property    | Type                  | Required | Description                                          |
+| ----------- | --------------------- | -------- | ---------------------------------------------------- |
+| `write`     | `boolean`             | Yes      | Write .cant files to disk (false = dry-run preview). |
+| `verbose`   | `boolean`             | Yes      | Show detailed conversion log during migration.       |
+| `outputDir` | `string \| undefined` | No       | Where to write .cant files (default: .cleo/agents/). |
+
+## MigrationResult
+
+Result of migrating a single markdown file.
+
+| Property      | Type                   | Required | Description                                                           |
+| ------------- | ---------------------- | -------- | --------------------------------------------------------------------- |
+| `inputFile`   | `string`               | Yes      | Absolute path to the input markdown file.                             |
+| `outputFiles` | `ConvertedFile[]`      | Yes      | Array of .cant files produced (or that would be produced in dry-run). |
+| `unconverted` | `UnconvertedSection[]` | Yes      | Sections that could not be automatically converted.                   |
+| `summary`     | `string`               | Yes      | Human-readable summary string.                                        |
+
+## ConvertedFile
+
+A single converted .cant output file.
+
+| Property  | Type     | Required | Description                                                                 |
+| --------- | -------- | -------- | --------------------------------------------------------------------------- |
+| `path`    | `string` | Yes      | Relative path for the output file (e.g. ".cleo/agents/code-reviewer.cant"). |
+| `kind`    | `string` | Yes      | Document kind: agent, skill, hook, or workflow.                             |
+| `content` | `string` | Yes      | The full .cant file content including frontmatter.                          |
+
+## UnconvertedSection
+
+A section of markdown that was not converted.
+
+| Property    | Type     | Required | Description                                       |
+| ----------- | -------- | -------- | ------------------------------------------------- |
+| `lineStart` | `number` | Yes      | 1-based line number where the section starts.     |
+| `lineEnd`   | `number` | Yes      | 1-based line number where the section ends.       |
+| `reason`    | `string` | Yes      | Human-readable reason why conversion was skipped. |
+| `content`   | `string` | Yes      | The raw markdown content of the section.          |
+
+## MarkdownSection
+
+A parsed markdown section identified by heading.  Used internally by the markdown parser to structure the input before classification and conversion.
+
+| Property         | Type                    | Required | Description                                                        |
+| ---------------- | ----------------------- | -------- | ------------------------------------------------------------------ |
+| `heading`        | `string`                | Yes      | The heading text (without the `#` prefix).                         |
+| `level`          | `number`                | Yes      | The heading level (2 for ##, 3 for ###, etc.).                     |
+| `lineStart`      | `number`                | Yes      | 1-based line number where the section starts.                      |
+| `lineEnd`        | `number`                | Yes      | 1-based line number where the section ends (inclusive).            |
+| `bodyLines`      | `string[]`              | Yes      | Lines of content below the heading (excluding the heading line).   |
+| `classification` | `SectionClassification` | Yes      | Classified type of this section, determined by heuristic matching. |
+
+## SectionClassification
+
+Classification of a markdown section for conversion purposes.
+
+```typescript
+SectionClassification
+```
+
+## ExtractedProperty
+
+A key-value property extracted from a markdown bullet list.  Matches patterns like `- **Key**: value` or `- Key: value`.
+
+| Property | Type     | Required | Description                            |
+| -------- | -------- | -------- | -------------------------------------- |
+| `key`    | `string` | Yes      | Property key (lowercased, normalized). |
+| `value`  | `string` | Yes      | Property value (trimmed).              |
+
+## ExtractedPermission
+
+A permission entry extracted from markdown.  Matches patterns like `- Tasks: read, write` or `- Read and write tasks`.
+
+| Property | Type       | Required | Description                                     |
+| -------- | ---------- | -------- | ----------------------------------------------- |
+| `domain` | `string`   | Yes      | The domain (e.g. "tasks", "session", "memory"). |
+| `values` | `string[]` | Yes      | Permission values (e.g. \["read", "write"]).    |
+
+## CantDocumentIR
+
+Intermediate representation of a CANT document for serialization.  This is the bridge between the converter's output and the final .cant file text. Each field maps to a CANT construct.
+
+| Property  | Type          | Required | Description                                                 |
+| --------- | ------------- | -------- | ----------------------------------------------------------- |
+| `kind`    | `string`      | Yes      | Document kind (agent, skill, hook, workflow).               |
+| `version` | `number`      | Yes      | Document version (default: 1).                              |
+| `block`   | `CantBlockIR` | Yes      | The primary block (agent definition, hook, workflow, etc.). |
+
+## CantBlockIR
+
+A CANT block (agent, skill, hook, or workflow).
+
+| Property      | Type                    | Required | Description                                                           |
+| ------------- | ----------------------- | -------- | --------------------------------------------------------------------- |
+| `type`        | `string`                | Yes      | Block type keyword (agent, skill, on, workflow, pipeline).            |
+| `name`        | `string`                | Yes      | Block name/identifier (agent name, event name, workflow name).        |
+| `properties`  | `CantPropertyIR[]`      | Yes      | Key-value properties.                                                 |
+| `permissions` | `ExtractedPermission[]` | Yes      | Permission entries (only for agent blocks).                           |
+| `children`    | `CantBlockIR[]`         | Yes      | Nested sub-blocks (hooks inside agents, steps in pipelines, etc.).    |
+| `bodyLines`   | `string[] \| undefined` | No       | Raw body lines for hook/workflow bodies that are directive sequences. |
+
+## CantPropertyIR
+
+A single property key-value pair.
+
+| Property | Type                                      | Required | Description                                      |
+| -------- | ----------------------------------------- | -------- | ------------------------------------------------ |
+| `key`    | `string`                                  | Yes      | Property key.                                    |
+| `value`  | `string \| number \| boolean \| string[]` | Yes      | Property value (string, array, number, boolean). |
+
+## NativeParseResult
+
+Shape returned by the native Rust WASM cantParse function.
+
+| Property        | Type                    | Required | Description   |
+| --------------- | ----------------------- | -------- | ------------- |
+| `directive`     | `string \| undefined`   | No       | directive     |
+| `directiveType` | `string \| undefined`   | No       | directiveType |
+| `addresses`     | `string[] \| undefined` | No       | addresses     |
+| `taskRefs`      | `string[] \| undefined` | No       | taskRefs      |
+| `tags`          | `string[] \| undefined` | No       | tags          |
+| `headerRaw`     | `string \| undefined`   | No       | headerRaw     |
+| `body`          | `string \| undefined`   | No       | body          |
+
+## DirectiveType
+
+```typescript
+DirectiveType
+```
+
+## ParsedCANTMessage
+
+| Property         | Type                  | Required | Description     |
+| ---------------- | --------------------- | -------- | --------------- |
+| `directive`      | `string \| undefined` | No       | directive       |
+| `directive_type` | `DirectiveType`       | Yes      | directive\_type |
+| `addresses`      | `string[]`            | Yes      | addresses       |
+| `task_refs`      | `string[]`            | Yes      | task\_refs      |
+| `tags`           | `string[]`            | Yes      | tags            |
+| `header_raw`     | `string`              | Yes      | header\_raw     |
+| `body`           | `string`              | Yes      | body            |

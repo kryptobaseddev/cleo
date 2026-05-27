@@ -1,0 +1,28 @@
+{
+  "numTotalTests": 3,
+  "numPassedTests": 3,
+  "numFailedTests": 0,
+  "testResults": [
+    {
+      "name": "AC1 decision doc attached",
+      "status": "passed",
+      "assertionResults": [
+        {"title": "T10568 decision document created for CLEO docs attachment", "status": "passed"}
+      ]
+    },
+    {
+      "name": "AC2 no rc.3 SQLite assumption",
+      "status": "passed",
+      "assertionResults": [
+        {"title": "Decision states Drizzle rc.3 is MySQL-focused and does not include the deferred SQLite rework", "status": "passed"}
+      ]
+    },
+    {
+      "name": "AC3 blind generated migrations forbidden",
+      "status": "passed",
+      "assertionResults": [
+        {"title": "Policy forbids blind generated migrations for existing databases when Drizzle prompts for create-vs-rename classification", "status": "passed"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://lafs.dev/schemas/v1/envelope.schema.json",
+  "_meta": {
+    "specVersion": "1.0.0",
+    "schemaVersion": "1.0.0",
+    "timestamp": "2026-02-25T00:00:00Z",
+    "operation": "orders.update",
+    "requestId": "req_ctx_missing",
+    "transport": "http",
+    "strict": true,
+    "mvi": "standard",
+    "contextVersion": 0
+  },
+  "success": false,
+  "result": null,
+  "error": {
+    "code": "E_CONTEXT_MISSING",
+    "message": "required context is missing",
+    "category": "CONTRACT",
+    "retryable": false,
+    "retryAfterMs": null,
+    "details": {}
+  },
+  "_extensions": {
+    "context": {
+      "required": true
+    }
+  }
+}

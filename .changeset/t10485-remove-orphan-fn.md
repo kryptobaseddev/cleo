@@ -1,0 +1,13 @@
+---
+id: t10485-remove-orphan-fn
+tasks: [T10485]
+kind: fix
+summary: remove orphan buildChangesetLintGateBlock function
+---
+
+Function was deprecated by T10452 (its check was inlined into the Quality
+Gates block) but a subsequent merge collision in T9937 briefly restored
+it as an unused declaration, causing TS6133 on the dts build. This
+removes the orphan and locks T10452's single-inlined design as the SSoT.
+
+Closes T10485. Saga: T9862.

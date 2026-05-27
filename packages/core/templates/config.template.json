@@ -1,0 +1,128 @@
+{
+  "$schema": "../schemas/config.schema.json",
+  "version": "{{SCHEMA_VERSION_CONFIG}}",
+  "_meta": {
+    "schemaVersion": "{{SCHEMA_VERSION_CONFIG}}",
+    "createdAt": "{{TIMESTAMP}}",
+    "updatedAt": "{{TIMESTAMP}}"
+  },
+
+  "archive": {
+    "enabled": true,
+    "daysUntilArchive": 7,
+    "maxCompletedTasks": 15,
+    "preserveRecentCount": 3,
+    "archiveOnSessionEnd": true,
+    "autoArchiveOnComplete": false
+  },
+
+  "enforcement": {
+    "acceptance": {
+      "mode": "block",
+      "requiredForPriorities": ["critical", "high", "medium", "low"],
+      "minimumCriteria": 3
+    },
+    "session": {
+      "requiredForMutate": true
+    },
+    "pipeline": {
+      "bindTasksToStage": true
+    }
+  },
+
+  "verification": {
+    "enabled": true,
+    "requiredForTypes": ["epic", "task", "subtask"],
+    "autoInitialize": true,
+    "maxRounds": 5,
+    "requiredGates": ["implemented", "testsPassed", "qaPassed"],
+    "autoSetImplementedOnComplete": true,
+    "requireForParentAutoComplete": true,
+    "allowManualOverride": true
+  },
+
+  "lifecycle": {
+    "mode": "strict"
+  },
+
+  "hierarchy": {
+    "maxDepth": 3,
+    "maxSiblings": 0
+  },
+
+  "defaults": {
+    "priority": "medium"
+  },
+
+  "session": {
+    "enforcement": "strict"
+  },
+
+  "release": {
+    "gates": [],
+    "changelog": {
+      "enabled": true,
+      "autoGenerate": false,
+      "source": "CHANGELOG.md",
+      "outputs": []
+    }
+  },
+
+  "output": {
+    "defaultFormat": "text",
+    "showColor": true,
+    "showUnicode": true,
+    "showProgressBars": true,
+    "dateFormat": "iso8601"
+  },
+
+  "backup": {
+    "enabled": true,
+    "directory": ".cleo/backups",
+    "maxSnapshots": 10,
+    "maxSafetyBackups": 5,
+    "maxIncremental": 10,
+    "maxArchiveBackups": 3,
+    "safetyRetentionDays": 7
+  },
+
+  "contextAlerts": {
+    "enabled": true,
+    "triggerCommands": ["complete", "start", "stop", "add", "session"],
+    "suppressDuration": 0
+  },
+
+  "orchestrator": {
+    "contextThresholds": {
+      "warning": 70,
+      "critical": 80
+    }
+  },
+
+  "agentOutputs": {
+    "directory": ".cleo/agent-outputs",
+    "manifestFile": "legacy-manifest.jsonl"
+  },
+
+  "retention": {
+    "autoEndActiveAfterDays": 7
+  },
+
+  "brain": {
+    "autoCapture": true,
+    "captureFiles": false,
+    "captureWork": false,
+    "embedding": {
+      "enabled": true,
+      "provider": "local"
+    },
+    "memoryBridge": {
+      "autoRefresh": true,
+      "contextAware": true,
+      "maxTokens": 2000
+    },
+    "summarization": {
+      "enabled": true
+    }
+  }
+}

@@ -1,0 +1,443 @@
+---
+title: ''
+---
+
+How to configure the project using its exported configuration interfaces.
+
+> TODO: Add your own content to this guide. The sections below are auto-generated from code.
+
+{/* FORGE:AUTO-START guide-configuration */}
+
+## Configuration Interfaces
+
+### `McpConfigFormat`
+
+Supported MCP config file formats.
+
+### `ConfigFormat`
+
+Supported configuration file formats.  - `"json"` - Standard JSON - `"jsonc"` - JSON with comments (comment-preserving via jsonc-parser) - `"yaml"` - YAML (via js-yaml) - `"toml"` - TOML (via iarna/toml)
+
+**Example**
+
+```typescript
+const format: ConfigFormat = "jsonc";
+```
+
+### `DetectionConfig`
+
+Configuration for detecting whether a provider is installed.
+
+| Property      | Type                    | Description                                                    |
+| ------------- | ----------------------- | -------------------------------------------------------------- |
+| `methods`     | `DetectionMethod[]`     | Detection methods to try, in order.                            |
+| `binary`      | `string \| undefined`   | Binary name to look up on PATH (for `"binary"` method).        |
+| `directories` | `string[] \| undefined` | Directories to check for existence (for `"directory"` method). |
+| `appBundle`   | `string \| undefined`   | macOS .app bundle name (for `"appBundle"` method).             |
+| `flatpakId`   | `string \| undefined`   | Flatpak application ID (for `"flatpak"` method).               |
+
+**Example**
+
+```typescript
+const config: DetectionConfig = {
+  methods: ["binary", "directory"],
+  binary: "claude",
+  directories: ["~/.config/claude"],
+};
+```
+
+### `McpServerConfig`
+
+Canonical MCP server configuration.
+
+| Property  | Type                                  | Description                                       |
+| --------- | ------------------------------------- | ------------------------------------------------- |
+| `type`    | `TransportType \| undefined`          | Transport type (`"stdio"`, `"sse"`, or `"http"`). |
+| `url`     | `string \| undefined`                 | URL for remote MCP servers.                       |
+| `headers` | `Record<string, string> \| undefined` | HTTP headers for remote MCP servers.              |
+| `command` | `string \| undefined`                 | Command to run for stdio MCP servers.             |
+| `args`    | `string[] \| undefined`               | Arguments for the stdio command.                  |
+| `env`     | `Record<string, string> \| undefined` | Environment variables for the stdio process.      |
+
+**Example**
+
+```typescript
+// Remote server
+const remote: McpServerConfig = {
+  type: "http",
+  url: "https://mcp.example.com/sse",
+};
+
+// Local stdio server
+const local: McpServerConfig = {
+  command: "npx",
+  args: ["-y", "@modelcontextprotocol/server-filesystem"],
+};
+```
+
+### `GlobalOptions`
+
+Global CLI options shared across all CAAMP commands.
+
+| Property  | Type                    | Description                                  |
+| --------- | ----------------------- | -------------------------------------------- |
+| `agent`   | `string[] \| undefined` | Target agent IDs (repeatable).               |
+| `global`  | `boolean \| undefined`  | Operate on global config instead of project. |
+| `yes`     | `boolean \| undefined`  | Skip confirmation prompts.                   |
+| `all`     | `boolean \| undefined`  | Target all detected agents.                  |
+| `json`    | `boolean \| undefined`  | Output as JSON.                              |
+| `dryRun`  | `boolean \| undefined`  | Preview changes without writing.             |
+| `verbose` | `boolean \| undefined`  | Enable debug logging.                        |
+| `quiet`   | `boolean \| undefined`  | Suppress non-error output.                   |
+
+**Example**
+
+```typescript
+const opts: GlobalOptions = {
+  agent: ["claude-code", "cursor"],
+  global: true,
+  json: true,
+};
+```
+
+### `EnsureProviderInstructionFileOptions`
+
+Options for ensuring a provider instruction file.
+
+| Property     | Type                                 | Description                                         |
+| ------------ | ------------------------------------ | --------------------------------------------------- |
+| `references` | `string[]`                           | `\@` references to inject (e.g. `["\@AGENTS.md"]`). |
+| `content`    | `string[] \| undefined`              | Optional inline content blocks.                     |
+| `scope`      | `"project" \| "global" \| undefined` | Whether this is a global or project-level file.     |
+
+### `DetectionCacheOptions`
+
+Options for controlling the detection result cache.
+
+| Property       | Type                   | Description                                                   |
+| -------------- | ---------------------- | ------------------------------------------------------------- |
+| `forceRefresh` | `boolean \| undefined` | Whether to bypass the cache and force a fresh detection scan. |
+| `ttlMs`        | `number \| undefined`  | Time-to-live for cached results in milliseconds.              |
+
+### `BatchInstallOptions`
+
+Options for rollback-capable batch installation.
+
+| Property          | Type                                 | Description                                                     |
+| ----------------- | ------------------------------------ | --------------------------------------------------------------- |
+| `providers`       | `Provider[] \| undefined`            | Explicit list of providers to target, auto-detected if omitted. |
+| `minimumPriority` | `ProviderPriority \| undefined`      | Minimum provider priority threshold for filtering.              |
+| `skills`          | `SkillBatchOperation[] \| undefined` | Skill operations to apply in the batch.                         |
+| `projectDir`      | `string \| undefined`                | Project root directory, defaults to `process.cwd()`.            |
+
+### `ResolveTierDirOptions`
+
+Options accepted by `resolveTierDir`.
+
+| Property     | Type                  | Description                                                                                                                                                                                                                                                      |
+| ------------ | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tier`       | `HarnessTier`         | Tier to resolve.                                                                                                                                                                                                                                                 |
+| `kind`       | `HarnessAssetKind`    | Asset kind (extensions, prompts, themes, sessions, cant).                                                                                                                                                                                                        |
+| `projectDir` | `string \| undefined` | Project directory used when `tier` is `project`. Ignored for other tiers. When omitted with `tier='project'` the caller MUST substitute `process.cwd()` before invoking the resolver, so the harness never silently resolves to an unexpected working directory. |
+
+### `ResolveDefaultTargetProvidersOptions`
+
+Options accepted by `resolveDefaultTargetProviders` (defined in `./index.ts`).
+
+| Property   | Type                      | Description                                                            |
+| ---------- | ------------------------- | ---------------------------------------------------------------------- |
+| `explicit` | `Provider[] \| undefined` | Explicit list of providers requested by the user (e.g. via `--agent`). |
+
+### `HarnessInstallOptions`
+
+Options accepted by the Pi install verbs (extensions, prompts, themes).
+
+| Property | Type                   | Description                                                                                                                          |
+| -------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `force`  | `boolean \| undefined` | When `true`, overwrite an existing file at the target tier. When `false` (the default) the install verb throws if the target exists. |
+
+### `PiModelsConfig`
+
+Entire `models.json` document shape used by Pi.
+
+| Property    | Type                              | Description                          |
+| ----------- | --------------------------------- | ------------------------------------ |
+| `providers` | `Record<string, PiModelProvider>` | Map of provider id → provider block. |
+
+### `SubagentSpawnOptions`
+
+Per-call options that override harness-wide spawn defaults.
+
+| Property           | Type                                                  | Description                                                      |
+| ------------------ | ----------------------------------------------------- | ---------------------------------------------------------------- |
+| `onStream`         | `((event: SubagentStreamEvent) => void) \| undefined` | Streaming callback invoked once per parsed event from the child. |
+| `terminateGraceMs` | `number \| undefined`                                 | Override the SIGTERM grace window before SIGKILL fires.          |
+| `env`              | `Record<string, string> \| undefined`                 | Environment variable overrides layered atop the task-level env.  |
+| `cwd`              | `string \| undefined`                                 | Working directory override that wins over `SubagentTask.cwd`.    |
+
+### `FormatOptions`
+
+Format resolution options.
+
+| Property         | Type                             | Description                                         |
+| ---------------- | -------------------------------- | --------------------------------------------------- |
+| `jsonFlag`       | `boolean \| undefined`           | Whether `--json` was explicitly passed.             |
+| `humanFlag`      | `boolean \| undefined`           | Whether `--human` was explicitly passed.            |
+| `projectDefault` | `"json" \| "human" \| undefined` | Project-level default format when no flag is given. |
+
+### `LAFSCommandOptions`
+
+Standard command options interface for LAFS-compliant commands.
+
+| Property | Type                   | Description                             |
+| -------- | ---------------------- | --------------------------------------- |
+| `json`   | `boolean \| undefined` | Whether to force JSON output.           |
+| `human`  | `boolean \| undefined` | Whether to force human-readable output. |
+
+### `ProviderTargetOptions`
+
+Options for resolving which providers to target in advanced commands.
+
+| Property | Type                    | Description                                                         |
+| -------- | ----------------------- | ------------------------------------------------------------------- |
+| `all`    | `boolean \| undefined`  | When true, target all registry providers including undetected ones. |
+| `agent`  | `string[] \| undefined` | Specific provider IDs or aliases to target.                         |
+
+### `InstallMcpServerOptions`
+
+Options accepted by `installMcpServer`.
+
+| Property     | Type                   | Description                                                         |
+| ------------ | ---------------------- | ------------------------------------------------------------------- |
+| `scope`      | `McpScope`             | Scope to write to (project\|global).                                |
+| `force`      | `boolean \| undefined` | When `true`, overwrite an existing server entry instead of failing. |
+| `projectDir` | `string \| undefined`  | Project directory used for the `project` scope.                     |
+
+### `RemoveMcpServerOptions`
+
+Options accepted by `removeMcpServer` and `removeMcpServerFromAll`.
+
+| Property     | Type                  | Description                                     |
+| ------------ | --------------------- | ----------------------------------------------- |
+| `scope`      | `McpScope`            | Scope to target (project\|global).              |
+| `projectDir` | `string \| undefined` | Project directory used for the `project` scope. |
+
+### `McpCommandBaseOptions`
+
+Standard option shape accepted by every `caamp mcp <verb>` command.
+
+| Property     | Type                  | Description                                                    |
+| ------------ | --------------------- | -------------------------------------------------------------- |
+| `scope`      | `string \| undefined` | `--scope project\|global` (default: project).                  |
+| `projectDir` | `string \| undefined` | `--project-dir <path>` — override cwd for the `project` scope. |
+
+### `McpDetectOptions`
+
+Options accepted by `caamp mcp detect`.
+
+| Property       | Type                   | Description                                                   |
+| -------------- | ---------------------- | ------------------------------------------------------------- |
+| `onlyExisting` | `boolean \| undefined` | Show only providers that actually have a config file on disk. |
+
+### `McpInstallOptions`
+
+Options accepted by `caamp mcp install`.
+
+| Property   | Type                    | Description                                                   |
+| ---------- | ----------------------- | ------------------------------------------------------------- |
+| `provider` | `string \| undefined`   | Provider id to install into (required).                       |
+| `from`     | `string \| undefined`   | Optional path to a JSON file containing an `McpServerConfig`. |
+| `env`      | `string[] \| undefined` | Repeatable `KEY=VALUE` env assignments.                       |
+| `force`    | `boolean \| undefined`  | Overwrite an existing entry instead of failing.               |
+
+### `McpListOptions`
+
+Options accepted by `caamp mcp list`.
+
+| Property   | Type                  | Description                                   |
+| ---------- | --------------------- | --------------------------------------------- |
+| `provider` | `string \| undefined` | Restrict the listing to a single provider id. |
+
+### `McpRemoveOptions`
+
+Options accepted by `caamp mcp remove`.
+
+| Property       | Type                   | Description                                                           |
+| -------------- | ---------------------- | --------------------------------------------------------------------- |
+| `provider`     | `string \| undefined`  | Provider id to remove from (mutually exclusive with --all-providers). |
+| `allProviders` | `boolean \| undefined` | Remove from every MCP-capable provider in the registry.               |
+
+### `PiCommandBaseOptions`
+
+Standard option shape accepted by every `caamp pi <verb>` command.
+
+| Property     | Type                   | Description                                                   |
+| ------------ | ---------------------- | ------------------------------------------------------------- |
+| `scope`      | `string \| undefined`  | `--scope project\|user\|global`.                              |
+| `force`      | `boolean \| undefined` | `--force` — overwrite existing targets on install verbs.      |
+| `projectDir` | `string \| undefined`  | `--project-dir <path>` — override cwd for the `project` tier. |
+
+### `PiCantListOptions`
+
+Options accepted by `caamp pi cant list`.
+
+| Property     | Type                  | Description                                    |
+| ------------ | --------------------- | ---------------------------------------------- |
+| `projectDir` | `string \| undefined` | Project directory used for the `project` tier. |
+
+### `PiCantInstallOptions`
+
+Options accepted by `caamp pi cant install`.
+
+| Property | Type                  | Description                                                  |
+| -------- | --------------------- | ------------------------------------------------------------ |
+| `name`   | `string \| undefined` | Profile name override. Defaults to the inferred source name. |
+
+### `PiCantRemoveOptions`
+
+Options accepted by `caamp pi cant remove`.
+
+### `PiExtensionsListOptions`
+
+Options accepted by `caamp pi extensions list`.
+
+| Property     | Type                  | Description                                    |
+| ------------ | --------------------- | ---------------------------------------------- |
+| `projectDir` | `string \| undefined` | Project directory used for the `project` tier. |
+
+### `PiExtensionsInstallOptions`
+
+Options accepted by `caamp pi extensions install`.
+
+| Property | Type                  | Description                                                    |
+| -------- | --------------------- | -------------------------------------------------------------- |
+| `name`   | `string \| undefined` | Extension name override. Defaults to the inferred source name. |
+
+### `PiExtensionsRemoveOptions`
+
+Options accepted by `caamp pi extensions remove`.
+
+### `PiModelsCommandOptions`
+
+Options accepted by every `caamp pi models` verb.
+
+| Property | Type                   | Description                                                         |
+| -------- | ---------------------- | ------------------------------------------------------------------- |
+| `global` | `boolean \| undefined` | `--global` targets the Pi global state root instead of the project. |
+
+### `PiModelsAddOptions`
+
+Options accepted by `caamp pi models add`.
+
+| Property        | Type                   | Description                     |
+| --------------- | ---------------------- | ------------------------------- |
+| `displayName`   | `string \| undefined`  | Human-readable model name.      |
+| `baseUrl`       | `string \| undefined`  | Override the provider base URL. |
+| `reasoning`     | `boolean \| undefined` | Reasoning-capable flag.         |
+| `contextWindow` | `string \| undefined`  | Context window size in tokens.  |
+| `maxTokens`     | `string \| undefined`  | Maximum output tokens.          |
+
+### `PiPromptsInstallOptions`
+
+Options accepted by `caamp pi prompts install`.
+
+| Property | Type                  | Description                                  |
+| -------- | --------------------- | -------------------------------------------- |
+| `name`   | `string \| undefined` | Override the inferred prompt directory name. |
+
+### `PiPromptsListOptions`
+
+Options accepted by `caamp pi prompts list`.
+
+### `PiPromptsRemoveOptions`
+
+Options accepted by `caamp pi prompts remove`.
+
+### `PiSessionsListOptions`
+
+Options accepted by `caamp pi sessions list`.
+
+| Property           | Type                   | Description                                                           |
+| ------------------ | ---------------------- | --------------------------------------------------------------------- |
+| `includeSubagents` | `boolean \| undefined` | Include sessions under the `subagents/` subdirectory (default: true). |
+
+### `PiSessionsExportOptions`
+
+Options accepted by `caamp pi sessions export`.
+
+| Property | Type                   | Description                                                  |
+| -------- | ---------------------- | ------------------------------------------------------------ |
+| `jsonl`  | `boolean \| undefined` | Emit raw JSONL. Mutually exclusive with `md`.                |
+| `md`     | `boolean \| undefined` | Emit Markdown (filtered to message/custom\_message entries). |
+| `output` | `string \| undefined`  | Write to this file path instead of stdout.                   |
+
+### `PiThemesInstallOptions`
+
+Options accepted by `caamp pi themes install`.
+
+| Property | Type                  | Description                       |
+| -------- | --------------------- | --------------------------------- |
+| `name`   | `string \| undefined` | Override the inferred theme name. |
+
+### `PiThemesListOptions`
+
+Options accepted by `caamp pi themes list`.
+
+### `PiThemesRemoveOptions`
+
+Options accepted by `caamp pi themes remove`.
+
+### `SearchOptions`
+
+Options for marketplace search requests.
+
+| Property   | Type                                         | Description                |
+| ---------- | -------------------------------------------- | -------------------------- |
+| `query`    | `string`                                     | Free-text search query.    |
+| `limit`    | `number \| undefined`                        | Maximum number of results. |
+| `offset`   | `number \| undefined`                        | Pagination offset.         |
+| `sortBy`   | `"stars" \| "recent" \| "name" \| undefined` | Sort order for results.    |
+| `category` | `string \| undefined`                        | Filter by skill category.  |
+| `author`   | `string \| undefined`                        | Filter by author name.     |
+
+### `RecommendationOptions`
+
+Configuration options for the skill recommendation engine.
+
+| Property         | Type                                          | Description                                                    |
+| ---------------- | --------------------------------------------- | -------------------------------------------------------------- |
+| `top`            | `number \| undefined`                         | Maximum number of results to return from the ranked list.      |
+| `includeDetails` | `boolean \| undefined`                        | Whether to include detailed score breakdown in each result.    |
+| `weights`        | `Partial<RecommendationWeights> \| undefined` | Partial weight overrides for individual scoring factors.       |
+| `modernMarkers`  | `string[] \| undefined`                       | Custom modern technology marker strings for modernity scoring. |
+| `legacyMarkers`  | `string[] \| undefined`                       | Custom legacy technology marker strings for modernity scoring. |
+
+### `SearchSkillsOptions`
+
+Options for searching skills via marketplace APIs.
+
+| Property | Type                  | Description                          |
+| -------- | --------------------- | ------------------------------------ |
+| `limit`  | `number \| undefined` | Maximum number of results to return. |
+
+### `RecommendSkillsQueryOptions`
+
+Options for the recommendation query combining ranking options with a result limit.
+
+| Property | Type                  | Description                          |
+| -------- | --------------------- | ------------------------------------ |
+| `limit`  | `number \| undefined` | Maximum number of results to return. |
+
+### `SpawnOptions`
+
+Options for spawning a subagent.
+
+| Property  | Type                    | Description                                                |
+| --------- | ----------------------- | ---------------------------------------------------------- |
+| `prompt`  | `string`                | The prompt or instruction to give the spawned agent.       |
+| `model`   | `string \| undefined`   | Model to use for the spawned agent.                        |
+| `tools`   | `string[] \| undefined` | Tools to make available to the spawned agent.              |
+| `timeout` | `number \| undefined`   | Timeout in milliseconds for the spawned agent.             |
+| `isolate` | `boolean \| undefined`  | Whether to isolate the spawned agent (e.g. in a worktree). |
+
+{/* FORGE:AUTO-END guide-configuration */}

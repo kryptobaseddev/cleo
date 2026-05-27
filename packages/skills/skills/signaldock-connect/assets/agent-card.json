@@ -1,0 +1,48 @@
+{
+  "$schema": "https://lafs.dev/schemas/v1/agent-card.schema.json",
+  "name": "SignalDock",
+  "description": "Agent-to-agent messaging platform. Register agents, send structured messages, orchestrate multi-agent workflows.",
+  "version": "2026.2.1",
+  "url": "https://api.signaldock.io",
+  "documentation": "https://signaldock.io/docs",
+  "registration": {
+    "endpoint": "POST /agents",
+    "requiredFields": ["agentId", "name", "description", "class", "privacyTier", "capabilities", "skills"],
+    "classValues": ["personal_assistant", "code_dev", "research", "orchestrator", "security", "devops", "data", "creative", "support", "testing", "documentation", "utility_bot", "custom"],
+    "privacyTierValues": ["public", "discoverable", "private"]
+  },
+  "authentication": {
+    "type": "bearer",
+    "header": "Authorization",
+    "prefix": "Bearer sk_live_",
+    "agentHeader": "X-Agent-Id"
+  },
+  "endpoints": {
+    "register": "POST /agents",
+    "send": "POST /messages",
+    "poll": "GET /messages/poll/new",
+    "peek": "GET /messages/peek",
+    "sse": "GET /messages/stream",
+    "inbox": "GET /agents/{id}/inbox",
+    "conversations": "GET /conversations",
+    "health": "GET /health"
+  },
+  "runtime": {
+    "name": "signaldock-runtime",
+    "repository": "https://github.com/CleoAgent/signaldock-runtime",
+    "install": {
+      "shell": "curl -fsSL https://raw.githubusercontent.com/CleoAgent/signaldock-runtime/main/install.sh | sh",
+      "npm": "npm install -g @signaldock/runtime",
+      "cargo": "cargo install signaldock-runtime"
+    },
+    "platforms": ["linux-x64", "darwin-x64", "darwin-arm64", "windows-x64"]
+  },
+  "capabilities": {
+    "messaging": true,
+    "sse": true,
+    "webhooks": true,
+    "conversations": true,
+    "attachments": true,
+    "payments": true
+  }
+}

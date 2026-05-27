@@ -1,0 +1,125 @@
+/**
+ * @cleocode/core — CLEO core business logic kernel.
+ *
+ * This is the standalone package consumers install for programmatic
+ * task management, sessions, memory, orchestration, and lifecycle.
+ *
+ * Import patterns:
+ *   // Pattern 1: Facade (recommended)
+ *   import { Cleo } from '@cleocode/core';
+ *   const cleo = await Cleo.init('./project');
+ *
+ *   // Pattern 2: Namespace access
+ *   import { tasks, sessions, memory } from '@cleocode/core';
+ *
+ *   // Pattern 3: Direct function imports (tree-shakeable)
+ *   import { addTask, startSession, observeBrain } from '@cleocode/core';
+ *
+ * @package @cleocode/core
+ */
+export * from '@cleocode/contracts';
+export * as adapters from './adapters/index.js';
+export * as admin from './admin/index.js';
+export * as adrs from './adrs/index.js';
+export * as agents from './agents/index.js';
+export * as caamp from './caamp/index.js';
+export * as code from './code/index.js';
+export * as codebaseMap from './codebase-map/index.js';
+export * as compliance from './compliance/index.js';
+export * as conduit from './conduit/index.js';
+export * as context from './context/index.js';
+export * as coreHooks from './hooks/index.js';
+export * as inject from './inject/index.js';
+export * as intelligence from './intelligence/index.js';
+export * as issue from './issue/index.js';
+export * as lib from './lib/index.js';
+export * as lifecycle from './lifecycle/index.js';
+export * as memory from './memory/index.js';
+export * as metrics from './metrics/index.js';
+export * as migration from './migration/index.js';
+export * as nexus from './nexus/index.js';
+export * as observability from './observability/index.js';
+export * as orchestration from './orchestration/index.js';
+export * as otel from './otel/index.js';
+export * as phases from './phases/index.js';
+export * as pipeline from './pipeline/index.js';
+export * as reconciliation from './reconciliation/index.js';
+export * as release from './release/index.js';
+export * as remote from './remote/index.js';
+export * as research from './research/index.js';
+export * as roadmap from './roadmap/index.js';
+export * as routing from './routing/index.js';
+export * as security from './security/index.js';
+export * as sequence from './sequence/index.js';
+export * as sessions from './sessions/index.js';
+export * as skills from './skills/index.js';
+export * as snapshot from './snapshot/index.js';
+export * as spawn from './spawn/index.js';
+export * as stats from './stats/index.js';
+export * as sticky from './sticky/index.js';
+export * as system from './system/index.js';
+export * as taskWork from './task-work/index.js';
+export * as tasks from './tasks/index.js';
+export * as telemetry from './telemetry/index.js';
+export * as templates from './templates/index.js';
+export * as ui from './ui/index.js';
+export * as validation from './validation/index.js';
+export { adrStatusSchema, agentInstanceStatusSchema, agentTypeSchema, brainConfidenceLevelSchema, brainDecisionTypeSchema, brainEdgeTypeSchema, brainImpactLevelSchema, brainLinkTypeSchema, brainMemoryTypeSchema, brainNodeTypeSchema, brainObservationSourceTypeSchema, brainObservationTypeSchema, brainOutcomeTypeSchema, brainPatternTypeSchema, brainStickyColorSchema, brainStickyPrioritySchema, brainStickyStatusSchema, externalLinkTypeSchema, gateStatusSchema, insertAgentErrorLogSchema, insertAgentInstanceSchema, insertExternalTaskLinkSchema, insertPipelineManifestSchema, insertReleaseManifestSchema, insertSessionSchema, insertTaskSchema, lifecycleEvidenceTypeSchema, lifecycleGateResultSchema, lifecyclePipelineStatusSchema, lifecycleStageNameSchema, lifecycleStageStatusSchema, lifecycleTransitionTypeSchema, manifestStatusSchema, selectAgentErrorLogSchema, selectAgentInstanceSchema, selectExternalTaskLinkSchema, selectPipelineManifestSchema, selectReleaseManifestSchema, selectSessionSchema, selectTaskSchema, sessionStatusSchema, syncDirectionSchema, taskPrioritySchema, taskRelationTypeSchema, taskSizeSchema, taskStatusSchema, taskTypeSchema, tokenUsageConfidenceSchema, tokenUsageMethodSchema, tokenUsageTransportSchema, } from './store/validation-schemas.js';
+export { createDataAccessor, getAccessor } from './store/data-accessor.js';
+export { queryAudit } from './audit.js';
+export { pruneAuditLog } from './audit-prune.js';
+export { type ApplyPresetResult, applyStrictnessPreset, getConfigValue, getRawConfig, getRawConfigValue, listStrictnessPresets, loadConfig, type PresetDefinition, parseConfigValue, STRICTNESS_PRESETS, type StrictnessPreset, setConfigValue, } from './config.js';
+export { CORE_PROTECTED_FILES } from './constants.js';
+export { type ClassificationSignal, classifyProject, type ProjectClassification, } from './discovery.js';
+export type { EngineResult } from './engine-result.js';
+export type { ErrorDefinition } from './error-catalog.js';
+export { ERROR_CATALOG, getAllErrorDefinitions, getErrorDefinition, getErrorDefinitionByLafsCode, } from './error-catalog.js';
+export { getCleoErrorRegistry, getRegistryEntry, getRegistryEntryByLafsCode, isCleoRegisteredCode, } from './error-registry.js';
+export type { ProblemDetails } from './errors.js';
+export { CleoError } from './errors.js';
+export type { InitOptions, InitResult } from './init.js';
+export { ensureInitialized, getVersion, initProject } from './init.js';
+export { checkSchema, validateAgainstSchema } from './json-schema-validator.js';
+export type { LoggerConfig } from './logger.js';
+export { closeLogger, getLogDir, getLogger, initLogger } from './logger.js';
+export type { FormatOptions } from './output.js';
+export { formatError, formatOutput, formatSuccess, pushWarning } from './output.js';
+export { createPage, paginate } from './pagination.js';
+export { getCleoCacheDir, getCleoCantWorkflowsDir, getCleoConfigDir, getCleoDir, getCleoDirAbsolute, getCleoGlobalAgentsDir, getCleoGlobalJustfilePath, getCleoGlobalRecipesDir, getCleoHome, getCleoLogDir, getCleoPiExtensionsDir, getCleoTempDir, getCleoTemplatesTildePath, getConfigPath, getGlobalConfigPath, getProjectRoot, isProjectInitialized, resolveProjectPath, } from './paths.js';
+export type { Platform, SystemInfo } from './platform.js';
+export { detectPlatform, getIsoTimestamp, getSystemInfo, MINIMUM_NODE_MAJOR, PLATFORM, sha256, } from './platform.js';
+export type { ProjectInfo } from './project-info.js';
+export { getProjectInfo, getProjectInfoSync, updateProjectName } from './project-info.js';
+export { ensureCleoOsHub, ensureCleoStructure, ensureGlobalHome, ensureGlobalScaffold, ensureSqliteDb, fileExists, getCleoVersion, getPackageRoot, } from './scaffold.js';
+export { AdapterManager } from './adapters/index.js';
+export type { BootstrapContext, BootstrapOptions } from './bootstrap.js';
+export { bootstrapGlobalCleo } from './bootstrap.js';
+export type { AdminAPI, AgentsAPI, CleoInitOptions, IntelligenceAPI, LifecycleAPI, MemoryAPI, NexusAPI, OrchestrationAPI, ReleaseAPI, SessionsAPI, StickyAPI, SyncAPI, TasksAPI, } from './cleo.js';
+export { Cleo } from './cleo.js';
+export { HookRegistry, hooks } from './hooks/registry.js';
+export { computeTaskRollup, computeTaskRollups, type RollupExecStatus, type TaskRollup, } from './lifecycle/rollup.js';
+export type { PopulateEmbeddingsOptions, PopulateEmbeddingsResult, } from './memory/brain-retrieval.js';
+export { fetchBrainEntries, observeBrain, populateEmbeddings, searchBrainCompact, timelineBrain, } from './memory/brain-retrieval.js';
+export { searchBrain } from './memory/brain-search.js';
+export type { DecisionQualityInput, LearningQualityInput, ObservationQualityInput, PatternQualityInput, } from './memory/quality-scoring.js';
+export { computeDecisionQuality, computeLearningQuality, computeObservationQuality, computePatternQuality, QUALITY_SCORE_THRESHOLD, } from './memory/quality-scoring.js';
+export { compareSemver, detectVersion, getMigrationStatus, runAllMigrations, runMigration, } from './migration/index.js';
+export type { NextDirectives } from './mvi-helpers.js';
+export { memoryFindHitNext, sessionListItemNext, sessionStartNext, taskListItemNext, taskShowNext, } from './mvi-helpers.js';
+export { reconcile } from './reconciliation/index.js';
+export { endSession, listSessions, resumeSession, sessionStatus, startSession, } from './sessions/index.js';
+export type { RestoreOptions, SerializeOptions, SessionSnapshot, SnapshotDecision, SnapshotObservation, SnapshotTaskContext, } from './sessions/snapshot.js';
+export { restoreSession, serializeSession } from './sessions/snapshot.js';
+export { getMigrationStatus as getSystemMigrationStatus } from './system/migrate.js';
+export { checkStorageMigration } from './system/storage-preflight.js';
+export { currentTask, startTask, stopTask } from './task-work/index.js';
+export { addTask } from './tasks/add.js';
+export { archiveTasks } from './tasks/archive.js';
+export { completeTask } from './tasks/complete.js';
+export { deleteTask } from './tasks/delete.js';
+export { findTasks } from './tasks/find.js';
+export { normalizeTaskId } from './tasks/id-generator.js';
+export { listTasks } from './tasks/list.js';
+export { showTask } from './tasks/show.js';
+export { updateTask } from './tasks/update.js';
+//# sourceMappingURL=index.d.ts.map

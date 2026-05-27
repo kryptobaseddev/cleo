@@ -1,0 +1,9 @@
+[GitNexus] 1 related symbols found:
+
+errorCountsByCode (src/acp/control-plane/manager.core.ts)
+[GitNexus] 2 related symbols found:
+
+session-manager-cache.ts (src/agents/pi-embedded-runner/session-manager-cache.ts)
+  Calls: createSessionManagerCache
+
+session-fork.runtime.ts (src/auto-reply/reply/session-fork.runtime.ts)

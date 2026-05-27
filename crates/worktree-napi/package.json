@@ -1,0 +1,30 @@
+{
+  "name": "@cleocode/worktree-napi",
+  "version": "2026.5.101",
+  "description": "napi-rs bindings for worktrunk-core: parallel git-worktree provisioning + .worktreeinclude",
+  "license": "MIT",
+  "main": "index.cjs",
+  "types": "index.d.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "napi": {
+    "binaryName": "worktree-napi",
+    "targets": [
+      "x86_64-unknown-linux-gnu",
+      "aarch64-unknown-linux-gnu",
+      "aarch64-apple-darwin",
+      "x86_64-pc-windows-msvc"
+    ]
+  },
+  "files": [
+    "index.cjs",
+    "index.d.ts",
+    "worktree-napi.*.node"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kryptobaseddev/cleo",
+    "directory": "crates/worktree-napi"
+  }
+}

@@ -1,0 +1,194 @@
+/**
+ * Release guards - epic-completeness and double-listing checks.
+ *
+ * Pre-release validation to ensure all tasks in an epic are accounted for
+ * and no task appears in multiple releases.
+ *
+ * @task T4454
+ * @epic T4454
+ */
+
+import type { Task, TaskRef } from '@cleocode/contracts';
+import type { DataAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
+
+/** Epic completeness result. */
+export interface EpicCompletenessResult {
+  hasIncomplete: boolean;
+  epics: Array<{
+    epicId: string;
+    epicTitle: string;
+    totalChildren: number;
+    includedChildren: number;
+    missingChildren: TaskRef[];
+  }>;
+  orphanTasks: string[];
+}
+
+/**
+ * Walk parent chain to find the epic ancestor of a task.
+ */
+function findEpicAncestor(taskId: string, tasksById: Map<string, Task>): string | null {
+  const task = tasksById.get(taskId);
+  if (!task) return null;
+  if (task.type === 'epic') return taskId;
+
+  // Walk up parent chain (max 3 levels)
+  let current = task;
+  for (let depth = 0; depth < 3; depth++) {
+    if (!current.parentId) return null;
+    const parent = tasksById.get(current.parentId);
+    if (!parent) return null;
+    if (parent.type === 'epic') return parent.id;
+    current = parent;
+  }
+  return null;
+}
+
+/**
+ * Check epic completeness for a set of release task IDs.
+ * Verifies all children of each referenced epic are included in the current or
+ * a prior release (tasks shipped in previous releases are not flagged as missing).
+ *
+ * @param releaseTaskIds      - Task IDs being shipped in this release.
+ * @param cwd                 - Working directory (used to resolve accessor when none provided).
+ * @param accessor            - Optional pre-constructed DataAccessor.
+ * @param priorReleasedTaskIds - Task IDs already shipped in prior releases (not flagged missing).
+ * @param scopedEpicId        - When provided, only audit tasks whose ancestor chain terminates
+ *                              at this epic. Tasks belonging to other epics are ignored entirely.
+ *                              When omitted, all epics referenced by `releaseTaskIds` are audited
+ *                              (legacy behavior).
+ */
+export async function checkEpicCompleteness(
+  releaseTaskIds: string[],
+  cwd?: string,
+  accessor?: DataAccessor,
+  priorReleasedTaskIds?: string[],
+  scopedEpicId?: string,
+): Promise<EpicCompletenessResult> {
+  const acc = accessor ?? (await getTaskAccessor(cwd));
+  const { tasks: allTasks } = await acc.queryTasks({});
+  if (!allTasks?.length) {
+    return { hasIncomplete: false, epics: [], orphanTasks: [] };
+  }
+
+  const tasksById = new Map<string, Task>();
+  for (const task of allTasks) {
+    tasksById.set(task.id, task);
+  }
+
+  const releaseSet = new Set(releaseTaskIds);
+  const priorSet = new Set(priorReleasedTaskIds ?? []);
+
+  // Map each release task to its epic.
+  // When scopedEpicId is set, tasks that do NOT belong to that epic are excluded
+  // from the audit entirely (they are treated as if they don't exist for this check).
+  const taskToEpic = new Map<string, string | null>();
+  for (const taskId of releaseTaskIds) {
+    const epicAncestor = findEpicAncestor(taskId, tasksById);
+    if (scopedEpicId !== undefined && epicAncestor !== scopedEpicId) {
+      // Task belongs to a different epic — skip it when a scope is declared.
+      continue;
+    }
+    taskToEpic.set(taskId, epicAncestor);
+  }
+
+  // Find orphan tasks (no epic) — only among tasks that passed the scope filter.
+  const orphanTasks = [...taskToEpic.keys()].filter((id) => !taskToEpic.get(id));
+
+  // Group by epic
+  const byEpic = new Map<string, string[]>();
+  for (const [taskId, epicId] of taskToEpic) {
+    if (!epicId) continue;
+    if (!byEpic.has(epicId)) byEpic.set(epicId, []);
+    byEpic.get(epicId)!.push(taskId);
+  }
+
+  // When scopedEpicId is provided and no release tasks map to it, we still want to
+  // audit that epic if it exists (e.g. operator explicitly declared it). Ensure it
+  // appears in byEpic so we check its completeness even when none of its children
+  // are in releaseTaskIds (which would happen when all children are in priorSet).
+  if (scopedEpicId !== undefined && !byEpic.has(scopedEpicId) && tasksById.has(scopedEpicId)) {
+    byEpic.set(scopedEpicId, []);
+  }
+
+  // Check each epic for completeness
+  const epics: EpicCompletenessResult['epics'] = [];
+  let hasIncomplete = false;
+
+  for (const [epicId, includedTasks] of byEpic) {
+    const epic = tasksById.get(epicId);
+    if (!epic) continue;
+
+    // Epics that are already fully done (status=done) have been shipped in prior
+    // releases — skip completeness check. The current release may ship tasks from
+    // a done epic as a backfill, but the guard should not block the release because
+    // a sibling was already counted elsewhere.
+    if (epic.status === 'done') continue;
+
+    // Find all children of this epic
+    const allChildren = allTasks.filter((t) => t.parentId === epicId && t.id !== epicId);
+    const includedSet = new Set(includedTasks);
+    // Build set of parent task IDs (tasks with children) — these are filtered out
+    // by prepareRelease and should not be flagged as missing.
+    const parentIds = new Set(allTasks.filter((t) => t.parentId).map((t) => t.parentId!));
+    // Only flag done leaf tasks not included in the release — pending/active/blocked
+    // tasks are future work, and parent tasks are structural (excluded by prepareRelease).
+    const missingChildren = allChildren
+      .filter(
+        (t) =>
+          t.status === 'done' &&
+          !parentIds.has(t.id) &&
+          !includedSet.has(t.id) &&
+          !releaseSet.has(t.id) &&
+          !priorSet.has(t.id),
+      )
+      .map((t) => ({ id: t.id, title: t.title, status: t.status }));
+
+    if (missingChildren.length > 0) hasIncomplete = true;
+
+    epics.push({
+      epicId,
+      epicTitle: epic.title,
+      totalChildren: allChildren.length,
+      includedChildren: includedTasks.length,
+      missingChildren,
+    });
+  }
+
+  return { hasIncomplete, epics, orphanTasks };
+}
+
+/** Double-listing check result. */
+export interface DoubleListingResult {
+  hasDoubleListing: boolean;
+  duplicates: Array<{
+    taskId: string;
+    releases: string[];
+  }>;
+}
+
+/**
+ * Check if any tasks are listed in multiple releases.
+ */
+export function checkDoubleListing(
+  releaseTaskIds: string[],
+  existingReleases: Array<{ version: string; tasks: string[] }>,
+): DoubleListingResult {
+  const duplicates: DoubleListingResult['duplicates'] = [];
+
+  for (const taskId of releaseTaskIds) {
+    const inReleases = existingReleases
+      .filter((r) => r.tasks.includes(taskId))
+      .map((r) => r.version);
+
+    if (inReleases.length > 0) {
+      duplicates.push({ taskId, releases: inReleases });
+    }
+  }
+
+  return {
+    hasDoubleListing: duplicates.length > 0,
+    duplicates,
+  };
+}

@@ -1,0 +1,240 @@
+/**
+ * Credential encryption — AES-256-GCM with machine-bound key derivation.
+ *
+ * API keys (`sk_live_*`) are encrypted at rest in SQLite using AES-256-GCM.
+ * The encryption key is derived per-project from a machine-specific secret:
+ *
+ *   machine-key (32 random bytes at ~/.local/share/cleo/machine-key)
+ *   + project path
+ *   = HMAC-SHA256(machine-key, project-path) → per-project AES key
+ *
+ * This means credentials are bound to BOTH the machine AND the project.
+ * Moving `.cleo/tasks.db` to another machine renders stored keys unreadable.
+ *
+ * @see docs/specs/SIGNALDOCK-UNIFIED-AGENT-REGISTRY.md Section 3.6
+ * @module crypto/credentials
+ */
+
+import { execFileSync } from 'node:child_process';
+import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'node:crypto';
+import { chmod, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+
+/** AES-256-GCM constants. */
+const ALGORITHM = 'aes-256-gcm' as const;
+const IV_LENGTH = 12;
+const AUTH_TAG_LENGTH = 16;
+const KEY_LENGTH = 32;
+/** Version byte prefix for ciphertext format (F-006: enables future algorithm migration). */
+const CIPHERTEXT_VERSION = 0x01;
+
+/**
+ * Get the path to the machine key file.
+ * Uses XDG data dir: `~/.local/share/cleo/machine-key`
+ *
+ * @throws If HOME/USERPROFILE are unset (F-002: never fall back to /tmp).
+ */
+function getMachineKeyPath(): string {
+  // Use platform-aware data directory: XDG on Linux, Library on macOS, %LOCALAPPDATA% on Windows
+  if (process.platform === 'win32') {
+    const appData = process.env['LOCALAPPDATA'] ?? process.env['APPDATA'];
+    if (appData) return join(appData, 'cleo', 'Data', 'machine-key');
+  } else if (process.platform === 'darwin') {
+    const home = process.env['HOME'];
+    if (home) return join(home, 'Library', 'Application Support', 'cleo', 'machine-key');
+  }
+  // Linux / fallback: XDG_DATA_HOME or ~/.local/share
+  const dataHome =
+    process.env['XDG_DATA_HOME'] ?? join(process.env['HOME'] ?? '', '.local', 'share');
+  if (!dataHome) {
+    throw new Error(
+      'Cannot determine data directory. Set HOME or XDG_DATA_HOME environment variable. ' +
+        'Machine key cannot be stored securely without a persistent data directory.',
+    );
+  }
+  return join(dataHome, 'cleo', 'machine-key');
+}
+
+/**
+ * Read or auto-generate the machine key (32 random bytes).
+ * Sets file permissions to 0600 (owner read/write only).
+ *
+ * @throws If the machine key exists but has wrong permissions (not 0600).
+ */
+async function getMachineKey(): Promise<Buffer> {
+  const keyPath = getMachineKeyPath();
+
+  try {
+    // Verify key file permissions
+    const stats = await stat(keyPath);
+    if (process.platform === 'win32') {
+      // Windows: use icacls to verify the key is not world-readable.
+      try {
+        const output = execFileSync('icacls', [keyPath], { encoding: 'utf-8', timeout: 5000 });
+        const unsafePatterns = /\\(Users|Everyone|Authenticated Users):/i;
+        if (unsafePatterns.test(output)) {
+          throw new Error(
+            `Machine key has unsafe Windows ACLs (accessible to other users). ` +
+              `Fix with: icacls "${keyPath}" /inheritance:r /grant:r "%USERNAME%":F`,
+          );
+        }
+      } catch (aclErr) {
+        if (aclErr instanceof Error && aclErr.message.includes('unsafe')) throw aclErr;
+      }
+    } else {
+      // Unix: verify 0600 permissions
+      const mode = stats.mode & 0o777;
+      if (mode !== 0o600) {
+        throw new Error(
+          `Machine key has unsafe permissions (${mode.toString(8)}). Expected 0600. ` +
+            `Fix with: chmod 600 ${keyPath}`,
+        );
+      }
+    }
+    const key = await readFile(keyPath);
+    // F-004: validate key length
+    if (key.length !== KEY_LENGTH) {
+      throw new Error(
+        `Machine key has invalid length (${key.length} bytes, expected ${KEY_LENGTH}). ` +
+          `Delete ${keyPath} and re-register agents to generate a new key.`,
+      );
+    }
+    return key;
+  } catch (err: unknown) {
+    if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
+      // Auto-generate on first use
+      const key = randomBytes(KEY_LENGTH);
+      await mkdir(dirname(keyPath), { recursive: true });
+      await writeFile(keyPath, key, { mode: 0o600 });
+      if (process.platform === 'win32') {
+        // Lock down Windows ACLs: remove inherited permissions, grant only current user
+        try {
+          execFileSync(
+            'icacls',
+            [
+              keyPath,
+              '/inheritance:r',
+              '/grant:r',
+              `${process.env['USERNAME'] ?? 'CURRENT_USER'}:F`,
+            ],
+            { timeout: 5000 },
+          );
+        } catch {
+          // Best-effort — icacls may not be available in all environments
+        }
+      } else {
+        await chmod(keyPath, 0o600);
+      }
+      return key;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Derive a per-project encryption key from the machine key.
+ * Uses HMAC-SHA256(machine-key, project-path) to produce a 32-byte AES key.
+ *
+ * @remarks
+ * **KDF COORDINATION NOTE (T380/ADR-041 §D5, ADR-037 §5)**
+ *
+ * This KDF is intentionally NOT changed in T380. The current scheme
+ * (`HMAC-SHA256(machine-key, projectPath)`) is project-path-bound, which is
+ * correct for the current project-tier signaldock.db layout.
+ *
+ * ADR-037 §5 specifies the replacement KDF:
+ * ```
+ * apiKey = HMAC-SHA256(machine-key || globalSalt, agentId)
+ * ```
+ * where `globalSalt` is a 32-byte per-machine random value stored at
+ * `$XDG_DATA_HOME/cleo/global-salt`.
+ *
+ * The replacement KDF MUST be implemented as part of the global-signaldock
+ * migration (T310 + T362). Swapping it here, before that migration, would
+ * silently invalidate all stored encrypted API keys without providing the
+ * global-salt infrastructure needed to re-encrypt them.
+ *
+ * Once T310/T362 land, this function should be REPLACED (not extended) with
+ * the new `deriveAgentKey(agentId: string)` helper defined in that epic.
+ * Remove this comment block when the replacement lands.
+ *
+ * @see ADR-037 §5 — full KDF design and migration plan
+ * @see T310 — GlobalAgentRegistryAccessor + KDF refactor
+ * @see T362 — parallel KDF coordination
+ * @task T380
+ */
+async function deriveProjectKey(projectPath: string): Promise<Buffer> {
+  const machineKey = await getMachineKey();
+  return createHmac('sha256', machineKey).update(projectPath).digest();
+}
+
+/**
+ * Encrypt a plaintext string using AES-256-GCM with a per-project key.
+ *
+ * Output format: base64(version + iv + ciphertext + authTag)
+ *   - version: 1 byte (0x01 = AES-256-GCM)
+ *   - iv: 12 bytes
+ *   - ciphertext: variable length
+ *   - authTag: 16 bytes
+ *
+ * @param plaintext - The string to encrypt (e.g. an API key).
+ * @param projectPath - Absolute path to the project directory (used for key derivation).
+ * @returns Base64-encoded ciphertext.
+ */
+export async function encrypt(plaintext: string, projectPath: string): Promise<string> {
+  const key = await deriveProjectKey(projectPath);
+  const iv = randomBytes(IV_LENGTH);
+  const cipher = createCipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
+
+  const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+
+  // Pack: version + iv + ciphertext + authTag (F-006: version byte for future migration)
+  const version = Buffer.from([CIPHERTEXT_VERSION]);
+  const packed = Buffer.concat([version, iv, encrypted, authTag]);
+  return packed.toString('base64');
+}
+
+/**
+ * Decrypt a base64-encoded ciphertext using AES-256-GCM with a per-project key.
+ *
+ * @param ciphertext - Base64-encoded string from `encrypt()`.
+ * @param projectPath - Absolute path to the project directory (must match the one used for encryption).
+ * @returns The original plaintext string.
+ * @throws If decryption fails (wrong key, corrupted data, or machine key mismatch).
+ */
+export async function decrypt(ciphertext: string, projectPath: string): Promise<string> {
+  const key = await deriveProjectKey(projectPath);
+  const packed = Buffer.from(ciphertext, 'base64');
+
+  if (packed.length < 1 + IV_LENGTH + AUTH_TAG_LENGTH) {
+    throw new Error('Cannot decrypt credentials: ciphertext too short');
+  }
+
+  // F-006: check version byte
+  const version = packed[0];
+  if (version !== CIPHERTEXT_VERSION) {
+    throw new Error(
+      `Unknown ciphertext version (${version}). Expected ${CIPHERTEXT_VERSION}. ` +
+        'Re-register agents to re-encrypt with the current format.',
+    );
+  }
+
+  const iv = packed.subarray(1, 1 + IV_LENGTH);
+  const authTag = packed.subarray(packed.length - AUTH_TAG_LENGTH);
+  const encrypted = packed.subarray(1 + IV_LENGTH, packed.length - AUTH_TAG_LENGTH);
+
+  const decipher = createDecipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
+  decipher.setAuthTag(authTag);
+
+  try {
+    const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+    return decrypted.toString('utf8');
+  } catch {
+    throw new Error(
+      'Cannot decrypt credentials. Machine key mismatch or corrupted data. ' +
+        'If this database was moved from another machine, re-register agents: ' +
+        'cleo agent register --id <id> --api-key <key>',
+    );
+  }
+}

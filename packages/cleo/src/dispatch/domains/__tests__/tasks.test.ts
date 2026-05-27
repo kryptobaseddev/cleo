@@ -1,0 +1,1139 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Mock @cleocode/core/internal — createAttachmentStore added by T9966
+vi.mock('@cleocode/core/internal', () => ({
+  createAttachmentStore: () => ({
+    listByOwner: vi.fn().mockResolvedValue([]),
+    getExtras: vi.fn().mockResolvedValue(null),
+  }),
+}));
+
+// Mock engine functions before importing the handler
+vi.mock('../../lib/engine.js', () => ({
+  taskShow: vi.fn(),
+  taskShowOperation: vi.fn(),
+  taskShowWithHistory: vi.fn(),
+  taskShowIvtrHistory: vi.fn(),
+  taskList: vi.fn(),
+  taskFind: vi.fn(),
+  taskExists: vi.fn(),
+  addTaskWithSessionScope: vi.fn(),
+  taskUpdate: vi.fn(),
+  taskComplete: vi.fn(),
+  completeTaskStrict: vi.fn(),
+  taskDelete: vi.fn(),
+  taskArchive: vi.fn(),
+  taskNext: vi.fn(),
+  taskBlockers: vi.fn(),
+  taskTree: vi.fn(),
+  taskRelates: vi.fn(),
+  taskRelatesAdd: vi.fn(),
+  taskRelatesRemove: vi.fn(),
+  taskAnalyze: vi.fn(),
+  taskRestore: vi.fn(),
+  taskReorder: vi.fn(),
+  taskReparent: vi.fn(),
+  taskPromote: vi.fn(),
+  taskComplexityEstimate: vi.fn(),
+  taskDepends: vi.fn(),
+  taskCurrentGet: vi.fn(),
+  taskStart: vi.fn(),
+  taskStop: vi.fn(),
+  taskSyncReconcile: vi.fn(),
+  taskSyncLinks: vi.fn(),
+  taskSyncLinksRemove: vi.fn(),
+  taskHistory: vi.fn(),
+  taskWorkHistory: vi.fn(),
+  taskLabelList: vi.fn(),
+  taskClaim: vi.fn(),
+  taskUnclaim: vi.fn(),
+  taskRelatesFind: vi.fn(),
+  taskCancel: vi.fn(),
+  taskReopen: vi.fn(),
+  taskUnarchive: vi.fn(),
+  taskImpact: vi.fn(),
+  taskPlan: vi.fn(),
+  taskDepsCycles: vi.fn(),
+  taskDepsOverview: vi.fn(),
+}));
+
+// Mock getProjectRoot
+vi.mock('../../../../../core/src/paths.js', async () => {
+  const actual = await vi.importActual<typeof import('../../../../../core/src/paths.js')>(
+    '../../../../../core/src/paths.js',
+  );
+  return {
+    ...actual,
+    getProjectRoot: vi.fn(() => '/mock/project'),
+  };
+});
+
+import {
+  addTaskWithSessionScope,
+  completeTaskStrict,
+  taskAnalyze,
+  taskArchive,
+  taskBlockers,
+  taskCancel,
+  taskComplexityEstimate,
+  taskCurrentGet,
+  taskDelete,
+  taskDepends,
+  taskFind,
+  taskList,
+  taskNext,
+  taskRelates,
+  taskRelatesAdd,
+  taskRelatesRemove,
+  taskReorder,
+  taskReparent,
+  taskRestore,
+  taskShow,
+  taskShowIvtrHistory,
+  taskStart,
+  taskStop,
+  taskTree,
+  taskUpdate,
+} from '../../lib/engine.js';
+import { TasksHandler } from '../tasks.js';
+
+describe('TasksHandler', () => {
+  let handler: TasksHandler;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    handler = new TasksHandler();
+  });
+
+  // -----------------------------------------------------------------------
+  // getSupportedOperations
+  // -----------------------------------------------------------------------
+
+  describe('getSupportedOperations', () => {
+    it('should list all query operations', () => {
+      const ops = handler.getSupportedOperations();
+      expect(ops.query).toEqual([
+        'show',
+        'list',
+        'find',
+        'tree',
+        'blockers',
+        'depends',
+        'deps.validate',
+        'deps.tree',
+        'analyze',
+        'impact',
+        'next',
+        'plan',
+        'relates',
+        'complexity.estimate',
+        'history',
+        'current',
+        'label.list',
+        'sync.links',
+        // ADR-073 — saga sub-domain (T9521 / T10125).
+        'saga.list',
+        'saga.members',
+        'saga.rollup',
+      ]);
+    });
+
+    it('should list all mutate operations', () => {
+      const ops = handler.getSupportedOperations();
+      expect(ops.mutate).toEqual([
+        'add',
+        'update',
+        'complete',
+        // T9947 regression lock: `cancel` MUST appear in the dispatch registry
+        // so `cleo cancel <taskId>` is routable. Pre-T9947 ship the verb was
+        // surfaced in `--help` but absent from the registry — invoking it
+        // returned E_NOT_FOUND.
+        'cancel',
+        'delete',
+        'archive',
+        'restore',
+        'reparent',
+        'reorder',
+        'relates.add',
+        'relates.remove',
+        'start',
+        'stop',
+        'sync.reconcile',
+        'sync.links.remove',
+        'claim',
+        'unclaim',
+        // ADR-073 — saga sub-domain (T9521 / T10125).
+        'saga.create',
+        'saga.add',
+        'saga.repair',
+        'saga.detach',
+        'saga.reconcile',
+      ]);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Query operations
+  // -----------------------------------------------------------------------
+
+  describe('query', () => {
+    it('show - delegates to taskShow', async () => {
+      const mockTask = {
+        id: 'T001',
+        title: 'Test',
+        description: 'test',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: '2026-01-01',
+        updatedAt: null,
+      };
+      // T9966: taskShow core result shape must include view (may be null)
+      vi.mocked(taskShow).mockResolvedValue({
+        success: true,
+        data: { task: mockTask, view: null },
+      });
+
+      const result = await handler.query('show', { taskId: 'T001' });
+
+      expect(result.success).toBe(true);
+      // T9966: result now includes attachments: [] alongside task+view
+      expect(result.data).toMatchObject({ task: mockTask, view: null, attachments: [] });
+      expect(taskShow).toHaveBeenCalledWith('/mock/project', 'T001');
+    });
+
+    it('show --ivtr-history - delegates to taskShowIvtrHistory', async () => {
+      const mockData = {
+        ivtrHistory: [
+          {
+            phase: 'implement',
+            agent: 'agent-001',
+            startedAt: '2026-04-01T00:00:00Z',
+            completedAt: '2026-04-01T01:00:00Z',
+            passed: true,
+            evidenceRefs: ['sha256abc'],
+          },
+          {
+            phase: 'validate',
+            agent: 'agent-002',
+            startedAt: '2026-04-01T01:00:00Z',
+            completedAt: null,
+            passed: null,
+            evidenceRefs: [],
+          },
+        ],
+      };
+      vi.mocked(taskShowIvtrHistory).mockResolvedValue({ success: true, data: mockData });
+
+      const result = await handler.query('show', { taskId: 'T001', ivtrHistory: true });
+
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual(mockData);
+      expect(taskShowIvtrHistory).toHaveBeenCalledWith('/mock/project', 'T001');
+    });
+
+    it('show --ivtr-history - returns empty ivtrHistory when task has no IVTR state', async () => {
+      vi.mocked(taskShowIvtrHistory).mockResolvedValue({
+        success: true,
+        data: { ivtrHistory: [] },
+      });
+
+      const result = await handler.query('show', { taskId: 'T999', ivtrHistory: true });
+
+      expect(result.success).toBe(true);
+      expect((result.data as Record<string, unknown>)?.ivtrHistory).toEqual([]);
+      expect(taskShowIvtrHistory).toHaveBeenCalledWith('/mock/project', 'T999');
+    });
+
+    it('list - delegates to taskList', async () => {
+      const mockData = {
+        tasks: [{ id: 'T001', title: 'Test', status: 'pending', priority: 'medium' }],
+        total: 1,
+        filtered: 1,
+      };
+      vi.mocked(taskList).mockResolvedValue({
+        success: true,
+        data: mockData,
+        page: { mode: 'none' },
+      });
+
+      const result = await handler.query('list', { status: 'pending' });
+
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual(mockData);
+      expect(result.page).toEqual({ mode: 'none' });
+      expect(taskList).toHaveBeenCalledWith('/mock/project', {
+        parent: undefined,
+        status: 'pending',
+        priority: undefined,
+        type: undefined,
+        phase: undefined,
+        label: undefined,
+        children: undefined,
+        limit: undefined,
+        offset: undefined,
+        compact: undefined,
+      });
+    });
+
+    it('list - passes compact param to taskList', async () => {
+      const mockData = [{ id: 'T001', title: 'Test', status: 'pending', priority: 'medium' }];
+      vi.mocked(taskList).mockResolvedValue({
+        success: true,
+        data: { tasks: mockData, total: 1, filtered: 1 },
+        page: { mode: 'none' },
+      });
+
+      const result = await handler.query('list', {
+        parent: 'T100',
+        status: 'pending',
+        priority: 'high',
+        type: 'task',
+        phase: 'build',
+        label: 'bug',
+        children: true,
+        limit: 5,
+        offset: 10,
+        compact: true,
+      });
+
+      expect(result.success).toBe(true);
+      expect(taskList).toHaveBeenCalledWith('/mock/project', {
+        parent: 'T100',
+        status: 'pending',
+        priority: 'high',
+        type: 'task',
+        phase: 'build',
+        label: 'bug',
+        children: true,
+        limit: 5,
+        offset: 10,
+        compact: true,
+      });
+    });
+
+    it('find - delegates to taskFind', async () => {
+      const mockData = {
+        results: [{ id: 'T001', title: 'Test', status: 'pending', priority: 'medium' }],
+        total: 1,
+      };
+      vi.mocked(taskFind).mockResolvedValue({ success: true, data: mockData });
+
+      const result = await handler.query('find', { query: 'test', limit: 10 });
+
+      expect(result.success).toBe(true);
+      expect(taskFind).toHaveBeenCalledWith('/mock/project', 'test', 10, {
+        id: undefined,
+        exact: undefined,
+        status: undefined,
+        includeArchive: undefined,
+        offset: undefined,
+      });
+    });
+
+    it('find - passes extra filters to taskFind', async () => {
+      const mockData = {
+        results: [{ id: 'T001', title: 'Test', status: 'pending', priority: 'medium' }],
+        total: 1,
+      };
+      vi.mocked(taskFind).mockResolvedValue({ success: true, data: mockData });
+
+      const result = await handler.query('find', {
+        query: 'test',
+        status: 'active',
+        id: 'T00',
+        exact: true,
+        includeArchive: true,
+        offset: 5,
+      });
+
+      expect(result.success).toBe(true);
+      expect(taskFind).toHaveBeenCalledWith('/mock/project', 'test', undefined, {
+        id: 'T00',
+        exact: true,
+        status: 'active',
+        includeArchive: true,
+        offset: 5,
+      });
+    });
+
+    it('tree - delegates to taskTree', async () => {
+      vi.mocked(taskTree).mockResolvedValue({ success: true, data: { tree: [], totalNodes: 0 } });
+
+      const result = await handler.query('tree', { taskId: 'T001' });
+
+      expect(result.success).toBe(true);
+      expect(taskTree).toHaveBeenCalledWith('/mock/project', 'T001', undefined);
+    });
+
+    it('blockers - delegates to taskBlockers', async () => {
+      vi.mocked(taskBlockers).mockResolvedValue({
+        success: true,
+        data: { blockedTasks: [], criticalBlockers: [], summary: '', total: 0, limit: 10 },
+      });
+
+      const result = await handler.query('blockers', { analyze: true });
+
+      expect(result.success).toBe(true);
+      expect(taskBlockers).toHaveBeenCalledWith('/mock/project', { analyze: true });
+    });
+
+    it('depends - delegates to taskDepends', async () => {
+      vi.mocked(taskDepends).mockResolvedValue({
+        success: true,
+        data: { taskId: 'T001', upstream: [], downstream: [] },
+      });
+
+      const result = await handler.query('depends', { taskId: 'T001', direction: 'both' });
+
+      expect(result.success).toBe(true);
+      expect(taskDepends).toHaveBeenCalledWith('/mock/project', 'T001', 'both', undefined);
+    });
+
+    it('analyze - delegates to taskAnalyze', async () => {
+      vi.mocked(taskAnalyze).mockResolvedValue({
+        success: true,
+        data: {
+          recommended: null,
+          bottlenecks: [],
+          tiers: { critical: [], high: [], normal: [] },
+          metrics: { totalTasks: 0, actionable: 0, blocked: 0, avgLeverage: 0 },
+          tierLimit: 10,
+        },
+      });
+
+      const result = await handler.query('analyze', { taskId: 'T001' });
+
+      expect(result.success).toBe(true);
+      expect(taskAnalyze).toHaveBeenCalledWith('/mock/project', 'T001', { tierLimit: undefined });
+    });
+
+    it('next - delegates to taskNext', async () => {
+      vi.mocked(taskNext).mockResolvedValue({
+        success: true,
+        data: { suggestions: [], totalCandidates: 0 },
+      });
+
+      const result = await handler.query('next', { count: 5 });
+
+      expect(result.success).toBe(true);
+      expect(taskNext).toHaveBeenCalledWith('/mock/project', { count: 5 });
+    });
+
+    it('relates - delegates to taskRelates', async () => {
+      vi.mocked(taskRelates).mockResolvedValue({
+        success: true,
+        data: { taskId: 'T001', direction: 'both', relations: [], count: 0 },
+      });
+
+      const result = await handler.query('relates', { taskId: 'T001' });
+
+      expect(result.success).toBe(true);
+      expect(taskRelates).toHaveBeenCalledWith('/mock/project', 'T001', {
+        direction: undefined,
+        type: undefined,
+        includeDependencies: undefined,
+      });
+    });
+
+    it('relates - delegates type/direction filters and dependency visibility', async () => {
+      vi.mocked(taskRelates).mockResolvedValue({
+        success: true,
+        data: {
+          taskId: 'T001',
+          direction: 'in',
+          relations: [
+            {
+              taskId: 'T002',
+              type: 'depends',
+              direction: 'in',
+              source: 'dependency',
+              ready: false,
+              status: 'pending',
+            },
+          ],
+          count: 1,
+        },
+      });
+
+      const result = await handler.query('relates', {
+        taskId: 'T001',
+        direction: 'in',
+        type: 'depends',
+        includeDependencies: true,
+      });
+
+      expect(result.success).toBe(true);
+      expect(taskRelates).toHaveBeenCalledWith('/mock/project', 'T001', {
+        direction: 'in',
+        type: 'depends',
+        includeDependencies: true,
+      });
+      expect(result.data).toMatchObject({ count: 1, relations: [{ ready: false }] });
+    });
+
+    it('complexity.estimate - delegates to taskComplexityEstimate', async () => {
+      vi.mocked(taskComplexityEstimate).mockResolvedValue({
+        success: true,
+        data: {
+          size: 'small',
+          score: 3,
+          factors: [],
+          dependencyDepth: 0,
+          subtaskCount: 0,
+          fileCount: 0,
+        },
+      });
+
+      const result = await handler.query('complexity.estimate', { taskId: 'T001' });
+
+      expect(result.success).toBe(true);
+      expect(taskComplexityEstimate).toHaveBeenCalledWith('/mock/project', { taskId: 'T001' });
+    });
+
+    it('current - delegates to taskCurrentGet', async () => {
+      vi.mocked(taskCurrentGet).mockResolvedValue({
+        success: true,
+        data: { currentTask: 'T001', currentPhase: null },
+      });
+
+      const result = await handler.query('current');
+
+      expect(result.success).toBe(true);
+      expect(taskCurrentGet).toHaveBeenCalledWith('/mock/project');
+    });
+
+    it('unsupported operation returns error', async () => {
+      const result = await handler.query('nonexistent');
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INVALID_OPERATION');
+    });
+
+    it('handles engine exceptions gracefully', async () => {
+      vi.mocked(taskShow).mockRejectedValue(new Error('Connection failed'));
+
+      const result = await handler.query('show', { taskId: 'T001' });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INTERNAL');
+      expect(result.error?.message).toBe('Connection failed');
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Mutate operations
+  // -----------------------------------------------------------------------
+
+  describe('mutate', () => {
+    it('add - delegates to addTaskWithSessionScope', async () => {
+      const mockTask = {
+        task: {
+          id: 'T001',
+          title: 'New Task',
+          description: 'Desc',
+          status: 'pending',
+          priority: 'medium',
+          createdAt: '2026-01-01',
+          updatedAt: null,
+        },
+        duplicate: false,
+      };
+      vi.mocked(addTaskWithSessionScope).mockResolvedValue({ success: true, data: mockTask });
+
+      const result = await handler.mutate('add', { title: 'New Task', description: 'Desc' });
+
+      expect(result.success).toBe(true);
+      expect(addTaskWithSessionScope).toHaveBeenCalledWith(
+        '/mock/project',
+        expect.objectContaining({ title: 'New Task' }),
+      );
+    });
+
+    it('add - forwards parent param to engine (ADR-057 D2 canonical wire field)', async () => {
+      const mockTask = {
+        task: {
+          id: 'T002',
+          title: 'Child Task',
+          description: 'Desc',
+          status: 'pending',
+          priority: 'medium',
+          createdAt: '2026-01-01',
+          updatedAt: null,
+        },
+        duplicate: false,
+      };
+      vi.mocked(addTaskWithSessionScope).mockResolvedValue({ success: true, data: mockTask });
+
+      const result = await handler.mutate('add', {
+        title: 'Child Task',
+        description: 'Desc',
+        parent: 'T001',
+      });
+
+      expect(result.success).toBe(true);
+      expect(addTaskWithSessionScope).toHaveBeenCalledWith(
+        '/mock/project',
+        expect.objectContaining({
+          title: 'Child Task',
+          parent: 'T001',
+        }),
+      );
+    });
+
+    it('add - uses parent canonical wire field for parent task ID', async () => {
+      const mockTask = {
+        task: {
+          id: 'T002',
+          title: 'Child Task',
+          description: '',
+          status: 'pending',
+          priority: 'medium',
+          createdAt: '2026-01-01',
+          updatedAt: null,
+        },
+        duplicate: false,
+      };
+      vi.mocked(addTaskWithSessionScope).mockResolvedValue({ success: true, data: mockTask });
+
+      const result = await handler.mutate('add', {
+        title: 'Child Task',
+        parent: 'T100',
+      });
+
+      expect(result.success).toBe(true);
+      expect(addTaskWithSessionScope).toHaveBeenCalledWith(
+        '/mock/project',
+        expect.objectContaining({
+          parent: 'T100',
+        }),
+      );
+    });
+
+    it('add - passes description: undefined to core when no description provided (FIX-2.5 regression)', async () => {
+      const mockTask = {
+        task: {
+          id: 'T003',
+          title: 'Same',
+          description: '',
+          status: 'pending',
+          priority: 'medium',
+          createdAt: '2026-01-01',
+          updatedAt: null,
+        },
+        duplicate: false,
+      };
+      vi.mocked(addTaskWithSessionScope).mockResolvedValue({ success: true, data: mockTask });
+
+      await handler.mutate('add', { title: 'Same' });
+
+      expect(addTaskWithSessionScope).toHaveBeenCalledWith(
+        '/mock/project',
+        expect.objectContaining({
+          description: undefined,
+        }),
+      );
+    });
+
+    it('add - does NOT fall back to title when description is absent (FIX-2.5 regression)', async () => {
+      const mockTask = {
+        task: {
+          id: 'T004',
+          title: 'TitleOnly',
+          description: '',
+          status: 'pending',
+          priority: 'medium',
+          createdAt: '2026-01-01',
+          updatedAt: null,
+        },
+        duplicate: false,
+      };
+      vi.mocked(addTaskWithSessionScope).mockResolvedValue({ success: true, data: mockTask });
+
+      await handler.mutate('add', { title: 'TitleOnly' });
+
+      const call = vi.mocked(addTaskWithSessionScope).mock.calls[0];
+      const options = call[1] as Record<string, unknown>;
+      expect(options.description).toBeUndefined();
+      expect(options.description).not.toBe('TitleOnly');
+    });
+
+    it('add - forwards provided description to core unchanged (FIX-2.5 regression)', async () => {
+      const mockTask = {
+        task: {
+          id: 'T005',
+          title: 'X',
+          description: 'Y',
+          status: 'pending',
+          priority: 'medium',
+          createdAt: '2026-01-01',
+          updatedAt: null,
+        },
+        duplicate: false,
+      };
+      vi.mocked(addTaskWithSessionScope).mockResolvedValue({ success: true, data: mockTask });
+
+      await handler.mutate('add', { title: 'X', description: 'Y' });
+
+      expect(addTaskWithSessionScope).toHaveBeenCalledWith(
+        '/mock/project',
+        expect.objectContaining({
+          description: 'Y',
+        }),
+      );
+    });
+
+    it('update - delegates to taskUpdate', async () => {
+      vi.mocked(taskUpdate).mockResolvedValue({
+        success: true,
+        data: {
+          task: {
+            id: 'T001',
+            title: 'Updated',
+            description: 'test',
+            status: 'pending',
+            priority: 'medium',
+            createdAt: '2026-01-01',
+            updatedAt: null,
+          },
+        },
+      });
+
+      const result = await handler.mutate('update', { taskId: 'T001', title: 'Updated' });
+
+      expect(result.success).toBe(true);
+      expect(taskUpdate).toHaveBeenCalledWith(
+        '/mock/project',
+        'T001',
+        expect.objectContaining({ title: 'Updated' }),
+      );
+    });
+
+    it('update - forwards parent param to engine (ADR-057 D2 canonical wire field)', async () => {
+      vi.mocked(taskUpdate).mockResolvedValue({
+        success: true,
+        data: {
+          task: {
+            id: 'T001',
+            title: 'Test',
+            description: 'test',
+            status: 'pending',
+            priority: 'medium',
+            createdAt: '2026-01-01',
+            updatedAt: null,
+          },
+        },
+      });
+
+      const result = await handler.mutate('update', { taskId: 'T001', parent: 'T002' });
+
+      expect(result.success).toBe(true);
+      expect(taskUpdate).toHaveBeenCalledWith(
+        '/mock/project',
+        'T001',
+        expect.objectContaining({
+          parent: 'T002',
+        }),
+      );
+    });
+
+    it('complete - delegates to taskCompleteStrict', async () => {
+      vi.mocked(completeTaskStrict).mockResolvedValue({
+        success: true,
+        data: {
+          task: {
+            id: 'T001',
+            title: 'Test',
+            description: 'test',
+            status: 'done',
+            priority: 'medium',
+            createdAt: '2026-01-01',
+            updatedAt: null,
+          },
+        },
+      });
+
+      const result = await handler.mutate('complete', { taskId: 'T001', notes: 'Done' });
+
+      expect(result.success).toBe(true);
+      // T832/ADR-051: completeTaskStrict no longer accepts the force parameter.
+      // T1632: notes/overrideReason/acknowledgeRisk now passed as options object.
+      expect(completeTaskStrict).toHaveBeenCalledWith('/mock/project', 'T001', {
+        notes: 'Done',
+        overrideReason: undefined,
+        acknowledgeRisk: undefined,
+      });
+    });
+
+    it('complete - rejects --force with E_FLAG_REMOVED (T832/ADR-051)', async () => {
+      const result = await handler.mutate('complete', {
+        taskId: 'T001',
+        notes: 'Forced',
+        force: true,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_FLAG_REMOVED');
+      expect(completeTaskStrict).not.toHaveBeenCalled();
+    });
+
+    it('complete - returns E_IVTR_INCOMPLETE when strict enforcement rejects', async () => {
+      vi.mocked(completeTaskStrict).mockResolvedValue({
+        success: false,
+        error: {
+          code: 'E_IVTR_INCOMPLETE',
+          message: "Task T001 IVTR loop is not complete — currentPhase='validate', not 'released'",
+          exitCode: 83,
+          details: {
+            taskId: 'T001',
+            currentPhase: 'validate',
+            failedPhases: ["Phase 'implement' has no passing entry"],
+          },
+          fix: "Advance the IVTR loop to 'released' via 'cleo orchestrate ivtr T001 --next'",
+        },
+      });
+
+      const result = await handler.mutate('complete', { taskId: 'T001' });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_IVTR_INCOMPLETE');
+      // T832/ADR-051: force parameter removed from completeTaskStrict signature.
+      // T1632: notes/overrideReason/acknowledgeRisk now passed as options object.
+      expect(completeTaskStrict).toHaveBeenCalledWith('/mock/project', 'T001', {
+        notes: undefined,
+        overrideReason: undefined,
+        acknowledgeRisk: undefined,
+      });
+    });
+
+    it('update - forwards pipelineStage to engine (T832 / T834)', async () => {
+      vi.mocked(taskUpdate).mockResolvedValue({
+        success: true,
+        data: {
+          task: {
+            id: 'T500',
+            title: 'Test',
+            description: 'test',
+            status: 'active',
+            priority: 'medium',
+            createdAt: '2026-01-01',
+            updatedAt: null,
+            pipelineStage: 'consensus',
+          },
+          changes: ['pipelineStage'],
+        },
+      });
+
+      const result = await handler.mutate('update', {
+        taskId: 'T500',
+        pipelineStage: 'consensus',
+      });
+
+      expect(result.success).toBe(true);
+      expect(taskUpdate).toHaveBeenCalledWith(
+        '/mock/project',
+        'T500',
+        expect.objectContaining({ pipelineStage: 'consensus' }),
+      );
+    });
+
+    it('update - forwards files to engine (T1014 — parity with add)', async () => {
+      vi.mocked(taskUpdate).mockResolvedValue({
+        success: true,
+        data: {
+          task: {
+            id: 'T1014',
+            title: 'Fix update --files',
+            description: 'test',
+            status: 'active',
+            priority: 'medium',
+            createdAt: '2026-01-01',
+            updatedAt: null,
+            files: ['packages/core/src/memory/brain-retrieval.ts'],
+          },
+          changes: ['files'],
+        },
+      });
+
+      const result = await handler.mutate('update', {
+        taskId: 'T1014',
+        files: ['packages/core/src/memory/brain-retrieval.ts'],
+      });
+
+      expect(result.success).toBe(true);
+      expect(taskUpdate).toHaveBeenCalledWith(
+        '/mock/project',
+        'T1014',
+        expect.objectContaining({
+          files: ['packages/core/src/memory/brain-retrieval.ts'],
+        }),
+      );
+    });
+
+    it('delete - delegates to taskDelete', async () => {
+      vi.mocked(taskDelete).mockResolvedValue({
+        success: true,
+        data: {
+          deletedTask: {
+            id: 'T001',
+            title: 'Test',
+            description: 'test',
+            status: 'pending',
+            priority: 'medium',
+            createdAt: '2026-01-01',
+            updatedAt: null,
+          },
+          deleted: true,
+        },
+      });
+
+      const result = await handler.mutate('delete', { taskId: 'T001', force: true });
+
+      expect(result.success).toBe(true);
+      expect(taskDelete).toHaveBeenCalledWith('/mock/project', 'T001', true);
+    });
+
+    // -------------------------------------------------------------------
+    // cancel — T9947 regression lock
+    //
+    // Two bugs reported against `cleo cancel`:
+    //   1. `cleo update <taskId> --status cancelled` returned E_NOT_INITIALIZED on
+    //      tasks whose verification gates had never been initialized (closed by
+    //      T9838-D — `taskUpdate` wrapper now surfaces real CleoError codes via
+    //      cleoErrorToEngineResult).
+    //   2. `cleo cancel <taskId>` was in `--help` output but invoking it returned
+    //      E_NOT_FOUND because the `cancel` operation was not reachable through
+    //      the dispatch registry.
+    //
+    // These tests lock both fixes in place against the TasksHandler:
+    //   - The 'cancel' op is dispatch-routable (handler.mutate('cancel', ...) returns
+    //     a real envelope rather than E_UNKNOWN_OPERATION).
+    //   - The cancel handler delegates to `taskCancel(projectRoot, taskId, reason)`.
+    //   - `--reason` is forwarded to the engine.
+    // -------------------------------------------------------------------
+    it('cancel - delegates to taskCancel (T9947 regression lock)', async () => {
+      vi.mocked(taskCancel).mockResolvedValue({
+        success: true,
+        data: {
+          task: 'T001',
+          cancelled: true,
+          cancelledAt: '2026-05-24T00:00:00.000Z',
+        },
+      });
+
+      const result = await handler.mutate('cancel', { taskId: 'T001' });
+
+      expect(result.success).toBe(true);
+      expect(taskCancel).toHaveBeenCalledWith('/mock/project', 'T001', undefined);
+    });
+
+    it('cancel - forwards --reason to engine (T9947)', async () => {
+      vi.mocked(taskCancel).mockResolvedValue({
+        success: true,
+        data: {
+          task: 'T002',
+          cancelled: true,
+          reason: 'Superseded by T003',
+          cancelledAt: '2026-05-24T00:00:00.000Z',
+        },
+      });
+
+      const result = await handler.mutate('cancel', {
+        taskId: 'T002',
+        reason: 'Superseded by T003',
+      });
+
+      expect(result.success).toBe(true);
+      expect(taskCancel).toHaveBeenCalledWith('/mock/project', 'T002', 'Superseded by T003');
+    });
+
+    it('cancel - surfaces idempotent re-cancel (alreadyCancelled=true) (T9947 / T9838)', async () => {
+      vi.mocked(taskCancel).mockResolvedValue({
+        success: true,
+        data: {
+          task: 'T003',
+          cancelled: true,
+          cancelledAt: '2026-05-20T00:00:00.000Z',
+          alreadyCancelled: true,
+        },
+      });
+
+      const result = await handler.mutate('cancel', { taskId: 'T003' });
+
+      expect(result.success).toBe(true);
+      // The wrapped engine payload propagates the alreadyCancelled flag.
+      expect((result.data as { alreadyCancelled?: boolean }).alreadyCancelled).toBe(true);
+    });
+
+    it('cancel - propagates engine error (E_INVALID_STATE for done task) (T9947)', async () => {
+      vi.mocked(taskCancel).mockResolvedValue({
+        success: false,
+        error: {
+          code: 'E_INVALID_STATE',
+          message: 'Cannot cancel a completed task',
+        },
+      });
+
+      const result = await handler.mutate('cancel', { taskId: 'T_DONE' });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INVALID_STATE');
+    });
+
+    it('archive - delegates to taskArchive', async () => {
+      vi.mocked(taskArchive).mockResolvedValue({
+        success: true,
+        data: { archivedCount: 2, archivedTasks: [{ id: 'T001' }, { id: 'T002' }] },
+      });
+
+      const result = await handler.mutate('archive', {});
+
+      expect(result.success).toBe(true);
+      expect(taskArchive).toHaveBeenCalledWith('/mock/project', undefined, undefined, {
+        taskIds: undefined,
+        includeCancelled: undefined,
+        dryRun: undefined,
+      });
+    });
+
+    it('restore - delegates to taskRestore', async () => {
+      vi.mocked(taskRestore).mockResolvedValue({
+        success: true,
+        data: { task: 'T001', restored: ['T001'], count: 1 },
+      });
+
+      const result = await handler.mutate('restore', { taskId: 'T001' });
+
+      expect(result.success).toBe(true);
+      expect(taskRestore).toHaveBeenCalledWith('/mock/project', 'T001', {
+        cascade: undefined,
+        notes: undefined,
+      });
+    });
+
+    it('reparent - delegates to taskReparent', async () => {
+      vi.mocked(taskReparent).mockResolvedValue({
+        success: true,
+        data: { task: 'T001', reparented: true, oldParent: null, newParent: 'T002' },
+      });
+
+      const result = await handler.mutate('reparent', { taskId: 'T001', newParentId: 'T002' });
+
+      expect(result.success).toBe(true);
+      expect(taskReparent).toHaveBeenCalledWith('/mock/project', 'T001', 'T002');
+    });
+
+    it('reorder - delegates to taskReorder', async () => {
+      vi.mocked(taskReorder).mockResolvedValue({
+        success: true,
+        data: { task: 'T001', reordered: true, newPosition: 3, totalSiblings: 5 },
+      });
+
+      const result = await handler.mutate('reorder', { taskId: 'T001', position: 3 });
+
+      expect(result.success).toBe(true);
+      expect(taskReorder).toHaveBeenCalledWith('/mock/project', 'T001', 3);
+    });
+
+    it('relates.add - delegates to taskRelatesAdd', async () => {
+      vi.mocked(taskRelatesAdd).mockResolvedValue({
+        success: true,
+        data: { from: 'T001', to: 'T002', type: 'blocks', added: true },
+      });
+
+      const result = await handler.mutate('relates.add', {
+        taskId: 'T001',
+        relatedId: 'T002',
+        type: 'blocks',
+      });
+
+      expect(result.success).toBe(true);
+      expect(taskRelatesAdd).toHaveBeenCalledWith(
+        '/mock/project',
+        'T001',
+        'T002',
+        'blocks',
+        undefined,
+      );
+    });
+
+    it('relates.add - returns error when params missing', async () => {
+      const result = await handler.mutate('relates.add', { taskId: 'T001' });
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INVALID_INPUT');
+    });
+
+    it('relates.remove - delegates to taskRelatesRemove', async () => {
+      vi.mocked(taskRelatesRemove).mockResolvedValue({
+        success: true,
+        data: { from: 'T001', to: 'T002', removed: true },
+      });
+
+      const result = await handler.mutate('relates.remove', {
+        taskId: 'T001',
+        relatedId: 'T002',
+      });
+
+      expect(result.success).toBe(true);
+      expect(taskRelatesRemove).toHaveBeenCalledWith('/mock/project', 'T001', 'T002', undefined);
+    });
+
+    it('relates.remove - returns error when relatedId missing', async () => {
+      const result = await handler.mutate('relates.remove', { taskId: 'T001' });
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INVALID_INPUT');
+    });
+
+    it('start - delegates to taskStart', async () => {
+      vi.mocked(taskStart).mockResolvedValue({
+        success: true,
+        data: { taskId: 'T001', previousTask: null },
+      });
+
+      const result = await handler.mutate('start', { taskId: 'T001' });
+
+      expect(result.success).toBe(true);
+      expect(taskStart).toHaveBeenCalledWith('/mock/project', 'T001');
+    });
+
+    it('stop - delegates to taskStop', async () => {
+      vi.mocked(taskStop).mockResolvedValue({
+        success: true,
+        data: { cleared: true, previousTask: null },
+      });
+
+      const result = await handler.mutate('stop');
+
+      expect(result.success).toBe(true);
+      expect(taskStop).toHaveBeenCalledWith('/mock/project');
+    });
+
+    it('unsupported operation returns error', async () => {
+      const result = await handler.mutate('nonexistent');
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INVALID_OPERATION');
+    });
+
+    it('handles engine exceptions gracefully', async () => {
+      vi.mocked(addTaskWithSessionScope).mockRejectedValue(new Error('Disk full'));
+
+      const result = await handler.mutate('add', { title: 'New Task' });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INTERNAL');
+    });
+
+    it('wraps engine error responses correctly', async () => {
+      vi.mocked(taskShow).mockResolvedValue({
+        success: false,
+        error: { code: 'E_NOT_FOUND', message: 'Task not found' },
+      });
+
+      const result = await handler.query('show', { taskId: 'T999' });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_NOT_FOUND');
+      expect(result.error?.message).toBe('Task not found');
+    });
+  });
+});

@@ -1,0 +1,100 @@
+---
+title: runtime — Types
+description: Type contracts for the runtime package
+---
+
+Type contracts exported by this package: interfaces, type aliases, and enums.
+
+## MessageHandler
+
+Message handler callback.
+
+```typescript
+MessageHandler
+```
+
+## AgentPollerConfig
+
+Poller configuration.
+
+| Property               | Type                     | Required | Description                                                                                                                                                                              |
+| ---------------------- | ------------------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agentId`              | `string`                 | Yes      | Agent ID to poll as.                                                                                                                                                                     |
+| `apiKey`               | `string`                 | Yes      | API key for authentication.                                                                                                                                                              |
+| `apiBaseUrl`           | `string`                 | Yes      | API base URL.                                                                                                                                                                            |
+| `pollIntervalMs`       | `number \| undefined`    | No       | Poll interval in milliseconds. Default: 5000.                                                                                                                                            |
+| `groupConversationIds` | `string[] \| undefined`  | No       | Known group conversation IDs to monitor for mentions.                                                                                                                                    |
+| `groupPollLimit`       | `number \| undefined`    | No       | Max messages to fetch per group conversation poll. Default: 15.                                                                                                                          |
+| `transport`            | `Transport \| undefined` | No       | Transport instance for polling messages. When provided, poll() delegates to transport.poll() instead of raw HTTP. The transport must already be connected before passing to AgentPoller. |
+
+## HeartbeatConfig
+
+Heartbeat service configuration.
+
+| Property     | Type                  | Required | Description                                               |
+| ------------ | --------------------- | -------- | --------------------------------------------------------- |
+| `agentId`    | `string`              | Yes      | Agent ID to send heartbeats for.                          |
+| `apiKey`     | `string`              | Yes      | API key for authentication.                               |
+| `apiBaseUrl` | `string`              | Yes      | API base URL.                                             |
+| `intervalMs` | `number \| undefined` | No       | Heartbeat interval in milliseconds. Default: 30000 (30s). |
+
+## KeyRotationConfig
+
+Key rotation service configuration.
+
+| Property          | Type                  | Required | Description                                                                 |
+| ----------------- | --------------------- | -------- | --------------------------------------------------------------------------- |
+| `agentId`         | `string`              | Yes      | Agent ID to monitor.                                                        |
+| `registry`        | `AgentRegistryAPI`    | Yes      | AgentRegistryAPI instance for credential lookup and rotation.               |
+| `checkIntervalMs` | `number \| undefined` | No       | Check interval in milliseconds. Default: 3600000 (1 hour).                  |
+| `maxKeyAgeMs`     | `number \| undefined` | No       | Max key age in milliseconds before rotation. Default: 2592000000 (30 days). |
+
+## SseConnectionConfig
+
+SSE connection service configuration.
+
+| Property      | Type                  | Required | Description                                           |
+| ------------- | --------------------- | -------- | ----------------------------------------------------- |
+| `agentId`     | `string`              | Yes      | Agent ID to connect as.                               |
+| `apiKey`      | `string`              | Yes      | API key for authentication.                           |
+| `apiBaseUrl`  | `string`              | Yes      | API base URL.                                         |
+| `sseEndpoint` | `string \| undefined` | No       | SSE endpoint URL. If omitted, uses apiBaseUrl + /sse. |
+| `transport`   | `Transport`           | Yes      | Transport instance to use. Injected by createRuntime. |
+
+## SseMessageHandler
+
+Message handler callback.
+
+```typescript
+SseMessageHandler
+```
+
+## RuntimeConfig
+
+Configuration for createRuntime().
+
+| Property               | Type                                                           | Required | Description                                                                                                                                          |
+| ---------------------- | -------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agentId`              | `string \| undefined`                                          | No       | Agent ID to run as. If omitted, uses the most recently used active agent.                                                                            |
+| `pollIntervalMs`       | `number \| undefined`                                          | No       | Poll interval in milliseconds. Default: 5000.                                                                                                        |
+| `groupConversationIds` | `string[] \| undefined`                                        | No       | Known group conversation IDs to monitor for mentions.                                                                                                |
+| `groupPollLimit`       | `number \| undefined`                                          | No       | Max messages per group conversation poll. Default: 15.                                                                                               |
+| `heartbeatIntervalMs`  | `number \| undefined`                                          | No       | Heartbeat interval in milliseconds. Default: 30000. Set to 0 to disable.                                                                             |
+| `maxKeyAgeMs`          | `number \| undefined`                                          | No       | Max key age in milliseconds before rotation. Default: 30 days. Set to 0 to disable.                                                                  |
+| `sseEndpoint`          | `string \| undefined`                                          | No       | SSE endpoint URL. If set, enables persistent SSE connection.                                                                                         |
+| `createSseTransport`   | `(() => import("@cleocode/contracts").Transport) \| undefined` | No       | Transport factory for SSE connection. Caller provides to avoid circular deps.                                                                        |
+| `transport`            | `Transport \| undefined`                                       | No       | Pre-created transport instance. When provided, bypasses auto-resolution. The transport must NOT be connected yet — createRuntime handles connection. |
+
+## RuntimeHandle
+
+Handle returned by createRuntime().
+
+| Property        | Type                           | Required | Description                                                  |
+| --------------- | ------------------------------ | -------- | ------------------------------------------------------------ |
+| `poller`        | `AgentPoller`                  | Yes      | The AgentPoller instance.                                    |
+| `heartbeat`     | `HeartbeatService \| null`     | Yes      | The HeartbeatService instance (null if disabled).            |
+| `keyRotation`   | `KeyRotationService \| null`   | Yes      | The KeyRotationService instance (null if disabled).          |
+| `sseConnection` | `SseConnectionService \| null` | Yes      | The SseConnectionService instance (null if no SSE endpoint). |
+| `transport`     | `Transport`                    | Yes      | The resolved transport (local, sse, or http).                |
+| `agentId`       | `string`                       | Yes      | The agent ID the runtime is running as.                      |
+| `stop`          | `() => void`                   | Yes      | Stop all runtime services and clean up.                      |

@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Provider Research Sources",
+  "description": "External configuration for CAAMP provider research script — documentation URLs and aggregate source definitions",
+  "type": "object",
+  "required": ["version", "lastUpdated", "aggregateSources", "providers"],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semver version of this config format"
+    },
+    "lastUpdated": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "description": "ISO date when sources were last reviewed"
+    },
+    "aggregateSources": {
+      "type": "array",
+      "description": "Sources that provide data about multiple providers at once",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "description", "urls", "provides"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique identifier for this aggregate source"
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable name"
+          },
+          "description": {
+            "type": "string",
+            "description": "What this source provides"
+          },
+          "urls": {
+            "type": "array",
+            "items": { "type": "string", "format": "uri" },
+            "minItems": 1,
+            "description": "URLs to fetch"
+          },
+          "provides": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "skillsPaths",
+                "instructionFiles",
+                "configPaths",
+                "agentsList",
+                "mcpConfigPaths",
+                "configKeys",
+                "detectionMethods",
+                "supportedTransports"
+              ]
+            },
+            "description": "Categories of data this source provides"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "providers": {
+      "type": "object",
+      "description": "Per-provider documentation sources keyed by registry ID",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["sources", "notes"],
+        "properties": {
+          "sources": {
+            "type": "array",
+            "items": { "type": "string", "format": "uri" },
+            "description": "Documentation URLs to fetch for this provider"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Human-readable context about what to look for"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

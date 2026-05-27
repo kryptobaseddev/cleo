@@ -1,0 +1,108 @@
+{
+  "$schema": "./provider-sources.schema.json",
+  "version": "1.0.0",
+  "lastUpdated": "2026-03-02",
+  "aggregateSources": [
+    {
+      "id": "vercel-skills",
+      "name": "Vercel Labs Skills - agents.ts",
+      "description": "Curated list of AI agent paths, instruction files, and skills directories",
+      "urls": [
+        "https://raw.githubusercontent.com/vercel-labs/skills/main/src/agents.ts"
+      ],
+      "provides": ["skillsPaths", "instructionFiles", "configPaths", "agentsList"]
+    },
+    {
+      "id": "neon-add-mcp",
+      "name": "Neon add-mcp - Agent detection and MCP config paths",
+      "description": "Multi-agent MCP installer with config path detection for 15+ agents",
+      "urls": [
+        "https://raw.githubusercontent.com/neondatabase/add-mcp/main/src/agents.ts",
+        "https://raw.githubusercontent.com/neondatabase/add-mcp/main/README.md"
+      ],
+      "provides": ["mcpConfigPaths", "configKeys", "detectionMethods", "supportedTransports"]
+    }
+  ],
+  "providers": {
+    "claude-code": {
+      "sources": [
+        "https://raw.githubusercontent.com/anthropics/claude-code/main/README.md",
+        "https://docs.anthropic.com/en/docs/claude-code/overview"
+      ],
+      "notes": "Primary source for hooks/lifecycle events and spawn/team capabilities"
+    },
+    "cursor": {
+      "sources": [
+        "https://raw.githubusercontent.com/getcursor/cursor/main/README.md"
+      ],
+      "notes": "VS Code extension-based, limited public documentation"
+    },
+    "windsurf": {
+      "sources": [
+        "https://raw.githubusercontent.com/nicepkg/windsurf/main/README.md"
+      ],
+      "notes": "Codeium's AI IDE"
+    },
+    "codex": {
+      "sources": [
+        "https://raw.githubusercontent.com/openai/codex/main/README.md",
+        "https://raw.githubusercontent.com/openai/codex/main/codex-cli/README.md"
+      ],
+      "notes": "OpenAI CLI agent with TOML config"
+    },
+    "gemini-cli": {
+      "sources": [
+        "https://raw.githubusercontent.com/google-gemini/gemini-cli/main/README.md"
+      ],
+      "notes": "Google's CLI agent, uses .gemini/settings.json for contextFileName"
+    },
+    "opencode": {
+      "sources": [
+        "https://raw.githubusercontent.com/nicepkg/opencode/main/README.md"
+      ],
+      "notes": "Open-source CLI agent with native spawn support"
+    },
+    "github-copilot": {
+      "sources": [
+        "https://raw.githubusercontent.com/github/copilot-docs/main/README.md"
+      ],
+      "notes": "GitHub Copilot CLI and VS Code integration"
+    },
+    "goose": {
+      "sources": [
+        "https://raw.githubusercontent.com/block/goose/main/README.md"
+      ],
+      "notes": "Block's agent with YAML config and extensions model"
+    },
+    "zed": {
+      "sources": [
+        "https://raw.githubusercontent.com/zed-industries/zed/main/README.md"
+      ],
+      "notes": "Editor with context_servers config key"
+    },
+    "cline": {
+      "sources": [
+        "https://raw.githubusercontent.com/cline/cline/main/README.md"
+      ],
+      "notes": "VS Code extension agent"
+    },
+    "roo": {
+      "sources": [
+        "https://raw.githubusercontent.com/RooVetGit/Roo-Code/main/README.md"
+      ],
+      "notes": "Roo Code VS Code extension"
+    },
+    "aider": {
+      "sources": [
+        "https://raw.githubusercontent.com/Aider-AI/aider/main/README.md"
+      ],
+      "notes": "Python-based CLI agent, uses .aider.conf.yml with read: AGENTS.md"
+    },
+    "amazon-q": {
+      "sources": [
+        "https://raw.githubusercontent.com/aws/amazon-q-developer-cli/main/README.md"
+      ],
+      "notes": "AWS's developer CLI agent"
+    }
+  }
+}

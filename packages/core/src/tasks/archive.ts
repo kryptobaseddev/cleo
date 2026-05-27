@@ -1,0 +1,253 @@
+/**
+ * Batch archive completed tasks.
+ * @task T4461
+ * @epic T4454
+ */
+
+import {
+  ARCHIVE_REASON_TOMBSTONE_ENV,
+  ArchiveReason,
+  type ArchiveReasonValue,
+  type Task,
+  type TaskStatus,
+} from '@cleocode/contracts';
+import { type EngineResult, engineSuccess } from '../engine-result.js';
+import { cleoErrorToEngineResult } from '../errors-to-engine.js';
+import type { DataAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
+import { safeAppendLog } from '../store/data-safety-central.js';
+import { removeChildProjectionAc } from './ac-table.js';
+
+/**
+ * Truth-grade `archiveReason` values stamped by the bulk-archive path.
+ *
+ * Council 2026-04-24 Contrarian gate (FINDING #28 · supersedes the legacy
+ * `cancelled ? 'cancelled' : 'completed'` coin-flip) — the archive write MUST
+ * reflect observable closure quality, NOT "anything non-cancelled = completed".
+ *
+ * Semantics:
+ *  - `completed`            — task reached `status='done'` AND verification
+ *                             gates passed (`task.verification.passed === true`).
+ *                             This is the only grade that implies a trustworthy
+ *                             completion audit trail.
+ *  - `completed-unverified` — task reached `status='done'` BUT verification was
+ *                             never run, is incomplete, or failed. Archive row
+ *                             is a tombstone: the closure happened, but its
+ *                             quality is unknown. Future operators MUST NOT
+ *                             count these toward completion metrics without
+ *                             explicit opt-in.
+ *  - `cancelled`            — task reached `status='cancelled'` (verification
+ *                             is irrelevant for cancellations).
+ *  - `archived`             — fall-through catch-all. Should not happen on the
+ *                             normal path (candidates are pre-filtered to done
+ *                             or cancelled) but is safe to stamp if reached.
+ *
+ * The string literal `'completed-unverified'` is a migration tombstone.
+ * T1409 promoted these values into a typed Zod enum at the contract layer
+ * ({@link ArchiveReason} in `@cleocode/contracts`); downstream consumers
+ * (stats/index.ts, archive-analytics.ts, archive-stats.ts) that already
+ * group by `archiveReason` will see the canonical literal as its own
+ * bucket, which is the intended behaviour.
+ *
+ * @see packages/core/src/tasks/__tests__/archive.test.ts — discriminator tests
+ * @see packages/contracts/src/tasks/archive.ts — typed enum + tombstone guard
+ */
+function deriveArchiveReason(task: Task): ArchiveReasonValue {
+  // T1434 follow-up: T1408 6-value enum mapping. Was returning 'completed'
+  // for verified-done; the enum has 'verified' for that case.
+  // T1409: replaced literal strings with the contracts SSoT enum so the
+  // type and the DB CHECK constraint share one source of truth.
+  if (task.status === 'cancelled') return ArchiveReason.enum.cancelled;
+  if (task.status === 'done') {
+    return task.verification?.passed === true
+      ? ArchiveReason.enum.verified
+      : ArchiveReason.enum['completed-unverified'];
+  }
+  return ArchiveReason.enum['completed-unverified'];
+}
+
+/** Options for archiving tasks. */
+export interface ArchiveTasksOptions {
+  /** Only archive tasks completed before this date (ISO string). */
+  before?: string;
+  /** Specific task IDs to archive. */
+  taskIds?: string[];
+  /** Archive cancelled tasks too. Default: true. */
+  includeCancelled?: boolean;
+  /** Dry run mode. */
+  dryRun?: boolean;
+}
+
+/** Result of archiving tasks. */
+export interface ArchiveTasksResult {
+  archived: string[];
+  skipped: string[];
+  total: number;
+  dryRun?: boolean;
+}
+
+/**
+ * Archive completed (and optionally cancelled) tasks.
+ * Moves them from active task data to archive.
+ * @task T4461
+ */
+export async function archiveTasks(
+  options: ArchiveTasksOptions = {},
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<ArchiveTasksResult> {
+  const acc = accessor ?? (await getTaskAccessor(cwd));
+  const includeCancelled = options.includeCancelled ?? true;
+
+  // Determine which tasks to archive using targeted queries
+  let candidates: Task[];
+
+  if (options.taskIds?.length) {
+    candidates = await acc.loadTasks(options.taskIds);
+  } else {
+    const statuses: TaskStatus[] = includeCancelled ? ['done', 'cancelled'] : ['done'];
+    const { tasks } = await acc.queryTasks({ status: statuses });
+    candidates = tasks;
+  }
+
+  // Apply date filter
+  if (options.before) {
+    const beforeDate = new Date(options.before).getTime();
+    candidates = candidates.filter((t) => {
+      const completedAt = t.completedAt ?? t.cancelledAt ?? t.updatedAt;
+      if (!completedAt) return false;
+      return new Date(completedAt).getTime() < beforeDate;
+    });
+  }
+
+  // Check for tasks that can't be archived
+  const archived: string[] = [];
+  const skipped: string[] = [];
+
+  for (const task of candidates) {
+    // Skip tasks that aren't done/cancelled
+    if (task.status !== 'done' && task.status !== 'cancelled') {
+      skipped.push(task.id);
+      continue;
+    }
+
+    // Skip epics that have non-archived children
+    if (task.type === 'epic') {
+      const activeCount = await acc.countActiveChildren(task.id);
+      if (activeCount > 0) {
+        skipped.push(task.id);
+        continue;
+      }
+    }
+
+    archived.push(task.id);
+  }
+
+  // For total count, query active task count
+  const totalActive = await acc.countTasks();
+
+  if (options.dryRun) {
+    return {
+      archived,
+      skipped,
+      total: totalActive,
+      dryRun: true,
+    };
+  }
+
+  if (archived.length === 0) {
+    return { archived: [], skipped, total: totalActive };
+  }
+
+  // Archive each task using targeted writes
+  const now = new Date().toISOString();
+  const archivedSet = new Set(archived);
+  const tasksToArchive = candidates.filter((t) => archivedSet.has(t.id));
+
+  // T1409 tombstone gate: this loop is the LEGITIMATE producer of the
+  // `'completed-unverified'` tombstone — `deriveArchiveReason` may return
+  // it for done-but-unverified tasks. Scope the tombstone-allow env flag
+  // for the duration of the bulk write so downstream guards in
+  // `archiveTask()` / `assertArchiveReason()` permit the write. Restored
+  // after the loop (or on throw) so user-facing single-task archive paths
+  // remain protected.
+  const priorTombstoneFlag = process.env[ARCHIVE_REASON_TOMBSTONE_ENV];
+  process.env[ARCHIVE_REASON_TOMBSTONE_ENV] = '1';
+  try {
+    await acc.transaction(async (tx) => {
+      for (const t of tasksToArchive) {
+        if (t.parentId) {
+          await removeChildProjectionAc(tx, t.parentId, t.id, 'archive', now);
+        }
+        await tx.archiveSingleTask(t.id, {
+          archivedAt: now,
+          archiveReason: deriveArchiveReason(t),
+        });
+      }
+    });
+  } finally {
+    if (priorTombstoneFlag === undefined) {
+      delete process.env[ARCHIVE_REASON_TOMBSTONE_ENV];
+    } else {
+      process.env[ARCHIVE_REASON_TOMBSTONE_ENV] = priorTombstoneFlag;
+    }
+  }
+
+  await safeAppendLog(
+    acc,
+    {
+      id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
+      timestamp: new Date().toISOString(),
+      action: 'tasks_archived',
+      taskId: archived.join(','),
+      actor: 'system',
+      details: { count: archived.length, ids: archived },
+      before: null,
+      after: { count: archived.length, ids: archived },
+    },
+    cwd,
+  );
+
+  return { archived, skipped, total: totalActive };
+}
+
+// ---------------------------------------------------------------------------
+// EngineResult-returning wrapper (T1568 / ADR-057 / ADR-058)
+// ---------------------------------------------------------------------------
+
+/**
+ * Archive completed tasks, wrapped in EngineResult.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param taskId - Optional specific task ID to archive
+ * @param before - Optional ISO date string; archives tasks completed before this date
+ * @param opts - Additional options (taskIds, includeCancelled, dryRun)
+ * @returns EngineResult with count and list of archived task IDs
+ *
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskArchive(
+  projectRoot: string,
+  taskId?: string,
+  before?: string,
+  opts?: { taskIds?: string[]; includeCancelled?: boolean; dryRun?: boolean },
+): Promise<EngineResult<{ archivedCount: number; archivedTasks: Array<{ id: string }> }>> {
+  try {
+    const accessor = await getTaskAccessor(projectRoot);
+    const taskIds = opts?.taskIds ?? (taskId ? [taskId] : undefined);
+    const result = await archiveTasks(
+      { taskIds, before, includeCancelled: opts?.includeCancelled, dryRun: opts?.dryRun },
+      projectRoot,
+      accessor,
+    );
+    return engineSuccess({
+      archivedCount: result.archived.length,
+      archivedTasks: result.archived.map((id: string) => ({ id })),
+    });
+  } catch (err: unknown) {
+    // T9940: surface real CleoError LAFS codes; non-CleoError falls through
+    // to E_INTERNAL (not the misleading E_NOT_INITIALIZED blanket label).
+    return cleoErrorToEngineResult(err, 'E_INTERNAL', 'Failed to archive tasks');
+  }
+}

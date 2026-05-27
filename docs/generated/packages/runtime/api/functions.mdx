@@ -1,0 +1,233 @@
+---
+title: runtime — Functions
+description: Functions and classes for the runtime package
+---
+
+Functions and classes exported by this package.
+
+## AgentPoller
+
+AgentPoller service — polls peek endpoint AND group conversations. Deduplicates messages by ID across both sources.
+
+**Signature**
+
+```typescript
+typeof AgentPoller
+```
+
+**Methods**
+
+### onMessage()
+
+Register a message handler.
+
+```typescript
+(handler: MessageHandler) => void
+```
+
+### start()
+
+Start the polling loop.
+
+```typescript
+() => void
+```
+
+### stop()
+
+Stop the polling loop.
+
+```typescript
+() => void
+```
+
+### status()
+
+Get poller status.
+
+```typescript
+() => { running: boolean; seenCount: number; }
+```
+
+### pollCycle()
+
+Single poll cycle — peek + group conversations.
+
+```typescript
+() => Promise<void>
+```
+
+### peekMessages()
+
+Peek for messages mentioning this agent. Delegates to transport when available.
+
+```typescript
+() => Promise<ConduitMessage[]>
+```
+
+### pollGroupConversation()
+
+Poll a group conversation for recent messages that  this agent. This is the fix for the group  blind spot.
+
+```typescript
+(conversationId: string) => Promise<ConduitMessage[]>
+```
+
+### headers()
+
+Build auth headers.
+
+```typescript
+() => Record<string, string>
+```
+
+## HeartbeatService
+
+HeartbeatService sends periodic online status to the cloud API.
+
+**Signature**
+
+```typescript
+typeof HeartbeatService
+```
+
+**Methods**
+
+### start()
+
+Start sending heartbeats at the configured interval.
+
+```typescript
+() => void
+```
+
+### stop()
+
+Stop sending heartbeats.
+
+```typescript
+() => void
+```
+
+### status()
+
+Get heartbeat service status.
+
+```typescript
+() => { running: boolean; consecutiveFailures: number; }
+```
+
+### sendHeartbeat()
+
+Send a single heartbeat to the cloud API.
+
+```typescript
+() => Promise<void>
+```
+
+## KeyRotationService
+
+KeyRotationService monitors credential age and auto-rotates when threshold is exceeded.
+
+**Signature**
+
+```typescript
+typeof KeyRotationService
+```
+
+**Methods**
+
+### start()
+
+Start monitoring key age at the configured interval.
+
+```typescript
+() => void
+```
+
+### stop()
+
+Stop monitoring.
+
+```typescript
+() => void
+```
+
+### status()
+
+Get rotation service status.
+
+```typescript
+() => { running: boolean; lastRotationAt: string | null; }
+```
+
+### checkAndRotate()
+
+Check credential age and rotate if needed.
+
+```typescript
+() => Promise<void>
+```
+
+## SseConnectionService
+
+SseConnectionService manages a persistent transport with subscribe() support.
+
+**Signature**
+
+```typescript
+typeof SseConnectionService
+```
+
+**Methods**
+
+### onMessage()
+
+Register a message handler for incoming messages.
+
+```typescript
+(handler: SseMessageHandler) => void
+```
+
+### start()
+
+Start the SSE connection.
+
+```typescript
+() => Promise<void>
+```
+
+### stop()
+
+Stop the connection and clean up.
+
+```typescript
+() => Promise<void>
+```
+
+### status()
+
+Get connection service status.
+
+```typescript
+() => { running: boolean; transportName: string; }
+```
+
+## createRuntime(registry, config)
+
+Create and start a runtime from the agent registry.  Resolves the agent credential, configures the poller, and starts polling. Returns a handle to register message handlers and stop the runtime.
+
+**Signature**
+
+```typescript
+(registry: AgentRegistryAPI, config?: RuntimeConfig) => Promise<RuntimeHandle>
+```
+
+**Parameters**
+
+| Name       | Type               | Description                                      |
+| ---------- | ------------------ | ------------------------------------------------ |
+| `registry` | `AgentRegistryAPI` | AgentRegistryAPI instance for credential lookup. |
+| `config`   | `: RuntimeConfig`  | Optional runtime configuration overrides.        |
+
+**Returns** — A RuntimeHandle with the poller, agentId, and stop function.

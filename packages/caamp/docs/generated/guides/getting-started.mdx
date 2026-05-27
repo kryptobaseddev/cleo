@@ -1,0 +1,249 @@
+---
+title: ''
+---
+
+Key entry-point functions to get started with the library.
+
+> TODO: Add your own content to this guide. The sections below are auto-generated from code.
+
+{/* FORGE:AUTO-START guide-getting-started */}
+
+## Key Functions
+
+### getHarnessFor(provider)
+
+Return the harness implementation for a provider, or `null` if the provider has no first-class harness.
+
+```typescript
+(provider: Provider) => Harness | null
+```
+
+**Example**
+
+```typescript
+const pi = getProvider("pi");
+if (pi) {
+  const harness = getHarnessFor(pi);
+  await harness?.installSkill("/path/to/skill", "my-skill", { kind: "global" });
+}
+```
+
+### getPrimaryHarness()
+
+Return the primary harness declared in the registry, if any.
+
+```typescript
+() => Harness | null
+```
+
+**Example**
+
+```typescript
+const primary = getPrimaryHarness();
+if (primary) {
+  console.log(`Primary harness: ${primary.provider.toolName}`);
+}
+```
+
+### getAllHarnesses()
+
+Return every provider that has a harness implementation.
+
+```typescript
+() => Harness[]
+```
+
+**Example**
+
+```typescript
+for (const harness of getAllHarnesses()) {
+  console.log(harness.provider.id); // "pi", ...
+}
+```
+
+### resolveDefaultTargetProviders(options)
+
+Resolve the default set of target providers when the user has not passed `--agent`, honouring the active `ExclusivityMode`.
+
+```typescript
+(options?: ResolveDefaultTargetProvidersOptions) => Provider[]
+```
+
+**Example**
+
+```typescript
+// Implicit default — used by `caamp skills list` and friends.
+const targets = resolveDefaultTargetProviders();
+
+// Explicit user selection — emits a deprecation warning in `auto` mode
+// when the selection excludes Pi and Pi is installed.
+const explicit = resolveDefaultTargetProviders({
+  explicit: [getProvider('claude-code')!],
+});
+```
+
+### dispatchInstallSkillAcrossProviders(sourcePath, skillName, providers, isGlobal, projectDir)
+
+Install a skill across a mixed set of providers, dispatching each provider to its `Harness` implementation when one exists and falling through to the legacy canonical+symlink installer for generic providers.
+
+```typescript
+(sourcePath: string, skillName: string, providers: Provider[], isGlobal: boolean, projectDir?: string) => Promise<SkillInstallResult>
+```
+
+**Example**
+
+```typescript
+const result = await dispatchInstallSkillAcrossProviders(
+  "/abs/path/to/skill",
+  "my-skill",
+  [getProvider("pi")!, getProvider("claude-code")!],
+  true,
+);
+console.log(result.linkedAgents); // e.g. ["pi", "claude-code"]
+```
+
+### dispatchRemoveSkillAcrossProviders(skillName, providers, isGlobal, projectDir)
+
+Remove a skill across a mixed set of providers, dispatching each provider to its `Harness` implementation when one exists and falling through to the legacy canonical+symlink uninstaller for generic providers.
+
+```typescript
+(skillName: string, providers: Provider[], isGlobal: boolean, projectDir?: string) => Promise<{ removed: string[]; errors: string[]; }>
+```
+
+**Example**
+
+```typescript
+const result = await dispatchRemoveSkillAcrossProviders(
+  "my-skill",
+  [getProvider("pi")!, getProvider("claude-code")!],
+  true,
+);
+console.log(result.removed); // providers the skill was removed from
+```
+
+### registerAdvancedCommands(program)
+
+Registers the `advanced` command group with providers, batch, and instructions subcommands.
+
+```typescript
+(program: Command) => void
+```
+
+**Example**
+
+```bash
+caamp advanced batch --skills-file skills.json
+caamp advanced instructions --content "## Setup" --all
+```
+
+### readConfig(filePath, format)
+
+Read and parse a config file in the specified format.  Dispatches to the appropriate format handler (JSON/JSONC, YAML, or TOML).
+
+```typescript
+(filePath: string, format: ConfigFormat) => Promise<Record<string, unknown>>
+```
+
+**Example**
+
+```typescript
+const config = await readConfig("/path/to/config.json", "jsonc");
+```
+
+### writeConfig(filePath, format, key, serverName, serverConfig)
+
+Write a server entry to a config file, preserving existing content.  Dispatches to the appropriate format handler. For JSONC files, comments are preserved using `jsonc-parser`.
+
+```typescript
+(filePath: string, format: ConfigFormat, key: string, serverName: string, serverConfig: unknown) => Promise<void>
+```
+
+**Example**
+
+```typescript
+await writeConfig("/path/to/config.json", "jsonc", "mcpServers", "my-server", config);
+```
+
+### removeConfig(filePath, format, key, serverName)
+
+Remove a server entry from a config file in the specified format.
+
+```typescript
+(filePath: string, format: ConfigFormat, key: string, serverName: string) => Promise<boolean>
+```
+
+**Example**
+
+```typescript
+const removed = await removeConfig("/path/to/config.json", "jsonc", "mcpServers", "my-server");
+```
+
+### registerInstructionsCommands(program)
+
+Registers the `instructions` command group with inject, check, and update subcommands.
+
+```typescript
+(program: Command) => void
+```
+
+**Example**
+
+```bash
+caamp instructions inject --all
+caamp instructions check --human
+caamp instructions update --yes
+```
+
+### registerMcpCommands(program)
+
+Register the `mcp` command group and all sub-verbs on the root program.
+
+```typescript
+(program: Command) => void
+```
+
+**Example**
+
+```bash
+caamp mcp detect
+caamp mcp list --provider claude-code
+caamp mcp install github --provider claude-desktop -- npx -y @modelcontextprotocol/server-github
+caamp mcp remove github --provider claude-desktop
+```
+
+### registerPiCommands(program)
+
+Register the `pi` command group and all Wave-1 sub-verbs on the root program.
+
+```typescript
+(program: Command) => void
+```
+
+**Example**
+
+```bash
+caamp pi extensions list
+caamp pi sessions list
+caamp pi models list
+caamp pi prompts list
+caamp pi themes list
+caamp pi cant list
+```
+
+### registerSkillsCommands(program)
+
+Registers the `skills` command group with all skill management subcommands.
+
+```typescript
+(program: Command) => void
+```
+
+**Example**
+
+```bash
+caamp skills install owner/repo
+caamp skills list --human
+caamp skills find "testing"
+```
+
+{/* FORGE:AUTO-END guide-getting-started */}

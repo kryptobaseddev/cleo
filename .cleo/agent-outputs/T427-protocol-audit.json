@@ -1,0 +1,158 @@
+{
+  "schema": "1.0.0",
+  "task": "T427",
+  "epic": "T382",
+  "audited_at": "2026-04-08",
+  "auditor": "wave-hygiene-worker",
+  "summary": {
+    "total_protocols": 12,
+    "has_ts_validator": 12,
+    "missing_consult_when": 12,
+    "missing_stage_binding": 12,
+    "missing_at_task": 2,
+    "missing_input_schema": 12,
+    "missing_output_contract": 12,
+    "fully_compliant": 0
+  },
+  "protocols": [
+    {
+      "id": "ARCH",
+      "name": "architecture-decision",
+      "cant_file": "packages/core/src/validation/protocols/cant/architecture-decision.cant",
+      "ts_validator": "packages/core/src/validation/protocols/architecture-decision.ts",
+      "skill_ref": "ct-adr-recorder",
+      "gaps": ["consult-when", "stage", "input", "output"],
+      "has_at_task": true,
+      "has_at_epic": false,
+      "status": "gaps"
+    },
+    {
+      "id": "ART",
+      "name": "artifact-publish",
+      "cant_file": "packages/core/src/validation/protocols/cant/artifact-publish.cant",
+      "ts_validator": "packages/core/src/validation/protocols/artifact-publish.ts",
+      "skill_ref": "ct-artifact-publisher",
+      "gaps": ["consult-when", "stage", "@task", "input", "output"],
+      "has_at_task": false,
+      "has_at_epic": false,
+      "status": "gaps"
+    },
+    {
+      "id": "CONS",
+      "name": "consensus",
+      "cant_file": "packages/core/src/validation/protocols/cant/consensus.cant",
+      "ts_validator": "packages/core/src/validation/protocols/consensus.ts",
+      "skill_ref": "ct-consensus-voter",
+      "gaps": ["consult-when", "stage", "input", "output"],
+      "has_at_task": true,
+      "has_at_epic": true,
+      "status": "gaps"
+    },
+    {
+      "id": "CONT",
+      "name": "contribution",
+      "cant_file": "packages/core/src/validation/protocols/cant/contribution.cant",
+      "ts_validator": "packages/core/src/validation/protocols/contribution.ts",
+      "skill_ref": "ct-contribution",
+      "gaps": ["consult-when", "stage", "input", "output"],
+      "has_at_task": true,
+      "has_at_epic": true,
+      "status": "gaps"
+    },
+    {
+      "id": "DECOMP",
+      "name": "decomposition",
+      "cant_file": "packages/core/src/validation/protocols/cant/decomposition.cant",
+      "ts_validator": "packages/core/src/validation/protocols/decomposition.ts",
+      "skill_ref": "ct-epic-architect",
+      "gaps": ["consult-when", "stage", "input", "output"],
+      "has_at_task": true,
+      "has_at_epic": true,
+      "status": "gaps"
+    },
+    {
+      "id": "IMPL",
+      "name": "implementation",
+      "cant_file": "packages/core/src/validation/protocols/cant/implementation.cant",
+      "ts_validator": "packages/core/src/validation/protocols/implementation.ts",
+      "skill_ref": "ct-task-executor",
+      "gaps": ["consult-when", "stage", "input", "output"],
+      "has_at_task": true,
+      "has_at_epic": true,
+      "status": "gaps"
+    },
+    {
+      "id": "PROV",
+      "name": "provenance",
+      "cant_file": "packages/core/src/validation/protocols/cant/provenance.cant",
+      "ts_validator": "packages/core/src/validation/protocols/provenance.ts",
+      "skill_ref": "ct-provenance-keeper",
+      "gaps": ["consult-when", "stage", "@task", "input", "output"],
+      "has_at_task": false,
+      "has_at_epic": false,
+      "status": "gaps"
+    },
+    {
+      "id": "REL",
+      "name": "release",
+      "cant_file": "packages/core/src/validation/protocols/cant/release.cant",
+      "ts_validator": "packages/core/src/validation/protocols/release.ts",
+      "skill_ref": "ct-release-orchestrator",
+      "gaps": ["consult-when", "stage", "input", "output"],
+      "has_at_task": true,
+      "has_at_epic": true,
+      "status": "gaps"
+    },
+    {
+      "id": "RSCH",
+      "name": "research",
+      "cant_file": "packages/core/src/validation/protocols/cant/research.cant",
+      "ts_validator": "packages/core/src/validation/protocols/research.ts",
+      "skill_ref": "ct-research-agent",
+      "gaps": ["consult-when", "stage", "input", "output"],
+      "has_at_task": true,
+      "has_at_epic": true,
+      "status": "gaps"
+    },
+    {
+      "id": "SPEC",
+      "name": "specification",
+      "cant_file": "packages/core/src/validation/protocols/cant/specification.cant",
+      "ts_validator": "packages/core/src/validation/protocols/specification.ts",
+      "skill_ref": "ct-spec-writer",
+      "gaps": ["consult-when", "stage", "input", "output"],
+      "has_at_task": true,
+      "has_at_epic": true,
+      "status": "gaps"
+    },
+    {
+      "id": "TEST",
+      "name": "testing",
+      "cant_file": "packages/core/src/validation/protocols/cant/testing.cant",
+      "ts_validator": "packages/core/src/validation/protocols/testing.ts",
+      "skill_ref": "ct-ivt-looper",
+      "gaps": ["consult-when", "stage", "input", "output"],
+      "has_at_task": true,
+      "has_at_epic": false,
+      "status": "gaps"
+    },
+    {
+      "id": "VAL",
+      "name": "validation",
+      "cant_file": "packages/core/src/validation/protocols/cant/validation.cant",
+      "ts_validator": "packages/core/src/validation/protocols/validation.ts",
+      "skill_ref": "ct-validator",
+      "gaps": ["consult-when", "stage", "input", "output"],
+      "has_at_task": true,
+      "has_at_epic": true,
+      "status": "gaps"
+    }
+  ],
+  "gap_legend": {
+    "consult-when": "Missing consult-when hint line",
+    "stage": "Missing stage: binding in frontmatter",
+    "input": "Missing input: schema block",
+    "output": "Missing output: contract block",
+    "@task": "Missing @task provenance tag in header comment"
+  }
+}

@@ -1,0 +1,77 @@
+---
+title: cant — API Reference
+description: Full API reference for the cant package
+---
+
+API reference for the `cant` package.
+
+## Functions & Classes
+
+| Symbol                                                                                      | Kind     | Description                                                                      |
+| ------------------------------------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------- |
+| [`parseMarkdownSections()`](/packages/cant/api/functions#parsemarkdownsections)             | function | Parse markdown content into classified sections.  Splits on `##` and `###` he... |
+| [`classifySection()`](/packages/cant/api/functions#classifysection)                         | function | Classify a markdown section based on its heading and content.  Uses heuristic... |
+| [`extractProperties()`](/packages/cant/api/functions#extractproperties)                     | function | Extract key-value properties from markdown bullet lists.  Matches patterns li... |
+| [`extractPermissions()`](/packages/cant/api/functions#extractpermissions)                   | function | Extract permission entries from markdown content.  Handles two formats: 1. St... |
+| [`headingToIdentifier()`](/packages/cant/api/functions#headingtoidentifier)                 | function | Normalize a heading into a valid CANT identifier.  Converts "Code Review Agen... |
+| [`headingToEventName()`](/packages/cant/api/functions#headingtoeventname)                   | function | Map a hook heading to a CAAMP event name.  Converts headings like "On Session... |
+| [`getCaampEvents()`](/packages/cant/api/functions#getcaampevents)                           | function | Get the full set of CAAMP event names.                                           |
+| [`serializeCantDocument()`](/packages/cant/api/functions#serializecantdocument)             | function | Serialize a CANT document IR into .cant file text.  Produces a complete .cant... |
+| [`formatValue()`](/packages/cant/api/functions#formatvalue)                                 | function | Format a property value for .cant output.  - Strings are double-quoted - Arra... |
+| [`propertiesToIR()`](/packages/cant/api/functions#propertiestoir)                           | function | Convert extracted properties to CANT property IR format.  Maps known markdown... |
+| [`migrateMarkdown()`](/packages/cant/api/functions#migratemarkdown)                         | function | Migrate a markdown file to CANT format.  Parses the markdown into sections, c... |
+| [`showDiff()`](/packages/cant/api/functions#showdiff)                                       | function | Show a color-coded diff of the migration result.  Displays: - A summary heade... |
+| [`showSummary()`](/packages/cant/api/functions#showsummary)                                 | function | Generate a simple text-only summary (no color).  Suitable for logging or non-... |
+| [`isNativeAvailable()`](/packages/cant/api/functions#isnativeavailable)                     | function | Check if the native addon is available                                           |
+| [`cantParseNative()`](/packages/cant/api/functions#cantparsenative)                         | function | Parse a CANT message using the native addon                                      |
+| [`cantClassifyDirectiveNative()`](/packages/cant/api/functions#cantclassifydirectivenative) | function | Classify a directive using the native addon                                      |
+| [`initCantParser()`](/packages/cant/api/functions#initcantparser)                           | function | Initialize the CANT parser  With napi-rs native addons, this is a no-op (nati... |
+| [`parseCANTMessage()`](/packages/cant/api/functions#parsecantmessage)                       | function | Parse a CANT message  If the native addon is available, uses the Rust cant-co... |
+| [`initWasm()`](/packages/cant/api/functions#initwasm)                                       | function | Initialize the WASM module Must be called before using any WASM functions        |
+| [`isWasmAvailable()`](/packages/cant/api/functions#iswasmavailable)                         | function | Check if WASM is available                                                       |
+| [`cantParseWASM()`](/packages/cant/api/functions#cantparsewasm)                             | function | Parse a CANT message using WASM                                                  |
+| [`cantClassifyDirectiveWASM()`](/packages/cant/api/functions#cantclassifydirectivewasm)     | function | Classify a directive using WASM                                                  |
+
+## Types & Interfaces
+
+| Symbol                                                                    | Kind      | Description                                                                      |
+| ------------------------------------------------------------------------- | --------- | -------------------------------------------------------------------------------- |
+| [`MigrationOptions`](/packages/cant/api/types#migrationoptions)           | interface | Options controlling migration behavior.                                          |
+| [`MigrationResult`](/packages/cant/api/types#migrationresult)             | interface | Result of migrating a single markdown file.                                      |
+| [`ConvertedFile`](/packages/cant/api/types#convertedfile)                 | interface | A single converted .cant output file.                                            |
+| [`UnconvertedSection`](/packages/cant/api/types#unconvertedsection)       | interface | A section of markdown that was not converted.                                    |
+| [`MarkdownSection`](/packages/cant/api/types#markdownsection)             | interface | A parsed markdown section identified by heading.  Used internally by the mark... |
+| [`SectionClassification`](/packages/cant/api/types#sectionclassification) | type      | Classification of a markdown section for conversion purposes.                    |
+| [`ExtractedProperty`](/packages/cant/api/types#extractedproperty)         | interface | A key-value property extracted from a markdown bullet list.  Matches patterns... |
+| [`ExtractedPermission`](/packages/cant/api/types#extractedpermission)     | interface | A permission entry extracted from markdown.  Matches patterns like...            |
+| [`CantDocumentIR`](/packages/cant/api/types#cantdocumentir)               | interface | Intermediate representation of a CANT document for serialization.  This is th... |
+| [`CantBlockIR`](/packages/cant/api/types#cantblockir)                     | interface | A CANT block (agent, skill, hook, or workflow).                                  |
+| [`CantPropertyIR`](/packages/cant/api/types#cantpropertyir)               | interface | A single property key-value pair.                                                |
+| [`NativeParseResult`](/packages/cant/api/types#nativeparseresult)         | interface | Shape returned by the native Rust WASM cantParse function.                       |
+| [`DirectiveType`](/packages/cant/api/types#directivetype)                 | type      |                                                                                  |
+| [`ParsedCANTMessage`](/packages/cant/api/types#parsedcantmessage)         | interface |                                                                                  |
+
+## Other Exports
+
+| Symbol                                                                          | Kind     | Description |
+| ------------------------------------------------------------------------------- | -------- | ----------- |
+| [`vitest.config.ts`](/packages/cant/api/functions#vitestconfigts)               | file     |             |
+| [`types.ts`](/packages/cant/api/functions#typests)                              | file     |             |
+| [`markdown-parser.ts`](/packages/cant/api/functions#markdown-parserts)          | file     |             |
+| [`serializer.ts`](/packages/cant/api/functions#serializerts)                    | file     |             |
+| [`converter.ts`](/packages/cant/api/functions#converterts)                      | file     |             |
+| [`diff.ts`](/packages/cant/api/functions#diffts)                                | file     |             |
+| [`index.ts`](/packages/cant/api/functions#indexts)                              | file     |             |
+| [`isWasmAvailable`](/packages/cant/api/functions#iswasmavailable)               | variable |             |
+| [`initWasm`](/packages/cant/api/functions#initwasm)                             | variable |             |
+| [`native-loader.ts`](/packages/cant/api/functions#native-loaderts)              | file     |             |
+| [`types.ts`](/packages/cant/api/functions#typests)                              | file     |             |
+| [`parse.ts`](/packages/cant/api/functions#parsets)                              | file     |             |
+| [`index.ts`](/packages/cant/api/functions#indexts)                              | file     |             |
+| [`wasm-loader.ts`](/packages/cant/api/functions#wasm-loaderts)                  | file     |             |
+| [`parse.test.ts`](/packages/cant/api/functions#parsetestts)                     | file     |             |
+| [`converter.test.ts`](/packages/cant/api/functions#convertertestts)             | file     |             |
+| [`diff.test.ts`](/packages/cant/api/functions#difftestts)                       | file     |             |
+| [`markdown-parser.test.ts`](/packages/cant/api/functions#markdown-parsertestts) | file     |             |
+| [`roundtrip.test.ts`](/packages/cant/api/functions#roundtriptestts)             | file     |             |
+| [`serializer.test.ts`](/packages/cant/api/functions#serializertestts)           | file     |             |

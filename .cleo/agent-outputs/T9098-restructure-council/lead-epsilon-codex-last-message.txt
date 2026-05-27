@@ -1,0 +1,3 @@
+Wrote the proposal to [lead-epsilon-codex.md](/mnt/projects/cleocode/.cleo/agent-outputs/T9098-restructure-council/lead-epsilon-codex.md).
+
+It is 100 lines, under the 200-line cap, with 3 code blocks. I folded in Beta because it landed while I was working. No test suite was run since this was a design-only file in the council output directory.

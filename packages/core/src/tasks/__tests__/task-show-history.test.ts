@@ -1,0 +1,304 @@
+/**
+ * Tests for taskShowWithHistory — `cleo show <taskId> --history` surface.
+ *
+ * Verifies:
+ * - Without the flag: data has `task` but no `history` key.
+ * - With the flag: data has `task` + `history` array.
+ * - Tasks with no pipeline record return `history: []` (not an error).
+ *
+ * After T1568 Wave 5, task-engine.ts was deleted. taskShowWithHistory now lives
+ * in packages/core/src/tasks/show.ts. We mock source-level dependencies so that
+ * the real function can run without a database.
+ *
+ * @task T787
+ * @epic T769
+ */
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+// ---------------------------------------------------------------------------
+// Source-level mocks (taskShowWithHistory imports from relative paths, not
+// through @cleocode/core/internal).
+// ---------------------------------------------------------------------------
+
+vi.mock('../../store/data-accessor.js', () => ({
+  getAccessor: vi.fn(),
+  getTaskAccessor: vi.fn(),
+}));
+
+vi.mock('../../lifecycle/index.js', () => ({
+  getLifecycleStatus: vi.fn(),
+}));
+
+vi.mock('../../store/attachment-store.js', () => ({
+  createAttachmentStore: vi.fn(() => ({
+    listByOwner: vi.fn(async () => [
+      { id: 'att_design', attachment: { kind: 'blob' } },
+      { id: 'att_adr', attachment: { kind: 'url' } },
+    ]),
+    getExtras: vi.fn(async (id: string) =>
+      id === 'att_design' ? { slug: 'design-note', type: 'research' } : { type: 'adr' },
+    ),
+  })),
+}));
+
+vi.mock('../compute-task-view.js', () => ({
+  computeTaskView: vi.fn(async () => null),
+}));
+
+// ---------------------------------------------------------------------------
+// Imports (after mocks)
+// ---------------------------------------------------------------------------
+
+import { getLifecycleStatus } from '../../lifecycle/index.js';
+import { getAccessor, getTaskAccessor } from '../../store/data-accessor.js';
+import { taskShowOperation, taskShowWithHistory } from '../show.js';
+
+const mockGetAccessor = vi.mocked(getAccessor);
+// canonical replacement (T9054) — show.ts calls getTaskAccessor
+const mockGetTaskAccessor = vi.mocked(getTaskAccessor);
+const mockGetLifecycleStatus = vi.mocked(getLifecycleStatus);
+
+// ---------------------------------------------------------------------------
+// Fixtures
+// ---------------------------------------------------------------------------
+
+/** Minimal Task shape satisfying taskToRecord conversion. */
+const MOCK_TASK = {
+  id: 'T001',
+  title: 'Test task',
+  description: 'A test task',
+  status: 'active' as const,
+  priority: 'medium' as const,
+  type: 'task' as const,
+  phase: undefined,
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-02T00:00:00.000Z',
+  completedAt: null,
+  cancelledAt: null,
+  parentId: undefined,
+  position: 0,
+  positionVersion: 0,
+  depends: ['T000'],
+  relates: [{ taskId: 'T002', type: 'references' as const, reason: 'context' }],
+  files: [],
+  acceptance: [],
+  notes: undefined,
+  labels: [],
+  size: null,
+  epicLifecycle: null,
+  noAutoComplete: null,
+  verification: null,
+  origin: null,
+  cancellationReason: undefined,
+  blockedBy: 'T999',
+  pipelineStage: null,
+};
+
+/** Full DataAccessor stub that showTask can use without hitting the DB. */
+function makeAccessorStub() {
+  return {
+    loadSingleTask: vi.fn(async (id: string) => (id === 'T001' ? MOCK_TASK : null)),
+    loadArchive: vi.fn().mockResolvedValue(null),
+    getChildren: vi.fn().mockResolvedValue([{ ...MOCK_TASK, id: 'T003', title: 'Child task' }]),
+    loadTasks: vi
+      .fn()
+      .mockResolvedValue([{ ...MOCK_TASK, id: 'T000', title: 'Dependency', status: 'done' }]),
+    getDependents: vi.fn().mockResolvedValue([]),
+    getAncestorChain: vi.fn().mockResolvedValue([]),
+  };
+}
+
+/** Minimal lifecycle status returned by getLifecycleStatus. */
+const MOCK_LIFECYCLE_STATUS = {
+  epicId: 'T001',
+  title: 'Test task',
+  currentStage: 'implementation' as const,
+  stages: [
+    {
+      stage: 'research',
+      status: 'completed',
+      completedAt: '2026-01-01T10:00:00Z',
+      outputFile: 'research.md',
+    },
+    {
+      stage: 'specification',
+      status: 'completed',
+      completedAt: '2026-01-02T10:00:00Z',
+      outputFile: null,
+    },
+    { stage: 'implementation', status: 'in_progress', completedAt: undefined, outputFile: null },
+    { stage: 'testing', status: 'not_started', completedAt: undefined, outputFile: null },
+    { stage: 'validation', status: 'not_started', completedAt: undefined, outputFile: null },
+    { stage: 'deployment', status: 'not_started', completedAt: undefined, outputFile: null },
+    { stage: 'contribution', status: 'not_started', completedAt: undefined, outputFile: null },
+  ],
+  nextStage: 'testing' as const,
+  blockedOn: [],
+  initialized: true,
+};
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe('taskShowWithHistory', () => {
+  const projectRoot = '/mock/project';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    const stub = makeAccessorStub() as ReturnType<typeof getAccessor> extends Promise<infer T>
+      ? T
+      : never;
+    // Both deprecated shim and canonical replacement (T9054)
+    mockGetAccessor.mockResolvedValue(stub);
+    mockGetTaskAccessor.mockResolvedValue(stub);
+  });
+
+  describe('without --history flag', () => {
+    it('returns success with task but no history key', async () => {
+      const result = await taskShowWithHistory(projectRoot, 'T001', false);
+
+      expect(result.success).toBe(true);
+      expect(result.data?.task).toBeDefined();
+      expect(result.data?.task.id).toBe('T001');
+      expect(result.data?.task.relationCounts).toEqual({
+        depends: 1,
+        blockedBy: 1,
+        relates: 1,
+        children: 1,
+        docs: 2,
+      });
+      // history key must be absent when flag is not set
+      expect('history' in (result.data ?? {})).toBe(false);
+      expect(mockGetLifecycleStatus).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('with --history flag', () => {
+    it('returns success with task and history array when pipeline exists', async () => {
+      mockGetLifecycleStatus.mockResolvedValue(
+        MOCK_LIFECYCLE_STATUS as ReturnType<typeof getLifecycleStatus> extends Promise<infer T>
+          ? T
+          : never,
+      );
+
+      const result = await taskShowWithHistory(projectRoot, 'T001', true);
+
+      expect(result.success).toBe(true);
+      expect(result.data?.task).toBeDefined();
+      expect(result.data?.task.id).toBe('T001');
+      expect(Array.isArray(result.data?.history)).toBe(true);
+      expect(mockGetLifecycleStatus).toHaveBeenCalledWith(projectRoot, { taskId: 'T001' });
+    });
+
+    it('history entries have the required shape', async () => {
+      mockGetLifecycleStatus.mockResolvedValue(
+        MOCK_LIFECYCLE_STATUS as ReturnType<typeof getLifecycleStatus> extends Promise<infer T>
+          ? T
+          : never,
+      );
+
+      const result = await taskShowWithHistory(projectRoot, 'T001', true);
+
+      const history = result.data?.history ?? [];
+      expect(history.length).toBeGreaterThan(0);
+
+      for (const entry of history) {
+        expect(typeof entry.stage).toBe('string');
+        expect(['not_started', 'in_progress', 'completed', 'skipped', 'failed']).toContain(
+          entry.status,
+        );
+        // startedAt is string|null
+        expect(entry.startedAt === null || typeof entry.startedAt === 'string').toBe(true);
+        // completedAt is string|null
+        expect(entry.completedAt === null || typeof entry.completedAt === 'string').toBe(true);
+        // outputFile is string|null
+        expect(entry.outputFile === null || typeof entry.outputFile === 'string').toBe(true);
+      }
+    });
+
+    it('maps completedAt and outputFile from lifecycle status', async () => {
+      mockGetLifecycleStatus.mockResolvedValue(
+        MOCK_LIFECYCLE_STATUS as ReturnType<typeof getLifecycleStatus> extends Promise<infer T>
+          ? T
+          : never,
+      );
+
+      const result = await taskShowWithHistory(projectRoot, 'T001', true);
+      const history = result.data?.history ?? [];
+
+      const researchEntry = history.find((e) => e.stage === 'research');
+      expect(researchEntry).toBeDefined();
+      expect(researchEntry?.status).toBe('completed');
+      expect(researchEntry?.completedAt).toBe('2026-01-01T10:00:00Z');
+      expect(researchEntry?.outputFile).toBe('research.md');
+
+      const testingEntry = history.find((e) => e.stage === 'testing');
+      expect(testingEntry).toBeDefined();
+      expect(testingEntry?.status).toBe('not_started');
+      expect(testingEntry?.completedAt).toBeNull();
+      expect(testingEntry?.outputFile).toBeNull();
+    });
+
+    it('returns history: [] when task has no pipeline (not an error)', async () => {
+      // Simulate getLifecycleStatus throwing (no pipeline record)
+      mockGetLifecycleStatus.mockRejectedValue(new Error('No pipeline found for task T001'));
+
+      const result = await taskShowWithHistory(projectRoot, 'T001', true);
+
+      expect(result.success).toBe(true);
+      expect(result.data?.task.id).toBe('T001');
+      expect(result.data?.history).toEqual([]);
+    });
+
+    it('returns history: [] for uninitialized pipeline', async () => {
+      // getLifecycleStatus returns initialized: false with default stage list
+      mockGetLifecycleStatus.mockResolvedValue({
+        epicId: 'T001',
+        currentStage: null,
+        stages: [
+          { stage: 'research', status: 'not_started' },
+          { stage: 'specification', status: 'not_started' },
+        ],
+        nextStage: 'research',
+        blockedOn: [],
+        initialized: false,
+      } as ReturnType<typeof getLifecycleStatus> extends Promise<infer T> ? T : never);
+
+      const result = await taskShowWithHistory(projectRoot, 'T001', true);
+
+      expect(result.success).toBe(true);
+      expect(Array.isArray(result.data?.history)).toBe(true);
+      // Uninitialized pipeline still returns stage list with not_started statuses
+      const history = result.data?.history ?? [];
+      expect(history.every((e) => e.status === 'not_started')).toBe(true);
+    });
+  });
+
+  describe('taskShowOperation --relations', () => {
+    it('returns compact counts by default and expands relation/doc lists when requested', async () => {
+      const result = await taskShowOperation(projectRoot, { taskId: 'T001', relations: true });
+
+      expect(result.success).toBe(true);
+      if (!result.success) throw new Error('expected success');
+      expect(result.data.task.relationCounts).toEqual({
+        depends: 1,
+        blockedBy: 1,
+        relates: 1,
+        children: 1,
+        docs: 2,
+      });
+      expect(result.data.relations).toEqual({
+        depends: ['T000'],
+        blockedBy: ['T999'],
+        relates: [{ taskId: 'T002', type: 'references', reason: 'context' }],
+        children: ['T003'],
+        docs: [
+          { attachmentId: 'att_design', kind: 'blob', slug: 'design-note', type: 'research' },
+          { attachmentId: 'att_adr', kind: 'url', type: 'adr' },
+        ],
+      });
+    });
+  });
+});

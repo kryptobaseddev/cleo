@@ -1,0 +1,852 @@
+/**
+ * Marker-based instruction file injection
+ *
+ * Injects content blocks between CAAMP markers in instruction files
+ * (CLAUDE.md, AGENTS.md, GEMINI.md) and agent-definition files
+ * (cleo-subagent.md, seed agent profiles) per provider's native folder.
+ */
+
+import { existsSync } from 'node:fs';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
+import type { InjectionCheckResult, InjectionStatus, Provider } from '../../types.js';
+import { getProvider, getProviderInstructionReferences } from '../registry/providers.js';
+import { buildInjectionContent, type InjectionTemplate } from './templates.js';
+
+const MARKER_START = '<!-- CAAMP:START -->';
+const MARKER_END = '<!-- CAAMP:END -->';
+const MARKER_PATTERN = /<!-- CAAMP:START -->[\s\S]*?<!-- CAAMP:END -->/g;
+const MARKER_PATTERN_SINGLE = /<!-- CAAMP:START -->[\s\S]*?<!-- CAAMP:END -->/;
+
+// ── Block parsing ──────────────────────────────────────────────────────────
+
+/**
+ * A single parsed CAAMP block extracted from a file.
+ *
+ * @public
+ */
+export interface CaampBlock {
+  /** Raw text of the entire block including markers. */
+  raw: string;
+  /** Trimmed content between the markers. */
+  content: string;
+  /** Zero-based character offset of the start of the block in the file. */
+  startIndex: number;
+  /** Zero-based character offset immediately after the block in the file. */
+  endIndex: number;
+}
+
+/**
+ * Parse all CAAMP blocks from a file's content string.
+ *
+ * Returns an array of {@link CaampBlock} objects in order of appearance.
+ * Blocks with malformed markers (START without matching END) are silently
+ * skipped to avoid crashing on corrupted files.
+ *
+ * @param fileContent - Raw text content of the file
+ * @returns Array of parsed CAAMP blocks
+ *
+ * @public
+ */
+export function parseCaampBlocks(fileContent: string): CaampBlock[] {
+  const blocks: CaampBlock[] = [];
+  const pattern = /<!-- CAAMP:START -->([\s\S]*?)<!-- CAAMP:END -->/g;
+
+  for (let match = pattern.exec(fileContent); match !== null; match = pattern.exec(fileContent)) {
+    const raw = match[0];
+    const innerContent = match[1] ?? '';
+    blocks.push({
+      raw,
+      content: innerContent.trim(),
+      startIndex: match.index,
+      endIndex: match.index + raw.length,
+    });
+  }
+
+  return blocks;
+}
+
+/**
+ * Result of deduplicating CAAMP blocks in a single file.
+ *
+ * @public
+ */
+export interface DedupeResult {
+  /** Absolute path to the file that was processed. */
+  filePath: string;
+  /** Number of duplicate blocks removed. */
+  removed: number;
+  /** Number of unique blocks kept. */
+  kept: number;
+  /** `true` if the file was modified on disk; `false` if it was already clean. */
+  modified: boolean;
+}
+
+/**
+ * Deduplicate CAAMP blocks in a file by content.
+ *
+ * Groups all `<!-- CAAMP:START -->...<!-- CAAMP:END -->` blocks by their
+ * trimmed inner content. For each group that has more than one block, keeps
+ * only the **last** occurrence (most recently written) and removes the earlier
+ * duplicates. Blocks with distinct contents are preserved in their original
+ * relative order.
+ *
+ * Idempotent: calling this on an already-clean file returns `modified: false`
+ * and makes no filesystem writes.
+ *
+ * @param filePath - Absolute path to the file to deduplicate
+ * @returns Dedup summary
+ *
+ * @remarks
+ * "Last occurrence wins" matches the behaviour of CLEO's injection chain,
+ * which writes the canonical `@~/.local/share/cleo/…` path on every session.
+ * Stale temp-path blocks from earlier sessions therefore have earlier indices
+ * and are removed, leaving the canonical block.
+ *
+ * @example
+ * ```typescript
+ * const result = await dedupeFile("/home/user/.agents/AGENTS.md");
+ * console.log(`Removed ${result.removed} duplicate(s)`);
+ * ```
+ *
+ * @public
+ */
+export async function dedupeFile(filePath: string): Promise<DedupeResult> {
+  if (!existsSync(filePath)) {
+    return { filePath, removed: 0, kept: 0, modified: false };
+  }
+
+  const fileContent = await readFile(filePath, 'utf-8');
+  const blocks = parseCaampBlocks(fileContent);
+
+  if (blocks.length === 0) {
+    return { filePath, removed: 0, kept: 0, modified: false };
+  }
+
+  // Group by trimmed content — last occurrence wins
+  const lastByContent = new Map<string, CaampBlock>();
+  for (const block of blocks) {
+    lastByContent.set(block.content, block);
+  }
+
+  const keepSet = new Set<CaampBlock>(lastByContent.values());
+  const removed = blocks.length - keepSet.size;
+
+  if (removed === 0) {
+    // Already clean
+    return { filePath, removed: 0, kept: blocks.length, modified: false };
+  }
+
+  // Rebuild file content: walk through original text, emit blocks that are
+  // in keepSet and skip duplicates. Non-block text between blocks is preserved.
+  let result = '';
+  let cursor = 0;
+
+  for (const block of blocks) {
+    // Emit any non-block text before this block
+    result += fileContent.slice(cursor, block.startIndex);
+    cursor = block.endIndex;
+
+    if (keepSet.has(block)) {
+      result += block.raw;
+    }
+    // Removed duplicates contribute nothing — surrounding whitespace is
+    // normalized by the final collapse step below.
+  }
+
+  // Emit any trailing text after the last block
+  result += fileContent.slice(cursor);
+
+  // Normalize: collapse 3+ consecutive newlines → 2, trim trailing whitespace
+  result = result.replace(/\n{3,}/g, '\n\n').trimEnd() + '\n';
+
+  await writeFile(filePath, result, 'utf-8');
+
+  return { filePath, removed, kept: keepSet.size, modified: true };
+}
+
+/**
+ * Deduplicate CAAMP blocks across multiple files.
+ *
+ * Runs {@link dedupeFile} on each path in order and collects results.
+ * Files that do not exist are skipped silently (their result has `removed: 0`).
+ *
+ * @param filePaths - Array of absolute file paths to process
+ * @returns Array of results, one per input path
+ *
+ * @example
+ * ```typescript
+ * const results = await dedupeFiles([
+ *   "/home/user/.agents/AGENTS.md",
+ *   "/project/AGENTS.md",
+ * ]);
+ * const totalRemoved = results.reduce((n, r) => n + r.removed, 0);
+ * console.log(`Removed ${totalRemoved} duplicate(s) across ${results.length} files`);
+ * ```
+ *
+ * @public
+ */
+export async function dedupeFiles(filePaths: string[]): Promise<DedupeResult[]> {
+  const results: DedupeResult[] = [];
+  for (const filePath of filePaths) {
+    results.push(await dedupeFile(filePath));
+  }
+  return results;
+}
+
+/**
+ * Check the status of a CAAMP injection block in an instruction file.
+ *
+ * Returns the injection status:
+ * - `"missing"` - File does not exist
+ * - `"none"` - File exists but has no CAAMP markers
+ * - `"current"` - CAAMP block exists and matches expected content (or no expected content given)
+ * - `"outdated"` - CAAMP block exists but differs from expected content
+ *
+ * @param filePath - Absolute path to the instruction file
+ * @param expectedContent - Optional expected content to compare against
+ * @returns The injection status
+ *
+ * @remarks
+ * Does not modify the file. Safe to call repeatedly for status checks.
+ *
+ * @example
+ * ```typescript
+ * const status = await checkInjection("/project/CLAUDE.md", expectedContent);
+ * if (status === "outdated") {
+ *   console.log("CAAMP injection needs updating");
+ * }
+ * ```
+ *
+ * @public
+ */
+export async function checkInjection(
+  filePath: string,
+  expectedContent?: string,
+): Promise<InjectionStatus> {
+  if (!existsSync(filePath)) return 'missing';
+
+  const content = await readFile(filePath, 'utf-8');
+
+  if (!MARKER_PATTERN_SINGLE.test(content)) return 'none';
+
+  if (expectedContent) {
+    const blockContent = extractBlock(content);
+    if (blockContent && blockContent.trim() === expectedContent.trim()) {
+      return 'current';
+    }
+    return 'outdated';
+  }
+
+  return 'current';
+}
+
+/** Extract the content between CAAMP markers */
+function extractBlock(content: string): string | null {
+  const match = content.match(MARKER_PATTERN_SINGLE);
+  if (!match) return null;
+
+  return match[0].replace(MARKER_START, '').replace(MARKER_END, '').trim();
+}
+
+/** Build the injection block */
+function buildBlock(content: string): string {
+  return `${MARKER_START}\n${content}\n${MARKER_END}`;
+}
+
+/**
+ * Inject content into an instruction file between CAAMP markers.
+ *
+ * Behavior depends on the file state:
+ * - File does not exist: creates the file with the injection block → `"created"`
+ * - File exists without markers: prepends the injection block → `"added"`
+ * - File exists with multiple markers (duplicates): consolidates into single block → `"consolidated"`
+ * - File exists with markers, content differs: replaces the block → `"updated"`
+ * - File exists with markers, content matches: no-op → `"intact"`
+ *
+ * This function is **idempotent** — calling it multiple times with the same
+ * content will not modify the file after the first write.
+ *
+ * @param filePath - Absolute path to the instruction file
+ * @param content - Content to inject between CAAMP markers
+ * @returns Action taken: `"created"`, `"added"`, `"consolidated"`, `"updated"`, or `"intact"`
+ *
+ * @remarks
+ * Handles duplicate marker consolidation automatically. When multiple CAAMP
+ * blocks are detected (from manual edits or bugs), they are merged into one.
+ *
+ * @example
+ * ```typescript
+ * const action = await inject("/project/CLAUDE.md", "## My Config\nSome content");
+ * console.log(`File ${action}`); // "created" on first call, "intact" on subsequent
+ * ```
+ *
+ * @public
+ */
+export async function inject(
+  filePath: string,
+  content: string,
+): Promise<'created' | 'added' | 'consolidated' | 'updated' | 'intact'> {
+  const block = buildBlock(content);
+
+  // Ensure parent directory exists
+  await mkdir(dirname(filePath), { recursive: true });
+
+  if (!existsSync(filePath)) {
+    // Create new file with injection block
+    await writeFile(filePath, `${block}\n`, 'utf-8');
+    return 'created';
+  }
+
+  const existing = await readFile(filePath, 'utf-8');
+
+  // Find all CAAMP blocks in the file
+  const matches = existing.match(MARKER_PATTERN);
+
+  if (matches && matches.length > 0) {
+    // Check if there are multiple duplicate blocks
+    if (matches.length > 1) {
+      // Consolidate all blocks into a single clean block
+      const updated = existing
+        .replace(MARKER_PATTERN, '')
+        .replace(/^\n{2,}/, '\n')
+        .trim();
+
+      // Write the clean content with a single block
+      const finalContent = updated ? `${block}\n\n${updated}` : `${block}\n`;
+      await writeFile(filePath, finalContent, 'utf-8');
+      return 'consolidated';
+    }
+
+    // Check if existing content already matches (idempotency)
+    const existingBlock = extractBlock(existing);
+    if (existingBlock !== null && existingBlock.trim() === content.trim()) {
+      return 'intact';
+    }
+
+    // Replace existing block with new content
+    const updated = existing.replace(MARKER_PATTERN_SINGLE, block);
+    await writeFile(filePath, updated, 'utf-8');
+    return 'updated';
+  }
+
+  // Prepend block to existing content
+  const updated = `${block}\n\n${existing}`;
+  await writeFile(filePath, updated, 'utf-8');
+  return 'added';
+}
+
+/**
+ * Remove the CAAMP injection block from an instruction file.
+ *
+ * If removing the block would leave the file empty, the file is deleted entirely.
+ *
+ * @param filePath - Absolute path to the instruction file
+ * @returns `true` if a CAAMP block was found and removed, `false` otherwise
+ *
+ * @remarks
+ * Cleans up any leftover blank lines after removing the block. If the file
+ * would be entirely empty after removal, the file itself is deleted.
+ *
+ * @example
+ * ```typescript
+ * const removed = await removeInjection("/project/CLAUDE.md");
+ * ```
+ *
+ * @public
+ */
+export async function removeInjection(filePath: string): Promise<boolean> {
+  if (!existsSync(filePath)) return false;
+
+  const content = await readFile(filePath, 'utf-8');
+  if (!MARKER_PATTERN.test(content)) return false;
+
+  const cleaned = content
+    .replace(MARKER_PATTERN, '')
+    .replace(/^\n{2,}/, '\n')
+    .trim();
+
+  if (!cleaned) {
+    // File would be empty - remove it entirely
+    const { rm } = await import('node:fs/promises');
+    await rm(filePath);
+  } else {
+    await writeFile(filePath, `${cleaned}\n`, 'utf-8');
+  }
+
+  return true;
+}
+
+/**
+ * Check injection status across all providers' instruction files.
+ *
+ * Deduplicates by file path since multiple providers may share the same
+ * instruction file (e.g. many providers use `AGENTS.md`).
+ *
+ * @param providers - Array of providers to check
+ * @param projectDir - Absolute path to the project directory
+ * @param scope - Whether to check project or global instruction files
+ * @param expectedContent - Optional expected content to compare against
+ * @returns Array of injection check results, one per unique instruction file
+ *
+ * @remarks
+ * Multiple providers may share the same instruction file (e.g. many use
+ * `AGENTS.md`). This function deduplicates to avoid redundant file reads.
+ *
+ * @example
+ * ```typescript
+ * const results = await checkAllInjections(providers, "/project", "project", expected);
+ * const outdated = results.filter(r => r.status === "outdated");
+ * ```
+ *
+ * @public
+ */
+export async function checkAllInjections(
+  providers: Provider[],
+  projectDir: string,
+  scope: 'project' | 'global',
+  expectedContent?: string,
+): Promise<InjectionCheckResult[]> {
+  const results: InjectionCheckResult[] = [];
+  const checked = new Set<string>();
+
+  for (const provider of providers) {
+    const filePath =
+      scope === 'global'
+        ? join(provider.pathGlobal, provider.instructFile)
+        : join(projectDir, provider.instructFile);
+
+    // Skip duplicates (multiple providers share same instruction file)
+    if (checked.has(filePath)) continue;
+    checked.add(filePath);
+
+    const status = await checkInjection(filePath, expectedContent);
+
+    results.push({
+      file: filePath,
+      provider: provider.id,
+      status,
+      fileExists: existsSync(filePath),
+    });
+  }
+
+  return results;
+}
+
+/**
+ * Inject content into all providers' instruction files.
+ *
+ * Deduplicates by file path to avoid injecting the same file multiple times.
+ *
+ * @param providers - Array of providers to inject into
+ * @param projectDir - Absolute path to the project directory
+ * @param scope - Whether to target project or global instruction files
+ * @param content - Content to inject between CAAMP markers
+ * @returns Map of file path to action taken (`"created"`, `"added"`, `"consolidated"`, `"updated"`, or `"intact"`)
+ *
+ * @remarks
+ * Providers sharing the same instruction file are only written once to avoid
+ * conflicting concurrent writes.
+ *
+ * @example
+ * ```typescript
+ * const results = await injectAll(providers, "/project", "project", content);
+ * for (const [file, action] of results) {
+ *   console.log(`${file}: ${action}`);
+ * }
+ * ```
+ *
+ * @public
+ */
+export async function injectAll(
+  providers: Provider[],
+  projectDir: string,
+  scope: 'project' | 'global',
+  content: string,
+): Promise<Map<string, 'created' | 'added' | 'consolidated' | 'updated' | 'intact'>> {
+  const results = new Map<string, 'created' | 'added' | 'consolidated' | 'updated' | 'intact'>();
+  const injected = new Set<string>();
+
+  for (const provider of providers) {
+    const filePath =
+      scope === 'global'
+        ? join(provider.pathGlobal, provider.instructFile)
+        : join(projectDir, provider.instructFile);
+
+    // Skip duplicates
+    if (injected.has(filePath)) continue;
+    injected.add(filePath);
+
+    const action = await inject(filePath, content);
+    results.set(filePath, action);
+  }
+
+  return results;
+}
+
+// ── Provider Instruction File API ─────────────────────────────────
+
+/**
+ * Options for ensuring a provider instruction file.
+ *
+ * @public
+ */
+export interface EnsureProviderInstructionFileOptions {
+  /**
+   * `@` references to inject (e.g. `["@AGENTS.md"]`).
+   *
+   * When omitted or `undefined`, the references declared in the CAAMP provider
+   * registry (`provider.instructionReferences`) are used as the default. Callers
+   * that supply an explicit array always take precedence over the registry default.
+   *
+   * @defaultValue Registry `instructionReferences` for the provider
+   */
+  references?: string[];
+  /** Optional inline content blocks. @defaultValue `undefined` */
+  content?: string[];
+  /** Whether this is a global or project-level file. @defaultValue `"project"` */
+  scope?: 'project' | 'global';
+}
+
+/**
+ * Result of ensuring a provider instruction file.
+ *
+ * @public
+ */
+export interface EnsureProviderInstructionFileResult {
+  /** Absolute path to the instruction file. */
+  filePath: string;
+  /** Instruction file name from the provider registry. */
+  instructFile: string;
+  /** Action taken. */
+  action: 'created' | 'added' | 'consolidated' | 'updated' | 'intact';
+  /** Provider ID. */
+  providerId: string;
+}
+
+/**
+ * Ensure a provider's instruction file exists with the correct CAAMP block.
+ *
+ * This is the canonical API for adapters and external packages to manage
+ * provider instruction files. Instead of directly creating/modifying
+ * CLAUDE.md, GEMINI.md, etc., callers should use this function to
+ * delegate instruction file management to CAAMP.
+ *
+ * The instruction file name is resolved from CAAMP's provider registry
+ * (single source of truth), not hardcoded by the caller.
+ *
+ * @remarks
+ * The instruction file name is resolved from CAAMP's provider registry
+ * (single source of truth), not hardcoded by the caller.
+ *
+ * @param providerId - Provider ID from the registry (e.g. `"claude-code"`, `"gemini-cli"`)
+ * @param projectDir - Absolute path to the project directory
+ * @param options - References, content, and scope configuration
+ * @returns Result with file path, action taken, and provider metadata
+ * @throws Error if the provider ID is not found in the registry
+ *
+ * @example
+ * ```typescript
+ * const result = await ensureProviderInstructionFile("claude-code", "/project", {
+ *   references: ["\@AGENTS.md"],
+ * });
+ * ```
+ *
+ * @public
+ */
+export async function ensureProviderInstructionFile(
+  providerId: string,
+  projectDir: string,
+  options: EnsureProviderInstructionFileOptions,
+): Promise<EnsureProviderInstructionFileResult> {
+  const provider = getProvider(providerId);
+  if (!provider) {
+    throw new Error(`Unknown provider: "${providerId}". Check CAAMP provider registry.`);
+  }
+
+  const scope = options.scope ?? 'project';
+  const filePath =
+    scope === 'global'
+      ? join(provider.pathGlobal, provider.instructFile)
+      : join(projectDir, provider.instructFile);
+
+  // Fall back to the registry default when the caller omits references.
+  const references = options.references ?? getProviderInstructionReferences(providerId);
+
+  const template: InjectionTemplate = {
+    references,
+    content: options.content,
+  };
+
+  const injectionContent = buildInjectionContent(template);
+  const action = await inject(filePath, injectionContent);
+
+  return {
+    filePath,
+    instructFile: provider.instructFile,
+    action,
+    providerId: provider.id,
+  };
+}
+
+/**
+ * Ensure instruction files for multiple providers at once.
+ *
+ * Deduplicates by file path — providers sharing the same instruction file
+ * (e.g. many providers use AGENTS.md) are only written once.
+ *
+ * @remarks
+ * Providers sharing the same instruction file (e.g. many use `AGENTS.md`)
+ * are only written once, avoiding duplicate blocks.
+ *
+ * @param providerIds - Array of provider IDs from the registry
+ * @param projectDir - Absolute path to the project directory
+ * @param options - References, content, and scope configuration
+ * @returns Array of results, one per unique instruction file
+ * @throws Error if any provider ID is not found in the registry
+ *
+ * @example
+ * ```typescript
+ * const results = await ensureAllProviderInstructionFiles(
+ *   ["claude-code", "cursor", "gemini-cli"],
+ *   "/project",
+ *   { references: ["\@AGENTS.md"] },
+ * );
+ * ```
+ *
+ * @public
+ */
+export async function ensureAllProviderInstructionFiles(
+  providerIds: string[],
+  projectDir: string,
+  options: EnsureProviderInstructionFileOptions,
+): Promise<EnsureProviderInstructionFileResult[]> {
+  const results: EnsureProviderInstructionFileResult[] = [];
+  const processed = new Set<string>();
+
+  for (const providerId of providerIds) {
+    const provider = getProvider(providerId);
+    if (!provider) {
+      throw new Error(`Unknown provider: "${providerId}". Check CAAMP provider registry.`);
+    }
+
+    const scope = options.scope ?? 'project';
+    const filePath =
+      scope === 'global'
+        ? join(provider.pathGlobal, provider.instructFile)
+        : join(projectDir, provider.instructFile);
+
+    // Skip duplicates (multiple providers may share the same instruction file)
+    if (processed.has(filePath)) continue;
+    processed.add(filePath);
+
+    // Fall back to the registry default when the caller omits references.
+    const references = options.references ?? getProviderInstructionReferences(providerId);
+
+    const template: InjectionTemplate = {
+      references,
+      content: options.content,
+    };
+
+    const injectionContent = buildInjectionContent(template);
+    const action = await inject(filePath, injectionContent);
+
+    results.push({
+      filePath,
+      instructFile: provider.instructFile,
+      action,
+      providerId: provider.id,
+    });
+  }
+
+  return results;
+}
+
+// ── Per-Provider Agent Folder API ─────────────────────────────────
+
+/**
+ * Known provider IDs that have a defined agent folder path.
+ *
+ * @public
+ */
+export type KnownProviderAgentFolderId =
+  | 'claude-code'
+  | 'claude-sdk'
+  | 'opencode'
+  | 'codex'
+  | 'cursor'
+  | 'pi'
+  | 'kimi'
+  | 'gemini-cli'
+  | 'openai-sdk';
+
+/**
+ * Resolve the native agent-definition folder path for a given provider.
+ *
+ * Each AI provider reads agent-definition files (e.g. `cleo-subagent.md`,
+ * seed agent profiles) from its own platform-specific directory. This
+ * function returns the correct path per provider so the CAAMP injector can
+ * write agent files to the right location for every enabled provider.
+ *
+ * Follows XDG conventions (`~/.config/<provider>/agents/`) for providers
+ * that do not have a pre-existing dotfolder convention. Claude Code and
+ * Claude SDK both share `~/.claude/agents/` to match the Claude Code
+ * native agent-loading path.
+ *
+ * Returns `null` for unknown provider IDs so callers can handle the gap
+ * without throwing.
+ *
+ * @param providerId - Provider ID from the CAAMP registry (e.g. `"claude-code"`, `"opencode"`)
+ * @returns Absolute path to the provider's agent folder, or `null` if the provider is unknown
+ *
+ * @example
+ * ```typescript
+ * const folder = getProviderAgentFolder("claude-code");
+ * // => "/home/user/.claude/agents"
+ *
+ * const folder2 = getProviderAgentFolder("opencode");
+ * // => "/home/user/.config/opencode/agents"
+ *
+ * const folder3 = getProviderAgentFolder("unknown-provider");
+ * // => null
+ * ```
+ *
+ * @public
+ */
+export function getProviderAgentFolder(providerId: string): string | null {
+  const home = homedir();
+
+  switch (providerId as KnownProviderAgentFolderId) {
+    case 'claude-code':
+    case 'claude-sdk':
+      return join(home, '.claude', 'agents');
+    case 'opencode':
+      return join(home, '.config', 'opencode', 'agents');
+    case 'codex':
+      return join(home, '.config', 'codex', 'agents');
+    case 'cursor':
+      return join(home, '.cursor', 'agents');
+    case 'pi':
+      return join(home, '.config', 'pi', 'agents');
+    case 'kimi':
+      return join(home, '.config', 'kimi', 'agents');
+    case 'gemini-cli':
+      return join(home, '.config', 'gemini', 'agents');
+    case 'openai-sdk':
+      return join(home, '.config', 'openai', 'agents');
+    default:
+      return null;
+  }
+}
+
+/**
+ * Result of writing an agent-definition file to a single provider's agent folder.
+ *
+ * @public
+ */
+export interface WriteAgentFileResult {
+  /** Provider ID the file was written for. */
+  providerId: string;
+  /** Absolute path to the written agent-definition file. */
+  filePath: string;
+  /** Action taken. */
+  action: 'created' | 'added' | 'consolidated' | 'updated' | 'intact';
+}
+
+/**
+ * Options for writing agent-definition files to provider agent folders.
+ *
+ * @public
+ */
+export interface WriteAgentFileOptions {
+  /**
+   * File name for the agent-definition file (e.g. `"cleo-subagent.md"`).
+   * This name is used as-is inside each provider's agent folder.
+   */
+  fileName: string;
+  /** Content to inject between CAAMP markers in the agent-definition file. */
+  content: string;
+  /**
+   * If `true`, skip writing to providers whose agent folder does not yet exist.
+   * If `false` (default), the folder is created automatically.
+   *
+   * @defaultValue false
+   */
+  skipMissingFolders?: boolean;
+}
+
+/**
+ * Write an agent-definition file to every enabled provider's native agent folder.
+ *
+ * For each provider ID supplied, the file is written to the provider's native
+ * agent-definition directory (resolved via {@link getProviderAgentFolder}).
+ * Writing is idempotent — if the file already exists with matching content the
+ * action is `"intact"` and the file is not modified. This ensures that existing
+ * `~/.claude/agents/cleo-subagent.md` installs from prior versions are preserved
+ * without clobbering.
+ *
+ * Providers whose folder cannot be resolved (unknown provider IDs) are silently
+ * skipped. Providers whose folder does not yet exist on disk are created
+ * automatically unless `skipMissingFolders` is set to `true`.
+ *
+ * @param providerIds - Array of provider IDs to write agent files for
+ * @param options - File name, content, and folder-creation behaviour
+ * @returns Array of write results, one per provider that was successfully processed
+ *
+ * @example
+ * ```typescript
+ * const results = await writeAgentFileToAllProviders(
+ *   ["claude-code", "opencode", "cursor"],
+ *   {
+ *     fileName: "cleo-subagent.md",
+ *     content: "## CLEO Subagent\nYou are a CLEO subagent...",
+ *   },
+ * );
+ * for (const r of results) {
+ *   console.log(`${r.providerId}: ${r.action} → ${r.filePath}`);
+ * }
+ * ```
+ *
+ * @public
+ */
+export async function writeAgentFileToAllProviders(
+  providerIds: string[],
+  options: WriteAgentFileOptions,
+): Promise<WriteAgentFileResult[]> {
+  const results: WriteAgentFileResult[] = [];
+  const processed = new Set<string>();
+
+  for (const providerId of providerIds) {
+    const folder = getProviderAgentFolder(providerId);
+    if (folder === null) {
+      // Unknown provider — skip silently; caller can detect by comparing
+      // providerIds.length to results.length.
+      continue;
+    }
+
+    const filePath = join(folder, options.fileName);
+
+    // Deduplicate by resolved file path — claude-code and claude-sdk share
+    // the same folder so we only write once.
+    if (processed.has(filePath)) {
+      // Still push a result so the caller sees all providers reflected.
+      const existingResult = results.find((r) => r.filePath === filePath);
+      if (existingResult) {
+        results.push({ providerId, filePath, action: existingResult.action });
+      }
+      continue;
+    }
+    processed.add(filePath);
+
+    if (options.skipMissingFolders === true && !existsSync(folder)) {
+      // Folder does not exist and caller requested we skip rather than create.
+      continue;
+    }
+
+    const action = await inject(filePath, options.content);
+    results.push({ providerId, filePath, action });
+  }
+
+  return results;
+}

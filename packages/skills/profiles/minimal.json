@@ -1,0 +1,7 @@
+{
+  "name": "minimal",
+  "description": "Solo task execution with core CLEO protocol — no orchestration needed",
+  "skills": ["ct-cleo", "ct-task-executor"],
+  "includeShared": true,
+  "includeProtocols": []
+}

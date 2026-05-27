@@ -1,0 +1,30 @@
+{
+  "target": {
+    "id": "Function:src/index.ts:runLegacyCliEntry",
+    "name": "runLegacyCliEntry",
+    "type": "Function",
+    "filePath": "src/index.ts"
+  },
+  "direction": "upstream",
+  "impactedCount": 1,
+  "risk": "LOW",
+  "summary": {
+    "direct": 1,
+    "processes_affected": 0,
+    "modules_affected": 0
+  },
+  "affected_processes": [],
+  "affected_modules": [],
+  "byDepth": {
+    "1": [
+      {
+        "depth": 1,
+        "id": "File:src/index.ts",
+        "name": "index.ts",
+        "filePath": "src/index.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      }
+    ]
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "numTotalTests": 20,
+  "numPassedTests": 20,
+  "numFailedTests": 0,
+  "testResults": [
+    {
+      "name": "/mnt/projects/cleocode/packages/core/src/workgraph/__tests__/scaffold-validate.test.ts",
+      "status": "passed",
+      "assertionResults": [
+        {
+          "status": "passed"
+        },
+        {
+          "status": "passed"
+        },
+        {
+          "status": "passed"
+        },
+        {
+          "status": "passed"
+        },
+        {
+          "status": "passed"
+        },
+        {
+          "status": "passed"
+        },
+        {
+          "status": "passed"
+        },
+        {
+          "status": "passed"
+        },
+        {
+          "status": "passed"
+        },
+        {
+          "status": "passed"
+        },
+        {
+          "status": "passed"
+        },
+        {
+          "status": "passed"
+        },
+        {
+          "status": "passed"
+        },
+        {
+          "status": "passed"
+        },
+        {
+          "status": "passed"
+        },
+        {
+          "status": "passed"
+        },
+        {
+          "status": "passed"
+        },
+        {
+          "status": "passed"
+        },
+        {
+          "status": "passed"
+        },
+        {
+          "status": "passed"
+        }
+      ]
+    }
+  ]
+}

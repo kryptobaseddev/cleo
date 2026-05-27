@@ -1,0 +1,963 @@
+/**
+ * Shared CANT context builder for all spawn providers.
+ *
+ * Extracts the Pi bridge's CANT discovery/compile/inject logic into a reusable
+ * module that any spawn provider (Claude Code, OpenCode, Cursor, etc.) can call
+ * to enrich agent prompts with:
+ *
+ * 1. Compiled CANT bundle (team topology, agent personas, tool ACLs)
+ * 2. Memory bridge (recent decisions, handoff notes, key patterns)
+ * 3. Mental model injection (validate-on-load agent-specific observations)
+ * 4. NEXUS code intelligence context (callers, callees, impact data) [T625]
+ *
+ * All operations are best-effort: if any step fails (missing packages, empty
+ * directories, compilation errors), the base prompt is returned unchanged.
+ * This guarantees agents always spawn — CANT context is an enrichment, not a gate.
+ *
+ * Reference implementation: packages/cleo-os/extensions/cleo-cant-bridge.ts
+ * (Pi-only; this module generalizes the same logic for all providers)
+ *
+ * @task T555
+ * @task T625
+ */
+
+import { execFile } from 'node:child_process';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { basename, join } from 'node:path';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+/** Per-tier file counts for diagnostic reporting. */
+export interface TierDiscoveryStats {
+  global: number;
+  user: number;
+  project: number;
+  overrides: number;
+  merged: number;
+}
+
+/** Minimal observation shape returned by memoryFind / searchBrainCompact. */
+export interface MentalModelObservation {
+  id: string;
+  type: string;
+  title: string;
+  date?: string;
+}
+
+/** Options for the main enrichment function. */
+export interface BuildCantEnrichedPromptOptions {
+  /** Project root directory for .cleo/cant/ discovery and brain.db access. */
+  projectDir: string;
+  /** The raw prompt to enrich. Returned unchanged if no CANT context is available. */
+  basePrompt: string;
+  /** Agent name for mental model injection. Omit to skip mental model fetch. */
+  agentName?: string;
+  /**
+   * When true, prepend the CleoOS identity bootstrap from CLEOOS-IDENTITY.md.
+   * Intended for the main session agent only — sub-agents get identity via CANT bundle.
+   */
+  isMainAgent?: boolean;
+  /**
+   * Pre-compiled CANT bundle string (from a session-level cache).
+   * When provided, steps 1–3 (discovery + compile + render) are skipped.
+   * Use this to avoid double-compilation when the Pi bridge already compiled the bundle.
+   */
+  compiledBundle?: string;
+  /**
+   * Task ID to inject NEXUS code intelligence context for.
+   * When provided, step 6b fetches callers/callees/impact for symbols
+   * mentioned in the task description and injects them into the prompt.
+   *
+   * @task T625
+   */
+  taskId?: string;
+}
+
+// ---------------------------------------------------------------------------
+// NEXUS context injection types (T625)
+// ---------------------------------------------------------------------------
+
+/** A single symbol's NEXUS context entry (callers, callees, impact). */
+export interface NexusSymbolContext {
+  /** Symbol name as resolved in the code index. */
+  name: string;
+  /** Symbol kind (function, method, class, etc.). */
+  kind: string;
+  /** File path (relative to project root) where the symbol is defined. */
+  filePath: string | null;
+  /** Symbols that call this one (direct callers). */
+  callers: Array<{ name: string; kind: string; filePath: string | null }>;
+  /** Symbols that this one calls (direct callees). */
+  callees: Array<{ name: string; kind: string; filePath: string | null }>;
+  /** Risk level from impact analysis. */
+  riskLevel: string;
+  /** Total number of transitively impacted nodes. */
+  totalImpacted: number;
+}
+
+/** Options for {@link buildNexusContext}. */
+export interface BuildNexusContextOptions {
+  /** Symbols to query NEXUS for (extracted from task description). */
+  symbols: string[];
+  /** Project root directory (used to resolve project ID and run CLI commands). */
+  projectDir: string;
+  /** Maximum callers/callees to include per symbol (default: 10). */
+  limit?: number;
+  /**
+   * CLI timeout in milliseconds for each `cleo nexus context` call (default: 10000).
+   */
+  timeoutMs?: number;
+}
+
+/** Result of a post-modification NEXUS check (T625). */
+export interface NexusModificationCheckResult {
+  /**
+   * True if the incremental re-analysis completed successfully.
+   * False if the analysis failed (non-fatal — agents should still continue).
+   */
+  success: boolean;
+  /** Files that were re-indexed. */
+  reindexedFiles: string[];
+  /** Relations that exist in the post-check index but not in the snapshot. */
+  newRelations: number;
+  /** Relations that existed in the snapshot but are missing after re-analysis. */
+  removedRelations: number;
+  /** Human-readable summary of what changed. */
+  summary: string;
+  /** Any regressions detected (broken call chains, missing symbols). */
+  regressions: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/**
+ * Preamble text injected when an agent has mental model observations.
+ * The agent MUST re-evaluate each observation against current project state.
+ */
+const VALIDATE_ON_LOAD_PREAMBLE =
+  '===== MENTAL MODEL (validate-on-load) =====\n' +
+  'These are your prior observations, patterns, and learnings for this project.\n' +
+  'Before acting, you MUST re-evaluate each entry against current project state.\n' +
+  'If an entry is stale, note it and proceed with fresh understanding.';
+
+// ---------------------------------------------------------------------------
+// Discovery functions (ported from cleo-cant-bridge.ts lines 418-526)
+// ---------------------------------------------------------------------------
+
+/**
+ * Recursively discover `.cant` files in a directory.
+ *
+ * @param dir - The directory to scan recursively.
+ * @returns An array of absolute paths to `.cant` files found.
+ */
+export function discoverCantFiles(dir: string): string[] {
+  try {
+    const entries = readdirSync(dir, { recursive: true, withFileTypes: true });
+    const files: string[] = [];
+    for (const entry of entries) {
+      if (entry.isFile() && entry.name.endsWith('.cant')) {
+        const parent = (entry as unknown as { parentPath?: string }).parentPath ?? dir;
+        files.push(join(parent, entry.name));
+      }
+    }
+    return files;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Resolve XDG-compliant paths for the 3-tier CANT hierarchy.
+ *
+ * Respects `XDG_DATA_HOME` and `XDG_CONFIG_HOME` environment variables.
+ * Falls back to XDG defaults (`~/.local/share/` and `~/.config/`).
+ *
+ * @param projectDir - The project root directory (for the project tier).
+ * @returns An object with `global`, `user`, and `project` CANT directory paths.
+ */
+export function resolveThreeTierPaths(projectDir: string): {
+  global: string;
+  user: string;
+  project: string;
+} {
+  const home = homedir();
+  const xdgData = process.env['XDG_DATA_HOME'] ?? join(home, '.local', 'share');
+  const xdgConfig = process.env['XDG_CONFIG_HOME'] ?? join(home, '.config');
+
+  return {
+    global: join(xdgData, 'cleo', 'cant'),
+    user: join(xdgConfig, 'cleo', 'cant'),
+    project: join(projectDir, '.cleo', 'cant'),
+  };
+}
+
+/**
+ * Discover `.cant` files across all three tiers with override semantics.
+ *
+ * Scans global, user, and project tiers. Files in higher-precedence tiers
+ * override files in lower-precedence tiers that share the same basename.
+ * The precedence order is: project > user > global.
+ *
+ * @param projectDir - The project root directory.
+ * @returns An object containing the merged file list and per-tier statistics.
+ */
+export function discoverCantFilesMultiTier(projectDir: string): {
+  files: string[];
+  stats: TierDiscoveryStats;
+} {
+  const paths = resolveThreeTierPaths(projectDir);
+
+  const globalFiles = discoverCantFiles(paths.global);
+  const userFiles = discoverCantFiles(paths.user);
+  const projectFiles = discoverCantFiles(paths.project);
+
+  // Build basename-keyed map; lowest precedence first so higher tiers override
+  const fileMap = new Map<string, string>();
+
+  for (const file of globalFiles) {
+    fileMap.set(basename(file), file);
+  }
+
+  for (const file of userFiles) {
+    fileMap.set(basename(file), file);
+  }
+
+  for (const file of projectFiles) {
+    fileMap.set(basename(file), file);
+  }
+
+  const totalUniqueInputs = globalFiles.length + userFiles.length + projectFiles.length;
+  const overrides = totalUniqueInputs - fileMap.size;
+
+  return {
+    files: Array.from(fileMap.values()),
+    stats: {
+      global: globalFiles.length,
+      user: userFiles.length,
+      project: projectFiles.length,
+      overrides,
+      merged: fileMap.size,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Memory bridge (ported from cleo-cant-bridge.ts lines 376-404)
+// ---------------------------------------------------------------------------
+
+/**
+ * Read the memory bridge file from a project's .cleo/ directory.
+ *
+ * @param projectDir - The project root directory.
+ * @returns The memory bridge content, or null if not found or empty.
+ */
+export function readMemoryBridge(projectDir: string): string | null {
+  try {
+    const bridgePath = join(projectDir, '.cleo', 'memory-bridge.md');
+    if (!existsSync(bridgePath)) return null;
+    const content = readFileSync(bridgePath, 'utf-8');
+    return content.length > 0 ? content : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build the memory-bridge system-prompt block appended to every agent.
+ *
+ * Wraps the raw memory-bridge.md content in a clearly labeled section
+ * so the agent knows this is the CLEO project memory context.
+ *
+ * @param content - The raw memory-bridge.md content.
+ * @returns The formatted memory-bridge block for system prompt injection.
+ */
+export function buildMemoryBridgeBlock(content: string): string {
+  return (
+    '\n\n===== CLEO MEMORY BRIDGE =====\n' +
+    'This is your project memory context from .cleo/memory-bridge.md.\n' +
+    'Use it to understand recent decisions, handoff notes, and key patterns.\n\n' +
+    content.trim() +
+    '\n===== END MEMORY BRIDGE ====='
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Mental model injection (ported from cleo-cant-bridge.ts lines 113-135, 543-589)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the validate-on-load mental-model injection string.
+ *
+ * Pure function — no I/O, safe to call in tests without a real DB.
+ *
+ * @param agentName - Name of the spawned agent (used in the header line).
+ * @param observations - Prior mental-model observations to list.
+ * @returns System-prompt block with preamble and numbered observations,
+ *          or empty string when `observations` is empty.
+ */
+export function buildMentalModelInjection(
+  agentName: string,
+  observations: MentalModelObservation[],
+): string {
+  if (observations.length === 0) return '';
+
+  const lines: string[] = ['', `// Agent: ${agentName}`, VALIDATE_ON_LOAD_PREAMBLE, ''];
+
+  for (let i = 0; i < observations.length; i++) {
+    const obs = observations[i];
+    const datePart = obs.date ? ` [${obs.date}]` : '';
+    lines.push(`${i + 1}. [${obs.id}] (${obs.type})${datePart}: ${obs.title}`);
+  }
+
+  lines.push('===== END MENTAL MODEL =====');
+  return lines.join('\n');
+}
+
+/**
+ * Fetch mental model observations for an agent from brain.db.
+ *
+ * Uses dynamic import of `@cleocode/core` to avoid circular dependencies.
+ * Returns empty string on any failure (best-effort, never throws).
+ *
+ * @param agentName - The agent's name for scoped observation lookup.
+ * @param projectRoot - Project root directory for brain.db access.
+ * @returns The validate-on-load system-prompt block, or "" on failure/empty.
+ */
+async function fetchMentalModelInjection(agentName: string, projectRoot: string): Promise<string> {
+  try {
+    // Dynamic import — @cleocode/core is NOT a compile-time dependency of adapters.
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const coreModule = (await import(/* webpackIgnore: true */ '@cleocode/core' as string)) as {
+      memoryFind?: (
+        params: {
+          query: string;
+          agent?: string;
+          limit?: number;
+          tables?: string[];
+        },
+        projectRoot?: string,
+      ) => Promise<{
+        success: boolean;
+        data?: {
+          results?: MentalModelObservation[];
+        };
+      }>;
+    };
+
+    if (typeof coreModule.memoryFind !== 'function') return '';
+
+    const result = await coreModule.memoryFind(
+      {
+        query: agentName,
+        agent: agentName,
+        limit: 10,
+        tables: ['observations'],
+      },
+      projectRoot,
+    );
+
+    if (!result.success || !result.data?.results?.length) return '';
+
+    return buildMentalModelInjection(agentName, result.data.results);
+  } catch {
+    return '';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Identity bootstrap (ported from cleo-cant-bridge.ts lines 858-964)
+// ---------------------------------------------------------------------------
+
+/**
+ * Read CLEOOS-IDENTITY.md from the project or global XDG location.
+ *
+ * Search order:
+ * 1. `<projectDir>/.cleo/CLEOOS-IDENTITY.md` (project-level, deployed by init)
+ * 2. `$XDG_DATA_HOME/cleo/CLEOOS-IDENTITY.md` (global XDG default)
+ *
+ * @param projectDir - The project root directory.
+ * @returns The identity file content, or null if not found.
+ */
+export function readIdentityFile(projectDir: string): string | null {
+  const projectPath = join(projectDir, '.cleo', 'CLEOOS-IDENTITY.md');
+  if (existsSync(projectPath)) {
+    try {
+      const content = readFileSync(projectPath, 'utf-8');
+      return content.length > 0 ? content : null;
+    } catch {
+      // Fall through to global path
+    }
+  }
+
+  const home = homedir();
+  const xdgData = process.env['XDG_DATA_HOME'] ?? join(home, '.local', 'share');
+  const globalPath = join(xdgData, 'cleo', 'CLEOOS-IDENTITY.md');
+  if (existsSync(globalPath)) {
+    try {
+      const content = readFileSync(globalPath, 'utf-8');
+      return content.length > 0 ? content : null;
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Build the CleoOS identity bootstrap block for the main session agent.
+ *
+ * Reads CLEOOS-IDENTITY.md from disk and appends live operational context
+ * (current session briefing, next tasks, recent brain decisions) gathered
+ * via best-effort CLI calls with an 8-second timeout each.
+ *
+ * Returns an empty string on any failure — never throws.
+ *
+ * @param projectDir - The project root directory (used for CWD and file lookup).
+ * @returns The fully assembled identity block, or "" if unavailable.
+ */
+export async function buildIdentityBootstrap(projectDir: string): Promise<string> {
+  const identityContent = readIdentityFile(projectDir);
+  if (!identityContent) return '';
+
+  // Gather live operational context in parallel (best-effort, 8s timeout each)
+  const [briefingResult, nextResult, memoryResult] = await Promise.allSettled([
+    execFileAsync('cleo', ['session', 'briefing', '--json'], {
+      timeout: 8_000,
+      cwd: projectDir || undefined,
+    }),
+    execFileAsync('cleo', ['next', '--json', '--limit', '3'], {
+      timeout: 8_000,
+      cwd: projectDir || undefined,
+    }),
+    execFileAsync('cleo', ['memory', 'find', 'decision', '--json', '--limit', '5'], {
+      timeout: 8_000,
+      cwd: projectDir || undefined,
+    }),
+  ]);
+
+  const dynamicLines: string[] = [];
+
+  // Append briefing data if available
+  if (briefingResult.status === 'fulfilled') {
+    try {
+      const briefing = JSON.parse(briefingResult.value.stdout) as {
+        data?: {
+          currentTask?: { id: string; title: string; status: string };
+          handoff?: { note: string };
+        };
+      };
+      const data = briefing?.data ?? (briefing as (typeof briefing)['data']);
+      if (data?.currentTask) {
+        dynamicLines.push('## Current Task');
+        dynamicLines.push(
+          `- **${data.currentTask.id}**: ${data.currentTask.title} (${data.currentTask.status})`,
+        );
+        dynamicLines.push('');
+      }
+      if (data?.handoff?.note) {
+        dynamicLines.push('## Last Session Handoff');
+        dynamicLines.push(data.handoff.note);
+        dynamicLines.push('');
+      }
+    } catch {
+      /* parse failure — skip briefing data */
+    }
+  }
+
+  // Append next tasks
+  if (nextResult.status === 'fulfilled') {
+    try {
+      const next = JSON.parse(nextResult.value.stdout) as {
+        data?: { tasks?: Array<{ id: string; title: string; priority?: string }> };
+      };
+      const tasks = next?.data?.tasks ?? [];
+      if (Array.isArray(tasks) && tasks.length > 0) {
+        dynamicLines.push('## Next Tasks');
+        for (const t of tasks.slice(0, 3)) {
+          dynamicLines.push(`- **${t.id}**: ${t.title} (${t.priority ?? 'medium'})`);
+        }
+        dynamicLines.push('');
+      }
+    } catch {
+      /* parse failure — skip */
+    }
+  }
+
+  // Append recent brain decisions
+  if (memoryResult.status === 'fulfilled') {
+    try {
+      const mem = JSON.parse(memoryResult.value.stdout) as {
+        data?: { results?: Array<{ id: string; title: string; date?: string }> };
+      };
+      const results = mem?.data?.results ?? [];
+      if (Array.isArray(results) && results.length > 0) {
+        dynamicLines.push('## Recent Brain Context');
+        for (const r of results.slice(0, 5)) {
+          dynamicLines.push(`- [${r.id}] ${r.title} (${r.date ?? ''})`);
+        }
+        dynamicLines.push('');
+      }
+    } catch {
+      /* parse failure — skip */
+    }
+  }
+
+  const sections: string[] = [
+    '',
+    '===== CLEOOS IDENTITY BOOTSTRAP =====',
+    '',
+    identityContent.trim(),
+  ];
+
+  if (dynamicLines.length > 0) {
+    sections.push('');
+    sections.push(...dynamicLines);
+  }
+
+  sections.push('===== END IDENTITY BOOTSTRAP =====');
+  return sections.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// NEXUS context injection (T625)
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract candidate symbol names from a task description or title.
+ *
+ * Uses a simple heuristic: camelCase, PascalCase, and snake_case tokens
+ * longer than 3 characters that look like code identifiers.
+ *
+ * Pure function — no I/O.
+ *
+ * @param text - Raw text to scan for symbol names (task title + description).
+ * @returns Deduplicated array of candidate symbol names, longest first.
+ */
+export function extractSymbolsFromText(text: string): string[] {
+  // Match camelCase, PascalCase, snake_case identifiers of length >= 4
+  const identifierPattern =
+    /\b([A-Z][a-zA-Z0-9]{3,}|[a-z][a-zA-Z0-9]{3,}[A-Z][a-zA-Z0-9]*|[a-z]{2,}_[a-z][a-zA-Z0-9_]*)\b/g;
+  const seen = new Set<string>();
+  const matches: string[] = [];
+
+  for (const matchResult of text.matchAll(identifierPattern)) {
+    const symbol = matchResult[1];
+    if (symbol && !seen.has(symbol)) {
+      seen.add(symbol);
+      matches.push(symbol);
+    }
+  }
+
+  // Sort longest first (more specific symbols first)
+  return matches.sort((a, b) => b.length - a.length).slice(0, 8);
+}
+
+/**
+ * Build a NEXUS code intelligence context block for a set of symbols.
+ *
+ * Queries `cleo nexus context <symbol> --json` for each symbol and
+ * returns a formatted prompt block with callers, callees, and impact data.
+ *
+ * All CLI calls are best-effort with a configurable timeout. Failures
+ * for individual symbols are silently skipped.
+ *
+ * @param options - Symbols, project dir, and optional limits.
+ * @returns Array of resolved NEXUS symbol contexts.
+ * @task T625
+ */
+export async function buildNexusContext(
+  options: BuildNexusContextOptions,
+): Promise<NexusSymbolContext[]> {
+  const { symbols, projectDir, limit = 10, timeoutMs = 10_000 } = options;
+  if (symbols.length === 0) return [];
+
+  const results: NexusSymbolContext[] = [];
+
+  for (const symbol of symbols) {
+    try {
+      const { stdout } = await execFileAsync(
+        'cleo',
+        ['nexus', 'context', symbol, '--json', '--limit', String(limit)],
+        { timeout: timeoutMs, cwd: projectDir || undefined },
+      );
+
+      const parsed = JSON.parse(stdout) as {
+        success?: boolean;
+        data?: {
+          results?: Array<{
+            name?: unknown;
+            kind?: unknown;
+            filePath?: unknown;
+            callers?: Array<{ name?: unknown; kind?: unknown; filePath?: unknown }>;
+            callees?: Array<{ name?: unknown; kind?: unknown; filePath?: unknown }>;
+          }>;
+        };
+      };
+
+      if (!parsed.success || !parsed.data?.results?.length) continue;
+
+      // Also fetch impact for risk classification
+      let riskLevel = 'UNKNOWN';
+      let totalImpacted = 0;
+      try {
+        const { stdout: impactStdout } = await execFileAsync(
+          'cleo',
+          ['nexus', 'impact', symbol, '--json', '--depth', '2'],
+          { timeout: timeoutMs, cwd: projectDir || undefined },
+        );
+        const impactParsed = JSON.parse(impactStdout) as {
+          success?: boolean;
+          data?: { riskLevel?: unknown; totalImpactedNodes?: unknown };
+        };
+        if (impactParsed.success && impactParsed.data) {
+          riskLevel = String(impactParsed.data.riskLevel ?? 'UNKNOWN');
+          totalImpacted = Number(impactParsed.data.totalImpactedNodes ?? 0);
+        }
+      } catch {
+        // Impact fetch failure — non-fatal, use defaults
+      }
+
+      const primary = parsed.data.results[0];
+      if (!primary) continue;
+
+      results.push({
+        name: String(primary.name ?? symbol),
+        kind: String(primary.kind ?? 'unknown'),
+        filePath: primary.filePath ? String(primary.filePath) : null,
+        callers: (primary.callers ?? []).slice(0, limit).map((c) => ({
+          name: String(c.name ?? ''),
+          kind: String(c.kind ?? 'unknown'),
+          filePath: c.filePath ? String(c.filePath) : null,
+        })),
+        callees: (primary.callees ?? []).slice(0, limit).map((c) => ({
+          name: String(c.name ?? ''),
+          kind: String(c.kind ?? 'unknown'),
+          filePath: c.filePath ? String(c.filePath) : null,
+        })),
+        riskLevel,
+        totalImpacted,
+      });
+    } catch {
+      // Symbol not found or CLI unavailable — skip
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Format a NEXUS context array into a system-prompt block.
+ *
+ * Pure function — no I/O, safe to call in tests without a real DB.
+ *
+ * @param contexts - Resolved NEXUS symbol contexts.
+ * @returns Formatted prompt block, or empty string when contexts is empty.
+ * @task T625
+ */
+export function buildNexusContextBlock(contexts: NexusSymbolContext[]): string {
+  if (contexts.length === 0) return '';
+
+  const lines: string[] = [
+    '',
+    '===== NEXUS CODE INTELLIGENCE (pre-modification context) =====',
+    'Consult this before modifying any of these symbols.',
+    'High-risk symbols MUST be checked for callers before editing.',
+    '',
+  ];
+
+  for (const ctx of contexts) {
+    lines.push(`## ${ctx.name}  [${ctx.kind}]${ctx.filePath ? `  ${ctx.filePath}` : ''}`);
+    lines.push(`   Risk: ${ctx.riskLevel}  |  Impacted nodes: ${ctx.totalImpacted}`);
+
+    if (ctx.callers.length > 0) {
+      lines.push(
+        `   Callers (${ctx.callers.length}): ${ctx.callers.map((c) => c.name).join(', ')}`,
+      );
+    } else {
+      lines.push('   Callers: none');
+    }
+
+    if (ctx.callees.length > 0) {
+      lines.push(
+        `   Callees (${ctx.callees.length}): ${ctx.callees.map((c) => c.name).join(', ')}`,
+      );
+    } else {
+      lines.push('   Callees: none');
+    }
+
+    lines.push('');
+  }
+
+  lines.push('===== END NEXUS CONTEXT =====');
+  return lines.join('\n');
+}
+
+/**
+ * Inject NEXUS context for a task into the agent prompt.
+ *
+ * Fetches the task details from CLEO, extracts symbol names from the
+ * task title and description, then queries NEXUS for each symbol.
+ * Returns a formatted prompt block or empty string on any failure.
+ *
+ * @param taskId - CLEO task ID (e.g. "T625").
+ * @param projectDir - Project root directory.
+ * @returns Formatted NEXUS context block, or "" if unavailable.
+ * @task T625
+ */
+export async function buildNexusContextForTask(
+  taskId: string,
+  projectDir: string,
+): Promise<string> {
+  try {
+    // Fetch task details to extract symbols
+    const { stdout: taskStdout } = await execFileAsync('cleo', ['show', taskId, '--json'], {
+      timeout: 8_000,
+      cwd: projectDir || undefined,
+    });
+
+    const taskData = JSON.parse(taskStdout) as {
+      data?: { title?: string; description?: string };
+    };
+    const title = taskData?.data?.title ?? '';
+    const description = taskData?.data?.description ?? '';
+    const combinedText = `${title} ${description}`;
+
+    const symbols = extractSymbolsFromText(combinedText);
+    if (symbols.length === 0) return '';
+
+    const contexts = await buildNexusContext({ symbols, projectDir });
+    return buildNexusContextBlock(contexts);
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Run a post-modification NEXUS check on a set of changed files.
+ *
+ * Performs an incremental re-analysis of the changed files and compares
+ * relation counts before/after. Regressions (net loss of relations after
+ * modification) are flagged and returned for BRAIN storage.
+ *
+ * All operations are best-effort — never throws.
+ *
+ * @param changedFiles - Absolute paths to files that were modified.
+ * @param projectDir - Project root directory.
+ * @returns Check result with regression data.
+ * @task T625
+ */
+export async function runNexusPostModificationCheck(
+  changedFiles: string[],
+  projectDir: string,
+): Promise<NexusModificationCheckResult> {
+  const empty: NexusModificationCheckResult = {
+    success: false,
+    reindexedFiles: [],
+    newRelations: 0,
+    removedRelations: 0,
+    summary: 'NEXUS post-check unavailable',
+    regressions: [],
+  };
+
+  if (changedFiles.length === 0) return empty;
+
+  try {
+    // 1. Snapshot current relation count before re-analysis
+    const { stdout: beforeStdout } = await execFileAsync('cleo', ['nexus', 'status', '--json'], {
+      timeout: 8_000,
+      cwd: projectDir || undefined,
+    });
+
+    let relationsBefore = 0;
+    try {
+      const beforeData = JSON.parse(beforeStdout) as {
+        data?: { relationCount?: number; relations?: number };
+      };
+      relationsBefore = beforeData?.data?.relationCount ?? beforeData?.data?.relations ?? 0;
+    } catch {
+      // Count unavailable — proceed anyway
+    }
+
+    // 2. Run incremental analysis on the project (covers changed files)
+    await execFileAsync('cleo', ['nexus', 'analyze', projectDir, '--incremental', '--json'], {
+      timeout: 60_000,
+      cwd: projectDir || undefined,
+    });
+
+    // 3. Snapshot relation count after re-analysis
+    const { stdout: afterStdout } = await execFileAsync('cleo', ['nexus', 'status', '--json'], {
+      timeout: 8_000,
+      cwd: projectDir || undefined,
+    });
+
+    let relationsAfter = 0;
+    try {
+      const afterData = JSON.parse(afterStdout) as {
+        data?: { relationCount?: number; relations?: number };
+      };
+      relationsAfter = afterData?.data?.relationCount ?? afterData?.data?.relations ?? 0;
+    } catch {
+      // Count unavailable
+    }
+
+    const delta = relationsAfter - relationsBefore;
+    const newRelations = Math.max(0, delta);
+    const removedRelations = Math.max(0, -delta);
+    const regressions: string[] = [];
+
+    // Flag significant relation loss as a potential regression
+    if (removedRelations > 5) {
+      regressions.push(
+        `Lost ${removedRelations} relations after modifying: ${changedFiles.map((f) => f.split('/').pop() ?? f).join(', ')}`,
+      );
+    }
+
+    const summary =
+      delta === 0
+        ? `NEXUS stable — no relation changes after modifying ${changedFiles.length} file(s)`
+        : delta > 0
+          ? `NEXUS: +${newRelations} new relations from ${changedFiles.length} file(s)`
+          : `NEXUS: -${removedRelations} relations removed from ${changedFiles.length} file(s)${regressions.length > 0 ? ' — REGRESSION DETECTED' : ''}`;
+
+    return {
+      success: true,
+      reindexedFiles: changedFiles,
+      newRelations,
+      removedRelations,
+      summary,
+      regressions,
+    };
+  } catch {
+    return empty;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Main entry point
+// ---------------------------------------------------------------------------
+
+/**
+ * Build an enriched prompt with CANT context, memory bridge, and mental model.
+ *
+ * This is the universal entry point for all spawn providers. It performs the
+ * same operations as the Pi bridge (cleo-cant-bridge.ts) but returns a string
+ * rather than hooking into Pi events:
+ *
+ * 1. Discovers `.cant` files across 3 tiers (global → user → project)
+ * 2. Compiles the CANT bundle via `@cleocode/cant`'s `compileBundle()`
+ * 3. Renders the compiled system prompt
+ * 4. Reads the memory bridge from `.cleo/memory-bridge.md`
+ * 5. Fetches mental model observations for the named agent
+ * 6b. Injects NEXUS code intelligence context for the task (T625)
+ * 7. Concatenates: basePrompt + CANT bundle + memory bridge + mental model + NEXUS
+ *
+ * All operations are best-effort. If any step fails, the base prompt is
+ * returned unchanged. CANT context is an enrichment, not a gate — agents
+ * always spawn regardless of CANT availability.
+ *
+ * @param options - Project dir, base prompt, and optional agent name.
+ * @returns The enriched prompt string, or basePrompt unchanged on failure.
+ */
+export async function buildCantEnrichedPrompt(
+  options: BuildCantEnrichedPromptOptions,
+): Promise<string> {
+  const { projectDir, basePrompt, agentName, isMainAgent, compiledBundle, taskId } = options;
+  let appendix = '';
+
+  // Step 0: Identity bootstrap for the main session agent.
+  // Sub-agents receive identity via the CANT bundle + mental model below.
+  if (isMainAgent) {
+    try {
+      const identityBlock = await buildIdentityBootstrap(projectDir);
+      if (identityBlock) {
+        appendix += identityBlock;
+      }
+    } catch {
+      // Identity bootstrap failure — non-fatal, continue enrichment
+    }
+  }
+
+  // Step 1-3: Discover and compile CANT bundle (or use pre-compiled bundle).
+  // When `compiledBundle` is provided (e.g. Pi session cache), skip
+  // discovery + compilation to avoid redundant work.
+  try {
+    if (compiledBundle) {
+      // Use pre-compiled bundle directly
+      appendix += `\n\n${compiledBundle}`;
+    } else {
+      const { files } = discoverCantFilesMultiTier(projectDir);
+
+      if (files.length > 0) {
+        // Dynamic import — @cleocode/cant is NOT a compile-time dependency of adapters.
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        const cantModule = (await import(/* webpackIgnore: true */ '@cleocode/cant' as string)) as {
+          compileBundle?: (paths: string[]) => Promise<{
+            renderSystemPrompt: () => string;
+            valid: boolean;
+            diagnostics: unknown[];
+          }>;
+        };
+
+        if (typeof cantModule.compileBundle === 'function') {
+          const bundle = await cantModule.compileBundle(files);
+          if (bundle.valid) {
+            const rendered = bundle.renderSystemPrompt();
+            if (rendered) {
+              appendix += `\n\n${rendered}`;
+            }
+          }
+        }
+      }
+    }
+  } catch {
+    // CANT compilation failure — continue without bundle context
+  }
+
+  // Step 4: Append memory bridge
+  try {
+    const bridge = readMemoryBridge(projectDir);
+    if (bridge) {
+      appendix += buildMemoryBridgeBlock(bridge);
+    }
+  } catch {
+    // Memory bridge read failure — non-fatal
+  }
+
+  // Step 5: Append mental model for named agent
+  if (agentName) {
+    try {
+      const mentalModel = await fetchMentalModelInjection(agentName, projectDir);
+      if (mentalModel) {
+        appendix += `\n\n${mentalModel}`;
+      }
+    } catch {
+      // Mental model fetch failure — non-fatal
+    }
+  }
+
+  // Step 6b: Inject NEXUS code intelligence context for the task (T625).
+  // Extracts symbols from the task title+description, queries NEXUS for
+  // callers/callees/impact data, and injects as a pre-modification guide.
+  if (taskId) {
+    try {
+      const nexusBlock = await buildNexusContextForTask(taskId, projectDir);
+      if (nexusBlock) {
+        appendix += nexusBlock;
+      }
+    } catch {
+      // NEXUS context fetch failure — non-fatal
+    }
+  }
+
+  // Step 7: Return enriched prompt (or unchanged basePrompt if no context found)
+  return appendix ? basePrompt + appendix : basePrompt;
+}

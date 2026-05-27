@@ -1,0 +1,17 @@
+---
+kind: tool
+version: 1
+---
+
+tool dispatch_worker:
+  description: "Spawn a worker subagent with a task assignment"
+  tier: lead
+  input:
+    agent: "Name of the worker agent to spawn"
+    task_id: "Task ID to assign (e.g. T1234)"
+    context: "Optional extra context string"
+  output:
+    session_id: "Spawned session identifier"
+    result: "Worker output summary"
+  permissions:
+    workers: execute

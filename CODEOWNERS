@@ -1,0 +1,15 @@
+# CODEOWNERS — CleoCode Monorepo
+#
+# This file defines ownership boundaries for code review and
+# stewardship. Each entry declares the canonical owner(s) for
+# a directory tree.
+
+# ── Worktrunk subsystem (sole steward: cleocode) ─────────────────────
+# crates/worktrunk-core: Pure-Rust SDK for parallel git-worktree provisioning
+# crates/worktree-napi:  napi-rs bindings wrapping worktrunk-core for JS/TS
+#
+# Both crates form the canonical Rust worktree-provisioning engine.
+# cleocode owns the entire surface — API, safety contracts, napi bindings,
+# and CI gates (scripts/lint-worktrunk-*.mjs).
+/crates/worktrunk-core/ @kryptobaseddev
+/crates/worktree-napi/  @kryptobaseddev

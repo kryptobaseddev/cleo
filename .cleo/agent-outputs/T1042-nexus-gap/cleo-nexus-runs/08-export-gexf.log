@@ -1,0 +1,51 @@
+(node:198546) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf xmlns="http://www.gexf.net/1.2draft" xmlns:viz="http://www.gexf.net/1.2draft/viz" version="1.2">
+  <meta lastmodifieddate="2026-04-20">
+    <creator>CLEO nexus export</creator>
+    <description>Code intelligence graph from CLEO nexus</description>
+  </meta>
+  <graph mode="static" defaultedgetype="directed">
+    <attributes class="node">
+      <attribute id="kind" title="Node Kind" type="string" />
+      <attribute id="filePath" title="File Path" type="string" />
+      <attribute id="language" title="Language" type="string" />
+      <attribute id="startLine" title="Start Line" type="integer" />
+      <attribute id="endLine" title="End Line" type="integer" />
+      <attribute id="isExported" title="Is Exported" type="boolean" />
+      <attribute id="projectId" title="Project ID" type="string" />
+    </attributes>
+    <attributes class="edge">
+      <attribute id="relationType" title="Relation Type" type="string" />
+      <attribute id="confidence" title="Confidence" type="double" />
+      <attribute id="reason" title="Reason" type="string" />
+    </attributes>
+    <nodes>
+      <node id="README.md" label="README.md">
+        <viz:color r="149" g="165" b="166" />
+        <attvalues>
+          <attvalue id="kind" value="file" />
+          <attvalue id="filePath" value="README.md" />
+          <attvalue id="language" value="markdown" />
+          <attvalue id="startLine" value="1" />
+          <attvalue id="endLine" value="1" />
+          <attvalue id="isExported" value="false" />
+          <attvalue id="projectId" value="L21udC9wcm9qZWN0cy9jbGVvY29kZS9w" />
+        </attvalues>
+      </node>
+      <node id="package.json" label="package.json">
+        <viz:color r="149" g="165" b="166" />
+        <attvalues>
+          <attvalue id="kind" value="file" />
+          <attvalue id="filePath" value="package.json" />
+          <attvalue id="language" value="json" />
+          <attvalue id="startLine" value="1" />
+          <attvalue id="endLine" value="1" />
+          <attvalue id="isExported" value="false" />
+          <attvalue id="projectId" value="L21udC9wcm9qZWN0cy9jbGVvY29kZS9w" />
+        </attvalues>
+      </node>
+      <node id="tsconfig.json" label="tsconfig.json">
+        <viz:color r="149" g="165" b="166" />
+[output potentially truncated]

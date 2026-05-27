@@ -1,0 +1,24 @@
+/**
+ * Changesets module — CLEO-native task-anchored changeset DSL.
+ *
+ * Public entry point for parsing `.changeset/*.md` files into validated
+ * {@link ChangesetEntry} records. The consumer side (release-plan aggregator)
+ * lives in `@cleocode/core/release` and is a T9738 follow-up.
+ *
+ * @epic T9738
+ * @module changesets
+ */
+
+export {
+  type ParseChangesetFrontmatterResult,
+  parseChangesetFrontmatter,
+} from './parse-frontmatter.js';
+export { parseChangesetDir, parseChangesetFile } from './parser.js';
+export {
+  renderChangesetMarkdown,
+  type WriteChangesetError,
+  type WriteChangesetOptions,
+  type WriteChangesetOutcome,
+  type WriteChangesetResult,
+  writeChangesetEntry,
+} from './writer.js';

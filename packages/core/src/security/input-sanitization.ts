@@ -1,0 +1,476 @@
+/**
+ * Security Hardening and Input Sanitization (Core)
+ *
+ * Canonical location for input sanitization and security validation.
+ * Self-contained with no dispatch dependencies.
+ *
+ * Canonical location: src/core/security/input-sanitization.ts
+ * Re-exported from: src/dispatch/lib/security.ts (backward compat)
+ *
+ * @task T3144
+ * @task T5706
+ * @epic T3125
+ */
+
+import {
+  LIFECYCLE_STAGE_STATUSES,
+  MANIFEST_STATUSES,
+  SESSION_STATUSES,
+  TASK_STATUSES,
+} from '@cleocode/contracts';
+import { isAbsolute, normalize, relative, resolve } from 'path';
+import { TASK_PRIORITIES } from '../store/tasks-schema.js';
+import { normalizeTaskId } from '../tasks/id-generator.js';
+
+/**
+ * Security validation error thrown when input fails sanitization
+ */
+export class SecurityError extends Error {
+  constructor(
+    message: string,
+    public code: string = 'E_SECURITY_VIOLATION',
+    public field?: string,
+  ) {
+    super(message);
+    this.name = 'SecurityError';
+  }
+}
+
+/**
+ * Maximum task ID numeric value (prevent absurdly large IDs)
+ */
+const MAX_TASK_ID_NUMBER = 999999;
+
+/**
+ * Control character pattern (C0 and C1 control chars, excluding newline/tab/cr)
+ */
+const CONTROL_CHAR_PATTERN = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g;
+
+/**
+ * Default maximum content length (64KB)
+ */
+const DEFAULT_MAX_CONTENT_LENGTH = 64 * 1024;
+
+/**
+ * Sanitize and validate a task ID
+ */
+export function sanitizeTaskId(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new SecurityError('Task ID must be a string', 'E_INVALID_TASK_ID', 'taskId');
+  }
+
+  const normalized = normalizeTaskId(value);
+  if (normalized === null) {
+    throw new SecurityError(`Invalid task ID format: ${value}`, 'E_INVALID_TASK_ID', 'taskId');
+  }
+
+  const numericPart = parseInt(normalized.slice(1), 10);
+  if (numericPart > MAX_TASK_ID_NUMBER) {
+    throw new SecurityError(
+      `Task ID exceeds maximum value: ${value}`,
+      'E_INVALID_TASK_ID',
+      'taskId',
+    );
+  }
+
+  return normalized;
+}
+
+/**
+ * Sanitize and validate a file path
+ */
+export function sanitizePath(path: string, projectRoot: string): string {
+  if (typeof path !== 'string') {
+    throw new SecurityError('Path must be a string', 'E_INVALID_PATH', 'path');
+  }
+
+  if (typeof projectRoot !== 'string' || projectRoot.length === 0) {
+    throw new SecurityError(
+      'Project root must be a non-empty string',
+      'E_INVALID_PATH',
+      'projectRoot',
+    );
+  }
+
+  const trimmedPath = path.trim();
+
+  if (trimmedPath.length === 0) {
+    throw new SecurityError('Path cannot be empty', 'E_INVALID_PATH', 'path');
+  }
+
+  if (trimmedPath.includes('\0')) {
+    throw new SecurityError('Path contains null bytes', 'E_PATH_TRAVERSAL', 'path');
+  }
+
+  const normalizedRoot = resolve(projectRoot);
+
+  let resolvedPath: string;
+  if (isAbsolute(trimmedPath)) {
+    resolvedPath = normalize(trimmedPath);
+  } else {
+    resolvedPath = resolve(normalizedRoot, trimmedPath);
+  }
+
+  const relativePath = relative(normalizedRoot, resolvedPath);
+
+  if (relativePath.startsWith('..') || isAbsolute(relativePath)) {
+    throw new SecurityError(
+      `Path traversal detected: "${path}" resolves outside project root`,
+      'E_PATH_TRAVERSAL',
+      'path',
+    );
+  }
+
+  return resolvedPath;
+}
+
+/**
+ * Sanitize content string
+ */
+export function sanitizeContent(
+  content: string,
+  maxLength: number = DEFAULT_MAX_CONTENT_LENGTH,
+): string {
+  if (typeof content !== 'string') {
+    throw new SecurityError('Content must be a string', 'E_INVALID_CONTENT', 'content');
+  }
+
+  if (content.length > maxLength) {
+    throw new SecurityError(
+      `Content exceeds maximum length (${maxLength} characters): got ${content.length}`,
+      'E_CONTENT_TOO_LARGE',
+      'content',
+    );
+  }
+
+  return content.replace(CONTROL_CHAR_PATTERN, '');
+}
+
+/**
+ * Validate that a value is in an allowed enum set
+ */
+export function validateEnum(value: string, allowed: string[], fieldName: string): string {
+  if (typeof value !== 'string') {
+    throw new SecurityError(`${fieldName} must be a string`, 'E_INVALID_ENUM', fieldName);
+  }
+
+  const trimmed = value.trim();
+
+  if (!allowed.includes(trimmed)) {
+    throw new SecurityError(
+      `Invalid ${fieldName}: "${trimmed}". Allowed values: ${allowed.join(', ')}`,
+      'E_INVALID_ENUM',
+      fieldName,
+    );
+  }
+
+  return trimmed;
+}
+
+/**
+ * Known enum values for CLEO domains
+ */
+export const VALID_DOMAINS = [
+  'tasks',
+  'session',
+  'orchestrate',
+  'research',
+  'lifecycle',
+  'validate',
+  'release',
+  'system',
+] as const;
+
+export const VALID_GATEWAYS = ['query', 'mutate'] as const;
+
+export const VALID_MANIFEST_STATUSES = MANIFEST_STATUSES;
+
+export const VALID_LIFECYCLE_STAGE_STATUSES = LIFECYCLE_STAGE_STATUSES;
+
+export const ALL_VALID_STATUSES = [...TASK_STATUSES, ...MANIFEST_STATUSES] as const;
+
+export const VALID_PRIORITIES = TASK_PRIORITIES;
+
+/**
+ * Rate limiter configuration
+ */
+export interface RateLimitConfig {
+  maxRequests: number;
+  windowMs: number;
+}
+
+/**
+ * Rate limit check result
+ */
+export interface RateLimitResult {
+  allowed: boolean;
+  remaining: number;
+  resetMs: number;
+  limit: number;
+}
+
+/**
+ * Default rate limit configurations per operation type
+ */
+export const DEFAULT_RATE_LIMITS: Record<string, RateLimitConfig> = {
+  query: { maxRequests: 100, windowMs: 60_000 },
+  mutate: { maxRequests: 30, windowMs: 60_000 },
+  spawn: { maxRequests: 10, windowMs: 60_000 },
+};
+
+/**
+ * In-memory sliding window rate limiter
+ */
+export class RateLimiter {
+  private windows: Map<string, number[]> = new Map();
+  private configs: Map<string, RateLimitConfig> = new Map();
+
+  constructor(configs?: Record<string, RateLimitConfig>) {
+    const effectiveConfigs = configs ?? DEFAULT_RATE_LIMITS;
+    for (const [key, config] of Object.entries(effectiveConfigs)) {
+      this.configs.set(key, config);
+    }
+  }
+
+  check(key: string): RateLimitResult {
+    const config = this.configs.get(key);
+    if (!config) {
+      return { allowed: true, remaining: Infinity, resetMs: 0, limit: Infinity };
+    }
+
+    const now = Date.now();
+    const windowStart = now - config.windowMs;
+
+    let timestamps = this.windows.get(key);
+    if (!timestamps) {
+      timestamps = [];
+      this.windows.set(key, timestamps);
+    }
+
+    const validTimestamps = timestamps.filter((t) => t > windowStart);
+    this.windows.set(key, validTimestamps);
+
+    const remaining = Math.max(0, config.maxRequests - validTimestamps.length);
+    const oldestInWindow = validTimestamps.length > 0 ? validTimestamps[0] : now;
+    const resetMs = Math.max(0, oldestInWindow + config.windowMs - now);
+
+    return {
+      allowed: validTimestamps.length < config.maxRequests,
+      remaining,
+      resetMs,
+      limit: config.maxRequests,
+    };
+  }
+
+  record(key: string): void {
+    const timestamps = this.windows.get(key) ?? [];
+    timestamps.push(Date.now());
+    this.windows.set(key, timestamps);
+  }
+
+  consume(key: string): RateLimitResult {
+    const result = this.check(key);
+    if (result.allowed) {
+      this.record(key);
+      result.remaining = Math.max(0, result.remaining - 1);
+    }
+    return result;
+  }
+
+  reset(key?: string): void {
+    if (key) {
+      this.windows.delete(key);
+    } else {
+      this.windows.clear();
+    }
+  }
+
+  getConfig(key: string): RateLimitConfig | undefined {
+    return this.configs.get(key);
+  }
+
+  setConfig(key: string, config: RateLimitConfig): void {
+    this.configs.set(key, config);
+  }
+}
+
+/**
+ * Parameters that expect array values.
+ * External clients may send comma-separated strings instead of arrays.
+ */
+const ARRAY_PARAMS = new Set([
+  'labels',
+  'addLabels',
+  'removeLabels',
+  'depends',
+  'addDepends',
+  'removeDepends',
+  'files',
+  'addFiles',
+  'removeFiles',
+  'acceptance',
+  'findings',
+  'sources',
+  'tasks',
+  'removeTasks',
+  'taskIds',
+]);
+
+/**
+ * Normalize a value to an array, preserving item types.
+ *
+ * - `undefined` / `null` → `undefined`
+ * - Array input → returned as-is (items are NOT coerced; objects, numbers, etc. survive)
+ * - String input → split on `separator`, trimmed, empty segments dropped (CSV expansion)
+ * - Any other scalar → wrapped in a single-element array as a string (e.g. a bare number)
+ *
+ * String-array CSV expansion (e.g. `--labels foo,bar` → `["foo","bar"]`) is preserved.
+ * Object-array params (e.g. `tasks.add-batch` `tasks: [{title,...}, ...]`) are NOT
+ * String()-coerced — the previous behaviour corrupted objects to `"[object Object]"`.
+ * Downstream typed validators (CORE) own per-param type enforcement.
+ *
+ * @task T9854
+ */
+export function ensureArray(value: unknown, separator = ','): unknown[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (Array.isArray(value)) {
+    // Preserve item types — callers' typed validators enforce string[] vs object[] constraints
+    return value.map((v) => (typeof v === 'string' ? v.trim() : v));
+  }
+  if (typeof value === 'string')
+    return value
+      .split(separator)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  // Scalar non-string (e.g. bare number from CLI arg) → wrap as string for backward compat
+  return [String(value)];
+}
+
+/**
+ * Sanitize all params in a request before routing
+ */
+export function sanitizeParams(
+  params: Record<string, unknown> | undefined,
+  projectRoot?: string,
+  context?: { domain?: string; operation?: string },
+): Record<string, unknown> | undefined {
+  if (!params) {
+    return params;
+  }
+
+  const sanitized: Record<string, unknown> = { ...params };
+
+  for (const [key, value] of Object.entries(sanitized)) {
+    if (value === undefined || value === null) {
+      continue;
+    }
+
+    if (
+      typeof value === 'string' &&
+      (key === 'taskId' ||
+        key === 'parent' ||
+        key === 'epicId' ||
+        key === 'parentId' ||
+        key === 'newParentId' ||
+        key === 'relatedId' ||
+        key === 'targetId')
+    ) {
+      if (key === 'parent' && value === '') {
+        continue;
+      }
+      sanitized[key] = sanitizeTaskId(value);
+      continue;
+    }
+
+    if (
+      (key === 'depends' || key === 'addDepends' || key === 'removeDepends') &&
+      Array.isArray(value)
+    ) {
+      sanitized[key] = value.map((v) => {
+        if (typeof v === 'string') {
+          return sanitizeTaskId(v);
+        }
+        return v;
+      });
+      continue;
+    }
+
+    if (typeof value === 'string' && (key === 'path' || key === 'file') && projectRoot) {
+      // Skip path sanitization for operations that intentionally accept external paths.
+      //
+      // T10389 / ADR-068 amendment §3.1 — `docs.add` intentionally accepts
+      // worktree-resident paths that resolve OUTSIDE the canonical project
+      // root. T10616 extends the same policy to `docs.update`, but only when
+      // the caller explicitly opted in via `--allow-external` / `allowExternal`.
+      // The CLI layer (`packages/cleo/src/cli/commands/docs.ts`) pre-
+      // resolves the path against the worktree's cwd via
+      // `resolveWorktreeRouting` + `resolveWorktreeFilePath` so the dispatch
+      // receives an absolute path that the sanitizer would otherwise reject
+      // as `E_PATH_TRAVERSAL`. Allowing the exemption here closes the
+      // 3-guard collision class observed by T10353+T10354+T10294 workers.
+      const allowDocsExternalPath =
+        context?.domain === 'docs' &&
+        (context?.operation === 'add' ||
+          (context?.operation === 'update' && sanitized['allowExternal'] === true));
+      const allowExternalPath =
+        (context?.domain === 'nexus' &&
+          (context?.operation === 'register' || context?.operation === 'reconcile')) ||
+        allowDocsExternalPath;
+      if (!allowExternalPath) {
+        sanitized[key] = sanitizePath(value, projectRoot);
+        continue;
+      }
+    }
+
+    if (
+      typeof value === 'string' &&
+      (key === 'title' || key === 'description' || key === 'content')
+    ) {
+      const maxLen = key === 'title' ? 200 : DEFAULT_MAX_CONTENT_LENGTH;
+      sanitized[key] = sanitizeContent(value, maxLen);
+      continue;
+    }
+
+    if (key === 'notes') {
+      if (typeof value === 'string') {
+        sanitized[key] = sanitizeContent(value);
+      } else if (Array.isArray(value)) {
+        sanitized[key] = value.map((v) => (typeof v === 'string' ? sanitizeContent(v) : v));
+      }
+      continue;
+    }
+
+    if (typeof value === 'string' && key === 'status') {
+      const isLifecycleStageStatus =
+        context?.domain === 'pipeline' && context?.operation === 'stage.record';
+      const isAdrStatus = context?.domain === 'admin' && context?.operation?.startsWith('adr.');
+      const isSessionStatus = context?.domain === 'session';
+
+      sanitized[key] = validateEnum(
+        value,
+        isLifecycleStageStatus
+          ? [...LIFECYCLE_STAGE_STATUSES]
+          : isAdrStatus
+            ? ['proposed', 'accepted', 'superseded', 'deprecated']
+            : isSessionStatus
+              ? [...SESSION_STATUSES]
+              : [...TASK_STATUSES, ...MANIFEST_STATUSES],
+        'status',
+      );
+      continue;
+    }
+
+    if (typeof value === 'string' && key === 'priority') {
+      sanitized[key] = validateEnum(value, [...VALID_PRIORITIES], 'priority');
+    }
+  }
+
+  // Normalize array parameters (external clients may send comma-separated strings)
+  for (const key of Object.keys(sanitized)) {
+    if (ARRAY_PARAMS.has(key) && sanitized[key] !== undefined) {
+      sanitized[key] = ensureArray(sanitized[key]);
+    }
+  }
+
+  return sanitized;
+}

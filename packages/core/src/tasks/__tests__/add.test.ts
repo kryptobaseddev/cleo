@@ -1,0 +1,425 @@
+/**
+ * Tests for task creation (add).
+ * @task T4460
+ * @epic T4454
+ */
+
+import type { Task } from '@cleocode/contracts';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
+import { resetDbState } from '../../store/sqlite.js';
+import {
+  addTask,
+  findRecentDuplicate,
+  getNextPosition,
+  getTaskDepth,
+  inferTaskType,
+  normalizeAcceptance,
+  validateLabels,
+  validateParent,
+  validatePhaseFormat,
+  validatePriority,
+  validateSize,
+  validateStatus,
+  validateTaskType,
+  validateTitle,
+} from '../add.js';
+
+describe('normalizeAcceptance', () => {
+  it('trims acceptance arrays and drops empty entries', () => {
+    expect(normalizeAcceptance([' first ', '', '  ', 'second'])).toEqual(['first', 'second']);
+    expect(normalizeAcceptance(undefined)).toBeUndefined();
+    expect(normalizeAcceptance([' ', ''])).toBeUndefined();
+  });
+});
+
+describe('validateTitle — tasks/add', () => {
+  it('accepts valid titles', () => {
+    expect(() => validateTitle('Implement auth')).not.toThrow();
+    expect(() => validateTitle('Fix bug #123')).not.toThrow();
+  });
+
+  it('rejects empty titles', () => {
+    expect(() => validateTitle('')).toThrow('title is required');
+    expect(() => validateTitle('   ')).toThrow('title is required');
+  });
+
+  it('rejects titles over 200 characters', () => {
+    expect(() => validateTitle('a'.repeat(201))).toThrow('200 characters');
+  });
+});
+
+describe('validateStatus', () => {
+  it('accepts valid statuses', () => {
+    expect(() => validateStatus('pending')).not.toThrow();
+    expect(() => validateStatus('active')).not.toThrow();
+    expect(() => validateStatus('done')).not.toThrow();
+  });
+
+  it('rejects invalid statuses', () => {
+    expect(() => validateStatus('invalid')).toThrow('Invalid status');
+  });
+});
+
+describe('validatePriority — tasks/add', () => {
+  it('accepts valid priorities', () => {
+    expect(() => validatePriority('critical')).not.toThrow();
+    expect(() => validatePriority('low')).not.toThrow();
+  });
+
+  it('rejects invalid priorities', () => {
+    expect(() => validatePriority('urgent')).toThrow('Invalid priority');
+  });
+});
+
+describe('validateTaskType', () => {
+  it('accepts saga, epic, task, subtask', () => {
+    expect(() => validateTaskType('saga')).not.toThrow();
+    expect(() => validateTaskType('epic')).not.toThrow();
+    expect(() => validateTaskType('task')).not.toThrow();
+    expect(() => validateTaskType('subtask')).not.toThrow();
+  });
+
+  it('rejects invalid types', () => {
+    expect(() => validateTaskType('story')).toThrow('Invalid task type');
+  });
+});
+
+describe('validateSize', () => {
+  it('accepts small, medium, large', () => {
+    expect(() => validateSize('small')).not.toThrow();
+    expect(() => validateSize('medium')).not.toThrow();
+    expect(() => validateSize('large')).not.toThrow();
+  });
+
+  it('rejects invalid sizes', () => {
+    expect(() => validateSize('xl')).toThrow('Invalid size');
+  });
+});
+
+describe('validateLabels', () => {
+  it('accepts valid labels', () => {
+    expect(() => validateLabels(['bug', 'v0.5.0', 'security'])).not.toThrow();
+  });
+
+  it('rejects invalid label format', () => {
+    expect(() => validateLabels(['UPPERCASE'])).toThrow('Invalid label format');
+    expect(() => validateLabels(['has space'])).toThrow('Invalid label format');
+  });
+
+  // T9824 — uppercase task-ID-shaped labels are canonical per ADR-073 and
+  // MUST be accepted so agents can tag tasks with their parent task ID.
+  it('accepts uppercase task-ID-shaped labels (T9824 / ADR-073)', () => {
+    expect(() => validateLabels(['T9813'])).not.toThrow();
+    expect(() => validateLabels(['T9813', 'T9814'])).not.toThrow();
+    expect(() => validateLabels(['T123'])).not.toThrow();
+    expect(() => validateLabels(['T99999'])).not.toThrow();
+    // Mixed: task-ID labels alongside conventional lowercase labels
+    expect(() => validateLabels(['T9813', 'bug', 'security'])).not.toThrow();
+  });
+
+  it('still rejects malformed task-ID-like labels (T9824)', () => {
+    // Lowercase 't' is not a canonical task-ID prefix — must remain rejected
+    expect(() => validateLabels(['t9813'])).not.toThrow(); // already matches lowercase rule
+    // Too few digits (< 3) — not a real task ID shape
+    expect(() => validateLabels(['T1'])).toThrow('Invalid label format');
+    expect(() => validateLabels(['T12'])).toThrow('Invalid label format');
+    // Wrong shape — still rejected
+    expect(() => validateLabels(['T9813x'])).toThrow('Invalid label format');
+    expect(() => validateLabels(['XT9813'])).toThrow('Invalid label format');
+  });
+});
+
+describe('validatePhaseFormat', () => {
+  it('accepts valid phase slugs', () => {
+    expect(() => validatePhaseFormat('testing')).not.toThrow();
+    expect(() => validatePhaseFormat('phase-1')).not.toThrow();
+  });
+
+  it('rejects invalid formats', () => {
+    expect(() => validatePhaseFormat('Phase1')).toThrow('Invalid phase format');
+    expect(() => validatePhaseFormat('123')).toThrow('Invalid phase format');
+  });
+});
+
+describe('inferTaskType', () => {
+  it('returns task for root level', () => {
+    expect(inferTaskType(null, [])).toBe('task');
+  });
+
+  it('returns task for epic parent', () => {
+    const tasks = [{ id: 'T001', type: 'epic' }] as Task[];
+    expect(inferTaskType('T001', tasks)).toBe('task');
+  });
+
+  it('returns subtask for task parent', () => {
+    const tasks = [{ id: 'T001', type: 'task' }] as Task[];
+    expect(inferTaskType('T001', tasks)).toBe('subtask');
+  });
+});
+
+describe('getTaskDepth', () => {
+  it('returns 0 for root tasks', () => {
+    const tasks = [{ id: 'T001', parentId: null }] as Task[];
+    expect(getTaskDepth('T001', tasks)).toBe(0);
+  });
+
+  it('returns correct depth for nested tasks', () => {
+    const tasks = [
+      { id: 'T001', parentId: null },
+      { id: 'T002', parentId: 'T001' },
+      { id: 'T003', parentId: 'T002' },
+    ] as Task[];
+    expect(getTaskDepth('T003', tasks)).toBe(2);
+  });
+});
+
+describe('getNextPosition', () => {
+  it('returns 1 for empty parent', () => {
+    expect(getNextPosition(null, [])).toBe(1);
+  });
+
+  it('returns max + 1', () => {
+    const tasks = [
+      { id: 'T001', parentId: 'T000', position: 1 },
+      { id: 'T002', parentId: 'T000', position: 3 },
+    ] as Task[];
+    expect(getNextPosition('T000', tasks)).toBe(4);
+  });
+});
+
+describe('validateParent', () => {
+  it('throws if parent not found', () => {
+    expect(() => validateParent('T999', [])).toThrow('Parent task not found');
+  });
+
+  it('throws if parent is subtask', () => {
+    const tasks = [{ id: 'T001', type: 'subtask' }] as Task[];
+    expect(() => validateParent('T001', tasks)).toThrow('subtasks cannot have children');
+  });
+});
+
+describe('findRecentDuplicate', () => {
+  it('returns null when no duplicate', () => {
+    expect(findRecentDuplicate('New task', undefined, [])).toBeNull();
+  });
+
+  it('detects recent duplicate by title', () => {
+    const now = new Date().toISOString();
+    const tasks = [{ id: 'T001', title: 'Test task', createdAt: now }] as Task[];
+    expect(findRecentDuplicate('Test task', undefined, tasks))?.toEqual(
+      expect.objectContaining({ id: 'T001' }),
+    );
+  });
+
+  it('ignores old tasks outside window', () => {
+    const old = new Date(Date.now() - 120000).toISOString();
+    const tasks = [{ id: 'T001', title: 'Test task', createdAt: old }] as Task[];
+    expect(findRecentDuplicate('Test task', undefined, tasks, 60)).toBeNull();
+  });
+});
+
+describe('addTask (integration)', () => {
+  let env: TestDbEnv;
+  let accessor: DataAccessor;
+
+  beforeEach(async () => {
+    env = await createTestDb();
+    accessor = env.accessor;
+    // Pin CLEO_DIR to the test cleoDir so concurrent workers cannot contaminate the path
+    process.env['CLEO_DIR'] = env.cleoDir;
+  });
+
+  afterEach(async () => {
+    delete process.env['CLEO_DIR'];
+    resetDbState();
+    await env.cleanup();
+  });
+
+  it('creates a task with default values', async () => {
+    // DEBUG: verify CLEO_DIR and config are correct
+    const { existsSync, readdirSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const cleoDir = process.env['CLEO_DIR'];
+    console.log('DEBUG CLEO_DIR:', cleoDir);
+    console.log('DEBUG env.cleoDir:', env.cleoDir);
+    console.log('DEBUG match:', cleoDir === env.cleoDir);
+    console.log('DEBUG cleoDir exists:', existsSync(cleoDir!));
+    if (existsSync(cleoDir!)) {
+      console.log('DEBUG cleoDir contents:', readdirSync(cleoDir!));
+    }
+    const result = await addTask(
+      { title: 'Test task', description: 'A test task for defaults' },
+      env.tempDir,
+      accessor,
+    );
+    expect(result.task.id).toBe('T001');
+    expect(result.task.title).toBe('Test task');
+    expect(result.task.status).toBe('pending');
+    expect(result.task.priority).toBe('medium');
+    expect(result.task.type).toBe('task');
+    expect(result.duplicate).toBeUndefined();
+  });
+
+  it('creates a task with all options', async () => {
+    const result = await addTask(
+      {
+        title: 'Full task',
+        status: 'active',
+        priority: 'high',
+        type: 'epic',
+        size: 'large',
+        description: 'A detailed description',
+        labels: ['bug', 'security'],
+      },
+      env.tempDir,
+      accessor,
+    );
+
+    expect(result.task.status).toBe('active');
+    expect(result.task.priority).toBe('high');
+    expect(result.task.type).toBe('epic');
+    expect(result.task.size).toBe('large');
+    expect(result.task.description).toBe('A detailed description');
+    expect(result.task.labels).toEqual(['bug', 'security']);
+  });
+
+  it('generates sequential IDs', async () => {
+    const r1 = await addTask({ title: 'Task 1', description: 'First task' }, env.tempDir, accessor);
+    const r2 = await addTask(
+      { title: 'Task 2', description: 'Second task' },
+      env.tempDir,
+      accessor,
+    );
+    expect(r1.task.id).toBe('T001');
+    expect(r2.task.id).toBe('T002');
+  });
+
+  it('detects duplicates', async () => {
+    await addTask(
+      { title: 'Duplicate me', description: 'Duplicate detection test' },
+      env.tempDir,
+      accessor,
+    );
+    const r2 = await addTask(
+      { title: 'Duplicate me', description: 'Duplicate detection test' },
+      env.tempDir,
+      accessor,
+    );
+    expect(r2.duplicate).toBe(true);
+    expect(r2.task.id).toBe('T001'); // Returns existing
+  });
+
+  it('handles dry run', async () => {
+    const result = await addTask(
+      { title: 'Dry run task', description: 'Testing dry run mode', dryRun: true },
+      env.tempDir,
+      accessor,
+    );
+    expect(result.dryRun).toBe(true);
+    // Dry run does not allocate a real sequence ID — the task is a preview only
+    expect(result.task.id).toBe('T???');
+    expect(result.task.title).toBe('Dry run task');
+  });
+
+  it('validates parent hierarchy', async () => {
+    // Create parent
+    await addTask(
+      { title: 'Parent', description: 'Parent epic task', type: 'epic' },
+      env.tempDir,
+      accessor,
+    );
+
+    // Create child
+    const child = await addTask(
+      { title: 'Child', description: 'Child of parent epic', parentId: 'T001' },
+      env.tempDir,
+      accessor,
+    );
+    expect(child.task.parentId).toBe('T001');
+    expect(child.task.type).toBe('task');
+  });
+
+  it('normalizes child acceptance, creates parent child AC projection, and returns created IDs', async () => {
+    await addTask(
+      { title: 'Parent', description: 'Parent epic task', type: 'epic' },
+      env.tempDir,
+      accessor,
+    );
+
+    const child = await addTask(
+      {
+        title: 'Child projection',
+        description: 'Child of parent epic with acceptance projection',
+        parentId: 'T001',
+        acceptance: [' child ac one ', '', 'child ac two  '],
+      },
+      env.tempDir,
+      accessor,
+    );
+
+    expect(child.task.id).toBe('T002');
+    expect(child.task.acceptance).toEqual(['child ac one', 'child ac two']);
+    expect(child.createdIds?.tasks).toEqual(['T002']);
+    expect(child.createdIds?.acceptanceCriteria).toHaveLength(3);
+
+    const childRows = await accessor.getAcRows('T002');
+    expect(childRows.map((row) => row.text)).toEqual(['child ac one', 'child ac two']);
+
+    const parentRows = await accessor.getAcRows('T001');
+    expect(parentRows).toHaveLength(1);
+    expect(parentRows[0]?.text).toBe('Complete child T002: Child projection');
+    expect(parentRows[0]?.kind).toBe('child_task');
+    expect(parentRows[0]?.sourceKey).toBe('child:T002');
+    expect(parentRows[0]?.targetTaskId).toBe('T002');
+    expect(parentRows[0]?.projection).toBe('parent-child');
+    expect(child.createdIds?.acceptanceCriteria).toContain(parentRows[0]?.id);
+
+    const parent = await accessor.loadSingleTask('T001');
+    expect(parent?.acceptance).toEqual(['Complete child T002: Child projection']);
+  });
+
+  it('projects one typed child_task acceptance row per direct child with unique source keys', async () => {
+    await addTask(
+      { title: 'Parent', description: 'Parent epic task', type: 'epic' },
+      env.tempDir,
+      accessor,
+    );
+
+    await addTask(
+      { title: 'First child', description: 'First direct child', parentId: 'T001' },
+      env.tempDir,
+      accessor,
+    );
+    await addTask(
+      { title: 'Second child', description: 'Second direct child', parentId: 'T001' },
+      env.tempDir,
+      accessor,
+    );
+
+    const parentRows = await accessor.getAcRows('T001');
+    expect(parentRows).toHaveLength(2);
+    expect(parentRows.map((row) => row.kind)).toEqual(['child_task', 'child_task']);
+    expect(parentRows.map((row) => row.targetTaskId)).toEqual(['T002', 'T003']);
+    expect(parentRows.map((row) => row.sourceKey)).toEqual(['child:T002', 'child:T003']);
+    expect(new Set(parentRows.map((row) => row.sourceKey)).size).toBe(parentRows.length);
+    expect(parentRows.every((row) => row.targetTaskId !== null)).toBe(true);
+
+    const parent = await accessor.loadSingleTask('T001');
+    expect(parent?.acceptance).toEqual([
+      'Complete child T002: First child',
+      'Complete child T003: Second child',
+    ]);
+  });
+
+  it('rejects invalid parent', async () => {
+    await expect(
+      addTask(
+        { title: 'Child', description: 'Child with invalid parent', parentId: 'T999' },
+        env.tempDir,
+        accessor,
+      ),
+    ).rejects.toThrow('not found');
+  });
+});

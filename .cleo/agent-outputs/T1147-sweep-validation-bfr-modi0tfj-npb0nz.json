@@ -1,0 +1,493 @@
+{
+  "runId": "bfr-modi0tfj-npb0nz",
+  "generatedAt": "2026-04-24T22:45:17.695Z",
+  "dryRun": false,
+  "counts": {
+    "observations": 10,
+    "learnings": 0,
+    "decisions": 50,
+    "patterns": 8,
+    "total": 68
+  },
+  "autoValidationPassed": true,
+  "autoValidationNote": "All 68 sampled entries have quality_score < 0.3 — auto-approved",
+  "sampleSize": 68,
+  "sample": [
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-50c06c38a7",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" failed (retriable) on task T2 (type: task)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-93f12c9032",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" successfully completed task T002 (type: task)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-c2d917f9a3",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" successfully completed task T001 (type: task)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-c290f8832e",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"validator\" failed (unknown) on task T003 (type: subtask)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-a29614c95d",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"researcher\" successfully completed task T004 (type: epic)"
+    },
+    {
+      "sourceTable": "brain_observations",
+      "sourceId": "O-agt-9f6cf28b",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Healing strategy: executor on subtask"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-0b46aed6d3",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" failed (retriable) on task T001 (type: subtask)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-87698d31ad",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" successfully completed task T041 (type: task)"
+    },
+    {
+      "sourceTable": "brain_patterns",
+      "sourceId": "P-agt-f2b92429",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" fails on task type \"task\" with retriable error"
+    },
+    {
+      "sourceTable": "brain_patterns",
+      "sourceId": "P-agt-8741df7d",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" fails on task type \"task\" with permanent error"
+    },
+    {
+      "sourceTable": "brain_patterns",
+      "sourceId": "P-agt-d8a54b7f",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"researcher\" fails on task type \"epic\" with permanent error"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-1c524fe31c",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" successfully completed task T001 (type: task)"
+    },
+    {
+      "sourceTable": "brain_patterns",
+      "sourceId": "P-agt-1b814079",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"researcher\" fails on task type \"epic\" with retriable error"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-2ff9174eee",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" failed (retriable) on task T002 (type: subtask)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-8e050106aa",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" successfully completed task T001 (type: task)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-43aea62e6f",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" successfully completed task T1 (type: task)"
+    },
+    {
+      "sourceTable": "brain_observations",
+      "sourceId": "O-agt-f182f128",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Healing strategy: orchestrator on epic"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-2783d22f0a",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" successfully completed task T1 (type: task)"
+    },
+    {
+      "sourceTable": "brain_observations",
+      "sourceId": "O-agt-ce72ae0f",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Healing strategy: executor on task"
+    },
+    {
+      "sourceTable": "brain_patterns",
+      "sourceId": "P-agt-fed5d3cb",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" fails on task type \"subtask\" with retriable error"
+    },
+    {
+      "sourceTable": "brain_observations",
+      "sourceId": "O-agt-64b9ca2a",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Healing strategy: orchestrator on epic"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-8dadcde992",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"researcher\" successfully completed task T004 (type: epic)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-f347e03473",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" successfully completed task T1 (type: task)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-190af2eb67",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"orchestrator\" failed (unknown) on task T003 (type: epic)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-ea00d771d7",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" successfully completed task T001 (type: task)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-f7d72e89c2",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" failed (retriable) on task T003 (type: subtask)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-55c70ff270",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"orchestrator\" successfully completed task T010 (type: task)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-e73dbf9062",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"orchestrator\" failed (unknown) on task T001 (type: epic)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-1886c0c327",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" successfully completed task T1 (type: task)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-555fbade55",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"researcher\" failed (retriable) on task T002 (type: epic)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-da6a8812c7",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" successfully completed task T002 (type: task)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-5f6ac472fd",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"orchestrator\" failed (unknown) on task T001 (type: epic)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-7c2619b67d",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" failed (retriable) on task T002 (type: subtask)"
+    },
+    {
+      "sourceTable": "brain_observations",
+      "sourceId": "O-agt-56a028b5",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Healing strategy: executor on task"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-2e4b20295d",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"validator\" failed (unknown) on task T003 (type: subtask)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-1ecd6ef0db",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" failed (permanent) on task T2 (type: epic)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-0c560505e5",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"researcher\" failed (permanent) on task T002 (type: epic)"
+    },
+    {
+      "sourceTable": "brain_observations",
+      "sourceId": "O-agt-143dc2d7",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Healing strategy: executor on task"
+    },
+    {
+      "sourceTable": "brain_patterns",
+      "sourceId": "P-agt-024e5eda",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"validator\" fails on task type \"task\" with retriable error"
+    },
+    {
+      "sourceTable": "brain_observations",
+      "sourceId": "O-agt-2546f726",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Healing strategy: executor on subtask"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-3c2037e3d3",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" failed (retriable) on task T2 (type: task)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-6233d93d73",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"researcher\" failed (permanent) on task T002 (type: epic)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-ea14a8dabe",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" failed (retriable) on task T999 (type: task)"
+    },
+    {
+      "sourceTable": "brain_observations",
+      "sourceId": "O-agt-baddbdb0",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Healing strategy: orchestrator on epic"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-4e6da1b7cf",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" failed (retriable) on task T001 (type: task)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-1826e411b6",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"researcher\" failed (retriable) on task T002 (type: epic)"
+    },
+    {
+      "sourceTable": "brain_observations",
+      "sourceId": "O-agt-5700beb2",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Healing strategy: orchestrator on epic"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-05d5fead30",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" successfully completed task T001 (type: task)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-6e5c24b4ab",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" successfully completed task T1 (type: task)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-199eec2f2b",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"researcher\" successfully completed task T2 (type: epic)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-1cf076caa4",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"orchestrator\" failed (unknown) on task T002 (type: epic)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-ce1ed4d041",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" failed (retriable) on task T999 (type: task)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-1a31202541",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" successfully completed task T001 (type: task)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-e97fe1baf9",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" failed (permanent) on task T2 (type: epic)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-c4325fde7c",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"orchestrator\" failed (unknown) on task T002 (type: epic)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-90b31b83ce",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"orchestrator\" successfully completed task T010 (type: task)"
+    },
+    {
+      "sourceTable": "brain_observations",
+      "sourceId": "O-agt-67483569",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Healing strategy: executor on subtask"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-d89d17dd52",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" failed (retriable) on task T001 (type: subtask)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-3989f68708",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" successfully completed task T041 (type: task)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-9d3386f5ed",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" failed (retriable) on task T003 (type: task)"
+    },
+    {
+      "sourceTable": "brain_patterns",
+      "sourceId": "P-agt-d8beb5c6",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"validator\" fails on task type \"task\" with permanent error"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-ea64d4de61",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"orchestrator\" failed (unknown) on task T003 (type: epic)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-afd62b3cad",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" failed (retriable) on task T003 (type: task)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-11b8437dd8",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" failed (retriable) on task T001 (type: task)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-854b6c6469",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" successfully completed task T1 (type: task)"
+    },
+    {
+      "sourceTable": "brain_patterns",
+      "sourceId": "P-agt-5d07e2ff",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"orchestrator\" fails on task type \"epic\" with unknown error"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-b1a88c8193",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"executor\" successfully completed task T001 (type: task)"
+    },
+    {
+      "sourceTable": "brain_decisions",
+      "sourceId": "AGT-de45cb3073",
+      "qualityScore": null,
+      "sourceConfidence": "agent",
+      "content": "Agent type \"researcher\" successfully completed task T2 (type: epic)"
+    }
+  ]
+}

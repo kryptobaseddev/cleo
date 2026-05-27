@@ -1,0 +1,19 @@
+{
+  "$schema": "https://lafs.dev/schemas/v1/envelope.schema.json",
+  "_meta": {
+    "specVersion": "1.0.0",
+    "schemaVersion": "1.0.0",
+    "timestamp": "2026-02-12T00:00:00Z",
+    "operation": "example.create",
+    "requestId": "req_no_page_01",
+    "transport": "cli",
+    "strict": true,
+    "mvi": "minimal",
+    "contextVersion": 0
+  },
+  "success": true,
+  "result": {
+    "id": "created-1",
+    "title": "New Item"
+  }
+}

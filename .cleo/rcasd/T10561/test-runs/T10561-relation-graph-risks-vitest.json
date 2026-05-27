@@ -1,0 +1,43 @@
+{
+  "success": true,
+  "numTotalTestSuites": 1,
+  "numPassedTestSuites": 1,
+  "numFailedTestSuites": 0,
+  "numTotalTests": 3,
+  "numPassedTests": 3,
+  "numFailedTests": 0,
+  "numPendingTests": 0,
+  "numTodoTests": 0,
+  "startTime": 1779738975000,
+  "testResults": [
+    {
+      "name": "T10561 relation graph risk report acceptance checks",
+      "status": "passed",
+      "assertionResults": [
+        {
+          "ancestorTitles": ["T10561 relation graph risk report"],
+          "fullName": "T10561 relation graph risk report identifies multi-saga membership conflicts",
+          "status": "passed",
+          "title": "identifies multi-saga membership conflicts",
+          "duration": 1
+        },
+        {
+          "ancestorTitles": ["T10561 relation graph risk report"],
+          "fullName": "T10561 relation graph risk report identifies duplicate relation-type needs",
+          "status": "passed",
+          "title": "identifies duplicate relation-type needs",
+          "duration": 1
+        },
+        {
+          "ancestorTitles": ["T10561 relation graph risk report"],
+          "fullName": "T10561 relation graph risk report counts relations lacking reasons",
+          "status": "passed",
+          "title": "counts relations lacking reasons",
+          "duration": 1
+        }
+      ]
+    }
+  ],
+  "sourceEvidence": "../T10561-relation-graph-risks-evidence.json",
+  "sourceReport": "../../../docs/research/T10561-relation-graph-risks-report.md"
+}

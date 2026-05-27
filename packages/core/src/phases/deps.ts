@@ -1,0 +1,529 @@
+/**
+ * Dependency graph resolution - topological sort, cycle detection, impact analysis.
+ * @task T4464
+ * @task T4659
+ * @epic T4454
+ * @epic T4654
+ */
+
+import type { Task, TaskRef } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts';
+import { CleoError } from '../errors.js';
+import { type DataAccessor, getTaskAccessor } from '../store/data-accessor.js';
+
+/**
+ * Load all tasks via targeted query.
+ * Creates a fresh accessor from cwd when none is provided.
+ * @task T4659
+ * @epic T4654
+ */
+async function loadAllTasks(cwd?: string, accessor?: DataAccessor): Promise<Task[]> {
+  const acc = accessor ?? (await getTaskAccessor(cwd));
+  const { tasks } = await acc.queryTasks({});
+  return tasks;
+}
+
+/**
+ * Invalidate the cached TaskFile (call after writes).
+ * @task T4659
+ * @epic T4654
+ */
+export function invalidateDepsCache(): void {
+  // No-op: cache removed when JSON fallback was eliminated
+}
+
+/** A node in the dependency graph. */
+export interface DepNode {
+  id: string;
+  title: string;
+  status: string;
+  depends: string[];
+  dependents: string[];
+}
+
+/** Dependency overview result. */
+export interface DepsOverviewResult {
+  nodes: DepNode[];
+  totalTasks: number;
+  withDependencies: number;
+  withDependents: number;
+  roots: string[];
+  leaves: string[];
+}
+
+/** Single task dependency result. */
+export interface TaskDepsResult {
+  task: TaskRef;
+  upstream: TaskRef[];
+  downstream: TaskRef[];
+  blockedBy: TaskRef[];
+}
+
+/** Execution wave (group of parallelizable tasks). */
+export interface ExecutionWave {
+  wave: number;
+  tasks: Array<TaskRef & { depends: string[] }>;
+}
+
+/** Critical path result. */
+export interface CriticalPathResult {
+  path: TaskRef[];
+  length: number;
+}
+
+/** Cycle detection result. */
+export interface CycleResult {
+  hasCycles: boolean;
+  cycles: string[][];
+}
+
+/**
+ * Dependency-complete statuses for phase/deps planning surfaces.
+ *
+ * `archived` is housekeeping-complete: archived work must not keep downstream
+ * tasks blocked or appear as executable work in dependency waves.
+ */
+function isDependencyComplete(task: Task): boolean {
+  return task.status === 'done' || task.status === 'cancelled' || task.status === 'archived';
+}
+
+/**
+ * Build an adjacency graph from task dependencies.
+ * @task T4464
+ */
+export function buildGraph(tasks: Task[]): Map<string, DepNode> {
+  const graph = new Map<string, DepNode>();
+  const taskMap = new Map(tasks.map((t) => [t.id, t]));
+
+  // Initialize nodes
+  for (const task of tasks) {
+    graph.set(task.id, {
+      id: task.id,
+      title: task.title,
+      status: task.status,
+      depends: (task.depends ?? []).filter((d) => taskMap.has(d)),
+      dependents: [],
+    });
+  }
+
+  // Build reverse edges (dependents)
+  for (const [id, node] of graph) {
+    for (const depId of node.depends) {
+      const depNode = graph.get(depId);
+      if (depNode) {
+        depNode.dependents.push(id);
+      }
+    }
+  }
+
+  return graph;
+}
+
+/**
+ * Get dependency overview for all tasks.
+ * @task T4464
+ */
+export async function getDepsOverview(
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<DepsOverviewResult> {
+  const allTasks = await loadAllTasks(cwd, accessor);
+  const graph = buildGraph(allTasks);
+  const nodes = Array.from(graph.values());
+
+  return {
+    nodes,
+    totalTasks: allTasks.length,
+    withDependencies: nodes.filter((n) => n.depends.length > 0).length,
+    withDependents: nodes.filter((n) => n.dependents.length > 0).length,
+    roots: nodes.filter((n) => n.depends.length === 0).map((n) => n.id),
+    leaves: nodes.filter((n) => n.dependents.length === 0).map((n) => n.id),
+  };
+}
+
+/**
+ * Get dependencies for a specific task.
+ * @task T4464
+ */
+export async function getTaskDeps(
+  taskId: string,
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<TaskDepsResult> {
+  const allTasks = await loadAllTasks(cwd, accessor);
+  const task = allTasks.find((t) => t.id === taskId);
+
+  if (!task) {
+    throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${taskId}`);
+  }
+
+  const graph = buildGraph(allTasks);
+  const node = graph.get(taskId)!;
+  const taskMap = new Map(allTasks.map((t) => [t.id, t]));
+
+  const toSummary = (id: string) => {
+    const t = taskMap.get(id);
+    return t
+      ? { id: t.id, title: t.title, status: t.status }
+      : { id, title: 'Unknown', status: 'unknown' };
+  };
+
+  // Find upstream dependencies that are not complete (blocking this task)
+  const blockedBy = node.depends
+    .filter((depId) => {
+      const depTask = taskMap.get(depId);
+      return depTask && !isDependencyComplete(depTask);
+    })
+    .map(toSummary);
+
+  return {
+    task: { id: task.id, title: task.title, status: task.status },
+    upstream: node.depends.map(toSummary),
+    downstream: node.dependents.map(toSummary),
+    blockedBy,
+  };
+}
+
+/**
+ * Topological sort of tasks respecting dependencies.
+ * Returns tasks in execution order. Throws on cycles.
+ * @task T4464
+ */
+export function topologicalSort(tasks: Task[]): Task[] {
+  const graph = buildGraph(tasks);
+  const taskMap = new Map(tasks.map((t) => [t.id, t]));
+  const visited = new Set<string>();
+  const visiting = new Set<string>();
+  const result: string[] = [];
+
+  function dfs(id: string): void {
+    if (visited.has(id)) return;
+    if (visiting.has(id)) {
+      throw new CleoError(
+        ExitCode.CIRCULAR_REFERENCE,
+        `Circular dependency detected involving task: ${id}`,
+      );
+    }
+
+    visiting.add(id);
+    const node = graph.get(id);
+    if (node) {
+      for (const dep of node.depends) {
+        dfs(dep);
+      }
+    }
+    visiting.delete(id);
+    visited.add(id);
+    result.push(id);
+  }
+
+  for (const task of tasks) {
+    dfs(task.id);
+  }
+
+  return result.map((id) => taskMap.get(id)!).filter(Boolean);
+}
+
+/**
+ * Group tasks into parallelizable execution waves.
+ * @task T4464
+ */
+export async function getExecutionWaves(
+  epicId?: string,
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<ExecutionWave[]> {
+  const allTasks = await loadAllTasks(cwd, accessor);
+  let tasks = allTasks.filter((t) => !isDependencyComplete(t));
+
+  // Scope to epic if provided
+  if (epicId) {
+    const epicTask = allTasks.find((t) => t.id === epicId);
+    if (!epicTask) {
+      throw new CleoError(ExitCode.NOT_FOUND, `Epic not found: ${epicId}`);
+    }
+    const childIds = new Set(allTasks.filter((t) => t.parentId === epicId).map((t) => t.id));
+    tasks = tasks.filter((t) => childIds.has(t.id) || t.id === epicId);
+  }
+
+  const graph = buildGraph(tasks);
+  const waves: ExecutionWave[] = [];
+  const completed = new Set<string>();
+
+  // Filter to only non-done tasks
+  const remaining = new Set(tasks.map((t) => t.id));
+
+  let waveNum = 1;
+  while (remaining.size > 0) {
+    const wave: string[] = [];
+
+    for (const id of remaining) {
+      const node = graph.get(id);
+      if (!node) continue;
+
+      // Check if all dependencies are completed
+      const allDepsComplete = node.depends.every(
+        (dep) => completed.has(dep) || !remaining.has(dep),
+      );
+      if (allDepsComplete) {
+        wave.push(id);
+      }
+    }
+
+    if (wave.length === 0) {
+      // Remaining tasks have circular dependencies - add them all to last wave
+      wave.push(...remaining);
+    }
+
+    waves.push({
+      wave: waveNum,
+      tasks: wave.map((id) => {
+        const node = graph.get(id)!;
+        return {
+          id,
+          title: node.title,
+          status: node.status,
+          depends: node.depends,
+        };
+      }),
+    });
+
+    for (const id of wave) {
+      completed.add(id);
+      remaining.delete(id);
+    }
+    waveNum++;
+  }
+
+  return waves;
+}
+
+/**
+ * Find the critical path (longest dependency chain) from a task.
+ * @task T4464
+ */
+export async function getCriticalPath(
+  taskId: string,
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<CriticalPathResult> {
+  const allTasks = await loadAllTasks(cwd, accessor);
+  const task = allTasks.find((t) => t.id === taskId);
+
+  if (!task) {
+    throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${taskId}`);
+  }
+
+  const graph = buildGraph(allTasks);
+  const taskMap = new Map(allTasks.map((t) => [t.id, t]));
+
+  // DFS to find longest path from this task through dependents
+  function findLongestPath(id: string, visited: Set<string>): string[] {
+    if (visited.has(id)) return [];
+    visited.add(id);
+
+    const node = graph.get(id);
+    if (!node || node.dependents.length === 0) {
+      return [id];
+    }
+
+    let longest: string[] = [];
+    for (const depId of node.dependents) {
+      const path = findLongestPath(depId, new Set(visited));
+      if (path.length > longest.length) {
+        longest = path;
+      }
+    }
+
+    return [id, ...longest];
+  }
+
+  const path = findLongestPath(taskId, new Set<string>());
+
+  return {
+    path: path.map((id) => {
+      const t = taskMap.get(id);
+      return t
+        ? { id: t.id, title: t.title, status: t.status }
+        : { id, title: 'Unknown', status: 'unknown' };
+    }),
+    length: path.length,
+  };
+}
+
+/**
+ * Find all tasks affected by changes to a given task.
+ * @task T4464
+ */
+export async function getImpact(
+  taskId: string,
+  maxDepth: number = 10,
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<string[]> {
+  const allTasks = await loadAllTasks(cwd, accessor);
+  const task = allTasks.find((t) => t.id === taskId);
+
+  if (!task) {
+    throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${taskId}`);
+  }
+
+  const graph = buildGraph(allTasks);
+  const impacted = new Set<string>();
+
+  function traverse(id: string, depth: number): void {
+    if (depth > maxDepth || impacted.has(id)) return;
+    impacted.add(id);
+
+    const node = graph.get(id);
+    if (node) {
+      for (const depId of node.dependents) {
+        traverse(depId, depth + 1);
+      }
+    }
+  }
+
+  traverse(taskId, 0);
+  impacted.delete(taskId); // Don't include the source task
+
+  return Array.from(impacted);
+}
+
+/**
+ * Detect circular dependencies in the task graph.
+ * @task T4464
+ */
+export async function detectCycles(cwd?: string, accessor?: DataAccessor): Promise<CycleResult> {
+  const allTasks = await loadAllTasks(cwd, accessor);
+  const graph = buildGraph(allTasks);
+  const cycles: string[][] = [];
+  const visited = new Set<string>();
+  const stack = new Set<string>();
+  const path: string[] = [];
+
+  function dfs(id: string): void {
+    if (visited.has(id)) return;
+    if (stack.has(id)) {
+      // Found a cycle
+      const cycleStart = path.indexOf(id);
+      if (cycleStart !== -1) {
+        cycles.push([...path.slice(cycleStart), id]);
+      }
+      return;
+    }
+
+    stack.add(id);
+    path.push(id);
+
+    const node = graph.get(id);
+    if (node) {
+      for (const dep of node.depends) {
+        if (graph.has(dep)) {
+          dfs(dep);
+        }
+      }
+    }
+
+    path.pop();
+    stack.delete(id);
+    visited.add(id);
+  }
+
+  for (const id of graph.keys()) {
+    if (!visited.has(id)) {
+      dfs(id);
+    }
+  }
+
+  return {
+    hasCycles: cycles.length > 0,
+    cycles,
+  };
+}
+
+/**
+ * Build task hierarchy tree.
+ * @task T4464
+ */
+export async function getTaskTree(
+  rootId?: string,
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<TreeNode[]> {
+  const allTasks = await loadAllTasks(cwd, accessor);
+
+  const taskMap = new Map(allTasks.map((t) => [t.id, t]));
+
+  function buildChildren(parentId: string | null): TreeNode[] {
+    const children = allTasks
+      .filter((t) => (parentId ? t.parentId === parentId : !t.parentId))
+      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+
+    return children.map((t) => ({
+      id: t.id,
+      title: t.title,
+      status: t.status,
+      type: t.type,
+      children: buildChildren(t.id),
+    }));
+  }
+
+  if (rootId) {
+    const root = taskMap.get(rootId);
+    if (!root) {
+      throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${rootId}`);
+    }
+    return [
+      {
+        id: root.id,
+        title: root.title,
+        status: root.status,
+        type: root.type,
+        children: buildChildren(root.id),
+      },
+    ];
+  }
+
+  return buildChildren(null);
+}
+
+/** Tree node representation. */
+export interface TreeNode {
+  id: string;
+  title: string;
+  status: string;
+  type?: string;
+  children: TreeNode[];
+}
+
+/**
+ * Manage task relationships (relates/blocks).
+ * @task T4464
+ */
+export async function addRelation(
+  taskId: string,
+  relatedId: string,
+  _cwd?: string,
+  accessor?: DataAccessor,
+): Promise<{ taskId: string; relatedId: string }> {
+  const task = await accessor!.loadSingleTask(taskId);
+  if (!task) {
+    throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${taskId}`);
+  }
+
+  const relatedExists = await accessor!.taskExists(relatedId);
+  if (!relatedExists) {
+    throw new CleoError(ExitCode.NOT_FOUND, `Related task not found: ${relatedId}`);
+  }
+
+  // Add dependency
+  if (!task.depends) task.depends = [];
+  if (!task.depends.includes(relatedId)) {
+    task.depends.push(relatedId);
+  }
+
+  await accessor!.upsertSingleTask(task);
+  invalidateDepsCache();
+
+  return { taskId, relatedId };
+}

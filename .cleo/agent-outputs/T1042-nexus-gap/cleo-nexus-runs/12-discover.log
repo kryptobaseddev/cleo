@@ -1,0 +1,3 @@
+NOTE: 'cleo nexus discover' operates on TASK REFERENCES (T-ID format: T001, project:T001), NOT semantic code queries.
+Attempted: 'error handling' — returned E_INVALID_INPUT (exit 2) with message: 'Invalid query syntax: error handling. Expected: T001, project:T001, .:T001, or *:T001'
+This confirms nexus discover/search have NO semantic code-symbol search capability; both commands operate in task-management domain only.

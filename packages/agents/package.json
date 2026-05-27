@@ -1,0 +1,18 @@
+{
+  "name": "@cleocode/agents",
+  "version": "2026.5.122",
+  "description": "CLEO agent protocols and templates",
+  "type": "module",
+  "license": "MIT",
+  "files": [
+    "cleo-subagent.cant",
+    "templates/",
+    "meta/",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kryptobaseddev/cleo",
+    "directory": "packages/agents"
+  }
+}

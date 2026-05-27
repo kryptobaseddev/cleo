@@ -1,0 +1,184 @@
+/**
+ * CLI commands for Smart Explore code analysis.
+ *
+ * cleo code outline <file>
+ * cleo code search <query> [--lang] [--max] [--path]
+ * cleo code unfold <file> <symbol>
+ *
+ * @task T154
+ */
+
+import { defineCommand } from 'citty';
+import { cliError, humanLine } from '../renderers/index.js';
+
+/** Check tree-sitter availability before running code analysis. Exits with clear message if missing. */
+async function requireTreeSitter(): Promise<void> {
+  const { isTreeSitterAvailable } = await import('@cleocode/core/internal');
+  if (!isTreeSitterAvailable()) {
+    cliError(
+      'tree-sitter native module not available.\n\n' +
+        'This usually means the native addon failed to build during install.\n\n' +
+        'tree-sitter and grammar packages are bundled dependencies that should\n' +
+        'install automatically. If this persists, run: cleo doctor',
+      7,
+      {
+        name: 'E_SERVICE_UNAVAILABLE',
+        fix: 'pnpm install (or npm install -g @cleocode/cleo)',
+      },
+    );
+    process.exit(7); // exit code 7 = service unavailable
+  }
+}
+
+/**
+ * Smart Explore code analysis command.
+ *
+ * Provides CLI access to tree-sitter powered code analysis:
+ * - outline: Extract file structure (signatures only)
+ * - search: Find symbols across codebase with relevance scoring
+ * - unfold: Extract complete symbol source with context
+ *
+ * @returns Command definition for citty dispatcher
+ * @task T154, T157
+ */
+export const codeCommand = defineCommand({
+  meta: { name: 'code', description: 'Code analysis via tree-sitter AST' },
+  subCommands: {
+    /**
+     * Outline subcommand — extract file structure via tree-sitter.
+     *
+     * Shows all top-level symbols and nested methods/properties with signatures only
+     * (bodies collapsed). Provides ~1-2K token overview vs ~12K for full file read.
+     *
+     * Usage:
+     *   cleo code outline packages/core/src/store/sqlite.ts
+     *
+     * @task T154, T157
+     */
+    outline: defineCommand({
+      meta: { name: 'outline', description: 'Show file structural skeleton (signatures only)' },
+      args: {
+        file: { type: 'positional', description: 'Source file path', required: true },
+      },
+      async run({ args }) {
+        await requireTreeSitter();
+        const { smartOutline } = await import('@cleocode/core/internal');
+        const { join } = await import('node:path');
+        const root = process.cwd();
+        const absPath = args.file.startsWith('/') ? args.file : join(root, args.file);
+        const result = smartOutline(absPath, root);
+
+        if (result.errors.length > 0 && result.symbols.length === 0) {
+          cliError(result.errors.join(', '), 1, { name: 'E_OUTLINE_FAILED' });
+          process.exit(1);
+        }
+
+        humanLine(`${result.filePath} (${result.language}, ~${result.estimatedTokens} tokens)\n`);
+        for (const sym of result.symbols) {
+          const prefix = sym.exported ? 'export ' : '';
+          humanLine(`${prefix}${sym.kind} ${sym.name} [${sym.startLine}-${sym.endLine}]`);
+          if (sym.children.length > 0) {
+            for (const child of sym.children) {
+              humanLine(`  ${child.kind} ${child.name} [${child.startLine}-${child.endLine}]`);
+            }
+          }
+        }
+      },
+    }),
+
+    /**
+     * Search subcommand — find symbols across codebase with relevance scoring.
+     *
+     * Walks directory tree, parses files by language, and matches symbols against
+     * query string with relevance scoring (exact > substring > fuzzy > path).
+     *
+     * Usage:
+     *   cleo code search parseFile --lang typescript --max 10
+     *   cleo code search smartOutline --path "src/**"
+     *
+     * @task T152, T157
+     */
+    search: defineCommand({
+      meta: { name: 'search', description: 'Search for symbols across codebase' },
+      args: {
+        query: { type: 'positional', description: 'Search query', required: true },
+        lang: { type: 'string', description: 'Filter by language (e.g. typescript, python)' },
+        max: { type: 'string', description: 'Max results (default: 20)' },
+        path: { type: 'string', description: 'File pattern filter (e.g. src/**)' },
+      },
+      async run({ args }) {
+        await requireTreeSitter();
+        type SmartSearchOptions = import('@cleocode/core/internal').SmartSearchOptions;
+        const { smartSearch } = await import('@cleocode/core/internal');
+        const root = process.cwd();
+        const opts: SmartSearchOptions = {
+          rootDir: root,
+          maxResults: args.max ? Number.parseInt(args.max, 10) : 20,
+          filePattern: args.path,
+        };
+        if (args.lang) {
+          opts.language = args.lang as SmartSearchOptions['language'];
+        }
+        const results = smartSearch(args.query, opts);
+
+        if (results.length === 0) {
+          humanLine(`No symbols found matching "${args.query}"`);
+          return;
+        }
+
+        humanLine(`Found ${results.length} symbols:\n`);
+        for (const r of results) {
+          humanLine(
+            `  ${r.symbol.kind.padEnd(12)} ${r.symbol.name.padEnd(30)} ${r.symbol.filePath}:${r.symbol.startLine} (${r.matchType}, score: ${r.score})`,
+          );
+        }
+      },
+    }),
+
+    /**
+     * Unfold subcommand — extract complete symbol source code.
+     *
+     * Takes file path + symbol name, finds the symbol via tree-sitter AST,
+     * and extracts complete source including JSDoc/docstrings, decorators,
+     * and full body. AST boundaries guarantee no truncation.
+     *
+     * Usage:
+     *   cleo code unfold packages/core/src/code/outline.ts smartOutline
+     *   cleo code unfold packages/cleo/src/cli/commands/code.ts codeCommand
+     *
+     * @task T153, T157
+     */
+    unfold: defineCommand({
+      meta: { name: 'unfold', description: 'Extract complete symbol source' },
+      args: {
+        file: { type: 'positional', description: 'Source file path', required: true },
+        symbol: {
+          type: 'positional',
+          description: 'Symbol name (e.g. parseFile or Class.method)',
+          required: true,
+        },
+      },
+      async run({ args }) {
+        await requireTreeSitter();
+        const { smartUnfold } = await import('@cleocode/core/internal');
+        const { join } = await import('node:path');
+        const root = process.cwd();
+        const absPath = args.file.startsWith('/') ? args.file : join(root, args.file);
+        const result = smartUnfold(absPath, args.symbol, root);
+
+        if (!result.found) {
+          const errs = result.errors.length > 0 ? `: ${result.errors.join(', ')}` : '';
+          cliError(`Symbol "${args.symbol}" not found in ${args.file}${errs}`, 1, {
+            name: 'E_NOT_FOUND',
+          });
+          process.exit(1);
+        }
+
+        humanLine(
+          `// ${result.filePath}:${result.startLine}-${result.endLine} (~${result.estimatedTokens} tokens)\n`,
+        );
+        humanLine(result.source);
+      },
+    }),
+  },
+});

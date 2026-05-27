@@ -1,0 +1,358 @@
+# CleoOS: The Agentic Development Environment
+
+**Version**: 2026.4.78
+**Status**: VISION
+**Date**: 2026-04-16
+
+---
+
+## 1. What CleoOS Is
+
+CleoOS is the full Agentic Development Environment built on top of `@cleocode/core`.
+
+Where `@cleocode/core` is the kernel -- tasks, sessions, memory, orchestration, lifecycle -- CleoOS is the complete operating system: the runtime, the coordination layer, the deployment surface, and the intelligence fabric that turns a solo developer and their AI agents into a governed, continuous software development operation.
+
+CleoOS is not a new product replacing CLEO. It is the name for what CLEO becomes when its six canonical systems (TASKS, LOOM, BRAIN, NEXUS, CANT, CONDUIT) are fully realized with autonomous execution, multi-agent coordination, and project lifecycle management from inception to maintenance.
+
+> One developer. Many agents. One operating system for the work.
+
+---
+
+## 2. The Kernel Relationship
+
+CleoOS consumes `@cleocode/core` as its kernel. Every capability in CleoOS is built on top of the core business logic, never beside it.
+
+```
+CleoOS (Agentic Development Environment)
+  |
+  +-- Autonomous Runtime (Watchers, Impulse, Patrol)
+  +-- Conduit Protocol (agent-to-agent relay)
+  +-- The Hearth (operator surface)
+  +-- Provider Ecosystem (adapters for every AI coding tool)
+  +-- Project Lifecycle Manager (inception to maintenance)
+  +-- Brain Intelligence (observation to knowledge graph)
+  +-- Nexus Network (cross-project coordination)
+  |
+  +-- @cleocode/core (kernel)
+        |-- tasks, sessions, memory, orchestration
+        |-- lifecycle, release, admin, validation
+        |-- sticky, nexus, adapters, skills
+        |
+        +-- @cleocode/contracts (types)
+        +-- @cleocode/adapters (provider bridge)
+```
+
+The kernel provides the primitives: create a task, start a session, observe a fact, check a gate, query the brain. CleoOS provides the higher-order behaviors: decide what to work on next, coordinate three agents across a refactor, patrol for stale gates, surface the right memory at the right time, and manage the full arc of a project from first commit to long-term maintenance.
+
+This boundary is not decorative. It is the same separation that exists between a kernel and an operating system in any serious system design. The kernel is stable, tested, and independently consumable. The OS is opinionated, adaptive, and built for a specific workflow: solo developer + AI agents + real software projects.
+
+---
+
+## 3. Why CleoOS
+
+The problem is no longer "can AI write code." The problem is "can AI sustain a software project."
+
+Writing code is a burst operation. Sustaining a project is a campaign: weeks of context, evolving requirements, accumulated decisions, shifting priorities, multiple agents that must coordinate without drift, and a developer who needs to trust the system to remember what happened yesterday and act on it tomorrow.
+
+Current tools solve pieces of this:
+
+- Code generation tools write functions
+- Task managers track tickets
+- Memory systems store observations
+- Orchestration frameworks spawn agents
+
+None of them solve the whole problem. None of them provide an integrated environment where tasks, memory, lifecycle, orchestration, and multi-agent coordination operate as a single coherent system with provenance, validation, and continuity.
+
+CleoOS solves the whole problem by assembling the six canonical systems into a unified development environment:
+
+| System | Kernel Role | CleoOS Extension |
+|--------|------------|------------------|
+| **TASKS** | Task hierarchy, sessions, lifecycle, audit log | Autonomous work pickup (Impulse), wave planning, gate enforcement |
+| **LOOM** | Lifecycle gates, stage transitions, pipeline stages | Autonomous progression through RCASD-IVTR+C, Tessera-driven decomposition, Warp-bound execution |
+| **BRAIN** | Store observations, patterns, learnings, decisions | Active memory circulation, contradiction detection, knowledge graph, temporal reasoning, semantic retrieval |
+| **NEXUS** | Cross-project registry, federated queries | Organization-scale coordination, global pattern libraries, shared intelligence |
+| **CANT** | Agent communication protocol, `.cant` DSL, directive grammar | CANT bridge, ACL enforcement, mental model injection, team declarations |
+| **CONDUIT** | Agent-to-agent relay, project-scoped messaging | Durable cross-session delivery, 4-shell stack, dead-letter handling |
+
+**Cross-Cutting Protocol**: **LAFS** (LLM-Agent-First Specification) defines the envelope format `{success, data?, error?, meta}` used by all six systems for agent communication. It is not a system — it is the shared response contract.
+
+---
+
+## 4. Key Components
+
+### 4.1 Autonomous Runtime
+
+The autonomous runtime is the execution layer that makes CLEO self-propelling.
+
+Specified in `docs/specs/CLEO-AUTONOMOUS-RUNTIME-SPEC.md`, it introduces three foundational services built on top of the existing hook substrate and 11 canonical domains:
+
+- **Agent-Runtime Core** -- Source of truth for worker lifecycle, leases, identity, and event emission
+- **The Impulse Engine** -- Self-propelling work pickup: when ready work exists, the system advances it through governed execution without waiting for explicit human or agent instruction
+- **Watchers Engine** -- Scheduled patrols for health monitoring, retry pressure, continuity checks, and gate state verification
+
+Higher-order runtime forms include:
+
+| Form | Purpose |
+|------|---------|
+| **The Hearth** | Terminal-facing operator surface for observing and interacting with live runtime state |
+| **The Sweep** | Quality patrol loop: review, repair, re-check, escalation |
+| **Refinery** | Convergence gate for integration, validation, and merge readiness |
+| **Looming Engine** | Tessera-driven decomposition from intent into executable work structure |
+| **Living BRAIN** | Memory in active circulation with reinforcement, contradiction detection, and retrieval loops |
+| **The Proving** | End-to-end validation of the runtime under load and failure conditions |
+
+The autonomous runtime does not create new domains. It layers execution behavior on top of the existing `orchestrate`, `pipeline`, `check`, `admin`, `memory`, and `session` domains through the internal hook substrate (`onWorkAvailable`, `onAgentSpawn`, `onAgentComplete`, `onCascadeStart`, `onPatrol`). Note: CLEO has 11 canonical domains (tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus, sticky, intelligence).
+
+### 4.2 Conduit Protocol
+
+Conduit is the agent coordination layer within CleoOS, organized as a 4-shell layered model:
+
+| Shell | Layer | Status |
+|-------|-------|--------|
+| 1 | **Pi native** -- within a single Pi session, agents coordinate via the Chat Room extension tools (`send_to_lead`, `broadcast_to_team`, `report_to_orchestrator`, `query_peer`) | Shipped (Wave 7) |
+| 2 | **conduit.db** -- project-scoped persistent relay store for durable cross-session message delivery and agent coordination state | Shipped (v2026.4.11) |
+| 3 | **signaldock.io** -- cloud relay for cross-machine and cross-project agent messaging via the SignalDock service | Active |
+| 4 | **Future broker** -- full autonomous broker with SSE fanout, leases, and dead-letter handling (specified in `docs/specs/CLEO-CONDUIT-PROTOCOL-SPEC.md`) | Not built |
+
+All messages across shells are LAFS-shaped, ensuring provider neutrality. The earlier vision of a Rust delivery broker (Shell 4) is specified but not implemented; Shells 1-3 cover all current coordination needs.
+
+Conduit is a runtime form, not a new domain. Its state surfaces through `orchestrate` (queue state), `session` (session-scoped trace), and `nexus` (cross-project relay evidence).
+
+### 4.3 Provider Ecosystem
+
+CleoOS is provider-neutral by design. The adapter system in `@cleocode/adapters` provides a bridge to every major AI coding tool:
+
+- **Claude Code** -- Full adapter (14 hooks + spawn + install) — upgraded via CAAMP 1.9.1 normalizer (T164)
+- **OpenCode** -- Full adapter (10 hooks + spawn + install) — upgraded via CAAMP 1.9.1 normalizer (T164)
+- **Cursor** -- Full adapter (10 hooks + install) — fully implemented via normalizer (T165)
+- **Gemini CLI** -- Full adapter (10 hooks + getTranscript + install) — new in T158 (T161)
+- **Codex** -- Partial adapter (3 hooks + getTranscript + install) — new in T158 (T162)
+- **Kimi** -- Minimal adapter (install only) — new in T158 (T163)
+- **Future providers** -- Any tool that implements the Pi ExtensionAPI or the `CLEOProviderAdapter` interface
+
+Discovery is manifest-based: each adapter declares detection patterns (environment variables, files, CLI availability), and the `AdapterManager` in core automatically activates the matching adapter at startup.
+
+The Memory Bridge ensures every provider starts with context: a static seed file (`.cleo/memory-bridge.md`), guided self-retrieval via the `ct-memory` skill, and BRAIN queries via the CLI (`cleo memory find`).
+
+### 4.4 Project Lifecycle
+
+CleoOS manages the full arc of a software project:
+
+| Phase | What CleoOS Does |
+|-------|-----------------|
+| **Inception** | `initProject()` scaffolds `.cleo/`, detects the project type, configures the provider adapter, and establishes the brain |
+| **Planning** | LOOM's Research and Consensus stages gather information and validate decisions before work begins |
+| **Architecture** | ADRs are captured in `tasks.db`, linked to brain observations, and enforced through lifecycle gates |
+| **Implementation** | Orchestration coordinates multi-agent waves, Impulse advances ready work, Watchers patrol for drift |
+| **Validation** | Four-layer anti-hallucination checks, protocol compliance, and lifecycle gate enforcement |
+| **Release** | Version bump, changelog generation, and ship pipeline with full provenance |
+| **Maintenance** | Watchers detect stale gates, the Sweep performs quality patrols, Living BRAIN surfaces relevant memory |
+
+Every phase is governed by LOOM's RCASD-IVTR+C pipeline with explicit gate transitions. No phase is skipped silently.
+
+### 4.5 Brain Intelligence
+
+The BRAIN system in `@cleocode/core` stores observations, patterns, learnings, and decisions. CleoOS extends this into active intelligence:
+
+- **Three-layer retrieval** (shipped): search/timeline/fetch with ~10x token savings over traditional RAG
+- **FTS5 full-text search** (shipped): keyword search across all brain tables
+- **Vector similarity** (shipped): Local embedding via `@xenova/transformers` all-MiniLM-L6-v2 — dynamic import, zero overhead when disabled (T136)
+- **Session summarization** (shipped): Dual-mode prompt + structured `SessionSummaryInput` ingestion on `session.end` (T140)
+- **Memory bridge automation** (shipped): Hook-driven refresh on `session.end` and `tasks.complete` with 30-second debounce; context-aware generation via `hybridSearch()` within configurable token budget (T138, T139)
+- **Brain maintenance** (shipped): `cleo brain maintenance` combines temporal decay + consolidation + embedding backfill into a single governed command (T143)
+- **Cross-provider transcript extraction** (shipped): Optional `getTranscript()` on `AdapterHookProvider`; Claude Code adapter implementation auto-extracts observation candidates from session transcripts (T144)
+- **Knowledge graph** (planned): relationship-based discovery (updates/extends/derives) with temporal reasoning
+- **Active circulation** (planned): Living BRAIN reinforces useful memories, detects contradictions, and surfaces relevant context proactively
+
+The goal is a brain that does not merely store what happened, but actively improves the next action.
+
+### 4.6 Nexus Network
+
+NEXUS connects isolated CLEO projects into a federated intelligence network:
+
+- **Project registry** -- each project is identified by a unique `projectHash` and registered in the global `~/.local/share/cleo/nexus.db`
+- **Cross-project dependencies** -- `project:task_id` syntax enables dependencies that span project boundaries
+- **Federated queries** -- search tasks, patterns, and learnings across all registered projects
+- **Permission model** -- three-tier access (read/write/execute) preserves project sovereignty
+- **Global pattern library** -- patterns and learnings from one project benefit all registered projects
+
+At organizational scale, NEXUS transforms isolated project brains into a collective intelligence that learns across the entire development portfolio.
+
+> **Phase 3 Deferral (T045 Assessment)**: A production usage audit conducted 2026-03-22 found that zero Nexus operations have been invoked outside of automated tests in 15+ days of availability. All 22 registered operations are implemented and tested (~5,753 production LOC, ~4,423 test LOC), but no real workflow has exercised cross-project coordination, task discovery, graph traversal, or transfer. The current use case -- single-project workflows -- does not yet require federated coordination. Nexus is formally deferred to Phase 3. Deferral criteria: any real workflow requires cross-project task references, or CleoOS delivers multi-project workspace views needing federated task data. See `.cleo/agent-outputs/T045-nexus-assessment.md` for the full analysis.
+
+---
+
+## 5. Architecture Layers
+
+CleoOS is organized in layers, each with a clear responsibility:
+
+```
++==================================================================+
+|                        C l e o O S                                |
+|                 Agentic Development Environment                   |
++==================================================================+
+|                                                                   |
+|  Operator Layer         The Hearth (terminal surface)             |
+|                         Dashboard, diagnostics, runtime control   |
+|                                                                   |
+|  Execution Layer        Autonomous Runtime                        |
+|                         Impulse + Watchers + Sweep + Refinery     |
+|                         Looming Engine + Living BRAIN              |
+|                                                                   |
+|  Relay Layer            Conduit Protocol                          |
+|                         LAFS/A2A agent-to-agent messaging         |
+|                         Durable delivery, leases, retry           |
+|                                                                   |
+|  Coordination Layer     Orchestration + Lifecycle                 |
+|                         Wave planning, spawn, gate enforcement    |
+|                                                                   |
+|  Network Layer          NEXUS                                     |
+|                         Cross-project graph, federated queries    |
+|                                                                   |
+|  +---------------------------------------------------------+     |
+|  |              @cleocode/core (kernel)                     |     |
+|  |  Tasks | Sessions | Memory | Validation | Release       |     |
+|  |  Admin | Sticky | Adapters | Skills | Compliance        |     |
+|  +---------------------------------------------------------+     |
+|  |           @cleocode/contracts (types)                    |     |
+|  +---------------------------------------------------------+     |
+|  |           SQLite (node:sqlite via Drizzle ORM)           |     |
+|  |  tasks.db  brain.db  nexus.db  conduit.db  signaldock.db |     |
+|  +---------------------------------------------------------+     |
++==================================================================+
+```
+
+Each layer depends only on the layers below it. The kernel never reaches up into CleoOS execution or relay layers. This boundary is enforced by CI purity gates.
+
+---
+
+## 6. Vision Timeline
+
+### What Exists Now (Core)
+
+The kernel is shipped and operational:
+
+- `@cleocode/core` v2026.4.78 -- standalone business logic kernel with 45 domain modules (11 canonical domains: tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus, sticky, intelligence)
+- `@cleocode/contracts` -- type-only interfaces (zero runtime deps)
+- `@cleocode/adapters` -- unified provider adapters (Claude Code, OpenCode, Cursor, Gemini CLI, Codex, Kimi)
+- `@cleocode/cleo` -- full CLI product (registry-defined operations across 11 dispatch domains; see `packages/cleo/src/dispatch/registry.ts`)
+- BRAIN with brain.db, FTS5 search, 3-layer retrieval, observation system, and agent execution learning
+- LOOM with RCASD-IVTR+C pipeline, lifecycle gates, stage management, and pipeline stage binding (T056)
+- NEXUS with project registry, cross-project queries, and dependency graph (deferred to Phase 3 -- see Section 4.6)
+- LAFS with structured envelopes, MVI progressive disclosure, and RFC 9457 errors
+- Cleo facade class with 13 domain APIs (tasks, sessions, memory, orchestration, lifecycle, release, admin, sticky, nexus, sync, agents, intelligence) and three consumer patterns. All facade interfaces published in @cleocode/contracts (v2026.3.71+).
+- Config schema audited: ~113 live fields (T101, down from ~283 before vaporware removal)
+- Agent health monitoring, heartbeat protocol, crash detection, and capacity tracking (T038)
+- General-purpose retry utility with exponential backoff in `lib` namespace (T038)
+- Task hardening gates operational: AC enforcement, pipeline stage binding, verification auto-init, epic lifecycle enforcement (T056)
+- Compliance telemetry and strictness presets (T056/T067)
+- Impact prediction for downstream dependency analysis (T038)
+- Cleo facade `agents` getter: register, deregister, health, detectCrashed, recordHeartbeat, capacity, isOverloaded, list (T127)
+- Cleo facade `intelligence` getter: predictImpact, blastRadius (T127)
+- Session+task binding: `sessions.start({ startTask })` for CleoOS workspace integration (T125)
+- Task work on facade: `tasks.start/stop/current` — no direct barrel imports needed (T126)
+- Bootstrap injection chain: legacy template sync, CAAMP sanitization, post-bootstrap health check (T124)
+- Migration resilience: journal reconciliation and `ensureRequiredColumns()` safety net (v2026.3.61)
+- Brain Memory Automation (T134 epic, v2026.3.70): `BrainConfig` typed section, local embedding via `@xenova/transformers` all-MiniLM-L6-v2, async embedding queue, lifecycle-driven bridge refresh with debounce, context-aware bridge generation, session summarization (dual-mode), auto-link observations to focused task, embedding backfill CLI (`cleo backfill --embeddings`), brain maintenance command (`cleo brain maintenance`), cross-provider transcript extraction via adapter hook, updated injection templates and BRAIN specification v2.0.0 (now consolidated into CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md v3.0.0)
+- Facade API Interfaces in Contracts (v2026.3.71): All 13 facade interfaces + 20 supporting types moved to `@cleocode/contracts`. CleoOS imports types from contracts, not core — clean dependency boundary.
+- Session Serialize/Restore (v2026.3.72): `sessions.serialize()` captures full session state snapshot (session, handoff, decisions, brain observations, active task context). `sessions.restore()` hydrates from snapshot with agent handoff tracking, scope conflict detection, and hook dispatch. Foundation for CleoOS Phase 3 agent session persistence.
+- CleoOS Pi Pivot (v2026.4.6-v2026.4.10): Pi locked as primary harness per ADR-035. `@cleocode/cleo-os` wraps Pi via the ExtensionAPI with zero fork burden. Autonomous server daemon approach abandoned in favor of Pi extensions.
+- CANT Bridge (v2026.4.8): `cleo-cant-bridge.ts` Pi extension compiles `.cant` files, injects bundle prompt into agent system prompt, enforces `permissions.files` ACL at runtime, and validates mental models on load.
+- 3-Tier Agent Hierarchy (v2026.4.8): `kind: team` CANT declarations with orchestrator/lead/worker role enforcement. Lead agents blocked from `Edit`/`Write`/`Bash`. Chat Room extension for inter-agent coordination.
+- Conduit/SignalDock Separation (v2026.4.11): `conduit.db` (project-scoped agent relay) and `signaldock.db` (global agent registry) split per ADR-037, replacing the single agent store.
+- Backup Portability (v2026.4.13): `.cleobundle` archive format for cross-machine backup export/import with `cleo backup export`, `cleo backup import`, and `cleo backup inspect` commands.
+- Mental Model Injection (v2026.4.8): Per-agent BRAIN namespace with validate-on-load preamble, async reinforcement writes, and bounded growth via `max_tokens` cap.
+- .cantz Packaging (in progress): Compressed CANT bundle format for distributing agent/team/tool definitions as portable archives.
+- **TS Monorepo** (v2026.4.6+): 12 TS packages (`@cleocode/{core, contracts, adapters, cleo, cleo-os, etc}`) managed via pnpm workspaces
+- **Rust Crates** (v2026.4.47+): 14 crates under `packages/cleos/` including nexus, brain, brain-gc, cant-dsl, conduit, injection, loom, pi-bridge, and others for cross-platform support
+- **Release Pipeline** (v2026.4.78+): Full CalVer YYYY.MM.patch automation via `cleo release` with structural CI gates (biome ci, full build verification, test coverage). Template source-of-truth at `packages/core/templates/`. Prevents release-past-red-CI.
+- **IVTR + Programmatic Gates** (v2026.4.75+): IVTR lifecycle model (Research/Consensus/Specification/Decomposition/Implementation/Validation/Testing). Programmatic AcceptanceGates via `cleo verify` with evidence tracking. Evidence-based task closure mandatory before `cleo complete`.
+- **CLEO Docs CLI** (v2026.4.77+): `cleo docs add`, `cleo docs list`, and `cleo docs generate` for task attachments and auto-generated API reference via Forge-TS TSDoc pipeline
+- **Commander-Shim** (v2026.4.77+): CAAMP-Commander unified dispatch bridge for cross-provider compatibility. Replaces legacy individual provider shims.
+- **CLI Perfection** (v2026.4.78+): 250+ command audit completed (T505). 55+ bugs fixed, 8 P0 severities addressed. Never-reuse-tag policy enforced; CalVer versioning mandatory.
+
+### What Is Specified (Runtime, Conduit)
+
+The autonomous runtime and Conduit protocol are specified but not yet implemented:
+
+- Autonomous Runtime Spec (`CLEO-AUTONOMOUS-RUNTIME-SPEC.md`) -- canon mapping, hook substrate, implementation order
+- Conduit Protocol Spec (`CLEO-CONDUIT-PROTOCOL-SPEC.md`) -- envelope model, addressing, delivery state machine, IPC boundary
+- Implementation tasks decomposed across foundation, Layer 1-3, and final proving layer
+
+### What Is Future (CleoOS)
+
+The full CleoOS vision requires:
+
+- Agent-Runtime Core implementation (worker lifecycle, leases, identity)
+- Impulse Engine (self-propelling work execution)
+- Watchers Engine (patrol scheduling and health monitoring)
+- Conduit broker (Rust delivery layer with durable relay state)
+- The Hearth (terminal operator surface)
+- Living BRAIN (active memory circulation with vector search and knowledge graph)
+- Looming Engine (Tessera-driven decomposition)
+- The Proving (end-to-end runtime validation)
+- NEXUS at organizational scale (global pattern libraries, federated intelligence)
+
+---
+
+## 7. Design Principles
+
+CleoOS inherits and extends the principles from `@cleocode/core`:
+
+1. **Kernel stability** -- The kernel ships independently. CleoOS execution layers never destabilize core business logic.
+
+2. **No new domains** -- The 11 canonical domains are fixed. CleoOS adds execution behavior on top of existing domains, never beside them.
+
+3. **Provider neutrality** -- Every CleoOS capability works with any provider that implements the adapter contract. No provider lock-in at any layer.
+
+4. **Local-first** -- All state lives in SQLite databases within the project's `.cleo/` directory. No cloud dependencies. Full portability.
+
+5. **Governed execution** -- All autonomous work is bound by Warp chains and lifecycle gates. The system does not act without governance.
+
+6. **Memory as infrastructure** -- BRAIN is not a feature. It is the foundation that makes sustained, multi-session, multi-agent development possible.
+
+7. **Provenance by default** -- Every action, decision, and artifact carries attribution linking it to a task, agent, session, and lifecycle stage.
+
+8. **Progressive disclosure** -- Agents manage their own token budget. The system provides minimal responses by default and full detail on request.
+
+---
+
+## 8. What CleoOS Is Not
+
+- CleoOS is **not a cloud platform**. It runs locally, on the developer's machine, in their terminal.
+- CleoOS is **not a replacement for CLEO**. It is the full realization of what CLEO's six systems become when assembled into a complete environment.
+- CleoOS is **not an AI model**. It coordinates AI agents but does not provide intelligence itself. The intelligence comes from the models; CleoOS provides memory, governance, and continuity.
+- CleoOS is **not a new protocol**. It uses LAFS and A2A for structured agent communication and extends Pi via the ExtensionAPI. It does not invent new communication standards.
+- CleoOS is **not a multi-tenant SaaS**. It is built for one developer and their agents, with NEXUS providing optional cross-project coordination.
+- CleoOS is **not a fork of Pi**. It wraps Pi via the ExtensionAPI, preserving full compatibility with upstream Pi releases.
+
+---
+
+## 9. The Operating Metaphor
+
+If `@cleocode/core` is the kernel, then:
+
+- **TASKS** is the job table -- the registry of all work units, their state, and their relationships
+- **BRAIN** is the filesystem -- persistent, structured, queryable memory
+- **LOOM** is the process scheduler -- work progresses through governed stages
+- **NEXUS** is the network stack -- connecting isolated systems into a coherent whole
+- **CANT** is the instruction set architecture -- the grammar agents use to express intent
+- **CONDUIT** is IPC -- how processes (agents) communicate across shells
+- **LAFS** is the system call interface -- structured contracts between user space and kernel (cross-cutting, not a system)
+- **The Impulse** is the init process -- the first motion that starts everything else
+- **Watchers** are cron -- scheduled operations that maintain system health
+- **The Hearth** is the terminal -- where the operator observes and interacts
+
+CleoOS is the operating system that makes all of these work together as a single, coherent development environment.
+
+---
+
+## References
+
+- `docs/concepts/CLEO-VISION.md` -- Canonical CLEO identity and system architecture
+- `docs/concepts/CLEO-MANIFESTO.md` -- Founding myth and practical canon
+- `docs/specs/CLEO-AUTONOMOUS-RUNTIME-SPEC.md` -- Autonomous runtime specification
+- `docs/specs/CLEO-CONDUIT-PROTOCOL-SPEC.md` -- Conduit protocol specification
+- `docs/specs/CORE-PACKAGE-SPEC.md` -- @cleocode/core package contract
+- `docs/adrs/ADR-001-provider-adapter-architecture.md` -- Adapter architecture
+- `docs/adrs/ADR-002-provider-agnostic-memory-bridge.md` -- Memory bridge design

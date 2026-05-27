@@ -1,0 +1,27 @@
+[package]
+name = "cleo-conduit-core"
+version.workspace = true
+edition = "2024"
+rust-version = "1.94"
+description = "Canonical Conduit wire types for CLEO ecosystem"
+license = "MIT"
+repository = "https://github.com/kryptobaseddev/cleo"
+publish = true
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+lafs-core = { workspace = true }
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "envelope_serde"
+harness = false
+
+[lints]
+workspace = true

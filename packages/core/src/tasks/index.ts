@@ -1,0 +1,266 @@
+/**
+ * Task operations barrel export.
+ * @task T4460
+ * @epic T4454
+ */
+
+export type {
+  CompletionBlockerReason,
+  CompletionContextPack,
+  CompletionContextPackOptions,
+  CompletionContextPackSummary,
+  CompletionCriterionEvaluation,
+  CompletionCriterionKind,
+  CompletionCriterionReplacement,
+  CompletionCriterionStatus,
+  CompletionCriterionWaiver,
+  CompletionEvaluation,
+  CompletionExplanation,
+  CompletionHistoryEvent,
+  CompletionHistoryEventAction,
+  CompletionHistoryEventRelation,
+  CompletionStaleReason,
+  TaskView,
+  TaskViewChildRollup,
+  TaskViewGatesStatus,
+  TaskViewLifecycleProgress,
+  TaskViewNextAction,
+  TaskViewPipelineStage,
+} from '@cleocode/contracts';
+export {
+  type AddTaskOptions,
+  type AddTaskResult,
+  addTask,
+  buildDefaultVerification,
+  findRecentDuplicate,
+  getNextPosition,
+  getTaskDepth,
+  inferTaskType,
+  logOperation,
+  normalizePriority,
+  VALID_PRIORITIES,
+  validateDepends,
+  validateLabels,
+  validateParent,
+  validatePhaseFormat,
+  validatePriority,
+  validateSize,
+  validateStatus,
+  validateTaskType,
+  validateTitle,
+} from './add.js';
+export {
+  type AddBatchOptions,
+  type AddBatchResult,
+  type AddBatchTaskSpec,
+  addBatchTasks,
+  tasksAddBatchOp,
+} from './add-batch.js';
+export {
+  type ArchiveTasksOptions,
+  type ArchiveTasksResult,
+  archiveTasks,
+  taskArchive,
+} from './archive.js';
+export {
+  type CompleteTaskOptions,
+  type CompleteTaskResult,
+  completeTask,
+  completeTaskStrict,
+  taskComplete,
+} from './complete.js';
+// Typed completion analysis — AC + evidence + child criteria (T10591)
+export {
+  buildCompletionContextPack,
+  COMPLETION_HISTORY_ACTIONS,
+} from './completion-context-pack.js';
+export { evaluateCompletion, explainCompletion } from './completion-evaluation.js';
+// Canonical task view — unified derivation (T943)
+export { computeTaskView, computeTaskViews } from './compute-task-view.js';
+export {
+  buildRollupEvidence,
+  isCoordinationParent,
+} from './coordination-parent.js';
+// Wave 4: Complex mutations + strict completion (T1568 / ADR-057 / ADR-058)
+export { type DeleteTaskOptions, type DeleteTaskResult, deleteTask, taskDelete } from './delete.js';
+// Dep-graph validator (T1857 — orphan / cross-epic gap / stale-dep detection)
+export {
+  type DepGraphIssue as CoreDepGraphIssue,
+  type DepGraphIssueCode,
+  type DepGraphValidateResult,
+  type DepValidateScope,
+  detectCrossEpicGaps,
+  detectOrphans,
+  detectStaleDeps,
+  nearestEpic,
+  runValidation,
+  validateDepGraph,
+} from './dep-graph-validator.js';
+// Dependency graph helpers (sentient loop consumers).
+export {
+  type DependencyCheckResult,
+  type DependencyError,
+  type DependencyWarning,
+  detectCircularDeps,
+  getBlockedTasks,
+  getDependentIds,
+  getDependents,
+  getLeafBlockers,
+  getReadyTasks,
+  getTransitiveBlockers,
+  getUnresolvedDeps,
+  topologicalSort,
+  validateDependencies,
+  validateDependencyRefs,
+  wouldCreateCycle,
+} from './dependency-check.js';
+// Engine-layer converter types and functions (T1568 / ADR-057 / ADR-058)
+export {
+  type IvtrHistoryEntry,
+  type LifecycleStageEntry,
+  tasksToRecords,
+  taskToRecord,
+  toHistoryEntry,
+} from './engine-converters.js';
+// Evidence-based verification (T832 / ADR-051, T1534 / ADR-061)
+export {
+  type AtomValidation,
+  CANONICAL_TOOLS,
+  checkGateEvidenceMinimum,
+  composeGateEvidence,
+  type EvidenceTool,
+  GATE_EVIDENCE_MINIMUMS,
+  isValidToolName,
+  type ParsedAtom,
+  type ParsedEvidence,
+  parseEvidence,
+  type RevalidationResult,
+  revalidateEvidence,
+  TOOL_COMMANDS,
+  VALID_TOOLS,
+  validateAtom,
+} from './evidence.js';
+export {
+  type FindResult,
+  type FindTasksOptions,
+  type FindTasksResult,
+  findTasks,
+  fuzzyScore,
+  taskFind,
+} from './find.js';
+// Gate audit trail (T832 / ADR-051, T947 / ADR-054 draft)
+export {
+  type AuditHistoryReport,
+  appendForceBypassLine,
+  appendGateAuditLine,
+  appendSignedGateAuditLine,
+  type ForceBypassRecord,
+  type GateAuditRecord,
+  getForceBypassPath,
+  getGateAuditPath,
+  type SignedGateAuditRecord,
+  verifyAuditHistory,
+} from './gate-audit.js';
+// Pre-dispatch inference for cleo add (T1490)
+export {
+  type InferAddParamsInput,
+  type InferAddParamsResult,
+  inferFilesViaGitNexus,
+  inferTaskAddParams,
+  parseAcceptanceCriteria,
+} from './infer-add-params.js';
+export { taskLabelList, taskLabelShow } from './labels.js';
+export { type ListTasksOptions, type ListTasksResult, listTasks, taskList } from './list.js';
+// Task Core operation signatures for OpsFromCore inference (T1445)
+export type { tasksCoreOps } from './ops.js';
+export { taskPlan } from './plan.js';
+export { addTaskWithSessionScope, resolveParentFromSession } from './session-scope.js';
+// System-wide severity attestation primitive (T9071 / ADR-054 draft)
+export {
+  type AppendSeverityAttestationOptions,
+  appendSignedSeverityAttestation,
+  canonicalAttestationJson,
+  LEGACY_BUG_SEVERITY_AUDIT_FILE,
+  loadOwnerPubkeys,
+  SEVERITY_ATTESTATION_AUDIT_FILE,
+  type SeverityAttestation,
+} from './severity-attestation.js';
+// Engine-layer EngineResult-returning wrappers (T1568 / ADR-057 / ADR-058) — Wave 2
+export {
+  showTask,
+  type TaskDetail,
+  taskExists,
+  taskShow,
+  taskShowIvtrHistory,
+  taskShowOperation,
+  taskShowWithHistory,
+} from './show.js';
+// Sync sub-domain (T1568 / ADR-057 / ADR-058) — Wave 3
+export { taskSyncLinks, taskSyncLinksRemove, taskSyncReconcile } from './sync-ops.js';
+export {
+  taskAnalyze,
+  taskBatchValidate,
+  taskBlockers,
+  taskCancel,
+  taskClaim,
+  taskComplexityEstimate,
+  taskDepends,
+  taskDeps,
+  taskDepsCycles,
+  taskDepsOverview,
+  taskDepsTree,
+  taskDepsValidate,
+  taskExport,
+  taskHistory,
+  taskImpact,
+  taskImport,
+  taskLint,
+  taskNext,
+  taskPromote,
+  taskRelates,
+  taskRelatesAdd,
+  taskRelatesFind,
+  taskRelatesRemove,
+  taskReopen,
+  taskReorder,
+  taskReparent,
+  taskRestore,
+  taskSlice,
+  taskStats,
+  taskTree,
+  taskUnarchive,
+  taskUnclaim,
+} from './task-ops.js';
+// Tool result cache + cross-process semaphore (T1534 / ADR-061)
+export {
+  cacheEntryPath,
+  captureDirtyFingerprint,
+  captureHead,
+  clearToolCache,
+  computeCacheKey,
+  type RunToolOptions,
+  readCacheEntry,
+  runToolCached,
+  type ToolCacheEntry,
+  type ToolRunResult,
+  writeCacheEntry,
+} from './tool-cache.js';
+// Project-agnostic tool resolution (T1534 / ADR-061)
+export {
+  type CanonicalTool,
+  listValidToolNames,
+  type ResolutionSource,
+  type ResolvedToolCommand,
+  type ResolveToolResult,
+  resolveToolCommand,
+} from './tool-resolver.js';
+// Cross-process global per-tool concurrency semaphore (T1534 / ADR-061)
+export {
+  type AcquireSlotOptions,
+  acquireGlobalSlot,
+  defaultMaxConcurrent,
+  type ReleaseSlotFn,
+  resolveMaxConcurrent,
+  semaphoreDir,
+} from './tool-semaphore.js';
+export { taskUpdate, type UpdateTaskOptions, type UpdateTaskResult, updateTask } from './update.js';

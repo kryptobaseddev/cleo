@@ -1,0 +1,133 @@
+---
+kind: lifecycle
+version: 1.0.0
+title: "RCASD-IVTR+C Pipeline Stages"
+status: active
+---
+
+# RCASD-IVTR+C Pipeline Stage Definitions
+#
+# Canonical pipeline stages in execution order.
+# Source of truth: packages/core/src/lifecycle/stages.ts
+#
+# Stages: research, consensus, architecture_decision, specification,
+#   decomposition, implementation, validation, testing, release
+#
+# Cross-cutting stage: contribution (not part of pipeline execution order,
+#   tracked for attribution and provenance recording)
+#
+# Stage 1: Research
+#   order: 1
+#   category: planning
+#   description: Information gathering, exploration, and knowledge acquisition
+#   skippable: false
+#   defaultTimeoutHours: 48
+#   requiredGates: prerequisites-met
+#   expectedArtifacts: research-report, findings-document
+#
+# Stage 2: Consensus
+#   order: 2
+#   category: decision
+#   description: Multi-agent decision making and validation of research findings
+#   skippable: true
+#   defaultTimeoutHours: 24
+#   requiredGates: research-complete, agreement-reached
+#   expectedArtifacts: consensus-record, decision-log
+#
+# Stage 3: Architecture Decision
+#   order: 3
+#   category: decision
+#   description: Architecture Decision Records - documenting significant technical decisions
+#   skippable: true
+#   defaultTimeoutHours: 24
+#   requiredGates: decisions-documented, review-completed
+#   expectedArtifacts: adr-document
+#
+# Stage 4: Specification
+#   order: 4
+#   category: planning
+#   description: Specification writing - RFC-style documentation of requirements and design
+#   skippable: false
+#   defaultTimeoutHours: 72
+#   requiredGates: spec-complete, spec-reviewed
+#   expectedArtifacts: spec-document, api-spec, design-doc
+#
+# Stage 5: Decomposition
+#   order: 5
+#   category: planning
+#   description: Task breakdown - splitting work into atomic, executable tasks
+#   skippable: false
+#   defaultTimeoutHours: 24
+#   requiredGates: tasks-created, dependencies-mapped
+#   expectedArtifacts: task-breakdown, dependency-graph
+#
+# Stage 6: Implementation
+#   order: 6
+#   category: execution
+#   description: Implementation - writing code and building features
+#   skippable: false
+#   defaultTimeoutHours: none
+#   requiredGates: code-complete, lint-passing
+#   expectedArtifacts: source-code, implementation-notes
+#
+# Stage 7: Validation
+#   order: 7
+#   category: validation
+#   description: Verification - static analysis, type checking, and quality gates
+#   skippable: false
+#   defaultTimeoutHours: 12
+#   requiredGates: static-analysis-pass, type-check-pass
+#   expectedArtifacts: verification-report
+#
+# Stage 8: Testing
+#   order: 8
+#   category: validation
+#   description: Testing - running test suites and ensuring coverage
+#   skippable: false
+#   defaultTimeoutHours: 24
+#   requiredGates: tests-pass, coverage-met
+#   expectedArtifacts: test-results, coverage-report
+#
+# Stage 9: Release
+#   order: 9
+#   category: delivery
+#   description: Release - versioning, publishing, and deployment
+#   skippable: true
+#   defaultTimeoutHours: 4
+#   requiredGates: version-bumped, changelog-updated, artifacts-published
+#   expectedArtifacts: version-tag, release-notes, published-package
+#
+# Stage Categories:
+#   planning: research, specification, decomposition
+#   decision: consensus, architecture_decision
+#   execution: implementation
+#   validation: validation, testing
+#   delivery: release
+#
+# Prerequisites:
+#   research: (none)
+#   consensus: research
+#   architecture_decision: research, consensus
+#   specification: research, consensus, architecture_decision
+#   decomposition: research, specification
+#   implementation: research, specification, decomposition
+#   validation: implementation
+#   testing: implementation, validation
+#   release: implementation, validation, testing
+#
+# Transition Rules:
+#   Forward progressions (always allowed):
+#     research -> consensus -> architecture_decision -> specification
+#     specification -> decomposition -> implementation -> validation
+#     validation -> testing -> release
+#   Skip patterns (allowed with force):
+#     research -> specification (skipping consensus + architecture_decision)
+#     specification -> implementation (skipping decomposition)
+#   Backward transitions (allowed with force, for rework):
+#     implementation -> specification (rework required)
+#     testing -> implementation (fix test failures)
+#   Disallowed:
+#     release -> any (pipeline completed)
+#
+# Stage Status Values:
+#   not_started, in_progress, completed, skipped, blocked, failed

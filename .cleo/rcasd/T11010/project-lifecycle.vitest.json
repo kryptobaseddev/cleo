@@ -1,0 +1,99 @@
+{
+  "numTotalTests": 23,
+  "numPassedTests": 23,
+  "numFailedTests": 0,
+  "testResults": [
+    {
+      "name": "project-lifecycle moveProject AC3: copies project files to new location and updates project-info.json",
+      "status": "passed"
+    },
+    {
+      "name": "project-lifecycle moveProject AC2: returns EngineResult with proper shape",
+      "status": "passed"
+    },
+    {
+      "name": "project-lifecycle moveProject AC7: rejects non-absolute newPath",
+      "status": "passed"
+    },
+    {
+      "name": "project-lifecycle moveProject AC7: rejects non-absolute projectRoot",
+      "status": "passed"
+    },
+    {
+      "name": "project-lifecycle moveProject rejects missing project-info.json",
+      "status": "passed"
+    },
+    {
+      "name": "project-lifecycle moveProject AC3: rejects move to same resolved path",
+      "status": "passed"
+    },
+    {
+      "name": "project-lifecycle moveProject AC5: handles Unicode paths",
+      "status": "passed"
+    },
+    {
+      "name": "project-lifecycle moveProject AC5: normalizes paths with trailing slash",
+      "status": "passed"
+    },
+    {
+      "name": "project-lifecycle moveProject AC7: copy-based move avoids cross-filesystem rename issues",
+      "status": "passed"
+    },
+    {
+      "name": "project-lifecycle moveProject rejects corrupt project-info.json",
+      "status": "passed"
+    },
+    {
+      "name": "project-lifecycle moveProject AC3: preserves projectId across moves",
+      "status": "passed"
+    },
+    {
+      "name": "project-lifecycle renameProject AC4: updates project name and recomputes projectHash",
+      "status": "passed"
+    },
+    {
+      "name": "project-lifecycle renameProject AC2: returns renameProjectResult with all typed fields",
+      "status": "passed"
+    },
+    {
+      "name": "project-lifecycle renameProject AC7: rejects non-absolute projectRoot",
+      "status": "passed"
+    },
+    {
+      "name": "project-lifecycle renameProject rejects empty newName",
+      "status": "passed"
+    },
+    {
+      "name": "project-lifecycle renameProject rejects whitespace-only newName",
+      "status": "passed"
+    },
+    {
+      "name": "project-lifecycle reregisterProject AC5: reads project-info.json and calls nexusReconcile",
+      "status": "passed"
+    },
+    {
+      "name": "project-lifecycle reregisterProject AC5: returns EngineResult even when nexus is unavailable",
+      "status": "passed"
+    },
+    {
+      "name": "project-lifecycle reregisterProject AC7: rejects non-absolute projectRoot",
+      "status": "passed"
+    },
+    {
+      "name": "project-lifecycle reregisterProject rejects missing project-info.json",
+      "status": "passed"
+    },
+    {
+      "name": "project-lifecycle AC6: EngineResult<T> pattern moveProject returns EngineResult discriminated union",
+      "status": "passed"
+    },
+    {
+      "name": "project-lifecycle AC6: EngineResult<T> pattern renameProject returns EngineResult(true) on valid input",
+      "status": "passed"
+    },
+    {
+      "name": "project-lifecycle AC6: EngineResult<T> pattern reregisterProject returns EngineResult (never throws)",
+      "status": "passed"
+    }
+  ]
+}

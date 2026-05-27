@@ -1,0 +1,305 @@
+{
+  "$schema": "https://cleo-dev.com/schemas/v1/agent-registry.schema.json",
+  "schemaVersion": "1.0.0",
+  "lastUpdated": "2026-01-27",
+  "agents": {
+    "claude-code": {
+      "id": "claude-code",
+      "displayName": "Claude Code",
+      "vendor": "Anthropic",
+      "globalDir": "$HOME/.claude",
+      "projectDir": ".claude",
+      "instructionFile": "CLAUDE.md",
+      "skillsDir": "skills",
+      "projectSkillsDir": ".claude/skills",
+      "priority": "high",
+      "status": "active",
+      "cliDetection": {
+        "method": "directory",
+        "check": "$HOME/.claude"
+      },
+      "agentSkillsCompatible": true,
+      "notes": "Primary CLEO target. Anthropic's official CLI."
+    },
+    "cursor": {
+      "id": "cursor",
+      "displayName": "Cursor",
+      "vendor": "Anysphere",
+      "globalDir": "$HOME/.cursor",
+      "projectDir": ".cursor",
+      "instructionFile": "AGENTS.md",
+      "skillsDir": "skills",
+      "projectSkillsDir": ".cursor/skills",
+      "priority": "high",
+      "status": "active",
+      "cliDetection": {
+        "method": "directory",
+        "check": "$HOME/.cursor"
+      },
+      "agentSkillsCompatible": true,
+      "notes": "Popular VS Code fork with AI integration"
+    },
+    "windsurf": {
+      "id": "windsurf",
+      "displayName": "Windsurf",
+      "vendor": "Codeium",
+      "globalDir": "$HOME/.codeium/windsurf",
+      "projectDir": ".windsurf",
+      "instructionFile": "AGENTS.md",
+      "skillsDir": "skills",
+      "projectSkillsDir": ".windsurf/skills",
+      "priority": "high",
+      "status": "active",
+      "cliDetection": {
+        "method": "directory",
+        "check": "$HOME/.codeium/windsurf"
+      },
+      "agentSkillsCompatible": true,
+      "notes": "Codeium's AI IDE"
+    },
+    "codex": {
+      "id": "codex",
+      "displayName": "OpenAI Codex",
+      "vendor": "OpenAI",
+      "globalDir": "$HOME/.codex",
+      "projectDir": ".codex",
+      "instructionFile": "AGENTS.md",
+      "skillsDir": "skills",
+      "projectSkillsDir": ".codex/skills",
+      "priority": "medium",
+      "status": "active",
+      "cliDetection": {
+        "method": "directory",
+        "check": "$HOME/.codex"
+      },
+      "agentSkillsCompatible": true,
+      "notes": "OpenAI's coding assistant"
+    },
+    "gemini-cli": {
+      "id": "gemini-cli",
+      "displayName": "Google Gemini",
+      "vendor": "Google",
+      "globalDir": "$HOME/.gemini",
+      "projectDir": ".gemini",
+      "instructionFile": "GEMINI.md",
+      "skillsDir": "skills",
+      "projectSkillsDir": ".gemini/skills",
+      "priority": "medium",
+      "status": "active",
+      "cliDetection": {
+        "method": "directory",
+        "check": "$HOME/.gemini"
+      },
+      "agentSkillsCompatible": true,
+      "notes": "Google's Gemini CLI assistant"
+    },
+    "github-copilot": {
+      "id": "github-copilot",
+      "displayName": "GitHub Copilot",
+      "vendor": "GitHub/Microsoft",
+      "globalDir": "$HOME/.copilot",
+      "projectDir": ".github",
+      "instructionFile": "AGENTS.md",
+      "skillsDir": "skills",
+      "projectSkillsDir": ".github/skills",
+      "priority": "medium",
+      "status": "active",
+      "cliDetection": {
+        "method": "directory",
+        "check": "$HOME/.copilot"
+      },
+      "agentSkillsCompatible": true,
+      "notes": "GitHub's AI pair programmer"
+    },
+    "opencode": {
+      "id": "opencode",
+      "displayName": "OpenCode",
+      "vendor": "OpenCode",
+      "globalDir": "$HOME/.config/opencode",
+      "projectDir": ".opencode",
+      "instructionFile": "AGENTS.md",
+      "skillsDir": "skills",
+      "projectSkillsDir": ".opencode/skills",
+      "priority": "medium",
+      "status": "active",
+      "cliDetection": {
+        "method": "directory",
+        "check": "$HOME/.config/opencode"
+      },
+      "agentSkillsCompatible": true,
+      "notes": "Open-source coding assistant"
+    },
+    "cline": {
+      "id": "cline",
+      "displayName": "Cline",
+      "vendor": "Cline",
+      "globalDir": "$HOME/.cline",
+      "projectDir": ".cline",
+      "instructionFile": "AGENTS.md",
+      "skillsDir": "skills",
+      "projectSkillsDir": ".cline/skills",
+      "priority": "medium",
+      "status": "active",
+      "cliDetection": {
+        "method": "directory",
+        "check": "$HOME/.cline"
+      },
+      "agentSkillsCompatible": true,
+      "notes": "VS Code extension for AI coding"
+    },
+    "kimi": {
+      "id": "kimi",
+      "displayName": "Kimi Coding",
+      "vendor": "Moonshot AI",
+      "globalDir": "$HOME/.kimi",
+      "projectDir": ".kimi",
+      "instructionFile": "AGENTS.md",
+      "skillsDir": "skills",
+      "projectSkillsDir": ".kimi/skills",
+      "priority": "medium",
+      "status": "active",
+      "cliDetection": {
+        "method": "directory",
+        "check": "$HOME/.kimi"
+      },
+      "agentSkillsCompatible": false,
+      "notes": "Moonshot AI's coding assistant"
+    },
+    "roo": {
+      "id": "roo",
+      "displayName": "Roo Code",
+      "vendor": "Roo",
+      "globalDir": "$HOME/.roo",
+      "projectDir": ".roo",
+      "instructionFile": "AGENTS.md",
+      "skillsDir": "skills",
+      "projectSkillsDir": ".roo/skills",
+      "priority": "low",
+      "status": "active",
+      "cliDetection": {
+        "method": "directory",
+        "check": "$HOME/.roo"
+      },
+      "agentSkillsCompatible": true,
+      "notes": "Roo coding assistant"
+    },
+    "continue": {
+      "id": "continue",
+      "displayName": "Continue",
+      "vendor": "Continue",
+      "globalDir": "$HOME/.continue",
+      "projectDir": ".continue",
+      "instructionFile": "AGENTS.md",
+      "skillsDir": "skills",
+      "projectSkillsDir": ".continue/skills",
+      "priority": "low",
+      "status": "active",
+      "cliDetection": {
+        "method": "directory",
+        "check": "$HOME/.continue"
+      },
+      "agentSkillsCompatible": false,
+      "notes": "Open-source AI coding assistant"
+    },
+    "antigravity": {
+      "id": "antigravity",
+      "displayName": "Antigravity",
+      "vendor": "Google",
+      "globalDir": "$HOME/.gemini/antigravity",
+      "projectDir": ".antigravity",
+      "instructionFile": "AGENTS.md",
+      "skillsDir": "global_skills",
+      "projectSkillsDir": ".antigravity/skills",
+      "priority": "low",
+      "status": "beta",
+      "cliDetection": {
+        "method": "directory",
+        "check": "$HOME/.gemini/antigravity"
+      },
+      "agentSkillsCompatible": true,
+      "notes": "Google's experimental coding assistant"
+    },
+    "goose": {
+      "id": "goose",
+      "displayName": "Goose",
+      "vendor": "Block",
+      "globalDir": "$HOME/.goose",
+      "projectDir": ".goose",
+      "instructionFile": "AGENTS.md",
+      "skillsDir": "skills",
+      "projectSkillsDir": ".goose/skills",
+      "priority": "low",
+      "status": "active",
+      "cliDetection": {
+        "method": "directory",
+        "check": "$HOME/.goose"
+      },
+      "agentSkillsCompatible": true,
+      "notes": "Block's open-source AI agent"
+    },
+    "kiro-cli": {
+      "id": "kiro-cli",
+      "displayName": "Kiro CLI",
+      "vendor": "Kiro",
+      "globalDir": "$HOME/.kiro",
+      "projectDir": ".kiro",
+      "instructionFile": "AGENTS.md",
+      "skillsDir": "skills",
+      "projectSkillsDir": ".kiro/skills",
+      "priority": "low",
+      "status": "beta",
+      "cliDetection": {
+        "method": "directory",
+        "check": "$HOME/.kiro"
+      },
+      "agentSkillsCompatible": true,
+      "notes": "Kiro command-line coding assistant"
+    },
+    "amp": {
+      "id": "amp",
+      "displayName": "Amp",
+      "vendor": "Sourcegraph",
+      "globalDir": "$HOME/.amp",
+      "projectDir": ".amp",
+      "instructionFile": "AGENTS.md",
+      "skillsDir": "skills",
+      "projectSkillsDir": ".amp/skills",
+      "priority": "low",
+      "status": "beta",
+      "cliDetection": {
+        "method": "directory",
+        "check": "$HOME/.amp"
+      },
+      "agentSkillsCompatible": true,
+      "notes": "Sourcegraph's AI coding assistant"
+    },
+    "trae": {
+      "id": "trae",
+      "displayName": "Trae",
+      "vendor": "ByteDance",
+      "globalDir": "$HOME/.trae",
+      "projectDir": ".trae",
+      "instructionFile": "AGENTS.md",
+      "skillsDir": "skills",
+      "projectSkillsDir": ".trae/skills",
+      "priority": "low",
+      "status": "beta",
+      "cliDetection": {
+        "method": "directory",
+        "check": "$HOME/.trae"
+      },
+      "agentSkillsCompatible": true,
+      "notes": "ByteDance's AI IDE"
+    }
+  },
+  "instructionFileMap": {
+    "CLAUDE.md": ["claude-code"],
+    "GEMINI.md": ["gemini-cli"],
+    "AGENTS.md": ["cursor", "windsurf", "codex", "github-copilot", "opencode", "cline", "kimi", "roo", "continue", "antigravity", "goose", "kiro-cli", "amp", "trae"]
+  },
+  "priorityTiers": {
+    "tier1": ["claude-code", "cursor", "windsurf"],
+    "tier2": ["codex", "gemini-cli", "github-copilot", "opencode", "cline", "kimi"],
+    "tier3": ["roo", "continue", "antigravity", "goose", "kiro-cli", "amp", "trae"]
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "_comment": "CLEO-only metadata -- add to packages/skills/skills/manifest.json",
+  "name": "ct-adr-recorder",
+  "version": "1.0.0",
+  "tier": 2,
+  "token_budget": 8000,
+  "protocol": "architecture-decision",
+  "capabilities": {
+    "inputs": ["consensus-manifest-id", "task-id", "decision-context"],
+    "outputs": ["adr-markdown", "decisions-table-row", "manifest-entry"],
+    "dispatch_triggers": [
+      "write ADR",
+      "record architecture decision",
+      "formalize this decision",
+      "create ADR",
+      "lock in the choice"
+    ],
+    "compatible_subagent_types": ["general-purpose"],
+    "chains_to": ["ct-consensus-voter", "ct-spec-writer"],
+    "dispatch_keywords": {
+      "primary": ["adr", "decision", "architecture", "formalize"],
+      "secondary": ["proposed", "accepted", "superseded", "hitl"]
+    }
+  },
+  "constraints": {
+    "max_context_tokens": 60000,
+    "requires_session": false,
+    "requires_epic": false
+  }
+}

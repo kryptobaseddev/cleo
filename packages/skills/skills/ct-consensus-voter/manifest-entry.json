@@ -1,0 +1,30 @@
+{
+  "_comment": "CLEO-only metadata -- add to packages/skills/skills/manifest.json",
+  "name": "ct-consensus-voter",
+  "version": "1.0.0",
+  "tier": 2,
+  "token_budget": 6000,
+  "protocol": "consensus",
+  "capabilities": {
+    "inputs": ["task-id", "question", "candidate-options"],
+    "outputs": ["voting-matrix", "manifest-entry"],
+    "dispatch_triggers": [
+      "reach consensus",
+      "vote on options",
+      "resolve the debate",
+      "pick the best approach",
+      "run consensus"
+    ],
+    "compatible_subagent_types": ["general-purpose"],
+    "chains_to": ["ct-adr-recorder", "ct-research-agent"],
+    "dispatch_keywords": {
+      "primary": ["consensus", "vote", "decide", "verdict"],
+      "secondary": ["confidence", "rationale", "evidence", "contested"]
+    }
+  },
+  "constraints": {
+    "max_context_tokens": 60000,
+    "requires_session": false,
+    "requires_epic": false
+  }
+}

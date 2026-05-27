@@ -1,0 +1,176 @@
+{
+  "name": "CANT",
+  "scopeName": "source.cant",
+  "fileTypes": ["cant"],
+  "patterns": [
+    { "include": "#frontmatter" },
+    { "include": "#comment" },
+    { "include": "#directive" },
+    { "include": "#discretion" },
+    { "include": "#address" },
+    { "include": "#task-ref" },
+    { "include": "#tag" },
+    { "include": "#import-statement" },
+    { "include": "#keyword-block" },
+    { "include": "#keyword-control" },
+    { "include": "#keyword-operator" },
+    { "include": "#keyword-modifier" },
+    { "include": "#property" },
+    { "include": "#string-interpolation" },
+    { "include": "#string" },
+    { "include": "#number" },
+    { "include": "#boolean" },
+    { "include": "#duration" }
+  ],
+  "repository": {
+    "frontmatter": {
+      "name": "meta.frontmatter.cant",
+      "begin": "^---\\s*$",
+      "end": "^---\\s*$",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.frontmatter.cant" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.frontmatter.cant" }
+      },
+      "patterns": [
+        {
+          "match": "^\\s*(kind|version)\\s*:",
+          "captures": {
+            "1": { "name": "keyword.other.frontmatter.cant" }
+          }
+        },
+        {
+          "match": "\\b(agent|skill|hook|workflow|pipeline|config|message)\\b",
+          "name": "constant.language.kind.cant"
+        },
+        {
+          "match": "\\d+",
+          "name": "constant.numeric.cant"
+        }
+      ]
+    },
+    "comment": {
+      "name": "comment.line.number-sign.cant",
+      "match": "#.*$"
+    },
+    "directive": {
+      "match": "^\\s*(/)(claim|done|blocked|approve|decision|checkin|action|review|proposal|ack|response|info|status|[a-z][a-z0-9-]*)\\b",
+      "captures": {
+        "1": { "name": "punctuation.definition.directive.cant" },
+        "2": { "name": "keyword.control.directive.cant" }
+      }
+    },
+    "discretion": {
+      "name": "markup.bold.discretion.cant",
+      "match": "\\*\\*[^*]+\\*\\*"
+    },
+    "address": {
+      "match": "(@)([a-zA-Z][a-zA-Z0-9_-]*)",
+      "captures": {
+        "1": { "name": "punctuation.definition.address.cant" },
+        "2": { "name": "entity.name.tag.address.cant" }
+      }
+    },
+    "task-ref": {
+      "match": "\\b(T)(\\d+)\\b",
+      "captures": {
+        "1": { "name": "constant.language.task-prefix.cant" },
+        "2": { "name": "constant.numeric.task-id.cant" }
+      }
+    },
+    "tag": {
+      "match": "(#)([a-zA-Z][a-zA-Z0-9_-]*)",
+      "captures": {
+        "1": { "name": "punctuation.definition.tag.cant" },
+        "2": { "name": "entity.name.label.tag.cant" }
+      }
+    },
+    "import-statement": {
+      "match": "^\\s*(@import)\\s+(.+)",
+      "captures": {
+        "1": { "name": "keyword.control.import.cant" },
+        "2": {
+          "patterns": [
+            { "include": "#string" },
+            {
+              "match": "\\b(as|from)\\b",
+              "name": "keyword.control.import-modifier.cant"
+            },
+            {
+              "match": "[a-zA-Z][a-zA-Z0-9_-]*",
+              "name": "entity.name.module.cant"
+            }
+          ]
+        }
+      }
+    },
+    "keyword-block": {
+      "match": "^\\s*\\b(agent|skill|on|workflow|pipeline|parallel|permissions|step|approve)\\b",
+      "name": "keyword.declaration.cant"
+    },
+    "keyword-control": {
+      "match": "\\b(if|elif|else|loop|repeat|for|in|try|catch|finally|until|while|session|output)\\b",
+      "name": "keyword.control.cant"
+    },
+    "keyword-operator": {
+      "match": "\\b(and|or|not)\\b",
+      "name": "keyword.operator.logical.cant"
+    },
+    "keyword-modifier": {
+      "match": "\\b(let|const)\\b",
+      "name": "storage.type.cant"
+    },
+    "property": {
+      "match": "^\\s+([a-zA-Z][a-zA-Z0-9_-]*)\\s*:",
+      "captures": {
+        "1": { "name": "variable.other.property.cant" }
+      }
+    },
+    "string-interpolation": {
+      "name": "string.quoted.double.cant",
+      "begin": "\"",
+      "end": "\"",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.cant" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.cant" }
+      },
+      "patterns": [
+        {
+          "name": "meta.interpolation.cant",
+          "match": "(\\$\\{)([^}]*)(\\})",
+          "captures": {
+            "1": { "name": "punctuation.section.interpolation.begin.cant" },
+            "2": { "name": "variable.other.readwrite.cant" },
+            "3": { "name": "punctuation.section.interpolation.end.cant" }
+          }
+        },
+        {
+          "match": "\\\\[\"\\\\nrt$]",
+          "name": "constant.character.escape.cant"
+        }
+      ]
+    },
+    "string": {
+      "name": "string.quoted.double.cant",
+      "match": "\"[^\"]*\""
+    },
+    "number": {
+      "match": "\\b\\d+(\\.\\d+)?\\b",
+      "name": "constant.numeric.cant"
+    },
+    "boolean": {
+      "match": "\\b(true|false)\\b",
+      "name": "constant.language.boolean.cant"
+    },
+    "duration": {
+      "match": "\\b(\\d+)(s|m|h|d)\\b",
+      "captures": {
+        "1": { "name": "constant.numeric.duration.cant" },
+        "2": { "name": "keyword.other.unit.cant" }
+      }
+    }
+  }
+}

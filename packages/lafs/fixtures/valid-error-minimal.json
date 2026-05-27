@@ -1,0 +1,15 @@
+{
+  "success": false,
+  "_meta": {
+    "requestId": "req_minimal_01",
+    "contextVersion": 0
+  },
+  "error": {
+    "code": "E_VALIDATION_SCHEMA",
+    "agentAction": "retry_modified",
+    "details": {
+      "field": "title",
+      "rule": "required"
+    }
+  }
+}

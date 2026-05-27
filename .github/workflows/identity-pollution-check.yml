@@ -1,0 +1,71 @@
+name: Identity Pollution Check
+
+# @task T9149
+# Server-side gate. Rejects any commit whose author or committer is the
+# polluted test identity `Test <test@example.com>`. Pairs with the local
+# vitest.setup.ts guard added in T9149: tests can no longer leak the
+# identity locally, and CI now refuses to merge anything that slipped
+# through historically or was crafted manually.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  merge_group:
+
+jobs:
+  reject-polluted-identity:
+    name: Reject Test <test@example.com>
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Fetch enough history to inspect the commits introduced by this
+          # push / PR. depth=0 = full history; cheaper than redoing checks
+          # if the PR grows.
+          fetch-depth: 0
+
+      - name: Determine commit range
+        id: range
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+            echo "range=${base}..${head}" >> "$GITHUB_OUTPUT"
+          else
+            # push to main: scan only commits introduced by this push.
+            before="${{ github.event.before }}"
+            after="${{ github.sha }}"
+            # First push to a new ref has an all-zero `before` SHA — fall
+            # back to scanning HEAD only to avoid surfacing legacy history.
+            if [ "$before" = "0000000000000000000000000000000000000000" ] || [ -z "$before" ]; then
+              echo "range=${after}^..${after}" >> "$GITHUB_OUTPUT"
+            else
+              echo "range=${before}..${after}" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Reject polluted identity
+        run: |
+          range='${{ steps.range.outputs.range }}'
+          echo "Scanning range: $range"
+          bad=$(git log "$range" --pretty=format:'%H%x09%an <%ae>%x09%cn <%ce>%x09%s' 2>/dev/null \
+            | awk -F'\t' '$2 == "Test <test@example.com>" || $3 == "Test <test@example.com>"')
+          if [ -n "$bad" ]; then
+            echo
+            echo "::error::Commits authored or committed by the polluted identity 'Test <test@example.com>' were rejected."
+            echo
+            echo "Offending commits:"
+            printf '%s\n' "$bad" | awk -F'\t' '{ printf "  %s  author=%s  committer=%s\n    %s\n", substr($1,1,12), $2, $3, $4 }'
+            echo
+            echo "Root cause: a test wrote 'user.email test@example.com' to the developer's local .git/config."
+            echo "Fix: re-author the commit with your real identity:"
+            echo "  git commit --amend --reset-author     # current commit"
+            echo "  git rebase -i --root -x 'git commit --amend --no-edit --reset-author'   # rewrite a range"
+            echo
+            exit 1
+          fi
+          echo "OK — no polluted-identity commits found in the pushed range."

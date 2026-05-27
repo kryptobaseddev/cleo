@@ -1,0 +1,744 @@
+import { randomUUID } from 'node:crypto';
+
+/**
+ * Generate a request UUID for error envelopes.
+ * Extracted to keep the hot path synchronous.
+ *
+ * @internal
+ */
+function generateRequestId(): string {
+  return randomUUID();
+}
+
+/**
+ * Central output dispatch for V2 CLI commands.
+ *
+ * Provides cliOutput() which replaces `console.log(formatSuccess(data))`.
+ * Checks the resolved format (JSON/human/quiet) and dispatches to either
+ * the LAFS JSON envelope (formatSuccess) or a human-readable renderer.
+ *
+ * Commands call:
+ *   cliOutput(data, { command: 'show', message, operation, page })
+ *
+ * @task T4665
+ * @task T4666
+ * @task T4813
+ * @epic T4663
+ */
+
+// System + nexus renderers — migrated from `./system.js` (T10131 / B6) and
+// `./nexus.js` (T10132 / B7) into `@cleocode/core/render`. Importing the
+// family barrels via the core entry point also triggers their side-effect
+// `registerRenderer` calls so the B5 registry is populated before the
+// dispatcher hands off to it.
+import {
+  drainWarnings,
+  extractByJsonPointer,
+  type FormatOptions,
+  formatSuccess,
+  isJsonPointer,
+  metaFooter,
+  pagerFooter,
+  renderAuditReconstruct,
+  renderBlockers,
+  renderBrainBackfill,
+  renderBrainExport,
+  renderBrainMaintenance,
+  renderBrainPlasticityStats,
+  renderBrainPurge,
+  renderBrainQuality,
+  renderBriefing,
+  renderCurrent,
+  renderDoctor,
+  renderGeneric,
+  renderNext,
+  // Nexus renderers — migrated to @cleocode/core/render/nexus per ADR-077 (T10132 / B7).
+  renderNexusAnalyze,
+  renderNexusBrainAnchors,
+  renderNexusClusters,
+  renderNexusColdSymbols,
+  renderNexusConduitScan,
+  renderNexusContext as renderNexusContextResult,
+  renderNexusContractsLinkTasks,
+  renderNexusContractsShow,
+  renderNexusContractsSync,
+  renderNexusDiff,
+  renderNexusExport,
+  renderNexusFlows,
+  renderNexusFullContext,
+  renderNexusHotNodes,
+  renderNexusHotPaths,
+  renderNexusImpact,
+  renderNexusImpactFull,
+  renderNexusProjectsClean,
+  renderNexusProjectsCleanPreview,
+  renderNexusProjectsList,
+  renderNexusProjectsRegister,
+  renderNexusProjectsRemove,
+  renderNexusProjectsScan,
+  renderNexusQuery,
+  renderNexusRefreshBridge,
+  renderNexusRouteMap,
+  renderNexusSearchCode,
+  renderNexusSetup,
+  renderNexusShapeCheck,
+  renderNexusStatus,
+  renderNexusTaskFootprint,
+  renderNexusTaskSymbols,
+  renderNexusWhy,
+  renderNexusWiki,
+  renderPlan,
+  renderSchemaCommand,
+  renderSession,
+  renderStart,
+  renderStats,
+  renderStop,
+  renderTree,
+  renderVersion,
+  renderWaves,
+  serializePointerValue,
+} from '@cleocode/core';
+import type { CliEnvelope, CliMeta, Warning } from '@cleocode/lafs';
+import { applyFieldFilter, extractFieldFromResult } from '@cleocode/lafs';
+import type { DispatchResponseMeta } from '../../dispatch/types.js';
+import { getFieldContext } from '../field-context.js';
+import { getFormatContext } from '../format-context.js';
+import { getOutputMode } from '../output-context.js';
+import { getSummaryMode } from '../summary-context.js';
+import { emitLafsViolation, LafsViolationError, validateLafsShape } from './lafs-validator.js';
+import { normalizeForHuman } from './normalizer.js';
+import { renderOutputMode, renderSummary } from './output-mode.js';
+
+export type { RenderWavesMode, RenderWavesOptions } from '@cleocode/core';
+export { renderWaves };
+
+// Task renderers — migrated to @cleocode/core/render/tasks per ADR-077
+// (T10133 / B8). The import also triggers the B5 registry side-effect that
+// registers each renderer under `(command, 'generic')` so
+// `renderEnvelopeForHuman` can route to them once commands emit typed
+// envelopes.
+import {
+  renderAdd,
+  renderArchive,
+  renderComplete,
+  renderDelete,
+  renderFind,
+  renderList,
+  renderRestore,
+  renderShow,
+  renderUpdate,
+} from '@cleocode/core';
+
+// ---------------------------------------------------------------------------
+// Renderer registry: maps command name to human renderer function
+// ---------------------------------------------------------------------------
+
+type HumanRenderer = (data: Record<string, unknown>, quiet: boolean) => string;
+
+const renderers: Record<string, HumanRenderer> = {
+  // Task CRUD
+  show: renderShow,
+  list: renderList,
+  ls: renderList,
+  find: renderFind,
+  search: renderFind,
+  add: renderAdd,
+  update: renderUpdate,
+  complete: renderComplete,
+  done: renderComplete,
+  delete: renderDelete,
+  rm: renderDelete,
+  archive: renderArchive,
+  restore: renderRestore,
+
+  // Task work
+  start: renderStart,
+  stop: renderStop,
+  current: renderCurrent,
+
+  // System
+  doctor: renderDoctor,
+  stats: renderStats,
+  next: renderNext,
+  plan: renderPlan,
+  blockers: renderBlockers,
+  tree: renderTree,
+  depends: renderTree,
+  deps: renderTree,
+  // Orchestration — `cleo orchestrate waves` emits { waves, epicId, ... }
+  // which renderTree handles via its data.waves branch (T1194/T1195).
+  orchestrate: renderTree,
+  session: renderSession,
+  version: renderVersion,
+  // T1593 — `cleo briefing` reads tasks.db + brain.db (NEVER markdown handoffs).
+  briefing: renderBriefing,
+
+  // Brain subcommands (T1722)
+  'brain-maintenance': renderBrainMaintenance,
+  'brain-backfill': renderBrainBackfill,
+  'brain-purge': renderBrainPurge,
+  'brain-plasticity-stats': renderBrainPlasticityStats,
+  'brain-quality': renderBrainQuality,
+  'brain-export': renderBrainExport,
+
+  // Audit subcommand renderers (T1729)
+  'audit-reconstruct': renderAuditReconstruct,
+
+  // Schema command renderer (T1729)
+  schema: renderSchemaCommand,
+
+  // Nexus subcommand renderers (T1720)
+  'nexus-status': renderNexusStatus,
+  'nexus-setup': renderNexusSetup,
+  'nexus-clusters': renderNexusClusters,
+  'nexus-flows': renderNexusFlows,
+  'nexus-context': renderNexusContextResult,
+  'nexus-impact': renderNexusImpact,
+  'nexus-analyze': renderNexusAnalyze,
+  'nexus-projects-list': renderNexusProjectsList,
+  'nexus-projects-register': renderNexusProjectsRegister,
+  'nexus-projects-remove': renderNexusProjectsRemove,
+  'nexus-projects-scan': renderNexusProjectsScan,
+  'nexus-projects-clean': renderNexusProjectsClean,
+  'nexus-projects-clean-preview': renderNexusProjectsCleanPreview,
+  'nexus-refresh-bridge': renderNexusRefreshBridge,
+  'nexus-diff': renderNexusDiff,
+  'nexus-query': renderNexusQuery,
+  'nexus-route-map': renderNexusRouteMap,
+  'nexus-shape-check': renderNexusShapeCheck,
+  'nexus-full-context': renderNexusFullContext,
+  'nexus-task-footprint': renderNexusTaskFootprint,
+  'nexus-brain-anchors': renderNexusBrainAnchors,
+  'nexus-why': renderNexusWhy,
+  'nexus-impact-full': renderNexusImpactFull,
+  'nexus-conduit-scan': renderNexusConduitScan,
+  'nexus-task-symbols': renderNexusTaskSymbols,
+  'nexus-search-code': renderNexusSearchCode,
+  'nexus-contracts-sync': renderNexusContractsSync,
+  'nexus-contracts-show': renderNexusContractsShow,
+  'nexus-contracts-link-tasks': renderNexusContractsLinkTasks,
+  'nexus-export': renderNexusExport,
+  'nexus-wiki': renderNexusWiki,
+  'nexus-hot-paths': renderNexusHotPaths,
+  'nexus-hot-nodes': renderNexusHotNodes,
+  'nexus-cold-symbols': renderNexusColdSymbols,
+};
+
+// ---------------------------------------------------------------------------
+// Decorator passthrough — local pick to avoid renderers → dispatch import cycle
+// (dispatch/adapters/cli.ts already imports cliOutput from this module).
+// Kept in sync with the canonical `pickDecoratorMetaExtensions` in
+// `packages/cleo/src/dispatch/nexus-decorator.ts`. If the canonical list of
+// decorator-stamped fields grows, update both call sites.
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract decorator-stamped meta fields (`_nexus`, `deprecated`) from a
+ * `DispatchResponse.meta` so cliOutput can forward them into the envelope.
+ *
+ * @task T9393
+ */
+function pickDecoratorMetaExtensionsLocal(
+  responseMeta: DispatchResponseMeta | undefined,
+): Record<string, unknown> {
+  if (!responseMeta) return {};
+  const out: Record<string, unknown> = {};
+  if (responseMeta['_nexus'] !== undefined) out['_nexus'] = responseMeta['_nexus'];
+  if (responseMeta['deprecated'] !== undefined) out['deprecated'] = responseMeta['deprecated'];
+  if (responseMeta.sessionId !== undefined) out['sessionId'] = responseMeta.sessionId;
+  if (responseMeta.originSessionId !== undefined) {
+    out['originSessionId'] = responseMeta.originSessionId;
+  }
+  if (responseMeta.executionSessionId !== undefined) {
+    out['executionSessionId'] = responseMeta.executionSessionId;
+  }
+  // T9921 (Saga T9855 / E8.2) — forward auto-populated tasks.* suggestedNext
+  if (responseMeta['suggestedNext'] !== undefined) {
+    out['suggestedNext'] = responseMeta['suggestedNext'];
+  }
+  // T9922 (Saga T9855 / E8.3) — surface MVI record projection choice so JSON
+  // consumers can see whether the response was projected ('mvi') or returned
+  // in full ('full'). Stamped by the mvi-record-projection middleware.
+  if (responseMeta['projection'] !== undefined) {
+    out['projection'] = responseMeta['projection'];
+  }
+  return out;
+}
+
+/**
+ * Build the in-memory CliEnvelope shape we use when resolving an RFC 6901
+ * `--field <pointer>` invocation. Mirrors the envelope produced by
+ * `formatSuccess` (success, data, meta, page?) so pointers like
+ * `/data/title`, `/meta/operation`, and `/page/total` all resolve.
+ *
+ * Decorator-stamped meta (`_nexus`, `deprecated`, `suggestedNext`) is
+ * merged in the same way `cliOutput`'s standard JSON path does, so the
+ * pointer surface matches what `--json` would emit.
+ *
+ * @task T9929
+ */
+function buildEnvelopeForPointer(data: unknown, opts: CliOutputOptions): Record<string, unknown> {
+  const decoratorExt = pickDecoratorMetaExtensionsLocal(opts.responseMeta);
+  const meta: Record<string, unknown> = {
+    ...decoratorExt,
+    ...(opts.extensions ?? {}),
+    operation: opts.operation ?? 'cli.output',
+  };
+  if (opts.message) meta['message'] = opts.message;
+  const envelope: Record<string, unknown> = {
+    success: true,
+    data,
+    meta,
+  };
+  if (opts.page) envelope['page'] = opts.page;
+  return envelope;
+}
+
+// ---------------------------------------------------------------------------
+// Options for cliOutput
+// ---------------------------------------------------------------------------
+
+export interface CliOutputOptions {
+  /** Command name (used to pick the correct human renderer). */
+  command: string;
+  /** Optional success message for JSON envelope (attached to `meta.message`). */
+  message?: string;
+  /** Operation name for canonical envelope `meta.operation` (e.g. `"tasks.show"`). */
+  operation?: string;
+  /** Pagination metadata for canonical envelope `page` field. */
+  page?: FormatOptions['page'];
+  /** Extra metadata extensions merged into `meta`. */
+  extensions?: Record<string, unknown>;
+  /**
+   * Optional `DispatchResponse.meta` to forward decorator-stamped fields
+   * (`_nexus`, `deprecated`, etc.) into the emitted envelope. Use this when
+   * the command goes through `dispatchRaw` and the dispatcher's decorators
+   * have stamped fields the caller wants surfaced to JSON consumers.
+   *
+   * Canonical meta fields (operation, requestId, timestamp) are NOT forwarded —
+   * those are always produced fresh by `formatSuccess` via `createCliMeta`.
+   *
+   * @task T9393
+   */
+  responseMeta?: DispatchResponseMeta;
+}
+
+// ---------------------------------------------------------------------------
+// Main output function
+// ---------------------------------------------------------------------------
+
+/**
+ * Output data to stdout in the resolved format (JSON or human-readable).
+ *
+ * Replaces `console.log(formatSuccess(data))` in all V2 commands.
+ * When format is 'human', normalizes the data shape then dispatches to
+ * the appropriate renderer.
+ * When format is 'json', delegates to existing formatSuccess().
+ *
+ * @task T4665
+ * @task T4666
+ * @task T4813
+ */
+export function cliOutput(data: unknown, opts: CliOutputOptions): void {
+  const ctx = getFormatContext();
+  const fieldCtx = getFieldContext();
+  const outputMode = getOutputMode();
+  const summary = getSummaryMode();
+
+  // T9930 — --output {id|table|count|silent} re-renders the canonical envelope
+  // payload into the alternative shape the caller asked for. `--field` (T9929)
+  // takes precedence: when both are set, the field extraction below runs first
+  // and short-circuits to a scalar projection, never reaching this switch.
+  // `envelope` mode (default) falls through to the existing human/JSON paths.
+  if (outputMode !== 'envelope' && !fieldCtx.field) {
+    const out = renderOutputMode(outputMode, data);
+    if (out.text !== null) {
+      const text = out.text.length > 0 ? out.text : `No output (${out.emptyReason ?? 'empty'}).`;
+      process.stdout.write(text + '\n');
+    }
+    return;
+  }
+
+  // T9932 — --summary re-renders the envelope payload as 1 line per record:
+  // `<id> [<status>] <title-truncated-60>`. Precedence (see summary-context.ts):
+  //   `--field` wins (handled below)
+  //   `--output {id|table|count|silent}` wins (handled above)
+  //   `--summary` runs here, BEFORE the default JSON/human paths.
+  if (summary && !fieldCtx.field) {
+    const out = renderSummary(data);
+    if (out.text !== null) {
+      const text = out.text.length > 0 ? out.text : `No output (${out.emptyReason ?? 'empty'}).`;
+      process.stdout.write(text + '\n');
+    }
+    return;
+  }
+
+  // T9929 (Saga T9855 / E9) — RFC 6901 JSON Pointer extraction.
+  //
+  // When `--field` looks like a JSON pointer (starts with `/`), resolve
+  // it against the WHOLE envelope (not just `data`). This lets agents
+  // write `cleo show T123 --field /data/title` and skip the `jq`
+  // dependency. The leading slash is the discriminator from legacy
+  // fuzzy-field-name lookups (`--field title`) handled below.
+  if (fieldCtx.field && isJsonPointer(fieldCtx.field)) {
+    const envelope = buildEnvelopeForPointer(data, opts);
+    const value = extractByJsonPointer(envelope, fieldCtx.field);
+    if (value === undefined) {
+      cliError(`Pointer "${fieldCtx.field}" did not resolve`, 4, { name: 'E_FIELD_NOT_FOUND' });
+      process.exit(4);
+    }
+    process.stdout.write(`${serializePointerValue(value)}\n`);
+    return;
+  }
+
+  if (ctx.format === 'human') {
+    let dataToRender = data as Record<string, unknown>;
+
+    // §5.4.1 filter-then-render: apply --field extraction BEFORE human rendering
+    let fieldExtracted = false;
+    if (fieldCtx.field) {
+      const extracted = extractFieldFromResult(
+        data as Parameters<typeof extractFieldFromResult>[0],
+        fieldCtx.field,
+      );
+      if (extracted === undefined) {
+        cliError(`Field "${fieldCtx.field}" not found`, 4, { name: 'E_NOT_FOUND' });
+        process.exit(4);
+      }
+      // If extracted is a primitive, render directly
+      if (typeof extracted !== 'object' || extracted === null) {
+        process.stdout.write(String(extracted) + '\n');
+        return;
+      }
+      // If extracted is an array, wrap it for renderGeneric
+      if (Array.isArray(extracted)) {
+        dataToRender = { [fieldCtx.field]: extracted };
+      } else {
+        dataToRender = extracted as Record<string, unknown>;
+      }
+      fieldExtracted = true;
+    }
+
+    const normalized = normalizeForHuman(opts.command, dataToRender);
+    // After field extraction, use renderGeneric — command-specific renderers
+    // expect the full data structure, not a filtered subset (§5.4.1)
+    const renderer = fieldExtracted ? renderGeneric : (renderers[opts.command] ?? renderGeneric);
+    const text = renderer(normalized, ctx.quiet);
+    if (text) {
+      process.stdout.write(text + '\n');
+    }
+    // T9393-followup: surface LAFS pagination + decorator-stamped meta so
+    // human-mode users see the same windowing + scope info JSON consumers do.
+    // Renderer audit found 12+ commands silently truncated lists with no
+    // hint that `--limit` was active, and EVERY renderer dropped `_nexus` /
+    // `deprecated` warnings. Centralising the chrome here means every
+    // command picks it up automatically without per-renderer wiring.
+    if (!ctx.quiet) {
+      const pagerData = data as Record<string, unknown> | undefined;
+      const pagerArrays =
+        pagerData && typeof pagerData === 'object'
+          ? Object.values(pagerData).filter((v) => Array.isArray(v))
+          : [];
+      const shown = pagerArrays.reduce((max, arr) => Math.max(max, (arr as unknown[]).length), 0);
+      if (shown > 0 && opts.page) {
+        const pager = pagerFooter({
+          shown,
+          page: opts.page as Parameters<typeof pagerFooter>[0]['page'],
+          total: pagerData?.['total'] as number | undefined,
+          filtered: pagerData?.['filtered'] as number | undefined,
+        });
+        if (pager) process.stdout.write(`${pager}\n`);
+      }
+      // Decorator-stamped meta can arrive via `responseMeta` (dispatchRaw
+      // path) or be inlined into `extensions` by bypass-dispatch commands
+      // (e.g. `cleo nexus status` via buildNexusMetaExtensions). Merge so
+      // metaFooter sees both — extensions wins on collision to match the
+      // JSON envelope precedence rule.
+      const combinedMeta = {
+        ...(opts.responseMeta ?? {}),
+        ...(opts.extensions ?? {}),
+      };
+      const footer = metaFooter(combinedMeta);
+      if (footer) process.stdout.write(`${footer}\n`);
+    }
+    return;
+  }
+
+  // --field: single-field plain text extraction (scripting / agent use).
+  // Centralised here so ALL commands (dispatchFromCli and dispatchRaw) honour the flag.
+  if (fieldCtx.field) {
+    // extractFieldFromResult operates on the data payload (not the envelope).
+    // Cast to the proto-envelope result type for the SDK call.
+    const value = extractFieldFromResult(
+      data as Parameters<typeof extractFieldFromResult>[0],
+      fieldCtx.field,
+    );
+    if (value === undefined) {
+      cliError(`Field "${fieldCtx.field}" not found`, 4, { name: 'E_NOT_FOUND' });
+      process.exit(4);
+    }
+    const out = value !== null && typeof value === 'object' ? JSON.stringify(value) : String(value);
+    process.stdout.write(out + '\n');
+    return;
+  }
+
+  // JSON format (default): apply --fields filter, then emit canonical CLI envelope.
+  // Centralised here so ALL commands honour the flag without per-command wiring.
+  // applyFieldFilter can throw on unusual mixed-type arrays (e.g. changes: ['status']).
+  // In that case we fall back to unfiltered output rather than crashing.
+  let filteredData = data;
+  if (fieldCtx.fields?.length && data !== undefined && data !== null) {
+    try {
+      // Build a proto-envelope stub to drive the SDK field filter (ADR-039 bridge).
+      const stub = {
+        $schema: 'https://lafs.dev/schemas/v1/envelope.schema.json',
+        _meta: {
+          specVersion: '',
+          schemaVersion: '',
+          timestamp: '',
+          operation: '',
+          requestId: '',
+          transport: 'cli',
+          strict: false,
+          mvi: 'standard',
+          contextVersion: 0,
+        },
+        success: true,
+        result: data as Parameters<typeof applyFieldFilter>[0]['result'],
+      };
+      const filtered = applyFieldFilter(
+        stub as Parameters<typeof applyFieldFilter>[0],
+        fieldCtx.fields,
+      );
+      filteredData = filtered.result;
+    } catch {
+      // applyFieldFilter limitation: mixed-type arrays (strings inside arrays) are not
+      // supported. Fall through to emit the full unfiltered result.
+    }
+  }
+
+  // Build FormatOptions for formatSuccess (now emits canonical CliEnvelope shape).
+  const formatOpts: FormatOptions = {};
+  if (opts.operation) formatOpts.operation = opts.operation;
+  if (opts.page) formatOpts.page = opts.page;
+
+  // T9393: merge decorator-stamped fields from response.meta into envelope
+  // extensions. Without this, _nexus / deprecated stamped by dispatch
+  // decorators are silently dropped when the caller passes response.data
+  // directly to cliOutput.
+  const decoratorExt = pickDecoratorMetaExtensionsLocal(opts.responseMeta);
+  const mergedExt =
+    opts.extensions || Object.keys(decoratorExt).length > 0
+      ? { ...decoratorExt, ...(opts.extensions ?? {}) }
+      : undefined;
+  if (mergedExt) formatOpts.extensions = mergedExt;
+
+  if (fieldCtx.mvi) formatOpts.mvi = fieldCtx.mvi;
+
+  // Phase 6 — LAFS envelope validation middleware.
+  // Every CLI output flows through `formatSuccess()` → string. We parse the
+  // string, assert the shape invariants, and only emit if validation passes.
+  // A shape violation is a CLEO developer bug, so we:
+  //   1. Emit a valid LAFS error envelope to stderr describing the violation
+  //   2. Set process.exitCode to ExitCode.LAFS_VIOLATION (104)
+  //   3. Still emit the (invalid) original to stdout so operators can inspect
+  // This is a safety net — it never SILENTLY swallows output.
+  const envelopeString = formatSuccess(
+    filteredData,
+    opts.message,
+    Object.keys(formatOpts).length > 0 ? formatOpts : opts.operation,
+  );
+
+  if (process.env['CLEO_LAFS_VALIDATE'] !== 'off') {
+    try {
+      const report = validateLafsShape(envelopeString);
+      if (report.reasons.length > 0) {
+        emitLafsViolation(
+          new LafsViolationError(`cliOutput: envelope failed LAFS shape validation`, report),
+        );
+      }
+    } catch (err) {
+      if (err instanceof LafsViolationError) {
+        emitLafsViolation(err);
+      }
+      // Non-validator errors — re-raise so tests can see them
+    }
+  }
+
+  process.stdout.write(envelopeString + '\n');
+}
+
+// ---------------------------------------------------------------------------
+// LAFS-aware human-chrome helpers (centralised here so every CLI write goes
+// through the same gate as cliOutput / cliError).
+//
+// Each helper consults the resolved FlagResolution (set once at CLI startup
+// via setFormatContext) and emits ONLY when the user has opted into human
+// output. JSON mode, --quiet, and (where appropriate) non-TTY runs become
+// silent automatically. This eliminates the need for command handlers to
+// hand-roll `if (ctx.format === 'human' && !ctx.quiet)` branches.
+//
+// | Helper          | Stream  | Silenced when                           |
+// | --------------- | ------- | --------------------------------------- |
+// | humanInfo(msg)     | stderr  | format !== 'human' OR quiet         |
+// | humanWarn(msg)     | stderr  | format !== 'human' OR quiet         |
+// | humanLine(msg)     | stdout  | format !== 'human' OR quiet         |
+// | humanProgress(text)| stdout  | format !== 'human' OR quiet OR !TTY |
+//
+// For real errors that change exit code, use cliError() above — these
+// helpers are for non-essential chrome only.
+// ---------------------------------------------------------------------------
+
+function humanEnabled(): boolean {
+  const ctx = getFormatContext();
+  return ctx.format === 'human' && !ctx.quiet;
+}
+
+/** Status message to stderr. Silent in --json / --quiet. */
+export function humanInfo(message: string): void {
+  if (!humanEnabled()) return;
+  process.stderr.write(`${message}\n`);
+}
+
+/** Warning to stderr. Silent in --json / --quiet. Use for non-fatal chrome. */
+export function humanWarn(message: string): void {
+  if (!humanEnabled()) return;
+  process.stderr.write(`${message}\n`);
+}
+
+/** Line to stdout. Silent in --json / --quiet. Use for ad-hoc human-only blocks. */
+export function humanLine(message: string): void {
+  if (!humanEnabled()) return;
+  process.stdout.write(`${message}\n`);
+}
+
+/**
+ * Inline progress write to stdout — no trailing newline, TTY-only.
+ * Silent in --json / --quiet / non-TTY.
+ *
+ * For \r-style overwrite-line animations, prefer createSpinnerHandle from
+ * @cleocode/animations which has cursor management built in.
+ */
+export function humanProgress(text: string): void {
+  if (!humanEnabled() || !process.stdout.isTTY) return;
+  process.stdout.write(text);
+}
+
+/** Read-only check: is the resolved format human-readable AND non-quiet? */
+export function isHumanOutput(): boolean {
+  return humanEnabled();
+}
+
+/**
+ * Error details for structured error output.
+ *
+ * Carries the full LAFS-compatible error context forwarded by the dispatch
+ * adapter from {@link DispatchError}. All fields are optional — only present
+ * fields are emitted in the output envelope.
+ *
+ * @see packages/cleo/src/dispatch/types.ts DispatchError
+ */
+export interface CliErrorDetails {
+  /** Machine-readable error code name (e.g. `E_NOT_FOUND`). */
+  name?: string;
+  /** Additional structured details from the error. */
+  details?: unknown;
+  /** Copy-paste fix hint for the operator or agent. */
+  fix?: unknown;
+  /** Alternative actions the caller can try. */
+  alternatives?: Array<{ action: string; command: string }>;
+}
+
+/**
+ * Output an error in the resolved format.
+ *
+ * In JSON format (default / agent mode): emits a canonical `CliEnvelope` error
+ * envelope to stdout. The envelope always includes `meta` (ADR-039).
+ * All optional fields (`codeName`, `fix`, `alternatives`, `details`) are
+ * included only when they are actually present — no `undefined` keys are emitted.
+ *
+ * In human format: prints a plain error line to stderr and, when
+ * `details.fix` is a string, appends a `Fix: <hint>` line.
+ *
+ * @param message - Human-readable error message.
+ * @param code    - Numeric exit code or string error code.
+ * @param details - Optional structured details (codeName, fix, alternatives, …).
+ * @param meta    - Optional partial meta to merge into the error envelope.
+ *
+ * @task T4666
+ * @task T4813
+ * @task T336
+ * @task T338
+ */
+export function cliError(
+  message: string,
+  code?: number | string,
+  details?: CliErrorDetails,
+  meta?: Partial<CliMeta>,
+): void {
+  const ctx = getFormatContext();
+  const outputMode = getOutputMode();
+
+  // T9930 — --output silent suppresses success stdout but failures still need
+  // a 1-line operator-visible signal on stderr. Skip the LAFS envelope (which
+  // would normally go to stdout) so the silent contract is preserved.
+  if (outputMode === 'silent') {
+    process.stderr.write(`Error: ${message}${code ? ` (${code})` : ''}\n`);
+    return;
+  }
+
+  if (ctx.format === 'human') {
+    process.stderr.write(`Error: ${message}${code ? ` (${code})` : ''}\n`);
+    if (typeof details?.fix === 'string') {
+      process.stderr.write(`Fix: ${details.fix}\n`);
+    }
+    return;
+  }
+
+  // JSON envelope always goes to stdout for consistent machine-readable output.
+  // Build the error object incrementally so that absent optional fields are
+  // never serialised as `undefined` (which JSON.stringify would strip anyway,
+  // but being explicit keeps the intent clear and avoids lint warnings).
+  const errorObj: Record<string, unknown> = {
+    code: code ?? 1,
+    message,
+  };
+
+  if (details?.name !== undefined) errorObj['codeName'] = details.name;
+  if (details?.fix !== undefined) errorObj['fix'] = details.fix;
+  if (details?.alternatives !== undefined) errorObj['alternatives'] = details.alternatives;
+  if (details?.details !== undefined) errorObj['details'] = details.details;
+
+  // Canonical error envelope: {success, error, meta} — meta is ALWAYS present.
+  // Merge caller-supplied meta with defaults (ADR-039).
+  const errorMeta: CliMeta = {
+    operation: meta?.operation ?? 'cli.error',
+    requestId: meta?.requestId ?? generateRequestId(),
+    duration_ms: meta?.duration_ms ?? 0,
+    timestamp: meta?.timestamp ?? new Date().toISOString(),
+    ...meta,
+  };
+
+  // T9769 + T9772 — drain non-fatal warnings pushed via `pushWarning` (both
+  // the legacy core `pendingWarnings` queue used by deprecation paths AND the
+  // ALS-bound `WarningCollector` carrier from T9769) into `meta.warnings[]`.
+  // `formatError` in core already does this on its path, but `cliError` builds
+  // the envelope inline so we mirror the unified drain here. Outside an active
+  // `withWarningCollector` scope and with an empty legacy queue, the result is
+  // `undefined` and the field is omitted entirely.
+  const drained: Warning[] | undefined = drainWarnings();
+  if (drained && drained.length > 0) {
+    // Preserve any explicitly-set caller warnings — drained entries append
+    // after them, matching the JSON-emitter intent: explicit > implicit.
+    const existing = (errorMeta as { warnings?: unknown }).warnings;
+    errorMeta.warnings = Array.isArray(existing) ? [...existing, ...drained] : drained;
+  }
+
+  const envelope: CliEnvelope<never> = {
+    success: false,
+    error: errorObj as import('@cleocode/lafs').CliEnvelopeError,
+    meta: errorMeta,
+  };
+
+  process.stdout.write(JSON.stringify(envelope) + '\n');
+}

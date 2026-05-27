@@ -1,0 +1,8 @@
+# Local campaign state — never commit
+campaigns/
+.active-campaign
+
+# Editor / OS noise
+.DS_Store
+*.swp
+*.swo

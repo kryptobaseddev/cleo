@@ -1,0 +1,11 @@
+{
+  "name": "focus-pomodoro",
+  "version": "1.0.0",
+  "description": "Todo + Pomodoro timer, client-side, zero dependencies.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "start": "python3 -m http.server 8000"
+  }
+}

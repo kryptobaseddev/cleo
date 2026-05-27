@@ -1,0 +1,24 @@
+(node:195458) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+[nexus] Impact analysis for 'createAuthRateLimiter'
+  Target:  createAuthRateLimiter  (function)
+  File:    src/gateway/auth-rate-limit.ts
+  Risk:    HIGH  (12 impacted nodes)
+
+  d=1 WILL BREAK (6):
+    src/gateway/auth-rate-limit.test.ts::__file__  unknown       
+    src/gateway/auth.test.ts::__file__    unknown       
+    server-http.ts                        file          src/gateway/server-http.ts
+    src/gateway/server.canvas-auth.test.ts::__file__  unknown       
+    createGatewayAuthRateLimiters         function      src/gateway/server.impl.ts
+    createNextcloudTalkWebhookServer      function      extensions/nextcloud-talk/src/monitor.ts
+
+  d=2 LIKELY AFFECTED (3):
+    startGatewayServer                    function      src/gateway/server.impl.ts
+    monitorNextcloudTalkProvider          function      extensions/nextcloud-talk/src/monitor-runtime.ts
+    startWebhookServer                    function      extensions/nextcloud-talk/src/monitor.test-harness.ts
+
+  d=3 MAY NEED TESTING (3):
+    gateway-models.profiles.live.test.ts  file          src/gateway/gateway-models.profiles.live.test.ts
+    extensions/nextcloud-talk/src/gateway.ts::__file__  unknown       
+    extensions/nextcloud-talk/src/monitor.replay.test.ts::__file__  unknown       
