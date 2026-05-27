@@ -102,6 +102,7 @@ import {
   syncFromGit,
   updateDocBySlug,
   validateDocBody,
+  writeAuditEntry,
   writeChangesetEntry,
 } from '@cleocode/core/internal';
 import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../adapters/typed.js';
@@ -1001,6 +1002,18 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       };
       emitDocAttachmentObservation(changesetPayload, getProjectRoot());
 
+      // T11139 — audit trail
+      try {
+        writeAuditEntry(getProjectRoot(), {
+          op: 'docs.add',
+          slug: outcome.result.slug,
+          type: 'changeset',
+          attachmentId: outcome.result.attachmentId,
+          sha256: outcome.result.sha256,
+          summary: `Added changeset '${outcome.result.slug}'`,
+        });
+      } catch { /* best-effort */ }
+
       return lafsSuccess<DocsAddResult>(
         {
           attachmentId: outcome.result.attachmentId,
@@ -1013,9 +1026,8 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           kind: 'blob',
           ownerId: outcome.result.ownerId,
           ownerType: 'task',
-          // Changeset writes land in the legacy attachment store; v2 mirror
-          // is not applicable to the dual-write transaction.
-          attachmentBackend: 'legacy' as DocsAddResult['attachmentBackend'],
+          // Cast: core returns 'llmtxt' (Wave C — legacy backend retired for v2 store).
+          attachmentBackend: (await resolveAttachmentBackend()) as DocsAddResult['attachmentBackend'],
           slug: outcome.result.slug,
           type: 'changeset',
         },
@@ -1232,11 +1244,10 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       // reservedSlugs set indefinitely. Consume defensively here.
       if (adrNumber !== undefined && slug !== undefined) consumeReservedSlug(slug);
 
-      // T947 Wave B — also mirror the write through the unified v2 store
-      // so llmtxt-backed manifests learn about the attachment. The v2
-      // store is the future SSoT; the legacy put above remains the
-      // authoritative write path until Wave C retires it.
-      let backend: AttachmentBackend = 'legacy';
+      // T947 Wave C — v2 store is now the canonical blob storage path.
+      // The legacy store write above remains for slug/refcount/lifecycle
+      // support in tasks.db; the v2 mirror keeps manifest.db in sync.
+      let backend: AttachmentBackend = 'llmtxt';
       try {
         const v2 = createAttachmentStoreV2(getProjectRoot());
         const v2Result = await v2.put(ownerId, {
@@ -1259,7 +1270,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
             getProjectRoot(),
             meta.sha256,
             `${ownerType}:${ownerId}`,
-            absPath.split('/').pop() ?? meta.sha256.slice(0, 12),
+            name: absPath.split(/[\\/]/).pop() ?? meta.sha256.slice(0, 12),
           ),
         )
         .catch(() => {
@@ -1276,6 +1287,19 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         ...(type !== undefined ? { type } : {}),
       };
       emitDocAttachmentObservation(filePayload, getProjectRoot());
+
+      // T11139 — audit trail
+      try {
+        writeAuditEntry(getProjectRoot(), {
+          op: 'docs.add',
+          slug,
+          type,
+          attachmentId: meta.id,
+          sha256: meta.sha256,
+          ownerId,
+          summary: `Added doc '${slug ?? meta.sha256.slice(0, 12)}'${type ? ` of type '${type}'` : ''} for owner ${ownerId}`,
+        });
+      } catch { /* best-effort */ }
 
       return lafsSuccess<DocsAddResult>(
         {
@@ -1368,6 +1392,19 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       };
       emitDocAttachmentObservation(urlPayload, getProjectRoot());
 
+      // T11139 — audit trail
+      try {
+        writeAuditEntry(getProjectRoot(), {
+          op: 'docs.add',
+          slug,
+          type,
+          attachmentId: meta.id,
+          sha256: meta.sha256,
+          ownerId,
+          summary: `Added URL doc '${slug ?? url}'${type ? ` of type '${type}'` : ''} for owner ${ownerId}`,
+        });
+      } catch { /* best-effort */ }
+
       return lafsSuccess<DocsAddResult>(
         {
           attachmentId: meta.id,
@@ -1445,6 +1482,16 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       /* Mirror remove is best-effort. */
     }
     const backend: AttachmentBackend = await resolveAttachmentBackend();
+
+    // T11139 — audit trail
+    try {
+      writeAuditEntry(getProjectRoot(), {
+        op: 'docs.remove',
+        attachmentId,
+        ownerId: fromOwner,
+        summary: `Removed attachment ${attachmentId} from owner ${fromOwner}${blobPurged ? ' (blob purged)' : ''}`,
+      });
+    } catch { /* best-effort */ }
 
     return lafsSuccess<DocsRemoveResult>(
       {
@@ -1536,6 +1583,19 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       backend = await resolveAttachmentBackend();
     }
 
+    // T11139 — audit trail
+    try {
+      writeAuditEntry(getProjectRoot(), {
+        op: 'docs.update',
+        slug: outcome.result.slug,
+        type: outcome.result.type ?? undefined,
+        attachmentId: outcome.result.attachmentId,
+        sha256: outcome.result.sha256,
+        previousSha256: outcome.result.previousSha256 ?? undefined,
+        summary: `Updated doc '${outcome.result.slug}'${outcome.result.lifecycleStatus ? ` (status: ${outcome.result.lifecycleStatus})` : ''}`,
+      });
+    } catch { /* best-effort */ }
+
     return lafsSuccess<DocsUpdateResult>(
       {
         slug: outcome.result.slug,
@@ -1593,6 +1653,15 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         edgeId: result.edgeId,
         ...(result.reason !== undefined ? { reason: result.reason } : {}),
       };
+      // T11139 — audit trail
+      try {
+        writeAuditEntry(getProjectRoot(), {
+          op: 'docs.supersede',
+          slug: result.newSlug,
+          attachmentId: result.newAttachmentId,
+          summary: `Superseded '${result.oldSlug}' → '${result.newSlug}'${result.reason ? ` (reason: ${result.reason})` : ''}`,
+        });
+      } catch { /* best-effort */ }
       return lafsSuccess<DocsSupersedeResult>(payload, 'supersede');
     } catch (err) {
       const code =
@@ -1807,10 +1876,19 @@ async function dispatchDocsLegacyMutate(
       } catch {
         /* Ledger write is best-effort. */
       }
+      // T11139 — audit trail
+      try {
+        writeAuditEntry(projectRoot, {
+          op: 'docs.publish',
+          slug: result.blobName,
+          attachmentId: result.blobSha256,
+          summary: `Published doc '${result.blobName}' to ${result.relativePath}`,
+        });
+      } catch { /* best-effort */ }
       return result;
     }
     case 'publish-pr':
-      return publishDocsAsPr({
+      const prResult = await publishDocsAsPr({
         slugOrId: String(params['slugOrId']),
         ...(typeof params['slug'] === 'string' ? { slug: params['slug'] } : {}),
         ...(typeof params['type'] === 'string' ? { type: params['type'] } : {}),
@@ -1818,14 +1896,37 @@ async function dispatchDocsLegacyMutate(
         ...(typeof params['body'] === 'string' ? { body: params['body'] } : {}),
         ...(typeof params['base'] === 'string' ? { base: params['base'] } : {}),
       });
+      // T11139 — audit trail
+      if (prResult.success) {
+        try {
+          writeAuditEntry(projectRoot, {
+            op: 'docs.publish-pr',
+            slug: prResult.data.slug,
+            type: prResult.data.type,
+            attachmentId: prResult.data.blobSha,
+            summary: `Published PR for doc '${prResult.data.slug}' (${prResult.data.action}) — ${prResult.data.prUrl}`,
+          });
+        } catch { /* best-effort */ }
+      }
+      return prResult;
     case 'sync':
-      return syncFromGit({
+      const syncResult = await syncFromGit({
         ownerId: String(params['ownerId']),
         fromPath: String(params['fromPath']),
         blobName: typeof params['blobName'] === 'string' ? params['blobName'] : undefined,
         contentType: typeof params['contentType'] === 'string' ? params['contentType'] : undefined,
         projectRoot,
       });
+      // T11139 — audit trail
+      try {
+        writeAuditEntry(projectRoot, {
+          op: 'docs.sync',
+          slug: (typeof params['blobName'] === 'string' && params['blobName']) || undefined,
+          ownerId: String(params['ownerId']),
+          summary: `Synced doc from '${String(params['fromPath'])}' for owner ${String(params['ownerId'])}`,
+        });
+      } catch { /* best-effort */ }
+      return syncResult;
     case 'import': {
       const scanRoot = String(params['scanRoot']);
       const accessor = createAttachmentStoreDocsAccessor(projectRoot);
@@ -1840,6 +1941,13 @@ async function dispatchDocsLegacyMutate(
           auditDir: projectRoot,
           classify: makeClassifierForScanRoot(scanRoot, projectRoot),
         });
+        // T11139 — audit trail
+        try {
+          writeAuditEntry(projectRoot, {
+            op: 'docs.import',
+            summary: `Imported ${result.counters.created} created, ${result.counters.skipped} skipped, ${result.counters.errors} errors from '${scanRoot}'`,
+          });
+        } catch { /* best-effort */ }
         return {
           dryRun: result.dryRun,
           counters: result.counters,

@@ -254,6 +254,21 @@ export {
   stripMdExtension,
   writeAuditManifest,
 } from './docs/index.js';
+// ── T11139 — docs audit trail (Saga T10516) ──────────────────────────────────
+export type {
+  AuditFinding,
+  AuditLogReadResult,
+  AuditVerifyResult,
+  DocsAuditEntry,
+  DocsAuditOp,
+  WriteAuditEntryParams,
+} from './docs/docs-audit.js';
+export {
+  countAuditEntriesForSlug,
+  readAuditLog,
+  verifyAuditTrail,
+  writeAuditEntry,
+} from './docs/docs-audit.js';
 // Agent-outputs migration (T9064) — ingest .cleo/agent-outputs/*.md into DocsAccessor
 export type {
   AgentOutputMigrationResult,
