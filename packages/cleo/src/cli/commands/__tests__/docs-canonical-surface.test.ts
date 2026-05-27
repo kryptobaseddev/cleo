@@ -39,6 +39,7 @@ function runCli(args: readonly string[], projectRoot: string): CliResult {
     CLEO_ROOT: projectRoot,
     CLEO_DIR: join(projectRoot, '.cleo'),
     CLEO_OUTPUT_FORMAT: 'json',
+    CLEO_TEST_ALLOW_PROJECT_DB: 'true',
   };
   const result = spawnSync('node', [CLI_DIST, ...args], {
     stdio: ['pipe', 'pipe', 'pipe'],
