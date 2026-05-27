@@ -9,7 +9,9 @@
  * @task T1883
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -166,28 +168,129 @@ export function resolveLegacyCleoDir(override?: string): string {
  * from walking up from a working directory.
  *
  * @public
- */
-export interface ResolvedProject {
-  /** Stable UUID that identifies the project across directory moves. */
-  projectId: string;
-  /** Absolute path to the project root directory. */
-  projectRoot: string;
-}
+ /** Result of {@link resolveProjectByCwd} — the project identity resolved from walking up from a working directory. */
+ export interface ResolvedProject {
+   /** Stable canonical project ID (12-hex-char SHA-256 of git-root|name|remote). */
+   projectId: string;
+   /** Absolute realpath to the project root directory. */
+   projectRoot: string;
+   /** The legacy UUID from project-info.json, if present. */
+   legacyUUID?: string;
+ }
 
-/**
- * Walk up from `cwd` (or `process.cwd()`) looking for `.cleo/project-info.json`
- * and return the project identity if found.
- *
- * This replaces the ancestor-walk pattern in `getCleoDirAbsolute` with a
- * projectId-aware lookup. Instead of resolving a `.cleo/` directory via
- * git-root heuristics, it reads the stable `projectId` from the canonical
- * project-info file — enabling move-safe project identification.
- *
- * @param cwd - Optional working directory to start the ancestor walk from.
- *   Defaults to `process.cwd()`.
- * @returns The resolved project identity, or `null` if no CLEO project is
- *   found anywhere in the ancestor chain.
- *
+ // ---------------------------------------------------------------------------
+ // Canonical project ID computation (T11023 — cross-mount divergence)
+ // ---------------------------------------------------------------------------
+
+ /**
+  * Synchronously find the git root for a given directory.
+  * Returns `null` if the directory is not inside a git repo.
+  */
+ function _findGitRootSync(fromPath: string): string | null {
+   try {
+     const stdout = execFileSync('git', ['rev-parse', '--show-toplevel'], {
+       cwd: resolve(fromPath),
+       encoding: 'utf-8',
+       stdio: ['ignore', 'pipe', 'ignore'],
+     });
+     return resolve(stdout.trim());
+   } catch {
+     return null;
+   }
+ }
+
+ /**
+  * Synchronously find the primary git remote URL (origin fetch URL).
+  * Returns `null` when there are no remotes or git is unavailable.
+  */
+ function _findGitRemoteUrlSync(fromPath: string): string | null {
+   try {
+     const stdout = execFileSync('git', ['remote', 'get-url', 'origin'], {
+       cwd: resolve(fromPath),
+       encoding: 'utf-8',
+       stdio: ['ignore', 'pipe', 'ignore'],
+     });
+     const url = stdout.trim();
+     return url || null;
+   } catch {
+     return null;
+   }
+ }
+
+ /**
+  * Read the project name from `.cleo/project-info.json` (if present).
+  * Non-fatal on any I/O or parse error.
+  */
+ function _readProjectInfoName(repoRoot: string): string | undefined {
+   try {
+     const raw = readFileSync(join(repoRoot, '.cleo', 'project-info.json'), 'utf-8');
+     const parsed = JSON.parse(raw) as { name?: unknown };
+     return typeof parsed.name === 'string' ? parsed.name : undefined;
+   } catch {
+     return undefined;
+   }
+ }
+
+ /**
+  * Compute the canonical project ID for a given repository path (T9149/T11023).
+  *
+  * Algorithm:
+  *   1. Resolve `repoPath` to its `realpath` (resolves symlinks, normalises mounts).
+  *   2. Detect the git root via `git rev-parse --show-toplevel` (falls back to realpath).
+  *   3. Read `.cleo/project-info.json` name (optional).
+  *   4. Read `git remote get-url origin` (optional).
+  *   5. SHA-256 of `<gitRoot>|<projectName>|<remoteUrl>`, first 12 hex chars.
+  *
+  * This ensures `/mnt/projects/X` and `/workspace/X` (same git root,
+  * same remote) produce the same ID.
+  *
+  * @param repoPath - Absolute path to the project root.
+  * @returns The 12-hex-char canonical project ID.
+  *
+  * @task T11023
+  * @task T9149
+  */
+ export function computeCanonicalProjectId(repoPath: string): string {
+   const realRepoPath = realpathSync(resolve(repoPath));
+
+   const gitRoot = _findGitRootSync(realRepoPath);
+   const effectiveRoot = gitRoot ?? realRepoPath;
+
+   const remoteUrl = gitRoot ? _findGitRemoteUrlSync(gitRoot) : null;
+   const projectName = _readProjectInfoName(effectiveRoot);
+
+   const fingerprint = [effectiveRoot, projectName ?? '', remoteUrl ?? ''].join('|');
+   return createHash('sha256').update(fingerprint).digest('hex').substring(0, 12);
+ }
+
+ /**
+  * Compute the legacy base64url(path) ID for a given path.
+  * This is the old algorithm used before T9149 W5.
+  */
+ export function legacyProjectId(repoPath: string): string {
+   return Buffer.from(repoPath).toString('base64url').slice(0, 32);
+ }
+
+ /**
+  * Walk up from `cwd` (or `process.cwd()`) looking for `.cleo/project-info.json`
+  * and return the project identity if found.
+  *
+  * This replaces the ancestor-walk pattern in `getCleoDirAbsolute` with a
+  * projectId-aware lookup. Instead of resolving a `.cleo/` directory via
+  * git-root heuristics, it reads the stable `projectId` from the canonical
+  * project-info file — enabling move-safe project identification.
+  *
+  * **Cross-mount divergence (T11023):** Uses `realpathSync` to normalize
+  * bind-mounts and symlinks so the same repo at `/mnt/projects/X` and
+  * `/workspace/X` resolves to the same `projectRoot`. The `projectId` is
+  * the T9149 canonical 12-hex-char SHA-256 fingerprint of git-root + name
+  * + remote URL, which is also mount-invariant.
+  *
+  * @param cwd - Optional working directory to start the ancestor walk from.
+  *   Defaults to `process.cwd()`.
+  * @returns The resolved project identity, or `null` if no CLEO project is
+  *   found anywhere in the ancestor chain.
+  *
  * @example
  * ```typescript
  * const project = resolveProjectByCwd('/repo/packages/core');
@@ -199,6 +302,7 @@ export interface ResolvedProject {
  *
  * @public
  * @task T11008
+ * @task T11023
  */
 export function resolveProjectByCwd(cwd?: string): ResolvedProject | null {
   const start = resolve(cwd ?? process.cwd());
@@ -213,7 +317,26 @@ export function resolveProjectByCwd(cwd?: string): ResolvedProject | null {
         const data = JSON.parse(raw) as Record<string, unknown>;
 
         if (typeof data.projectId === 'string' && data.projectId.length > 0) {
-          return { projectId: data.projectId, projectRoot: current };
+          // T11023: Normalize projectRoot via realpathSync to handle cross-mount
+          // divergence — same repo at /mnt/projects/X and /workspace/X resolves
+          // to the same real path (AC2, AC3).
+          let realRoot: string;
+          try {
+            realRoot = realpathSync(current);
+          } catch {
+            // realpathSync fails on nonexistent paths — fall back to resolved path
+            realRoot = current;
+          }
+
+          // T11023: Compute canonical projectId using T9149 algorithm
+          // (git-root + realpath fingerprint) for mount-invariant identity (AC1).
+          const canonicalId = computeCanonicalProjectId(realRoot);
+
+          return {
+            projectId: canonicalId,
+            projectRoot: realRoot,
+            legacyUUID: data.projectId,
+          };
         }
       } catch {
         // Corrupt or unparseable project-info.json — keep walking up.
@@ -236,24 +359,20 @@ export function resolveProjectByCwd(cwd?: string): ResolvedProject | null {
  * table) to find the project's root path, then returns the `.cleo/` directory
  * under that root.
  *
+ * **Legacy ID support (T11023 AC4):** If the `projectId` is not found in
+ * `project_registry`, also checks the `project_id_aliases` table for a
+ * legacy→canonical mapping before returning `null`.
+ *
  * This enables cross-project lookups: given a stable project ID, resolve where
  * that project lives on disk without walking from a working directory.
  *
- * @param projectId - The stable project UUID (from `.cleo/project-info.json`).
+ * @param projectId - The project ID to look up. Can be a canonical 12-hex-char
+ *   ID, a legacy UUID, or a legacy base64url(path) ID.
  * @returns Absolute path to the `.cleo/` directory, or `null` if the
- *   projectId is not found in the nexus registry.
+ *   projectId is not found in the nexus registry (or its alias table).
  *
- * @example
- * ```typescript
- * const cleoDir = resolveCanonicalCleoDir('a1b2c3d4e5f6');
- * // "/mnt/projects/cleocode/.cleo"
- *
- * const notFound = resolveCanonicalCleoDir('nonexistent');
- * // null
- * ```
- *
- * @public
  * @task T11008
+ * @task T11023
  */
 export function resolveCanonicalCleoDir(projectId: string): string | null {
   const cleoHome = getCleoHome();
@@ -264,13 +383,36 @@ export function resolveCanonicalCleoDir(projectId: string): string | null {
   let db: DatabaseSync | undefined;
   try {
     db = new DatabaseSync(nexusDbPath, { readOnly: true });
-    const stmt = db.prepare(
+
+    // Try direct project_registry lookup first.
+    const directStmt = db.prepare(
       'SELECT project_path FROM project_registry WHERE project_id = ? LIMIT 1',
     );
-    const row = stmt.get(projectId) as { project_path: string } | undefined;
+    const directRow = directStmt.get(projectId) as { project_path: string } | undefined;
 
-    if (row && typeof row.project_path === 'string' && row.project_path.length > 0) {
-      return join(row.project_path, '.cleo');
+    if (directRow && typeof directRow.project_path === 'string' && directRow.project_path.length > 0) {
+      return join(directRow.project_path, '.cleo');
+    }
+
+    // T11023 AC4: Fall back to project_id_aliases for legacy ID resolution.
+    // Legacy base64url(path) IDs and old UUIDs are mapped to canonical IDs
+    // in the aliases table. Try resolving the input as a legacy ID first,
+    // then look up the canonical ID.
+    try {
+      const aliasStmt = db.prepare(
+        'SELECT canonical_id FROM project_id_aliases WHERE legacy_id = ? LIMIT 1',
+      );
+      const aliasRow = aliasStmt.get(projectId) as { canonical_id: string } | undefined;
+
+      if (aliasRow && typeof aliasRow.canonical_id === 'string' && aliasRow.canonical_id.length > 0) {
+        // Resolved a legacy alias — look up the canonical ID.
+        const canonicalRow = directStmt.get(aliasRow.canonical_id) as { project_path: string } | undefined;
+        if (canonicalRow && typeof canonicalRow.project_path === 'string' && canonicalRow.project_path.length > 0) {
+          return join(canonicalRow.project_path, '.cleo');
+        }
+      }
+    } catch {
+      // project_id_aliases table may not exist yet (pre-migration) — non-fatal.
     }
 
     return null;

@@ -24,11 +24,13 @@
 export { isAbsolutePath } from './abs-path.js';
 export {
   _resetCleoPlatformPathsCache,
+  computeCanonicalProjectId,
   getCanonicalTemplatesTildePath,
   getCleoHome,
   getCleoPlatformPaths,
   getCleoSystemInfo,
   getCleoTemplatesTildePath,
+  legacyProjectId,
   resolveCanonicalCleoDir,
   resolveLegacyCleoDir,
   resolveProjectByCwd,
