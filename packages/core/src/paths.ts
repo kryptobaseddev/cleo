@@ -24,6 +24,8 @@ import {
   getCanonicalTemplatesTildePath as _getCanonicalTemplatesTildePath,
   getCleoTemplatesTildePath as _getCleoTemplatesTildePath,
   isAbsolutePath as _isAbsolutePath,
+  resolveCanonicalCleoDir,
+  resolveProjectByCwd,
 } from '@cleocode/paths';
 import { CleoError } from './errors.js';
 import { getPlatformPaths } from './system/platform-paths.js';
@@ -271,6 +273,21 @@ export function getCleoDir(cwd?: string): string {
 /**
  * Get the absolute path to the project CLEO directory.
  *
+ * **@deprecated** Since T10297. Use {@link resolveProjectByCwd} +
+ * {@link resolveCanonicalCleoDir} instead. This function remains as a
+ * compatibility shim that delegates to the new resolution chain.
+ *
+ * Migration:
+ * ```typescript
+ * // Before (deprecated):
+ * const cleoDir = getCleoDirAbsolute(cwd);
+ *
+ * // After (T10297):
+ * const project = resolveProjectByCwd(cwd);
+ * if (!project) throw new Error('Not in a CLEO project');
+ * const cleoDir = resolveCanonicalCleoDir(project.projectId);
+ * ```
+ *
  * @param cwd - Optional anchor for project-root resolution; if omitted, uses
  *   the canonical {@link getProjectRoot} chain (worktreeScope > CLEO_ROOT >
  *   CLEO_DIR absolute > gitlink walk > ancestor walk).
@@ -290,10 +307,8 @@ export function getCleoDir(cwd?: string): string {
  *
  * **Resolution order** (matches the wider {@link getProjectRoot} chain):
  * 1. `CLEO_DIR` env var with an absolute value — returned verbatim.
- * 2. Provided `cwd` is normalized via {@link getProjectRoot}, so the resolved
- *    `.cleo` always anchors at the canonical project root even when callers
- *    pass a monorepo subdirectory or worktree path. This eliminates the
- *    T9550/T9580 orphan-`.cleo/` bug class.
+ * 2. Delegates to {@link resolveProjectByCwd} + {@link resolveCanonicalCleoDir}
+ *    for canonical project resolution via `project-info.json` (T10297).
  * 3. If `cwd` is omitted, resolution runs against `getProjectRoot()` directly.
  *
  * **Root-cause fix (T9803 · council verdict D009)**: when `getProjectRoot()`
@@ -318,12 +333,42 @@ export function getCleoDir(cwd?: string): string {
  * // Bootstrap (cleo init creating a new project)
  * getCleoDirAbsolute('/tmp/new-project', { bootstrap: true }); // "/tmp/new-project/.cleo"
  * ```
+ *
+ * @deprecated Migrate to {@link resolveProjectByCwd} + {@link resolveCanonicalCleoDir}
+ * @task T11009
  */
 export function getCleoDirAbsolute(cwd?: string, opts?: { bootstrap?: boolean }): string {
   const cleoDir = getCleoDir();
   if (isAbsolutePath(cleoDir)) {
     return cleoDir;
   }
+
+  // T10297: try canonical projectId-based resolution.
+  // resolveProjectByCwd verifies we're in a valid CLEO project by reading
+  // project-info.json, but getProjectRoot handles the actual path resolution
+  // (worktree gitlink following, CLEO_ROOT, worktreeScope ALS, etc.).
+  // We use resolveProjectByCwd as a validation gate, and getProjectRoot
+  // as the path authority.
+  const project = resolveProjectByCwd(cwd);
+  if (project !== null) {
+    try {
+      const projectRoot = getProjectRoot(cwd);
+      const canonical = resolveCanonicalCleoDir(project.projectId);
+      // Use nexus.db resolution only when it agrees with getProjectRoot;
+      // otherwise fall through to getProjectRoot-based resolution.
+      if (canonical !== null && canonical === resolve(projectRoot, cleoDir)) {
+        return canonical;
+      }
+      return resolve(projectRoot, cleoDir);
+    } catch {
+      // getProjectRoot threw — fall through to the projectRoot we already
+      // found via resolveProjectByCwd (handles edge cases where getProjectRoot
+      // is stricter than resolveProjectByCwd).
+      return resolve(project.projectRoot, cleoDir);
+    }
+  }
+
+  // Legacy fallback for non-project contexts (bootstrap / pre-init).
   // SSoT (T9685): route through getProjectRoot so callers anywhere in a
   // worktree or monorepo subdir resolve to the canonical project root, not
   // their cwd.
@@ -333,14 +378,8 @@ export function getCleoDirAbsolute(cwd?: string, opts?: { bootstrap?: boolean })
     // T9803 · council verdict D009: SURGICAL fallback policy —
     //   1. Explicit `{ bootstrap: true }` always allows the fallback (cleo init).
     //   2. When the cwd (or any ancestor) contains `.git` (FILE or DIRECTORY) —
-    //      REFUSE the fallback. A git repo without a proper CLEO project root
-    //      (`.cleo/` with sibling `.git/` or `project-info.json`) is NOT a
-    //      valid target for DB creation. Creating `.cleo/` inside such a
-    //      directory is the exact bug class T9550/T9580/T9801/T10287 catalogued.
-    //      The prior check only caught gitlink FILES (worktrees), missing
-    //      legitimate git DIRECTORIES that happen to not be CLEO projects.
-    //   3. When no `.git` exists anywhere in ancestors — a clean-slate dir
-    //      (typical test fixture or pre-init scaffold) — allow the fallback.
+    //      REFUSE the fallback.
+    //   3. When no `.git` exists anywhere in ancestors — allow the fallback.
     if (opts?.bootstrap) {
       return resolve(cwd ?? process.cwd(), cleoDir);
     }
@@ -349,6 +388,40 @@ export function getCleoDirAbsolute(cwd?: string, opts?: { bootstrap?: boolean })
     }
     return resolve(cwd ?? process.cwd(), cleoDir);
   }
+}
+
+/**
+ * Internal: resolve the canonical `.cleo/` directory using the T10297
+ * projectId-based resolution chain.
+ *
+ * Prefer this over the deprecated {@link getCleoDirAbsolute} in internal
+ * path helpers. Falls back to {@link getCleoDirAbsolute} when
+ * `resolveProjectByCwd` returns `null` (bootstrap / non-project contexts).
+ *
+ * Uses {@link getProjectRoot} for worktree-aware path authority
+ * (gitlink following, CLEO_ROOT, worktreeScope ALS) while leveraging
+ * {@link resolveProjectByCwd} for project validation.
+ *
+ * @internal
+ * @task T11009
+ */
+function _resolveCleoDir(cwd?: string): string {
+  const cleoDir = getCleoDir();
+  if (isAbsolutePath(cleoDir)) {
+    return cleoDir;
+  }
+
+  const project = resolveProjectByCwd(cwd);
+  if (project !== null) {
+    try {
+      return resolve(getProjectRoot(cwd), cleoDir);
+    } catch {
+      return resolve(project.projectRoot, cleoDir);
+    }
+  }
+
+  // Fallback to legacy resolution for non-project contexts
+  return getCleoDirAbsolute(cwd);
 }
 
 /**
@@ -871,9 +944,11 @@ export function resolveProjectPath(relativePath: string, cwd?: string): string {
  * ```typescript
  * const dbPath = getTaskPath('/project');
  * ```
+ *
+ * @task T11009 — rewired to _resolveCleoDir (T10297 projectId-based resolution)
  */
 export function getTaskPath(cwd?: string): string {
-  return join(getCleoDirAbsolute(cwd), 'tasks.db');
+  return join(_resolveCleoDir(cwd), 'tasks.db');
 }
 
 /**
@@ -891,7 +966,7 @@ export function getTaskPath(cwd?: string): string {
  * ```
  */
 export function getConfigPath(cwd?: string): string {
-  return join(getCleoDirAbsolute(cwd), 'config.json');
+  return join(_resolveCleoDir(cwd), 'config.json');
 }
 
 /**
@@ -909,7 +984,7 @@ export function getConfigPath(cwd?: string): string {
  * ```
  */
 export function getSessionsPath(cwd?: string): string {
-  return join(getCleoDirAbsolute(cwd), 'sessions.json');
+  return join(_resolveCleoDir(cwd), 'sessions.json');
 }
 
 /**
@@ -927,7 +1002,7 @@ export function getSessionsPath(cwd?: string): string {
  * ```
  */
 export function getArchivePath(cwd?: string): string {
-  return join(getCleoDirAbsolute(cwd), 'tasks-archive.json');
+  return join(_resolveCleoDir(cwd), 'tasks-archive.json');
 }
 
 /**
@@ -948,7 +1023,7 @@ export function getArchivePath(cwd?: string): string {
  * @task T4644
  */
 export function getLogPath(cwd?: string): string {
-  return join(getCleoDirAbsolute(cwd), 'logs', 'cleo.log');
+  return join(_resolveCleoDir(cwd), 'logs', 'cleo.log');
 }
 
 /**
@@ -966,7 +1041,7 @@ export function getLogPath(cwd?: string): string {
  * ```
  */
 export function getBackupDir(cwd?: string): string {
-  return join(getCleoDirAbsolute(cwd), 'backups', 'operational');
+  return join(_resolveCleoDir(cwd), 'backups', 'operational');
 }
 
 /**
