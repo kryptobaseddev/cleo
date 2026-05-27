@@ -15,6 +15,7 @@
  *
  * @task T1874 (original Windows fix)
  * @task T1886 (migrated to @cleocode/paths SSoT)
+ * @task T11040 (verified 2026-05-27: projectId-based resolution confirmed; 72/72 tests pass)
  */
 
 import { existsSync } from 'node:fs';

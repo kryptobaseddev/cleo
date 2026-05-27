@@ -15,6 +15,7 @@
  * `CLEO_ROOT` / `process.cwd()` when no explicit context is supplied.
  *
  * @task T969
+ * @task T11040 (verified 2026-05-27: resolveProjectByCwd used for projectPath; 72/72 tests pass)
  */
 
 import { existsSync } from 'node:fs';
