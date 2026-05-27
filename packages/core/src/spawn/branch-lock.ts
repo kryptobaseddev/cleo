@@ -50,6 +50,10 @@ import { computeProjectHash, resolveWorktreeRootForHash } from '@cleocode/paths'
 // Helpers
 // ---------------------------------------------------------------------------
 
+import { getGitRoot, gitSilent, gitSync } from '@cleocode/worktree';
+
+// Re-export getGitRoot for barrel consumers
+export { getGitRoot };
 /**
  * Run git with explicit args (no shell) and return stdout as a trimmed string.
  * Throws on non-zero exit.
