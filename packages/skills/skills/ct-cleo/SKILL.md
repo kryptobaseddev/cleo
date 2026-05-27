@@ -2,7 +2,7 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.5.0
+  version: 2.6.0
   lastReviewed: 2026-05-27
   stability: stable
 ---
@@ -33,6 +33,9 @@ Supported sections: `session-start` · `work-loop` · `triggers` · `task-creati
 | Saga-level waves | `cleo orchestrate waves <sagaId>` |
 | Saga rollup | `cleo saga rollup <sagaId>` |
 | List Saga members | `cleo saga members <sagaId>` |
+| Attach doc to task | `cleo docs add T### file.md --type note --slug handle` |
+| Read a doc | `cleo docs fetch <slug>` |
+| Browse docs | `cleo docs list --task T###` |
 
 ## Skill-Specific Extensions
 
@@ -40,7 +43,7 @@ Supported sections: `session-start` · `work-loop` · `triggers` · `task-creati
 - For add-batch input, The top-level JSON MUST be an array of task objects, not an object wrapper like `{ "tasks": [...] }`.
 - Dry-run count semantics: `/data/count` and `/data/wouldCreate` predict writes; `/data/insertedCount` must be `0` for dry-run.
 - Mutation output paths: use `/data/created/0`, `/data/updated/0`, and `/data/deleted/0`; never parse legacy full records.
-- Docs path policy and strict preflight: keep docs repo-relative, Do not pass arbitrary external absolute paths, and discover runtime kinds with `cleo docs list-types` / `DocKindRegistry`.
+- Docs path policy and strict preflight: keep docs repo-relative. Do not pass arbitrary external absolute paths. The canonical six-verb docs path is **add, update, fetch, list, remove, publish** (T10516). Use `cleo docs list` for discovery; `cleo docs list-types` (ADVANCED) and `DocKindRegistry` resolve runtime kinds when `list` is insufficient.
 
 ### Task Relationship Systems — depends, blockedBy, relates
 
