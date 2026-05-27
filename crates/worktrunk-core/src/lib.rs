@@ -95,6 +95,7 @@
 //! println!("Copied {files} files ({bytes} bytes)");
 //! ```
 
+pub mod agent_wt;
 pub mod cache;
 pub mod config;
 pub mod copy;
@@ -109,6 +110,10 @@ pub mod step;
 pub mod sync;
 pub mod worktreeinclude;
 
+pub use agent_wt::{
+    AgentWorktreeProvisionError, AgentWorktreeProvisionOpts,
+    AgentWorktreeProvisionResult, BranchPolicy, ProvisionErrorCode, StalePolicy,
+};
 pub use config::{CopyIgnoredConfig, UserConfigDto};
 pub use copy::{copy_dir_recursive, copy_leaf};
 pub use diff::{DiffStats, LineDiff, parse_numstat_line, parse_shortstat};
