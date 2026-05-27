@@ -282,6 +282,12 @@ function createTestFallbackNativeModule(): WorktreeNapiModule {
       rmSync(opts.path, { recursive: true, force: true });
       return { files: 0, bytes: 0 };
     },
+    provisionWorktree(_opts) {
+      return { path: '', branch: '', head: '' };
+    },
+    integrateWorktree(_opts) {
+      return { taskId: '', targetBranch: '', merged: false, mergeCommit: '', commitCount: 0, rebased: false, error: 'integrateWorktree not available in test fallback' };
+    },
   };
 }
 
@@ -320,6 +326,8 @@ export type {
   PruneOptsNapi,
   PrunePlanNapi,
   RemoveDirOptsNapi,
+  IntegrateOptsNapi,
+  IntegrateResultNapi,
   RemoveDirResultNapi,
   WorktreeInfoNapi,
 };
