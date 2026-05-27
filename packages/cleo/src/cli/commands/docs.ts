@@ -1,5 +1,5 @@
 /**
- * CLI docs command — canonical six-verb path: add, update, fetch, list, remove, publish.
+ * CLI docs command — canonical seven-verb path: add, update, fetch, list, remove, publish, check.
  *
  * Publish: consolidated `publish` verb (--target file|pr, --dry-run) (T11177).
  *   publish-pr retained as deprecated migration alias.
@@ -43,6 +43,7 @@ import { assertKnownFlags, UnknownFlagError } from '../lib/strict-args.js';
 import { cliError, cliOutput, humanInfo } from '../renderers/index.js';
 // T10164 — DocProvenanceResponse-typed graph verb (`--root <slug>|<taskId>`).
 import { graphCommand as provenanceGraphCommand } from './docs/graph.js';
+import { auditCommand } from './docs/audit.js';
 import { docsViewerSubcommands } from './docs-viewer.js';
 
 const docsOutputFlagHelp =
@@ -2155,8 +2156,9 @@ export const docsCommand = defineCommand({
     description:
       'Canonical six-verb docs path: add, update, fetch, list, remove, publish. ' +
       'Advanced: supersede, find, search, generate, export, merge, graph, rank, versions, publish-pr. ' +
+      'Audit: audit (query the immutable docs audit trail). ' +
       'Legacy/migration: sync, status, gap-check, import (use canonical verbs for new work). ' +
-      'Utilities: schema, list-types, serve, open, stop, viewer-status.',
+      'Utilities: schema, serve, open, stop, viewer-status (list-types → schema).',
   },
   subCommands: {
     // Canonical six-verb path (add, update, fetch, list, remove, publish)
@@ -2178,6 +2180,8 @@ export const docsCommand = defineCommand({
     rank: rankCommand,
     versions: versionsCommand,
     'publish-pr': publishPrCommand,
+    // T11182 — unified docs audit trail
+    audit: auditCommand,
     // Legacy/migration (use canonical verbs for new work)
     sync: syncCommand,
     status: statusCommand,
