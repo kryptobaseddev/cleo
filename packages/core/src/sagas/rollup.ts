@@ -259,12 +259,7 @@ export async function sagaRollup(
         const epicId = r.data.task.id;
         const epicTitle = r.data.task.title ?? epicId;
         const epicStatus = r.data.task.status ?? 'pending';
-        const progress = await computeEpicTaskProgress(
-          accessor,
-          epicId,
-          epicTitle,
-          epicStatus,
-        );
+        const progress = await computeEpicTaskProgress(accessor, epicId, epicTitle, epicStatus);
         memberEpics.push(progress);
         totalDescendant += progress.descendantTaskCount;
         totalDescendantDone += progress.descendantDone;
@@ -274,9 +269,7 @@ export async function sagaRollup(
       result.totalDescendantTasks = totalDescendant;
       result.descendantDone = totalDescendantDone;
       result.descendantCompletionPct =
-        totalDescendant > 0
-          ? Math.round((totalDescendantDone / totalDescendant) * 100)
-          : 0;
+        totalDescendant > 0 ? Math.round((totalDescendantDone / totalDescendant) * 100) : 0;
     }
 
     return engineSuccess(result);
@@ -323,7 +316,7 @@ export async function sagaTraversal(
   // aggregates ready tasks across member epics.
   const readyResult = await orchestrateReady(sagaId, projectRoot);
   let readyFrontier: string[] = [];
-  let blockers: SagaTraversalResult['blockers'] = [];
+  const blockers: SagaTraversalResult['blockers'] = [];
 
   if (readyResult.success) {
     const readyData = readyResult.data as {
@@ -341,8 +334,8 @@ export async function sagaTraversal(
     // All non-ready, non-done children per member are blockers.
     // We synthesize this from the ready frontier — tasks with unmet deps
     // don't appear in the ready frontier.
-    const readySet = new Set(readyFrontier);
-    const allTasks = (readyData.readyTasks ?? []) as Array<{
+    const _readySet = new Set(readyFrontier);
+    const _allTasks = (readyData.readyTasks ?? []) as Array<{
       id: string;
       title: string;
       depends: string[];
@@ -350,7 +343,7 @@ export async function sagaTraversal(
 
     // Actually we need more data. Let's do a simpler approach — collect
     // from the orchestrator output.
-    for (const ep of rollup.memberEpics ?? []) {
+    for (const _ep of rollup.memberEpics ?? []) {
       // We already have the per-epic data; blockers are just tasks that
       // aren't in the ready frontier and aren't done.
       // For now, return a minimal blockers list. Full blocker enumeration

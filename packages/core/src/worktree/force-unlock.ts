@@ -247,4 +247,3 @@ export function detectUncommittedChanges(worktreePath: string): boolean {
     return false;
   }
 }
-

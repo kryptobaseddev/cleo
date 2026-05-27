@@ -32,8 +32,7 @@ import {
   type PruneOrphanedWorktreesResult,
   type WorktreeInfo,
 } from '@cleocode/contracts';
-import { napiDestroyWorktree } from '@cleocode/worktree';
-import { gitSilent } from '@cleocode/worktree';
+import { gitSilent, napiDestroyWorktree } from '@cleocode/worktree';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from './audit.js';
 import { isPrimaryWorktree, listWorktrees, resolvePrimaryWorktreePath } from './list.js';
 
@@ -231,7 +230,11 @@ export function removeWorktreeFromDisk(
   // T11123: NAPI destroyWorktree handles unlock+force-remove atomically.
   let removed = false;
   try {
-    const result = napiDestroyWorktree({ repoRoot: projectRoot, worktreePath: wt.path, force: true });
+    const result = napiDestroyWorktree({
+      repoRoot: projectRoot,
+      worktreePath: wt.path,
+      force: true,
+    });
     removed = result.removed;
     // T11033 — NAPI may report success even when untracked directories
     // survive inside the worktree. Verify on-disk reality.

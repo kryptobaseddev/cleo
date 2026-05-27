@@ -344,7 +344,15 @@ function createTestFallbackNativeModule(): WorktreeNapiModule {
       return { path: '', branch: '', head: '' };
     },
     integrateWorktree(_opts) {
-      return { taskId: '', targetBranch: '', merged: false, mergeCommit: '', commitCount: 0, rebased: false, error: 'integrateWorktree not available in test fallback' };
+      return {
+        taskId: '',
+        targetBranch: '',
+        merged: false,
+        mergeCommit: '',
+        commitCount: 0,
+        rebased: false,
+        error: 'integrateWorktree not available in test fallback',
+      };
     },
   };
 }
