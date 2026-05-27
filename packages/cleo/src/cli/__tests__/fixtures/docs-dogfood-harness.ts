@@ -436,3 +436,42 @@ export async function fileSha256(path: string): Promise<string> {
   const data = await readFile(path);
   return createHash('sha256').update(data).digest('hex');
 }
+
+// ─── Regression Test Case Definitions (T11187) ────────────────────────────────
+
+export interface RegressionTestCase {
+  readonly id: string;
+  readonly scenarioId: string;
+  readonly description: string;
+  readonly ownedBy: string;
+  readonly targetModule: string;
+  readonly assertionKind: 'error-envelope' | 'value-assertion' | 'behavioral';
+  readonly coreLevel: boolean;
+}
+
+export const SIX_REGRESSION_TEST_CASES: readonly RegressionTestCase[] = [
+  { id: 'RTC-S1-1', scenarioId: 'S1', description: 'sanitizePath rejects absolute path outside projectRoot with E_PATH_TRAVERSAL', ownedBy: 'T11060', targetModule: 'packages/core/src/lib/sanitize-path.ts', assertionKind: 'error-envelope', coreLevel: true },
+  { id: 'RTC-S1-2', scenarioId: 'S1', description: 'sanitizePath rejects relative ../ escape path with E_PATH_TRAVERSAL', ownedBy: 'T11060', targetModule: 'packages/core/src/lib/sanitize-path.ts', assertionKind: 'error-envelope', coreLevel: true },
+  { id: 'RTC-S1-3', scenarioId: 'S1', description: 'sanitizePath error message includes rejected path for agent debuggability', ownedBy: 'T11060', targetModule: 'packages/core/src/lib/sanitize-path.ts', assertionKind: 'value-assertion', coreLevel: true },
+  { id: 'RTC-S2-1', scenarioId: 'S2', description: 'isLifecycleStatus rejects non-canonical status values', ownedBy: 'T11060', targetModule: 'packages/core/src/docs/docs-update.ts', assertionKind: 'value-assertion', coreLevel: true },
+  { id: 'RTC-S2-2', scenarioId: 'S2', description: 'DOCS_UPDATE_LIFECYCLE_STATUS_LIST contains full canonical set', ownedBy: 'T11060', targetModule: 'packages/core/src/docs/docs-update.ts', assertionKind: 'value-assertion', coreLevel: true },
+  { id: 'RTC-S3-1', scenarioId: 'S3', description: 'updateDocBySlug writes owner-attachment version that publish can find', ownedBy: 'T11061', targetModule: 'packages/core/src/docs/docs-update.ts', assertionKind: 'behavioral', coreLevel: true },
+  { id: 'RTC-S3-2', scenarioId: 'S3', description: 'publish resolves latest blob via owner-attachment linkage', ownedBy: 'T11061', targetModule: 'packages/core/src/docs/docs-ops.ts', assertionKind: 'behavioral', coreLevel: false },
+  { id: 'RTC-S4-1', scenarioId: 'S4', description: 'listPublications returns versions ordered by uploaded_at descending', ownedBy: 'T11061', targetModule: 'packages/core/src/docs/docs-ops.ts', assertionKind: 'value-assertion', coreLevel: true },
+  { id: 'RTC-S4-2', scenarioId: 'S4', description: 'publishDocs selects latest-by-uploaded_at version, not an older blob', ownedBy: 'T11061', targetModule: 'packages/core/src/docs/docs-ops.ts', assertionKind: 'behavioral', coreLevel: true },
+  { id: 'RTC-S5-1', scenarioId: 'S5', description: 'reserveSlug returns E_SLUG_RESERVED with exactly 3 suggestions on collision', ownedBy: 'T11062', targetModule: 'packages/core/src/docs/slug-allocator.ts', assertionKind: 'error-envelope', coreLevel: true },
+  { id: 'RTC-S5-2', scenarioId: 'S5', description: 'E_SLUG_RESERVED suggestions are unique, non-empty strings', ownedBy: 'T11062', targetModule: 'packages/core/src/docs/slug-allocator.ts', assertionKind: 'value-assertion', coreLevel: true },
+  { id: 'RTC-S5-3', scenarioId: 'S5', description: 'cross-kind slug collision enforces global namespace (T10390)', ownedBy: 'T11062', targetModule: 'packages/core/src/docs/slug-allocator.ts', assertionKind: 'error-envelope', coreLevel: true },
+  { id: 'RTC-S6-1', scenarioId: 'S6', description: 'normalizeSlug preserves owner-disambiguated slugs through canonicalization', ownedBy: 'T11062', targetModule: 'packages/core/src/docs/slug-normalize.ts', assertionKind: 'value-assertion', coreLevel: true },
+  { id: 'RTC-S6-2', scenarioId: 'S6', description: 'normalizeSlug preserves owner suffix through normalization', ownedBy: 'T11062', targetModule: 'packages/core/src/docs/slug-allocator.ts', assertionKind: 'value-assertion', coreLevel: true },
+  { id: 'RTC-S6-3', scenarioId: 'S6', description: 'normalizeSlug canonicalizes mixed-case/hyphenated slug correctly', ownedBy: 'T11062', targetModule: 'packages/core/src/docs/slug-normalize.ts', assertionKind: 'behavioral', coreLevel: true },
+];
+
+export function auditScenarioCoverage(): string[] {
+  const covered = new Set(SIX_REGRESSION_TEST_CASES.map((tc) => tc.scenarioId));
+  return SIX_REGRESSION_SCENARIOS.map((s) => s.id).filter((id) => !covered.has(id));
+}
+
+export function testCasesForScenario(scenarioId: string): readonly RegressionTestCase[] {
+  return SIX_REGRESSION_TEST_CASES.filter((tc) => tc.scenarioId === scenarioId);
+}
