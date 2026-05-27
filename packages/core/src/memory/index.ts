@@ -13,8 +13,9 @@ import { CleoError } from '../errors.js';
 import {
   getBackupDir,
   getManifestPath as getCentralManifestPath,
-  getCleoDirAbsolute,
   getProjectRoot,
+  resolveCanonicalCleoDir,
+  resolveProjectByCwd,
 } from '../paths.js';
 import { safeReadFile } from '../store/atomic.js';
 import type { DataAccessor } from '../store/data-accessor.js';
@@ -92,7 +93,7 @@ export interface ListResearchOptions {
  * @task T4465
  */
 function getResearchPath(cwd?: string): string {
-  return join(getCleoDirAbsolute(cwd), 'research.json');
+  return join(resolveCanonicalCleoDir(resolveProjectByCwd(cwd)), 'research.json');
 }
 
 /**

@@ -12,7 +12,7 @@ import { createReadStream, existsSync, readdirSync, readFileSync, statSync } fro
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { getLogDir } from '../logger.js';
-import { getCleoDirAbsolute, getCleoHome } from '../paths.js';
+import { getCleoHome, resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
 import type { LogDiscoveryOptions, LogFileInfo } from './types.js';
 
 /** Regex for standard CLEO pino log files: cleo.YYYY-MM-DD.N.log */
@@ -31,7 +31,7 @@ export function getProjectLogDir(cwd?: string): string | null {
   if (runtimeDir) return runtimeDir;
 
   // Fall back to standard path
-  const cleoDir = getCleoDirAbsolute(cwd);
+  const cleoDir = resolveCanonicalCleoDir(resolveProjectByCwd(cwd));
   const logsDir = join(cleoDir, 'logs');
   return existsSync(logsDir) ? logsDir : null;
 }

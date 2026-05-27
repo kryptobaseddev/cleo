@@ -30,7 +30,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { getConfigValue, setConfigValue } from '../../config.js';
-import { getCleoDirAbsolute } from '../../paths.js';
+import { resolveCanonicalCleoDir, resolveProjectByCwd } from '../../paths.js';
 import type { WizardIO, WizardOptions, WizardSectionRunner } from '../wizard.js';
 
 /** Relative path inside `.cleo/` where SOUL.md is persisted. */
@@ -139,7 +139,7 @@ async function applyIdentity(
 
   let soulPath: string | null = null;
   if (soulContent && soulContent.length > 0) {
-    const dir = getCleoDirAbsolute(projectRoot);
+    const dir = resolveCanonicalCleoDir(resolveProjectByCwd(projectRoot));
     soulPath = join(dir, SOUL_RELATIVE_PATH);
     await mkdir(dirname(soulPath), { recursive: true });
     await writeFile(soulPath, soulContent.endsWith('\n') ? soulContent : `${soulContent}\n`, {

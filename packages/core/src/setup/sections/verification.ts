@@ -38,7 +38,7 @@ import { access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getConfigValue, loadConfig } from '../../config.js';
 import { getCredentialPool } from '../../llm/credential-pool.js';
-import { getCleoDirAbsolute } from '../../paths.js';
+import { resolveCanonicalCleoDir, resolveProjectByCwd } from '../../paths.js';
 import type {
   WizardIO,
   WizardOptions,
@@ -362,7 +362,7 @@ async function runSignaldockReachabilityCheck(cwd?: string): Promise<Verificatio
 async function runBrainDbCheck(cwd?: string): Promise<VerificationCheck> {
   const name = 'brain-db';
   try {
-    const cleoDir = getCleoDirAbsolute(cwd);
+    const cleoDir = resolveCanonicalCleoDir(resolveProjectByCwd(cwd));
     const dbPath = join(cleoDir, 'brain.db');
 
     if (!existsSync(dbPath)) {

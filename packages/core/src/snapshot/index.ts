@@ -13,7 +13,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
-import { getCleoDirAbsolute } from '../paths.js';
+import { resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 
 /** Snapshot format version. */
@@ -179,7 +179,7 @@ export async function readSnapshot(inputPath: string): Promise<Snapshot> {
  * @task T4882
  */
 export function getDefaultSnapshotPath(cwd?: string): string {
-  const cleoDir = getCleoDirAbsolute(cwd);
+  const cleoDir = resolveCanonicalCleoDir(resolveProjectByCwd(cwd));
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   return join(cleoDir, 'snapshots', `snapshot-${timestamp}.json`);
 }

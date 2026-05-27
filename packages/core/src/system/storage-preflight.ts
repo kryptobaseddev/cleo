@@ -12,7 +12,7 @@
 
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { getCleoDirAbsolute } from '../paths.js';
+import { resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
 
 /** Pre-flight check result. */
 export interface PreflightResult {
@@ -45,7 +45,7 @@ export interface PreflightResult {
  * This function is read-only and never modifies any files.
  */
 export function checkStorageMigration(cwd?: string): PreflightResult {
-  const cleoDir = getCleoDirAbsolute(cwd);
+  const cleoDir = resolveCanonicalCleoDir(resolveProjectByCwd(cwd));
 
   const details: PreflightResult['details'] = {
     todoJsonExists: false,
