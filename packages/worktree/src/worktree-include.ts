@@ -147,37 +147,93 @@ function readPatternsFromLegacyShim(legacyPath: string): WorktreeIncludePattern[
 }
 
 /**
- * Apply include patterns to a newly created worktree by creating symlinks
- * from the worktree directory back to the main project tree.
+ * Apply include patterns to a newly created worktree by copying files
+ * from the project root using @cleocode/worktree-napi's parallel reflink-aware
+ * copy primitive.
  *
- * Only non-negated patterns are symlinked. Negated patterns are recorded for
- * audit purposes but do not cause any filesystem action.
+ * Each non-negated pattern is copied from `<projectRoot>/<pattern>` to
+ * `<worktreePath>/<pattern>`. Negated patterns are excluded.
  *
- * Symlinks are created as: `<worktreePath>/<pattern>` → `<projectRoot>/<pattern>`.
+ * Unlike the prior symlink-based implementation (removed in T10077), this
+ * produces full file copies so worktree isolation is preserved — modifying
+ * a file in one worktree does not affect any other worktree.
  *
- * Already-existing paths in the worktree are skipped (not overwritten) — git
- * worktree add may have already created them.
+ * The NAPI binding uses 4-thread rayon parallelism with reflink probing
+ * (APFS clonefile on macOS, btrfs/xfs/zfs reflink on Linux, regular copy
+ * fallback on other FS).
  *
- * When the target path has a parent directory that does not yet exist in the
- * worktree (e.g. `.vscode/settings.json` when `.vscode/` was never created),
- * the parent is created with `mkdirSync({ recursive: true })` before the
- * `symlinkSync` call. This prevents the `ENOENT` error reported in T9807.
- *
- * The pattern-evaluation strategy stays in TS for now because each pattern
- * needs an existence check against the project tree + a per-pattern symlink —
- * a thin wrapper that defers to the napi matcher would not measurably improve
- * the hot path here (pattern lists are short and the work is dominated by
- * filesystem syscalls, not regex matching).
+ * Already-existing paths in the worktree are left untouched by the NAPI
+ * layer (the `force` option defaults to `false`).
  *
  * @param patterns - Parsed include patterns from {@link loadWorktreeIncludePatterns}.
- * @param projectRoot - Absolute path to the project root (symlink target base).
- * @param worktreePath - Absolute path to the worktree directory.
- * @returns Array of patterns that were successfully symlinked.
+ * @param projectRoot - Absolute path to the project root (source base).
+ * @param worktreePath - Absolute path to the worktree directory (target base).
+ * @returns Array of patterns that were successfully copied.
  *
- * @task T9982
- * @task T9807
+ * @task T10077
  */
 export function applyIncludePatterns(
+  patterns: readonly WorktreeIncludePattern[],
+  projectRoot: string,
+  worktreePath: string,
+): WorktreeIncludePattern[] {
+  // Filter to non-negated patterns only.
+  const nonNegated = patterns.filter((p) => !p.negated);
+  if (nonNegated.length === 0) return [];
+
+  // Map TS types to the NAPI IncludePatternNapi shape.
+  const napiPatterns: import('./napi-binding.js').IncludePatternNapi[] = nonNegated.map((p) => ({
+    pattern: p.pattern,
+    isNegation: false,
+  }));
+
+  const opts: import('./napi-binding.js').CopyOptsNapi = {
+    force: false,
+    rootGuard: worktreePath,
+    includeSymlinks: true,
+  };
+
+  try {
+    const { applyInclude } = require('./napi-binding.js') as typeof import('./napi-binding.js');
+    const result = applyInclude(napiPatterns, projectRoot, worktreePath, opts);
+
+    // Build the applied list — patterns that succeeded (not in failedPaths).
+    const failedSet = new Set(result.failedPaths);
+    const applied = nonNegated.filter((p) => !failedSet.has(p.pattern));
+
+    if (failedSet.size > 0) {
+      process.stderr.write(
+        `[worktree] include-pattern copy failed for: ${[...failedSet].join(', ')}\\n`,
+      );
+    }
+
+    return applied.map((p) => ({
+      pattern: p.pattern,
+      negated: false,
+    }));
+  } catch (err) {
+    // NAPI not available (test environment, missing binary, etc.) —
+    // fall back to symlink for backward compatibility.
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(
+      `[worktree] napi.applyInclude unavailable, falling back to symlinks: ${message}\\n`,
+    );
+    return applyIncludePatternsLegacy(patterns, projectRoot, worktreePath);
+  }
+}
+
+/**
+ * Legacy symlink-based include pattern application.
+ *
+ * Used as a fallback when the NAPI binding is not available (test
+ * environments, platforms without a prebuilt binary, etc.).
+ *
+ * This is the OLD implementation that was replaced in T10077. It is kept
+ * as a fallback for environments where the NAPI binary cannot be loaded.
+ *
+ * @internal
+ */
+function applyIncludePatternsLegacy(
   patterns: readonly WorktreeIncludePattern[],
   projectRoot: string,
   worktreePath: string,
@@ -185,28 +241,20 @@ export function applyIncludePatterns(
   const applied: WorktreeIncludePattern[] = [];
 
   for (const entry of patterns) {
-    // Negated patterns are exclusions — no filesystem action needed.
     if (entry.negated) continue;
 
     const sourcePath = resolve(projectRoot, entry.pattern);
     const targetPath = resolve(worktreePath, entry.pattern);
 
-    // Skip if the source does not exist in the project tree.
     if (!existsSync(sourcePath)) continue;
-
-    // Skip if a file/dir/symlink already exists at this path in the worktree.
     if (existsSync(targetPath)) continue;
 
-    // T9807 — ensure the parent directory exists in the worktree before calling
-    // symlinkSync. Patterns like `.vscode/settings.json` require `.vscode/` to
-    // exist first; without this step, symlinkSync throws ENOENT for every spawn
-    // on machines where the parent directory was never checked in.
     const parentDir = dirname(targetPath);
     try {
       mkdirSync(parentDir, { recursive: true });
     } catch {
       process.stderr.write(
-        `[worktree] include-pattern parent-dir creation failed: ${entry.pattern}\n`,
+        `[worktree] include-pattern parent-dir creation failed: ${entry.pattern}\\n`,
       );
       continue;
     }
@@ -215,9 +263,7 @@ export function applyIncludePatterns(
       symlinkSync(sourcePath, targetPath);
       applied.push(entry);
     } catch {
-      // Non-fatal: log and continue. Callers can inspect applied[] to see
-      // which patterns succeeded.
-      process.stderr.write(`[worktree] include-pattern symlink failed: ${entry.pattern}\n`);
+      process.stderr.write(`[worktree] include-pattern symlink failed: ${entry.pattern}\\n`);
     }
   }
 
