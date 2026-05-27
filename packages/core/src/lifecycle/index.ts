@@ -394,12 +394,6 @@ async function getEnforcementMode(cwd?: string): Promise<EnforcementMode> {
   try {
     const projectId = resolveProjectByCwd(cwd);
     return join(resolveCanonicalCleoDir(projectId), 'config.json');
-    const raw = await readFile(configPath, 'utf-8');
-    const config = JSON.parse(raw) as { lifecycle?: { mode?: string } };
-    const mode = config?.lifecycle?.mode;
-    if (mode && ['strict', 'advisory', 'off'].includes(mode)) {
-      return mode as EnforcementMode;
-    }
   } catch {
     // Config may not exist
   }

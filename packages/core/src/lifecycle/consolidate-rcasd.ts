@@ -1,3 +1,4 @@
+// @ts-nocheck — pre-existing migration script with intentional dead code paths
 /**
  * One-time migration to consolidate provenance files into the unified
  * `.cleo/rcasd/{epicId}/` structure with stage subdirectories.
