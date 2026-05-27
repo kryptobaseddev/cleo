@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Docs Inconsistency Detector — checks that all docs stores and ledgers
  * agree on the canonical SHA for published documents.

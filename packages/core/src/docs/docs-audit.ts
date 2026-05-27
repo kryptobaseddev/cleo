@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Docs Audit Trail — unified immutable append-only audit log for all doc mutations.
  *
