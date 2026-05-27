@@ -13,7 +13,7 @@
  * @task T1161
  */
 
-import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
   CreateWorktreeOptions,
@@ -320,7 +320,19 @@ export async function createWorktree(
     appliedPatterns = applyIncludePatterns(patterns, projectRoot, worktreePath);
   }
 
-  // Bootstrap fields preserved for envelope compatibility — populated by the
+  // T11033 — Copy project-info.json from parent project .cleo/ into the worktree
+  // .cleo/ so worktrees can resolve their parent projectId without walking up
+  // to the parent project root (which may not be accessible from containerized
+  // builds or when the XDG worktree path is outside the parent repo tree).
+  const parentProjectInfoPath = join(projectRoot, '.cleo', 'project-info.json');
+  if (existsSync(parentProjectInfoPath)) {
+    const worktreeCleoDir = join(worktreePath, '.cleo');
+    mkdirSync(worktreeCleoDir, { recursive: true });
+    const worktreeProjectInfoPath = join(worktreeCleoDir, 'project-info.json');
+    copyFileSync(parentProjectInfoPath, worktreeProjectInfoPath);
+  }
+
+  // Bootstrap fields preserved for envelope compatibility
   // include-pattern symlink phase above. The copy-on-write hot path is no
   // longer auto-invoked from createWorktree; callers that need explicit
   // copying should call copyPathsWithReflock directly.
