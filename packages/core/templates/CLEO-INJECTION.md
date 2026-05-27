@@ -389,9 +389,20 @@ Pull context on demand — don't pre-load everything:
 | Code context | `cleo nexus context <symbol>` |
 | Impact analysis | `cleo nexus impact <symbol>` |
 
-### Decision Lookup (D0xx ID Overload Warning)
+### Decision Lookup (prefer BRAIN decision-store over inline ledgers)
 
-Decision IDs (D0xx, AGT-*) are **NOT globally unique** — same ID can mean different things across documents. Always verify source. Lookup order: (1) `cleo memory decision-find --query <term>` (2) `cleo memory find <term>` (3) `grep -r "D0xx" .cleo/adrs/` (4) `grep -r "D0xx" .cleo/agent-outputs/`. Check outcome status (pending/accepted/superseded) and fetch sibling decisions from same epic.
+Architectural decisions belong in the BRAIN decision-store (`.cleo/brain.db` → `brain_decisions` table) — NOT in adrs markdown blobs or agent-outputs markdown ledgers. Decision IDs in the BRAIN are durable, queryable via `cleo memory decision-find`, and are the canonical reference format for decision citations.
+
+**Primary lookup — always try first:**
+1. `cleo memory decision-find --query <term>` — search BRAIN decision records by keyword
+2. `cleo memory find <term> --type decision` — broader memory search scoped to decisions
+3. `cleo memory fetch <id>` — retrieve full decision record by ID
+
+**Decision IDs (D0xx, AGT-*) are NOT globally unique** — same ID can mean different things across documents. BRAIN decisions include source provenance (`source_table`, `source_rowid`) that disambiguates. Always verify the source when citing a decision ID.
+
+**Legacy fallback (last resort only):** `grep -r "D0xx" .cleo/adrs/` then `grep -r "D0xx" .cleo/agent-outputs/`. These are legacy sources being migrated to the decision-store. Prefer BRAIN decisions when available.
+
+Check outcome status (pending/accepted/superseded) and fetch sibling decisions from same epic via `cleo memory decision-find --epic <epicId>`.
 
 Budget: 3 JIT calls per task phase. More = task is underspecified.
 <!-- /CLEO-INJECTION:section=memory-jit -->

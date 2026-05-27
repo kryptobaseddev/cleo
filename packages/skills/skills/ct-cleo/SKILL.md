@@ -3,7 +3,7 @@ name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
   version: 2.5.0
-  lastReviewed: 2026-05-26
+  lastReviewed: 2026-05-27
   stability: stable
 ---
 
@@ -216,3 +216,28 @@ cleo orchestrate report <taskId>
 # Compact context for prompt injection
 cleo focus <taskId>
 ```
+
+## BRAIN Decision-Store — Durable Architecture Decisions
+
+Architectural decisions belong in the BRAIN decision-store, not in adrs markdown
+blobs or agent-outputs ledgers. Use `cleo memory` commands to create, find, and
+cite decisions by durable BRAIN decision IDs.
+
+| Need | Command |
+|------|---------|
+| Store a decision | `cleo memory store --type decision --content "..." --title "..."` |
+| Search decisions | `cleo memory decision-find --query <term>` |
+| Find by type | `cleo memory find <term> --type decision` |
+| Fetch full record | `cleo memory fetch <decisionId>` |
+| List by epic | `cleo memory decision-find --epic <epicId>` |
+| Check status | `cleo memory fetch <id>` → check `confirmation_state` field |
+
+**Why BRAIN decisions over markdown ledgers:**
+- Decisions are durable, queryable, and have source provenance (`source_table`, `source_rowid`)
+- Decision IDs disambiguate overloaded D0xx/AGT-* identifiers via provenance tracking
+- The decision-store supports lifecycle tracking (pending → accepted → superseded)
+- Memory link pattern: cite a BRAIN decision ID in task descriptions, then `cleo memory fetch <id>` for full context
+
+**Migration rule:** When you encounter a decision ONLY in a markdown ledger
+(`.cleo/adrs/`, `.cleo/agent-outputs/`), store it in the BRAIN with
+`cleo memory store --type decision` and cite the BRAIN ID going forward.

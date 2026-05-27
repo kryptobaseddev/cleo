@@ -67,11 +67,11 @@ Runs **autonomously on every incoming issue**. Decomposes ideas into executable 
 |-------|---------|---------------|
 | **Research** | Investigate codebase, gather context, explore options | Explorer (lightweight) |
 | **Consensus** | Validate approach, identify risks, get HITL alignment | Lead (reasoning) |
-| **Architecture** | Choose patterns, integration points, write ADRs | Lead (reasoning) |
+| **Architecture** | Choose patterns, integration points, store decisions in BRAIN decision-store | Lead (reasoning) |
 | **Specification** | Write formal spec with RFC 2119 language, acceptance criteria | Lead (reasoning) |
 | **Decomposition** | Break into atomic tasks with deps under epic(s) | Lead (reasoning) |
 
-**RCASD output**: Epic(s) with child tasks, spec documents attached, dependency graph defined, acceptance criteria on every task.
+**RCASD output**: Epic(s) with child tasks, spec documents attached, dependency graph defined, acceptance criteria on every task. Architecture decisions stored in BRAIN decision-store via `cleo memory store --type decision`, not in adrs markdown blobs.
 
 ### IVTR Phase (Execution)
 
