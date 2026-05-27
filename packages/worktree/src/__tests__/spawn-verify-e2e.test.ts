@@ -20,6 +20,8 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { _resetCleoPlatformPathsCache, computeCanonicalProjectId } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createWorktree } from '../worktree-create.js';
 import { destroyWorktree } from '../worktree-destroy.js';
@@ -40,6 +42,36 @@ function initTempRepo(): string {
   return dir;
 }
 
+function seedCleoProject(projectRoot: string, cleoHome: string): void {
+  const cleoDir = join(projectRoot, '.cleo');
+  mkdirSync(cleoDir, { recursive: true });
+  writeFileSync(
+    join(cleoDir, 'project-info.json'),
+    JSON.stringify(
+      {
+        projectId: 'legacy-spawn-verify-e2e',
+        name: 'spawn-verify-e2e',
+        lastUpdated: new Date().toISOString(),
+      },
+      null,
+      2,
+    ),
+  );
+
+  const projectId = computeCanonicalProjectId(projectRoot);
+  const db = new DatabaseSync(join(cleoHome, 'nexus.db'));
+  try {
+    db.exec(
+      'CREATE TABLE IF NOT EXISTS project_registry (project_id TEXT PRIMARY KEY, project_path TEXT NOT NULL)',
+    );
+    db.prepare(
+      'INSERT OR REPLACE INTO project_registry (project_id, project_path) VALUES (?, ?)',
+    ).run(projectId, projectRoot);
+  } finally {
+    db.close();
+  }
+}
+
 describe('spawn-verify E2E (T-WT-5)', () => {
   let mainRepo: string;
   let cleoHome: string;
@@ -51,6 +83,7 @@ describe('spawn-verify E2E (T-WT-5)', () => {
     originalCleoHome = process.env['CLEO_HOME'];
     // Route XDG worktree storage to an isolated temp dir.
     process.env['CLEO_HOME'] = cleoHome;
+    _resetCleoPlatformPathsCache();
   });
 
   afterEach(() => {
@@ -60,6 +93,7 @@ describe('spawn-verify E2E (T-WT-5)', () => {
     } else {
       process.env['CLEO_HOME'] = originalCleoHome;
     }
+    _resetCleoPlatformPathsCache();
     // Each test file runs in an isolated fork (pool: forks + isolate) so the
     // DB singleton dies with the worker process — no explicit closeDb needed.
     rmSync(cleoHome, { recursive: true, force: true });
@@ -79,6 +113,7 @@ describe('spawn-verify E2E (T-WT-5)', () => {
     // Step 1: bootstrap a CLEO tasks.db in the temp repo and insert a task.
     // We use a 'research' kind so T9245 content-intersect is bypassed.
     // -----------------------------------------------------------------
+    seedCleoProject(mainRepo, cleoHome);
     const { getTaskAccessor } = await import('@cleocode/core/store/data-accessor');
     const accessor = await getTaskAccessor(mainRepo);
     await accessor.upsertSingleTask({
