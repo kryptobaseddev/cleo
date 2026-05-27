@@ -13,6 +13,13 @@ corpus rewrites the manifest entries but never duplicates blob bytes.
 
 > **TL;DR**: `cleo docs import .cleo --json --audit-manifest .cleo/docs-import.json`
 
+> **Agent note (T11052)**: This doc describes the migration tool and the blob
+> store layout. The blob store (`.cleo/blobs/`), attachment index, and
+> publication ledger are **implementation details**. Agents should use
+> `cleo docs list`, `cleo docs fetch <slug>`, `cleo docs status`, and
+> `cleo docs publish` instead of navigating these paths directly. See
+> the Docs Storage Surfaces section in `AGENTS.md` for the full query surface.
+
 ## What gets migrated
 
 The scanner walks the directory you point it at and classifies each

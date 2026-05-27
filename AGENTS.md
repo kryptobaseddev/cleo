@@ -61,6 +61,37 @@ If you genuinely need a doc-kind not yet listed:
 2. Add a routing entry to `.cleo/canon.yml`.
 3. Re-run `pnpm --filter @cleocode/cleo run build` and the gate stays green.
 
+## Docs Storage Surfaces (Implementation Details) — T11052
+
+CLEO stores documents in three storage surfaces. These are **implementation
+details** — agents MUST NOT navigate, read, or write them directly:
+
+| Surface | Location | What it stores |
+|---------|----------|----------------|
+| Attachment rows | `.cleo/attachments/index.db` + content-addressed blobs at `.cleo/attachments/sha256/<prefix>/<hash>.<ext>` | Per-task document attachments (5 variants: local-file, url, blob, llms-txt, llmtxt-doc). Each row maps an owner (task/session/observation) to a content-addressed blob with metadata (kind, slug, SHA-256). |
+| Blob manifest | `.cleo/blobs/manifest.db` + `.cleo/blobs/blobs/<sha>` | Content-addressed doc SSoT — every canonical doc (ADR, spec, research, handoff, note, plan, changeset) lives here. The manifest tracks slug→SHA mapping, provenance, and publication state. |
+| Publication ledger | `.cleo/docs-publications.json` | Maps published doc slugs to their on-disk mirror paths. The pre-commit hook (`scripts/hooks/pre-commit-docs-drift.mjs`) reads this ledger to detect drift between the SSoT blob and the published copy. |
+
+### Agent-Facing Query Surface
+
+Use these CLI commands for ALL document operations. Never grep the filesystem
+for docs — the SSoT is the source of truth:
+
+| Operation | Command |
+|-----------|---------|
+| Discover docs | `cleo docs list --type <kind>` or `cleo docs list --task <id>` |
+| Read a doc | `cleo docs fetch <slug>` |
+| Check drift | `cleo docs status` (or `--exit-on-drift` for CI) |
+| Publish to disk | `cleo docs publish --for <ownerId> --to <path>` |
+| Create a doc | `cleo docs add <ownerId> <path> --type <kind> --slug <handle>` |
+| List doc kinds | `cleo docs list-types` |
+| Generate summary | `cleo docs generate --for <taskId>` |
+
+The blob manifest, attachment index, and publication ledger are write-once,
+content-addressed stores. Agents that bypass the CLI surface and write to
+`.cleo/blobs/`, `.cleo/attachments/`, or `.cleo/docs-publications.json`
+directly will create unreachable blobs and trigger drift alerts.
+
 ## Skill Maintenance Discipline (Saga T9799 · Epic T9960)
 
 Canonical `ct-*` skills under `packages/skills/skills/` describe how CLEO
