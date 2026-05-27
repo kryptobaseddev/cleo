@@ -354,6 +354,7 @@ export {
   getGlobalConfigPath,
   getProjectRoot,
   isProjectInitialized,
+  resolveCanonicalCleoDir,
   resolveOrCwd,
   resolveProjectPath,
   resolveWorktreeFilePath,

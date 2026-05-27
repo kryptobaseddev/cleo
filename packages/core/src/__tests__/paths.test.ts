@@ -7,8 +7,9 @@
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import envPaths from 'env-paths';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   getAgentOutputsAbsolute,
   getAgentOutputsDir,
@@ -23,6 +24,7 @@ import {
   getProjectRoot,
   getTaskPath,
   isAbsolutePath,
+  resolveCanonicalCleoDir,
   resolveProjectPath,
 } from '../paths.js';
 
@@ -580,6 +582,70 @@ describe('getManifestArchivePath', () => {
   });
 });
 
+// ── resolveCanonicalCleoDir (T11018) ──────────────────────────────────
+
+describe('resolveCanonicalCleoDir', () => {
+  const origCleoHome = process.env['CLEO_HOME'];
+  let tmpHome: string;
+
+  beforeEach(() => {
+    tmpHome = join(tmpdir(), `cleo-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(tmpHome, { recursive: true });
+    process.env['CLEO_HOME'] = tmpHome;
+  });
+
+  afterEach(() => {
+    if (origCleoHome !== undefined) {
+      process.env['CLEO_HOME'] = origCleoHome;
+    } else {
+      delete process.env['CLEO_HOME'];
+    }
+    try { rmSync(tmpHome, { recursive: true, force: true }); } catch { /* best-effort */ }
+  });
+
+  function seedNexusDb(rows: Array<{ project_id: string; project_path: string }>) {
+    const dbPath = join(tmpHome, 'nexus.db');
+    const db = new DatabaseSync(dbPath);
+    db.exec('CREATE TABLE IF NOT EXISTS project_registry (project_id TEXT PRIMARY KEY, project_path TEXT NOT NULL)');
+    const stmt = db.prepare('INSERT OR REPLACE INTO project_registry (project_id, project_path) VALUES (?, ?)');
+    for (const row of rows) {
+      stmt.run(row.project_id, row.project_path);
+    }
+    db.close();
+  }
+
+  it('returns canonical .cleo/ path for a known projectId (AC3)', () => {
+    seedNexusDb([{ project_id: 'known-project', project_path: '/home/user/myproject' }]);
+    expect(resolveCanonicalCleoDir('known-project')).toBe('/home/user/myproject/.cleo');
+  });
+
+  it('looks up projectId in nexus registry (AC2)', () => {
+    seedNexusDb([
+      { project_id: 'alpha', project_path: '/mnt/projects/alpha' },
+      { project_id: 'beta', project_path: '/opt/beta' },
+    ]);
+    expect(resolveCanonicalCleoDir('alpha')).toBe('/mnt/projects/alpha/.cleo');
+    expect(resolveCanonicalCleoDir('beta')).toBe('/opt/beta/.cleo');
+  });
+
+  it('throws E_PROJECT_NOT_FOUND when projectId not in registry (AC4)', () => {
+    seedNexusDb([{ project_id: 'known', project_path: '/tmp/known' }]);
+    expect(() => resolveCanonicalCleoDir('nonexistent')).toThrow('E_PROJECT_NOT_FOUND');
+  });
+
+  it('throws E_PROJECT_NOT_FOUND when nexus.db does not exist', () => {
+    expect(() => resolveCanonicalCleoDir('any-id')).toThrow('E_PROJECT_NOT_FOUND');
+  });
+
+  it('returns same path for same projectId regardless of caller location (AC5)', () => {
+    seedNexusDb([{ project_id: 'cross-mount', project_path: '/shared/project' }]);
+    const first = resolveCanonicalCleoDir('cross-mount');
+    const second = resolveCanonicalCleoDir('cross-mount');
+    expect(first).toBe('/shared/project/.cleo');
+    expect(second).toBe(first);
+  });
+});
+
 describe('isAbsolutePath', () => {
   it('recognizes POSIX absolute paths', () => {
     expect(isAbsolutePath('/usr/local')).toBe(true);
@@ -598,5 +664,154 @@ describe('isAbsolutePath', () => {
     expect(isAbsolutePath('.cleo')).toBe(false);
     expect(isAbsolutePath('src/index.ts')).toBe(false);
     expect(isAbsolutePath('./local')).toBe(false);
+  });
+});
+
+// ============================================================================
+// T11022 — Deprecation warning + CLEO_PATHS_STRICT enforcement on getCleoDirAbsolute
+// ============================================================================
+
+describe('getCleoDirAbsolute — T11022 deprecation + strict mode', () => {
+  const origCleoDir = process.env['CLEO_DIR'];
+  const origCleoDebug = process.env['CLEO_DEBUG'];
+  const origCleoPathsStrict = process.env['CLEO_PATHS_STRICT'];
+
+  beforeEach(() => {
+    delete process.env['CLEO_DIR'];
+    delete process.env['CLEO_DEBUG'];
+    delete process.env['CLEO_PATHS_STRICT'];
+  });
+
+  afterEach(() => {
+    if (origCleoDir !== undefined) process.env['CLEO_DIR'] = origCleoDir;
+    else delete process.env['CLEO_DIR'];
+    if (origCleoDebug !== undefined) process.env['CLEO_DEBUG'] = origCleoDebug;
+    else delete process.env['CLEO_DEBUG'];
+    if (origCleoPathsStrict !== undefined) process.env['CLEO_PATHS_STRICT'] = origCleoPathsStrict;
+    else delete process.env['CLEO_PATHS_STRICT'];
+  });
+
+  // AC2: CLEO_PATHS_STRICT=1 throws E_CWD_WALKUP_FORBIDDEN with remediation hint
+  it('throws E_CWD_WALKUP_FORBIDDEN when CLEO_PATHS_STRICT=1 (AC2)', () => {
+    process.env['CLEO_PATHS_STRICT'] = '1';
+    expect(() => getCleoDirAbsolute('/some/nonproject/dir')).toThrowError(
+      /E_CWD_WALKUP_FORBIDDEN/,
+    );
+  });
+
+  it('CLEO_PATHS_STRICT=1 error message includes resolveProjectByCwd + resolveCanonicalCleoDir (AC2)', () => {
+    process.env['CLEO_PATHS_STRICT'] = '1';
+    try {
+      getCleoDirAbsolute('/some/nonproject/dir');
+    } catch (err: any) {
+      expect(err.message).toContain('resolveProjectByCwd');
+      expect(err.message).toContain('resolveCanonicalCleoDir');
+      expect(err.fix).toContain('resolveProjectByCwd');
+    }
+  });
+
+  // AC3: Absolute CLEO_DIR passes through silently (no deprecation, no throw)
+  it('absolute CLEO_DIR passes through silently even with CLEO_PATHS_STRICT=1 (AC3)', () => {
+    process.env['CLEO_DIR'] = '/absolute/cleo/path';
+    process.env['CLEO_PATHS_STRICT'] = '1';
+    const result = getCleoDirAbsolute('/some/project');
+    expect(result).toBe('/absolute/cleo/path');
+  });
+
+  // AC3: bootstrap=true skips deprecation and strict mode
+  it('bootstrap=true skips deprecation and strict mode (AC3)', () => {
+    process.env['CLEO_PATHS_STRICT'] = '1';
+    const result = getCleoDirAbsolute('/my/new/project', { bootstrap: true });
+    expect(result).toBe(resolve('/my/new/project', '.cleo'));
+  });
+
+  // AC1 + AC4: Deprecation warning emitted via CLEO_DEBUG, at most once per process
+  it('emits deprecation warning when CLEO_DEBUG is set, at most once per process (AC1/AC4)', () => {
+    process.env['CLEO_DEBUG'] = '1';
+    const stderrSpy = vi.spyOn(process.stderr, 'write');
+
+    const tmpDir = join(tmpdir(), `cleo-t11022-dep-${Date.now()}`);
+    mkdirSync(tmpDir, { recursive: true });
+    try {
+      getCleoDirAbsolute(tmpDir);
+    } catch {
+      // May throw if no CLEO project found — that's OK, we only care about the warning.
+    }
+
+    // First call should have emitted exactly one warning.
+    let warningCalls = stderrSpy.mock.calls.filter(
+      ([msg]: any[]) => typeof msg === 'string' && msg.includes('W_PATH_DEPRECATED'),
+    );
+    expect(warningCalls.length).toBe(1);
+    expect(warningCalls[0]![0]).toContain('getCleoDirAbsolute(cwd) is deprecated');
+    expect(warningCalls[0]![0]).toContain('resolveProjectByCwd(cwd) + resolveCanonicalCleoDir(projectId)');
+    expect(warningCalls[0]![0]).toContain('CLEO_PATHS_STRICT=1');
+
+    // Second call should NOT emit again (once per process).
+    try {
+      getCleoDirAbsolute(tmpDir);
+    } catch { /* ignore */ }
+
+    warningCalls = stderrSpy.mock.calls.filter(
+      ([msg]: any[]) => typeof msg === 'string' && msg.includes('W_PATH_DEPRECATED'),
+    );
+    expect(warningCalls.length).toBe(1); // still only the first one
+
+    stderrSpy.mockRestore();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  // AC1: Warning NOT emitted without CLEO_DEBUG
+  it('does NOT emit deprecation warning when CLEO_DEBUG is not set (AC1)', () => {
+    delete process.env['CLEO_DEBUG'];
+    const stderrSpy = vi.spyOn(process.stderr, 'write');
+
+    const tmpDir = join(tmpdir(), `cleo-t11022-nodebug-${Date.now()}`);
+    mkdirSync(tmpDir, { recursive: true });
+    try {
+      getCleoDirAbsolute(tmpDir);
+    } catch { /* ignore */ }
+
+    const warningCalls = stderrSpy.mock.calls.filter(
+      ([msg]: any[]) => typeof msg === 'string' && msg.includes('W_PATH_DEPRECATED'),
+    );
+    expect(warningCalls.length).toBe(0);
+
+    stderrSpy.mockRestore();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  // AC2: CLEO_PATHS_STRICT=1 throws BEFORE deprecation warning would fire
+  it('CLEO_PATHS_STRICT=1 throws before any deprecation warning (AC2)', () => {
+    process.env['CLEO_DEBUG'] = '1';
+    process.env['CLEO_PATHS_STRICT'] = '1';
+    const stderrSpy = vi.spyOn(process.stderr, 'write');
+
+    expect(() => getCleoDirAbsolute('/some/nonproject/dir')).toThrowError(
+      /E_CWD_WALKUP_FORBIDDEN/,
+    );
+
+    // Should NOT emit a deprecation warning — strict mode throws first.
+    const warningCalls = stderrSpy.mock.calls.filter(
+      ([msg]: any[]) => typeof msg === 'string' && msg.includes('W_PATH_DEPRECATED'),
+    );
+    expect(warningCalls.length).toBe(0);
+
+    stderrSpy.mockRestore();
+  });
+
+  // AC3: bootstrap=true skips deprecation warning
+  it('bootstrap=true does NOT emit deprecation warning (AC3)', () => {
+    process.env['CLEO_DEBUG'] = '1';
+    const stderrSpy = vi.spyOn(process.stderr, 'write');
+
+    getCleoDirAbsolute('/my/new/project', { bootstrap: true });
+
+    const warningCalls = stderrSpy.mock.calls.filter(
+      ([msg]: any[]) => typeof msg === 'string' && msg.includes('W_PATH_DEPRECATED'),
+    );
+    expect(warningCalls.length).toBe(0);
+
+    stderrSpy.mockRestore();
   });
 });

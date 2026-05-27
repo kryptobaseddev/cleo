@@ -24,7 +24,7 @@ import {
   getCanonicalTemplatesTildePath as _getCanonicalTemplatesTildePath,
   getCleoTemplatesTildePath as _getCleoTemplatesTildePath,
   isAbsolutePath as _isAbsolutePath,
-  resolveCanonicalCleoDir,
+  resolveCanonicalCleoDir as _resolveCanonicalCleoDir,
   resolveProjectByCwd,
 } from '@cleocode/paths';
 import { CleoError } from './errors.js';
@@ -353,7 +353,7 @@ export function getCleoDirAbsolute(cwd?: string, opts?: { bootstrap?: boolean })
   if (project !== null) {
     try {
       const projectRoot = getProjectRoot(cwd);
-      const canonical = resolveCanonicalCleoDir(project.projectId);
+      const canonical = _resolveCanonicalCleoDir(project.projectId);
       // Use nexus.db resolution only when it agrees with getProjectRoot;
       // otherwise fall through to getProjectRoot-based resolution.
       if (canonical !== null && canonical === resolve(projectRoot, cleoDir)) {
@@ -388,6 +388,44 @@ export function getCleoDirAbsolute(cwd?: string, opts?: { bootstrap?: boolean })
     }
     return resolve(cwd ?? process.cwd(), cleoDir);
   }
+}
+
+/**
+ * Resolve the canonical `.cleo` directory for a project given its `projectId`.
+ *
+ * Looks up the project in the global `nexus.db` registry (`project_registry`
+ * table) to find the project's root path, then returns the `.cleo/` directory
+ * under that root.
+ *
+ * This is the core-level wrapper around the `@cleocode/paths` implementation.
+ * Unlike the zero-dep leaf package version (which returns `null`), this wrapper
+ * throws `E_PROJECT_NOT_FOUND` when the projectId is not in the nexus registry,
+ * matching the contract expected by CLEO's higher-level subsystems.
+ *
+ * @param projectId - The stable project UUID (from `.cleo/project-info.json`).
+ * @returns Absolute path to the `.cleo/` directory.
+ * @throws {CleoError} `ExitCode.NOT_FOUND` (`E_PROJECT_NOT_FOUND`) when the
+ *   projectId is not found in the nexus registry.
+ *
+ * @public
+ * @task T11018
+ */
+export function resolveCanonicalCleoDir(projectId: string): string {
+  const result = _resolveCanonicalCleoDir(projectId);
+  if (result === null) {
+    throw new CleoError(
+      ExitCode.NOT_FOUND,
+      `E_PROJECT_NOT_FOUND: projectId "${projectId}" not found in nexus registry`,
+      {
+        fix: 'Ensure the project has been registered: cleo init',
+        details: {
+          field: 'projectId',
+          actual: projectId,
+        },
+      },
+    );
+  }
+  return result;
 }
 
 /**
