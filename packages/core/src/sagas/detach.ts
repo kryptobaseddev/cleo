@@ -23,7 +23,6 @@ import { type EngineResult, engineError, engineSuccess } from '../engine-result.
 import { getLogger } from '../logger.js';
 import { taskShow } from '../tasks/show.js';
 import { coreTaskReparent } from '../tasks/task-reparent.js';
-import { isSagaShape } from './enforcement.js';
 
 const log = getLogger('sagas:detach');
 
@@ -117,7 +116,7 @@ export async function detachSagaMember(
   if (!sagaResult.success || !sagaResult.data) {
     return engineError('E_NOT_FOUND', `Saga not found: ${sagaId}`);
   }
-  if (!isSagaShape(sagaResult.data.task)) {
+  if (sagaResult.data.task.type !== 'saga') {
     return engineError(
       'E_INVALID_INPUT',
       `Task ${sagaId} has type='${String(sagaResult.data.task.type)}', expected type='saga'`,

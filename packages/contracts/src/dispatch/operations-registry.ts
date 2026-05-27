@@ -2757,7 +2757,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'saga.add',
-    description: 'tasks.saga.add (mutate) — link an Epic to a Saga via task_relations type=groups',
+    description: 'tasks.saga.add (mutate) — link an Epic to a Saga via parent_id containment',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -2784,7 +2784,7 @@ export const OPERATIONS: OperationDef[] = [
     domain: 'tasks',
     operation: 'saga.detach',
     description:
-      'tasks.saga.detach (mutate) — remove a Saga member relation (task_relations type=groups); idempotent; appends to .cleo/audit/saga-detach.jsonl (T10118)',
+      'tasks.saga.detach (mutate) — remove a Saga member by clearing parent_id containment; idempotent; appends to .cleo/audit/saga-detach.jsonl (T10118)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -2869,7 +2869,7 @@ export const OPERATIONS: OperationDef[] = [
     domain: 'tasks',
     operation: 'saga.repair',
     description:
-      'tasks.saga.repair (mutate) — detach I5-violating parentId and re-attach via task_relations type=groups; idempotent',
+      'tasks.saga.repair (mutate) — detach I5-violating parentId from a Saga; idempotent',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -2915,14 +2915,14 @@ export const OPERATIONS: OperationDef[] = [
     ] satisfies ParamDef[],
   },
   {
-    // T10637 — migrate parent_id-based Saga membership to groups relations.
-    // Converts Epics whose parent_id points to a type='saga' task into proper
-    // groups relations. Non-Epic tasks are documented as conflicts.
+    // T10637/T10638 — migrate legacy groups Saga membership to parent_id containment.
+    // Converts legacy groups relations from a type='saga' task into proper
+    // Epic parent_id containment. Non-Epic targets are documented as conflicts.
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'saga.migrate-containment',
     description:
-      'tasks.saga.migrate-containment (mutate) — convert parent_id-based Saga membership to groups relations; idempotent; audits to saga-contain-migration.jsonl',
+      'tasks.saga.migrate-containment (mutate) — convert legacy groups Saga membership to parent_id containment; idempotent; audits to saga-contain-migration.jsonl',
     tier: 0,
     idempotent: true,
     sessionRequired: false,

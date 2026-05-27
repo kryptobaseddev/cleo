@@ -247,7 +247,7 @@ describe('repairSaga (T10117) — AC3', () => {
     await env.cleanup();
   });
 
-  it("detaches parentId and writes task_relations.type='groups' edge", async () => {
+  it('detaches parentId without writing legacy groups edges', async () => {
     const parentMap = await seedHiddenSagas(accessor);
     const sagaId = 'T9855';
     const formerParent = parentMap[sagaId];
@@ -260,20 +260,15 @@ describe('repairSaga (T10117) — AC3', () => {
     if (!result.success) return;
     expect(result.data.repaired).toBe(true);
     expect(result.data.detachedParentId).toBe(formerParent);
-    expect(result.data.attachedRelation).toEqual({
-      from: formerParent,
-      to: sagaId,
-      type: 'groups',
-    });
 
-    // Verify on-disk: saga has no parentId; parent has a groups edge to saga.
+    // Verify on-disk: saga has no parentId; no legacy relation is written.
     const repaired = await accessor.loadSingleTask(sagaId);
     expect(repaired?.parentId ?? null).toBeNull();
     const parent = await accessor.loadSingleTask(formerParent);
     const groupsEdges = (parent?.relates ?? []).filter(
       (r) => r.type === 'groups' && r.taskId === sagaId,
     );
-    expect(groupsEdges).toHaveLength(1);
+    expect(groupsEdges).toHaveLength(0);
   });
 
   it('is idempotent: a second call on the same saga reports repaired=false', async () => {
@@ -290,7 +285,6 @@ describe('repairSaga (T10117) — AC3', () => {
     if (!second.success) return;
     expect(second.data.repaired).toBe(false);
     expect(second.data.detachedParentId).toBeNull();
-    expect(second.data.attachedRelation).toBeNull();
   });
 
   it('returns E_NOT_FOUND when sagaId does not exist', async () => {
@@ -303,7 +297,7 @@ describe('repairSaga (T10117) — AC3', () => {
     expect(result.error.code).toBe('E_NOT_FOUND');
   });
 
-  it("returns E_INVALID_INPUT when the target is not a saga (label!='saga')", async () => {
+  it("returns E_INVALID_INPUT when the target is not a saga (type!='saga')", async () => {
     const now = new Date().toISOString();
     await seedTasks(accessor, [
       {

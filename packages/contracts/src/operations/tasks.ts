@@ -1756,11 +1756,11 @@ export interface TasksSagaRepairResult {
 }
 
 /**
- * Params for `tasks.saga.migrate-containment` — migrate parent_id-based Saga
- * membership to `task_relations.type='groups'` (ADR-073 §1.2 invariant I5).
+ * Params for `tasks.saga.migrate-containment` — migrate legacy
+ * `task_relations.type='groups'` Saga membership to parent_id containment.
  *
- * Converts Epics whose `parent_id` points to a `type='saga'` task into
- * proper `groups` relations. Non-Epic tasks with Saga parents are documented
+ * Converts legacy Saga→Epic `groups` relations into Epics whose `parent_id`
+ * points to the `type='saga'` task. Non-Epic relation targets are documented
  * as conflicts requiring manual resolution.
  *
  * @task T10637
@@ -1774,7 +1774,7 @@ export interface TasksSagaMigrateContainmentParams {
 }
 
 /**
- * A single Epic that was migrated from parent_id to groups relation.
+ * A single Epic that was migrated from a legacy groups relation to parent_id.
  *
  * @task T10637
  */

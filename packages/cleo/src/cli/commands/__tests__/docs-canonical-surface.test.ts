@@ -131,15 +131,6 @@ describe.runIf(CLI_DIST_AVAILABLE)('docs canonical six-verb CLI integration', ()
   beforeEach(async () => {
     projectRoot = await mkdtemp(join(tmpdir(), 'cleo-T11188-'));
     await mkdir(join(projectRoot, '.cleo'), { recursive: true });
-    // Prevent resolveProjectByCwd from walking up to the real project root.
-    // Without a project-info.json, the CLI would discover the production
-    // .cleo/tasks.db at /mnt/projects/cleocode instead of creating an
-    // isolated DB under the temp dir.
-    await writeFile(
-      join(projectRoot, '.cleo', 'project-info.json'),
-      JSON.stringify({ projectId: 'test-t11188' }),
-      'utf-8',
-    );
   });
 
   afterEach(async () => {
@@ -210,7 +201,7 @@ describe.runIf(CLI_DIST_AVAILABLE)('docs canonical six-verb CLI integration', ()
     it('lists docs with --type filter', async () => {
       await addDocFile(projectRoot, 'T99999', '# Spec A\n\n## Overview\n\nSpec content.', { type: 'spec' });
       await addDocFile(projectRoot, 'T99999', '# Spec B\n\n## Overview\n\nSpec content.', { type: 'spec' });
-      await addDocFile(projectRoot, 'T99999', '# ADR X\n\n## Decision\n\n## Context\n\nADR content.', { slug: 'adr-042-test-type-filter', type: 'adr', title: 'Adopt Drizzle v1 beta' });
+      await addDocFile(projectRoot, 'T99999', '# ADR X\n\n## Decision\n\n## Context\n\nADR content.', { slug: uniqueSlug('adr-042'), type: 'adr', title: 'Adopt Drizzle v1 beta' });
 
       const result = runCli(['docs', 'list', '--task', 'T99999', '--type', 'adr', '--json'], projectRoot);
       expect(result.status).toBe(0);

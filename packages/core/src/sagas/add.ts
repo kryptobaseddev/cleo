@@ -86,8 +86,12 @@ export async function sagaAdd(
   // ADR-073 §1.2 invariant I7 — no nested sagas. The candidate epic MUST NOT
   // itself be saga-shaped (type='saga').
   const epicType = epicResult.data.task.type;
+  const candidateType =
+    epicType === 'saga' || epicType === 'epic' || epicType === 'task' || epicType === 'subtask'
+      ? epicType
+      : undefined;
   try {
-    assertSagaInvariantI7(epicId, epicResult.data.task.labels ?? [], sagaId, epicType);
+    assertSagaInvariantI7(epicId, epicResult.data.task.labels ?? [], sagaId, candidateType);
   } catch (err: unknown) {
     if (isSagaInvariantViolationError(err)) {
       const violation = err as SagaInvariantViolationError;

@@ -1,21 +1,15 @@
 /**
- * saga.migrate-containment — migrate parent_id-based Saga membership to groups relations.
+ * saga.migrate-containment — migrate legacy groups Saga membership to parent_id containment.
  *
- * Pre-T10636, Sagas were stored as `type='epic'` with `label='saga'`, and member
- * Epics (and sometimes Tasks) linked back to the Saga via `parent_id`. After
- * T10636 established `type='saga'` as the canonical record, those parent-child
- * edges violate ADR-073 §1.2 invariant I5 (Sagas must not use parentId for
- * membership).
+ * Pre-T10638, Saga membership used `task_relations.type='groups'`. PM-Core V2
+ * makes `parent_id` containment canonical: member Epics carry `parentId`
+ * pointing at the Saga.
  *
  * This migration:
- * 1. Finds all Epics whose `parent_id` points to a Saga (`type='saga'`)
- * 2. For each Epic without a pre-existing `groups` relation: creates the
- *    `task_relations.relation_type='groups'` edge (Saga → Epic) and clears
- *    the Epic's `parent_id`
- * 3. Documents Tasks (non-Epics) with Saga parents as conflicts — these need
- *    manual resolution since Tasks should not be direct Saga children
- * 4. Is fully idempotent — re-running on an already-migrated state returns
- *    `migrated: 0, skipped: N, conflicts: [...]`
+ * 1. Finds legacy `groups` rows from Saga (`type='saga'`) to Epic (`type='epic`).
+ * 2. Reparants each Epic under the Saga via `parent_id` containment.
+ * 3. Removes the migrated legacy `groups` row.
+ * 4. Documents non-Epic relation targets and conflicting parents for manual resolution.
  *
  * Audits every mutation to `.cleo/audit/saga-contain-migration.jsonl`.
  *
@@ -30,7 +24,7 @@ import { join } from 'node:path';
 import { getCleoHome } from '@cleocode/paths';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { taskRelatesAdd } from '../tasks/engine-wrap.js';
+import { taskRelatesRemove } from '../tasks/engine-wrap.js';
 import { coreTaskReparent } from '../tasks/task-reparent.js';
 import { SAGA_GROUPS_RELATION } from './constants.js';
 
@@ -74,7 +68,7 @@ export interface ContainmentConflict {
 export interface MigrateSagaContainmentResult {
   /** Total sagas scanned. */
   sagasScanned: number;
-  /** Number of Epics successfully migrated (parent_id → groups). */
+  /** Number of Epics successfully migrated (groups → parent_id). */
   migrated: number;
   /** Number of already-correct Epics skipped (idempotent no-op). */
   skipped: number;
@@ -107,8 +101,8 @@ function auditLine(entry: Record<string, unknown>): void {
 // Core migration logic
 // ---------------------------------------------------------------------------
 
-/**
- * Migrate parent_id-based Saga membership to `task_relations.type='groups'`.
+  /**
+  * Migrate legacy `task_relations.type='groups'` Saga membership to parent_id containment.
  *
  * @param projectRoot - Absolute path to the CLEO project root.
  * @param params - Optional sagaId and dry-run flag.
@@ -145,75 +139,58 @@ export async function migrateSagaContainment(
     });
   }
 
-  // 2. Find all Epics with parent_id pointing to a Saga.
+  // 2. Find legacy groups relations from Saga to Epic.
   const sagaIds = sagas.map((s) => s.id);
   const sagaPlaceholders = sagaIds.map(() => '?').join(',');
 
   const epics = db.all(
     `SELECT t.id, t.title, t.parent_id as parentId, p.id as sagaId
-     FROM tasks t
-     JOIN tasks p ON t.parent_id = p.id
-     WHERE p.type = 'saga'
+     FROM task_relations r
+     JOIN tasks p ON r.task_id = p.id
+     JOIN tasks t ON r.related_to = t.id
+     WHERE r.relation_type = 'groups'
+       AND p.type = 'saga'
        AND t.type = 'epic'
        AND p.id IN (${sagaPlaceholders})
      ORDER BY t.id`,
     ...sagaIds,
-  ) as Array<{ id: string; title: string; parentId: string; sagaId: string }>;
+  ) as Array<{ id: string; title: string; parentId: string | null; sagaId: string }>;
 
-  // 3. Find all non-Epic tasks with parent_id pointing to a Saga (conflicts).
+  // 3. Find legacy groups relations whose target is not an Epic (conflicts).
   const tasks = db.all(
     `SELECT t.id, t.title, t.type, t.parent_id as parentId, p.id as sagaId
-     FROM tasks t
-     JOIN tasks p ON t.parent_id = p.id
-     WHERE p.type = 'saga'
+     FROM task_relations r
+     JOIN tasks p ON r.task_id = p.id
+     JOIN tasks t ON r.related_to = t.id
+     WHERE r.relation_type = 'groups'
+       AND p.type = 'saga'
        AND t.type != 'epic'
        AND p.id IN (${sagaPlaceholders})
      ORDER BY t.id`,
     ...sagaIds,
-  ) as Array<{ id: string; title: string; type: string; parentId: string; sagaId: string }>;
+  ) as Array<{ id: string; title: string; type: string; parentId: string | null; sagaId: string }>;
 
-  // 4. Check which epics already have groups relations.
-  const epicIds = epics.map((e) => e.id);
-  const existingRelations = new Set<string>();
-  if (epicIds.length > 0) {
-    const epicPlaceholders = epicIds.map(() => '?').join(',');
-    const rows = db.all(
-      `SELECT task_id, related_to FROM task_relations
-       WHERE relation_type = 'groups'
-         AND task_id IN (${sagaPlaceholders})
-         AND related_to IN (${epicPlaceholders})`,
-      ...sagaIds,
-      ...epicIds,
-    ) as Array<{ task_id: string; related_to: string }>;
-    for (const r of rows) {
-      existingRelations.add(`${r.task_id}:${r.related_to}`);
-    }
-  }
-
-  // 5. Process epics: migrate those without existing groups relations.
+  // 4. Process epics: migrate legacy relation rows into containment.
   const migratedEpics: MigratedEpic[] = [];
   const conflicts: ContainmentConflict[] = [];
   let skipped = 0;
 
   for (const epic of epics) {
-    const key = `${epic.sagaId}:${epic.id}`;
-    if (existingRelations.has(key)) {
-      // Already migrated — just clear parent_id if it's still set.
-      if (!dryRun && epic.parentId) {
-        try {
-          await coreTaskReparent(projectRoot, epic.id, null);
-          auditLine({
-            ts: new Date().toISOString(),
-            action: 'reparent-only',
-            epicId: epic.id,
-            sagaId: epic.sagaId,
-            note: 'groups relation already exists; cleared residual parent_id',
-          });
-        } catch {
-          // Non-fatal — the groups relation is the important part.
-        }
+    if (epic.parentId === epic.sagaId) {
+      if (!dryRun) {
+        await taskRelatesRemove(projectRoot, epic.sagaId, epic.id, SAGA_GROUPS_RELATION);
       }
       skipped++;
+      continue;
+    }
+    if (epic.parentId) {
+      conflicts.push({
+        taskId: epic.id,
+        sagaId: epic.sagaId,
+        taskType: 'epic',
+        taskTitle: epic.title,
+        reason: `Epic already has parent_id=${epic.parentId}; refusing to overwrite with Saga ${epic.sagaId}.`,
+      });
       continue;
     }
 
@@ -231,28 +208,10 @@ export async function migrateSagaContainment(
       continue;
     }
 
-    // Create the groups relation (Saga → Epic).
-    const relResult = await taskRelatesAdd(
-      projectRoot,
-      epic.sagaId,
-      epic.id,
-      SAGA_GROUPS_RELATION,
-      `Migrated parent_id containment via cleo saga migrate-containment (T10637)`,
-    );
-    if (!relResult.success) {
-      conflicts.push({
-        taskId: epic.id,
-        sagaId: epic.sagaId,
-        taskType: 'epic',
-        taskTitle: epic.title,
-        reason: `Failed to create groups relation: ${relResult.error?.message ?? 'unknown'}`,
-      });
-      continue;
-    }
-
-    // Clear the parent_id on the Epic.
+    // Reparent the Epic under the Saga, then remove the legacy groups relation.
     try {
-      await coreTaskReparent(projectRoot, epic.id, null);
+      await coreTaskReparent(projectRoot, epic.id, epic.sagaId);
+      await taskRelatesRemove(projectRoot, epic.sagaId, epic.id, SAGA_GROUPS_RELATION);
     } catch (err: unknown) {
       const e = err as { message?: string };
       conflicts.push({
@@ -260,7 +219,7 @@ export async function migrateSagaContainment(
         sagaId: epic.sagaId,
         taskType: 'epic',
         taskTitle: epic.title,
-        reason: `Groups relation created but failed to clear parent_id: ${e?.message ?? 'unknown'}`,
+        reason: `Failed to migrate groups relation to parent_id containment: ${e?.message ?? 'unknown'}`,
       });
       continue;
     }
@@ -283,14 +242,14 @@ export async function migrateSagaContainment(
     });
   }
 
-  // 6. Document task→Saga conflicts (non-Epic tasks with Saga parents).
+  // 5. Document non-Epic legacy groups targets.
   for (const task of tasks) {
     conflicts.push({
       taskId: task.id,
       sagaId: task.sagaId,
       taskType: task.type,
       taskTitle: task.title,
-      reason: `Non-epic task (type=${task.type}) with parent_id pointing to Saga ${task.sagaId}. Tasks should be children of member Epics, not direct Saga children. Manual reparenting required.`,
+      reason: `Non-epic task (type=${task.type}) has legacy groups relation from Saga ${task.sagaId}. Saga members must be Epics. Manual cleanup required.`,
     });
   }
 
