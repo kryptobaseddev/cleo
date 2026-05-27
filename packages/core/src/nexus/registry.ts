@@ -919,7 +919,11 @@ export async function nexusMoveProject(projectId: string, newPath: string): Prom
   const { getNexusDb } = await import('../store/nexus-sqlite.js');
   const { eq } = await import('drizzle-orm');
   const db = await getNexusDb();
-  const rows = await db.select().from(projectRegistry).where(eq(projectRegistry.projectId, projectId)).limit(1);
+  const rows = await db
+    .select()
+    .from(projectRegistry)
+    .where(eq(projectRegistry.projectId, projectId))
+    .limit(1);
   const existing = rows[0];
   if (!existing) throw new CleoError(ExitCode.NOT_FOUND, `Project not found: ${projectId}`);
   const resolvedPath = resolve(newPath);
@@ -928,33 +932,70 @@ export async function nexusMoveProject(projectId: string, newPath: string): Prom
   const newBrainDbPath = join(resolvedPath, '.cleo', 'brain.db');
   const newTasksDbPath = join(resolvedPath, '.cleo', 'tasks.db');
   const oldPath = existing.projectPath;
-  await db.update(projectRegistry).set({
-    projectPath: resolvedPath, projectHash: newHash, lastSeen: now,
-    brainDbPath: newBrainDbPath, tasksDbPath: newTasksDbPath,
-  }).where(eq(projectRegistry.projectId, projectId));
-  await writeNexusAudit({ action: 'move', projectHash: newHash, projectId, operation: 'move', success: true, details: { oldPath, newPath: resolvedPath, newHash } });
+  await db
+    .update(projectRegistry)
+    .set({
+      projectPath: resolvedPath,
+      projectHash: newHash,
+      lastSeen: now,
+      brainDbPath: newBrainDbPath,
+      tasksDbPath: newTasksDbPath,
+    })
+    .where(eq(projectRegistry.projectId, projectId));
+  await writeNexusAudit({
+    action: 'move',
+    projectHash: newHash,
+    projectId,
+    operation: 'move',
+    success: true,
+    details: { oldPath, newPath: resolvedPath, newHash },
+  });
   await nexusReconcile(resolvedPath, {});
-  return rowToProject({ ...existing, projectPath: resolvedPath, projectHash: newHash, lastSeen: now, brainDbPath: newBrainDbPath, tasksDbPath: newTasksDbPath });
+  return rowToProject({
+    ...existing,
+    projectPath: resolvedPath,
+    projectHash: newHash,
+    lastSeen: now,
+    brainDbPath: newBrainDbPath,
+    tasksDbPath: newTasksDbPath,
+  });
 }
 
 /**
  * Update a project's name in the registry after a rename. @task T11024
  */
-export async function nexusRenameProject(projectId: string, newName: string): Promise<NexusProject> {
+export async function nexusRenameProject(
+  projectId: string,
+  newName: string,
+): Promise<NexusProject> {
   if (!projectId) throw new CleoError(ExitCode.INVALID_INPUT, 'projectId required');
   if (!newName) throw new CleoError(ExitCode.INVALID_INPUT, 'newName required');
   await nexusInit();
   const { getNexusDb } = await import('../store/nexus-sqlite.js');
   const { eq } = await import('drizzle-orm');
   const db = await getNexusDb();
-  const rows = await db.select().from(projectRegistry).where(eq(projectRegistry.projectId, projectId)).limit(1);
+  const rows = await db
+    .select()
+    .from(projectRegistry)
+    .where(eq(projectRegistry.projectId, projectId))
+    .limit(1);
   const existing = rows[0];
   if (!existing) throw new CleoError(ExitCode.NOT_FOUND, `Project not found: ${projectId}`);
   const now = new Date().toISOString();
   const currentHash = generateProjectHash(existing.projectPath);
   const oldName = existing.name;
-  await db.update(projectRegistry).set({ name: newName, lastSeen: now }).where(eq(projectRegistry.projectId, projectId));
-  await writeNexusAudit({ action: 'rename', projectHash: currentHash, projectId, operation: 'rename', success: true, details: { oldName, newName } });
+  await db
+    .update(projectRegistry)
+    .set({ name: newName, lastSeen: now })
+    .where(eq(projectRegistry.projectId, projectId));
+  await writeNexusAudit({
+    action: 'rename',
+    projectHash: currentHash,
+    projectId,
+    operation: 'rename',
+    success: true,
+    details: { oldName, newName },
+  });
   return rowToProject({ ...existing, name: newName, lastSeen: now });
 }
 
