@@ -320,7 +320,7 @@ export const BUILTIN_TAXONOMY_TAGS: ReadonlyArray<CanonicalTagMetadata> = [
     label: 'Specification',
     description: 'LOOM stage 4: technical specification authoring',
     axes: ['lifecycle'],
-    adhocAliases: ['specification', 'spec', 'rfc'],
+    adhocAliases: ['specification', 'rfc'],
   },
   {
     tag: 'decomposition',
@@ -533,10 +533,10 @@ export class TaxonomyRegistry {
     this.adhocMap = new Map<string, string>();
     for (const tag of tags) {
       for (const alias of tag.adhocAliases) {
-        if (this.adhocMap.has(alias)) {
-          const existing = this.adhocMap.get(alias)!;
+        const existingTarget = this.adhocMap.get(alias);
+        if (existingTarget !== undefined && existingTarget !== tag.tag) {
           throw new TaxonomyError(
-            `Ad-hoc alias '${alias}' maps to both '${existing}' and '${tag.tag}' — aliases must be unique`,
+            `Ad-hoc alias '${alias}' maps to both '${existingTarget}' and '${tag.tag}' — aliases must be unique across targets`,
             [alias],
           );
         }
