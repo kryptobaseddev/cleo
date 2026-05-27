@@ -50,15 +50,13 @@ import { computeProjectHash, resolveWorktreeRootForHash } from '@cleocode/paths'
 // ---------------------------------------------------------------------------
 
 import {
-  destroyWorktree as napiDestroyWorktree,
   integrateWorktree,
-  pruneWorktrees as napiPruneWorktrees,
-} from '@cleocode/worktree/napi-binding.js';
+  destroyWorktree as napiDestroyWorktree,
+  pruneWorktrees,
+} from '@cleocode/worktree';
 import { getGitRoot, gitSilent, gitSync } from '@cleocode/worktree/git.js';
-import { pruneWorktrees } from '@cleocode/worktree';
 
 // Re-export getGitRoot for barrel consumers
-export { getGitRoot };
 export { getGitRoot };
 
 // ---------------------------------------------------------------------------
