@@ -90,6 +90,7 @@ function assertCanonicalWorktreeLocation(targetPath: string): void {
 
 import { runWorktreeHooks } from './worktree-hooks.js';
 import { applyIncludePatterns, loadWorktreeIncludePatterns } from './worktree-include.js';
+import { installWorktreeDependencies } from './worktree-pnpm.js';
 
 /**
  * Apply the T9226 spawn-clone-exclude filter to a newly created worktree.
@@ -325,6 +326,20 @@ export async function createWorktree(
   // copying should call copyPathsWithReflock directly.
   const copiedPaths: string[] = [];
   const failedPaths: string[] = [];
+
+  // T9938 — Install dependencies with serialized pnpm lock to prevent
+  // @@-prefixed doubled-directory corruption in .pnpm/ when multiple
+  // worktrees are provisioned concurrently. Only runs when pnpm-lock.yaml
+  // was included via .worktreeinclude (i.e. the project uses pnpm).
+  // Uses per-worktree pnpm store (.pnpm-store/) for full isolation.
+  if (appliedPatterns.some((p) => p.pattern === 'pnpm-lock.yaml')) {
+    const installed = installWorktreeDependencies(worktreePath, gitRoot);
+    if (installed) {
+      copiedPaths.push('node_modules/ (pnpm install)');
+    } else {
+      failedPaths.push('pnpm install');
+    }
+  }
 
   // Run post-start hooks after copy-on-write bootstrap.
   const postStartHookResults = await runWorktreeHooks(hooks, 'post-start', worktreePath);
