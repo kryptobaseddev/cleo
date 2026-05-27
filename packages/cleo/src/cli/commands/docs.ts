@@ -1,11 +1,14 @@
 /**
  * CLI docs command — canonical six-verb path: add, update, fetch, list, remove, publish.
  *
- * Advanced: supersede, find, search, generate, export, merge, graph, rank, versions, publish-pr.
- * Legacy/migration: sync, status, gap-check, import (use canonical verbs for new work).
+ * Publish: consolidated `publish` verb (--target file|pr, --dry-run) (T11177).
+ *   publish-pr retained as deprecated migration alias.
+ * Query: query (consolidates search, find, rank — T11133/T11176).
+ * Advanced: supersede, generate, export, merge, graph, versions.
+ * Legacy/migration: sync, status, gap-check, import, search, find, rank, publish-pr.
  * Utilities: schema, list-types, serve, open, stop, viewer-status.
  *
- * @task T11046 (simplify docs help), T4551 (sync/gap-check), T797 (add/list/fetch/remove)
+ * @task T11046, T11133/T11176 (query), T11177 (publish)
  * @saga T10516
  */
 
@@ -1447,98 +1450,55 @@ const versionsCommand = defineCommand({
   },
 });
 
-// ── cleo docs publish ─────────────────────────────────────────────────────────
+// ── cleo docs publish (unified — T11177) ─────────────────────────────────────
 
 /**
- * cleo docs publish --for <id> --to <path> — atomic publish from docs SSoT to git path.
+ * cleo docs publish — unified publish surface with --target flag.
+ *
+ * Two targets:
+ *   --target file (default): `--for <id> --to <path>` — atomic publish to git path.
+ *   --target pr:            `<slug-or-id>` — open or update a GitHub PR.
+ *
+ * Common flags:
+ *   --dry-run               Preview without side effects.
+ *
+ * @task T11177 (publish verb consolidation)
+ * @saga T10516
  */
 const publishCommand = defineCommand({
   meta: {
     name: 'publish',
     description:
-      'Atomically publish an attachment from the docs SSoT to a git-tracked file path. ' +
-      'Uses tmp-then-rename for atomicity. The --to path may be absolute or relative to project root.',
+      'Publish a doc to a local file (--target file) or a GitHub PR (--target pr). ' +
+      'Default target is file. Use --target pr with a slug-or-id to open/update a PR. ' +
+      'Use --dry-run to preview without side effects.',
   },
   args: {
+    'slug-or-id': {
+      type: 'positional',
+      description:
+        'Slug, attachment id, or full sha256 hex of the doc to publish. Required for --target pr.',
+    },
+    target: {
+      type: 'string',
+      description: 'Publish target: file (local git-tracked path) or pr (GitHub PR). Default: file.',
+      default: 'file',
+    },
     for: {
       type: 'string',
-      description: 'Owner entity ID whose attachment to publish (T###, ses_*, O-*)',
-      required: true,
+      description: 'Owner entity ID whose attachment to publish (T###, ses_*, O-*). Required for --target file.',
     },
     to: {
       type: 'string',
-      description: 'Destination file path (absolute or relative to project root)',
-      required: true,
+      description: 'Destination file path (absolute or relative to project root). Required for --target file.',
     },
     attachment: {
       type: 'string',
       description: 'Specific attachment ID or SHA-256 to publish (default: latest)',
     },
-    json: {
-      type: 'boolean',
-      description: 'Emit LAFS JSON envelope',
-    },
-  },
-  async run({ args }) {
-    try {
-      const result = await dispatchDocsRaw('mutate', 'publish', {
-        ownerId: String(args.for),
-        toPath: String(args.to),
-        attachmentId: args.attachment ?? undefined,
-      });
-
-      cliOutput(result, { command: 'docs publish', operation: 'docs.publish' });
-    } catch (err) {
-      // T9633: emit a flat LAFS error envelope (single layer, ADR-039).
-      // The earlier `cliOutput(formatError(...))` form double-wrapped the
-      // envelope — `formatError` already serialises a `{success:false, error,
-      // meta}` envelope to JSON, and feeding that string to `cliOutput`
-      // produced `{success:true, data:"<json>"}` instead of a real error.
-      const message = err instanceof Error ? err.message : String(err);
-      cliError(`docs publish failed: ${message}`, ExitCode.GENERAL_ERROR, {
-        name: 'E_DOCS_PUBLISH_FAILED',
-      });
-      process.exit(ExitCode.GENERAL_ERROR);
-    }
-  },
-});
-
-// ── cleo docs publish-pr ──────────────────────────────────────────────────────
-
-/**
- * cleo docs publish-pr <slug-or-id> — open or update a PR with the doc.
- *
- * Default behaviour:
- *   1. Resolves `<slug-or-id>` to attachment bytes via the docs store.
- *   2. Provisions a temp git worktree on `docs/<slug>`.
- *   3. Writes `docs/<type>/<slug>.md` with YAML frontmatter.
- *   4. Commits, pushes, and either opens a new PR or refreshes the
- *      existing open PR's body atomically (force-with-lease + edit).
- *
- * Errors are emitted as LAFS envelopes with `codeName` + `fix` +
- * `alternatives` — see {@link publishDocsAsPr} for the full taxonomy.
- *
- * @task T9716 / T9717 / T9718 / T9719 (T9644 / Epic T9630 / Saga T9625)
- */
-const publishPrCommand = defineCommand({
-  meta: {
-    name: 'publish-pr',
-    description:
-      'Publish an attachment to a GitHub PR. ' +
-      'Opens a new PR on branch `docs/<slug>` with frontmatter, or ' +
-      'atomically updates the existing open PR for the same slug.',
-  },
-  args: {
-    'slug-or-id': {
-      type: 'positional',
-      description: 'Slug, attachment id, or full sha256 hex of the doc to publish',
-      required: true,
-    },
     slug: {
       type: 'string',
-      description:
-        'Override the slug used for the branch + filename. Required when ' +
-        '<slug-or-id> is an attachment id or sha256 with no stored slug.',
+      description: 'Override the slug used for the branch + filename. Required when <slug-or-id> is an attachment id or sha256 with no stored slug.',
     },
     type: {
       type: 'string',
@@ -1556,55 +1516,109 @@ const publishPrCommand = defineCommand({
       type: 'string',
       description: 'Base branch for the PR. Default: main.',
     },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Preview what would happen without side effects. Reports resolved target, mode, and parameters. No files are written and no git/gh commands are invoked.',
+    },
+    json: { type: 'boolean', description: 'Emit LAFS JSON envelope' },
   },
   async run({ args }) {
-    const slugOrId = String(args['slug-or-id']);
+    const target = String(args.target ?? 'file');
+    const dryRun = args['dry-run'] === true;
+    if (dryRun) {
+      const details: Record<string, unknown> = { target, dryRun: true };
+      if (target === 'pr') {
+        details.slugOrId = String(args['slug-or-id'] ?? '');
+        if (args.slug) details.slug = String(args.slug);
+        if (args.type) details.type = String(args.type);
+        if (args.title) details.title = String(args.title);
+      } else {
+        details.for = args.for ? String(args.for) : null;
+        details.to = args.to ? String(args.to) : null;
+        if (args.attachment) details.attachment = String(args.attachment);
+      }
+      cliOutput(details, { command: 'docs publish', operation: 'docs.publish', meta: { dryRun: true } });
+      return;
+    }
+    if (target === 'pr') {
+      const slugOrId = String(args['slug-or-id'] ?? '');
+      if (!slugOrId) {
+        cliError('docs publish --target pr requires a slug-or-id argument', ExitCode.GENERAL_ERROR, { name: 'E_MISSING_ARG' });
+        process.exit(ExitCode.GENERAL_ERROR);
+      }
+      const result = (await dispatchDocsRaw('mutate', 'publish', {
+        slugOrId, target: 'pr',
+        ...(typeof args.slug === 'string' ? { slug: args.slug } : {}),
+        ...(typeof args.type === 'string' ? { type: args.type } : {}),
+        ...(typeof args.title === 'string' ? { title: args.title } : {}),
+        ...(typeof args.body === 'string' ? { body: args.body } : {}),
+        ...(typeof args.base === 'string' ? { base: args.base } : {}),
+      })) as { success: true; data: unknown } | { success: false; error: { message: string; codeName: string; fix?: string; alternatives?: string[]; details?: Record<string, unknown> } };
+      if (result.success) { cliOutput(result.data, { command: 'docs publish', operation: 'docs.publish' }); return; }
+      const e = result.error;
+      cliError(e.message, ExitCode.GENERAL_ERROR, { name: e.codeName, ...(e.fix ? { fix: e.fix } : {}), ...(e.alternatives ? { alternatives: e.alternatives.map((alt: string) => ({ action: alt, command: alt })) } : {}), ...(e.details ? { details: e.details } : {}) }, { operation: 'docs.publish' });
+      process.exit(ExitCode.GENERAL_ERROR);
+    }
+    if (!args.for || !args.to) {
+      cliError('docs publish --target file requires --for <ownerId> and --to <path>', ExitCode.GENERAL_ERROR, { name: 'E_MISSING_ARG' });
+      process.exit(ExitCode.GENERAL_ERROR);
+    }
+    try {
+      const result = await dispatchDocsRaw('mutate', 'publish', { ownerId: String(args.for), toPath: String(args.to), attachmentId: args.attachment ?? undefined, target: 'file' });
+      cliOutput(result, { command: 'docs publish', operation: 'docs.publish' });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      cliError(`docs publish failed: ${message}`, ExitCode.GENERAL_ERROR, { name: 'E_DOCS_PUBLISH_FAILED' });
+      process.exit(ExitCode.GENERAL_ERROR);
+    }
+  },
+});
+// ── cleo docs publish-pr (backward-compatible alias — T11177) ─────────────────
 
-    const result = (await dispatchDocsRaw('mutate', 'publish-pr', {
-      slugOrId,
+/**
+ * cleo docs publish-pr <slug-or-id> — backward-compatible alias.
+ * Delegates to `docs publish --target pr`. Prefer `cleo docs publish --target pr <slug-or-id>` for new usage.
+ * @deprecated Use `cleo docs publish --target pr` instead.
+ */
+const publishPrCommand = defineCommand({
+  meta: {
+    name: 'publish-pr',
+    description: '[DEPRECATED] Use `docs publish --target pr` instead. Publish an attachment to a GitHub PR. Opens a new PR on branch `docs/<slug>` with frontmatter, or atomically updates the existing open PR for the same slug. Use --dry-run to preview without side effects.',
+  },
+  args: {
+    'slug-or-id': { type: 'positional', description: 'Slug, attachment id, or full sha256 hex of the doc to publish', required: true },
+    slug: { type: 'string', description: 'Override the slug used for the branch + filename.' },
+    type: { type: 'string', description: 'Override the publish dir taxonomy (spec|adr|research|handoff|note|llm-readme).' },
+    title: { type: 'string', description: 'Override the PR title. Default: `docs(<type>): publish <slug>`.' },
+    body: { type: 'string', description: 'Override the PR body. Default: an auto-generated summary.' },
+    base: { type: 'string', description: 'Base branch for the PR. Default: main.' },
+    'dry-run': { type: 'boolean', description: 'Preview what would happen without side effects.' },
+  },
+  async run({ args }) {
+    humanInfo('[deprecated] `docs publish-pr` is deprecated. Use `docs publish --target pr <slug-or-id>` instead.');
+    const slugOrId = String(args['slug-or-id']);
+    if (args['dry-run'] === true) {
+      const details: Record<string, unknown> = { slugOrId, target: 'pr', dryRun: true };
+      if (args.slug) details.slug = String(args.slug);
+      if (args.type) details.type = String(args.type);
+      if (args.title) details.title = String(args.title);
+      cliOutput(details, { command: 'docs publish-pr', operation: 'docs.publish', meta: { dryRun: true } });
+      return;
+    }
+    const result = (await dispatchDocsRaw('mutate', 'publish', {
+      slugOrId, target: 'pr',
       ...(typeof args.slug === 'string' ? { slug: args.slug } : {}),
       ...(typeof args.type === 'string' ? { type: args.type } : {}),
       ...(typeof args.title === 'string' ? { title: args.title } : {}),
       ...(typeof args.body === 'string' ? { body: args.body } : {}),
       ...(typeof args.base === 'string' ? { base: args.base } : {}),
-    })) as
-      | { success: true; data: unknown }
-      | {
-          success: false;
-          error: {
-            message: string;
-            codeName: string;
-            fix?: string;
-            alternatives?: string[];
-            details?: Record<string, unknown>;
-          };
-        };
-
-    if (result.success) {
-      cliOutput(result.data, { command: 'docs publish-pr', operation: 'docs.publish-pr' });
-      return;
-    }
-
+    })) as { success: true; data: unknown } | { success: false; error: { message: string; codeName: string; fix?: string; alternatives?: string[]; details?: Record<string, unknown> } };
+    if (result.success) { cliOutput(result.data, { command: 'docs publish-pr', operation: 'docs.publish' }); return; }
     const e = result.error;
-    cliError(
-      e.message,
-      ExitCode.GENERAL_ERROR,
-      {
-        name: e.codeName,
-        ...(e.fix ? { fix: e.fix } : {}),
-        ...(e.alternatives
-          ? {
-              alternatives: e.alternatives.map((alt) => ({ action: alt, command: alt })),
-            }
-          : {}),
-        ...(e.details ? { details: e.details } : {}),
-      },
-      { operation: 'docs.publish-pr' },
-    );
+    cliError(e.message, ExitCode.GENERAL_ERROR, { name: e.codeName, ...(e.fix ? { fix: e.fix } : {}), ...(e.alternatives ? { alternatives: e.alternatives.map((alt: string) => ({ action: alt, command: alt })) } : {}), ...(e.details ? { details: e.details } : {}) }, { operation: 'docs.publish' });
     process.exit(ExitCode.GENERAL_ERROR);
   },
 });
-
 // ── cleo docs sync ────────────────────────────────────────────────────────────
 
 /**
@@ -2125,11 +2139,14 @@ const listTypesCommand = defineCommand({
  * Root docs command group.
  *
  * Canonical six-verb path: add, update, fetch, list, remove, publish.
- * Advanced: supersede, find, search, generate, export, merge, graph, rank, versions, publish-pr.
- * Legacy/migration: sync, status, gap-check, import.
+ * Publish: consolidated `publish` verb (--target file|pr, --dry-run) (T11177).
+ *   publish-pr retained as deprecated migration alias.
+ * Advanced: supersede, generate, export, merge, graph, versions.
+ * Legacy/migration: sync, status, gap-check, import, search, find, rank, publish-pr.
  * Utilities: schema, list-types, serve, open, stop, viewer-status.
  *
  * @task T11046 — simplify docs help around canonical six-verb path
+ * @task T11177 — publish verb consolidation across doc CLI
  * @saga T10516
  */
 export const docsCommand = defineCommand({
