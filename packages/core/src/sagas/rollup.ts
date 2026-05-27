@@ -334,12 +334,12 @@ export async function sagaTraversal(
     // All non-ready, non-done children per member are blockers.
     // We synthesize this from the ready frontier — tasks with unmet deps
     // don't appear in the ready frontier.
-    const _readySet = new Set(readyFrontier);
-    const _allTasks = (readyData.readyTasks ?? []) as Array<{
-      id: string;
-      title: string;
-      depends: string[];
-    }>;
+    // const _readySet = new Set(readyFrontier);
+    // const _allTasks = (readyData.readyTasks ?? []) as Array<{
+    //   id: string;
+    //   title: string;
+    //   depends: string[];
+    // }>;
 
     // Actually we need more data. Let's do a simpler approach — collect
     // from the orchestrator output.
