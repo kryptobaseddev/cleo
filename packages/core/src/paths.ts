@@ -382,6 +382,35 @@ function _cwdHasGitAncestor(cwd?: string): boolean {
 }
 
 /**
+ * Attempt to resolve the main git repo root from a gitlink (.git as FILE).
+ * Returns the main repo path if the gitlink is valid and the main repo is a
+ * CLEO project; otherwise returns `null`.
+ *
+ * @internal
+ * @task T11034
+ */
+function _resolveMainRepoFromGitlink(gitlinkDir: string): string | null {
+  try {
+    const gitLinkPath = join(gitlinkDir, '.git');
+    if (!existsSync(gitLinkPath)) return null;
+    const stat = statSync(gitLinkPath);
+    if (!stat.isFile()) return null;
+    const gitLinkContent = readFileSync(gitLinkPath, 'utf-8').trim();
+    const match = gitLinkContent.match(/^gitdir:\s*(.+)$/m);
+    if (!match) return null;
+    const gitdir = match[1].trim();
+    // gitdir is `<main>/.git/worktrees/<name>` → strip last 3 segments.
+    const mainRepo = dirname(dirname(dirname(gitdir)));
+    if (existsSync(join(mainRepo, '.cleo')) && validateProjectRoot(mainRepo)) {
+      return mainRepo;
+    }
+  } catch {
+    // Parse error — not a valid gitlink.
+  }
+  return null;
+}
+
+/**
  * Module-level flag: emit the legacy-fallback warning at most once per process.
  * Prevents log spam when `validateProjectRoot` is called repeatedly in a session.
  */
@@ -442,6 +471,10 @@ export function validateProjectRoot(candidate: string): boolean {
   }
 
   // Primary: .cleo/project-info.json with a valid projectId string.
+  // T11034 — Worktree guard: a worktree has .git as a gitlink FILE, not a
+  // directory. project-info.json is copied into worktrees for identity
+  // inheritance (T11033), but worktrees must NOT be treated as standalone
+  // project roots — path resolution must walk past them to the parent project.
   const projectInfoPath = join(cleoDir, 'project-info.json');
   if (existsSync(projectInfoPath)) {
     try {
@@ -454,6 +487,20 @@ export function validateProjectRoot(candidate: string): boolean {
         typeof (parsed as Record<string, unknown>)['projectId'] === 'string' &&
         (parsed as Record<string, unknown>)['projectId'] !== ''
       ) {
+        // T11034: Reject worktrees — .git is a gitlink FILE, not a directory.
+        // Workers should resolve through to the parent project root.
+        const gitMarker = join(candidate, '.git');
+        if (existsSync(gitMarker)) {
+          try {
+            if (!statSync(gitMarker).isDirectory()) {
+              // Gitlink file (worktree) — NOT a project root.
+              return false;
+            }
+          } catch {
+            // Stat failed — treat as non-directory (reject).
+            return false;
+          }
+        }
         return true;
       }
     } catch {
@@ -612,32 +659,13 @@ export function getProjectRoot(cwd?: string): string {
   const start = resolve(cwd ?? process.cwd());
   let current = start;
 
-  // 2.5. T9092: if `start` is inside a git worktree (i.e. has `.git` as a
+  // 2.5. T9092 + T11034: if `start` is inside a git worktree (i.e. has `.git` as a
   //      gitlink FILE pointing to `<mainrepo>/.git/worktrees/<name>`), the
   //      canonical project root is the MAIN repo, not the worktree dir.
-  //      Read the gitlink, parse `gitdir: <path>`, derive the main repo root
-  //      as the grandparent of `<path>` (since gitdir is `<main>/.git/worktrees/<name>`).
-  //      This solves the case where the worktree lives under
-  //      `~/.local/share/cleo/worktrees/...` — walking up from there would
-  //      never reach the main repo at `/mnt/projects/cleocode`.
-  try {
-    const startGit = join(start, '.git');
-    if (existsSync(startGit) && statSync(startGit).isFile()) {
-      const gitLinkContent = readFileSync(startGit, 'utf-8').trim();
-      const match = gitLinkContent.match(/^gitdir:\s*(.+)$/m);
-      if (match) {
-        const gitdir = match[1].trim();
-        // gitdir is `<main>/.git/worktrees/<name>` → strip last 3 segments.
-        // dirname × 3: `<main>/.git/worktrees/<name>` → `<main>/.git/worktrees` → `<main>/.git` → `<main>`
-        const mainRepo = dirname(dirname(dirname(gitdir)));
-        if (existsSync(join(mainRepo, '.cleo')) && validateProjectRoot(mainRepo)) {
-          return mainRepo;
-        }
-      }
-    }
-  } catch {
-    // Gitlink parse error — fall through to ancestor walk.
-  }
+  //      Delegates to the shared _resolveMainRepoFromGitlink helper which
+  //      provides deterministic resolution from any worktree path.
+  const mainRepoFromStart = _resolveMainRepoFromGitlink(start);
+  if (mainRepoFromStart !== null) return mainRepoFromStart;
 
   // T889/T909 guard: snapshot $HOME and filesystem root sentinels.
   //
@@ -708,7 +736,14 @@ export function getProjectRoot(cwd?: string): string {
           fix: `cd ${current} && cleo init`,
         });
       }
-      // gitlink file — keep walking up to find the canonical project root.
+      // gitlink file — attempt to resolve the main repo from it (T11034).
+      // When a worktree lives under ~/.local/share/cleo/worktrees/... and the
+      // caller is in a subdirectory (not the worktree root), the start-level
+      // gitlink check misses it. During the walk we must resolve gitlinks
+      // to ensure deterministic resolution from any worktree path.
+      const mainRepoFromWalk = _resolveMainRepoFromGitlink(current);
+      if (mainRepoFromWalk !== null) return mainRepoFromWalk;
+      // gitlink we couldn't resolve — keep walking up.
     }
 
     // Move up one level

@@ -4,7 +4,7 @@
  * @task T4458
  */
 
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import envPaths from 'env-paths';
@@ -150,6 +150,120 @@ describe('getProjectRoot', () => {
   it('respects CLEO_ROOT env var — bypasses walk entirely', () => {
     process.env['CLEO_ROOT'] = '/custom/root';
     expect(getProjectRoot()).toBe('/custom/root');
+  });
+});
+
+// ============================================================================
+// T11034 — Worktree gitlink resolution during ancestor walk
+// ============================================================================
+
+describe('getProjectRoot — worktree gitlink resolution (T11034)', () => {
+  const origEnvDir = process.env['CLEO_DIR'];
+  const origEnvRoot = process.env['CLEO_ROOT'];
+  let mainRepo: string;
+  let worktreeDir: string;
+
+  beforeEach(() => {
+    delete process.env['CLEO_DIR'];
+    delete process.env['CLEO_ROOT'];
+    const base = join(
+      tmpdir(),
+      `cleo-t11034-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    // Main repo: has .cleo/project-info.json + .git/ directory
+    mainRepo = join(base, 'main-repo');
+    mkdirSync(join(mainRepo, '.cleo'), { recursive: true });
+    writeFileSync(
+      join(mainRepo, '.cleo', 'project-info.json'),
+      JSON.stringify({ projectId: 'test-project-id', projectHash: 'abc123' }),
+    );
+    mkdirSync(join(mainRepo, '.git'), { recursive: true });
+
+    // Worktree: .git is a gitlink FILE pointing to main repo
+    worktreeDir = join(base, 'worktree');
+    mkdirSync(worktreeDir, { recursive: true });
+    writeFileSync(
+      join(worktreeDir, '.git'),
+      `gitdir: ${mainRepo}/.git/worktrees/test-wt\n`,
+    );
+  });
+
+  afterEach(() => {
+    if (origEnvDir !== undefined) {
+      process.env['CLEO_DIR'] = origEnvDir;
+    } else {
+      delete process.env['CLEO_DIR'];
+    }
+    if (origEnvRoot !== undefined) {
+      process.env['CLEO_ROOT'] = origEnvRoot;
+    } else {
+      delete process.env['CLEO_ROOT'];
+    }
+    try {
+      rmSync(join(mainRepo, '..'), { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+  });
+
+  it('resolves to main repo from worktree root (start-level gitlink)', () => {
+    const result = getProjectRoot(worktreeDir);
+    expect(result).toBe(resolve(mainRepo));
+  });
+
+  it('resolves to main repo from worktree subdirectory (ancestor-walk gitlink)', () => {
+    const subdir = join(worktreeDir, 'packages', 'core', 'src');
+    mkdirSync(subdir, { recursive: true });
+    const result = getProjectRoot(subdir);
+    expect(result).toBe(resolve(mainRepo));
+  });
+
+  it('resolves to main repo from deeply nested worktree subdirectory', () => {
+    const deepDir = join(worktreeDir, 'a', 'b', 'c', 'd', 'e');
+    mkdirSync(deepDir, { recursive: true });
+    const result = getProjectRoot(deepDir);
+    expect(result).toBe(resolve(mainRepo));
+  });
+
+  it('getCleoDirAbsolute from worktree subdirectory returns parent project .cleo', () => {
+    const subdir = join(worktreeDir, 'src');
+    mkdirSync(subdir, { recursive: true });
+    const result = getCleoDirAbsolute(subdir);
+    expect(result).toBe(join(resolve(mainRepo), '.cleo'));
+  });
+
+  it('getCleoDirAbsolute from worktree root returns parent project .cleo', () => {
+    const result = getCleoDirAbsolute(worktreeDir);
+    expect(result).toBe(join(resolve(mainRepo), '.cleo'));
+  });
+
+  it('still throws for worktree whose gitlink points to non-existent main repo', () => {
+    const orphanWorktree = join(worktreeDir, '..', 'orphan-wt');
+    mkdirSync(orphanWorktree, { recursive: true });
+    writeFileSync(
+      join(orphanWorktree, '.git'),
+      'gitdir: /nonexistent/repo/.git/worktrees/ghost\n',
+    );
+    // The gitlink resolves but the main repo .cleo doesn't exist → resolution
+    // returns null → ancestor walk continues → eventually throws
+    expect(() => getCleoDirAbsolute(orphanWorktree)).toThrow();
+  });
+
+  it('still throws for worktree with unparseable gitlink content', () => {
+    const badWorktree = join(worktreeDir, '..', 'bad-wt');
+    mkdirSync(badWorktree, { recursive: true });
+    writeFileSync(join(badWorktree, '.git'), 'not a gitlink\n');
+    // Unparseable gitlink → resolution returns null → ancestor walk continues → throws
+    expect(() => getCleoDirAbsolute(badWorktree)).toThrow();
+  });
+
+  it('does not create .cleo/ inside worktree during resolution', () => {
+    const subdir = join(worktreeDir, 'src');
+    mkdirSync(subdir, { recursive: true });
+    getCleoDirAbsolute(subdir);
+    // Verify no .cleo was created inside the worktree
+    const entries = readdirSync(worktreeDir);
+    expect(entries).not.toContain('.cleo');
   });
 });
 
