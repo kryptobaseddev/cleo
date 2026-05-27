@@ -29,7 +29,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PruneWorktreesOptions, PruneWorktreesResult } from '@cleocode/contracts';
 import { getGitRoot, gitSilent } from './git.js';
-import { pruneWorktrees as napiPrune, removeDir as napiRemoveDir } from './napi-binding.js';
+import { pruneWorktrees as napiPrune, removeDir as napiRemoveDir, destroyWorktree as napiDestroyWorktree } from './napi-binding.js';
 import { computeProjectHash, resolveWorktreeRootForHash } from './paths.js';
 import { appendWorktreeAuditLog, removeWorktreeFromSentinelIndex } from './worktree-audit.js';
 

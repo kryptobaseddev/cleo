@@ -50,10 +50,6 @@ import { computeProjectHash, resolveWorktreeRootForHash } from '@cleocode/paths'
 // Helpers
 // ---------------------------------------------------------------------------
 
-import { getGitRoot, gitSilent, gitSync } from '@cleocode/worktree';
-
-// Re-export getGitRoot for barrel consumers
-export { getGitRoot };
 /**
  * Run git with explicit args (no shell) and return stdout as a trimmed string.
  * Throws on non-zero exit.
@@ -174,14 +170,14 @@ export function createAgentWorktree(taskId: string, projectRoot: string): AgentW
     gitSilent(['branch', '-D', branch], gitRoot);
   }
 
-  // Create the worktree with a new branch.
-  gitSync(['worktree', 'add', worktreePath, '-b', branch, baseRef], gitRoot);
-
-  // Apply git worktree lock to prevent accidental pruning.
-  // Try with --reason first (git ≥ 2.37), fall back without.
-  if (!gitSilent(['worktree', 'lock', '--reason', `cleo-agent-${taskId}`, worktreePath], gitRoot)) {
-    gitSilent(['worktree', 'lock', worktreePath], gitRoot);
-  }
+  // Provision the worktree and lock it via the NAPI binding (T11122).
+  provisionWorktree({
+    repoRoot: gitRoot,
+    targetPath: worktreePath,
+    branch,
+    baseRef,
+    lockReason: `cleo-agent-${taskId}`,
+  });
 
   // T9984: route projectHash through @cleocode/paths SSoT.
   const projectHash = computeProjectHash(projectRoot);
