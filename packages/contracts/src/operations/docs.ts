@@ -626,6 +626,16 @@ export interface DocsUpdateResult {
 }
 
 // --------------------------------------------------------------------------
+// docs.llm-output — unified LLM output: task export + attachment bundle generation
+// --------------------------------------------------------------------------
+
+/** Output mode for `docs.llm-output`. @task T11137 */
+export type LlmOutputMode = 'task-export' | 'attachment-bundle';
+export const LLM_OUTPUT_MODES: readonly LlmOutputMode[] = ['task-export', 'attachment-bundle'] as const;
+export interface DocsLlmOutputParams { for: string; mode?: LlmOutputMode; out?: string; includeAttachments?: boolean; includeMemoryRefs?: boolean; attach?: boolean; }
+export interface DocsLlmOutputResult { forId: string; mode: LlmOutputMode; content: string; sectionCount: number; usedLlmtxtPackage: boolean; attached?: boolean; attachmentId?: string; attachmentSha256?: string; writtenPath?: string; }
+
+// --------------------------------------------------------------------------
 // docs.supersede — flip an old doc to `superseded` and point at its successor
 // --------------------------------------------------------------------------
 
@@ -702,7 +712,8 @@ export type DocsOps =
   | { op: 'docs.add'; params: DocsAddParams; result: DocsAddResult }
   | { op: 'docs.remove'; params: DocsRemoveParams; result: DocsRemoveResult }
   | { op: 'docs.update'; params: DocsUpdateParams; result: DocsUpdateResult }
-  | { op: 'docs.supersede'; params: DocsSupersedeParams; result: DocsSupersedeResult };
+  | { op: 'docs.supersede'; params: DocsSupersedeParams; result: DocsSupersedeResult }
+  | { op: 'docs.llm-output'; params: DocsLlmOutputParams; result: DocsLlmOutputResult };
 
 /**
  * Enumeration of all docs domain operation names.
@@ -718,4 +729,5 @@ export type DocsOp =
   | 'docs.add'
   | 'docs.remove'
   | 'docs.update'
-  | 'docs.supersede';
+  | 'docs.supersede'
+  | 'docs.llm-output';
