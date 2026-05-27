@@ -4,14 +4,13 @@
 // Native-addon loader for @cleocode/worktree-napi.
 //
 // Resolution order:
-//   1. A `worktree-napi.<triple>.node` file co-located with this loader
-//      (developer / CI artifact path — wins so local `napi build` always
-//      takes precedence over an installed prebuilt).
-//   2. `@cleocode/worktree-napi-<triple>` per-arch package (the
-//      optionalDependencies wrapper published from CI).
+//   1. A `worktree-napi.<triple>.node` file co-located with this loader.
+//      Release publishing copies this loader and the built .node files into
+//      @cleocode/worktree/native so the existing @cleocode/worktree trusted
+//      publisher owns the whole native distribution.
 //
-// If neither is available we throw a descriptive error pointing at the
-// per-arch package name + a local build command.
+// If the co-located binary is unavailable we throw a descriptive error pointing
+// at the missing bundled path and local build command.
 
 const { existsSync } = require('node:fs');
 const { join } = require('node:path');
@@ -20,8 +19,14 @@ function tripleName() {
   const { platform, arch } = process;
   if (platform === 'linux' && arch === 'x64') return 'linux-x64-gnu';
   if (platform === 'linux' && arch === 'arm64') return 'linux-arm64-gnu';
-  if (platform === 'darwin' && arch === 'x64') return 'darwin-x64';
   if (platform === 'darwin' && arch === 'arm64') return 'darwin-arm64';
+  if (platform === 'darwin' && arch === 'x64') {
+    throw new Error(
+      '@cleocode/worktree-napi: macOS x64 prebuilds are not published. ' +
+        'Use an arm64 Node.js runtime on Apple Silicon or build locally with ' +
+        '`pnpm dlx @napi-rs/cli@3 build --release` inside `crates/worktree-napi/`.'
+    );
+  }
   if (platform === 'win32' && arch === 'x64') return 'win32-x64-msvc';
   throw new Error(
     `@cleocode/worktree-napi: unsupported platform/arch ${platform}/${arch}`
@@ -34,28 +39,19 @@ const localPath = join(__dirname, `worktree-napi.${triple}.node`);
 let nativeBinding;
 
 if (existsSync(localPath)) {
-  // Dev / CI / local fallback — `napi build` writes the .node here.
   nativeBinding = require(localPath);
 } else {
-  try {
-    // Production — per-arch optional dep wrapper published from CI.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    nativeBinding = require(`@cleocode/worktree-napi-${triple}`);
-  } catch (e) {
-    const msg = e && typeof e === 'object' && 'message' in e ? e.message : String(e);
-    throw new Error(
-      `@cleocode/worktree-napi: failed to load native binding for ${triple}. ` +
-        `Install \`@cleocode/worktree-napi-${triple}\` or run ` +
-        `\`pnpm dlx @napi-rs/cli@3 build --release\` inside \`crates/worktree-napi/\`. ` +
-        `Underlying error: ${msg}`
-    );
-  }
+  throw new Error(
+    `@cleocode/worktree-napi: missing native binding for ${triple} at ${localPath}. ` +
+      `The @cleocode/worktree package must include \`native/worktree-napi.${triple}.node\`; ` +
+      `for local development, run \`pnpm dlx @napi-rs/cli@3 build --release\` inside ` +
+      `\`crates/worktree-napi/\` and rename the output to \`worktree-napi.${triple}.node\`.`
+  );
 }
 
 // Static named-export re-binding so Node.js can detect the export shape
 // when this CJS module is imported from an ESM consumer (e.g. compiled
 // @cleocode/worktree under "type": "module"). Without this, ESM named
-// imports like `import { copyPathsParallel } from '@cleocode/worktree-napi'`
+// imports like `import { copyPathsParallel } from './native/worktree-napi.cjs'`
 // throw "does not provide an export named ..." at module link time.
 module.exports = nativeBinding;
-

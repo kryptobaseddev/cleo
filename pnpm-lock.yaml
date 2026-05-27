@@ -103,23 +103,7 @@ importers:
         specifier: ^4.1.4
         version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@22.19.15)(@vitest/coverage-v8@4.1.4)(vite@8.0.8(@types/node@22.19.15)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
 
-  crates/worktree-napi:
-    optionalDependencies:
-      '@cleocode/worktree-napi-darwin-arm64':
-        specifier: workspace:*
-        version: link:../../packages/worktree-napi-darwin-arm64
-      '@cleocode/worktree-napi-darwin-x64':
-        specifier: workspace:*
-        version: link:../../packages/worktree-napi-darwin-x64
-      '@cleocode/worktree-napi-linux-arm64-gnu':
-        specifier: workspace:*
-        version: link:../../packages/worktree-napi-linux-arm64-gnu
-      '@cleocode/worktree-napi-linux-x64-gnu':
-        specifier: workspace:*
-        version: link:../../packages/worktree-napi-linux-x64-gnu
-      '@cleocode/worktree-napi-win32-x64-msvc':
-        specifier: workspace:*
-        version: link:../../packages/worktree-napi-win32-x64-msvc
+  crates/worktree-napi: {}
 
   packages/adapters:
     dependencies:
@@ -896,10 +880,6 @@ importers:
       vitest:
         specifier: ^4.1.4
         version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@24.12.0)(@vitest/coverage-v8@4.1.4)(vite@8.0.8(@types/node@24.12.0)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
-    optionalDependencies:
-      '@cleocode/worktree-napi':
-        specifier: workspace:*
-        version: link:../../crates/worktree-napi
 
   packages/worktree-napi-darwin-arm64: {}
 

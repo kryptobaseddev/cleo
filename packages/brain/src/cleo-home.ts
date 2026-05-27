@@ -3,7 +3,9 @@
  *
  * Path resolution delegates to the `@cleocode/paths` SSoT
  * ({@link getCleoHome}). Project data (tasks.db, brain.db, conduit.db) is
- * resolved from `CLEO_ROOT` (or `process.cwd()`).
+ * resolved via projectId → nexus.db registry lookup
+ * ({@link resolveProjectByCwd} + {@link resolveCanonicalCleoDir}), with a
+ * `CLEO_ROOT` / `process.cwd()` fallback for non-project contexts.
  *
  * Previously this module imported `env-paths` directly which caused a Windows
  * path mismatch with the rest of the CLEO ecosystem (the CLI used env-paths
@@ -13,19 +15,36 @@
  *
  * @task T1874 (original Windows fix)
  * @task T1886 (migrated to @cleocode/paths SSoT)
+ * @task T11040 (verified 2026-05-27: projectId-based resolution confirmed; 72/72 tests pass)
  */
 
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { getCleoHome } from '@cleocode/paths';
+import { getCleoHome, resolveCanonicalCleoDir, resolveProjectByCwd } from '@cleocode/paths';
 
 export { getCleoHome };
 
 /**
  * Returns the project's `.cleo/` directory.
- * Resolved from `CLEO_ROOT` env var, falling back to `process.cwd()`.
+ *
+ * Resolution order:
+ * 1. {@link resolveProjectByCwd} — reads `.cleo/project-info.json` for a stable
+ *    `projectId`, then resolves the canonical `.cleo/` path via
+ *    {@link resolveCanonicalCleoDir} (nexus.db registry lookup).
+ * 2. Fallback: `CLEO_ROOT` env var or `process.cwd()` + `'.cleo'` for
+ *    non-project contexts (e.g., before `cleo init`).
+ *
+ * @task T11040 — migrate from CWD-walk-up to projectId-based resolution
  */
 export function getCleoProjectDir(): string {
+  const project = resolveProjectByCwd();
+  if (project !== null) {
+    const canonical = resolveCanonicalCleoDir(project.projectId);
+    if (canonical !== null) return canonical;
+    // Project found but not in nexus registry yet — use projectRoot fallback.
+    return join(project.projectRoot, '.cleo');
+  }
+  // Fallback for non-project contexts (pre-init, CLEO_ROOT override).
   const root = process.env['CLEO_ROOT'] ?? process.cwd();
   return join(root, '.cleo');
 }

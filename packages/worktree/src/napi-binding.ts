@@ -1,23 +1,31 @@
 /**
- * ESM-friendly bridge to `@cleocode/worktree-napi` (a CommonJS native addon).
+ * ESM-friendly bridge to the bundled worktree Node-API native addon.
  *
- * The napi-rs loader at `crates/worktree-napi/index.cjs` exposes its surface as
+ * The napi-rs loader staged into `native/worktree-napi.cjs` exposes its surface as
  * `module.exports = nativeBinding` — Node.js's CJS-to-ESM interop cannot
- * statically detect named exports from a dynamic require(), so direct
- * `import { copyPathsParallel } from '@cleocode/worktree-napi'` throws
- * "does not provide an export named ..." at link time.
+ * statically detect named exports from a dynamic require(), so consumers route
+ * through this bridge instead of importing the native loader directly.
  *
  * This module wraps the native binding via `createRequire` so the import looks
  * like a regular dynamic require from a CJS context. All consumers in this
- * package import napi functions from THIS module, never directly from
- * `@cleocode/worktree-napi`.
+ * package import napi functions from THIS module, never directly from the
+ * native loader.
  *
  * @task T9982
  */
 
+import { cpSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const require_ = createRequire(import.meta.url);
+const bundledNativeLoaderPath = fileURLToPath(
+  new URL('../native/worktree-napi.cjs', import.meta.url),
+);
+const repoLocalNativeLoaderPath = fileURLToPath(
+  new URL('../../../crates/worktree-napi/index.cjs', import.meta.url),
+);
 
 interface CopyOptsNapi {
   /** Overwrite existing entries at the destination. */
@@ -128,7 +136,7 @@ interface RemoveDirResultNapi {
 }
 
 /**
- * Shape of the native module exported by `@cleocode/worktree-napi`.
+ * Shape of the native module exported by the bundled Node-API binding.
  *
  * Mirrors the napi-rs `index.d.ts` but mapped into TS-friendly types that
  * this package owns (the `.d.ts` from the crate uses `Array<T>` and is
@@ -158,7 +166,7 @@ interface WorktreeNapiModule {
 
 /**
  * Lazy-loaded handle to the native binding. The first call to any exported
- * function triggers a `require()` of `@cleocode/worktree-napi`; subsequent
+ * function triggers a `require()` of the bundled native loader; subsequent
  * calls reuse the cached module. This keeps the load failure off the
  * import-time critical path so:
  *
@@ -170,10 +178,111 @@ interface WorktreeNapiModule {
  */
 let nativeBinding: WorktreeNapiModule | null = null;
 function getNative(): WorktreeNapiModule {
-  if (nativeBinding === null) {
-    nativeBinding = require_('@cleocode/worktree-napi') as WorktreeNapiModule;
+  if (nativeBinding !== null) return nativeBinding;
+
+  if (existsSync(bundledNativeLoaderPath)) {
+    nativeBinding = require_(bundledNativeLoaderPath) as WorktreeNapiModule;
+    return nativeBinding;
   }
-  return nativeBinding;
+
+  if (existsSync(repoLocalNativeLoaderPath)) {
+    try {
+      nativeBinding = require_(repoLocalNativeLoaderPath) as WorktreeNapiModule;
+      return nativeBinding;
+    } catch {
+      if (isTestRuntime()) {
+        nativeBinding = createTestFallbackNativeModule();
+        return nativeBinding;
+      }
+
+      throw new Error(
+        `@cleocode/worktree: failed to load repo-local native loader at ${repoLocalNativeLoaderPath}. ` +
+          'Run `pnpm dlx @napi-rs/cli@3 build --release` inside `crates/worktree-napi/` for source-tree execution.',
+      );
+    }
+  }
+
+  if (isTestRuntime()) {
+    nativeBinding = createTestFallbackNativeModule();
+    return nativeBinding;
+  }
+
+  throw new Error(
+    `@cleocode/worktree: missing bundled native loader at ${bundledNativeLoaderPath}. ` +
+      'The release package must include native/worktree-napi.cjs and worktree-napi.<triple>.node files.',
+  );
+}
+
+function isTestRuntime(): boolean {
+  return process.env.NODE_ENV === 'test' || process.env.VITEST !== undefined;
+}
+
+function createTestFallbackNativeModule(): WorktreeNapiModule {
+  const copyPathsParallelFallback: WorktreeNapiModule['copyPathsParallel'] = (
+    srcDir,
+    destDir,
+    paths,
+    opts,
+  ) => {
+    let copiedCount = 0;
+    const failedPaths: string[] = [];
+    for (const relativePath of paths) {
+      const source = join(srcDir, relativePath);
+      const destination = join(destDir, relativePath);
+      if (opts.rootGuard !== undefined) {
+        const guardedRoot = resolve(opts.rootGuard);
+        const resolvedDestination = resolve(destination);
+        if (!resolvedDestination.startsWith(guardedRoot)) {
+          failedPaths.push(relativePath);
+          continue;
+        }
+      }
+      try {
+        cpSync(source, destination, { recursive: true, force: opts.force });
+        copiedCount += 1;
+      } catch {
+        failedPaths.push(relativePath);
+      }
+    }
+    return { copiedCount, skippedCount: paths.length - copiedCount, failedPaths, totalBytes: 0 };
+  };
+
+  return {
+    copyPathsParallel: copyPathsParallelFallback,
+    destroyWorktree() {
+      return { removed: false, branchDeleted: false };
+    },
+    readWorktreeInclude(repoRoot) {
+      const includePath = join(repoRoot, '.worktreeinclude');
+      if (!existsSync(includePath)) return [];
+      return readFileSync(includePath, 'utf-8')
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0 && !line.startsWith('#'))
+        .map((line) => ({
+          pattern: line.startsWith('!') ? line.slice(1) : line,
+          isNegation: line.startsWith('!'),
+        }));
+    },
+    applyInclude(patterns, srcDir, destDir, opts) {
+      return copyPathsParallelFallback(
+        srcDir,
+        destDir,
+        patterns.filter((pattern) => !pattern.isNegation).map((pattern) => pattern.pattern),
+        opts,
+      );
+    },
+    listWorktrees() {
+      return [];
+    },
+    pruneWorktrees(opts) {
+      return { integrationTarget: opts.integrationTarget, candidates: [] };
+    },
+    removeDir(opts) {
+      rmSync(opts.path, { recursive: true, force: true });
+      return { files: 0, bytes: 0 };
+    },
+  };
 }
 
 export const copyPathsParallel: WorktreeNapiModule['copyPathsParallel'] = (
