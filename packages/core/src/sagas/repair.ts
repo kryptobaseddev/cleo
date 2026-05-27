@@ -24,7 +24,7 @@ import { type EngineResult, engineError, engineSuccess } from '../engine-result.
 import { taskRelatesAdd } from '../tasks/engine-wrap.js';
 import { taskShow } from '../tasks/show.js';
 import { coreTaskReparent } from '../tasks/task-reparent.js';
-import { SAGA_GROUPS_RELATION, SAGA_LABEL } from './constants.js'; // saga-label-ok: T10638 — SSoT residual
+import { SAGA_GROUPS_RELATION } from './constants.js'; // saga-label-ok: T10638 — SSoT residual
 
 /** Input parameters for {@link repairSaga}. */
 export interface RepairSagaParams {
@@ -84,13 +84,10 @@ export async function repairSaga(
   if (!sagaResult.success || !sagaResult.data) {
     return engineError('E_NOT_FOUND', `Saga not found: ${sagaId}`);
   }
-  const sagaLabels = sagaResult.data.task.labels ?? [];
-  if (!sagaLabels.includes(SAGA_LABEL)) {
-    // saga-label-ok: T10638 — SSoT residual
-    return engineError(
-      'E_INVALID_INPUT',
-      `Task ${sagaId} does not have label='${SAGA_LABEL}' // saga-label-ok: T10638`,
-    );
+  // Post-PM-Core V2: sagas identified by type, not label
+  const sagaTask = sagaResult.data.task;
+  if (sagaTask.type !== 'saga') {
+    return engineError('E_INVALID_INPUT', `Task ${sagaId} is not a saga (type=${sagaTask.type})`);
   }
 
   const currentParentId = sagaResult.data.task.parentId ?? null;

@@ -134,11 +134,6 @@ export type OrchestrateTraversal = 'parent' | 'saga' | 'both';
  *
  * @task T10638
  */
-export function isSagaEpic(task: Pick<Task, 'type'> | null | undefined): boolean {
-  // saga-label-ok: T10638 — SSoT residual, consumed by query-ops internals
-  if (!task) return false;
-  return task.type === 'saga';
-}
 
 /**
  * Extract member-Epic IDs from a saga via `parent_id` containment.

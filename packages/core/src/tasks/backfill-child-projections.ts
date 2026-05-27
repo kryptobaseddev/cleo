@@ -102,7 +102,9 @@ export async function backfillChildProjections(
     DatabaseSync: new (path: string) => NativeDb;
   };
 
-  const db = new DatabaseSync(tasksDbPath) as NativeDb;
+  // db-open-allowed — T10648 backfill is a one-shot maintenance script
+  // that must write directly to tasks.db outside the openCleoDb chokepoint.
+  const db = new DatabaseSync(tasksDbPath) as NativeDb; // db-open-allowed: T10648 one-shot CLI
 
   try {
     // Query all parent tasks with children
