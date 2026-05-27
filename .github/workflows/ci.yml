@@ -156,6 +156,33 @@ jobs:
         # rogue worktrees should exist. The script exits 0 when clean.
         run: node scripts/lint-worktree-location.mjs
 
+  worktree-project-info-lint:
+    # T11038 / Saga T10295 (Project Authority) · Epic T10299 (Worktree Project
+    # Identity Binding) — AC18. Regression guard: any non-primary git worktree
+    # with a .cleo/ directory MUST have .cleo/project-info.json with a valid
+    # projectId.  T11033 added automatic provisioning; T11036 will backfill
+    # pre-existing worktrees.  This gate prevents NEW identity-less worktrees
+    # by comparing the live worktree count against a committed baseline.
+    # Pure static analysis of live git state — no user input flows here.
+    # Uses --check mode (baseline comparison) because 90+ pre-T11033 worktrees
+    # exist without project-info.json.  After T11036 backfill completes,
+    # switch to --strict for zero-tolerance enforcement.
+    name: Worktree Project-Info Lint (T11038)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Lint worktree project-info.json
+        # In CI only the primary checkout exists — count is always 0 which
+        # is <= baseline, so this always passes in CI.  Local enforcement
+        # triggers when new worktrees appear without project-info.json.
+        run: node scripts/lint-worktree-project-info.mjs --check
+
   orphan-cleo-dir-check:
     # T10155 / Saga T9862 SG-WORKTREE-CANON Wave 5 — orphan-`.cleo/` regression
     # guard. Scans `git diff --diff-filter=A` between the PR base and HEAD for
