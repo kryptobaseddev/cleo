@@ -87,16 +87,6 @@ const ALLOWLIST_PREFIXES = [
  * Format: `[relPath, reason]` tuples.
  */
 const FILE_ALLOWLIST = [
-  // T9984: legacy sync test-fixture helper. Production spawn now routes
-  // through `@cleocode/worktree.createWorktree` via
-  // `sentient/worktree-dispatch.ts`. The sync surface is retained for the
-  // worktree-audit + worktree-merge + worktree-complete tests, which run
-  // against on-disk git fixtures. Migration to async createWorktree is
-  // tracked as a follow-up.
-  [
-    'packages/core/src/spawn/branch-lock.ts',
-    'T9984 legacy sync test-fixture helper — async migration follow-up',
-  ],
   // T9984: SDK primitives implementing the worktree observability /
   // diagnostics surface (list / prune / force-unlock). These functions
   // ARE the canonical core-side wrappers that the rest of the codebase
@@ -133,6 +123,10 @@ const RAW_PATTERNS = [
   // not actual shell-outs. The first two patterns above catch real
   // subprocess invocations.
   /['"]git\s+worktree\s+(?:add|remove|list|lock|unlock|prune|move|repair)['"]/,
+  // Direct execFileSync('git', ['worktree', <verb>, ...]) — catches raw
+  // worktree shell-outs in core/src/spawn/ that bypass the SDK. Added for
+  // T10907-C7 (E-WORKTRUNK-BOUNDARY-GATES) to gate branch-lock.ts.
+  /execFileSync\s*\(\s*['"`]git['"`]\s*,\s*\[\s*['"`]worktree['"`]\s*,\s*['"`](?:add|remove|list|lock|unlock|prune|move|repair)['"`]/,
 ];
 
 const OPT_OUT_MARKER = 'raw-git-worktree-ok:';

@@ -1,6 +1,11 @@
 /**
  * Branch-lock engine — runtime enforcement for agent git isolation (T1118).
  *
+ * **T11064 AUDIT (2026-05-27)**: This file is a parallel lifecycle owner with
+ * 36 git shell-outs across 6 functions. Per ADR-087-A, lifecycle operations
+ * should migrate to @cleocode/worktree (canonical owner). See T10853 for the
+ * consolidation epic and .cleo/rcasd/T11064/branch-lock-audit.md for full inventory.
+ *
  * Implements all four protection layers:
  *
  * - L1: Git worktree creation, merge-completion (ADR-062), and cleanup.
@@ -46,41 +51,10 @@ import type {
 } from '@cleocode/contracts';
 import { computeProjectHash, resolveWorktreeRootForHash } from '@cleocode/paths';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+import { getGitRoot, gitSilent, gitSync } from '@cleocode/worktree/git.js';
 
-/**
- * Run git with explicit args (no shell) and return stdout as a trimmed string.
- * Throws on non-zero exit.
- *
- * @param args - Git arguments (no "git" prefix).
- * @param cwd - Working directory.
- * @returns stdout trimmed.
- */
-function gitSync(args: string[], cwd: string): string {
-  return execFileSync('git', args, {
-    cwd,
-    encoding: 'utf-8',
-    stdio: ['pipe', 'pipe', 'pipe'],
-  }).trim();
-}
-
-/**
- * Run git silently — ignores output, suppresses errors.
- *
- * @param args - Git arguments.
- * @param cwd - Working directory.
- * @returns true on success, false on error.
- */
-function gitSilent(args: string[], cwd: string): boolean {
-  try {
-    execFileSync('git', args, { cwd, stdio: 'pipe' });
-    return true;
-  } catch {
-    return false;
-  }
-}
+// Re-export getGitRoot for barrel consumers
+export { getGitRoot };
 
 // ---------------------------------------------------------------------------
 // L1 — Worktree lifecycle
@@ -114,24 +88,6 @@ export function resolveAgentWorktreeRoot(projectRoot: string): string {
 }
 
 /**
- * Determine the git root for a project.
- *
- * @param projectRoot - Absolute path to the project root.
- * @returns Absolute path to the git root directory.
- * @throws Error if the directory is not inside a git repository.
- *
- * @task T1118
- * @task T1120
- */
-export function getGitRoot(projectRoot: string): string {
-  try {
-    return gitSync(['rev-parse', '--show-toplevel'], projectRoot);
-  } catch {
-    throw new Error(`Not a git repository: ${projectRoot}`);
-  }
-}
-
-/**
  * Create a git worktree for a spawned agent task.
  *
  * Creates branch `task/<taskId>` off the current HEAD of the orchestrator's
@@ -162,8 +118,8 @@ export function createAgentWorktree(taskId: string, projectRoot: string): AgentW
 
   // Remove stale worktree at this path if it exists.
   if (existsSync(worktreePath)) {
-    gitSilent(['worktree', 'unlock', worktreePath], gitRoot);
-    if (!gitSilent(['worktree', 'remove', '--force', worktreePath], gitRoot)) {
+    gitSilent(['worktree', 'unlock', worktreePath], gitRoot); // raw-git-worktree-ok: T11122 stale cleanup before NAPI
+    if (!gitSilent(['worktree', 'remove', '--force', worktreePath], gitRoot)) { // raw-git-worktree-ok: T11122 stale remove before NAPI
       rmSync(worktreePath, { recursive: true, force: true });
     }
     // Attempt to delete the leftover branch.
@@ -171,12 +127,12 @@ export function createAgentWorktree(taskId: string, projectRoot: string): AgentW
   }
 
   // Create the worktree with a new branch.
-  gitSync(['worktree', 'add', worktreePath, '-b', branch, baseRef], gitRoot);
+  gitSync(['worktree', 'add', worktreePath, '-b', branch, baseRef], gitRoot); // raw-git-worktree-ok: T9984 legacy createAgentWorktree; prod @cleocode/worktree
 
   // Apply git worktree lock to prevent accidental pruning.
   // Try with --reason first (git ≥ 2.37), fall back without.
-  if (!gitSilent(['worktree', 'lock', '--reason', `cleo-agent-${taskId}`, worktreePath], gitRoot)) {
-    gitSilent(['worktree', 'lock', worktreePath], gitRoot);
+  if (!gitSilent(['worktree', 'lock', '--reason', `cleo-agent-${taskId}`, worktreePath], gitRoot)) { // raw-git-worktree-ok: T9984 legacy lock; prod @cleocode/worktree
+    gitSilent(['worktree', 'lock', worktreePath], gitRoot); // raw-git-worktree-ok: T9984 legacy lock fallback; prod @cleocode/worktree
   }
 
   // T9984: route projectHash through @cleocode/paths SSoT.
@@ -264,7 +220,7 @@ export function pruneOrphanedWorktrees(
   const errors: Array<{ path: string; reason: string }> = [];
 
   // Run git worktree prune to clean up stale administrative entries.
-  gitSilent(['worktree', 'prune'], gitRoot);
+  gitSilent(['worktree', 'prune'], gitRoot); // raw-git-worktree-ok: T9984 legacy pruneOrphanedWorktrees; prod @cleocode/worktree
 
   if (taskIds !== undefined && existsSync(worktreeRoot)) {
     let entries: string[] = [];
@@ -276,8 +232,8 @@ export function pruneOrphanedWorktrees(
     for (const entry of entries) {
       if (taskIds.has(entry)) continue;
       const worktreePath = join(worktreeRoot, entry);
-      gitSilent(['worktree', 'unlock', worktreePath], gitRoot);
-      if (gitSilent(['worktree', 'remove', '--force', worktreePath], gitRoot)) {
+      gitSilent(['worktree', 'unlock', worktreePath], gitRoot); // raw-git-worktree-ok: T9984 legacy pruneOrphanedWorktrees; prod @cleocode/worktree
+      if (gitSilent(['worktree', 'remove', '--force', worktreePath], gitRoot)) { // raw-git-worktree-ok: T9984 legacy pruneOrphanedWorktrees; prod @cleocode/worktree
         removed.push(worktreePath);
       } else {
         try {
@@ -418,14 +374,14 @@ export function pruneWorktree(
 
   // Unlock and remove the worktree.
   let worktreeRemoved = false;
-  gitSilent(['worktree', 'unlock', worktreePath], gitRoot);
-  if (gitSilent(['worktree', 'remove', '--force', worktreePath], gitRoot)) {
+  gitSilent(['worktree', 'unlock', worktreePath], gitRoot); // raw-git-worktree-ok: T9984 legacy pruneWorktree; prod @cleocode/worktree
+  if (gitSilent(['worktree', 'remove', '--force', worktreePath], gitRoot)) { // raw-git-worktree-ok: T9984 legacy pruneWorktree; prod @cleocode/worktree
     worktreeRemoved = true;
   } else {
     try {
       rmSync(worktreePath, { recursive: true, force: true });
       // Prune stale git admin entries.
-      gitSilent(['worktree', 'prune'], gitRoot);
+      gitSilent(['worktree', 'prune'], gitRoot); // raw-git-worktree-ok: T9984 legacy pruneWorktree fallback; prod @cleocode/worktree
       worktreeRemoved = true;
     } catch (err) {
       return {
