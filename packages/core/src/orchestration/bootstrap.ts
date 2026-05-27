@@ -95,29 +95,55 @@ export async function buildBrainState(
       blockedBy: b.depends || [],
     }));
 
-    // Recent decisions (from decision-log in .cleo)
+    // Recent decisions — prefer BRAIN decision-store (brain_decisions table) over
+    // the legacy .cleo/decision-log.jsonl ledger blob. BRAIN decisions are durable,
+    // queryable, and backed by FTS5; the ledger blob is a flat file with no search.
+    // @task T11185 — Decision-routing ergonomics (T10516-D)
     try {
-      const decisionLogPath = join(projectRoot, '.cleo', 'decision-log.jsonl');
-      if (existsSync(decisionLogPath)) {
-        const content = readFileSync(decisionLogPath, 'utf-8').trim();
-        if (content) {
-          const entries = content
-            .split('\n')
-            .filter((l) => l.trim())
-            .map((l) => {
-              try {
-                return JSON.parse(l);
-              } catch {
-                return null;
-              }
-            })
-            .filter(Boolean);
-          const recent = entries.slice(-5);
-          brain.recentDecisions = recent.map((d: Record<string, unknown>) => ({
-            id: (d.id as string) ?? '',
-            decision: (d.decision as string) ?? '',
-            timestamp: (d.timestamp as string) ?? '',
+      let loaded = false;
+
+      // Primary: read from BRAIN brain_decisions table (canonical decision-store).
+      try {
+        const { getBrainAccessor } = await import('../store/memory-accessor.js');
+        const brainAccessor = await getBrainAccessor(projectRoot);
+        const brainDecisions = await brainAccessor.findDecisions({ limit: 5 });
+        if (brainDecisions.length > 0) {
+          brain.recentDecisions = brainDecisions.map((d) => ({
+            id: d.id,
+            decision: d.decision,
+            timestamp: d.createdAt ?? '',
           }));
+          loaded = true;
+        }
+      } catch {
+        // BRAIN unavailable — fall through to ledger blob.
+      }
+
+      // Secondary fallback: read from legacy .cleo/decision-log.jsonl.
+      // Only used when BRAIN decision-store is empty or unavailable.
+      if (!loaded) {
+        const decisionLogPath = join(projectRoot, '.cleo', 'decision-log.jsonl');
+        if (existsSync(decisionLogPath)) {
+          const content = readFileSync(decisionLogPath, 'utf-8').trim();
+          if (content) {
+            const entries = content
+              .split('\n')
+              .filter((l) => l.trim())
+              .map((l) => {
+                try {
+                  return JSON.parse(l);
+                } catch {
+                  return null;
+                }
+              })
+              .filter(Boolean);
+            const recent = entries.slice(-5);
+            brain.recentDecisions = recent.map((d: Record<string, unknown>) => ({
+              id: (d.id as string) ?? '',
+              decision: (d.decision as string) ?? '',
+              timestamp: (d.timestamp as string) ?? '',
+            }));
+          }
         }
       }
     } catch {

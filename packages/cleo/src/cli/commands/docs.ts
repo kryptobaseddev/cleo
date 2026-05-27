@@ -3,9 +3,10 @@
  *
  * Advanced: supersede, find, search, generate, export, merge, graph, rank, versions, publish-pr.
  * Legacy/migration: sync, status, gap-check, import (use canonical verbs for new work).
- * Utilities: schema, list-types, serve, open, stop, viewer-status.
+ * Utilities: schema (doc-kind taxonomy discovery), serve, open, stop, viewer-status.
+ * Migration alias: list-types → schema (T11142).
  *
- * @task T11046 (simplify docs help), T4551 (sync/gap-check), T797 (add/list/fetch/remove)
+ * @task T11046 (simplify docs help), T4551 (sync/gap-check), T797 (add/list/fetch/remove), T11142 (unify schema/list-types)
  * @saga T10516
  */
 
@@ -225,7 +226,7 @@ const addCommand = defineCommand({
       '  --attached-by <name>   Agent identity that created the attachment (default: "human")\n' +
       '  --slug <kebab>         Human-friendly alias, unique per project (T9636)\n' +
       '  --title <text>         Human-readable title — REQUIRED for --type adr when --slug is omitted (T10360)\n' +
-      '  --type <kind>          Taxonomy classification — run `cleo docs list-types` for kinds\n' +
+      '  --type <kind>          Taxonomy classification — run `cleo docs schema` for kinds\n' +
       '  --allow-similar        Bypass the slug-similarity warn — every bypass is audited\n' +
       '                         to .cleo/audit/similar-bypass.jsonl (T10361)\n' +
       '  --strict               Enforce body-schema (requiredSections) — fail with\n' +
@@ -283,7 +284,7 @@ const addCommand = defineCommand({
     type: {
       type: 'string',
       description:
-        'Taxonomy classification — run `cleo docs list-types` to enumerate registered kinds (T9637 / T9788)',
+        'Taxonomy classification — run `cleo docs schema` to enumerate registered kinds (T9637 / T9788 / T11142)',
     },
     'allow-similar': {
       type: 'boolean',
@@ -776,6 +777,10 @@ const supersedeCommand = defineCommand({
   },
   args: supersedeCommandArgs,
   async run({ args, rawArgs }) {
+    // T11179: supersede is deprecated.
+    process.stderr.write(
+      'cleo: docs supersede is deprecated - use `cleo docs update` for new work (T11179)\n',
+    );
     try {
       assertKnownFlags(rawArgs, supersedeCommandArgs, 'docs supersede');
     } catch (err) {
@@ -829,6 +834,10 @@ const generateCommand = defineCommand({
     },
   },
   async run({ args }) {
+    // T11179: generate is deprecated.
+    process.stderr.write(
+      'cleo: docs generate is deprecated - use `cleo docs export` for new work (T11179)\n',
+    );
     await dispatchFromCli(
       'query',
       'docs',
@@ -1199,6 +1208,180 @@ const mergeCommand = defineCommand({
       cliError(`docs merge failed: ${message}`, ExitCode.GENERAL_ERROR, {
         name: 'E_DOCS_MERGE_FAILED',
       });
+      process.exit(ExitCode.GENERAL_ERROR);
+    }
+  },
+});
+
+// ── cleo docs query ──────────────────────────────────────────────────────────
+//
+// Unified search/find/rank surface — single entry point that routes to the
+// appropriate llmtxt/similarity primitive based on the provided flags.
+//
+// @task T11176 (T10516-F1 — consolidate search/find/rank)
+// @saga T10516
+
+const queryCommand = defineCommand({
+  meta: {
+    name: 'query',
+    description:
+      'Unified docs query surface: semantic search, similar-doc discovery, and entity ranking. ' +
+      'Subsumes the legacy search, find, and rank subcommands into one consistent surface.\n\n' +
+      'Modes (mutually exclusive):\n' +
+      '  cleo docs query "<text>"       Free-text search\n' +
+      '  cleo docs query --similar <slug>  Find similar to a slug\n' +
+      '  cleo docs query --for <id>     Rank for an entity\n\n' +
+      'Common flags: --limit <n>, --type <kind>, --json\n' +
+      'Free-text search flags: --owner <id>\n' +
+      'Similar-to-slug flags: --threshold <0..1>, --all-kinds\n' +
+      'Entity-ranking flags: --text "<query>"\n\n' +
+      docsOutputFlagHelp,
+  },
+  args: {
+    query: {
+      type: 'positional',
+      description: 'Free-text query for semantic search',
+      required: false,
+    },
+    similar: {
+      type: 'string',
+      description: 'Slug of seed doc to find similar docs against (find mode)',
+    },
+    for: {
+      type: 'string',
+      description: 'Owner entity ID to rank attachments for (rank mode)',
+    },
+    text: {
+      type: 'string',
+      description: 'Custom query string for the rank mode (default: owner ID)',
+    },
+    type: {
+      type: 'string',
+      description: 'Filter by taxonomy type: spec|adr|research|handoff|note|llm-readme',
+    },
+    owner: {
+      type: 'string',
+      description: 'Scope free-text search to a specific owner entity ID',
+    },
+    limit: {
+      type: 'string',
+      description: 'Maximum number of results to return (default: 10)',
+    },
+    threshold: {
+      type: 'string',
+      description: 'Minimum cosine similarity score in [0, 1] (for --similar mode, default: 0.5)',
+    },
+    'all-kinds': {
+      type: 'boolean',
+      description: 'Disable the same-kind filter and rank across every DocKind (for --similar mode)',
+    },
+    ...docsOutputArgs,
+  },
+  async run({ args, rawArgs }) {
+    try {
+      assertKnownFlags(rawArgs, queryCommand.args, 'docs query');
+    } catch (err) {
+      if (err instanceof UnknownFlagError) {
+        cliError(err.message, ExitCode.VALIDATION_ERROR, {
+          name: err.code,
+          fix: err.fix,
+          alternatives: err.suggestions.map((s) => ({ action: s, command: s })),
+          details: { flag: err.flag, knownFlags: err.knownFlags },
+        });
+        process.exit(ExitCode.VALIDATION_ERROR);
+      }
+      throw err;
+    }
+
+    const similarSlug = typeof args.similar === 'string' ? args.similar.trim() : '';
+    const forId = typeof args.for === 'string' ? args.for.trim() : '';
+    const textQuery = typeof args.query === 'string' ? String(args.query) : '';
+    const customQuery = typeof args.text === 'string' ? String(args.text) : undefined;
+    const typeFilter = typeof args.type === 'string' ? String(args.type) : undefined;
+    const ownerScope = typeof args.owner === 'string' ? String(args.owner) : undefined;
+
+    const modes = [];
+    if (similarSlug.length > 0) modes.push('--similar');
+    if (forId.length > 0) modes.push('--for');
+    if (textQuery.length > 0) modes.push('<query>');
+
+    if (modes.length === 0) {
+      cliError(
+        'docs query requires a query mode: pass a free-text <query>, --similar <slug>, or --for <id>',
+        ExitCode.VALIDATION_ERROR,
+        {
+          name: 'E_VALIDATION',
+          fix: 'Examples: cleo docs query "authentication flow" | cleo docs query --similar adr-073 | cleo docs query --for T123',
+        },
+      );
+      process.exit(ExitCode.VALIDATION_ERROR);
+    }
+
+    if (modes.length > 1) {
+      cliError(
+        `docs query modes are mutually exclusive — got ${modes.join(', ')}. Choose one.`,
+        ExitCode.VALIDATION_ERROR,
+        {
+          name: 'E_VALIDATION',
+          fix: 'Pass exactly one of: free-text <query>, --similar <slug>, or --for <id>',
+        },
+      );
+      process.exit(ExitCode.VALIDATION_ERROR);
+    }
+
+    let limit;
+    if (typeof args.limit === 'string') {
+      const parsed = Number.parseInt(args.limit, 10);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        cliError(`--limit must be a positive integer (got "${args.limit}")`, ExitCode.VALIDATION_ERROR, { name: 'E_VALIDATION' });
+        process.exit(ExitCode.VALIDATION_ERROR);
+      }
+      limit = parsed;
+    }
+
+    let threshold;
+    if (typeof args.threshold === 'string') {
+      const parsed = Number.parseFloat(args.threshold);
+      if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+        cliError(`--threshold must be a number in [0, 1] (got "${args.threshold}")`, ExitCode.VALIDATION_ERROR, { name: 'E_VALIDATION' });
+        process.exit(ExitCode.VALIDATION_ERROR);
+      }
+      threshold = parsed;
+    }
+
+    const allKinds = args['all-kinds'] === true;
+
+    try {
+      if (similarSlug.length > 0) {
+        const result = await dispatchDocsRaw('query', 'find', {
+          similarSlug,
+          ...(limit !== undefined ? { limit } : {}),
+          ...(threshold !== undefined ? { threshold } : {}),
+          allKinds,
+        });
+        cliOutput(result, { command: 'docs query', operation: 'docs.find' });
+      } else if (forId.length > 0) {
+        const result = await dispatchDocsRaw('query', 'rank', {
+          ownerId: forId,
+          query: customQuery ?? undefined,
+        });
+        cliOutput(result, { command: 'docs query', operation: 'docs.rank' });
+      } else {
+        const result = await dispatchDocsRaw('query', 'search', {
+          query: textQuery,
+          ...(ownerScope ? { ownerId: ownerScope } : {}),
+          ...(limit !== undefined ? { limit } : {}),
+          ...(typeFilter ? { type: typeFilter } : {}),
+        });
+        cliOutput(result, { command: 'docs query', operation: 'docs.search' });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const code =
+        err instanceof Error && typeof (err as Error & { code?: string }).code === 'string'
+          ? (err as Error & { code: string }).code
+          : 'E_DOCS_QUERY_FAILED';
+      cliError(`docs query failed: ${message}`, ExitCode.GENERAL_ERROR, { name: code });
       process.exit(ExitCode.GENERAL_ERROR);
     }
   },
@@ -2005,7 +2188,7 @@ const schemaCommand = defineCommand({
       'Emit the canonical doc-kind taxonomy registry (built-ins + project extensions) ' +
       'as a LAFS envelope. The schema is the single source of truth for the ' +
       '--type values accepted by `cleo docs add` and the publish-dir layout used by ' +
-      '`cleo docs publish-pr`. See `cleo docs list-types` for the human-readable form (T9788).',
+      '`cleo docs publish-pr`. (T11142).',
   },
   args: {
     'include-counts': {
@@ -2121,13 +2304,48 @@ const listTypesCommand = defineCommand({
   },
 });
 
+// ── cleo docs migrate (T11179) ────────────────────────────────────────────────
+
+const migrateCommand = defineCommand({
+  meta: {
+    name: 'migrate',
+    description:
+      'Migrate legacy attachments (tasks.db + .cleo/attachments/) to llmtxt-v2 blob store ' +
+      '(manifest.db + .cleo/blobs/). Use --dry-run to preview without writing.',
+  },
+  args: {
+    'dry-run': {
+      type: 'boolean',
+      description: 'Report what WOULD be migrated without writing to llmtxt store',
+    },
+    limit: {
+      type: 'string',
+      description: 'Max number of attachments to migrate (for incremental rollouts)',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'docs',
+      'migrate',
+      {
+        ...(args['dry-run'] === true ? { dryRun: true } : {}),
+        ...(typeof args.limit === 'string'
+          ? { limit: parseInt(args.limit, 10) }
+          : {}),
+      },
+      { command: 'docs migrate' },
+    );
+  },
+});
+
 /**
  * Root docs command group.
  *
  * Canonical six-verb path: add, update, fetch, list, remove, publish.
  * Advanced: supersede, find, search, generate, export, merge, graph, rank, versions, publish-pr.
  * Legacy/migration: sync, status, gap-check, import.
- * Utilities: schema, list-types, serve, open, stop, viewer-status.
+ * Utilities: schema, serve, open, stop, viewer-status (list-types → schema).
  *
  * @task T11046 — simplify docs help around canonical six-verb path
  * @saga T10516
@@ -2137,9 +2355,10 @@ export const docsCommand = defineCommand({
     name: 'docs',
     description:
       'Canonical six-verb docs path: add, update, fetch, list, remove, publish. ' +
-      'Advanced: supersede, find, search, generate, export, merge, graph, rank, versions, publish-pr. ' +
-      'Legacy/migration: sync, status, gap-check, import (use canonical verbs for new work). ' +
-      'Utilities: schema, list-types, serve, open, stop, viewer-status.',
+      'Unified query: query (subsumes search/find/rank). ' +
+      'Advanced: supersede, generate, export, merge, graph, versions, publish-pr. ' +
+      'Legacy/migration: search, find, rank, sync, status, gap-check, import (use query for new work). ' +
+      'Viewer: viewer (start/stop/open/status). Utilities: schema (list-types → schema).',
   },
   subCommands: {
     // Canonical six-verb path (add, update, fetch, list, remove, publish)
@@ -2149,15 +2368,18 @@ export const docsCommand = defineCommand({
     list: listCommand,
     remove: removeCommand,
     publish: publishCommand,
+    // T11176 — unified search/find/rank surface (preferred entry point)
+    query: queryCommand,
     // Advanced primitives
     supersede: supersedeCommand,
-    find: findCommand,
-    search: searchCommand,
     generate: generateCommand,
     export: exportCommand,
     merge: mergeCommand,
     // T10164 — DocProvenanceResponse-typed graph (`--root <slug>|<taskId>`).
     graph: provenanceGraphCommand,
+    // Legacy aliases (use `query` for new work — retained for backward compatibility)
+    search: searchCommand,
+    find: findCommand,
     rank: rankCommand,
     versions: versionsCommand,
     'publish-pr': publishPrCommand,
@@ -2166,6 +2388,8 @@ export const docsCommand = defineCommand({
     status: statusCommand,
     'gap-check': gapCheckCommand,
     import: importCommand,
+    // Migration tool (T11179)
+    migrate: migrateCommand,
     // Utilities
     // T9788 — canonical doc-kind taxonomy discovery surface.
     schema: schemaCommand,

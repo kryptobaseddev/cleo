@@ -1,0 +1,26 @@
+{
+  "numTotalTests": 17,
+  "numPassedTests": 17,
+  "numFailedTests": 0,
+  "numPendingTests": 0,
+  "numTodoTests": 0,
+  "testResults": [
+    {"name": "findMemoryEntries returns empty result when query is empty", "status": "passed"},
+    {"name": "findMemoryEntries returns empty result when db is unavailable", "status": "passed"},
+    {"name": "findMemoryEntries accepts optional table and limit parameters", "status": "passed"},
+    {"name": "getObservations returns empty result when db is unavailable", "status": "passed"},
+    {"name": "getObservations accepts tier and type filters", "status": "passed"},
+    {"name": "getDecisions returns empty array when no decisions exist", "status": "passed"},
+    {"name": "getDecisions accepts query parameter", "status": "passed"},
+    {"name": "getPatterns returns empty array when no patterns exist", "status": "passed"},
+    {"name": "getPatterns accepts query and patternType filters", "status": "passed"},
+    {"name": "getLearnings returns empty array when no learnings exist", "status": "passed"},
+    {"name": "getLearnings accepts query parameter", "status": "passed"},
+    {"name": "getMemoryGraph returns graph statistics", "status": "passed"},
+    {"name": "getMemoryGraph returns zero averageEdgesPerNode when nodeCount is 0", "status": "passed"},
+    {"name": "getTierStats returns empty result when db is unavailable", "status": "passed"},
+    {"name": "getPendingVerify returns empty result when db is unavailable", "status": "passed"},
+    {"name": "getPendingVerify applies default minCitations of 5", "status": "passed"},
+    {"name": "getPendingVerify accepts custom minCitations and limit", "status": "passed"}
+  ]
+}
