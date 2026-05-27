@@ -325,16 +325,6 @@ export async function sagaTraversal(
     readyFrontier = (readyData.readyTasks ?? []).map((t) => t.id);
   }
 
-  // Actually we need more data. Let's do a simpler approach — collect
-    // from the orchestrator output.
-    for (const _ep of rollup.memberEpics ?? []) {
-      // We already have the per-epic data; blockers are just tasks that
-      // aren't in the ready frontier and aren't done.
-      // For now, return a minimal blockers list. Full blocker enumeration
-      // can be added later if needed.
-    }
-  }
-
   return engineSuccess({
     ...rollup,
     readyFrontier,
