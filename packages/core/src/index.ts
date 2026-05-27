@@ -377,18 +377,18 @@ export {
 export type { ProjectInfo } from './project-info.js';
 // Project info
 export { getProjectInfo, getProjectInfoSync, updateProjectName } from './project-info.js';
-// Project lifecycle (T10295)
-export {
-  moveProject,
-  renameProject,
-  reregisterProject,
-} from './project-lifecycle.js';
 export type {
   MoveProjectResult,
   RenameProjectResult,
   ReregisterProjectResult,
 } from './project-lifecycle.js';
 export * as projectLifecycle from './project-lifecycle.js';
+// Project lifecycle (T10295)
+export {
+  moveProject,
+  renameProject,
+  reregisterProject,
+} from './project-lifecycle.js';
 // Scaffold
 export {
   ensureCleoOsHub,
