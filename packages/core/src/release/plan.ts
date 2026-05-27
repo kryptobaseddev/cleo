@@ -1573,7 +1573,12 @@ export async function releasePlan(
 
   // ── R-301 / R-310: evidence-atom completeness ─────────────────────────
   const planTasks: ReleasePlanTask[] = tasks.map((t) => taskToPlanTask(t, resolvedEpicId));
-  const tasksMissingEvidence = planTasks.filter((t) => t.evidenceAtoms.length === 0);
+  // Grandfather already-done tasks that were completed before the evidence gate
+  // system existed (ADR-051 §11.1 blocks adding evidence to completed tasks).
+  const doneIds = new Set(tasks.filter((t) => t.status === 'done').map((t) => t.id));
+  const tasksMissingEvidence = planTasks.filter(
+    (t) => t.evidenceAtoms.length === 0 && !doneIds.has(t.id),
+  );
   const evidenceComplete = tasksMissingEvidence.length === 0;
   if (!evidenceComplete) {
     // Leaf-Epic mode already enforced evidence above — only reachable for the

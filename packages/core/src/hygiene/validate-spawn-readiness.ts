@@ -93,7 +93,7 @@ function runChangelogDriftGate(projectRoot: string): HygieneGateResult {
       encoding: 'utf-8',
       timeout: 5_000,
     });
-    const hasHeader = /^## \[/.test(head);
+    const hasHeader = /^## \[/m.test(head);
     if (hasHeader) {
       return {
         name: 'changelog-drift',
