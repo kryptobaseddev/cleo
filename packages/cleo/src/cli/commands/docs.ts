@@ -2191,9 +2191,14 @@ const schemaCommand = defineCommand({
       '`cleo docs publish-pr`. (T11142).',
   },
   args: {
-    'include-counts': {
+    counts: {
       type: 'boolean',
       description: 'Include per-kind attachment counts from the project SSoT',
+    },
+    'include-counts': {
+      type: 'boolean',
+      description:
+        'DEPRECATED — use --counts instead. Accepted for backward compatibility but will be removed in a future release.',
     },
   },
   async run({ args }) {
@@ -2202,8 +2207,11 @@ const schemaCommand = defineCommand({
     const kinds = registry.list().map(toWireKind);
     const extensionsCount = kinds.filter((k) => k.isExtension).length;
 
+    // --counts replaces --include-counts (T11142)
+    const wantCounts = args.counts === true || args['include-counts'] === true;
+
     let counts: Record<string, number> | undefined;
-    if (args['include-counts']) {
+    if (wantCounts) {
       counts = {};
       const { createAttachmentStore } = await import('@cleocode/core/internal');
       const store = createAttachmentStore();
