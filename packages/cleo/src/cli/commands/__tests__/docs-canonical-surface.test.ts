@@ -201,7 +201,7 @@ describe.runIf(CLI_DIST_AVAILABLE)('docs canonical six-verb CLI integration', ()
     it('lists docs with --type filter', async () => {
       await addDocFile(projectRoot, 'T99999', '# Spec A\n\n## Overview\n\nSpec content.', { type: 'spec' });
       await addDocFile(projectRoot, 'T99999', '# Spec B\n\n## Overview\n\nSpec content.', { type: 'spec' });
-      await addDocFile(projectRoot, 'T99999', '# ADR X\n\n## Decision\n\n## Context\n\nADR content.', { type: 'adr', title: 'Adopt Drizzle v1 beta' });
+      await addDocFile(projectRoot, 'T99999', '# ADR X\n\n## Decision\n\n## Context\n\nADR content.', { slug: 'adr-042-test-type-filter', type: 'adr', title: 'Adopt Drizzle v1 beta' });
 
       const result = runCli(['docs', 'list', '--task', 'T99999', '--type', 'adr', '--json'], projectRoot);
       expect(result.status).toBe(0);
@@ -292,7 +292,7 @@ describe.runIf(CLI_DIST_AVAILABLE)('docs canonical six-verb CLI integration', ()
       const publishPath = join(projectRoot, 'docs', 'published-spec.md');
 
       const result = runCli(
-        ['docs', 'publish', '--for', 'T99999', '--to', 'docs/published-spec.md', '--json'],
+        ['docs', 'publish', doc.attachmentId, '--for', 'T99999', '--to', 'docs/published-spec.md', '--json'],
         projectRoot,
       );
       expect(result.status, `publish failed; stdout=${result.stdout} stderr=${result.stderr}`).toBe(0);
@@ -370,7 +370,7 @@ describe.runIf(CLI_DIST_AVAILABLE)('docs canonical six-verb CLI integration', ()
       // 5. PUBLISH
       const publishPath = join(projectRoot, 'docs', 'lifecycle-published.md');
       const publishResult = runCli(
-        ['docs', 'publish', '--for', TASK_ID, '--to', 'docs/lifecycle-published.md', '--json'],
+        ['docs', 'publish', attachmentId, '--for', TASK_ID, '--to', 'docs/lifecycle-published.md', '--json'],
         projectRoot,
       );
       expect(publishResult.status, `publish failed: ${publishResult.stderr}`).toBe(0);
