@@ -35,7 +35,7 @@ import { ExitCode } from '@cleocode/contracts';
 import { linkPipelineAdr } from '../adrs/link-pipeline.js';
 import { syncAdrsToDb } from '../adrs/sync.js';
 import { CleoError } from '../errors.js';
-import { getCleoDirAbsolute, getProjectRoot, resolveOrCwd } from '../paths.js';
+import { resolveCanonicalCleoDir, resolveProjectByCwd, getProjectRoot, resolveOrCwd } from '../paths.js';
 import * as schema from '../store/tasks-schema.js';
 import { LIFECYCLE_STAGE_STATUSES } from '../store/tasks-schema.js';
 import { linkProvenance } from './evidence.js';
@@ -387,7 +387,8 @@ async function getEnforcementMode(cwd?: string): Promise<EnforcementMode> {
 
   // Read from config
   try {
-    const configPath = join(getCleoDirAbsolute(cwd), 'config.json');
+    const projectId = resolveProjectByCwd(cwd);
+    return join(resolveCanonicalCleoDir(projectId), 'config.json');
     const raw = await readFile(configPath, 'utf-8');
     const config = JSON.parse(raw) as { lifecycle?: { mode?: string } };
     const mode = config?.lifecycle?.mode;

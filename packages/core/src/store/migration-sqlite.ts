@@ -15,7 +15,7 @@ import { dirname, join } from 'node:path';
 import type { Session, Task } from '@cleocode/contracts';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
-import { getCleoDirAbsolute } from '../paths.js';
+import { resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
 import { migrateSanitized } from './migration-manager.js';
 import { dbExists, getDb, openNativeDatabase, resolveMigrationsFolder } from './sqlite.js';
 import type { SessionStatus } from './status-registry.js';
@@ -156,7 +156,8 @@ export async function migrateJsonToSqliteAtomic(
   tempDbPath?: string,
   logger?: import('../migration/logger.js').MigrationLogger,
 ): Promise<MigrationResult> {
-  const cleoDir = getCleoDirAbsolute(cwd);
+  const projectId = resolveProjectByCwd(cwd);
+  const cleoDir = resolveCanonicalCleoDir(projectId);
   const result: MigrationResult = {
     success: false,
     tasksImported: 0,
@@ -526,7 +527,8 @@ export async function migrateJsonToSqlite(
   cwd?: string,
   options?: MigrationOptions,
 ): Promise<MigrationResult> {
-  const cleoDir = getCleoDirAbsolute(cwd);
+  const projectId = resolveProjectByCwd(cwd);
+  const cleoDir = resolveCanonicalCleoDir(projectId);
   const result: MigrationResult = {
     success: false,
     tasksImported: 0,

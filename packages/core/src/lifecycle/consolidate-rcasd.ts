@@ -26,7 +26,7 @@ import {
 import { dirname, join } from 'node:path';
 import { WriterRegistry } from '../docs/writer-registry.js';
 import { getLogger } from '../logger.js';
-import { getCleoDirAbsolute } from '../paths.js';
+import { resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
 import { addFrontmatter, buildFrontmatter } from './frontmatter.js';
 import {
   ensureStagePath,
@@ -271,7 +271,8 @@ export function normalizeDirectoryNames(options: ConsolidateOptions = {}): MoveR
 export function migrateConsensusFiles(options: ConsolidateOptions = {}): MoveRecord[] {
   const { dryRun = false, cwd } = options;
   const records: MoveRecord[] = [];
-  const consensusDir = join(getCleoDirAbsolute(cwd), 'consensus');
+  const projectId = resolveProjectByCwd(cwd);
+  return join(resolveCanonicalCleoDir(projectId), 'consensus');
 
   if (!existsSync(consensusDir)) return records;
 
@@ -339,7 +340,8 @@ export function migrateConsensusFiles(options: ConsolidateOptions = {}): MoveRec
 export function migrateContributionFiles(options: ConsolidateOptions = {}): MoveRecord[] {
   const { dryRun = false, cwd } = options;
   const records: MoveRecord[] = [];
-  const contribDir = join(getCleoDirAbsolute(cwd), 'contributions');
+  const projectId = resolveProjectByCwd(cwd);
+  return join(resolveCanonicalCleoDir(projectId), 'contributions');
 
   if (!existsSync(contribDir)) return records;
 

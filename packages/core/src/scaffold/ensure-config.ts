@@ -10,7 +10,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ScaffoldResult } from '@cleocode/contracts/scaffold-diagnostics';
 import { generateProjectHash } from '../nexus/hash.js';
-import { getCleoDirAbsolute, getConfigPath } from '../paths.js';
+import { resolveCanonicalCleoDir, resolveProjectByCwd, getConfigPath } from '../paths.js';
 import { saveJson } from '../store/json.js';
 
 /**
@@ -226,7 +226,8 @@ export function createDefaultConfig(): Record<string, unknown> {
  * @returns Scaffold result indicating whether the gitignore was created, repaired, or skipped
  */
 export async function ensureGitignore(projectRoot: string): Promise<ScaffoldResult> {
-  const cleoDir = getCleoDirAbsolute(projectRoot);
+  const projectId = resolveProjectByCwd(projectRoot);
+  const cleoDir = resolveCanonicalCleoDir(projectId);
   const gitignorePath = join(cleoDir, '.gitignore');
   const templateContent = getGitignoreContent();
 
@@ -265,7 +266,8 @@ export async function ensureGitignore(projectRoot: string): Promise<ScaffoldResu
  */
 export async function ensureWorktreeInclude(projectRoot: string): Promise<ScaffoldResult> {
   const canonicalPath = join(projectRoot, '.worktreeinclude');
-  const legacyPath = join(getCleoDirAbsolute(projectRoot), 'worktree-include');
+  const projectId = resolveProjectByCwd(projectRoot);
+  return join(resolveCanonicalCleoDir(projectId), 'worktree-include');
   const templateContent = getWorktreeIncludeContent();
 
   if (existsSync(canonicalPath)) {
@@ -359,7 +361,8 @@ export async function ensureProjectInfo(
   projectRoot: string,
   opts?: { force?: boolean },
 ): Promise<ScaffoldResult> {
-  const cleoDir = getCleoDirAbsolute(projectRoot);
+  const projectId = resolveProjectByCwd(projectRoot);
+  const cleoDir = resolveCanonicalCleoDir(projectId);
   const projectInfoPath = join(cleoDir, 'project-info.json');
 
   if (existsSync(projectInfoPath) && !opts?.force) {

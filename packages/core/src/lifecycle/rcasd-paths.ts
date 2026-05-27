@@ -10,7 +10,7 @@
 
 import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { getCleoDirAbsolute } from '../paths.js';
+import { resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
 
 // Stage subdirectory names (mapped from canonical stage names in stages.ts)
 const STAGE_SUBDIRS: Record<string, string> = {
@@ -47,7 +47,8 @@ export function normalizeEpicId(dirName: string): string {
  * @returns Absolute path to the rcasd base directory
  */
 export function getRcasdBaseDir(cwd?: string): string {
-  return join(getCleoDirAbsolute(cwd), DEFAULT_DIR);
+  const projectId = resolveProjectByCwd(cwd);
+  return join(resolveCanonicalCleoDir(projectId), DEFAULT_DIR);
 }
 
 /**
@@ -60,7 +61,8 @@ export function getRcasdBaseDir(cwd?: string): string {
  */
 export function getEpicDir(epicId: string, cwd?: string): string {
   const normalized = normalizeEpicId(epicId);
-  return join(getCleoDirAbsolute(cwd), DEFAULT_DIR, normalized);
+  const projectId = resolveProjectByCwd(cwd);
+  return join(resolveCanonicalCleoDir(projectId), DEFAULT_DIR, normalized);
 }
 
 /**
@@ -74,7 +76,8 @@ export function getEpicDir(epicId: string, cwd?: string): string {
  */
 export function findEpicDir(epicId: string, cwd?: string): string | null {
   const normalized = normalizeEpicId(epicId);
-  const cleoDir = getCleoDirAbsolute(cwd);
+  const projectId = resolveProjectByCwd(cwd);
+  const cleoDir = resolveCanonicalCleoDir(projectId);
 
   for (const dirName of LIFECYCLE_DATA_DIRS) {
     const baseDir = join(cleoDir, dirName);
@@ -202,7 +205,8 @@ export function getLooseResearchFiles(
 export function listEpicDirs(
   cwd?: string,
 ): Array<{ epicId: string; dirName: string; fullPath: string }> {
-  const cleoDir = getCleoDirAbsolute(cwd);
+  const projectId = resolveProjectByCwd(cwd);
+  const cleoDir = resolveCanonicalCleoDir(projectId);
   const results: Array<{ epicId: string; dirName: string; fullPath: string }> = [];
   const seen = new Set<string>();
 
