@@ -1270,7 +1270,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
             getProjectRoot(),
             meta.sha256,
             `${ownerType}:${ownerId}`,
-            name: absPath.split(/[\\/]/).pop() ?? meta.sha256.slice(0, 12),
+            absPath.split('/').pop() ?? meta.sha256.slice(0, 12),
           ),
         )
         .catch(() => {
@@ -1470,17 +1470,15 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     const blobPurged = derefResult.status === 'removed';
     const refCountAfter = derefResult.status === 'derefd' ? derefResult.refCountAfter : 0;
 
-    // T947 Wave B — mirror the remove through v2 so llmtxt manifests
-    // also soft-delete. Best-effort: the llmtxt path keys by blob name,
-    // and we only know the attachment id here, so the mirror only hits
-    // when v2 has already indexed this id (e.g. earlier put in same
-    // process). Legacy refcount remains the authoritative truth.
+    // T947 Wave C — mirror the remove through v2 so llmtxt manifests
+    // also soft-delete. Best-effort.
     try {
       const v2 = createAttachmentStoreV2(getProjectRoot());
       await v2.remove(attachmentId, fromOwner);
     } catch {
       /* Mirror remove is best-effort. */
     }
+    // Wave C — always 'llmtxt' for v2-backed stores.
     const backend: AttachmentBackend = await resolveAttachmentBackend();
 
     // T11139 — audit trail
@@ -1556,10 +1554,9 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       );
     }
 
-    // Mirror the updated blob into the V2 store so blobList / publishDocs
-    // see the new version rather than the old blob (T11053 / AC1).
-    // Best-effort — a V2 store failure never blocks the update response.
-    let backend: AttachmentBackend = 'legacy';
+    // T947 Wave C — mirror the updated blob into the V2 store so blobList /
+    // publishDocs see the new version (T11053 / AC1). Best-effort.
+    let backend: AttachmentBackend = 'llmtxt';
     try {
       const v2 = createAttachmentStoreV2(getProjectRoot());
       // Derive the old owner from the update params or fall back to slug.
