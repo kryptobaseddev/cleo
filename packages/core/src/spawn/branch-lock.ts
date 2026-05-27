@@ -19,7 +19,6 @@
  * @adr ADR-062
  */
 
-import { execFileSync } from 'node:child_process';
 import {
   appendFileSync,
   chmodSync,
@@ -45,42 +44,14 @@ import type {
   WorktreeSpawnResult,
 } from '@cleocode/contracts';
 import { computeProjectHash, resolveWorktreeRootForHash } from '@cleocode/paths';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Run git with explicit args (no shell) and return stdout as a trimmed string.
- * Throws on non-zero exit.
- *
- * @param args - Git arguments (no "git" prefix).
- * @param cwd - Working directory.
- * @returns stdout trimmed.
- */
-function gitSync(args: string[], cwd: string): string {
-  return execFileSync('git', args, {
-    cwd,
-    encoding: 'utf-8',
-    stdio: ['pipe', 'pipe', 'pipe'],
-  }).trim();
-}
-
-/**
- * Run git silently — ignores output, suppresses errors.
- *
- * @param args - Git arguments.
- * @param cwd - Working directory.
- * @returns true on success, false on error.
- */
-function gitSilent(args: string[], cwd: string): boolean {
-  try {
-    execFileSync('git', args, { cwd, stdio: 'pipe' });
-    return true;
-  } catch {
-    return false;
-  }
-}
+import { napiDestroyWorktree } from '@cleocode/worktree';
+import {
+  getGitRoot as _getGitRoot,
+  gitSilent,
+  gitSync,
+  provisionWorktree,
+  resolveHeadRef,
+} from '@cleocode/worktree';
 
 // ---------------------------------------------------------------------------
 // L1 — Worktree lifecycle
@@ -116,19 +87,18 @@ export function resolveAgentWorktreeRoot(projectRoot: string): string {
 /**
  * Determine the git root for a project.
  *
+ * Delegates to the canonical helper in `@cleocode/worktree`.
+ *
  * @param projectRoot - Absolute path to the project root.
  * @returns Absolute path to the git root directory.
  * @throws Error if the directory is not inside a git repository.
  *
  * @task T1118
  * @task T1120
+ * @task T11122
  */
 export function getGitRoot(projectRoot: string): string {
-  try {
-    return gitSync(['rev-parse', '--show-toplevel'], projectRoot);
-  } catch {
-    throw new Error(`Not a git repository: ${projectRoot}`);
-  }
+  return _getGitRoot(projectRoot);
 }
 
 /**
@@ -137,12 +107,18 @@ export function getGitRoot(projectRoot: string): string {
  * Creates branch `task/<taskId>` off the current HEAD of the orchestrator's
  * branch and locks the worktree to prevent accidental pruning.
  *
+ * T11122: migrated from raw `git worktree add` + `git worktree lock`
+ * shell-outs to the `provisionWorktree` NAPI call from
+ * `@cleocode/worktree`. Stale-worktree cleanup still uses filesystem ops
+ * (fs.rmSync / git branch -D) which are NOT worktree-add/lock shell-outs.
+ *
  * @param taskId - The task ID driving the spawn.
  * @param projectRoot - Absolute path to the project root.
  * @returns The created worktree state.
  *
  * @task T1118
  * @task T1120
+ * @task T11122
  */
 export function createAgentWorktree(taskId: string, projectRoot: string): AgentWorktreeState {
   const gitRoot = getGitRoot(projectRoot);
@@ -153,12 +129,7 @@ export function createAgentWorktree(taskId: string, projectRoot: string): AgentW
   const worktreePath = join(worktreeRoot, taskId);
 
   // Determine base ref — current HEAD on orchestrator branch.
-  let baseRef: string;
-  try {
-    baseRef = gitSync(['rev-parse', '--abbrev-ref', 'HEAD'], gitRoot);
-  } catch {
-    baseRef = 'main';
-  }
+  const baseRef = resolveHeadRef(gitRoot);
 
   // Remove stale worktree at this path if it exists.
   if (existsSync(worktreePath)) {
@@ -170,14 +141,14 @@ export function createAgentWorktree(taskId: string, projectRoot: string): AgentW
     gitSilent(['branch', '-D', branch], gitRoot);
   }
 
-  // Create the worktree with a new branch.
-  gitSync(['worktree', 'add', worktreePath, '-b', branch, baseRef], gitRoot);
-
-  // Apply git worktree lock to prevent accidental pruning.
-  // Try with --reason first (git ≥ 2.37), fall back without.
-  if (!gitSilent(['worktree', 'lock', '--reason', `cleo-agent-${taskId}`, worktreePath], gitRoot)) {
-    gitSilent(['worktree', 'lock', worktreePath], gitRoot);
-  }
+  // Provision the worktree and lock it via the NAPI binding.
+  const handle = provisionWorktree({
+    repoRoot: gitRoot,
+    targetPath: worktreePath,
+    branch,
+    baseRef,
+    lockReason: `cleo-agent-${taskId}`,
+  });
 
   // T9984: route projectHash through @cleocode/paths SSoT.
   const projectHash = computeProjectHash(projectRoot);
@@ -557,6 +528,17 @@ export function getDefaultBranch(projectRoot: string): string {
  * Canonical worktree integration per ADR-062. Preserves the full agent
  * commit graph instead of rewriting SHAs, so `git log --grep "T<id>"`
  * returns the originating commits with their original authorship.
+ *
+ * **Migration (T1624):** This function replaces `completeAgentWorktree()`,
+ * the legacy cherry-pick integration path that was outright deleted in
+ * T1624 per ADR-062 (zero backwards-compat shims). Cherry-pick rewrote
+ * commit SHAs and destroyed provenance; merge --no-ff preserves the
+ * full agent commit graph. Downstream consumers that previously called
+ * `completeAgentWorktree(taskId, projectRoot)` should migrate to
+ * `completeAgentWorktreeViaMerge(taskId, projectRoot)` — the return
+ * type changed from `WorktreeCompleteResult` (removed) to
+ * `WorktreeMergeResult`. See `docs/worktree/legacy-api-migration.md`
+ * for the full migration guide.
  *
  * Steps performed inside the worktree at
  * `~/.local/share/cleo/worktrees/<projectHash>/<taskId>/`:

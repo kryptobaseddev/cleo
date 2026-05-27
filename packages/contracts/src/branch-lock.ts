@@ -67,6 +67,13 @@ export interface WorktreeSpawnResult {
  * Integration uses `git merge --no-ff` to preserve the full agent commit graph.
  * `git log --grep "T<id>"` returns full provenance without SHA rewriting.
  *
+ * **Migration (T1624):** This interface replaces `WorktreeCompleteResult`,
+ * which carried cherry-pick-specific fields (`cherryPicked`, `commitCount`)
+ * that were purged along with the legacy `completeAgentWorktree()` function.
+ * Any code destructuring `WorktreeCompleteResult` should use
+ * `WorktreeMergeResult` instead. The `merged` boolean replaces `cherryPicked`
+ * as the integration-success signal. See `docs/worktree/legacy-api-migration.md`.
+ *
  * @task T1587
  * @adr ADR-062
  */
@@ -250,7 +257,9 @@ export const BRANCH_LOCK_ERROR_CODES = {
   E_WORKTREE_REQUIRED: 'E_WORKTREE_REQUIRED',
   /** L1: worktree path does not exist or is not a valid git worktree. */
   E_WORKTREE_INVALID: 'E_WORKTREE_INVALID',
-  /** L1: merge --no-ff failed during worktree.complete (ADR-062). */
+  /** L1: merge --no-ff failed during worktree.complete (ADR-062).
+   * Replaces the removed `E_CHERRY_PICK_FAILED` from the legacy
+   * cherry-pick integration path (deleted in T1624). */
   E_MERGE_FAILED: 'E_MERGE_FAILED',
   /** L3: filesystem harden failed. */
   E_FS_HARDEN_FAILED: 'E_FS_HARDEN_FAILED',
