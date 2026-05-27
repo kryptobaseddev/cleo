@@ -33,7 +33,7 @@ import {
   type WorktreeInfo,
 } from '@cleocode/contracts';
 import { napiDestroyWorktree } from '@cleocode/worktree';
-import { gitSilent } from '@cleocode/worktree/git.js';
+import { gitSilent } from '@cleocode/worktree';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from './audit.js';
 import { isPrimaryWorktree, listWorktrees, resolvePrimaryWorktreePath } from './list.js';
 

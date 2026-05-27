@@ -25,7 +25,6 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
-  readdirSync,
   readFileSync,
   readlinkSync,
   rmSync,
@@ -53,12 +52,13 @@ import { computeProjectHash, resolveWorktreeRootForHash } from '@cleocode/paths'
 import {
   destroyWorktree as napiDestroyWorktree,
   integrateWorktree,
-  provisionWorktree,
-  pruneWorktrees,
-} from '@cleocode/worktree';
-import { getGitRoot, gitSilent, gitSync } from '@cleocode/worktree';
+  pruneWorktrees as napiPruneWorktrees,
+} from '@cleocode/worktree/napi-binding.js';
+import { getGitRoot, gitSilent, gitSync } from '@cleocode/worktree/git.js';
+import { pruneWorktrees } from '@cleocode/worktree';
 
 // Re-export getGitRoot for barrel consumers
+export { getGitRoot };
 export { getGitRoot };
 
 // ---------------------------------------------------------------------------
