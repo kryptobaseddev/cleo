@@ -71,8 +71,9 @@ import {
   exportDocument,
   findSimilarDocs,
   generateDocsLlmsTxt,
-  getCleoDirAbsolute,
   getProjectRoot,
+  resolveCanonicalCleoDir,
+  resolveProjectByCwd,
   isLifecycleStatus,
   listDocVersions,
   makeClassifierForScanRoot,
@@ -789,7 +790,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     }
 
     const cwd = getProjectRoot();
-    const cleoDir = getCleoDirAbsolute(cwd);
+    const cleoDir = resolveCanonicalCleoDir(resolveProjectByCwd(cwd));
 
     // Derive storage path for local-file / blob kinds
     let storagePath: string | undefined;

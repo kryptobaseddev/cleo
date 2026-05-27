@@ -10,6 +10,7 @@
  * - {@link createPlatformPathsResolver} — generic factory bindable to any app
  * - CLEO-bound helpers: {@link getCleoHome}, {@link getCleoPlatformPaths},
  *   {@link getCleoSystemInfo}, {@link getCleoTemplatesTildePath}
+ * - Project resolution: {@link resolveProjectByCwd}, {@link resolveCanonicalCleoDir}
  * - Worktree primitives: {@link computeProjectHash},
  *   {@link resolveWorktreeRootForHash}, {@link resolveTaskWorktreePath},
  *   {@link getCleoWorktreesRoot}, {@link resolveWorktreeIndexPath}
@@ -17,17 +18,23 @@
  *
  * @packageDocumentation
  * @task T1883
+ * @task T11008
  */
 
 export { isAbsolutePath } from './abs-path.js';
 export {
   _resetCleoPlatformPathsCache,
+  computeCanonicalProjectId,
   getCanonicalTemplatesTildePath,
   getCleoHome,
   getCleoPlatformPaths,
   getCleoSystemInfo,
   getCleoTemplatesTildePath,
+  legacyProjectId,
+  resolveCanonicalCleoDir,
   resolveLegacyCleoDir,
+  resolveProjectByCwd,
+  type ResolvedProject,
 } from './cleo-paths.js';
 export {
   createPlatformPathsResolver,

@@ -462,6 +462,13 @@ const spawnCommand = defineCommand({
         'Tier-1+ orchestrators only — records auditable atomicity_waiver in the spawn manifest. ' +
         'Bypasses E_ATOMICITY_NO_SCOPE for worker tasks without explicit AC.files.',
     },
+    resume: {
+      type: 'boolean',
+      description:
+        'T10078 — skip worktree provisioning and attach to an existing locked worktree at the ' +
+        'canonical XDG path. If the worktree does not exist, returns E_RESUME_WORKTREE_MISSING. ' +
+        'Use after a prior aborted spawn left a worktree behind.',
+    },
   },
   async run({ args }) {
     // T892: --tier accepts auto|0|1|2. 'auto' (and undefined) are forwarded
@@ -492,6 +499,7 @@ const spawnCommand = defineCommand({
         noWorktree: args['no-worktree'] === true,
         ...(args.scope ? { spawnScope: args.scope } : {}),
         ...(atomicityScope ? { atomicityScope } : {}),
+        resume: args.resume === true,
       },
       { command: 'orchestrate' },
     );

@@ -18,9 +18,15 @@
 #     auth or resolution rules but are never committed
 #   - IDE settings that should be present in every worktree
 #
-# Examples by language:
-#   node_modules/.pnpm     # JS/TS — pnpm content-addressed store (large; reflink-aware)
-#   pnpm-lock.yaml         # JS/TS — required for pnpm install consistency
+# NOTE: node_modules/ is intentionally NOT listed here.
+# Symlinking node_modules across worktrees causes pnpm store races that
+# corrupt .pnpm/ with @@-prefixed doubled directories (T9938).
+# Each worktree gets its own node_modules installed during provisioning
+# via a serialized pnpm install step in createWorktree.
+#
+# IMPORTANT: Files are COPIED (not symlinked) into each worktree, preserving
+# full worktree isolation (T10077). Modifications in one worktree do NOT
+# affect any other worktree or the project root.
 #   target/                # Rust — cargo build cache (large; reflink-aware)
 #   .venv/                 # Python — virtualenv
 #   vendor/                # Go — dependencies

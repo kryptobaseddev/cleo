@@ -11,7 +11,7 @@
 import { execFile } from 'node:child_process';
 import { resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { getCleoDirAbsolute } from '../paths.js';
+import { resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
 import { cleoGitCommand, isCleoGitInitialized, makeCleoGitEnv } from '../store/git-checkpoint.js';
 
 const execFileAsync = promisify(execFile);
@@ -80,7 +80,8 @@ function ensureCleoGitRepo(cleoDir: string): void {
  * @task T4884
  */
 export async function getCurrentBranch(cwd?: string): Promise<string> {
-  const cleoDir = getCleoDirAbsolute(cwd);
+  const projectId = resolveProjectByCwd(cwd);
+  const cleoDir = resolveCanonicalCleoDir(projectId);
   ensureCleoGitRepo(cleoDir);
 
   const result = await cleoGitCommand(['rev-parse', '--abbrev-ref', 'HEAD'], cleoDir);
@@ -96,7 +97,8 @@ export async function getCurrentBranch(cwd?: string): Promise<string> {
  * @task T4884
  */
 export async function addRemote(url: string, name: string = 'origin', cwd?: string): Promise<void> {
-  const cleoDir = getCleoDirAbsolute(cwd);
+  const projectId = resolveProjectByCwd(cwd);
+  const cleoDir = resolveCanonicalCleoDir(projectId);
   ensureCleoGitRepo(cleoDir);
 
   // Check if remote already exists
@@ -121,7 +123,8 @@ export async function addRemote(url: string, name: string = 'origin', cwd?: stri
  * @task T4884
  */
 export async function removeRemote(name: string = 'origin', cwd?: string): Promise<void> {
-  const cleoDir = getCleoDirAbsolute(cwd);
+  const projectId = resolveProjectByCwd(cwd);
+  const cleoDir = resolveCanonicalCleoDir(projectId);
   ensureCleoGitRepo(cleoDir);
 
   try {
@@ -138,7 +141,8 @@ export async function removeRemote(name: string = 'origin', cwd?: string): Promi
  * @task T4884
  */
 export async function listRemotes(cwd?: string): Promise<RemoteInfo[]> {
-  const cleoDir = getCleoDirAbsolute(cwd);
+  const projectId = resolveProjectByCwd(cwd);
+  const cleoDir = resolveCanonicalCleoDir(projectId);
   ensureCleoGitRepo(cleoDir);
 
   const result = await cleoGitCommand(['remote', '-v'], cleoDir);
@@ -173,7 +177,8 @@ export async function push(
   options?: { force?: boolean; setUpstream?: boolean },
   cwd?: string,
 ): Promise<PushResult> {
-  const cleoDir = getCleoDirAbsolute(cwd);
+  const projectId = resolveProjectByCwd(cwd);
+  const cleoDir = resolveCanonicalCleoDir(projectId);
   ensureCleoGitRepo(cleoDir);
 
   const branch = await getCurrentBranch(cwd);
@@ -224,7 +229,8 @@ export async function push(
  * @task T4884
  */
 export async function pull(remote: string = 'origin', cwd?: string): Promise<PullResult> {
-  const cleoDir = getCleoDirAbsolute(cwd);
+  const projectId = resolveProjectByCwd(cwd);
+  const cleoDir = resolveCanonicalCleoDir(projectId);
   ensureCleoGitRepo(cleoDir);
 
   const branch = await getCurrentBranch(cwd);
@@ -311,7 +317,8 @@ export async function getSyncStatus(
   remote: string = 'origin',
   cwd?: string,
 ): Promise<{ ahead: number; behind: number; branch: string; remote: string }> {
-  const cleoDir = getCleoDirAbsolute(cwd);
+  const projectId = resolveProjectByCwd(cwd);
+  const cleoDir = resolveCanonicalCleoDir(projectId);
   ensureCleoGitRepo(cleoDir);
 
   const branch = await getCurrentBranch(cwd);

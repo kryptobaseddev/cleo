@@ -203,6 +203,118 @@ Status: implemented.
 
 Next review trigger: none — fix is live.
 
+### DHQ-014 — Worktrunk lifecycle ownership drift escaped completion
+
+Question: Why could `T10022` be marked done while `packages/worktree/src/worktree-create.ts` and `packages/core/src/spawn/branch-lock.ts` still owned git worktree lifecycle through raw shell-outs?
+
+Owner surface: `T10650`, `T10853`, `T10907`, and `T9977`.
+
+Observed: The original corrective scope focused on `packages/worktree/src/worktree-create.ts`, but dogfood inspection found a larger duplicate lifecycle engine in `packages/core/src/spawn/branch-lock.ts`. The current lint allowed `packages/worktree/` broadly and did not detect lifecycle-relevant `git branch`, `git log`, or `git status` calls.
+
+Answer vehicle: Worktrunk Rust SSoT implementation, Core spawn consolidation, boundary lint hardening, and false-completion regression tests.
+
+Status: open / decomposed.
+
+Next review trigger: before starting Wave 1 implementation for `T10650` or `T10853`.
+
+### DHQ-015 — Saga membership and traversal are not agent-reliable
+
+Question: Why can a saga show `groups` relations in `cleo show --full` while `cleo saga members` returns zero members, and why does saga-to-epic containment still fail the parent matrix in some paths?
+
+Owner surface: `T10965`, especially `T10966`.
+
+Observed: `T9977` shows `groups` relations to `T10650`, `T10853`, `T10878`, `T10907`, `T10936`, and `T10965`, but `cleo saga members T9977` returned `total=0`. `cleo add --type epic --parent T9977 --dry-run` rejected `parentType=saga`, even though the PM-Core V2 guidance says saga-to-epic containment is canonical.
+
+Answer vehicle: Core saga traversal contract, deep rollup implementation, and deprecation of dual `groups` versus `parent_id` semantics.
+
+Status: open / task-filed.
+
+Next review trigger: next time an agent plans or orchestrates work at saga scope.
+
+### DHQ-016 — Planning decomposition still depends on brittle CLI loops
+
+Question: Why does an agent need dozens of sequential `cleo add` calls to create a saga/epic/task/subtask graph instead of one Core WorkGraph scaffold operation?
+
+Owner surface: `T10965`, especially `T10986`.
+
+Observed: Creating the Worktrunk decomposition required long shell-driven loops. One loop timed out after partial creation, requiring manual resume and duplicate-avoidance checks. This is a Core API gap first, not a CLI ergonomics issue.
+
+Answer vehicle: Transactional Core planning-scaffold API with dry-run validation, atomic apply, stable ID map, duplicate detection, and cycle/depth checks.
+
+Status: open / task-filed.
+
+Next review trigger: next multi-epic decomposition or any 25+ node planning session.
+
+### DHQ-017 — Docs fetch is correct but not agent-friendly
+
+Question: Why does `cleo docs fetch` return base64/path-oriented envelopes instead of an explicit decoded-content mode for text documents?
+
+Owner surface: `T10965`, especially `T10970`.
+
+Observed: Fetching `adr-087-a-worktrunk-ssot-boundary` returned an inline base64 payload in the LAFS envelope. That is structurally correct, but it forces an agent to decode or switch tools before it can reason over the text.
+
+Answer vehicle: Core docs fetch content modes: metadata-only, decoded text, bytes, and path fallback, with CLI flags as thin wrappers.
+
+Status: open / task-filed.
+
+Next review trigger: next agent workflow that fetches a canonical doc for planning or validation.
+
+### DHQ-018 — Evidence gates do not guide agents toward sufficient proof
+
+Question: Why must an agent manually construct gate-specific evidence strings instead of asking Core what evidence is missing and getting suggested atoms?
+
+Owner surface: `T10965`, especially `T10974`, and false-completion prevention in `T10932`.
+
+Observed: `T10022` had PR/check evidence but still missed architecture-critical acceptance. The system needs better Core-level evidence suggestions and acceptance-to-file/path hints before a task is completed.
+
+Answer vehicle: Core evidence suggestion/explanation tool plus false-completion regression scenarios.
+
+Status: open / task-filed.
+
+Next review trigger: before completing any architecture-boundary task or non-code verification task.
+
+### DHQ-019 — Worktree inventory has multiple competing truths
+
+Question: Why are Git worktree metadata, canonical XDG worktree directories, and `.cleo/worktrees.json` not reconciled by one Core lifecycle status API?
+
+Owner surface: `T10936`.
+
+Observed: `lint-worktree-location --warn` still reported four stale non-canonical `/mnt/projects/*` entries. Prior inspection also found a large gap between canonical on-disk worktrees and the sentinel index. Agents cannot safely reason about worktree state if the sentinel index is treated as complete when it is not.
+
+Answer vehicle: Worktree reconciliation Core API, dry-run planner, adoption backfill, transient worktree policy, and bounded status concierge.
+
+Status: open / decomposed.
+
+Next review trigger: before lifecycle cleanup, spawn-readiness validation, or any worktree migration.
+
+### DHQ-020 — Core tools are not yet the default agent interface
+
+Question: Why do agents still reach for CLI commands and command-specific output parsing instead of typed Core SDK tools for spawn, worktree lifecycle, manifest handoff, hooks, validation, and docs?
+
+Owner surface: `T10878` and `T10965`.
+
+Observed: The session required CLI calls for planning, docs fetch, saga membership, task creation, memory, and worktree lint checks. The durable fix is not more CLI flags; it is a Core tool registry with typed contracts and CLI wrappers over that registry.
+
+Answer vehicle: Core lifecycle SDK tools, contracts in `packages/contracts`, harness evals, and thin CLI adapter migration.
+
+Status: open / decomposed.
+
+Next review trigger: North Star refresh or before adding any new CLI-first lifecycle command.
+
+### DHQ-021 — Agent skills can contradict live PM-Core behavior
+
+Question: Why do skills still describe saga/group workflows that conflict with current PM-Core parent matrix and command behavior?
+
+Owner surface: `T10990`, `T10928`, and `T10666`.
+
+Observed: The loaded orchestration and CLEO skills still include guidance around `saga add`/`groups` semantics, while current commands and PM-Core guidance disagree in practice. This increases LLM planning errors.
+
+Answer vehicle: Skill coverage backfill, Tier-0 skill updates, and drift checks mapped to worktree/orchestration/Core paths.
+
+Status: open / task-filed.
+
+Next review trigger: after `T10966` defines the canonical saga traversal contract or when Worktrunk runtime contracts change.
+
 ## North Star inheritance rule
 
 A question graduates into the North Star when it changes one of:

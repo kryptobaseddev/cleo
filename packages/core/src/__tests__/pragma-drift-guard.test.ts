@@ -62,6 +62,9 @@ const PRAGMA_ESCAPE_HATCHES: ReadonlySet<string> = new Set([
   // project-health.ts: read-only integrity probe (readOnly:true flag) — openCleoDb
   // does not support readOnly mode; pragmas do not apply to read-only handles.
   'packages/core/src/system/project-health.ts',
+  // paths.ts: resolveProjectByCwd nexus fallback opens nexus.db read-only for a
+  // quick project_path→projectId lookup; pragma tuning does not apply to read-only handles.
+  'packages/core/src/paths.ts',
 ]);
 
 /**

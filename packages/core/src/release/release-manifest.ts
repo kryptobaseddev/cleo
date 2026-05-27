@@ -37,7 +37,7 @@ import { dirname, join } from 'node:path';
 import { and, count, desc, eq, sql } from 'drizzle-orm';
 import { generateProjectHash } from '../nexus/hash.js';
 import { createPage } from '../pagination.js';
-import { getCleoDirAbsolute, getProjectRoot } from '../paths.js';
+import { getProjectRoot, resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
 import * as schema from '../store/tasks-schema.js';
 import type { ReleaseChannel } from './channel.js';
 import { resolveChannelFromBranch } from './channel.js';
@@ -224,7 +224,7 @@ function effectivePageLimit(
 
 /**
  * Project-root resolution for {@link generateProjectHash} that mirrors the
- * tolerant fallback used by {@link getCleoDirAbsolute}: try the strict
+ * tolerant fallback used by {@link resolveCanonicalCleoDir}: try the strict
  * `getProjectRoot` walk-up first, fall back to the literal `cwd` (or
  * `process.cwd()`) when the strict check fails.
  *
@@ -462,7 +462,7 @@ export async function prepareRelease(
   // is the non-PK provenance discriminator (see `releasesRowToManifest`) —
   // legacy-prepare rows are still distinguishable from new-pipeline rows
   // because they populate `tasksJson` and `preparedAt`. Mirrors the
-  // tolerant resolution `getCleoDirAbsolute` uses so tests/init paths that
+  // tolerant resolution `resolveCanonicalCleoDir` uses so tests/init paths that
   // don't yet satisfy `getProjectRoot`'s strict `.cleo + .git` predicate
   // can still derive a stable hash from cwd.
   const projectHash = generateProjectHash(resolveProjectRootForHash(cwd));
@@ -1083,7 +1083,7 @@ export interface PushPolicy {
  * Returns undefined if no push config exists.
  */
 async function readPushPolicy(cwd?: string): Promise<PushPolicy | undefined> {
-  const configPath = join(getCleoDirAbsolute(cwd), 'config.json');
+  const configPath = join(resolveCanonicalCleoDir(resolveProjectByCwd(cwd)), 'config.json');
   let config: Record<string, unknown> | undefined;
   try {
     const raw = await readFile(configPath, 'utf-8');
@@ -1348,7 +1348,7 @@ export async function markReleaseShipped(
 export async function migrateReleasesJsonToSqlite(
   projectRoot?: string,
 ): Promise<{ migrated: number }> {
-  const releasesPath = join(getCleoDirAbsolute(projectRoot), 'releases.json');
+  const releasesPath = join(resolveCanonicalCleoDir(resolveProjectByCwd(projectRoot)), 'releases.json');
 
   if (!existsSync(releasesPath)) {
     return { migrated: 0 };

@@ -1131,6 +1131,12 @@ export async function orchestrateSpawn(
   noWorktree?: boolean,
   spawnScope?: string,
   atomicityScope?: 'orchestrator-defer',
+  /**
+   * T10078 — when true, skip worktree provisioning and use an existing locked
+   * worktree at the canonical XDG path. If the worktree does not exist at
+   * the expected path, returns E_RESUME_WORKTREE_MISSING.
+   */
+  resume?: boolean,
 ): Promise<EngineResult> {
   if (!taskId) {
     return engineError('E_INVALID_INPUT', 'taskId is required');
@@ -1319,13 +1325,87 @@ export async function orchestrateSpawn(
     //
     // When provisioning fails (non-git repo, git not installed, etc.) we
     // degrade gracefully — spawn continues without isolation, same as T1118.
+    //
+    // T10078 — `--resume` skips provisioning entirely and attaches to an
+    // existing locked worktree at the canonical XDG path.
     let sdkWorktreeResult: import('@cleocode/contracts').CreateWorktreeResult | null = null;
     let worktreePath: string | undefined;
     let worktreeBranch: string | undefined;
     /** T9226 — patterns actually excluded from the worktree. */
     let appliedWorktreeExcludePatterns: readonly string[] | undefined;
 
-    if (noWorktree) {
+    if (resume) {
+      // T10078 — resume: skip provisioning, attach to the existing locked
+      // worktree at the canonical XDG path. Verify the path exists and is
+      // a valid git worktree before proceeding.
+      const { computeProjectHash, resolveTaskWorktreePath } =
+        await import('@cleocode/paths');
+      const projectHashForResume = computeProjectHash(root);
+      worktreePath = resolveTaskWorktreePath(projectHashForResume, taskId);
+      worktreeBranch = `task/${taskId}`;
+
+      if (!existsSync(worktreePath)) {
+        return engineError(
+          'E_RESUME_WORKTREE_MISSING',
+          `Resume worktree not found at ${worktreePath} — the worktree must already exist for --resume to attach to it.`,
+          {
+            details: { taskId, expectedPath: worktreePath },
+            fix: `Run 'cleo orchestrate spawn ${taskId}' without --resume to provision a fresh worktree, or create the worktree manually at the canonical path.`,
+          },
+        );
+      }
+
+      // Verify the path is a valid git worktree by checking for .git file.
+      const gitFile = join(worktreePath, '.git');
+      if (!existsSync(gitFile)) {
+        return engineError(
+          'E_RESUME_WORKTREE_INVALID',
+          `Path ${worktreePath} exists but is not a valid git worktree (missing .git file).`,
+          {
+            details: { taskId, path: worktreePath },
+            fix: `Remove the invalid directory and run 'cleo orchestrate spawn ${taskId}' without --resume.`,
+          },
+        );
+      }
+
+      // Unlock the worktree if it's locked (resume implies the worktree may
+      // have been left locked by a prior aborted spawn).
+      try {
+        execFileSync('git', ['worktree', 'unlock', worktreePath], {
+          cwd: root,
+          timeout: 5_000,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+      } catch {
+        // Best-effort — if unlock fails, the worktree might still be usable.
+      }
+
+      // Populate the partial state tracker so timeout cleanup can target
+      // this worktree if a later step blows the budget.
+      partialState.worktreePath = worktreePath;
+      partialState.worktreeBranch = worktreeBranch;
+
+      // Build a minimal sdkWorktreeResult for downstream envelope consumers.
+      sdkWorktreeResult = {
+        path: worktreePath,
+        branch: worktreeBranch,
+        taskId,
+        baseRef: '',
+        projectHash: projectHashForResume,
+        createdAt: new Date().toISOString(),
+        locked: true,
+        reused: true,
+        envVars: {},
+        preamble: '',
+        hookResults: [],
+        appliedPatterns: [],
+      };
+
+      spawnLogger.info(
+        { taskId, worktreePath },
+        'T10078 --resume: skipping worktree provisioning, attaching to existing worktree',
+      );
+    } else if (noWorktree) {
       // Explicit opt-out — log to audit so it's always traceable.
       getLogger('engine:orchestrate').info(
         { taskId },
@@ -1385,8 +1465,25 @@ export async function orchestrateSpawn(
           { taskId, err: wtErr },
           `T1878 worktree provisioning failed for ${taskId}: ${message}`,
         );
+
+        // T10078 — best-effort cleanup of any partially-provisioned worktree.
+        // If createWorktree partially succeeded (e.g. git worktree add ran but
+        // a later step failed), an orphan worktree + task branch would remain.
+        // destroyWorktree is idempotent — it safely no-ops when nothing exists.
+        let cleanupNote: string | undefined;
+        try {
+          const cleanupResult = await runTimeoutCleanup(root, taskId);
+          cleanupNote = cleanupResult.worktreeRemoved
+            ? 'Orphan worktree cleaned up'
+            : cleanupResult.error
+              ? `Cleanup attempted but may be incomplete: ${cleanupResult.error}`
+              : 'No orphan worktree found';
+        } catch {
+          cleanupNote = 'Cleanup attempt failed';
+        }
+
         return engineError('E_WORKTREE_PROVISION_FAILED', message, {
-          details: { taskId, cause: message },
+          details: { taskId, cause: message, cleanup: cleanupNote },
           fix: 'Check git repository state, branch availability, and disk space. Run `git worktree list` and `git branch --list task/<taskId>` to diagnose.',
         });
       }

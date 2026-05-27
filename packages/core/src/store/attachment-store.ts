@@ -21,7 +21,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Attachment, AttachmentMetadata, AttachmentRef } from '@cleocode/contracts';
 import { and, eq, sql } from 'drizzle-orm';
-import { getCleoDirAbsolute } from '../paths.js';
+import { resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
 import { getDb, getNativeTasksDb } from './sqlite.js';
 import { type AttachmentLifecycleStatus, attachmentRefs, attachments } from './tasks-schema.js';
 
@@ -164,7 +164,8 @@ function extFromMime(mime: string): string {
  * @param cwd - Optional working directory for path resolution
  */
 function getAttachmentSha256Dir(cwd?: string): string {
-  return join(getCleoDirAbsolute(cwd), 'attachments', 'sha256');
+  const projectId = resolveProjectByCwd(cwd);
+  return join(resolveCanonicalCleoDir(projectId), 'attachments', 'sha256');
 }
 
 /**

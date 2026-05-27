@@ -17,7 +17,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -150,5 +150,59 @@ describe('spawn-verify E2E (T-WT-5)', () => {
 
     expect(destroyResult.worktreeRemoved).toBe(true);
     expect(existsSync(wt.path)).toBe(false);
+  });
+
+  // T11033 — Verify that project-info.json is copied from the parent project's
+  // .cleo/ into the worktree .cleo/ at provision time, enabling worktree-resident
+  // CLEO commands to resolve the parent projectId.
+  it('T11033: copies project-info.json from parent .cleo/ into worktree .cleo/ at provision time', {
+    timeout: 120_000,
+  }, async () => {
+    const TASK_ID = 'T11033-e2e';
+
+    // Create .cleo/project-info.json in the parent project.
+    const parentCleoDir = join(mainRepo, '.cleo');
+    mkdirSync(parentCleoDir, { recursive: true });
+    const projectInfo = {
+      projectId: 'test-project-id-11033',
+      projectHash: 'deadbeef1234',
+      lastUpdated: new Date().toISOString(),
+    };
+    writeFileSync(join(parentCleoDir, 'project-info.json'), JSON.stringify(projectInfo, null, 2));
+
+    // Provision the worktree.
+    const wt = await createWorktree(mainRepo, {
+      taskId: TASK_ID,
+      lockWorktree: false,
+      applyIncludePatterns: false,
+    });
+
+    // Assert project-info.json was copied into the worktree .cleo/.
+    const worktreeInfoPath = join(wt.path, '.cleo', 'project-info.json');
+    expect(existsSync(worktreeInfoPath)).toBe(true);
+
+    // Read and validate the content.
+    const copiedContent = JSON.parse(readFileSync(worktreeInfoPath, 'utf-8'));
+    expect(copiedContent.projectId).toBe('test-project-id-11033');
+    expect(copiedContent.projectHash).toBe('deadbeef1234');
+  });
+
+  // T11033 — Graceful no-op when the parent project has no .cleo/project-info.json.
+  it('T11033: does not fail when parent project has no .cleo/ directory', {
+    timeout: 120_000,
+  }, async () => {
+    const TASK_ID = 'T11033-no-cleo';
+
+    // The temp repo from beforeEach doesn't have .cleo/ — this is the default.
+    const wt = await createWorktree(mainRepo, {
+      taskId: TASK_ID,
+      lockWorktree: false,
+      applyIncludePatterns: false,
+    });
+
+    // Worktree was created successfully — the absence of project-info.json
+    // should not cause any failure.
+    expect(wt.path).toBeTruthy();
+    expect(existsSync(wt.path)).toBe(true);
   });
 });

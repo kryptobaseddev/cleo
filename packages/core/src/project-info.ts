@@ -6,6 +6,7 @@
  * and projectId without importing the full scaffold machinery.
  *
  * @task T5333
+ * @task T11008 — resolveProjectByCwd and resolveCanonicalCleoDir added to @cleocode/paths
  */
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';

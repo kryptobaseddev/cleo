@@ -167,6 +167,11 @@ interface OrchestrateSpawnParams {
    * Distinct from {@link spawnScope} (sparse-checkout cone path).
    */
   atomicityScope?: 'orchestrator-defer';
+  /**
+   * T10078 — when true, skip worktree provisioning and attach to an existing
+   * locked worktree at the canonical XDG path.
+   */
+  resume?: boolean;
 }
 
 interface OrchestrateHandoffParams {
@@ -416,6 +421,7 @@ async function orchestrateSpawnOp(params: OrchestrateSpawnParams) {
     params.noWorktree,
     params.spawnScope,
     params.atomicityScope,
+    params.resume,
   );
 }
 

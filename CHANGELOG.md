@@ -2,22 +2,31 @@
 
 ## [2026.5.124] (2026-05-27)
 
-### Hygiene Sweep — T10466 + T10467 + T10489 + T10490
+### Added
 
-- **T10466**: Trimmed CLEO-INJECTION.md 48 lines (452→404), restoring ~400-line cap for agent spawn prompts
-- **T10467**: Verified api.signaldock.io deployment (health 200, SSE enabled, version 0.1.0)
-- **T10489**: Restructured `.cleo/.gitignore` with spacer blocks to eliminate rebase-conflict clusters
-- **T10490**: Added vitest `--retry=2` on macOS shard 1 for flake resilience
 
-### CI Gate Fixes
 
-- Saga Label Anti-Pattern: removed dead `isSagaEpic`, replaced `SAGA_LABEL` with `task.type === 'saga'` check
-- DB Open Chokepoint: annotated backfill `DatabaseSync` with `// db-open-allowed`
-- Rust Vendor Parity: synced LAFS envelope schema TS canonical → Rust vendor
-- Invariants Docs Render: rebuilt `docs/registry/INVARIANTS.md` from registry SSoT
-- CLI Boundary Lint: updated baseline (29→33)
-- Biome formatting: fixed generated command-manifest.ts
-- Unit test snapshots: updated operations registry, help-tier, and envelope snapshots
+### Changed
+
+
+
+### Fixed
+
+- Fix release and verify project-root routing from secondary worktrees and document severity constraints for non-bug task kinds _(provenance: [T10079](https://github.com/kryptobaseddev/cleo/search?q=T10079&type=commits), [T10089](https://github.com/kryptobaseddev/cleo/search?q=T10089&type=commits))_
+
+### Deprecated
+
+
+
+### Removed
+
+
+
+### Security
+
+
+
+### BREAKING CHANGES
 
 ## [2026.5.123] (2026-05-26)
 

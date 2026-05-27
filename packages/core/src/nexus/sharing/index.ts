@@ -14,7 +14,7 @@ import { join, relative } from 'node:path';
 import type { NexusShareStatusParams, SharingConfig } from '@cleocode/contracts';
 import { loadConfig } from '../../config.js';
 import { type EngineResult, engineError, engineSuccess } from '../../engine-result.js';
-import { getCleoDirAbsolute, getProjectRoot } from '../../paths.js';
+import { getProjectRoot, resolveCanonicalCleoDir, resolveProjectByCwd } from '../../paths.js';
 import { cleoGitCommand, isCleoGitInitialized } from '../../store/git-checkpoint.js';
 
 /**
@@ -237,7 +237,7 @@ export async function getSharingStatus(
   const cwd = projectRoot;
   const config = await loadConfig(cwd);
   const sharing = config.sharing;
-  const cleoDir = getCleoDirAbsolute(cwd);
+  const cleoDir = resolveCanonicalCleoDir(resolveProjectByCwd(cwd));
 
   const allFiles = collectCleoFiles(cleoDir);
   const tracked: string[] = [];

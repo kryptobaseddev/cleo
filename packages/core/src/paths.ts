@@ -18,12 +18,15 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
-import { ExitCode } from '@cleocode/contracts';
+import { basename, dirname, join, resolve } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { E_CWD_WALKUP_FORBIDDEN, ExitCode } from '@cleocode/contracts';
 import {
   getCanonicalTemplatesTildePath as _getCanonicalTemplatesTildePath,
   getCleoTemplatesTildePath as _getCleoTemplatesTildePath,
   isAbsolutePath as _isAbsolutePath,
+  resolveCanonicalCleoDir as _resolveCanonicalCleoDir,
+  resolveProjectByCwd as _pathsResolveProjectByCwd,
 } from '@cleocode/paths';
 import { CleoError } from './errors.js';
 import { getPlatformPaths } from './system/platform-paths.js';
@@ -271,6 +274,21 @@ export function getCleoDir(cwd?: string): string {
 /**
  * Get the absolute path to the project CLEO directory.
  *
+ * **@deprecated** Since T10297. Use {@link resolveProjectByCwd} +
+ * {@link resolveCanonicalCleoDir} instead. This function remains as a
+ * compatibility shim that delegates to the new resolution chain.
+ *
+ * Migration:
+ * ```typescript
+ * // Before (deprecated):
+ * const cleoDir = getCleoDirAbsolute(cwd);
+ *
+ * // After (T10297):
+ * const project = resolveProjectByCwd(cwd);
+ * if (!project) throw new Error('Not in a CLEO project');
+ * const cleoDir = resolveCanonicalCleoDir(project.projectId);
+ * ```
+ *
  * @param cwd - Optional anchor for project-root resolution; if omitted, uses
  *   the canonical {@link getProjectRoot} chain (worktreeScope > CLEO_ROOT >
  *   CLEO_DIR absolute > gitlink walk > ancestor walk).
@@ -290,10 +308,8 @@ export function getCleoDir(cwd?: string): string {
  *
  * **Resolution order** (matches the wider {@link getProjectRoot} chain):
  * 1. `CLEO_DIR` env var with an absolute value — returned verbatim.
- * 2. Provided `cwd` is normalized via {@link getProjectRoot}, so the resolved
- *    `.cleo` always anchors at the canonical project root even when callers
- *    pass a monorepo subdirectory or worktree path. This eliminates the
- *    T9550/T9580 orphan-`.cleo/` bug class.
+ * 2. Delegates to {@link resolveProjectByCwd} + {@link resolveCanonicalCleoDir}
+ *    for canonical project resolution via `project-info.json` (T10297).
  * 3. If `cwd` is omitted, resolution runs against `getProjectRoot()` directly.
  *
  * **Root-cause fix (T9803 · council verdict D009)**: when `getProjectRoot()`
@@ -318,12 +334,91 @@ export function getCleoDir(cwd?: string): string {
  * // Bootstrap (cleo init creating a new project)
  * getCleoDirAbsolute('/tmp/new-project', { bootstrap: true }); // "/tmp/new-project/.cleo"
  * ```
+ *
+ * @deprecated Migrate to {@link resolveProjectByCwd} + {@link resolveCanonicalCleoDir}
+ * @task T11009
  */
 export function getCleoDirAbsolute(cwd?: string, opts?: { bootstrap?: boolean }): string {
   const cleoDir = getCleoDir();
   if (isAbsolutePath(cleoDir)) {
     return cleoDir;
   }
+
+  // T11022: Deprecation warning + CLEO_PATHS_STRICT enforcement.
+  // When callers pass an absolute CLEO_DIR, we return it verbatim above —
+  // no deprecation because the caller already has a canonical path.
+  // Every other path through this function is CWD-walk-up resolution that
+  // should be migrated to resolveProjectByCwd + resolveCanonicalCleoDir.
+  //
+  // bootstrap=true is also exempt: cleo init legitimately needs to resolve
+  // a .cleo/ path that doesn't exist yet (AC3).
+  if (!opts?.bootstrap) {
+    if (process.env['CLEO_PATHS_STRICT'] === '1') {
+      // AC2: Strict mode — throw with remediation hint.
+      throw new CleoError(
+        ExitCode.CONFIG_ERROR,
+        `${E_CWD_WALKUP_FORBIDDEN}: getCleoDirAbsolute(cwd) with CWD-walk-up resolution is forbidden under CLEO_PATHS_STRICT=1. ` +
+          `Migrate to:\\n` +
+          `  const project = resolveProjectByCwd(cwd);\\n` +
+          `  if (!project) throw new Error('Not in a CLEO project');\\n` +
+          `  const cleoDir = resolveCanonicalCleoDir(project.projectId);`,
+        {
+          fix: 'Replace getCleoDirAbsolute(cwd) with resolveProjectByCwd(cwd) + resolveCanonicalCleoDir(projectId)',
+          details: {
+            field: 'getCleoDirAbsolute',
+            affectedSymbols: ['getCleoDirAbsolute'],
+            remediationCommands: [
+              'const project = resolveProjectByCwd(cwd)',
+              'const cleoDir = resolveCanonicalCleoDir(project.projectId)',
+            ],
+          },
+        },
+      );
+    }
+
+    if (!_getCleoDirAbsoluteDeprecatedWarned) {
+      _getCleoDirAbsoluteDeprecatedWarned = true;
+      // AC1: One-time deprecation warning via CLEO_DEBUG.
+      if (process.env['CLEO_DEBUG']) {
+        process.stderr.write(
+          `[cleo][debug] W_PATH_DEPRECATED: getCleoDirAbsolute(cwd) is deprecated (T10297). ` +
+            `Migrate to resolveProjectByCwd(cwd) + resolveCanonicalCleoDir(projectId). ` +
+            `Set CLEO_PATHS_STRICT=1 to enforce this at runtime.\\n`,
+        );
+      }
+    }
+  }
+
+  // T10297: try canonical projectId-based resolution.
+  // resolveProjectByCwd verifies we're in a valid CLEO project by reading
+  // project-info.json, but getProjectRoot handles the actual path resolution
+  // (worktree gitlink following, CLEO_ROOT, worktreeScope ALS, etc.).
+  // We use resolveProjectByCwd as a validation gate, and getProjectRoot
+  // as the path authority.
+  const project = _pathsResolveProjectByCwd(cwd);
+  if (project !== null) {
+    // T11021: Auto-register project on first encounter (fire-and-forget).
+    // T11023: pass legacyUUID so it gets registered as an alias alongside
+    // the canonical ID.
+    registerProjectOnEncounter(project.projectRoot, project.legacyUUID ?? project.projectId).catch(() => {});
+    try {
+      const projectRoot = getProjectRoot(cwd);
+      const canonical = _resolveCanonicalCleoDir(project.projectId);
+      // Use nexus.db resolution only when it agrees with getProjectRoot;
+      // otherwise fall through to getProjectRoot-based resolution.
+      if (canonical !== null && canonical === resolve(projectRoot, cleoDir)) {
+        return canonical;
+      }
+      return resolve(projectRoot, cleoDir);
+    } catch {
+      // getProjectRoot threw — fall through to the projectRoot we already
+      // found via resolveProjectByCwd (handles edge cases where getProjectRoot
+      // is stricter than resolveProjectByCwd).
+      return resolve(project.projectRoot, cleoDir);
+    }
+  }
+
+  // Legacy fallback for non-project contexts (bootstrap / pre-init).
   // SSoT (T9685): route through getProjectRoot so callers anywhere in a
   // worktree or monorepo subdir resolve to the canonical project root, not
   // their cwd.
@@ -332,16 +427,13 @@ export function getCleoDirAbsolute(cwd?: string, opts?: { bootstrap?: boolean })
   } catch (err) {
     // T9803 · council verdict D009: SURGICAL fallback policy —
     //   1. Explicit `{ bootstrap: true }` always allows the fallback (cleo init).
-    //   2. When the cwd (or any ancestor) contains `.git` as a FILE — a worktree
-    //      gitlink marker — REFUSE the fallback. Creating a `.cleo/` inside a
-    //      worktree is the exact bug class T9550/T9580/T9801 catalogued.
-    //   3. When no `.git` exists anywhere in ancestors — a clean-slate dir
-    //      (typical test fixture or pre-init scaffold) — allow the fallback.
-    //      No worktree contamination is possible in that geometry.
+    //   2. When the cwd (or any ancestor) contains `.git` (FILE or DIRECTORY) —
+    //      REFUSE the fallback.
+    //   3. When no `.git` exists anywhere in ancestors — allow the fallback.
     if (opts?.bootstrap) {
       return resolve(cwd ?? process.cwd(), cleoDir);
     }
-    if (_cwdHasWorktreeGitlinkAncestor(cwd)) {
+    if (_cwdHasGitAncestor(cwd)) {
       throw err;
     }
     return resolve(cwd ?? process.cwd(), cleoDir);
@@ -349,21 +441,209 @@ export function getCleoDirAbsolute(cwd?: string, opts?: { bootstrap?: boolean })
 }
 
 /**
- * Walk the ancestor chain looking for `.git` as a FILE (gitlink) — a marker
- * that the cwd is inside a `git worktree add`-created worktree. A FILE `.git`
- * is the worktree-orphan-prone geometry; a DIRECTORY `.git` is a canonical
- * project root (safe).
+ * Resolve the canonical `.cleo` directory for a project given its `projectId`.
+ *
+ * Looks up the project in the global `nexus.db` registry (`project_registry`
+ * table) to find the project's root path, then returns the `.cleo/` directory
+ * under that root.
+ *
+ * This is the core-level wrapper around the `@cleocode/paths` implementation.
+ * Unlike the zero-dep leaf package version (which returns `null`), this wrapper
+ * throws `E_PROJECT_NOT_FOUND` when the projectId is not in the nexus registry,
+ * matching the contract expected by CLEO's higher-level subsystems.
+ *
+ * @param projectId - The stable project UUID (from `.cleo/project-info.json`).
+ * @returns Absolute path to the `.cleo/` directory.
+ * @throws {CleoError} `ExitCode.NOT_FOUND` (`E_PROJECT_NOT_FOUND`) when the
+ *   projectId is not found in the nexus registry.
+ *
+ * @public
+ * @task T11018
+ */
+export function resolveCanonicalCleoDir(projectId: string): string {
+  const result = _resolveCanonicalCleoDir(projectId);
+  if (result === null) {
+    throw new CleoError(
+      ExitCode.NOT_FOUND,
+      `E_PROJECT_NOT_FOUND: projectId "${projectId}" not found in nexus registry`,
+      {
+        fix: 'Ensure the project has been registered: cleo init',
+        details: {
+          field: 'projectId',
+          actual: projectId,
+        },
+      },
+    );
+  }
+  return result;
+}
+
+/**
+ * Walk up from cwd looking for a match in the global nexus.db project_registry
+ * by project_path. Falls back when no `.cleo/project-info.json` is found locally.
+ *
+ * @internal
+ * @task T11013
+ */
+function _resolveProjectByCwdFromNexus(cwd?: string): string | null {
+  try {
+    const cleoHome = getCleoHome();
+    const nexusDbPath = join(cleoHome, 'nexus.db');
+    if (!existsSync(nexusDbPath)) return null;
+
+    const start = resolve(cwd ?? process.cwd());
+    let current = start;
+
+    const db = new DatabaseSync(nexusDbPath, { readOnly: true });
+    try {
+      const stmt = db.prepare(
+        'SELECT project_id FROM project_registry WHERE project_path = ? LIMIT 1',
+      );
+
+      while (true) {
+        const row = stmt.get(current) as { project_id: string } | undefined;
+        if (row && typeof row.project_id === 'string' && row.project_id.length > 0) {
+          return row.project_id;
+        }
+
+        const parent = dirname(current);
+        if (parent === current) break;
+        current = parent;
+      }
+    } finally {
+      try { db.close(); } catch { /* best-effort */ }
+    }
+  } catch {
+    // nexus.db unavailable or corrupted — not an error, just no match
+  }
+  return null;
+}
+
+/**
+ * Resolve the canonical projectId from a working directory.
+ *
+ * First reads `.cleo/project-info.json` from CWD or an ancestor directory (AC2).
+ * Falls back to nexus registry `project_registry.project_path` match when no
+ * local `project-info.json` is found (AC3).
+ *
+ * @param cwd - Optional working directory. Defaults to `process.cwd()`.
+ * @returns The canonical projectId string (AC4).
+ * @throws {CleoError} `ExitCode.NEXUS_PROJECT_NOT_FOUND` (E_CLEO_NEXUS_PROJECT_NOT_FOUND)
+ *   with a remediation hint when no CLEO project is found (AC5).
+ *
+ * @example
+ * ```typescript
+ * const projectId = resolveProjectByCwd('/repo/packages/core');
+ * // "a1b2c3d4e5f6"
+ * ```
+ *
+ * @public
+ * @task T11013
+ */
+export function resolveProjectByCwd(cwd?: string): string {
+  // AC2: Try local project-info.json first (via paths package)
+  const pathsResult = _pathsResolveProjectByCwd(cwd);
+  if (pathsResult !== null) {
+    return pathsResult.projectId;
+  }
+
+  // AC4: Walk up from cwd looking for git worktree gitlinks.
+  // When cwd is inside a worktree (`.git` is a FILE pointing to main repo),
+  // resolve the main repo and try project-info.json there.
+  // This handles the canonical CLEO worktree layout where worktrees live
+  // under ~/.local/share/cleo/worktrees/<hash>/<taskId>/ — completely
+  // separate from the main repo — and therefore ancestor-walk from cwd
+  // will never encounter the main repo's .cleo/project-info.json.
+  const start = resolve(cwd ?? process.cwd());
+  let current = start;
+  while (true) {
+    const mainRepo = _resolveMainRepoFromGitlink(current);
+    if (mainRepo !== null) {
+      const mainRepoResult = _pathsResolveProjectByCwd(mainRepo);
+      if (mainRepoResult !== null) {
+        return mainRepoResult.projectId;
+      }
+      // Found a gitlink but the main repo has no project-info.json —
+      // don't keep walking up past the gitlink; the worktree's ancestors
+      // won't help.
+      break;
+    }
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+
+  // AC3: Fall back to nexus registry lookup
+  const nexusProjectId = _resolveProjectByCwdFromNexus(cwd);
+  if (nexusProjectId !== null) {
+    return nexusProjectId;
+  }
+
+  // AC5: Throw with remediation hint
+  throw new CleoError(
+    ExitCode.NEXUS_PROJECT_NOT_FOUND,
+    'No CLEO project found — not in a CLEO project directory and no registry match. ' +
+      'Run `cleo init` to create a new project, or cd into an existing CLEO project.',
+    {
+      fix: 'Run `cleo init` to initialize a CLEO project here, or cd into a project with a .cleo/ directory',
+    },
+  );
+}
+
+/**
+ * Internal: resolve the canonical `.cleo/` directory using the T10297
+ * projectId-based resolution chain.
+ *
+ * Prefer this over the deprecated {@link getCleoDirAbsolute} in internal
+ * path helpers. Falls back to {@link getCleoDirAbsolute} when
+ * `resolveProjectByCwd` returns `null` (bootstrap / non-project contexts).
+ *
+ * Uses {@link getProjectRoot} for worktree-aware path authority
+ * (gitlink following, CLEO_ROOT, worktreeScope ALS) while leveraging
+ * {@link resolveProjectByCwd} for project validation.
+ *
+ * @internal
+ * @task T11009
+ */
+function _resolveCleoDir(cwd?: string): string {
+  const cleoDir = getCleoDir();
+  if (isAbsolutePath(cleoDir)) {
+    return cleoDir;
+  }
+
+  const project = _pathsResolveProjectByCwd(cwd);
+  if (project !== null) {
+    try {
+      return resolve(getProjectRoot(cwd), cleoDir);
+    } catch {
+      return resolve(project.projectRoot, cleoDir);
+    }
+  }
+
+  // Fallback to legacy resolution for non-project contexts
+  return getCleoDirAbsolute(cwd);
+}
+
+/**
+ * Walk the ancestor chain looking for `.git` (FILE or DIRECTORY) — any marker
+ * that the cwd is inside a git repository. When `getProjectRoot()` threw inside
+ * a git repo, the repo is NOT a CLEO project and the fallback must NOT silently
+ * create a rogue `.cleo/` inside it (T10287 regression of T9550/T9580/T9801).
+ *
+ * Prior to T10287 this only checked for gitlink FILES (worktrees), missing
+ * legitimate git DIRECTORIES that happen to not be CLEO projects
+ * (e.g. `/mnt/projects/awesome-skills/` running `cleo briefing`).
  *
  * @internal
  */
-function _cwdHasWorktreeGitlinkAncestor(cwd?: string): boolean {
+function _cwdHasGitAncestor(cwd?: string): boolean {
   const start = resolve(cwd ?? process.cwd());
   let current = start;
   while (true) {
     const gitMarker = join(current, '.git');
     try {
       if (existsSync(gitMarker)) {
-        return statSync(gitMarker).isFile();
+        return true;
       }
     } catch {
       /* unreadable — treat as not present */
@@ -375,10 +655,49 @@ function _cwdHasWorktreeGitlinkAncestor(cwd?: string): boolean {
 }
 
 /**
+ * Attempt to resolve the main git repo root from a gitlink (.git as FILE).
+ * Returns the main repo path if the gitlink is valid and the main repo is a
+ * CLEO project; otherwise returns `null`.
+ *
+ * @internal
+ * @task T11034
+ */
+function _resolveMainRepoFromGitlink(gitlinkDir: string): string | null {
+  try {
+    const gitLinkPath = join(gitlinkDir, '.git');
+    if (!existsSync(gitLinkPath)) return null;
+    const stat = statSync(gitLinkPath);
+    if (!stat.isFile()) return null;
+    const gitLinkContent = readFileSync(gitLinkPath, 'utf-8').trim();
+    const match = gitLinkContent.match(/^gitdir:\s*(.+)$/m);
+    if (!match) return null;
+    const gitdir = match[1].trim();
+    // gitdir is `<main>/.git/worktrees/<name>` → strip last 3 segments.
+    const mainRepo = dirname(dirname(dirname(gitdir)));
+    if (existsSync(join(mainRepo, '.cleo')) && validateProjectRoot(mainRepo)) {
+      return mainRepo;
+    }
+  } catch {
+    // Parse error — not a valid gitlink.
+  }
+  return null;
+}
+
+/**
  * Module-level flag: emit the legacy-fallback warning at most once per process.
  * Prevents log spam when `validateProjectRoot` is called repeatedly in a session.
  */
 let _legacyFallbackWarned = false;
+
+/**
+ * Module-level flag: emit the T10297 deprecation warning for
+ * `getCleoDirAbsolute` at most once per process (AC4).
+ *
+ * @task T11022
+ * @epic T10296
+ * @saga T10295
+ */
+let _getCleoDirAbsoluteDeprecatedWarned = false;
 
 /**
  * Validate that a candidate project root directory is a legitimate CLEO
@@ -435,6 +754,10 @@ export function validateProjectRoot(candidate: string): boolean {
   }
 
   // Primary: .cleo/project-info.json with a valid projectId string.
+  // T11034 — Worktree guard: a worktree has .git as a gitlink FILE, not a
+  // directory. project-info.json is copied into worktrees for identity
+  // inheritance (T11033), but worktrees must NOT be treated as standalone
+  // project roots — path resolution must walk past them to the parent project.
   const projectInfoPath = join(cleoDir, 'project-info.json');
   if (existsSync(projectInfoPath)) {
     try {
@@ -447,6 +770,20 @@ export function validateProjectRoot(candidate: string): boolean {
         typeof (parsed as Record<string, unknown>)['projectId'] === 'string' &&
         (parsed as Record<string, unknown>)['projectId'] !== ''
       ) {
+        // T11034: Reject worktrees — .git is a gitlink FILE, not a directory.
+        // Workers should resolve through to the parent project root.
+        const gitMarker = join(candidate, '.git');
+        if (existsSync(gitMarker)) {
+          try {
+            if (!statSync(gitMarker).isDirectory()) {
+              // Gitlink file (worktree) — NOT a project root.
+              return false;
+            }
+          } catch {
+            // Stat failed — treat as non-directory (reject).
+            return false;
+          }
+        }
         return true;
       }
     } catch {
@@ -605,32 +942,13 @@ export function getProjectRoot(cwd?: string): string {
   const start = resolve(cwd ?? process.cwd());
   let current = start;
 
-  // 2.5. T9092: if `start` is inside a git worktree (i.e. has `.git` as a
+  // 2.5. T9092 + T11034: if `start` is inside a git worktree (i.e. has `.git` as a
   //      gitlink FILE pointing to `<mainrepo>/.git/worktrees/<name>`), the
   //      canonical project root is the MAIN repo, not the worktree dir.
-  //      Read the gitlink, parse `gitdir: <path>`, derive the main repo root
-  //      as the grandparent of `<path>` (since gitdir is `<main>/.git/worktrees/<name>`).
-  //      This solves the case where the worktree lives under
-  //      `~/.local/share/cleo/worktrees/...` — walking up from there would
-  //      never reach the main repo at `/mnt/projects/cleocode`.
-  try {
-    const startGit = join(start, '.git');
-    if (existsSync(startGit) && statSync(startGit).isFile()) {
-      const gitLinkContent = readFileSync(startGit, 'utf-8').trim();
-      const match = gitLinkContent.match(/^gitdir:\s*(.+)$/m);
-      if (match) {
-        const gitdir = match[1].trim();
-        // gitdir is `<main>/.git/worktrees/<name>` → strip last 3 segments.
-        // dirname × 3: `<main>/.git/worktrees/<name>` → `<main>/.git/worktrees` → `<main>/.git` → `<main>`
-        const mainRepo = dirname(dirname(dirname(gitdir)));
-        if (existsSync(join(mainRepo, '.cleo')) && validateProjectRoot(mainRepo)) {
-          return mainRepo;
-        }
-      }
-    }
-  } catch {
-    // Gitlink parse error — fall through to ancestor walk.
-  }
+  //      Delegates to the shared _resolveMainRepoFromGitlink helper which
+  //      provides deterministic resolution from any worktree path.
+  const mainRepoFromStart = _resolveMainRepoFromGitlink(start);
+  if (mainRepoFromStart !== null) return mainRepoFromStart;
 
   // T889/T909 guard: snapshot $HOME and filesystem root sentinels.
   //
@@ -701,7 +1019,14 @@ export function getProjectRoot(cwd?: string): string {
           fix: `cd ${current} && cleo init`,
         });
       }
-      // gitlink file — keep walking up to find the canonical project root.
+      // gitlink file — attempt to resolve the main repo from it (T11034).
+      // When a worktree lives under ~/.local/share/cleo/worktrees/... and the
+      // caller is in a subdirectory (not the worktree root), the start-level
+      // gitlink check misses it. During the walk we must resolve gitlinks
+      // to ensure deterministic resolution from any worktree path.
+      const mainRepoFromWalk = _resolveMainRepoFromGitlink(current);
+      if (mainRepoFromWalk !== null) return mainRepoFromWalk;
+      // gitlink we couldn't resolve — keep walking up.
     }
 
     // Move up one level
@@ -829,9 +1154,11 @@ export function resolveProjectPath(relativePath: string, cwd?: string): string {
  * ```typescript
  * const dbPath = getTaskPath('/project');
  * ```
+ *
+ * @task T11009 — rewired to _resolveCleoDir (T10297 projectId-based resolution)
  */
 export function getTaskPath(cwd?: string): string {
-  return join(getCleoDirAbsolute(cwd), 'tasks.db');
+  return join(_resolveCleoDir(cwd), 'tasks.db');
 }
 
 /**
@@ -849,7 +1176,7 @@ export function getTaskPath(cwd?: string): string {
  * ```
  */
 export function getConfigPath(cwd?: string): string {
-  return join(getCleoDirAbsolute(cwd), 'config.json');
+  return join(_resolveCleoDir(cwd), 'config.json');
 }
 
 /**
@@ -867,7 +1194,7 @@ export function getConfigPath(cwd?: string): string {
  * ```
  */
 export function getSessionsPath(cwd?: string): string {
-  return join(getCleoDirAbsolute(cwd), 'sessions.json');
+  return join(_resolveCleoDir(cwd), 'sessions.json');
 }
 
 /**
@@ -885,7 +1212,7 @@ export function getSessionsPath(cwd?: string): string {
  * ```
  */
 export function getArchivePath(cwd?: string): string {
-  return join(getCleoDirAbsolute(cwd), 'tasks-archive.json');
+  return join(_resolveCleoDir(cwd), 'tasks-archive.json');
 }
 
 /**
@@ -906,7 +1233,7 @@ export function getArchivePath(cwd?: string): string {
  * @task T4644
  */
 export function getLogPath(cwd?: string): string {
-  return join(getCleoDirAbsolute(cwd), 'logs', 'cleo.log');
+  return join(_resolveCleoDir(cwd), 'logs', 'cleo.log');
 }
 
 /**
@@ -924,7 +1251,7 @@ export function getLogPath(cwd?: string): string {
  * ```
  */
 export function getBackupDir(cwd?: string): string {
-  return join(getCleoDirAbsolute(cwd), 'backups', 'operational');
+  return join(_resolveCleoDir(cwd), 'backups', 'operational');
 }
 
 /**
@@ -1631,4 +1958,124 @@ export function detectStrayCleoDb(routing: WorktreeRouting): string | undefined 
     /* fall through */
   }
   return undefined;
+}
+
+// ============================================================================
+// Project Registry Lookup (T11021)
+// ============================================================================
+
+/** A lightweight snapshot of a project_registry row. */
+export interface ProjectRegistryEntry {
+  projectId: string;
+  projectRoot: string;
+  projectHash: string;
+  name: string;
+  registeredAt: string;
+  lastSeen: string;
+  healthStatus: string;
+  permissions: string;
+  taskCount: number;
+}
+
+/** Look up a project by canonical or legacy projectId (AC1, AC4). */
+export async function resolveProjectById(projectId: string): Promise<ProjectRegistryEntry | null> {
+  const cleoHome = getCleoHome();
+  const nexusDbPath = join(cleoHome, 'nexus.db');
+  if (!existsSync(nexusDbPath)) return null;
+  try {
+    const { getNexusDb } = await import('./store/nexus-sqlite.js');
+    const { eq } = await import('drizzle-orm');
+    const { projectRegistry, projectIdAliases } = await import('./store/nexus-schema.js');
+    const db = await getNexusDb();
+    const directRows = await db.select().from(projectRegistry).where(eq(projectRegistry.projectId, projectId)).limit(1);
+    if (directRows.length > 0) return _rowToRegistryEntry(directRows[0]);
+    // Alias lookup (AC4) — gracefully handles missing project_id_aliases table
+    try {
+      const aliasRows = await db.select().from(projectIdAliases).where(eq(projectIdAliases.legacyId, projectId)).limit(1);
+      if (aliasRows.length > 0) {
+        const canonicalId = aliasRows[0].canonicalId;
+        const canonicalRows = await db.select().from(projectRegistry).where(eq(projectRegistry.projectId, canonicalId)).limit(1);
+        if (canonicalRows.length > 0) return _rowToRegistryEntry(canonicalRows[0]);
+      }
+    } catch { /* alias table may not exist yet */ }
+    return null;
+  } catch { return null; }
+}
+
+function _rowToRegistryEntry(row: Record<string, unknown>): ProjectRegistryEntry {
+  return {
+    projectId: String(row['projectId'] ?? ''),
+    projectRoot: String(row['projectPath'] ?? ''),
+    projectHash: String(row['projectHash'] ?? ''),
+    name: String(row['name'] ?? ''),
+    registeredAt: String(row['registeredAt'] ?? ''),
+    lastSeen: String(row['lastSeen'] ?? ''),
+    healthStatus: String(row['healthStatus'] ?? 'unknown'),
+    permissions: String(row['permissions'] ?? 'read'),
+    taskCount: Number(row['taskCount'] ?? 0),
+  };
+}
+
+/** Read project name from .cleo/project-info.json. Returns undefined on failure. */
+function _readProjectNameFromInfo(projectRoot: string): string | undefined {
+  try {
+    const infoPath = join(projectRoot, '.cleo', 'project-info.json');
+    if (!existsSync(infoPath)) return undefined;
+    const raw = readFileSync(infoPath, 'utf-8');
+    const data = JSON.parse(raw) as Record<string, unknown>;
+    return typeof data.name === 'string' && data.name.length > 0 ? data.name : undefined;
+  } catch { return undefined; }
+}
+
+/** Auto-register a project on first encounter (AC2, AC3, AC5, AC6). */
+export async function registerProjectOnEncounter(
+  projectRoot: string,
+  infoProjectId: string,
+): Promise<void> {
+  try {
+    const { canonicalProjectId: computeCanonicalId } = await import('./nexus/identity.js');
+    const canonicalResult = await computeCanonicalId(projectRoot);
+    const canonicalId = canonicalResult.id;
+    const { getNexusDb } = await import('./store/nexus-sqlite.js');
+    const { eq } = await import('drizzle-orm');
+    const { projectRegistry, projectIdAliases } = await import('./store/nexus-schema.js');
+    const db = await getNexusDb();
+    const existingRows = await db.select().from(projectRegistry).where(eq(projectRegistry.projectId, canonicalId)).limit(1);
+    const now = new Date().toISOString();
+    const resolvedPath = resolve(projectRoot);
+    const projectName = _readProjectNameFromInfo(resolvedPath) || basename(projectRoot) || 'unnamed';
+    if (existingRows.length > 0) {
+      const existingPath = existingRows[0].projectPath as string;
+      if (existingPath !== resolvedPath) {
+        const newBrainDbPath = join(resolvedPath, '.cleo', 'brain.db');
+        const newTasksDbPath = join(resolvedPath, '.cleo', 'tasks.db');
+        await db.update(projectRegistry).set({
+          projectPath: resolvedPath,
+          brainDbPath: newBrainDbPath,
+          tasksDbPath: newTasksDbPath,
+          lastSeen: now
+        }).where(eq(projectRegistry.projectId, canonicalId));
+      } else {
+        await db.update(projectRegistry).set({ lastSeen: now }).where(eq(projectRegistry.projectId, canonicalId));
+      }
+      return;
+    }
+    await db.insert(projectRegistry).values({
+      projectId: canonicalId, projectHash: canonicalResult.components.gitRoot,
+      projectPath: resolvedPath, name: projectName, registeredAt: now, lastSeen: now,
+      healthStatus: 'unknown', healthLastCheck: null, permissions: 'read', lastSync: now,
+      taskCount: 0, labelsJson: '[]',
+      brainDbPath: join(resolvedPath, '.cleo', 'brain.db'),
+      tasksDbPath: join(resolvedPath, '.cleo', 'tasks.db'), statsJson: '{}',
+    });
+    const aliases = canonicalResult.legacyAliases ?? [];
+    const { legacyProjectId } = await import('./nexus/identity.js');
+    const directLegacy = legacyProjectId(resolvedPath);
+    const allAliases = new Set<string>([directLegacy, infoProjectId, ...aliases]);
+    for (const legacyId of allAliases) {
+      try {
+        await db.insert(projectIdAliases).values({ legacyId, canonicalId, createdAt: now }).onConflictDoNothing();
+      } catch { /* best-effort */ }
+    }
+  } catch { /* best-effort registration */ }
 }

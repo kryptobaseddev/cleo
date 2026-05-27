@@ -16,6 +16,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { getCleoHome } from './cleo-paths.js';
 
@@ -46,13 +47,25 @@ function joinSegments(base: string, ...parts: string[]): string {
  * the historical implementation in `branch-lock.ts#resolveAgentWorktreeRoot`
  * (the root cause of the duplicated logic this package consolidates).
  *
+ * **Cross-mount normalization (T11023 AC3):** The input path is resolved
+ * through `realpathSync` before hashing so that different mount points
+ * (/mnt/projects/X vs /workspace/X) produce the same hash.
+ *
  * @param projectRoot - Absolute path to the project root.
  * @returns 16-character lowercase hex string.
  *
  * @public
  */
 export function computeProjectHash(projectRoot: string): string {
-  return createHash('sha256').update(projectRoot).digest('hex').slice(0, PROJECT_HASH_LENGTH);
+  // T11023: Normalize via realpath to handle cross-mount divergence.
+  // realpathSync throws on nonexistent paths — fall back to raw path.
+  let normalized: string;
+  try {
+    normalized = realpathSync(projectRoot);
+  } catch {
+    normalized = projectRoot;
+  }
+  return createHash('sha256').update(normalized).digest('hex').slice(0, PROJECT_HASH_LENGTH);
 }
 
 /**

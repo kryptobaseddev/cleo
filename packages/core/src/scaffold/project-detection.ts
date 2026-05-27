@@ -6,7 +6,7 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { CheckResult } from '@cleocode/contracts/scaffold-diagnostics';
-import { getCleoDirAbsolute, getConfigPath, resolveOrCwd } from '../paths.js';
+import { resolveCanonicalCleoDir, resolveProjectByCwd, getConfigPath, resolveOrCwd } from '../paths.js';
 import { getGitignoreContent, getWorktreeIncludeContent } from './ensure-config.js';
 import { REQUIRED_CLEO_SUBDIRS } from './ensure-dirs.js';
 
@@ -17,7 +17,8 @@ import { REQUIRED_CLEO_SUBDIRS } from './ensure-dirs.js';
  * @returns Check result with status and list of any missing subdirectories
  */
 export function checkCleoStructure(projectRoot: string): CheckResult {
-  const cleoDir = getCleoDirAbsolute(projectRoot);
+  const projectId = resolveProjectByCwd(projectRoot);
+  const cleoDir = resolveCanonicalCleoDir(projectId);
   const missing: string[] = [];
 
   if (!existsSync(cleoDir)) {
@@ -65,7 +66,8 @@ export function checkCleoStructure(projectRoot: string): CheckResult {
  * @returns Check result indicating whether the gitignore matches the template
  */
 export function checkGitignore(projectRoot: string): CheckResult {
-  const cleoDir = getCleoDirAbsolute(projectRoot);
+  const projectId = resolveProjectByCwd(projectRoot);
+  const cleoDir = resolveCanonicalCleoDir(projectId);
   const gitignorePath = join(cleoDir, '.gitignore');
 
   if (!existsSync(gitignorePath)) {
@@ -115,7 +117,8 @@ export function checkGitignore(projectRoot: string): CheckResult {
 export function checkWorktreeInclude(projectRoot?: string): CheckResult {
   const root = resolveOrCwd(projectRoot);
   const canonicalPath = join(root, '.worktreeinclude');
-  const legacyPath = join(getCleoDirAbsolute(root), 'worktree-include');
+  const projectId = resolveProjectByCwd(root);
+  return join(resolveCanonicalCleoDir(projectId), 'worktree-include');
 
   // Canonical path — preferred.
   if (existsSync(canonicalPath)) {
@@ -209,7 +212,8 @@ export function checkConfig(projectRoot: string): CheckResult {
  * @returns Check result indicating whether project-info.json is valid
  */
 export function checkProjectInfo(projectRoot: string): CheckResult {
-  const cleoDir = getCleoDirAbsolute(projectRoot);
+  const projectId = resolveProjectByCwd(projectRoot);
+  const cleoDir = resolveCanonicalCleoDir(projectId);
   const infoPath = join(cleoDir, 'project-info.json');
 
   if (!existsSync(infoPath)) {
@@ -267,7 +271,8 @@ export function checkProjectInfo(projectRoot: string): CheckResult {
  * @returns Check result with freshness assessment
  */
 export function checkProjectContext(projectRoot: string, staleDays: number = 30): CheckResult {
-  const cleoDir = getCleoDirAbsolute(projectRoot);
+  const projectId = resolveProjectByCwd(projectRoot);
+  const cleoDir = resolveCanonicalCleoDir(projectId);
   const contextPath = join(cleoDir, 'project-context.json');
 
   if (!existsSync(contextPath)) {
@@ -337,7 +342,8 @@ export function checkProjectContext(projectRoot: string, staleDays: number = 30)
  * @returns Check result indicating whether the checkpoint repo is present
  */
 export function checkCleoGitRepo(projectRoot: string): CheckResult {
-  const cleoDir = getCleoDirAbsolute(projectRoot);
+  const projectId = resolveProjectByCwd(projectRoot);
+  const cleoDir = resolveCanonicalCleoDir(projectId);
   const cleoGitDir = join(cleoDir, '.git');
 
   if (!existsSync(cleoGitDir)) {
@@ -368,7 +374,8 @@ export function checkCleoGitRepo(projectRoot: string): CheckResult {
  * @returns Check result with database existence and size information
  */
 export function checkSqliteDb(projectRoot: string): CheckResult {
-  const cleoDir = getCleoDirAbsolute(projectRoot);
+  const projectId = resolveProjectByCwd(projectRoot);
+  const cleoDir = resolveCanonicalCleoDir(projectId);
   const dbPath = join(cleoDir, 'tasks.db');
 
   if (!existsSync(dbPath)) {
@@ -411,7 +418,8 @@ export function checkSqliteDb(projectRoot: string): CheckResult {
  * @returns Check result with database existence and size information
  */
 export function checkBrainDb(projectRoot: string): CheckResult {
-  const cleoDir = getCleoDirAbsolute(projectRoot);
+  const projectId = resolveProjectByCwd(projectRoot);
+  const cleoDir = resolveCanonicalCleoDir(projectId);
   const dbPath = join(cleoDir, 'brain.db');
 
   if (!existsSync(dbPath)) {
@@ -454,7 +462,8 @@ export function checkBrainDb(projectRoot: string): CheckResult {
  * @returns Check result indicating presence of the memory bridge file
  */
 export function checkMemoryBridge(projectRoot: string): CheckResult {
-  const cleoDir = getCleoDirAbsolute(projectRoot);
+  const projectId = resolveProjectByCwd(projectRoot);
+  const cleoDir = resolveCanonicalCleoDir(projectId);
   const bridgePath = join(cleoDir, 'memory-bridge.md');
 
   if (!existsSync(bridgePath)) {
@@ -485,7 +494,8 @@ export function checkMemoryBridge(projectRoot: string): CheckResult {
  * @returns Check result indicating presence of the nexus bridge file
  */
 export function checkNexusBridge(projectRoot: string): CheckResult {
-  const cleoDir = getCleoDirAbsolute(projectRoot);
+  const projectId = resolveProjectByCwd(projectRoot);
+  const cleoDir = resolveCanonicalCleoDir(projectId);
   const bridgePath = join(cleoDir, 'nexus-bridge.md');
 
   if (!existsSync(bridgePath)) {
@@ -516,7 +526,8 @@ export function checkNexusBridge(projectRoot: string): CheckResult {
  * @returns Check result indicating whether .cleo/logs/ is present
  */
 export function checkLogDir(projectRoot: string): CheckResult {
-  const logDir = join(getCleoDirAbsolute(projectRoot), 'logs');
+  const projectId = resolveProjectByCwd(projectRoot);
+  return join(resolveCanonicalCleoDir(projectId), 'logs');
 
   if (!existsSync(logDir)) {
     return {

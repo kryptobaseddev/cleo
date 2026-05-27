@@ -30,7 +30,7 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { getLogger } from '../logger.js';
-import { getCleoDirAbsolute, getCleoHome } from '../paths.js';
+import { getCleoHome, resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
 
 // Cross-OS correct: createRequire for node:sqlite (Vitest/Vite cannot resolve
 // the `node:` prefix as a bare ESM specifier). Matches the pattern used in
@@ -698,7 +698,7 @@ export async function checkProjectHealth(
   }
 
   // Reachable — use SSoT resolver for .cleo/ directory.
-  const cleoDir = getCleoDirAbsolute(projectPath);
+  const cleoDir = resolveCanonicalCleoDir(resolveProjectByCwd(projectPath));
   const cleoDirExists = await pathExists(cleoDir);
 
   const [tasks, brain, conduit, configProbe, infoProbe] = await Promise.all([
