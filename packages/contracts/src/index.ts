@@ -2229,7 +2229,9 @@ export type {
 } from './workgraph.js';
 // === PM-Core V2 WorkGraph public contracts ===
 export {
+  canWorkGraphTaskTypeBeRoot,
   E_WORKGRAPH_PARENT_TYPE_MATRIX,
+  isAllowedWorkGraphParentType,
   tasksFrontierParamsSchema,
   tasksFrontierResultSchema,
   tasksRollupParamsSchema,

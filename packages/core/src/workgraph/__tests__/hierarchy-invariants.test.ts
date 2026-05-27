@@ -2,8 +2,8 @@
  * T10576 WorkGraph hierarchy invariant validator acceptance coverage.
  *
  * These tests lock the runtime contract that mirrors the SQLite trigger matrix:
- * sagas and epics are roots, epics contain tasks/subtasks, tasks contain only
- * subtasks, and subtasks are leaves.
+ * sagas and standalone epics may be roots, sagas contain epics, epics contain
+ * tasks, tasks contain subtasks, and subtasks are leaves.
  *
  * @task T10576
  * @saga T10538
@@ -27,17 +27,17 @@ describe('validateWorkGraphHierarchy', () => {
   it('accepts the canonical saga -> epic -> task -> subtask hierarchy shape', () => {
     const result = validateWorkGraphHierarchy([
       node({ id: 'SG1', type: 'saga' }),
-      node({ id: 'E1', type: 'epic' }),
+      node({ id: 'E1', type: 'epic', parentId: 'SG1' }),
+      node({ id: 'E2', type: 'epic' }),
       node({ id: 'T1', type: 'task', parentId: 'E1' }),
       node({ id: 'ST1', type: 'subtask', parentId: 'T1' }),
-      node({ id: 'ST2', type: 'subtask', parentId: 'E1' }),
     ]);
 
     expect(result.valid).toBe(true);
     expect(result.violations).toEqual([]);
   });
 
-  it('rejects saga parent_id so Saga membership stays relation-backed', () => {
+  it('rejects saga parent_id because sagas are roots', () => {
     const result = validateWorkGraphHierarchy([
       node({ id: 'SG1', type: 'saga', parentId: 'E1' }),
       node({ id: 'E1', type: 'epic' }),
@@ -55,13 +55,15 @@ describe('validateWorkGraphHierarchy', () => {
     ]);
   });
 
-  it('rejects epic parents, task-under-task, and child-under-subtask matrix breaches', () => {
+  it('rejects invalid parent/type matrix breaches', () => {
     const result = validateWorkGraphHierarchy([
+      node({ id: 'SG1', type: 'saga' }),
       node({ id: 'E1', type: 'epic' }),
       node({ id: 'E2', type: 'epic', parentId: 'E1' }),
       node({ id: 'T1', type: 'task', parentId: 'E1' }),
       node({ id: 'T2', type: 'task', parentId: 'T1' }),
       node({ id: 'ST1', type: 'subtask', parentId: 'T1' }),
+      node({ id: 'ST3', type: 'subtask', parentId: 'E1' }),
       node({ id: 'ST2', type: 'subtask', parentId: 'ST1' }),
     ]);
 
@@ -73,8 +75,9 @@ describe('validateWorkGraphHierarchy', () => {
       (violation: WorkGraphHierarchyViolation) => violation.code,
     );
 
-    expect(violationTaskIds).toEqual(['E2', 'T2', 'ST2']);
+    expect(violationTaskIds).toEqual(['E2', 'T2', 'ST3', 'ST2']);
     expect(violationCodes).toEqual([
+      E_WORKGRAPH_PARENT_TYPE_MATRIX,
       E_WORKGRAPH_PARENT_TYPE_MATRIX,
       E_WORKGRAPH_PARENT_TYPE_MATRIX,
       E_WORKGRAPH_PARENT_TYPE_MATRIX,
