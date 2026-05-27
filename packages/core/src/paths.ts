@@ -397,8 +397,10 @@ export function getCleoDirAbsolute(cwd?: string, opts?: { bootstrap?: boolean })
   // as the path authority.
   const project = _pathsResolveProjectByCwd(cwd);
   if (project !== null) {
-    // T11021: Auto-register project on first encounter (fire-and-forget)
-    registerProjectOnEncounter(project.projectRoot, project.projectId).catch(() => {});
+    // T11021: Auto-register project on first encounter (fire-and-forget).
+    // T11023: pass legacyUUID so it gets registered as an alias alongside
+    // the canonical ID.
+    registerProjectOnEncounter(project.projectRoot, project.legacyUUID ?? project.projectId).catch(() => {});
     try {
       const projectRoot = getProjectRoot(cwd);
       const canonical = _resolveCanonicalCleoDir(project.projectId);
@@ -543,6 +545,32 @@ export function resolveProjectByCwd(cwd?: string): string {
   const pathsResult = _pathsResolveProjectByCwd(cwd);
   if (pathsResult !== null) {
     return pathsResult.projectId;
+  }
+
+  // AC4: Walk up from cwd looking for git worktree gitlinks.
+  // When cwd is inside a worktree (`.git` is a FILE pointing to main repo),
+  // resolve the main repo and try project-info.json there.
+  // This handles the canonical CLEO worktree layout where worktrees live
+  // under ~/.local/share/cleo/worktrees/<hash>/<taskId>/ — completely
+  // separate from the main repo — and therefore ancestor-walk from cwd
+  // will never encounter the main repo's .cleo/project-info.json.
+  const start = resolve(cwd ?? process.cwd());
+  let current = start;
+  while (true) {
+    const mainRepo = _resolveMainRepoFromGitlink(current);
+    if (mainRepo !== null) {
+      const mainRepoResult = _pathsResolveProjectByCwd(mainRepo);
+      if (mainRepoResult !== null) {
+        return mainRepoResult.projectId;
+      }
+      // Found a gitlink but the main repo has no project-info.json —
+      // don't keep walking up past the gitlink; the worktree's ancestors
+      // won't help.
+      break;
+    }
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
   }
 
   // AC3: Fall back to nexus registry lookup
@@ -2019,7 +2047,14 @@ export async function registerProjectOnEncounter(
     if (existingRows.length > 0) {
       const existingPath = existingRows[0].projectPath as string;
       if (existingPath !== resolvedPath) {
-        await db.update(projectRegistry).set({ projectPath: resolvedPath, lastSeen: now }).where(eq(projectRegistry.projectId, canonicalId));
+        const newBrainDbPath = join(resolvedPath, '.cleo', 'brain.db');
+        const newTasksDbPath = join(resolvedPath, '.cleo', 'tasks.db');
+        await db.update(projectRegistry).set({
+          projectPath: resolvedPath,
+          brainDbPath: newBrainDbPath,
+          tasksDbPath: newTasksDbPath,
+          lastSeen: now
+        }).where(eq(projectRegistry.projectId, canonicalId));
       } else {
         await db.update(projectRegistry).set({ lastSeen: now }).where(eq(projectRegistry.projectId, canonicalId));
       }
@@ -2043,4 +2078,83 @@ export async function registerProjectOnEncounter(
       } catch { /* best-effort */ }
     }
   } catch { /* best-effort registration */ }
+}
+
+// ============================================================================
+// Project Lifecycle Operations (T10298 Epic)
+// ============================================================================
+
+/** Result of a successful project move operation. */
+export interface MoveProjectResult {
+  success: boolean;
+  projectId: string;
+  oldPath: string;
+  newPath: string;
+}
+
+/**
+ * Move a CLEO project from oldPath to newPath.
+ *
+ * Updates `.cleo/project-info.json` path+hash fields,
+ * updates the `project_registry` row in nexus.db,
+ * and preserves the canonical `projectId`.
+ *
+ * @param oldPath - Absolute path to the current project root
+ * @param newPath - Absolute path to the destination
+ * @throws When project-info.json is missing or corrupt
+ * @task T11010 (implemented by T10298-1)
+ */
+export async function moveProject(
+  _oldPath: string,
+  _newPath: string,
+): Promise<MoveProjectResult> {
+  throw new Error('Not implemented — T10298-1');
+}
+
+/** Result of a successful project rename operation. */
+export interface RenameProjectResult {
+  success: boolean;
+  projectId: string;
+  oldName: string;
+  newName: string;
+}
+
+/**
+ * Rename a CLEO project, updating the `name` field in `.cleo/project-info.json`,
+ * recomputing the project hash, and inserting an alias in `project_id_aliases`.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param newName - The new project name
+ * @throws When project-info.json is missing or corrupt
+ * @task T11010 (implemented by T10298-1)
+ */
+export async function renameProject(
+  _projectRoot: string,
+  _newName: string,
+): Promise<RenameProjectResult> {
+  throw new Error('Not implemented — T10298-1');
+}
+
+/** Result of a project re-register operation. */
+export interface ReregisterProjectResult {
+  success: boolean;
+  action: 'noop' | 'updated' | 'registered';
+  projectId: string;
+  drift?: string[];
+}
+
+/**
+ * Re-register a CLEO project with the Nexus registry.
+ *
+ * Detects idempotency (`noop`), path-drift (`updated`), and
+ * duplicate-conflict scenarios (registered elsewhere).
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @throws When registry is not initialized
+ * @task T11010 (implemented by T10298-1)
+ */
+export async function reregisterProject(
+  _projectRoot: string,
+): Promise<ReregisterProjectResult> {
+  throw new Error('Not implemented — T10298-1');
 }
