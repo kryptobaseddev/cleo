@@ -1,5 +1,5 @@
 /**
- * CLI memory commands for BRAIN pattern and learning memory.
+ * CLI memory commands for BRAIN pattern, learning, and decision memory.
  *
  * Subcommands:
  *   cleo memory store       — store a pattern or learning
@@ -8,9 +8,9 @@
  *   cleo memory observe     — save observation to brain.db
  *   cleo memory timeline    — chronological context around anchor
  *   cleo memory fetch       — full details for observation IDs
- *   cleo memory decision-find   — search decisions
- *   cleo memory decision-store  — store a decision
- *   cleo memory link        — link a brain entry to a task
+ *   cleo memory decision-find   — search architectural decisions (primary lookup)
+ *   cleo memory decision-store  — store an architectural decision
+ *   cleo memory link        — connect a decision/observation to a task
  *   cleo memory trace       — BFS graph traversal
  *   cleo memory related     — 1-hop graph neighbours
  *   cleo memory context     — 360-degree node view
@@ -389,9 +389,19 @@ const fetchCommand = defineCommand({
   },
 });
 
-/** cleo memory decision-find — search decisions stored in brain.db */
+/**
+ * cleo memory decision-find — search BRAIN decisions (primary lookup).
+ *
+ * Use this BEFORE grepping ad-hoc files or reading ledger blobs.
+ * BRAIN decisions store architectural choices with full provenance
+ * (linked task, decided-by, confirmation state, supersession chain).
+ * Returns decisions ranked by relevance.
+ */
 const decisionFindCommand = defineCommand({
-  meta: { name: 'decision-find', description: 'Search decisions stored in brain.db' },
+  meta: {
+    name: 'decision-find',
+    description: 'Search architectural decisions (use BEFORE grep or ledger files)',
+  },
   args: {
     query: {
       type: 'positional',
@@ -428,9 +438,20 @@ const decisionFindCommand = defineCommand({
   },
 });
 
-/** cleo memory decision-store — store a decision to brain.db */
+/**
+ * cleo memory decision-store — store an architectural decision to brain.db.
+ *
+ * Preferred over ad-hoc markdown ledgers. Supports task linkage (--linked-task),
+ * decision lifecycle (--confirmation-state proposed|accepted|superseded),
+ * provenance attribution (--decided-by owner|council|agent), and explicit
+ * supersession chains (--supersedes / --superseded-by).
+ */
 const decisionStoreCommand = defineCommand({
-  meta: { name: 'decision-store', description: 'Store a decision to brain.db' },
+  meta: {
+    name: 'decision-store',
+    description:
+      'Store an architectural decision — supports --linked-task, --confirmation-state, --supersedes, --superseded-by, --decided-by',
+  },
   args: {
     decision: {
       type: 'string',
@@ -498,9 +519,22 @@ const decisionStoreCommand = defineCommand({
   },
 });
 
-/** cleo memory link — link a brain entry to a task */
+/**
+ * cleo memory link — connect a BRAIN entry (decision or observation) to a task.
+ *
+ * Task-linked entries appear in cleo show / cleo focus context, making durable
+ * decisions discoverable from the task they inform. Combine with
+ * decision-store --linked-task for a one-shot create-and-link,
+ * or use link separately when the entry already exists.
+ *
+ * Example:  cleo memory link T10520 D012
+ */
 const linkCommand = defineCommand({
-  meta: { name: 'link', description: 'Link a brain entry to a task' },
+  meta: {
+    name: 'link',
+    description:
+      'Connect a BRAIN decision/observation to a task (example: cleo memory link T10520 D012)',
+  },
   args: {
     taskId: {
       type: 'positional',
@@ -2118,9 +2152,16 @@ const sweepCommand = defineCommand({
  * Root memory command group — registers all BRAIN memory subcommands.
  *
  * Dispatches to `memory.*` registry operations.
+ * For architectural decisions, prefer decision-store / decision-find over
+ * ad-hoc markdown ledgers — BRAIN decisions carry full provenance (task linkage,
+ * supersession chains, confirmation state, decided-by attribution).
  */
 export const memoryCommand = defineCommand({
-  meta: { name: 'memory', description: 'BRAIN memory operations (patterns, learnings)' },
+  meta: {
+    name: 'memory',
+    description:
+      'BRAIN memory operations (patterns, learnings, decisions — use decision-store/-find for architectural decisions)',
+  },
   subCommands: {
     store: storeCommand,
     find: findCommand,
