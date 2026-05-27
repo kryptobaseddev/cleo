@@ -1,10 +1,10 @@
 /**
  * slug — filename → kebab-case slug with collision resolution.
  *
- * Pure functions used by `cleo docs import` (T9639). The slugifier is
- * intentionally tiny and dependency-free: ASCII-fold, lowercase, replace
- * non-`[a-z0-9]+` runs with `-`, collapse repeats, and trim leading or
- * trailing hyphens. Collision resolution appends `-2`, `-3`, ... until
+ * Pure functions used by `cleo docs import` (T9639). Slug normalization
+ * is delegated to {@link ../slug-normalize.ts | `../slug-normalize.js`},
+ * the canonical single source of truth established by T11180.
+ * Collision resolution appends `-2`, `-3`, ... until
  * the slug is unique within a caller-supplied set.
  *
  * Reserved slugs are rejected outright — these names collide with
@@ -14,6 +14,8 @@
  * @epic T9628 (Saga T9625)
  * @task T9712 (ST-MIG-1b)
  */
+
+import { normalizeSlug } from '../slug-normalize.js';
 
 /**
  * Slugs that conflict with `cleo docs <subcommand>` verbs and any other
@@ -53,21 +55,15 @@ export interface SlugResult {
 /**
  * Convert a free-form string into a normalised kebab-case slug.
  *
- * Steps: normalise diacritics → ASCII via `normalize('NFKD')`, lowercase,
- * replace any run of non-`[a-z0-9]` with `-`, then trim outer hyphens.
- * Empty input collapses to the empty string — callers decide whether to
- * substitute a default.
+ * Delegates to {@link ../slug-normalize.normalizeSlug | normalizeSlug}
+ * (T11180 SSoT). The function name `slugify` is retained for backward
+ * compatibility so existing callers do not break.
  *
  * @param input - The source string (typically a filename without extension).
  * @returns The slugified form.
  */
 export function slugify(input: string): string {
-  return input
-    .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '') // strip combining diacritics
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+  return normalizeSlug(input);
 }
 
 /**

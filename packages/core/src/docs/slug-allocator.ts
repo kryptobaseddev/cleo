@@ -120,6 +120,7 @@
 import type { BuiltinDocKind } from '@cleocode/contracts';
 import { deriveSlugSuggestionsForAllocator } from '../store/attachment-store.js';
 import { getDb } from '../store/sqlite.js';
+import { normalizeSlug } from './slug-normalize.js';
 
 // ─── Public surface ───────────────────────────────────────────────────────────
 
@@ -264,22 +265,18 @@ export function _resetSlugAllocatorState_TESTING_ONLY(): void {
  *   3. Replace any non-`[a-z0-9]` run with a single hyphen.
  *   4. Trim leading/trailing hyphens.
  *
- * Note: This is intentionally the SAME algorithm as
- * `packages/core/src/docs/import/slug.ts:slugify`. Inlined here to
- * avoid a circular import (the import module already depends on
- * attachment-store via the accessor).
+ * Canonical slug normalisation is imported from
+ * {@link ./slug-normalize.ts | `./slug-normalize.js`} — the single source
+ * of truth established by T11180. This module previously inlined the
+ * algorithm to avoid a circular import; the extraction into a leaf module
+ * eliminates that concern.
  *
  * @param input - Raw slug from the caller.
  * @returns Canonical kebab-case form. May be empty if input had no alphanumerics.
+ *
+ * Re-exported from {@link ./slug-normalize.ts | `./slug-normalize.js`} (T11180 SSoT).
  */
-export function normalizeSlug(input: string): string {
-  return input
-    .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
+export { normalizeSlug } from './slug-normalize.js';
 
 // ─── Main allocator entry point ───────────────────────────────────────────────
 

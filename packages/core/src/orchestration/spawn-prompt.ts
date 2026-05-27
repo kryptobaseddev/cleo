@@ -44,6 +44,7 @@ import { fileURLToPath } from 'node:url';
 import type { Task } from '@cleocode/contracts';
 import { resolveSkillPath } from '../skills/skill-paths.js';
 import { ISOLATION_ENV_KEYS, provisionIsolatedShell } from '../tools/sdk/isolation.js';
+import { normalizeSlug } from '../docs/slug-normalize.js';
 
 /**
  * Locate `packages/core/templates/CLEO-INJECTION.md` at runtime.
@@ -1849,14 +1850,14 @@ export function resolvePromptTokens(
 
 /**
  * Slugify a title into a URL-safe topic slug.
+ *
+ * Delegates normalization to {@link ../docs/slug-normalize.normalizeSlug}
+ * (T11180 SSoT), then truncates to 60 characters for filesystem safety.
+ * The truncation is topic-specific and NOT part of the canonical doc-slug
+ * normalization — document slugs have no length cap.
+ *
  * Exported for reuse by the orchestrate engine (spawn filename generation).
  */
 export function slugify(title: string): string {
-  return title
-    .toLowerCase()
-    .replace(/[^\w\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 60);
+  return normalizeSlug(title).slice(0, 60);
 }
