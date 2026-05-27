@@ -59,6 +59,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 0
       "saga.detach",
       "saga.repair",
       "saga.reconcile",
+      "saga.migrate-containment",
       "start",
       "stop",
       "claim",
@@ -86,7 +87,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 0
 }
 `;
 
-exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 0 — operation count snapshot > tier-0-operationCount 1`] = `43`;
+exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 0 — operation count snapshot > tier-0-operationCount 1`] = `44`;
 
 exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 0 — verbose operations snapshot (cost-hint surface) > tier-0-verboseOperations 1`] = `
 [
@@ -232,7 +233,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 0
   },
   {
     "costHint": "minimal",
-    "description": "tasks.saga.create (mutate) — create a labeled top-level Epic as a Saga",
+    "description": "tasks.saga.create (mutate) — create a Saga as a first-class TaskType (type=saga) per ADR-083",
     "domain": "tasks",
     "gateway": "mutate",
     "operation": "saga.create",
@@ -285,6 +286,13 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 0
     "domain": "tasks",
     "gateway": "mutate",
     "operation": "saga.reconcile",
+  },
+  {
+    "costHint": "minimal",
+    "description": "tasks.saga.migrate-containment (mutate) — convert parent_id-based Saga membership to groups relations; idempotent; audits to saga-contain-migration.jsonl",
+    "domain": "tasks",
+    "gateway": "mutate",
+    "operation": "saga.migrate-containment",
   },
   {
     "costHint": "minimal",
@@ -603,6 +611,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1
       "analyze",
       "context",
       "waves",
+      "report",
       "plan",
       "bootstrap",
       "unblock.opportunities",
@@ -708,6 +717,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1
   },
   "tasks": {
     "mutate": [
+      "projection.repair",
       "add",
       "add-batch",
       "update",
@@ -725,6 +735,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1
       "saga.detach",
       "saga.repair",
       "saga.reconcile",
+      "saga.migrate-containment",
       "start",
       "stop",
       "sync.reconcile",
@@ -734,6 +745,11 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1
     ],
     "query": [
       "show",
+      "traverse",
+      "tree",
+      "rollup",
+      "frontier",
+      "workgraph.audit",
       "list",
       "find",
       "tree",
@@ -745,6 +761,9 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1
       "impact",
       "next",
       "plan",
+      "completion.list",
+      "completion.evaluate",
+      "completion.explain",
       "relates",
       "complexity.estimate",
       "history",
@@ -754,6 +773,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1
       "saga.members",
       "saga.rollup",
       "sync.links",
+      "context",
     ],
   },
   "tools": {
@@ -797,7 +817,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1
 }
 `;
 
-exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1 — operation count snapshot > tier-1-operationCount 1`] = `282`;
+exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1 — operation count snapshot > tier-1-operationCount 1`] = `294`;
 
 exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — domain-grouped operations snapshot > tier-2-groupedOperations 1`] = `
 {
@@ -1094,6 +1114,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
       "analyze",
       "context",
       "waves",
+      "report",
       "plan",
       "bootstrap",
       "unblock.opportunities",
@@ -1228,6 +1249,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
   },
   "tasks": {
     "mutate": [
+      "projection.repair",
       "add",
       "add-batch",
       "update",
@@ -1245,6 +1267,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
       "saga.detach",
       "saga.repair",
       "saga.reconcile",
+      "saga.migrate-containment",
       "start",
       "stop",
       "sync.reconcile",
@@ -1254,6 +1277,11 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
     ],
     "query": [
       "show",
+      "traverse",
+      "tree",
+      "rollup",
+      "frontier",
+      "workgraph.audit",
       "list",
       "find",
       "tree",
@@ -1265,6 +1293,9 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
       "impact",
       "next",
       "plan",
+      "completion.list",
+      "completion.evaluate",
+      "completion.explain",
       "relates",
       "complexity.estimate",
       "history",
@@ -1274,6 +1305,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
       "saga.members",
       "saga.rollup",
       "sync.links",
+      "context",
     ],
   },
   "tools": {
@@ -1335,4 +1367,4 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
 }
 `;
 
-exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — operation count snapshot (full surface) > tier-2-operationCount 1`] = `401`;
+exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — operation count snapshot (full surface) > tier-2-operationCount 1`] = `413`;

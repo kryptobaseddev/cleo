@@ -225,6 +225,12 @@ describe('operation envelope registry snapshots (T10615)', () => {
               "required": false,
               "type": "boolean",
             },
+            {
+              "cli": undefined,
+              "name": "relations",
+              "required": false,
+              "type": "boolean",
+            },
           ],
           "requiredParams": [
             "taskId",
