@@ -1,0 +1,15 @@
+{
+  "numTotalTests": 8,
+  "numPassedTests": 8,
+  "numFailedTests": 0,
+  "numPendingTests": 0,
+  "testResults": [
+    {"name": "exposes `schema` as the canonical taxonomy subcommand", "status": "passed"},
+    {"name": "exposes `list-types` as a migration alias subcommand", "status": "passed"},
+    {"name": "`schema` subcommand carries a meaningful description", "status": "passed"},
+    {"name": "`list-types` subcommand description marks it as deprecated", "status": "passed"},
+    {"name": "`schema` subcommand exposes --counts flag", "status": "passed"},
+    {"name": "`schema` subcommand retains --include-counts for backward compatibility", "status": "passed"},
+    {"name": "keeps the legacy attachment subcommands wired alongside the new ones", "status": "passed"}
+  ]
+}

@@ -2504,8 +2504,6 @@ export const docsCommand = defineCommand({
     status: statusCommand,
     'gap-check': gapCheckCommand,
     import: importCommand,
-    // Migration tool (T11179)
-    migrate: migrateCommand,
     // Utilities
     // T9788 — canonical doc-kind taxonomy discovery surface.
     schema: schemaCommand,
