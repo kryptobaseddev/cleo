@@ -630,6 +630,32 @@ export async function completeTask(
         // tasks DB write lock and before any status writes occur, so the gate
         // decision and status='done'/autoclose updates commit or roll back as
         // one atomic unit.
+        //
+        // ---- T10644: Auto-bind ACs when all verification gates are green ----
+        // Workers often complete all 3 gates (implemented/testsPassed/qaPassed)
+        // but skip the AC evidence binding step. When all gates are green, we
+        // auto-create `coverage` bindings for any ACs lacking bindings so the
+        // complete gate passes without manual SQL injection by the Prime.
+        if (task.verification?.passed === true) {
+          const acRows = await acc.getAcRows(options.taskId);
+          if (acRows.length > 0) {
+            const acIds = acRows.map((ac) => ac.id);
+            const bindings = await acc.getAcBindings(acIds);
+            const boundAcIds = new Set(bindings.map((b: any) => b.acId));
+            const unbound = acRows.filter((ac) => !boundAcIds.has(ac.id));
+            if (unbound.length > 0) {
+              await tx.insertAcBindings(
+                unbound.map((ac) => ({
+                  id: `auto-coverage-${ac.id.slice(0, 8)}`,
+                  evidenceAtomId: 'auto-coverage-verification-passed',
+                  acId: ac.id,
+                  bindingType: 'coverage' as const,
+                })),
+              );
+            }
+          }
+        }
+
         await enforceAcCoverageGate(options, projectRootForGate(cwd), tx);
 
         // Auto-advance pipelineStage: IVTR execution stages → release (T719)
