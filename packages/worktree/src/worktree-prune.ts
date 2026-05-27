@@ -29,7 +29,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PruneWorktreesOptions, PruneWorktreesResult } from '@cleocode/contracts';
 import { getGitRoot, gitSilent } from './git.js';
-import { pruneWorktrees as napiPrune, removeDir as napiRemoveDir } from './napi-binding.js';
+import { pruneWorktrees as napiPrune, removeDir as napiRemoveDir, destroyWorktree as napiDestroyWorktree } from './napi-binding.js';
 import { computeProjectHash, resolveWorktreeRootForHash } from './paths.js';
 import { appendWorktreeAuditLog, removeWorktreeFromSentinelIndex } from './worktree-audit.js';
 
@@ -172,19 +172,41 @@ function pruneSingleEntry(
   errors: Array<{ path: string; reason: string }>,
 ): void {
   const { taskId, path, reason } = decision;
-  gitSilent(['worktree', 'unlock', path], gitRoot);
-  const gitRemoveSucceeded = gitSilent(['worktree', 'remove', '--force', path], gitRoot);
-  let pruneSuccess = gitRemoveSucceeded;
+  // T11123: Use NAPI destroyWorktree (Rust worktrunk-core) instead of raw
+  // git worktree unlock + remove shell-outs. The NAPI binding handles
+  // unlock + force-remove atomically in Rust.
+  let pruneSuccess = false;
   let errorMessage: string | null = null;
-  if (!gitRemoveSucceeded) {
+  try {
+    const result = napiDestroyWorktree({
+      repoRoot: gitRoot,
+      worktreePath: path,
+      force: true,
+    });
+    pruneSuccess = result.removed;
+    // T11033 — NAPI may report success even when untracked directories
+    // survive inside the worktree. Verify on-disk reality.
+    if (pruneSuccess && existsSync(path)) {
+      pruneSuccess = false;
+    }
+  } catch (err) {
+    errorMessage = err instanceof Error ? err.message : String(err);
+  }
+
+  if (!pruneSuccess) {
     try {
       // Delegate the recursive directory removal to worktrunk-core via napi
       // (T10203). The SDK is best-effort: read/unlink/rmdir errors are
       // silently skipped, so a non-zero file count signals success.
       napiRemoveDir({ path });
       pruneSuccess = true;
+      // Also run git worktree prune to clean stale admin entries
+      // left behind by the failed NAPI destroy.
+      gitSilent(['worktree', 'prune'], gitRoot);
     } catch (err) {
-      errorMessage = err instanceof Error ? err.message : String(err);
+      if (!errorMessage) {
+        errorMessage = err instanceof Error ? err.message : String(err);
+      }
     }
   }
   if (pruneSuccess) {

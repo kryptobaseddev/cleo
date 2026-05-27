@@ -41,8 +41,21 @@ export {
   type AddTransientWorktreeOptions,
   addTransientWorktree,
   DEFAULT_GIT_TIMEOUT_MS,
+  getGitRoot,
+  gitSilent,
+  gitSync,
   removeTransientWorktree,
 } from './git.js';
+// NAPI bindings (sync, direct to Rust) — for callers that need raw
+// worktree lifecycle without the hooks/audit/dirty-detection wrapper.
+export {
+  destroyWorktree as napiDestroyWorktree,
+  integrateWorktree,
+  provisionWorktree,
+  provisionWorktree as napiProvisionWorktree,
+  pruneWorktrees as napiPruneWorktrees,
+  removeDir as napiRemoveDir,
+} from './napi-binding.js';
 export type { PartialWorktreeSignals, RecoveryResult } from './recovery.js';
 export { detectPartialWorktree, recoverPartialWorktree } from './recovery.js';
 export type { WorktreeAuditPayload } from './worktree-audit.js';
@@ -71,10 +84,3 @@ export {
 } from './worktree-migrate.js';
 export { installWorktreeDependencies } from './worktree-pnpm.js';
 export { pruneWorktrees } from './worktree-prune.js';
-
-// T11123: Export napi bindings so branch-lock.ts can replace raw
-// git worktree unlock/remove shell-outs with atomic Rust calls.
-export {
-  destroyWorktree as napiDestroyWorktree,
-  pruneWorktrees as napiPruneWorktrees,
-} from './napi-binding.js';

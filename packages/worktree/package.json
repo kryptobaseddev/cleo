@@ -3,15 +3,9 @@
   "version": "2026.5.122",
   "private": false,
   "type": "module",
-  "description": "Native CLEO worktree backend SDK — createWorktree, destroyWorktree, listWorktrees, pruneWorktrees with XDG path canon and declarative hooks (T1161)",
+  "description": "Native CLEO worktree backend SDK",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    }
-  },
   "files": [
     "dist/",
     "native/",

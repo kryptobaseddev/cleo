@@ -136,6 +136,62 @@ interface RemoveDirResultNapi {
 }
 
 /**
+ * Options for the napi `provisionWorktree` binding (T11122).
+ *
+ * Mirrors `crates/worktree-napi`'s `ProvisionOpts` — see ADR-087 for the
+ * worktrunk-core SDK boundary contract.
+ */
+interface ProvisionOptsNapi {
+  /** Absolute path to the git repository. */
+  repoRoot: string;
+  /** Absolute target path where the new worktree should live. */
+  targetPath: string;
+  /** Branch name to create + check out. */
+  branch: string;
+  /** Base ref (commit-ish) to root the new worktree at. */
+  baseRef: string;
+  /** When set, the new worktree is locked with this reason string. */
+  lockReason?: string;
+}
+
+/**
+ * JS-facing handle returned from the napi `provisionWorktree` binding (T11122).
+ */
+interface WorktreeHandleNapi {
+  /** Absolute path to the newly created worktree directory. */
+  path: string;
+  /** The branch the worktree checked out. */
+  branch: string;
+  /** The HEAD commit SHA at the moment of creation. */
+  head: string;
+}
+
+/**
+ * Options for the napi `integrateWorktree` binding (T11124).
+ */
+interface IntegrateOptsNapi {
+  repoRoot: string;
+  worktreePath: string;
+  branch: string;
+  targetBranch: string;
+  taskTitle?: string;
+  skipFetch: boolean;
+}
+
+/**
+ * Result of the napi `integrateWorktree` binding (T11124).
+ */
+interface IntegrateResultNapi {
+  taskId: string;
+  targetBranch: string;
+  merged: boolean;
+  mergeCommit: string;
+  commitCount: number;
+  rebased: boolean;
+  error?: string;
+}
+
+/**
  * Shape of the native module exported by the bundled Node-API binding.
  *
  * Mirrors the napi-rs `index.d.ts` but mapped into TS-friendly types that
@@ -162,6 +218,8 @@ interface WorktreeNapiModule {
   listWorktrees(opts: ListOptsNapi): WorktreeInfoNapi[];
   pruneWorktrees(opts: PruneOptsNapi): PrunePlanNapi;
   removeDir(opts: RemoveDirOptsNapi): RemoveDirResultNapi;
+  provisionWorktree(opts: ProvisionOptsNapi): WorktreeHandleNapi;
+  integrateWorktree(opts: IntegrateOptsNapi): IntegrateResultNapi;
 }
 
 /**
@@ -282,6 +340,12 @@ function createTestFallbackNativeModule(): WorktreeNapiModule {
       rmSync(opts.path, { recursive: true, force: true });
       return { files: 0, bytes: 0 };
     },
+    provisionWorktree(_opts) {
+      return { path: '', branch: '', head: '' };
+    },
+    integrateWorktree(_opts) {
+      return { taskId: '', targetBranch: '', merged: false, mergeCommit: '', commitCount: 0, rebased: false, error: 'integrateWorktree not available in test fallback' };
+    },
   };
 }
 
@@ -309,17 +373,27 @@ export const pruneWorktrees: WorktreeNapiModule['pruneWorktrees'] = (opts) =>
 
 export const removeDir: WorktreeNapiModule['removeDir'] = (opts) => getNative().removeDir(opts);
 
+export const provisionWorktree: WorktreeNapiModule['provisionWorktree'] = (opts) =>
+  getNative().provisionWorktree(opts);
+
+export const integrateWorktree: WorktreeNapiModule['integrateWorktree'] = (opts) =>
+  getNative().integrateWorktree(opts);
+
 export type {
   CopyOptsNapi,
   CopyResultNapi,
   DestroyOptsNapi,
   DestroyResultNapi,
   IncludePatternNapi,
+  IntegrateOptsNapi,
+  IntegrateResultNapi,
   ListOptsNapi,
+  ProvisionOptsNapi,
   PruneCandidateNapi,
   PruneOptsNapi,
   PrunePlanNapi,
   RemoveDirOptsNapi,
   RemoveDirResultNapi,
+  WorktreeHandleNapi,
   WorktreeInfoNapi,
 };

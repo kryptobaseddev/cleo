@@ -3,7 +3,7 @@
  *
  * Exposes {@link pruneOrphanedWorktreesByStatus} — picks up the T9546
  * structured listing, filters to orphan/merged worktrees, and removes each
- * one with `git worktree remove` (falling back to `rmSync`). Every action is
+ * one via the NAPI destroyWorktree binding (T11123). Every action is
  * recorded in `.cleo/audit/worktree-lifecycle.jsonl` via
  * {@link appendWorktreeAuditEntry}.
  *
@@ -22,7 +22,7 @@
  * @epic T9515
  */
 
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import {
   type EngineResult,
   engineError,
@@ -32,15 +32,10 @@ import {
   type PruneOrphanedWorktreesResult,
   type WorktreeInfo,
 } from '@cleocode/contracts';
-import { gitSilent } from '@cleocode/worktree';
-import { getLogger } from '../logger.js';
+import { napiDestroyWorktree } from '@cleocode/worktree';
+import { gitSilent } from '@cleocode/worktree/git.js';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from './audit.js';
 import { isPrimaryWorktree, listWorktrees, resolvePrimaryWorktreePath } from './list.js';
-
-const log = getLogger('worktree:prune');
-
-/** Default supervisor timeout for every git invocation. Matches list.ts. */
-const GIT_TIMEOUT_MS = 60_000;
 
 /**
  * Drive the orphan / merged worktree prune flow used by
@@ -55,9 +50,9 @@ const GIT_TIMEOUT_MS = 60_000;
  *  3. When the caller passes `opts.paths`, intersect the candidate set with
  *     it so the CLI can render per-orphan Y/N prompts and then call this
  *     primitive with the user-confirmed subset.
- *  4. For each candidate, run `git worktree remove --force <path>`. On
- *     failure, fall back to `rmSync(path, { recursive: true })` so the
- *     filesystem entry is removed even when git's bookkeeping is wedged.
+ *  4. For each candidate, invoke the NAPI destroyWorktree binding (T11123) for
+ *     atomic unlock+force-remove via Rust worktrunk-core. On failure, falls
+ *     back to gitSilent worktree prune for administrative cleanup.
  *  5. When the prune succeeded AND the branch is reachable from `main` (the
  *     T9546 `isMerged` flag), also drop the local `task/<id>` branch via
  *     `git branch -D <branch>`. We never delete unmerged branches here —
@@ -68,17 +63,6 @@ const GIT_TIMEOUT_MS = 60_000;
  *
  * @param opts - See {@link PruneOrphanedWorktreesOpts}.
  * @returns EngineResult wrapping a {@link PruneOrphanedWorktreesResult}.
- *
- * @example
- * ```ts
- * const result = await pruneOrphanedWorktreesByStatus({
- *   projectRoot: process.cwd(),
- *   dryRun: false,
- * });
- * if (result.success) {
- *   console.log(`${result.data.prunedCount} pruned`);
- * }
- * ```
  */
 export async function pruneOrphanedWorktreesByStatus(
   opts: PruneOrphanedWorktreesOpts,
@@ -99,14 +83,6 @@ export async function pruneOrphanedWorktreesByStatus(
   }
 
   // Candidates: any worktree the T9546 classifier labelled `orphan` or `merged`.
-  // We deliberately keep these two categories together — both mean "no longer
-  // needed for active development" and both are safe to delete-on-confirm.
-  //
-  // Primary-worktree safety net (T9686-D): even when the classifier returns
-  // `merged` for the canonical project checkout (a regression we've seen
-  // because `main` is trivially an ancestor of itself), the primary worktree
-  // is NEVER a valid prune target. Filter it out unconditionally as
-  // defense-in-depth on top of the `classifyStatus` `isPrimary` guard.
   const primaryWorktreePath = resolvePrimaryWorktreePath(opts.projectRoot);
   const allCandidates = listResult.data.worktrees.filter(
     (w) =>
@@ -114,7 +90,6 @@ export async function pruneOrphanedWorktreesByStatus(
       !isPrimaryWorktree(w.path, primaryWorktreePath),
   );
 
-  // Optional path-filter — used by the CLI to apply per-orphan Y/N answers.
   const allowedPaths =
     opts.paths !== undefined && opts.paths.length > 0 ? new Set(opts.paths) : null;
   const candidates =
@@ -210,8 +185,6 @@ export async function pruneOrphanedWorktreesByStatus(
 /**
  * Map a {@link WorktreeInfo} entry's `statusCategory` to a short human-readable
  * reason string used in audit logs + envelope outcomes.
- *
- * @internal Exported for tests only.
  */
 export function reasonForStatus(wt: WorktreeInfo): string {
   switch (wt.statusCategory) {
@@ -235,48 +208,53 @@ export function reasonForStatus(wt: WorktreeInfo): string {
 /**
  * Remove a single worktree from disk + clean up its branch when safe.
  *
+ * T11123: Uses the NAPI destroyWorktree binding (Rust worktrunk-core) for
+ * atomic unlock+force-remove, retiring the raw git worktree remove/unlock
+ * shell-outs. The NAPI binding handles both unlock and directory removal
+ * atomically.
+ *
  * Steps:
- *  1. `git worktree unlock <path>` — best-effort, in case the worktree was
- *     locked by `git worktree lock` (the spawn flow does this for every
- *     agent worktree).
- *  2. `git worktree remove --force <path>` — primary removal path.
- *  3. Fallback to `rmSync(path, { recursive: true, force: true })` +
- *     `git worktree prune` if step 2 fails (e.g. corrupted admin entry).
- *  4. When the worktree was `isMerged`, delete the local `task/<id>` branch
+ *  1. Invoke `napiDestroyWorktree({ repoRoot, worktreePath, force: true })`
+ *     — atomic unlock + force-remove via Rust worktrunk-core.
+ *  2. Fallback to gitSilent worktree prune if NAPI fails (administrative
+ *     cleanup for stale entries).
+ *  3. When the worktree was `isMerged`, delete the local `task/<id>` branch
  *     with `git branch -D <branch>` — safe because the branch tip is
  *     already reachable from `main`.
  *
  * Never throws — failures are reported in the returned object.
- *
- * @internal Exported for tests only.
  */
 export function removeWorktreeFromDisk(
   wt: WorktreeInfo,
   projectRoot: string,
 ): { success: true; branchDeleted: boolean } | { success: false; error: string } {
-  // Best-effort unlock so `worktree remove` doesn't bail on locked entries.
-  gitSilent(['worktree', 'unlock', wt.path], projectRoot);
-
-  let removed = gitSilent(['worktree', 'remove', '--force', wt.path], projectRoot);
-
-  if (!removed) {
-    try {
-      if (existsSync(wt.path)) {
-        rmSync(wt.path, { recursive: true, force: true });
-      }
-      gitSilent(['worktree', 'prune'], projectRoot);
-      removed = true;
-    } catch (err) {
-      return {
-        success: false,
-        error: `Failed to remove worktree directory: ${err instanceof Error ? err.message : String(err)}`,
-      };
+  // T11123: NAPI destroyWorktree handles unlock+force-remove atomically.
+  let removed = false;
+  try {
+    const result = napiDestroyWorktree({ repoRoot: projectRoot, worktreePath: wt.path, force: true });
+    removed = result.removed;
+    // T11033 — NAPI may report success even when untracked directories
+    // survive inside the worktree. Verify on-disk reality.
+    if (removed && existsSync(wt.path)) {
+      removed = false;
     }
+  } catch {
+    // NAPI failed — fall back to git admin cleanup.
   }
 
-  // Branch cleanup — only safe to delete merged branches. We trust the T9546
-  // `isMerged` classifier here; orphan-cancelled branches keep their tip so a
-  // future investigator can still inspect the lost work.
+  if (!removed) {
+    // Best-effort administrative cleanup for stale git worktree entries.
+    gitSilent(['worktree', 'prune'], projectRoot);
+    if (existsSync(wt.path)) {
+      return {
+        success: false,
+        error: `Failed to remove worktree directory: ${wt.path}`,
+      };
+    }
+    // Directory already gone (race or prior cleanup) — treat as success.
+  }
+
+  // Branch cleanup — only safe to delete merged branches.
   let branchDeleted = false;
   if (wt.isMerged && wt.branch && wt.branch !== 'HEAD') {
     if (gitSilent(['branch', '-D', wt.branch], projectRoot)) {
@@ -286,4 +264,3 @@ export function removeWorktreeFromDisk(
 
   return { success: true, branchDeleted };
 }
-

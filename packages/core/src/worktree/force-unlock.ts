@@ -33,7 +33,7 @@ import {
   type ForceUnlockWorktreeOpts,
   type ForceUnlockWorktreeResult,
 } from '@cleocode/contracts';
-import { gitSilent } from '@cleocode/worktree';
+import { gitSilent } from '@cleocode/worktree/git.js';
 import { getLogger } from '../logger.js';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from './audit.js';
 import { listWorktrees } from './list.js';
