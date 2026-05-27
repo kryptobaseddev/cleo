@@ -39,6 +39,8 @@ import type {
   DocsFetchResult,
   DocsGenerateParams,
   DocsGenerateResult,
+  DocsLlmOutputParams,
+  DocsLlmOutputResult,
   DocsListOrderBy,
   DocsListParams,
   DocsListResult,
@@ -49,7 +51,9 @@ import type {
   DocsType,
   DocsUpdateParams,
   DocsUpdateResult,
+  type LlmOutputMode,
 } from '@cleocode/contracts/operations/docs';
+import { LLM_OUTPUT_MODES } from '@cleocode/contracts/operations/docs';
 import { pushWarning } from '@cleocode/core';
 import type {
   AttachmentRef,
@@ -121,6 +125,17 @@ import { dispatchMeta } from './_meta.js';
 const DOCS_LIST_DEFAULT_LIMIT = 50;
 
 /**
+ * T11062 — Slug collision agent-facing guidance (E_SLUG_RESERVED envelope).
+ */
+const SLUG_COLLISION_GUIDANCE = `slug '{slug}' is already reserved in this project. Three ways to proceed:
+
+  1. Update the existing document:  cleo docs update {slug} [--file <path> | --content <text>]
+  2. Use a different slug:          cleo docs add <owner> <file> --slug <alternative>
+  3. Supersede with a new slug:      cleo docs supersede {slug} <new-slug>
+
+Recovery command: cleo docs update {slug} --file <your-file>`;
+
+/**
  * Canonical doc-kind registry — single source of truth for the user-facing
  * taxonomy (built-ins + `.cleo/docs-config.json` extensions).
  *
@@ -183,6 +198,7 @@ type DocsTypedOps = {
   readonly list: readonly [DocsListParams, DocsListResult];
   readonly fetch: readonly [DocsFetchParams, DocsFetchResult];
   readonly generate: readonly [DocsGenerateParams, DocsGenerateResult];
+  readonly 'llm-output': readonly [DocsLlmOutputParams, DocsLlmOutputResult];
   readonly add: readonly [DocsAddParams, DocsAddResult];
   readonly remove: readonly [DocsRemoveParams, DocsRemoveResult];
   readonly update: readonly [DocsUpdateParams, DocsUpdateResult];
@@ -663,6 +679,36 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     );
   },
 
+  // ── docs.llm-output (T11137) ──────────────────────────────────────────────
+  'llm-output': async (params) => {
+    const forId = params.for;
+    if (!forId) { return lafsError('E_INVALID_INPUT', '--for <entityId> is required', 'llm-output'); }
+    let mode: LlmOutputMode;
+    if (params.mode !== undefined) {
+      const raw = String(params.mode);
+      if (!(LLM_OUTPUT_MODES as readonly string[]).includes(raw)) {
+        return lafsError('E_INVALID_INPUT', `--mode must be one of: ${LLM_OUTPUT_MODES.join('|')}`, 'llm-output');
+      }
+      mode = raw as LlmOutputMode;
+    } else {
+      mode = /^T\d+$/i.test(forId) ? 'task-export' : 'attachment-bundle';
+    }
+    const cwd = getProjectRoot();
+    if (mode === 'task-export') {
+      const result = await exportDocument({ taskId: forId, includeAttachments: params.includeAttachments !== false, includeMemoryRefs: params.includeMemoryRefs === true, projectRoot: cwd });
+      return lafsSuccess<DocsLlmOutputResult>({ forId, mode: 'task-export', content: result.markdown, sectionCount: result.pages, usedLlmtxtPackage: true }, 'llm-output');
+    }
+    const result = await generateDocsLlmsTxt({ ownerId: forId, cwd });
+    let aid: string | undefined, asha: string | undefined;
+    if (params.attach) {
+      const store = createAttachmentStore();
+      const desc: import('@cleocode/core/internal').LlmsTxtAttachment = { kind: 'llms-txt' as const, source: 'generated', content: result.content, description: `llms.txt for ${forId}`, labels: ['llms-txt', 'generated'] };
+      const meta = await store.put(Buffer.from(result.content, 'utf-8'), desc as any, inferOwnerType(forId), forId, 'cleo-docs-llm-output', cwd);
+      aid = meta.id; asha = meta.sha256;
+    }
+    return lafsSuccess<DocsLlmOutputResult>({ forId, mode: 'attachment-bundle', content: result.content, sectionCount: result.attachmentCount, usedLlmtxtPackage: result.usedLlmtxtPackage, ...(aid ? { attached: true, attachmentId: aid, attachmentSha256: asha } : { attached: false }) }, 'llm-output');
+  },
+
   // ── docs.fetch ─────────────────────────────────────────────────────────────
 
   fetch: async (params) => {
@@ -1052,7 +1098,8 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           success: false,
           error: {
             code: 'E_SLUG_RESERVED',
-            message: `slug '${slug}' is already in use in this project`,
+            message: SLUG_COLLISION_GUIDANCE.replaceAll('{slug}', slug ?? ''),
+            fix: `cleo docs update ${slug ?? '<slug>'} --file <your-file>`,
             details: {
               suggestions: reservation.suggestions,
               aliases: ['E_SLUG_TAKEN'],
@@ -1167,7 +1214,8 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
             success: false,
             error: {
               code: 'E_SLUG_RESERVED',
-              message: `slug '${err.slug}' is already in use in this project`,
+              message: SLUG_COLLISION_GUIDANCE.replaceAll('{slug}', err.slug ?? ''),
+              fix: `cleo docs update ${err.slug ?? '<slug>'} --file <your-file>`,
               details: {
                 suggestions: err.suggestions,
                 aliases: ['E_SLUG_TAKEN'],
@@ -1281,7 +1329,8 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
             success: false,
             error: {
               code: 'E_SLUG_RESERVED',
-              message: `slug '${err.slug}' is already in use in this project`,
+              message: SLUG_COLLISION_GUIDANCE.replaceAll('{slug}', err.slug ?? ''),
+              fix: `cleo docs update ${err.slug ?? '<slug>'} --file <your-file>`,
               details: {
                 suggestions: err.suggestions,
                 aliases: ['E_SLUG_TAKEN'],
