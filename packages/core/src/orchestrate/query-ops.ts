@@ -30,6 +30,7 @@ import type { EnrichedWave } from '../orchestration/waves.js';
 import { getEnrichedWaves } from '../orchestration/waves.js';
 import { getProjectRoot } from '../paths.js';
 import { isSagaShape } from '../sagas/enforcement.js';
+import { resolveSagaMemberIds } from '../sagas/storage.js';
 import { type DataAccessor, getTaskAccessor } from '../store/data-accessor.js';
 import type { DepGraphIssue } from '../tasks/dep-graph-validator.js';
 import { runValidation } from '../tasks/dep-graph-validator.js';
@@ -102,51 +103,39 @@ export function appendDepsValidateBypassAudit(
 export type { EngineResult };
 
 // ---------------------------------------------------------------------------
-// Saga traversal (gh-390 / ADR-073)
+// Saga traversal (gh-390 / ADR-073 / T10966)
 // ---------------------------------------------------------------------------
 
 /**
  * Traversal mode for {@link orchestrateReady} and {@link orchestrateWaves}.
  *
- * After T10638, sagas (tasks with `type='saga'`) hold their member Epics
- * via `parent_id` containment (T10637 migration). The saga walk is
- * equivalent to the parent walk — both use `parentId` filtering.
- *
- * - `'parent'` — walk `parentId` (default).
- * - `'saga'`   — same as parent walk; retained for backward compatibility.
- * - `'both'`   — auto-detect: same as parent walk (default for all callers).
+ * @deprecated Since T10966 — after T10638, sagas use `type='saga'` with
+ * `parent_id` containment. The saga walk is equivalent to the parent walk
+ * (both use `parentId` filtering). All three values now resolve to the
+ * same auto-detect behavior. The `via` option is retained for backward
+ * compatibility but no longer changes behavior. Use the default (omit
+ * `via`) to always get the correct saga-aware walk.
  *
  * @task T10638 — E10.W5 merge saga/parent walk paths
+ * @task T10966 — Unify saga traversal and deep rollup Core semantics
+ * @task T10968 — Deprecate dual via semantics
  */
 export type OrchestrateTraversal = 'parent' | 'saga' | 'both';
 
 /**
- * Single source of truth for the saga check (ADR-073).
- *
- * After T10638, only `type === 'saga'` identifies a saga.
- *
- * Sagas are top-level grouping nodes whose members are linked via
- * `parent_id` containment rather than `task_relations.type='groups'`
- * (T10637 migration).
- *
- * @param task - The task to inspect.
- * @returns `true` when `task.type === 'saga'`.
- *
- * @task T10638
- */
-
-/**
  * Extract member-Epic IDs from a saga via `parent_id` containment.
  *
- * After T10637, Saga membership is via `parent_id` rather than
- * `task_relations.type='groups'`. This helper queries tasks with
- * `parentId = sagaId`.
+ * @deprecated Since T10966 — use {@link resolveSagaMemberIds} from
+ * `../sagas/storage.js` instead. That version includes `isSagaShape`
+ * type-checking and returns `null` for non-saga tasks. This function
+ * is retained for backward compatibility only.
  *
  * @param accessor - Data accessor for task lookups.
  * @param sagaId - The saga task ID.
  * @returns List of member Epic IDs.
  *
  * @task T10638 — E10.W5 switch to parent_id containment
+ * @task T10968 — Deprecate dual via semantics
  */
 export async function resolveSagaMembers(
   accessor: DataAccessor,
@@ -284,18 +273,14 @@ export interface OrchestrateReadyOptions {
   /**
    * Traversal mode for resolving the epic's children (ADR-073 / gh-390).
    *
-   * - `'parent'` — walk only the `parentId` column (legacy behaviour).
-   * - `'saga'`   — walk only `task_relations.type='groups'` edges.
-   * - `'both'`   — auto-detect saga-labeled epics and walk the groups edge,
-   *                otherwise fall back to the `parentId` walk. Default.
-   *
-   * Saga members (themselves Epics) are recursed into per-member; the result
-   * is the deduplicated union of ready tasks across all members. A guard
-   * prevents infinite recursion if a member is itself saga-labeled.
+   * @deprecated Since T10966 — sagas are auto-detected via `isSagaShape`.
+   * All three values now produce the same behavior (auto-detect + saga walk
+   * when applicable). Omit this field to get the default correct behavior.
    *
    * @bug gh-390
    * @adr ADR-073
    * @task T9839
+   * @task T10968 — Deprecate dual via semantics
    */
   via?: OrchestrateTraversal;
 }
@@ -402,17 +387,15 @@ export async function orchestrateReady(
     // ---------------------------------------------------------------------------
 
     // -------------------------------------------------------------------------
-    // gh-390 / ADR-073: saga-aware traversal
+    // T10966: Saga-aware traversal — always auto-detect saga shape.
     //
-    // A saga (Epic with labels='saga') holds its members via
-    // task_relations.type='groups', NOT via parentId. The legacy ready-walk
-    // only inspected getChildren(parentId), so sagas returned empty. We now
-    // detect the saga shape and aggregate ready-sets across member epics.
+    // After T10638, sagas use `type='saga'` with `parent_id` containment.
+    // The `via` parameter is deprecated (T10968); all callers get the same
+    // auto-detect behavior. Saga members are recursed into per-member; the
+    // result is the deduplicated union of ready tasks across all members.
     // -------------------------------------------------------------------------
-    const via: OrchestrateTraversal = opts?.via ?? 'both';
     // T10331 (Saga T10326 W2.B): dual-shape saga detection via isSagaShape.
     const sagaShaped = isSagaShape(epic);
-    const useSagaWalk = via === 'saga' || (via === 'both' && sagaShaped);
 
     const accessor = await getTaskAccessor(root);
 
@@ -423,8 +406,10 @@ export async function orchestrateReady(
       depends: string[];
     };
 
-    if (useSagaWalk) {
-      const members = await resolveSagaMembers(accessor, epicId);
+    if (sagaShaped) {
+      // T10966: use canonical resolveSagaMemberIds (with type-checking).
+      const memberIds = await resolveSagaMemberIds(accessor, epicId);
+      const members = memberIds ?? [];
 
       const seenIds = new Set<string>();
       const aggregated: ReadyTaskOut[] = [];
@@ -434,10 +419,9 @@ export async function orchestrateReady(
 
       for (const memberId of members) {
         // Recursion safety: sagas SHOULD NOT nest (ADR-073). If a member is
-        // itself saga-labeled, skip it and surface the anomaly in meta rather
+        // itself saga-shaped, skip it and surface the anomaly in meta rather
         // than recursing — preserves O(N) aggregation.
         const memberTask = tasks.find((t) => t.id === memberId);
-        // T10331 (Saga T10326 W2.B): dual-shape saga detection via isSagaShape.
         if (memberTask && isSagaShape(memberTask)) {
           skippedNested.push(memberId);
           continue;
@@ -495,7 +479,7 @@ export async function orchestrateReady(
           epicId,
           readyTasks: aggregated,
           total: aggregated.length,
-          via: 'saga',
+          via: 'saga' as const,
           sagaMembers: members,
           ...(skippedNested.length > 0 && { sagaNestedSkipped: skippedNested }),
           ...(reason !== undefined && { reason }),
@@ -504,7 +488,7 @@ export async function orchestrateReady(
       };
     }
 
-    // Default / via='parent': legacy parentId-walk.
+    // Regular epic: walk parentId.
     const readyTasks = await getReadyTasks(epicId, root, accessor);
     const ready = readyTasks.filter((t) => t.ready);
 
@@ -598,18 +582,27 @@ export async function orchestrateNext(epicId: string, projectRoot?: string): Pro
 /**
  * Options for {@link orchestrateWaves}.
  *
+ * @deprecated Since T10966 — the `via` field is retained for backward
+ * compatibility only. Sagas are auto-detected via `isSagaShape`; all
+ * callers get the correct saga-aware walk regardless of `via` value.
+ *
  * @bug gh-390
  * @adr ADR-073
  * @task T9839
+ * @task T10968 — Deprecate dual via semantics
  */
 export interface OrchestrateWavesOptions {
   /**
    * Traversal mode for resolving the epic's children — see
-   * {@link OrchestrateTraversal}. Default `'both'`.
+   * {@link OrchestrateTraversal}. Default is auto-detect.
+   *
+   * @deprecated Since T10966 — no longer changes behavior.
+   * Sagas are auto-detected via `isSagaShape`.
    *
    * @bug gh-390
    * @adr ADR-073
    * @task T9839
+   * @task T10968 — Deprecate dual via semantics
    */
   via?: OrchestrateTraversal;
 }
@@ -626,7 +619,7 @@ export interface OrchestrateWavesOptions {
  *
  * @param epicId - Epic to compute waves for.
  * @param projectRoot - Optional project root path.
- * @param opts - Optional traversal flag ({@link OrchestrateWavesOptions}).
+ * @param _opts - Deprecated traversal options (ignored since T10966).
  * @returns Engine result with wave data.
  * @task T4478
  * @bug gh-390
@@ -635,7 +628,7 @@ export interface OrchestrateWavesOptions {
 export async function orchestrateWaves(
   epicId: string,
   projectRoot?: string,
-  opts?: OrchestrateWavesOptions,
+  _opts?: OrchestrateWavesOptions,
 ): Promise<EngineResult> {
   if (!epicId) {
     return engineError('E_INVALID_INPUT', 'epicId is required');
@@ -651,12 +644,12 @@ export async function orchestrateWaves(
       return engineError('E_NOT_FOUND', `Epic ${epicId} not found`);
     }
 
-    const via: OrchestrateTraversal = opts?.via ?? 'both';
+    // T10966: Saga-aware traversal — always auto-detect saga shape.
+    // After T10638, sagas use `type='saga'` with `parent_id` containment.
     // T10331 (Saga T10326 W2.B): dual-shape saga detection via isSagaShape.
     const sagaShaped = isSagaShape(epic);
-    const useSagaWalk = via === 'saga' || (via === 'both' && sagaShaped);
 
-    if (!useSagaWalk) {
+    if (!sagaShaped) {
       const result = await getEnrichedWaves(epicId, root, accessor);
       return {
         success: true,
@@ -665,7 +658,8 @@ export async function orchestrateWaves(
     }
 
     // Saga walk: compute per-member waves and merge by index.
-    const members = await resolveSagaMembers(accessor, epicId);
+    const memberIds = await resolveSagaMemberIds(accessor, epicId);
+    const members = memberIds ?? [];
     const skippedNested: string[] = [];
     const perMemberWaves: EnrichedWave[][] = [];
     let totalChildren = 0;
