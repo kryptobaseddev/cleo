@@ -78,3 +78,5 @@ export {
 } from './worktree-migrate.js';
 export { installWorktreeDependencies } from './worktree-pnpm.js';
 export { pruneWorktrees } from './worktree-prune.js';
+
+export { integrateWorktree } from './napi-binding.js';
