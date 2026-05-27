@@ -79,20 +79,26 @@ function parseEnvelope<T = unknown>(stdout: string): LafsEnvelope<T> {
   throw new Error(`parseEnvelope: no JSON envelope on stdout. Got:\n${stdout.slice(0, 2000)}`);
 }
 
+let _seq = 0;
+function uniqueSlug(prefix: string): string {
+  return `${prefix}-${Date.now()}-${_seq++}`;
+}
+
 /** Write a temp file and add it as a doc via the CLI. */
 async function addDocFile(
   projectRoot: string,
   taskId: string,
   content: string,
-  opts?: { slug?: string; type?: string },
+  opts?: { slug?: string; type?: string; title?: string },
 ): Promise<{ attachmentId: string; sha256: string; slug?: string }> {
-  const filename = opts?.slug ? `${opts.slug}.md` : `test-doc-${Date.now()}.md`;
+  const slug = opts?.slug ?? uniqueSlug('test-doc');
+  const filename = `${slug}.md`;
   const filePath = join(projectRoot, filename);
   await writeFile(filePath, content, 'utf-8');
 
-  const cliArgs: string[] = ['docs', 'add', taskId, filePath, '--json'];
-  if (opts?.slug) cliArgs.push('--slug', opts.slug);
+  const cliArgs: string[] = ['docs', 'add', taskId, filePath, '--slug', slug, '--json'];
   if (opts?.type) cliArgs.push('--type', opts.type);
+  if (opts?.title) cliArgs.push('--title', opts.title);
 
   const result = runCli(cliArgs, projectRoot);
   if (result.status !== 0) {
@@ -102,11 +108,18 @@ async function addDocFile(
   if (!env.success) {
     throw new Error(`addDocFile failed: ${JSON.stringify(env.error)}`);
   }
-  return (env.data ?? {}) as { attachmentId: string; sha256: string; slug?: string };
+  const data = (env.data ?? {}) as { attachmentId: string; sha256: string; slug?: string };
+  return { ...data, slug: opts?.slug ?? slug };
 }
 
-/** Six canonical verbs per T10517 acceptance. */
-const CANONICAL_SIX = ['add', 'update', 'fetch', 'list', 'remove', 'publish'] as const;
+/** Extract the attachments array from a docs list envelope. */
+function parseListAttachments(stdout: string): Record<string, unknown>[] {
+  const env = parseEnvelope<{ attachments?: Record<string, unknown>[] }>(stdout);
+  if (!env.success) {
+    throw new Error(`parseListAttachments: envelope not successful: ${JSON.stringify(env.error)}`);
+  }
+  return env.data?.attachments ?? [];
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CLI E2E TESTS
@@ -148,7 +161,7 @@ describe.runIf(CLI_DIST_AVAILABLE)('docs canonical six-verb CLI integration', ()
     it('adds a doc with --slug for a named attachment', async () => {
       const filePath = join(projectRoot, 'named.md');
       await writeFile(filePath, '# Named Doc', 'utf-8');
-      const slug = 'my-test-doc';
+      const slug = uniqueSlug('my-test-doc');
 
       const result = runCli(
         ['docs', 'add', 'T99999', filePath, '--slug', slug, '--type', 'spec', '--json'],
@@ -165,7 +178,6 @@ describe.runIf(CLI_DIST_AVAILABLE)('docs canonical six-verb CLI integration', ()
         ['docs', 'add', 'T99999', '/nonexistent.md', '--replace', '--json'],
         projectRoot,
       );
-      // Should error — unknown flag
       expect(result.status).not.toBe(0);
     });
   });
@@ -182,25 +194,20 @@ describe.runIf(CLI_DIST_AVAILABLE)('docs canonical six-verb CLI integration', ()
       const result = runCli(['docs', 'list', '--task', 'T99999', '--json'], projectRoot);
       expect(result.status).toBe(0);
 
-      const env = parseEnvelope<{ items?: unknown[] }>(result.stdout);
-      expect(env.success).toBe(true);
-      const items = (env.data as Record<string, unknown>)?.items as Record<string, unknown>[];
-      expect(items).toBeDefined();
-      expect(items!.length).toBeGreaterThanOrEqual(2);
+      const attachments = parseListAttachments(result.stdout);
+      expect(attachments.length).toBeGreaterThanOrEqual(2);
     });
 
     it('lists docs with --type filter', async () => {
       await addDocFile(projectRoot, 'T99999', '# Spec A\n\n## Overview\n\nSpec content.', { type: 'spec' });
       await addDocFile(projectRoot, 'T99999', '# Spec B\n\n## Overview\n\nSpec content.', { type: 'spec' });
-      await addDocFile(projectRoot, 'T99999', '# ADR X\n\n## Decision\n\n## Context\n\nADR content.', { type: 'adr' });
+      await addDocFile(projectRoot, 'T99999', '# ADR X\n\n## Decision\n\n## Context\n\nADR content.', { type: 'adr', title: 'Adopt Drizzle v1 beta' });
 
       const result = runCli(['docs', 'list', '--task', 'T99999', '--type', 'adr', '--json'], projectRoot);
       expect(result.status).toBe(0);
 
-      const env = parseEnvelope<{ items?: unknown[] }>(result.stdout);
-      expect(env.success).toBe(true);
-      const items = (env.data as Record<string, unknown>)?.items as Record<string, unknown>[];
-      for (const item of items!) {
+      const attachments = parseListAttachments(result.stdout);
+      for (const item of attachments) {
         expect(item.type).toBe('adr');
       }
     });
@@ -216,10 +223,8 @@ describe.runIf(CLI_DIST_AVAILABLE)('docs canonical six-verb CLI integration', ()
       );
       expect(result.status).toBe(0);
 
-      const env = parseEnvelope<{ items?: unknown[] }>(result.stdout);
-      expect(env.success).toBe(true);
-      const items = (env.data as Record<string, unknown>)?.items as Record<string, unknown>[];
-      expect(items!.length).toBeLessThanOrEqual(2);
+      const attachments = parseListAttachments(result.stdout);
+      expect(attachments.length).toBeLessThanOrEqual(2);
     });
   });
 
@@ -258,8 +263,7 @@ describe.runIf(CLI_DIST_AVAILABLE)('docs canonical six-verb CLI integration', ()
     it('removes an attachment ref from an owner', async () => {
       const doc = await addDocFile(projectRoot, 'T99999', '# Removable Doc');
       let listResult = runCli(['docs', 'list', '--task', 'T99999', '--json'], projectRoot);
-      let listEnv = parseEnvelope<{ items?: unknown[] }>(listResult.stdout);
-      const beforeCount = ((listEnv.data as Record<string, unknown>)?.items as unknown[])?.length ?? 0;
+      const beforeCount = parseListAttachments(listResult.stdout).length;
 
       const result = runCli(
         ['docs', 'remove', doc.attachmentId, '--from', 'T99999', '--json'],
@@ -268,8 +272,7 @@ describe.runIf(CLI_DIST_AVAILABLE)('docs canonical six-verb CLI integration', ()
       expect(result.status).toBe(0);
 
       listResult = runCli(['docs', 'list', '--task', 'T99999', '--json'], projectRoot);
-      listEnv = parseEnvelope<{ items?: unknown[] }>(listResult.stdout);
-      const afterCount = ((listEnv.data as Record<string, unknown>)?.items as unknown[])?.length ?? 0;
+      const afterCount = parseListAttachments(listResult.stdout).length;
       expect(afterCount).toBeLessThan(beforeCount);
     });
 
@@ -292,7 +295,7 @@ describe.runIf(CLI_DIST_AVAILABLE)('docs canonical six-verb CLI integration', ()
         ['docs', 'publish', '--for', 'T99999', '--to', 'docs/published-spec.md', '--json'],
         projectRoot,
       );
-      expect(result.status).toBe(0);
+      expect(result.status, `publish failed; stdout=${result.stdout} stderr=${result.stderr}`).toBe(0);
       const env = parseEnvelope(result.stdout);
       expect(env.success).toBe(true);
       expect(existsSync(publishPath)).toBe(true);
@@ -324,7 +327,7 @@ describe.runIf(CLI_DIST_AVAILABLE)('docs canonical six-verb CLI integration', ()
     const TASK_ID = 'T99988';
 
     it('completes full add→list→fetch→update→publish→remove lifecycle', async () => {
-      const slug = 'lifecycle-test-doc';
+      const slug = uniqueSlug('lifecycle-test-doc');
       const addFilePath = join(projectRoot, `${slug}-v1.md`);
       await writeFile(addFilePath, '# Lifecycle Test v1\n\nInitial content.', 'utf-8');
 
@@ -344,9 +347,8 @@ describe.runIf(CLI_DIST_AVAILABLE)('docs canonical six-verb CLI integration', ()
       // 2. LIST
       const listResult = runCli(['docs', 'list', '--task', TASK_ID, '--json'], projectRoot);
       expect(listResult.status).toBe(0);
-      const listEnv = parseEnvelope<{ items?: unknown[] }>(listResult.stdout);
-      const items = (listEnv.data as Record<string, unknown>)?.items as Record<string, unknown>[];
-      expect(items?.find((i) => i.slug === slug)).toBeDefined();
+      const attachments = parseListAttachments(listResult.stdout);
+      expect(attachments.find((i) => i.slug === slug)).toBeDefined();
 
       // 3. FETCH
       const fetchResult = runCli(['docs', 'fetch', attachmentId, '--json'], projectRoot);
@@ -371,7 +373,7 @@ describe.runIf(CLI_DIST_AVAILABLE)('docs canonical six-verb CLI integration', ()
         ['docs', 'publish', '--for', TASK_ID, '--to', 'docs/lifecycle-published.md', '--json'],
         projectRoot,
       );
-      expect(publishResult.status).toBe(0);
+      expect(publishResult.status, `publish failed: ${publishResult.stderr}`).toBe(0);
       expect(parseEnvelope(publishResult.stdout).success).toBe(true);
       expect(existsSync(publishPath)).toBe(true);
       expect(readFileSync(publishPath, 'utf-8')).toContain('Updated content');
@@ -385,8 +387,8 @@ describe.runIf(CLI_DIST_AVAILABLE)('docs canonical six-verb CLI integration', ()
 
       // Verify gone
       const afterListResult = runCli(['docs', 'list', '--task', TASK_ID, '--json'], projectRoot);
-      const afterItems = (parseEnvelope<{ items?: unknown[] }>(afterListResult.stdout).data as Record<string, unknown>)?.items as Record<string, unknown>[];
-      expect(afterItems?.find((i) => i.slug === slug)).toBeUndefined();
+      const afterAttachments = parseListAttachments(afterListResult.stdout);
+      expect(afterAttachments.find((i) => i.slug === slug)).toBeUndefined();
     });
   });
 
