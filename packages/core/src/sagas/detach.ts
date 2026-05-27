@@ -78,8 +78,8 @@ function appendSagaDetachAudit(projectRoot: string, entry: SagaDetachAuditEntry)
 }
 
 /**
-  * Clear the `parentId` edge between a Saga and a member Epic.
-  * Idempotent — if the member is not parented to the Saga the call still
+ * Clear the `parentId` edge between a Saga and a member Epic.
+ * Idempotent — if the member is not parented to the Saga the call still
  * succeeds with `removed: false`. Always appends an entry to
  * `.cleo/audit/saga-detach.jsonl`.
  *

@@ -418,7 +418,11 @@ function runMigrations(nativeDb: DatabaseSync, db: NodeSQLiteDatabase<typeof sch
     'ALTER TABLE attachments ADD COLUMN owner_version TEXT',
     'ALTER TABLE attachments ADD COLUMN doc_version INTEGER NOT NULL DEFAULT 1',
   ]) {
-    try { nativeDb.exec(stmt); } catch { /* column may already exist */ }
+    try {
+      nativeDb.exec(stmt);
+    } catch {
+      /* column may already exist */
+    }
   }
 }
 

@@ -27,11 +27,11 @@
  */
 import { createHash } from 'node:crypto';
 import type { AttachmentMetadata, DocKind } from '@cleocode/contracts';
-import type { AttachmentLifecycleStatus } from '../store/schema/attachments.js';
 import { getProjectRoot } from '../paths.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
-import { blobList, blobRead } from '../store/blob-ops.js';
 import type { BlobListEntry } from '../store/blob-ops.js';
+import { blobList, blobRead } from '../store/blob-ops.js';
+import type { AttachmentLifecycleStatus } from '../store/schema/attachments.js';
 
 // ---------------------------------------------------------------------------
 // Re-use the publications types from docs-ops via dynamic import to avoid
@@ -338,9 +338,7 @@ export class DocsReadModel {
     // Annotate with publication status
     for (const [, doc] of merged) {
       const pub = publications.find(
-        (p) =>
-          p.ownerId === doc.ownerId &&
-          p.blobName === doc.blobName,
+        (p) => p.ownerId === doc.ownerId && p.blobName === doc.blobName,
       );
       if (pub) {
         (doc as MutableResolvedDoc).publishedPath = pub.publishedPath;
@@ -462,7 +460,11 @@ export class DocsReadModel {
 
     // Build blob sha cache from the manifest
     const ownerCache = new Map<string, Map<string, string>>();
-    async function getBlobSha(ownerId: string, blobName: string, ledgerSha: string): Promise<string> {
+    async function getBlobSha(
+      ownerId: string,
+      blobName: string,
+      ledgerSha: string,
+    ): Promise<string> {
       let perOwner = ownerCache.get(ownerId);
       if (!perOwner) {
         perOwner = new Map();
@@ -494,7 +496,9 @@ export class DocsReadModel {
       try {
         await stat(filePath);
         exists = true;
-      } catch { /* missing */ }
+      } catch {
+        /* missing */
+      }
 
       let drift: 'in-sync' | 'added' | 'modified' | 'deleted';
       if (exists) {
@@ -677,10 +681,7 @@ export class DocsReadModel {
   /**
    * Build a ResolvedDoc from a blob entry.
    */
-  private buildFromBlobEntry(
-    ownerId: string,
-    entry: BlobListEntry,
-  ): ResolvedDoc {
+  private buildFromBlobEntry(ownerId: string, entry: BlobListEntry): ResolvedDoc {
     return this.buildResolvedDocFromBlob(ownerId, entry);
   }
 
@@ -704,15 +705,12 @@ export class DocsReadModel {
     // Check publication status
     const publications = await this.loadPublications();
     const pub = publications.find(
-      (p) =>
-        p.ownerId === ownerId &&
-        p.blobName === (blobName ?? extras.slug ?? ''),
+      (p) => p.ownerId === ownerId && p.blobName === (blobName ?? extras.slug ?? ''),
     );
 
     let publicationDrift: ResolvedDoc['publicationDrift'] = 'unpublished';
     if (pub) {
-      publicationDrift =
-        pub.lastBlobSha === meta.sha256 ? 'in-sync' : 'modified';
+      publicationDrift = pub.lastBlobSha === meta.sha256 ? 'in-sync' : 'modified';
     }
 
     return {

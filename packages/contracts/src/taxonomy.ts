@@ -41,12 +41,7 @@
 // ---------------------------------------------------------------------------
 
 /** Allowed tag axis values. */
-export type TaxonomyAxis =
-  | 'domain'
-  | 'type'
-  | 'lifecycle'
-  | 'priority'
-  | 'doc_kind';
+export type TaxonomyAxis = 'domain' | 'type' | 'lifecycle' | 'priority' | 'doc_kind';
 
 /**
  * Metadata for a single canonical tag in the unified taxonomy.
@@ -334,7 +329,17 @@ export const BUILTIN_TAXONOMY_TAGS: ReadonlyArray<CanonicalTagMetadata> = [
     label: 'Implementation',
     description: 'LOOM stage 6: code authoring and unit-level verification',
     axes: ['lifecycle'],
-    adhocAliases: ['implementation', 'wave-1', 'wave-2', 'wave-3', 'wave-4', 'wave-5', 'wave.1', 'wave.2', 'wave.3'],
+    adhocAliases: [
+      'implementation',
+      'wave-1',
+      'wave-2',
+      'wave-3',
+      'wave-4',
+      'wave-5',
+      'wave.1',
+      'wave.2',
+      'wave.3',
+    ],
   },
   {
     tag: 'validation',
@@ -477,12 +482,14 @@ for (const axis of ['domain', 'type', 'lifecycle', 'priority', 'doc_kind'] as Ta
 }
 
 /** All canonical tag type values (subset of ALL_TAGS with axis='type'). */
-export const CANONICAL_TYPE_TAGS: ReadonlyArray<string> =
-  TAGS_BY_AXIS.get('type')!.map((t) => t.tag);
+export const CANONICAL_TYPE_TAGS: ReadonlyArray<string> = TAGS_BY_AXIS.get('type')!.map(
+  (t) => t.tag,
+);
 
 /** All canonical domain tag values. */
-export const CANONICAL_DOMAIN_TAGS: ReadonlyArray<string> =
-  TAGS_BY_AXIS.get('domain')!.map((t) => t.tag);
+export const CANONICAL_DOMAIN_TAGS: ReadonlyArray<string> = TAGS_BY_AXIS.get('domain')!.map(
+  (t) => t.tag,
+);
 
 /** Canonical priority tag values in order. */
 export const CANONICAL_PRIORITY_TAGS = ['p0', 'p1', 'p2', 'p3'] as const;
@@ -500,8 +507,9 @@ export const CANONICAL_LIFECYCLE_TAGS = [
 ] as const;
 
 /** Doc-kind tags (absorbed from docs-taxonomy). */
-export const CANONICAL_DOC_KIND_TAGS: ReadonlyArray<string> =
-  TAGS_BY_AXIS.get('doc_kind')!.map((t) => t.tag);
+export const CANONICAL_DOC_KIND_TAGS: ReadonlyArray<string> = TAGS_BY_AXIS.get('doc_kind')!.map(
+  (t) => t.tag,
+);
 
 // ---------------------------------------------------------------------------
 // Taxonomy Registry

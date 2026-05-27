@@ -33,8 +33,8 @@ import { E_SAGA_INVARIANT_VIOLATION_I5 } from './enforcement.js';
  * Single I5-violation warning entry attached to `SagaListResult.warnings`.
  *
  * The shape is intentionally narrow: `code` is fixed, `sagaId` is the saga
-   * that broke the invariant, and `offendingParentId` is the non-null
-   * `parentId` value that must be cleared.
+ * that broke the invariant, and `offendingParentId` is the non-null
+ * `parentId` value that must be cleared.
  *
  * @task T10117
  */
@@ -91,8 +91,8 @@ function readParentId(task: TaskRecord | CompactTask): string | null {
 const SAGA_LIST_HARD_LIMIT = 1000;
 
 /**
-  * List every first-class Saga, including corrupt legacy rows whose `parentId`
-  * is non-null as structured warnings.
+ * List every first-class Saga, including corrupt legacy rows whose `parentId`
+ * is non-null as structured warnings.
  *
  * Passes `limit: ${SAGA_LIST_HARD_LIMIT}` to the underlying `taskList` call.
  * The default `taskList` limit is 10 — small enough that a 19-saga repo

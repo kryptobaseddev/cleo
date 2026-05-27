@@ -101,11 +101,7 @@ export function compareCleoVersions(a: string, b: string): number {
  * @param max - Maximum version (inclusive), or undefined for unbounded
  * @returns true if min <= version <= max
  */
-export function versionInRange(
-  version: string,
-  min?: string,
-  max?: string,
-): boolean {
+export function versionInRange(version: string, min?: string, max?: string): boolean {
   if (min && compareCleoVersions(version, min) < 0) return false;
   if (max && compareCleoVersions(version, max) > 0) return false;
   return true;
@@ -189,9 +185,7 @@ export async function auditVersionFields(
       }
     }
   } catch (err) {
-    findings.push(
-      `Audit error: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    findings.push(`Audit error: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   return {

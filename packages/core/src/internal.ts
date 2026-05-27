@@ -153,6 +153,21 @@ export {
   DocProvenanceRootNotFoundError,
   renderProvenanceGraphAsDot,
 } from './docs/build-provenance-graph.js';
+// ── T11139 — docs audit trail (Saga T10516) ──────────────────────────────────
+export type {
+  AuditFinding,
+  AuditLogReadResult,
+  AuditVerifyResult,
+  DocsAuditEntry,
+  DocsAuditOp,
+  WriteAuditEntryParams,
+} from './docs/docs-audit.js';
+export {
+  countAuditEntriesForSlug,
+  readAuditLog,
+  verifyAuditTrail,
+  writeAuditEntry,
+} from './docs/docs-audit.js';
 // Docs generator — llms.txt format generation (T798)
 export type { GenerateDocsOptions, GenerateDocsResult } from './docs/docs-generator.js';
 export { generateDocsLlmsTxt } from './docs/docs-generator.js';
@@ -195,6 +210,9 @@ export {
   statusDocs,
   syncFromGit,
 } from './docs/docs-ops.js';
+// DocsReadModel — unified read-side query surface (T11049)
+export type { ListProjectDocsOpts, ResolvedDoc } from './docs/docs-read-model.js';
+export { createDocsReadModel, DocsReadModel } from './docs/docs-read-model.js';
 // Docs UPDATE-in-place via slug (T10161 — E12.C4 · Saga T9855)
 export type {
   DocsUpdateError,
@@ -254,21 +272,6 @@ export {
   stripMdExtension,
   writeAuditManifest,
 } from './docs/index.js';
-// ── T11139 — docs audit trail (Saga T10516) ──────────────────────────────────
-export type {
-  AuditFinding,
-  AuditLogReadResult,
-  AuditVerifyResult,
-  DocsAuditEntry,
-  DocsAuditOp,
-  WriteAuditEntryParams,
-} from './docs/docs-audit.js';
-export {
-  countAuditEntriesForSlug,
-  readAuditLog,
-  verifyAuditTrail,
-  writeAuditEntry,
-} from './docs/docs-audit.js';
 // Agent-outputs migration (T9064) — ingest .cleo/agent-outputs/*.md into DocsAccessor
 export type {
   AgentOutputMigrationResult,
@@ -902,7 +905,6 @@ export {
   collectOrchestrateDashboard,
   formatDashboardPromptSummary,
 } from './orchestration/dashboard.js';
-
 export { analyzeEpic, prepareSpawn } from './orchestration/index.js';
 export {
   endParallelExecution,
@@ -1319,9 +1321,6 @@ export {
 // DocsAccessor — unified llmtxt + manifest interface (T9063 · ADR-068 · ADR-069)
 export type { DocsAccessorImplOptions } from './store/docs-accessor-impl.js';
 export { createDocsAccessor, DocsAccessorImpl } from './store/docs-accessor-impl.js';
-// DocsReadModel — unified read-side query surface (T11049)
-export type { ListProjectDocsOpts, ResolvedDoc } from './docs/docs-read-model.js';
-export { createDocsReadModel, DocsReadModel } from './docs/docs-read-model.js';
 export {
   gitCheckpoint,
   gitCheckpointStatus,

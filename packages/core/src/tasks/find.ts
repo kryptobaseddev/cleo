@@ -330,9 +330,8 @@ export async function findTasks(
   const acc = accessor ?? (await getTaskAccessor(cwd));
 
   // T10108: Saga-aware --parent routing.
-  // When --parent targets a Saga (label='saga'), children live in
-  // task_relations.type='groups', NOT in the parentId column. Detect once
-  // up-front; falls back to the default parentId-based query when the
+  // When --parent targets a Saga, resolve members through the canonical
+  // Saga member helper. Falls back to the default parentId-based query when the
   // parent is not a Saga (or does not exist — non-existent IDs collapse to
   // an empty result via the default path, preserving historical behaviour).
   // Mirrors `listTasks` (ADR-073 §1).
@@ -351,18 +350,15 @@ export async function findTasks(
   if (options.label) {
     filters.label = options.label;
   }
-  // T10108: skip the parentId filter when routing through Saga groups —
-  // Saga members are top-level Epics with parentId=null, so the column
-  // wouldn't match. The member-set intersection below restricts the result
-  // in-memory instead.
+  // T10108: skip the raw parentId filter when routing through the Saga helper;
+  // the member-set intersection below restricts the result in-memory instead.
   if (options.parent && sagaMemberIds === null) {
     filters.parentId = options.parent;
   }
   const queryResult = await acc.queryTasks(filters);
   let allTasks: Task[] = [...queryResult.tasks];
 
-  // T10108: Saga path — restrict the queried set to the saga's member IDs,
-  // preserving the relation-order of the groups edges (matches listTasks).
+  // T10108: Saga path — restrict the queried set to the saga's member IDs.
   if (sagaMemberIds !== null) {
     const memberOrder = new Map<string, number>();
     for (let idx = 0; idx < sagaMemberIds.length; idx++) {

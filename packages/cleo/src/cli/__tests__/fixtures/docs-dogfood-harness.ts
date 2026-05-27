@@ -135,7 +135,7 @@ export const SIX_REGRESSION_SCENARIOS: readonly RegressionScenario[] = [
     description:
       '`cleo docs update --file` must register an owner-attachment version ' +
       'that `cleo docs publish` can find. The bug: update succeeded but ' +
-      'publish couldn\'t locate the blob because the owner ref wasn\'t written.',
+      "publish couldn't locate the blob because the owner ref wasn't written.",
     ownedBy: 'T11061',
   },
   {
@@ -155,7 +155,7 @@ export const SIX_REGRESSION_SCENARIOS: readonly RegressionScenario[] = [
     description:
       'When a slug is already reserved, the error message must guide ' +
       'the agent toward `docs update` or `docs sync --from` rather than ' +
-      'just saying it\'s taken. Covers `E_SLUG_RESERVED` envelope quality.',
+      "just saying it's taken. Covers `E_SLUG_RESERVED` envelope quality.",
     ownedBy: 'T11062',
   },
   {
@@ -221,9 +221,7 @@ export function parseEnvelope<T = unknown>(stdout: string): LafsEnvelope<T> {
       // Not a JSON line — keep scanning.
     }
   }
-  throw new Error(
-    `parseEnvelope: no JSON envelope on stdout. Got:\n${stdout.slice(0, 2000)}`,
-  );
+  throw new Error(`parseEnvelope: no JSON envelope on stdout. Got:\n${stdout.slice(0, 2000)}`);
 }
 
 /**
@@ -232,9 +230,7 @@ export function parseEnvelope<T = unknown>(stdout: string): LafsEnvelope<T> {
 export function assertEnvelope<T = unknown>(stdout: string): T {
   const env = parseEnvelope<T>(stdout);
   if (!env.success) {
-    throw new Error(
-      `Expected success envelope, got error: ${JSON.stringify(env.error)}`,
-    );
+    throw new Error(`Expected success envelope, got error: ${JSON.stringify(env.error)}`);
   }
   expect(env.success).toBe(true);
   // ADR-039: meta MUST be present on every envelope.
@@ -275,9 +271,7 @@ export function assertErrorEnvelope(
  *
  * @param prefix - Temp dir prefix (default: `'cleo-dogfood-'`)
  */
-export async function createIsolatedProject(
-  prefix = 'cleo-dogfood-',
-): Promise<DocsDogfoodContext> {
+export async function createIsolatedProject(prefix = 'cleo-dogfood-'): Promise<DocsDogfoodContext> {
   const projectRoot = await mkdtemp(join(tmpdir(), prefix));
   // The blob store stats `<projectRoot>/.cleo/` to derive its data dir,
   // and getProjectRoot() walks back to whatever holds `.cleo/`.
@@ -325,9 +319,7 @@ export async function seedDoc(
   const expectedSha = createHash('sha256').update(content).digest('hex');
   // Cross-check: the envelope sha must match our computed sha.
   if (data.sha256 !== expectedSha) {
-    throw new Error(
-      `seedDoc SHA mismatch: envelope=${data.sha256} computed=${expectedSha}`,
-    );
+    throw new Error(`seedDoc SHA mismatch: envelope=${data.sha256} computed=${expectedSha}`);
   }
   return data.sha256;
 }
@@ -342,10 +334,7 @@ export async function publishDoc(
   ownerId: string,
   destPath: string,
 ): Promise<{ publishedPath: string; sha256: string; blobSha256: string; bytes: number }> {
-  const res = runCleo(
-    ['docs', 'publish', '--for', ownerId, '--to', destPath],
-    ctx.projectRoot,
-  );
+  const res = runCleo(['docs', 'publish', '--for', ownerId, '--to', destPath], ctx.projectRoot);
 
   const data = assertEnvelope<{
     publishedPath: string;
@@ -368,9 +357,7 @@ export async function publishDoc(
  *
  * @returns The status envelope data (items, allInSync).
  */
-export async function getDocStatus(
-  ctx: DocsDogfoodContext,
-): Promise<{
+export async function getDocStatus(ctx: DocsDogfoodContext): Promise<{
   items: Array<{ ownerId: string; drift: string; fileSha?: string | null }>;
   allInSync: boolean;
 }> {
@@ -389,10 +376,7 @@ export async function getDocStatus(
  *
  * @returns The raw text content of the fetched doc.
  */
-export async function fetchDoc(
-  ctx: DocsDogfoodContext,
-  slugOrSha: string,
-): Promise<string> {
+export async function fetchDoc(ctx: DocsDogfoodContext, slugOrSha: string): Promise<string> {
   const res = runCleo(['docs', 'fetch', slugOrSha], ctx.projectRoot);
 
   if (res.status !== 0) {
@@ -450,21 +434,141 @@ export interface RegressionTestCase {
 }
 
 export const SIX_REGRESSION_TEST_CASES: readonly RegressionTestCase[] = [
-  { id: 'RTC-S1-1', scenarioId: 'S1', description: 'sanitizePath rejects absolute path outside projectRoot with E_PATH_TRAVERSAL', ownedBy: 'T11060', targetModule: 'packages/core/src/lib/sanitize-path.ts', assertionKind: 'error-envelope', coreLevel: true },
-  { id: 'RTC-S1-2', scenarioId: 'S1', description: 'sanitizePath rejects relative ../ escape path with E_PATH_TRAVERSAL', ownedBy: 'T11060', targetModule: 'packages/core/src/lib/sanitize-path.ts', assertionKind: 'error-envelope', coreLevel: true },
-  { id: 'RTC-S1-3', scenarioId: 'S1', description: 'sanitizePath error message includes rejected path for agent debuggability', ownedBy: 'T11060', targetModule: 'packages/core/src/lib/sanitize-path.ts', assertionKind: 'value-assertion', coreLevel: true },
-  { id: 'RTC-S2-1', scenarioId: 'S2', description: 'isLifecycleStatus rejects non-canonical status values', ownedBy: 'T11060', targetModule: 'packages/core/src/docs/docs-update.ts', assertionKind: 'value-assertion', coreLevel: true },
-  { id: 'RTC-S2-2', scenarioId: 'S2', description: 'DOCS_UPDATE_LIFECYCLE_STATUS_LIST contains full canonical set', ownedBy: 'T11060', targetModule: 'packages/core/src/docs/docs-update.ts', assertionKind: 'value-assertion', coreLevel: true },
-  { id: 'RTC-S3-1', scenarioId: 'S3', description: 'updateDocBySlug writes owner-attachment version that publish can find', ownedBy: 'T11061', targetModule: 'packages/core/src/docs/docs-update.ts', assertionKind: 'behavioral', coreLevel: true },
-  { id: 'RTC-S3-2', scenarioId: 'S3', description: 'publish resolves latest blob via owner-attachment linkage', ownedBy: 'T11061', targetModule: 'packages/core/src/docs/docs-ops.ts', assertionKind: 'behavioral', coreLevel: false },
-  { id: 'RTC-S4-1', scenarioId: 'S4', description: 'listPublications returns versions ordered by uploaded_at descending', ownedBy: 'T11061', targetModule: 'packages/core/src/docs/docs-ops.ts', assertionKind: 'value-assertion', coreLevel: true },
-  { id: 'RTC-S4-2', scenarioId: 'S4', description: 'publishDocs selects latest-by-uploaded_at version, not an older blob', ownedBy: 'T11061', targetModule: 'packages/core/src/docs/docs-ops.ts', assertionKind: 'behavioral', coreLevel: true },
-  { id: 'RTC-S5-1', scenarioId: 'S5', description: 'reserveSlug returns E_SLUG_RESERVED with exactly 3 suggestions on collision', ownedBy: 'T11062', targetModule: 'packages/core/src/docs/slug-allocator.ts', assertionKind: 'error-envelope', coreLevel: true },
-  { id: 'RTC-S5-2', scenarioId: 'S5', description: 'E_SLUG_RESERVED suggestions are unique, non-empty strings', ownedBy: 'T11062', targetModule: 'packages/core/src/docs/slug-allocator.ts', assertionKind: 'value-assertion', coreLevel: true },
-  { id: 'RTC-S5-3', scenarioId: 'S5', description: 'cross-kind slug collision enforces global namespace (T10390)', ownedBy: 'T11062', targetModule: 'packages/core/src/docs/slug-allocator.ts', assertionKind: 'error-envelope', coreLevel: true },
-  { id: 'RTC-S6-1', scenarioId: 'S6', description: 'normalizeSlug preserves owner-disambiguated slugs through canonicalization', ownedBy: 'T11062', targetModule: 'packages/core/src/docs/slug-normalize.ts', assertionKind: 'value-assertion', coreLevel: true },
-  { id: 'RTC-S6-2', scenarioId: 'S6', description: 'normalizeSlug preserves owner suffix through normalization', ownedBy: 'T11062', targetModule: 'packages/core/src/docs/slug-allocator.ts', assertionKind: 'value-assertion', coreLevel: true },
-  { id: 'RTC-S6-3', scenarioId: 'S6', description: 'normalizeSlug canonicalizes mixed-case/hyphenated slug correctly', ownedBy: 'T11062', targetModule: 'packages/core/src/docs/slug-normalize.ts', assertionKind: 'behavioral', coreLevel: true },
+  {
+    id: 'RTC-S1-1',
+    scenarioId: 'S1',
+    description: 'sanitizePath rejects absolute path outside projectRoot with E_PATH_TRAVERSAL',
+    ownedBy: 'T11060',
+    targetModule: 'packages/core/src/lib/sanitize-path.ts',
+    assertionKind: 'error-envelope',
+    coreLevel: true,
+  },
+  {
+    id: 'RTC-S1-2',
+    scenarioId: 'S1',
+    description: 'sanitizePath rejects relative ../ escape path with E_PATH_TRAVERSAL',
+    ownedBy: 'T11060',
+    targetModule: 'packages/core/src/lib/sanitize-path.ts',
+    assertionKind: 'error-envelope',
+    coreLevel: true,
+  },
+  {
+    id: 'RTC-S1-3',
+    scenarioId: 'S1',
+    description: 'sanitizePath error message includes rejected path for agent debuggability',
+    ownedBy: 'T11060',
+    targetModule: 'packages/core/src/lib/sanitize-path.ts',
+    assertionKind: 'value-assertion',
+    coreLevel: true,
+  },
+  {
+    id: 'RTC-S2-1',
+    scenarioId: 'S2',
+    description: 'isLifecycleStatus rejects non-canonical status values',
+    ownedBy: 'T11060',
+    targetModule: 'packages/core/src/docs/docs-update.ts',
+    assertionKind: 'value-assertion',
+    coreLevel: true,
+  },
+  {
+    id: 'RTC-S2-2',
+    scenarioId: 'S2',
+    description: 'DOCS_UPDATE_LIFECYCLE_STATUS_LIST contains full canonical set',
+    ownedBy: 'T11060',
+    targetModule: 'packages/core/src/docs/docs-update.ts',
+    assertionKind: 'value-assertion',
+    coreLevel: true,
+  },
+  {
+    id: 'RTC-S3-1',
+    scenarioId: 'S3',
+    description: 'updateDocBySlug writes owner-attachment version that publish can find',
+    ownedBy: 'T11061',
+    targetModule: 'packages/core/src/docs/docs-update.ts',
+    assertionKind: 'behavioral',
+    coreLevel: true,
+  },
+  {
+    id: 'RTC-S3-2',
+    scenarioId: 'S3',
+    description: 'publish resolves latest blob via owner-attachment linkage',
+    ownedBy: 'T11061',
+    targetModule: 'packages/core/src/docs/docs-ops.ts',
+    assertionKind: 'behavioral',
+    coreLevel: false,
+  },
+  {
+    id: 'RTC-S4-1',
+    scenarioId: 'S4',
+    description: 'listPublications returns versions ordered by uploaded_at descending',
+    ownedBy: 'T11061',
+    targetModule: 'packages/core/src/docs/docs-ops.ts',
+    assertionKind: 'value-assertion',
+    coreLevel: true,
+  },
+  {
+    id: 'RTC-S4-2',
+    scenarioId: 'S4',
+    description: 'publishDocs selects latest-by-uploaded_at version, not an older blob',
+    ownedBy: 'T11061',
+    targetModule: 'packages/core/src/docs/docs-ops.ts',
+    assertionKind: 'behavioral',
+    coreLevel: true,
+  },
+  {
+    id: 'RTC-S5-1',
+    scenarioId: 'S5',
+    description: 'reserveSlug returns E_SLUG_RESERVED with exactly 3 suggestions on collision',
+    ownedBy: 'T11062',
+    targetModule: 'packages/core/src/docs/slug-allocator.ts',
+    assertionKind: 'error-envelope',
+    coreLevel: true,
+  },
+  {
+    id: 'RTC-S5-2',
+    scenarioId: 'S5',
+    description: 'E_SLUG_RESERVED suggestions are unique, non-empty strings',
+    ownedBy: 'T11062',
+    targetModule: 'packages/core/src/docs/slug-allocator.ts',
+    assertionKind: 'value-assertion',
+    coreLevel: true,
+  },
+  {
+    id: 'RTC-S5-3',
+    scenarioId: 'S5',
+    description: 'cross-kind slug collision enforces global namespace (T10390)',
+    ownedBy: 'T11062',
+    targetModule: 'packages/core/src/docs/slug-allocator.ts',
+    assertionKind: 'error-envelope',
+    coreLevel: true,
+  },
+  {
+    id: 'RTC-S6-1',
+    scenarioId: 'S6',
+    description: 'normalizeSlug preserves owner-disambiguated slugs through canonicalization',
+    ownedBy: 'T11062',
+    targetModule: 'packages/core/src/docs/slug-normalize.ts',
+    assertionKind: 'value-assertion',
+    coreLevel: true,
+  },
+  {
+    id: 'RTC-S6-2',
+    scenarioId: 'S6',
+    description: 'normalizeSlug preserves owner suffix through normalization',
+    ownedBy: 'T11062',
+    targetModule: 'packages/core/src/docs/slug-allocator.ts',
+    assertionKind: 'value-assertion',
+    coreLevel: true,
+  },
+  {
+    id: 'RTC-S6-3',
+    scenarioId: 'S6',
+    description: 'normalizeSlug canonicalizes mixed-case/hyphenated slug correctly',
+    ownedBy: 'T11062',
+    targetModule: 'packages/core/src/docs/slug-normalize.ts',
+    assertionKind: 'behavioral',
+    coreLevel: true,
+  },
 ];
 
 export function auditScenarioCoverage(): string[] {

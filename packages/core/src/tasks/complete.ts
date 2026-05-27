@@ -784,6 +784,7 @@ export async function completeTask(
           if (
             coordinationParent &&
             coordinationParent.type !== 'epic' &&
+            coordinationParent.type !== 'saga' &&
             !autoCompleted.includes(coordinationParent.id)
           ) {
             const cpChildren = await acc.getChildren(coordinationParent.id);
@@ -824,14 +825,8 @@ export async function completeTask(
 
         // T10116 + T10425: Saga auto-close (mirrors epic auto-close lines ~480-541).
         //
-        // Sagas link to their member Epics via `task_relations.type='groups'`
-        // instead of `parentId` — see ADR-083 §2.6 ("`task_relations.type='groups'`
-        // remains the Saga↔Epic membership edge. Sagas do NOT use `parentId`") and
-        // the underlying ADR-073 §1.2 invariants I3+I5. Sagas surface here under
-        // BOTH the new-shape (`type='saga'`, T10277) AND the legacy-shape
-        // (`type='epic' + label='saga'`, T10334 drops) via `findSagasGroupingTask`
-        // — the helper sweeps both via `isSagaShape` to keep the auto-close
-        // contract stable across the deprecation window.
+        // Sagas link to their member Epics via canonical `parentId` containment:
+        // member Epics carry `parentId=<sagaId>`, and Sagas are `type='saga'`.
         //
         // The existing epic + coordination-parent branches above only walk the
         // `parentId` column, so a saga whose member just completed would stay
@@ -844,7 +839,7 @@ export async function completeTask(
         // or more sagas. For each saga that groups this task:
         //   1. Skip if the saga is already terminal (idempotency).
         //   2. Skip if we have already queued it on this `completeTask` call.
-        //   3. Resolve member IDs via the saga's populated `relates` array.
+        //   3. Resolve member IDs via `parentId=<sagaId>`.
         //   4. Auto-close only when EVERY non-cancelled member is terminal
         //      (`done` or `cancelled`), treating the current task as `done`
         //      because its DB write happens immediately after this branch.
@@ -861,20 +856,11 @@ export async function completeTask(
           if (saga.status === 'done' || saga.status === 'cancelled') continue;
           if (autoCompleted.includes(saga.id)) continue;
 
-          // Resolve member IDs directly from the saga's populated `relates`
-          // array — `findSagasGroupingTask` already loaded it via
-          // `queryTasks`, so we avoid an extra `resolveSagaMemberIds` call.
-          const memberIds: string[] = [];
-          const seen = new Set<string>();
-          for (const relation of saga.relates ?? []) {
-            if (relation.type !== 'groups') continue;
-            if (seen.has(relation.taskId)) continue;
-            seen.add(relation.taskId);
-            memberIds.push(relation.taskId);
-          }
+          const memberResult = await acc.queryTasks({ parentId: saga.id });
+          const memberTasks = memberResult.tasks;
+          const memberIds = memberTasks.map((member) => member.id);
           if (memberIds.length === 0) continue;
 
-          const memberTasks = await acc.loadTasks(memberIds);
           // Overlay the current task as `done` so the rollup check sees the
           // post-write state without a DB round-trip — same approach used by
           // the epic auto-close branch above.
@@ -882,10 +868,6 @@ export async function completeTask(
             if (m.id === task.id) return true;
             return m.status === 'done' || m.status === 'cancelled';
           });
-          // Guard: require we actually loaded every member ID we expected.
-          // A member ID present on the saga's `relates` but missing from
-          // the DB (cascade-orphan) MUST block auto-close until reconciled.
-          if (memberTasks.length !== memberIds.length) continue;
           if (!allMembersTerminal) continue;
 
           // Synthesize evidence + flip the saga to terminal. The saga write

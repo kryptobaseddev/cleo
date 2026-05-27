@@ -101,8 +101,8 @@ function auditLine(entry: Record<string, unknown>): void {
 // Core migration logic
 // ---------------------------------------------------------------------------
 
-  /**
-  * Migrate legacy `task_relations.type='groups'` Saga membership to parent_id containment.
+/**
+ * Migrate legacy `task_relations.type='groups'` Saga membership to parent_id containment.
  *
  * @param projectRoot - Absolute path to the CLEO project root.
  * @param params - Optional sagaId and dry-run flag.

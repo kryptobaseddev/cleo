@@ -31,13 +31,13 @@ import { access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { eq, sql } from 'drizzle-orm';
 import { getProjectRoot } from '../paths.js';
+import { CleoBlobStore } from '../store/llmtxt-blob-adapter.js';
 import {
   type AttachmentLifecycleStatus,
   attachmentRefs,
   attachments,
 } from '../store/schema/attachments.js';
 import { getDb } from '../store/sqlite.js';
-import { CleoBlobStore } from '../store/llmtxt-blob-adapter.js';
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -248,10 +248,7 @@ export async function checkDocsConsistency(
           // Also check via attachment ID as docSlug (used by task attachments)
           const taskBlobs = blobStore.list(attachment.id);
 
-          const [sentinelList, taskList] = await Promise.allSettled([
-            sentinelBlobs,
-            taskBlobs,
-          ]);
+          const [sentinelList, taskList] = await Promise.allSettled([sentinelBlobs, taskBlobs]);
 
           const allBlobs = [
             ...(sentinelList.status === 'fulfilled' ? sentinelList.value : []),
@@ -331,9 +328,7 @@ export async function checkDocsConsistency(
           ownerId: attachmentRefs.ownerId,
         })
         .from(attachmentRefs)
-        .where(
-          sql`${attachmentRefs.attachmentId} NOT IN (SELECT id FROM ${attachments})`,
-        )
+        .where(sql`${attachmentRefs.attachmentId} NOT IN (SELECT id FROM ${attachments})`)
         .all();
 
       for (const ref of orphanedRefs) {
@@ -427,10 +422,7 @@ export async function checkDocsConsistency(
   let allAttachmentCount = publishedAttachments.length;
   try {
     const db = await getDb();
-    const count = db
-      .select({ n: sql<number>`count(*)` })
-      .from(attachments)
-      .get();
+    const count = db.select({ n: sql<number>`count(*)` }).from(attachments).get();
     if (count) allAttachmentCount = count.n;
   } catch {
     // Keep published count as fallback

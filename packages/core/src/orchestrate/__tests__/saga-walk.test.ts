@@ -32,12 +32,7 @@
  * @task T10969 — Add saga ready frontier tests
  */
 
-import {
-  createTask,
-  orchestrateReady,
-  orchestrateWaves,
-  sagas,
-} from '@cleocode/core/internal';
+import { createTask, orchestrateReady, orchestrateWaves, sagas } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 

@@ -15,10 +15,10 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   CLI_DIST_AVAILABLE,
-  type DocsDogfoodContext,
-  SIX_REGRESSION_SCENARIOS,
   createIsolatedProject,
+  type DocsDogfoodContext,
   fileSha256,
+  SIX_REGRESSION_SCENARIOS,
   seedDoc,
   sha256,
 } from './fixtures/docs-dogfood-harness.js';

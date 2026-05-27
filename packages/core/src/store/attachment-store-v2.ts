@@ -112,7 +112,7 @@ export interface AttachmentStoreV2 {
  * interface for downstream type compatibility.
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
-export interface CreateAttachmentStoreV2Options {}
+export type CreateAttachmentStoreV2Options = {};
 
 // ─── Internal helpers ────────────────────────────────────────────────────────
 
@@ -179,9 +179,7 @@ export async function resolveAttachmentBackend(): Promise<AttachmentBackend> {
  * console.log(`stored via ${backend} backend: ${sha256}`);
  * ```
  */
-export function createAttachmentStoreV2(
-  projectRoot: string,
-): AttachmentStoreV2 {
+export function createAttachmentStoreV2(projectRoot: string): AttachmentStoreV2 {
   /**
    * Lazily-resolved llmtxt store. `null` means not yet attempted; `false`
    * means a prior attempt failed — subsequent calls will throw.

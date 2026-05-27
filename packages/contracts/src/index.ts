@@ -398,22 +398,6 @@ export {
   DocKindConfigError,
   DocKindRegistry,
 } from './docs-taxonomy.js';
-// === Canonical Taxonomy Registry (T11186) ===
-export type {
-  CanonicalTagMetadata,
-  TaxonomyAxis,
-} from './taxonomy.js';
-export {
-  BUILTIN_TAXONOMY_TAGS,
-  CANONICAL_TAG_VALUES,
-  CANONICAL_TYPE_TAGS,
-  CANONICAL_DOMAIN_TAGS,
-  CANONICAL_PRIORITY_TAGS,
-  CANONICAL_LIFECYCLE_TAGS,
-  CANONICAL_DOC_KIND_TAGS,
-  TaxonomyError,
-  TaxonomyRegistry,
-} from './taxonomy.js';
 // === Doctor: Worktree-Orphan Audit + Prune Types (T9790, T9808, T9962) ===
 // === Doctor: Saga Hierarchy Audit (T10119 — ADR-073 §1.2) ===
 // === Doctor: DB-Substrate Survey (T10307 — Saga T10281 / Epic T10282) ===
@@ -2055,6 +2039,22 @@ export {
   completionProjectionRepairResultSchema,
   unsatisfiedCompletionCriterionSchema,
 } from './tasks.js';
+// === Canonical Taxonomy Registry (T11186) ===
+export type {
+  CanonicalTagMetadata,
+  TaxonomyAxis,
+} from './taxonomy.js';
+export {
+  BUILTIN_TAXONOMY_TAGS,
+  CANONICAL_DOC_KIND_TAGS,
+  CANONICAL_DOMAIN_TAGS,
+  CANONICAL_LIFECYCLE_TAGS,
+  CANONICAL_PRIORITY_TAGS,
+  CANONICAL_TAG_VALUES,
+  CANONICAL_TYPE_TAGS,
+  TaxonomyError,
+  TaxonomyRegistry,
+} from './taxonomy.js';
 // === Template Manifest (T9875 / Saga T9855) ===
 export type {
   PlaceholderSource,

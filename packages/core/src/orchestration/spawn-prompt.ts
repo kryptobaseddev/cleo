@@ -42,9 +42,9 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Task } from '@cleocode/contracts';
+import { normalizeSlug } from '../docs/slug-normalize.js';
 import { resolveSkillPath } from '../skills/skill-paths.js';
 import { ISOLATION_ENV_KEYS, provisionIsolatedShell } from '../tools/sdk/isolation.js';
-import { normalizeSlug } from '../docs/slug-normalize.js';
 
 /**
  * Locate `packages/core/templates/CLEO-INJECTION.md` at runtime.

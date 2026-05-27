@@ -21,9 +21,9 @@
 
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  auditScenarioCoverage,
   SIX_REGRESSION_SCENARIOS,
   SIX_REGRESSION_TEST_CASES,
-  auditScenarioCoverage,
   testCasesForScenario,
 } from './fixtures/docs-dogfood-harness.js';
 
@@ -39,9 +39,7 @@ describe('T11187 AC1 — Harness infrastructure', () => {
 
     it('auditScenarioCoverage returns empty array (all scenarios covered)', () => {
       const uncovered = auditScenarioCoverage();
-      expect(uncovered, `uncovered scenarios: ${uncovered.join(', ')}`).toEqual(
-        [],
-      );
+      expect(uncovered, `uncovered scenarios: ${uncovered.join(', ')}`).toEqual([]);
     });
 
     it('each scenario has at least 2 test cases', () => {
@@ -56,9 +54,7 @@ describe('T11187 AC1 — Harness infrastructure', () => {
 
     it('each scenario has at least one core-level test case (can run in CI)', () => {
       for (const scenario of SIX_REGRESSION_SCENARIOS) {
-        const coreCases = testCasesForScenario(scenario.id).filter(
-          (tc) => tc.coreLevel,
-        );
+        const coreCases = testCasesForScenario(scenario.id).filter((tc) => tc.coreLevel);
         expect(
           coreCases.length,
           `scenario ${scenario.id} has 0 core-level test cases`,
@@ -98,20 +94,14 @@ describe('T11187 AC1 — Harness infrastructure', () => {
     });
 
     it('all test cases have valid assertionKind values', () => {
-      const validKinds = new Set([
-        'error-envelope',
-        'value-assertion',
-        'behavioral',
-      ]);
+      const validKinds = new Set(['error-envelope', 'value-assertion', 'behavioral']);
       for (const tc of SIX_REGRESSION_TEST_CASES) {
         expect(validKinds.has(tc.assertionKind)).toBe(true);
       }
     });
 
     it('scenarioId in every test case references a real scenario', () => {
-      const scenarioIds = new Set(
-        SIX_REGRESSION_SCENARIOS.map((s) => s.id),
-      );
+      const scenarioIds = new Set(SIX_REGRESSION_SCENARIOS.map((s) => s.id));
       for (const tc of SIX_REGRESSION_TEST_CASES) {
         expect(
           scenarioIds.has(tc.scenarioId),
@@ -128,24 +118,12 @@ describe('T11187 AC1 — Harness infrastructure', () => {
 
 describe('T11187 AC2 — Scenario consistency', () => {
   it('scenarios S1-S6 have correct failure-class mapping', () => {
-    expect(SIX_REGRESSION_SCENARIOS[0].failureClass).toBe(
-      'Path traversal guard',
-    );
-    expect(SIX_REGRESSION_SCENARIOS[1].failureClass).toBe(
-      'Drift state mismatch',
-    );
-    expect(SIX_REGRESSION_SCENARIOS[2].failureClass).toBe(
-      'Slug→owner registration',
-    );
-    expect(SIX_REGRESSION_SCENARIOS[3].failureClass).toBe(
-      'Version selection',
-    );
-    expect(SIX_REGRESSION_SCENARIOS[4].failureClass).toBe(
-      'Slug uniqueness UX',
-    );
-    expect(SIX_REGRESSION_SCENARIOS[5].failureClass).toBe(
-      'Auto-suffix transparency',
-    );
+    expect(SIX_REGRESSION_SCENARIOS[0].failureClass).toBe('Path traversal guard');
+    expect(SIX_REGRESSION_SCENARIOS[1].failureClass).toBe('Drift state mismatch');
+    expect(SIX_REGRESSION_SCENARIOS[2].failureClass).toBe('Slug→owner registration');
+    expect(SIX_REGRESSION_SCENARIOS[3].failureClass).toBe('Version selection');
+    expect(SIX_REGRESSION_SCENARIOS[4].failureClass).toBe('Slug uniqueness UX');
+    expect(SIX_REGRESSION_SCENARIOS[5].failureClass).toBe('Auto-suffix transparency');
   });
 
   it('S3 ownedBy is T11061 and S5 ownedBy is T11062', () => {
@@ -155,9 +133,7 @@ describe('T11187 AC2 — Scenario consistency', () => {
 
   it('every scenario has an owner task in the test cases', () => {
     for (const scenario of SIX_REGRESSION_SCENARIOS) {
-      const ownerCases = SIX_REGRESSION_TEST_CASES.filter(
-        (tc) => tc.ownedBy === scenario.ownedBy,
-      );
+      const ownerCases = SIX_REGRESSION_TEST_CASES.filter((tc) => tc.ownedBy === scenario.ownedBy);
       expect(
         ownerCases.length,
         `scenario ${scenario.id} (owned by ${scenario.ownedBy}) has 0 test cases`,
@@ -178,9 +154,7 @@ describe('T11187 AC3 — Cross-scenario coverage audit', () => {
 
   it('coreLevel test cases cover S1-S6 (all scenarios)', () => {
     const coreCovered = new Set(
-      SIX_REGRESSION_TEST_CASES.filter((tc) => tc.coreLevel).map(
-        (tc) => tc.scenarioId,
-      ),
+      SIX_REGRESSION_TEST_CASES.filter((tc) => tc.coreLevel).map((tc) => tc.scenarioId),
     );
     expect(coreCovered.size).toBe(6);
   });

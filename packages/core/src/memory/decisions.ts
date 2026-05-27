@@ -10,7 +10,12 @@
  */
 
 import { createHash } from 'node:crypto';
-import { CANONICAL_TYPE_TAGS, DecisionValidatorFailedError, TaxonomyError, TaxonomyRegistry } from '@cleocode/contracts';
+import {
+  CANONICAL_TYPE_TAGS,
+  DecisionValidatorFailedError,
+  TaxonomyError,
+  TaxonomyRegistry,
+} from '@cleocode/contracts';
 import { taskExistsInTasksDb } from '../store/cross-db-cleanup.js';
 import { getBrainAccessor } from '../store/memory-accessor.js';
 import type { BrainDecisionRow, NewBrainDecisionRow } from '../store/memory-schema.js';

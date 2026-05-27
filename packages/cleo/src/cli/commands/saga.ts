@@ -116,8 +116,7 @@ const addCommand = defineCommand({
 const detachCommand = defineCommand({
   meta: {
     name: 'detach',
-    description:
-      'Remove a Saga member via parent_id containment — idempotent, audit-logged',
+    description: 'Remove a Saga member via parent_id containment — idempotent, audit-logged',
   },
   args: {
     sagaId: {
@@ -193,8 +192,7 @@ const membersCommand = defineCommand({
 const repairCommand = defineCommand({
   meta: {
     name: 'repair',
-    description:
-      'Detach an I5-violating parentId from a Saga. Idempotent.',
+    description: 'Detach an I5-violating parentId from a Saga. Idempotent.',
   },
   args: {
     sagaId: {

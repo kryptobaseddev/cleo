@@ -162,6 +162,42 @@ export { normalizeSlug } from './slug-normalize.js';
 
 // ── T9716 / T9718 — cleo docs publish-pr (foundation + new-doc flow) ────────
 
+// ── T11183 — blob storage consolidation behind unified read model ────────────
+export type { ConsolidationOptions, ConsolidationStats } from './blob-consolidation.js';
+export {
+  consolidateBlobs,
+  verifyConsolidation,
+} from './blob-consolidation.js';
+export type {
+  AuditFinding,
+  AuditLogReadResult,
+  AuditVerifyResult,
+  DocsAuditEntry,
+  DocsAuditOp,
+  WriteAuditEntryParams,
+} from './docs-audit.js';
+// ── T11182 — unified docs audit trail ────────────────────────────────────────
+export {
+  countAuditEntriesForSlug,
+  DOCS_AUDIT_FILE,
+  readAuditLog,
+  verifyAuditTrail,
+  writeAuditEntry,
+} from './docs-audit.js';
+// ── T11051 — docs store inconsistency detector ───────────────────────────────
+export type {
+  InconsistencyCheckResult,
+  InconsistencyFinding,
+  InconsistencyKind,
+  InconsistencySeverity,
+} from './docs-inconsistency-detector.js';
+export {
+  checkBlobFilesystem,
+  checkDocsConsistency,
+} from './docs-inconsistency-detector.js';
+// ── T11049 — DocsReadModel (unified read-side query surface) ──────────────────
+export type { ListProjectDocsOpts, ResolvedDoc } from './docs-read-model.js';
+export { createDocsReadModel, DocsReadModel } from './docs-read-model.js';
 export type {
   ProvisionResult,
   PublishPrError,
@@ -189,40 +225,6 @@ export {
   tempWorktreeDirForSlug,
   validatePublishSlug,
 } from './publish-pr.js';
-
-// ── T11049 — DocsReadModel (unified read-side query surface) ──────────────────
-export type { ListProjectDocsOpts, ResolvedDoc } from './docs-read-model.js';
-export { createDocsReadModel, DocsReadModel } from './docs-read-model.js';
-
-// ── T11051 — docs store inconsistency detector ───────────────────────────────
-export type {
-  InconsistencyCheckResult,
-  InconsistencyFinding,
-  InconsistencyKind,
-  InconsistencySeverity,
-} from './docs-inconsistency-detector.js';
-export {
-  checkBlobFilesystem,
-  checkDocsConsistency,
-} from './docs-inconsistency-detector.js';
-
-// ── T11182 — unified docs audit trail ────────────────────────────────────────
-export { DOCS_AUDIT_FILE } from './docs-audit.js';
-export type {
-  AuditFinding,
-  AuditLogReadResult,
-  AuditVerifyResult,
-  DocsAuditEntry,
-  DocsAuditOp,
-  WriteAuditEntryParams,
-} from './docs-audit.js';
-export {
-  countAuditEntriesForSlug,
-  readAuditLog,
-  verifyAuditTrail,
-  writeAuditEntry,
-} from './docs-audit.js';
-
 // ── T11181 — version SSoT (canonical version identifiers) ────────────────────
 export type { VersionAuditResult } from './version-ssot.js';
 export {
@@ -230,13 +232,6 @@ export {
   compareCleoVersions,
   getCanonicalCleoVersion,
   resolveVersion,
-  versionInRange,
   VERSION_SSOT_MIGRATION_SQL,
+  versionInRange,
 } from './version-ssot.js';
-
-// ── T11183 — blob storage consolidation behind unified read model ────────────
-export type { ConsolidationOptions, ConsolidationStats } from './blob-consolidation.js';
-export {
-  consolidateBlobs,
-  verifyConsolidation,
-} from './blob-consolidation.js';

@@ -16,14 +16,14 @@
  * @task T11060 (Epic T10521 · Saga T10516 · E2)
  */
 
-import { describe, expect, it } from 'vitest';
-import {
-  isLifecycleStatus,
-  DOCS_UPDATE_LIFECYCLE_STATUS_LIST,
-  sanitizePath,
-  SecurityError,
-} from '@cleocode/core/internal';
 import { DOCS_LIFECYCLE_STATUSES } from '@cleocode/contracts';
+import {
+  DOCS_UPDATE_LIFECYCLE_STATUS_LIST,
+  isLifecycleStatus,
+  SecurityError,
+  sanitizePath,
+} from '@cleocode/core/internal';
+import { describe, expect, it } from 'vitest';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // AC1: Outside-project file rejection
@@ -192,9 +192,7 @@ describe('T11060 AC3 — error message contract verification', () => {
     expect(msg).toContain(invalidStatus);
 
     // Full canonical pipe-delimited list is present
-    expect(msg).toContain(
-      'draft|proposed|accepted|superseded|archived|deprecated',
-    );
+    expect(msg).toContain('draft|proposed|accepted|superseded|archived|deprecated');
   });
 
   it('E_PATH_TRAVERSAL error includes path information for agent debugging', () => {

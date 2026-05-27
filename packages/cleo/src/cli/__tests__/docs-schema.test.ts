@@ -55,7 +55,10 @@ describe('docsCommand — T11142 unified taxonomy discovery surface', () => {
   });
 
   it('`schema` subcommand exposes --counts flag', () => {
-    const subs = docsCommand.subCommands as Record<string, { args?: Record<string, unknown> } | undefined>;
+    const subs = docsCommand.subCommands as Record<
+      string,
+      { args?: Record<string, unknown> } | undefined
+    >;
     const schema = subs?.['schema'];
     expect(schema).toBeDefined();
     expect(schema?.args).toBeDefined();
@@ -63,7 +66,10 @@ describe('docsCommand — T11142 unified taxonomy discovery surface', () => {
   });
 
   it('`schema` subcommand retains --include-counts for backward compatibility', () => {
-    const subs = docsCommand.subCommands as Record<string, { args?: Record<string, unknown> } | undefined>;
+    const subs = docsCommand.subCommands as Record<
+      string,
+      { args?: Record<string, unknown> } | undefined
+    >;
     const schema = subs?.['schema'];
     expect(schema?.args?.['include-counts']).toBeDefined();
   });

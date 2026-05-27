@@ -1024,9 +1024,7 @@ export async function publishDocs(opts: {
   // Otherwise, pick the most recently uploaded blob (latest version by uploadedAt).
   const target = opts.attachmentId
     ? blobs.find((b) => b.sha256 === opts.attachmentId || b.name === opts.attachmentId)
-    : blobs.reduce((latest, b) =>
-        (b.uploadedAt ?? 0) > (latest.uploadedAt ?? 0) ? b : latest,
-      );
+    : blobs.reduce((latest, b) => ((b.uploadedAt ?? 0) > (latest.uploadedAt ?? 0) ? b : latest));
 
   if (!target) {
     throw new Error(
@@ -1143,7 +1141,9 @@ function ledgerPath(projectRoot: string): string {
  *
  * @internal
  */
-export async function readPublicationsLedger(projectRoot: string): Promise<DocsPublicationRecord[]> {
+export async function readPublicationsLedger(
+  projectRoot: string,
+): Promise<DocsPublicationRecord[]> {
   const { readFile } = await import('node:fs/promises');
   try {
     const raw = await readFile(ledgerPath(projectRoot), 'utf-8');

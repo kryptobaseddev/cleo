@@ -510,9 +510,10 @@ export async function updateDocBySlug(
         updatedAt: nowIso,
         version: countVersionsForSlug(projectRoot, slug),
         squashed,
-        summary: status === oldRow.lifecycleStatus
-          ? `slug '${slug}' was left untouched (bytes and lifecycle status unchanged)`
-          : `slug '${slug}' bytes unchanged but lifecycle status changed from '${oldRow.lifecycleStatus}' to '${status}'`,
+        summary:
+          status === oldRow.lifecycleStatus
+            ? `slug '${slug}' was left untouched (bytes and lifecycle status unchanged)`
+            : `slug '${slug}' bytes unchanged but lifecycle status changed from '${oldRow.lifecycleStatus}' to '${status}'`,
         ownerVersion: getCanonicalCleoVersion(projectRoot),
         docVersion: (oldRow as unknown as { doc_version?: number }).doc_version ?? 1,
       },

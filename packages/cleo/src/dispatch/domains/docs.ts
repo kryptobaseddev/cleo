@@ -39,11 +39,11 @@ import type {
   DocsFetchResult,
   DocsGenerateParams,
   DocsGenerateResult,
-  DocsLlmOutputParams,
-  DocsLlmOutputResult,
   DocsListOrderBy,
   DocsListParams,
   DocsListResult,
+  DocsLlmOutputParams,
+  DocsLlmOutputResult,
   DocsRemoveParams,
   DocsRemoveResult,
   DocsSupersedeParams,
@@ -683,12 +683,18 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
   // ── docs.llm-output (T11137) ──────────────────────────────────────────────
   'llm-output': async (params) => {
     const forId = params.for;
-    if (!forId) { return lafsError('E_INVALID_INPUT', '--for <entityId> is required', 'llm-output'); }
+    if (!forId) {
+      return lafsError('E_INVALID_INPUT', '--for <entityId> is required', 'llm-output');
+    }
     let mode: LlmOutputMode;
     if (params.mode !== undefined) {
       const raw = String(params.mode);
       if (!(LLM_OUTPUT_MODES as readonly string[]).includes(raw)) {
-        return lafsError('E_INVALID_INPUT', `--mode must be one of: ${LLM_OUTPUT_MODES.join('|')}`, 'llm-output');
+        return lafsError(
+          'E_INVALID_INPUT',
+          `--mode must be one of: ${LLM_OUTPUT_MODES.join('|')}`,
+          'llm-output',
+        );
       }
       mode = raw as LlmOutputMode;
     } else {
@@ -696,18 +702,58 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     }
     const cwd = getProjectRoot();
     if (mode === 'task-export') {
-      const result = await exportDocument({ taskId: forId, includeAttachments: params.includeAttachments !== false, includeMemoryRefs: params.includeMemoryRefs === true, projectRoot: cwd });
-      return lafsSuccess<DocsLlmOutputResult>({ forId, mode: 'task-export', content: result.markdown, sectionCount: result.pages, usedLlmtxtPackage: true }, 'llm-output');
+      const result = await exportDocument({
+        taskId: forId,
+        includeAttachments: params.includeAttachments !== false,
+        includeMemoryRefs: params.includeMemoryRefs === true,
+        projectRoot: cwd,
+      });
+      return lafsSuccess<DocsLlmOutputResult>(
+        {
+          forId,
+          mode: 'task-export',
+          content: result.markdown,
+          sectionCount: result.pages,
+          usedLlmtxtPackage: true,
+        },
+        'llm-output',
+      );
     }
     const result = await generateDocsLlmsTxt({ ownerId: forId, cwd });
     let aid: string | undefined, asha: string | undefined;
     if (params.attach) {
       const store = createAttachmentStore();
-      const desc: import('@cleocode/core/internal').LlmsTxtAttachment = { kind: 'llms-txt' as const, source: 'generated', content: result.content, description: `llms.txt for ${forId}`, labels: ['llms-txt', 'generated'] };
-      const meta = await store.put(Buffer.from(result.content, 'utf-8'), desc as any, inferOwnerType(forId), forId, 'cleo-docs-llm-output', cwd);
-      aid = meta.id; asha = meta.sha256;
+      const desc: import('@cleocode/core/internal').LlmsTxtAttachment = {
+        kind: 'llms-txt' as const,
+        source: 'generated',
+        content: result.content,
+        description: `llms.txt for ${forId}`,
+        labels: ['llms-txt', 'generated'],
+      };
+      const meta = await store.put(
+        Buffer.from(result.content, 'utf-8'),
+        desc as any,
+        inferOwnerType(forId),
+        forId,
+        'cleo-docs-llm-output',
+        cwd,
+      );
+      aid = meta.id;
+      asha = meta.sha256;
     }
-    return lafsSuccess<DocsLlmOutputResult>({ forId, mode: 'attachment-bundle', content: result.content, sectionCount: result.attachmentCount, usedLlmtxtPackage: result.usedLlmtxtPackage, ...(aid ? { attached: true, attachmentId: aid, attachmentSha256: asha } : { attached: false }) }, 'llm-output');
+    return lafsSuccess<DocsLlmOutputResult>(
+      {
+        forId,
+        mode: 'attachment-bundle',
+        content: result.content,
+        sectionCount: result.attachmentCount,
+        usedLlmtxtPackage: result.usedLlmtxtPackage,
+        ...(aid
+          ? { attached: true, attachmentId: aid, attachmentSha256: asha }
+          : { attached: false }),
+      },
+      'llm-output',
+    );
   },
 
   // ── docs.fetch ─────────────────────────────────────────────────────────────
@@ -724,7 +770,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
 
     // T11050 — route fetch through the canonical DocsReadModel
     const model = createDocsReadModel();
-    const doc = await model.resolveLatest(ref) ?? await model.resolveByAttachmentId(ref);
+    const doc = (await model.resolveLatest(ref)) ?? (await model.resolveByAttachmentId(ref));
     if (!doc) {
       return lafsError('E_NOT_FOUND', `Attachment not found: ${ref}`, 'fetch');
     }
@@ -1012,7 +1058,9 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           sha256: outcome.result.sha256,
           summary: `Added changeset '${outcome.result.slug}'`,
         });
-      } catch { /* best-effort */ }
+      } catch {
+        /* best-effort */
+      }
 
       return lafsSuccess<DocsAddResult>(
         {
@@ -1027,7 +1075,8 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           ownerId: outcome.result.ownerId,
           ownerType: 'task',
           // Cast: core returns 'llmtxt' (Wave C — legacy backend retired for v2 store).
-          attachmentBackend: (await resolveAttachmentBackend()) as DocsAddResult['attachmentBackend'],
+          attachmentBackend:
+            (await resolveAttachmentBackend()) as DocsAddResult['attachmentBackend'],
           slug: outcome.result.slug,
           type: 'changeset',
         },
@@ -1299,7 +1348,9 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           ownerId,
           summary: `Added doc '${slug ?? meta.sha256.slice(0, 12)}'${type ? ` of type '${type}'` : ''} for owner ${ownerId}`,
         });
-      } catch { /* best-effort */ }
+      } catch {
+        /* best-effort */
+      }
 
       return lafsSuccess<DocsAddResult>(
         {
@@ -1404,7 +1455,9 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           ownerId,
           summary: `Added URL doc '${slug ?? url}'${type ? ` of type '${type}'` : ''} for owner ${ownerId}`,
         });
-      } catch { /* best-effort */ }
+      } catch {
+        /* best-effort */
+      }
 
       return lafsSuccess<DocsAddResult>(
         {
@@ -1490,7 +1543,9 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         ownerId: fromOwner,
         summary: `Removed attachment ${attachmentId} from owner ${fromOwner}${blobPurged ? ' (blob purged)' : ''}`,
       });
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
 
     return lafsSuccess<DocsRemoveResult>(
       {
@@ -1592,7 +1647,9 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         previousSha256: outcome.result.previousSha256 ?? undefined,
         summary: `Updated doc '${outcome.result.slug}'${outcome.result.lifecycleStatus ? ` (status: ${outcome.result.lifecycleStatus})` : ''}`,
       });
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
 
     return lafsSuccess<DocsUpdateResult>(
       {
@@ -1663,7 +1720,9 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           attachmentId: result.newAttachmentId,
           summary: `Superseded '${result.oldSlug}' → '${result.newSlug}'${result.reason ? ` (reason: ${result.reason})` : ''}`,
         });
-      } catch { /* best-effort */ }
+      } catch {
+        /* best-effort */
+      }
       return lafsSuccess<DocsSupersedeResult>(payload, 'supersede');
     } catch (err) {
       const code =
@@ -1886,10 +1945,12 @@ async function dispatchDocsLegacyMutate(
           attachmentId: result.blobSha256,
           summary: `Published doc '${result.blobName}' to ${result.relativePath}`,
         });
-      } catch { /* best-effort */ }
+      } catch {
+        /* best-effort */
+      }
       return result;
     }
-    case 'publish-pr':
+    case 'publish-pr': {
       const prResult = await publishDocsAsPr({
         slugOrId: String(params['slugOrId']),
         ...(typeof params['slug'] === 'string' ? { slug: params['slug'] } : {}),
@@ -1908,10 +1969,13 @@ async function dispatchDocsLegacyMutate(
             attachmentId: prResult.data.blobSha,
             summary: `Published PR for doc '${prResult.data.slug}' (${prResult.data.action}) — ${prResult.data.prUrl}`,
           });
-        } catch { /* best-effort */ }
+        } catch {
+          /* best-effort */
+        }
       }
       return prResult;
-    case 'sync':
+    }
+    case 'sync': {
       const syncResult = await syncFromGit({
         ownerId: String(params['ownerId']),
         fromPath: String(params['fromPath']),
@@ -1927,8 +1991,11 @@ async function dispatchDocsLegacyMutate(
           ownerId: String(params['ownerId']),
           summary: `Synced doc from '${String(params['fromPath'])}' for owner ${String(params['ownerId'])}`,
         });
-      } catch { /* best-effort */ }
+      } catch {
+        /* best-effort */
+      }
       return syncResult;
+    }
     case 'import': {
       const scanRoot = String(params['scanRoot']);
       const accessor = createAttachmentStoreDocsAccessor(projectRoot);
@@ -1949,7 +2016,9 @@ async function dispatchDocsLegacyMutate(
             op: 'docs.import',
             summary: `Imported ${result.counters.created} created, ${result.counters.skipped} skipped, ${result.counters.errors} errors from '${scanRoot}'`,
           });
-        } catch { /* best-effort */ }
+        } catch {
+          /* best-effort */
+        }
         return {
           dryRun: result.dryRun,
           counters: result.counters,

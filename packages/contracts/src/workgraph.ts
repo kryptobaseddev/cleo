@@ -1084,10 +1084,7 @@ export function canWorkGraphTaskTypeBeRoot(type: TaskType): boolean {
  * @param childType - Child task type.
  * @param parentType - Candidate parent task type.
  */
-export function isAllowedWorkGraphParentType(
-  childType: TaskType,
-  parentType: TaskType,
-): boolean {
+export function isAllowedWorkGraphParentType(childType: TaskType, parentType: TaskType): boolean {
   return PARENT_TYPE_MATRIX[childType].includes(parentType);
 }
 
