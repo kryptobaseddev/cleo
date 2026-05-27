@@ -113,6 +113,11 @@ export async function destroyWorktree(
         force: true,
       });
       worktreeRemoved = result.removed;
+      // T11033 — NAPI may report success even when untracked directories
+      // (e.g. .cleo/) survive inside the worktree. Verify on-disk reality.
+      if (worktreeRemoved && existsSync(worktreePath)) {
+        worktreeRemoved = false; // trigger filesystem fallback below
+      }
     } catch (err) {
       // napi reported failure — fall back to filesystem rm so the audit log
       // still captures the cleanup attempt.
@@ -122,6 +127,17 @@ export async function destroyWorktree(
       } catch (err2) {
         if (!error) {
           error = `Failed to remove worktree: napi=${err instanceof Error ? err.message : String(err)}; fs=${err2 instanceof Error ? err2.message : String(err2)}`;
+        }
+      }
+    }
+    // Filesystem fallback when NAPI reported success but directory survived.
+    if (!worktreeRemoved && existsSync(worktreePath)) {
+      try {
+        rmSync(worktreePath, { recursive: true, force: true });
+        worktreeRemoved = true;
+      } catch (err2) {
+        if (!error) {
+          error = `Failed to remove worktree directory after NAPI: ${err2 instanceof Error ? err2.message : String(err2)}`;
         }
       }
     }
