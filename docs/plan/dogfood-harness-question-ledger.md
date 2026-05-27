@@ -15,7 +15,7 @@ Each question MUST have:
 
 Durable architectural answers MUST be stored with `cleo memory decision-store` and linked to tasks. This document is an index, not the source of truth for decisions.
 
-## Open questions captured from 2026-05-25 dogfood triage
+## Open questions captured from triage:
 
 ### DHQ-001 — Worker state truth
 
@@ -143,7 +143,65 @@ Answer vehicle: release-readiness preflight gate that checks main CI green befor
 
 Status: open / mapped to DHQ-003.
 
-Next review trigger: next release attempt.
+### DHQ-010 — Global cleo CLI uses npm binary, not local source
+
+Question: Why does the globally installed cleo CLI run compiled code from the npm package instead of the local source tree, causing developers to repeatedly test dead code?
+
+Owner surface: T9799 (skills compliance), T10401 (daemon harness).
+
+Observed: 3+ rounds of debugging `cleo release plan` failures before realizing that fixes in `packages/core/src/release/plan.ts` were not live. The global `cleo` binary runs the npm-installed dist, not the local build. Fix: use `node packages/cleo/dist/cli/index.js <command>` for local testing.
+
+Answer vehicle: `--dev` flag or local-build detection that swaps the runtime to the project's `packages/cleo/dist/cli/index.js` when invoked from a cleocode checkout.
+
+Status: open.
+
+Next review trigger: next time a fix doesn't take effect after a local build.
+
+### DHQ-011 — typeForDepth destroys epic types during saga reparenting
+
+Question: Why does `typeForDepth()` unconditionally overwrite task types to 'task'/'subtask' without preserving saga/epic identity?
+
+Owner surface: `T10538` PM-Core V2, `T10638` saga parent type matrix.
+
+Observed: `coreTaskReparent` called `typeForDepth(depth)` which returned 'task' for depth≥1, 'subtask' for depth≥2. Saga→epic reparents (depth 1) silently converted epics to 'task' type. The parent type matrix trigger correctly rejected 'task'→'saga' as invalid — the trigger was right, the type was wrong.
+
+Fix: `typeForDepth(depth, currentType)` now preserves 'saga' and 'epic' types. Any function that changes task type must be saga/epic-aware post-PM-Core V2.
+
+Answer vehicle: shipped in commit 3e76f6128.
+
+Status: implemented.
+
+Next review trigger: any future type-changing function added to the reparent pipeline.
+
+### DHQ-012 — Evidence gate vs ADR-051 §11.1 deadlock for pre-system tasks
+
+Question: Why does the release plan require evidence atoms on tasks that ADR-051 §11.1 explicitly prevents from receiving evidence?
+
+Owner surface: `T9758` release, ADR-051.
+
+Observed: 13 already-done tasks (T9491-T9499, T9580, T9752) blocked `cleo release plan` because they had zero evidence atoms. But `cleo verify` returned `E_ALREADY_DONE: verification evidence cannot be added to completed tasks`. Deadlock: the release gate required evidence, ADR-051 blocked adding it.
+
+Fix: release plan grandfathers `status=done` tasks with zero evidence atoms. Shipped in commit 5d60cbc4a.
+
+Answer vehicle: shipped.
+
+Status: implemented.
+
+Next review trigger: next pre-evidence-system saga release.
+
+### DHQ-013 — Changelog-drift regex missing /m flag — only checks line 1
+
+Question: Why does `/^## \[/.test(head)` only match line 1 of CHANGELOG.md, rejecting valid version headers on later lines?
+
+Owner surface: `packages/core/src/hygiene/validate-spawn-readiness.ts:96`.
+
+Observed: CHANGELOG.md with `# Changelog\n\n## [2026.5.124] (2026-05-27)` failed the changelog-drift gate because the regex with `^` anchor (no `m` flag) only matched line 1 (`# Changelog`). Single-character fix: add `/m` flag.
+
+Answer vehicle: shipped in commit 5d60cbc4a.
+
+Status: implemented.
+
+Next review trigger: none — fix is live.
 
 ## North Star inheritance rule
 
