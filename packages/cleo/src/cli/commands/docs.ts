@@ -3,12 +3,13 @@
  *
  * Publish: consolidated `publish` verb (--target file|pr, --dry-run) (T11177).
  *   publish-pr retained as deprecated migration alias.
- * Query: query (consolidates search, find, rank — T11133/T11176).
+ * Query: query (consolidates search, find, rank) (T11133/T11176).
  * Advanced: supersede, generate, export, merge, graph, versions.
  * Legacy/migration: sync, status, gap-check, import, search, find, rank, publish-pr.
- * Utilities: schema, list-types, serve, open, stop, viewer-status.
+ * Utilities: schema (doc-kind taxonomy discovery), serve, open, stop, viewer-status.
+ * Migration alias: list-types to schema (T11142).
  *
- * @task T11046, T11133/T11176 (query), T11177 (publish)
+ * @task T11046, T11133/T11176 (query), T11177 (publish), T11142 (unify schema/list-types)
  * @saga T10516
  */
 
@@ -229,7 +230,7 @@ const addCommand = defineCommand({
       '  --attached-by <name>   Agent identity that created the attachment (default: "human")\n' +
       '  --slug <kebab>         Human-friendly alias, unique per project (T9636)\n' +
       '  --title <text>         Human-readable title — REQUIRED for --type adr when --slug is omitted (T10360)\n' +
-      '  --type <kind>          Taxonomy classification — run `cleo docs list-types` for kinds\n' +
+      '  --type <kind>          Taxonomy classification — run `cleo docs schema` for kinds\n' +
       '  --allow-similar        Bypass the slug-similarity warn — every bypass is audited\n' +
       '                         to .cleo/audit/similar-bypass.jsonl (T10361)\n' +
       '  --strict               Enforce body-schema (requiredSections) — fail with\n' +
@@ -287,7 +288,7 @@ const addCommand = defineCommand({
     type: {
       type: 'string',
       description:
-        'Taxonomy classification — run `cleo docs list-types` to enumerate registered kinds (T9637 / T9788)',
+        'Taxonomy classification — run `cleo docs schema` to enumerate registered kinds (T9637 / T9788 / T11142)',
     },
     'allow-similar': {
       type: 'boolean',
@@ -780,6 +781,10 @@ const supersedeCommand = defineCommand({
   },
   args: supersedeCommandArgs,
   async run({ args, rawArgs }) {
+    // T11179: supersede is deprecated.
+    process.stderr.write(
+      'cleo: docs supersede is deprecated - use `cleo docs update` for new work (T11179)\n',
+    );
     try {
       assertKnownFlags(rawArgs, supersedeCommandArgs, 'docs supersede');
     } catch (err) {
@@ -833,6 +838,10 @@ const generateCommand = defineCommand({
     },
   },
   async run({ args }) {
+    // T11179/T11137: generate is deprecated — use unified llm-output.
+    humanInfo(
+      'cleo: docs generate is deprecated — use `cleo docs llm-output --for ${args.for} --mode attachment-bundle` (T11137)',
+    );
     await dispatchFromCli(
       'query',
       'docs',
@@ -900,34 +909,35 @@ const exportCommand = defineCommand({
     const projectRoot = getProjectRoot();
 
     try {
-      const result = (await dispatchDocsRaw('query', 'export', {
+      const result = (await dispatchDocsRaw('query', 'llm-output', {
+        mode: 'task-export',
         taskId,
         includeAttachments,
         includeMemoryRefs,
-      })) as { markdown: string; pages: number };
+      })) as { content: string; sectionCount: number };
 
       let writtenPath: string | undefined;
       if (typeof args.out === 'string' && args.out.length > 0) {
         const outPath = isAbsolute(args.out) ? args.out : resolve(projectRoot, args.out);
         await mkdir(dirname(outPath), { recursive: true });
-        await writeFile(outPath, result.markdown, 'utf8');
+        await writeFile(outPath, result.content, 'utf8');
         writtenPath = outPath;
       }
 
       if (args.json) {
         cliOutput(
-          { markdown: result.markdown, pages: result.pages, path: writtenPath ?? null },
+          { markdown: result.content, pages: result.sectionCount, path: writtenPath ?? null },
           { command: 'docs export', operation: 'docs.export' },
         );
       } else {
         // Human mode: print markdown to stdout, report path to stderr
         if (writtenPath) {
-          humanInfo(`Wrote ${result.pages} page(s) to ${writtenPath}`);
+          humanInfo(`Wrote ${result.sectionCount} page(s) to ${writtenPath}`);
         } else {
           // Markdown payload is the user-requested output of this command —
           // emitted to stdout for piping. Not chrome.
-          process.stdout.write(result.markdown); // stdout-write-allowed: markdown piping (T10164) // stdout-discipline-allowed: same (T10163)
-          if (!result.markdown.endsWith('\n')) process.stdout.write('\n'); // stdout-write-allowed: trailing newline (T10164) // stdout-discipline-allowed: same (T10163)
+          process.stdout.write(result.content); // stdout-write-allowed: markdown piping (T10164) // stdout-discipline-allowed: same (T10163)
+          if (!result.content.endsWith('\n')) process.stdout.write('\n'); // stdout-write-allowed: trailing newline (T10164) // stdout-discipline-allowed: same (T10163)
         }
       }
     } catch (err) {
@@ -939,6 +949,112 @@ const exportCommand = defineCommand({
       cliError(`docs export failed: ${message}`, ExitCode.GENERAL_ERROR, {
         name: 'E_DOCS_EXPORT_FAILED',
       });
+      process.exit(ExitCode.GENERAL_ERROR);
+    }
+  },
+});
+
+// ── cleo docs llm-output (T11137) — unified LLM output surface ──────────────
+
+/**
+ * cleo docs llm-output — unified LLM output: task export + attachment bundle.
+ *
+ * Replaces `docs export` and `docs generate` with a single --mode flag.
+ * @task T11137 @saga T10516 @epic T10517
+ */
+const llmOutputCommand = defineCommand({
+  meta: {
+    name: 'llm-output',
+    description:
+      'Unified LLM output: task export (rich Markdown with frontmatter + body + attachments + memory refs) ' +
+      'or attachment-bundle (llms.txt summarising all attachments). Replaces `docs export` and `docs generate`.',
+  },
+  args: {
+    for: { type: 'string', description: 'Target entity ID (T###, ses_*, O-*, D-*, L-*, P-*)', required: true },
+    mode: { type: 'string', description: "Output mode: 'task-export' or 'attachment-bundle' (auto-detected)" },
+    out: { type: 'string', description: 'Output file path. Omit for stdout.' },
+    'include-attachments': { type: 'boolean', default: true, description: 'Append attachment manifest (task-export, default: true)' },
+    'include-memory-refs': { type: 'boolean', default: false, description: 'Append BRAIN memory refs (task-export, default: false)' },
+    attach: { type: 'boolean', description: 'Save as llms-txt attachment on target (attachment-bundle)' },
+    ...docsOutputArgs,
+  },
+  async run({ args }) {
+    const forId = String(args.for);
+    const projectRoot = getProjectRoot();
+    try {
+      const result = (await dispatchDocsRaw('query', 'llm-output', {
+        for: forId,
+        ...(typeof args.mode === 'string' ? { mode: args.mode } : {}),
+        includeAttachments: args['include-attachments'] !== false,
+        includeMemoryRefs: args['include-memory-refs'] === true,
+        ...(args.attach ? { attach: true } : {}),
+      })) as { forId: string; mode: string; content: string; sectionCount: number; usedLlmtxtPackage: boolean; attached?: boolean; attachmentId?: string; attachmentSha256?: string };
+
+      let writtenPath: string | undefined;
+      if (typeof args.out === 'string' && args.out.length > 0) {
+        const outPath = isAbsolute(args.out) ? args.out : resolve(projectRoot, args.out);
+        await mkdir(dirname(outPath), { recursive: true });
+        await writeFile(outPath, result.content, 'utf8');
+        writtenPath = outPath;
+      }
+      if (args.json) {
+        cliOutput({ forId: result.forId, mode: result.mode, content: result.content, sectionCount: result.sectionCount, usedLlmtxtPackage: result.usedLlmtxtPackage, attached: result.attached, attachmentId: result.attachmentId, attachmentSha256: result.attachmentSha256, path: writtenPath ?? null }, { command: 'docs llm-output', operation: 'docs.llm-output' });
+      } else {
+        if (writtenPath) { humanInfo(`Wrote ${result.sectionCount} ${result.mode === 'task-export' ? 'page(s)' : 'section(s)'} to ${writtenPath}`); }
+        else { process.stdout.write(result.content); if (!result.content.endsWith('\n')) process.stdout.write('\n'); }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      cliError(`docs llm-output failed: ${message}`, ExitCode.GENERAL_ERROR, { name: 'E_DOCS_LLM_OUTPUT_FAILED' });
+      process.exit(ExitCode.GENERAL_ERROR);
+    }
+  },
+});
+
+// ── cleo docs llm-output (T11137) — unified LLM output surface ──────────────
+
+/** cleo docs llm-output — unified LLM output: task export + attachment bundle. @task T11137 */
+const llmOutputCommand = defineCommand({
+  meta: {
+    name: 'llm-output',
+    description: 'Unified LLM output: task export (rich Markdown) or attachment-bundle (llms.txt). Replaces `docs export` and `docs generate`.',
+  },
+  args: {
+    for: { type: 'string', description: 'Target entity ID', required: true },
+    mode: { type: 'string', description: "Output mode: task-export|attachment-bundle (auto-detected)" },
+    out: { type: 'string', description: 'Output file path' },
+    'include-attachments': { type: 'boolean', default: true, description: 'Include attachment manifest (task-export)' },
+    'include-memory-refs': { type: 'boolean', default: false, description: 'Include memory refs (task-export)' },
+    attach: { type: 'boolean', description: 'Save as llms-txt attachment (attachment-bundle)' },
+    ...docsOutputArgs,
+  },
+  async run({ args }) {
+    const forId = String(args.for);
+    const projectRoot = getProjectRoot();
+    try {
+      const result = (await dispatchDocsRaw('query', 'llm-output', {
+        for: forId,
+        ...(typeof args.mode === 'string' ? { mode: args.mode } : {}),
+        includeAttachments: args['include-attachments'] !== false,
+        includeMemoryRefs: args['include-memory-refs'] === true,
+        ...(args.attach ? { attach: true } : {}),
+      })) as { forId: string; mode: string; content: string; sectionCount: number; usedLlmtxtPackage: boolean; attached?: boolean; attachmentId?: string; attachmentSha256?: string };
+      let writtenPath: string | undefined;
+      if (typeof args.out === 'string' && args.out.length > 0) {
+        const outPath = isAbsolute(args.out) ? args.out : resolve(projectRoot, args.out);
+        await mkdir(dirname(outPath), { recursive: true });
+        await writeFile(outPath, result.content, 'utf8');
+        writtenPath = outPath;
+      }
+      if (args.json) {
+        cliOutput({ forId: result.forId, mode: result.mode, content: result.content, sectionCount: result.sectionCount, usedLlmtxtPackage: result.usedLlmtxtPackage, attached: result.attached, attachmentId: result.attachmentId, attachmentSha256: result.attachmentSha256, path: writtenPath ?? null }, { command: 'docs llm-output', operation: 'docs.llm-output' });
+      } else {
+        if (writtenPath) { humanInfo(`Wrote ${result.sectionCount} ${result.mode === 'task-export' ? 'page(s)' : 'section(s)'} to ${writtenPath}`); }
+        else { process.stdout.write(result.content); if (!result.content.endsWith('\n')) process.stdout.write('\n'); }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      cliError(`docs llm-output failed: ${message}`, ExitCode.GENERAL_ERROR, { name: 'E_DOCS_LLM_OUTPUT_FAILED' });
       process.exit(ExitCode.GENERAL_ERROR);
     }
   },
@@ -1203,6 +1319,180 @@ const mergeCommand = defineCommand({
       cliError(`docs merge failed: ${message}`, ExitCode.GENERAL_ERROR, {
         name: 'E_DOCS_MERGE_FAILED',
       });
+      process.exit(ExitCode.GENERAL_ERROR);
+    }
+  },
+});
+
+// ── cleo docs query ──────────────────────────────────────────────────────────
+//
+// Unified search/find/rank surface — single entry point that routes to the
+// appropriate llmtxt/similarity primitive based on the provided flags.
+//
+// @task T11176 (T10516-F1 — consolidate search/find/rank)
+// @saga T10516
+
+const queryCommand = defineCommand({
+  meta: {
+    name: 'query',
+    description:
+      'Unified docs query surface: semantic search, similar-doc discovery, and entity ranking. ' +
+      'Subsumes the legacy search, find, and rank subcommands into one consistent surface.\n\n' +
+      'Modes (mutually exclusive):\n' +
+      '  cleo docs query "<text>"       Free-text search\n' +
+      '  cleo docs query --similar <slug>  Find similar to a slug\n' +
+      '  cleo docs query --for <id>     Rank for an entity\n\n' +
+      'Common flags: --limit <n>, --type <kind>, --json\n' +
+      'Free-text search flags: --owner <id>\n' +
+      'Similar-to-slug flags: --threshold <0..1>, --all-kinds\n' +
+      'Entity-ranking flags: --text "<query>"\n\n' +
+      docsOutputFlagHelp,
+  },
+  args: {
+    query: {
+      type: 'positional',
+      description: 'Free-text query for semantic search',
+      required: false,
+    },
+    similar: {
+      type: 'string',
+      description: 'Slug of seed doc to find similar docs against (find mode)',
+    },
+    for: {
+      type: 'string',
+      description: 'Owner entity ID to rank attachments for (rank mode)',
+    },
+    text: {
+      type: 'string',
+      description: 'Custom query string for the rank mode (default: owner ID)',
+    },
+    type: {
+      type: 'string',
+      description: 'Filter by taxonomy type: spec|adr|research|handoff|note|llm-readme',
+    },
+    owner: {
+      type: 'string',
+      description: 'Scope free-text search to a specific owner entity ID',
+    },
+    limit: {
+      type: 'string',
+      description: 'Maximum number of results to return (default: 10)',
+    },
+    threshold: {
+      type: 'string',
+      description: 'Minimum cosine similarity score in [0, 1] (for --similar mode, default: 0.5)',
+    },
+    'all-kinds': {
+      type: 'boolean',
+      description: 'Disable the same-kind filter and rank across every DocKind (for --similar mode)',
+    },
+    ...docsOutputArgs,
+  },
+  async run({ args, rawArgs }) {
+    try {
+      assertKnownFlags(rawArgs, queryCommand.args, 'docs query');
+    } catch (err) {
+      if (err instanceof UnknownFlagError) {
+        cliError(err.message, ExitCode.VALIDATION_ERROR, {
+          name: err.code,
+          fix: err.fix,
+          alternatives: err.suggestions.map((s) => ({ action: s, command: s })),
+          details: { flag: err.flag, knownFlags: err.knownFlags },
+        });
+        process.exit(ExitCode.VALIDATION_ERROR);
+      }
+      throw err;
+    }
+
+    const similarSlug = typeof args.similar === 'string' ? args.similar.trim() : '';
+    const forId = typeof args.for === 'string' ? args.for.trim() : '';
+    const textQuery = typeof args.query === 'string' ? String(args.query) : '';
+    const customQuery = typeof args.text === 'string' ? String(args.text) : undefined;
+    const typeFilter = typeof args.type === 'string' ? String(args.type) : undefined;
+    const ownerScope = typeof args.owner === 'string' ? String(args.owner) : undefined;
+
+    const modes = [];
+    if (similarSlug.length > 0) modes.push('--similar');
+    if (forId.length > 0) modes.push('--for');
+    if (textQuery.length > 0) modes.push('<query>');
+
+    if (modes.length === 0) {
+      cliError(
+        'docs query requires a query mode: pass a free-text <query>, --similar <slug>, or --for <id>',
+        ExitCode.VALIDATION_ERROR,
+        {
+          name: 'E_VALIDATION',
+          fix: 'Examples: cleo docs query "authentication flow" | cleo docs query --similar adr-073 | cleo docs query --for T123',
+        },
+      );
+      process.exit(ExitCode.VALIDATION_ERROR);
+    }
+
+    if (modes.length > 1) {
+      cliError(
+        `docs query modes are mutually exclusive — got ${modes.join(', ')}. Choose one.`,
+        ExitCode.VALIDATION_ERROR,
+        {
+          name: 'E_VALIDATION',
+          fix: 'Pass exactly one of: free-text <query>, --similar <slug>, or --for <id>',
+        },
+      );
+      process.exit(ExitCode.VALIDATION_ERROR);
+    }
+
+    let limit;
+    if (typeof args.limit === 'string') {
+      const parsed = Number.parseInt(args.limit, 10);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        cliError(`--limit must be a positive integer (got "${args.limit}")`, ExitCode.VALIDATION_ERROR, { name: 'E_VALIDATION' });
+        process.exit(ExitCode.VALIDATION_ERROR);
+      }
+      limit = parsed;
+    }
+
+    let threshold;
+    if (typeof args.threshold === 'string') {
+      const parsed = Number.parseFloat(args.threshold);
+      if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+        cliError(`--threshold must be a number in [0, 1] (got "${args.threshold}")`, ExitCode.VALIDATION_ERROR, { name: 'E_VALIDATION' });
+        process.exit(ExitCode.VALIDATION_ERROR);
+      }
+      threshold = parsed;
+    }
+
+    const allKinds = args['all-kinds'] === true;
+
+    try {
+      if (similarSlug.length > 0) {
+        const result = await dispatchDocsRaw('query', 'find', {
+          similarSlug,
+          ...(limit !== undefined ? { limit } : {}),
+          ...(threshold !== undefined ? { threshold } : {}),
+          allKinds,
+        });
+        cliOutput(result, { command: 'docs query', operation: 'docs.find' });
+      } else if (forId.length > 0) {
+        const result = await dispatchDocsRaw('query', 'rank', {
+          ownerId: forId,
+          query: customQuery ?? undefined,
+        });
+        cliOutput(result, { command: 'docs query', operation: 'docs.rank' });
+      } else {
+        const result = await dispatchDocsRaw('query', 'search', {
+          query: textQuery,
+          ...(ownerScope ? { ownerId: ownerScope } : {}),
+          ...(limit !== undefined ? { limit } : {}),
+          ...(typeFilter ? { type: typeFilter } : {}),
+        });
+        cliOutput(result, { command: 'docs query', operation: 'docs.search' });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const code =
+        err instanceof Error && typeof (err as Error & { code?: string }).code === 'string'
+          ? (err as Error & { code: string }).code
+          : 'E_DOCS_QUERY_FAILED';
+      cliError(`docs query failed: ${message}`, ExitCode.GENERAL_ERROR, { name: code });
       process.exit(ExitCode.GENERAL_ERROR);
     }
   },
@@ -1538,7 +1828,7 @@ const publishCommand = defineCommand({
         details.to = args.to ? String(args.to) : null;
         if (args.attachment) details.attachment = String(args.attachment);
       }
-      cliOutput(details, { command: 'docs publish', operation: 'docs.publish', meta: { dryRun: true } });
+      cliOutput(details, { command: 'docs publish', operation: 'docs.publish' });
       return;
     }
     if (target === 'pr') {
@@ -1603,7 +1893,7 @@ const publishPrCommand = defineCommand({
       if (args.slug) details.slug = String(args.slug);
       if (args.type) details.type = String(args.type);
       if (args.title) details.title = String(args.title);
-      cliOutput(details, { command: 'docs publish-pr', operation: 'docs.publish', meta: { dryRun: true } });
+      cliOutput(details, { command: 'docs publish-pr', operation: 'docs.publish' });
       return;
     }
     const result = (await dispatchDocsRaw('mutate', 'publish', {
@@ -1620,6 +1910,63 @@ const publishPrCommand = defineCommand({
     process.exit(ExitCode.GENERAL_ERROR);
   },
 });
+// ── cleo docs check ───────────────────────────────────────────────────────────
+
+/** Combined results from all check modes. */
+interface CheckResults {
+  drift?: DriftResult;
+  status?: { allInSync: boolean };
+  gaps?: GapEntry[];
+}
+
+/**
+ * cleo docs check — unified drift management surface (T11136).
+ *
+ * Consolidates sync drift mode, status, and gap-check into a single check subcommand.
+ * Running without flags runs all three checks. Use --drift, --status, --gaps for specific checks.
+ *
+ * @saga T10516
+ * @task T11136
+ */
+const checkCommand = defineCommand({
+  meta: {
+    name: 'check',
+    description:
+      'Unified drift management: check documentation for drift, status, and gaps. ' +
+      'Use --drift, --status, --gaps for specific checks; runs all by default.',
+  },
+  args: {
+    drift: { type: 'boolean', description: 'Run legacy drift check (scripts/ vs COMMANDS-INDEX.json)' },
+    status: { type: 'boolean', description: 'Run git⇄llmtxt drift check (published files vs docs SSoT)' },
+    gaps: { type: 'boolean', description: 'Run knowledge transfer gap check (review docs)' },
+    all: { type: 'boolean', description: 'Run all three checks (default when no mode flag is set)' },
+    quick: { type: 'boolean', description: 'Drift check only: quick mode (commands only)' },
+    strict: { type: 'boolean', description: 'Exit with non-zero code on any drift detection' },
+    epic: { type: 'string', description: 'Gap check only: filter by epic ID' },
+    task: { type: 'string', description: 'Gap check only: filter by task ID' },
+    json: { type: 'boolean', description: 'Emit LAFS JSON envelope' },
+  },
+  async run({ args }) {
+    const hasExplicit = args.drift === true || args.status === true || args.gaps === true;
+    const runDrift = args.drift === true || args.all === true || !hasExplicit;
+    const runStatus = args.status === true || args.all === true || !hasExplicit;
+    const runGaps = args.gaps === true || args.all === true || !hasExplicit;
+    const projectRoot = process.cwd();
+    const results: CheckResults = {};
+    let anyDrift = false;
+    try {
+      if (runDrift) { const r = await detectDrift(projectRoot); results.drift = r; if (r.status !== 'clean') anyDrift = true; }
+      if (runStatus) { const r = await dispatchDocsRaw('query', 'status', {}) as { allInSync: boolean }; results.status = r; if (!r.allInSync) anyDrift = true; }
+      if (runGaps) { const r = await runGapCheck(projectRoot, args.epic ?? args.task ?? undefined); results.gaps = r; if (r.length > 0) anyDrift = true; }
+      cliOutput(results, { command: 'docs check', message: anyDrift ? 'Drift detected — see results for details' : 'All checks passed — no drift detected' });
+      if (args.strict && anyDrift) process.exit(2);
+    } catch (err) {
+      if (err instanceof CleoError) { cliError(err.message, err.code, { name: 'E_DOCS_CHECK_FAILED' }); process.exit(err.code); }
+      throw err;
+    }
+  },
+});
+
 // ── cleo docs sync ────────────────────────────────────────────────────────────
 
 /**
@@ -2020,12 +2367,17 @@ const schemaCommand = defineCommand({
       'Emit the canonical doc-kind taxonomy registry (built-ins + project extensions) ' +
       'as a LAFS envelope. The schema is the single source of truth for the ' +
       '--type values accepted by `cleo docs add` and the publish-dir layout used by ' +
-      '`cleo docs publish-pr`. See `cleo docs list-types` for the human-readable form (T9788).',
+      '`cleo docs publish-pr`. (T11142).',
   },
   args: {
-    'include-counts': {
+    counts: {
       type: 'boolean',
       description: 'Include per-kind attachment counts from the project SSoT',
+    },
+    'include-counts': {
+      type: 'boolean',
+      description:
+        'DEPRECATED -- use --counts instead. Accepted for backward compatibility but will be removed in a future release.',
     },
   },
   async run({ args }) {
@@ -2034,8 +2386,11 @@ const schemaCommand = defineCommand({
     const kinds = registry.list().map(toWireKind);
     const extensionsCount = kinds.filter((k) => k.isExtension).length;
 
+    // --counts replaces --include-counts (T11142)
+    const wantCounts = args.counts === true || args['include-counts'] === true;
+
     let counts: Record<string, number> | undefined;
-    if (args['include-counts']) {
+    if (wantCounts) {
       counts = {};
       const { createAttachmentStore } = await import('@cleocode/core/internal');
       const store = createAttachmentStore();
@@ -2063,39 +2418,47 @@ const schemaCommand = defineCommand({
       { command: 'docs schema', operation: 'docs.schema' },
     );
   },
-});
-
-// ── cleo docs list-types ─────────────────────────────────────────────────────
+})// ── cleo docs list-types (migration alias to schema) ────────────────────────────────────────
 
 /**
- * `cleo docs list-types` — human-readable table of every registered kind.
+ * `cleo docs list-types` -- migration alias for `cleo docs schema` (T11142).
  *
- * Columns: kind, label, count (when `--counts`), requiresEntityId, publishDir.
- * In JSON mode emits a LAFS envelope mirroring the table's rows.
+ * Redirects to the unified `schema` surface. Emits a deprecation notice so
+ * callers learn the canonical verb. All flags (--counts, --include-counts)
+ * forward to the schema handler.
  *
- * @task T9788
+ * @task T11142
  */
 const listTypesCommand = defineCommand({
   meta: {
     name: 'list-types',
     description:
-      'List every registered doc kind with its label, publish directory, and ' +
-      'slug-pattern requirement. Use --counts to include per-kind attachment counts ' +
-      'from the project SSoT (T9788).',
+      'DEPRECATED -- use `cleo docs schema` instead. ' +
+      'Lists every registered doc kind (T11142).',
   },
   args: {
     counts: {
       type: 'boolean',
       description: 'Include per-kind attachment counts from the project SSoT',
     },
+    'include-counts': {
+      type: 'boolean',
+      description: 'DEPRECATED -- use --counts instead.',
+    },
   },
   async run({ args }) {
+    process.stderr.write(
+      'cleo: docs list-types is deprecated -- use `cleo docs schema` instead (T11142)\\n',
+    );
     const projectRoot = getProjectRoot();
     const { registry, configError } = loadCliRegistry(projectRoot);
     const kinds = registry.list().map(toWireKind);
+    const extensionsCount = kinds.filter((k) => k.isExtension).length;
+
+    const wantCounts = args.counts === true || args['include-counts'] === true;
 
     let counts: Record<string, number> | undefined;
-    if (args.counts) {
+    if (wantCounts) {
       counts = {};
       const { createAttachmentStore } = await import('@cleocode/core/internal');
       const store = createAttachmentStore();
@@ -2107,30 +2470,22 @@ const listTypesCommand = defineCommand({
           if (key && key in counts) counts[key] = (counts[key] ?? 0) + 1;
         }
       } catch {
-        // SSoT not initialised — leave the zero-filled counts in place.
+        // SSoT not initialised -- leave the zero-filled counts in place.
       }
     }
-
-    const rows = kinds.map((k) => ({
-      kind: k.kind,
-      label: k.label,
-      ...(counts ? { count: counts[k.kind] ?? 0 } : {}),
-      requiresEntityId: k.requiresEntityId,
-      publishDir: k.publishDir,
-      isExtension: k.isExtension,
-    }));
 
     cliOutput(
       {
         version: 1,
-        total: rows.length,
-        rows,
+        builtinsCount: kinds.length - extensionsCount,
+        extensionsCount,
+        kinds,
+        ...(counts ? { counts } : {}),
         ...(configError ? { configError } : {}),
       },
       {
         command: 'docs list-types',
         operation: 'docs.list-types',
-        message: configError ? `loaded built-ins only — ${configError.message}` : undefined,
       },
     );
   },
@@ -2142,12 +2497,15 @@ const listTypesCommand = defineCommand({
  * Canonical six-verb path: add, update, fetch, list, remove, publish.
  * Publish: consolidated `publish` verb (--target file|pr, --dry-run) (T11177).
  *   publish-pr retained as deprecated migration alias.
+ * Query: query (consolidates search, find, rank) (T11133/T11176).
  * Advanced: supersede, generate, export, merge, graph, versions.
  * Legacy/migration: sync, status, gap-check, import, search, find, rank, publish-pr.
- * Utilities: schema, list-types, serve, open, stop, viewer-status.
+ * Viewer: viewer (start/stop/open/status) — legacy serve, open, stop, viewer-status.
+ * Utilities: schema (list-types → schema).
  *
  * @task T11046 — simplify docs help around canonical six-verb path
  * @task T11177 — publish verb consolidation across doc CLI
+ * @task T11135 — flatten viewer surface into single managed lifecycle
  * @saga T10516
  */
 export const docsCommand = defineCommand({
@@ -2155,28 +2513,36 @@ export const docsCommand = defineCommand({
     name: 'docs',
     description:
       'Canonical six-verb docs path: add, update, fetch, list, remove, publish. ' +
-      'Advanced: supersede, find, search, generate, export, merge, graph, rank, versions, publish-pr. ' +
+      'Unified query: query (subsumes search/find/rank). ' +
+      'LLM output: llm-output (replaces generate + export). ' +
+      'Advanced: supersede, merge, graph, versions. ' +
       'Audit: audit (query the immutable docs audit trail). ' +
-      'Legacy/migration: sync, status, gap-check, import (use canonical verbs for new work). ' +
-      'Utilities: schema, serve, open, stop, viewer-status (list-types → schema).',
+      'Legacy/migration: search, find, rank, sync, status, gap-check, import (use query for new work). ' +
+      'Viewer: viewer (start/stop/open/status). Utilities: schema (list-types → schema).',
   },
   subCommands: {
-    // Canonical six-verb path (add, update, fetch, list, remove, publish)
+
+    // T11136 — Unified drift management (consolidates sync/status/gap-check)
+    check: checkCommand as ReturnType<typeof defineCommand>,    // Canonical six-verb path (add, update, fetch, list, remove, publish)
     add: addCommand,
     update: updateCommand,
     fetch: fetchCommand,
     list: listCommand,
     remove: removeCommand,
     publish: publishCommand,
+    // T11176 — unified search/find/rank surface (preferred entry point)
+    query: queryCommand,
     // Advanced primitives
     supersede: supersedeCommand,
-    find: findCommand,
-    search: searchCommand,
     generate: generateCommand,
     export: exportCommand,
+    'llm-output': llmOutputCommand,
     merge: mergeCommand,
     // T10164 — DocProvenanceResponse-typed graph (`--root <slug>|<taskId>`).
     graph: provenanceGraphCommand,
+    // Legacy aliases (use `query` for new work — retained for backward compatibility)
+    search: searchCommand,
+    find: findCommand,
     rank: rankCommand,
     versions: versionsCommand,
     'publish-pr': publishPrCommand,
@@ -2187,6 +2553,8 @@ export const docsCommand = defineCommand({
     status: statusCommand,
     'gap-check': gapCheckCommand,
     import: importCommand,
+    // Migration tool (T11179)
+    migrate: migrateCommand,
     // Utilities
     // T9788 — canonical doc-kind taxonomy discovery surface.
     schema: schemaCommand,

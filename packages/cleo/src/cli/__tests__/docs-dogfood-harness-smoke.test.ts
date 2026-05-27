@@ -17,10 +17,13 @@ import {
   CLI_DIST_AVAILABLE,
   type DocsDogfoodContext,
   SIX_REGRESSION_SCENARIOS,
+  SIX_REGRESSION_TEST_CASES,
+  auditScenarioCoverage,
   createIsolatedProject,
   fileSha256,
   seedDoc,
   sha256,
+  testCasesForScenario,
 } from './fixtures/docs-dogfood-harness.js';
 
 // ─── Harness Structure Tests ──────────────────────────────────────────────────
@@ -91,17 +94,12 @@ describe('T11045 — Docs Dogfood Regression Fixture Harness', () => {
       expect(existsSync(root)).toBe(true);
 
       await ctx.cleanup();
-      // After cleanup, the dir should be gone (or at least not usable).
-      // Best-effort: rm is async so it may still exist briefly.
-      // We just verify the cleanup function doesn't throw.
     });
 
     it('does not depend on any fixed path', async () => {
       ctx = await createIsolatedProject();
       const root = ctx.projectRoot;
-      // Should NOT be under /mnt/projects/cleocode or any fixed path.
       expect(root).not.toContain('/mnt/projects/cleocode');
-      // Should be under the OS temp directory.
       expect(root).toContain('cleo-dogfood-');
     });
   });
@@ -111,7 +109,7 @@ describe('T11045 — Docs Dogfood Regression Fixture Harness', () => {
       expect(sha256('hello')).toBe(
         '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824',
       );
-      expect(sha256('hello')).toBe(sha256('hello')); // deterministic
+      expect(sha256('hello')).toBe(sha256('hello'));
     });
 
     it('sha256 is different for different inputs', () => {
@@ -134,8 +132,28 @@ describe('T11045 — Docs Dogfood Regression Fixture Harness', () => {
 
   describe('CLI_DIST_AVAILABLE', () => {
     it('reports whether the compiled CLI is available', () => {
-      // Just a type-check — the flag itself is informative.
       expect(typeof CLI_DIST_AVAILABLE).toBe('boolean');
+    });
+  });
+
+  describe('SIX_REGRESSION_TEST_CASES (T11187)', () => {
+    it('has exactly 15 test cases covering all 6 scenarios', () => {
+      expect(SIX_REGRESSION_TEST_CASES).toHaveLength(15);
+    });
+
+    it('auditScenarioCoverage returns empty (all scenarios covered)', () => {
+      expect(auditScenarioCoverage()).toEqual([]);
+    });
+
+    it('each scenario has at least 2 test cases', () => {
+      for (const s of SIX_REGRESSION_SCENARIOS) {
+        expect(testCasesForScenario(s.id).length).toBeGreaterThanOrEqual(2);
+      }
+    });
+
+    it('all test case IDs are unique', () => {
+      const ids = SIX_REGRESSION_TEST_CASES.map((tc) => tc.id);
+      expect(new Set(ids).size).toBe(ids.length);
     });
   });
 });
