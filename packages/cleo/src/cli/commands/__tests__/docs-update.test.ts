@@ -19,11 +19,20 @@
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdir, mkdtemp, rm, writeFile, chmod } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+// T11060 — core-level regression imports for 2026-05-25 dogfood failures
+import {
+  isLifecycleStatus,
+  DOCS_UPDATE_LIFECYCLE_STATUS_LIST,
+  sanitizePath,
+  SecurityError,
+} from '@cleocode/core/internal';
+import { DOCS_LIFECYCLE_STATUSES } from '@cleocode/contracts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -501,6 +510,153 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
     } finally {
       // Restore writability for cleanup
       await chmod(attachmentsDir, 0o755);
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// T11060 — Docs dogfood regression tests for 2026-05-25 failures
+//
+// These tests use core-level imports (no CLI dist dependency) and cover:
+//   AC1: Outside-project file rejection → E_PATH_TRAVERSAL
+//   AC2: Invalid docs status enum → E_INVALID_STATUS with canonical list
+//   AC3: Tests run without depending on machine-specific temp paths
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('T11060 — outside-project path rejection (sanitizePath)', () => {
+  const projectRoot = '/tmp/t11060-test-project';
+
+  it('rejects absolute path outside projectRoot with E_PATH_TRAVERSAL', () => {
+    expect(() => sanitizePath('/etc/passwd', projectRoot)).toThrow(SecurityError);
+
+    try {
+      sanitizePath('/etc/passwd', projectRoot);
+    } catch (err) {
+      const se = err as SecurityError;
+      expect(se.code).toBe('E_PATH_TRAVERSAL');
+      expect(se.message).toMatch(/outside project root/i);
+      expect(se.message).toContain('/etc/passwd');
+    }
+  });
+
+  it('rejects ../ escape path with E_PATH_TRAVERSAL', () => {
+    expect(() => sanitizePath('../../../etc/passwd', projectRoot)).toThrow(SecurityError);
+
+    try {
+      sanitizePath('../../../etc/passwd', projectRoot);
+    } catch (err) {
+      const se = err as SecurityError;
+      expect(se.code).toBe('E_PATH_TRAVERSAL');
+      expect(se.message).toMatch(/outside project root/i);
+    }
+  });
+
+  it('rejects path with null bytes', () => {
+    expect(() => sanitizePath('/tmp/t11060-test-project/file\0hidden.txt', projectRoot)).toThrow(
+      SecurityError,
+    );
+
+    try {
+      sanitizePath('/tmp/t11060-test-project/file\0hidden.txt', projectRoot);
+    } catch (err) {
+      const se = err as SecurityError;
+      expect(se.code).toBe('E_PATH_TRAVERSAL');
+      expect(se.message).toMatch(/null bytes/i);
+    }
+  });
+
+  it('accepts paths inside projectRoot', () => {
+    expect(sanitizePath('/tmp/t11060-test-project/docs/file.md', projectRoot)).toBe(
+      '/tmp/t11060-test-project/docs/file.md',
+    );
+    expect(sanitizePath('docs/file.md', projectRoot)).toBe(
+      '/tmp/t11060-test-project/docs/file.md',
+    );
+  });
+
+  it('rejects empty path', () => {
+    expect(() => sanitizePath('', projectRoot)).toThrow(SecurityError);
+
+    try {
+      sanitizePath('', projectRoot);
+    } catch (err) {
+      const se = err as SecurityError;
+      expect(se.code).toBe('E_INVALID_PATH');
+      expect(se.message).toMatch(/cannot be empty/i);
+    }
+  });
+});
+
+describe('T11060 — invalid docs status enum (isLifecycleStatus)', () => {
+  it('rejects "review" — not in canonical lifecycle list', () => {
+    expect(isLifecycleStatus('review')).toBe(false);
+  });
+
+  it('rejects "done" — not a docs lifecycle status', () => {
+    expect(isLifecycleStatus('done')).toBe(false);
+  });
+
+  it('rejects "published" — confusing with task status', () => {
+    expect(isLifecycleStatus('published')).toBe(false);
+  });
+
+  it('rejects empty string', () => {
+    expect(isLifecycleStatus('')).toBe(false);
+  });
+
+  it('rejects non-strings', () => {
+    expect(isLifecycleStatus(42)).toBe(false);
+    expect(isLifecycleStatus(null)).toBe(false);
+    expect(isLifecycleStatus(undefined)).toBe(false);
+    expect(isLifecycleStatus({})).toBe(false);
+  });
+
+  for (const status of DOCS_LIFECYCLE_STATUSES) {
+    it(`accepts canonical status "${status}"`, () => {
+      expect(isLifecycleStatus(status)).toBe(true);
+    });
+  }
+});
+
+describe('T11060 — DOCS_UPDATE_LIFECYCLE_STATUS_LIST contract', () => {
+  it('contains all six canonical statuses pipe-delimited', () => {
+    for (const status of DOCS_LIFECYCLE_STATUSES) {
+      expect(DOCS_UPDATE_LIFECYCLE_STATUS_LIST).toContain(status);
+    }
+    expect(DOCS_UPDATE_LIFECYCLE_STATUS_LIST).toContain('|');
+  });
+
+  it('matches the canonical order from @cleocode/contracts', () => {
+    expect(DOCS_UPDATE_LIFECYCLE_STATUS_LIST).toBe(DOCS_LIFECYCLE_STATUSES.join('|'));
+  });
+
+  it('contains no extra statuses beyond the canonical six', () => {
+    const parts = DOCS_UPDATE_LIFECYCLE_STATUS_LIST.split('|');
+    expect(parts).toHaveLength(DOCS_LIFECYCLE_STATUSES.length);
+  });
+});
+
+describe('T11060 — error message contract', () => {
+  it('E_INVALID_STATUS message includes canonical lifecycle status list', () => {
+    const msg = `status must be one of: ${DOCS_UPDATE_LIFECYCLE_STATUS_LIST} — got 'review'`;
+
+    expect(msg).toMatch(/status must be one of/i);
+    for (const s of DOCS_LIFECYCLE_STATUSES) {
+      expect(msg).toContain(s);
+    }
+    expect(msg).toContain('review');
+    expect(msg).toContain('draft|proposed|accepted|superseded|archived|deprecated');
+  });
+
+  it('E_PATH_TRAVERSAL error includes rejected path for agent debugging', () => {
+    try {
+      sanitizePath('/outside/file.txt', '/tmp/test-project');
+    } catch (err) {
+      const se = err as SecurityError;
+      expect(se.code).toBe('E_PATH_TRAVERSAL');
+      expect(se.message).toContain('/outside/file.txt');
+      expect(se.message).toMatch(/outside project root/i);
+      expect(se.field).toBe('path');
     }
   });
 });
