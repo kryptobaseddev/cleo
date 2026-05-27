@@ -13,7 +13,6 @@
     "targets": [
       "x86_64-unknown-linux-gnu",
       "aarch64-unknown-linux-gnu",
-      "x86_64-apple-darwin",
       "aarch64-apple-darwin",
       "x86_64-pc-windows-msvc"
     ]
@@ -23,13 +22,6 @@
     "index.d.ts",
     "worktree-napi.*.node"
   ],
-  "optionalDependencies": {
-    "@cleocode/worktree-napi-linux-x64-gnu": "workspace:*",
-    "@cleocode/worktree-napi-linux-arm64-gnu": "workspace:*",
-    "@cleocode/worktree-napi-darwin-x64": "workspace:*",
-    "@cleocode/worktree-napi-darwin-arm64": "workspace:*",
-    "@cleocode/worktree-napi-win32-x64-msvc": "workspace:*"
-  },
   "repository": {
     "type": "git",
     "url": "https://github.com/kryptobaseddev/cleo",

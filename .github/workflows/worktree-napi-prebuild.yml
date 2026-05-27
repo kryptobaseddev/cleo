@@ -47,10 +47,6 @@ jobs:
             runner: ubuntu-latest
             triple: linux-arm64-gnu
             cross: true
-          - target: x86_64-apple-darwin
-            runner: macos-13
-            triple: darwin-x64
-            cross: false
           - target: aarch64-apple-darwin
             runner: macos-14
             triple: darwin-arm64
