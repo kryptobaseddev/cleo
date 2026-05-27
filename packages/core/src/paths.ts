@@ -1961,12 +1961,15 @@ export async function resolveProjectById(projectId: string): Promise<ProjectRegi
     const db = await getNexusDb();
     const directRows = await db.select().from(projectRegistry).where(eq(projectRegistry.projectId, projectId)).limit(1);
     if (directRows.length > 0) return _rowToRegistryEntry(directRows[0]);
-    const aliasRows = await db.select().from(projectIdAliases).where(eq(projectIdAliases.legacyId, projectId)).limit(1);
-    if (aliasRows.length > 0) {
-      const canonicalId = aliasRows[0].canonicalId;
-      const canonicalRows = await db.select().from(projectRegistry).where(eq(projectRegistry.projectId, canonicalId)).limit(1);
-      if (canonicalRows.length > 0) return _rowToRegistryEntry(canonicalRows[0]);
-    }
+    // Alias lookup (AC4) — gracefully handles missing project_id_aliases table
+    try {
+      const aliasRows = await db.select().from(projectIdAliases).where(eq(projectIdAliases.legacyId, projectId)).limit(1);
+      if (aliasRows.length > 0) {
+        const canonicalId = aliasRows[0].canonicalId;
+        const canonicalRows = await db.select().from(projectRegistry).where(eq(projectRegistry.projectId, canonicalId)).limit(1);
+        if (canonicalRows.length > 0) return _rowToRegistryEntry(canonicalRows[0]);
+      }
+    } catch { /* alias table may not exist yet */ }
     return null;
   } catch { return null; }
 }
@@ -1985,6 +1988,17 @@ function _rowToRegistryEntry(row: Record<string, unknown>): ProjectRegistryEntry
   };
 }
 
+/** Read project name from .cleo/project-info.json. Returns undefined on failure. */
+function _readProjectNameFromInfo(projectRoot: string): string | undefined {
+  try {
+    const infoPath = join(projectRoot, '.cleo', 'project-info.json');
+    if (!existsSync(infoPath)) return undefined;
+    const raw = readFileSync(infoPath, 'utf-8');
+    const data = JSON.parse(raw) as Record<string, unknown>;
+    return typeof data.name === 'string' && data.name.length > 0 ? data.name : undefined;
+  } catch { return undefined; }
+}
+
 /** Auto-register a project on first encounter (AC2, AC3, AC5, AC6). */
 export async function registerProjectOnEncounter(
   projectRoot: string,
@@ -2000,8 +2014,8 @@ export async function registerProjectOnEncounter(
     const db = await getNexusDb();
     const existingRows = await db.select().from(projectRegistry).where(eq(projectRegistry.projectId, canonicalId)).limit(1);
     const now = new Date().toISOString();
-    const projectName = basename(projectRoot) || 'unnamed';
     const resolvedPath = resolve(projectRoot);
+    const projectName = _readProjectNameFromInfo(resolvedPath) || basename(projectRoot) || 'unnamed';
     if (existingRows.length > 0) {
       const existingPath = existingRows[0].projectPath as string;
       if (existingPath !== resolvedPath) {
