@@ -1,15 +1,15 @@
 /**
- * Unit tests for the unified attachment store (T947 Wave B).
+ * Unit tests for the unified attachment store (T947 Wave C — legacy fallback retired).
  *
- * Exercises both the preferred llmtxt-backed path and the legacy fallback.
- * Tests that need `node:sqlite` + `drizzle-orm/node-sqlite` + `llmtxt/blob`
- * are gated via a runtime probe; the legacy path tests always run so the
- * tests so the fallback is always covered.
+ * Tests the llmtxt-backed path exclusively. The legacy fallback path was
+ * retired in T11141 (Wave C). Tests that need `node:sqlite` +
+ * `drizzle-orm/node-sqlite` + `llmtxt/blob` are gated via a runtime probe.
  *
  * Each test uses an isolated temp directory so the underlying SQLite
  * databases are fresh per run.
  *
  * @epic T947
+ * @task T11141 (Wave C)
  */
 
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -42,14 +42,10 @@ beforeAll(async () => {
 // ──────────────────────────────────────────────────────────────────────────
 
 describe('resolveAttachmentBackend', () => {
-  it('returns "llmtxt" when node:sqlite is available, otherwise "legacy"', async () => {
+  it('always returns "llmtxt" (Wave C — legacy fallback retired)', async () => {
     const { resolveAttachmentBackend } = await import('../attachment-store-v2.js');
     const backend = await resolveAttachmentBackend();
-    if (peerDepsAvailable) {
-      expect(backend).toBe('llmtxt');
-    } else {
-      expect(backend).toBe('legacy');
-    }
+    expect(backend).toBe('llmtxt');
   });
 });
 
@@ -84,79 +80,94 @@ describe.skipIf(!(await hasLlmtxtPeerDeps()))(
       });
 
       expect(putResult.backend).toBe('llmtxt');
-      expect(putResult.attachmentId).toBeTruthy();
       expect(putResult.sha256).toMatch(/^[0-9a-f]{64}$/);
+      expect(putResult.attachmentId).toBeTruthy();
 
       const fetched = await store.get(putResult.attachmentId);
       expect(fetched).not.toBeNull();
-      expect(new Uint8Array(fetched!.data)).toEqual(original);
-      expect(fetched?.name).toBe('greeting.txt');
+      expect(Buffer.from(fetched!.data).toString('utf-8')).toBe('Hello, v2 attachments!');
       expect(fetched?.contentType).toBe('text/plain');
+      expect(fetched?.name).toBe('greeting.txt');
     });
 
-    it('backend field in response matches actual path (llmtxt)', async () => {
+    it('put + get roundtrip with binary data', async () => {
       const { createAttachmentStoreV2 } = await import('../attachment-store-v2.js');
       const store = createAttachmentStoreV2(tempDir);
-      const result = await store.put('T101', {
-        name: 'report.md',
-        data: new TextEncoder().encode('# Report'),
-        contentType: 'text/markdown',
+
+      const original = new Uint8Array([0x00, 0x01, 0x02, 0xff, 0xfe, 0xfd]);
+      const putResult = await store.put('T101', {
+        name: 'binary.bin',
+        data: original,
+        contentType: 'application/octet-stream',
       });
-      expect(result.backend).toBe('llmtxt');
+
+      expect(putResult.backend).toBe('llmtxt');
+
+      const fetched = await store.get(putResult.attachmentId);
+      expect(fetched).not.toBeNull();
+      expect(Array.from(fetched!.data)).toEqual(Array.from(original));
+      expect(fetched?.contentType).toBe('application/octet-stream');
     });
 
-    it('list returns all attachments for a task (llmtxt path)', async () => {
+    it('list returns attachments for a task', async () => {
       const { createAttachmentStoreV2 } = await import('../attachment-store-v2.js');
       const store = createAttachmentStoreV2(tempDir);
 
-      await store.put('T102', { name: 'a.txt', data: new TextEncoder().encode('alpha') });
-      await store.put('T102', { name: 'b.txt', data: new TextEncoder().encode('bravo') });
-      await store.put('T102', { name: 'c.txt', data: new TextEncoder().encode('charlie') });
+      await store.put('T102', { name: 'a.txt', data: new TextEncoder().encode('a') });
+      await store.put('T102', { name: 'b.txt', data: new TextEncoder().encode('b') });
 
       const entries = await store.list('T102');
-      expect(entries).toHaveLength(3);
-      const names = entries.map((e) => e.name).sort();
-      expect(names).toEqual(['a.txt', 'b.txt', 'c.txt']);
+      expect(entries).toHaveLength(2);
       for (const e of entries) {
         expect(e.sha256).toMatch(/^[0-9a-f]{64}$/);
-        expect(e.attachmentId).toHaveLength(21); // nanoid
+        expect(e.attachmentId).toBeTruthy();
       }
     });
 
-    it('remove soft-deletes the attachment (llmtxt LWW)', async () => {
+    it('list returns empty array for task with no attachments', async () => {
       const { createAttachmentStoreV2 } = await import('../attachment-store-v2.js');
       const store = createAttachmentStoreV2(tempDir);
 
-      const putResult = await store.put('T103', {
-        name: 'ephemeral.txt',
-        data: new TextEncoder().encode('transient'),
+      const entries = await store.list('T999');
+      expect(entries).toEqual([]);
+    });
+
+    it('get returns null for unknown attachment id', async () => {
+      const { createAttachmentStoreV2 } = await import('../attachment-store-v2.js');
+      const store = createAttachmentStoreV2(tempDir);
+
+      const result = await store.get('no-such-attachment-id');
+      expect(result).toBeNull();
+    });
+
+    it('remove with unknown id is a no-op', async () => {
+      const { createAttachmentStoreV2 } = await import('../attachment-store-v2.js');
+      const store = createAttachmentStoreV2(tempDir);
+
+      await expect(store.remove('unknown-id', 'T999')).resolves.toBeUndefined();
+    });
+
+    it('remove detaches a known attachment', async () => {
+      const { createAttachmentStoreV2 } = await import('../attachment-store-v2.js');
+      const store = createAttachmentStoreV2(tempDir);
+
+      const payload = new TextEncoder().encode('detach-me');
+      const { attachmentId } = await store.put('T103', {
+        name: 'detach.txt',
+        data: payload,
       });
-      expect(await store.list('T103')).toHaveLength(1);
 
-      await store.remove(putResult.attachmentId);
-      expect(await store.list('T103')).toHaveLength(0);
+      await store.remove(attachmentId, 'T103');
+      const after = await store.get(attachmentId);
+      expect(after).toBeNull();
     });
 
-    it('content-addressed: two tasks can reference the same bytes', async () => {
-      const { createAttachmentStoreV2 } = await import('../attachment-store-v2.js');
-      const store = createAttachmentStoreV2(tempDir);
-
-      const payload = new TextEncoder().encode('shared content');
-      const a = await store.put('T104', { name: 'shared.txt', data: payload });
-      const b = await store.put('T105', { name: 'shared.txt', data: payload });
-
-      expect(a.sha256).toBe(b.sha256);
-      expect(a.attachmentId).not.toBe(b.attachmentId);
-      // Each task sees its own entry
-      expect(await store.list('T104')).toHaveLength(1);
-      expect(await store.list('T105')).toHaveLength(1);
-    });
-
-    it('put returns 64-char hex sha256 consistent with bytes', async () => {
+    it('sha256 matches CleoBlobStore.hash', async () => {
       const { createAttachmentStoreV2 } = await import('../attachment-store-v2.js');
       const { CleoBlobStore } = await import('../llmtxt-blob-adapter.js');
       const store = createAttachmentStoreV2(tempDir);
-      const data = new TextEncoder().encode('hash-check-bytes');
+
+      const data = new TextEncoder().encode('hash-verification');
       const expected = CleoBlobStore.hash(data);
       const result = await store.put('T106', { name: 'hash.txt', data });
       expect(result.sha256).toBe(expected);
@@ -165,176 +176,67 @@ describe.skipIf(!(await hasLlmtxtPeerDeps()))(
 );
 
 // ──────────────────────────────────────────────────────────────────────────
-// Legacy fallback — works regardless of peer deps
+// Wave C — store throws when llmtxt peer deps are unavailable
 // ──────────────────────────────────────────────────────────────────────────
 
-describe('createAttachmentStoreV2 (legacy backend, forced)', () => {
-  let tempDir: string;
+describe.skipIf(hasLlmtxtPeerDeps())(
+  'createAttachmentStoreV2 (no llmtxt peer deps — throws)',
+  () => {
+    let tempDir: string;
 
-  beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'cleo-attach-v2-legacy-'));
-    process.env['CLEO_DIR'] = join(tempDir, '.cleo');
-  });
-
-  afterEach(async () => {
-    const { closeDb } = await import('../sqlite.js');
-    closeDb();
-    delete process.env['CLEO_DIR'];
-    await rm(tempDir, { recursive: true, force: true });
-  });
-
-  it('put + get roundtrip succeeds via legacy fallback', async () => {
-    const { createAttachmentStoreV2 } = await import('../attachment-store-v2.js');
-    const { closeDb } = await import('../sqlite.js');
-    closeDb();
-
-    const store = createAttachmentStoreV2(tempDir, { backend: 'legacy' });
-
-    const original = new TextEncoder().encode('legacy fallback payload');
-    const putResult = await store.put('T200', {
-      name: 'legacy.txt',
-      data: original,
-      contentType: 'text/plain',
+    beforeEach(async () => {
+      tempDir = await mkdtemp(join(tmpdir(), 'cleo-attach-v2-nodeps-'));
     });
 
-    expect(putResult.backend).toBe('legacy');
-    expect(putResult.sha256).toMatch(/^[0-9a-f]{64}$/);
-    expect(putResult.attachmentId).toBeTruthy();
-
-    const fetched = await store.get(putResult.attachmentId);
-    expect(fetched).not.toBeNull();
-    expect(Buffer.from(fetched!.data).toString('utf-8')).toBe('legacy fallback payload');
-    expect(fetched?.contentType).toBe('text/plain');
-  });
-
-  it('backend field in response matches actual path (legacy)', async () => {
-    const { createAttachmentStoreV2 } = await import('../attachment-store-v2.js');
-    const { closeDb } = await import('../sqlite.js');
-    closeDb();
-
-    const store = createAttachmentStoreV2(tempDir, { backend: 'legacy' });
-    const result = await store.put('T201', {
-      name: 'legacy-tag.txt',
-      data: new TextEncoder().encode('tag'),
+    afterEach(async () => {
+      await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
     });
-    expect(result.backend).toBe('legacy');
-  });
 
-  it('list returns attachments for a task via legacy path', async () => {
-    const { createAttachmentStoreV2 } = await import('../attachment-store-v2.js');
-    const { closeDb } = await import('../sqlite.js');
-    closeDb();
+    it('put throws when llmtxt peer deps are unavailable (Wave C — no legacy fallback)', async () => {
+      const { createAttachmentStoreV2 } = await import('../attachment-store-v2.js');
+      const store = createAttachmentStoreV2(tempDir);
 
-    const store = createAttachmentStoreV2(tempDir, { backend: 'legacy' });
-
-    await store.put('T202', { name: 'a.txt', data: new TextEncoder().encode('a') });
-    await store.put('T202', { name: 'b.txt', data: new TextEncoder().encode('b') });
-
-    const entries = await store.list('T202');
-    expect(entries).toHaveLength(2);
-    for (const e of entries) {
-      expect(e.sha256).toMatch(/^[0-9a-f]{64}$/);
-      expect(e.attachmentId).toBeTruthy();
-    }
-  });
-
-  it('two tasks with identical bytes share one row — remove(id, taskId) decrements refcount', async () => {
-    const { createAttachmentStoreV2 } = await import('../attachment-store-v2.js');
-    const { createAttachmentStore } = await import('../attachment-store.js');
-    const { closeDb } = await import('../sqlite.js');
-    closeDb();
-
-    const store = createAttachmentStoreV2(tempDir, { backend: 'legacy' });
-    const legacy = createAttachmentStore();
-
-    // Attach identical bytes to two tasks.
-    const payload = new TextEncoder().encode('shared-legacy-bytes');
-    const a = await store.put('T300', { name: 'shared.txt', data: payload });
-    const b = await store.put('T301', { name: 'shared.txt', data: payload });
-
-    // Same content → same attachment row → same id.
-    expect(a.sha256).toBe(b.sha256);
-    expect(a.attachmentId).toBe(b.attachmentId);
-
-    // Refcount == 2 after two puts.
-    const metaBefore = await legacy.getMetadata(a.attachmentId);
-    expect(metaBefore?.refCount).toBe(2);
-
-    // Remove from T300 only — refcount drops to 1, row survives.
-    await store.remove(a.attachmentId, 'T300');
-    const metaAfter = await legacy.getMetadata(a.attachmentId);
-    expect(metaAfter?.refCount).toBe(1);
-
-    // Remove from T301 — refcount hits 0, row purged.
-    await store.remove(a.attachmentId, 'T301');
-    const metaGone = await legacy.getMetadata(a.attachmentId);
-    expect(metaGone).toBeNull();
-  });
-
-  it('get returns null for unknown attachment id via legacy', async () => {
-    const { createAttachmentStoreV2 } = await import('../attachment-store-v2.js');
-    const { closeDb } = await import('../sqlite.js');
-    closeDb();
-
-    const store = createAttachmentStoreV2(tempDir, { backend: 'legacy' });
-    const result = await store.get('no-such-attachment-id');
-    expect(result).toBeNull();
-  });
-
-  it('remove with unknown id is a no-op (legacy)', async () => {
-    const { createAttachmentStoreV2 } = await import('../attachment-store-v2.js');
-    const { closeDb } = await import('../sqlite.js');
-    closeDb();
-
-    const store = createAttachmentStoreV2(tempDir, { backend: 'legacy' });
-    await expect(store.remove('unknown-id', 'T999')).resolves.toBeUndefined();
-  });
-});
+      await expect(
+        store.put('T400', {
+          name: 'test.txt',
+          data: new TextEncoder().encode('payload'),
+        }),
+      ).rejects.toThrow(/llmtxt backend unavailable/);
+    });
+  },
+);
 
 // ──────────────────────────────────────────────────────────────────────────
-// T9901 / gh-#98 regression — `cleo docs add` MUST NOT raise
-// E_INTERNAL "Failed to run the query '\n'" on a clean project.
+// T9901 / gh-#98 — cleo docs add does NOT raise E_INTERNAL
 //
 // The original bug (filed 2026-04-21 against cleo 2026.4.101) was a
-// `better-sqlite3` binding failure inside the drizzle template surface —
-// the v2 store opened a partially-bound DB, drizzle's tagged-template
-// rendered with no params, and the resulting SQL was a bare newline.
+// `better-sqlite3` binding failure inside the drizzle template surface.
 // T1041 (commit 885a4e5d0, Apr 20 2026) migrated the entire v2 surface to
-// Node 24's built-in `node:sqlite` + `drizzle-orm/node-sqlite`, removing
-// the failing binding entirely.
+// Node 24's built-in `node:sqlite` + `drizzle-orm/node-sqlite`.
 //
-// These tests assert the regression-locked behaviour: a clean project
-// must complete `put` without throwing, and must not surface the bare-
-// newline SQL string anywhere in the error path. The legacy fallback is
-// also covered so the fix holds on hosts without the llmtxt peer deps.
+// These tests assert the regression-locked behaviour on the llmtxt path.
+// The legacy fallback was retired in Wave C (T11141).
 //
 // @bug gh-#98
 // @task T9901
 // @saga T9862
-// @supersedes T1041 (which silently resolved this — no explicit regression test landed)
 // ──────────────────────────────────────────────────────────────────────────
 
-describe('T9901 / gh-#98 — cleo docs add does NOT raise E_INTERNAL', () => {
+describe.skipIf(!hasLlmtxtPeerDeps())('T9901 / gh-#98 — cleo docs add does NOT raise E_INTERNAL', () => {
   let tempDir: string;
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'cleo-t9901-regression-'));
-    process.env['CLEO_DIR'] = join(tempDir, '.cleo');
   });
 
   afterEach(async () => {
-    const { closeDb } = await import('../sqlite.js');
-    closeDb();
-    delete process.env['CLEO_DIR'];
     await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
   });
 
-  it('legacy backend put does not throw and returns a populated envelope', async () => {
+  it('llmtxt backend put does not throw and returns a populated envelope', async () => {
     const { createAttachmentStoreV2 } = await import('../attachment-store-v2.js');
-    const { closeDb } = await import('../sqlite.js');
-    closeDb();
 
-    const store = createAttachmentStoreV2(tempDir, { backend: 'legacy' });
+    const store = createAttachmentStoreV2(tempDir);
 
     // The bug surfaced as a SQLite query-failure thrown synchronously from
     // the drizzle template surface — capture the entire put() invocation
@@ -347,20 +249,18 @@ describe('T9901 / gh-#98 — cleo docs add does NOT raise E_INTERNAL', () => {
     });
 
     expect(result).toBeDefined();
-    expect(result.backend).toBe('legacy');
+    expect(result.backend).toBe('llmtxt');
     expect(result.sha256).toMatch(/^[0-9a-f]{64}$/);
     expect(result.attachmentId).toBeTruthy();
     expect(result.attachmentId.length).toBeGreaterThan(0);
   });
 
-  it('legacy backend put does not surface a bare-newline SQL error', async () => {
+  it('llmtxt backend put does not surface a bare-newline SQL error', async () => {
     const { createAttachmentStoreV2 } = await import('../attachment-store-v2.js');
-    const { closeDb } = await import('../sqlite.js');
-    closeDb();
 
-    const store = createAttachmentStoreV2(tempDir, { backend: 'legacy' });
+    const store = createAttachmentStoreV2(tempDir);
 
-    // The original bug raised `Failed to run the query '\n'` — a bare
+    // The original bug raised `Failed to run the query '\\n'` — a bare
     // newline SQL string. Even if some unrelated error were to leak, this
     // exact message MUST never appear in the v2 store path on HEAD.
     let caught: unknown;

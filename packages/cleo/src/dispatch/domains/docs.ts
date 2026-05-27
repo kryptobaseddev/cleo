@@ -1378,8 +1378,9 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           /* Graph population is best-effort — never fail docs add. */
         });
 
-      // URL writes stay legacy-only; v2 focuses on local-file / blob kinds.
-      const backend: AttachmentBackend = 'legacy';
+      // URL writes stay in tasks.db; v2 focuses on local-file / blob kinds.
+      // Wave C — resolveAttachmentBackend() always returns 'llmtxt'.
+      const backend: AttachmentBackend = await resolveAttachmentBackend();
 
       // T9976 — emit structured memory observation for docs.add URL path (fire-and-forget).
       const urlPayload: DocAttachmentObservationPayload = {

@@ -1,31 +1,20 @@
 /**
- * Unified attachment store (T947 Wave B).
+ * Unified attachment store (T947 Wave C — legacy fallback retired).
  *
- * Wraps both the preferred `CleoBlobStore` (backed by `llmtxt/blob.BlobFsAdapter`)
- * and the legacy {@link ./attachment-store.ts} (tasks.db + on-disk sha256 shards)
- * behind a single interface. At runtime this store probes the optional peer
- * `node:sqlite` (built into Node 24) and `drizzle-orm/node-sqlite` are
- * available alongside llmtxt; when so, the preferred path is used, otherwise
- * we gracefully fall back to the legacy implementation so callers never
- * observe a hard failure.
+ * Backed exclusively by `CleoBlobStore` (wrapping `llmtxt/blob.BlobFsAdapter`).
+ * The legacy {@link ./attachment-store.ts} (tasks.db + on-disk sha256 shards)
+ * is NO LONGER used by this store as of Wave C. Callers that need the richer
+ * interface (slug support, refcount, lifecycle status) continue to use
+ * {@link ./attachment-store.ts} directly.
  *
- * The interface is intentionally minimal: `put / get / list / remove`. It does
- * NOT try to be a superset of {@link ./attachment-store.ts} — existing callers
- * that need `listByOwner`, `deref`, URL/llms-txt kinds continue to use the
- * legacy store directly. Dispatch-layer integration (`cleo docs`) keeps using
- * the legacy store for now; the `add / list / fetch / remove` handlers gain
- * `meta.attachmentBackend` observability via {@link resolveAttachmentBackend}.
- *
- * Retirement plan: `attachment-store.ts` (643 LoC) is NOT deleted in this wave.
- * A Wave C cleanup may retire it after a full release cycle validates the
- * llmtxt-backed path in production.
+ * The interface is intentionally minimal: `put / get / list / remove`.
  *
  * @epic T947
- * @see ./attachment-store.ts (legacy, kept operational)
+ * @task T11141 (Wave C — legacy fallback retired)
+ * @see ./attachment-store.ts (legacy, kept for richer interface callers)
  * @see ./llmtxt-blob-adapter.ts (preferred backend)
  */
 
-import type { BlobAttachment } from '@cleocode/contracts';
 import type { CleoBlobStore as CleoBlobStoreType } from './llmtxt-blob-adapter.js';
 
 // ─── Public types ────────────────────────────────────────────────────────────
@@ -33,8 +22,9 @@ import type { CleoBlobStore as CleoBlobStoreType } from './llmtxt-blob-adapter.j
 /**
  * Which backend persisted the attachment.
  *
- * `llmtxt` — preferred content-addressed store from `llmtxt/blob`.
- * `legacy` — tasks.db + `.cleo/attachments/sha256/**` shards.
+ * As of Wave C only `llmtxt` is supported; the `legacy` variant is kept
+ * in the type to avoid churn in downstream consumers that still reference
+ * it in contracts/docs, but this store never returns it.
  */
 export type AttachmentBackend = 'llmtxt' | 'legacy';
 
@@ -58,7 +48,7 @@ export interface AttachmentPutResult {
   readonly attachmentId: string;
   /** Lowercase hex SHA-256 digest (64 chars). */
   readonly sha256: string;
-  /** Which backend persisted these bytes. */
+  /** Which backend persisted these bytes. Always `'llmtxt'` as of Wave C. */
   readonly backend: AttachmentBackend;
 }
 
@@ -68,7 +58,7 @@ export interface AttachmentPutResult {
 export interface AttachmentListEntry {
   /** Unique attachment id. */
   readonly attachmentId: string;
-  /** User-visible name (blob name for llmtxt, best-effort for legacy). */
+  /** User-visible name (blob name). */
   readonly name: string;
   /** Lowercase hex SHA-256 digest. */
   readonly sha256: string;
@@ -98,7 +88,7 @@ export interface AttachmentStoreV2 {
 
   /**
    * Retrieve bytes for a previously-attached file by attachment id.
-   * Returns `null` when the id is unknown in both backends.
+   * Returns `null` when the id is unknown.
    */
   get(attachmentId: string): Promise<AttachmentGetResult | null>;
 
@@ -108,16 +98,21 @@ export interface AttachmentStoreV2 {
   list(taskId: string): Promise<AttachmentListEntry[]>;
 
   /**
-   * Remove an attachment by id. Soft-delete on llmtxt (LWW); deref on legacy.
+   * Remove an attachment by id. Soft-delete (LWW).
    * Returns silently when the id is unknown.
-   *
-   * For the legacy backend the optional `taskId` scopes the deref to a
-   * specific owner — required when multiple owners share the same
-   * content-addressed blob (refCount > 1). When omitted the legacy path
-   * walks every `task`-type ref row for the attachment.
    */
   remove(attachmentId: string, taskId?: string): Promise<void>;
 }
+
+/**
+ * Options for {@link createAttachmentStoreV2}.
+ *
+ * @deprecated Wave C (T11141) — the `backend` option has been removed.
+ * The store always uses the llmtxt backend. This type is kept as an empty
+ * interface for downstream type compatibility.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-interface
+export interface CreateAttachmentStoreV2Options {}
 
 // ─── Internal helpers ────────────────────────────────────────────────────────
 
@@ -145,12 +140,18 @@ async function canUseLlmtxtBackend(): Promise<boolean> {
  * given project root. Exposed for observability (dispatch layer writes this
  * into `meta.attachmentBackend`).
  *
+ * As of Wave C this always returns `'llmtxt'`. The probe is kept for
+ * diagnostics but legacy fallback is retired.
+ *
  * This probe is side-effect free: it does NOT open the SQLite manifest or
  * touch the filesystem — it only resolves the peer-dep loaders.
  */
 // SSoT-EXEMPT:probe-fn — zero-arg probe that detects peer-dep availability; no projectRoot needed
 export async function resolveAttachmentBackend(): Promise<AttachmentBackend> {
-  return (await canUseLlmtxtBackend()) ? 'llmtxt' : 'legacy';
+  // Wave C: llmtxt is the only backend. The legacy fallback is retired.
+  // If llmtxt peer deps are not available, that's a deployment issue —
+  // the caller should surface the error, not silently degrade.
+  return 'llmtxt';
 }
 
 // ─── Factory ─────────────────────────────────────────────────────────────────
@@ -158,17 +159,12 @@ export async function resolveAttachmentBackend(): Promise<AttachmentBackend> {
 /**
  * Construct a unified attachment store.
  *
- * The returned store lazily resolves the preferred backend on first use. When
- * `llmtxt/blob` + `node:sqlite` load successfully, writes go to
- * {@link CleoBlobStore}. Any construction/open failure falls through to the
- * legacy {@link ./attachment-store.ts} implementation — callers never observe
- * a hard failure.
+ * The returned store lazily resolves the llmtxt backend on first use.
+ * If `llmtxt/blob` + `node:sqlite` are unavailable, operations throw
+ * rather than silently falling back to the legacy store (Wave C).
  *
  * @param projectRoot Absolute path to the project root (determines where the
  *                    llmtxt blob manifest lives).
- * @param opts Optional overrides. `backend: 'legacy'` forces the fallback
- *             path regardless of peer-dep availability (used by tests and
- *             by dispatch layers that need deterministic behaviour).
  *
  * @example
  * ```ts
@@ -183,25 +179,12 @@ export async function resolveAttachmentBackend(): Promise<AttachmentBackend> {
  * console.log(`stored via ${backend} backend: ${sha256}`);
  * ```
  */
-/**
- * Options for {@link createAttachmentStoreV2}.
- */
-export interface CreateAttachmentStoreV2Options {
-  /**
-   * Force a specific backend. `auto` (default) probes for llmtxt + node:sqlite
-   * and falls back to legacy on failure. `legacy` skips the probe entirely.
-   */
-  readonly backend?: 'auto' | 'legacy';
-}
-
 export function createAttachmentStoreV2(
   projectRoot: string,
-  opts: CreateAttachmentStoreV2Options = {},
 ): AttachmentStoreV2 {
-  const forceLegacy = opts.backend === 'legacy';
   /**
    * Lazily-resolved llmtxt store. `null` means not yet attempted; `false`
-   * means a prior attempt failed — skip straight to the legacy path.
+   * means a prior attempt failed — subsequent calls will throw.
    */
   let llmtxtStore: CleoBlobStoreType | null | false = null;
 
@@ -213,20 +196,29 @@ export function createAttachmentStoreV2(
   const llmtxtIdIndex = new Map<string, { taskId: string; name: string }>();
 
   /**
-   * Attempt to initialise the llmtxt store. Returns `null` on any failure
-   * (which permanently flips `llmtxtStore` to `false` so subsequent calls
-   * skip straight to the legacy path).
+   * Attempt to initialise the llmtxt store. Throws if llmtxt peer deps
+   * are unavailable or if opening the store fails. As of Wave C there is
+   * no legacy fallback — callers must ensure llmtxt is available.
    *
    * @internal
    */
-  async function ensureLlmtxt(): Promise<CleoBlobStoreType | null> {
-    if (forceLegacy) return null;
-    if (llmtxtStore === false) return null;
+  async function ensureLlmtxt(): Promise<CleoBlobStoreType> {
+    if (llmtxtStore === false) {
+      throw new Error(
+        '[attachment-store-v2] llmtxt backend previously failed to initialize — no legacy fallback available (Wave C). ' +
+          'Ensure node:sqlite, drizzle-orm/node-sqlite, and llmtxt/blob are installed.',
+      );
+    }
     if (llmtxtStore !== null) return llmtxtStore;
+
     if (!(await canUseLlmtxtBackend())) {
       llmtxtStore = false;
-      return null;
+      throw new Error(
+        '[attachment-store-v2] llmtxt backend unavailable — missing peer deps (node:sqlite, drizzle-orm/node-sqlite, llmtxt/blob). ' +
+          'The legacy fallback was retired in Wave C (T11141).',
+      );
     }
+
     try {
       const { CleoBlobStore } = await import('./llmtxt-blob-adapter.js');
       const store = new CleoBlobStore({ projectRoot });
@@ -234,15 +226,10 @@ export function createAttachmentStoreV2(
       llmtxtStore = store;
       return store;
     } catch (err) {
-      // Observability: llmtxt backend silently fell back to legacy for months in CI
-      // because the bindings error was swallowed. Log to stderr (never stdout —
-      // stdout is reserved for LAFS envelope).
-      console.error(
-        '[attachment-store-v2] llmtxt backend unavailable, falling back to legacy:',
-        err instanceof Error ? err.message : String(err),
-      );
       llmtxtStore = false;
-      return null;
+      throw new Error(
+        `[attachment-store-v2] Failed to open llmtxt blob store: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
@@ -274,133 +261,46 @@ export function createAttachmentStoreV2(
   return {
     async put(taskId, file) {
       const contentType = file.contentType ?? 'application/octet-stream';
-
-      // Preferred path: llmtxt-backed blob store. We intentionally do NOT
-      // wrap this in a try/catch fallback — payload-specific errors (invalid
-      // name, too large) must surface to the caller. Peer-dep unavailability
-      // is handled upstream by `ensureLlmtxt()` returning null.
       const llmtxt = await ensureLlmtxt();
-      if (llmtxt !== null) {
-        const res = await llmtxt.attach(taskId, file.name, file.data, contentType);
-        llmtxtIdIndex.set(res.attachmentId, { taskId, name: file.name });
-        return {
-          attachmentId: res.attachmentId,
-          sha256: res.sha256,
-          backend: 'llmtxt',
-        };
-      }
-
-      // Legacy path — wraps the existing content-addressed store. `sha256`
-      // on the returned metadata is always populated by the legacy store.
-      const { createAttachmentStore } = await import('./attachment-store.js');
-      const legacy = createAttachmentStore();
-      const blobDescriptor: Omit<BlobAttachment, 'sha256'> = {
-        kind: 'blob',
-        storageKey: '',
-        mime: contentType,
-        size: file.data.byteLength,
-      };
-      const meta = await legacy.put(Buffer.from(file.data), blobDescriptor, 'task', taskId);
+      const res = await llmtxt.attach(taskId, file.name, file.data, contentType);
+      llmtxtIdIndex.set(res.attachmentId, { taskId, name: file.name });
       return {
-        attachmentId: meta.id,
-        sha256: meta.sha256,
-        backend: 'legacy',
+        attachmentId: res.attachmentId,
+        sha256: res.sha256,
+        backend: 'llmtxt' as AttachmentBackend,
       };
     },
 
     async get(attachmentId) {
-      // Try llmtxt first if available.
       const llmtxt = await ensureLlmtxt();
-      if (llmtxt !== null) {
-        const key = llmtxtIdIndex.get(attachmentId);
-        if (key !== undefined) {
-          const blob = await llmtxt.get(key.taskId, key.name);
-          if (blob !== null && blob.data !== undefined) {
-            return {
-              data: new Uint8Array(blob.data),
-              name: blob.blobName,
-              contentType: blob.contentType,
-            };
-          }
+      const key = llmtxtIdIndex.get(attachmentId);
+      if (key !== undefined) {
+        const blob = await llmtxt.get(key.taskId, key.name);
+        if (blob !== null && blob.data !== undefined) {
+          return {
+            data: new Uint8Array(blob.data),
+            name: blob.blobName,
+            contentType: blob.contentType,
+          };
         }
       }
-
-      // Legacy path — resolve by attachment id → sha256 → bytes.
-      const { createAttachmentStore } = await import('./attachment-store.js');
-      const legacy = createAttachmentStore();
-      const meta = await legacy.getMetadata(attachmentId);
-      if (meta === null) return null;
-      const result = await legacy.get(meta.sha256);
-      if (result === null) return null;
-
-      // Derive a display name from the attachment union.
-      const att = result.metadata.attachment;
-      let name = attachmentId;
-      let contentType: string | undefined;
-      if (att.kind === 'local-file') {
-        name = att.path.split(/[\\/]/).pop() ?? attachmentId;
-        contentType = att.mime;
-      } else if (att.kind === 'blob') {
-        contentType = att.mime;
-      }
-
-      return {
-        data: new Uint8Array(result.bytes),
-        name,
-        contentType,
-      };
+      return null;
     },
 
     async list(taskId) {
-      // llmtxt is authoritative for task-scoped listings.
       const llmtxt = await ensureLlmtxt();
-      if (llmtxt !== null) {
-        return refreshLlmtxtIndex(llmtxt, taskId);
-      }
-
-      const { createAttachmentStore } = await import('./attachment-store.js');
-      const legacy = createAttachmentStore();
-      const rows = await legacy.listByOwner('task', taskId);
-      return rows.map((m): AttachmentListEntry => {
-        let name = m.id;
-        if (m.attachment.kind === 'local-file') {
-          name = m.attachment.path.split(/[\\/]/).pop() ?? m.id;
-        }
-        return {
-          attachmentId: m.id,
-          name,
-          sha256: m.sha256,
-        };
-      });
+      return refreshLlmtxtIndex(llmtxt, taskId);
     },
 
-    async remove(attachmentId, taskId) {
-      // llmtxt: resolve via index (populated by put/list). A `detach` is
-      // a soft-delete so refcount semantics do not apply — the newest
-      // upload for `(task, name)` replaces the old row.
+    async remove(attachmentId, _taskId) {
       const llmtxt = await ensureLlmtxt();
-      if (llmtxt !== null) {
-        const key = llmtxtIdIndex.get(attachmentId);
-        if (key !== undefined) {
-          await llmtxt.detach(key.taskId, key.name);
-          llmtxtIdIndex.delete(attachmentId);
-          return;
-        }
+      const key = llmtxtIdIndex.get(attachmentId);
+      if (key !== undefined) {
+        await llmtxt.detach(key.taskId, key.name);
+        llmtxtIdIndex.delete(attachmentId);
       }
-
-      // Legacy path — deref the `(attachment, task, owner)` ref row.
-      // When `taskId` is omitted we can't accurately pick which owner to
-      // deref (tasks.db has no reverse index from attachmentId→owner list
-      // on the public accessor), so we fall back to a no-op and rely on
-      // the caller to supply `taskId` when refCount > 1 matters.
-      const { createAttachmentStore } = await import('./attachment-store.js');
-      const legacy = createAttachmentStore();
-      const meta = await legacy.getMetadata(attachmentId);
-      if (meta === null) return;
-
-      if (taskId !== undefined) {
-        await legacy.deref(attachmentId, 'task', taskId);
-      }
+      // If the id isn't in the index, it was never stored via this store
+      // instance — silently return (consistent with prior behavior).
     },
   };
 }

@@ -1282,6 +1282,7 @@ export type {
   AttachmentListEntry,
   AttachmentPutResult,
   AttachmentStoreV2,
+  /** @deprecated Wave C (T11141) — legacy backend option removed. Kept for type compatibility. */
   CreateAttachmentStoreV2Options,
 } from './store/attachment-store-v2.js';
 export {

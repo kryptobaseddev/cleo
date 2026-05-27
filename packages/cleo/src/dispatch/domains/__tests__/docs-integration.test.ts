@@ -65,9 +65,8 @@ describe('docs dispatch integration (T947)', () => {
     expect(data.ownerId).toBe('T900');
     expect(data.refCount).toBeGreaterThanOrEqual(1);
 
-    // Wave B observability — every mutating docs call reports which
-    // backend persisted the bytes.
-    expect(['llmtxt', 'legacy']).toContain(response.meta['attachmentBackend']);
+    // Wave C observability — v2 store always uses llmtxt backend.
+    expect(response.meta['attachmentBackend']).toBe('llmtxt');
   });
 
   it('docs.list returns the attachment registered via docs.add', async () => {
@@ -113,7 +112,7 @@ describe('docs dispatch integration (T947)', () => {
     // Truncated sha256 ("<first-8>…") in list responses
     expect(entry?.sha256.startsWith(addData.sha256.slice(0, 8))).toBe(true);
 
-    // Backend observability on read path too.
-    expect(['llmtxt', 'legacy']).toContain(listResp.meta['attachmentBackend']);
+    // Backend observability on read path — always llmtxt (Wave C).
+    expect(listResp.meta['attachmentBackend']).toBe('llmtxt');
   });
 });

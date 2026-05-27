@@ -185,7 +185,7 @@ export async function checkDocsConsistency(
   }>;
 
   try {
-    const db = getDb();
+    const db = await getDb();
     const rows = db
       .select({
         id: attachments.id,
@@ -322,7 +322,7 @@ export async function checkDocsConsistency(
 
     // ── 3. Check for orphaned attachment_refs ─────────────────────────────
     try {
-      const db = getDb();
+      const db = await getDb();
       const orphanedRefs = db
         .select({
           attachmentId: attachmentRefs.attachmentId,
@@ -353,7 +353,7 @@ export async function checkDocsConsistency(
 
     // ── 4. Check for zero-ref attachments ─────────────────────────────────
     try {
-      const db = getDb();
+      const db = await getDb();
       const zeroRefAttachments = db
         .select({
           id: attachments.id,
@@ -425,7 +425,7 @@ export async function checkDocsConsistency(
   // ── Calculate all attachments examined (not just published) ─────────────
   let allAttachmentCount = publishedAttachments.length;
   try {
-    const db = getDb();
+    const db = await getDb();
     const count = db
       .select({ n: sql<number>`count(*)` })
       .from(attachments)
