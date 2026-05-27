@@ -1,32 +1,35 @@
 /**
- * Regression tests for gh-390 — `orchestrate.ready` and `orchestrate.waves`
- * must traverse the Saga `task_relations.type='groups'` relation when the
- * target epic carries `label='saga'` (ADR-073).
+ * Tests for `orchestrate.ready` and `orchestrate.waves` saga traversal
+ * using `type='saga'` with `parent_id` containment (T10638 / T10966).
  *
- * Before this fix both ops walked only `parentId`, so sagas (which DO NOT
- * use `parentId` for member linkage) returned `total: 0` with
- * `reason: "epic has no children"`. This test seeds a saga with 3 member
- * epics, each holding a small pending task set, and asserts the aggregated
- * ready + merged wave plans flow through.
+ * After T10638, sagas use `type='saga'` and member Epics are linked via
+ * `parentId` pointing at the saga (NOT `task_relations.groups`). The
+ * saga walk auto-detects `type='saga'` and aggregates ready/wave data
+ * across all member epics.
  *
- * Fixture layout:
+ * After T10966, the `via` parameter is deprecated — all callers get
+ * auto-detect behavior regardless of `via` value.
  *
- *   T-S (epic, labels=['saga']) — Saga
- *     ↳ groups → T-E1 (epic)
+ * Fixture layout (parent_id containment):
+ *
+ *   T-S (type='saga') — Saga
+ *     ↳ parentId=T-S → T-E1 (epic)
  *         ↳ T-E1-A (pending, no deps)        — wave 1
  *         ↳ T-E1-B (pending, depends T-E1-A) — wave 2
- *     ↳ groups → T-E2 (epic)
+ *     ↳ parentId=T-S → T-E2 (epic)
  *         ↳ T-E2-A (pending, no deps)        — wave 1
  *         ↳ T-E2-B (done)                    — excluded
- *     ↳ groups → T-E3 (epic)
+ *     ↳ parentId=T-S → T-E3 (epic)
  *         ↳ T-E3-A (pending, no deps)        — wave 1
  *
- *   T-REGULAR (epic, no labels) — regression target
+ *   T-REGULAR (epic) — regression target
  *     ↳ T-REG-A (pending) — child via parentId
  *
  * @bug gh-390
  * @adr ADR-073
  * @task T9839
+ * @task T10966 — Unify saga traversal and deep rollup Core semantics
+ * @task T10969 — Add saga ready frontier tests
  */
 
 import { mkdirSync } from 'node:fs';
@@ -34,42 +37,40 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  addRelation,
   createTask,
   getDb,
   orchestrateReady,
   orchestrateWaves,
+  sagas,
 } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 let TEST_ROOT: string;
 
 /**
- * Seed the saga fixture described in the file header.
+ * Seed the saga fixture with type='saga' and parent_id containment.
  */
 async function seedSagaFixture(testRoot: string): Promise<void> {
   const cleoDir = join(testRoot, '.cleo');
   mkdirSync(cleoDir, { recursive: true });
-  // validateProjectRoot requires `.git/` sibling for the walk-up.
   mkdirSync(join(testRoot, '.git'), { recursive: true });
   await getDb(testRoot);
 
   const ts = '2026-05-21T00:00:00Z';
 
   const tasks = [
-    // Saga
+    // Saga (type='saga', NOT type='epic' + labels)
     {
       id: 'T-S',
       title: 'Saga Root',
-      description: 'Saga grouping epic',
-      type: 'epic' as const,
+      description: 'Saga grouping epics',
+      type: 'saga' as const,
       status: 'active' as const,
       priority: 'high' as const,
-      labels: ['saga'],
       createdAt: ts,
       updatedAt: null,
     },
-    // Member epics
+    // Member epics (linked via parentId=T-S)
     {
       id: 'T-E1',
       title: 'Member epic 1',
@@ -77,6 +78,7 @@ async function seedSagaFixture(testRoot: string): Promise<void> {
       type: 'epic' as const,
       status: 'active' as const,
       priority: 'high' as const,
+      parentId: 'T-S',
       createdAt: ts,
       updatedAt: null,
     },
@@ -87,6 +89,7 @@ async function seedSagaFixture(testRoot: string): Promise<void> {
       type: 'epic' as const,
       status: 'active' as const,
       priority: 'medium' as const,
+      parentId: 'T-S',
       createdAt: ts,
       updatedAt: null,
     },
@@ -97,6 +100,7 @@ async function seedSagaFixture(testRoot: string): Promise<void> {
       type: 'epic' as const,
       status: 'active' as const,
       priority: 'medium' as const,
+      parentId: 'T-S',
       createdAt: ts,
       updatedAt: null,
     },
@@ -186,11 +190,6 @@ async function seedSagaFixture(testRoot: string): Promise<void> {
   for (const task of tasks) {
     await createTask(task as Parameters<typeof createTask>[0], testRoot);
   }
-
-  // Link saga members via task_relations.type='groups'.
-  await addRelation('T-S', 'T-E1', 'groups', testRoot);
-  await addRelation('T-S', 'T-E2', 'groups', testRoot);
-  await addRelation('T-S', 'T-E3', 'groups', testRoot);
 }
 
 beforeEach(async () => {
@@ -209,10 +208,10 @@ afterEach(async () => {
 });
 
 // ---------------------------------------------------------------------------
-// orchestrateReady — saga walk
+// orchestrateReady — saga walk (T10966: auto-detect)
 // ---------------------------------------------------------------------------
 
-describe('orchestrateReady — saga groups-relation walk (gh-390)', () => {
+describe('orchestrateReady — saga traversal (type=saga, T10966)', () => {
   interface ReadyData {
     epicId: string;
     readyTasks: Array<{ id: string; title: string; priority: string; depends: string[] }>;
@@ -222,7 +221,7 @@ describe('orchestrateReady — saga groups-relation walk (gh-390)', () => {
     reason?: string;
   }
 
-  it('default --via=both: aggregates ready tasks from saga member epics', async () => {
+  it('auto-detects saga shape and aggregates ready tasks from member epics', async () => {
     const result = await orchestrateReady('T-S', TEST_ROOT);
     expect(result.success).toBe(true);
     if (!result.success) return;
@@ -243,7 +242,6 @@ describe('orchestrateReady — saga groups-relation walk (gh-390)', () => {
   });
 
   it('deduplicates tasks that appear under multiple members', async () => {
-    // Re-issuing the same ready query MUST not double-count.
     const result = await orchestrateReady('T-S', TEST_ROOT);
     expect(result.success).toBe(true);
     if (!result.success) return;
@@ -252,27 +250,7 @@ describe('orchestrateReady — saga groups-relation walk (gh-390)', () => {
     expect(new Set(ids).size, 'no duplicate IDs').toBe(ids.length);
   });
 
-  it('--via=parent on a saga returns empty (legacy behaviour preserved)', async () => {
-    const result = await orchestrateReady('T-S', TEST_ROOT, { via: 'parent' });
-    expect(result.success).toBe(true);
-    if (!result.success) return;
-    const data = result.data as ReadyData;
-    expect(data.via).toBe('parent');
-    expect(data.total).toBe(0);
-    expect(data.reason).toBe('epic has no children');
-  });
-
-  it('--via=saga walks ONLY the groups relation', async () => {
-    const result = await orchestrateReady('T-S', TEST_ROOT, { via: 'saga' });
-    expect(result.success).toBe(true);
-    if (!result.success) return;
-    const data = result.data as ReadyData;
-    expect(data.via).toBe('saga');
-    expect(data.total).toBe(3);
-    expect(data.sagaMembers).toEqual(['T-E1', 'T-E2', 'T-E3']);
-  });
-
-  it('regression: non-saga epic still walks parentId (default via=both)', async () => {
+  it('regression: non-saga epic still walks parentId', async () => {
     const result = await orchestrateReady('T-REGULAR', TEST_ROOT);
     expect(result.success).toBe(true);
     if (!result.success) return;
@@ -285,10 +263,10 @@ describe('orchestrateReady — saga groups-relation walk (gh-390)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// orchestrateWaves — saga walk
+// orchestrateWaves — saga walk (T10966: auto-detect)
 // ---------------------------------------------------------------------------
 
-describe('orchestrateWaves — saga groups-relation walk (gh-390)', () => {
+describe('orchestrateWaves — saga traversal (type=saga, T10966)', () => {
   interface WavesData {
     epicId: string;
     waves: Array<{ waveNumber: number; taskIds: string[]; tasks: Array<{ id: string }> }>;
@@ -298,7 +276,7 @@ describe('orchestrateWaves — saga groups-relation walk (gh-390)', () => {
     sagaMembers?: string[];
   }
 
-  it('default --via=both: merges per-member wave plans by wave index', async () => {
+  it('auto-detects saga shape and merges per-member wave plans by wave index', async () => {
     const result = await orchestrateWaves('T-S', TEST_ROOT);
     expect(result.success).toBe(true);
     if (!result.success) return;
@@ -323,26 +301,6 @@ describe('orchestrateWaves — saga groups-relation walk (gh-390)', () => {
     }
   });
 
-  it('--via=parent on a saga returns empty wave list (legacy behaviour)', async () => {
-    const result = await orchestrateWaves('T-S', TEST_ROOT, { via: 'parent' });
-    expect(result.success).toBe(true);
-    if (!result.success) return;
-    const data = result.data as WavesData;
-    expect(data.via).toBe('parent');
-    expect(data.totalWaves).toBe(0);
-    expect(data.waves.length).toBe(0);
-  });
-
-  it('--via=saga walks ONLY the groups relation', async () => {
-    const result = await orchestrateWaves('T-S', TEST_ROOT, { via: 'saga' });
-    expect(result.success).toBe(true);
-    if (!result.success) return;
-    const data = result.data as WavesData;
-    expect(data.via).toBe('saga');
-    expect(data.totalWaves).toBe(2);
-    expect(data.sagaMembers).toEqual(['T-E1', 'T-E2', 'T-E3']);
-  });
-
   it('regression: non-saga epic still walks parentId', async () => {
     const result = await orchestrateWaves('T-REGULAR', TEST_ROOT);
     expect(result.success).toBe(true);
@@ -353,5 +311,96 @@ describe('orchestrateWaves — saga groups-relation walk (gh-390)', () => {
     expect(data.totalWaves).toBe(1);
     expect(data.waves[0]?.taskIds).toEqual(['T-REG-A']);
     expect(data.sagaMembers).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sagas.sagaRollup — deep task-level progress (T10966)
+// ---------------------------------------------------------------------------
+
+describe('sagas.sagaRollup — deep rollup with task-level progress (T10966)', () => {
+  interface DeepRollupData {
+    sagaId: string;
+    total: number;
+    done: number;
+    active: number;
+    blocked: number;
+    pending: number;
+    completionPct: number;
+    memberEpics?: Array<{
+      id: string;
+      title: string;
+      status: string;
+      descendantTaskCount: number;
+      descendantDone: number;
+      descendantActive: number;
+      descendantBlocked: number;
+      descendantPending: number;
+      descendantCompletionPct: number;
+    }>;
+    totalDescendantTasks?: number;
+    descendantDone?: number;
+    descendantCompletionPct?: number;
+  }
+
+  it('returns epic-level rollup for a saga', async () => {
+    const result = await sagas.sagaRollup(TEST_ROOT, { sagaId: 'T-S' });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    const data = result.data as DeepRollupData;
+
+    // 3 member epics, all active
+    expect(data.sagaId).toBe('T-S');
+    expect(data.total).toBe(3);
+    expect(data.active).toBe(3);
+    expect(data.done).toBe(0);
+    expect(data.completionPct).toBe(0);
+  });
+
+  it('includes deep task-level progress when requested', async () => {
+    const result = await sagas.sagaRollup(TEST_ROOT, { sagaId: 'T-S' }, true);
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    const data = result.data as DeepRollupData;
+
+    // Verify per-epic breakdowns exist
+    expect(data.memberEpics).toBeDefined();
+    expect(data.memberEpics!.length).toBe(3);
+
+    // T-E1 has 2 descendant tasks (T-E1-A, T-E1-B), both pending
+    const e1 = data.memberEpics!.find((m) => m.id === 'T-E1');
+    expect(e1).toBeDefined();
+    expect(e1!.descendantTaskCount).toBe(2);
+    expect(e1!.descendantPending).toBe(2);
+    expect(e1!.descendantDone).toBe(0);
+
+    // T-E2 has 2 descendant tasks (T-E2-A pending, T-E2-B done)
+    const e2 = data.memberEpics!.find((m) => m.id === 'T-E2');
+    expect(e2).toBeDefined();
+    expect(e2!.descendantTaskCount).toBe(2);
+    expect(e2!.descendantPending).toBe(1);
+    expect(e2!.descendantDone).toBe(1);
+    expect(e2!.descendantCompletionPct).toBe(50);
+
+    // T-E3 has 1 descendant task (T-E3-A), pending
+    const e3 = data.memberEpics!.find((m) => m.id === 'T-E3');
+    expect(e3).toBeDefined();
+    expect(e3!.descendantTaskCount).toBe(1);
+    expect(e3!.descendantPending).toBe(1);
+
+    // Aggregate descendant stats
+    expect(data.totalDescendantTasks).toBe(5); // 2 + 2 + 1
+    expect(data.descendantDone).toBe(1); // T-E2-B
+    expect(data.descendantCompletionPct).toBe(20); // 1/5
+  });
+
+  it('returns E_NOT_FOUND for non-existent saga', async () => {
+    const result = await sagas.sagaRollup(TEST_ROOT, { sagaId: 'T-NONEXISTENT' });
+    expect(result.success).toBe(false);
+  });
+
+  it('returns E_NOT_FOUND for a regular epic (not a saga)', async () => {
+    const result = await sagas.sagaRollup(TEST_ROOT, { sagaId: 'T-REGULAR' });
+    expect(result.success).toBe(false);
   });
 });
