@@ -404,6 +404,26 @@ export const E_INVALID_PIPELINE_STAGE = 'E_INVALID_PIPELINE_STAGE' as const;
  */
 export const E_AC_COVERAGE_INCOMPLETE = 'E_AC_COVERAGE_INCOMPLETE' as const;
 
+/**
+ * E_CWD_WALKUP_FORBIDDEN — `getCleoDirAbsolute(cwd)` was called while
+ * `CLEO_PATHS_STRICT=1` is set. The caller MUST migrate to
+ * `resolveProjectByCwd(cwd)` + `resolveCanonicalCleoDir(projectId)`
+ * instead of relying on CWD-walk-up path resolution.
+ *
+ * This is the enforcement mechanism for the T10297 migration — once all
+ * callers are migrated, the strict gate will be made the default and
+ * `getCleoDirAbsolute` will be removed entirely.
+ *
+ * `error.details.fix` carries the exact migration commands.
+ *
+ * Maps to {@link ExitCode.CONFIG_ERROR} (8) at the CLI boundary.
+ *
+ * @task T11022
+ * @epic T10296
+ * @saga T10295
+ */
+export const E_CWD_WALKUP_FORBIDDEN = 'E_CWD_WALKUP_FORBIDDEN' as const;
+
 /** Check if an exit code represents an error (1-99). */
 export function isErrorCode(code: ExitCode): boolean {
   return code >= 1 && code < 100;

@@ -18,14 +18,15 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
-import { ExitCode } from '@cleocode/contracts';
+import { basename, dirname, join, resolve } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { E_CWD_WALKUP_FORBIDDEN, ExitCode } from '@cleocode/contracts';
 import {
   getCanonicalTemplatesTildePath as _getCanonicalTemplatesTildePath,
   getCleoTemplatesTildePath as _getCleoTemplatesTildePath,
   isAbsolutePath as _isAbsolutePath,
   resolveCanonicalCleoDir as _resolveCanonicalCleoDir,
-  resolveProjectByCwd,
+  resolveProjectByCwd as _pathsResolveProjectByCwd,
 } from '@cleocode/paths';
 import { CleoError } from './errors.js';
 import { getPlatformPaths } from './system/platform-paths.js';
@@ -343,13 +344,57 @@ export function getCleoDirAbsolute(cwd?: string, opts?: { bootstrap?: boolean })
     return cleoDir;
   }
 
+  // T11022: Deprecation warning + CLEO_PATHS_STRICT enforcement.
+  // When callers pass an absolute CLEO_DIR, we return it verbatim above —
+  // no deprecation because the caller already has a canonical path.
+  // Every other path through this function is CWD-walk-up resolution that
+  // should be migrated to resolveProjectByCwd + resolveCanonicalCleoDir.
+  //
+  // bootstrap=true is also exempt: cleo init legitimately needs to resolve
+  // a .cleo/ path that doesn't exist yet (AC3).
+  if (!opts?.bootstrap) {
+    if (process.env['CLEO_PATHS_STRICT'] === '1') {
+      // AC2: Strict mode — throw with remediation hint.
+      throw new CleoError(
+        ExitCode.CONFIG_ERROR,
+        `${E_CWD_WALKUP_FORBIDDEN}: getCleoDirAbsolute(cwd) with CWD-walk-up resolution is forbidden under CLEO_PATHS_STRICT=1. ` +
+          `Migrate to:\\n` +
+          `  const project = resolveProjectByCwd(cwd);\\n` +
+          `  if (!project) throw new Error('Not in a CLEO project');\\n` +
+          `  const cleoDir = resolveCanonicalCleoDir(project.projectId);`,
+        {
+          fix: 'Replace getCleoDirAbsolute(cwd) with resolveProjectByCwd(cwd) + resolveCanonicalCleoDir(projectId)',
+          details: {
+            affectedSymbols: ['getCleoDirAbsolute'],
+            remediationCommands: [
+              'const project = resolveProjectByCwd(cwd)',
+              'const cleoDir = resolveCanonicalCleoDir(project.projectId)',
+            ],
+          },
+        },
+      );
+    }
+
+    if (!_getCleoDirAbsoluteDeprecatedWarned) {
+      _getCleoDirAbsoluteDeprecatedWarned = true;
+      // AC1: One-time deprecation warning via CLEO_DEBUG.
+      if (process.env['CLEO_DEBUG']) {
+        process.stderr.write(
+          `[cleo][debug] W_PATH_DEPRECATED: getCleoDirAbsolute(cwd) is deprecated (T10297). ` +
+            `Migrate to resolveProjectByCwd(cwd) + resolveCanonicalCleoDir(projectId). ` +
+            `Set CLEO_PATHS_STRICT=1 to enforce this at runtime.\\n`,
+        );
+      }
+    }
+  }
+
   // T10297: try canonical projectId-based resolution.
   // resolveProjectByCwd verifies we're in a valid CLEO project by reading
   // project-info.json, but getProjectRoot handles the actual path resolution
   // (worktree gitlink following, CLEO_ROOT, worktreeScope ALS, etc.).
   // We use resolveProjectByCwd as a validation gate, and getProjectRoot
   // as the path authority.
-  const project = resolveProjectByCwd(cwd);
+  const project = _pathsResolveProjectByCwd(cwd);
   if (project !== null) {
     try {
       const projectRoot = getProjectRoot(cwd);
@@ -429,6 +474,92 @@ export function resolveCanonicalCleoDir(projectId: string): string {
 }
 
 /**
+ * Walk up from cwd looking for a match in the global nexus.db project_registry
+ * by project_path. Falls back when no `.cleo/project-info.json` is found locally.
+ *
+ * @internal
+ * @task T11013
+ */
+function _resolveProjectByCwdFromNexus(cwd?: string): string | null {
+  try {
+    const cleoHome = getCleoHome();
+    const nexusDbPath = join(cleoHome, 'nexus.db');
+    if (!existsSync(nexusDbPath)) return null;
+
+    const start = resolve(cwd ?? process.cwd());
+    let current = start;
+
+    const db = new DatabaseSync(nexusDbPath, { readOnly: true });
+    try {
+      const stmt = db.prepare(
+        'SELECT project_id FROM project_registry WHERE project_path = ? LIMIT 1',
+      );
+
+      while (true) {
+        const row = stmt.get(current) as { project_id: string } | undefined;
+        if (row && typeof row.project_id === 'string' && row.project_id.length > 0) {
+          return row.project_id;
+        }
+
+        const parent = dirname(current);
+        if (parent === current) break;
+        current = parent;
+      }
+    } finally {
+      try { db.close(); } catch { /* best-effort */ }
+    }
+  } catch {
+    // nexus.db unavailable or corrupted — not an error, just no match
+  }
+  return null;
+}
+
+/**
+ * Resolve the canonical projectId from a working directory.
+ *
+ * First reads `.cleo/project-info.json` from CWD or an ancestor directory (AC2).
+ * Falls back to nexus registry `project_registry.project_path` match when no
+ * local `project-info.json` is found (AC3).
+ *
+ * @param cwd - Optional working directory. Defaults to `process.cwd()`.
+ * @returns The canonical projectId string (AC4).
+ * @throws {CleoError} `ExitCode.NEXUS_PROJECT_NOT_FOUND` (E_CLEO_NEXUS_PROJECT_NOT_FOUND)
+ *   with a remediation hint when no CLEO project is found (AC5).
+ *
+ * @example
+ * ```typescript
+ * const projectId = resolveProjectByCwd('/repo/packages/core');
+ * // "a1b2c3d4e5f6"
+ * ```
+ *
+ * @public
+ * @task T11013
+ */
+export function resolveProjectByCwd(cwd?: string): string {
+  // AC2: Try local project-info.json first (via paths package)
+  const pathsResult = _pathsResolveProjectByCwd(cwd);
+  if (pathsResult !== null) {
+    return pathsResult.projectId;
+  }
+
+  // AC3: Fall back to nexus registry lookup
+  const nexusProjectId = _resolveProjectByCwdFromNexus(cwd);
+  if (nexusProjectId !== null) {
+    return nexusProjectId;
+  }
+
+  // AC5: Throw with remediation hint
+  throw new CleoError(
+    ExitCode.NEXUS_PROJECT_NOT_FOUND,
+    'No CLEO project found — not in a CLEO project directory and no registry match. ' +
+      'Run `cleo init` to create a new project, or cd into an existing CLEO project.',
+    {
+      fix: 'Run `cleo init` to initialize a CLEO project here, or cd into a project with a .cleo/ directory',
+    },
+  );
+}
+
+/**
  * Internal: resolve the canonical `.cleo/` directory using the T10297
  * projectId-based resolution chain.
  *
@@ -449,7 +580,7 @@ function _resolveCleoDir(cwd?: string): string {
     return cleoDir;
   }
 
-  const project = resolveProjectByCwd(cwd);
+  const project = _pathsResolveProjectByCwd(cwd);
   if (project !== null) {
     try {
       return resolve(getProjectRoot(cwd), cleoDir);
@@ -526,6 +657,16 @@ function _resolveMainRepoFromGitlink(gitlinkDir: string): string | null {
  * Prevents log spam when `validateProjectRoot` is called repeatedly in a session.
  */
 let _legacyFallbackWarned = false;
+
+/**
+ * Module-level flag: emit the T10297 deprecation warning for
+ * `getCleoDirAbsolute` at most once per process (AC4).
+ *
+ * @task T11022
+ * @epic T10296
+ * @saga T10295
+ */
+let _getCleoDirAbsoluteDeprecatedWarned = false;
 
 /**
  * Validate that a candidate project root directory is a legitimate CLEO
