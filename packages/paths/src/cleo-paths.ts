@@ -9,8 +9,10 @@
  * @task T1883
  */
 
+import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import {
   createPlatformPathsResolver,
   type PlatformPaths,
@@ -157,6 +159,130 @@ export function getCanonicalTemplatesTildePath(): string {
 export function resolveLegacyCleoDir(override?: string): string {
   if (override) return override;
   return join(homedir(), '.cleo');
+}
+
+/**
+ * Result of {@link resolveProjectByCwd} — the project identity resolved
+ * from walking up from a working directory.
+ *
+ * @public
+ */
+export interface ResolvedProject {
+  /** Stable UUID that identifies the project across directory moves. */
+  projectId: string;
+  /** Absolute path to the project root directory. */
+  projectRoot: string;
+}
+
+/**
+ * Walk up from `cwd` (or `process.cwd()`) looking for `.cleo/project-info.json`
+ * and return the project identity if found.
+ *
+ * This replaces the ancestor-walk pattern in `getCleoDirAbsolute` with a
+ * projectId-aware lookup. Instead of resolving a `.cleo/` directory via
+ * git-root heuristics, it reads the stable `projectId` from the canonical
+ * project-info file — enabling move-safe project identification.
+ *
+ * @param cwd - Optional working directory to start the ancestor walk from.
+ *   Defaults to `process.cwd()`.
+ * @returns The resolved project identity, or `null` if no CLEO project is
+ *   found anywhere in the ancestor chain.
+ *
+ * @example
+ * ```typescript
+ * const project = resolveProjectByCwd('/repo/packages/core');
+ * // { projectId: 'a1b2c3d4e5f6', projectRoot: '/repo' }
+ *
+ * const notFound = resolveProjectByCwd('/tmp/empty');
+ * // null
+ * ```
+ *
+ * @public
+ * @task T11008
+ */
+export function resolveProjectByCwd(cwd?: string): ResolvedProject | null {
+  const start = resolve(cwd ?? process.cwd());
+  let current = start;
+
+  while (true) {
+    const infoPath = join(current, '.cleo', 'project-info.json');
+
+    if (existsSync(infoPath)) {
+      try {
+        const raw = readFileSync(infoPath, 'utf-8');
+        const data = JSON.parse(raw) as Record<string, unknown>;
+
+        if (typeof data.projectId === 'string' && data.projectId.length > 0) {
+          return { projectId: data.projectId, projectRoot: current };
+        }
+      } catch {
+        // Corrupt or unparseable project-info.json — keep walking up.
+        // A higher ancestor may have a valid one.
+      }
+    }
+
+    const parent = dirname(current);
+    if (parent === current) break; // Reached filesystem root
+    current = parent;
+  }
+
+  return null;
+}
+
+/**
+ * Resolve the canonical `.cleo` directory for a project given its `projectId`.
+ *
+ * Looks up the project in the global `nexus.db` registry (`project_registry`
+ * table) to find the project's root path, then returns the `.cleo/` directory
+ * under that root.
+ *
+ * This enables cross-project lookups: given a stable project ID, resolve where
+ * that project lives on disk without walking from a working directory.
+ *
+ * @param projectId - The stable project UUID (from `.cleo/project-info.json`).
+ * @returns Absolute path to the `.cleo/` directory, or `null` if the
+ *   projectId is not found in the nexus registry.
+ *
+ * @example
+ * ```typescript
+ * const cleoDir = resolveCanonicalCleoDir('a1b2c3d4e5f6');
+ * // "/mnt/projects/cleocode/.cleo"
+ *
+ * const notFound = resolveCanonicalCleoDir('nonexistent');
+ * // null
+ * ```
+ *
+ * @public
+ * @task T11008
+ */
+export function resolveCanonicalCleoDir(projectId: string): string | null {
+  const cleoHome = getCleoHome();
+  const nexusDbPath = join(cleoHome, 'nexus.db');
+
+  if (!existsSync(nexusDbPath)) return null;
+
+  let db: DatabaseSync | undefined;
+  try {
+    db = new DatabaseSync(nexusDbPath, { readOnly: true });
+    const stmt = db.prepare(
+      'SELECT project_path FROM project_registry WHERE project_id = ? LIMIT 1',
+    );
+    const row = stmt.get(projectId) as { project_path: string } | undefined;
+
+    if (row && typeof row.project_path === 'string' && row.project_path.length > 0) {
+      return join(row.project_path, '.cleo');
+    }
+
+    return null;
+  } catch {
+    return null;
+  } finally {
+    try {
+      db?.close();
+    } catch {
+      // Best-effort close
+    }
+  }
 }
 
 /**
