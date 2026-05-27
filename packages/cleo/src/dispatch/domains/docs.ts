@@ -94,7 +94,6 @@ import {
   SUPERSEDE_SAME_SLUG_CODE,
   searchAllProjectDocs,
   searchDocs,
-  statusDocs,
   supersedeDoc,
   syncFromGit,
   updateDocBySlug,
@@ -517,7 +516,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         ...(doc.slug ? { slug: doc.slug } : {}),
         ...(doc.kind ? { type: doc.kind as DocsType } : {}),
         ownerId: doc.ownerId,
-        ownerType: doc.ownerType,
+        ownerType: doc.ownerType as AttachmentRef['ownerType'],
       }));
 
       projected.sort((a, b) =>
@@ -525,7 +524,9 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           { sha256: a._sortSha, slug: a.slug, createdAt: a.createdAt },
           { sha256: b._sortSha, slug: b.slug, createdAt: b.createdAt },
         ),
-      );\n\n      const truncated = totalCount > projected.length;
+      );
+
+      const truncated = totalCount > projected.length;
       if (truncated) {
         hintParts.push(
           `showing ${projected.length} of ${totalCount} — pass --limit <N> to widen or page further.`,

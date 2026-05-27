@@ -25,12 +25,11 @@
  * @see packages/core/src/store/blob-ops.ts (manifest.db blobs via llmtxt)
  * @see packages/core/src/docs/docs-ops.ts (publications ledger + status)
  */
+import { createHash } from 'node:crypto';
 import type { AttachmentMetadata, DocKind } from '@cleocode/contracts';
 import type { AttachmentLifecycleStatus } from '../store/schema/attachments.js';
-import { createHash } from 'node:crypto';
 import { getProjectRoot } from '../paths.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
-import type { AttachmentLifecycleStatus } from '../store/schema/attachments.js';
 import { blobList, blobRead } from '../store/blob-ops.js';
 import type { BlobListEntry } from '../store/blob-ops.js';
 
@@ -789,7 +788,7 @@ interface MutableResolvedDoc {
  * Extract a human-readable blob/attachment name from an AttachmentMetadata record.
  *
  * Handles all Attachment variant kinds:
- *   - `blob`        → `attachment.name`
+ *   - `blob`        → `attachment.storageKey` (last segment)
  *   - `local-file`  → `path.basename(attachment.path)`
  *   - `url`         → the last path segment of the URL
  *   - `llms-txt`    → `"llms-txt"` (flat content, no file)
@@ -799,7 +798,7 @@ function extractBlobName(meta: AttachmentMetadata): string | null {
   const att = meta.attachment;
   switch (att.kind) {
     case 'blob':
-      return att.name ?? null;
+      return att.storageKey.split('/').pop() ?? null;
     case 'local-file':
       return att.path.split('/').pop() ?? null;
     case 'url':
