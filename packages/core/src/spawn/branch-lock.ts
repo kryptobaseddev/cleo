@@ -1,81 +1,7 @@
-/**
- * Branch-lock engine — runtime enforcement for agent git isolation (T1118).
- *
- * Implements all four protection layers:
- *
- * - L1: Git worktree creation, merge-completion (ADR-062), and cleanup.
- * - L2: Shim symlink materialisation + spawn env construction.
- * - L3: Filesystem hardening via chmod (+ optional chattr on Linux).
- * - L4: Not here — L4 lives in validate-engine and session domain handlers.
- *
- * Worktree integration uses `git merge --no-ff` exclusively per ADR-062.
- * The legacy cherry-pick integration path was removed in T1624.
- *
- * All git operations use execFileSync with explicit arg arrays (no shell
- * interpolation) to prevent command injection.
- *
- * @task T1118
- * @adr ADR-055
- * @adr ADR-062
- */
-
-import { execFileSync } from 'node:child_process';
-import {
-  appendFileSync,
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  readlinkSync,
-  rmSync,
-  symlinkSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs';
-import { platform } from 'node:os';
-import { join } from 'node:path';
-
-import type {
-  AgentWorktreeState,
-  FsHardenCapabilities,
-  FsHardenState,
-  WorktreeCleanupResult,
-  WorktreeMergeResult,
-  WorktreeSpawnResult,
-} from '@cleocode/contracts';
-import { computeProjectHash, resolveWorktreeRootForHash } from '@cleocode/paths';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Run git with explicit args (no shell) and return stdout as a trimmed string.
- * Throws on non-zero exit.
- *
- * @param args - Git arguments (no "git" prefix).
- * @param cwd - Working directory.
- * @returns stdout trimmed.
- */
-function gitSync(args: string[], cwd: string): string {
-  return execFileSync('git', args, {
-    cwd,
-    encoding: 'utf-8',
-    stdio: ['pipe', 'pipe', 'pipe'],
-  }).trim();
+).trim();
 }
 
-/**
- * Run git silently — ignores output, suppresses errors.
- *
- * @param args - Git arguments.
- * @param cwd - Working directory.
- * @returns true on success, false on error.
- */
-function gitSilent(args: string[], cwd: string): boolean {
-  try {
-    execFileSync('git', args, { cwd, stdio: 'pipe' });
+);
     return true;
   } catch {
     return false;
@@ -86,47 +12,7 @@ function gitSilent(args: string[], cwd: string): boolean {
 // L1 — Worktree lifecycle
 // ---------------------------------------------------------------------------
 
-/**
- * Resolve the worktree root directory for a project.
- *
- * Delegates to the canonical paths-SSoT helpers in `@cleocode/paths`. The
- * resolved directory follows the XDG canonical layout per D029:
- *
- *   Linux:   ~/.local/share/cleo/worktrees/<projectHash>/
- *   macOS:   ~/Library/Application Support/cleo/worktrees/<projectHash>/
- *   Windows: %LOCALAPPDATA%\cleo\Data\worktrees\<projectHash>\
- *
- * T9984: previously hand-rolled `createHash('sha256').update(projectRoot)` +
- * `process.env['XDG_DATA_HOME']` — both violations of the paths-SSoT lint
- * (`packages/paths/` is the only legitimate source of these computations).
- * Now routes through `computeProjectHash` and `resolveWorktreeRootForHash`.
- *
- * @param projectRoot - Absolute path to the project root.
- * @returns Absolute path to the worktree root directory.
- *
- * @task T1118
- * @task T1120
- * @task T9984
- */
-export function resolveAgentWorktreeRoot(projectRoot: string): string {
-  const projectHash = computeProjectHash(projectRoot);
-  return resolveWorktreeRootForHash(projectHash);
-}
-
-/**
- * Determine the git root for a project.
- *
- * @param projectRoot - Absolute path to the project root.
- * @returns Absolute path to the git root directory.
- * @throws Error if the directory is not inside a git repository.
- *
- * @task T1118
- * @task T1120
- */
-export function getGitRoot(projectRoot: string): string {
-  try {
-    return gitSync(['rev-parse', '--show-toplevel'], projectRoot);
-  } catch {
+ catch {
     throw new Error(`Not a git repository: ${projectRoot}`);
   }
 }
@@ -888,6 +774,9 @@ export function completeAgentWorktreeIntegration(
 const STUB_SHIM_CONTENT = `#!/usr/bin/env node
 // git-shim stub (install @cleocode/git-shim for the full binary)
 import { spawnSync } from 'node:child_process';
+
+import { getGitRoot, gitSilent, gitSync } from '@cleocode/worktree';
+export { getGitRoot };
 const RESTRICTED = new Set(['worker','lead','subagent']);
 const BLOCKED = new Set(['checkout','switch','rebase']);
 const role = process.env['CLEO_AGENT_ROLE'];

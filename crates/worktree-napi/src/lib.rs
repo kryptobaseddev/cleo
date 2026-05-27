@@ -37,6 +37,7 @@
 //! chain into a `napi::Error` so the JS side gets a readable `Error.message`.
 
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use napi_derive::napi;
 
@@ -1185,6 +1186,128 @@ pub fn run_step(opts: RunStepOpts) -> napi::Result<RunStepResult> {
     }
 }
 
+
+// ── integrate_worktree ───────────────────────────────────────────────
+// T11124: NAPI-wrapped merge workflow — retires raw git fetch/rebase/
+// checkout/merge shell-outs from completeAgentWorktreeViaMerge.
+
+/// Options for [`integrate_worktree`].
+#[napi(object)]
+pub struct IntegrateOpts {
+    pub repo_root: String,
+    pub worktree_path: String,
+    pub branch: String,
+    pub target_branch: String,
+    pub task_title: Option<String>,
+    pub skip_fetch: bool,
+}
+
+/// Result of an [`integrate_worktree`] call.
+#[napi(object)]
+pub struct IntegrateResult {
+    pub task_id: String,
+    pub target_branch: String,
+    pub merged: bool,
+    pub merge_commit: String,
+    pub commit_count: u32,
+    pub rebased: bool,
+    pub error: Option<String>,
+}
+
+fn run_git(args: &[&str], cwd: &Path) -> Result<String, String> {
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .map_err(|e| format!("git {}: {e}", args.join(" ")))?;
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        return Err(format!("git {} exited non-zero: {}", args.join(" "), stderr.trim()));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+fn run_git_ok(args: &[&str], cwd: &Path) -> bool {
+    Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s: std::process::ExitStatus| s.success())
+        .unwrap_or(false)
+}
+
+/// Integrate a task worktree into the target branch via merge --no-ff (ADR-062).
+#[napi]
+pub fn integrate_worktree(opts: IntegrateOpts) -> napi::Result<IntegrateResult> {
+    let git_root = PathBuf::from(&opts.repo_root);
+    let wt_path = PathBuf::from(&opts.worktree_path);
+    let branch = &opts.branch;
+    let target = &opts.target_branch;
+
+    let empty = |task_id: &str| IntegrateResult {
+        task_id: task_id.to_string(), target_branch: target.clone(),
+        merged: false, merge_commit: String::new(), commit_count: 0, rebased: false, error: None,
+    };
+    let fail = |task_id: &str, msg: String| IntegrateResult { error: Some(msg), ..empty(task_id) };
+    let task_id = branch.strip_prefix("task/").unwrap_or(branch).to_string();
+
+    match run_git(&["branch", "--list", branch], &git_root) {
+        Ok(out) if out.is_empty() => return Ok(fail(&task_id, format!("Branch {branch} does not exist"))),
+        Err(e) => return Ok(fail(&task_id, format!("Failed to query branch: {e}"))),
+        _ => {}
+    }
+
+    let mut rebased = false;
+    if wt_path.exists() {
+        if !opts.skip_fetch { let _ = run_git_ok(&["fetch", "origin"], &wt_path); }
+        let rebase_onto = if run_git_ok(&["rev-parse", "--verify", &format!("refs/remotes/origin/{target}")], &wt_path) {
+            format!("origin/{target}")
+        } else { target.clone() };
+        match run_git(&["rebase", &rebase_onto], &wt_path) {
+            Ok(_) => rebased = true,
+            Err(e) => { let _ = run_git_ok(&["rebase", "--abort"], &wt_path); return Ok(fail(&task_id, format!("Rebase onto {rebase_onto} failed: {e}"))); }
+        }
+    }
+
+    let mut commit_count: u32 = 0;
+    if let Ok(log) = run_git(&["log", "--format=%H", &format!("{target}..{branch}")], &git_root) {
+        commit_count = log.lines().filter(|l| !l.trim().is_empty()).count() as u32;
+    }
+    if commit_count == 0 {
+        return Ok(IntegrateResult { task_id, target_branch: target.clone(), merged: true, merge_commit: String::new(), commit_count: 0, rebased, error: None });
+    }
+
+    let subject = opts.task_title.as_deref().map(|t| format!("Merge {branch}: {t}")).unwrap_or_else(|| format!("Merge {branch}: worktree integration"));
+    let original_branch = run_git(&["rev-parse", "--abbrev-ref", "HEAD"], &git_root).ok();
+    let need_checkout = original_branch.as_deref() != Some(target);
+    let mut checked_out = false;
+    if need_checkout {
+        if !run_git_ok(&["checkout", target], &git_root) {
+            return Ok(fail(&task_id, format!("Failed to checkout {target} in main worktree")));
+        }
+        checked_out = true;
+    }
+    let mut merged = false;
+    let mut merge_commit = String::new();
+    let mut merge_error: Option<String> = None;
+    let merge_result = Command::new("git").args(["merge", "--no-ff", branch, "-m", &subject]).current_dir(&git_root).env("CLEO_ORCHESTRATE_MERGE", "1").output();
+    match merge_result {
+        Ok(out) if out.status.success() => {
+            if let Ok(sha) = run_git(&["rev-parse", "HEAD"], &git_root) { merge_commit = sha; }
+            merged = true;
+        }
+        Ok(out) => { merge_error = Some(format!("Merge --no-ff failed: {}", String::from_utf8_lossy(&out.stderr).trim())); let _ = run_git_ok(&["merge", "--abort"], &git_root); }
+        Err(e) => { merge_error = Some(format!("Merge --no-ff failed: {e}")); let _ = run_git_ok(&["merge", "--abort"], &git_root); }
+    }
+    if !merged && checked_out {
+        if let Some(ref orig) = original_branch { if orig != target { let _ = run_git_ok(&["checkout", orig], &git_root); } }
+    }
+    if !merged { return Ok(IntegrateResult { task_id, target_branch: target.clone(), merged: false, merge_commit: String::new(), commit_count, rebased, error: merge_error }); }
+    Ok(IntegrateResult { task_id, target_branch: target.clone(), merged: true, merge_commit, commit_count, rebased, error: None })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1549,3 +1672,8 @@ mod tests {
         assert!(result.is_err(), "expected missing-options error");
     }
 }
+
+// ── T11125: Branch-lock NAPI test coverage ──
+#[cfg(test)]
+#[path = "tests_branch_lock.rs"]
+mod tests_branch_lock;

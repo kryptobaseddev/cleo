@@ -56,6 +56,13 @@ export {
 } from './worktree-audit.js';
 export { createWorktree } from './worktree-create.js';
 export { destroyWorktree } from './worktree-destroy.js';
+// NAPI bindings (sync, direct to Rust) — for callers that need raw
+// worktree lifecycle without the hooks/audit/dirty-detection wrapper.
+export {
+  destroyWorktree as napiDestroyWorktree,
+  pruneWorktrees as napiPruneWorktrees,
+  removeDir as napiRemoveDir,
+} from './napi-binding.js';
 export { runWorktreeHooks } from './worktree-hooks.js';
 export { applyIncludePatterns, loadWorktreeIncludePatterns } from './worktree-include.js';
 export {
