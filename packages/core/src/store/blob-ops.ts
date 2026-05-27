@@ -46,6 +46,8 @@ export interface BlobListEntry {
   readonly sizeBytes: number;
   /** IANA MIME type recorded at attach time, when known. */
   readonly mimeType?: string;
+  /** Unix epoch ms when the blob was uploaded. Used for latest-version selection. */
+  readonly uploadedAt?: number;
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────
@@ -128,6 +130,7 @@ export async function blobList(taskId: string, projectRoot?: string): Promise<Bl
         sha256: row.hash,
         sizeBytes: row.size,
         mimeType: row.contentType === 'application/octet-stream' ? undefined : row.contentType,
+        uploadedAt: row.uploadedAt,
       }),
     );
   } finally {

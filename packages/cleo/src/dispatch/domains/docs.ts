@@ -66,6 +66,7 @@ import {
   createAttachmentStore,
   createAttachmentStoreDocsAccessor,
   createAttachmentStoreV2,
+  createDocsReadModel,
   type DerefResult,
   DOCS_UPDATE_LIFECYCLE_STATUS_LIST,
   exportDocument,
@@ -488,41 +489,35 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       );
     }
 
-    const store = createAttachmentStore();
+    // T11050 — route list through the canonical DocsReadModel
+    const model = createDocsReadModel();
     const backend: AttachmentBackend = await resolveAttachmentBackend();
 
     if (isProjectScope) {
-      // T9638 — project-scoped listing: union all attachment_refs into a flat
-      // row list. The shape stays compatible with DocsAttachmentRow by
-      // populating `ownerId` / `ownerType` per row instead of at the envelope.
-      const rows = await store.listAllInProject(
-        undefined,
-        typeFilter !== undefined ? { type: typeFilter } : undefined,
-      );
+      // Project-scoped: use the read model's listProjectDocs
+      const docs = await model.listProjectDocs({
+        kind: typeFilter,
+        limit: Number.isFinite(effectiveLimit) ? effectiveLimit : undefined,
+      });
 
-      const projected = rows.map(({ metadata: m, slug, type, ownerId: oid, ownerType: ot }) => ({
-        id: m.id,
-        sha256: `${m.sha256.slice(0, 8)}…`,
-        // T9792 — keep the full sha256 for stable cross-row sorting; the
-        // displayed truncated form is preserved on the wire field above.
-        _sortSha: m.sha256,
-        kind: m.attachment.kind,
-        mime:
-          m.attachment.kind === 'local-file' || m.attachment.kind === 'blob'
-            ? m.attachment.mime
-            : ((m.attachment as UrlAttachment).mime ?? '—'),
-        size:
-          m.attachment.kind === 'local-file' || m.attachment.kind === 'blob'
-            ? m.attachment.size
-            : undefined,
-        description: m.attachment.description,
-        labels: m.attachment.labels,
-        createdAt: m.createdAt,
-        refCount: m.refCount,
-        ...(slug ? { slug } : {}),
-        ...(type ? { type: type as DocsType } : {}),
-        ownerId: oid,
-        ownerType: ot,
+      const totalCount = docs.length;
+
+      // Build the wire projection from ResolvedDoc[] — match DocsListResult shape
+      const projected = docs.map((doc) => ({
+        id: doc.id,
+        sha256: `${doc.sha256.slice(0, 8)}…`,
+        _sortSha: doc.sha256,
+        kind: 'blob' as const,
+        mime: doc.mimeType ?? '—',
+        size: doc.sizeBytes,
+        description: undefined,
+        labels: undefined,
+        createdAt: doc.createdAt,
+        refCount: 0,
+        ...(doc.slug ? { slug: doc.slug } : {}),
+        ...(doc.kind ? { type: doc.kind as DocsType } : {}),
+        ownerId: doc.ownerId,
+        ownerType: doc.ownerType,
       }));
 
       projected.sort((a, b) =>
@@ -530,16 +525,10 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           { sha256: a._sortSha, slug: a.slug, createdAt: a.createdAt },
           { sha256: b._sortSha, slug: b.slug, createdAt: b.createdAt },
         ),
-      );
-
-      const totalCount = projected.length;
-      const sliced = Number.isFinite(effectiveLimit)
-        ? projected.slice(0, effectiveLimit)
-        : projected;
-      const truncated = totalCount > sliced.length;
+      );\n\n      const truncated = totalCount > projected.length;
       if (truncated) {
         hintParts.push(
-          `showing ${sliced.length} of ${totalCount} — pass --limit <N> to widen or page further.`,
+          `showing ${projected.length} of ${totalCount} — pass --limit <N> to widen or page further.`,
         );
       }
 
@@ -549,62 +538,37 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           ownerType: 'task',
           project: true,
           ...(typeFilter !== undefined ? { type: typeFilter } : {}),
-          count: sliced.length,
+          count: projected.length,
           ...(truncated ? { totalCount } : {}),
           limit: Number.isFinite(effectiveLimit) ? effectiveLimit : 0,
           orderBy,
           ...(hintParts.length > 0 ? { hint: hintParts.join(' ') } : {}),
-          attachments: sliced.map(({ _sortSha: _drop, ...row }) => row),
+          attachments: projected.map(({ _sortSha: _drop, ...row }) => row),
           attachmentBackend: backend as DocsListResult['attachmentBackend'],
         },
         'list',
       );
     }
 
-    // Owner-scoped listing (existing behaviour) — narrow to non-null after
-    // the project-scope branch.
+    // Owner-scoped: use the read model's resolveByOwner
     const scopedOwner = ownerId as string;
     const ownerType = inferOwnerType(scopedOwner);
-    // Legacy store still drives the envelope because it tracks URL and
-    // llms-txt kinds the v2 interface does not expose. `backend` metadata
-    // reports the path that FUTURE writes would take, so operators can
-    // observe llmtxt adoption without changing the data contract.
-    const ownerAttachments = await store.listByOwner(ownerType, scopedOwner);
 
-    // T9637 — apply the type filter post-list. listByOwner returns
-    // AttachmentMetadata (no slug/type), so we re-hydrate via getExtras().
-    const enriched: Array<{
-      meta: (typeof ownerAttachments)[number];
-      slug: string | null;
-      type: string | null;
-    }> = [];
-    for (const m of ownerAttachments) {
-      const extras = await store.getExtras(m.id);
-      const slug = extras?.slug ?? null;
-      const type = extras?.type ?? null;
-      if (typeFilter !== undefined && type !== typeFilter) continue;
-      enriched.push({ meta: m, slug, type });
-    }
+    const ownerDocs = await model.resolveByOwner(scopedOwner, { ownerType, kind: typeFilter });
 
-    const projectedOwner = enriched.map(({ meta: m, slug, type }) => ({
-      id: m.id,
-      sha256: `${m.sha256.slice(0, 8)}…`,
-      _sortSha: m.sha256,
-      kind: m.attachment.kind,
-      mime:
-        m.attachment.kind === 'local-file' || m.attachment.kind === 'blob'
-          ? m.attachment.mime
-          : ((m.attachment as UrlAttachment).mime ?? '—'),
-      size:
-        m.attachment.kind === 'local-file' || m.attachment.kind === 'blob'
-          ? m.attachment.size
-          : undefined,
-      description: m.attachment.description,
-      labels: m.attachment.labels,
-      createdAt: m.createdAt,
-      refCount: m.refCount,
-      ...(slug ? { slug } : {}),
-      ...(type ? { type: type as DocsType } : {}),
+    const projectedOwner = ownerDocs.map((doc) => ({
+      id: doc.id,
+      sha256: `${doc.sha256.slice(0, 8)}…`,
+      _sortSha: doc.sha256,
+      kind: 'blob' as const,
+      mime: doc.mimeType ?? '—',
+      size: doc.sizeBytes,
+      description: undefined,
+      labels: undefined,
+      createdAt: doc.createdAt,
+      refCount: 0,
+      ...(doc.slug ? { slug: doc.slug } : {}),
+      ...(doc.kind ? { type: doc.kind as DocsType } : {}),
     }));
 
     projectedOwner.sort((a, b) =>
@@ -636,7 +600,6 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         orderBy,
         ...(hintParts.length > 0 ? { hint: hintParts.join(' ') } : {}),
         attachments: slicedOwner.map(({ _sortSha: _drop, ...row }) => row),
-        // Cast: core returns 'llmtxt'|'legacy'; contracts uses 'legacy'|'llmstxt-v2' (drift T1529)
         attachmentBackend: backend as DocsListResult['attachmentBackend'],
       },
       'list',
@@ -711,144 +674,64 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       );
     }
 
-    const store = createAttachmentStore();
-
-    // Resolution order (T9636 acceptance #5/#7):
-    //   1. Full SHA-256 hex (64 chars, case-insensitive)
-    //   2. Attachment ID (att_* / UUID)
-    //   3. Slug (kebab-case match)
-    //   4. SHA-256 prefix (>= 6 hex chars, unique match)
-    //
-    // The order keeps backward-compat: pre-T9636 callers pass att_id or full
-    // sha256; new callers can pass slug. The slug check comes BEFORE prefix
-    // resolution because slugs have a stricter pattern (lowercase letters
-    // mixed with hyphens) than a hex prefix, so the discriminator is exact.
-    const isSha256 = /^[0-9a-f]{64}$/i.test(ref);
-    const looksLikeAttId = /^(att_|[0-9a-f]{8}-)/i.test(ref);
-    const looksLikeSlug = SLUG_PATTERN.test(ref) && !/^[0-9a-f]+$/i.test(ref);
-    const isHexPrefix = /^[0-9a-f]{6,63}$/i.test(ref);
-
-    let fetchResult: Awaited<ReturnType<typeof store.get>> | null = null;
-    let metadata = isSha256 ? null : looksLikeAttId ? await store.getMetadata(ref) : null;
-
-    if (metadata) {
-      // Resolved by ID — get bytes via sha256
-      fetchResult = await store.get(metadata.sha256);
-    } else if (isSha256) {
-      fetchResult = await store.get(ref);
-      if (fetchResult) {
-        metadata = fetchResult.metadata;
-      }
-    }
-
-    // Slug fallback
-    if (!metadata && looksLikeSlug) {
-      const bySlug = await store.findBySlug(ref);
-      if (bySlug) {
-        metadata = bySlug.metadata;
-        fetchResult = await store.get(metadata.sha256);
-      }
-    }
-
-    // SHA-256 prefix fallback (>=6 chars). We scan attachment_refs distinct
-    // ids and find the unique row whose sha256 startsWith ref. Ambiguous
-    // prefixes return E_AMBIGUOUS to avoid silently picking the wrong blob.
-    if (!metadata && isHexPrefix) {
-      const projectList = await store.listAllInProject();
-      const seen = new Map<string, (typeof projectList)[number]>();
-      for (const row of projectList) {
-        if (row.metadata.sha256.toLowerCase().startsWith(ref.toLowerCase())) {
-          seen.set(row.metadata.id, row);
-        }
-      }
-      if (seen.size > 1) {
-        return lafsError(
-          'E_AMBIGUOUS',
-          `sha256 prefix '${ref}' matches ${seen.size} attachments — provide more hex digits`,
-          'fetch',
-        );
-      }
-      const hit = seen.values().next().value;
-      if (hit) {
-        metadata = hit.metadata;
-        fetchResult = await store.get(metadata.sha256);
-      }
-    }
-
-    // Fallback: try plain getMetadata even if it didn't look like an att-id —
-    // some pre-T9636 callers used arbitrary IDs.
-    if (!metadata && !looksLikeAttId) {
-      const direct = await store.getMetadata(ref);
-      if (direct) {
-        metadata = direct;
-        fetchResult = await store.get(direct.sha256);
-      }
-    }
-
-    if (!fetchResult || !metadata) {
+    // T11050 — route fetch through the canonical DocsReadModel
+    const model = createDocsReadModel();
+    const doc = await model.resolveLatest(ref) ?? await model.resolveByAttachmentId(ref);
+    if (!doc) {
       return lafsError('E_NOT_FOUND', `Attachment not found: ${ref}`, 'fetch');
+    }
+
+    // Fetch content through the read model
+    const content = await model.fetchContent(doc);
+    if (content === null) {
+      return lafsError('E_NOT_FOUND', `Content not retrievable: ${ref}`, 'fetch');
     }
 
     const cwd = getProjectRoot();
     const cleoDir = resolveCanonicalCleoDir(resolveProjectByCwd(cwd));
 
-    // Derive storage path for local-file / blob kinds
+    // Derive storage path for blob kinds
     let storagePath: string | undefined;
-    if (metadata.attachment.kind === 'local-file') {
-      storagePath = (metadata.attachment as LocalFileAttachment).path;
-    } else if (metadata.attachment.kind === 'blob') {
-      const prefix = metadata.sha256.slice(0, 2);
-      const rest = metadata.sha256.slice(2);
+    if (doc.sha256) {
+      const prefix = doc.sha256.slice(0, 2);
+      const rest = doc.sha256.slice(2);
       const extMap: Record<string, string> = {
         'text/markdown': '.md',
         'text/plain': '.txt',
         'application/json': '.json',
         'application/pdf': '.pdf',
       };
-      const mime =
-        metadata.attachment.kind === 'blob' ? metadata.attachment.mime : 'application/octet-stream';
-      const ext = extMap[mime] ?? '.bin';
+      const ext = extMap[doc.mimeType ?? ''] ?? '.bin';
       storagePath = resolve(cleoDir, 'attachments', 'sha256', prefix, `${rest}${ext}`);
     }
 
     // Base64-encode bytes only for small attachments (<= 1 MB)
     const MAX_INLINE = 1024 * 1024;
+    const contentBytes = Buffer.from(content, 'utf-8');
     const bytesBase64 =
-      fetchResult.bytes.length <= MAX_INLINE ? fetchResult.bytes.toString('base64') : undefined;
+      contentBytes.length <= MAX_INLINE ? contentBytes.toString('base64') : undefined;
 
     const backend: AttachmentBackend = await resolveAttachmentBackend();
 
-    // Re-read slug so the wire envelope mirrors what's in the DB (T9636).
-    const extras = await store.getExtras(metadata.id);
-
     return lafsSuccess<DocsFetchResult>(
       {
-        // Project the domain AttachmentMetadata (nested `attachment` object) into the
-        // flat DocsAttachmentRow wire format consumed by CLI + HTTP callers.
         metadata: {
-          id: metadata.id,
-          sha256: metadata.sha256,
-          kind: metadata.attachment.kind,
-          mime:
-            metadata.attachment.kind === 'local-file' || metadata.attachment.kind === 'blob'
-              ? metadata.attachment.mime
-              : (metadata.attachment as UrlAttachment).mime,
-          size:
-            metadata.attachment.kind === 'local-file' || metadata.attachment.kind === 'blob'
-              ? metadata.attachment.size
-              : undefined,
-          description: metadata.attachment.description,
-          labels: metadata.attachment.labels,
-          createdAt: metadata.createdAt,
-          refCount: metadata.refCount,
-          ...(extras?.slug ? { slug: extras.slug } : {}),
-          ...(extras?.type ? { type: extras.type as DocsType } : {}),
+          id: doc.id,
+          sha256: doc.sha256,
+          kind: 'blob',
+          mime: doc.mimeType ?? 'text/plain',
+          size: doc.sizeBytes,
+          description: doc.summary ?? undefined,
+          labels: undefined,
+          createdAt: doc.createdAt,
+          refCount: 0,
+          ...(doc.slug ? { slug: doc.slug } : {}),
+          ...(doc.kind ? { type: doc.kind as DocsType } : {}),
         },
         path: storagePath,
-        sizeBytes: fetchResult.bytes.length,
+        sizeBytes: contentBytes.length,
         ...(bytesBase64 !== undefined ? { bytesBase64 } : {}),
         inlined: bytesBase64 !== undefined,
-        // Cast: core returns 'llmtxt'|'legacy'; contracts uses 'legacy'|'llmstxt-v2' (T1529)
         attachmentBackend: backend as DocsFetchResult['attachmentBackend'],
       },
       'fetch',
@@ -1576,6 +1459,33 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       );
     }
 
+    // Mirror the updated blob into the V2 store so blobList / publishDocs
+    // see the new version rather than the old blob (T11053 / AC1).
+    // Best-effort — a V2 store failure never blocks the update response.
+    let backend: AttachmentBackend = 'legacy';
+    try {
+      const v2 = createAttachmentStoreV2(getProjectRoot());
+      // Derive the old owner from the update params or fall back to slug.
+      // The V2 store keys by (ownerId, blobName), so we use the slug as
+      // the blob name and a synthetic owner derived from the slug itself
+      // (the canonical docs publish path resolves owners via CLEO task
+      // lookups, not via the V2 store key).
+      const resolvedOwnerId =
+        typeof resolvedParams.ownerId === 'string' && resolvedParams.ownerId.length > 0
+          ? resolvedParams.ownerId
+          : `slug:${outcome.result.slug}`;
+      const v2Result = await v2.put(resolvedOwnerId, {
+        name: outcome.result.slug,
+        data: hasFile
+          ? new Uint8Array(await readFile(resolve(filePath as string)))
+          : new Uint8Array(Buffer.from(inlineContent as string, 'utf-8')),
+        contentType: hasFile ? mimeFromPath(resolve(filePath as string)) : 'text/plain',
+      });
+      backend = v2Result.backend;
+    } catch {
+      backend = await resolveAttachmentBackend();
+    }
+
     return lafsSuccess<DocsUpdateResult>(
       {
         slug: outcome.result.slug,
@@ -1589,6 +1499,10 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         updatedAt: outcome.result.updatedAt,
         version: outcome.result.version,
         squashed: outcome.result.squashed,
+        summary: outcome.result.summary,
+        // T11053 — surface which backend stored the updated blob so
+        // observability consumers can confirm the V2 mirror succeeded.
+        attachmentBackend: backend as DocsUpdateResult['attachmentBackend'],
         ...(outcome.result.dryRun === true ? { dryRun: true as const } : {}),
         ...(outcome.result.wouldWrite !== undefined
           ? { wouldWrite: outcome.result.wouldWrite }
@@ -1809,8 +1723,10 @@ async function dispatchDocsLegacyQuery(
         name: typeof params['name'] === 'string' ? params['name'] : undefined,
         projectRoot,
       });
-    case 'status':
-      return statusDocs({ projectRoot });
+    case 'status': {
+      const model = createDocsReadModel();
+      return model.status(projectRoot);
+    }
     default:
       throw new Error(`Unsupported docs query operation: ${operation}`);
   }

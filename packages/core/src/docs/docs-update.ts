@@ -96,6 +96,12 @@ export interface DocsUpdateOk {
   updatedAt: string;
   version: number;
   squashed: boolean;
+  /**
+   * Human-readable summary of what happened to the slug.
+   * Examples: "slug 'foo' was changed", "slug 'foo' was left untouched (content unchanged)".
+   * @task T11055
+   */
+  summary: string;
   dryRun?: true;
   wouldWrite?: boolean;
   wouldChange?: boolean;
@@ -397,7 +403,10 @@ export async function updateDocBySlug(
   if (!oldRow) {
     return {
       ok: false,
-      error: { code: 'E_NOT_FOUND', message: `no attachment found with slug '${slug}'` },
+      error: {
+        code: 'E_NOT_FOUND',
+        message: `no attachment found with slug '${slug}' — the slug does not exist in the store and cannot be updated`,
+      },
     };
   }
 
@@ -427,6 +436,9 @@ export async function updateDocBySlug(
   }
 
   if (params.dryRun === true) {
+    const summary = wouldChange
+      ? `dry-run: slug '${slug}' would be changed`
+      : `dry-run: slug '${slug}' would be left untouched`;
     return {
       ok: true,
       result: {
@@ -441,6 +453,7 @@ export async function updateDocBySlug(
         updatedAt: nowIso,
         version: countVersionsForSlug(projectRoot, slug),
         squashed: false,
+        summary,
         dryRun: true,
         wouldWrite: false,
         wouldChange,
@@ -489,14 +502,18 @@ export async function updateDocBySlug(
         updatedAt: nowIso,
         version: countVersionsForSlug(projectRoot, slug),
         squashed,
+        summary: status === oldRow.lifecycleStatus
+          ? `slug '${slug}' was left untouched (bytes and lifecycle status unchanged)`
+          : `slug '${slug}' bytes unchanged but lifecycle status changed from '${oldRow.lifecycleStatus}' to '${status}'`,
       },
     };
   }
 
-  // Resolve the storage path for the NEW blob now so we can write it
-  // outside the transaction (mirrors AttachmentStore.put discipline).
-  // The attachment JSON we attach is a minimal `blob`-kind record — the
-  // updateDoc path does not know the source file's name, just bytes.
+  // Write the new blob to disk BEFORE the transaction so failure here
+  // never leaves committed DB state pointing at missing bytes (AC3).
+  // Orphaned blob files are harmless — they're content-addressed, so a
+  // future put of the same content will reuse the file rather than
+  // creating a duplicate.
   const mime = hasContent ? 'text/plain' : 'application/octet-stream';
   const newAttachmentJson = JSON.stringify({
     kind: 'blob',
@@ -506,6 +523,48 @@ export async function updateDocBySlug(
     blobId: newSha256,
   });
   const newBlobPath = blobPath(newSha256, mime, projectRoot);
+
+  try {
+    await mkdir(join(newBlobPath, '..'), { recursive: true });
+    await writeFile(newBlobPath, buf);
+  } catch (cause) {
+    return {
+      ok: false,
+      error: {
+        code: 'E_FILE_ERROR',
+        message: `failed to write new blob: ${cause instanceof Error ? cause.message : String(cause)}`,
+      },
+    };
+  }
+
+  // Verify the blob was written correctly by reading it back and comparing
+  // the SHA-256 digest. Runs BEFORE the DB transaction so a disk failure
+  // never leaves committed state pointing at missing bytes (AC3 / T11055).
+  {
+    const { readFile } = await import('node:fs/promises');
+    let writtenBuf: Buffer;
+    try {
+      writtenBuf = await readFile(newBlobPath);
+    } catch (cause) {
+      return {
+        ok: false,
+        error: {
+          code: 'E_FILE_ERROR',
+          message: `blob was reported as written for slug '${slug}' but cannot be read back: ${cause instanceof Error ? cause.message : String(cause)}`,
+        },
+      };
+    }
+    const writtenSha256 = sha256Of(writtenBuf);
+    if (writtenSha256 !== newSha256) {
+      return {
+        ok: false,
+        error: {
+          code: 'E_FILE_ERROR',
+          message: `blob integrity check failed for slug '${slug}': expected sha256 ${newSha256.slice(0, 12)}... but read-back sha256 is ${writtenSha256.slice(0, 12)}... — storage is internally inconsistent`,
+        },
+      };
+    }
+  }
 
   const nativeDb = getNativeTasksDb();
   if (!nativeDb) {
@@ -616,20 +675,6 @@ export async function updateDocBySlug(
     throw err;
   }
 
-  // Write the new blob to disk AFTER the transaction is committed.
-  try {
-    await mkdir(join(newBlobPath, '..'), { recursive: true });
-    await writeFile(newBlobPath, buf);
-  } catch (cause) {
-    return {
-      ok: false,
-      error: {
-        code: 'E_FILE_ERROR',
-        message: `failed to write new blob: ${cause instanceof Error ? cause.message : String(cause)}`,
-      },
-    };
-  }
-
   // Audit log entry (best-effort).
   const auditPath = join(projectRoot, DOCS_VERSIONING_AUDIT_FILE);
   const squashed = writeOrSquashAudit({
@@ -661,6 +706,7 @@ export async function updateDocBySlug(
       updatedAt: nowIso,
       version: countVersionsForSlug(projectRoot, slug),
       squashed,
+      summary: `slug '${slug}' was changed — content replaced${params.message ? ` ("${params.message}")` : ''}`,
     },
   };
 }

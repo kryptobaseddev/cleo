@@ -1303,6 +1303,9 @@ export {
 // DocsAccessor — unified llmtxt + manifest interface (T9063 · ADR-068 · ADR-069)
 export type { DocsAccessorImplOptions } from './store/docs-accessor-impl.js';
 export { createDocsAccessor, DocsAccessorImpl } from './store/docs-accessor-impl.js';
+// DocsReadModel — unified read-side query surface (T11049)
+export type { ListProjectDocsOpts, ResolvedDoc } from './docs/docs-read-model.js';
+export { createDocsReadModel, DocsReadModel } from './docs/docs-read-model.js';
 export {
   gitCheckpoint,
   gitCheckpointStatus,

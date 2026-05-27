@@ -606,12 +606,23 @@ export interface DocsUpdateResult {
    * the 5-minute squash window (no new audit line was written).
    */
   squashed: boolean;
+  /**
+   * Human-readable summary of what happened to the slug.
+   * Examples: "slug 'foo' was changed", "slug 'foo' was left untouched (content unchanged)".
+   * @task T11055
+   */
+  summary: string;
   /** Present when this response came from a preview-only update. */
   dryRun?: true;
   /** False for dry-runs because no write was actually performed. */
   wouldWrite?: boolean;
   /** Preview-only indicator that the requested bytes/status differ from the active row. */
   wouldChange?: boolean;
+  /**
+   * Which backend persisted the updated blob (T11053).
+   * `llmtxt` when the V2 mirror write succeeded; `legacy` otherwise.
+   */
+  attachmentBackend?: AttachmentBackend;
 }
 
 // --------------------------------------------------------------------------

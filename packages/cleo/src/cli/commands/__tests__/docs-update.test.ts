@@ -19,7 +19,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -102,6 +102,7 @@ interface UpdateResultShape {
   updatedAt: string;
   version: number;
   squashed: boolean;
+  summary: string;
   dryRun?: true;
   wouldWrite?: boolean;
   wouldChange?: boolean;
@@ -203,6 +204,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
     const symbolic = env.error?.codeName ?? String(env.error?.code ?? '');
     expect(symbolic).toBe('E_NOT_FOUND');
     expect(env.error?.message ?? '').toMatch(/no attachment.*no-such-slug/i);
+    expect(env.error?.message ?? '').toMatch(/does not exist/);
   });
 
   it('(d) two updates within 5 min → squashed onto ONE audit line with revisions[]', async () => {
@@ -367,5 +369,138 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
     const data = parseEnvelope<UpdateResultShape>(validUpdate.stdout).data;
     expect(data?.changed).toBe(true);
     expect(data?.previousSha256).toBe(originalSha);
+  });
+
+  // ── T11042 regression: update preserves owner-publishability ─────────────────
+
+  // T11042-B2a: After a docs-update rotates the slug onto new bytes, the
+  // owner that originally attached the doc MUST still be able to fetch and
+  // publish the updated blob.  Today updateDocBySlug copies attachment_refs
+  // from old row → new row only when the old row had refs — but if the doc
+  // was attached outside the normal "docs add" path (or if refs were
+  // cleaned), the update leaves the new blob orphaned.
+  //
+  // Marked .skip until the ref-preservation logic is fixed.  To validate:
+  //   1. docs add <owner> <file> --slug <s> --type note
+  //   2. docs update <s> --content <new-content>
+  //   3. docs publish --for <owner> --to <path>
+  //   4. Assert the published bytes === new-content
+  it.todo(
+    'T11042: updated doc remains publishable by the same owner (owner refs preserved)',
+  );
+
+  // T11042-B2b: When a doc is updated and then published, the SHA-256
+  // in the publish result must match the SHA-256 that docs fetch returns
+  // for the same slug immediately after the update.  No SHA drift between
+  // the SSoT write path (update) and the read path (fetch/publish).
+  //
+  // Marked .skip until verified.  To validate:
+  //   1. docs add → get sha256-a
+  //   2. docs update → get sha256-b from result
+  //   3. docs publish --for <owner> --to <path> → get publish-sha256
+  //   4. Assert publish-sha256 === sha256-b (not sha256-a)
+  it.todo(
+    'T11042: publish SHA agrees with post-update fetch SHA (no drift between write and publish)',
+  );
+
+  // T11042-B2c: docs status (drift detector) MUST report the published
+  // file as in-sync when publish was called immediately after update.
+  // Today the ledger only records the lastBlobSha at publish time, but
+  // if publish selects a stale blob, the status report shows a false
+  // negative (modified/deleted) or a false positive (in-sync with stale data).
+  it.todo(
+    'T11042: docs status reports in-sync after update + publish cycle',
+  );
+
+  // ── T11055: enforcement of replacement semantics ─────────────────────────────
+
+  it('(h) summary field states whether slug was changed or left untouched', async () => {
+    const original = join(projectRoot, 'orig-h.md');
+    await writeFile(original, 'original\\n', 'utf-8');
+
+    const addRes = runCli(
+      ['docs', 'add', 'T-T11055-h', original, '--slug', 't11055-doc-h', '--type', 'note'],
+      projectRoot,
+    );
+    expect(addRes.status).toBe(0);
+    const originalSha = parseEnvelope<AddResultShape>(addRes.stdout).data?.sha256;
+
+    // (h1) changed update → summary says "was changed"
+    const upRes = runCli(
+      ['docs', 'update', 't11055-doc-h', '--content', 'changed content\\n', '--message', 'replaced'],
+      projectRoot,
+    );
+    expect(upRes.status).toBe(0);
+    const upData = parseEnvelope<UpdateResultShape>(upRes.stdout).data;
+    expect(upData?.changed).toBe(true);
+    expect(upData?.summary).toContain('was changed');
+    expect(upData?.summary).toContain('t11055-doc-h');
+
+    // (h2) noop update → summary says "left untouched"
+    const noopRes = runCli(
+      ['docs', 'update', 't11055-doc-h', '--content', 'changed content\\n'],
+      projectRoot,
+    );
+    expect(noopRes.status).toBe(0);
+    const noopData = parseEnvelope<UpdateResultShape>(noopRes.stdout).data;
+    expect(noopData?.changed).toBe(false);
+    expect(noopData?.summary).toContain('left untouched');
+
+    // (h3) dry-run → summary says "would be changed" or "would be left untouched"
+    const dryRes = runCli(
+      ['docs', 'update', 't11055-doc-h', '--content', 'brand new\\n', '--dry-run'],
+      projectRoot,
+    );
+    expect(dryRes.status).toBe(0);
+    const dryData = parseEnvelope<UpdateResultShape>(dryRes.stdout).data;
+    expect(dryData?.dryRun).toBe(true);
+    expect(dryData?.summary).toContain('would be changed');
+  });
+
+  it('(i) E_NOT_FOUND error message states the slug does not exist and cannot be updated', async () => {
+    const upRes = runCli(
+      ['docs', 'update', 'nonexistent-slug', '--content', 'whatever\\n'],
+      projectRoot,
+    );
+    expect(upRes.status).not.toBe(0);
+    const env = parseEnvelope(upRes.stdout);
+    expect(env.success).toBe(false);
+    const symbolic = env.error?.codeName ?? String(env.error?.code ?? '');
+    expect(symbolic).toBe('E_NOT_FOUND');
+    expect(env.error?.message ?? '').toContain('does not exist');
+    expect(env.error?.message ?? '').toContain('cannot be updated');
+  });
+
+  it('(j) blob-write failure returns E_FILE_ERROR when storage directory is unwritable', async () => {
+    // Add a doc first to populate the DB
+    const original = join(projectRoot, 'orig-j.md');
+    await writeFile(original, 'content j\\n', 'utf-8');
+    const addRes = runCli(
+      ['docs', 'add', 'T-T11055-j', original, '--slug', 't11055-doc-j', '--type', 'note'],
+      projectRoot,
+    );
+    expect(addRes.status).toBe(0);
+
+    // Make the attachments directory unwritable to simulate a blob-write failure.
+    // The blob path is <cleoDir>/attachments/sha256/<prefix>/<rest>.ext
+    const attachmentsDir = join(projectRoot, '.cleo', 'attachments', 'sha256');
+    const mode = 0o444; // read-only
+    await mkdir(attachmentsDir, { recursive: true });
+    await chmod(attachmentsDir, mode);
+
+    try {
+      const upRes = runCli(
+        ['docs', 'update', 't11055-doc-j', '--content', 'updated j\\n'],
+        projectRoot,
+      );
+      // Should fail because the directory is unwritable
+      const env = parseEnvelope(upRes.stdout);
+      expect(env.success).toBe(false);
+      const symbolic = env.error?.codeName ?? String(env.error?.code ?? '');
+      expect(['E_FILE_ERROR', 'E_INTERNAL']).toContain(symbolic);
+    } finally {
+      // Restore writability for cleanup
+      await chmod(attachmentsDir, 0o755);
+    }
   });
 });

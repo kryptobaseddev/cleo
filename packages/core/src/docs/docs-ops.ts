@@ -971,7 +971,7 @@ export interface DocsPublishResult {
  *
  * Reads the named blob from the store and writes it to `toPath` using a
  * tmp-then-rename atomic pattern with `fsync` before close. When `attachmentId`
- * is omitted the last blob in the manifest is used.
+ * is omitted the most recently uploaded blob (latest by `uploadedAt`) is used.
  *
  * Path-escape guard: when `toPath` is relative it is joined under
  * `projectRoot`; absolute paths must still resolve within `projectRoot`
@@ -1016,10 +1016,13 @@ export async function publishDocs(opts: {
     throw new Error(`publishDocs: no attachments found for owner "${opts.ownerId}"`);
   }
 
-  // Select target blob by sha256 or name match; default to last entry
+  // Select target blob. When attachmentId is provided, match by sha256 or name.
+  // Otherwise, pick the most recently uploaded blob (latest version by uploadedAt).
   const target = opts.attachmentId
     ? blobs.find((b) => b.sha256 === opts.attachmentId || b.name === opts.attachmentId)
-    : blobs[blobs.length - 1];
+    : blobs.reduce((latest, b) =>
+        (b.uploadedAt ?? 0) > (latest.uploadedAt ?? 0) ? b : latest,
+      );
 
   if (!target) {
     throw new Error(
@@ -1136,7 +1139,7 @@ function ledgerPath(projectRoot: string): string {
  *
  * @internal
  */
-async function readPublicationsLedger(projectRoot: string): Promise<DocsPublicationRecord[]> {
+export async function readPublicationsLedger(projectRoot: string): Promise<DocsPublicationRecord[]> {
   const { readFile } = await import('node:fs/promises');
   try {
     const raw = await readFile(ledgerPath(projectRoot), 'utf-8');

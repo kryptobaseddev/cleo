@@ -1,18 +1,12 @@
 /**
- * CLI docs command - attachment management + documentation drift detection.
+ * CLI docs command — canonical six-verb path: add, update, fetch, list, remove, publish.
  *
- * Subcommands (T797):
- *   cleo docs add <ownerId> <file|--url <url>> [--desc "..."] [--labels tag1,tag2]
- *   cleo docs list [--task T###] [--session ses_*] [--observation O###]
- *   cleo docs fetch <attachmentId|sha256>
- *   cleo docs remove <attachmentId|sha256> --from <ownerId>
+ * Advanced: supersede, find, search, generate, export, merge, graph, rank, versions, publish-pr.
+ * Legacy/migration: sync, status, gap-check, import (use canonical verbs for new work).
+ * Utilities: schema, list-types, serve, open, stop, viewer-status.
  *
- * Legacy subcommands (T4551):
- *   cleo docs sync       — drift detection between scripts and docs index
- *   cleo docs gap-check  — validate knowledge transfer from review docs
- *
- * @task T4551 (sync/gap-check), T797 (add/list/fetch/remove)
- * @epic T4545 (legacy), T760 (attachments)
+ * @task T11046 (simplify docs help), T4551 (sync/gap-check), T797 (add/list/fetch/remove)
+ * @saga T10516
  */
 
 import { appendFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
@@ -2128,45 +2122,51 @@ const listTypesCommand = defineCommand({
 });
 
 /**
- * Root docs command group — attachment management, llmtxt primitives, drift detection,
- * and git⇄llmtxt round-trip (publish/sync/status) per Saga T9625 / Epic T9626.
+ * Root docs command group.
  *
- * Subcommands: add, list, fetch, remove, generate, export,
- *              search, merge, graph, rank, versions, publish,
- *              sync, status, gap-check, import, schema, list-types.
+ * Canonical six-verb path: add, update, fetch, list, remove, publish.
+ * Advanced: supersede, find, search, generate, export, merge, graph, rank, versions, publish-pr.
+ * Legacy/migration: sync, status, gap-check, import.
+ * Utilities: schema, list-types, serve, open, stop, viewer-status.
+ *
+ * @task T11046 — simplify docs help around canonical six-verb path
+ * @saga T10516
  */
 export const docsCommand = defineCommand({
   meta: {
     name: 'docs',
     description:
-      'Documentation attachment management (add/list/fetch/remove), ' +
-      'llmtxt primitives (search/merge/graph/rank/versions/publish), ' +
-      'PR publishing (publish-pr), drift detection (sync/status/gap-check), ' +
-      'legacy .md migration (import), ' +
-      'and a local web viewer (serve/open/stop/viewer-status)',
+      'Canonical six-verb docs path: add, update, fetch, list, remove, publish. ' +
+      'Advanced: supersede, find, search, generate, export, merge, graph, rank, versions, publish-pr. ' +
+      'Legacy/migration: sync, status, gap-check, import (use canonical verbs for new work). ' +
+      'Utilities: schema, list-types, serve, open, stop, viewer-status.',
   },
   subCommands: {
+    // Canonical six-verb path (add, update, fetch, list, remove, publish)
     add: addCommand,
     update: updateCommand,
-    list: listCommand,
     fetch: fetchCommand,
+    list: listCommand,
     remove: removeCommand,
+    publish: publishCommand,
+    // Advanced primitives
     supersede: supersedeCommand,
-    generate: generateCommand,
-    export: exportCommand,
     find: findCommand,
     search: searchCommand,
+    generate: generateCommand,
+    export: exportCommand,
     merge: mergeCommand,
     // T10164 — DocProvenanceResponse-typed graph (`--root <slug>|<taskId>`).
     graph: provenanceGraphCommand,
     rank: rankCommand,
     versions: versionsCommand,
-    publish: publishCommand,
     'publish-pr': publishPrCommand,
+    // Legacy/migration (use canonical verbs for new work)
     sync: syncCommand,
     status: statusCommand,
     'gap-check': gapCheckCommand,
     import: importCommand,
+    // Utilities
     // T9788 — canonical doc-kind taxonomy discovery surface.
     schema: schemaCommand,
     'list-types': listTypesCommand,

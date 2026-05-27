@@ -185,3 +185,19 @@ export {
   tempWorktreeDirForSlug,
   validatePublishSlug,
 } from './publish-pr.js';
+
+// ── T11049 — DocsReadModel (unified read-side query surface) ──────────────────
+export type { ListProjectDocsOpts, ResolvedDoc } from './docs-read-model.js';
+export { createDocsReadModel, DocsReadModel } from './docs-read-model.js';
+
+// ── T11051 — docs store inconsistency detector ───────────────────────────────
+export type {
+  InconsistencyCheckResult,
+  InconsistencyFinding,
+  InconsistencyKind,
+  InconsistencySeverity,
+} from './docs-inconsistency-detector.js';
+export {
+  checkBlobFilesystem,
+  checkDocsConsistency,
+} from './docs-inconsistency-detector.js';

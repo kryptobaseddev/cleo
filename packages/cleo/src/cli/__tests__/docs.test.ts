@@ -14,9 +14,9 @@ describe('docsCommand (native citty)', () => {
     expect((meta as { name: string }).name).toBe('docs');
   });
 
-  it('has a description containing "Documentation"', () => {
+  it('has a description containing "docs"', () => {
     const meta = typeof docsCommand.meta === 'function' ? docsCommand.meta() : docsCommand.meta;
-    expect((meta as { description: string }).description).toContain('Documentation');
+    expect((meta as { description: string }).description).toContain('Canonical');
   });
 
   it('has sync and gap-check subcommands', () => {
