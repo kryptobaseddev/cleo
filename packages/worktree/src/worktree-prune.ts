@@ -172,19 +172,23 @@ function pruneSingleEntry(
   errors: Array<{ path: string; reason: string }>,
 ): void {
   const { taskId, path, reason } = decision;
-  gitSilent(['worktree', 'unlock', path], gitRoot);
-  const gitRemoveSucceeded = gitSilent(['worktree', 'remove', '--force', path], gitRoot);
-  let pruneSuccess = gitRemoveSucceeded;
+  // T11123: NAPI destroyWorktree handles unlock+force-remove atomically.
+  let pruneSuccess = false;
   let errorMessage: string | null = null;
-  if (!gitRemoveSucceeded) {
+  try {
+    const result = napiDestroyWorktree({ repoRoot: gitRoot, worktreePath: path, force: true });
+    pruneSuccess = result.removed;
+    if (pruneSuccess && existsSync(path)) pruneSuccess = false;
+  } catch (err) {
+    errorMessage = err instanceof Error ? err.message : String(err);
+  }
+  if (!pruneSuccess) {
     try {
-      // Delegate the recursive directory removal to worktrunk-core via napi
-      // (T10203). The SDK is best-effort: read/unlink/rmdir errors are
-      // silently skipped, so a non-zero file count signals success.
       napiRemoveDir({ path });
       pruneSuccess = true;
+      gitSilent(['worktree', 'prune'], gitRoot);
     } catch (err) {
-      errorMessage = err instanceof Error ? err.message : String(err);
+      if (!errorMessage) errorMessage = err instanceof Error ? err.message : String(err);
     }
   }
   if (pruneSuccess) {
