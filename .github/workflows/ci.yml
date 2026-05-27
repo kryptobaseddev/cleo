@@ -278,6 +278,28 @@ jobs:
       - name: Lint paths SSoT anti-patterns in packages/
         run: node scripts/lint-paths-ssot.mjs
 
+  cwd-walkup-lint:
+    # T11019 / Saga T10295 · Epic T10297 — guard against getCleoDirAbsolute
+    # references outside the deprecated shim (packages/core/src/paths.ts) and
+    # reject getProjectRoot(process.cwd()) anti-patterns. RULE-1 pins the
+    # current migration baseline (132 callsites across ~45 files — see Epic
+    # T10297 for the resolveCanonicalCleoDir migration plan). RULE-2 pins the
+    # current 2 getProjectRoot(process.cwd()) sites. CI fails only on net-add
+    # (regression prevention). Baseline-driven via --check mode; counts are
+    # recorded in scripts/.lint-no-cwd-walkup-baseline.json. Strict mode
+    # (--strict) is the target state — flips on once baseline reaches zero.
+    # Pure static analysis of checked-in source — no untrusted input.
+    name: CWD-Walkup Lint (T11019)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Lint getCleoDirAbsolute + CWD-walk-up patterns in packages/
+        run: node scripts/lint-no-cwd-walkup.mjs --check
+
   saga-label-anti-pattern-lint:
     # T10332 / Saga T10326 SG-SUBSTRATE-RECONCILIATION Wave 3A — block NEW
     # occurrences of the legacy "Saga as label" anti-pattern in production
