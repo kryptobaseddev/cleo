@@ -12,6 +12,10 @@
 # reflink-or-copy). Reflink (copy-on-write) makes large directory copies
 # effectively free on supported FS (APFS/btrfs/XFS).
 #
+# IMPORTANT: Files are COPIED (not symlinked) into each worktree, preserving
+# full worktree isolation (T10077). Modifications in one worktree do NOT
+# affect any other worktree or the project root.
+#
 # SAFETY: Only list files that are SAFE to propagate across worktrees.
 # Never list secrets, session data, or machine-specific caches here.
 # =============================================================================
