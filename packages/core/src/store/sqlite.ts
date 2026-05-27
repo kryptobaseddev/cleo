@@ -410,6 +410,16 @@ function runMigrations(nativeDb: DatabaseSync, db: NodeSQLiteDatabase<typeof sch
 
   // Defensive column safety net
   ensureColumns(nativeDb, 'tasks', REQUIRED_TASK_COLUMNS, 'sqlite');
+
+  // T11181 — version-ssot columns (owner_version, doc_version)
+  // These columns are defined in the attachments schema but may not exist
+  // in databases created before the T11181 migration was wired in.
+  for (const stmt of [
+    'ALTER TABLE attachments ADD COLUMN owner_version TEXT',
+    'ALTER TABLE attachments ADD COLUMN doc_version INTEGER NOT NULL DEFAULT 1',
+  ]) {
+    try { nativeDb.exec(stmt); } catch { /* column may already exist */ }
+  }
 }
 
 /**
