@@ -25,6 +25,7 @@ import {
   getTaskPath,
   isAbsolutePath,
   resolveCanonicalCleoDir,
+  resolveProjectByCwd,
   resolveProjectPath,
 } from '../paths.js';
 
@@ -827,5 +828,152 @@ describe('getCleoDirAbsolute — T11022 deprecation + strict mode', () => {
     expect(warningCalls.length).toBe(0);
 
     stderrSpy.mockRestore();
+  });
+});
+
+// ============================================================================
+// T11013 — resolveProjectByCwd (CWD→projectId with nexus fallback)
+// ============================================================================
+
+describe('resolveProjectByCwd', () => {
+  const origCleoHome = process.env['CLEO_HOME'];
+  let tmpHome: string;
+
+  beforeEach(() => {
+    tmpHome = join(tmpdir(), `cleo-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(tmpHome, { recursive: true });
+    process.env['CLEO_HOME'] = tmpHome;
+  });
+
+  afterEach(() => {
+    if (origCleoHome !== undefined) {
+      process.env['CLEO_HOME'] = origCleoHome;
+    } else {
+      delete process.env['CLEO_HOME'];
+    }
+    try { rmSync(tmpHome, { recursive: true, force: true }); } catch { /* best-effort */ }
+  });
+
+  function seedProjectInfo(root: string, projectId: string) {
+    const cleoDir = join(root, '.cleo');
+    mkdirSync(cleoDir, { recursive: true });
+    writeFileSync(join(cleoDir, 'project-info.json'), JSON.stringify({ projectId }));
+  }
+
+  function seedNexusDb(rows: Array<{ project_id: string; project_path: string }>) {
+    const dbPath = join(tmpHome, 'nexus.db');
+    const db = new DatabaseSync(dbPath);
+    db.exec('CREATE TABLE IF NOT EXISTS project_registry (project_id TEXT PRIMARY KEY, project_path TEXT NOT NULL)');
+    const stmt = db.prepare('INSERT OR REPLACE INTO project_registry (project_id, project_path) VALUES (?, ?)');
+    for (const row of rows) {
+      stmt.run(row.project_id, row.project_path);
+    }
+    db.close();
+  }
+
+  // AC2: Reads .cleo/project-info.json from CWD or ancestor
+  it('reads project-info.json from CWD (AC2)', () => {
+    const tmpDir = join(tmpdir(), `cleo-t11013-ac2-${Date.now()}`);
+    mkdirSync(tmpDir, { recursive: true });
+    try {
+      seedProjectInfo(tmpDir, 'proj-cwd');
+      expect(resolveProjectByCwd(tmpDir)).toBe('proj-cwd');
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  // AC2 + AC6: Walks up to find project-info.json in ancestor
+  it('walks up ancestors to find project-info.json (AC2 + AC6)', () => {
+    const tmpDir = join(tmpdir(), `cleo-t11013-ac6-${Date.now()}`);
+    const subDir = join(tmpDir, 'packages', 'core', 'src');
+    mkdirSync(subDir, { recursive: true });
+    try {
+      seedProjectInfo(tmpDir, 'proj-ancestor');
+      expect(resolveProjectByCwd(subDir)).toBe('proj-ancestor');
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  // AC6: Does NOT walk up ancestors beyond the first .cleo/ hit
+  it('stops at first .cleo/project-info.json hit (AC6)', () => {
+    const tmpDir = join(tmpdir(), `cleo-t11013-firsthit-${Date.now()}`);
+    const childDir = join(tmpDir, 'child');
+    mkdirSync(childDir, { recursive: true });
+    try {
+      seedProjectInfo(tmpDir, 'parent-proj');
+      seedProjectInfo(childDir, 'child-proj');
+      expect(resolveProjectByCwd(childDir)).toBe('child-proj');
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  // AC3: Falls back to nexus registry when no local project-info.json
+  it('falls back to nexus registry when no local project-info.json (AC3)', () => {
+    const projDir = join(tmpdir(), `cleo-t11013-nexus-${Date.now()}`);
+    mkdirSync(projDir, { recursive: true });
+    try {
+      seedNexusDb([{ project_id: 'nexus-proj', project_path: projDir }]);
+      // No project-info.json — should fall back to nexus
+      expect(resolveProjectByCwd(projDir)).toBe('nexus-proj');
+    } finally {
+      rmSync(projDir, { recursive: true, force: true });
+    }
+  });
+
+  // AC3: Nexus fallback walks up ancestors
+  it('nexus fallback walks up ancestors for path match (AC3)', () => {
+    const projDir = join(tmpdir(), `cleo-t11013-nexuswalk-${Date.now()}`);
+    const subDir = join(projDir, 'deep', 'nested');
+    mkdirSync(subDir, { recursive: true });
+    try {
+      seedNexusDb([{ project_id: 'deep-nexus', project_path: projDir }]);
+      expect(resolveProjectByCwd(subDir)).toBe('deep-nexus');
+    } finally {
+      rmSync(projDir, { recursive: true, force: true });
+    }
+  });
+
+  // AC4: Returns canonical projectId string
+  it('returns canonical projectId string (AC4)', () => {
+    const tmpDir = join(tmpdir(), `cleo-t11013-ac4-${Date.now()}`);
+    mkdirSync(tmpDir, { recursive: true });
+    try {
+      seedProjectInfo(tmpDir, 'canonical-id-123');
+      const result = resolveProjectByCwd(tmpDir);
+      expect(typeof result).toBe('string');
+      expect(result).toBe('canonical-id-123');
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  // AC5: Throws E_CLEO_NEXUS_PROJECT_NOT_FOUND with remediation hint
+  it('throws with remediation hint when no project found (AC5)', () => {
+    const emptyDir = join(tmpdir(), `cleo-t11013-notfound-${Date.now()}`);
+    mkdirSync(emptyDir, { recursive: true });
+    try {
+      expect(() => resolveProjectByCwd(emptyDir)).toThrow(/cleo init/);
+    } finally {
+      rmSync(emptyDir, { recursive: true, force: true });
+    }
+  });
+
+  // AC5: Uses the right exit code
+  it('throws CleoError with NEXUS_PROJECT_NOT_FOUND exit code (AC5)', () => {
+    const emptyDir = join(tmpdir(), `cleo-t11013-exitcode-${Date.now()}`);
+    mkdirSync(emptyDir, { recursive: true });
+    try {
+      try {
+        resolveProjectByCwd(emptyDir);
+        expect.unreachable('should have thrown');
+      } catch (err: any) {
+        expect(err.code).toBe(71); // ExitCode.NEXUS_PROJECT_NOT_FOUND
+      }
+    } finally {
+      rmSync(emptyDir, { recursive: true, force: true });
+    }
   });
 });

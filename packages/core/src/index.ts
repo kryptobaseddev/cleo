@@ -355,6 +355,7 @@ export {
   getProjectRoot,
   isProjectInitialized,
   resolveCanonicalCleoDir,
+  resolveProjectByCwd,
   resolveOrCwd,
   resolveProjectPath,
   resolveWorktreeFilePath,
