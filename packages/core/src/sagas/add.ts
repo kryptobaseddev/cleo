@@ -83,21 +83,9 @@ export async function sagaAdd(
   if (!epicResult.success || !epicResult.data) {
     return engineError('E_NOT_FOUND', `Epic not found: ${epicId}`);
   }
-  const epicType = epicResult.data.task.type;
-  if (epicType !== 'epic') {
-    return engineError(
-      'E_INVALID_INPUT',
-      `Task ${epicId} has type='${String(epicType)}', expected type='epic'`,
-    );
-  }
-
-  // Idempotent: already parented to this saga
-  if (epicResult.data.task.parentId === sagaId) {
-    return engineSuccess({ sagaId, epicId, added: false });
-  }
-
   // ADR-073 §1.2 invariant I7 — no nested sagas. The candidate epic MUST NOT
   // itself be saga-shaped (type='saga').
+  const epicType = epicResult.data.task.type;
   try {
     assertSagaInvariantI7(epicId, epicResult.data.task.labels ?? [], sagaId, epicType);
   } catch (err: unknown) {
@@ -109,6 +97,18 @@ export async function sagaAdd(
       });
     }
     throw err;
+  }
+
+  if (epicType !== 'epic') {
+    return engineError(
+      'E_INVALID_INPUT',
+      `Task ${epicId} has type='${String(epicType)}', expected type='epic'`,
+    );
+  }
+
+  // Idempotent: already parented to this saga
+  if (epicResult.data.task.parentId === sagaId) {
+    return engineSuccess({ sagaId, epicId, added: false });
   }
 
   // Reparent the epic under the saga using parent_id containment

@@ -1729,7 +1729,7 @@ export interface TasksSagaMembersResult {
 
 /**
  * Params for `tasks.saga.repair` — detach an I5-violating `parentId` from a
- * Saga and re-attach via `task_relations.type='groups'`.
+ * Saga.
  *
  * @task T10117
  * @see ADR-073-above-epic-naming.md §1.2 — invariant I5
@@ -1740,7 +1740,7 @@ export interface TasksSagaRepairParams {
 }
 
 /**
- * Result of `tasks.saga.repair` — idempotent detach + re-attach.
+ * Result of `tasks.saga.repair` — idempotent detach.
  *
  * @task T10117
  */
@@ -1751,15 +1751,6 @@ export interface TasksSagaRepairResult {
   repaired: boolean;
   /** The detached `parentId` value, or `null` when no detach was needed. */
   detachedParentId: string | null;
-  /**
-   * The `groups` edge that was written, or `null` for the idempotent no-op
-   * and the missing-former-parent edge case.
-   */
-  attachedRelation: {
-    from: string;
-    to: string;
-    type: 'groups';
-  } | null;
   /** Free-form notes the CLI renderer can surface alongside the result. */
   note?: string;
 }

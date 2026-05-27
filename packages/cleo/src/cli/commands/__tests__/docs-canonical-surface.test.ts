@@ -131,6 +131,15 @@ describe.runIf(CLI_DIST_AVAILABLE)('docs canonical six-verb CLI integration', ()
   beforeEach(async () => {
     projectRoot = await mkdtemp(join(tmpdir(), 'cleo-T11188-'));
     await mkdir(join(projectRoot, '.cleo'), { recursive: true });
+    // Prevent resolveProjectByCwd from walking up to the real project root.
+    // Without a project-info.json, the CLI would discover the production
+    // .cleo/tasks.db at /mnt/projects/cleocode instead of creating an
+    // isolated DB under the temp dir.
+    await writeFile(
+      join(projectRoot, '.cleo', 'project-info.json'),
+      JSON.stringify({ projectId: 'test-t11188' }),
+      'utf-8',
+    );
   });
 
   afterEach(async () => {
