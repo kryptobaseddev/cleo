@@ -58,6 +58,7 @@ export { createWorktree } from './worktree-create.js';
 export { destroyWorktree } from './worktree-destroy.js';
 export { runWorktreeHooks } from './worktree-hooks.js';
 export { applyIncludePatterns, loadWorktreeIncludePatterns } from './worktree-include.js';
+export { installWorktreeDependencies } from './worktree-pnpm.js';
 export {
   listWorktrees,
   listWorktreesByProjectRoot,

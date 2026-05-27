@@ -17,7 +17,11 @@
 # =============================================================================
 
 # JS/TS — pnpm-managed monorepo
-node_modules/
+# NOTE: node_modules/ is intentionally NOT listed here.
+# Symlinking node_modules across worktrees causes pnpm store races that
+# corrupt .pnpm/ with @@-prefixed doubled directories (T9938).
+# Each worktree gets its own node_modules installed during provisioning
+# via a serialized pnpm install step in createWorktree.
 pnpm-lock.yaml
 
 # Rust workspace — cargo build cache + lockfile

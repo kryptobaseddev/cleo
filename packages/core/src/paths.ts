@@ -332,16 +332,19 @@ export function getCleoDirAbsolute(cwd?: string, opts?: { bootstrap?: boolean })
   } catch (err) {
     // T9803 · council verdict D009: SURGICAL fallback policy —
     //   1. Explicit `{ bootstrap: true }` always allows the fallback (cleo init).
-    //   2. When the cwd (or any ancestor) contains `.git` as a FILE — a worktree
-    //      gitlink marker — REFUSE the fallback. Creating a `.cleo/` inside a
-    //      worktree is the exact bug class T9550/T9580/T9801 catalogued.
+    //   2. When the cwd (or any ancestor) contains `.git` (FILE or DIRECTORY) —
+    //      REFUSE the fallback. A git repo without a proper CLEO project root
+    //      (`.cleo/` with sibling `.git/` or `project-info.json`) is NOT a
+    //      valid target for DB creation. Creating `.cleo/` inside such a
+    //      directory is the exact bug class T9550/T9580/T9801/T10287 catalogued.
+    //      The prior check only caught gitlink FILES (worktrees), missing
+    //      legitimate git DIRECTORIES that happen to not be CLEO projects.
     //   3. When no `.git` exists anywhere in ancestors — a clean-slate dir
     //      (typical test fixture or pre-init scaffold) — allow the fallback.
-    //      No worktree contamination is possible in that geometry.
     if (opts?.bootstrap) {
       return resolve(cwd ?? process.cwd(), cleoDir);
     }
-    if (_cwdHasWorktreeGitlinkAncestor(cwd)) {
+    if (_cwdHasGitAncestor(cwd)) {
       throw err;
     }
     return resolve(cwd ?? process.cwd(), cleoDir);
@@ -349,21 +352,25 @@ export function getCleoDirAbsolute(cwd?: string, opts?: { bootstrap?: boolean })
 }
 
 /**
- * Walk the ancestor chain looking for `.git` as a FILE (gitlink) — a marker
- * that the cwd is inside a `git worktree add`-created worktree. A FILE `.git`
- * is the worktree-orphan-prone geometry; a DIRECTORY `.git` is a canonical
- * project root (safe).
+ * Walk the ancestor chain looking for `.git` (FILE or DIRECTORY) — any marker
+ * that the cwd is inside a git repository. When `getProjectRoot()` threw inside
+ * a git repo, the repo is NOT a CLEO project and the fallback must NOT silently
+ * create a rogue `.cleo/` inside it (T10287 regression of T9550/T9580/T9801).
+ *
+ * Prior to T10287 this only checked for gitlink FILES (worktrees), missing
+ * legitimate git DIRECTORIES that happen to not be CLEO projects
+ * (e.g. `/mnt/projects/awesome-skills/` running `cleo briefing`).
  *
  * @internal
  */
-function _cwdHasWorktreeGitlinkAncestor(cwd?: string): boolean {
+function _cwdHasGitAncestor(cwd?: string): boolean {
   const start = resolve(cwd ?? process.cwd());
   let current = start;
   while (true) {
     const gitMarker = join(current, '.git');
     try {
       if (existsSync(gitMarker)) {
-        return statSync(gitMarker).isFile();
+        return true;
       }
     } catch {
       /* unreadable — treat as not present */
