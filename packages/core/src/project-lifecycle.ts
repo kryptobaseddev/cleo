@@ -13,7 +13,7 @@ import { existsSync } from 'node:fs';
 import { cp, readFile, rename, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve as resolvePath } from 'node:path';
 import { type EngineResult, engineError, engineSuccess } from './engine-result.js';
-import { generateProjectHash, nexusReconcile } from './nexus/index.js';
+import { generateProjectHash, nexusReconcile, nexusRenameProject } from './nexus/index.js';
 
 // ── Result types ─────────────────────────────────────────────────────
 
@@ -292,6 +292,14 @@ export async function renameProject(
     lastUpdated: new Date().toISOString(),
   };
   await writeProjectInfo(projectRoot, newInfo);
+
+  // AC1, AC3, AC5: Register self-alias in nexus projectIdAliases table
+  // for dispatch-layer consumer compatibility (T11025).
+  try {
+    await nexusRenameProject(projectId, newName.trim());
+  } catch {
+    // Non-fatal: alias registration is best-effort; the rename succeeded
+  }
 
   return engineSuccess({
     projectId,
