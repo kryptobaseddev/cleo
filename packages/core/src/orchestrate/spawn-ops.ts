@@ -1338,8 +1338,7 @@ export async function orchestrateSpawn(
       // T10078 — resume: skip provisioning, attach to the existing locked
       // worktree at the canonical XDG path. Verify the path exists and is
       // a valid git worktree before proceeding.
-      const { computeProjectHash, resolveTaskWorktreePath } =
-        await import('@cleocode/paths');
+      const { computeProjectHash, resolveTaskWorktreePath } = await import('@cleocode/paths');
       const projectHashForResume = computeProjectHash(root);
       worktreePath = resolveTaskWorktreePath(projectHashForResume, taskId);
       worktreeBranch = `task/${taskId}`;

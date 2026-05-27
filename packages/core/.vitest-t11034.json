@@ -1,0 +1,223 @@
+{
+  "numTotalTests": 54,
+  "numPassedTests": 54,
+  "numFailedTests": 0,
+  "testResults": [
+    {
+      "name": "getCleoDirAbsolute \u2014 root-cause chokepoint (T9803 / D009) AC-2 (regression): refuses fallback ONLY when inside a worktree THROWS when called from a directory with a worktree gitlink (.git as FILE)",
+      "status": "passed"
+    },
+    {
+      "name": "getCleoDirAbsolute \u2014 root-cause chokepoint (T9803 / D009) AC-2 (regression): refuses fallback ONLY when inside a worktree does NOT create an orphan .cleo/ when inside a worktree on throw",
+      "status": "passed"
+    },
+    {
+      "name": "getCleoDirAbsolute \u2014 root-cause chokepoint (T9803 / D009) AC-2 (regression): refuses fallback ONLY when inside a worktree ALLOWS fallback when no .git ancestor exists (clean test fixture)",
+      "status": "passed"
+    },
+    {
+      "name": "getCleoDirAbsolute \u2014 root-cause chokepoint (T9803 / D009) AC bootstrap: explicit opt-in restores legacy fallback returns <cwd>/.cleo when called with { bootstrap: true }",
+      "status": "passed"
+    },
+    {
+      "name": "getCleoDirAbsolute \u2014 root-cause chokepoint (T9803 / D009) AC bootstrap: explicit opt-in restores legacy fallback does NOT auto-create the directory on bootstrap-mode read",
+      "status": "passed"
+    },
+    {
+      "name": "getCleoDirAbsolute \u2014 root-cause chokepoint (T9803 / D009) AC bootstrap: explicit opt-in restores legacy fallback falls back to process.cwd() when cwd is omitted under bootstrap",
+      "status": "passed"
+    },
+    {
+      "name": "getCleoDirAbsolute \u2014 root-cause chokepoint (T9803 / D009) AC-3 (three-worktree-deep): nested simulated worktrees stay clean does NOT create .cleo/ in any of 3 nested worktree-like dirs",
+      "status": "passed"
+    },
+    {
+      "name": "getCleoDirAbsolute \u2014 root-cause chokepoint (T9803 / D009) AC SSoT: absolute CLEO_DIR bypass still wins returns CLEO_DIR verbatim when it is absolute (no walk, no throw)",
+      "status": "passed"
+    },
+    {
+      "name": "getCleoHome defaults to OS-appropriate env-paths data dir",
+      "status": "passed"
+    },
+    {
+      "name": "getCleoHome respects CLEO_HOME env var",
+      "status": "passed"
+    },
+    {
+      "name": "getCleoDir defaults to .cleo",
+      "status": "passed"
+    },
+    {
+      "name": "getCleoDir respects CLEO_DIR env var",
+      "status": "passed"
+    },
+    {
+      "name": "getCleoDirAbsolute resolves relative path against cwd (bootstrap mode)",
+      "status": "passed"
+    },
+    {
+      "name": "getCleoDirAbsolute throws when called from inside a worktree without bootstrap (T9803)",
+      "status": "passed"
+    },
+    {
+      "name": "getCleoDirAbsolute returns absolute CLEO_DIR as-is",
+      "status": "passed"
+    },
+    {
+      "name": "getProjectRoot returns the directory containing .cleo/ when called with that directory",
+      "status": "passed"
+    },
+    {
+      "name": "getProjectRoot respects CLEO_ROOT env var \u2014 bypasses walk entirely",
+      "status": "passed"
+    },
+    {
+      "name": "getProjectRoot \u2014 worktree gitlink resolution (T11034) resolves to main repo from worktree root (start-level gitlink)",
+      "status": "passed"
+    },
+    {
+      "name": "getProjectRoot \u2014 worktree gitlink resolution (T11034) resolves to main repo from worktree subdirectory (ancestor-walk gitlink)",
+      "status": "passed"
+    },
+    {
+      "name": "getProjectRoot \u2014 worktree gitlink resolution (T11034) resolves to main repo from deeply nested worktree subdirectory",
+      "status": "passed"
+    },
+    {
+      "name": "getProjectRoot \u2014 worktree gitlink resolution (T11034) getCleoDirAbsolute from worktree subdirectory returns parent project .cleo",
+      "status": "passed"
+    },
+    {
+      "name": "getProjectRoot \u2014 worktree gitlink resolution (T11034) getCleoDirAbsolute from worktree root returns parent project .cleo",
+      "status": "passed"
+    },
+    {
+      "name": "getProjectRoot \u2014 worktree gitlink resolution (T11034) still throws for worktree whose gitlink points to non-existent main repo",
+      "status": "passed"
+    },
+    {
+      "name": "getProjectRoot \u2014 worktree gitlink resolution (T11034) still throws for worktree with unparseable gitlink content",
+      "status": "passed"
+    },
+    {
+      "name": "getProjectRoot \u2014 worktree gitlink resolution (T11034) does not create .cleo/ inside worktree during resolution",
+      "status": "passed"
+    },
+    {
+      "name": "resolveProjectPath returns absolute paths unchanged",
+      "status": "passed"
+    },
+    {
+      "name": "resolveProjectPath resolves relative paths against project root",
+      "status": "passed"
+    },
+    {
+      "name": "resolveProjectPath expands tilde to home directory",
+      "status": "passed"
+    },
+    {
+      "name": "path helper functions getTodoPath returns correct path",
+      "status": "passed"
+    },
+    {
+      "name": "path helper functions getConfigPath returns correct path",
+      "status": "passed"
+    },
+    {
+      "name": "path helper functions getBackupDir returns correct path",
+      "status": "passed"
+    },
+    {
+      "name": "path helper functions getGlobalConfigPath returns correct path",
+      "status": "passed"
+    },
+    {
+      "name": "getAgentOutputsDir returns default when no config exists",
+      "status": "passed"
+    },
+    {
+      "name": "getAgentOutputsDir reads agentOutputs.directory from config",
+      "status": "passed"
+    },
+    {
+      "name": "getAgentOutputsDir reads agentOutputs as plain string from config",
+      "status": "passed"
+    },
+    {
+      "name": "getAgentOutputsDir falls back to research.outputDir (deprecated)",
+      "status": "passed"
+    },
+    {
+      "name": "getAgentOutputsDir falls back to directories.agentOutputs (deprecated)",
+      "status": "passed"
+    },
+    {
+      "name": "getAgentOutputsDir uses priority order: agentOutputs > research > directories",
+      "status": "passed"
+    },
+    {
+      "name": "getAgentOutputsDir falls back to default on invalid config JSON",
+      "status": "passed"
+    },
+    {
+      "name": "getAgentOutputsAbsolute resolves default to absolute path",
+      "status": "passed"
+    },
+    {
+      "name": "getAgentOutputsAbsolute returns absolute config path as-is",
+      "status": "passed"
+    },
+    {
+      "name": "getManifestPath \u2014 core/paths returns default manifest path",
+      "status": "passed"
+    },
+    {
+      "name": "getManifestPath \u2014 core/paths respects custom output directory",
+      "status": "passed"
+    },
+    {
+      "name": "getManifestPath \u2014 core/paths respects custom manifest filename",
+      "status": "passed"
+    },
+    {
+      "name": "getManifestArchivePath returns default archive path",
+      "status": "passed"
+    },
+    {
+      "name": "isAbsolutePath recognizes POSIX absolute paths",
+      "status": "passed"
+    },
+    {
+      "name": "isAbsolutePath recognizes Windows drive letter paths",
+      "status": "passed"
+    },
+    {
+      "name": "isAbsolutePath recognizes UNC paths",
+      "status": "passed"
+    },
+    {
+      "name": "isAbsolutePath rejects relative paths",
+      "status": "passed"
+    },
+    {
+      "name": "getCleoDirAbsolute T10287 regression \u2014 orphan .cleo/ in non-CLEO git repos throws for a non-CLEO git repo with real .git/ directory",
+      "status": "passed"
+    },
+    {
+      "name": "getCleoDirAbsolute T10287 regression \u2014 orphan .cleo/ in non-CLEO git repos throws for a git worktree with .git as a gitlink file",
+      "status": "passed"
+    },
+    {
+      "name": "getCleoDirAbsolute T10287 regression \u2014 orphan .cleo/ in non-CLEO git repos allows fallback for a clean directory with no .git anywhere",
+      "status": "passed"
+    },
+    {
+      "name": "getCleoDirAbsolute T10287 regression \u2014 orphan .cleo/ in non-CLEO git repos allows fallback with { bootstrap: true } even inside a git repo",
+      "status": "passed"
+    },
+    {
+      "name": "getCleoDirAbsolute T10287 regression \u2014 orphan .cleo/ in non-CLEO git repos throws when any ancestor has .git (not just the immediate parent)",
+      "status": "passed"
+    }
+  ]
+}

@@ -32,7 +32,12 @@ import {
 } from './init.js';
 import { ensureInjection } from './injection.js';
 import { detectLegacyAgentOutputs, migrateAgentOutputs } from './migration/agent-outputs.js';
-import { getCleoHome, getProjectRoot, resolveCanonicalCleoDir, resolveProjectByCwd } from './paths.js';
+import {
+  getCleoHome,
+  getProjectRoot,
+  resolveCanonicalCleoDir,
+  resolveProjectByCwd,
+} from './paths.js';
 import {
   ensureCleoGitRepo,
   ensureCleoStructure,

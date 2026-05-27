@@ -546,10 +546,10 @@ export {
   E_AC_COVERAGE_INCOMPLETE,
   // T10105 / Saga T10099 — fail-loud changeset parse
   E_CHANGESET_YAML_INVALID,
-  // T11022 / Saga T10295 — CWD-walk-up forbidden under CLEO_PATHS_STRICT=1
-  E_CWD_WALKUP_FORBIDDEN,
   // SPEC-T9345 release pipeline v2 error code names (T9525)
   E_CHANNEL_MISMATCH,
+  // T11022 / Saga T10295 — CWD-walk-up forbidden under CLEO_PATHS_STRICT=1
+  E_CWD_WALKUP_FORBIDDEN,
   E_DIRTY_TREE,
   E_EPIC_EMPTY,
   E_EPIC_EMPTY_LEAF_NO_EVIDENCE,

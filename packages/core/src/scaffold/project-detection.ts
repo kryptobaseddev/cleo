@@ -6,7 +6,12 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { CheckResult } from '@cleocode/contracts/scaffold-diagnostics';
-import { resolveCanonicalCleoDir, resolveProjectByCwd, getConfigPath, resolveOrCwd } from '../paths.js';
+import {
+  getConfigPath,
+  resolveCanonicalCleoDir,
+  resolveOrCwd,
+  resolveProjectByCwd,
+} from '../paths.js';
 import { getGitignoreContent, getWorktreeIncludeContent } from './ensure-config.js';
 import { REQUIRED_CLEO_SUBDIRS } from './ensure-dirs.js';
 

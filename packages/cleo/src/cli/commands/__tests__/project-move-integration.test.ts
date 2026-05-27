@@ -16,9 +16,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getNexusDb, resetDbState } from '@cleocode/core/internal';
 import { projectRegistry } from '@cleocode/core/store/nexus-schema';
-import { moveProject } from '../../../../../core/src/project-lifecycle.js';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { moveProject } from '../../../../../core/src/project-lifecycle.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -68,22 +68,25 @@ describe('T11030 — project move integration (cross-drive)', () => {
     try {
       const db = await getNexusDb();
       const now = new Date().toISOString();
-      await db.insert(projectRegistry).values({
-        projectId,
-        projectHash: `test-hash-${Date.now()}`,
-        projectPath: sourceDir,
-        name: 'test-project',
-        registeredAt: now,
-        lastSeen: now,
-        healthStatus: 'unknown',
-        permissions: 'read',
-        lastSync: now,
-        taskCount: 0,
-        labelsJson: '[]',
-        brainDbPath: join(sourceDir, '.cleo', 'brain.db'),
-        tasksDbPath: join(sourceDir, '.cleo', 'tasks.db'),
-        statsJson: '{}',
-      }).onConflictDoNothing();
+      await db
+        .insert(projectRegistry)
+        .values({
+          projectId,
+          projectHash: `test-hash-${Date.now()}`,
+          projectPath: sourceDir,
+          name: 'test-project',
+          registeredAt: now,
+          lastSeen: now,
+          healthStatus: 'unknown',
+          permissions: 'read',
+          lastSync: now,
+          taskCount: 0,
+          labelsJson: '[]',
+          brainDbPath: join(sourceDir, '.cleo', 'brain.db'),
+          tasksDbPath: join(sourceDir, '.cleo', 'tasks.db'),
+          statsJson: '{}',
+        })
+        .onConflictDoNothing();
     } catch {
       /* nexus may not be available in test env */
     }
@@ -91,21 +94,29 @@ describe('T11030 — project move integration (cross-drive)', () => {
     // AC3: Write brain observation and manifest entry referencing projectId
     await writeFile(
       join(sourceDir, '.cleo', 'test-observation.json'),
-      JSON.stringify({
-        type: 'observation',
-        title: 'T11030-integration-test',
-        content: `Test observation for project ${projectId}`,
-        projectId,
-      }, null, 2),
+      JSON.stringify(
+        {
+          type: 'observation',
+          title: 'T11030-integration-test',
+          content: `Test observation for project ${projectId}`,
+          projectId,
+        },
+        null,
+        2,
+      ),
     );
 
     await writeFile(
       join(sourceDir, 'manifest.json'),
-      JSON.stringify({
-        name: 'test-manifest',
-        projectId,
-        version: '1.0.0',
-      }, null, 2),
+      JSON.stringify(
+        {
+          name: 'test-manifest',
+          projectId,
+          version: '1.0.0',
+        },
+        null,
+        2,
+      ),
     );
   });
 
@@ -127,8 +138,11 @@ describe('T11030 — project move integration (cross-drive)', () => {
   // AC2
   it('AC2: project is registered in nexus', async () => {
     const db = await getNexusDb();
-    const rows = await db.select().from(projectRegistry)
-      .where(eq(projectRegistry.projectId, projectId)).limit(1);
+    const rows = await db
+      .select()
+      .from(projectRegistry)
+      .where(eq(projectRegistry.projectId, projectId))
+      .limit(1);
     expect(rows.length).toBeGreaterThanOrEqual(0);
   });
 
@@ -190,8 +204,11 @@ describe('T11030 — project move integration (cross-drive)', () => {
   it('AC9: nexus row resolves at new path via projectId', async () => {
     try {
       const db = await getNexusDb();
-      const rows = await db.select().from(projectRegistry)
-        .where(eq(projectRegistry.projectId, projectId)).limit(1);
+      const rows = await db
+        .select()
+        .from(projectRegistry)
+        .where(eq(projectRegistry.projectId, projectId))
+        .limit(1);
       if (rows.length > 0) {
         expect(rows[0].projectPath).toBe(destDir);
       }

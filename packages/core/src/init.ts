@@ -43,7 +43,13 @@ import { ensureInjection } from './injection.js';
 import { writeMemoryBridge } from './memory/memory-bridge.js';
 import { migrateAgentOutputs } from './migration/agent-outputs.js';
 import { pushWarning } from './output.js';
-import { getAgentsHome, getCleoDirAbsolute, getProjectRoot, resolveCanonicalCleoDir, resolveProjectByCwd } from './paths.js';
+import {
+  getAgentsHome,
+  getCleoDirAbsolute,
+  getProjectRoot,
+  resolveCanonicalCleoDir,
+  resolveProjectByCwd,
+} from './paths.js';
 // Shared utility imports
 import {
   ensureBrainDb,

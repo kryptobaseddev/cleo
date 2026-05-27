@@ -35,7 +35,12 @@ import { ExitCode } from '@cleocode/contracts';
 import { linkPipelineAdr } from '../adrs/link-pipeline.js';
 import { syncAdrsToDb } from '../adrs/sync.js';
 import { CleoError } from '../errors.js';
-import { resolveCanonicalCleoDir, resolveProjectByCwd, getProjectRoot, resolveOrCwd } from '../paths.js';
+import {
+  getProjectRoot,
+  resolveCanonicalCleoDir,
+  resolveOrCwd,
+  resolveProjectByCwd,
+} from '../paths.js';
 import * as schema from '../store/tasks-schema.js';
 import { LIFECYCLE_STAGE_STATUSES } from '../store/tasks-schema.js';
 import { linkProvenance } from './evidence.js';

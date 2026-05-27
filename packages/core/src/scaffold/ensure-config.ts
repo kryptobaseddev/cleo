@@ -10,7 +10,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ScaffoldResult } from '@cleocode/contracts/scaffold-diagnostics';
 import { generateProjectHash } from '../nexus/hash.js';
-import { resolveCanonicalCleoDir, resolveProjectByCwd, getConfigPath } from '../paths.js';
+import { getConfigPath, resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
 import { saveJson } from '../store/json.js';
 
 /**

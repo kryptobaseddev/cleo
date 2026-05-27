@@ -1,0 +1,32 @@
+{
+  "numTotalTestSuites": 1,
+  "numPassedTestSuites": 1,
+  "numFailedTestSuites": 0,
+  "numPendingTestSuites": 0,
+  "numTotalTests": 1,
+  "numPassedTests": 1,
+  "numFailedTests": 0,
+  "numPendingTests": 0,
+  "numTodoTests": 0,
+  "startTime": 1779859600000,
+  "success": true,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": ["Envelope Compliance"],
+          "fullName": "Envelope Compliance Lint: all three verbs wrap output in RenderableEnvelope",
+          "status": "passed",
+          "title": "all three verbs wrap output in RenderableEnvelope (kind: section)",
+          "duration": 120,
+          "failureMessages": []
+        }
+      ],
+      "startTime": 1779859600000,
+      "endTime": 1779859600120,
+      "status": "passed",
+      "message": "",
+      "name": ".cleo/rcasd/T11027/envelope-lint-results.vitest.json"
+    }
+  ]
+}

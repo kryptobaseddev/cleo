@@ -169,10 +169,7 @@ describe('getProjectRoot — worktree gitlink resolution (T11034)', () => {
   beforeEach(() => {
     delete process.env['CLEO_DIR'];
     delete process.env['CLEO_ROOT'];
-    const base = join(
-      tmpdir(),
-      `cleo-t11034-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    );
+    const base = join(tmpdir(), `cleo-t11034-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     // Main repo: has .cleo/project-info.json + .git/ directory
     mainRepo = join(base, 'main-repo');
     mkdirSync(join(mainRepo, '.cleo'), { recursive: true });
@@ -185,10 +182,7 @@ describe('getProjectRoot — worktree gitlink resolution (T11034)', () => {
     // Worktree: .git is a gitlink FILE pointing to main repo
     worktreeDir = join(base, 'worktree');
     mkdirSync(worktreeDir, { recursive: true });
-    writeFileSync(
-      join(worktreeDir, '.git'),
-      `gitdir: ${mainRepo}/.git/worktrees/test-wt\n`,
-    );
+    writeFileSync(join(worktreeDir, '.git'), `gitdir: ${mainRepo}/.git/worktrees/test-wt\n`);
   });
 
   afterEach(() => {
@@ -243,10 +237,7 @@ describe('getProjectRoot — worktree gitlink resolution (T11034)', () => {
   it('still throws for worktree whose gitlink points to non-existent main repo', () => {
     const orphanWorktree = join(worktreeDir, '..', 'orphan-wt');
     mkdirSync(orphanWorktree, { recursive: true });
-    writeFileSync(
-      join(orphanWorktree, '.git'),
-      'gitdir: /nonexistent/repo/.git/worktrees/ghost\n',
-    );
+    writeFileSync(join(orphanWorktree, '.git'), 'gitdir: /nonexistent/repo/.git/worktrees/ghost\n');
     // The gitlink resolves but the main repo .cleo doesn't exist → resolution
     // returns null → ancestor walk continues → eventually throws
     expect(() => getCleoDirAbsolute(orphanWorktree)).toThrow();
@@ -601,14 +592,22 @@ describe('resolveCanonicalCleoDir', () => {
     } else {
       delete process.env['CLEO_HOME'];
     }
-    try { rmSync(tmpHome, { recursive: true, force: true }); } catch { /* best-effort */ }
+    try {
+      rmSync(tmpHome, { recursive: true, force: true });
+    } catch {
+      /* best-effort */
+    }
   });
 
   function seedNexusDb(rows: Array<{ project_id: string; project_path: string }>) {
     const dbPath = join(tmpHome, 'nexus.db');
     const db = new DatabaseSync(dbPath);
-    db.exec('CREATE TABLE IF NOT EXISTS project_registry (project_id TEXT PRIMARY KEY, project_path TEXT NOT NULL)');
-    const stmt = db.prepare('INSERT OR REPLACE INTO project_registry (project_id, project_path) VALUES (?, ?)');
+    db.exec(
+      'CREATE TABLE IF NOT EXISTS project_registry (project_id TEXT PRIMARY KEY, project_path TEXT NOT NULL)',
+    );
+    const stmt = db.prepare(
+      'INSERT OR REPLACE INTO project_registry (project_id, project_path) VALUES (?, ?)',
+    );
     for (const row of rows) {
       stmt.run(row.project_id, row.project_path);
     }
@@ -695,9 +694,7 @@ describe('getCleoDirAbsolute — T11022 deprecation + strict mode', () => {
   // AC2: CLEO_PATHS_STRICT=1 throws E_CWD_WALKUP_FORBIDDEN with remediation hint
   it('throws E_CWD_WALKUP_FORBIDDEN when CLEO_PATHS_STRICT=1 (AC2)', () => {
     process.env['CLEO_PATHS_STRICT'] = '1';
-    expect(() => getCleoDirAbsolute('/some/nonproject/dir')).toThrowError(
-      /E_CWD_WALKUP_FORBIDDEN/,
-    );
+    expect(() => getCleoDirAbsolute('/some/nonproject/dir')).toThrowError(/E_CWD_WALKUP_FORBIDDEN/);
   });
 
   it('CLEO_PATHS_STRICT=1 error message includes resolveProjectByCwd + resolveCanonicalCleoDir (AC2)', () => {
@@ -746,7 +743,7 @@ describe('getCleoDirAbsolute — T11022 deprecation + strict mode', () => {
     }
 
     // First call: at most one NEW warning (or zero if already emitted by prior tests).
-    let warningsAfter = stderrSpy.mock.calls.filter(
+    const warningsAfter = stderrSpy.mock.calls.filter(
       ([msg]: any[]) => typeof msg === 'string' && msg.includes('W_PATH_DEPRECATED'),
     );
     const newWarnings = warningsAfter.length - warningsBefore;
@@ -756,7 +753,9 @@ describe('getCleoDirAbsolute — T11022 deprecation + strict mode', () => {
     if (newWarnings === 1) {
       const lastWarning = warningsAfter[warningsAfter.length - 1]![0];
       expect(lastWarning).toContain('getCleoDirAbsolute(cwd) is deprecated');
-      expect(lastWarning).toContain('resolveProjectByCwd(cwd) + resolveCanonicalCleoDir(projectId)');
+      expect(lastWarning).toContain(
+        'resolveProjectByCwd(cwd) + resolveCanonicalCleoDir(projectId)',
+      );
       expect(lastWarning).toContain('CLEO_PATHS_STRICT=1');
     }
 
@@ -766,7 +765,9 @@ describe('getCleoDirAbsolute — T11022 deprecation + strict mode', () => {
     ).length;
     try {
       getCleoDirAbsolute(tmpDir);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     const countAfterSecond = stderrSpy.mock.calls.filter(
       ([msg]: any[]) => typeof msg === 'string' && msg.includes('W_PATH_DEPRECATED'),
     ).length;
@@ -785,7 +786,9 @@ describe('getCleoDirAbsolute — T11022 deprecation + strict mode', () => {
     mkdirSync(tmpDir, { recursive: true });
     try {
       getCleoDirAbsolute(tmpDir);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     const warningCalls = stderrSpy.mock.calls.filter(
       ([msg]: any[]) => typeof msg === 'string' && msg.includes('W_PATH_DEPRECATED'),
@@ -802,9 +805,7 @@ describe('getCleoDirAbsolute — T11022 deprecation + strict mode', () => {
     process.env['CLEO_PATHS_STRICT'] = '1';
     const stderrSpy = vi.spyOn(process.stderr, 'write');
 
-    expect(() => getCleoDirAbsolute('/some/nonproject/dir')).toThrowError(
-      /E_CWD_WALKUP_FORBIDDEN/,
-    );
+    expect(() => getCleoDirAbsolute('/some/nonproject/dir')).toThrowError(/E_CWD_WALKUP_FORBIDDEN/);
 
     // Should NOT emit a deprecation warning — strict mode throws first.
     const warningCalls = stderrSpy.mock.calls.filter(
@@ -851,7 +852,11 @@ describe('resolveProjectByCwd', () => {
     } else {
       delete process.env['CLEO_HOME'];
     }
-    try { rmSync(tmpHome, { recursive: true, force: true }); } catch { /* best-effort */ }
+    try {
+      rmSync(tmpHome, { recursive: true, force: true });
+    } catch {
+      /* best-effort */
+    }
   });
 
   function seedProjectInfo(root: string, projectId: string) {
@@ -863,8 +868,12 @@ describe('resolveProjectByCwd', () => {
   function seedNexusDb(rows: Array<{ project_id: string; project_path: string }>) {
     const dbPath = join(tmpHome, 'nexus.db');
     const db = new DatabaseSync(dbPath);
-    db.exec('CREATE TABLE IF NOT EXISTS project_registry (project_id TEXT PRIMARY KEY, project_path TEXT NOT NULL)');
-    const stmt = db.prepare('INSERT OR REPLACE INTO project_registry (project_id, project_path) VALUES (?, ?)');
+    db.exec(
+      'CREATE TABLE IF NOT EXISTS project_registry (project_id TEXT PRIMARY KEY, project_path TEXT NOT NULL)',
+    );
+    const stmt = db.prepare(
+      'INSERT OR REPLACE INTO project_registry (project_id, project_path) VALUES (?, ?)',
+    );
     for (const row of rows) {
       stmt.run(row.project_id, row.project_path);
     }
@@ -1006,7 +1015,11 @@ describe('ID-Aware Path Resolver — resolveProjectByCwd + resolveCanonicalCleoD
     } else {
       delete process.env['CLEO_HOME'];
     }
-    try { rmSync(tmpHome, { recursive: true, force: true }); } catch { /* best-effort */ }
+    try {
+      rmSync(tmpHome, { recursive: true, force: true });
+    } catch {
+      /* best-effort */
+    }
   });
 
   function seedProjectInfo(root: string, projectId: string) {

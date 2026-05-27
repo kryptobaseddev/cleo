@@ -1,8 +1,7 @@
-import { existsSync, mkdirSync, symlinkSync, writeFileSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { homedir } from 'node:os';
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import envPaths from 'env-paths';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -87,7 +86,12 @@ describe('cleo-paths', () => {
     });
 
     it('is immune to CLEO_HOME override', () => {
-      process.env['CLEO_HOME'] = join(homedir(), '.temp', 'cleo-injection-chain-XXXXXX', '.cleo-home');
+      process.env['CLEO_HOME'] = join(
+        homedir(),
+        '.temp',
+        'cleo-injection-chain-XXXXXX',
+        '.cleo-home',
+      );
       _resetCleoPlatformPathsCache();
       expect(getCleoTemplatesTildePath()).toContain('cleo-injection-chain-XXXXXX');
       expect(getCanonicalTemplatesTildePath()).toBe('~/.cleo/templates');
@@ -168,18 +172,28 @@ describe('cleo-paths', () => {
     let tempDir: string;
 
     beforeEach(() => {
-      tempDir = join(tmpdir(), 'cleo-paths-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8));
+      tempDir = join(
+        tmpdir(),
+        'cleo-paths-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+      );
       mkdirSync(tempDir, { recursive: true });
     });
 
     afterEach(() => {
-      try { rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+      try {
+        rmSync(tempDir, { recursive: true, force: true });
+      } catch {
+        /* ignore */
+      }
     });
 
     it('resolves projectId and projectRoot from .cleo/project-info.json in cwd', () => {
       const cleoDir = join(tempDir, '.cleo');
       mkdirSync(cleoDir, { recursive: true });
-      writeFileSync(join(cleoDir, 'project-info.json'), JSON.stringify({ projectId: 'test-uuid-1234', projectHash: 'abc123' }));
+      writeFileSync(
+        join(cleoDir, 'project-info.json'),
+        JSON.stringify({ projectId: 'test-uuid-1234', projectHash: 'abc123' }),
+      );
 
       const result = resolveProjectByCwd(tempDir);
       expect(result).not.toBeNull();
@@ -193,7 +207,10 @@ describe('cleo-paths', () => {
     it('walks up ancestors to find .cleo/project-info.json', () => {
       const cleoDir = join(tempDir, '.cleo');
       mkdirSync(cleoDir, { recursive: true });
-      writeFileSync(join(cleoDir, 'project-info.json'), JSON.stringify({ projectId: 'walk-up-uuid' }));
+      writeFileSync(
+        join(cleoDir, 'project-info.json'),
+        JSON.stringify({ projectId: 'walk-up-uuid' }),
+      );
 
       const subDir = join(tempDir, 'packages', 'core', 'src');
       mkdirSync(subDir, { recursive: true });
@@ -219,7 +236,10 @@ describe('cleo-paths', () => {
     it('returns null when project-info.json has empty projectId', () => {
       const cleoDir = join(tempDir, '.cleo');
       mkdirSync(cleoDir, { recursive: true });
-      writeFileSync(join(cleoDir, 'project-info.json'), JSON.stringify({ projectId: '', projectHash: 'abc' }));
+      writeFileSync(
+        join(cleoDir, 'project-info.json'),
+        JSON.stringify({ projectId: '', projectHash: 'abc' }),
+      );
       expect(resolveProjectByCwd(tempDir)).toBeNull();
     });
 
@@ -235,7 +255,10 @@ describe('cleo-paths', () => {
       // .cleo at tempDir with valid ID, test from subdir
       const cleoDir = join(tempDir, '.cleo');
       mkdirSync(cleoDir, { recursive: true });
-      writeFileSync(join(cleoDir, 'project-info.json'), JSON.stringify({ projectId: 'valid-parent-uuid' }));
+      writeFileSync(
+        join(cleoDir, 'project-info.json'),
+        JSON.stringify({ projectId: 'valid-parent-uuid' }),
+      );
 
       const subDir = join(tempDir, 'deep', 'nested');
       mkdirSync(subDir, { recursive: true });
@@ -266,12 +289,23 @@ describe('cleo-paths', () => {
       // Init git repo so computeCanonicalProjectId can resolve git root
       try {
         execFileSync('git', ['init'], { cwd: fixtureDir, stdio: 'ignore' });
-        execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: fixtureDir, stdio: 'ignore' });
+        execFileSync('git', ['config', 'user.email', 'test@test.com'], {
+          cwd: fixtureDir,
+          stdio: 'ignore',
+        });
         execFileSync('git', ['config', 'user.name', 'Test'], { cwd: fixtureDir, stdio: 'ignore' });
-        execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/test/repo.git'], { cwd: fixtureDir, stdio: 'ignore' });
-      } catch { /* git may not be available */ }
+        execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/test/repo.git'], {
+          cwd: fixtureDir,
+          stdio: 'ignore',
+        });
+      } catch {
+        /* git may not be available */
+      }
 
-      writeFileSync(join(cleoDir, 'project-info.json'), JSON.stringify({ projectId: 'cross-mount-uuid', projectHash: 'abc' }));
+      writeFileSync(
+        join(cleoDir, 'project-info.json'),
+        JSON.stringify({ projectId: 'cross-mount-uuid', projectHash: 'abc' }),
+      );
 
       // Create a symlink to simulate bind-mount
       const symlinkPath = join(tmpdir(), 'cleo-cross-mount-link-' + Date.now());
@@ -279,7 +313,11 @@ describe('cleo-paths', () => {
         symlinkSync(fixtureDir, symlinkPath, 'dir');
       } catch {
         // Symlinks may not be supported — skip this test
-        try { rmSync(fixtureDir, { recursive: true, force: true }); } catch { /* ignore */ }
+        try {
+          rmSync(fixtureDir, { recursive: true, force: true });
+        } catch {
+          /* ignore */
+        }
         return;
       }
 
@@ -296,8 +334,16 @@ describe('cleo-paths', () => {
         // Same legacy UUID
         expect(result1!.legacyUUID).toBe(result2!.legacyUUID);
       } finally {
-        try { rmSync(fixtureDir, { recursive: true, force: true }); } catch { /* ignore */ }
-        try { rmSync(symlinkPath, { recursive: true, force: true }); } catch { /* ignore */ }
+        try {
+          rmSync(fixtureDir, { recursive: true, force: true });
+        } catch {
+          /* ignore */
+        }
+        try {
+          rmSync(symlinkPath, { recursive: true, force: true });
+        } catch {
+          /* ignore */
+        }
       }
     });
   });
@@ -309,19 +355,30 @@ describe('cleo-paths', () => {
     let originalCleoHomeForNexus: string | undefined;
 
     beforeEach(() => {
-      tempCleoHome = join(tmpdir(), 'cleo-nexus-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8));
+      tempCleoHome = join(
+        tmpdir(),
+        'cleo-nexus-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+      );
       mkdirSync(tempCleoHome, { recursive: true });
 
       const nexusDbPath = join(tempCleoHome, 'nexus.db');
       const db = new DatabaseSync(nexusDbPath);
-      db.exec('CREATE TABLE IF NOT EXISTS project_registry (project_id TEXT PRIMARY KEY, project_path TEXT NOT NULL UNIQUE)');
-      const insert = db.prepare('INSERT INTO project_registry (project_id, project_path) VALUES (?, ?)');
+      db.exec(
+        'CREATE TABLE IF NOT EXISTS project_registry (project_id TEXT PRIMARY KEY, project_path TEXT NOT NULL UNIQUE)',
+      );
+      const insert = db.prepare(
+        'INSERT INTO project_registry (project_id, project_path) VALUES (?, ?)',
+      );
       insert.run('known-project-uuid', '/mnt/projects/my-project');
       insert.run('secondary-uuid', '/home/user/another-project');
 
       // T11023 AC4: Set up project_id_aliases table
-      db.exec('CREATE TABLE IF NOT EXISTS project_id_aliases (legacy_id TEXT PRIMARY KEY, canonical_id TEXT NOT NULL)');
-      const aliasInsert = db.prepare('INSERT INTO project_id_aliases (legacy_id, canonical_id) VALUES (?, ?)');
+      db.exec(
+        'CREATE TABLE IF NOT EXISTS project_id_aliases (legacy_id TEXT PRIMARY KEY, canonical_id TEXT NOT NULL)',
+      );
+      const aliasInsert = db.prepare(
+        'INSERT INTO project_id_aliases (legacy_id, canonical_id) VALUES (?, ?)',
+      );
       aliasInsert.run('legacy-base64-id', 'known-project-uuid');
       aliasInsert.run('old-uuid-format', 'secondary-uuid');
       db.close();
@@ -338,7 +395,11 @@ describe('cleo-paths', () => {
         process.env['CLEO_HOME'] = originalCleoHomeForNexus;
       }
       _resetCleoPlatformPathsCache();
-      try { rmSync(tempCleoHome, { recursive: true, force: true }); } catch { /* ignore */ }
+      try {
+        rmSync(tempCleoHome, { recursive: true, force: true });
+      } catch {
+        /* ignore */
+      }
     });
 
     it('resolves .cleo dir from a known projectId', () => {
@@ -362,7 +423,11 @@ describe('cleo-paths', () => {
       try {
         expect(resolveCanonicalCleoDir('any-uuid')).toBeNull();
       } finally {
-        try { rmSync(emptyHome, { recursive: true, force: true }); } catch { /* ignore */ }
+        try {
+          rmSync(emptyHome, { recursive: true, force: true });
+        } catch {
+          /* ignore */
+        }
       }
     });
 

@@ -58,16 +58,16 @@ export { createWorktree } from './worktree-create.js';
 export { destroyWorktree } from './worktree-destroy.js';
 export { runWorktreeHooks } from './worktree-hooks.js';
 export { applyIncludePatterns, loadWorktreeIncludePatterns } from './worktree-include.js';
-export { installWorktreeDependencies } from './worktree-pnpm.js';
 export {
   listWorktrees,
   listWorktreesByProjectRoot,
   resolveWorktreeRoot,
 } from './worktree-list.js';
-export { pruneWorktrees } from './worktree-prune.js';
 export type { MigrateWorktreeResult } from './worktree-migrate.js';
 export {
   discoverParentProjectRoot,
   migrateAllWorktreeIdentities,
   migrateWorktreeIdentity,
 } from './worktree-migrate.js';
+export { installWorktreeDependencies } from './worktree-pnpm.js';
+export { pruneWorktrees } from './worktree-prune.js';

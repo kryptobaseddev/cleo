@@ -1,0 +1,180 @@
+{
+  "numTotalTestSuites": 2,
+  "numPassedTestSuites": 2,
+  "numFailedTestSuites": 0,
+  "numPendingTestSuites": 0,
+  "numTotalTests": 13,
+  "numPassedTests": 13,
+  "numFailedTests": 0,
+  "numPendingTests": 0,
+  "numTodoTests": 0,
+  "success": true,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [
+            "T11030 \u2014 project move integration (cross-drive)"
+          ],
+          "fullName": "T11030 \u2014 project move integration (cross-drive) AC1: creates scratch project with cleo init",
+          "status": "passed",
+          "title": "AC1: creates scratch project with cleo init",
+          "duration": 0.8575820000000931,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "T11030 \u2014 project move integration (cross-drive)"
+          ],
+          "fullName": "T11030 \u2014 project move integration (cross-drive) AC2: project is registered in nexus",
+          "status": "passed",
+          "title": "AC2: project is registered in nexus",
+          "duration": 1.1931220000001304,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "T11030 \u2014 project move integration (cross-drive)"
+          ],
+          "fullName": "T11030 \u2014 project move integration (cross-drive) AC3: brain observation, manifest entry, and nexus row reference projectId",
+          "status": "passed",
+          "title": "AC3: brain observation, manifest entry, and nexus row reference projectId",
+          "duration": 0.19302199999992808,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "T11030 \u2014 project move integration (cross-drive)"
+          ],
+          "fullName": "T11030 \u2014 project move integration (cross-drive) AC4: moveProject copies to destination successfully",
+          "status": "passed",
+          "title": "AC4: moveProject copies to destination successfully",
+          "duration": 5.0983309999999165,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "T11030 \u2014 project move integration (cross-drive)"
+          ],
+          "fullName": "T11030 \u2014 project move integration (cross-drive) AC5: projectId is preserved after move",
+          "status": "passed",
+          "title": "AC5: projectId is preserved after move",
+          "duration": 0.13161300000001575,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "T11030 \u2014 project move integration (cross-drive)"
+          ],
+          "fullName": "T11030 \u2014 project move integration (cross-drive) AC6: destination project-info.json has updated projectHash",
+          "status": "passed",
+          "title": "AC6: destination project-info.json has updated projectHash",
+          "duration": 0.1317180000000917,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "T11030 \u2014 project move integration (cross-drive)"
+          ],
+          "fullName": "T11030 \u2014 project move integration (cross-drive) AC7: brain observation resolves at new path via projectId",
+          "status": "passed",
+          "title": "AC7: brain observation resolves at new path via projectId",
+          "duration": 0.13180000000011205,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "T11030 \u2014 project move integration (cross-drive)"
+          ],
+          "fullName": "T11030 \u2014 project move integration (cross-drive) AC8: manifest entry resolves at new path via projectId",
+          "status": "passed",
+          "title": "AC8: manifest entry resolves at new path via projectId",
+          "duration": 0.12758400000006986,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "T11030 \u2014 project move integration (cross-drive)"
+          ],
+          "fullName": "T11030 \u2014 project move integration (cross-drive) AC9: nexus row resolves at new path via projectId",
+          "status": "passed",
+          "title": "AC9: nexus row resolves at new path via projectId",
+          "duration": 0.34962500000006,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "T11030 \u2014 project move integration (cross-drive)"
+          ],
+          "fullName": "T11030 \u2014 project move integration (cross-drive) AC10: zero ref-rewrite required after move",
+          "status": "passed",
+          "title": "AC10: zero ref-rewrite required after move",
+          "duration": 0.27055300000006355,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "T11030 \u2014 project move integration (cross-drive)"
+          ],
+          "fullName": "T11030 \u2014 project move integration (cross-drive) AC11: cross-drive copy-based move succeeds",
+          "status": "passed",
+          "title": "AC11: cross-drive copy-based move succeeds",
+          "duration": 0.0872190000000046,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "T11030 \u2014 project move integration (cross-drive)"
+          ],
+          "fullName": "T11030 \u2014 project move integration (cross-drive) AC12: cleanup removes test directories",
+          "status": "passed",
+          "title": "AC12: cleanup removes test directories",
+          "duration": 0.057581000000027416,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "T11030 \u2014 project move integration (cross-drive)"
+          ],
+          "fullName": "T11030 \u2014 project move integration (cross-drive) AC13: test file exists at packages/cleo/src/cli/commands/__tests__/project-move-cross-drive.test.ts",
+          "status": "passed",
+          "title": "AC13: test file exists at packages/cleo/src/cli/commands/__tests__/project-move-cross-drive.test.ts",
+          "duration": 0.06498000000010506,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1779860481654,
+      "endTime": 1779860481663.065,
+      "status": "passed",
+      "message": "",
+      "name": "/mnt/projects/cleocode/packages/cleo/src/cli/commands/__tests__/project-move-cross-drive.test.ts"
+    }
+  ],
+  "startTime": 1779860479642
+}

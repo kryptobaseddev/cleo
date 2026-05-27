@@ -14,14 +14,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import {
-  existsSync,
-  mkdirSync,
-  openSync,
-  closeSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const PNPM_INSTALL_TIMEOUT_MS = 120_000;
@@ -96,10 +89,7 @@ function acquirePnpmLock(projectRoot: string): () => void {
  *
  * @task T9938
  */
-export function installWorktreeDependencies(
-  worktreePath: string,
-  projectRoot: string,
-): boolean {
+export function installWorktreeDependencies(worktreePath: string, projectRoot: string): boolean {
   const pnpmLockPath = join(worktreePath, 'pnpm-lock.yaml');
   if (!existsSync(pnpmLockPath)) {
     // No lockfile — nothing to install.
@@ -135,9 +125,7 @@ export function installWorktreeDependencies(
     return true;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    process.stderr.write(
-      `[worktree] pnpm install failed for ${worktreePath}: ${message}\n`,
-    );
+    process.stderr.write(`[worktree] pnpm install failed for ${worktreePath}: ${message}\n`);
     return false;
   } finally {
     if (releaseLock) {

@@ -335,10 +335,17 @@ export async function createWorktree(
     // Read back both files and compare the projectId field. If they don't match,
     // the spawn is invalid and the worktree must be unwound.
     try {
-      const parentInfo = JSON.parse(readFileSync(parentProjectInfoPath, 'utf-8')) as Record<string, unknown>;
-      const worktreeInfo = JSON.parse(readFileSync(worktreeProjectInfoPath, 'utf-8')) as Record<string, unknown>;
+      const parentInfo = JSON.parse(readFileSync(parentProjectInfoPath, 'utf-8')) as Record<
+        string,
+        unknown
+      >;
+      const worktreeInfo = JSON.parse(readFileSync(worktreeProjectInfoPath, 'utf-8')) as Record<
+        string,
+        unknown
+      >;
       const parentProjectId = typeof parentInfo.projectId === 'string' ? parentInfo.projectId : '';
-      const worktreeProjectId = typeof worktreeInfo.projectId === 'string' ? worktreeInfo.projectId : '';
+      const worktreeProjectId =
+        typeof worktreeInfo.projectId === 'string' ? worktreeInfo.projectId : '';
 
       if (parentProjectId && parentProjectId !== worktreeProjectId) {
         // Identity mismatch — the worktree doesn't belong to this project.
@@ -346,10 +353,14 @@ export async function createWorktree(
         try {
           gitSilent(['worktree', 'unlock', worktreePath], gitRoot);
           gitSilent(['worktree', 'remove', '--force', worktreePath], gitRoot);
-        } catch { /* best-effort unwind */ }
+        } catch {
+          /* best-effort unwind */
+        }
         try {
           rmSync(worktreePath, { recursive: true, force: true });
-        } catch { /* directory may already be gone */ }
+        } catch {
+          /* directory may already be gone */
+        }
 
         throw Object.assign(
           new Error(
@@ -361,7 +372,11 @@ export async function createWorktree(
         );
       }
     } catch (err: unknown) {
-      if (err && typeof err === 'object' && (err as { code?: string }).code === 'E_WT_IDENTITY_MISMATCH') {
+      if (
+        err &&
+        typeof err === 'object' &&
+        (err as { code?: string }).code === 'E_WT_IDENTITY_MISMATCH'
+      ) {
         throw err;
       }
       // JSON parse or read errors are non-fatal — the copy succeeded at the

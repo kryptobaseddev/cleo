@@ -55,10 +55,7 @@ export function resolveDefaultProjectContext(): ProjectContext {
   const projectDir = getCleoProjectDir();
   // Use canonical project root from projectId resolution when available;
   // fall back to regex-stripping .cleo/ for non-project contexts.
-  const projectPath =
-    project !== null
-      ? project.projectRoot
-      : projectDir.replace(/\/.cleo$/, '');
+  const projectPath = project !== null ? project.projectRoot : projectDir.replace(/\/.cleo$/, '');
   const brainDbPath = join(projectDir, 'brain.db');
   const tasksDbPath = join(projectDir, 'tasks.db');
   // existsSync is referenced to match the studio surface, and documents intent;

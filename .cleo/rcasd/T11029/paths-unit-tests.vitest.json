@@ -1,0 +1,952 @@
+{
+  "numTotalTestSuites": 17,
+  "numPassedTestSuites": 17,
+  "numFailedTestSuites": 0,
+  "numPendingTestSuites": 0,
+  "numTotalTests": 76,
+  "numPassedTests": 76,
+  "numFailedTests": 0,
+  "numPendingTests": 0,
+  "numTodoTests": 0,
+  "snapshot": {
+    "added": 0,
+    "failure": false,
+    "filesAdded": 0,
+    "filesRemoved": 0,
+    "filesRemovedList": [],
+    "filesUnmatched": 0,
+    "filesUpdated": 0,
+    "matched": 0,
+    "total": 0,
+    "unchecked": 0,
+    "uncheckedKeysByFile": [],
+    "unmatched": 0,
+    "updated": 0,
+    "didUpdate": false
+  },
+  "startTime": 1779851674305,
+  "success": true,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [
+            "getCleoHome"
+          ],
+          "fullName": "getCleoHome defaults to OS-appropriate env-paths data dir",
+          "status": "passed",
+          "title": "defaults to OS-appropriate env-paths data dir",
+          "duration": 2.438255000000936,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getCleoHome"
+          ],
+          "fullName": "getCleoHome respects CLEO_HOME env var",
+          "status": "passed",
+          "title": "respects CLEO_HOME env var",
+          "duration": 0.3566549999995914,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getCleoDir"
+          ],
+          "fullName": "getCleoDir defaults to .cleo",
+          "status": "passed",
+          "title": "defaults to .cleo",
+          "duration": 0.31346599999960745,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getCleoDir"
+          ],
+          "fullName": "getCleoDir respects CLEO_DIR env var",
+          "status": "passed",
+          "title": "respects CLEO_DIR env var",
+          "duration": 0.2587749999984226,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getCleoDirAbsolute"
+          ],
+          "fullName": "getCleoDirAbsolute resolves relative path against cwd (bootstrap mode)",
+          "status": "passed",
+          "title": "resolves relative path against cwd (bootstrap mode)",
+          "duration": 0.9615240000021004,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getCleoDirAbsolute"
+          ],
+          "fullName": "getCleoDirAbsolute throws when called from inside a worktree without bootstrap (T9803)",
+          "status": "passed",
+          "title": "throws when called from inside a worktree without bootstrap (T9803)",
+          "duration": 2.674618000000919,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getCleoDirAbsolute"
+          ],
+          "fullName": "getCleoDirAbsolute returns absolute CLEO_DIR as-is",
+          "status": "passed",
+          "title": "returns absolute CLEO_DIR as-is",
+          "duration": 0.1388009999973292,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getProjectRoot"
+          ],
+          "fullName": "getProjectRoot returns the directory containing .cleo/ when called with that directory",
+          "status": "passed",
+          "title": "returns the directory containing .cleo/ when called with that directory",
+          "duration": 0.6937379999981204,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getProjectRoot"
+          ],
+          "fullName": "getProjectRoot respects CLEO_ROOT env var \u2014 bypasses walk entirely",
+          "status": "passed",
+          "title": "respects CLEO_ROOT env var \u2014 bypasses walk entirely",
+          "duration": 0.5592649999998685,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getProjectRoot \u2014 worktree gitlink resolution (T11034)"
+          ],
+          "fullName": "getProjectRoot \u2014 worktree gitlink resolution (T11034) resolves to main repo from worktree root (start-level gitlink)",
+          "status": "passed",
+          "title": "resolves to main repo from worktree root (start-level gitlink)",
+          "duration": 0.8274409999976342,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getProjectRoot \u2014 worktree gitlink resolution (T11034)"
+          ],
+          "fullName": "getProjectRoot \u2014 worktree gitlink resolution (T11034) resolves to main repo from worktree subdirectory (ancestor-walk gitlink)",
+          "status": "passed",
+          "title": "resolves to main repo from worktree subdirectory (ancestor-walk gitlink)",
+          "duration": 0.7049729999998817,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getProjectRoot \u2014 worktree gitlink resolution (T11034)"
+          ],
+          "fullName": "getProjectRoot \u2014 worktree gitlink resolution (T11034) resolves to main repo from deeply nested worktree subdirectory",
+          "status": "passed",
+          "title": "resolves to main repo from deeply nested worktree subdirectory",
+          "duration": 0.5967939999973169,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getProjectRoot \u2014 worktree gitlink resolution (T11034)"
+          ],
+          "fullName": "getProjectRoot \u2014 worktree gitlink resolution (T11034) getCleoDirAbsolute from worktree subdirectory returns parent project .cleo",
+          "status": "passed",
+          "title": "getCleoDirAbsolute from worktree subdirectory returns parent project .cleo",
+          "duration": 1.1564140000009502,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getProjectRoot \u2014 worktree gitlink resolution (T11034)"
+          ],
+          "fullName": "getProjectRoot \u2014 worktree gitlink resolution (T11034) getCleoDirAbsolute from worktree root returns parent project .cleo",
+          "status": "passed",
+          "title": "getCleoDirAbsolute from worktree root returns parent project .cleo",
+          "duration": 1.2411149999970803,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getProjectRoot \u2014 worktree gitlink resolution (T11034)"
+          ],
+          "fullName": "getProjectRoot \u2014 worktree gitlink resolution (T11034) still throws for worktree whose gitlink points to non-existent main repo",
+          "status": "passed",
+          "title": "still throws for worktree whose gitlink points to non-existent main repo",
+          "duration": 1.381919999999809,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getProjectRoot \u2014 worktree gitlink resolution (T11034)"
+          ],
+          "fullName": "getProjectRoot \u2014 worktree gitlink resolution (T11034) still throws for worktree with unparseable gitlink content",
+          "status": "passed",
+          "title": "still throws for worktree with unparseable gitlink content",
+          "duration": 1.2884520000006887,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getProjectRoot \u2014 worktree gitlink resolution (T11034)"
+          ],
+          "fullName": "getProjectRoot \u2014 worktree gitlink resolution (T11034) does not create .cleo/ inside worktree during resolution",
+          "status": "passed",
+          "title": "does not create .cleo/ inside worktree during resolution",
+          "duration": 1.0377640000006068,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "resolveProjectPath"
+          ],
+          "fullName": "resolveProjectPath returns absolute paths unchanged",
+          "status": "passed",
+          "title": "returns absolute paths unchanged",
+          "duration": 0.4725109999999404,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "resolveProjectPath"
+          ],
+          "fullName": "resolveProjectPath resolves relative paths against project root",
+          "status": "passed",
+          "title": "resolves relative paths against project root",
+          "duration": 0.3705520000003162,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "resolveProjectPath"
+          ],
+          "fullName": "resolveProjectPath expands tilde to home directory",
+          "status": "passed",
+          "title": "expands tilde to home directory",
+          "duration": 0.38324199999988195,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "path helper functions"
+          ],
+          "fullName": "path helper functions getTodoPath returns correct path",
+          "status": "passed",
+          "title": "getTodoPath returns correct path",
+          "duration": 0.14238599999953294,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "path helper functions"
+          ],
+          "fullName": "path helper functions getConfigPath returns correct path",
+          "status": "passed",
+          "title": "getConfigPath returns correct path",
+          "duration": 0.09463600000162842,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "path helper functions"
+          ],
+          "fullName": "path helper functions getBackupDir returns correct path",
+          "status": "passed",
+          "title": "getBackupDir returns correct path",
+          "duration": 0.08020299999770941,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "path helper functions"
+          ],
+          "fullName": "path helper functions getGlobalConfigPath returns correct path",
+          "status": "passed",
+          "title": "getGlobalConfigPath returns correct path",
+          "duration": 0.11928000000261818,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getAgentOutputsDir"
+          ],
+          "fullName": "getAgentOutputsDir returns default when no config exists",
+          "status": "passed",
+          "title": "returns default when no config exists",
+          "duration": 0.43229000000064843,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getAgentOutputsDir"
+          ],
+          "fullName": "getAgentOutputsDir reads agentOutputs.directory from config",
+          "status": "passed",
+          "title": "reads agentOutputs.directory from config",
+          "duration": 0.4845840000016324,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getAgentOutputsDir"
+          ],
+          "fullName": "getAgentOutputsDir reads agentOutputs as plain string from config",
+          "status": "passed",
+          "title": "reads agentOutputs as plain string from config",
+          "duration": 0.5716469999970286,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getAgentOutputsDir"
+          ],
+          "fullName": "getAgentOutputsDir falls back to research.outputDir (deprecated)",
+          "status": "passed",
+          "title": "falls back to research.outputDir (deprecated)",
+          "duration": 0.3772580000004382,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getAgentOutputsDir"
+          ],
+          "fullName": "getAgentOutputsDir falls back to directories.agentOutputs (deprecated)",
+          "status": "passed",
+          "title": "falls back to directories.agentOutputs (deprecated)",
+          "duration": 0.44293800000014016,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getAgentOutputsDir"
+          ],
+          "fullName": "getAgentOutputsDir uses priority order: agentOutputs > research > directories",
+          "status": "passed",
+          "title": "uses priority order: agentOutputs > research > directories",
+          "duration": 0.5174299999998766,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getAgentOutputsDir"
+          ],
+          "fullName": "getAgentOutputsDir falls back to default on invalid config JSON",
+          "status": "passed",
+          "title": "falls back to default on invalid config JSON",
+          "duration": 0.5196370000012394,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getAgentOutputsAbsolute"
+          ],
+          "fullName": "getAgentOutputsAbsolute resolves default to absolute path",
+          "status": "passed",
+          "title": "resolves default to absolute path",
+          "duration": 0.454357999999047,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getAgentOutputsAbsolute"
+          ],
+          "fullName": "getAgentOutputsAbsolute returns absolute config path as-is",
+          "status": "passed",
+          "title": "returns absolute config path as-is",
+          "duration": 0.4344810000002326,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getManifestPath \u2014 core/paths"
+          ],
+          "fullName": "getManifestPath \u2014 core/paths returns default manifest path",
+          "status": "passed",
+          "title": "returns default manifest path",
+          "duration": 0.5089389999993728,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getManifestPath \u2014 core/paths"
+          ],
+          "fullName": "getManifestPath \u2014 core/paths respects custom output directory",
+          "status": "passed",
+          "title": "respects custom output directory",
+          "duration": 0.46619900000223424,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getManifestPath \u2014 core/paths"
+          ],
+          "fullName": "getManifestPath \u2014 core/paths respects custom manifest filename",
+          "status": "passed",
+          "title": "respects custom manifest filename",
+          "duration": 0.46292600000015227,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getManifestArchivePath"
+          ],
+          "fullName": "getManifestArchivePath returns default archive path",
+          "status": "passed",
+          "title": "returns default archive path",
+          "duration": 0.48757299999851966,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "resolveCanonicalCleoDir"
+          ],
+          "fullName": "resolveCanonicalCleoDir returns canonical .cleo/ path for a known projectId (AC3)",
+          "status": "passed",
+          "title": "returns canonical .cleo/ path for a known projectId (AC3)",
+          "duration": 12.744403000000602,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "resolveCanonicalCleoDir"
+          ],
+          "fullName": "resolveCanonicalCleoDir looks up projectId in nexus registry (AC2)",
+          "status": "passed",
+          "title": "looks up projectId in nexus registry (AC2)",
+          "duration": 11.547446000000491,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "resolveCanonicalCleoDir"
+          ],
+          "fullName": "resolveCanonicalCleoDir throws E_PROJECT_NOT_FOUND when projectId not in registry (AC4)",
+          "status": "passed",
+          "title": "throws E_PROJECT_NOT_FOUND when projectId not in registry (AC4)",
+          "duration": 7.674719000002369,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "resolveCanonicalCleoDir"
+          ],
+          "fullName": "resolveCanonicalCleoDir throws E_PROJECT_NOT_FOUND when nexus.db does not exist",
+          "status": "passed",
+          "title": "throws E_PROJECT_NOT_FOUND when nexus.db does not exist",
+          "duration": 0.4777250000006461,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "resolveCanonicalCleoDir"
+          ],
+          "fullName": "resolveCanonicalCleoDir returns same path for same projectId regardless of caller location (AC5)",
+          "status": "passed",
+          "title": "returns same path for same projectId regardless of caller location (AC5)",
+          "duration": 7.1195410000000265,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "isAbsolutePath"
+          ],
+          "fullName": "isAbsolutePath recognizes POSIX absolute paths",
+          "status": "passed",
+          "title": "recognizes POSIX absolute paths",
+          "duration": 0.10438299999805167,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "isAbsolutePath"
+          ],
+          "fullName": "isAbsolutePath recognizes Windows drive letter paths",
+          "status": "passed",
+          "title": "recognizes Windows drive letter paths",
+          "duration": 0.05867200000284356,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "isAbsolutePath"
+          ],
+          "fullName": "isAbsolutePath recognizes UNC paths",
+          "status": "passed",
+          "title": "recognizes UNC paths",
+          "duration": 0.045022999998764135,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "isAbsolutePath"
+          ],
+          "fullName": "isAbsolutePath rejects relative paths",
+          "status": "passed",
+          "title": "rejects relative paths",
+          "duration": 0.05502400000113994,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getCleoDirAbsolute \u2014 T11022 deprecation + strict mode"
+          ],
+          "fullName": "getCleoDirAbsolute \u2014 T11022 deprecation + strict mode throws E_CWD_WALKUP_FORBIDDEN when CLEO_PATHS_STRICT=1 (AC2)",
+          "status": "passed",
+          "title": "throws E_CWD_WALKUP_FORBIDDEN when CLEO_PATHS_STRICT=1 (AC2)",
+          "duration": 0.19624000000112574,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getCleoDirAbsolute \u2014 T11022 deprecation + strict mode"
+          ],
+          "fullName": "getCleoDirAbsolute \u2014 T11022 deprecation + strict mode CLEO_PATHS_STRICT=1 error message includes resolveProjectByCwd + resolveCanonicalCleoDir (AC2)",
+          "status": "passed",
+          "title": "CLEO_PATHS_STRICT=1 error message includes resolveProjectByCwd + resolveCanonicalCleoDir (AC2)",
+          "duration": 0.11407700000199839,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getCleoDirAbsolute \u2014 T11022 deprecation + strict mode"
+          ],
+          "fullName": "getCleoDirAbsolute \u2014 T11022 deprecation + strict mode absolute CLEO_DIR passes through silently even with CLEO_PATHS_STRICT=1 (AC3)",
+          "status": "passed",
+          "title": "absolute CLEO_DIR passes through silently even with CLEO_PATHS_STRICT=1 (AC3)",
+          "duration": 0.08405299999867566,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getCleoDirAbsolute \u2014 T11022 deprecation + strict mode"
+          ],
+          "fullName": "getCleoDirAbsolute \u2014 T11022 deprecation + strict mode bootstrap=true skips deprecation and strict mode (AC3)",
+          "status": "passed",
+          "title": "bootstrap=true skips deprecation and strict mode (AC3)",
+          "duration": 0.1453750000000582,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getCleoDirAbsolute \u2014 T11022 deprecation + strict mode"
+          ],
+          "fullName": "getCleoDirAbsolute \u2014 T11022 deprecation + strict mode emits deprecation warning when CLEO_DEBUG is set, at most once per process (AC1/AC4)",
+          "status": "passed",
+          "title": "emits deprecation warning when CLEO_DEBUG is set, at most once per process (AC1/AC4)",
+          "duration": 1.200300000000425,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getCleoDirAbsolute \u2014 T11022 deprecation + strict mode"
+          ],
+          "fullName": "getCleoDirAbsolute \u2014 T11022 deprecation + strict mode does NOT emit deprecation warning when CLEO_DEBUG is not set (AC1)",
+          "status": "passed",
+          "title": "does NOT emit deprecation warning when CLEO_DEBUG is not set (AC1)",
+          "duration": 0.5972909999982221,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getCleoDirAbsolute \u2014 T11022 deprecation + strict mode"
+          ],
+          "fullName": "getCleoDirAbsolute \u2014 T11022 deprecation + strict mode CLEO_PATHS_STRICT=1 throws before any deprecation warning (AC2)",
+          "status": "passed",
+          "title": "CLEO_PATHS_STRICT=1 throws before any deprecation warning (AC2)",
+          "duration": 0.2544579999994312,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "getCleoDirAbsolute \u2014 T11022 deprecation + strict mode"
+          ],
+          "fullName": "getCleoDirAbsolute \u2014 T11022 deprecation + strict mode bootstrap=true does NOT emit deprecation warning (AC3)",
+          "status": "passed",
+          "title": "bootstrap=true does NOT emit deprecation warning (AC3)",
+          "duration": 0.2002489999977115,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "resolveProjectByCwd"
+          ],
+          "fullName": "resolveProjectByCwd reads project-info.json from CWD (AC2)",
+          "status": "passed",
+          "title": "reads project-info.json from CWD (AC2)",
+          "duration": 7.645451000000321,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "resolveProjectByCwd"
+          ],
+          "fullName": "resolveProjectByCwd walks up ancestors to find project-info.json (AC2 + AC6)",
+          "status": "passed",
+          "title": "walks up ancestors to find project-info.json (AC2 + AC6)",
+          "duration": 5.626749999999447,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "resolveProjectByCwd"
+          ],
+          "fullName": "resolveProjectByCwd stops at first .cleo/project-info.json hit (AC6)",
+          "status": "passed",
+          "title": "stops at first .cleo/project-info.json hit (AC6)",
+          "duration": 9.40400199999931,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "resolveProjectByCwd"
+          ],
+          "fullName": "resolveProjectByCwd falls back to nexus registry when no local project-info.json (AC3)",
+          "status": "passed",
+          "title": "falls back to nexus registry when no local project-info.json (AC3)",
+          "duration": 9.022535000000062,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "resolveProjectByCwd"
+          ],
+          "fullName": "resolveProjectByCwd nexus fallback walks up ancestors for path match (AC3)",
+          "status": "passed",
+          "title": "nexus fallback walks up ancestors for path match (AC3)",
+          "duration": 8.489418000001024,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "resolveProjectByCwd"
+          ],
+          "fullName": "resolveProjectByCwd returns canonical projectId string (AC4)",
+          "status": "passed",
+          "title": "returns canonical projectId string (AC4)",
+          "duration": 8.085124000001088,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "resolveProjectByCwd"
+          ],
+          "fullName": "resolveProjectByCwd throws with remediation hint when no project found (AC5)",
+          "status": "passed",
+          "title": "throws with remediation hint when no project found (AC5)",
+          "duration": 0.9040899999999965,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "resolveProjectByCwd"
+          ],
+          "fullName": "resolveProjectByCwd throws CleoError with NEXUS_PROJECT_NOT_FOUND exit code (AC5)",
+          "status": "passed",
+          "title": "throws CleoError with NEXUS_PROJECT_NOT_FOUND exit code (AC5)",
+          "duration": 0.6388929999993707,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "ID-Aware Path Resolver \u2014 resolveProjectByCwd + resolveCanonicalCleoDir (T11029)"
+          ],
+          "fullName": "ID-Aware Path Resolver \u2014 resolveProjectByCwd + resolveCanonicalCleoDir (T11029) ID-aware describe block exists covering resolveProjectByCwd + resolveCanonicalCleoDir (AC1)",
+          "status": "passed",
+          "title": "ID-aware describe block exists covering resolveProjectByCwd + resolveCanonicalCleoDir (AC1)",
+          "duration": 0.229046999997081,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "ID-Aware Path Resolver \u2014 resolveProjectByCwd + resolveCanonicalCleoDir (T11029)"
+          ],
+          "fullName": "ID-Aware Path Resolver \u2014 resolveProjectByCwd + resolveCanonicalCleoDir (T11029) returns correct projectId when CWD is at project root with project-info.json (AC2)",
+          "status": "passed",
+          "title": "returns correct projectId when CWD is at project root with project-info.json (AC2)",
+          "duration": 6.2477880000005825,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "ID-Aware Path Resolver \u2014 resolveProjectByCwd + resolveCanonicalCleoDir (T11029)"
+          ],
+          "fullName": "ID-Aware Path Resolver \u2014 resolveProjectByCwd + resolveCanonicalCleoDir (T11029) resolves to parent project projectId when CWD is in subdirectory (AC3)",
+          "status": "passed",
+          "title": "resolves to parent project projectId when CWD is in subdirectory (AC3)",
+          "duration": 7.203105000000505,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "ID-Aware Path Resolver \u2014 resolveProjectByCwd + resolveCanonicalCleoDir (T11029)"
+          ],
+          "fullName": "ID-Aware Path Resolver \u2014 resolveProjectByCwd + resolveCanonicalCleoDir (T11029) resolves to parent projectId from deeply nested subdirectory (AC3)",
+          "status": "passed",
+          "title": "resolves to parent projectId from deeply nested subdirectory (AC3)",
+          "duration": 6.51358700000128,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "ID-Aware Path Resolver \u2014 resolveProjectByCwd + resolveCanonicalCleoDir (T11029)"
+          ],
+          "fullName": "ID-Aware Path Resolver \u2014 resolveProjectByCwd + resolveCanonicalCleoDir (T11029) resolves to main repo projectId from worktree root via gitlink walk (AC4)",
+          "status": "passed",
+          "title": "resolves to main repo projectId from worktree root via gitlink walk (AC4)",
+          "duration": 7.316963000001124,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "ID-Aware Path Resolver \u2014 resolveProjectByCwd + resolveCanonicalCleoDir (T11029)"
+          ],
+          "fullName": "ID-Aware Path Resolver \u2014 resolveProjectByCwd + resolveCanonicalCleoDir (T11029) resolves to main repo projectId from worktree subdirectory via gitlink walk (AC4)",
+          "status": "passed",
+          "title": "resolves to main repo projectId from worktree subdirectory via gitlink walk (AC4)",
+          "duration": 7.526166999999987,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "ID-Aware Path Resolver \u2014 resolveProjectByCwd + resolveCanonicalCleoDir (T11029)"
+          ],
+          "fullName": "ID-Aware Path Resolver \u2014 resolveProjectByCwd + resolveCanonicalCleoDir (T11029) throws with \"cleo init\" remediation hint when no CLEO project found (AC5)",
+          "status": "passed",
+          "title": "throws with \"cleo init\" remediation hint when no CLEO project found (AC5)",
+          "duration": 1.1643890000013926,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "ID-Aware Path Resolver \u2014 resolveProjectByCwd + resolveCanonicalCleoDir (T11029)"
+          ],
+          "fullName": "ID-Aware Path Resolver \u2014 resolveProjectByCwd + resolveCanonicalCleoDir (T11029) throws with correct error code when no project found (AC5)",
+          "status": "passed",
+          "title": "throws with correct error code when no project found (AC5)",
+          "duration": 0.9105459999991581,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "ID-Aware Path Resolver \u2014 resolveProjectByCwd + resolveCanonicalCleoDir (T11029)"
+          ],
+          "fullName": "ID-Aware Path Resolver \u2014 resolveProjectByCwd + resolveCanonicalCleoDir (T11029) resolveCanonicalCleoDir returns .cleo/ path for registered projectId (AC6)",
+          "status": "passed",
+          "title": "resolveCanonicalCleoDir returns .cleo/ path for registered projectId (AC6)",
+          "duration": 8.303726999998617,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "ID-Aware Path Resolver \u2014 resolveProjectByCwd + resolveCanonicalCleoDir (T11029)"
+          ],
+          "fullName": "ID-Aware Path Resolver \u2014 resolveProjectByCwd + resolveCanonicalCleoDir (T11029) resolveCanonicalCleoDir resolves multiple registered projects correctly (AC6)",
+          "status": "passed",
+          "title": "resolveCanonicalCleoDir resolves multiple registered projects correctly (AC6)",
+          "duration": 13.66055200000119,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "ID-Aware Path Resolver \u2014 resolveProjectByCwd + resolveCanonicalCleoDir (T11029)"
+          ],
+          "fullName": "ID-Aware Path Resolver \u2014 resolveProjectByCwd + resolveCanonicalCleoDir (T11029) resolveCanonicalCleoDir throws E_PROJECT_NOT_FOUND for unknown projectId (AC7)",
+          "status": "passed",
+          "title": "resolveCanonicalCleoDir throws E_PROJECT_NOT_FOUND for unknown projectId (AC7)",
+          "duration": 11.876115999999456,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "ID-Aware Path Resolver \u2014 resolveProjectByCwd + resolveCanonicalCleoDir (T11029)"
+          ],
+          "fullName": "ID-Aware Path Resolver \u2014 resolveProjectByCwd + resolveCanonicalCleoDir (T11029) resolveCanonicalCleoDir throws when nexus.db does not exist (AC7)",
+          "status": "passed",
+          "title": "resolveCanonicalCleoDir throws when nexus.db does not exist (AC7)",
+          "duration": 0.7467770000002929,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "ID-Aware Path Resolver \u2014 resolveProjectByCwd + resolveCanonicalCleoDir (T11029)"
+          ],
+          "fullName": "ID-Aware Path Resolver \u2014 resolveProjectByCwd + resolveCanonicalCleoDir (T11029) full ID-aware chain: resolveProjectByCwd \u2192 resolveCanonicalCleoDir returns correct .cleo/ (AC2)",
+          "status": "passed",
+          "title": "full ID-aware chain: resolveProjectByCwd \u2192 resolveCanonicalCleoDir returns correct .cleo/ (AC2)",
+          "duration": 14.365835000000516,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "ID-Aware Path Resolver \u2014 resolveProjectByCwd + resolveCanonicalCleoDir (T11029)"
+          ],
+          "fullName": "ID-Aware Path Resolver \u2014 resolveProjectByCwd + resolveCanonicalCleoDir (T11029) resolveCanonicalCleoDir returns stable path across multiple calls (AC7)",
+          "status": "passed",
+          "title": "resolveCanonicalCleoDir returns stable path across multiple calls (AC7)",
+          "duration": 8.96283300000141,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1779851705014,
+      "endTime": 1779851705226.963,
+      "status": "passed",
+      "message": "",
+      "name": "/mnt/projects/cleocode/packages/core/src/__tests__/paths.test.ts"
+    }
+  ]
+}

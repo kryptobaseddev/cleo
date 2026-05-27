@@ -25,8 +25,8 @@ import {
   getCanonicalTemplatesTildePath as _getCanonicalTemplatesTildePath,
   getCleoTemplatesTildePath as _getCleoTemplatesTildePath,
   isAbsolutePath as _isAbsolutePath,
-  resolveCanonicalCleoDir as _resolveCanonicalCleoDir,
   resolveProjectByCwd as _pathsResolveProjectByCwd,
+  resolveCanonicalCleoDir as _resolveCanonicalCleoDir,
 } from '@cleocode/paths';
 import { CleoError } from './errors.js';
 import { getPlatformPaths } from './system/platform-paths.js';
@@ -400,7 +400,9 @@ export function getCleoDirAbsolute(cwd?: string, opts?: { bootstrap?: boolean })
     // T11021: Auto-register project on first encounter (fire-and-forget).
     // T11023: pass legacyUUID so it gets registered as an alias alongside
     // the canonical ID.
-    registerProjectOnEncounter(project.projectRoot, project.legacyUUID ?? project.projectId).catch(() => {});
+    registerProjectOnEncounter(project.projectRoot, project.legacyUUID ?? project.projectId).catch(
+      () => {},
+    );
     try {
       const projectRoot = getProjectRoot(cwd);
       const canonical = _resolveCanonicalCleoDir(project.projectId);
@@ -511,7 +513,11 @@ function _resolveProjectByCwdFromNexus(cwd?: string): string | null {
         current = parent;
       }
     } finally {
-      try { db.close(); } catch { /* best-effort */ }
+      try {
+        db.close();
+      } catch {
+        /* best-effort */
+      }
     }
   } catch {
     // nexus.db unavailable or corrupted — not an error, just no match
@@ -1987,19 +1993,35 @@ export async function resolveProjectById(projectId: string): Promise<ProjectRegi
     const { eq } = await import('drizzle-orm');
     const { projectRegistry, projectIdAliases } = await import('./store/nexus-schema.js');
     const db = await getNexusDb();
-    const directRows = await db.select().from(projectRegistry).where(eq(projectRegistry.projectId, projectId)).limit(1);
+    const directRows = await db
+      .select()
+      .from(projectRegistry)
+      .where(eq(projectRegistry.projectId, projectId))
+      .limit(1);
     if (directRows.length > 0) return _rowToRegistryEntry(directRows[0]);
     // Alias lookup (AC4) — gracefully handles missing project_id_aliases table
     try {
-      const aliasRows = await db.select().from(projectIdAliases).where(eq(projectIdAliases.legacyId, projectId)).limit(1);
+      const aliasRows = await db
+        .select()
+        .from(projectIdAliases)
+        .where(eq(projectIdAliases.legacyId, projectId))
+        .limit(1);
       if (aliasRows.length > 0) {
         const canonicalId = aliasRows[0].canonicalId;
-        const canonicalRows = await db.select().from(projectRegistry).where(eq(projectRegistry.projectId, canonicalId)).limit(1);
+        const canonicalRows = await db
+          .select()
+          .from(projectRegistry)
+          .where(eq(projectRegistry.projectId, canonicalId))
+          .limit(1);
         if (canonicalRows.length > 0) return _rowToRegistryEntry(canonicalRows[0]);
       }
-    } catch { /* alias table may not exist yet */ }
+    } catch {
+      /* alias table may not exist yet */
+    }
     return null;
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 function _rowToRegistryEntry(row: Record<string, unknown>): ProjectRegistryEntry {
@@ -2024,7 +2046,9 @@ function _readProjectNameFromInfo(projectRoot: string): string | undefined {
     const raw = readFileSync(infoPath, 'utf-8');
     const data = JSON.parse(raw) as Record<string, unknown>;
     return typeof data.name === 'string' && data.name.length > 0 ? data.name : undefined;
-  } catch { return undefined; }
+  } catch {
+    return undefined;
+  }
 }
 
 /** Auto-register a project on first encounter (AC2, AC3, AC5, AC6). */
@@ -2040,33 +2064,53 @@ export async function registerProjectOnEncounter(
     const { eq } = await import('drizzle-orm');
     const { projectRegistry, projectIdAliases } = await import('./store/nexus-schema.js');
     const db = await getNexusDb();
-    const existingRows = await db.select().from(projectRegistry).where(eq(projectRegistry.projectId, canonicalId)).limit(1);
+    const existingRows = await db
+      .select()
+      .from(projectRegistry)
+      .where(eq(projectRegistry.projectId, canonicalId))
+      .limit(1);
     const now = new Date().toISOString();
     const resolvedPath = resolve(projectRoot);
-    const projectName = _readProjectNameFromInfo(resolvedPath) || basename(projectRoot) || 'unnamed';
+    const projectName =
+      _readProjectNameFromInfo(resolvedPath) || basename(projectRoot) || 'unnamed';
     if (existingRows.length > 0) {
       const existingPath = existingRows[0].projectPath as string;
       if (existingPath !== resolvedPath) {
         const newBrainDbPath = join(resolvedPath, '.cleo', 'brain.db');
         const newTasksDbPath = join(resolvedPath, '.cleo', 'tasks.db');
-        await db.update(projectRegistry).set({
-          projectPath: resolvedPath,
-          brainDbPath: newBrainDbPath,
-          tasksDbPath: newTasksDbPath,
-          lastSeen: now
-        }).where(eq(projectRegistry.projectId, canonicalId));
+        await db
+          .update(projectRegistry)
+          .set({
+            projectPath: resolvedPath,
+            brainDbPath: newBrainDbPath,
+            tasksDbPath: newTasksDbPath,
+            lastSeen: now,
+          })
+          .where(eq(projectRegistry.projectId, canonicalId));
       } else {
-        await db.update(projectRegistry).set({ lastSeen: now }).where(eq(projectRegistry.projectId, canonicalId));
+        await db
+          .update(projectRegistry)
+          .set({ lastSeen: now })
+          .where(eq(projectRegistry.projectId, canonicalId));
       }
       return;
     }
     await db.insert(projectRegistry).values({
-      projectId: canonicalId, projectHash: canonicalResult.components.gitRoot,
-      projectPath: resolvedPath, name: projectName, registeredAt: now, lastSeen: now,
-      healthStatus: 'unknown', healthLastCheck: null, permissions: 'read', lastSync: now,
-      taskCount: 0, labelsJson: '[]',
+      projectId: canonicalId,
+      projectHash: canonicalResult.components.gitRoot,
+      projectPath: resolvedPath,
+      name: projectName,
+      registeredAt: now,
+      lastSeen: now,
+      healthStatus: 'unknown',
+      healthLastCheck: null,
+      permissions: 'read',
+      lastSync: now,
+      taskCount: 0,
+      labelsJson: '[]',
       brainDbPath: join(resolvedPath, '.cleo', 'brain.db'),
-      tasksDbPath: join(resolvedPath, '.cleo', 'tasks.db'), statsJson: '{}',
+      tasksDbPath: join(resolvedPath, '.cleo', 'tasks.db'),
+      statsJson: '{}',
     });
     const aliases = canonicalResult.legacyAliases ?? [];
     const { legacyProjectId } = await import('./nexus/identity.js');
@@ -2074,8 +2118,15 @@ export async function registerProjectOnEncounter(
     const allAliases = new Set<string>([directLegacy, infoProjectId, ...aliases]);
     for (const legacyId of allAliases) {
       try {
-        await db.insert(projectIdAliases).values({ legacyId, canonicalId, createdAt: now }).onConflictDoNothing();
-      } catch { /* best-effort */ }
+        await db
+          .insert(projectIdAliases)
+          .values({ legacyId, canonicalId, createdAt: now })
+          .onConflictDoNothing();
+      } catch {
+        /* best-effort */
+      }
     }
-  } catch { /* best-effort registration */ }
+  } catch {
+    /* best-effort registration */
+  }
 }

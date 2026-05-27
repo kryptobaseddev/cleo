@@ -1,0 +1,37 @@
+{
+  "numTotalTests": 2,
+  "numPassedTests": 2,
+  "numFailedTests": 0,
+  "testResults": [
+    {
+      "name": "spawn-verify-e2e T11033",
+      "status": "passed",
+      "assertionResults": [
+        {
+          "ancestorTitles": [
+            "spawn-verify E2E (T-WT-5)"
+          ],
+          "fullName": "spawn-verify E2E (T-WT-5) T11033: copies project-info.json from parent .cleo/ into worktree .cleo/ at provision time",
+          "status": "passed",
+          "title": "T11033: copies project-info.json from parent .cleo/ into worktree .cleo/ at provision time",
+          "duration": 36.20008699999994,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "spawn-verify E2E (T-WT-5)"
+          ],
+          "fullName": "spawn-verify E2E (T-WT-5) T11033: does not fail when parent project has no .cleo/ directory",
+          "status": "passed",
+          "title": "T11033: does not fail when parent project has no .cleo/ directory",
+          "duration": 29.51383900000019,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ]
+    }
+  ]
+}

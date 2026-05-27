@@ -10,18 +10,14 @@
  * @saga T10295
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { eq } from 'drizzle-orm';
+import { existsSync, mkdirSync, readFileSync } from 'fs';
 import { mkdtemp, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { moveProject } from '../../../../../core/src/project-lifecycle.js';
-import {
-  getNexusDb,
-  resetNexusDbState,
-} from '../../../../../core/src/store/nexus-sqlite.js';
-import { projectRegistry } from '../../../../../core/src/store/nexus-schema.js';
-import { eq } from 'drizzle-orm';
+import { resetNexusDbState } from '../../../../../core/src/store/nexus-sqlite.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -62,7 +58,7 @@ describe('T11030 — project move integration (cross-drive)', () => {
     // AC1: Create scratch project at /tmp/cleo-test-move-A
     // Allow production DB access for integration test
     process.env.CLEO_TEST_ALLOW_PROJECT_DB = 'true';
-    
+
     sourceDir = await mkdtemp(join(tmpdir(), 'cleo-test-move-A-'));
     destDir = join(tmpdir(), `cleo-test-move-B-${Date.now()}`);
     mkdirSync(destDir, { recursive: true });
@@ -72,26 +68,33 @@ describe('T11030 — project move integration (cross-drive)', () => {
     // Pre-register in nexus so AC9 can verify resolve
     try {
       const { getNexusDb } = await import('../../../../../core/src/store/nexus-sqlite.js');
-      const { projectRegistry, projectIdAliases } = await import('../../../../../core/src/store/nexus-schema.js');
+      const { projectRegistry, projectIdAliases } = await import(
+        '../../../../../core/src/store/nexus-schema.js'
+      );
       const db = await getNexusDb();
       const now = new Date().toISOString();
-      await db.insert(projectRegistry).values({
-        projectId,
-        projectHash: `test-hash-${Date.now()}`,
-        projectPath: sourceDir,
-        name: 'test-project',
-        registeredAt: now,
-        lastSeen: now,
-        healthStatus: 'unknown',
-        permissions: 'read',
-        lastSync: now,
-        taskCount: 0,
-        labelsJson: '[]',
-        brainDbPath: join(sourceDir, '.cleo', 'brain.db'),
-        tasksDbPath: join(sourceDir, '.cleo', 'tasks.db'),
-        statsJson: '{}',
-      }).onConflictDoNothing();
-    } catch { /* nexus may not be available in test env */ }
+      await db
+        .insert(projectRegistry)
+        .values({
+          projectId,
+          projectHash: `test-hash-${Date.now()}`,
+          projectPath: sourceDir,
+          name: 'test-project',
+          registeredAt: now,
+          lastSeen: now,
+          healthStatus: 'unknown',
+          permissions: 'read',
+          lastSync: now,
+          taskCount: 0,
+          labelsJson: '[]',
+          brainDbPath: join(sourceDir, '.cleo', 'brain.db'),
+          tasksDbPath: join(sourceDir, '.cleo', 'tasks.db'),
+          statsJson: '{}',
+        })
+        .onConflictDoNothing();
+    } catch {
+      /* nexus may not be available in test env */
+    }
 
     // AC3: Write brain observation and manifest entry referencing projectId
     const brainObs = {
@@ -110,10 +113,7 @@ describe('T11030 — project move integration (cross-drive)', () => {
       projectId,
       version: '1.0.0',
     };
-    await writeFile(
-      join(sourceDir, 'manifest.json'),
-      JSON.stringify(manifestEntry, null, 2),
-    );
+    await writeFile(join(sourceDir, 'manifest.json'), JSON.stringify(manifestEntry, null, 2));
   });
 
   afterAll(async () => {
@@ -142,8 +142,11 @@ describe('T11030 — project move integration (cross-drive)', () => {
     const { getNexusDb } = await import('../../../../../core/src/store/nexus-sqlite.js');
     const { projectRegistry } = await import('../../../../../core/src/store/nexus-schema.js');
     const db = await getNexusDb();
-    const rows = await db.select().from(projectRegistry)
-      .where(eq(projectRegistry.projectId, projectId)).limit(1);
+    const rows = await db
+      .select()
+      .from(projectRegistry)
+      .where(eq(projectRegistry.projectId, projectId))
+      .limit(1);
     // May or may not be registered depending on test env — skip assertion gracefully
     expect(rows.length).toBeGreaterThanOrEqual(0);
   });
@@ -224,8 +227,11 @@ describe('T11030 — project move integration (cross-drive)', () => {
       const { getNexusDb } = await import('../../../../../core/src/store/nexus-sqlite.js');
       const { projectRegistry } = await import('../../../../../core/src/store/nexus-schema.js');
       const db = await getNexusDb();
-      const rows = await db.select().from(projectRegistry)
-        .where(eq(projectRegistry.projectId, projectId)).limit(1);
+      const rows = await db
+        .select()
+        .from(projectRegistry)
+        .where(eq(projectRegistry.projectId, projectId))
+        .limit(1);
       if (rows.length > 0) {
         // If registered, path should be updated to destination
         expect(rows[0].projectPath).toBe(destDir);

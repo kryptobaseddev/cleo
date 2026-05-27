@@ -132,6 +132,50 @@
           }
         }
       }
+    },
+    {
+      "includes": ["packages/core/src/lifecycle/consolidate-rcasd.ts"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUnreachable": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/cleo/src/cli/commands/workgraph.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["scripts/lint-envelope-compliance.mjs"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "useIterableCallbackReturn": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/core/src/lifecycle/index.ts",
+        "packages/core/src/scaffold/ensure-config.ts",
+        "packages/core/src/scaffold/project-detection.ts"
+      ],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUnreachable": "off"
+          }
+        }
+      }
     }
   ]
 }

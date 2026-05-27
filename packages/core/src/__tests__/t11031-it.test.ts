@@ -10,23 +10,17 @@
  */
 
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  getCleoDirAbsolute,
-  resolveCanonicalCleoDir,
-  resolveProjectByCwd,
-} from '../paths.js';
+import { getCleoDirAbsolute, resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
-function createTempProject(
-  baseDir: string,
-  opts?: { projectId?: string; projectName?: string },
-) {
-  const projectId = opts?.projectId ?? `pid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+function createTempProject(baseDir: string, opts?: { projectId?: string; projectName?: string }) {
+  const projectId =
+    opts?.projectId ?? `pid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const cleoDir = join(baseDir, '.cleo');
   mkdirSync(cleoDir, { recursive: true });
   const info: Record<string, string> = { projectId };
@@ -37,10 +31,7 @@ function createTempProject(
   return { projectRoot: resolve(baseDir), projectId };
 }
 
-function seedNexusDb(
-  cleoHome: string,
-  rows: Array<{ project_id: string; project_path: string }>,
-) {
+function seedNexusDb(cleoHome: string, rows: Array<{ project_id: string; project_path: string }>) {
   const dbPath = join(cleoHome, 'nexus.db');
   const db = new DatabaseSync(dbPath);
   db.exec(
@@ -201,7 +192,9 @@ describe('T11031 AC2 — deprecation warning integration', () => {
     try {
       try {
         getCleoDirAbsolute(tmpDir);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
 
       const warnings = stderrSpy.mock.calls.filter(
         ([msg]: any[]) => typeof msg === 'string' && msg.includes('W_PATH_DEPRECATED'),
@@ -314,7 +307,11 @@ describe('T11031 AC3 — cross-mount projectId dedup integration', () => {
       expect(resultReal!.legacyUUID).toBe(sharedProjectId);
     } finally {
       rmSync(realPath, { recursive: true, force: true });
-      try { rmSync(symlinkPath, { recursive: true, force: true }); } catch { /* symlink */ }
+      try {
+        rmSync(symlinkPath, { recursive: true, force: true });
+      } catch {
+        /* symlink */
+      }
     }
   });
 
@@ -360,7 +357,10 @@ describe('T11031 AC4 — auto-register integration', () => {
 
   beforeEach(() => {
     delete process.env['CLEO_DIR'];
-    tmpHome = join(tmpdir(), `cleo-t11031-ac4-home-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
+    tmpHome = join(
+      tmpdir(),
+      `cleo-t11031-ac4-home-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    );
     mkdirSync(tmpHome, { recursive: true });
     process.env['CLEO_HOME'] = tmpHome;
   });
@@ -370,7 +370,11 @@ describe('T11031 AC4 — auto-register integration', () => {
     else delete process.env['CLEO_HOME'];
     if (origCleoDir !== undefined) process.env['CLEO_DIR'] = origCleoDir;
     else delete process.env['CLEO_DIR'];
-    try { rmSync(tmpHome, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      rmSync(tmpHome, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   });
 
   it('getCleoDirAbsolute triggers auto-register that persists to nexus.db (AC4)', () => {
@@ -433,7 +437,10 @@ describe('T11031 AC5 — resolveCanonicalCleoDir after registration', () => {
 
   beforeEach(() => {
     delete process.env['CLEO_DIR'];
-    tmpHome = join(tmpdir(), `cleo-t11031-ac5-home-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
+    tmpHome = join(
+      tmpdir(),
+      `cleo-t11031-ac5-home-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    );
     mkdirSync(tmpHome, { recursive: true });
     process.env['CLEO_HOME'] = tmpHome;
   });
@@ -443,7 +450,11 @@ describe('T11031 AC5 — resolveCanonicalCleoDir after registration', () => {
     else delete process.env['CLEO_HOME'];
     if (origCleoDir !== undefined) process.env['CLEO_DIR'] = origCleoDir;
     else delete process.env['CLEO_DIR'];
-    try { rmSync(tmpHome, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      rmSync(tmpHome, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   });
 
   it('resolveCanonicalCleoDir returns .cleo/ path after nexus registration (AC5)', () => {

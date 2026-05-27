@@ -169,128 +169,128 @@ export function resolveLegacyCleoDir(override?: string): string {
  *
  * @public
  /** Result of {@link resolveProjectByCwd} — the project identity resolved from walking up from a working directory. */
- export interface ResolvedProject {
-   /** Stable canonical project ID (12-hex-char SHA-256 of git-root|name|remote). */
-   projectId: string;
-   /** Absolute realpath to the project root directory. */
-   projectRoot: string;
-   /** The legacy UUID from project-info.json, if present. */
-   legacyUUID?: string;
- }
+export interface ResolvedProject {
+  /** Stable canonical project ID (12-hex-char SHA-256 of git-root|name|remote). */
+  projectId: string;
+  /** Absolute realpath to the project root directory. */
+  projectRoot: string;
+  /** The legacy UUID from project-info.json, if present. */
+  legacyUUID?: string;
+}
 
- // ---------------------------------------------------------------------------
- // Canonical project ID computation (T11023 — cross-mount divergence)
- // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Canonical project ID computation (T11023 — cross-mount divergence)
+// ---------------------------------------------------------------------------
 
- /**
-  * Synchronously find the git root for a given directory.
-  * Returns `null` if the directory is not inside a git repo.
-  */
- function _findGitRootSync(fromPath: string): string | null {
-   try {
-     const stdout = execFileSync('git', ['rev-parse', '--show-toplevel'], {
-       cwd: resolve(fromPath),
-       encoding: 'utf-8',
-       stdio: ['ignore', 'pipe', 'ignore'],
-     });
-     return resolve(stdout.trim());
-   } catch {
-     return null;
-   }
- }
+/**
+ * Synchronously find the git root for a given directory.
+ * Returns `null` if the directory is not inside a git repo.
+ */
+function _findGitRootSync(fromPath: string): string | null {
+  try {
+    const stdout = execFileSync('git', ['rev-parse', '--show-toplevel'], {
+      cwd: resolve(fromPath),
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return resolve(stdout.trim());
+  } catch {
+    return null;
+  }
+}
 
- /**
-  * Synchronously find the primary git remote URL (origin fetch URL).
-  * Returns `null` when there are no remotes or git is unavailable.
-  */
- function _findGitRemoteUrlSync(fromPath: string): string | null {
-   try {
-     const stdout = execFileSync('git', ['remote', 'get-url', 'origin'], {
-       cwd: resolve(fromPath),
-       encoding: 'utf-8',
-       stdio: ['ignore', 'pipe', 'ignore'],
-     });
-     const url = stdout.trim();
-     return url || null;
-   } catch {
-     return null;
-   }
- }
+/**
+ * Synchronously find the primary git remote URL (origin fetch URL).
+ * Returns `null` when there are no remotes or git is unavailable.
+ */
+function _findGitRemoteUrlSync(fromPath: string): string | null {
+  try {
+    const stdout = execFileSync('git', ['remote', 'get-url', 'origin'], {
+      cwd: resolve(fromPath),
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const url = stdout.trim();
+    return url || null;
+  } catch {
+    return null;
+  }
+}
 
- /**
-  * Read the project name from `.cleo/project-info.json` (if present).
-  * Non-fatal on any I/O or parse error.
-  */
- function _readProjectInfoName(repoRoot: string): string | undefined {
-   try {
-     const raw = readFileSync(join(repoRoot, '.cleo', 'project-info.json'), 'utf-8');
-     const parsed = JSON.parse(raw) as { name?: unknown };
-     return typeof parsed.name === 'string' ? parsed.name : undefined;
-   } catch {
-     return undefined;
-   }
- }
+/**
+ * Read the project name from `.cleo/project-info.json` (if present).
+ * Non-fatal on any I/O or parse error.
+ */
+function _readProjectInfoName(repoRoot: string): string | undefined {
+  try {
+    const raw = readFileSync(join(repoRoot, '.cleo', 'project-info.json'), 'utf-8');
+    const parsed = JSON.parse(raw) as { name?: unknown };
+    return typeof parsed.name === 'string' ? parsed.name : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
- /**
-  * Compute the canonical project ID for a given repository path (T9149/T11023).
-  *
-  * Algorithm:
-  *   1. Resolve `repoPath` to its `realpath` (resolves symlinks, normalises mounts).
-  *   2. Detect the git root via `git rev-parse --show-toplevel` (falls back to realpath).
-  *   3. Read `.cleo/project-info.json` name (optional).
-  *   4. Read `git remote get-url origin` (optional).
-  *   5. SHA-256 of `<gitRoot>|<projectName>|<remoteUrl>`, first 12 hex chars.
-  *
-  * This ensures `/mnt/projects/X` and `/workspace/X` (same git root,
-  * same remote) produce the same ID.
-  *
-  * @param repoPath - Absolute path to the project root.
-  * @returns The 12-hex-char canonical project ID.
-  *
-  * @task T11023
-  * @task T9149
-  */
- export function computeCanonicalProjectId(repoPath: string): string {
-   const realRepoPath = realpathSync(resolve(repoPath));
+/**
+ * Compute the canonical project ID for a given repository path (T9149/T11023).
+ *
+ * Algorithm:
+ *   1. Resolve `repoPath` to its `realpath` (resolves symlinks, normalises mounts).
+ *   2. Detect the git root via `git rev-parse --show-toplevel` (falls back to realpath).
+ *   3. Read `.cleo/project-info.json` name (optional).
+ *   4. Read `git remote get-url origin` (optional).
+ *   5. SHA-256 of `<gitRoot>|<projectName>|<remoteUrl>`, first 12 hex chars.
+ *
+ * This ensures `/mnt/projects/X` and `/workspace/X` (same git root,
+ * same remote) produce the same ID.
+ *
+ * @param repoPath - Absolute path to the project root.
+ * @returns The 12-hex-char canonical project ID.
+ *
+ * @task T11023
+ * @task T9149
+ */
+export function computeCanonicalProjectId(repoPath: string): string {
+  const realRepoPath = realpathSync(resolve(repoPath));
 
-   const gitRoot = _findGitRootSync(realRepoPath);
-   const effectiveRoot = gitRoot ?? realRepoPath;
+  const gitRoot = _findGitRootSync(realRepoPath);
+  const effectiveRoot = gitRoot ?? realRepoPath;
 
-   const remoteUrl = gitRoot ? _findGitRemoteUrlSync(gitRoot) : null;
-   const projectName = _readProjectInfoName(effectiveRoot);
+  const remoteUrl = gitRoot ? _findGitRemoteUrlSync(gitRoot) : null;
+  const projectName = _readProjectInfoName(effectiveRoot);
 
-   const fingerprint = [effectiveRoot, projectName ?? '', remoteUrl ?? ''].join('|');
-   return createHash('sha256').update(fingerprint).digest('hex').substring(0, 12);
- }
+  const fingerprint = [effectiveRoot, projectName ?? '', remoteUrl ?? ''].join('|');
+  return createHash('sha256').update(fingerprint).digest('hex').substring(0, 12);
+}
 
- /**
-  * Compute the legacy base64url(path) ID for a given path.
-  * This is the old algorithm used before T9149 W5.
-  */
- export function legacyProjectId(repoPath: string): string {
-   return Buffer.from(repoPath).toString('base64url').slice(0, 32);
- }
+/**
+ * Compute the legacy base64url(path) ID for a given path.
+ * This is the old algorithm used before T9149 W5.
+ */
+export function legacyProjectId(repoPath: string): string {
+  return Buffer.from(repoPath).toString('base64url').slice(0, 32);
+}
 
- /**
-  * Walk up from `cwd` (or `process.cwd()`) looking for `.cleo/project-info.json`
-  * and return the project identity if found.
-  *
-  * This replaces the ancestor-walk pattern in `getCleoDirAbsolute` with a
-  * projectId-aware lookup. Instead of resolving a `.cleo/` directory via
-  * git-root heuristics, it reads the stable `projectId` from the canonical
-  * project-info file — enabling move-safe project identification.
-  *
-  * **Cross-mount divergence (T11023):** Uses `realpathSync` to normalize
-  * bind-mounts and symlinks so the same repo at `/mnt/projects/X` and
-  * `/workspace/X` resolves to the same `projectRoot`. The `projectId` is
-  * the T9149 canonical 12-hex-char SHA-256 fingerprint of git-root + name
-  * + remote URL, which is also mount-invariant.
-  *
-  * @param cwd - Optional working directory to start the ancestor walk from.
-  *   Defaults to `process.cwd()`.
-  * @returns The resolved project identity, or `null` if no CLEO project is
-  *   found anywhere in the ancestor chain.
-  *
+/**
+ * Walk up from `cwd` (or `process.cwd()`) looking for `.cleo/project-info.json`
+ * and return the project identity if found.
+ *
+ * This replaces the ancestor-walk pattern in `getCleoDirAbsolute` with a
+ * projectId-aware lookup. Instead of resolving a `.cleo/` directory via
+ * git-root heuristics, it reads the stable `projectId` from the canonical
+ * project-info file — enabling move-safe project identification.
+ *
+ * **Cross-mount divergence (T11023):** Uses `realpathSync` to normalize
+ * bind-mounts and symlinks so the same repo at `/mnt/projects/X` and
+ * `/workspace/X` resolves to the same `projectRoot`. The `projectId` is
+ * the T9149 canonical 12-hex-char SHA-256 fingerprint of git-root + name
+ * + remote URL, which is also mount-invariant.
+ *
+ * @param cwd - Optional working directory to start the ancestor walk from.
+ *   Defaults to `process.cwd()`.
+ * @returns The resolved project identity, or `null` if no CLEO project is
+ *   found anywhere in the ancestor chain.
+ *
  * @example
  * ```typescript
  * const project = resolveProjectByCwd('/repo/packages/core');
@@ -390,7 +390,11 @@ export function resolveCanonicalCleoDir(projectId: string): string | null {
     );
     const directRow = directStmt.get(projectId) as { project_path: string } | undefined;
 
-    if (directRow && typeof directRow.project_path === 'string' && directRow.project_path.length > 0) {
+    if (
+      directRow &&
+      typeof directRow.project_path === 'string' &&
+      directRow.project_path.length > 0
+    ) {
       return join(directRow.project_path, '.cleo');
     }
 
@@ -404,10 +408,20 @@ export function resolveCanonicalCleoDir(projectId: string): string | null {
       );
       const aliasRow = aliasStmt.get(projectId) as { canonical_id: string } | undefined;
 
-      if (aliasRow && typeof aliasRow.canonical_id === 'string' && aliasRow.canonical_id.length > 0) {
+      if (
+        aliasRow &&
+        typeof aliasRow.canonical_id === 'string' &&
+        aliasRow.canonical_id.length > 0
+      ) {
         // Resolved a legacy alias — look up the canonical ID.
-        const canonicalRow = directStmt.get(aliasRow.canonical_id) as { project_path: string } | undefined;
-        if (canonicalRow && typeof canonicalRow.project_path === 'string' && canonicalRow.project_path.length > 0) {
+        const canonicalRow = directStmt.get(aliasRow.canonical_id) as
+          | { project_path: string }
+          | undefined;
+        if (
+          canonicalRow &&
+          typeof canonicalRow.project_path === 'string' &&
+          canonicalRow.project_path.length > 0
+        ) {
           return join(canonicalRow.project_path, '.cleo');
         }
       }

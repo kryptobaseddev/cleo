@@ -1348,7 +1348,10 @@ export async function markReleaseShipped(
 export async function migrateReleasesJsonToSqlite(
   projectRoot?: string,
 ): Promise<{ migrated: number }> {
-  const releasesPath = join(resolveCanonicalCleoDir(resolveProjectByCwd(projectRoot)), 'releases.json');
+  const releasesPath = join(
+    resolveCanonicalCleoDir(resolveProjectByCwd(projectRoot)),
+    'releases.json',
+  );
 
   if (!existsSync(releasesPath)) {
     return { migrated: 0 };

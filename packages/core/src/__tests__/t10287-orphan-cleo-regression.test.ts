@@ -42,16 +42,17 @@ describe('getCleoDirAbsolute T10287 regression — orphan .cleo/ in non-CLEO git
 
   beforeEach(() => {
     envGuard = useCleanEnv();
-    tempBase = join(
-      tmpdir(),
-      `cleo-t10287-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    );
+    tempBase = join(tmpdir(), `cleo-t10287-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     mkdirSync(tempBase, { recursive: true });
   });
 
   afterEach(() => {
     envGuard.restore();
-    try { rmSync(tempBase, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      rmSync(tempBase, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   });
 
   it('throws for a non-CLEO git repo with real .git/ directory', () => {

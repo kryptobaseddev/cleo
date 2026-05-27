@@ -9,10 +9,10 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { join, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { parseArgs, runLint, scanSource } from '../lint-no-cwd-walkup.mjs';
@@ -30,8 +30,16 @@ describe('scanSource — RULE-1 (getCleoDirAbsolute)', () => {
     const src = `import { getCleoDirAbsolute } from './paths.js';\nconst dir = getCleoDirAbsolute('/foo');\n`;
     const results = scanSource(src, 'packages/core/src/upgrade.ts');
     expect(results).toHaveLength(2);
-    expect(results[0]).toMatchObject({ rule: 'RULE-1', file: 'packages/core/src/upgrade.ts', line: 1 });
-    expect(results[1]).toMatchObject({ rule: 'RULE-1', file: 'packages/core/src/upgrade.ts', line: 2 });
+    expect(results[0]).toMatchObject({
+      rule: 'RULE-1',
+      file: 'packages/core/src/upgrade.ts',
+      line: 1,
+    });
+    expect(results[1]).toMatchObject({
+      rule: 'RULE-1',
+      file: 'packages/core/src/upgrade.ts',
+      line: 2,
+    });
   });
 
   it('allows getCleoDirAbsolute in paths.ts (the shim)', () => {
@@ -123,8 +131,12 @@ describe('scanSource — RULE-2 (getProjectRoot(process.cwd()))', () => {
 describe('parseArgs', () => {
   it('defaults — no flags', () => {
     expect(parseArgs([])).toMatchObject({
-      baselineMode: false, checkMode: false, strictMode: false,
-      jsonMode: false, help: false, explicitFiles: null,
+      baselineMode: false,
+      checkMode: false,
+      strictMode: false,
+      jsonMode: false,
+      help: false,
+      explicitFiles: null,
     });
   });
 
@@ -187,19 +199,13 @@ describe('runLint — programmatic', () => {
   });
 
   it('detects RULE-1 violation in explicit file', () => {
-    const result = runLint(
-      { explicitFiles: ['packages/core/src/upgrade.ts'] },
-      REPO_ROOT,
-    );
+    const result = runLint({ explicitFiles: ['packages/core/src/upgrade.ts'] }, REPO_ROOT);
     // This file should have getCleoDirAbsolute references
     expect(result.violations.some((v) => v.rule === 'RULE-1')).toBe(true);
   });
 
   it('returns zero RULE-1 violations for paths.ts', () => {
-    const result = runLint(
-      { explicitFiles: ['packages/core/src/paths.ts'] },
-      REPO_ROOT,
-    );
+    const result = runLint({ explicitFiles: ['packages/core/src/paths.ts'] }, REPO_ROOT);
     expect(result.violations.filter((v) => v.rule === 'RULE-1')).toHaveLength(0);
   });
 });
@@ -254,7 +260,12 @@ describe('CLI bootstrap', () => {
     const r = runCli(['--json', '--files', 'packages/core/src/paths.ts']);
     expect(r.status).toBe(0);
     const parsed = JSON.parse(r.stdout);
-    expect(parsed).toMatchObject({ gate: 'lint-no-cwd-walkup', total: 0, rule1Count: 0, rule2Count: 0 });
+    expect(parsed).toMatchObject({
+      gate: 'lint-no-cwd-walkup',
+      total: 0,
+      rule1Count: 0,
+      rule2Count: 0,
+    });
   });
 });
 

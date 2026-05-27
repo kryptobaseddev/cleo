@@ -25,7 +25,10 @@ describe('project command group', () => {
   });
 
   describe('re-register subcommand', () => {
-    const subs = projectCommand.subCommands as Record<string, { meta?: { name: string; description: string }; args?: Record<string, unknown> }>;
+    const subs = projectCommand.subCommands as Record<
+      string,
+      { meta?: { name: string; description: string }; args?: Record<string, unknown> }
+    >;
     const cmd = subs['re-register'];
 
     it('has name "re-register"', () => {

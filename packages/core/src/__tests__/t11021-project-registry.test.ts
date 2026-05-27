@@ -7,8 +7,8 @@
  * new canonical IDs, and the old-path entry is left for GC/cleanup.
  */
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { registerProjectOnEncounter, resolveProjectById } from '../paths.js';
 
@@ -33,15 +33,24 @@ async function registerAndGetCanonicalId(
   const db = await getNexusDb();
   const { projectRegistry } = await import('../store/nexus-schema.js');
   const { eq } = await import('drizzle-orm');
-  const rows = await db.select().from(projectRegistry).where(
-    eq(projectRegistry.projectPath, resolve(projectRoot))
-  ).limit(1);
+  const rows = await db
+    .select()
+    .from(projectRegistry)
+    .where(eq(projectRegistry.projectPath, resolve(projectRoot)))
+    .limit(1);
   return (rows[0]?.projectId as string) ?? '';
 }
 
 describe('resolveProjectById (T11021 AC1, AC4)', () => {
   const tempDirs: string[] = [];
-  afterEach(() => { for (const d of tempDirs) { try { rmSync(d, { recursive: true, force: true }); } catch {} } tempDirs.length = 0; });
+  afterEach(() => {
+    for (const d of tempDirs) {
+      try {
+        rmSync(d, { recursive: true, force: true });
+      } catch {}
+    }
+    tempDirs.length = 0;
+  });
 
   it('returns null when nexus.db does not exist', async () => {
     const tempHome = join(tmpdir(), `ch-${Date.now()}`);
@@ -49,8 +58,12 @@ describe('resolveProjectById (T11021 AC1, AC4)', () => {
     tempDirs.push(tempHome);
     const orig = process.env['CLEO_HOME'];
     process.env['CLEO_HOME'] = tempHome;
-    try { expect(await resolveProjectById('x')).toBeNull(); }
-    finally { if (orig !== undefined) process.env['CLEO_HOME'] = orig; else delete process.env['CLEO_HOME']; }
+    try {
+      expect(await resolveProjectById('x')).toBeNull();
+    } finally {
+      if (orig !== undefined) process.env['CLEO_HOME'] = orig;
+      else delete process.env['CLEO_HOME'];
+    }
   });
 
   it('resolves registered project by canonical ID (AC1)', async () => {
@@ -69,7 +82,10 @@ describe('resolveProjectById (T11021 AC1, AC4)', () => {
       expect(entry!.projectRoot).toBe(projectRoot);
       expect(entry!.name).toBe('tp');
       expect(entry!.projectId).toMatch(/^[0-9a-f]{12}$/);
-    } finally { if (orig !== undefined) process.env['CLEO_HOME'] = orig; else delete process.env['CLEO_HOME']; }
+    } finally {
+      if (orig !== undefined) process.env['CLEO_HOME'] = orig;
+      else delete process.env['CLEO_HOME'];
+    }
   });
 
   it('returns null for unknown projectId', async () => {
@@ -84,20 +100,32 @@ describe('resolveProjectById (T11021 AC1, AC4)', () => {
       await registerAndGetCanonicalId(projectRoot, infoProjectId);
       const entry = await resolveProjectById('nonexistent-id-xyz');
       expect(entry).toBeNull();
-    } finally { if (orig !== undefined) process.env['CLEO_HOME'] = orig; else delete process.env['CLEO_HOME']; }
+    } finally {
+      if (orig !== undefined) process.env['CLEO_HOME'] = orig;
+      else delete process.env['CLEO_HOME'];
+    }
   });
 });
 
 describe('registerProjectOnEncounter (T11021 AC2, AC3, AC5)', () => {
   const tempDirs: string[] = [];
-  afterEach(() => { for (const d of tempDirs) { try { rmSync(d, { recursive: true, force: true }); } catch {} } tempDirs.length = 0; });
+  afterEach(() => {
+    for (const d of tempDirs) {
+      try {
+        rmSync(d, { recursive: true, force: true });
+      } catch {}
+    }
+    tempDirs.length = 0;
+  });
 
   it('registers new project with project-info.json name (AC2, AC6)', async () => {
     const tempHome = join(tmpdir(), `ch-${Date.now()}`);
     const tempProj = join(tmpdir(), `cp-${Date.now()}`);
     mkdirSync(tempHome, { recursive: true });
     tempDirs.push(tempHome, tempProj);
-    const { projectRoot, infoProjectId } = createTempCleoProject(tempProj, { projectName: 'new-proj' });
+    const { projectRoot, infoProjectId } = createTempCleoProject(tempProj, {
+      projectName: 'new-proj',
+    });
     const orig = process.env['CLEO_HOME'];
     process.env['CLEO_HOME'] = tempHome;
     try {
@@ -108,7 +136,10 @@ describe('registerProjectOnEncounter (T11021 AC2, AC3, AC5)', () => {
       expect(e!.projectRoot).toBe(projectRoot);
       expect(e!.name).toBe('new-proj');
       expect(e!.projectHash).toBeTruthy();
-    } finally { if (orig !== undefined) process.env['CLEO_HOME'] = orig; else delete process.env['CLEO_HOME']; }
+    } finally {
+      if (orig !== undefined) process.env['CLEO_HOME'] = orig;
+      else delete process.env['CLEO_HOME'];
+    }
   });
 
   it('is idempotent on re-encounter at same path', async () => {
@@ -126,7 +157,10 @@ describe('registerProjectOnEncounter (T11021 AC2, AC3, AC5)', () => {
       const entry = await resolveProjectById(cid1);
       expect(entry).not.toBeNull();
       expect(entry!.projectRoot).toBe(projectRoot);
-    } finally { if (orig !== undefined) process.env['CLEO_HOME'] = orig; else delete process.env['CLEO_HOME']; }
+    } finally {
+      if (orig !== undefined) process.env['CLEO_HOME'] = orig;
+      else delete process.env['CLEO_HOME'];
+    }
   });
 
   it('registers at new path with new canonical ID when directory moves (AC5)', async () => {
@@ -141,7 +175,9 @@ describe('registerProjectOnEncounter (T11021 AC2, AC3, AC5)', () => {
     try {
       const cid1 = await registerAndGetCanonicalId(resolve(tempProj1), infoProjectId);
       // Create same project at new location (same name, different path = different canonical ID)
-      const { projectRoot: movedRoot } = createTempCleoProject(tempProj2, { projectName: 'movable' });
+      const { projectRoot: movedRoot } = createTempCleoProject(tempProj2, {
+        projectName: 'movable',
+      });
       const cid2 = await registerAndGetCanonicalId(movedRoot, infoProjectId);
       expect(cid2).toBeTruthy();
       expect(cid2).not.toBe(cid1); // Different paths => different canonical IDs
@@ -153,7 +189,10 @@ describe('registerProjectOnEncounter (T11021 AC2, AC3, AC5)', () => {
       const oldE = await resolveProjectById(cid1);
       expect(oldE).not.toBeNull();
       expect(oldE!.projectRoot).toBe(resolve(tempProj1));
-    } finally { if (orig !== undefined) process.env['CLEO_HOME'] = orig; else delete process.env['CLEO_HOME']; }
+    } finally {
+      if (orig !== undefined) process.env['CLEO_HOME'] = orig;
+      else delete process.env['CLEO_HOME'];
+    }
   });
 
   it('uses canonical 12-hex ID (AC3)', async () => {
@@ -161,7 +200,9 @@ describe('registerProjectOnEncounter (T11021 AC2, AC3, AC5)', () => {
     const tempProj = join(tmpdir(), `cp-${Date.now()}`);
     mkdirSync(tempHome, { recursive: true });
     tempDirs.push(tempHome, tempProj);
-    const { projectRoot, infoProjectId } = createTempCleoProject(tempProj, { projectName: 'canon' });
+    const { projectRoot, infoProjectId } = createTempCleoProject(tempProj, {
+      projectName: 'canon',
+    });
     const orig = process.env['CLEO_HOME'];
     process.env['CLEO_HOME'] = tempHome;
     try {
@@ -170,6 +211,9 @@ describe('registerProjectOnEncounter (T11021 AC2, AC3, AC5)', () => {
       const e = await resolveProjectById(canonicalId);
       expect(e).not.toBeNull();
       expect(e!.projectId).toBe(canonicalId);
-    } finally { if (orig !== undefined) process.env['CLEO_HOME'] = orig; else delete process.env['CLEO_HOME']; }
+    } finally {
+      if (orig !== undefined) process.env['CLEO_HOME'] = orig;
+      else delete process.env['CLEO_HOME'];
+    }
   });
 });

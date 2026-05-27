@@ -31,10 +31,10 @@ export {
   getCleoSystemInfo,
   getCleoTemplatesTildePath,
   legacyProjectId,
+  type ResolvedProject,
   resolveCanonicalCleoDir,
   resolveLegacyCleoDir,
   resolveProjectByCwd,
-  type ResolvedProject,
 } from './cleo-paths.js';
 export {
   createPlatformPathsResolver,

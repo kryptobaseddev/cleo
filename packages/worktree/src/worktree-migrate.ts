@@ -90,7 +90,10 @@ export function migrateWorktreeIdentity(worktreePath: string): MigrateWorktreeRe
   // ── Idempotency: skip if already present ──────────────────────────
   if (existsSync(worktreeInfoPath)) {
     try {
-      const existing = JSON.parse(readFileSync(worktreeInfoPath, 'utf-8')) as Record<string, unknown>;
+      const existing = JSON.parse(readFileSync(worktreeInfoPath, 'utf-8')) as Record<
+        string,
+        unknown
+      >;
       return {
         worktreePath,
         backfilled: false,

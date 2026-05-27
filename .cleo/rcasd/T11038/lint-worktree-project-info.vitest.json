@@ -1,0 +1,13 @@
+{
+  "numTotalTests": 6,
+  "numPassedTests": 6,
+  "numFailedTests": 0,
+  "testResults": [
+    {"name": "parseWorktreeList parses single worktree", "status": "passed"},
+    {"name": "parseWorktreeList parses multiple worktrees including bare", "status": "passed"},
+    {"name": "parseWorktreeList parses worktrees with no HEAD", "status": "passed"},
+    {"name": "parseWorktreeList handles empty input", "status": "passed"},
+    {"name": "runLint returns no violations when only primary worktree exists", "status": "passed"},
+    {"name": "runLint detects worktree with .cleo/ but no project-info.json", "status": "passed"}
+  ]
+}

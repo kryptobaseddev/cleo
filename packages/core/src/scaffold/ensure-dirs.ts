@@ -9,7 +9,7 @@ import { mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { ScaffoldResult } from '@cleocode/contracts/scaffold-diagnostics';
-import { resolveCanonicalCleoDir, resolveProjectByCwd, getCleoHome } from '../paths.js';
+import { getCleoHome, resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
 import { hasGitIdentity } from './init.js';
 
 export { generateProjectHash } from '../nexus/hash.js';
