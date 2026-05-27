@@ -1,0 +1,198 @@
+{
+  "task": "T11120",
+  "title": "Audit branch-lock.ts git shell-out surface",
+  "file": "packages/core/src/spawn/branch-lock.ts (1146 lines)",
+  "callsite_count": 36,
+  "analysis_date": "2026-05-27",
+
+  "execFileSync_call_sites": [
+    {"line": 62, "type": "wrapper", "detail": "gitSync() helper — execFileSync('git', args, {cwd, encoding, stdio})"},
+    {"line": 78, "type": "wrapper", "detail": "gitSilent() helper — execFileSync('git', args, {cwd, stdio:'pipe'})"},
+    {"line": 750, "type": "raw", "detail": "execFileSync('git', ['merge','--no-ff',branch,'-m',subject], {cwd:gitRoot, env:CLEO_ORCHESTRATE_MERGE})"},
+    {"line": 997, "type": "non-git", "detail": "execFileSync('uname', ['-r']) — platform detection"},
+    {"line": 1016, "type": "non-git", "detail": "execFileSync('which', ['chattr']) — capability detection"},
+    {"line": 1024, "type": "non-git", "detail": "execFileSync('which', ['chflags']) — capability detection"},
+    {"line": 1072, "type": "non-git", "detail": "execFileSync('chattr', ['+i', headPath]) — fs hardening"},
+    {"line": 1079, "type": "non-git", "detail": "execFileSync('chflags', ['uchg', headPath]) — fs hardening"},
+    {"line": 1106, "type": "non-git", "detail": "execFileSync('chattr', ['-i', p]) — fs un-harden"},
+    {"line": 1112, "type": "non-git", "detail": "execFileSync('chflags', ['nouchg', p]) — fs un-harden"}
+  ],
+
+  "git_subcommand_invocations": {
+    "total": 34,
+    "gitSync": 20,
+    "gitSilent": 13,
+    "raw_execFileSync": 1,
+    "by_operation": {
+      "rev-parse": ["gitSync 2×","gitSync 2× (HEAD/abbrev-ref)"],
+      "worktree_add": ["gitSync 1× (createAgentWorktree)","gitSync 1× (pruneWorktree fallback)"],
+      "worktree_unlock": ["gitSilent 3× (stale cleanup, orphan prune, lock-fallback)"],
+      "worktree_remove": ["gitSilent 3× (stale cleanup, orphan prune, rm-fallback)"],
+      "worktree_lock": ["gitSilent 2× (with/without --reason)"],
+      "worktree_prune": ["gitSilent 2× (admin cleanup after manual rm)"],
+      "branch_list": ["gitSync 4× (exists check, default-branch probe)"],
+      "branch_delete": ["gitSync 2×","gitSilent 1×"],
+      "status_porcelain": ["gitSync 1× (dirty detection before prune)"],
+      "log_range": ["gitSync 2× (commit count, orphan detection)"],
+      "symbolic_ref": ["gitSync 1× (origin/HEAD resolution)"],
+      "fetch": ["gitSilent 1× (before rebase)"],
+      "rebase": ["gitSync 1×","gitSilent 1× (--abort)"],
+      "checkout": ["gitSilent 2× (switch to target, restore original)"],
+      "merge": ["raw_execFileSync 1× (--no-ff)","gitSilent 1× (--abort)"]
+    }
+  },
+
+  "napi_surface_analysis": {
+    "crate_exports": [
+      "provisionWorktree", "destroyWorktree", "listWorktrees", "pruneWorktrees",
+      "promoteBranch", "relocateWorktree", "runStep",
+      "copyPathsParallel", "applyInclude", "readWorktreeInclude",
+      "copyIgnored", "syncWorktree", "removeDir"
+    ],
+    "ts_bridge_exports": [
+      "copyPathsParallel", "destroyWorktree", "readWorktreeInclude",
+      "applyInclude", "listWorktrees", "pruneWorktrees", "removeDir"
+    ],
+    "napi_not_bridged": [
+      "provisionWorktree", "promoteBranch", "relocateWorktree",
+      "copyIgnored", "syncWorktree", "runStep"
+    ]
+  },
+
+  "mapping": {
+    "covered_by_napi": [
+      {
+        "git_operation": "git worktree add [-b branch] <path> <baseRef>",
+        "invocations": 2,
+        "lines": [174, 248, 264, 269],
+        "napi_export": "provisionWorktree(opts: ProvisionOpts): WorktreeHandleNapi",
+        "status": "NAPI_RUST_EXISTS_BUT_NOT_BRIDGED_TO_TS"
+      },
+      {
+        "git_operation": "git worktree remove --force <path>",
+        "invocations": 3,
+        "lines": [166, 280, 422],
+        "napi_export": "destroyWorktree(opts: DestroyOpts): DestroyResult",
+        "status": "COVERED (bridged: destroyWorktree)"
+      },
+      {
+        "git_operation": "git worktree lock [--reason <s>] <path>",
+        "invocations": 2,
+        "lines": [178, 179],
+        "napi_export": "provisionWorktree(opts).lockReason",
+        "status": "COVERED (lock integrated into provisionWorktree)"
+      },
+      {
+        "git_operation": "git worktree prune",
+        "invocations": 2,
+        "lines": [267, 428],
+        "napi_export": "pruneWorktrees(opts: PruneOpts): PrunePlanNapi",
+        "status": "PARTIAL — plan-only (read), no execution path"
+      }
+    ],
+    "napi_gaps": [
+      {
+        "gap": "rev-parse",
+        "subcommands": ["--show-toplevel", "--abbrev-ref HEAD", "HEAD"],
+        "invocations": 5,
+        "lines": [128, 158, 450, 719, 756],
+        "impact": "Core git inspection — git root, current branch, HEAD SHA. No NAPI equivalent.",
+        "recommendation": "Add gitRoot(opts), currentBranch(opts), headRef(opts) to NAPI"
+      },
+      {
+        "gap": "branch --list / -D",
+        "subcommands": ["--list <branch>", "-D <branch>"],
+        "invocations": 7,
+        "lines": [170, 376, 378, 445, 460, 543, 623],
+        "impact": "Branch existence check + deletion. Required by pruneWorktree, createAgentWorktree, getDefaultBranch, completeAgentWorktree.",
+        "recommendation": "Add branchExists/deleteBranch to NAPI"
+      },
+      {
+        "gap": "status --porcelain",
+        "invocations": 1,
+        "lines": [392],
+        "impact": "Dirty-worktree detection before force-cleanup.",
+        "recommendation": "Add isDirty(opts) to NAPI"
+      },
+      {
+        "gap": "log --format=%H <range>",
+        "invocations": 2,
+        "lines": [454, 687],
+        "impact": "Commit counting between refs for prune safety + merge reporting.",
+        "recommendation": "Add commitCount(opts) to NAPI"
+      },
+      {
+        "gap": "symbolic-ref refs/remotes/origin/HEAD",
+        "invocations": 1,
+        "lines": [533],
+        "impact": "Remote default-branch resolution (ADR-062).",
+        "recommendation": "Add resolveDefaultBranch(opts) to NAPI"
+      },
+      {
+        "gap": "fetch origin",
+        "invocations": 1,
+        "lines": [655],
+        "impact": "Pre-rebase fetch in completeAgentWorktreeViaMerge.",
+        "recommendation": "Add fetchOrigin(opts) or wrap in merge pipeline"
+      },
+      {
+        "gap": "rebase <target> / rebase --abort",
+        "invocations": 2,
+        "lines": [666, 669],
+        "impact": "Rebase worker branch onto integration target before merge.",
+        "recommendation": "Add rebaseBranch(opts) to NAPI (or wrap in merge pipeline)"
+      },
+      {
+        "gap": "checkout <branch>",
+        "invocations": 2,
+        "lines": [726, 765],
+        "impact": "Switch orchestrator's main worktree to target branch before merge.",
+        "recommendation": "Add checkoutBranch to NAPI or wrap in promoteBranch"
+      },
+      {
+        "gap": "merge --no-ff <branch> -m <msg>",
+        "invocations": 1,
+        "lines": [750],
+        "impact": "THE merge — the only raw execFileSync('git'...) not through a helper. ADR-062 canonical integration.",
+        "recommendation": "Add mergeNoFF(opts) to NAPI"
+      },
+      {
+        "gap": "merge --abort",
+        "invocations": 1,
+        "lines": [759],
+        "impact": "Abort failed merge, rolled into merge pipeline.",
+        "recommendation": "Add to mergeNoFF pipeline (auto-abort on failure)"
+      },
+      {
+        "gap": "worktree unlock",
+        "invocations": 3,
+        "lines": [165, 279, 421],
+        "impact": "Required before destroyWorktree when worktree is locked.",
+        "recommendation": "Add unlockWorktree to NAPI or auto-unlock in destroyWorktree with force:true"
+      },
+      {
+        "gap": "rev-parse --verify refs/remotes/origin/<branch>",
+        "invocations": 1,
+        "lines": [659],
+        "impact": "Check if remote tracking branch exists before rebase.",
+        "recommendation": "Add hasRemote(opts) or remoteBranchExists(opts)"
+      }
+    ]
+  },
+
+  "summary": {
+    "total_git_spawns": 34,
+    "fully_covered_by_napi": 2,
+    "rust_exists_not_bridged": 1,
+    "plan_only_no_execution": 1,
+    "napi_gaps": 12,
+    "gap_invocations_affected": 30,
+    "coverage_pct": 11.8,
+
+    "critical_finding": "provisionWorktree exists in the Rust NAPI crate (index.d.ts L267) but is NOT bridged through napi-binding.ts. This is the most important operation — git worktree add. Fixing this bridge alone would cover the worktree creation calls in both branch-lock.ts and worktree-create.ts (which currently uses git.ts wrappers).",
+
+    "ts_bridge_gap": "6 NAPI crate exports not bridged: provisionWorktree, promoteBranch, relocateWorktree, copyIgnored, syncWorktree, runStep. See napi-binding.ts WorktreeNapiModule interface (L147-165) — only 7 of 13 are bridged.",
+
+    "duplicated_helpers": "gitSync/gitSilent are defined TWICE: once locally in branch-lock.ts (L61-83) and once in packages/worktree/src/git.ts (L44-76). The worktree/git.ts versions add timeout support (DEFAULT_GIT_TIMEOUT_MS=180s, T9545) but branch-lock.ts has its own stale copies. T11121 already scoped to fix this duplication."
+  }
+}
