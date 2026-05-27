@@ -16,16 +16,9 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, sep } from 'node:path';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { getCleoDirAbsolute } from '../paths.js';
@@ -165,12 +158,8 @@ describe('project-info.json inheritance at worktree provision (T11033)', () => {
     const ra = await spawnWorktree(fix.projectRoot, { taskId: idA });
     const rb = await spawnWorktree(fix.projectRoot, { taskId: idB });
 
-    const infoA = JSON.parse(
-      readFileSync(join(ra.path, '.cleo', 'project-info.json'), 'utf-8'),
-    );
-    const infoB = JSON.parse(
-      readFileSync(join(rb.path, '.cleo', 'project-info.json'), 'utf-8'),
-    );
+    const infoA = JSON.parse(readFileSync(join(ra.path, '.cleo', 'project-info.json'), 'utf-8'));
+    const infoB = JSON.parse(readFileSync(join(rb.path, '.cleo', 'project-info.json'), 'utf-8'));
 
     // Both worktrees must inherit the SAME parent projectId.
     expect(infoA.projectId).toBe(fix.projectId);
