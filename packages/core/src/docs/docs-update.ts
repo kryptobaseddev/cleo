@@ -532,7 +532,7 @@ export async function updateDocBySlug(
       ok: false,
       error: {
         code: 'E_FILE_ERROR',
-        message: `failed to write new blob: ${cause instanceof Error ? cause.message : String(cause)}`,
+        message: `failed to write new blob for slug '${slug}': ${cause instanceof Error ? cause.message : String(cause)}`,
       },
     };
   }
