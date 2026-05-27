@@ -1,4 +1,0 @@
-{
-  "projectId": "release-test-project",
-  "_note": "T9583: getProjectRoot() requires either project-info.json with valid projectId OR a .git/ sibling. This fixture exists outside any git repo (it's nested inside cleocode's tree but should resolve to ITSELF as the project root), so we use the primary acceptance path."
-}

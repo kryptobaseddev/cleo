@@ -1,4 +1,0 @@
-{
-  "markdown": "| r.type | cnt |\n| --- | --- |\n| IMPORTS | 390924 |\n| CALLS | 102539 |\n| DEFINES | 55550 |\n| MEMBER_OF | 33885 |\n| CONTAINS | 22339 |\n| HAS_PROPERTY | 4201 |\n| HAS_METHOD | 3280 |\n| STEP_IN_PROCESS | 1664 |\n| ACCESSES | 1166 |\n| ENTRY_POINT_OF | 176 |\n| METHOD_IMPLEMENTS | 108 |\n| HANDLES_ROUTE | 57 |\n| IMPLEMENTS | 38 |\n| EXTENDS | 34 |\n| METHOD_OVERRIDES | 2 |",
-  "row_count": 15
-}

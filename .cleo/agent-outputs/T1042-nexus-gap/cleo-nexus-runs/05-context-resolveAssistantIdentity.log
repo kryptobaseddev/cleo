@@ -1,9 +1,0 @@
-(node:194828) ExperimentalWarning: SQLite is an experimental feature and might change at any time
-(Use `node --trace-warnings ...` to show where the warning was created)
-[nexus] Context for symbol 'resolveAssistantIdentity' (1 match):
-
-  Symbol:   resolveAssistantIdentity  (function)
-  File:     src/gateway/assistant-identity.ts:81
-  Community: Metrics
-  Callers (4): src/gateway/assistant-identity.test.ts::__file__[unknown], handleControlUiHttpRequest[function], server-http.ts[file], agent.ts[file]
-  Callees (8): normalizeAgentId[function], resolveDefaultAgentId[function], resolveAgentWorkspaceDir[function], resolveAgentIdentity[function], loadAgentIdentity[function], coerceIdentityValue[function], normalizeAvatarValue[function], normalizeEmojiValue[function]

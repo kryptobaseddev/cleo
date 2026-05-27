@@ -1,9 +1,0 @@
-(node:194918) ExperimentalWarning: SQLite is an experimental feature and might change at any time
-(Use `node --trace-warnings ...` to show where the warning was created)
-[nexus] Context for symbol 'runLegacyCliEntry' (1 match):
-
-  Symbol:   runLegacyCliEntry  (function)
-  File:     src/index.ts:47
-  Community: Secrets
-  Callers (1): src/index.ts::__file__[unknown]
-  Callees (2): loadLegacyCliDeps[function], installGaxiosFetchCompat[function]

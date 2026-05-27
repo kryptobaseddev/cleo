@@ -1,3 +1,0 @@
-# Ferrous Forge project clippy configuration
-too-many-lines-threshold = 50
-cognitive-complexity-threshold = 25

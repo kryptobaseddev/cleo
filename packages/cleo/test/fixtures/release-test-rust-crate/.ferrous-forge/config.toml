@@ -1,8 +1,0 @@
-# Fixture-local Ferrous Forge config.
-# This Rust crate is intentionally test data for release-pipeline tests and
-# must not inherit the repository's production Rust edition/doc locks.
-
-[validation]
-required_edition = "2021"
-required_rust_version = "1.88"
-require_documentation = false

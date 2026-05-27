@@ -1,8 +1,0 @@
-{
-  "numTotalTests": 1,
-  "numPassedTests": 1,
-  "numFailedTests": 0,
-  "testResults": [
-    {"status": "passed", "fullName": "T10940: Compared sentinel against git worktrees, 0 stale, 89 missing"}
-  ]
-}

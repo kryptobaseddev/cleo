@@ -1,4 +1,0 @@
-NULL|351
-cancelled|59
-completed|995
-deleted|42

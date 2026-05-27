@@ -1,3 +1,0 @@
-# Drizzle scratchpad — configs only live here.
-# drizzle-kit may generate temp artifacts during dev but they must never be committed.
-migrations/

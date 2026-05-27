@@ -1,8 +1,0 @@
-{
-  "name": "@release-test/pkg-b",
-  "version": "0.0.0",
-  "scripts": {
-    "test": "echo pkg-b-test-ok",
-    "build": "echo pkg-b-build-ok"
-  }
-}

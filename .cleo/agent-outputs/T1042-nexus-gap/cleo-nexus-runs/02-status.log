@@ -1,9 +1,0 @@
-(node:193124) ExperimentalWarning: SQLite is an experimental feature and might change at any time
-(Use `node --trace-warnings ...` to show where the warning was created)
-[nexus] Index status for: /mnt/projects/openclaw
-  Project ID:   L21udC9wcm9qZWN0cy9vcGVuY2xhdw
-  Nodes:        64421
-  Relations:    166257
-  Files:        64039
-  Last indexed: 2026-04-20T16:15:38.696Z
-  Staleness:    up to date

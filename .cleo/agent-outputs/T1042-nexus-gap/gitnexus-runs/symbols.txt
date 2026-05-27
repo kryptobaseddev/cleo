@@ -1,9 +1,0 @@
-# Representative symbols chosen from /mnt/projects/openclaw
-# Selected to cover: entry points, authentication, sessions, gateway, config loading
-
-loadConfig
-resolveGatewayAuthSecretRef
-deriveSessionChatType
-createAuthRateLimiter
-resolveAssistantIdentity
-runLegacyCliEntry

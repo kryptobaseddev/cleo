@@ -1,4 +1,0 @@
-{
-  "markdown": "| LABEL(n._ID,[File,Folder,Function,Class,Interface,Method,CodeElement,Community,Process,Struct,Enum,Macro,Typedef,Union,Namespace,Trait,Impl,TypeAlias,Const,Static,Property,Record,Delegate,Annotation,Constructor,Template,Module,Section,Route,Tool,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,CodeEmbedding]) | cnt |\n| --- | --- |\n| Function | 44825 |\n| File | 13927 |\n| Section | 7783 |\n| Community | 6193 |\n| Property | 4964 |\n| Method | 4672 |\n| Folder | 720 |\n| Class | 614 |\n| Interface | 309 |\n| Process | 300 |\n| Enum | 123 |\n| Route | 57 |\n| Struct | 43 |",
-  "row_count": 13
-}

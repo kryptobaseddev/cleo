@@ -1,3 +1,0 @@
-# This directory contains hand-authored module declaration shims.
-# These .d.ts files are source, not generated output — opt them back in.
-!*.d.ts
