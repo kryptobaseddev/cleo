@@ -1,10 +1,6 @@
 /**
  * CLI command group: cleo project — project lifecycle management.
  *
- * Subcommands: move, rename, re-register.
- * All three verbs return RenderableEnvelope (kind: section) per T10346.
- * Error responses also wrapped in RenderableEnvelope.
- *
  * @task T11027
  * @epic T10298
  * @saga T10295
@@ -12,55 +8,170 @@
 
 import { existsSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { RenderableEnvelope } from '@cleocode/contracts';
-import { moveProject, renameProject, projectLifecycle } from '@cleocode/core';
+import { moveProject, projectLifecycle, renameProject } from '@cleocode/core';
 import { defineCommand } from 'citty';
 import { cliOutput } from '../renderers/index.js';
 
-function section(header, icon, items) {
-  const p = icon ? `${icon} ` : '';
-  return { kind: 'section', data: { header: `${p}${header}`, items } };
+function formatSuccessSection(header, icon, items) {
+  const prefix = icon ? `${icon} ` : '';
+  return { kind: 'section', data: { header: `${prefix}${header}`, items } };
 }
-function errSection(code, message, details) {
+
+function formatErrorSection(code, message, details) {
   const items = [message];
-  if (details) for (const [k, v] of Object.entries(details)) if (v != null) items.push(`${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`);
+  if (details) {
+    for (const [key, value] of Object.entries(details)) {
+      if (value !== undefined && value !== null) {
+        items.push(`${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`);
+      }
+    }
+  }
   return { kind: 'section', data: { header: `Error: ${code}`, items } };
 }
 
-const move = defineCommand({
+const moveSubCommand = defineCommand({
   meta: { name: 'move', description: 'Move a CLEO project to a new directory.' },
-  args: { newPath: { type: 'positional', required: true }, 'dry-run': { type: 'boolean', default: false }, json: { type: 'boolean', default: false } },
+  args: {
+    newPath: {
+      type: 'positional',
+      description: 'New absolute path for the project root.',
+      required: true,
+    },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Compute the plan without executing.',
+      default: false,
+    },
+    json: { type: 'boolean', description: 'Output raw JSON envelope.', default: false },
+  },
   async run({ args }) {
-    const r = await moveProject(resolve(args['newPath']), process.cwd());
-    if (r.success) { const d = r.data; cliOutput(section('Project Moved', '✅', [`Project ID:  ${d.projectId}`, `Old path:    ${d.oldPath}`, `New path:    ${d.newPath}`, `New hash:    ${d.newProjectHash}`, `Registry:    ${d.reconcileStatus}`]), { command: 'project', operation: 'project.move' }); }
-    else { cliOutput(errSection(r.error.code, r.error.message, { fix: r.error.fix }), { command: 'project', operation: 'project.move' }); process.exit(1); }
+    const newPathRaw = args['newPath'];
+    const dryRun = args['dry-run'] ?? false;
+    const newPath = resolve(newPathRaw);
+    if (!dryRun && existsSync(newPath) && statSync(newPath).isFile()) {
+      cliOutput(formatErrorSection('E_INVALID_PATH', `newPath is not a directory: ${newPath}`), {
+        command: 'project',
+        operation: 'project.move',
+      });
+      process.exit(1);
+    }
+    const result = await moveProject(newPath, process.cwd());
+    if (result.success) {
+      const r = result.data;
+      cliOutput(
+        formatSuccessSection('Project Moved', '✅', [
+          `Project ID:  ${r.projectId}`,
+          `Old path:    ${r.oldPath}`,
+          `New path:    ${r.newPath}`,
+          `New hash:    ${r.newProjectHash}`,
+          `Registry:    ${r.reconcileStatus}`,
+        ]),
+        { command: 'project', operation: 'project.move' },
+      );
+    } else {
+      cliOutput(
+        formatErrorSection(result.error.code, result.error.message, { fix: result.error.fix }),
+        { command: 'project', operation: 'project.move' },
+      );
+      process.exit(1);
+    }
   },
 });
 
-const rename = defineCommand({
+const renameSubCommand = defineCommand({
   meta: { name: 'rename', description: 'Rename this project.' },
-  args: { newName: { type: 'positional', required: true }, 'dry-run': { type: 'boolean', default: false }, json: { type: 'boolean', default: false } },
+  args: {
+    newName: { type: 'positional', description: 'New project name.', required: true },
+    'dry-run': { type: 'boolean', description: 'Validate without applying.', default: false },
+    json: { type: 'boolean', description: 'Output raw JSON envelope.', default: false },
+  },
   async run({ args }) {
-    const n = args['newName']; const re = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$/;
-    if (!n || !re.test(n)) { cliOutput(errSection('E_VALIDATION', `Invalid name: "${n}"`), { command: 'project', operation: 'project.rename' }); process.exit(2); }
-    if (args['dry-run']) { cliOutput(section('Dry Run', undefined, [`Would rename to "${n}".`]), { command: 'project', operation: 'project.rename' }); return; }
-    const r = await renameProject(n, process.cwd());
-    if (r.success) { const d = r.data; cliOutput(section('Project Renamed', '✅', [`Project ID:   ${d.projectId}`, `Old name:     ${d.oldName}`, `New name:     ${d.newName}`, `Project hash: ${d.newProjectHash}`]), { command: 'project', operation: 'project.rename' }); }
-    else { cliOutput(errSection(r.error.code, r.error.message, { fix: r.error.fix }), { command: 'project', operation: 'project.rename' }); process.exit(1); }
+    const newName = args['newName'];
+    const dryRun = args['dry-run'] ?? false;
+    const nameRe = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$/;
+    if (!newName || !nameRe.test(newName)) {
+      cliOutput(formatErrorSection('E_VALIDATION', `Invalid project name: "${newName}".`), {
+        command: 'project',
+        operation: 'project.rename',
+      });
+      process.exit(2);
+    }
+    if (dryRun) {
+      cliOutput(
+        formatSuccessSection('Dry Run', undefined, [
+          `Would rename project to "${newName}".`,
+          'Run without --dry-run to apply.',
+        ]),
+        { command: 'project', operation: 'project.rename' },
+      );
+      return;
+    }
+    const result = await renameProject(newName, process.cwd());
+    if (result.success) {
+      const r = result.data;
+      cliOutput(
+        formatSuccessSection('Project Renamed', '✅', [
+          `Project ID:   ${r.projectId}`,
+          `Old name:     ${r.oldName}`,
+          `New name:     ${r.newName}`,
+          `Project hash: ${r.newProjectHash}`,
+        ]),
+        { command: 'project', operation: 'project.rename' },
+      );
+    } else {
+      cliOutput(
+        formatErrorSection(result.error.code, result.error.message, { fix: result.error.fix }),
+        { command: 'project', operation: 'project.rename' },
+      );
+      process.exit(1);
+    }
   },
 });
 
-const reregister = defineCommand({
+const reregisterSubCommand = defineCommand({
   meta: { name: 're-register', description: 'Re-register project with NEXUS.' },
-  args: { fix: { type: 'boolean', default: false }, json: { type: 'boolean', default: false } },
+  args: {
+    fix: { type: 'boolean', description: 'Auto-heal path_updated drift.', default: false },
+    json: { type: 'boolean', description: 'Output raw JSON envelope.', default: false },
+  },
   async run() {
-    const r = await projectLifecycle.reregisterProject(process.cwd());
-    if (r.success) { const d = r.data; const icon = d.drifted ? '⚠️' : '✅'; const items = [`Project ID:  ${d.projectId}`, `Project root: ${d.projectRoot}`, `Hash:        ${d.projectHash}`, `Status:      ${d.reconcileStatus}`]; if (d.drifted && d.oldPath) items.push(`Old path:    ${d.oldPath}`); cliOutput(section(d.drifted ? 'Project Re-registered (Drift Detected)' : 'Project Re-registered', icon, items), { command: 'project', operation: 'project.re-register' }); }
-    else { cliOutput(errSection(r.error.code, r.error.message, { fix: r.error.fix }), { command: 'project', operation: 'project.re-register' }); process.exit(1); }
+    const result = await projectLifecycle.reregisterProject(process.cwd());
+    if (result.success) {
+      const r = result.data;
+      const icon = r.drifted ? '⚠️' : '✅';
+      const items = [
+        `Project ID:  ${r.projectId}`,
+        `Project root: ${r.projectRoot}`,
+        `Hash:        ${r.projectHash}`,
+        `Status:      ${r.reconcileStatus}`,
+      ];
+      if (r.drifted && r.oldPath) items.push(`Old path:    ${r.oldPath}`);
+      cliOutput(
+        formatSuccessSection(
+          r.drifted ? 'Project Re-registered (Drift Detected)' : 'Project Re-registered',
+          icon,
+          items,
+        ),
+        { command: 'project', operation: 'project.re-register' },
+      );
+    } else {
+      cliOutput(
+        formatErrorSection(result.error.code, result.error.message, { fix: result.error.fix }),
+        { command: 'project', operation: 'project.re-register' },
+      );
+      process.exit(1);
+    }
   },
 });
 
 export const projectCommand = defineCommand({
-  meta: { name: 'project', description: 'Project lifecycle management (move, rename, re-register).' },
-  subCommands: { move, rename, 're-register': reregister },
+  meta: {
+    name: 'project',
+    description: 'Project lifecycle management (move, rename, re-register).',
+  },
+  subCommands: {
+    move: moveSubCommand,
+    rename: renameSubCommand,
+    're-register': reregisterSubCommand,
+  },
 });
