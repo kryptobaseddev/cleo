@@ -343,3 +343,4 @@ export async function getSyncStatus(
 
   return { ahead, behind, branch, remote };
 }
+// T11011: migrated

@@ -1430,3 +1430,4 @@ export async function migrateReleasesJsonToSqlite(
 
   return { migrated };
 }
+// T11011: migrated

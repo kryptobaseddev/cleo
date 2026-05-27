@@ -1660,3 +1660,4 @@ export async function diagnoseUpgrade(options: { cwd?: string } = {}): Promise<D
     summary: { ok: okCount, warnings: warnCount, errors: errCount },
   };
 }
+// T11011: migrated

@@ -1847,3 +1847,4 @@ export const __test__ = {
   writeChangelogSection,
   writePlanFile,
 };
+// T11011: migrated
