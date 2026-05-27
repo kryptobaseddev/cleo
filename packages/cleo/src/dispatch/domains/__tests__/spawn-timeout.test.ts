@@ -240,6 +240,9 @@ describe('T9545 — spawn pipeline timeout supervisor', () => {
       '/mock/project', // projectRoot
       tier,
       noWorktree ? true : undefined,
+      undefined, // spawnScope
+      undefined, // atomicityScope
+      undefined, // resume
     );
   });
 
@@ -252,7 +255,7 @@ describe('T9545 — spawn pipeline timeout supervisor', () => {
     // Import the helper from the engine module so we exercise the actual
     // primitive used inside orchestrateSpawn.
     const { SPAWN_BUDGET_MS } = await import('@cleocode/core/internal');
-    expect(SPAWN_BUDGET_MS).toBe(60_000);
+    expect(SPAWN_BUDGET_MS).toBe(180_000);
 
     // Construct a never-settling promise paired with a tight AbortController
     // budget — the controller MUST fire before the promise so the error
