@@ -32,7 +32,7 @@ import { paginate } from '../pagination.js';
 import { getCleoHome } from '../paths.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import type { ProjectRegistryRow } from '../store/nexus-schema.js';
-import { nexusAuditLog, projectRegistry } from '../store/nexus-schema.js';
+import { nexusAuditLog, projectIdAliases, projectRegistry } from '../store/nexus-schema.js';
 // Re-export only: resetNexusDbState used by tests and index barrel.
 import { resetNexusDbState } from '../store/nexus-sqlite.js';
 import { generateProjectHash } from './hash.js';
@@ -528,10 +528,32 @@ export async function nexusGetProject(
     const db = await getNexusDb();
 
     // Try hash match first, then name
-    const rows = await db
+    let rows = await db
       .select()
       .from(projectRegistry)
       .where(or(eq(projectRegistry.projectHash, nameOrHash), eq(projectRegistry.name, nameOrHash)));
+
+    if (rows.length === 0) {
+      // Try direct projectId match
+      rows = await db
+        .select()
+        .from(projectRegistry)
+        .where(eq(projectRegistry.projectId, nameOrHash));
+    }
+    if (rows.length === 0) {
+      // Try alias resolution: legacyId → canonicalId lookup (T11025)
+      const aliasRows = await db
+        .select()
+        .from(projectIdAliases)
+        .where(eq(projectIdAliases.legacyId, nameOrHash))
+        .limit(1);
+      if (aliasRows.length > 0) {
+        rows = await db
+          .select()
+          .from(projectRegistry)
+          .where(eq(projectRegistry.projectId, aliasRows[0].canonicalId));
+      }
+    }
 
     const row = rows[0];
     if (!row) return null;
@@ -988,6 +1010,11 @@ export async function nexusRenameProject(
     .update(projectRegistry)
     .set({ name: newName, lastSeen: now })
     .where(eq(projectRegistry.projectId, projectId));
+  // Record self-alias for dispatch-layer consumer compatibility (T11025)
+  await db
+    .insert(projectIdAliases)
+    .values({ legacyId: projectId, canonicalId: projectId, createdAt: now })
+    .onConflictDoNothing();
   await writeNexusAudit({
     action: 'rename',
     projectHash: currentHash,

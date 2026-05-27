@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { nexusAuditLog, projectRegistry } from '../../store/nexus-schema.js';
+import { nexusAuditLog, projectIdAliases, projectRegistry } from '../../store/nexus-schema.js';
 import { getNexusDb } from '../../store/nexus-sqlite.js';
 import { generateProjectHash } from '../hash.js';
 import {
@@ -191,6 +191,97 @@ describe('nexusRenameProject', () => {
   it('throws on unknown projectId', async () => {
     await nexusInit();
     await expect(nexusRenameProject('x', 'n')).rejects.toThrow('not found');
+  });
+});
+
+describe('nexusRenameProject — alias registration (T11025)', () => {
+  it('AC1: inserts projectIdAliases row on rename (legacyId=canonicalId=projectId)', async () => {
+    const pid = randomUUID();
+    await mkProj(pd, pid);
+    await reg(pd, pid, 'a1');
+    await nexusRenameProject(pid, 'a1n');
+    const db = await getNexusDb();
+    const aliasRows = await db
+      .select()
+      .from(projectIdAliases)
+      .where(eq(projectIdAliases.legacyId, pid));
+    expect(aliasRows.length).toBe(1);
+    expect(aliasRows[0].legacyId).toBe(pid);
+    expect(aliasRows[0].canonicalId).toBe(pid);
+  });
+
+  it('AC2: alias is queryable and maps to same projectId', async () => {
+    const pid = randomUUID();
+    await mkProj(pd, pid);
+    await reg(pd, pid, 'a2');
+    await nexusRenameProject(pid, 'a2n');
+    const db = await getNexusDb();
+    const aliasRows = await db
+      .select()
+      .from(projectIdAliases)
+      .where(eq(projectIdAliases.canonicalId, pid));
+    expect(aliasRows.length).toBeGreaterThanOrEqual(1);
+    expect(aliasRows[0].canonicalId).toBe(pid);
+  });
+
+  it('AC3: idempotent — second rename with same projectId does not fail', async () => {
+    const pid = randomUUID();
+    await mkProj(pd, pid);
+    await reg(pd, pid, 'a3');
+    await nexusRenameProject(pid, 'a3n1');
+    // Second rename should not fail (alias insert uses onConflictDoNothing)
+    await nexusRenameProject(pid, 'a3n2');
+    const db = await getNexusDb();
+    const aliasRows = await db
+      .select()
+      .from(projectIdAliases)
+      .where(eq(projectIdAliases.legacyId, pid));
+    // Still exactly one alias row
+    expect(aliasRows.length).toBe(1);
+  });
+
+  it('AC5: self-alias recorded even when projectId stays same', async () => {
+    const pid = randomUUID();
+    await mkProj(pd, pid);
+    await reg(pd, pid, 'a5');
+    const before = await nexusGetProject('a5');
+    expect(before!.projectId).toBe(pid);
+    await nexusRenameProject(pid, 'a5n');
+    const db = await getNexusDb();
+    const aliasRows = await db
+      .select()
+      .from(projectIdAliases)
+      .where(eq(projectIdAliases.legacyId, pid));
+    expect(aliasRows.length).toBe(1);
+  });
+
+  it('AC6: nexusGetProject resolves project by projectId', async () => {
+    const pid = randomUUID();
+    await mkProj(pd, pid);
+    await reg(pd, pid, 'a6');
+    await nexusRenameProject(pid, 'a6n');
+    // Look up by projectId directly
+    const p = await nexusGetProject(pid);
+    expect(p).not.toBeNull();
+    expect(p!.projectId).toBe(pid);
+    expect(p!.name).toBe('a6n');
+  });
+
+  it('AC6: nexusGetProject resolves via alias when queried by legacy projectId', async () => {
+    const pid = randomUUID();
+    const legacyId = randomUUID(); // simulate a legacy ID that differs
+    await mkProj(pd, pid);
+    await reg(pd, pid, 'a6l');
+    // Manually insert an alias mapping legacyId → pid
+    const db = await getNexusDb();
+    await db
+      .insert(projectIdAliases)
+      .values({ legacyId, canonicalId: pid, createdAt: new Date().toISOString() })
+      .onConflictDoNothing();
+    // nexusGetProject should resolve via alias
+    const p = await nexusGetProject(legacyId);
+    expect(p).not.toBeNull();
+    expect(p!.projectId).toBe(pid);
   });
 });
 
