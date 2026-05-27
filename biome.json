@@ -176,6 +176,19 @@
           }
         }
       }
+    },
+    {
+      "includes": [
+        "packages/core/src/tasks/backfill-child-projections.ts",
+        "packages/core/src/tasks/complete.ts"
+      ],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off"
+          }
+        }
+      }
     }
   ]
 }
