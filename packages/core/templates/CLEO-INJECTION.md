@@ -78,16 +78,7 @@ See `ct-cleo` skill section "Decomposing an epic into N tasks" for the JSON sche
 
 ### Sagas — PM-Core V2 containment (ADR-088 supersedes ADR-073)
 
-A **Saga** (`SG-`) is a multi-release theme grouping multiple Epics. PM-Core V2
-(T10638 migration, verified T10643) makes `type='saga'` canonical — Saga is a peer
-task type, not a label-on-epic convention. Member Epics are linked via `tasks.parent_id`
-containment, not `task_relations.groups`. `cleo list --parent <sagaId>` now surfaces
-member Epics; `cleo saga members` resolves via the containment tree.
-
-Legacy `task_relations.groups` edges are preserved as non-containment provenance only.
-The `task_relations_non_containment_insert` trigger blocks new containment misuse.
-
-Available since v2026.5.77 (T9518 epic); PM-Core V2 since v2026.5.122 (T10638/T10639).
+A **Saga** (`SG-`) is a multi-release theme grouping multiple Epics. `type='saga'` is canonical (PM-Core V2). Member Epics link via `tasks.parent_id` containment; `task_relations.groups` is non-containment provenance only.
 
 | Goal | Command |
 |------|---------|
@@ -204,15 +195,7 @@ Memory context: `cleo memory digest --brief` gives a live project memory summary
 <!-- CLEO-INJECTION:section=playbooks -->
 ## Worktree-by-Default (T1140 · ADR-055)
 
-Every `cleo orchestrate spawn` automatically provisions a git worktree for the agent under `~/.local/share/cleo/worktrees/<projectHash>/<taskId>/` (D029 canonical layout via env-paths). The spawn prompt contains a `## Worktree Setup (REQUIRED)` section that:
-
-- Names the worktree path and branch (`task/<taskId>`).
-- States the context-isolation constraint: "authorized only within `<path>`".
-- Provides `FIRST ACTION: cd <path>` so the agent initializes its cwd.
-
-Agents MUST `cd` to the worktree path as their first action. All reads, writes, and git operations MUST occur inside the worktree boundary. A git shim on the PATH blocks forbidden operations (checkout, switch, force-push, etc.).
-
-The orchestrator integrates the worktree branch back to the project's target branch with `git merge --no-ff` after the agent completes (ADR-062) — preserving every original commit SHA, the author's identity, and `git log --grep "<task-id>"` traceability. Agents NEVER touch the target branch directly. To skip provisioning (e.g. for meta-tasks that only run CLI commands), pass `--no-worktree`. The opt-out is always logged to the audit log.
+Every `cleo orchestrate spawn` auto-provisions a git worktree under `~/.local/share/cleo/worktrees/<projectHash>/<taskId>/`. The spawn prompt includes a `## Worktree Setup (REQUIRED)` section with path, branch name, and `FIRST ACTION: cd <path>`. Agents MUST confine all reads/writes/git ops to the worktree boundary. Integrations use `git merge --no-ff` (ADR-062), preserving commit SHAs and author identity. Skip with `--no-worktree` for meta-tasks.
 
 ## Playbook Domain (v2026.4.93 · T910 Orchestration Coherence v4)
 
@@ -237,16 +220,7 @@ Starter playbooks ship with `@cleocode/playbooks`: `rcasd.cantbook`, `ivtr.cantb
 | List valid doc kinds | `cleo docs list-types` |
 | Generate llms.txt summary | `cleo docs generate --for <taskId>` |
 
-Path policy: keep docs input files inside the current repo/worktree and pass
-repo-relative paths; do not attach arbitrary external absolute paths from `/tmp`
-or another checkout. For git-tracked copies, publish back into the repo with
-`cleo docs publish --for <ownerId> --to <repo-relative-path>`.
-
-Strict preflight: before mutating batch workflows, run `cleo add-batch --dry-run`
-and compare `/data/count`, `/data/wouldCreate`, and `/data/insertedCount`.
-`/data/insertedCount` MUST remain `0` for dry-run. For docs kind selection,
-trust runtime help (`cleo docs list-types`, `cleo docs add --help`) over stale
-hard-coded enum lists; `DocKindRegistry` is the runtime source of truth.
+Path policy: use repo-relative paths inside current repo/worktree. For git-tracked copies, publish via `cleo docs publish --for <ownerId> --to <repo-relative-path>`. Before batch mutations, run `cleo add-batch --dry-run` and verify `/data/insertedCount` = 0. Trust `cleo docs list-types` over stale enum lists for kind selection.
 <!-- /CLEO-INJECTION:section=documents -->
 <!-- CLEO-INJECTION:section=human-render -->
 ## Human Render Contract (ADR-077)
@@ -301,43 +275,23 @@ MANDATORY before every `cleo complete <id>`. Every gate write MUST be backed by 
 ### 1. Capture evidence for each gate
 
 ```bash
-# implemented — commit + file list
+# implemented — commit + file list (OR decision:<id> for decision-only tasks)
 cleo verify T### --gate implemented \
   --evidence "commit:<sha>;files:path/a.ts,path/b.ts"
 
-# implemented — decision-only task (no code change, deliverable is a recorded decision)
-# Eliminates CLEO_OWNER_OVERRIDE on decision-only completion paths (T1875).
-cleo verify T### --gate implemented \
-  --evidence "decision:D-arch-001;files:docs/research-note.md"
-#   OR with a note instead of a file
-cleo verify T### --gate implemented \
-  --evidence "decision:D-arch-001;note:decision recorded in BRAIN"
-
-# testsPassed — structured test JSON OR project-resolved tool
+# testsPassed — tool:test (canonical) or test-run:<json>
 cleo verify T### --gate testsPassed --evidence "tool:test"
-#   OR (legacy alias — pnpm-test, cargo-test, pytest, etc. all map to canonical `test`)
-cleo verify T### --gate testsPassed --evidence "tool:pnpm-test"
-#   OR (anchored test-run JSON — preferred for sharing across sibling tasks)
-cleo verify T### --gate testsPassed --evidence "test-run:/tmp/vitest-out.json"
-#   OR (retroactive — references a merged PR; satisfies BOTH testsPassed AND qaPassed) (T9764)
-cleo verify T### --gate testsPassed --evidence "pr:357"
 
-# qaPassed — lint + typecheck exit 0 (project-resolved: biome/eslint/clippy/ruff, tsc/mypy/...)
+# qaPassed — lint + typecheck
 cleo verify T### --gate qaPassed --evidence "tool:lint;tool:typecheck"
-#   OR via legacy aliases — both still work
-cleo verify T### --gate qaPassed --evidence "tool:biome;tool:tsc"
-#   OR retroactive PR atom — same atom can verify testsPassed + qaPassed (T9764)
+
+# retroactive PR atom (PR MERGED + CI green) satisfies testsPassed AND qaPassed
+cleo verify T### --gate testsPassed --evidence "pr:357"
 cleo verify T### --gate qaPassed --evidence "pr:357"
 
-# documented — docs files or URL
+# documented / securityPassed / cleanupDone
 cleo verify T### --gate documented --evidence "files:docs/spec.md"
-
-# securityPassed — scan or waiver
 cleo verify T### --gate securityPassed --evidence "tool:security-scan"
-#   OR with justification
-cleo verify T### --gate securityPassed --evidence "note:no network surface"
-
-# cleanupDone — summary
 cleo verify T### --gate cleanupDone --evidence "note:removed dead branches"
 ```
 
@@ -367,13 +321,11 @@ All overrides append a line to `.cleo/audit/force-bypass.jsonl`. Use sparingly.
 
 ### Tool resolution + result cache (ADR-061)
 
-`tool:<name>` evidence is project-agnostic. Canonical names: `test`, `build`, `lint`, `typecheck`, `audit`, `security-scan`. They resolve via `.cleo/project-context.json` (`testing.command`, `build.command`) with per-`primaryType` fallbacks (cargo, pytest, go, bun, …). Legacy aliases (`pnpm-test`, `tsc`, `biome`, `cargo-test`, `pytest`, …) still work.
-
-Results are cached under `.cleo/cache/evidence/<key>.json`, keyed on `(canonical, cmd, args, HEAD, dirty-tree fingerprint)`. Parallel verifies against identical state coalesce to one execution via a per-key lock; cross-worktree parallelism is bounded by a machine-wide per-tool semaphore at `~/.local/share/cleo/locks/tool-<canonical>/`. Tune with `CLEO_TOOL_CONCURRENCY_<TOOL>=<n>` (`0` disables).
+`tool:<name>` evidence resolves via `.cleo/project-context.json` with per-`primaryType` fallbacks. Results cached under `.cleo/cache/evidence/<key>.json`, keyed on `(canonical, cmd, args, HEAD, dirty-tree fingerprint)`. Parallel verifies coalesce; cross-worktree bounded by per-tool semaphore at `~/.local/share/cleo/locks/tool-<canonical>/`. Tune with `CLEO_TOOL_CONCURRENCY_<TOOL>=<n>`.
 
 ### `pr:<number>` retroactive atom (T9764)
 
-For tasks that already shipped via the standard PR + admin-merge flow, `pr:<number>` resolves through `gh pr view <num>` and accepts the atom IFF the PR is `state=MERGED` AND every required-workflow check (defaults: `CI`, `Lockfile Check`, `Contracts Dep Lint`) is `SUCCESS` or `SKIPPED`. The single atom satisfies BOTH `testsPassed` and `qaPassed` simultaneously — no need to re-run the monorepo suite or lint pipeline. Results cache under `.cleo/cache/evidence/pr-<num>.json`, keyed on `(prNumber, mergedAt)` so re-verifies skip the network round trip. Override required workflows via `CLEO_PR_REQUIRED_WORKFLOWS="<csv>"`.
+Accepts IFF PR `state=MERGED` AND required-workflow checks are `SUCCESS`/`SKIPPED`. Single atom satisfies BOTH `testsPassed` + `qaPassed`. Cache under `.cleo/cache/evidence/pr-<num>.json`.
 
 ### Anti-patterns to avoid
 

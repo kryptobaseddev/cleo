@@ -31,42 +31,51 @@
 # Step 2: Allow this .gitignore itself
 !.gitignore
 
+
 # Step 3: Allow project configuration files that are SAFE to track
 # (detected project facts and bootstrap scripts — not runtime state).
 !project-context.json
 !setup-otel.sh
 !DATA-SAFETY-IMPLEMENTATION-SUMMARY.md
 
+
 # Step 4: Allow ADRs directory (architecture decisions — project-level, not CLEO-specific)
 !adrs/
 !adrs/**
+
 
 # Step 5: Allow RCASD lifecycle provenance directory
 # Structure: rcasd/{epic#}/research/, consensus/, architecture/, specs/, contributions/
 !rcasd/
 !rcasd/**
 
+
 # Step 6: Allow agent-outputs directory
 !agent-outputs/
 !agent-outputs/**
+
 
 # Step 7: Allow specs directory (formal RFC 2119 specs for epics — T1929+)
 !specs/
 !specs/**
 
+
 # Step 8: Allow verifiers directory (canonical verifier scripts — T9222 / ADR-070)
 !verifiers/
 !verifiers/**
 
+
 # Step 9: Allow CORE-first architecture baseline (T9622 — tracks known violations for
 # incremental migration. Shrinks to zero as T9616-T9621 land.)
 !core-first-baseline.json
+
 
 # Step 10: Allow project-root anti-pattern baseline (T9584 — tracks known
 # T9550 anti-pattern callsites for incremental migration. Shrinks to zero
 # as long-tail follow-up batches land, after which the CI guard flips to
 # --strict and this file is deleted.)
 !project-root-baseline.json
+
 
 # Step 11: Allow docs import audit manifests (T9791) — each `cleo docs
 # import` run writes one JSON manifest per source dir under
@@ -76,9 +85,11 @@
 !audit/imports/
 !audit/imports/**
 
+
 # Step 11b: Allow defineCommand SSoT boundary baseline (T10072 / Epic T9837 / Saga T9831).
 # Tracks the 139 legacy raw-citty imports; shrinks to zero as the migration lands.
 !define-command-ssot-baseline.json
+
 
 # Step 12: Allow canonical doc-routing registry + JSON Schema (T9796 / ADR-076).
 # `cleo check canon docs` reads canon.yml at PR-time to decide whether a new
@@ -87,11 +98,13 @@
 !canon.yml
 !canon.schema.json
 
+
 # Step 13: Allow deprecation registry + schema (T9795 / Saga T9787) — the
 # source-of-truth listing legacy code paths bearing TSDoc @deprecated
 # markers. Validated by scripts/lint-deprecations.mjs in CI.
 !deprecations.yml
 !deprecations.schema.json
+
 
 # Step 14: Allow in-repo agent role skills (T10495 / SAGA T10377
 # SG-IVTR-AC-BINDING). Project-local skills that document agent roles

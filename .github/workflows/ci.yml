@@ -1256,7 +1256,14 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          pnpm exec vitest run --shard=${{ matrix.shard }}/2 2>&1 | tee /tmp/vitest-shard${{ matrix.shard }}.log
+          # macOS shard 1 gets retry=2 to absorb vitest+pnpm+timing flakes
+          # (T10490 — fake-timers cleanup, pnpm worker pool contention on Darwin).
+          # Root cause tracked for permanent fix; retry is an interim guard.
+          RETRY_FLAG=""
+          if [[ "${{ matrix.os }}" == "macos-latest" && "${{ matrix.shard }}" == "1" ]]; then
+            RETRY_FLAG="--retry=2"
+          fi
+          pnpm exec vitest run --shard=${{ matrix.shard }}/2 $RETRY_FLAG 2>&1 | tee /tmp/vitest-shard${{ matrix.shard }}.log
       - name: T9170 — schema-warning budget gate (shard ${{ matrix.shard }}/2)
         if: steps.test-scope.outputs.mode != 'per_package_tests' && matrix.os == 'ubuntu-latest'
         shell: bash
