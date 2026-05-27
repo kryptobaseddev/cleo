@@ -8,16 +8,25 @@
 
 import { existsSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
+import type { RenderableEnvelope } from '@cleocode/contracts';
 import { moveProject, projectLifecycle, renameProject } from '@cleocode/core';
 import { defineCommand } from 'citty';
 import { cliOutput } from '../renderers/index.js';
 
-function formatSuccessSection(header, icon, items) {
+function formatSuccessSection(
+  header: string,
+  icon: string | undefined,
+  items: string[],
+): RenderableEnvelope<unknown> {
   const prefix = icon ? `${icon} ` : '';
   return { kind: 'section', data: { header: `${prefix}${header}`, items } };
 }
 
-function formatErrorSection(code, message, details) {
+function formatErrorSection(
+  code: string,
+  message: string,
+  details?: Record<string, unknown>,
+): RenderableEnvelope<unknown> {
   const items = [message];
   if (details) {
     for (const [key, value] of Object.entries(details)) {
