@@ -70,7 +70,14 @@ export {
   type SagaReconcileEntry,
 } from './reconcile.js';
 export { type RepairSagaParams, type RepairSagaResult, repairSaga } from './repair.js';
-export { type SagaRollupParams, type SagaRollupResult, sagaRollup } from './rollup.js';
+export {
+  type SagaMemberEpicProgress,
+  type SagaRollupParams,
+  type SagaRollupResult,
+  type SagaTraversalResult,
+  sagaRollup,
+  sagaTraversal,
+} from './rollup.js';
 export {
   buildSagaAutoCloseEvidence,
   findSagasGroupingTask,
