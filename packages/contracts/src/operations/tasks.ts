@@ -1577,7 +1577,7 @@ export interface TasksStopQueryResult {
 }
 
 // ---------------------------------------------------------------------------
-// tasks.saga.* — Saga management (ADR-073, T9521)
+// tasks.saga.* — Saga management (ADR-088 PM-Core V2, T9521)
 // ---------------------------------------------------------------------------
 
 /** Params for `tasks.saga.create` — create a labeled top-level Epic as a Saga. */
@@ -1763,7 +1763,7 @@ export interface TasksSagaRepairResult {
  * as conflicts requiring manual resolution.
  *
  * @task T10637
- * @see ADR-073-above-epic-naming.md §1.2 — invariant I5
+ * @see ADR-088 — PM-Core V2 WorkGraph containment
  */
 export interface TasksSagaMigrateContainmentParams {
   /** Specific Saga ID to migrate. When omitted, migrates ALL sagas. */
@@ -1993,7 +1993,7 @@ export type TasksOps = {
   readonly 'sync.links.remove': readonly [TasksSyncLinksRemoveParams, TasksSyncLinksRemoveResult];
   readonly claim: readonly [TasksClaimParams, TasksClaimResult];
   readonly unclaim: readonly [TasksUnclaimParams, TasksUnclaimResult];
-  // Saga sub-domain ops (ADR-073)
+  // Saga sub-domain ops (ADR-088 — PM-Core V2 containment)
   readonly 'saga.create': readonly [TasksSagaCreateParams, TasksSagaCreateResult];
   readonly 'saga.add': readonly [TasksSagaAddParams, TasksSagaAddResult];
   readonly 'saga.detach': readonly [TasksSagaDetachParams, TasksSagaDetachResult];
@@ -2004,7 +2004,7 @@ export type TasksOps = {
   readonly 'saga.repair': readonly [TasksSagaRepairParams, TasksSagaRepairResult];
   /** T10121 — idempotent cron-safe auto-close repair (supersedes T10098 scope). */
   readonly 'saga.reconcile': readonly [TasksSagaReconcileParams, TasksSagaReconcileResult];
-  /** T10637 — migrate parent_id-based Saga membership to groups relations. */
+  /** [LEGACY T10637] Pre-ADR-088 migration: convert parent_id-based Saga membership to groups relations. PM-Core V2 (ADR-088) canonicalizes parent_id as the sole containment edge. */
   readonly 'saga.migrate-containment': readonly [
     TasksSagaMigrateContainmentParams,
     TasksSagaMigrateContainmentResult,

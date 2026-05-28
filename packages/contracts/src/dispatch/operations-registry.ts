@@ -2711,7 +2711,7 @@ export const OPERATIONS: OperationDef[] = [
       },
     ] satisfies ParamDef[],
   },
-  // === saga sub-domain (ADR-073 — above-epic grouping tier) ===
+  // === saga sub-domain (ADR-088 PM-Core V2 — canonical containment tier) ===
   {
     gateway: 'mutate',
     domain: 'tasks',
@@ -2863,8 +2863,10 @@ export const OPERATIONS: OperationDef[] = [
     ] satisfies ParamDef[],
   },
   {
-    // T10117 — detach I5-violating parentId and re-attach via task_relations
+    // [LEGACY T10117] Detach I5-violating parentId and re-attach via task_relations
     // type=groups (ADR-073 §1.2 invariant I5). Idempotent.
+    // PM-Core V2 (ADR-088): parent_id is canonical containment; this repair
+    // direction is the inverse of the canonical model.
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'saga.repair',
@@ -2915,7 +2917,11 @@ export const OPERATIONS: OperationDef[] = [
     ] satisfies ParamDef[],
   },
   {
-    // T10637 — migrate parent_id-based Saga membership to groups relations.
+    // [LEGACY T10637] Pre-ADR-088 migration: convert parent_id-based Saga
+    // membership to groups relations. PM-Core V2 (ADR-088) canonicalizes
+    // parent_id as the sole containment edge. This operation is retained
+    // for historical reference; its migration direction is the opposite
+    // of the PM-Core V2 canonical model.
     // Converts Epics whose parent_id points to a type='saga' task into proper
     // groups relations. Non-Epic tasks are documented as conflicts.
     gateway: 'mutate',
