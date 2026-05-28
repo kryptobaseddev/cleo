@@ -140,6 +140,7 @@ export type {
 export type {
   BoundaryEntry,
   CanonicalHome,
+  ModuleStatus,
   PerfBudget,
   SafetyBudget,
   ThroughputThreshold,

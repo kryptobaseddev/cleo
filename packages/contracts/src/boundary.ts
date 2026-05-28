@@ -6,15 +6,15 @@
  * lint-dual-implementation, perf-budget bench gate) validate the registry against
  * filesystem reality and enforce declared budgets at build time.
  *
- * Intent is expressed along two axes: workload shape ({@link WorkloadIntent}) and
- * quantitative {@link PerfBudget} / {@link SafetyBudget} thresholds. The pair derives
- * the language choice mechanically — it is not an aesthetic call.
+ * Intent is expressed via a three-trigger system: {@link WorkloadIntent} declares the workload
+ * shape and {@link ModuleStatus} declares lifecycle state. Quantitative {@link PerfBudget} /
+ * {@link SafetyBudget} thresholds validate the declared intent at build time.
  *
  * The registry is **static-with-amendment**: declared at module creation; subsequent
  * changes require an ADR amendment + PR. This data file is populated by T10197;
  * gates land in T10198 / T10199.
  *
- * @see ADR-078 — Boundary Registry as SSoT for Rust/TS layering
+ * @see ADR-078 — Boundary Registry as SSoT for Rust/TS layering (three-trigger: T11106)
  * @see D010 — vendor worktrunk → crates/worktrunk-core (reference impl)
  * @see Saga T10176 (SG-BOUNDARY-REGISTRY)
  */
@@ -24,33 +24,31 @@
 // ============================================================
 
 /**
- * Workload shape declaration for a module. Derived from what the code DOES,
- * not from what convention says it should look like.
+ * Workload shape declaration for a module. Three-trigger system (T11106): the intent
+ * is the workload decision; lifecycle state is carried by {@link ModuleStatus}.
  *
- * - `cpu-bound` — Hot path; Rust required (parsing, graph ops, vector math, FFI hot loops).
- * - `io-coordination` — Event-loop-friendly orchestration; TS preferred (async I/O glue, fetch/DB orchestration).
- * - `ffi-surface` — Multi-runtime consumers; Rust core + napi binding (publishable as a Rust lib).
- * - `orchestration-glue` — TS-only (CLI dispatch, agent harness, lifecycle hooks).
- * - `data-manifest` — TS-only zero-dep config or registry data (no logic).
- * - `harness-adapter` — TS-only provider-specific glue (claude-code, gemini, openai bridges).
- * - `frontend` — SvelteKit / browser code; TS always.
- * - `scaffold-pending-consumer` — Rust impl exists but has no consumer yet; {@link BoundaryEntry.plannedConsumerEta} REQUIRED.
- * - `migration-pending` — Currently lives here; destination declared in {@link BoundaryEntry.canonicalHome}.
- * - `migrated-out` — Reference-only entry pointing to the new external canonical home.
+ * - `rust-hotpath` — Hot path requiring native performance; Rust core is canonical
+ *   (parsing, graph ops, vector math, FFI hot loops, serialization).
+ * - `rust-published` — Multi-runtime consumers via napi binding; Rust core + napi shim
+ *   exposed to TS through a thin native-loader wrapper.
+ * - `ts-only` — Node.js / browser natural fit (async I/O glue, CLI dispatch, agent harness,
+ *   provider adapters, frontend, config/data manifests, migration pointers).
  *
- * @see ADR-078 §"Two-axis intent system"
+ * @see ADR-078 §"Three-trigger intent system" (T11106 migration)
  */
-export type WorkloadIntent =
-  | 'cpu-bound'
-  | 'io-coordination'
-  | 'ffi-surface'
-  | 'orchestration-glue'
-  | 'data-manifest'
-  | 'harness-adapter'
-  | 'frontend'
-  | 'scaffold-pending-consumer'
-  | 'migration-pending'
-  | 'migrated-out';
+export type WorkloadIntent = 'rust-hotpath' | 'rust-published' | 'ts-only';
+
+/**
+ * Module lifecycle status. Independent of {@link WorkloadIntent} — a module can be
+ * `rust-hotpath` + `active`, `ts-only` + `active`, `ts-only` + `deprecated`, or
+ * `ts-only` + `migrated-out`.
+ *
+ * - `active` — Live module in production use.
+ * - `deprecated` — Scheduled for deletion or no known consumers; kept for reference.
+ * - `migrated-out` — Moved to an external canonical home; this entry is a reference pointer.
+ * - `archived` — Retired with no forwarding target.
+ */
+export type ModuleStatus = 'active' | 'deprecated' | 'migrated-out' | 'archived';
 
 // ============================================================
 // Performance budget — the quantitative latency / footprint axis
@@ -151,23 +149,23 @@ export type CanonicalHome =
 
 // ============================================================
 // Boundary entry — one row per module
-// ============================================================
-
 /**
  * One row in {@link BOUNDARY_REGISTRY}. Declares per-module Rust/TS layering intent,
  * canonical home, and perf/safety budgets. CI gates derived from these rows reject
  * orphan modules, modules whose implementation contradicts the declared `intent`,
  * and dual implementations (Rust + TS shipping the same primitive).
  *
- * `plannedConsumerEta` is REQUIRED when `intent === 'scaffold-pending-consumer'`.
+ * Lifecycle / migration state is tracked via {@link ModuleStatus} on {@link BoundaryEntry.status}.
  *
- * @see ADR-078 §"Registry shape"
+ * @see ADR-078 §"Registry shape" (amended to three-trigger + status model: T11105)
  */
 export interface BoundaryEntry {
   /** Stable module identifier (e.g. `'worktree'`, `'cant'`, `'lafs'`). One word, kebab-case. */
   module: string;
   /** Declared workload intent — see {@link WorkloadIntent}. */
   intent: WorkloadIntent;
+  /** Module lifecycle status — see {@link ModuleStatus}. */
+  status: ModuleStatus;
   /** Path to `crates/<X>-core` (if a Rust core exists). Relative to repo root. */
   rustCore?: string;
   /** Path to `crates/<X>-napi` (if a napi binding exists). Relative to repo root. */
@@ -184,7 +182,7 @@ export interface BoundaryEntry {
   amendments: string[];
   /** 1-3 sentence rationale for the per-module decision. Required even for migrated-out entries. */
   rationale: string;
-  /** ISO date (YYYY-MM-DD). REQUIRED when `intent === 'scaffold-pending-consumer'`; ignored otherwise. */
+  /** ISO date (YYYY-MM-DD). May be set for scaffolding entries awaiting a consumer. */
   plannedConsumerEta?: string;
 }
 
@@ -202,7 +200,8 @@ export interface BoundaryEntry {
  * group entries are alphabetical by `module` for diff-friendliness.
  *
  * Entries are added/modified ONLY via ADR amendment + PR per the static-with-amendment
- * policy declared in ADR-078.
+ * policy declared in ADR-078. Migrated to three-trigger system (T11106): intent = workload
+ * decision only; lifecycle state is carried by the `status` field.
  *
  * @see ADR-078 — Boundary Registry as SSoT for Rust/TS layering
  */
@@ -213,7 +212,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
 
   {
     module: 'cant-core',
-    intent: 'cpu-bound',
+    intent: 'rust-hotpath',
+    status: 'active',
     rustCore: 'crates/cant-core',
     tsWrapper: 'packages/cant',
     canonicalHome: 'cleocode',
@@ -231,7 +231,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'cant-lsp',
-    intent: 'cpu-bound',
+    intent: 'rust-hotpath',
+    status: 'active',
     rustCore: 'crates/cant-lsp',
     canonicalHome: 'cleocode',
     perfBudget: {
@@ -249,7 +250,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'cant-napi',
-    intent: 'ffi-surface',
+    intent: 'rust-published',
+    status: 'active',
     napiBinding: 'crates/cant-napi',
     tsWrapper: 'packages/cant',
     canonicalHome: 'cleocode',
@@ -268,7 +270,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'cant-router',
-    intent: 'cpu-bound',
+    intent: 'rust-hotpath',
+    status: 'active',
     rustCore: 'crates/cant-router',
     canonicalHome: 'cleocode',
     perfBudget: {
@@ -285,7 +288,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'cant-runtime',
-    intent: 'cpu-bound',
+    intent: 'rust-hotpath',
+    status: 'active',
     rustCore: 'crates/cant-runtime',
     canonicalHome: 'cleocode',
     perfBudget: {
@@ -302,7 +306,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'cleo-llm-native',
-    intent: 'migration-pending',
+    intent: 'ts-only',
+    status: 'deprecated',
     rustCore: 'crates/cleo-llm-native',
     canonicalHome: 'archived',
     perfBudget: {
@@ -319,7 +324,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'cleo-conduit-core',
-    intent: 'data-manifest',
+    intent: 'ts-only',
+    status: 'active',
     rustCore: 'crates/cleo-conduit-core',
     canonicalHome: 'cleocode',
     perfBudget: {
@@ -335,7 +341,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'integration-tests',
-    intent: 'cpu-bound',
+    intent: 'rust-hotpath',
+    status: 'active',
     rustCore: 'crates/integration-tests',
     canonicalHome: 'cleocode',
     perfBudget: {
@@ -352,7 +359,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'lafs-core',
-    intent: 'cpu-bound',
+    intent: 'rust-hotpath',
+    status: 'active',
     rustCore: 'crates/lafs-core',
     tsWrapper: 'packages/lafs',
     canonicalHome: 'cleocode',
@@ -370,7 +378,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'lafs-napi',
-    intent: 'ffi-surface',
+    intent: 'rust-published',
+    status: 'active',
     napiBinding: 'crates/lafs-napi',
     tsWrapper: 'packages/lafs',
     canonicalHome: 'cleocode',
@@ -389,7 +398,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'signaldock-core',
-    intent: 'migrated-out',
+    intent: 'ts-only',
+    status: 'migrated-out',
     canonicalHome: { external: '/mnt/projects/signaldock/' },
     perfBudget: { latency_p50_ms: 10, latency_p99_ms: 100 },
     safetyBudget: {
@@ -403,7 +413,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'signaldock-payments',
-    intent: 'migrated-out',
+    intent: 'ts-only',
+    status: 'migrated-out',
     canonicalHome: { external: '/mnt/projects/signaldock/' },
     perfBudget: { latency_p50_ms: 50, latency_p99_ms: 1000 },
     safetyBudget: {
@@ -417,7 +428,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'signaldock-protocol',
-    intent: 'migrated-out',
+    intent: 'ts-only',
+    status: 'migrated-out',
     canonicalHome: { external: '/mnt/projects/signaldock/' },
     perfBudget: { latency_p50_ms: 10 },
     safetyBudget: { panic_unwind: 'forbidden', root_escape: 'forbidden' },
@@ -427,7 +439,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'signaldock-runtime',
-    intent: 'migrated-out',
+    intent: 'ts-only',
+    status: 'migrated-out',
     canonicalHome: { external: '/mnt/projects/signaldock-runtime/' },
     perfBudget: { latency_p50_ms: 50, latency_p99_ms: 1000, startup_max_ms: 500 },
     safetyBudget: {
@@ -441,7 +454,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'signaldock-sdk',
-    intent: 'migrated-out',
+    intent: 'ts-only',
+    status: 'migrated-out',
     canonicalHome: { external: '/mnt/projects/signaldock/' },
     perfBudget: { latency_p50_ms: 50, latency_p99_ms: 1000 },
     safetyBudget: {
@@ -455,7 +469,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'signaldock-storage',
-    intent: 'migrated-out',
+    intent: 'ts-only',
+    status: 'migrated-out',
     canonicalHome: { external: '/mnt/projects/signaldock/' },
     perfBudget: { latency_p50_ms: 10, latency_p99_ms: 100 },
     safetyBudget: { panic_unwind: 'forbidden', root_escape: 'forbidden' },
@@ -465,7 +480,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'signaldock-transport',
-    intent: 'migrated-out',
+    intent: 'ts-only',
+    status: 'migrated-out',
     canonicalHome: { external: '/mnt/projects/signaldock/' },
     perfBudget: { latency_p50_ms: 50, latency_p99_ms: 1000 },
     safetyBudget: {
@@ -479,7 +495,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'worktree-napi',
-    intent: 'ffi-surface',
+    intent: 'rust-published',
+    status: 'active',
     napiBinding: 'crates/worktree-napi',
     tsWrapper: 'packages/worktree',
     canonicalHome: 'cleocode',
@@ -498,7 +515,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'worktrunk-core',
-    intent: 'cpu-bound',
+    intent: 'rust-hotpath',
+    status: 'active',
     rustCore: 'crates/worktrunk-core',
     tsWrapper: 'packages/worktree',
     canonicalHome: 'cleocode',
@@ -521,7 +539,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
 
   {
     module: 'adapters',
-    intent: 'harness-adapter',
+    intent: 'ts-only',
+    status: 'active',
     tsWrapper: 'packages/adapters',
     canonicalHome: 'cleocode',
     perfBudget: {
@@ -540,7 +559,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'agents',
-    intent: 'data-manifest',
+    intent: 'ts-only',
+    status: 'active',
     tsWrapper: 'packages/agents',
     canonicalHome: 'cleocode',
     perfBudget: {
@@ -556,7 +576,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'animations',
-    intent: 'frontend',
+    intent: 'ts-only',
+    status: 'active',
     tsWrapper: 'packages/animations',
     canonicalHome: 'cleocode',
     perfBudget: {
@@ -573,7 +594,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'brain',
-    intent: 'io-coordination',
+    intent: 'ts-only',
+    status: 'active',
     tsWrapper: 'packages/brain',
     canonicalHome: 'cleocode',
     perfBudget: {
@@ -590,7 +612,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'caamp',
-    intent: 'orchestration-glue',
+    intent: 'ts-only',
+    status: 'active',
     tsWrapper: 'packages/caamp',
     canonicalHome: 'cleocode',
     perfBudget: {
@@ -608,7 +631,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'cant',
-    intent: 'ffi-surface',
+    intent: 'rust-published',
+    status: 'active',
     tsWrapper: 'packages/cant',
     canonicalHome: 'cleocode',
     perfBudget: {
@@ -626,7 +650,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'cleo',
-    intent: 'orchestration-glue',
+    intent: 'ts-only',
+    status: 'active',
     tsWrapper: 'packages/cleo',
     canonicalHome: 'cleocode',
     perfBudget: {
@@ -645,7 +670,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'cleo-os',
-    intent: 'harness-adapter',
+    intent: 'ts-only',
+    status: 'active',
     tsWrapper: 'packages/cleo-os',
     canonicalHome: 'cleocode',
     perfBudget: {
@@ -664,7 +690,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'contracts',
-    intent: 'data-manifest',
+    intent: 'ts-only',
+    status: 'active',
     tsWrapper: 'packages/contracts',
     canonicalHome: 'cleocode',
     perfBudget: {
@@ -680,7 +707,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'core',
-    intent: 'orchestration-glue',
+    intent: 'ts-only',
+    status: 'active',
     tsWrapper: 'packages/core',
     canonicalHome: 'cleocode',
     perfBudget: {
@@ -698,7 +726,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'git-shim',
-    intent: 'ffi-surface',
+    intent: 'rust-published',
+    status: 'active',
     tsWrapper: 'packages/git-shim',
     canonicalHome: 'cleocode',
     perfBudget: {
@@ -717,7 +746,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'lafs',
-    intent: 'io-coordination',
+    intent: 'ts-only',
+    status: 'active',
     tsWrapper: 'packages/lafs',
     canonicalHome: 'cleocode',
     perfBudget: {
@@ -735,7 +765,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'mcp-adapter',
-    intent: 'orchestration-glue',
+    intent: 'ts-only',
+    status: 'active',
     tsWrapper: 'packages/mcp-adapter',
     canonicalHome: 'cleocode',
     perfBudget: {
@@ -753,7 +784,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'nexus',
-    intent: 'cpu-bound',
+    intent: 'rust-hotpath',
+    status: 'active',
     tsWrapper: 'packages/nexus',
     canonicalHome: 'cleocode',
     perfBudget: {
@@ -770,7 +802,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'paths',
-    intent: 'orchestration-glue',
+    intent: 'ts-only',
+    status: 'active',
     tsWrapper: 'packages/paths',
     canonicalHome: 'cleocode',
     perfBudget: {
@@ -786,7 +819,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'playbooks',
-    intent: 'orchestration-glue',
+    intent: 'ts-only',
+    status: 'active',
     tsWrapper: 'packages/playbooks',
     canonicalHome: 'cleocode',
     perfBudget: {
@@ -803,7 +837,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'runtime',
-    intent: 'io-coordination',
+    intent: 'ts-only',
+    status: 'active',
     tsWrapper: 'packages/runtime',
     canonicalHome: 'cleocode',
     perfBudget: {
@@ -821,7 +856,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'skills',
-    intent: 'data-manifest',
+    intent: 'ts-only',
+    status: 'active',
     tsWrapper: 'packages/skills',
     canonicalHome: 'cleocode',
     perfBudget: {
@@ -837,7 +873,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'studio',
-    intent: 'frontend',
+    intent: 'ts-only',
+    status: 'active',
     tsWrapper: 'packages/studio',
     canonicalHome: 'cleocode',
     perfBudget: {
@@ -855,7 +892,8 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'worktree',
-    intent: 'ffi-surface',
+    intent: 'rust-published',
+    status: 'active',
     tsWrapper: 'packages/worktree',
     canonicalHome: 'cleocode',
     perfBudget: {

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // scripts/lint-boundary-registry.mjs
 //
-// T10198 · Saga T10176 · ADR-078 · Decision D010
+// T10198 · Saga T10176 · ADR-078 · Decision D010 · T11107 (three-trigger update)
 //
 // Enforces the registry-vs-filesystem invariant for the Boundary Registry
 // (packages/contracts/src/boundary.ts → BOUNDARY_REGISTRY).
@@ -9,11 +9,14 @@
 // Rules:
 //   1. ORPHAN — A crate/package exists on disk but has no BOUNDARY_REGISTRY entry.
 //   2. MISSING — A BOUNDARY_REGISTRY entry references a rustCore/napiBinding/tsWrapper
-//      path that no longer exists on disk (exempt when canonicalHome === 'archived'
-//      or canonicalHome is { external: ... } AND the entry's intent indicates
-//      a migration-pending / migrated-out posture).
-//   3. INTENT_DRIFT — A registry entry declares ffi-surface but its declared
-//      napi binding is missing on disk, OR vice-versa (lightweight heuristic).
+//      path that no longer exists on disk (exempt when status is 'archived',
+//      'deprecated', or 'migrated-out' with external canonicalHome).
+//   3. INTENT_DRIFT — A registry entry declares napiBinding but intent is not
+//      'rust-published' (lightweight heuristic).
+//   4. INVALID_INTENT — An entry's intent is not one of the 3 valid triggers
+//      ('ts-only', 'rust-published', 'rust-hotpath').
+//   5. INVALID_STATUS — An entry's status is not one of the 4 valid values
+//      ('active', 'deprecated', 'migrated-out', 'archived').
 //
 // The script loads the COMPILED registry from packages/contracts/dist/boundary.js,
 // so `pnpm --filter @cleocode/contracts run build` MUST run first (CI handles this).
@@ -163,21 +166,26 @@ function isNapiPlatformPackage(name) {
 
 /**
  * Returns true when a registry entry is allowed to reference a missing
- * on-disk module (e.g. migrated-out shells whose path may be deleted).
+ * on-disk module (e.g. migrated-out shells whose path may be deleted,
+ * deprecated modules being phased out, archived entries).
  *
  * @param {object} entry - BoundaryEntry row.
  * @returns {boolean}
  */
 function isMissingExempt(entry) {
-  if (entry.canonicalHome === 'archived') return true;
-  if (
-    typeof entry.canonicalHome === 'object' &&
-    entry.canonicalHome &&
-    'external' in entry.canonicalHome
-  ) {
-    // External canonical home — module body MAY have been deleted from cleocode.
-    // Only exempt when the workload intent matches the migration posture.
-    if (entry.intent === 'migrated-out') return true;
+  // Always exempt when status explicitly allows missing paths.
+  if (entry.status === 'archived') return true;
+  if (entry.status === 'deprecated') return true;
+  // Migrated-out entries with external canonical home are reference-only —
+  // the actual module lives elsewhere.
+  if (entry.status === 'migrated-out') {
+    if (
+      typeof entry.canonicalHome === 'object' &&
+      entry.canonicalHome &&
+      'external' in entry.canonicalHome
+    ) {
+      return true;
+    }
   }
   return false;
 }
@@ -186,7 +194,7 @@ function isMissingExempt(entry) {
  * Cross-check the registry against on-disk reality.
  *
  * @param {readonly object[]} registry - Loaded BOUNDARY_REGISTRY entries.
- * @returns {{orphans: object[], missing: object[], driftIntent: object[], ok: object[]}}
+ * @returns {{orphans: object[], missing: object[], driftIntent: object[], invalidIntent: object[], invalidStatus: object[], ok: object[]}}
  */
 function crossCheck(registry) {
   const cratesOnDisk = enumerateCrates();
@@ -205,7 +213,13 @@ function crossCheck(registry) {
   const orphans = [];
   const missing = [];
   const driftIntent = [];
+  const invalidIntent = [];
+  const invalidStatus = [];
   const ok = [];
+
+  // Valid intent and status values (three-trigger model: T11105/T11106).
+  const VALID_INTENTS = new Set(['ts-only', 'rust-published', 'rust-hotpath']);
+  const VALID_STATUSES = new Set(['active', 'deprecated', 'migrated-out', 'archived']);
 
   // Rule 1 — ORPHAN: crates on disk with no registry entry.
   for (const crate of cratesOnDisk) {
@@ -226,10 +240,30 @@ function crossCheck(registry) {
   }
 
   // Rule 2 — MISSING: registry path that no longer exists on disk.
-  // Rule 3 — INTENT_DRIFT: declared intent contradicts on-disk shape.
+  // Rule 3 — INTENT_DRIFT: napiBinding declared but intent != rust-published.
+  // Rule 4 — INVALID_INTENT: intent not in the 3-trigger set.
+  // Rule 5 — INVALID_STATUS: status not in the 4-value set.
   for (const entry of registry) {
     const exemptMissing = isMissingExempt(entry);
     let entryOk = true;
+
+    // Rule 4 — INVALID_INTENT
+    if (!entry.intent || !VALID_INTENTS.has(entry.intent)) {
+      invalidIntent.push({
+        module: entry.module,
+        declaredIntent: entry.intent ?? '(missing)',
+      });
+      entryOk = false;
+    }
+
+    // Rule 5 — INVALID_STATUS
+    if (!entry.status || !VALID_STATUSES.has(entry.status)) {
+      invalidStatus.push({
+        module: entry.module,
+        declaredStatus: entry.status ?? '(missing)',
+      });
+      entryOk = false;
+    }
 
     if (entry.rustCore) {
       const absPath = join(REPO_ROOT, entry.rustCore);
@@ -246,18 +280,13 @@ function crossCheck(registry) {
         missing.push({ module: entry.module, kind: 'napiBinding', path: entry.napiBinding });
         entryOk = false;
       }
-      // Intent drift — napi binding declared but workload intent is not ffi-surface
-      // AND not a migration-pending shell. Heuristic; tolerated for some
-      // archive states.
-      if (
-        entry.intent !== 'ffi-surface' &&
-        entry.intent !== 'migration-pending' &&
-        entry.intent !== 'migrated-out'
-      ) {
+      // Intent drift — napi binding declared but workload intent is not
+      // rust-published (the three-trigger equivalent of the old ffi-surface).
+      if (entry.intent !== 'rust-published') {
         driftIntent.push({
           module: entry.module,
           declaredIntent: entry.intent,
-          reason: 'napiBinding present but intent !== ffi-surface',
+          reason: 'napiBinding present but intent !== rust-published',
         });
         entryOk = false;
       }
@@ -274,7 +303,7 @@ function crossCheck(registry) {
     if (entryOk) ok.push(entry.module);
   }
 
-  return { orphans, missing, driftIntent, ok };
+  return { orphans, missing, driftIntent, invalidIntent, invalidStatus, ok };
 }
 
 // ---------------------------------------------------------------------------
@@ -289,8 +318,9 @@ function crossCheck(registry) {
  * @returns {number} Process exit code.
  */
 function printReport(report) {
-  const { orphans, missing, driftIntent, ok } = report;
-  const total = orphans.length + missing.length + driftIntent.length;
+  const { orphans, missing, driftIntent, invalidIntent, invalidStatus, ok } = report;
+  const total = orphans.length + missing.length + driftIntent.length +
+    invalidIntent.length + invalidStatus.length;
 
   if (jsonOutput) {
     console.log(
@@ -301,11 +331,15 @@ function printReport(report) {
             orphans: orphans.length,
             missing: missing.length,
             driftIntent: driftIntent.length,
+            invalidIntent: invalidIntent.length,
+            invalidStatus: invalidStatus.length,
             okEntries: ok.length,
           },
           orphans,
           missing,
           driftIntent,
+          invalidIntent,
+          invalidStatus,
         },
         null,
         2,
