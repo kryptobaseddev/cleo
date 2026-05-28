@@ -1268,29 +1268,26 @@ export type {
   StickyConvertTaskParams,
 } from './sticky/ops.js';
 export type { CreateStickyParams, ListStickiesParams, StickyNote } from './sticky/types.js';
-export type { DerefResult, PutAttachmentExtras } from './store/attachment-store.js';
-// Attachment store (T760 docs domain)
-export {
-  AttachmentIntegrityError,
-  createAttachmentStore,
-  SlugCollisionError,
-  SlugNotReservedByAllocatorError,
-} from './store/attachment-store.js';
-// Attachment store v2 — unified llmtxt/legacy wrapper (T947 Wave B)
 export type {
   AttachmentBackend,
+  AttachmentBlobStore,
   AttachmentFileInput,
   AttachmentGetResult,
   AttachmentListEntry,
   AttachmentPutResult,
-  AttachmentStoreV2,
-  /** @deprecated Wave C (T11141) — legacy backend option removed. Kept for type compatibility. */
-  CreateAttachmentStoreV2Options,
-} from './store/attachment-store-v2.js';
+  CreateAttachmentBlobStoreOptions,
+  DerefResult,
+  PutAttachmentExtras,
+} from './store/attachment-store.js';
+// Attachment store (T760 docs domain)
 export {
-  createAttachmentStoreV2,
+  AttachmentIntegrityError,
+  createAttachmentBlobStore,
+  createAttachmentStore,
   resolveAttachmentBackend,
-} from './store/attachment-store-v2.js';
+  SlugCollisionError,
+  SlugNotReservedByAllocatorError,
+} from './store/attachment-store.js';
 // Store
 export { createBackup, listBackups, restoreFromBackup } from './store/backup.js';
 // Backup portability — bundle inspect primitives (T363 / T311 / T9985)

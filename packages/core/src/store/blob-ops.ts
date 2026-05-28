@@ -3,9 +3,9 @@
  *
  * Exposes a minimal content-addressed read API backed by `llmtxt/blob`
  * via {@link CleoBlobStore}. The write path lives in
- * {@link ./attachment-store-v2.ts}; this module is intentionally
+ * {@link ./attachment-store.ts}; this module is intentionally
  * read-only so callers that only need to verify or retrieve blobs do
- * not have to instantiate the full v2 store and its lazy-init machinery.
+ * not have to instantiate the full mirror store and its lazy-init machinery.
  *
  * Pass-through contract (owner Constraint #4):
  *   - NEVER re-implements hashing, SHA-256 comparison, or blob-name
@@ -22,7 +22,7 @@
  *     use {@link CleoBlobStore} directly.
  *
  * @epic T947
- * @see ./attachment-store-v2.ts (write path + unified interface)
+ * @see ./attachment-store.ts (write path + unified interface)
  * @see ./llmtxt-blob-adapter.ts (CleoBlobStore — llmtxt/blob wrapper)
  */
 

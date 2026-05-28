@@ -22,6 +22,7 @@ import { join } from 'node:path';
 import type { Attachment, AttachmentMetadata, AttachmentRef } from '@cleocode/contracts';
 import { and, eq, sql } from 'drizzle-orm';
 import { resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
+import type { CleoBlobStore as CleoBlobStoreType } from './llmtxt-blob-adapter.js';
 import { getDb, getNativeTasksDb } from './sqlite.js';
 import { type AttachmentLifecycleStatus, attachmentRefs, attachments } from './tasks-schema.js';
 
@@ -1001,6 +1002,218 @@ export function createAttachmentStore(): AttachmentStore {
           throw err;
         }
       });
+    },
+  };
+}
+
+// ─── Llmtxt mirror store ─────────────────────────────────────────────────────
+
+/**
+ * Which backend persisted the attachment.
+ *
+ * As of T11141 only `llmtxt` is supported by the mirror store; the `legacy`
+ * variant is kept because the docs operation contracts still expose it.
+ */
+export type AttachmentBackend = 'llmtxt' | 'legacy';
+
+/**
+ * Input descriptor for {@link AttachmentBlobStore.put}.
+ */
+export interface AttachmentFileInput {
+  /** User-visible name, for example `design.png`. Must not contain path separators. */
+  readonly name: string;
+  /** Raw bytes. */
+  readonly data: Uint8Array;
+  /** Optional IANA MIME type. Defaults to `application/octet-stream`. */
+  readonly contentType?: string;
+}
+
+/**
+ * Result returned from {@link AttachmentBlobStore.put}.
+ */
+export interface AttachmentPutResult {
+  /** Unique attachment id as minted by the active backend. */
+  readonly attachmentId: string;
+  /** Lowercase hex SHA-256 digest. */
+  readonly sha256: string;
+  /** Which backend persisted these bytes. Always `llmtxt` as of T11141. */
+  readonly backend: AttachmentBackend;
+}
+
+/**
+ * Entry returned from {@link AttachmentBlobStore.list}.
+ */
+export interface AttachmentListEntry {
+  /** Unique attachment id. */
+  readonly attachmentId: string;
+  /** User-visible name. */
+  readonly name: string;
+  /** Lowercase hex SHA-256 digest. */
+  readonly sha256: string;
+}
+
+/**
+ * Retrieved attachment from {@link AttachmentBlobStore.get}.
+ */
+export interface AttachmentGetResult {
+  /** Raw bytes. */
+  readonly data: Uint8Array;
+  /** User-visible name. */
+  readonly name: string;
+  /** IANA MIME type when known. */
+  readonly contentType?: string;
+}
+
+/**
+ * Minimal llmtxt-backed mirror contract used by docs operations.
+ */
+export interface AttachmentBlobStore {
+  /** Persist bytes for an owner and return backend metadata. */
+  put(taskId: string, file: AttachmentFileInput): Promise<AttachmentPutResult>;
+
+  /** Retrieve bytes by attachment id, or `null` when the id is unknown. */
+  get(attachmentId: string): Promise<AttachmentGetResult | null>;
+
+  /** List active attachments for an owner. */
+  list(taskId: string): Promise<AttachmentListEntry[]>;
+
+  /** Soft-delete an attachment by id. Unknown ids are ignored. */
+  remove(attachmentId: string, taskId?: string): Promise<void>;
+}
+
+/**
+ * Options for {@link createAttachmentBlobStore}.
+ */
+export interface CreateAttachmentBlobStoreOptions {
+  /** Reserved compatibility field; callers should omit options. */
+  readonly __reserved?: never;
+}
+
+/**
+ * Probe whether the llmtxt-backed path is loadable in this process.
+ */
+async function canUseLlmtxtBackend(): Promise<boolean> {
+  try {
+    await import('node:sqlite');
+    await import('drizzle-orm/node-sqlite');
+    await import('llmtxt/blob');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve the attachment backend used for new mirror-store writes.
+ *
+ * The legacy fallback was retired in T11141, so this always returns `llmtxt`.
+ */
+export async function resolveAttachmentBackend(): Promise<AttachmentBackend> {
+  return 'llmtxt';
+}
+
+/**
+ * Construct the llmtxt-backed attachment mirror store.
+ *
+ * The returned store lazily opens the llmtxt backend on first use. If
+ * `llmtxt/blob` plus Node's SQLite support are unavailable, operations throw
+ * rather than silently falling back to the legacy tasks.db store.
+ *
+ * @param projectRoot Absolute project root used for the llmtxt manifest.
+ */
+export function createAttachmentBlobStore(projectRoot: string): AttachmentBlobStore {
+  let llmtxtStore: CleoBlobStoreType | null | false = null;
+  const llmtxtIdIndex = new Map<string, { taskId: string; name: string }>();
+
+  async function ensureLlmtxt(): Promise<CleoBlobStoreType> {
+    if (llmtxtStore === false) {
+      throw new Error(
+        '[attachment-store] llmtxt backend previously failed to initialize; no legacy fallback available. ' +
+          'Ensure node:sqlite, drizzle-orm/node-sqlite, and llmtxt/blob are installed.',
+      );
+    }
+    if (llmtxtStore !== null) return llmtxtStore;
+
+    if (!(await canUseLlmtxtBackend())) {
+      llmtxtStore = false;
+      throw new Error(
+        '[attachment-store] llmtxt backend unavailable: missing peer deps (node:sqlite, drizzle-orm/node-sqlite, llmtxt/blob). ' +
+          'The legacy fallback was retired in T11141.',
+      );
+    }
+
+    try {
+      const { CleoBlobStore } = await import('./llmtxt-blob-adapter.js');
+      const store = new CleoBlobStore({ projectRoot });
+      await store.open();
+      llmtxtStore = store;
+      return store;
+    } catch (err) {
+      llmtxtStore = false;
+      throw new Error(
+        `[attachment-store] Failed to open llmtxt blob store: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  async function refreshLlmtxtIndex(
+    store: CleoBlobStoreType,
+    taskId: string,
+  ): Promise<AttachmentListEntry[]> {
+    const rows = await store.list(taskId);
+    const entries: AttachmentListEntry[] = [];
+    for (const row of rows) {
+      llmtxtIdIndex.set(row.id, { taskId: row.docSlug, name: row.blobName });
+      entries.push({
+        attachmentId: row.id,
+        name: row.blobName,
+        sha256: row.hash,
+      });
+    }
+    return entries;
+  }
+
+  return {
+    async put(taskId, file) {
+      const contentType = file.contentType ?? 'application/octet-stream';
+      const llmtxt = await ensureLlmtxt();
+      const res = await llmtxt.attach(taskId, file.name, file.data, contentType);
+      llmtxtIdIndex.set(res.attachmentId, { taskId, name: file.name });
+      return {
+        attachmentId: res.attachmentId,
+        sha256: res.sha256,
+        backend: 'llmtxt',
+      };
+    },
+
+    async get(attachmentId) {
+      const llmtxt = await ensureLlmtxt();
+      const key = llmtxtIdIndex.get(attachmentId);
+      if (key !== undefined) {
+        const blob = await llmtxt.get(key.taskId, key.name);
+        if (blob !== null && blob.data !== undefined) {
+          return {
+            data: new Uint8Array(blob.data),
+            name: blob.blobName,
+            contentType: blob.contentType,
+          };
+        }
+      }
+      return null;
+    },
+
+    async list(taskId) {
+      const llmtxt = await ensureLlmtxt();
+      return refreshLlmtxtIndex(llmtxt, taskId);
+    },
+
+    async remove(attachmentId) {
+      const llmtxt = await ensureLlmtxt();
+      const key = llmtxtIdIndex.get(attachmentId);
+      if (key !== undefined) {
+        await llmtxt.detach(key.taskId, key.name);
+        llmtxtIdIndex.delete(attachmentId);
+      }
     },
   };
 }

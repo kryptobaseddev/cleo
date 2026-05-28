@@ -67,9 +67,9 @@ import {
   allocateAdrSlug,
   allocateAutoSlugForDispatch,
   consumeReservedSlug,
+  createAttachmentBlobStore,
   createAttachmentStore,
   createAttachmentStoreDocsAccessor,
-  createAttachmentStoreV2,
   createDocsReadModel,
   type DerefResult,
   DOCS_UPDATE_LIFECYCLE_STATUS_LIST,
@@ -723,7 +723,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     let aid: string | undefined, asha: string | undefined;
     if (params.attach) {
       const store = createAttachmentStore();
-      const desc: import('@cleocode/core/internal').LlmsTxtAttachment = {
+      const desc: Omit<import('@cleocode/core/internal').LlmsTxtAttachment, 'sha256'> = {
         kind: 'llms-txt' as const,
         source: 'generated',
         content: result.content,
@@ -732,7 +732,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       };
       const meta = await store.put(
         Buffer.from(result.content, 'utf-8'),
-        desc as any,
+        desc,
         inferOwnerType(forId),
         forId,
         'cleo-docs-llm-output',
@@ -1074,7 +1074,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           kind: 'blob',
           ownerId: outcome.result.ownerId,
           ownerType: 'task',
-          // Cast: core returns 'llmtxt' (Wave C — legacy backend retired for v2 store).
+          // Cast: core returns 'llmtxt' (Wave C — legacy backend retired for mirror store).
           attachmentBackend:
             (await resolveAttachmentBackend()) as DocsAddResult['attachmentBackend'],
           slug: outcome.result.slug,
@@ -1293,18 +1293,18 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       // reservedSlugs set indefinitely. Consume defensively here.
       if (adrNumber !== undefined && slug !== undefined) consumeReservedSlug(slug);
 
-      // T947 Wave C — v2 store is now the canonical blob storage path.
+      // T947 Wave C — llmtxt mirror is now the canonical blob storage path.
       // The legacy store write above remains for slug/refcount/lifecycle
-      // support in tasks.db; the v2 mirror keeps manifest.db in sync.
+      // support in tasks.db; the mirror keeps manifest.db in sync.
       let backend: AttachmentBackend = 'llmtxt';
       try {
-        const v2 = createAttachmentStoreV2(getProjectRoot());
-        const v2Result = await v2.put(ownerId, {
+        const blobMirror = createAttachmentBlobStore(getProjectRoot());
+        const mirrorResult = await blobMirror.put(ownerId, {
           name: absPath.split(/[\\/]/).pop() ?? meta.sha256.slice(0, 12),
           data: new Uint8Array(bytes),
           contentType: mime,
         });
-        backend = v2Result.backend;
+        backend = mirrorResult.backend;
       } catch {
         // Mirror write is best-effort — never fail docs add on it.
         backend = await resolveAttachmentBackend();
@@ -1524,15 +1524,15 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     const blobPurged = derefResult.status === 'removed';
     const refCountAfter = derefResult.status === 'derefd' ? derefResult.refCountAfter : 0;
 
-    // T947 Wave C — mirror the remove through v2 so llmtxt manifests
+    // T947 Wave C — mirror the remove so llmtxt manifests
     // also soft-delete. Best-effort.
     try {
-      const v2 = createAttachmentStoreV2(getProjectRoot());
-      await v2.remove(attachmentId, fromOwner);
+      const blobMirror = createAttachmentBlobStore(getProjectRoot());
+      await blobMirror.remove(attachmentId, fromOwner);
     } catch {
       /* Mirror remove is best-effort. */
     }
-    // Wave C — always 'llmtxt' for v2-backed stores.
+    // Wave C — always 'llmtxt' for llmtxt-backed stores.
     const backend: AttachmentBackend = await resolveAttachmentBackend();
 
     // T11139 — audit trail
@@ -1610,28 +1610,25 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       );
     }
 
-    // T947 Wave C — mirror the updated blob into the V2 store so blobList /
+    // T947 Wave C — mirror the updated blob so blobList /
     // publishDocs see the new version (T11053 / AC1). Best-effort.
     let backend: AttachmentBackend = 'llmtxt';
     try {
-      const v2 = createAttachmentStoreV2(getProjectRoot());
+      const blobMirror = createAttachmentBlobStore(getProjectRoot());
       // Derive the old owner from the update params or fall back to slug.
-      // The V2 store keys by (ownerId, blobName), so we use the slug as
+      // The llmtxt mirror keys by (ownerId, blobName), so we use the slug as
       // the blob name and a synthetic owner derived from the slug itself
       // (the canonical docs publish path resolves owners via CLEO task
-      // lookups, not via the V2 store key).
-      const resolvedOwnerId =
-        typeof resolvedParams.ownerId === 'string' && resolvedParams.ownerId.length > 0
-          ? resolvedParams.ownerId
-          : `slug:${outcome.result.slug}`;
-      const v2Result = await v2.put(resolvedOwnerId, {
+      // lookups, not via the mirror key).
+      const resolvedOwnerId = `slug:${outcome.result.slug}`;
+      const mirrorResult = await blobMirror.put(resolvedOwnerId, {
         name: outcome.result.slug,
         data: hasFile
           ? new Uint8Array(await readFile(resolve(filePath as string)))
           : new Uint8Array(Buffer.from(inlineContent as string, 'utf-8')),
         contentType: hasFile ? mimeFromPath(resolve(filePath as string)) : 'text/plain',
       });
-      backend = v2Result.backend;
+      backend = mirrorResult.backend;
     } catch {
       backend = await resolveAttachmentBackend();
     }
@@ -2014,7 +2011,7 @@ async function dispatchDocsLegacyMutate(
         try {
           writeAuditEntry(projectRoot, {
             op: 'docs.import',
-            summary: `Imported ${result.counters.created} created, ${result.counters.skipped} skipped, ${result.counters.errors} errors from '${scanRoot}'`,
+            summary: `Imported ${result.counters.importCount} created, ${result.counters.noopCount} skipped, ${result.counters.errorCount} errors from '${scanRoot}'`,
           });
         } catch {
           /* best-effort */

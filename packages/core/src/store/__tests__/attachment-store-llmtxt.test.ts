@@ -1,5 +1,5 @@
 /**
- * Unit tests for the unified attachment store (T947 Wave C — legacy fallback retired).
+ * Unit tests for the llmtxt attachment mirror (T947 Wave C — legacy fallback retired).
  *
  * Tests the llmtxt-backed path exclusively. The legacy fallback path was
  * retired in T11141 (Wave C). Tests that need `node:sqlite` +
@@ -15,7 +15,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 /**
  * Probe whether the llmtxt-backed path is loadable in this process.
@@ -32,18 +32,13 @@ async function hasLlmtxtPeerDeps(): Promise<boolean> {
   }
 }
 
-let peerDepsAvailable = false;
-beforeAll(async () => {
-  peerDepsAvailable = await hasLlmtxtPeerDeps();
-});
-
 // ──────────────────────────────────────────────────────────────────────────
 // Backend probe
 // ──────────────────────────────────────────────────────────────────────────
 
 describe('resolveAttachmentBackend', () => {
   it('always returns "llmtxt" (Wave C — legacy fallback retired)', async () => {
-    const { resolveAttachmentBackend } = await import('../attachment-store-v2.js');
+    const { resolveAttachmentBackend } = await import('../attachment-store.js');
     const backend = await resolveAttachmentBackend();
     expect(backend).toBe('llmtxt');
   });
@@ -54,12 +49,12 @@ describe('resolveAttachmentBackend', () => {
 // ──────────────────────────────────────────────────────────────────────────
 
 describe.skipIf(!(await hasLlmtxtPeerDeps()))(
-  'createAttachmentStoreV2 (llmtxt backend - node:sqlite)',
+  'createAttachmentBlobStore (llmtxt backend - node:sqlite)',
   () => {
     let tempDir: string;
 
     beforeEach(async () => {
-      tempDir = await mkdtemp(join(tmpdir(), 'cleo-attach-v2-llmtxt-'));
+      tempDir = await mkdtemp(join(tmpdir(), 'cleo-attach-llmtxt-'));
     });
 
     afterEach(async () => {
@@ -69,10 +64,10 @@ describe.skipIf(!(await hasLlmtxtPeerDeps()))(
     });
 
     it('put + get roundtrip succeeds via llmtxt path', async () => {
-      const { createAttachmentStoreV2 } = await import('../attachment-store-v2.js');
-      const store = createAttachmentStoreV2(tempDir);
+      const { createAttachmentBlobStore } = await import('../attachment-store.js');
+      const store = createAttachmentBlobStore(tempDir);
 
-      const original = new TextEncoder().encode('Hello, v2 attachments!');
+      const original = new TextEncoder().encode('Hello, llmtxt attachments!');
       const putResult = await store.put('T100', {
         name: 'greeting.txt',
         data: original,
@@ -85,14 +80,14 @@ describe.skipIf(!(await hasLlmtxtPeerDeps()))(
 
       const fetched = await store.get(putResult.attachmentId);
       expect(fetched).not.toBeNull();
-      expect(Buffer.from(fetched!.data).toString('utf-8')).toBe('Hello, v2 attachments!');
+      expect(Buffer.from(fetched!.data).toString('utf-8')).toBe('Hello, llmtxt attachments!');
       expect(fetched?.contentType).toBe('text/plain');
       expect(fetched?.name).toBe('greeting.txt');
     });
 
     it('put + get roundtrip with binary data', async () => {
-      const { createAttachmentStoreV2 } = await import('../attachment-store-v2.js');
-      const store = createAttachmentStoreV2(tempDir);
+      const { createAttachmentBlobStore } = await import('../attachment-store.js');
+      const store = createAttachmentBlobStore(tempDir);
 
       const original = new Uint8Array([0x00, 0x01, 0x02, 0xff, 0xfe, 0xfd]);
       const putResult = await store.put('T101', {
@@ -110,8 +105,8 @@ describe.skipIf(!(await hasLlmtxtPeerDeps()))(
     });
 
     it('list returns attachments for a task', async () => {
-      const { createAttachmentStoreV2 } = await import('../attachment-store-v2.js');
-      const store = createAttachmentStoreV2(tempDir);
+      const { createAttachmentBlobStore } = await import('../attachment-store.js');
+      const store = createAttachmentBlobStore(tempDir);
 
       await store.put('T102', { name: 'a.txt', data: new TextEncoder().encode('a') });
       await store.put('T102', { name: 'b.txt', data: new TextEncoder().encode('b') });
@@ -125,31 +120,31 @@ describe.skipIf(!(await hasLlmtxtPeerDeps()))(
     });
 
     it('list returns empty array for task with no attachments', async () => {
-      const { createAttachmentStoreV2 } = await import('../attachment-store-v2.js');
-      const store = createAttachmentStoreV2(tempDir);
+      const { createAttachmentBlobStore } = await import('../attachment-store.js');
+      const store = createAttachmentBlobStore(tempDir);
 
       const entries = await store.list('T999');
       expect(entries).toEqual([]);
     });
 
     it('get returns null for unknown attachment id', async () => {
-      const { createAttachmentStoreV2 } = await import('../attachment-store-v2.js');
-      const store = createAttachmentStoreV2(tempDir);
+      const { createAttachmentBlobStore } = await import('../attachment-store.js');
+      const store = createAttachmentBlobStore(tempDir);
 
       const result = await store.get('no-such-attachment-id');
       expect(result).toBeNull();
     });
 
     it('remove with unknown id is a no-op', async () => {
-      const { createAttachmentStoreV2 } = await import('../attachment-store-v2.js');
-      const store = createAttachmentStoreV2(tempDir);
+      const { createAttachmentBlobStore } = await import('../attachment-store.js');
+      const store = createAttachmentBlobStore(tempDir);
 
       await expect(store.remove('unknown-id', 'T999')).resolves.toBeUndefined();
     });
 
     it('remove detaches a known attachment', async () => {
-      const { createAttachmentStoreV2 } = await import('../attachment-store-v2.js');
-      const store = createAttachmentStoreV2(tempDir);
+      const { createAttachmentBlobStore } = await import('../attachment-store.js');
+      const store = createAttachmentBlobStore(tempDir);
 
       const payload = new TextEncoder().encode('detach-me');
       const { attachmentId } = await store.put('T103', {
@@ -163,9 +158,9 @@ describe.skipIf(!(await hasLlmtxtPeerDeps()))(
     });
 
     it('sha256 matches CleoBlobStore.hash', async () => {
-      const { createAttachmentStoreV2 } = await import('../attachment-store-v2.js');
+      const { createAttachmentBlobStore } = await import('../attachment-store.js');
       const { CleoBlobStore } = await import('../llmtxt-blob-adapter.js');
-      const store = createAttachmentStoreV2(tempDir);
+      const store = createAttachmentBlobStore(tempDir);
 
       const data = new TextEncoder().encode('hash-verification');
       const expected = CleoBlobStore.hash(data);
@@ -179,13 +174,13 @@ describe.skipIf(!(await hasLlmtxtPeerDeps()))(
 // Wave C — store throws when llmtxt peer deps are unavailable
 // ──────────────────────────────────────────────────────────────────────────
 
-describe.skipIf(hasLlmtxtPeerDeps())(
-  'createAttachmentStoreV2 (no llmtxt peer deps — throws)',
+describe.skipIf(await hasLlmtxtPeerDeps())(
+  'createAttachmentBlobStore (no llmtxt peer deps — throws)',
   () => {
     let tempDir: string;
 
     beforeEach(async () => {
-      tempDir = await mkdtemp(join(tmpdir(), 'cleo-attach-v2-nodeps-'));
+      tempDir = await mkdtemp(join(tmpdir(), 'cleo-attach-llmtxt-nodeps-'));
     });
 
     afterEach(async () => {
@@ -193,8 +188,8 @@ describe.skipIf(hasLlmtxtPeerDeps())(
     });
 
     it('put throws when llmtxt peer deps are unavailable (Wave C — no legacy fallback)', async () => {
-      const { createAttachmentStoreV2 } = await import('../attachment-store-v2.js');
-      const store = createAttachmentStoreV2(tempDir);
+      const { createAttachmentBlobStore } = await import('../attachment-store.js');
+      const store = createAttachmentBlobStore(tempDir);
 
       await expect(
         store.put('T400', {
@@ -211,7 +206,7 @@ describe.skipIf(hasLlmtxtPeerDeps())(
 //
 // The original bug (filed 2026-04-21 against cleo 2026.4.101) was a
 // `better-sqlite3` binding failure inside the drizzle template surface.
-// T1041 (commit 885a4e5d0, Apr 20 2026) migrated the entire v2 surface to
+// T1041 (commit 885a4e5d0, Apr 20 2026) migrated the mirror surface to
 // Node 24's built-in `node:sqlite` + `drizzle-orm/node-sqlite`.
 //
 // These tests assert the regression-locked behaviour on the llmtxt path.
@@ -236,9 +231,9 @@ describe.skipIf(!hasLlmtxtPeerDeps())(
     });
 
     it('llmtxt backend put does not throw and returns a populated envelope', async () => {
-      const { createAttachmentStoreV2 } = await import('../attachment-store-v2.js');
+      const { createAttachmentBlobStore } = await import('../attachment-store.js');
 
-      const store = createAttachmentStoreV2(tempDir);
+      const store = createAttachmentBlobStore(tempDir);
 
       // The bug surfaced as a SQLite query-failure thrown synchronously from
       // the drizzle template surface — capture the entire put() invocation
@@ -258,25 +253,26 @@ describe.skipIf(!hasLlmtxtPeerDeps())(
     });
 
     it('llmtxt backend put does not surface a bare-newline SQL error', async () => {
-      const { createAttachmentStoreV2 } = await import('../attachment-store-v2.js');
+      const { createAttachmentBlobStore } = await import('../attachment-store.js');
 
-      const store = createAttachmentStoreV2(tempDir);
+      const store = createAttachmentBlobStore(tempDir);
 
       // The original bug raised `Failed to run the query '\\n'` — a bare
       // newline SQL string. Even if some unrelated error were to leak, this
-      // exact message MUST never appear in the v2 store path on HEAD.
-      let caught: unknown;
+      // exact message MUST never appear in the llmtxt mirror path on HEAD.
+      let caughtError: Error | null = null;
       try {
         await store.put('T9901', {
           name: 'regression.md',
           data: new TextEncoder().encode('regression-anchor'),
         });
       } catch (err) {
-        caught = err;
+        if (!(err instanceof Error)) throw err;
+        caughtError = err;
       }
-      if (caught instanceof Error) {
-        expect(caught.message).not.toMatch(/Failed to run the query\s*'\n'/);
-        expect(caught.message).not.toContain("'\\n'");
+      if (caughtError !== null) {
+        expect(caughtError.message).not.toMatch(/Failed to run the query\s*'\n'/);
+        expect(caughtError.message).not.toContain("'\\n'");
       }
     });
   },
