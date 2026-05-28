@@ -84,7 +84,9 @@ describe('renderDocsView', () => {
   });
 
   it('renders links with URL', () => {
-    const result = renderDocsView('[click here](https://example.com)', undefined, { color: 'never' });
+    const result = renderDocsView('[click here](https://example.com)', undefined, {
+      color: 'never',
+    });
     expect(result).toContain('click here');
     expect(result).toContain('https://example.com');
   });
@@ -92,7 +94,12 @@ describe('renderDocsView', () => {
   it('displays metadata header when provided', () => {
     const result = renderDocsView(
       '# Content',
-      { slug: 'my-doc', type: 'adr', title: 'My ADR', sha256: 'abcdef1234567890abcdef1234567890abcdef12' },
+      {
+        slug: 'my-doc',
+        type: 'adr',
+        title: 'My ADR',
+        sha256: 'abcdef1234567890abcdef1234567890abcdef12',
+      },
       { color: 'never' },
     );
     expect(result).toContain('My ADR');

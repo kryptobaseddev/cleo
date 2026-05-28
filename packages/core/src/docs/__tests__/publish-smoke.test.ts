@@ -14,10 +14,10 @@
  * @epic T10521 (T10516-E: Docs dogfood regression harness)
  */
 
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Module mocks (hoisted) ──────────────────────────────────────────────────
@@ -36,10 +36,10 @@ vi.mock('../../paths.js', () => ({
 import * as blobOps from '../../store/blob-ops.js';
 
 import {
-  publishDocs,
-  recordPublication,
-  readPublicationsLedger,
   listPublications,
+  publishDocs,
+  readPublicationsLedger,
+  recordPublication,
 } from '../docs-ops.js';
 
 // ─── Test helpers ────────────────────────────────────────────────────────────
@@ -105,10 +105,7 @@ describe('AC1: publishDocs — publish, explicit attachment (rollback), and dry-
   });
 
   it('rollback: explicit attachmentId overrides latest', async () => {
-    const blobs = [
-      blob('doc.md', 'ancient', 1),
-      blob('doc.md', 'latest', 999999),
-    ];
+    const blobs = [blob('doc.md', 'ancient', 1), blob('doc.md', 'latest', 999999)];
     vi.mocked(blobOps.blobList).mockResolvedValue(blobs);
     vi.mocked(blobOps.blobRead).mockResolvedValue(new Uint8Array([1]));
 
@@ -146,16 +143,25 @@ describe('AC1: publishDocs — publish, explicit attachment (rollback), and dry-
   it('refuses to write outside projectRoot when allowOutsideRoot is not set', async () => {
     vi.mocked(blobOps.blobList).mockResolvedValue([blob('a.md', 'sha', 1000)]);
 
-    await expect(
-      publishDocs({ ownerId: 'T1', toPath: '/etc/passwd' }),
-    ).rejects.toThrow('refusing to write outside projectRoot');
+    await expect(publishDocs({ ownerId: 'T1', toPath: '/etc/passwd' })).rejects.toThrow(
+      'refusing to write outside projectRoot',
+    );
   });
 });
 
 // ─── AC2: all doc types through consolidated publish path ─────────────────────
 
 describe('AC2: all doc types through consolidated publish path', () => {
-  const docTypes = ['spec', 'adr', 'research', 'handoff', 'note', 'llm-readme', 'plan', 'release-note'];
+  const docTypes = [
+    'spec',
+    'adr',
+    'research',
+    'handoff',
+    'note',
+    'llm-readme',
+    'plan',
+    'release-note',
+  ];
 
   beforeEach(() => {
     vi.mocked(blobOps.blobRead).mockResolvedValue(new Uint8Array([100, 101, 102]));
@@ -209,7 +215,11 @@ describe('AC3: audit trail — publications ledger', () => {
   });
 
   afterEach(() => {
-    try { rmSync(root, { recursive: true, force: true }); } catch { /* ok */ }
+    try {
+      rmSync(root, { recursive: true, force: true });
+    } catch {
+      /* ok */
+    }
   });
 
   it('recordPublication creates an audit trail entry in the ledger', async () => {
@@ -233,12 +243,18 @@ describe('AC3: audit trail — publications ledger', () => {
 
   it('recordPublication upserts on (ownerId, blobName, publishedPath)', async () => {
     await recordPublication({
-      ownerId: 'T_UPSERT', blobName: 'spec.md',
-      publishedPath: 'docs/spec/api.md', lastBlobSha: 'sha-v1', projectRoot: root,
+      ownerId: 'T_UPSERT',
+      blobName: 'spec.md',
+      publishedPath: 'docs/spec/api.md',
+      lastBlobSha: 'sha-v1',
+      projectRoot: root,
     });
     await recordPublication({
-      ownerId: 'T_UPSERT', blobName: 'spec.md',
-      publishedPath: 'docs/spec/api.md', lastBlobSha: 'sha-v2', projectRoot: root,
+      ownerId: 'T_UPSERT',
+      blobName: 'spec.md',
+      publishedPath: 'docs/spec/api.md',
+      lastBlobSha: 'sha-v2',
+      projectRoot: root,
     });
 
     const entries = await readPublicationsLedger(root);
@@ -248,12 +264,18 @@ describe('AC3: audit trail — publications ledger', () => {
 
   it('recordPublication adds distinct entries for different paths', async () => {
     await recordPublication({
-      ownerId: 'T_MULTI', blobName: 'doc.md',
-      publishedPath: 'docs/adr/001.md', lastBlobSha: 'sha-1', projectRoot: root,
+      ownerId: 'T_MULTI',
+      blobName: 'doc.md',
+      publishedPath: 'docs/adr/001.md',
+      lastBlobSha: 'sha-1',
+      projectRoot: root,
     });
     await recordPublication({
-      ownerId: 'T_MULTI', blobName: 'doc.md',
-      publishedPath: 'docs/spec/design.md', lastBlobSha: 'sha-2', projectRoot: root,
+      ownerId: 'T_MULTI',
+      blobName: 'doc.md',
+      publishedPath: 'docs/spec/design.md',
+      lastBlobSha: 'sha-2',
+      projectRoot: root,
     });
 
     const entries = await readPublicationsLedger(root);
@@ -263,9 +285,27 @@ describe('AC3: audit trail — publications ledger', () => {
   });
 
   it('listPublications returns all entries', async () => {
-    await recordPublication({ ownerId: 'T_A', blobName: 'a.md', publishedPath: 'docs/a.md', lastBlobSha: 'sha-a', projectRoot: root });
-    await recordPublication({ ownerId: 'T_B', blobName: 'b.md', publishedPath: 'docs/b.md', lastBlobSha: 'sha-b', projectRoot: root });
-    await recordPublication({ ownerId: 'T_C', blobName: 'c.md', publishedPath: 'docs/c.md', lastBlobSha: 'sha-c', projectRoot: root });
+    await recordPublication({
+      ownerId: 'T_A',
+      blobName: 'a.md',
+      publishedPath: 'docs/a.md',
+      lastBlobSha: 'sha-a',
+      projectRoot: root,
+    });
+    await recordPublication({
+      ownerId: 'T_B',
+      blobName: 'b.md',
+      publishedPath: 'docs/b.md',
+      lastBlobSha: 'sha-b',
+      projectRoot: root,
+    });
+    await recordPublication({
+      ownerId: 'T_C',
+      blobName: 'c.md',
+      publishedPath: 'docs/c.md',
+      lastBlobSha: 'sha-c',
+      projectRoot: root,
+    });
 
     expect(await listPublications({ projectRoot: root })).toHaveLength(3);
   });
@@ -292,7 +332,11 @@ describe('Integration: full publish lifecycle smoke', () => {
   });
 
   afterEach(() => {
-    try { rmSync(root, { recursive: true, force: true }); } catch { /* ok */ }
+    try {
+      rmSync(root, { recursive: true, force: true });
+    } catch {
+      /* ok */
+    }
   });
 
   it('full smoke: publish + audit trail + re-read', async () => {

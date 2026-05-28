@@ -223,13 +223,7 @@ function renderInline(
   return result;
 }
 
-function renderCodeBlock(
-  lines: string[],
-  width: number,
-  D: string,
-  N: string,
-  CD: string,
-): string {
+function renderCodeBlock(lines: string[], width: number, D: string, N: string, CD: string): string {
   if (lines.length === 0) return '';
   const border = D + '┌' + '─'.repeat(Math.min(width - 2, 78)) + '┐' + N;
   const bottom = D + '└' + '─'.repeat(Math.min(width - 2, 78)) + '┘' + N;

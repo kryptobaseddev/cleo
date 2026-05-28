@@ -6,4 +6,4 @@
  * @saga T10516
  */
 
-export { renderDocsView, type DocsViewOptions } from './view.js';
+export { type DocsViewOptions, renderDocsView } from './view.js';

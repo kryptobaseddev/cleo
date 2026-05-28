@@ -42,9 +42,9 @@ import { resolve as resolveOperation } from '../../dispatch/registry.js';
 import { getOperationParams, paramsToCittyArgs } from '../lib/registry-args.js';
 import { assertKnownFlags, UnknownFlagError } from '../lib/strict-args.js';
 import { cliError, cliOutput, humanInfo } from '../renderers/index.js';
+import { auditCommand } from './docs/audit.js';
 // T10164 — DocProvenanceResponse-typed graph verb (`--root <slug>|<taskId>`).
 import { graphCommand as provenanceGraphCommand } from './docs/graph.js';
-import { auditCommand } from './docs/audit.js';
 import { docsViewerSubcommands } from './docs-viewer.js';
 
 const docsOutputFlagHelp =
@@ -840,7 +840,7 @@ const generateCommand = defineCommand({
   async run({ args }) {
     // T11179/T11137: generate is deprecated — use unified llm-output.
     humanInfo(
-      'cleo: docs generate is deprecated — use `cleo docs llm-output --for ${args.for} --mode attachment-bundle` (T11137)',
+      `cleo: docs generate is deprecated — use \`cleo docs llm-output --for ${args.for} --mode attachment-bundle\` (T11137)`,
     );
     await dispatchFromCli(
       'query',
@@ -962,7 +962,7 @@ const exportCommand = defineCommand({
  * Replaces `docs export` and `docs generate` with a single --mode flag.
  * @task T11137 @saga T10516 @epic T10517
  */
-const llmOutputCommand = defineCommand({
+const _llmOutputCommand = defineCommand({
   meta: {
     name: 'llm-output',
     description:
@@ -970,12 +970,30 @@ const llmOutputCommand = defineCommand({
       'or attachment-bundle (llms.txt summarising all attachments). Replaces `docs export` and `docs generate`.',
   },
   args: {
-    for: { type: 'string', description: 'Target entity ID (T###, ses_*, O-*, D-*, L-*, P-*)', required: true },
-    mode: { type: 'string', description: "Output mode: 'task-export' or 'attachment-bundle' (auto-detected)" },
+    for: {
+      type: 'string',
+      description: 'Target entity ID (T###, ses_*, O-*, D-*, L-*, P-*)',
+      required: true,
+    },
+    mode: {
+      type: 'string',
+      description: "Output mode: 'task-export' or 'attachment-bundle' (auto-detected)",
+    },
     out: { type: 'string', description: 'Output file path. Omit for stdout.' },
-    'include-attachments': { type: 'boolean', default: true, description: 'Append attachment manifest (task-export, default: true)' },
-    'include-memory-refs': { type: 'boolean', default: false, description: 'Append BRAIN memory refs (task-export, default: false)' },
-    attach: { type: 'boolean', description: 'Save as llms-txt attachment on target (attachment-bundle)' },
+    'include-attachments': {
+      type: 'boolean',
+      default: true,
+      description: 'Append attachment manifest (task-export, default: true)',
+    },
+    'include-memory-refs': {
+      type: 'boolean',
+      default: false,
+      description: 'Append BRAIN memory refs (task-export, default: false)',
+    },
+    attach: {
+      type: 'boolean',
+      description: 'Save as llms-txt attachment on target (attachment-bundle)',
+    },
     ...docsOutputArgs,
   },
   async run({ args }) {
@@ -988,7 +1006,16 @@ const llmOutputCommand = defineCommand({
         includeAttachments: args['include-attachments'] !== false,
         includeMemoryRefs: args['include-memory-refs'] === true,
         ...(args.attach ? { attach: true } : {}),
-      })) as { forId: string; mode: string; content: string; sectionCount: number; usedLlmtxtPackage: boolean; attached?: boolean; attachmentId?: string; attachmentSha256?: string };
+      })) as {
+        forId: string;
+        mode: string;
+        content: string;
+        sectionCount: number;
+        usedLlmtxtPackage: boolean;
+        attached?: boolean;
+        attachmentId?: string;
+        attachmentSha256?: string;
+      };
 
       let writtenPath: string | undefined;
       if (typeof args.out === 'string' && args.out.length > 0) {
@@ -998,14 +1025,35 @@ const llmOutputCommand = defineCommand({
         writtenPath = outPath;
       }
       if (args.json) {
-        cliOutput({ forId: result.forId, mode: result.mode, content: result.content, sectionCount: result.sectionCount, usedLlmtxtPackage: result.usedLlmtxtPackage, attached: result.attached, attachmentId: result.attachmentId, attachmentSha256: result.attachmentSha256, path: writtenPath ?? null }, { command: 'docs llm-output', operation: 'docs.llm-output' });
+        cliOutput(
+          {
+            forId: result.forId,
+            mode: result.mode,
+            content: result.content,
+            sectionCount: result.sectionCount,
+            usedLlmtxtPackage: result.usedLlmtxtPackage,
+            attached: result.attached,
+            attachmentId: result.attachmentId,
+            attachmentSha256: result.attachmentSha256,
+            path: writtenPath ?? null,
+          },
+          { command: 'docs llm-output', operation: 'docs.llm-output' },
+        );
       } else {
-        if (writtenPath) { humanInfo(`Wrote ${result.sectionCount} ${result.mode === 'task-export' ? 'page(s)' : 'section(s)'} to ${writtenPath}`); }
-        else { process.stdout.write(result.content); if (!result.content.endsWith('\n')) process.stdout.write('\n'); }
+        if (writtenPath) {
+          humanInfo(
+            `Wrote ${result.sectionCount} ${result.mode === 'task-export' ? 'page(s)' : 'section(s)'} to ${writtenPath}`,
+          );
+        } else {
+          process.stdout.write(result.content);
+          if (!result.content.endsWith('\n')) process.stdout.write('\n');
+        }
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      cliError(`docs llm-output failed: ${message}`, ExitCode.GENERAL_ERROR, { name: 'E_DOCS_LLM_OUTPUT_FAILED' });
+      cliError(`docs llm-output failed: ${message}`, ExitCode.GENERAL_ERROR, {
+        name: 'E_DOCS_LLM_OUTPUT_FAILED',
+      });
       process.exit(ExitCode.GENERAL_ERROR);
     }
   },
@@ -1017,14 +1065,26 @@ const llmOutputCommand = defineCommand({
 const llmOutputCommand = defineCommand({
   meta: {
     name: 'llm-output',
-    description: 'Unified LLM output: task export (rich Markdown) or attachment-bundle (llms.txt). Replaces `docs export` and `docs generate`.',
+    description:
+      'Unified LLM output: task export (rich Markdown) or attachment-bundle (llms.txt). Replaces `docs export` and `docs generate`.',
   },
   args: {
     for: { type: 'string', description: 'Target entity ID', required: true },
-    mode: { type: 'string', description: "Output mode: task-export|attachment-bundle (auto-detected)" },
+    mode: {
+      type: 'string',
+      description: 'Output mode: task-export|attachment-bundle (auto-detected)',
+    },
     out: { type: 'string', description: 'Output file path' },
-    'include-attachments': { type: 'boolean', default: true, description: 'Include attachment manifest (task-export)' },
-    'include-memory-refs': { type: 'boolean', default: false, description: 'Include memory refs (task-export)' },
+    'include-attachments': {
+      type: 'boolean',
+      default: true,
+      description: 'Include attachment manifest (task-export)',
+    },
+    'include-memory-refs': {
+      type: 'boolean',
+      default: false,
+      description: 'Include memory refs (task-export)',
+    },
     attach: { type: 'boolean', description: 'Save as llms-txt attachment (attachment-bundle)' },
     ...docsOutputArgs,
   },
@@ -1038,7 +1098,16 @@ const llmOutputCommand = defineCommand({
         includeAttachments: args['include-attachments'] !== false,
         includeMemoryRefs: args['include-memory-refs'] === true,
         ...(args.attach ? { attach: true } : {}),
-      })) as { forId: string; mode: string; content: string; sectionCount: number; usedLlmtxtPackage: boolean; attached?: boolean; attachmentId?: string; attachmentSha256?: string };
+      })) as {
+        forId: string;
+        mode: string;
+        content: string;
+        sectionCount: number;
+        usedLlmtxtPackage: boolean;
+        attached?: boolean;
+        attachmentId?: string;
+        attachmentSha256?: string;
+      };
       let writtenPath: string | undefined;
       if (typeof args.out === 'string' && args.out.length > 0) {
         const outPath = isAbsolute(args.out) ? args.out : resolve(projectRoot, args.out);
@@ -1047,14 +1116,35 @@ const llmOutputCommand = defineCommand({
         writtenPath = outPath;
       }
       if (args.json) {
-        cliOutput({ forId: result.forId, mode: result.mode, content: result.content, sectionCount: result.sectionCount, usedLlmtxtPackage: result.usedLlmtxtPackage, attached: result.attached, attachmentId: result.attachmentId, attachmentSha256: result.attachmentSha256, path: writtenPath ?? null }, { command: 'docs llm-output', operation: 'docs.llm-output' });
+        cliOutput(
+          {
+            forId: result.forId,
+            mode: result.mode,
+            content: result.content,
+            sectionCount: result.sectionCount,
+            usedLlmtxtPackage: result.usedLlmtxtPackage,
+            attached: result.attached,
+            attachmentId: result.attachmentId,
+            attachmentSha256: result.attachmentSha256,
+            path: writtenPath ?? null,
+          },
+          { command: 'docs llm-output', operation: 'docs.llm-output' },
+        );
       } else {
-        if (writtenPath) { humanInfo(`Wrote ${result.sectionCount} ${result.mode === 'task-export' ? 'page(s)' : 'section(s)'} to ${writtenPath}`); }
-        else { process.stdout.write(result.content); if (!result.content.endsWith('\n')) process.stdout.write('\n'); }
+        if (writtenPath) {
+          humanInfo(
+            `Wrote ${result.sectionCount} ${result.mode === 'task-export' ? 'page(s)' : 'section(s)'} to ${writtenPath}`,
+          );
+        } else {
+          process.stdout.write(result.content);
+          if (!result.content.endsWith('\n')) process.stdout.write('\n');
+        }
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      cliError(`docs llm-output failed: ${message}`, ExitCode.GENERAL_ERROR, { name: 'E_DOCS_LLM_OUTPUT_FAILED' });
+      cliError(`docs llm-output failed: ${message}`, ExitCode.GENERAL_ERROR, {
+        name: 'E_DOCS_LLM_OUTPUT_FAILED',
+      });
       process.exit(ExitCode.GENERAL_ERROR);
     }
   },
@@ -1384,7 +1474,8 @@ const queryCommand = defineCommand({
     },
     'all-kinds': {
       type: 'boolean',
-      description: 'Disable the same-kind filter and rank across every DocKind (for --similar mode)',
+      description:
+        'Disable the same-kind filter and rank across every DocKind (for --similar mode)',
     },
     ...docsOutputArgs,
   },
@@ -1440,21 +1531,29 @@ const queryCommand = defineCommand({
       process.exit(ExitCode.VALIDATION_ERROR);
     }
 
-    let limit;
+    let limit: number | undefined;
     if (typeof args.limit === 'string') {
       const parsed = Number.parseInt(args.limit, 10);
       if (!Number.isFinite(parsed) || parsed <= 0) {
-        cliError(`--limit must be a positive integer (got "${args.limit}")`, ExitCode.VALIDATION_ERROR, { name: 'E_VALIDATION' });
+        cliError(
+          `--limit must be a positive integer (got "${args.limit}")`,
+          ExitCode.VALIDATION_ERROR,
+          { name: 'E_VALIDATION' },
+        );
         process.exit(ExitCode.VALIDATION_ERROR);
       }
       limit = parsed;
     }
 
-    let threshold;
+    let threshold: number | undefined;
     if (typeof args.threshold === 'string') {
       const parsed = Number.parseFloat(args.threshold);
       if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
-        cliError(`--threshold must be a number in [0, 1] (got "${args.threshold}")`, ExitCode.VALIDATION_ERROR, { name: 'E_VALIDATION' });
+        cliError(
+          `--threshold must be a number in [0, 1] (got "${args.threshold}")`,
+          ExitCode.VALIDATION_ERROR,
+          { name: 'E_VALIDATION' },
+        );
         process.exit(ExitCode.VALIDATION_ERROR);
       }
       threshold = parsed;
@@ -1772,16 +1871,19 @@ const publishCommand = defineCommand({
     },
     target: {
       type: 'string',
-      description: 'Publish target: file (local git-tracked path) or pr (GitHub PR). Default: file.',
+      description:
+        'Publish target: file (local git-tracked path) or pr (GitHub PR). Default: file.',
       default: 'file',
     },
     for: {
       type: 'string',
-      description: 'Owner entity ID whose attachment to publish (T###, ses_*, O-*). Required for --target file.',
+      description:
+        'Owner entity ID whose attachment to publish (T###, ses_*, O-*). Required for --target file.',
     },
     to: {
       type: 'string',
-      description: 'Destination file path (absolute or relative to project root). Required for --target file.',
+      description:
+        'Destination file path (absolute or relative to project root). Required for --target file.',
     },
     attachment: {
       type: 'string',
@@ -1789,7 +1891,8 @@ const publishCommand = defineCommand({
     },
     slug: {
       type: 'string',
-      description: 'Override the slug used for the branch + filename. Required when <slug-or-id> is an attachment id or sha256 with no stored slug.',
+      description:
+        'Override the slug used for the branch + filename. Required when <slug-or-id> is an attachment id or sha256 with no stored slug.',
     },
     type: {
       type: 'string',
@@ -1809,7 +1912,8 @@ const publishCommand = defineCommand({
     },
     'dry-run': {
       type: 'boolean',
-      description: 'Preview what would happen without side effects. Reports resolved target, mode, and parameters. No files are written and no git/gh commands are invoked.',
+      description:
+        'Preview what would happen without side effects. Reports resolved target, mode, and parameters. No files are written and no git/gh commands are invoked.',
     },
     json: { type: 'boolean', description: 'Emit LAFS JSON envelope' },
   },
@@ -1834,32 +1938,74 @@ const publishCommand = defineCommand({
     if (target === 'pr') {
       const slugOrId = String(args['slug-or-id'] ?? '');
       if (!slugOrId) {
-        cliError('docs publish --target pr requires a slug-or-id argument', ExitCode.GENERAL_ERROR, { name: 'E_MISSING_ARG' });
+        cliError(
+          'docs publish --target pr requires a slug-or-id argument',
+          ExitCode.GENERAL_ERROR,
+          { name: 'E_MISSING_ARG' },
+        );
         process.exit(ExitCode.GENERAL_ERROR);
       }
       const result = (await dispatchDocsRaw('mutate', 'publish', {
-        slugOrId, target: 'pr',
+        slugOrId,
+        target: 'pr',
         ...(typeof args.slug === 'string' ? { slug: args.slug } : {}),
         ...(typeof args.type === 'string' ? { type: args.type } : {}),
         ...(typeof args.title === 'string' ? { title: args.title } : {}),
         ...(typeof args.body === 'string' ? { body: args.body } : {}),
         ...(typeof args.base === 'string' ? { base: args.base } : {}),
-      })) as { success: true; data: unknown } | { success: false; error: { message: string; codeName: string; fix?: string; alternatives?: string[]; details?: Record<string, unknown> } };
-      if (result.success) { cliOutput(result.data, { command: 'docs publish', operation: 'docs.publish' }); return; }
+      })) as
+        | { success: true; data: unknown }
+        | {
+            success: false;
+            error: {
+              message: string;
+              codeName: string;
+              fix?: string;
+              alternatives?: string[];
+              details?: Record<string, unknown>;
+            };
+          };
+      if (result.success) {
+        cliOutput(result.data, { command: 'docs publish', operation: 'docs.publish' });
+        return;
+      }
       const e = result.error;
-      cliError(e.message, ExitCode.GENERAL_ERROR, { name: e.codeName, ...(e.fix ? { fix: e.fix } : {}), ...(e.alternatives ? { alternatives: e.alternatives.map((alt: string) => ({ action: alt, command: alt })) } : {}), ...(e.details ? { details: e.details } : {}) }, { operation: 'docs.publish' });
+      cliError(
+        e.message,
+        ExitCode.GENERAL_ERROR,
+        {
+          name: e.codeName,
+          ...(e.fix ? { fix: e.fix } : {}),
+          ...(e.alternatives
+            ? { alternatives: e.alternatives.map((alt: string) => ({ action: alt, command: alt })) }
+            : {}),
+          ...(e.details ? { details: e.details } : {}),
+        },
+        { operation: 'docs.publish' },
+      );
       process.exit(ExitCode.GENERAL_ERROR);
     }
     if (!args.for || !args.to) {
-      cliError('docs publish --target file requires --for <ownerId> and --to <path>', ExitCode.GENERAL_ERROR, { name: 'E_MISSING_ARG' });
+      cliError(
+        'docs publish --target file requires --for <ownerId> and --to <path>',
+        ExitCode.GENERAL_ERROR,
+        { name: 'E_MISSING_ARG' },
+      );
       process.exit(ExitCode.GENERAL_ERROR);
     }
     try {
-      const result = await dispatchDocsRaw('mutate', 'publish', { ownerId: String(args.for), toPath: String(args.to), attachmentId: args.attachment ?? undefined, target: 'file' });
+      const result = await dispatchDocsRaw('mutate', 'publish', {
+        ownerId: String(args.for),
+        toPath: String(args.to),
+        attachmentId: args.attachment ?? undefined,
+        target: 'file',
+      });
       cliOutput(result, { command: 'docs publish', operation: 'docs.publish' });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      cliError(`docs publish failed: ${message}`, ExitCode.GENERAL_ERROR, { name: 'E_DOCS_PUBLISH_FAILED' });
+      cliError(`docs publish failed: ${message}`, ExitCode.GENERAL_ERROR, {
+        name: 'E_DOCS_PUBLISH_FAILED',
+      });
       process.exit(ExitCode.GENERAL_ERROR);
     }
   },
@@ -1874,19 +2020,35 @@ const publishCommand = defineCommand({
 const publishPrCommand = defineCommand({
   meta: {
     name: 'publish-pr',
-    description: '[DEPRECATED] Use `docs publish --target pr` instead. Publish an attachment to a GitHub PR. Opens a new PR on branch `docs/<slug>` with frontmatter, or atomically updates the existing open PR for the same slug. Use --dry-run to preview without side effects.',
+    description:
+      '[DEPRECATED] Use `docs publish --target pr` instead. Publish an attachment to a GitHub PR. Opens a new PR on branch `docs/<slug>` with frontmatter, or atomically updates the existing open PR for the same slug. Use --dry-run to preview without side effects.',
   },
   args: {
-    'slug-or-id': { type: 'positional', description: 'Slug, attachment id, or full sha256 hex of the doc to publish', required: true },
+    'slug-or-id': {
+      type: 'positional',
+      description: 'Slug, attachment id, or full sha256 hex of the doc to publish',
+      required: true,
+    },
     slug: { type: 'string', description: 'Override the slug used for the branch + filename.' },
-    type: { type: 'string', description: 'Override the publish dir taxonomy (spec|adr|research|handoff|note|llm-readme).' },
-    title: { type: 'string', description: 'Override the PR title. Default: `docs(<type>): publish <slug>`.' },
-    body: { type: 'string', description: 'Override the PR body. Default: an auto-generated summary.' },
+    type: {
+      type: 'string',
+      description: 'Override the publish dir taxonomy (spec|adr|research|handoff|note|llm-readme).',
+    },
+    title: {
+      type: 'string',
+      description: 'Override the PR title. Default: `docs(<type>): publish <slug>`.',
+    },
+    body: {
+      type: 'string',
+      description: 'Override the PR body. Default: an auto-generated summary.',
+    },
     base: { type: 'string', description: 'Base branch for the PR. Default: main.' },
     'dry-run': { type: 'boolean', description: 'Preview what would happen without side effects.' },
   },
   async run({ args }) {
-    humanInfo('[deprecated] `docs publish-pr` is deprecated. Use `docs publish --target pr <slug-or-id>` instead.');
+    humanInfo(
+      '[deprecated] `docs publish-pr` is deprecated. Use `docs publish --target pr <slug-or-id>` instead.',
+    );
     const slugOrId = String(args['slug-or-id']);
     if (args['dry-run'] === true) {
       const details: Record<string, unknown> = { slugOrId, target: 'pr', dryRun: true };
@@ -1897,16 +2059,43 @@ const publishPrCommand = defineCommand({
       return;
     }
     const result = (await dispatchDocsRaw('mutate', 'publish', {
-      slugOrId, target: 'pr',
+      slugOrId,
+      target: 'pr',
       ...(typeof args.slug === 'string' ? { slug: args.slug } : {}),
       ...(typeof args.type === 'string' ? { type: args.type } : {}),
       ...(typeof args.title === 'string' ? { title: args.title } : {}),
       ...(typeof args.body === 'string' ? { body: args.body } : {}),
       ...(typeof args.base === 'string' ? { base: args.base } : {}),
-    })) as { success: true; data: unknown } | { success: false; error: { message: string; codeName: string; fix?: string; alternatives?: string[]; details?: Record<string, unknown> } };
-    if (result.success) { cliOutput(result.data, { command: 'docs publish-pr', operation: 'docs.publish' }); return; }
+    })) as
+      | { success: true; data: unknown }
+      | {
+          success: false;
+          error: {
+            message: string;
+            codeName: string;
+            fix?: string;
+            alternatives?: string[];
+            details?: Record<string, unknown>;
+          };
+        };
+    if (result.success) {
+      cliOutput(result.data, { command: 'docs publish-pr', operation: 'docs.publish' });
+      return;
+    }
     const e = result.error;
-    cliError(e.message, ExitCode.GENERAL_ERROR, { name: e.codeName, ...(e.fix ? { fix: e.fix } : {}), ...(e.alternatives ? { alternatives: e.alternatives.map((alt: string) => ({ action: alt, command: alt })) } : {}), ...(e.details ? { details: e.details } : {}) }, { operation: 'docs.publish' });
+    cliError(
+      e.message,
+      ExitCode.GENERAL_ERROR,
+      {
+        name: e.codeName,
+        ...(e.fix ? { fix: e.fix } : {}),
+        ...(e.alternatives
+          ? { alternatives: e.alternatives.map((alt: string) => ({ action: alt, command: alt })) }
+          : {}),
+        ...(e.details ? { details: e.details } : {}),
+      },
+      { operation: 'docs.publish' },
+    );
     process.exit(ExitCode.GENERAL_ERROR);
   },
 });
@@ -1936,10 +2125,19 @@ const checkCommand = defineCommand({
       'Use --drift, --status, --gaps for specific checks; runs all by default.',
   },
   args: {
-    drift: { type: 'boolean', description: 'Run legacy drift check (scripts/ vs COMMANDS-INDEX.json)' },
-    status: { type: 'boolean', description: 'Run git⇄llmtxt drift check (published files vs docs SSoT)' },
+    drift: {
+      type: 'boolean',
+      description: 'Run legacy drift check (scripts/ vs COMMANDS-INDEX.json)',
+    },
+    status: {
+      type: 'boolean',
+      description: 'Run git⇄llmtxt drift check (published files vs docs SSoT)',
+    },
     gaps: { type: 'boolean', description: 'Run knowledge transfer gap check (review docs)' },
-    all: { type: 'boolean', description: 'Run all three checks (default when no mode flag is set)' },
+    all: {
+      type: 'boolean',
+      description: 'Run all three checks (default when no mode flag is set)',
+    },
     quick: { type: 'boolean', description: 'Drift check only: quick mode (commands only)' },
     strict: { type: 'boolean', description: 'Exit with non-zero code on any drift detection' },
     epic: { type: 'string', description: 'Gap check only: filter by epic ID' },
@@ -1955,13 +2153,33 @@ const checkCommand = defineCommand({
     const results: CheckResults = {};
     let anyDrift = false;
     try {
-      if (runDrift) { const r = await detectDrift(projectRoot); results.drift = r; if (r.status !== 'clean') anyDrift = true; }
-      if (runStatus) { const r = await dispatchDocsRaw('query', 'status', {}) as { allInSync: boolean }; results.status = r; if (!r.allInSync) anyDrift = true; }
-      if (runGaps) { const r = await runGapCheck(projectRoot, args.epic ?? args.task ?? undefined); results.gaps = r; if (r.length > 0) anyDrift = true; }
-      cliOutput(results, { command: 'docs check', message: anyDrift ? 'Drift detected — see results for details' : 'All checks passed — no drift detected' });
+      if (runDrift) {
+        const r = await detectDrift(projectRoot);
+        results.drift = r;
+        if (r.status !== 'clean') anyDrift = true;
+      }
+      if (runStatus) {
+        const r = (await dispatchDocsRaw('query', 'status', {})) as { allInSync: boolean };
+        results.status = r;
+        if (!r.allInSync) anyDrift = true;
+      }
+      if (runGaps) {
+        const r = await runGapCheck(projectRoot, args.epic ?? args.task ?? undefined);
+        results.gaps = r;
+        if (r.length > 0) anyDrift = true;
+      }
+      cliOutput(results, {
+        command: 'docs check',
+        message: anyDrift
+          ? 'Drift detected — see results for details'
+          : 'All checks passed — no drift detected',
+      });
       if (args.strict && anyDrift) process.exit(2);
     } catch (err) {
-      if (err instanceof CleoError) { cliError(err.message, err.code, { name: 'E_DOCS_CHECK_FAILED' }); process.exit(err.code); }
+      if (err instanceof CleoError) {
+        cliError(err.message, err.code, { name: 'E_DOCS_CHECK_FAILED' });
+        process.exit(err.code);
+      }
       throw err;
     }
   },
@@ -2418,7 +2636,7 @@ const schemaCommand = defineCommand({
       { command: 'docs schema', operation: 'docs.schema' },
     );
   },
-})// ── cleo docs list-types (migration alias to schema) ────────────────────────────────────────
+}); // ── cleo docs list-types (migration alias to schema) ────────────────────────────────────────
 
 /**
  * `cleo docs list-types` -- migration alias for `cleo docs schema` (T11142).
@@ -2521,9 +2739,8 @@ export const docsCommand = defineCommand({
       'Viewer: viewer (start/stop/open/status). Utilities: schema (list-types → schema).',
   },
   subCommands: {
-
     // T11136 — Unified drift management (consolidates sync/status/gap-check)
-    check: checkCommand as ReturnType<typeof defineCommand>,    // Canonical six-verb path (add, update, fetch, list, remove, publish)
+    check: checkCommand as ReturnType<typeof defineCommand>, // Canonical six-verb path (add, update, fetch, list, remove, publish)
     add: addCommand,
     update: updateCommand,
     fetch: fetchCommand,

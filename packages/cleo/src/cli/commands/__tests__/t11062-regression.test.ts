@@ -11,14 +11,14 @@
  * @task T11062 (Epic T10521 · Saga T10516 · E4)
  */
 
-import { describe, expect, it } from 'vitest';
 import {
+  generateSlug,
   RESERVED_SLUGS,
   SlugCollisionLimitError,
   SlugReservedError,
-  generateSlug,
   slugify,
 } from '@cleocode/core/internal';
+import { describe, expect, it } from 'vitest';
 import { SIX_REGRESSION_SCENARIOS } from '../../__tests__/fixtures/docs-dogfood-harness.js';
 
 describe('T11062 — S5+S6 catalog integrity', () => {
@@ -88,7 +88,10 @@ describe('T11062 AC1/AC3 — slugify and generateSlug (S6)', () => {
   });
 
   it('generateSlug increments suffix for sequential collisions', () => {
-    const r = generateSlug({ source: 'my-doc', existing: new Set(['my-doc', 'my-doc-2', 'my-doc-3']) });
+    const r = generateSlug({
+      source: 'my-doc',
+      existing: new Set(['my-doc', 'my-doc-2', 'my-doc-3']),
+    });
     expect(r.slug).toBe('my-doc-4');
     expect(r.suffix).toBe(4);
   });
@@ -100,7 +103,9 @@ describe('T11062 AC1/AC3 — slugify and generateSlug (S6)', () => {
   it('throws SlugCollisionLimitError when suffix budget exhausted', () => {
     const existing = new Set<string>(['x']);
     for (let i = 2; i <= 5; i++) existing.add(`x-${i}`);
-    expect(() => generateSlug({ source: 'x', existing, maxSuffix: 5 })).toThrow(SlugCollisionLimitError);
+    expect(() => generateSlug({ source: 'x', existing, maxSuffix: 5 })).toThrow(
+      SlugCollisionLimitError,
+    );
   });
 
   it('AC3: collision and suffix are public fields — no blob inspection needed', () => {
@@ -120,7 +125,9 @@ describe('T11062 AC1/AC3 — slugify and generateSlug (S6)', () => {
 describe('T11062 AC2 — North Star round-trip contract', () => {
   it('slugify is deterministic', () => {
     expect(slugify('North Star Architecture Decision')).toBe('north-star-architecture-decision');
-    expect(slugify('North Star Architecture Decision')).toBe(slugify('North Star Architecture Decision'));
+    expect(slugify('North Star Architecture Decision')).toBe(
+      slugify('North Star Architecture Decision'),
+    );
   });
 
   it('collision suffix is deterministic within same existing set', () => {

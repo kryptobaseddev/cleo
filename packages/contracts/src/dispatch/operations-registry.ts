@@ -7245,17 +7245,46 @@ export const OPERATIONS: OperationDef[] = [
     ],
   },
   // ── docs.llm-output (T11137) — unified LLM output surface ──────────────────
-  { gateway: 'query', domain: 'docs', operation: 'llm-output', description: 'docs.llm-output (query) — unified LLM output: task export (rich Markdown) or attachment-bundle (llms.txt). Replaces `docs export` and `docs generate`.', tier: 1, idempotent: true, sessionRequired: false, requiredParams: ['for'],
+  {
+    gateway: 'query',
+    domain: 'docs',
+    operation: 'llm-output',
+    description:
+      'docs.llm-output (query) — unified LLM output: task export (rich Markdown) or attachment-bundle (llms.txt). Replaces `docs export` and `docs generate`.',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['for'],
     params: [
       { name: 'for', type: 'string' as const, required: true, description: 'Target entity ID' },
-      { name: 'mode', type: 'string' as const, required: false, description: "Output mode: task-export|attachment-bundle (auto-detected)" },
+      {
+        name: 'mode',
+        type: 'string' as const,
+        required: false,
+        description: 'Output mode: task-export|attachment-bundle (auto-detected)',
+      },
       { name: 'out', type: 'string' as const, required: false, description: 'Output file path' },
-      { name: 'includeAttachments', type: 'boolean' as const, required: false, description: 'Include attachment manifest (task-export)' },
-      { name: 'includeMemoryRefs', type: 'boolean' as const, required: false, description: 'Include memory refs (task-export)' },
-      { name: 'attach', type: 'boolean' as const, required: false, description: 'Save as llms-txt attachment (attachment-bundle)' },
+      {
+        name: 'includeAttachments',
+        type: 'boolean' as const,
+        required: false,
+        description: 'Include attachment manifest (task-export)',
+      },
+      {
+        name: 'includeMemoryRefs',
+        type: 'boolean' as const,
+        required: false,
+        description: 'Include memory refs (task-export)',
+      },
+      {
+        name: 'attach',
+        type: 'boolean' as const,
+        required: false,
+        description: 'Save as llms-txt attachment (attachment-bundle)',
+      },
     ],
   },
-    // ── docs.update (T10161 — Epic T10157 / Saga T9855) ──────────────────────
+  // ── docs.update (T10161 — Epic T10157 / Saga T9855) ──────────────────────
   {
     gateway: 'mutate',
     domain: 'docs',

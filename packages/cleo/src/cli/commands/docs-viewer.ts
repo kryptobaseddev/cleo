@@ -18,7 +18,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ExitCode } from '@cleocode/contracts';
 import { getCleoHome, getProjectRoot } from '@cleocode/core';
-import { defineCommand, showUsage } from 'citty';
+import { defineCommand } from 'citty';
 import {
   isProcessAlive,
   readViewerPidFile,
@@ -568,7 +568,6 @@ const viewerStatusCommand = defineCommand({
   },
 });
 
-
 /**
  * `cleo docs viewer` — unified managed lifecycle for the docs viewer.
  *
@@ -592,9 +591,7 @@ const viewerCommand = defineCommand({
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
     if (firstArg && cmd.subCommands && firstArg in cmd.subCommands) return;
-    await viewerStatusCommand.run({ args: {} } as Parameters<
-      typeof viewerStatusCommand.run
-    >[0]);
+    await viewerStatusCommand.run({ args: {} } as Parameters<typeof viewerStatusCommand.run>[0]);
   },
 });
 

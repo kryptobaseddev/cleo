@@ -21,9 +21,11 @@ describe('AC4: backward-compatible alias resolution (publish-pr → publish --ta
 
   it('publish-pr meta declares itself as deprecated', async () => {
     const { docsCommand } = await import('../docs.js');
-    const subs = (docsCommand as unknown as {
-      subCommands: Record<string, { meta: { name: string; description: string } }>;
-    }).subCommands;
+    const subs = (
+      docsCommand as unknown as {
+        subCommands: Record<string, { meta: { name: string; description: string } }>;
+      }
+    ).subCommands;
     const publishPr = subs['publish-pr'];
     expect(publishPr).toBeDefined();
     const desc = (publishPr.meta.description ?? '').toLowerCase();
@@ -33,9 +35,11 @@ describe('AC4: backward-compatible alias resolution (publish-pr → publish --ta
 
   it('publish-pr has the expected arg shape for PR publish delegation', async () => {
     const { docsCommand } = await import('../docs.js');
-    const subs = (docsCommand as unknown as {
-      subCommands: Record<string, { meta: { name: string }; args: Record<string, unknown> }>;
-    }).subCommands;
+    const subs = (
+      docsCommand as unknown as {
+        subCommands: Record<string, { meta: { name: string }; args: Record<string, unknown> }>;
+      }
+    ).subCommands;
     const publishPr = subs['publish-pr'];
     expect(publishPr.args['slug-or-id']).toBeDefined();
     expect(publishPr.args.slug).toBeDefined();
@@ -44,12 +48,17 @@ describe('AC4: backward-compatible alias resolution (publish-pr → publish --ta
 
   it('unified publish command has --target flag with both file and pr support', async () => {
     const { docsCommand } = await import('../docs.js');
-    const subs = (docsCommand as unknown as {
-      subCommands: Record<string, {
-        meta: { name: string; description: string };
-        args: Record<string, { type: string; description: string; default?: string }>;
-      }>;
-    }).subCommands;
+    const subs = (
+      docsCommand as unknown as {
+        subCommands: Record<
+          string,
+          {
+            meta: { name: string; description: string };
+            args: Record<string, { type: string; description: string; default?: string }>;
+          }
+        >;
+      }
+    ).subCommands;
     const publish = subs['publish'];
     expect(publish.meta.name).toBe('publish');
     expect(publish.meta.description.toLowerCase()).toContain('target');
@@ -65,9 +74,11 @@ describe('AC4: backward-compatible alias resolution (publish-pr → publish --ta
 describe('AC5: migration warnings for deprecated verbs', () => {
   it('list-types description indicates deprecation → schema', async () => {
     const { docsCommand } = await import('../docs.js');
-    const subs = (docsCommand as unknown as {
-      subCommands: Record<string, { meta: { name: string; description: string } }>;
-    }).subCommands;
+    const subs = (
+      docsCommand as unknown as {
+        subCommands: Record<string, { meta: { name: string; description: string } }>;
+      }
+    ).subCommands;
     const desc = (subs['list-types'].meta.description ?? '').toLowerCase();
     expect(desc).toContain('deprecated');
     expect(desc).toContain('schema');
@@ -75,9 +86,11 @@ describe('AC5: migration warnings for deprecated verbs', () => {
 
   it('search description indicates deprecation', async () => {
     const { docsCommand } = await import('../docs.js');
-    const subs = (docsCommand as unknown as {
-      subCommands: Record<string, { meta: { name: string; description: string } }>;
-    }).subCommands;
+    const subs = (
+      docsCommand as unknown as {
+        subCommands: Record<string, { meta: { name: string; description: string } }>;
+      }
+    ).subCommands;
     expect((subs['search'].meta.description ?? '').toLowerCase()).toContain('deprecated');
   });
 

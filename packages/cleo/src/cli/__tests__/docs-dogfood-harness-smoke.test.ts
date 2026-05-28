@@ -10,18 +10,16 @@
  */
 
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  auditScenarioCoverage,
   CLI_DIST_AVAILABLE,
+  createIsolatedProject,
   type DocsDogfoodContext,
+  fileSha256,
   SIX_REGRESSION_SCENARIOS,
   SIX_REGRESSION_TEST_CASES,
-  auditScenarioCoverage,
-  createIsolatedProject,
-  fileSha256,
-  seedDoc,
   sha256,
   testCasesForScenario,
 } from './fixtures/docs-dogfood-harness.js';

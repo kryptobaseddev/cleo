@@ -74,6 +74,8 @@ Answer vehicle: SG-DOCS-CLI-SIMPLIFICATION implementation plus regression tests.
 
 Status: open / decomposed.
 
+Session assessment 2026-05-28: still open. This session hit the same class of friction when `cleo docs sync --from ... --for ...` was advertised by help but returned `Unknown operation: mutate:docs.sync`. The agent had to patch a published file and add a new SSoT attachment instead of using a clean update/sync path. See DHQ-022 for the concrete follow-up.
+
 Next review trigger: before editing or publishing another canonical North Star doc.
 
 ### DHQ-005 — Baselines encode unstable coordinates
@@ -229,6 +231,8 @@ Answer vehicle: Core saga traversal contract, deep rollup implementation, and de
 
 Status: open / task-filed.
 
+Session assessment 2026-05-28: still open but better specified. `T11202`, `T11203`, and `T11204` were created under `T10965` to clarify soft relations, inherited dependency projection, reparent/retype cascade behavior, and stale `groups` doctrine. ADR-088 and `CLEO-TASKS-API-SPEC` were amended to state that `task_relations.groups` is dotted-line context only, not Saga membership.
+
 Next review trigger: next time an agent plans or orchestrates work at saga scope.
 
 ### DHQ-016 — Planning decomposition still depends on brittle CLI loops
@@ -243,6 +247,8 @@ Answer vehicle: Transactional Core planning-scaffold API with dry-run validation
 
 Status: open / task-filed.
 
+Session assessment 2026-05-28: still open. The session still required sequential `cleo add` calls to log follow-up work (`T11202`, `T11203`, `T11204`) instead of one typed Core planning-scaffold mutation. This reinforces that the fix belongs in Core first, with CLI as a wrapper.
+
 Next review trigger: next multi-epic decomposition or any 25+ node planning session.
 
 ### DHQ-017 — Docs fetch is correct but not agent-friendly
@@ -256,6 +262,8 @@ Observed: Fetching `adr-087-a-worktrunk-ssot-boundary` returned an inline base64
 Answer vehicle: Core docs fetch content modes: metadata-only, decoded text, bytes, and path fallback, with CLI flags as thin wrappers.
 
 Status: open / task-filed.
+
+Session assessment 2026-05-28: still open. `cleo docs fetch` again returned base64/path-oriented envelopes for canonical docs, forcing the agent to rely on direct file reads or decode paths when reasoning over text. The need remains a Core docs fetch decoded-text mode.
 
 Next review trigger: next agent workflow that fetches a canonical doc for planning or validation.
 
@@ -299,6 +307,8 @@ Answer vehicle: Core lifecycle SDK tools, contracts in `packages/contracts`, har
 
 Status: open / decomposed.
 
+Session assessment 2026-05-28: still open. The session used CLI envelopes for task discovery, docs lookup, docs add, test runs, and git-adjacent workflow checks because no typed Core tool surface was available through the harness. This caused output parsing, command pass-through ambiguity, and broad test side effects. See DHQ-023 and DHQ-025.
+
 Next review trigger: North Star refresh or before adding any new CLI-first lifecycle command.
 
 ### DHQ-021 — Agent skills can contradict live PM-Core behavior
@@ -313,7 +323,79 @@ Answer vehicle: Skill coverage backfill, Tier-0 skill updates, and drift checks 
 
 Status: open / task-filed.
 
+Session assessment 2026-05-28: still open. `ct-cleo` is closer to ADR-088 than older embedded guidance, but live repo docs and comments still contained `groups` containment language. `T11204` now tracks the sweep across ADR-073, ADR-076, task contracts, skills, and injection text.
+
 Next review trigger: after `T10966` defines the canonical saga traversal contract or when Worktrunk runtime contracts change.
+
+### DHQ-022 — Docs SSoT update/sync path is not agent-safe
+
+Question: Why does the documented docs update/sync workflow fail or force agents into new attachment versions instead of a clear in-place update path for existing canonical docs?
+
+Owner surface: `T10516`, especially `T10518` and `T10519`; related to DHQ-004.
+
+Observed: `cleo docs sync --from docs/adr/ADR-088-pm-core-v2-workgraph-relations-completion-criteria.md --for T11202 --content-type text/markdown` returned `Unknown operation: mutate:docs.sync`, even though `cleo docs sync --help` advertises that mode. The workaround was raw file patch plus `cleo docs add` with a new slug, which preserves bytes but does not feel like a canonical update/supersession workflow.
+
+Answer vehicle: Core docs writer/update API with typed operations for update, supersede, publish, and reverse-ingest; CLI help generated from that registry; regression test that help-advertised docs verbs dispatch successfully.
+
+Status: open / newly captured.
+
+Next review trigger: next canonical doc update, especially ADR/spec edits.
+
+### DHQ-023 — Test command scoping is brittle and can fan out into unrelated suites
+
+Question: Why can an agent request focused tests and accidentally run a broad package test suite with repository-wide side effects?
+
+Owner surface: `T10965` Core agent ergonomics and `T10437` observability; likely needs a Core test-plan tool before CLI changes.
+
+Observed: `pnpm --filter @cleocode/core run test -- --run src/tasks/__tests__/find-parent-filter.test.ts src/tasks/__tests__/list-saga-parent.test.ts` was interpreted by the package script as a broad Vitest invocation. It timed out after running many unrelated suites, produced unrelated failures, and spawned temporary git branches such as `task/T_WT4_S1` through `task/T_WT4_S4B`.
+
+Answer vehicle: Core test selection helper that returns the exact command for a file/package/test-name tuple, dry-runs the resolved test plan, and warns when the command would run the full suite. CLI can wrap this later.
+
+Status: open / newly captured.
+
+Next review trigger: next targeted test run from an agent session.
+
+### DHQ-024 — Test and git side effects are not isolated from the agent worktree
+
+Question: Why can verification commands leave git branches, index locks, and dirty state in the shared repository during an agent session?
+
+Owner surface: `T10936` worktree lifecycle, `T10437` multi-agent observability, and `T10965` Core ergonomics.
+
+Observed: The broad test run changed git branch state internally (`Switched to a new branch 'task/T_WT4_S1'`, etc.) and a subsequent commit hit `.git/index.lock`. The lock cleared, but an agent should not have to reason about whether test code or another process owns git state before committing scoped work.
+
+Answer vehicle: Core verification sandbox that runs tests in an isolated worktree or protected git environment, detects branch/index mutations, and returns a structured side-effect report before an agent continues.
+
+Status: open / newly captured.
+
+Next review trigger: any verification command that invokes tests with git/worktree fixtures.
+
+### DHQ-025 — `cleo current` can point agents at completed or irrelevant task context
+
+Question: Why can an agent session report a completed, unrelated current task as active work context?
+
+Owner surface: `T10878` Core lifecycle SDK tools and `T10965` Core agent ergonomics.
+
+Observed: `cleo current` returned `T10297`, a completed epic unrelated to the session’s relation-taxonomy work. The agent had to manually choose/create `T11202` for commit traceability. A Core task-context tool should detect terminal current tasks and recommend `start`, `focus`, or task creation instead of presenting stale state as usable context.
+
+Answer vehicle: Core current-task validation API that classifies current task as active, terminal, stale, or unrelated; returns machine-readable next actions and safe commit task candidates.
+
+Status: open / newly captured.
+
+Next review trigger: before any commit when `cleo current` returns a terminal task.
+
+### DHQ-026 — Repeated nested-nexus warning pollutes every agent command
+
+Question: Why does every CLEO command repeat the same nested-nexus migration warning instead of surfacing it once through health/status?
+
+Owner surface: `T10321` nested-nexus disposition and `T10437` observability.
+
+Observed: Nearly every `cleo` command emitted the ADR-086 nested-nexus warning. The warning is actionable, but repetition obscures the actual command result and increases token/noise cost for agents parsing envelopes.
+
+Answer vehicle: Core health finding persisted once per session or surfaced through `cleo health`, with command envelopes carrying a compact warning code instead of full repeated prose.
+
+Status: open / newly captured.
+
+Next review trigger: next session where repeated non-blocking health warnings appear in command output.
 
 ## North Star inheritance rule
 

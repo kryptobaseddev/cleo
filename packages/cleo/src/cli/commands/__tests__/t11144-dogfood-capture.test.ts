@@ -30,7 +30,10 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { type RegressionScenario, SIX_REGRESSION_SCENARIOS } from '../../__tests__/fixtures/docs-dogfood-harness.js';
+import {
+  type RegressionScenario,
+  SIX_REGRESSION_SCENARIOS,
+} from '../../__tests__/fixtures/docs-dogfood-harness.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Catalog integrity — all six scenarios must be present and well-formed
@@ -63,14 +66,7 @@ describe('T11144 — Six regression scenario catalog integrity', () => {
 
   it('assigns each scenario to a dedicated implementation task (T11060–T11062)', () => {
     const owners = SIX_REGRESSION_SCENARIOS.map((s) => s.ownedBy);
-    expect(owners).toEqual([
-      'T11060',
-      'T11060',
-      'T11061',
-      'T11061',
-      'T11062',
-      'T11062',
-    ]);
+    expect(owners).toEqual(['T11060', 'T11060', 'T11061', 'T11061', 'T11062', 'T11062']);
   });
 
   it('every scenario has a non-empty name and a description ≥ 40 chars', () => {
@@ -319,9 +315,7 @@ describe('T11144 — Cross-scenario consistency', () => {
   });
 
   it('scenario descriptions form a complete failure taxonomy', () => {
-    const allWords = SIX_REGRESSION_SCENARIOS
-      .map((s) => s.description.toLowerCase())
-      .join(' ');
+    const allWords = SIX_REGRESSION_SCENARIOS.map((s) => s.description.toLowerCase()).join(' ');
 
     expect(allWords).toContain('path');
     expect(allWords).toContain('status');

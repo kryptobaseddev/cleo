@@ -81,7 +81,11 @@ describe('T11061 AC1 (S3) — update creates owner-publishable latest version', 
       content: newContent,
     });
     expect(updateRes.success).toBe(true);
-    const updateData = updateRes.data as { sha256: string; previousSha256: string; changed: boolean };
+    const updateData = updateRes.data as {
+      sha256: string;
+      previousSha256: string;
+      changed: boolean;
+    };
     expect(updateData.changed).toBe(true);
     const updateSha = updateData.sha256;
     expect(updateSha).not.toBe(addSha);
@@ -93,7 +97,11 @@ describe('T11061 AC1 (S3) — update creates owner-publishable latest version', 
     });
     expect(publishRes.success).toBe(true);
     const publishData = publishRes.data as {
-      publishedPath: string; sha256: string; blobSha256: string; blobName: string; bytes: number;
+      publishedPath: string;
+      sha256: string;
+      blobSha256: string;
+      blobName: string;
+      bytes: number;
     };
 
     expect(publishData.blobSha256).toBe(updateSha);
@@ -109,17 +117,20 @@ describe('T11061 AC1 (S3) — update creates owner-publishable latest version', 
     const handler = new DocsHandler();
 
     await handler.mutate('add', {
-      ownerId: 'T101', file: fixture, slug: 'fetch-after-update',
+      ownerId: 'T101',
+      file: fixture,
+      slug: 'fetch-after-update',
     });
 
     await handler.mutate('update', {
-      slug: 'fetch-after-update', content: '# Post-Update\n\nStill fetchable.',
+      slug: 'fetch-after-update',
+      content: '# Post-Update\n\nStill fetchable.',
     });
 
     const fetchRes = await handler.query('fetch', { slug: 'fetch-after-update' });
     if (fetchRes.success && fetchRes.data) {
       const fd = fetchRes.data as { content?: string } | string;
-      const content = typeof fd === 'string' ? fd : fd.content ?? '';
+      const content = typeof fd === 'string' ? fd : (fd.content ?? '');
       expect(content).toContain('Post-Update');
     }
   });
@@ -128,17 +139,21 @@ describe('T11061 AC1 (S3) — update creates owner-publishable latest version', 
     const handler = new DocsHandler();
 
     await handler.mutate('add', {
-      ownerId: 'T102', file: fixture, slug: 'self-sha-check',
+      ownerId: 'T102',
+      file: fixture,
+      slug: 'self-sha-check',
     });
 
     const newContent = '## Self-SHA integrity\n\nThe publish SHA must match the on-disk SHA.';
     const updateRes = await handler.mutate('update', {
-      slug: 'self-sha-check', content: newContent,
+      slug: 'self-sha-check',
+      content: newContent,
     });
     const updateSha = (updateRes.data as { sha256: string }).sha256;
 
     const publishRes = await handler.mutate('publish', {
-      ownerId: 'T102', toPath: 'docs/self-sha-output.md',
+      ownerId: 'T102',
+      toPath: 'docs/self-sha-output.md',
     });
     const publishData = publishRes.data as { sha256: string; blobSha256: string };
     expect(publishData.blobSha256).toBe(updateSha);
@@ -169,18 +184,22 @@ describe('T11061 AC2 (S4) — publish default selects latest blob after update',
     const handler = new DocsHandler();
 
     const addRes = await handler.mutate('add', {
-      ownerId: 'T200', file: fixture, slug: 'stale-or-fresh',
+      ownerId: 'T200',
+      file: fixture,
+      slug: 'stale-or-fresh',
     });
     const oldSha = (addRes.data as { sha256: string }).sha256;
 
     const newContent = '# Fresh Content\n\nPublish MUST select this.';
     const updateRes = await handler.mutate('update', {
-      slug: 'stale-or-fresh', content: newContent,
+      slug: 'stale-or-fresh',
+      content: newContent,
     });
     const newSha = (updateRes.data as { sha256: string; changed: boolean }).sha256;
 
     const publishRes = await handler.mutate('publish', {
-      ownerId: 'T200', toPath: 'docs/fresh-output.md',
+      ownerId: 'T200',
+      toPath: 'docs/fresh-output.md',
     });
     const publishData = publishRes.data as { blobSha256: string; sha256: string; bytes: number };
 
@@ -197,17 +216,22 @@ describe('T11061 AC2 (S4) — publish default selects latest blob after update',
     const handler = new DocsHandler();
 
     const addRes = await handler.mutate('add', {
-      ownerId: 'T202', file: fixture, slug: 'history-test',
+      ownerId: 'T202',
+      file: fixture,
+      slug: 'history-test',
     });
     const addData = addRes.data as { attachmentId: string; sha256: string };
     const originalSha = addData.sha256;
 
     await handler.mutate('update', {
-      slug: 'history-test', content: '# Updated\n\nNew version.',
+      slug: 'history-test',
+      content: '# Updated\n\nNew version.',
     });
 
     const publishRes = await handler.mutate('publish', {
-      ownerId: 'T202', toPath: 'docs/history-output.md', attachmentId: addData.attachmentId,
+      ownerId: 'T202',
+      toPath: 'docs/history-output.md',
+      attachmentId: addData.attachmentId,
     });
     const publishData = publishRes.data as { blobSha256: string };
     expect(publishData.blobSha256).toBe(originalSha);
@@ -237,17 +261,21 @@ describe('T11061 AC3 — fetch, status, and publish SHA consistency', () => {
     const handler = new DocsHandler();
 
     await handler.mutate('add', {
-      ownerId: 'T300', file: fixture, slug: 'sha-consistency',
+      ownerId: 'T300',
+      file: fixture,
+      slug: 'sha-consistency',
     });
 
     const consistentContent = '# Consistent\n\nAll SHAs must match.';
     const updateRes = await handler.mutate('update', {
-      slug: 'sha-consistency', content: consistentContent,
+      slug: 'sha-consistency',
+      content: consistentContent,
     });
     const updateSha = (updateRes.data as { sha256: string }).sha256;
 
     const publishRes = await handler.mutate('publish', {
-      ownerId: 'T300', toPath: 'docs/consistent-output.md',
+      ownerId: 'T300',
+      toPath: 'docs/consistent-output.md',
     });
     const publishData = publishRes.data as { blobSha256: string; sha256: string };
     expect(publishData.blobSha256).toBe(updateSha);
@@ -256,7 +284,7 @@ describe('T11061 AC3 — fetch, status, and publish SHA consistency', () => {
     const fetchRes = await handler.query('fetch', { slug: 'sha-consistency' });
     if (fetchRes.success && fetchRes.data) {
       const fd = fetchRes.data as { content?: string } | string;
-      const content = typeof fd === 'string' ? fd : fd.content ?? '';
+      const content = typeof fd === 'string' ? fd : (fd.content ?? '');
       expect(sha256(content)).toBe(updateSha);
     }
   });
@@ -265,25 +293,37 @@ describe('T11061 AC3 — fetch, status, and publish SHA consistency', () => {
     const handler = new DocsHandler();
 
     const addRes = await handler.mutate('add', {
-      ownerId: 'T302', file: fixture, slug: 'envelope-check',
+      ownerId: 'T302',
+      file: fixture,
+      slug: 'envelope-check',
     });
     const addData = addRes.data as { sha256: string; attachmentId: string; slug: string };
     expect(addData.sha256).toBeTruthy();
     expect(addData.attachmentId).toBeTruthy();
 
     const updateRes = await handler.mutate('update', {
-      slug: 'envelope-check', content: '# Rich\n\nAgent never sees blob paths.',
+      slug: 'envelope-check',
+      content: '# Rich\n\nAgent never sees blob paths.',
     });
-    const updateData = updateRes.data as { sha256: string; previousSha256: string; changed: boolean };
+    const updateData = updateRes.data as {
+      sha256: string;
+      previousSha256: string;
+      changed: boolean;
+    };
     expect(updateData.sha256).toBeTruthy();
     expect(updateData.previousSha256).toBeTruthy();
     expect(updateData.changed).toBe(true);
 
     const publishRes = await handler.mutate('publish', {
-      ownerId: 'T302', toPath: 'docs/envelope-output.md',
+      ownerId: 'T302',
+      toPath: 'docs/envelope-output.md',
     });
     const publishData = publishRes.data as {
-      sha256: string; blobSha256: string; blobName: string; publishedPath: string; bytes: number;
+      sha256: string;
+      blobSha256: string;
+      blobName: string;
+      publishedPath: string;
+      bytes: number;
     };
     expect(publishData.sha256).toBeTruthy();
     expect(publishData.blobSha256).toBeTruthy();
