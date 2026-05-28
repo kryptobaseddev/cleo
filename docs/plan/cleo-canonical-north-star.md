@@ -13,7 +13,7 @@ Both remain authoritative for their layer. **Do not re-litigate them in this doc
 | **Sentient Masterplan** | `docs/plans/CLEO-PRIME-SENTIENT-MASTERPLAN.md` (1,587 lines) | BRAIN / persona / memory / PSYCHE / 14 tiers (Tier 1-14) | canonical |
 | **Harness Architecture** | `docs/research/CleoCode-Architecture-Harness-Planning.md` (95 lines) | UI / IPC / TUI / TS Daemon / ZeroMQ / VCM / PTY isolation | canonical — **promote to plans/ when first wave ships** |
 
-**The seam between them** is the LAFS envelope (ADR-039): the harness layer transports envelopes, the persona layer produces and consumes them. The envelope contract itself is hardened by **T10343 SG-ENVELOPE-FIRST** (filed 2026-05-23).
+**The seam between them** is the LAFS envelope (ADR-039): the harness layer transports envelopes, the persona layer produces and consumes them. The envelope contract itself is hardened by **T10343 SG-ENVELOPE-FIRST** (filed 2026-05-23) and specified for humans/agents in `docs/specs/LAFS-ENVELOPE-CONTRACT.md` (`lafs-envelope-contract`).
 
 ## 1.5 Glossary — disambiguating "harness"
 
