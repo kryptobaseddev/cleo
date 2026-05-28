@@ -25,11 +25,16 @@ import { saveJson } from '../store/json.js';
  * @returns Absolute path to the project's `.cleo` directory.
  */
 export function resolveScaffoldCleoDir(projectRoot: string): string {
+  const localCleoDir = join(projectRoot, '.cleo');
+  if (!existsSync(join(localCleoDir, 'project-info.json'))) {
+    return localCleoDir;
+  }
+
   try {
     const projectId = resolveProjectByCwd(projectRoot);
     return resolveCanonicalCleoDir(projectId);
   } catch {
-    return join(projectRoot, '.cleo');
+    return localCleoDir;
   }
 }
 

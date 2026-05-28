@@ -49,14 +49,17 @@ async function createRawTestDb(): Promise<{
 
   // Write project-info.json and register in nexus.
   const { id: projectId } = await canonicalProjectId(tempDir);
-  writeFileSync(join(cleoDir, 'project-info.json'), JSON.stringify({
-    $schema: './schemas/project-info.schema.json',
-    schemaVersion: '1.0.0',
-    projectId,
-    projectHash: projectId,
-    cleoVersion: 'test',
-    lastUpdated: new Date().toISOString(),
-  }));
+  writeFileSync(
+    join(cleoDir, 'project-info.json'),
+    JSON.stringify({
+      $schema: './schemas/project-info.schema.json',
+      schemaVersion: '1.0.0',
+      projectId,
+      projectHash: projectId,
+      cleoVersion: 'test',
+      lastUpdated: new Date().toISOString(),
+    }),
+  );
   await registerProjectOnEncounter(tempDir, projectId);
 
   // Write minimal config

@@ -32,9 +32,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTask, getDb, taskShow } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { reconcileSaga } from '../reconcile.js';
-import { registerProjectOnEncounter } from '../../paths.js';
 import { canonicalProjectId } from '../../nexus/identity.js';
+import { registerProjectOnEncounter } from '../../paths.js';
+import { reconcileSaga } from '../reconcile.js';
 
 let TEST_ROOT: string;
 
@@ -52,14 +52,17 @@ async function seedSagaWithDoneMembers(
   mkdirSync(join(testRoot, '.git'), { recursive: true });
   // Create project-info.json and register in nexus for resolveProjectByCwd.
   const { id: projectId } = await canonicalProjectId(testRoot);
-  writeFileSync(join(cleoDir, 'project-info.json'), JSON.stringify({
-    $schema: './schemas/project-info.schema.json',
-    schemaVersion: '1.0.0',
-    projectId,
-    projectHash: projectId,
-    cleoVersion: 'test',
-    lastUpdated: new Date().toISOString(),
-  }));
+  writeFileSync(
+    join(cleoDir, 'project-info.json'),
+    JSON.stringify({
+      $schema: './schemas/project-info.schema.json',
+      schemaVersion: '1.0.0',
+      projectId,
+      projectHash: projectId,
+      cleoVersion: 'test',
+      lastUpdated: new Date().toISOString(),
+    }),
+  );
   await registerProjectOnEncounter(testRoot, projectId);
   await getDb(testRoot);
 

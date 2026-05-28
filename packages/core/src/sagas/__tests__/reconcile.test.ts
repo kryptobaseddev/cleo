@@ -50,14 +50,17 @@ async function seedSagaWithMembers(
   mkdirSync(join(testRoot, '.git'), { recursive: true });
   // Create project-info.json and register in nexus.
   const { id: projectId } = await canonicalProjectId(testRoot);
-  writeFileSync(join(cleoDir, 'project-info.json'), JSON.stringify({
-    $schema: './schemas/project-info.schema.json',
-    schemaVersion: '1.0.0',
-    projectId,
-    projectHash: projectId,
-    cleoVersion: 'test',
-    lastUpdated: new Date().toISOString(),
-  }));
+  writeFileSync(
+    join(cleoDir, 'project-info.json'),
+    JSON.stringify({
+      $schema: './schemas/project-info.schema.json',
+      schemaVersion: '1.0.0',
+      projectId,
+      projectHash: projectId,
+      cleoVersion: 'test',
+      lastUpdated: new Date().toISOString(),
+    }),
+  );
   await registerProjectOnEncounter(testRoot, projectId);
   await getDb(testRoot);
 
@@ -128,14 +131,17 @@ beforeEach(async () => {
   const cleoDir = join(TEST_ROOT, '.cleo');
   mkdirSync(cleoDir, { recursive: true });
   const { id: projectId } = await canonicalProjectId(TEST_ROOT);
-  writeFileSync(join(cleoDir, 'project-info.json'), JSON.stringify({
-    $schema: './schemas/project-info.schema.json',
-    schemaVersion: '1.0.0',
-    projectId,
-    projectHash: projectId,
-    cleoVersion: 'test',
-    lastUpdated: new Date().toISOString(),
-  }));
+  writeFileSync(
+    join(cleoDir, 'project-info.json'),
+    JSON.stringify({
+      $schema: './schemas/project-info.schema.json',
+      schemaVersion: '1.0.0',
+      projectId,
+      projectHash: projectId,
+      cleoVersion: 'test',
+      lastUpdated: new Date().toISOString(),
+    }),
+  );
   await registerProjectOnEncounter(TEST_ROOT, projectId);
 });
 

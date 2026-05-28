@@ -271,6 +271,15 @@ export async function nexusInit(_projectRoot = '', _params: NexusInitParams = {}
 /** Check if a path contains a CLEO project (has readable task data). */
 async function isCleoProject(projectPath: string): Promise<boolean> {
   try {
+    const { existsSync } = await import('node:fs');
+    if (existsSync(join(projectPath, '.cleo', 'project-info.json'))) {
+      return true;
+    }
+  } catch {
+    // Fall through to task-store validation.
+  }
+
+  try {
     const accessor = await getTaskAccessor(projectPath);
     await accessor.countTasks();
     return true;
@@ -424,6 +433,9 @@ export async function nexusRegister(
   const tasksDbPath = join(resolvedPath, '.cleo', 'tasks.db');
 
   if (existing) {
+    if (!projectId) {
+      projectId = existing.projectId;
+    }
     // Merge nexus fields into existing entry
     await db
       .update(projectRegistry)
