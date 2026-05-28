@@ -1,8 +1,7 @@
 /**
- * saga.detach — remove a `task_relations.type='groups'` edge between a Saga
- * and a member.
+ * saga.detach — remove a Saga member by clearing its `parentId` containment edge.
  *
- * Idempotent: re-running against a relation that no longer exists succeeds
+ * Idempotent: re-running against a member that is no longer parented to the Saga succeeds
  * with `removed: false`. Every invocation (whether or not it removed a row)
  * appends a single JSON line to `.cleo/audit/saga-detach.jsonl` so the
  * repair history is auditable — mirroring the append-only pattern used by
@@ -22,8 +21,8 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getLogger } from '../logger.js';
-import { taskRelates, taskRelatesRemove } from '../tasks/task-ops.js';
-import { SAGA_GROUPS_RELATION } from './constants.js';
+import { taskShow } from '../tasks/show.js';
+import { coreTaskReparent } from '../tasks/task-reparent.js';
 
 const log = getLogger('sagas:detach');
 
@@ -35,9 +34,9 @@ export const SAGA_DETACH_DEFAULT_REASON = 'ADR-073 I7 violation repair';
 
 /** Input parameters for {@link detachSagaMember}. */
 export interface DetachSagaMemberParams {
-  /** Saga task ID (the `from` side of the groups relation). */
+  /** Saga task ID whose member should be detached. */
   sagaId: string;
-  /** Member task ID (the `to` side of the groups relation). */
+  /** Member Epic task ID to detach. */
   memberId: string;
   /** Optional human-readable reason recorded in the audit entry. */
   reason?: string;
@@ -79,8 +78,8 @@ function appendSagaDetachAudit(projectRoot: string, entry: SagaDetachAuditEntry)
 }
 
 /**
- * Remove a single `task_relations.type='groups'` row between a Saga and a
- * member. Idempotent — if the relation does not exist the call still
+ * Clear the `parentId` edge between a Saga and a member Epic.
+ * Idempotent — if the member is not parented to the Saga the call still
  * succeeds with `removed: false`. Always appends an entry to
  * `.cleo/audit/saga-detach.jsonl`.
  *
@@ -88,7 +87,7 @@ function appendSagaDetachAudit(projectRoot: string, entry: SagaDetachAuditEntry)
  * relation that bypassed `sagaAdd`'s pre-T10118 add path).
  *
  * @param projectRoot - Absolute path to the project root.
- * @param params - sagaId + memberId of the groups relation to remove.
+ * @param params - sagaId + memberId of the containment edge to remove.
  * @returns EngineResult with `{ sagaId, memberId, removed, reason, timestamp }`.
  *
  * @example
@@ -113,41 +112,52 @@ export async function detachSagaMember(
   const reason = params.reason ?? SAGA_DETACH_DEFAULT_REASON;
   const timestamp = new Date().toISOString();
 
-  // Detect existing-relation state BEFORE deletion. `taskRelatesRemove`
-  // returns `removed: true` whether or not a row actually existed (the
-  // underlying drizzle DELETE is a no-op when 0 rows match) — so we
-  // inspect the saga's current relations to report idempotency accurately.
-  const relationsBefore = await taskRelates(projectRoot, sagaId);
-  if (!relationsBefore.success) {
+  const sagaResult = await taskShow(projectRoot, sagaId);
+  if (!sagaResult.success || !sagaResult.data) {
+    return engineError('E_NOT_FOUND', `Saga not found: ${sagaId}`);
+  }
+  if (sagaResult.data.task.type !== 'saga') {
     return engineError(
-      'E_GENERAL',
-      relationsBefore.error?.message ?? 'Failed to read saga relations before detach',
+      'E_INVALID_INPUT',
+      `Task ${sagaId} has type='${String(sagaResult.data.task.type)}', expected type='saga'`,
     );
   }
-  const existedBefore =
-    relationsBefore.data?.relations?.some(
-      (r) => r.type === SAGA_GROUPS_RELATION && r.taskId === memberId,
-    ) ?? false;
 
-  const relResult = await taskRelatesRemove(projectRoot, sagaId, memberId, SAGA_GROUPS_RELATION);
-  if (!relResult.success) {
+  const memberResult = await taskShow(projectRoot, memberId);
+  if (!memberResult.success || !memberResult.data) {
+    return engineError('E_NOT_FOUND', `Saga member not found: ${memberId}`);
+  }
+
+  const removed = memberResult.data.task.parentId === sagaId;
+  if (removed) {
+    try {
+      await coreTaskReparent(projectRoot, memberId, null);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      appendSagaDetachAudit(projectRoot, {
+        timestamp,
+        sagaId,
+        memberId,
+        removed: false,
+        reason: `${reason} (failed: ${message})`,
+      });
+      return engineError('E_GENERAL', `Failed to detach saga member: ${message}`);
+    }
+  }
+
+  if (!removed && memberResult.data.task.parentId) {
     // Persist a failure-shaped audit entry so the attempted repair is still
-    // recoverable from the journal even on the error path.
+    // recoverable from the journal when the caller targeted the wrong Saga.
     appendSagaDetachAudit(projectRoot, {
       timestamp,
       sagaId,
       memberId,
       removed: false,
-      reason: `${reason} (failed: ${relResult.error?.message ?? 'unknown error'})`,
+      reason: `${reason} (no-op: member parent is ${memberResult.data.task.parentId})`,
     });
-    return engineError(
-      'E_GENERAL',
-      relResult.error?.message ?? 'Failed to remove saga member relation',
-    );
+    return engineSuccess({ sagaId, memberId, removed: false, reason, timestamp });
   }
 
-  // `removed` reflects ACTUAL state change, not just success.
-  const removed = existedBefore;
   appendSagaDetachAudit(projectRoot, { timestamp, sagaId, memberId, removed, reason });
   return engineSuccess({ sagaId, memberId, removed, reason, timestamp });
 }

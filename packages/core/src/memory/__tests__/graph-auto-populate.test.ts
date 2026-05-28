@@ -38,6 +38,22 @@ beforeEach(async () => {
   await mkdir(cleoDir, { recursive: true });
   process.env['CLEO_DIR'] = cleoDir;
   process.env['CLEO_HOME'] = cleoDir;
+  // Create project-info.json and register in nexus so resolveProjectByCwd validates.
+  const { canonicalProjectId } = await import('../../nexus/identity.js');
+  const { id: projectId } = await canonicalProjectId(tempDir);
+  await writeFile(
+    join(cleoDir, 'project-info.json'),
+    JSON.stringify({
+      $schema: './schemas/project-info.schema.json',
+      schemaVersion: '1.0.0',
+      projectId,
+      projectHash: projectId,
+      cleoVersion: 'test',
+      lastUpdated: new Date().toISOString(),
+    }),
+  );
+  const { registerProjectOnEncounter } = await import('../../paths.js');
+  await registerProjectOnEncounter(tempDir, projectId);
   // Enable autoCapture so graph writes actually fire.
   await writeFile(join(cleoDir, 'config.json'), JSON.stringify({ brain: { autoCapture: true } }));
 });

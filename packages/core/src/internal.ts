@@ -153,6 +153,21 @@ export {
   DocProvenanceRootNotFoundError,
   renderProvenanceGraphAsDot,
 } from './docs/build-provenance-graph.js';
+// ── T11139 — docs audit trail (Saga T10516) ──────────────────────────────────
+export type {
+  AuditFinding,
+  AuditLogReadResult,
+  AuditVerifyResult,
+  DocsAuditEntry,
+  DocsAuditOp,
+  WriteAuditEntryParams,
+} from './docs/docs-audit.js';
+export {
+  countAuditEntriesForSlug,
+  readAuditLog,
+  verifyAuditTrail,
+  writeAuditEntry,
+} from './docs/docs-audit.js';
 // Docs generator — llms.txt format generation (T798)
 export type { GenerateDocsOptions, GenerateDocsResult } from './docs/docs-generator.js';
 export { generateDocsLlmsTxt } from './docs/docs-generator.js';
@@ -195,6 +210,9 @@ export {
   statusDocs,
   syncFromGit,
 } from './docs/docs-ops.js';
+// DocsReadModel — unified read-side query surface (T11049)
+export type { ListProjectDocsOpts, ResolvedDoc } from './docs/docs-read-model.js';
+export { createDocsReadModel, DocsReadModel } from './docs/docs-read-model.js';
 // Docs UPDATE-in-place via slug (T10161 — E12.C4 · Saga T9855)
 export type {
   DocsUpdateError,
@@ -887,7 +905,6 @@ export {
   collectOrchestrateDashboard,
   formatDashboardPromptSummary,
 } from './orchestration/dashboard.js';
-
 export { analyzeEpic, prepareSpawn } from './orchestration/index.js';
 export {
   endParallelExecution,
@@ -1251,28 +1268,26 @@ export type {
   StickyConvertTaskParams,
 } from './sticky/ops.js';
 export type { CreateStickyParams, ListStickiesParams, StickyNote } from './sticky/types.js';
-export type { DerefResult, PutAttachmentExtras } from './store/attachment-store.js';
-// Attachment store (T760 docs domain)
-export {
-  AttachmentIntegrityError,
-  createAttachmentStore,
-  SlugCollisionError,
-  SlugNotReservedByAllocatorError,
-} from './store/attachment-store.js';
-// Attachment store v2 — unified llmtxt/legacy wrapper (T947 Wave B)
 export type {
   AttachmentBackend,
+  AttachmentBlobStore,
   AttachmentFileInput,
   AttachmentGetResult,
   AttachmentListEntry,
   AttachmentPutResult,
-  AttachmentStoreV2,
-  CreateAttachmentStoreV2Options,
-} from './store/attachment-store-v2.js';
+  CreateAttachmentBlobStoreOptions,
+  DerefResult,
+  PutAttachmentExtras,
+} from './store/attachment-store.js';
+// Attachment store (T760 docs domain)
 export {
-  createAttachmentStoreV2,
+  AttachmentIntegrityError,
+  createAttachmentBlobStore,
+  createAttachmentStore,
   resolveAttachmentBackend,
-} from './store/attachment-store-v2.js';
+  SlugCollisionError,
+  SlugNotReservedByAllocatorError,
+} from './store/attachment-store.js';
 // Store
 export { createBackup, listBackups, restoreFromBackup } from './store/backup.js';
 // Backup portability — bundle inspect primitives (T363 / T311 / T9985)
@@ -1303,9 +1318,6 @@ export {
 // DocsAccessor — unified llmtxt + manifest interface (T9063 · ADR-068 · ADR-069)
 export type { DocsAccessorImplOptions } from './store/docs-accessor-impl.js';
 export { createDocsAccessor, DocsAccessorImpl } from './store/docs-accessor-impl.js';
-// DocsReadModel — unified read-side query surface (T11049)
-export type { ListProjectDocsOpts, ResolvedDoc } from './docs/docs-read-model.js';
-export { createDocsReadModel, DocsReadModel } from './docs/docs-read-model.js';
 export {
   gitCheckpoint,
   gitCheckpointStatus,

@@ -175,9 +175,10 @@ function sha256Hex(content) {
  *
  * @param {string} repoRoot
  * @param {string[]} cleoBin
- * @returns {Map<string, { type: string, sha256: string, attachmentId: string }>}
+ * @param {boolean} allowUnavailable
+ * @returns {{ index: Map<string, { type: string, sha256: string, attachmentId: string }>, ssotAvailable: boolean }}
  */
-function loadSlugIndex(repoRoot, cleoBin) {
+function loadSlugIndex(repoRoot, cleoBin, allowUnavailable = false) {
   const [cmd, ...prefix] = cleoBin;
   const proc = spawnSync(
     cmd,
@@ -185,6 +186,12 @@ function loadSlugIndex(repoRoot, cleoBin) {
     { cwd: repoRoot, encoding: 'utf-8' },
   );
   if (proc.status !== 0) {
+    if (allowUnavailable) {
+      console.warn(
+        `sweep-manual-doc-writes: SSoT unavailable; treating docs as unresolved: ${proc.stderr || proc.stdout}`,
+      );
+      return { index: new Map(), ssotAvailable: false };
+    }
     throw new Error(`cleo docs list failed: ${proc.stderr || proc.stdout}`);
   }
   const env = JSON.parse(proc.stdout);
@@ -204,7 +211,7 @@ function loadSlugIndex(repoRoot, cleoBin) {
       attachmentId: a.id,
     });
   }
-  return index;
+  return { index, ssotAvailable: true };
 }
 
 /**
@@ -269,20 +276,23 @@ function deriveSlugCandidate(filePath) {
  * @param {Map<string, { type: string, sha256: string, attachmentId: string }>} slugIndex
  * @param {string} repoRoot
  * @param {string[]} cleoBin
+ * @param {boolean} ssotAvailable
  * @returns {{ remediation: 'in-sync' | 'drift' | 'orphan', ssotSlug: string | null, ssotType: string | null, ssotAttachmentId: string | null, ssotSha: string | null }}
  */
-function classify(file, fileSha, slugIndex, repoRoot, cleoBin) {
+function classify(file, fileSha, slugIndex, repoRoot, cleoBin, ssotAvailable) {
   // 1. Cheapest probe — does ANY blob with this exact SHA exist in
   //    the SSoT? If yes, the file is in-sync regardless of slug.
-  const byShaHit = fetchBySha(fileSha, repoRoot, cleoBin);
-  if (byShaHit) {
-    return {
-      remediation: 'in-sync',
-      ssotSlug: byShaHit.slug ?? null,
-      ssotType: byShaHit.type ?? null,
-      ssotAttachmentId: byShaHit.attachmentId,
-      ssotSha: byShaHit.sha256,
-    };
+  if (ssotAvailable) {
+    const byShaHit = fetchBySha(fileSha, repoRoot, cleoBin);
+    if (byShaHit) {
+      return {
+        remediation: 'in-sync',
+        ssotSlug: byShaHit.slug ?? null,
+        ssotType: byShaHit.type ?? null,
+        ssotAttachmentId: byShaHit.attachmentId,
+        ssotSha: byShaHit.sha256,
+      };
+    }
   }
   // 2. SHA not found — try the derived slug. If the slug exists, the
   //    content has drifted and the SSoT needs a re-publish.
@@ -321,7 +331,11 @@ export function runSweep(argv = process.argv.slice(2)) {
   const opts = parseArgs(argv);
   const rawPaths = loadRawMdPaths(opts.repoRoot);
   const files = listMdFilesAddedSince(opts.cutoff, rawPaths, opts.repoRoot);
-  const slugIndex = loadSlugIndex(opts.repoRoot, opts.cleoBin);
+  const { index: slugIndex, ssotAvailable } = loadSlugIndex(
+    opts.repoRoot,
+    opts.cleoBin,
+    opts.allowUnresolved,
+  );
 
   /** @type {Array<{file: string, fileSha: string | null, remediation: string, ssotSlug: string | null, ssotType: string | null, ssotAttachmentId: string | null, ssotSha: string | null}>} */
   const items = [];
@@ -341,7 +355,7 @@ export function runSweep(argv = process.argv.slice(2)) {
     }
     const content = readFileSync(abs);
     const fileSha = sha256Hex(content);
-    const cls = classify(file, fileSha, slugIndex, opts.repoRoot, opts.cleoBin);
+    const cls = classify(file, fileSha, slugIndex, opts.repoRoot, opts.cleoBin, ssotAvailable);
     items.push({ file, fileSha, ...cls });
   }
 
@@ -362,6 +376,7 @@ export function runSweep(argv = process.argv.slice(2)) {
     generatedAt: new Date().toISOString(),
     rawMdPaths: rawPaths,
     summary,
+    ssotAvailable,
     grouped,
   };
 

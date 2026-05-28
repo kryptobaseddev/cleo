@@ -2,8 +2,8 @@
  * Thin reader for .cleo/project-info.json.
  *
  * The file is written by scaffold.ts (ensureProjectInfo). This module
- * provides a typed read interface for consumers that need projectHash
- * and projectId without importing the full scaffold machinery.
+ * provides a typed read interface for consumers that need the project-local
+ * identity fields without importing the full scaffold machinery.
  *
  * @task T5333
  * @task T11008 — resolveProjectByCwd and resolveCanonicalCleoDir added to @cleocode/paths
@@ -20,7 +20,7 @@ import { getCleoDirAbsolute, resolveOrCwd } from './paths.js';
 export interface ProjectInfo {
   /** 12-char SHA-256 hex of the normalized project path (per-install identity). */
   projectHash: string;
-  /** Stable UUID that survives directory moves (added by T5333). */
+  /** Portable project-local UUID stored with `.cleo/project-info.json`. */
   projectId: string;
   /** Absolute path to the project root directory. */
   projectRoot: string;
@@ -33,8 +33,9 @@ export interface ProjectInfo {
 /**
  * Read project-info.json and return a typed ProjectInfo.
  *
- * Falls back gracefully when projectId is missing (pre-T5333 installs)
- * by returning an empty string, allowing callers to detect and handle.
+ * Falls back gracefully when the project-local `projectId` is missing
+ * (pre-T5333 installs) by returning an empty string, allowing callers to
+ * detect and handle the legacy shape.
  *
  * @throws {Error} If .cleo/project-info.json does not exist or is invalid JSON.
  */

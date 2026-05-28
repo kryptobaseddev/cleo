@@ -83,7 +83,26 @@ export async function sagaAdd(
   if (!epicResult.success || !epicResult.data) {
     return engineError('E_NOT_FOUND', `Epic not found: ${epicId}`);
   }
+  // ADR-073 §1.2 invariant I7 — no nested sagas. The candidate epic MUST NOT
+  // itself be saga-shaped (type='saga').
   const epicType = epicResult.data.task.type;
+  const candidateType =
+    epicType === 'saga' || epicType === 'epic' || epicType === 'task' || epicType === 'subtask'
+      ? epicType
+      : undefined;
+  try {
+    assertSagaInvariantI7(epicId, epicResult.data.task.labels ?? [], sagaId, candidateType);
+  } catch (err: unknown) {
+    if (isSagaInvariantViolationError(err)) {
+      const violation = err as SagaInvariantViolationError;
+      return engineError(violation.code, violation.message, {
+        details: violation.diag,
+        fix: `Epic ${epicId} is itself a saga — nested sagas are forbidden (ADR-073 §1.2 I7).`,
+      });
+    }
+    throw err;
+  }
+
   if (epicType !== 'epic') {
     return engineError(
       'E_INVALID_INPUT',
@@ -94,21 +113,6 @@ export async function sagaAdd(
   // Idempotent: already parented to this saga
   if (epicResult.data.task.parentId === sagaId) {
     return engineSuccess({ sagaId, epicId, added: false });
-  }
-
-  // ADR-073 §1.2 invariant I7 — no nested sagas. The candidate epic MUST NOT
-  // itself be saga-shaped (type='saga').
-  try {
-    assertSagaInvariantI7(epicId, epicResult.data.task.labels ?? [], sagaId, epicType);
-  } catch (err: unknown) {
-    if (isSagaInvariantViolationError(err)) {
-      const violation = err as SagaInvariantViolationError;
-      return engineError(violation.code, violation.message, {
-        details: violation.diag,
-        fix: `Epic ${epicId} is itself a saga — nested sagas are forbidden (ADR-073 §1.2 I7).`,
-      });
-    }
-    throw err;
   }
 
   // Reparent the epic under the saga using parent_id containment

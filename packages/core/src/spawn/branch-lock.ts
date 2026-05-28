@@ -136,8 +136,18 @@ export function createAgentWorktree(taskId: string, projectRoot: string): AgentW
     } catch {
       // Fallback: brute-force filesystem + git removal for stale entries
       // that NAPI cannot resolve (corrupted admin dirs, detached worktrees).
-      gitSilent(['worktree', 'unlock', worktreePath], gitRoot);
-      if (!gitSilent(['worktree', 'remove', '--force', worktreePath], gitRoot)) {
+      gitSilent(['worktree', 'unlock', worktreePath], gitRoot); // raw-git-worktree-ok: corrupted-worktree cleanup fallback after NAPI destroy fails
+      if (
+        !gitSilent(
+          [
+            'worktree' /* raw-git-worktree-ok: corrupted-worktree cleanup fallback after NAPI destroy fails */,
+            'remove',
+            '--force',
+            worktreePath,
+          ],
+          gitRoot,
+        )
+      ) {
         try {
           rmSync(worktreePath, { recursive: true, force: true });
         } catch {
@@ -150,12 +160,23 @@ export function createAgentWorktree(taskId: string, projectRoot: string): AgentW
   }
 
   // Create the worktree with a new branch.
-  gitSync(['worktree', 'add', worktreePath, '-b', branch, baseRef], gitRoot);
+  gitSync(['worktree', 'add', worktreePath, '-b', branch, baseRef], gitRoot); // raw-git-worktree-ok: legacy branch-lock provisioning pending full SDK promotion
 
   // Apply git worktree lock to prevent accidental pruning.
   // Try with --reason first (git ≥ 2.37), fall back without.
-  if (!gitSilent(['worktree', 'lock', '--reason', `cleo-agent-${taskId}`, worktreePath], gitRoot)) {
-    gitSilent(['worktree', 'lock', worktreePath], gitRoot);
+  if (
+    !gitSilent(
+      [
+        'worktree' /* raw-git-worktree-ok: legacy branch-lock provisioning pending full SDK promotion */,
+        'lock',
+        '--reason',
+        `cleo-agent-${taskId}`,
+        worktreePath,
+      ],
+      gitRoot,
+    )
+  ) {
+    gitSilent(['worktree', 'lock', worktreePath], gitRoot); // raw-git-worktree-ok: legacy git compatibility fallback without --reason
   }
 
   // T9984: route projectHash through @cleocode/paths SSoT.
@@ -389,11 +410,11 @@ export function pruneWorktree(
 
   if (!worktreeRemoved) {
     // Filesystem fallback: unlock via git, then brute-force rmSync.
-    gitSilent(['worktree', 'unlock', worktreePath], gitRoot);
+    gitSilent(['worktree', 'unlock', worktreePath], gitRoot); // raw-git-worktree-ok: cleanup fallback after NAPI destroy reports incomplete removal
     try {
       rmSync(worktreePath, { recursive: true, force: true });
       // Prune stale git admin entries.
-      gitSilent(['worktree', 'prune'], gitRoot);
+      gitSilent(['worktree', 'prune'], gitRoot); // raw-git-worktree-ok: cleanup fallback after filesystem removal of stale worktree
       worktreeRemoved = true;
     } catch (err) {
       return {

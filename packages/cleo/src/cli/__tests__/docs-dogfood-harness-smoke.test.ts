@@ -1,5 +1,5 @@
 /**
- * T11045 Smoke Test — Verify the docs-dogfood-harness works.
+ * Docs dogfood harness smoke test.
  *
  * This test validates that the fixture harness creates isolated projects,
  * runs CLEO CLI commands deterministically, and documents the six
@@ -10,25 +10,23 @@
  */
 
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  auditScenarioCoverage,
   CLI_DIST_AVAILABLE,
+  createIsolatedProject,
   type DocsDogfoodContext,
+  fileSha256,
   SIX_REGRESSION_SCENARIOS,
   SIX_REGRESSION_TEST_CASES,
-  auditScenarioCoverage,
-  createIsolatedProject,
-  fileSha256,
-  seedDoc,
   sha256,
   testCasesForScenario,
 } from './fixtures/docs-dogfood-harness.js';
 
 // ─── Harness Structure Tests ──────────────────────────────────────────────────
 
-describe('T11045 — Docs Dogfood Regression Fixture Harness', () => {
+describe('Docs dogfood regression fixture harness', () => {
   describe('SIX_REGRESSION_SCENARIOS', () => {
     it('documents all six 2026-05-25 failure classes', () => {
       expect(SIX_REGRESSION_SCENARIOS).toHaveLength(6);

@@ -18,10 +18,14 @@
 
 import { Buffer } from 'node:buffer';
 import { ExitCode } from '@cleocode/contracts';
-import { createDocsReadModel } from '@cleocode/core/internal';
-import { renderDocsView } from '@cleocode/core';
-import { defineCommand } from 'citty';
-import { cliError, cliOutput } from '../renderers/index.js';
+import { type DocsViewOptions, renderDocsView } from '@cleocode/core';
+import { createDocsReadModel } from '@cleocode/core/docs/docs-read-model';
+import { defineCommand } from '../../lib/define-cli-command.js';
+import { cliError, cliOutput } from '../../renderers/index.js';
+
+function isDocsViewColorMode(value: string): value is NonNullable<DocsViewOptions['color']> {
+  return value === 'auto' || value === 'always' || value === 'never';
+}
 
 const viewCommand = defineCommand({
   meta: {
@@ -78,7 +82,7 @@ const viewCommand = defineCommand({
       return;
     }
 
-    if (!['auto', 'always', 'never'].includes(colorMode)) {
+    if (!isDocsViewColorMode(colorMode)) {
       cliError(
         `--color must be one of: auto|always|never — got '${colorMode}'`,
         ExitCode.VALIDATION_ERROR,
@@ -157,8 +161,8 @@ const viewCommand = defineCommand({
     }
 
     if (renderMode === 'markdown') {
-      process.stdout.write(content);
-      if (!content.endsWith('\n')) process.stdout.write('\n');
+      process.stdout.write(content); // stdout-discipline-allowed: raw markdown view mode passthrough // stdout-write-allowed: raw markdown view mode passthrough
+      if (!content.endsWith('\n')) process.stdout.write('\n'); // stdout-discipline-allowed: preserve trailing newline for raw markdown // stdout-write-allowed: preserve trailing newline for raw markdown
       return;
     }
 
@@ -173,7 +177,7 @@ const viewCommand = defineCommand({
       { width, color: colorMode },
     );
 
-    process.stdout.write(rendered + '\n');
+    process.stdout.write(rendered + '\n'); // stdout-discipline-allowed: terminal renderer output passthrough // stdout-write-allowed: terminal renderer output passthrough
   },
 });
 

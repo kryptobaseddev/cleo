@@ -383,103 +383,115 @@ describe('publishDocs', () => {
   // T11042-B1a: When no explicit attachmentId is given, publishDocs MUST select
   // the **most recently attached** blob for the owner, not simply the last
   // element of whatever order blobList returns.
-  it(
-    'T11042: publish default selects most-recently-attached blob (not arbitrary last)',
-    async () => {
-      // Three blobs: blob-B is most recent (uploadedAt: 3000), blob-A is oldest (1000)
-      const timestamped = [
-        { name: 'v1.md', sha256: 'old', sizeBytes: 100, mimeType: 'text/markdown', uploadedAt: 1000 },
-        { name: 'v2.md', sha256: 'mid', sizeBytes: 200, mimeType: 'text/markdown', uploadedAt: 3000 },
-        { name: 'v3.md', sha256: 'new', sizeBytes: 300, mimeType: 'text/markdown', uploadedAt: 2000 },
-      ];
-      vi.mocked(blobOps.blobList).mockResolvedValue(timestamped);
+  it('T11042: publish default selects most-recently-attached blob (not arbitrary last)', async () => {
+    // Three blobs: blob-B is most recent (uploadedAt: 3000), blob-A is oldest (1000)
+    const timestamped = [
+      { name: 'v1.md', sha256: 'old', sizeBytes: 100, mimeType: 'text/markdown', uploadedAt: 1000 },
+      { name: 'v2.md', sha256: 'mid', sizeBytes: 200, mimeType: 'text/markdown', uploadedAt: 3000 },
+      { name: 'v3.md', sha256: 'new', sizeBytes: 300, mimeType: 'text/markdown', uploadedAt: 2000 },
+    ];
+    vi.mocked(blobOps.blobList).mockResolvedValue(timestamped);
 
-      const result = await publishDocs({
-        ownerId: 'T123',
-        toPath: '/tmp/out/doc.md',
-        allowOutsideRoot: true,
-      });
+    const result = await publishDocs({
+      ownerId: 'T123',
+      toPath: '/tmp/out/doc.md',
+      allowOutsideRoot: true,
+    });
 
-      // Must pick v2.md (uploadedAt: 3000), NOT v3.md (last in array, uploadedAt: 2000)
-      expect(result.blobSha256).toBe('mid');
-      expect(result.blobName).toBe('v2.md');
-    },
-  );
+    // Must pick v2.md (uploadedAt: 3000), NOT v3.md (last in array, uploadedAt: 2000)
+    expect(result.blobSha256).toBe('mid');
+    expect(result.blobName).toBe('v2.md');
+  });
 
   // T11042-B1b: After a docs-update rotates the slug onto a new content blob,
   // the publish default MUST pick up the new blob's SHA.
-  it(
-    'T11042: publish after update picks up the updated blob SHA (not stale pre-update blob)',
-    async () => {
-      // Simulate an update: blob-B (newer uploadedAt) replaces blob-A
-      const updated = [
-        { name: 'spec.md', sha256: 'stale', sizeBytes: 100, mimeType: 'text/markdown', uploadedAt: 1000 },
-        { name: 'spec.md', sha256: 'fresh', sizeBytes: 200, mimeType: 'text/markdown', uploadedAt: 5000 },
-      ];
-      vi.mocked(blobOps.blobList).mockResolvedValue(updated);
+  it('T11042: publish after update picks up the updated blob SHA (not stale pre-update blob)', async () => {
+    // Simulate an update: blob-B (newer uploadedAt) replaces blob-A
+    const updated = [
+      {
+        name: 'spec.md',
+        sha256: 'stale',
+        sizeBytes: 100,
+        mimeType: 'text/markdown',
+        uploadedAt: 1000,
+      },
+      {
+        name: 'spec.md',
+        sha256: 'fresh',
+        sizeBytes: 200,
+        mimeType: 'text/markdown',
+        uploadedAt: 5000,
+      },
+    ];
+    vi.mocked(blobOps.blobList).mockResolvedValue(updated);
 
-      const result = await publishDocs({
-        ownerId: 'T123',
-        toPath: '/tmp/out/spec.md',
-        allowOutsideRoot: true,
-      });
+    const result = await publishDocs({
+      ownerId: 'T123',
+      toPath: '/tmp/out/spec.md',
+      allowOutsideRoot: true,
+    });
 
-      // Must pick the fresh SHA (uploadedAt: 5000), not the stale one
-      expect(result.blobSha256).toBe('fresh');
-      expect(result.blobName).toBe('spec.md');
-    },
-  );
+    // Must pick the fresh SHA (uploadedAt: 5000), not the stale one
+    expect(result.blobSha256).toBe('fresh');
+    expect(result.blobName).toBe('spec.md');
+  });
 
   // T11042-B1c: The SHA returned by publishDocs.sha256 MUST match the SHA
   // that blobList reports for the same (ownerId, blobName) pair.
-  it(
-    'T11042: publish sha256 agrees with blob manifest sha256 for selected blob',
-    async () => {
-      const blobs = [
-        { name: 'x.md', sha256: 'aaa111', sizeBytes: 50, mimeType: 'text/markdown', uploadedAt: 500 },
-        { name: 'x.md', sha256: 'bbb222', sizeBytes: 75, mimeType: 'text/markdown', uploadedAt: 999 },
-      ];
-      vi.mocked(blobOps.blobList).mockResolvedValue(blobs);
+  it('T11042: publish sha256 agrees with blob manifest sha256 for selected blob', async () => {
+    const blobs = [
+      { name: 'x.md', sha256: 'aaa111', sizeBytes: 50, mimeType: 'text/markdown', uploadedAt: 500 },
+      { name: 'x.md', sha256: 'bbb222', sizeBytes: 75, mimeType: 'text/markdown', uploadedAt: 999 },
+    ];
+    vi.mocked(blobOps.blobList).mockResolvedValue(blobs);
 
-      // blobRead returns bytes whose sha256 will be verified against manifest
-      vi.mocked(blobOps.blobRead).mockResolvedValue(new Uint8Array([120, 120, 120])); // "xxx"
+    // blobRead returns bytes whose sha256 will be verified against manifest
+    vi.mocked(blobOps.blobRead).mockResolvedValue(new Uint8Array([120, 120, 120])); // "xxx"
 
-      const result = await publishDocs({
-        ownerId: 'T123',
-        toPath: '/tmp/out/x.md',
-        allowOutsideRoot: true,
-      });
+    const result = await publishDocs({
+      ownerId: 'T123',
+      toPath: '/tmp/out/x.md',
+      allowOutsideRoot: true,
+    });
 
-      // The selected blob should be the latest: bbb222 (uploadedAt: 999)
-      expect(result.blobSha256).toBe('bbb222');
-      expect(result.blobName).toBe('x.md');
-      // The sha256 of written bytes matches the computed hash (not the manifest sha)
-      // but blobSha256 must match the manifest's canonical hash
-      expect(result.sha256).toBeTruthy();
-    },
-  );
+    // The selected blob should be the latest: bbb222 (uploadedAt: 999)
+    expect(result.blobSha256).toBe('bbb222');
+    expect(result.blobName).toBe('x.md');
+    // The sha256 of written bytes matches the computed hash (not the manifest sha)
+    // but blobSha256 must match the manifest's canonical hash
+    expect(result.sha256).toBeTruthy();
+  });
 
   // T11042 edge case: explicit attachmentId still works for historical versions
-  it(
-    'T11042: explicit attachmentId overrides latest selection for historical versions',
-    async () => {
-      const blobs = [
-        { name: 'old.md', sha256: 'old-sha', sizeBytes: 100, mimeType: 'text/markdown', uploadedAt: 100 },
-        { name: 'new.md', sha256: 'new-sha', sizeBytes: 200, mimeType: 'text/markdown', uploadedAt: 9999 },
-      ];
-      vi.mocked(blobOps.blobList).mockResolvedValue(blobs);
+  it('T11042: explicit attachmentId overrides latest selection for historical versions', async () => {
+    const blobs = [
+      {
+        name: 'old.md',
+        sha256: 'old-sha',
+        sizeBytes: 100,
+        mimeType: 'text/markdown',
+        uploadedAt: 100,
+      },
+      {
+        name: 'new.md',
+        sha256: 'new-sha',
+        sizeBytes: 200,
+        mimeType: 'text/markdown',
+        uploadedAt: 9999,
+      },
+    ];
+    vi.mocked(blobOps.blobList).mockResolvedValue(blobs);
 
-      // Explicitly request the OLD version
-      const result = await publishDocs({
-        ownerId: 'T123',
-        attachmentId: 'old-sha',
-        toPath: '/tmp/out/old.md',
-        allowOutsideRoot: true,
-      });
+    // Explicitly request the OLD version
+    const result = await publishDocs({
+      ownerId: 'T123',
+      attachmentId: 'old-sha',
+      toPath: '/tmp/out/old.md',
+      allowOutsideRoot: true,
+    });
 
-      // Must use the explicitly-requested historical version, not the latest
-      expect(result.blobSha256).toBe('old-sha');
-      expect(result.blobName).toBe('old.md');
-    },
-  );
+    // Must use the explicitly-requested historical version, not the latest
+    expect(result.blobSha256).toBe('old-sha');
+    expect(result.blobName).toBe('old.md');
+  });
 });

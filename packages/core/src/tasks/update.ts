@@ -16,7 +16,7 @@ import type {
   TaskType,
 } from '@cleocode/contracts';
 // safeAppendLog replaced by tx.appendLog inside transaction (T023)
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode, isAllowedWorkGraphParentType } from '@cleocode/contracts';
 import { loadConfig } from '../config.js';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
@@ -75,6 +75,17 @@ const NON_STATUS_DONE_FIELDS: Array<keyof Omit<UpdateTaskOptions, 'taskId' | 'st
   'addRelates',
   'removeRelates',
 ];
+
+function typeForParent(
+  parentType: Task['type'] | null | undefined,
+  currentType: Task['type'] | undefined,
+): TaskType {
+  if (currentType === 'saga') return 'saga';
+  if (currentType === 'epic') return 'epic';
+  if (parentType === 'task') return 'subtask';
+  if (parentType === 'epic') return 'task';
+  return currentType === 'subtask' ? 'task' : (currentType ?? 'task');
+}
 
 function hasNonStatusDoneFields(options: UpdateTaskOptions): boolean {
   return NON_STATUS_DONE_FIELDS.some((field) => options[field] !== undefined);
@@ -508,13 +519,19 @@ export async function updateTask(
             details: { field: 'parentId', actual: newParentId },
           });
         }
-        if (newParent.type === 'subtask') {
+        const newParentType = newParent.type ?? 'task';
+        const updatedType = typeForParent(newParentType, task.type);
+        if (!isAllowedWorkGraphParentType(updatedType, newParentType)) {
           throw new CleoError(
             ExitCode.INVALID_PARENT_TYPE,
-            `Cannot parent under subtask '${newParentId}'`,
+            `Invalid parent type for ${updatedType}: parent ${newParentId} has type '${newParentType}'.`,
             {
-              fix: `Choose an epic or task as parent instead of subtask '${newParentId}'`,
-              details: { field: 'parentId', expected: 'epic or task', actual: 'subtask' },
+              fix: 'Use Saga→Epic, Epic→Task, and Task→Subtask containment.',
+              details: {
+                field: 'parentId',
+                expected: 'saga->epic | epic->task | task->subtask',
+                actual: { parentType: newParentType, childType: updatedType },
+              },
             },
           );
         }
@@ -554,9 +571,7 @@ export async function updateTask(
 
         // Apply reparent
         task.parentId = newParentId;
-        const newDepth = parentDepth + 1;
-        if (newDepth === 1) task.type = 'task';
-        else if (newDepth >= 2) task.type = 'subtask';
+        task.type = updatedType;
 
         changes.push('parentId');
         if (task.type !== originalType) changes.push('type');

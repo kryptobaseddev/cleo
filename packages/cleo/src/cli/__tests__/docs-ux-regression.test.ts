@@ -13,16 +13,15 @@
  *   AC3 — Unknown or intuitive flags such as --replace produce actionable did-you-mean output
  */
 
+import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { dirname } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { docsCommand } from '../commands/docs.js';
-import { assertKnownFlags, UnknownFlagError, E_UNKNOWN_FLAG } from '../lib/strict-args.js';
+import { assertKnownFlags, E_UNKNOWN_FLAG, UnknownFlagError } from '../lib/strict-args.js';
 
 // ── CLI dist discovery (mirrors docs-update.test.ts) ──────────────────────
 const __filename = fileURLToPath(import.meta.url);
@@ -34,14 +33,7 @@ const CLI_DIST_AVAILABLE = existsSync(CLI_DIST);
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 /** Six canonical verbs per T10517 acceptance. Order is discovery-priority. */
-const CANONICAL_SIX = [
-  'add',
-  'update',
-  'fetch',
-  'list',
-  'remove',
-  'publish',
-] as const;
+const CANONICAL_SIX = ['add', 'update', 'fetch', 'list', 'remove', 'publish'] as const;
 
 /**
  * Verbs considered advanced / legacy that should remain discoverable but
@@ -69,12 +61,7 @@ const LEGACY_VERBS = [
 ] as const;
 
 /** Viewer lifecycle verbs — grouped separately in help. */
-const VIEWER_VERBS = [
-  'serve',
-  'open',
-  'stop',
-  'viewer-status',
-] as const;
+const VIEWER_VERBS = ['serve', 'open', 'stop', 'viewer-status'] as const;
 
 /**
  * Run the compiled `cleo` CLI binary in a temp project dir.
@@ -185,10 +172,7 @@ describe('AC1: canonical six-verb path', () => {
     });
 
     it('each canonical verb subcommand has a meaningful description', () => {
-      const subs = docsCommand.subCommands as Record<
-        string,
-        { meta?: unknown }
-      > | undefined;
+      const subs = docsCommand.subCommands as Record<string, { meta?: unknown }> | undefined;
       for (const verb of CANONICAL_SIX) {
         const cmd = subs?.[verb];
         expect(cmd, `canonical verb "${verb}" subcommand is missing`).toBeDefined();
@@ -203,10 +187,7 @@ describe('AC1: canonical six-verb path', () => {
 
   describe('docsCommand meta', () => {
     it('root description mentions canonical verbs first', () => {
-      const meta =
-        typeof docsCommand.meta === 'function'
-          ? docsCommand.meta()
-          : docsCommand.meta;
+      const meta = typeof docsCommand.meta === 'function' ? docsCommand.meta() : docsCommand.meta;
       const desc = (meta as { description: string }).description;
       expect(desc).toBeDefined();
 
@@ -230,10 +211,7 @@ describe('AC1: canonical six-verb path', () => {
 
       // All six canonical verbs should appear somewhere in help output.
       for (const verb of CANONICAL_SIX) {
-        expect(
-          output,
-          `docs --help must mention canonical verb "${verb}"`,
-        ).toContain(verb);
+        expect(output, `docs --help must mention canonical verb "${verb}"`).toContain(verb);
       }
     });
 
@@ -242,12 +220,8 @@ describe('AC1: canonical six-verb path', () => {
       const output = res.stdout + res.stderr;
 
       // Find the first occurrence index of each canonical verb
-      const canonicalIndices = CANONICAL_SIX.map((v) => output.indexOf(v)).filter(
-        (i) => i >= 0,
-      );
-      const legacyIndices = LEGACY_VERBS.map((v) => output.indexOf(v)).filter(
-        (i) => i >= 0,
-      );
+      const canonicalIndices = CANONICAL_SIX.map((v) => output.indexOf(v)).filter((i) => i >= 0);
+      const legacyIndices = LEGACY_VERBS.map((v) => output.indexOf(v)).filter((i) => i >= 0);
 
       const maxCanonicalIdx = canonicalIndices.length > 0 ? Math.max(...canonicalIndices) : -1;
       const minLegacyIdx = legacyIndices.length > 0 ? Math.min(...legacyIndices) : Infinity;
@@ -275,10 +249,7 @@ describe('AC2: legacy verb discoverability', () => {
       const subs = docsCommand.subCommands as Record<string, unknown> | undefined;
       expect(subs).toBeDefined();
       for (const verb of LEGACY_VERBS) {
-        expect(
-          subs?.[verb],
-          `legacy verb "${verb}" must remain in subCommands`,
-        ).toBeDefined();
+        expect(subs?.[verb], `legacy verb "${verb}" must remain in subCommands`).toBeDefined();
       }
     });
 
@@ -286,18 +257,12 @@ describe('AC2: legacy verb discoverability', () => {
       const subs = docsCommand.subCommands as Record<string, unknown> | undefined;
       expect(subs).toBeDefined();
       for (const verb of VIEWER_VERBS) {
-        expect(
-          subs?.[verb],
-          `viewer verb "${verb}" must remain in subCommands`,
-        ).toBeDefined();
+        expect(subs?.[verb], `viewer verb "${verb}" must remain in subCommands`).toBeDefined();
       }
     });
 
     it('legacy verbs have descriptions that reference migration or canonical alternatives', () => {
-      const subs = docsCommand.subCommands as Record<
-        string,
-        { meta?: unknown }
-      > | undefined;
+      const subs = docsCommand.subCommands as Record<string, { meta?: unknown }> | undefined;
 
       // At least some legacy verbs should guide users toward canonical equivalents.
       // We check a sample of verbs where migration guidance is expected.
@@ -319,7 +284,10 @@ describe('AC2: legacy verb discoverability', () => {
 
       // Not all legacy verbs may have migration text yet (depends on T11046 implementation),
       // but the tests establish the contract that they SHOULD.
-      expect(migrationGuidanceCount, 'at least some legacy verbs should have migration guidance').toBeGreaterThanOrEqual(0);
+      expect(
+        migrationGuidanceCount,
+        'at least some legacy verbs should have migration guidance',
+      ).toBeGreaterThanOrEqual(0);
     });
 
     it('total subcommand count is at least 22 (all existing verbs preserved)', () => {
@@ -461,11 +429,7 @@ describe('AC3: unknown-flag did-you-mean', () => {
         slug: { type: 'string' as const, description: 'Document slug' },
       };
       expect(() =>
-        assertKnownFlags(
-          ['add', 'T123', 'file.md', '--replace', 'my-doc'],
-          schema,
-          'docs add',
-        ),
+        assertKnownFlags(['add', 'T123', 'file.md', '--replace', 'my-doc'], schema, 'docs add'),
       ).toThrow(UnknownFlagError);
     });
 
@@ -476,11 +440,7 @@ describe('AC3: unknown-flag did-you-mean', () => {
         type: { type: 'string' as const, description: 'Document type' },
       };
       try {
-        assertKnownFlags(
-          ['add', 'T123', 'file.md', '--sluug', 'my-doc'],
-          schema,
-          'docs add',
-        );
+        assertKnownFlags(['add', 'T123', 'file.md', '--sluug', 'my-doc'], schema, 'docs add');
         expect.fail('Expected UnknownFlagError to be thrown');
       } catch (err) {
         expect(err).toBeInstanceOf(UnknownFlagError);
@@ -499,11 +459,7 @@ describe('AC3: unknown-flag did-you-mean', () => {
       };
       // --no-json is a valid negation of a boolean flag
       expect(() =>
-        assertKnownFlags(
-          ['docs', 'list', '--no-json'],
-          schema,
-          'docs list',
-        ),
+        assertKnownFlags(['docs', 'list', '--no-json'], schema, 'docs list'),
       ).not.toThrow();
     });
 
@@ -522,11 +478,7 @@ describe('AC3: unknown-flag did-you-mean', () => {
       };
       // -t and -j should be recognized from aliases
       expect(() =>
-        assertKnownFlags(
-          ['docs', 'list', '-t', 'T123', '-j'],
-          schema,
-          'docs list',
-        ),
+        assertKnownFlags(['docs', 'list', '-t', 'T123', '-j'], schema, 'docs list'),
       ).not.toThrow();
     });
 
@@ -534,9 +486,9 @@ describe('AC3: unknown-flag did-you-mean', () => {
       const schema = {
         task: { type: 'string' as const, description: 'Task ID', alias: 't' },
       };
-      expect(() =>
-        assertKnownFlags(['docs', 'list', '-x'], schema, 'docs list'),
-      ).toThrow(UnknownFlagError);
+      expect(() => assertKnownFlags(['docs', 'list', '-x'], schema, 'docs list')).toThrow(
+        UnknownFlagError,
+      );
     });
 
     it('throws for common intuitive flags like --replace', () => {
@@ -546,11 +498,7 @@ describe('AC3: unknown-flag did-you-mean', () => {
         message: { type: 'string' as const, description: 'Change message' },
       };
       expect(() =>
-        assertKnownFlags(
-          ['update', 'my-doc', '--replace', 'new-content'],
-          schema,
-          'docs update',
-        ),
+        assertKnownFlags(['update', 'my-doc', '--replace', 'new-content'], schema, 'docs update'),
       ).toThrow(UnknownFlagError);
     });
 
@@ -582,20 +530,14 @@ describe('AC3: unknown-flag did-you-mean', () => {
     });
 
     it('cleo docs update --replace produces did-you-mean output', () => {
-      const res = runCli(
-        ['docs', 'update', 'some-slug', '--replace', 'x'],
-        projectRoot,
-      );
+      const res = runCli(['docs', 'update', 'some-slug', '--replace', 'x'], projectRoot);
       expect(res.status).not.toBe(0);
       const output = res.stdout + res.stderr;
       expect(output).toMatch(/E_UNKNOWN_FLAG|unknown flag/i);
     });
 
     it('cleo docs list --unknown-flag produces error with suggestions', () => {
-      const res = runCli(
-        ['docs', 'list', '--unknown-flag'],
-        projectRoot,
-      );
+      const res = runCli(['docs', 'list', '--unknown-flag'], projectRoot);
       expect(res.status).not.toBe(0);
       const output = res.stdout + res.stderr;
       expect(output).toMatch(/E_UNKNOWN_FLAG|unknown flag/i);
@@ -609,10 +551,7 @@ describe('AC3: unknown-flag did-you-mean', () => {
     });
 
     it('cleo docs publish --missing produces actionable error', () => {
-      const res = runCli(
-        ['docs', 'publish', 'some-slug', '--missing'],
-        projectRoot,
-      );
+      const res = runCli(['docs', 'publish', 'some-slug', '--missing'], projectRoot);
       expect(res.status).not.toBe(0);
       const output = res.stdout + res.stderr;
       expect(output).toMatch(/E_UNKNOWN_FLAG|unknown flag/i);

@@ -1,9 +1,9 @@
 /**
- * Tests for {@link detachSagaMember} — the T10118 repair verb that removes a
- * single `task_relations.type='groups'` row between a saga and a member.
+ * Tests for {@link detachSagaMember} — the repair verb that clears the
+ * `parentId` containment edge between a saga and a member Epic.
  *
- * The function is idempotent — re-running against an already-removed
- * relation succeeds with `removed: false` — and always appends a JSON line
+ * The function is idempotent — re-running against an already-detached
+ * member succeeds with `removed: false` — and always appends a JSON line
  * to `.cleo/audit/saga-detach.jsonl`.
  *
  * @task T10118
@@ -12,35 +12,29 @@
  * @see ADR-073-above-epic-naming.md §1.2 invariant I7
  */
 
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { addRelation, createTask, getDb, taskRelates } from '@cleocode/core/internal';
+import { createTask } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import { detachSagaMember, SAGA_DETACH_AUDIT_FILE, SAGA_DETACH_DEFAULT_REASON } from '../detach.js';
 
 let TEST_ROOT: string;
+let env: TestDbEnv;
 
 /**
- * Seed one saga (T9100) + two epics (T9201, T9202), then link them via
- * `task_relations.type='groups'`.
+ * Seed one saga (T9100) + two member epics (T9201, T9202).
  */
 async function seedFixture(testRoot: string): Promise<void> {
-  mkdirSync(join(testRoot, '.cleo'), { recursive: true });
-  mkdirSync(join(testRoot, '.git'), { recursive: true });
-  await getDb(testRoot);
-
   const ts = '2026-05-22T00:00:00Z';
   const rows = [
     {
       id: 'T9100',
       title: 'Saga',
       description: 'Saga with two members',
-      type: 'epic' as const,
+      type: 'saga' as const,
       status: 'active' as const,
       priority: 'high' as const,
-      labels: ['saga'],
       createdAt: ts,
       updatedAt: null,
     },
@@ -51,6 +45,7 @@ async function seedFixture(testRoot: string): Promise<void> {
       type: 'epic' as const,
       status: 'active' as const,
       priority: 'medium' as const,
+      parentId: 'T9100',
       createdAt: ts,
       updatedAt: null,
     },
@@ -61,6 +56,7 @@ async function seedFixture(testRoot: string): Promise<void> {
       type: 'epic' as const,
       status: 'active' as const,
       priority: 'medium' as const,
+      parentId: 'T9100',
       createdAt: ts,
       updatedAt: null,
     },
@@ -68,8 +64,6 @@ async function seedFixture(testRoot: string): Promise<void> {
   for (const row of rows) {
     await createTask(row as Parameters<typeof createTask>[0], testRoot);
   }
-  await addRelation('T9100', 'T9201', 'groups', testRoot);
-  await addRelation('T9100', 'T9202', 'groups', testRoot);
 }
 
 interface SagaDetachAuditLine {
@@ -93,7 +87,8 @@ function readAuditLines(testRoot: string): SagaDetachAuditLine[] {
 }
 
 beforeEach(async () => {
-  TEST_ROOT = await mkdtemp(join(tmpdir(), 'cleo-saga-detach-test-'));
+  env = await createTestDb();
+  TEST_ROOT = env.tempDir;
   await seedFixture(TEST_ROOT);
 });
 
@@ -104,16 +99,11 @@ afterEach(async () => {
   } catch {
     // ignore cleanup errors
   }
-  await rm(TEST_ROOT, { recursive: true, force: true });
+  await env.cleanup();
 });
 
-describe('detachSagaMember — relation removal + audit log', () => {
-  it('removes a single groups relation on first call (removed: true)', async () => {
-    const before = await taskRelates(TEST_ROOT, 'T9100');
-    const beforeMembers =
-      before.data?.relations?.filter((r) => r.type === 'groups').map((m) => m.taskId) ?? [];
-    expect(beforeMembers.sort()).toEqual(['T9201', 'T9202']);
-
+describe('detachSagaMember — parent_id detach + audit log', () => {
+  it('clears a member parentId on first call (removed: true)', async () => {
     const result = await detachSagaMember(TEST_ROOT, { sagaId: 'T9100', memberId: 'T9201' });
     expect(result.success, JSON.stringify(result)).toBe(true);
     if (!result.success) return;
@@ -123,10 +113,11 @@ describe('detachSagaMember — relation removal + audit log', () => {
     expect(result.data?.reason).toBe(SAGA_DETACH_DEFAULT_REASON);
     expect(typeof result.data?.timestamp).toBe('string');
 
-    const after = await taskRelates(TEST_ROOT, 'T9100');
-    const afterMembers =
-      after.data?.relations?.filter((r) => r.type === 'groups').map((m) => m.taskId) ?? [];
-    expect(afterMembers).toEqual(['T9202']);
+    const { taskShow } = await import('../../tasks/show.js');
+    const detached = await taskShow(TEST_ROOT, 'T9201');
+    const remaining = await taskShow(TEST_ROOT, 'T9202');
+    expect(detached.data?.task.parentId ?? null).toBeNull();
+    expect(remaining.data?.task.parentId).toBe('T9100');
   });
 
   it('is idempotent — re-running returns removed=false without error', async () => {

@@ -10,7 +10,12 @@
  */
 
 import { createHash } from 'node:crypto';
-import { DecisionValidatorFailedError } from '@cleocode/contracts';
+import {
+  CANONICAL_TYPE_TAGS,
+  DecisionValidatorFailedError,
+  TaxonomyError,
+  TaxonomyRegistry,
+} from '@cleocode/contracts';
 import { taskExistsInTasksDb } from '../store/cross-db-cleanup.js';
 import { getBrainAccessor } from '../store/memory-accessor.js';
 import type { BrainDecisionRow, NewBrainDecisionRow } from '../store/memory-schema.js';
@@ -340,6 +345,21 @@ export async function storeDecision(
   }
   if (!params.rationale?.trim()) {
     throw new Error('Rationale is required');
+  }
+
+  // T11186: Taxonomy validation — enforce canonical type tags.
+  // Only validates when type is provided and the taxonomy registry is available.
+  if (params.type) {
+    const registry = TaxonomyRegistry.default;
+    const invalid = registry.validate([params.type]);
+    if (invalid.length > 0) {
+      throw new TaxonomyError(
+        `Invalid decision type '${params.type}'. ` +
+          `Valid types: ${CANONICAL_TYPE_TAGS.join(', ')}. ` +
+          `Use 'cleo taxonomy list --axis type' to see all valid type tags.`,
+        invalid,
+      );
+    }
   }
 
   // T1828: LLM conflict-validator hook for ADR-typed writes.

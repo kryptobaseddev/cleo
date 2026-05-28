@@ -9,8 +9,8 @@
  */
 
 import { ExitCode } from '@cleocode/contracts';
-import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../../dispatch/adapters/cli.js';
+import { defineCommand } from '../../lib/define-cli-command.js';
 import { cliError } from '../../renderers/index.js';
 
 export const auditCommand = defineCommand({

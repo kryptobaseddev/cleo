@@ -36,6 +36,7 @@ import { nexusAuditLog, projectIdAliases, projectRegistry } from '../store/nexus
 // Re-export only: resetNexusDbState used by tests and index barrel.
 import { resetNexusDbState } from '../store/nexus-sqlite.js';
 import { generateProjectHash } from './hash.js';
+import { canonicalProjectId, legacyProjectId } from './identity.js';
 
 // ── Domain types ─────────────────────────────────────────────────────
 //
@@ -270,6 +271,15 @@ export async function nexusInit(_projectRoot = '', _params: NexusInitParams = {}
 /** Check if a path contains a CLEO project (has readable task data). */
 async function isCleoProject(projectPath: string): Promise<boolean> {
   try {
+    const { existsSync } = await import('node:fs');
+    if (existsSync(join(projectPath, '.cleo', 'project-info.json'))) {
+      return true;
+    }
+  } catch {
+    // Fall through to task-store validation.
+  }
+
+  try {
     const accessor = await getTaskAccessor(projectPath);
     await accessor.countTasks();
     return true;
@@ -306,6 +316,27 @@ async function readProjectId(projectPath: string): Promise<string> {
     return typeof data.projectId === 'string' ? data.projectId : '';
   } catch {
     return '';
+  }
+}
+
+/** Record alternate project identity tokens as aliases for registry lookup. */
+async function recordProjectIdAliases(
+  projectId: string,
+  aliases: Iterable<string>,
+  createdAt: string,
+): Promise<void> {
+  const { getNexusDb } = await import('../store/nexus-sqlite.js');
+  const db = await getNexusDb();
+  for (const legacyId of new Set(aliases)) {
+    if (!legacyId) continue;
+    try {
+      await db
+        .insert(projectIdAliases)
+        .values({ legacyId, canonicalId: projectId, createdAt })
+        .onConflictDoNothing();
+    } catch {
+      // Alias rows are compatibility accelerators; registry writes remain authoritative.
+    }
   }
 }
 
@@ -397,10 +428,14 @@ export async function nexusRegister(
   const now = new Date().toISOString();
   let projectId = await readProjectId(projectPath);
   const resolvedPath = resolve(projectPath);
+  const canonicalIdentity = await canonicalProjectId(resolvedPath);
   const brainDbPath = join(resolvedPath, '.cleo', 'brain.db');
   const tasksDbPath = join(resolvedPath, '.cleo', 'tasks.db');
 
   if (existing) {
+    if (!projectId) {
+      projectId = existing.projectId;
+    }
     // Merge nexus fields into existing entry
     await db
       .update(projectRegistry)
@@ -439,6 +474,12 @@ export async function nexusRegister(
       statsJson: '{}',
     });
   }
+
+  await recordProjectIdAliases(
+    projectId,
+    [projectId, canonicalIdentity.id, legacyProjectId(resolvedPath)],
+    now,
+  );
 
   await writeNexusAudit({
     action: 'register',
@@ -809,6 +850,8 @@ export async function nexusReconcile(
 
   const projectId = await readProjectId(projectRoot);
   const currentHash = generateProjectHash(projectRoot);
+  const canonicalIdentity = await canonicalProjectId(projectRoot);
+  const stableProjectId = projectId || canonicalIdentity.id;
 
   // Scenario 4 check: hash matches but different projectId
   if (projectId) {
@@ -859,6 +902,11 @@ export async function nexusReconcile(
           success: true,
           details: { status: 'ok' },
         });
+        await recordProjectIdAliases(
+          stableProjectId,
+          [stableProjectId, canonicalIdentity.id, legacyProjectId(projectRoot)],
+          now,
+        );
         return { status: 'ok' };
       }
 
@@ -884,6 +932,11 @@ export async function nexusReconcile(
         success: true,
         details: { status: 'path_updated', oldPath, newPath: projectRoot },
       });
+      await recordProjectIdAliases(
+        stableProjectId,
+        [stableProjectId, canonicalIdentity.id, legacyProjectId(projectRoot)],
+        now,
+      );
       return { status: 'path_updated', oldPath, newPath: projectRoot };
     }
   }
@@ -908,6 +961,11 @@ export async function nexusReconcile(
       success: true,
       details: { status: 'ok' },
     });
+    await recordProjectIdAliases(
+      hashMatch.projectId,
+      [hashMatch.projectId, canonicalIdentity.id, legacyProjectId(projectRoot)],
+      now,
+    );
     return { status: 'ok' };
   }
 

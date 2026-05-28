@@ -281,13 +281,15 @@ export async function renameProject(
   }
 
   const oldName =
-    (typeof info.projectName === 'string' ? info.projectName : '') || basename(projectRoot);
+    (typeof info.name === 'string' ? info.name : '') ||
+    (typeof info.projectName === 'string' ? info.projectName : '') ||
+    basename(projectRoot);
 
   // AC4: Update project-info.json — only name changes, path stays same
   const newProjectHash = generateProjectHash(projectRoot);
   const newInfo = {
     ...info,
-    projectName: newName.trim(),
+    name: newName.trim(),
     projectHash: newProjectHash,
     lastUpdated: new Date().toISOString(),
   };

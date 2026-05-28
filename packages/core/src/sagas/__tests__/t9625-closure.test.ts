@@ -26,12 +26,14 @@
  * @see T10113 — saga auto-close
  */
 
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { addRelation, createTask, getDb, taskShow } from '@cleocode/core/internal';
+import { createTask, getDb, taskShow } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { canonicalProjectId } from '../../nexus/identity.js';
+import { registerProjectOnEncounter } from '../../paths.js';
 import { reconcileSaga } from '../reconcile.js';
 
 let TEST_ROOT: string;
@@ -45,8 +47,23 @@ async function seedSagaWithDoneMembers(
   sagaId: string,
   memberIds: string[],
 ): Promise<void> {
-  mkdirSync(join(testRoot, '.cleo'), { recursive: true });
+  const cleoDir = join(testRoot, '.cleo');
+  mkdirSync(cleoDir, { recursive: true });
   mkdirSync(join(testRoot, '.git'), { recursive: true });
+  // Create project-info.json and register in nexus for resolveProjectByCwd.
+  const { id: projectId } = await canonicalProjectId(testRoot);
+  writeFileSync(
+    join(cleoDir, 'project-info.json'),
+    JSON.stringify({
+      $schema: './schemas/project-info.schema.json',
+      schemaVersion: '1.0.0',
+      projectId,
+      projectHash: projectId,
+      cleoVersion: 'test',
+      lastUpdated: new Date().toISOString(),
+    }),
+  );
+  await registerProjectOnEncounter(testRoot, projectId);
   await getDb(testRoot);
 
   const ts = '2026-05-18T00:00:00Z';
@@ -55,7 +72,7 @@ async function seedSagaWithDoneMembers(
       id: sagaId,
       title: `Saga ${sagaId}`,
       description: 'T9625 closure fixture',
-      type: 'epic',
+      type: 'saga',
       status: 'active',
       priority: 'high',
       labels: ['saga'],
@@ -72,6 +89,7 @@ async function seedSagaWithDoneMembers(
         title: `Epic ${memberId}`,
         description: `Member of ${sagaId}`,
         type: 'epic',
+        parentId: sagaId,
         status: 'done',
         priority: 'medium',
         createdAt: ts,
@@ -79,7 +97,6 @@ async function seedSagaWithDoneMembers(
       } as Parameters<typeof createTask>[0],
       testRoot,
     );
-    await addRelation(sagaId, memberId, 'groups', testRoot);
   }
 }
 
@@ -151,7 +168,7 @@ describe('T9625 SG-CLEO-DOCS-CANON closure regression (T10374)', () => {
       {
         id: 'T9787',
         title: 'SG-DOCS-CANON-CLOSURE sibling',
-        type: 'epic',
+        type: 'saga',
         status: 'done',
         priority: 'high',
         labels: ['saga'],

@@ -39,11 +39,11 @@ import type {
   DocsFetchResult,
   DocsGenerateParams,
   DocsGenerateResult,
-  DocsLlmOutputParams,
-  DocsLlmOutputResult,
   DocsListOrderBy,
   DocsListParams,
   DocsListResult,
+  DocsLlmOutputParams,
+  DocsLlmOutputResult,
   DocsRemoveParams,
   DocsRemoveResult,
   DocsSupersedeParams,
@@ -51,12 +51,13 @@ import type {
   DocsType,
   DocsUpdateParams,
   DocsUpdateResult,
-  type LlmOutputMode,
+  LlmOutputMode,
 } from '@cleocode/contracts/operations/docs';
 import { LLM_OUTPUT_MODES } from '@cleocode/contracts/operations/docs';
 import { pushWarning } from '@cleocode/core';
 import type {
   AttachmentRef,
+  ExportDocumentOptions,
   LlmsTxtAttachment,
   LocalFileAttachment,
   UrlAttachment,
@@ -67,9 +68,9 @@ import {
   allocateAdrSlug,
   allocateAutoSlugForDispatch,
   consumeReservedSlug,
+  createAttachmentBlobStore,
   createAttachmentStore,
   createAttachmentStoreDocsAccessor,
-  createAttachmentStoreV2,
   createDocsReadModel,
   type DerefResult,
   DOCS_UPDATE_LIFECYCLE_STATUS_LIST,
@@ -102,6 +103,7 @@ import {
   syncFromGit,
   updateDocBySlug,
   validateDocBody,
+  writeAuditEntry,
   writeChangesetEntry,
 } from '@cleocode/core/internal';
 import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../adapters/typed.js';
@@ -177,6 +179,14 @@ function registeredKindValues(): readonly string[] {
   return getDocKindRegistry()
     .list()
     .map((d) => d.kind);
+}
+
+async function currentAttachmentBackend(): Promise<AttachmentBackend> {
+  return resolveAttachmentBackend();
+}
+
+function exportTaskDocument(options: ExportDocumentOptions) {
+  return exportDocument(options);
 }
 
 // ─── DocsTypedOps ─────────────────────────────────────────────────────────────
@@ -506,7 +516,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
 
     // T11050 — route list through the canonical DocsReadModel
     const model = createDocsReadModel();
-    const backend: AttachmentBackend = await resolveAttachmentBackend();
+    const backend: AttachmentBackend = await currentAttachmentBackend();
 
     if (isProjectScope) {
       // Project-scoped: use the read model's listProjectDocs
@@ -682,12 +692,18 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
   // ── docs.llm-output (T11137) ──────────────────────────────────────────────
   'llm-output': async (params) => {
     const forId = params.for;
-    if (!forId) { return lafsError('E_INVALID_INPUT', '--for <entityId> is required', 'llm-output'); }
+    if (!forId) {
+      return lafsError('E_INVALID_INPUT', '--for <entityId> is required', 'llm-output');
+    }
     let mode: LlmOutputMode;
     if (params.mode !== undefined) {
       const raw = String(params.mode);
       if (!(LLM_OUTPUT_MODES as readonly string[]).includes(raw)) {
-        return lafsError('E_INVALID_INPUT', `--mode must be one of: ${LLM_OUTPUT_MODES.join('|')}`, 'llm-output');
+        return lafsError(
+          'E_INVALID_INPUT',
+          `--mode must be one of: ${LLM_OUTPUT_MODES.join('|')}`,
+          'llm-output',
+        );
       }
       mode = raw as LlmOutputMode;
     } else {
@@ -695,18 +711,58 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     }
     const cwd = getProjectRoot();
     if (mode === 'task-export') {
-      const result = await exportDocument({ taskId: forId, includeAttachments: params.includeAttachments !== false, includeMemoryRefs: params.includeMemoryRefs === true, projectRoot: cwd });
-      return lafsSuccess<DocsLlmOutputResult>({ forId, mode: 'task-export', content: result.markdown, sectionCount: result.pages, usedLlmtxtPackage: true }, 'llm-output');
+      const result = await exportTaskDocument({
+        taskId: forId,
+        includeAttachments: params.includeAttachments !== false,
+        includeMemoryRefs: params.includeMemoryRefs === true,
+        projectRoot: cwd,
+      });
+      return lafsSuccess<DocsLlmOutputResult>(
+        {
+          forId,
+          mode: 'task-export',
+          content: result.markdown,
+          sectionCount: result.pages,
+          usedLlmtxtPackage: true,
+        },
+        'llm-output',
+      );
     }
     const result = await generateDocsLlmsTxt({ ownerId: forId, cwd });
     let aid: string | undefined, asha: string | undefined;
     if (params.attach) {
       const store = createAttachmentStore();
-      const desc: import('@cleocode/core/internal').LlmsTxtAttachment = { kind: 'llms-txt' as const, source: 'generated', content: result.content, description: `llms.txt for ${forId}`, labels: ['llms-txt', 'generated'] };
-      const meta = await store.put(Buffer.from(result.content, 'utf-8'), desc as any, inferOwnerType(forId), forId, 'cleo-docs-llm-output', cwd);
-      aid = meta.id; asha = meta.sha256;
+      const desc: Omit<import('@cleocode/core/internal').LlmsTxtAttachment, 'sha256'> = {
+        kind: 'llms-txt' as const,
+        source: 'generated',
+        content: result.content,
+        description: `llms.txt for ${forId}`,
+        labels: ['llms-txt', 'generated'],
+      };
+      const meta = await store.put(
+        Buffer.from(result.content, 'utf-8'),
+        desc,
+        inferOwnerType(forId),
+        forId,
+        'cleo-docs-llm-output',
+        cwd,
+      );
+      aid = meta.id;
+      asha = meta.sha256;
     }
-    return lafsSuccess<DocsLlmOutputResult>({ forId, mode: 'attachment-bundle', content: result.content, sectionCount: result.attachmentCount, usedLlmtxtPackage: result.usedLlmtxtPackage, ...(aid ? { attached: true, attachmentId: aid, attachmentSha256: asha } : { attached: false }) }, 'llm-output');
+    return lafsSuccess<DocsLlmOutputResult>(
+      {
+        forId,
+        mode: 'attachment-bundle',
+        content: result.content,
+        sectionCount: result.attachmentCount,
+        usedLlmtxtPackage: result.usedLlmtxtPackage,
+        ...(aid
+          ? { attached: true, attachmentId: aid, attachmentSha256: asha }
+          : { attached: false }),
+      },
+      'llm-output',
+    );
   },
 
   // ── docs.fetch ─────────────────────────────────────────────────────────────
@@ -723,7 +779,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
 
     // T11050 — route fetch through the canonical DocsReadModel
     const model = createDocsReadModel();
-    const doc = await model.resolveLatest(ref) ?? await model.resolveByAttachmentId(ref);
+    const doc = (await model.resolveLatest(ref)) ?? (await model.resolveByAttachmentId(ref));
     if (!doc) {
       return lafsError('E_NOT_FOUND', `Attachment not found: ${ref}`, 'fetch');
     }
@@ -758,7 +814,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     const bytesBase64 =
       contentBytes.length <= MAX_INLINE ? contentBytes.toString('base64') : undefined;
 
-    const backend: AttachmentBackend = await resolveAttachmentBackend();
+    const backend: AttachmentBackend = await currentAttachmentBackend();
 
     return lafsSuccess<DocsFetchResult>(
       {
@@ -1001,6 +1057,20 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       };
       emitDocAttachmentObservation(changesetPayload, getProjectRoot());
 
+      // T11139 — audit trail
+      try {
+        writeAuditEntry(getProjectRoot(), {
+          op: 'docs.add',
+          slug: outcome.result.slug,
+          type: 'changeset',
+          attachmentId: outcome.result.attachmentId,
+          sha256: outcome.result.sha256,
+          summary: `Added changeset '${outcome.result.slug}'`,
+        });
+      } catch {
+        /* best-effort */
+      }
+
       return lafsSuccess<DocsAddResult>(
         {
           attachmentId: outcome.result.attachmentId,
@@ -1013,9 +1083,9 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           kind: 'blob',
           ownerId: outcome.result.ownerId,
           ownerType: 'task',
-          // Changeset writes land in the legacy attachment store; v2 mirror
-          // is not applicable to the dual-write transaction.
-          attachmentBackend: 'legacy' as DocsAddResult['attachmentBackend'],
+          // Cast: core returns 'llmtxt' (Wave C — legacy backend retired for mirror store).
+          attachmentBackend:
+            (await currentAttachmentBackend()) as DocsAddResult['attachmentBackend'],
           slug: outcome.result.slug,
           type: 'changeset',
         },
@@ -1232,22 +1302,21 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       // reservedSlugs set indefinitely. Consume defensively here.
       if (adrNumber !== undefined && slug !== undefined) consumeReservedSlug(slug);
 
-      // T947 Wave B — also mirror the write through the unified v2 store
-      // so llmtxt-backed manifests learn about the attachment. The v2
-      // store is the future SSoT; the legacy put above remains the
-      // authoritative write path until Wave C retires it.
-      let backend: AttachmentBackend = 'legacy';
+      // T947 Wave C — llmtxt mirror is now the canonical blob storage path.
+      // The legacy store write above remains for slug/refcount/lifecycle
+      // support in tasks.db; the mirror keeps manifest.db in sync.
+      let backend: AttachmentBackend = 'llmtxt';
       try {
-        const v2 = createAttachmentStoreV2(getProjectRoot());
-        const v2Result = await v2.put(ownerId, {
+        const blobMirror = createAttachmentBlobStore(getProjectRoot());
+        const mirrorResult = await blobMirror.put(ownerId, {
           name: absPath.split(/[\\/]/).pop() ?? meta.sha256.slice(0, 12),
           data: new Uint8Array(bytes),
           contentType: mime,
         });
-        backend = v2Result.backend;
+        backend = mirrorResult.backend;
       } catch {
         // Mirror write is best-effort — never fail docs add on it.
-        backend = await resolveAttachmentBackend();
+        backend = await currentAttachmentBackend();
       }
 
       // T945 Stage A — mint `llmtxt:<sha256>` graph node + `embeds` edge
@@ -1276,6 +1345,21 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         ...(type !== undefined ? { type } : {}),
       };
       emitDocAttachmentObservation(filePayload, getProjectRoot());
+
+      // T11139 — audit trail
+      try {
+        writeAuditEntry(getProjectRoot(), {
+          op: 'docs.add',
+          slug,
+          type,
+          attachmentId: meta.id,
+          sha256: meta.sha256,
+          ownerId,
+          summary: `Added doc '${slug ?? meta.sha256.slice(0, 12)}'${type ? ` of type '${type}'` : ''} for owner ${ownerId}`,
+        });
+      } catch {
+        /* best-effort */
+      }
 
       return lafsSuccess<DocsAddResult>(
         {
@@ -1354,8 +1438,9 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           /* Graph population is best-effort — never fail docs add. */
         });
 
-      // URL writes stay legacy-only; v2 focuses on local-file / blob kinds.
-      const backend: AttachmentBackend = 'legacy';
+      // URL writes stay in tasks.db; v2 focuses on local-file / blob kinds.
+      // Wave C — resolveAttachmentBackend() always returns 'llmtxt'.
+      const backend: AttachmentBackend = await currentAttachmentBackend();
 
       // T9976 — emit structured memory observation for docs.add URL path (fire-and-forget).
       const urlPayload: DocAttachmentObservationPayload = {
@@ -1367,6 +1452,21 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         ...(type !== undefined ? { type } : {}),
       };
       emitDocAttachmentObservation(urlPayload, getProjectRoot());
+
+      // T11139 — audit trail
+      try {
+        writeAuditEntry(getProjectRoot(), {
+          op: 'docs.add',
+          slug,
+          type,
+          attachmentId: meta.id,
+          sha256: meta.sha256,
+          ownerId,
+          summary: `Added URL doc '${slug ?? url}'${type ? ` of type '${type}'` : ''} for owner ${ownerId}`,
+        });
+      } catch {
+        /* best-effort */
+      }
 
       return lafsSuccess<DocsAddResult>(
         {
@@ -1433,18 +1533,28 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     const blobPurged = derefResult.status === 'removed';
     const refCountAfter = derefResult.status === 'derefd' ? derefResult.refCountAfter : 0;
 
-    // T947 Wave B — mirror the remove through v2 so llmtxt manifests
-    // also soft-delete. Best-effort: the llmtxt path keys by blob name,
-    // and we only know the attachment id here, so the mirror only hits
-    // when v2 has already indexed this id (e.g. earlier put in same
-    // process). Legacy refcount remains the authoritative truth.
+    // T947 Wave C — mirror the remove so llmtxt manifests
+    // also soft-delete. Best-effort.
     try {
-      const v2 = createAttachmentStoreV2(getProjectRoot());
-      await v2.remove(attachmentId, fromOwner);
+      const blobMirror = createAttachmentBlobStore(getProjectRoot());
+      await blobMirror.remove(attachmentId, fromOwner);
     } catch {
       /* Mirror remove is best-effort. */
     }
-    const backend: AttachmentBackend = await resolveAttachmentBackend();
+    // Wave C — always 'llmtxt' for llmtxt-backed stores.
+    const backend: AttachmentBackend = await currentAttachmentBackend();
+
+    // T11139 — audit trail
+    try {
+      writeAuditEntry(getProjectRoot(), {
+        op: 'docs.remove',
+        attachmentId,
+        ownerId: fromOwner,
+        summary: `Removed attachment ${attachmentId} from owner ${fromOwner}${blobPurged ? ' (blob purged)' : ''}`,
+      });
+    } catch {
+      /* best-effort */
+    }
 
     return lafsSuccess<DocsRemoveResult>(
       {
@@ -1509,31 +1619,50 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       );
     }
 
-    // Mirror the updated blob into the V2 store so blobList / publishDocs
-    // see the new version rather than the old blob (T11053 / AC1).
-    // Best-effort — a V2 store failure never blocks the update response.
-    let backend: AttachmentBackend = 'legacy';
+    // T947 Wave C — mirror the updated blob so blobList /
+    // publishDocs see the new version (T11053 / AC1). Best-effort.
+    let backend: AttachmentBackend = 'llmtxt';
     try {
-      const v2 = createAttachmentStoreV2(getProjectRoot());
-      // Derive the old owner from the update params or fall back to slug.
-      // The V2 store keys by (ownerId, blobName), so we use the slug as
-      // the blob name and a synthetic owner derived from the slug itself
-      // (the canonical docs publish path resolves owners via CLEO task
-      // lookups, not via the V2 store key).
-      const resolvedOwnerId =
-        typeof resolvedParams.ownerId === 'string' && resolvedParams.ownerId.length > 0
-          ? resolvedParams.ownerId
-          : `slug:${outcome.result.slug}`;
-      const v2Result = await v2.put(resolvedOwnerId, {
-        name: outcome.result.slug,
-        data: hasFile
-          ? new Uint8Array(await readFile(resolve(filePath as string)))
-          : new Uint8Array(Buffer.from(inlineContent as string, 'utf-8')),
-        contentType: hasFile ? mimeFromPath(resolve(filePath as string)) : 'text/plain',
-      });
-      backend = v2Result.backend;
+      const blobMirror = createAttachmentBlobStore(getProjectRoot());
+      const updatedBytes = hasFile
+        ? new Uint8Array(await readFile(resolve(filePath as string)))
+        : new Uint8Array(Buffer.from(inlineContent as string, 'utf-8'));
+      const contentType = hasFile ? mimeFromPath(resolve(filePath as string)) : 'text/plain';
+      const store = createAttachmentStore();
+      const rows = await store.listAllInProject(projectRoot);
+      const ownerIds = Array.from(
+        new Set(
+          rows
+            .filter((row) => row.metadata.id === outcome.result.attachmentId)
+            .map((row) => row.ownerId),
+        ),
+      );
+      const mirrorOwnerIds = ownerIds.length > 0 ? ownerIds : [`slug:${outcome.result.slug}`];
+      for (const mirrorOwnerId of mirrorOwnerIds) {
+        const mirrorResult = await blobMirror.put(mirrorOwnerId, {
+          name: outcome.result.slug,
+          data: updatedBytes,
+          contentType,
+        });
+        backend = mirrorResult.backend;
+      }
     } catch {
-      backend = await resolveAttachmentBackend();
+      backend = await currentAttachmentBackend();
+    }
+
+    // T11139 — audit trail
+    try {
+      writeAuditEntry(getProjectRoot(), {
+        op: 'docs.update',
+        slug: outcome.result.slug,
+        type: outcome.result.type ?? undefined,
+        attachmentId: outcome.result.attachmentId,
+        sha256: outcome.result.sha256,
+        previousSha256: outcome.result.previousSha256 ?? undefined,
+        summary: `Updated doc '${outcome.result.slug}'${outcome.result.lifecycleStatus ? ` (status: ${outcome.result.lifecycleStatus})` : ''}`,
+      });
+    } catch {
+      /* best-effort */
     }
 
     return lafsSuccess<DocsUpdateResult>(
@@ -1548,6 +1677,10 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         lifecycleStatus: outcome.result.lifecycleStatus,
         updatedAt: outcome.result.updatedAt,
         version: outcome.result.version,
+        /** Version SSoT (T11181) — canonical version identifiers. */
+        ownerVersion: outcome.result.ownerVersion,
+        /** Sequential doc version counter (T11181). */
+        docVersion: outcome.result.docVersion,
         squashed: outcome.result.squashed,
         summary: outcome.result.summary,
         // T11053 — surface which backend stored the updated blob so
@@ -1593,6 +1726,17 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         edgeId: result.edgeId,
         ...(result.reason !== undefined ? { reason: result.reason } : {}),
       };
+      // T11139 — audit trail
+      try {
+        writeAuditEntry(getProjectRoot(), {
+          op: 'docs.supersede',
+          slug: result.newSlug,
+          attachmentId: result.newAttachmentId,
+          summary: `Superseded '${result.oldSlug}' → '${result.newSlug}'${result.reason ? ` (reason: ${result.reason})` : ''}`,
+        });
+      } catch {
+        /* best-effort */
+      }
       return lafsSuccess<DocsSupersedeResult>(payload, 'supersede');
     } catch (err) {
       const code =
@@ -1629,7 +1773,12 @@ function docsEnvelopeToResponse(
   envelope: {
     success: boolean;
     data?: unknown;
-    error?: { code: string | number; message: string; details?: Record<string, unknown> };
+    error?: {
+      code: string | number;
+      message: string;
+      details?: Record<string, unknown>;
+      fix?: string;
+    };
   },
   gateway: string,
   operation: string,
@@ -1642,6 +1791,7 @@ function docsEnvelopeToResponse(
       error: {
         code: String(envelope.error?.code ?? 'E_INTERNAL'),
         message: envelope.error?.message ?? 'Unknown error',
+        ...(envelope.error?.fix !== undefined ? { fix: envelope.error.fix } : {}),
         // T9636 — preserve structured details (e.g. slug suggestions) so the
         // CLI can render alternative slugs without a separate API call.
         ...(envelope.error?.details !== undefined ? { details: envelope.error.details } : {}),
@@ -1807,10 +1957,21 @@ async function dispatchDocsLegacyMutate(
       } catch {
         /* Ledger write is best-effort. */
       }
+      // T11139 — audit trail
+      try {
+        writeAuditEntry(projectRoot, {
+          op: 'docs.publish',
+          slug: result.blobName,
+          attachmentId: result.blobSha256,
+          summary: `Published doc '${result.blobName}' to ${result.relativePath}`,
+        });
+      } catch {
+        /* best-effort */
+      }
       return result;
     }
-    case 'publish-pr':
-      return publishDocsAsPr({
+    case 'publish-pr': {
+      const prResult = await publishDocsAsPr({
         slugOrId: String(params['slugOrId']),
         ...(typeof params['slug'] === 'string' ? { slug: params['slug'] } : {}),
         ...(typeof params['type'] === 'string' ? { type: params['type'] } : {}),
@@ -1818,14 +1979,43 @@ async function dispatchDocsLegacyMutate(
         ...(typeof params['body'] === 'string' ? { body: params['body'] } : {}),
         ...(typeof params['base'] === 'string' ? { base: params['base'] } : {}),
       });
-    case 'sync':
-      return syncFromGit({
+      // T11139 — audit trail
+      if (prResult.success) {
+        try {
+          writeAuditEntry(projectRoot, {
+            op: 'docs.publish-pr',
+            slug: prResult.data.slug,
+            type: prResult.data.type,
+            attachmentId: prResult.data.blobSha,
+            summary: `Published PR for doc '${prResult.data.slug}' (${prResult.data.action}) — ${prResult.data.prUrl}`,
+          });
+        } catch {
+          /* best-effort */
+        }
+      }
+      return prResult;
+    }
+    case 'sync': {
+      const syncResult = await syncFromGit({
         ownerId: String(params['ownerId']),
         fromPath: String(params['fromPath']),
         blobName: typeof params['blobName'] === 'string' ? params['blobName'] : undefined,
         contentType: typeof params['contentType'] === 'string' ? params['contentType'] : undefined,
         projectRoot,
       });
+      // T11139 — audit trail
+      try {
+        writeAuditEntry(projectRoot, {
+          op: 'docs.sync',
+          slug: (typeof params['blobName'] === 'string' && params['blobName']) || undefined,
+          ownerId: String(params['ownerId']),
+          summary: `Synced doc from '${String(params['fromPath'])}' for owner ${String(params['ownerId'])}`,
+        });
+      } catch {
+        /* best-effort */
+      }
+      return syncResult;
+    }
     case 'import': {
       const scanRoot = String(params['scanRoot']);
       const accessor = createAttachmentStoreDocsAccessor(projectRoot);
@@ -1840,6 +2030,15 @@ async function dispatchDocsLegacyMutate(
           auditDir: projectRoot,
           classify: makeClassifierForScanRoot(scanRoot, projectRoot),
         });
+        // T11139 — audit trail
+        try {
+          writeAuditEntry(projectRoot, {
+            op: 'docs.import',
+            summary: `Imported ${result.counters.importCount} created, ${result.counters.noopCount} skipped, ${result.counters.errorCount} errors from '${scanRoot}'`,
+          });
+        } catch {
+          /* best-effort */
+        }
         return {
           dryRun: result.dryRun,
           counters: result.counters,

@@ -1,0 +1,69 @@
+Cleo Code Task System:
+hierarchy:
+  - tier: Saga
+    displayPrefix: SG-
+    type: saga
+    parent: null
+    contains: Epic
+    containmentEdge: tasks.parent_id
+    scope: strategic multi-epic theme; often spans multiple releases
+    owner: Orchestrator
+    role: read/rollup/orchestration coordination
+  - tier: Epic
+    displayPrefix: E-
+    type: epic
+    parent: Saga | null
+    contains: Task
+    containmentEdge: tasks.parent_id
+    scope: one releasable vertical slice; one demoable capability
+    owner: Orchestrator
+    role: HITL-facing planning and release boundary
+  - tier: Task
+    displayPrefix: T-
+    type: task
+    parent: Epic
+    contains: Subtask
+    containmentEdge: tasks.parent_id
+    scope: one atomic PR-sized change; single wave
+    owner: Phase Lead
+    role: supervise execution and aggregate workers
+  - tier: Subtask
+    displayPrefix: none
+    type: subtask
+    parent: Task
+    contains: none
+    containmentEdge: tasks.parent_id
+    scope: one focused commit; <=2 files or one tight module boundary
+    owner: Worker
+    role: leaf execution
+|--------------------------------------------------------------|    
+| Graph Surface |	Storage	| Meaning | Drives Execution? |
+| Containment	| tasks.parent_id |	Saga → Epic → Task → Subtask | Yes, for hierarchy/rollups |
+| Hard dependency |	task_dependencies	Must finish before downstream work proceeds | Yes |
+| Soft relation |	task_relations |	Dotted-line context: related, groups, duplicates, absorbs, fixes, extends, supersedes, advisory blocks | No |
+|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
+canonical_rules:
+  - parent_id_is_the_only_containment_edge
+  - task_relations.groups_is_soft_context_only
+  - task_relations.blocks_is_advisory_only
+  - hard_blocking_must_use_task_dependencies
+  - reparenting_moves_the_entire_subtree
+  - retyping_requires_dry_run_and_full_subtree_validation
+  - invalid_reparent_or_retype_must_fail_atomically
+sizing_rules:
+  Saga:
+    split_when: scope is not a coherent multi-epic theme
+  Epic:
+    split_when: cannot ship as one releasable vertical slice
+  Task:
+    split_when: cannot land as one atomic PR or one dependency wave
+  Subtask:
+    split_when: cannot fit one worker context, one focused commit, or <=2 files
+    promote_when: it needs its own PR, multiple commits, or cross-module ownership
+immutable_rule:
+  Task: must fit one atomic PR and one execution wave
+  Subtask: must fit one worker context window
+  if_too_large:
+    - split into sibling Tasks when PR/wave scope is too large
+    - split into Subtasks when leaf execution scope is too large
+    - promote Subtask to Task when it needs independent PR ownership

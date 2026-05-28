@@ -19,7 +19,7 @@ import type {
   TaskVerification,
 } from '@cleocode/contracts';
 // setMetaValue now called via tx.setMetaValue inside transaction (T023)
-import { ExitCode, TASK_STATUSES } from '@cleocode/contracts';
+import { ExitCode, isAllowedWorkGraphParentType, TASK_STATUSES } from '@cleocode/contracts';
 import { loadConfig } from '../config.js';
 import { CleoError } from '../errors.js';
 import { resolveOrCwd } from '../paths.js';
@@ -965,80 +965,31 @@ export async function addTask(
       );
     }
 
-    // Validate type constraints.
-    //
-    // T944: relax "Epic tasks cannot have a parent" to support nested epics
-    // (epic-of-epics). An epic MAY have a parent IFF:
-    //   1. The parent is itself an epic.
-    //   2. Every ancestor in the chain is an epic (no epic nested under a task/subtask).
-    //   3. The nested-epic depth does not exceed max-depth=3 (root/L1/L2).
-    //   4. No cycle would be introduced (the candidate parent chain must not
-    //      loop back). Cycle detection is implicit — `getAncestorChain` is
-    //      bounded by the DB FK + max-depth guard, but we still guard against
-    //      a self-parent in case of in-memory races.
-    //
-    // For non-epic children, the original rule still stands: they can have
-    // any parent type that is not a subtask (existing maxDepth check handles
-    // leaf-nesting).
-    if (taskType === 'epic') {
-      // Rule 1 + 2: parent must be epic AND every ancestor must be epic.
-      const parentIsEpic = parentTask.type === 'epic';
-      const allAncestorsAreEpics = ancestors.every((a) => a.type === 'epic');
-      if (!parentIsEpic || !allAncestorsAreEpics) {
-        throw new CleoError(
-          ExitCode.VALIDATION_ERROR,
-          'Epic tasks may only be parented under other epics (epic-of-epics). ' +
-            'Nesting an epic under a task or subtask is not allowed.',
-          {
-            fix: 'Either choose an epic parent or change --type to task|subtask',
-            details: {
-              field: 'parentId',
-              expected: 'parent.type === "epic" and all ancestors are epics',
-              actual: {
-                parentType: parentTask.type,
-                ancestorTypes: ancestors.map((a) => a.type),
-              },
+    const parentTypeForValidation: TaskType = parentTask.type ?? 'task';
+    const childTypeForParent: TaskType =
+      taskType ??
+      (parentTypeForValidation === 'saga'
+        ? 'epic'
+        : parentTypeForValidation === 'task'
+          ? 'subtask'
+          : 'task');
+    if (!isAllowedWorkGraphParentType(childTypeForParent, parentTypeForValidation)) {
+      throw new CleoError(
+        ExitCode.VALIDATION_ERROR,
+        `Invalid parent type for ${taskType}: parent ${parentId} has type '${parentTask.type}'.`,
+        {
+          fix: 'Use Saga→Epic, Epic→Task, and Task→Subtask containment.',
+          details: {
+            field: 'parentId',
+            expected: 'saga->epic | epic->task | task->subtask',
+            actual: {
+              parentType: parentTypeForValidation,
+              childType: childTypeForParent,
+              ancestorTypes: ancestors.map((a) => a.type),
             },
           },
-        );
-      }
-
-      // Rule 3: enforce nested-epic max depth of 3 (root/L1/L2). depth here is
-      // ancestor count; creating at depth N means we now exist at depth N.
-      const EPIC_MAX_DEPTH = 3;
-      const nestedEpicDepth = ancestors.length + 1;
-      if (nestedEpicDepth >= EPIC_MAX_DEPTH) {
-        throw new CleoError(
-          ExitCode.DEPTH_EXCEEDED,
-          `Nested-epic depth ${nestedEpicDepth} exceeds the maximum of ${EPIC_MAX_DEPTH - 1} ` +
-            'levels below the root epic',
-          {
-            fix: 'Reparent under a shallower epic or reorganize the epic tree',
-            details: {
-              field: 'parentId',
-              expected: `depth < ${EPIC_MAX_DEPTH}`,
-              actual: nestedEpicDepth,
-            },
-          },
-        );
-      }
-
-      // Rule 4: cycle guard. `getAncestorChain` walks parent_id → parent_id
-      // using a recursive CTE; if the DB ever contains a cycle (e.g., via a
-      // concurrent update that races past the FK), the chain would be bounded
-      // by SQLite's recursion limit but not detected here. We harden by
-      // rejecting any ancestor whose id matches parentId — which would mean
-      // parentId already sits in its own ancestry.
-      if (ancestors.some((a) => a.id === parentId)) {
-        throw new CleoError(
-          ExitCode.VALIDATION_ERROR,
-          `Cycle detected in epic hierarchy — ${parentId} appears in its own ancestor chain`,
-          {
-            fix: 'Inspect the parent epic chain and break the cycle before adding children',
-            details: { field: 'parentId', actual: parentId },
-          },
-        );
-      }
+        },
+      );
     }
   }
 
@@ -1060,6 +1011,8 @@ export async function addTask(
       const parent = await dataAccessor.loadSingleTask(parentId);
       if (!parent) {
         taskType = 'task';
+      } else if (parent.type === 'saga') {
+        taskType = 'epic';
       } else if (parent.type === 'epic') {
         taskType = 'task';
       } else {

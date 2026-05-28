@@ -1,5 +1,5 @@
 /**
- * T11189 — Regression test suite for viewer surface flattening.
+ * Regression test suite for viewer surface flattening.
  *
  * Comprehensive regression coverage for the docs viewer HTTP server surface.
  * Protects against regressions in JSON envelope shapes, response consistency
@@ -24,16 +24,16 @@ vi.mock('llmtxt/similarity', () => ({
   rankBySimilarity: vi.fn(),
 }));
 
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import * as simMod from 'llmtxt/similarity';
-import { startViewer } from '../server.js';
 import {
   readViewerPidFile,
   removeViewerPidFile,
-  writeViewerPidFile,
   viewerPidFilePath,
+  writeViewerPidFile,
 } from '../pidfile.js';
 import { tryListen } from '../port-allocator.js';
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { startViewer } from '../server.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -180,7 +180,7 @@ function makeLargeDoc(words: number): string {
 
 // ─── 1. LAFS Envelope Consistency ────────────────────────────────────────────
 
-describe('T11189 — LAFS envelope consistency', () => {
+describe('Viewer API — LAFS envelope consistency', () => {
   it('health endpoint returns success envelope with status ok', async () => {
     const handle = await startViewerOnOSPort();
     try {
@@ -303,7 +303,7 @@ const ALL_BUILTIN_DOC_TYPES = [
   'rcasd',
 ];
 
-describe('T11189 — /api/docs list across all doc types', () => {
+describe('Viewer API — /api/docs list across all doc types', () => {
   it('returns empty docs array on a fresh project', async () => {
     const handle = await startViewerOnOSPort();
     try {
@@ -391,7 +391,7 @@ describe('T11189 — /api/docs list across all doc types', () => {
 
 // ─── 3. Docs Detail — /api/docs/:slug ───────────────────────────────────────
 
-describe('T11189 — /api/docs/:slug detail', () => {
+describe('Viewer API — /api/docs/:slug detail', () => {
   it('returns doc detail with content for a published note', async () => {
     const content = '# My Note\n\nThis is a test note.\n';
     await publish('my-note', content, 'note');
@@ -460,7 +460,11 @@ describe('T11189 — /api/docs/:slug detail', () => {
   it('returns E_NOT_FOUND for non-existent slug', async () => {
     const handle = await startViewerOnOSPort();
     try {
-      const { status, body } = await fetchJson(handle.host, handle.port, '/api/docs/does-not-exist');
+      const { status, body } = await fetchJson(
+        handle.host,
+        handle.port,
+        '/api/docs/does-not-exist',
+      );
       expect(status).toBe(404);
       expect(body?.success).toBe(false);
       expect(body?.error?.code).toBe('E_NOT_FOUND');
@@ -494,7 +498,7 @@ describe('T11189 — /api/docs/:slug detail', () => {
 
 // ─── 4. Search Endpoint Regression ───────────────────────────────────────────
 
-describe('T11189 — /api/search regression', () => {
+describe('Viewer API — /api/search regression', () => {
   it('rejects missing query with E_VALIDATION (400)', async () => {
     const handle = await startViewerOnOSPort();
     try {
@@ -538,7 +542,11 @@ describe('T11189 — /api/search regression', () => {
 
     const handle = await startViewerOnOSPort();
     try {
-      const { status, body } = await fetchJson(handle.host, handle.port, '/api/search?q=test&limit=-10');
+      const { status, body } = await fetchJson(
+        handle.host,
+        handle.port,
+        '/api/search?q=test&limit=-10',
+      );
       expect(status).toBe(200);
       const hits = body?.data?.hits as unknown[];
       expect(hits.length).toBeLessThanOrEqual(1);
@@ -554,7 +562,11 @@ describe('T11189 — /api/search regression', () => {
 
     const handle = await startViewerOnOSPort();
     try {
-      const { status, body } = await fetchJson(handle.host, handle.port, '/api/search?q=test&limit=9999');
+      const { status, body } = await fetchJson(
+        handle.host,
+        handle.port,
+        '/api/search?q=test&limit=9999',
+      );
       expect(status).toBe(200);
       const hits = body?.data?.hits as unknown[];
       expect(hits.length).toBeLessThanOrEqual(1);
@@ -573,7 +585,11 @@ describe('T11189 — /api/search regression', () => {
 
     const handle = await startViewerOnOSPort();
     try {
-      const { status, body } = await fetchJson(handle.host, handle.port, '/api/search?q=Type&type=spec');
+      const { status, body } = await fetchJson(
+        handle.host,
+        handle.port,
+        '/api/search?q=Type&type=spec',
+      );
       expect(status).toBe(200);
       const hits = body?.data?.hits as SearchHit[];
       expect(hits.length).toBe(1);
@@ -603,7 +619,7 @@ describe('T11189 — /api/search regression', () => {
 
 // ─── 5. Static Assets ────────────────────────────────────────────────────────
 
-describe('T11189 — static asset serving', () => {
+describe('Viewer server — static asset serving', () => {
   it('GET / redirects to /viewer/index.html (302)', async () => {
     const handle = await startViewerOnOSPort();
     try {
@@ -700,7 +716,7 @@ describe('T11189 — static asset serving', () => {
 
 // ─── 6. SPA Routing ──────────────────────────────────────────────────────────
 
-describe('T11189 — SPA routing (/docs/:slug)', () => {
+describe('Viewer server — SPA routing (/docs/:slug)', () => {
   it('GET /docs/:slug returns index.html for client-side routing', async () => {
     const handle = await startViewerOnOSPort();
     try {
@@ -728,7 +744,7 @@ describe('T11189 — SPA routing (/docs/:slug)', () => {
 
 // ─── 7. Port Allocation ──────────────────────────────────────────────────────
 
-describe('T11189 — port allocation', () => {
+describe('Viewer server — port allocation', () => {
   it('tryListen binds on port 0 (OS-assigned)', async () => {
     const handler = (_req: IncomingMessage, res: ServerResponse) => {
       res.writeHead(200);
@@ -788,7 +804,7 @@ describe('T11189 — port allocation', () => {
 
 // ─── 8. Pidfile Operations ──────────────────────────────────────────────────
 
-describe('T11189 — pidfile operations', () => {
+describe('Viewer server — pidfile operations', () => {
   it('writeViewerPidFile creates a readable pidfile', async () => {
     const record = {
       pid: 12345,
@@ -827,7 +843,13 @@ describe('T11189 — pidfile operations', () => {
   });
 
   it('removeViewerPidFile cleans up the file', async () => {
-    const record = { pid: 99999, port: 7777, host: '127.0.0.1', projectRoot: tmpProjectRoot, startedAt: Date.now() };
+    const record = {
+      pid: 99999,
+      port: 7777,
+      host: '127.0.0.1',
+      projectRoot: tmpProjectRoot,
+      startedAt: Date.now(),
+    };
     await writeViewerPidFile(record);
     const before = await readViewerPidFile();
     expect(before).not.toBeNull();
@@ -845,55 +867,47 @@ describe('T11189 — pidfile operations', () => {
 
 // ─── 9. Performance Regression Guard ────────────────────────────────────────
 
-describe('T11189 — performance guard', () => {
-  it(
-    'viewer renders docs list in < 2000ms for docs up to 10K words',
-    async () => {
-      const largeContent = makeLargeDoc(10_000);
-      await publish('perf-doc', largeContent, 'note');
+describe('Viewer server — performance guard', () => {
+  it('viewer renders docs list in < 2000ms for docs up to 10K words', async () => {
+    const largeContent = makeLargeDoc(10_000);
+    await publish('perf-doc', largeContent, 'note');
 
-      const handle = await startViewerOnOSPort();
-      try {
-        const start = performance.now();
-        const res = await fetch(`http://${handle.host}:${handle.port}/api/docs/perf-doc`);
-        const elapsed = performance.now() - start;
-        expect(res.status).toBe(200);
-        expect(elapsed).toBeLessThan(2000);
-      } finally {
-        handle.server.close();
-      }
-    },
-    10_000,
-  );
+    const handle = await startViewerOnOSPort();
+    try {
+      const start = performance.now();
+      const res = await fetch(`http://${handle.host}:${handle.port}/api/docs/perf-doc`);
+      const elapsed = performance.now() - start;
+      expect(res.status).toBe(200);
+      expect(elapsed).toBeLessThan(2000);
+    } finally {
+      handle.server.close();
+    }
+  }, 10_000);
 
-  it(
-    'viewer /api/docs list renders in < 2000ms with 20 published docs',
-    async () => {
-      for (let i = 0; i < 20; i++) {
-        const type = ALL_BUILTIN_DOC_TYPES[i % ALL_BUILTIN_DOC_TYPES.length];
-        await publish(`perf-doc-${i}`, `# Doc ${i}\n\nContent for doc ${i}.\n`, type, `T11189-${i}`);
-      }
+  it('viewer /api/docs list renders in < 2000ms with 20 published docs', async () => {
+    for (let i = 0; i < 20; i++) {
+      const type = ALL_BUILTIN_DOC_TYPES[i % ALL_BUILTIN_DOC_TYPES.length];
+      await publish(`perf-doc-${i}`, `# Doc ${i}\n\nContent for doc ${i}.\n`, type, `T11189-${i}`);
+    }
 
-      const handle = await startViewerOnOSPort();
-      try {
-        const start = performance.now();
-        const { status, body } = await fetchJson(handle.host, handle.port, '/api/docs');
-        const elapsed = performance.now() - start;
-        expect(status).toBe(200);
-        expect(elapsed).toBeLessThan(2000);
-        const docs = body?.data?.docs as unknown[];
-        expect(docs.length).toBeGreaterThanOrEqual(1);
-      } finally {
-        handle.server.close();
-      }
-    },
-    10_000,
-  );
+    const handle = await startViewerOnOSPort();
+    try {
+      const start = performance.now();
+      const { status, body } = await fetchJson(handle.host, handle.port, '/api/docs');
+      const elapsed = performance.now() - start;
+      expect(status).toBe(200);
+      expect(elapsed).toBeLessThan(2000);
+      const docs = body?.data?.docs as unknown[];
+      expect(docs.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      handle.server.close();
+    }
+  }, 10_000);
 });
 
 // ─── 10. Cross-Doc-Type Consistency ─────────────────────────────────────────
 
-describe('T11189 — cross-doc-type consistency', () => {
+describe('Viewer API — cross-doc-type consistency', () => {
   it('doc detail shape is identical across all built-in doc types', async () => {
     const expectedKeys = ['id', 'slug', 'type', 'title', 'mime', 'sha256', 'content', 'sizeBytes'];
 
@@ -917,7 +931,17 @@ describe('T11189 — cross-doc-type consistency', () => {
   });
 
   it('doc list item shape is identical across all built-in doc types', async () => {
-    const expectedKeys = ['id', 'slug', 'type', 'sha256', 'mime', 'ownerType', 'ownerId', 'title', 'createdAt'];
+    const expectedKeys = [
+      'id',
+      'slug',
+      'type',
+      'sha256',
+      'mime',
+      'ownerType',
+      'ownerId',
+      'title',
+      'createdAt',
+    ];
 
     for (const docType of ALL_BUILTIN_DOC_TYPES) {
       await publish(`list-${docType}`, `# ${docType}\n\nBody.\n`, docType);
@@ -964,7 +988,7 @@ describe('T11189 — cross-doc-type consistency', () => {
 
 // ─── 11. Edge Cases ─────────────────────────────────────────────────────────
 
-describe('T11189 — edge cases', () => {
+describe('Viewer API — edge cases', () => {
   it('slug with special characters is URL-decoded correctly', async () => {
     const slug = 'doc-with-dashes-and_underscores';
     await publish(slug, '# Special\n\nChars.\n', 'note');

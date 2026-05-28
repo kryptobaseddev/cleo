@@ -454,7 +454,8 @@ export function getCleoDirAbsolute(cwd?: string, opts?: { bootstrap?: boolean })
  * throws `E_PROJECT_NOT_FOUND` when the projectId is not in the nexus registry,
  * matching the contract expected by CLEO's higher-level subsystems.
  *
- * @param projectId - The stable project UUID (from `.cleo/project-info.json`).
+ * @param projectId - The canonical registry project ID, or a legacy alias
+ *   registered in `project_id_aliases`.
  * @returns Absolute path to the `.cleo/` directory.
  * @throws {CleoError} `ExitCode.NOT_FOUND` (`E_PROJECT_NOT_FOUND`) when the
  *   projectId is not found in the nexus registry.
@@ -496,7 +497,7 @@ function _resolveProjectByCwdFromNexus(cwd?: string): string | null {
     const start = resolve(cwd ?? process.cwd());
     let current = start;
 
-    const db = new DatabaseSync(nexusDbPath, { readOnly: true });
+    const db = new DatabaseSync(nexusDbPath, { readOnly: true }); // db-open-allowed: bootstrap path resolver cannot import core DB chokepoint without a cycle
     try {
       const stmt = db.prepare(
         'SELECT project_id FROM project_registry WHERE project_path = ? LIMIT 1',

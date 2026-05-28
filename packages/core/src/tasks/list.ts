@@ -101,15 +101,15 @@ export interface ListTasksResult {
    * Tag identifying which resolution path produced `tasks`. Present when the
    * default `parentId` query was overridden by a routing branch.
    *
-   * - `'saga.groups'` — the `--parent` target was a Saga (Epic with
-   *   `label='saga'`) and children were resolved via
-   *   `task_relations.type='groups'` edges instead of the `parentId` column.
+   * - `'saga.groups'` — legacy binding-source label retained for compatibility;
+   *   the `--parent` target was a Saga and children were resolved via
+   *   canonical `parentId` containment, not relation-based grouping.
    *
    * Absent when the default `parentId`-based query produced the result.
    * Dispatch layers (e.g. LAFS envelope wrappers) MAY lift this into
    * envelope meta as `meta.bindingSource`.
    *
-   * @see ADR-073 §1 — Saga ↔ Epic linkage
+   * @see ADR-088 — PM-Core V2 WorkGraph containment
    * @task T9658
    */
   bindingSource?: typeof LIST_BINDING_SAGA_GROUPS;
@@ -118,12 +118,11 @@ export interface ListTasksResult {
 /**
  * List tasks with optional filtering and pagination.
  *
- * When `options.parentId` resolves to a Saga (Epic with `labels.includes('saga')`),
- * children are resolved via `task_relations.type='groups'` edges instead of the
- * default `parentId` column query (ADR-073 §1). All other filters (`status`,
+ * When `options.parentId` resolves to a Saga (`type='saga'`), children are
+ * resolved via canonical `parentId` containment. All other filters (`status`,
  * `priority`, `type`, `phase`, `label`, `excludeArchived`) are applied to the
  * resolved member set in-memory. The returned `bindingSource` field is set to
- * `'saga.groups'` so dispatch layers can surface the routing in envelope meta.
+ * `'saga.groups'` for legacy client compatibility only.
  *
  * @task T4460
  * @task T9658 — Saga-aware --parent routing
@@ -137,9 +136,8 @@ export async function listTasks(
     accessor ?? (await (await import('../store/data-accessor.js')).getTaskAccessor(cwd));
 
   // T9658: Saga-aware --parent routing.
-  // When --parent targets a Saga (label='saga'), children live in
-  // task_relations.type='groups', NOT in the parentId column. Detect once
-  // up-front and short-circuit through the groups path. Falls back to the
+  // When --parent targets a Saga, resolve members through the canonical
+  // Saga member helper. Falls back to the
   // default parentId-based query when the parent is not a Saga (or does not
   // exist — non-existent IDs return an empty result set via the default path,
   // preserving the historical behavior).
@@ -155,8 +153,8 @@ export async function listTasks(
   if (options.status) queryFilters.status = options.status;
   if (options.priority) queryFilters.priority = options.priority;
   if (options.type) queryFilters.type = options.type;
-  // Skip parentId filter when routing through Saga groups — Saga members are
-  // top-level Epics with no parentId, so the parentId column wouldn't match.
+  // Skip the raw parentId filter when routing through the Saga helper so the
+  // helper remains the SSoT for Saga membership semantics.
   if (options.parentId && sagaMemberIds === null) queryFilters.parentId = options.parentId;
   if (options.phase) queryFilters.phase = options.phase;
   if (options.label) queryFilters.label = options.label;
@@ -168,8 +166,7 @@ export async function listTasks(
   let filtered: Task[];
   let filteredCount: number;
   if (sagaMemberIds !== null) {
-    // Saga path: restrict the queried set to the saga's member Epic IDs,
-    // preserving the relation-order of the groups edges.
+    // Saga path: restrict the queried set to the saga's member Epic IDs.
     const memberOrder = new Map<string, number>();
     for (let idx = 0; idx < sagaMemberIds.length; idx++) {
       const id = sagaMemberIds[idx];

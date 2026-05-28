@@ -1370,11 +1370,19 @@ export async function orchestrateSpawn(
       // Unlock the worktree if it's locked (resume implies the worktree may
       // have been left locked by a prior aborted spawn).
       try {
-        execFileSync('git', ['worktree', 'unlock', worktreePath], {
-          cwd: root,
-          timeout: 5_000,
-          stdio: ['pipe', 'pipe', 'pipe'],
-        });
+        execFileSync(
+          'git',
+          [
+            'worktree' /* raw-git-worktree-ok: resume fallback unlock until spawn-ops fully routes through worktree SDK */,
+            'unlock',
+            worktreePath,
+          ],
+          {
+            cwd: root,
+            timeout: 5_000,
+            stdio: ['pipe', 'pipe', 'pipe'],
+          },
+        );
       } catch {
         // Best-effort — if unlock fails, the worktree might still be usable.
       }

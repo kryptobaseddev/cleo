@@ -165,6 +165,10 @@ export interface DocsVersionEntry {
   readonly sizeBytes: number;
   /** IANA MIME type, when known. */
   readonly mimeType?: string;
+  /** CLEO release version that wrote this version (T11181). */
+  readonly ownerVersion?: string;
+  /** Sequential doc version counter (T11181). */
+  readonly docVersion?: number;
 }
 
 /**
@@ -1016,13 +1020,19 @@ export async function publishDocs(opts: {
     throw new Error(`publishDocs: no attachments found for owner "${opts.ownerId}"`);
   }
 
-  // Select target blob. When attachmentId is provided, match by sha256 or name.
-  // Otherwise, pick the most recently uploaded blob (latest version by uploadedAt).
-  const target = opts.attachmentId
+  // Select target blob. When attachmentId is provided, match by sha256, blob name,
+  // or legacy attachment row ID. Otherwise, pick the most recently uploaded blob.
+  let target = opts.attachmentId
     ? blobs.find((b) => b.sha256 === opts.attachmentId || b.name === opts.attachmentId)
-    : blobs.reduce((latest, b) =>
-        (b.uploadedAt ?? 0) > (latest.uploadedAt ?? 0) ? b : latest,
-      );
+    : blobs.reduce((latest, b) => ((b.uploadedAt ?? 0) > (latest.uploadedAt ?? 0) ? b : latest));
+
+  if (!target && opts.attachmentId) {
+    const store = createAttachmentStore();
+    const metadata = await store.getMetadata(opts.attachmentId, root).catch(() => null);
+    if (metadata) {
+      target = blobs.find((b) => b.sha256 === metadata.sha256);
+    }
+  }
 
   if (!target) {
     throw new Error(
@@ -1139,7 +1149,9 @@ function ledgerPath(projectRoot: string): string {
  *
  * @internal
  */
-export async function readPublicationsLedger(projectRoot: string): Promise<DocsPublicationRecord[]> {
+export async function readPublicationsLedger(
+  projectRoot: string,
+): Promise<DocsPublicationRecord[]> {
   const { readFile } = await import('node:fs/promises');
   try {
     const raw = await readFile(ledgerPath(projectRoot), 'utf-8');

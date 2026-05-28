@@ -67,7 +67,7 @@ describe('task-axis enum constants', () => {
     ]);
   });
 
-  it('TASK_RELATION_TYPES includes "groups" (ADR-073 Saga membership)', () => {
+  it('TASK_RELATION_TYPES includes "groups" (non-containment soft association, ADR-088)', () => {
     expect(TASK_RELATION_TYPES).toContain('groups');
     expect(TASK_RELATION_TYPES).toEqual([
       'related',

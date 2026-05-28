@@ -5,19 +5,23 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import type { Task, TaskStatus } from '@cleocode/contracts';
-import { TASK_STATUSES } from '@cleocode/contracts';
+import type { Task, TaskStatus, TaskType } from '@cleocode/contracts';
+import { isAllowedWorkGraphParentType, TASK_STATUSES } from '@cleocode/contracts';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { getHierarchyLimits } from './task-tree.js';
 
 /** Task record shape expected from the data layer. */
 type TaskRecord = Task;
 
-function typeForDepth(depth: number, currentType?: TaskRecord['type']): TaskRecord['type'] {
-  // Preserve saga and epic types through reparenting (saga stays saga, epic stays epic)
+function typeForParent(
+  parentType: TaskRecord['type'] | null | undefined,
+  currentType?: TaskRecord['type'],
+): TaskType {
   if (currentType === 'saga') return 'saga';
   if (currentType === 'epic') return 'epic';
-  return depth >= 2 ? 'subtask' : 'task';
+  if (parentType === 'task') return 'subtask';
+  if (parentType === 'epic') return 'task';
+  return currentType === 'subtask' ? 'task' : (currentType ?? 'task');
 }
 
 function taskLogId(): string {
@@ -25,17 +29,18 @@ function taskLogId(): string {
 }
 
 /**
- * Move task under a different parent.
+ * Move a task and its descendants under a different parent.
  *
  * @param projectRoot - Absolute path to the CLEO project root directory
  * @param taskId - The task ID to reparent
  * @param newParentId - The new parent task ID, or null to promote to root level
- * @returns Confirmation with old and new parent IDs and optional type change
+ * @returns Confirmation with old/new parent IDs, reopened ancestors, and the updated subtree IDs
  *
  * @remarks
- * Validates against circular references, depth limits, and sibling limits from
- * the project hierarchy config. Automatically adjusts task type based on new depth
- * (depth 1 = "task", depth >= 2 = "subtask").
+ * Validates circular references, depth limits, sibling limits, and the PM-Core
+ * V2 parent/type matrix before writing. Reparenting moves the whole subtree;
+ * Saga and Epic types are preserved while Task/Subtask descendants are adjusted
+ * only when their new parent tier requires it.
  *
  * @example
  * ```typescript
@@ -68,7 +73,7 @@ export async function coreTaskReparent(
   const oldParent = task.parentId ?? null;
   const effectiveParentId = newParentId || null;
   const now = new Date().toISOString();
-  const subtree = await accessor.getSubtree(taskId);
+  const subtree = (await accessor.getSubtree(taskId)).filter((node) => node.id !== taskId);
   const reparentLimits = getHierarchyLimits(projectRoot);
 
   if (effectiveParentId === taskId) {
@@ -120,10 +125,32 @@ export async function coreTaskReparent(
   }
 
   const plannedDepths = new Map<string, number>([[task.id, newDepth]]);
+  const plannedParentTypes = new Map<string, TaskRecord['type'] | null>([
+    [task.id, newParent?.type ?? null],
+  ]);
+  const plannedTypes = new Map<string, TaskRecord['type']>([
+    [task.id, typeForParent(newParent?.type ?? null, task.type)],
+  ]);
+  const rootParentType = plannedParentTypes.get(task.id) ?? null;
+  const rootPlannedType = plannedTypes.get(task.id)!;
+  if (rootParentType && !isAllowedWorkGraphParentType(rootPlannedType, rootParentType)) {
+    throw new Error(
+      `Invalid parent type for ${task.id}: parent type '${rootParentType}' cannot contain '${rootPlannedType}'`,
+    );
+  }
   const visitDescendants = (parentId: string, parentDepthForNode: number): void => {
+    const parentPlannedType = plannedTypes.get(parentId) ?? null;
     for (const child of subtreeByParent.get(parentId) ?? []) {
       const childDepth = parentDepthForNode + 1;
       plannedDepths.set(child.id, childDepth);
+      plannedParentTypes.set(child.id, parentPlannedType);
+      const childPlannedType = typeForParent(parentPlannedType, child.type);
+      plannedTypes.set(child.id, childPlannedType);
+      if (parentPlannedType && !isAllowedWorkGraphParentType(childPlannedType, parentPlannedType)) {
+        throw new Error(
+          `Invalid parent type for ${child.id}: parent type '${parentPlannedType}' cannot contain '${childPlannedType}'`,
+        );
+      }
       visitDescendants(child.id, childDepth);
     }
   };
@@ -158,7 +185,7 @@ export async function coreTaskReparent(
   for (const node of tasksToPersist) {
     const depth = plannedDepths.get(node.id);
     if (depth === undefined) continue;
-    node.type = typeForDepth(depth, node.type);
+    node.type = plannedTypes.get(node.id) ?? node.type;
     node.updatedAt = now;
     subtreeUpdated.push(node.id);
   }

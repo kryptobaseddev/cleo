@@ -1058,12 +1058,35 @@ export interface WorkGraphHierarchyValidationOptions {
   readonly throwOnViolation?: boolean;
 }
 
+const ROOT_TASK_TYPES: ReadonlySet<TaskType> = new Set(['saga', 'epic']);
+
 const PARENT_TYPE_MATRIX: Readonly<Record<TaskType, readonly TaskType[]>> = {
   saga: [],
-  epic: [],
+  epic: ['saga'],
   task: ['epic'],
-  subtask: ['epic', 'task'],
+  subtask: ['task'],
 };
+
+/**
+ * Return true when the task type can exist without a parent in the canonical
+ * PM-Core V2 containment tree.
+ *
+ * @param type - Task type to test.
+ */
+export function canWorkGraphTaskTypeBeRoot(type: TaskType): boolean {
+  return ROOT_TASK_TYPES.has(type);
+}
+
+/**
+ * Return true when a parent type can contain a child type in the canonical
+ * PM-Core V2 containment tree.
+ *
+ * @param childType - Child task type.
+ * @param parentType - Candidate parent task type.
+ */
+export function isAllowedWorkGraphParentType(childType: TaskType, parentType: TaskType): boolean {
+  return PARENT_TYPE_MATRIX[childType].includes(parentType);
+}
 
 function describeAllowedParents(type: TaskType): string {
   const allowed = PARENT_TYPE_MATRIX[type];
@@ -1107,7 +1130,7 @@ function makeViolation(
     taskType: node.type,
     parentId,
     parentType,
-    message: `tasks.parent_id must follow saga/epic roots, epic->task|subtask, and task->subtask; expected ${node.type} parent ${expected}, got ${actual}`,
+    message: `tasks.parent_id must follow saga->epic, epic->task, and task->subtask; sagas and standalone epics may be roots; expected ${node.type} parent ${expected}, got ${actual}`,
   };
 }
 
@@ -1115,9 +1138,10 @@ function makeViolation(
  * Validate WorkGraph hierarchy rows against CLEO's canonical type/parent matrix.
  *
  * The validator mirrors the SQLite trigger invariant in a storage-agnostic form
- * for core adapters, projections, and API callers: sagas and epics are roots,
- * epics may contain tasks or subtasks, tasks may contain subtasks, and subtasks
- * are leaves. Saga membership remains a `groups` relation, never `parentId`.
+ * for core adapters, projections, and API callers: sagas and standalone epics
+ * may be roots, sagas may contain epics, epics may contain tasks, tasks may
+ * contain subtasks, and subtasks are leaves. Saga membership uses `parentId`
+ * containment, never `task_relations.groups`.
  *
  * @param nodes - Task-like hierarchy rows to validate.
  * @param options - Optional fail-fast behavior for enforcement call sites.
@@ -1136,11 +1160,10 @@ export function validateWorkGraphHierarchy(
   for (const node of nodes) {
     const parentId = node.parentId ?? null;
     const parent = parentId === null ? undefined : byId.get(parentId);
-    const allowedParents = PARENT_TYPE_MATRIX[node.type];
     const valid =
       parentId === null
-        ? allowedParents.length === 0
-        : parent !== undefined && allowedParents.includes(parent.type);
+        ? canWorkGraphTaskTypeBeRoot(node.type)
+        : parent !== undefined && isAllowedWorkGraphParentType(node.type, parent.type);
 
     if (!valid) {
       const violation = makeViolation(node, parent);

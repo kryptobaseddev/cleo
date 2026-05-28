@@ -601,6 +601,10 @@ export interface DocsUpdateResult {
    * first update and increments by 1 thereafter.
    */
   version: number;
+  /** CLEO release or owner version associated with the new row. */
+  ownerVersion?: string;
+  /** Sequential per-slug document version associated with the new row. */
+  docVersion?: number;
   /**
    * True when this update was squashed into an existing audit entry within
    * the 5-minute squash window (no new audit line was written).
@@ -631,9 +635,29 @@ export interface DocsUpdateResult {
 
 /** Output mode for `docs.llm-output`. @task T11137 */
 export type LlmOutputMode = 'task-export' | 'attachment-bundle';
-export const LLM_OUTPUT_MODES: readonly LlmOutputMode[] = ['task-export', 'attachment-bundle'] as const;
-export interface DocsLlmOutputParams { for: string; mode?: LlmOutputMode; out?: string; includeAttachments?: boolean; includeMemoryRefs?: boolean; attach?: boolean; }
-export interface DocsLlmOutputResult { forId: string; mode: LlmOutputMode; content: string; sectionCount: number; usedLlmtxtPackage: boolean; attached?: boolean; attachmentId?: string; attachmentSha256?: string; writtenPath?: string; }
+export const LLM_OUTPUT_MODES: readonly LlmOutputMode[] = [
+  'task-export',
+  'attachment-bundle',
+] as const;
+export interface DocsLlmOutputParams {
+  for: string;
+  mode?: LlmOutputMode;
+  out?: string;
+  includeAttachments?: boolean;
+  includeMemoryRefs?: boolean;
+  attach?: boolean;
+}
+export interface DocsLlmOutputResult {
+  forId: string;
+  mode: LlmOutputMode;
+  content: string;
+  sectionCount: number;
+  usedLlmtxtPackage: boolean;
+  attached?: boolean;
+  attachmentId?: string;
+  attachmentSha256?: string;
+  writtenPath?: string;
+}
 
 // --------------------------------------------------------------------------
 // docs.supersede — flip an old doc to `superseded` and point at its successor

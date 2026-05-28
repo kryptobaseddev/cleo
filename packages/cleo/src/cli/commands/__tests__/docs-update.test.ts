@@ -23,16 +23,16 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { DOCS_LIFECYCLE_STATUSES } from '@cleocode/contracts';
 
 // T11060 — core-level regression imports for 2026-05-25 dogfood failures
 import {
-  isLifecycleStatus,
   DOCS_UPDATE_LIFECYCLE_STATUS_LIST,
-  sanitizePath,
+  isLifecycleStatus,
   SecurityError,
+  sanitizePath,
 } from '@cleocode/core/internal';
-import { DOCS_LIFECYCLE_STATUSES } from '@cleocode/contracts';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -394,9 +394,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
   //   2. docs update <s> --content <new-content>
   //   3. docs publish --for <owner> --to <path>
   //   4. Assert the published bytes === new-content
-  it.todo(
-    'T11042: updated doc remains publishable by the same owner (owner refs preserved)',
-  );
+  it.todo('T11042: updated doc remains publishable by the same owner (owner refs preserved)');
 
   // T11042-B2b: When a doc is updated and then published, the SHA-256
   // in the publish result must match the SHA-256 that docs fetch returns
@@ -417,9 +415,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
   // Today the ledger only records the lastBlobSha at publish time, but
   // if publish selects a stale blob, the status report shows a false
   // negative (modified/deleted) or a false positive (in-sync with stale data).
-  it.todo(
-    'T11042: docs status reports in-sync after update + publish cycle',
-  );
+  it.todo('T11042: docs status reports in-sync after update + publish cycle');
 
   // ── T11055: enforcement of replacement semantics ─────────────────────────────
 
@@ -436,7 +432,15 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
 
     // (h1) changed update → summary says "was changed"
     const upRes = runCli(
-      ['docs', 'update', 't11055-doc-h', '--content', 'changed content\\n', '--message', 'replaced'],
+      [
+        'docs',
+        'update',
+        't11055-doc-h',
+        '--content',
+        'changed content\\n',
+        '--message',
+        'replaced',
+      ],
       projectRoot,
     );
     expect(upRes.status).toBe(0);
@@ -523,7 +527,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
 //   AC3: Tests run without depending on machine-specific temp paths
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('T11060 — outside-project path rejection (sanitizePath)', () => {
+describe('Docs update — outside-project path rejection', () => {
   const projectRoot = '/tmp/t11060-test-project';
 
   it('rejects absolute path outside projectRoot with E_PATH_TRAVERSAL', () => {
@@ -569,9 +573,7 @@ describe('T11060 — outside-project path rejection (sanitizePath)', () => {
     expect(sanitizePath('/tmp/t11060-test-project/docs/file.md', projectRoot)).toBe(
       '/tmp/t11060-test-project/docs/file.md',
     );
-    expect(sanitizePath('docs/file.md', projectRoot)).toBe(
-      '/tmp/t11060-test-project/docs/file.md',
-    );
+    expect(sanitizePath('docs/file.md', projectRoot)).toBe('/tmp/t11060-test-project/docs/file.md');
   });
 
   it('rejects empty path', () => {
@@ -587,7 +589,7 @@ describe('T11060 — outside-project path rejection (sanitizePath)', () => {
   });
 });
 
-describe('T11060 — invalid docs status enum (isLifecycleStatus)', () => {
+describe('Docs update — invalid docs status enum', () => {
   it('rejects "review" — not in canonical lifecycle list', () => {
     expect(isLifecycleStatus('review')).toBe(false);
   });
@@ -618,7 +620,7 @@ describe('T11060 — invalid docs status enum (isLifecycleStatus)', () => {
   }
 });
 
-describe('T11060 — DOCS_UPDATE_LIFECYCLE_STATUS_LIST contract', () => {
+describe('Docs update — lifecycle status list contract', () => {
   it('contains all six canonical statuses pipe-delimited', () => {
     for (const status of DOCS_LIFECYCLE_STATUSES) {
       expect(DOCS_UPDATE_LIFECYCLE_STATUS_LIST).toContain(status);
@@ -636,7 +638,7 @@ describe('T11060 — DOCS_UPDATE_LIFECYCLE_STATUS_LIST contract', () => {
   });
 });
 
-describe('T11060 — error message contract', () => {
+describe('Docs update — error message contract', () => {
   it('E_INVALID_STATUS message includes canonical lifecycle status list', () => {
     const msg = `status must be one of: ${DOCS_UPDATE_LIFECYCLE_STATUS_LIST} — got 'review'`;
 

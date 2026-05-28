@@ -108,6 +108,10 @@ export default defineConfig({
         './packages/contracts/src/provenance.ts',
         import.meta.url,
       ).pathname,
+      '@cleocode/contracts/operations/docs': new URL(
+        './packages/contracts/src/operations/docs.ts',
+        import.meta.url,
+      ).pathname,
       '@cleocode/contracts': new URL('./packages/contracts/src/index.ts', import.meta.url).pathname,
       '@cleocode/core/internal': new URL('./packages/core/src/internal.ts', import.meta.url).pathname,
       // @cleocode/paths — workspace-local canonical path utilities (env-paths wrapper).

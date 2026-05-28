@@ -21,13 +21,15 @@
  * @see ADR-073-above-epic-naming.md §1.3
  */
 
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { addRelation, createTask, getDb, taskShow } from '@cleocode/core/internal';
+import { createTask, getDb, taskShow } from '@cleocode/core/internal';
 import { getCleoHome } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { canonicalProjectId } from '../../nexus/identity.js';
+import { registerProjectOnEncounter } from '../../paths.js';
 import { acquireLock } from '../../store/lock.js';
 import { reconcileSaga, SAGA_RECONCILE_AUDIT_FILE } from '../reconcile.js';
 
@@ -43,8 +45,23 @@ async function seedSagaWithMembers(
   sagaId: string,
   memberStatuses: Array<'active' | 'done' | 'cancelled' | 'archived' | 'pending'>,
 ): Promise<string[]> {
-  mkdirSync(join(testRoot, '.cleo'), { recursive: true });
+  const cleoDir = join(testRoot, '.cleo');
+  mkdirSync(cleoDir, { recursive: true });
   mkdirSync(join(testRoot, '.git'), { recursive: true });
+  // Create project-info.json and register in nexus.
+  const { id: projectId } = await canonicalProjectId(testRoot);
+  writeFileSync(
+    join(cleoDir, 'project-info.json'),
+    JSON.stringify({
+      $schema: './schemas/project-info.schema.json',
+      schemaVersion: '1.0.0',
+      projectId,
+      projectHash: projectId,
+      cleoVersion: 'test',
+      lastUpdated: new Date().toISOString(),
+    }),
+  );
+  await registerProjectOnEncounter(testRoot, projectId);
   await getDb(testRoot);
 
   const ts = '2026-05-22T00:00:00Z';
@@ -53,10 +70,9 @@ async function seedSagaWithMembers(
       id: sagaId,
       title: `Saga ${sagaId}`,
       description: 'Reconcile fixture',
-      type: 'epic',
+      type: 'saga',
       status: 'active',
       priority: 'high',
-      labels: ['saga'],
       createdAt: ts,
       updatedAt: null,
     } as Parameters<typeof createTask>[0],
@@ -73,6 +89,7 @@ async function seedSagaWithMembers(
         title: `Epic ${memberId}`,
         description: `Member ${i + 1}`,
         type: 'epic',
+        parentId: sagaId,
         status: memberStatuses[i] ?? 'active',
         priority: 'medium',
         createdAt: ts,
@@ -80,7 +97,6 @@ async function seedSagaWithMembers(
       } as Parameters<typeof createTask>[0],
       testRoot,
     );
-    await addRelation(sagaId, memberId, 'groups', testRoot);
   }
   return memberIds;
 }
@@ -111,6 +127,22 @@ function readAuditLines(testRoot: string): SagaReconcileAuditLine[] {
 
 beforeEach(async () => {
   TEST_ROOT = await mkdtemp(join(tmpdir(), 'cleo-saga-reconcile-test-'));
+  // Create project-info.json and register in nexus for all tests.
+  const cleoDir = join(TEST_ROOT, '.cleo');
+  mkdirSync(cleoDir, { recursive: true });
+  const { id: projectId } = await canonicalProjectId(TEST_ROOT);
+  writeFileSync(
+    join(cleoDir, 'project-info.json'),
+    JSON.stringify({
+      $schema: './schemas/project-info.schema.json',
+      schemaVersion: '1.0.0',
+      projectId,
+      projectHash: projectId,
+      cleoVersion: 'test',
+      lastUpdated: new Date().toISOString(),
+    }),
+  );
+  await registerProjectOnEncounter(TEST_ROOT, projectId);
 });
 
 afterEach(async () => {
@@ -165,10 +197,9 @@ describe('reconcileSaga — closure path (AC1, AC2, AC5)', () => {
       {
         id: 'T9002',
         title: 'Saga 2',
-        type: 'epic',
+        type: 'saga',
         status: 'active',
         priority: 'high',
-        labels: ['saga'],
         createdAt: ts,
         updatedAt: null,
       } as Parameters<typeof createTask>[0],
@@ -179,6 +210,7 @@ describe('reconcileSaga — closure path (AC1, AC2, AC5)', () => {
         id: 'T9013',
         title: 'Pending Epic',
         type: 'epic',
+        parentId: 'T9002',
         status: 'active',
         priority: 'medium',
         createdAt: ts,
@@ -186,7 +218,6 @@ describe('reconcileSaga — closure path (AC1, AC2, AC5)', () => {
       } as Parameters<typeof createTask>[0],
       TEST_ROOT,
     );
-    await addRelation('T9002', 'T9013', 'groups', TEST_ROOT);
 
     const result = await reconcileSaga(TEST_ROOT);
     expect(result.success).toBe(true);
@@ -316,10 +347,9 @@ describe('reconcileSaga — zero-member sagas', () => {
       {
         id: 'T9000',
         title: 'Empty saga',
-        type: 'epic',
+        type: 'saga',
         status: 'active',
         priority: 'high',
-        labels: ['saga'],
         createdAt: ts,
         updatedAt: null,
       } as Parameters<typeof createTask>[0],

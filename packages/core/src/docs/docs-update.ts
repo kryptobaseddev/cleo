@@ -36,6 +36,7 @@ import { getCleoDirAbsolute } from '../paths.js';
 import { attachmentRefs, attachments } from '../store/schema/attachments.js';
 import { getDb, getNativeTasksDb } from '../store/sqlite.js';
 import { validateDocBody } from './validate-body.js';
+import { getCanonicalCleoVersion } from './version-ssot.js';
 
 /**
  * 5-minute squash window for audit-log entries. A second update for the
@@ -94,7 +95,12 @@ export interface DocsUpdateOk {
   changed: boolean;
   lifecycleStatus: DocsLifecycleStatus;
   updatedAt: string;
+  /** @deprecated Legacy version field (audit-log-based). Use ownerVersion + docVersion instead (T11181). */
   version: number;
+  /** CLEO release version that wrote this row (canonical SSoT, T11181). */
+  ownerVersion: string;
+  /** Sequential doc version counter for this slug (T11181). */
+  docVersion: number;
   squashed: boolean;
   /**
    * Human-readable summary of what happened to the slug.
@@ -454,6 +460,8 @@ export async function updateDocBySlug(
         version: countVersionsForSlug(projectRoot, slug),
         squashed: false,
         summary,
+        ownerVersion: getCanonicalCleoVersion(projectRoot),
+        docVersion: (oldRow as unknown as { doc_version?: number }).doc_version ?? 1,
         dryRun: true,
         wouldWrite: false,
         wouldChange,
@@ -502,9 +510,12 @@ export async function updateDocBySlug(
         updatedAt: nowIso,
         version: countVersionsForSlug(projectRoot, slug),
         squashed,
-        summary: status === oldRow.lifecycleStatus
-          ? `slug '${slug}' was left untouched (bytes and lifecycle status unchanged)`
-          : `slug '${slug}' bytes unchanged but lifecycle status changed from '${oldRow.lifecycleStatus}' to '${status}'`,
+        summary:
+          status === oldRow.lifecycleStatus
+            ? `slug '${slug}' was left untouched (bytes and lifecycle status unchanged)`
+            : `slug '${slug}' bytes unchanged but lifecycle status changed from '${oldRow.lifecycleStatus}' to '${status}'`,
+        ownerVersion: getCanonicalCleoVersion(projectRoot),
+        docVersion: (oldRow as unknown as { doc_version?: number }).doc_version ?? 1,
       },
     };
   }
@@ -622,6 +633,8 @@ export async function updateDocBySlug(
           slug,
           ...(oldRow.type ? { type: oldRow.type } : {}),
           lifecycleStatus: status,
+          ownerVersion: getCanonicalCleoVersion(projectRoot),
+          docVersion: ((oldRow as unknown as { doc_version?: number }).doc_version ?? 0) + 1,
         })
         .run();
     }
@@ -707,6 +720,8 @@ export async function updateDocBySlug(
       version: countVersionsForSlug(projectRoot, slug),
       squashed,
       summary: `slug '${slug}' was changed — content replaced${params.message ? ` ("${params.message}")` : ''}`,
+      ownerVersion: getCanonicalCleoVersion(projectRoot),
+      docVersion: ((oldRow as unknown as { doc_version?: number }).doc_version ?? 1) + 1,
     },
   };
 }

@@ -1,5 +1,5 @@
 /**
- * T11144 — Capture 2026-05-25 dogfood failure scenarios as concrete regression tests.
+ * Capture 2026-05-25 dogfood failure scenarios as concrete regression tests.
  *
  * This file captures all six dogfood failure classes from 2026-05-25 as
  * structured, verifiable regression test cases. It imports the shared
@@ -16,7 +16,7 @@
  *
  * For S1+S2 (implemented by T11060), the scenario catalog is validated
  * and cross-referenced against the actual core-level tests in
- * t11060-regression.test.ts. For S3–S6 (pending implementation), the
+ * docs-path-status-regression.test.ts. For S3-S6, the
  * scenario definitions are validated for completeness and actionability
  * so T11061/T11062 workers have unambiguous test targets.
  *
@@ -30,13 +30,16 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { type RegressionScenario, SIX_REGRESSION_SCENARIOS } from '../../__tests__/fixtures/docs-dogfood-harness.js';
+import {
+  type RegressionScenario,
+  SIX_REGRESSION_SCENARIOS,
+} from '../../__tests__/fixtures/docs-dogfood-harness.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Catalog integrity — all six scenarios must be present and well-formed
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('T11144 — Six regression scenario catalog integrity', () => {
+describe('Docs dogfood scenario catalog — integrity', () => {
   it('documents exactly six 2026-05-25 dogfood failure classes', () => {
     expect(SIX_REGRESSION_SCENARIOS).toHaveLength(6);
   });
@@ -63,14 +66,7 @@ describe('T11144 — Six regression scenario catalog integrity', () => {
 
   it('assigns each scenario to a dedicated implementation task (T11060–T11062)', () => {
     const owners = SIX_REGRESSION_SCENARIOS.map((s) => s.ownedBy);
-    expect(owners).toEqual([
-      'T11060',
-      'T11060',
-      'T11061',
-      'T11061',
-      'T11062',
-      'T11062',
-    ]);
+    expect(owners).toEqual(['T11060', 'T11060', 'T11061', 'T11061', 'T11062', 'T11062']);
   });
 
   it('every scenario has a non-empty name and a description ≥ 40 chars', () => {
@@ -92,7 +88,7 @@ describe('T11144 — Six regression scenario catalog integrity', () => {
 // S1 — Outside-project file rejection (Path traversal guard)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('T11144 S1 — Outside-project file rejection', () => {
+describe('Docs dogfood scenario S1 — outside-project file rejection', () => {
   const s: RegressionScenario = SIX_REGRESSION_SCENARIOS[0];
 
   it('scenario identity is correct', () => {
@@ -126,7 +122,7 @@ describe('T11144 S1 — Outside-project file rejection', () => {
 // S2 — Status enum mismatch (Drift state mismatch)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('T11144 S2 — Status enum mismatch', () => {
+describe('Docs dogfood scenario S2 — status enum mismatch', () => {
   const s: RegressionScenario = SIX_REGRESSION_SCENARIOS[1];
 
   it('scenario identity is correct', () => {
@@ -161,7 +157,7 @@ describe('T11144 S2 — Status enum mismatch', () => {
 // S3 — Update without owner reference (Slug→owner registration)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('T11144 S3 — Update without owner reference', () => {
+describe('Docs dogfood scenario S3 — update without owner reference', () => {
   const s: RegressionScenario = SIX_REGRESSION_SCENARIOS[2];
 
   it('scenario identity is correct', () => {
@@ -192,7 +188,7 @@ describe('T11144 S3 — Update without owner reference', () => {
 // S4 — Publish selects older blob (Version selection)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('T11144 S4 — Publish selects older blob', () => {
+describe('Docs dogfood scenario S4 — publish selects older blob', () => {
   const s: RegressionScenario = SIX_REGRESSION_SCENARIOS[3];
 
   it('scenario identity is correct', () => {
@@ -223,7 +219,7 @@ describe('T11144 S4 — Publish selects older blob', () => {
 // S5 — Slug collision guidance (Slug uniqueness UX)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('T11144 S5 — Slug collision guidance', () => {
+describe('Docs dogfood scenario S5 — slug collision guidance', () => {
   const s: RegressionScenario = SIX_REGRESSION_SCENARIOS[4];
 
   it('scenario identity is correct', () => {
@@ -252,7 +248,7 @@ describe('T11144 S5 — Slug collision guidance', () => {
 // S6 — Hidden slug suffix behavior (Auto-suffix transparency)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('T11144 S6 — Hidden slug suffix behavior', () => {
+describe('Docs dogfood scenario S6 — hidden slug suffix behavior', () => {
   const s: RegressionScenario = SIX_REGRESSION_SCENARIOS[5];
 
   it('scenario identity is correct', () => {
@@ -282,7 +278,7 @@ describe('T11144 S6 — Hidden slug suffix behavior', () => {
 // Cross-scenario consistency
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('T11144 — Cross-scenario consistency', () => {
+describe('Docs dogfood scenario catalog — cross-scenario consistency', () => {
   it('S1+S2 are implemented (T11060 done)', () => {
     const s1 = SIX_REGRESSION_SCENARIOS.find((s) => s.id === 'S1')!;
     const s2 = SIX_REGRESSION_SCENARIOS.find((s) => s.id === 'S2')!;
@@ -319,9 +315,7 @@ describe('T11144 — Cross-scenario consistency', () => {
   });
 
   it('scenario descriptions form a complete failure taxonomy', () => {
-    const allWords = SIX_REGRESSION_SCENARIOS
-      .map((s) => s.description.toLowerCase())
-      .join(' ');
+    const allWords = SIX_REGRESSION_SCENARIOS.map((s) => s.description.toLowerCase()).join(' ');
 
     expect(allWords).toContain('path');
     expect(allWords).toContain('status');

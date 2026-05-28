@@ -43,14 +43,25 @@ PM-Core V2 will use one canonical WorkGraph backed by `tasks` rows and explicit 
    - `parent_id` is the only containment edge in PM-Core V2.
    - Direct children, ancestor traversal, descendant traversal, closure rollups, and default parent completion are all derived from `parent_id`.
    - The parent matrix is: saga parent is null; epic parent is a saga or null; task parent is an epic; subtask parent is a task.
-   - Reparenting must validate cycles and tier violations before mutation and must refresh affected projections, rollups, and audit events after mutation.
+   - Reparenting moves the whole subtree rooted at the moved task. A caller-visible result must identify the moved root, old/new parent, descendants whose projected depth or type changed, reopened ancestors, and warnings. Reparenting must validate cycles and tier violations for the full subtree before mutation and must refresh affected projections, rollups, and audit events after mutation.
 
 3. `task_relations` is non-containment only.
-   - `task_relations` may represent dependency, ordering, grouping/cross-reference, evidence, supersession, duplicate, or other secondary graph semantics.
+   - `task_relations` may represent ordering, grouping/cross-reference, evidence, supersession, duplicate, advisory blocking, or other secondary graph semantics.
    - `task_relations` must never satisfy containment, child listing, ancestor/descendant traversal, parent rollup, parent completion, nesting-budget, or closure semantics.
    - A relation can explain why work is associated, but it cannot make that work a parent or child.
+   - `task_relations.relation_type='groups'` is a soft association only. It is allowed for dotted-line cross-saga or provenance grouping, but not for Saga membership, child listing, readiness, closure, or completion.
+   - `task_relations.relation_type='blocks'` is advisory only. If one task, epic, or saga must wait for another before execution, the hard edge must be represented by `task_dependencies` and surfaced through dependency/readiness APIs.
 
-4. Completion criteria are typed and deterministic.
+4. Hard dependencies are scheduler edges and may be projected across containment.
+   - `task_dependencies` is the hard dependency graph. These edges drive blocked/readiness calculations and wave planning.
+   - A future PM-Core V2 hardening task must specify whether a Saga/Epic-level dependency is inherited by descendant Epics/Tasks/Subtasks for readiness purposes, how that inheritance is displayed, and how cycles are detected across direct and inherited dependency edges.
+   - Until that inherited-dependency rule lands, agents must not infer blocking behavior from soft relation rows.
+
+5. Retyping is a full-subtree graph mutation, not a scalar field edit.
+   - Changing a row between Saga/Epic/Task/Subtask can invalidate parent and child edges. Retype operations must provide a dry-run plan that lists the affected subtree, required descendant type changes, invalid descendants, reopened ancestors, and rollback behavior before any mutation.
+   - Invalid retype plans must fail atomically without partial subtree writes.
+
+6. Completion criteria are typed and deterministic.
    - `task_acceptance_criteria.kind` is one of `text`, `child_task`, or `evidence_bound`.
    - `child_task` criteria require `target_task_id` and are deterministic projections from direct `parent_id` children.
    - `text` and `evidence_bound` criteria must not use `target_task_id`.
@@ -64,8 +75,10 @@ PM-Core V2 will use one canonical WorkGraph backed by `tasks` rows and explicit 
 - Existing `task_relations.groups` usage can remain as a non-containment association only where still needed for provenance or cross-reference; it must not drive hierarchy or completion behavior.
 - CLI, core services, projections, and rollups can share one invariant: if code needs parent/child semantics, it reads `tasks.parent_id`, not `task_relations`.
 - Relation APIs must name their non-containment semantics explicitly and avoid field names or output labels that imply parentage.
+- Hard dependency APIs must remain distinct from soft relation APIs so agents can safely draw solid scheduler edges separately from dotted-line context edges.
 - Completion APIs can expose parent closure as a contract over typed criteria instead of ad hoc status aggregation.
 - Legacy data migrations need dry-run evidence, backup/restore rehearsal, and owner-approved apply before changing live task databases.
+- Open follow-up work: T11202 specifies soft relation and inherited dependency semantics; T11203 specifies safe reparent/retype cascade output and atomicity (see `docs/specs/CLEO-TASKS-API-SPEC.md` §8); T11204 sweeps stale `groups` doctrine from docs, skills, and contracts.
 
 ## Acceptance Trace
 

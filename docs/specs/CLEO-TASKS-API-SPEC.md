@@ -26,9 +26,18 @@ wins and this spec is a bug.
 
 The **tasks** domain is the authoritative record of every unit of work in a
 CLEO project. A task is a row in `tasks` table in `tasks.db`. Tasks are
-typed (`epic` / `task` / `subtask`), linked via `parent_id`, related via
-`task_dependencies`, and tracked through two orthogonal axes: **status** and
-**pipeline_stage**.
+typed (`saga` / `epic` / `task` / `subtask`), contained via `parent_id`,
+blocked for scheduling via `task_dependencies`, connected by soft relation
+edges via `task_relations`, and tracked through two orthogonal axes:
+**status** and **pipeline_stage**.
+
+PM-Core V2 uses three separate graph surfaces:
+
+| Surface | Storage | Semantics |
+|---------|---------|-----------|
+| Containment | `tasks.parent_id` | The solid parent/child tree. Drives direct children, ancestors, descendants, rollups, completion projection, and cascade mutation planning. |
+| Hard dependency | `task_dependencies` | Scheduler/readiness edge. A task, epic, or saga cannot be considered dependency-ready until upstream dependencies are satisfied. Inherited Saga/Epic dependency projection is tracked by T11202. |
+| Soft relation | `task_relations` | Dotted-line context graph. Useful for related work, provenance, duplicate/supersede/extend/fix links, advisory blocks, and cross-saga grouping. It never creates containment and never blocks scheduling by itself. |
 
 Evidence:
 - Schema: `packages/core/src/store/tasks-schema.ts:137-219` (column list)
@@ -56,6 +65,12 @@ Evidence:
   the 5 required gates lacks validated evidence atoms per ADR-051.
   Source: `packages/cleo/src/dispatch/domains/tasks.ts:321-340` +
   `docs/specs/T832-gate-integrity-spec.md`.
+- **INV-7 — Containment is `parent_id` only.** Saga/Epic/Task/Subtask hierarchy,
+  child listing, rollups, closure, and reparent cascades MUST derive from
+  `tasks.parent_id`, not `task_relations`.
+- **INV-8 — Soft relations are non-blocking.** `task_relations` rows, including
+  `groups` and `blocks`, MUST NOT be treated as scheduler dependencies. Use
+  `task_dependencies` for execution blocking.
 
 ---
 
@@ -251,7 +266,8 @@ surface). Error codes are drawn from
 | `tasks.archive` | `cleo archive [<id>]` | PROPOSED `POST /api/tasks/:id/archive` | `taskId?`, `before?`, `taskIds?`, `includeCancelled?`, `dryRun?` | `{ archived }` | `NOT_FOUND` (404), `VALIDATION_ERROR` (400) | yes | Soft-archive (bulk or single) | `tasks.ts:351-363` |
 | `tasks.restore` | `cleo restore <id>` | PROPOSED `POST /api/tasks/:id/restore` | `taskId`, `from?` ({done, archived}), `status?`, `reason?`, `preserveStatus?`, `cascade?`, `notes?` | `{ task }` | `NOT_FOUND` (404), `VALIDATION_ERROR` (400) | yes | Restore from any terminal state | `tasks.ts:365-388` |
 | `tasks.cancel` | `cleo cancel <id>` | PROPOSED `POST /api/tasks/:id/cancel` | `taskId`, `reason?` | `{ task }` | `NOT_FOUND` (404), `TASK_COMPLETED` (409) | yes | Soft terminal (reversible) | `tasks.ts:390-397` |
-| `tasks.reparent` | `cleo reparent <id> <newParent>` | PROPOSED `POST /api/tasks/:id/reparent` | `taskId`, `newParentId` (string OR null) | `{ task }` | `NOT_FOUND` (404), `CIRCULAR_REFERENCE` (409), `INVALID_PARENT_TYPE` (409) | yes | Move task under new parent; `null` reroots | `tasks.ts:399-406` |
+| `tasks.reparent` | `cleo reparent <id> <newParent>` | PROPOSED `POST /api/tasks/:id/reparent` | `taskId`, `newParentId` (string OR null), `dryRun?` | `{ movedRoot, oldParentId, newParentId, affectedDescendants, typeChanges, reopenedAncestors, warnings }` per §8.1 | `NOT_FOUND` (404), `CIRCULAR_REFERENCE` (409), `INVALID_PARENT_TYPE` (409) | yes | Move task and its subtree under new parent; `null` reroots; dry-run returns plan | `tasks.ts:399-406` |
+| `tasks.retype` | `cleo retype <id> <type>` | PROPOSED `POST /api/tasks/:id/retype` | `taskId`, `newType` (`saga`\|`epic`\|`task`\|`subtask`), `dryRun?` | `{ plan }` (dryRun) or `{ rootTaskId, oldType, newType, performedChildRetypes, reopenedAncestors, warnings }` per §8.2 | `NOT_FOUND` (404), `INVALID_RETYPE` (409), `CASCADE_FAILED` (500) | yes | Change task type with full subtree validation; dry-run returns plan | §8.2 |
 | `tasks.reorder` | `cleo reorder <id> <pos>` | PROPOSED `POST /api/tasks/:id/reorder` | `taskId`, `position` | `{ task }` | `NOT_FOUND` (404), `VALIDATION_ERROR` (400) | yes | Change sibling order | `tasks.ts:408-415` |
 | `tasks.relates.add` | `cleo relates add <id> <related>` | PROPOSED `POST /api/tasks/:id/relates` | `taskId`, `relatedId\|targetId`, `type`, `reason?` | `{ relation }` | `NOT_FOUND` (404), `VALIDATION_ERROR` (400), `ALREADY_EXISTS` (200 `NO_CHANGE`) | yes | Record a relation between tasks | `tasks.ts:417-438` |
 | `tasks.start` | `cleo start <id>` | PROPOSED `POST /api/tasks/:id/start` | `taskId` | `{ task, sessionId }` | `NOT_FOUND` (404), `SESSION_REQUIRED` (409), `TASK_CLAIMED` (409), `TASK_NOT_IN_SCOPE` (409) | yes | Set as current task for active session | `tasks.ts:440-443` |
@@ -276,9 +292,11 @@ lists only codes that can surface from `tasks.*` operations.
 | `VALIDATION_ERROR` | 6 | 400 | Business rule violation |
 | `LOCK_TIMEOUT` | 7 | 423 | Concurrent SQLite lock |
 | `PARENT_NOT_FOUND` | 10 | 404 | Parent taskId missing |
+| `INVALID_PARENT_TYPE` | 10 | 400 | Invalid parent for tier |
 | `HAS_CHILDREN` | 16 | 409 | Delete without cascade |
 | `HAS_DEPENDENTS` | 19 | 409 | Delete with downstream deps |
 | `CONCURRENT_MODIFICATION` | 21 | 409 | Row version mismatch |
+| `INVALID_RETYPE` | 22 | 409 | Retype plan has invalid descendants |
 | `SESSION_EXISTS` | 30 | 409 | Already-active session conflict |
 | `SESSION_NOT_FOUND` | 31 | 404 | start/stop without session |
 | `TASK_CLAIMED` | 35 | 409 | Claim collision |
@@ -380,7 +398,186 @@ all gates pass).
 
 ---
 
-## 8. External Task Links (sync)
+## 8. Reparent and Retype (WorkGraph Mutation)
+
+PM-Core V2 specifies two subtree-granularity mutation operations that
+must operate atomically and produce caller-visible plans. Both are subject
+to the invariants in ADR-088 §2–5.
+
+### 8.1 `tasks.reparent` — Move a subtree under a new parent
+
+Reparenting a task moves that task and every descendant underneath a new
+`parentId`. The operation is **never** a scalar `parent_id` update — it is
+a full-subtree move with validation, type adjustment, and ancestor
+reopening.
+
+#### Request
+
+```
+POST /api/tasks/:id/reparent
+{
+  "taskId": "T####",
+  "newParentId": "T####" | null,
+  "dryRun?": false
+}
+```
+
+- `newParentId: null` promotes the root task to top-level (if its type
+  allows it per the parent matrix — ADR-088 §2).
+- `dryRun: true` returns the plan without mutating.
+
+#### Response (applied, `dryRun: false`)
+
+```jsonc
+{
+  "movedRoot": "T11203",
+  "oldParentId": "T11100",
+  "newParentId": "T10965",
+  "affectedDescendants": 4,
+  "typeChanges": [
+    {"taskId": "T11203-1", "oldType": "task", "newType": "subtask"}
+  ],
+  "reopenedAncestors": ["T10965", "T9977"],
+  "warnings": [
+    "Task T10965 was 'done'; automatically reopened to 'in_progress'"
+  ]
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `movedRoot` | The task whose `parent_id` was changed. |
+| `oldParentId` | Previous parent (or `null` if root). |
+| `newParentId` | New parent (or `null` if promoted to root). |
+| `affectedDescendants` | Count of descendant tasks whose depth, type, or ancestor cache changed. |
+| `typeChanges` | Descendants whose projected type changed because the new parent tier requires a different type (e.g., Task under an Epic → Subtask under a Task). |
+| `reopenedAncestors` | Any ancestor chain that was `done` and must be reopened because a new child was added. |
+| `warnings` | Human-readable advisory messages (reopened ancestors, depth adjustment notes). |
+
+#### Atomicity
+
+The entire subtree move is one transaction. If any validation fails
+(cycles, tier violations, depth overflow, sibling limit), the database
+rolls back completely — no partial writes.
+
+#### Epic → Saga reparenting
+
+When an Epic is reparented under a Saga, the Epic preserves its own type
+and all descendants remain Epics/Tasks/Subtasks as appropriate. The
+operation validates:
+- The new parent is type `saga` (or `null` for standalone).
+- No descendant creates a cycle (descendant == new parent anywhere in the
+  moved subtree).
+- The resulting depth of every moved node does not exceed the project
+  `maxDepth` setting.
+
+### 8.2 `tasks.retype` — Change a task's type category
+
+Retyping is a **full-subtree graph mutation**, not a scalar `type` field
+edit. Changing a row between Saga/Epic/Task/Subtask can invalidate every
+parent and child edge.
+
+#### Request: dry-run plan
+
+```
+POST /api/tasks/:id/retype
+{
+  "taskId": "T####",
+  "newType": "epic" | "task" | "subtask" | "saga",
+  "dryRun": true
+}
+```
+
+#### Response: dry-run plan
+
+```jsonc
+{
+  "plan": {
+    "rootTaskId": "T11203",
+    "currentType": "task",
+    "proposedType": "epic",
+    "requiredChildRetypes": [
+      {"taskId": "T11203-1", "currentType": "subtask", "requiredType": "task"},
+      {"taskId": "T11203-2", "currentType": "subtask", "requiredType": "task"}
+    ],
+    "invalidDescendants": [
+      {"taskId": "T11203-child", "reason": "Saga can only contain Epics; found Subtask"}
+    ],
+    "reopenedAncestors": ["T10965"],
+    "rollbackBehavior": "DELETE temporary type shadow; RESTORE parent_id column on retype row"
+  },
+  "valid": false
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `rootTaskId` | The task being retyped. |
+| `currentType` / `proposedType` | Before/after type. |
+| `requiredChildRetypes` | Direct children whose types must change because the parent tier demands it (e.g., Subtask under Task → Task under Epic). |
+| `invalidDescendants` | Descendants that CANNOT exist under the new type (e.g., Subtask under Saga — only Epics allowed). A non-empty list makes `valid: false`. |
+| `reopenedAncestors` | Ancestors that were `done` and would be reopened. |
+| `rollbackBehavior` | How to undo if the user aborts. |
+
+#### Request: apply
+
+```
+POST /api/tasks/:id/retype
+{
+  "taskId": "T####",
+  "newType": "epic",
+  "dryRun": false
+}
+```
+
+Returns a `RetypeResult`:
+
+```jsonc
+{
+  "rootTaskId": "T11203",
+  "oldType": "task",
+  "newType": "epic",
+  "performedChildRetypes": [
+    {"taskId": "T11203-1", "oldType": "subtask", "newType": "task"}
+  ],
+  "reopenedAncestors": ["T10965"],
+  "warnings": []
+}
+```
+
+#### Error codes
+
+| Code | When |
+|------|------|
+| `NOT_FOUND` (404) | `taskId` does not exist. |
+| `INVALID_RETYPE` (409) | Plan results in invalid descendants or violated parent matrix. |
+| `CASCADE_FAILED` (500) | A required child retype could not be applied. |
+
+#### Atomicity
+
+Retyping is **atomic at the subtree level**. If any required child retype
+fails, or any invalid descendant is detected, the entire operation rolls
+back. No partial type mutations are ever committed.
+
+### 8.3 Canonical rules
+
+From `docs/design/CleoCode-Task-System.txt`:
+
+- `parent_id` is the only containment edge.
+- Reparenting moves the **entire subtree**.
+- Retyping requires a **dry run** and full subtree validation.
+- Invalid reparent or retype **must fail atomically**.
+
+#### Cross-references
+
+- ADR-088 §2 (reparenting), §5 (retyping)
+- `packages/core/src/tasks/task-reparent.ts` — current implementation
+- `packages/contracts/src/workgraph.ts::validateWorkGraphHierarchy()` — parent/type matrix
+- T11203 — this specification task
+
+---
+
+## 9. External Task Links (sync)
 
 `tasks.sync.*` operations reconcile external provider IDs against CLEO
 tasks. Canonical reference:
@@ -392,7 +589,7 @@ PROPOSED: `POST /api/tasks/sync/reconcile` per §5.2 above.
 
 ---
 
-## 9. Archive Semantics
+## 10. Archive Semantics
 
 `status = 'archived'` is both (a) a status enum value, (b) a terminal status,
 AND (c) backed by three companion columns on the SAME `tasks` row:
@@ -415,7 +612,7 @@ write that bypasses the generic validator).
 
 ---
 
-## 10. Contract Gaps
+## 11. Contract Gaps
 
 These operations exist today but are NOT exposed via HTTP. They are marked
 PROPOSED in §5 above and slated for implementation via the HTTP adapter
@@ -426,9 +623,9 @@ described in `docs/specs/CLEO-STUDIO-HTTP-SPEC.md` §4.
 `tasks.relates`, `tasks.complexity.estimate`, `tasks.current`, `tasks.history`,
 `tasks.label.list`, `tasks.sync.links`.
 
-**Write gaps** (CLI-only today — all 16 mutate ops):
+**Write gaps** (CLI-only today — all 17 mutate ops):
 `tasks.add`, `tasks.update`, `tasks.complete`, `tasks.delete`, `tasks.archive`,
-`tasks.restore`, `tasks.cancel`, `tasks.reparent`, `tasks.reorder`,
+`tasks.restore`, `tasks.cancel`, `tasks.reparent`, `tasks.retype`, `tasks.reorder`,
 `tasks.relates.add`, `tasks.start`, `tasks.stop`, `tasks.sync.reconcile`,
 `tasks.sync.links.remove`, `tasks.claim`, `tasks.unclaim`.
 
@@ -440,7 +637,7 @@ the full mapping and request/response shapes.
 
 ---
 
-## 11. Open Questions (HITL)
+## 12. Open Questions (HITL)
 
 - **Q1 — "Deferred" label** (`@HITL`). Rename Studio UI label to "Show
   cancelled epics"? See §4. Blocks CLEO-TASK-DASHBOARD-SPEC.md §10.

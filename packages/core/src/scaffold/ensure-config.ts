@@ -7,12 +7,36 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ScaffoldResult } from '@cleocode/contracts/scaffold-diagnostics';
 import { generateProjectHash } from '../nexus/hash.js';
 import { getConfigPath, resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
 import { saveJson } from '../store/json.js';
+
+/**
+ * Resolve the `.cleo` directory for scaffold steps.
+ *
+ * During first-time `cleo init`, `project-info.json` and nexus registration do
+ * not exist yet, so the projectId-based resolver is intentionally unavailable.
+ * Scaffold callers fall back to the local project root in that bootstrap window.
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @returns Absolute path to the project's `.cleo` directory.
+ */
+export function resolveScaffoldCleoDir(projectRoot: string): string {
+  const localCleoDir = join(projectRoot, '.cleo');
+  if (!existsSync(join(localCleoDir, 'project-info.json'))) {
+    return localCleoDir;
+  }
+
+  try {
+    const projectId = resolveProjectByCwd(projectRoot);
+    return resolveCanonicalCleoDir(projectId);
+  } catch {
+    return localCleoDir;
+  }
+}
 
 /**
  * Embedded fallback for .cleo/.gitignore content (deny-by-default).
@@ -194,7 +218,7 @@ function isCleoContributorProject(projectRoot: string): boolean {
  */
 export function createDefaultConfig(): Record<string, unknown> {
   return {
-    version: '2.10.0',
+    version: '2.11.0',
     output: {
       defaultFormat: 'json',
       showColor: true,
@@ -214,7 +238,34 @@ export function createDefaultConfig(): Record<string, unknown> {
       multiSession: false,
     },
     lifecycle: {
-      mode: 'strict',
+      mode: 'advisory',
+    },
+    release: {
+      guards: {
+        epicCompleteness: 'warn',
+      },
+    },
+    enforcement: {
+      acceptance: {
+        mode: 'warn',
+      },
+    },
+    brain: {
+      autoCapture: true,
+      memoryBridge: {
+        mode: 'file',
+        autoRefresh: true,
+        contextAware: true,
+      },
+      summarization: {
+        enabled: true,
+      },
+      embedding: {
+        enabled: true,
+      },
+      llmExtraction: {
+        enabled: false,
+      },
     },
   };
 }
@@ -227,8 +278,7 @@ export function createDefaultConfig(): Record<string, unknown> {
  * @returns Scaffold result indicating whether the gitignore was created, repaired, or skipped
  */
 export async function ensureGitignore(projectRoot: string): Promise<ScaffoldResult> {
-  const projectId = resolveProjectByCwd(projectRoot);
-  const cleoDir = resolveCanonicalCleoDir(projectId);
+  const cleoDir = resolveScaffoldCleoDir(projectRoot);
   const gitignorePath = join(cleoDir, '.gitignore');
   const templateContent = getGitignoreContent();
 
@@ -267,8 +317,7 @@ export async function ensureGitignore(projectRoot: string): Promise<ScaffoldResu
  */
 export async function ensureWorktreeInclude(projectRoot: string): Promise<ScaffoldResult> {
   const canonicalPath = join(projectRoot, '.worktreeinclude');
-  const projectId = resolveProjectByCwd(projectRoot);
-  return join(resolveCanonicalCleoDir(projectId), 'worktree-include');
+  const legacyPath = join(resolveScaffoldCleoDir(projectRoot), 'worktree-include');
   const templateContent = getWorktreeIncludeContent();
 
   if (existsSync(canonicalPath)) {
@@ -362,28 +411,66 @@ export async function ensureProjectInfo(
   projectRoot: string,
   opts?: { force?: boolean },
 ): Promise<ScaffoldResult> {
-  const projectId = resolveProjectByCwd(projectRoot);
-  const cleoDir = resolveCanonicalCleoDir(projectId);
+  const cleoDir = resolveScaffoldCleoDir(projectRoot);
   const projectInfoPath = join(cleoDir, 'project-info.json');
 
   if (existsSync(projectInfoPath) && !opts?.force) {
     try {
       const existing = JSON.parse(readFileSync(projectInfoPath, 'utf-8'));
+      let repaired = false;
+
       if (typeof existing.projectId !== 'string' || existing.projectId.length === 0) {
         existing.projectId = randomUUID();
         existing.lastUpdated = new Date().toISOString();
-        await writeFile(projectInfoPath, JSON.stringify(existing, null, 2));
-        return { action: 'repaired', path: projectInfoPath, details: 'Added projectId' };
+        repaired = true;
       }
+
+      // Backfill missing name (cheap — always available from basename).
+      if (typeof existing.name !== 'string' || existing.name.length === 0) {
+        existing.name = basename(resolve(projectRoot));
+        existing.lastUpdated = new Date().toISOString();
+        repaired = true;
+      }
+
+      if (repaired) {
+        await writeFile(projectInfoPath, JSON.stringify(existing, null, 2));
+        return { action: 'repaired', path: projectInfoPath, details: 'Backfilled missing fields' };
+      }
+      return { action: 'skipped', path: projectInfoPath, details: 'Already exists' };
     } catch {
       // If parse fails, fall through to regenerate
     }
-    return { action: 'skipped', path: projectInfoPath, details: 'Already exists' };
+  }
+
+  // Preserve immutable identity fields when force-regenerating.
+  let existingProjectId: string | undefined;
+  let existingCreatedAt: string | undefined;
+  if (opts?.force && existsSync(projectInfoPath)) {
+    try {
+      const existing = JSON.parse(readFileSync(projectInfoPath, 'utf-8'));
+      if (typeof existing.projectId === 'string' && existing.projectId.length > 0) {
+        existingProjectId = existing.projectId;
+      }
+      if (typeof existing.createdAt === 'string' && existing.createdAt.length > 0) {
+        existingCreatedAt = existing.createdAt;
+      }
+    } catch {
+      // If parse fails, treat as fresh creation.
+    }
   }
 
   const projectHash = generateProjectHash(projectRoot);
   const cleoVersion = getCleoVersion();
   const now = new Date().toISOString();
+
+  // Detect git remote URL for provenance (best-effort, non-fatal).
+  let remoteUrl: string | null = null;
+  try {
+    const { findGitRemoteUrl } = await import('../nexus/identity.js');
+    remoteUrl = await findGitRemoteUrl(projectRoot);
+  } catch {
+    // Non-fatal: projects outside git repos simply have no remote.
+  }
 
   const { readSchemaVersionFromFile } = await import('../validation/schema-integrity.js');
   const { SQLITE_SCHEMA_VERSION } = await import('../store/sqlite.js');
@@ -394,34 +481,23 @@ export async function ensureProjectInfo(
   const projectInfo = {
     $schema: './schemas/project-info.schema.json',
     schemaVersion: '1.0.0',
-    projectId: randomUUID(),
+    projectId: existingProjectId ?? randomUUID(),
     projectHash,
+    name: basename(resolve(projectRoot)),
+    ...(remoteUrl && { remoteUrl }),
     cleoVersion,
+    createdAt: existingCreatedAt ?? now,
     lastUpdated: now,
     schemas: {
       config: configSchemaVersion,
       sqlite: SQLITE_SCHEMA_VERSION,
       projectContext: projectContextSchemaVersion,
     },
-    injection: {
-      'CLAUDE.md': null,
-      'AGENTS.md': null,
-      'GEMINI.md': null,
-    },
-    health: {
-      status: 'unknown',
-      lastCheck: null,
-      issues: [],
-    },
-    features: {
-      multiSession: false,
-      verification: false,
-      contextAlerts: false,
-    },
   };
 
   await writeFile(projectInfoPath, JSON.stringify(projectInfo, null, 2));
-  return { action: 'created', path: projectInfoPath };
+  const action = opts?.force && existsSync(projectInfoPath) ? 'regenerated' : 'created';
+  return { action, path: projectInfoPath };
 }
 
 /**

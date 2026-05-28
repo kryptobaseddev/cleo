@@ -64,6 +64,10 @@ export default defineConfig({
         '../../packages/contracts/src/provenance.ts',
         import.meta.url,
       ).pathname,
+      '@cleocode/contracts/operations/docs': new URL(
+        '../../packages/contracts/src/operations/docs.ts',
+        import.meta.url,
+      ).pathname,
       // T10134: render subpath aliases — animations/render imports these via
       // `@cleocode/contracts/render/*.js`. Without explicit aliases the
       // bare-package alias below rewrites the subpath to

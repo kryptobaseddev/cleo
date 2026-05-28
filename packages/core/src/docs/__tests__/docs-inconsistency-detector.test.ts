@@ -44,7 +44,15 @@ vi.mock('../../paths.js', () => ({
 vi.mock('node:fs', () => ({
   existsSync: vi.fn(() => false),
   readdirSync: mocks.readdirSync,
-  Dirent: class { name = ''; isFile() { return true; } isDirectory() { return false; } },
+  Dirent: class {
+    name = '';
+    isFile() {
+      return true;
+    }
+    isDirectory() {
+      return false;
+    }
+  },
 }));
 
 vi.mock('node:fs/promises', () => ({
@@ -54,8 +62,8 @@ vi.mock('node:fs/promises', () => ({
   writeFile: vi.fn(),
 }));
 
-import { checkDocsConsistency } from '../docs-inconsistency-detector.js';
 import { getDb } from '../../store/sqlite.js';
+import { checkDocsConsistency } from '../docs-inconsistency-detector.js';
 
 // ─── Drizzle chain — minimal mock that returns configured arrays ──────────────
 
@@ -95,7 +103,9 @@ beforeEach(() => {
   mocks.open.mockResolvedValue(undefined);
   mocks.close.mockResolvedValue(undefined);
   mocks.access.mockRejectedValue(new Error('ENOENT'));
-  mocks.readdirSync.mockImplementation(() => { throw new Error('ENOENT'); });
+  mocks.readdirSync.mockImplementation(() => {
+    throw new Error('ENOENT');
+  });
 });
 
 // ─── Tests ─────────────────────────────────────────────────────────────────────
@@ -113,7 +123,7 @@ describe('checkDocsConsistency', () => {
   it('clean: published doc with all stores agreeing', async () => {
     const sha = 'a'.repeat(64);
     const att = [pub({ sha256: sha })];
-    vi.mocked(getDb).mockReturnValue(makeDb([att, /*orphans*/[], /*zeroRef*/[]]));
+    vi.mocked(getDb).mockReturnValue(makeDb([att, /*orphans*/ [], /*zeroRef*/ []]));
 
     mocks.list.mockResolvedValue([{ hash: sha }]);
     mocks.access.mockResolvedValue(undefined);
@@ -131,9 +141,7 @@ describe('checkDocsConsistency', () => {
     vi.mocked(getDb).mockReturnValue(makeDb([att, [], []]));
 
     // First list() call (__docs__) returns empty, second (att_1) returns different hash
-    mocks.list
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ hash: manifestSha }]);
+    mocks.list.mockResolvedValueOnce([]).mockResolvedValueOnce([{ hash: manifestSha }]);
     mocks.access.mockResolvedValue(undefined);
 
     const r = await checkDocsConsistency('/tmp/x');
@@ -166,7 +174,9 @@ describe('checkDocsConsistency', () => {
 
     mocks.list.mockResolvedValue([]);
     mocks.access.mockRejectedValue(new Error('ENOENT')); // new path missing
-    mocks.readdirSync.mockReturnValue([{ isFile: () => true, isDirectory: () => false, name: sha.slice(2) + '.md' }]);
+    mocks.readdirSync.mockReturnValue([
+      { isFile: () => true, isDirectory: () => false, name: sha.slice(2) + '.md' },
+    ]);
 
     const r = await checkDocsConsistency('/tmp/x');
     const warnings = r.findings.filter(
@@ -205,10 +215,7 @@ describe('checkDocsConsistency', () => {
   it('slug-disagreement: same slug, different SHA', async () => {
     const sha1 = 'a'.repeat(64);
     const sha2 = 'b'.repeat(64);
-    const atts = [
-      pub({ sha256: sha1 }),
-      pub({ sha256: sha2, id: 'att_2' }),
-    ];
+    const atts = [pub({ sha256: sha1 }), pub({ sha256: sha2, id: 'att_2' })];
     vi.mocked(getDb).mockReturnValue(makeDb([atts, [], []]));
 
     mocks.list.mockResolvedValue([]);
@@ -247,7 +254,9 @@ describe('checkDocsConsistency', () => {
   });
 
   it('handles DB errors gracefully', async () => {
-    vi.mocked(getDb).mockImplementation(() => { throw new Error('locked'); });
+    vi.mocked(getDb).mockImplementation(() => {
+      throw new Error('locked');
+    });
 
     const r = await checkDocsConsistency('/tmp/x');
     expect(r.consistent).toBe(false);

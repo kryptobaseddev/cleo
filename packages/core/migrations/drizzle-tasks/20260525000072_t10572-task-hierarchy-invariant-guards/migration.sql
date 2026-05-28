@@ -82,6 +82,8 @@ WHEN NEW.`parent_id` IS NOT NULL
       )
   )
 BEGIN
+  -- ⚠ STALE: ADR-088 supersedes this message. Saga membership is now parent_id
+  -- containment, not task_relations.groups. Fix in a follow-up migration.
   SELECT RAISE(ABORT, 'E_TASK_PARENT_TYPE_MATRIX: tasks.parent_id must follow epic->task|subtask and task->subtask; sagas/epics must be roots and saga membership uses task_relations.groups');
 END;
 --> statement-breakpoint
@@ -101,6 +103,8 @@ WHEN NEW.`parent_id` IS NOT NULL
       )
   )
 BEGIN
+  -- ⚠ STALE: ADR-088 supersedes this message. Saga membership is now parent_id
+  -- containment, not task_relations.groups. Fix in a follow-up migration.
   SELECT RAISE(ABORT, 'E_TASK_PARENT_TYPE_MATRIX: tasks.parent_id must follow epic->task|subtask and task->subtask; sagas/epics must be roots and saga membership uses task_relations.groups');
 END;
 --> statement-breakpoint

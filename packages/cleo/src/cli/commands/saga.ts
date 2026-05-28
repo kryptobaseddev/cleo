@@ -1,8 +1,8 @@
 /**
  * CLI saga command group — Saga management (above-epic grouping tier).
  *
- * A Saga is a labeled top-level Epic (label='saga') that groups member Epics
- * via `task_relations.type='groups'`. This is a thin CLI surface over existing
+ * A Saga is a top-level task (`type='saga'`) that groups member Epics via
+ * `parent_id` containment. This is a thin CLI surface over existing
  * `tasks.add`, `tasks.relates.add`, and `tasks.list` dispatch operations.
  *
  * Commands:
@@ -30,11 +30,11 @@ import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
 
-/** cleo saga create — create a new Saga (labeled top-level Epic) */
+/** cleo saga create — create a new Saga (type='saga') */
 const createCommand = defineCommand({
   meta: {
     name: 'create',
-    description: 'Create a new Saga (labeled top-level Epic with label=saga)',
+    description: "Create a new Saga (top-level task with type='saga')",
   },
   args: {
     title: {
@@ -76,16 +76,16 @@ const createCommand = defineCommand({
   },
 });
 
-/** cleo saga add <sagaId> <epicId> — link a member Epic to a Saga via type='groups' */
+/** cleo saga add <sagaId> <epicId> — link a member Epic to a Saga via parent_id */
 const addCommand = defineCommand({
   meta: {
     name: 'add',
-    description: 'Link a member Epic to a Saga (writes task_relations type=groups)',
+    description: 'Link a member Epic to a Saga via parent_id containment',
   },
   args: {
     sagaId: {
       type: 'positional',
-      description: 'Saga task ID (must have label=saga)',
+      description: "Saga task ID (must have type='saga')",
       required: true,
     },
     epicId: {
@@ -106,7 +106,7 @@ const addCommand = defineCommand({
 });
 
 /**
- * cleo saga detach <sagaId> <memberId> — remove a single groups relation.
+ * cleo saga detach <sagaId> <memberId> — clear a Saga member parent_id edge.
  * Idempotent (no-op if already removed). Always appends to
  * `.cleo/audit/saga-detach.jsonl`. Primary use case: repair an ADR-073 §1.2
  * I7 violation where a saga was linked as a member of another saga.
@@ -116,8 +116,7 @@ const addCommand = defineCommand({
 const detachCommand = defineCommand({
   meta: {
     name: 'detach',
-    description:
-      'Remove a Saga member relation (task_relations type=groups) — idempotent, audit-logged',
+    description: 'Remove a Saga member via parent_id containment — idempotent, audit-logged',
   },
   args: {
     sagaId: {
@@ -147,11 +146,11 @@ const detachCommand = defineCommand({
   },
 });
 
-/** cleo saga list — list all Sagas (labeled top-level Epics) */
+/** cleo saga list — list all Sagas */
 const listCommand = defineCommand({
   meta: {
     name: 'list',
-    description: 'List all Sagas (labeled top-level Epics)',
+    description: 'List all Sagas',
   },
   async run() {
     await dispatchFromCli('query', 'tasks', 'saga.list', {}, { command: 'saga' });
@@ -162,7 +161,7 @@ const listCommand = defineCommand({
 const membersCommand = defineCommand({
   meta: {
     name: 'members',
-    description: 'List all member Epics linked to a Saga via type=groups',
+    description: 'List all member Epics linked to a Saga via parent_id containment',
   },
   args: {
     sagaId: {
@@ -184,7 +183,7 @@ const membersCommand = defineCommand({
 
 /**
  * cleo saga repair <sagaId> — detach an I5-violating `parentId` from a Saga
- * and re-attach the former parent via `task_relations.type='groups'`.
+ * by clearing the invalid Saga parent edge.
  * Idempotent.
  *
  * @task T10117
@@ -193,13 +192,12 @@ const membersCommand = defineCommand({
 const repairCommand = defineCommand({
   meta: {
     name: 'repair',
-    description:
-      "Detach an I5-violating parentId from a Saga and re-attach via task_relations.type='groups' (ADR-073 §1.2). Idempotent.",
+    description: 'Detach an I5-violating parentId from a Saga. Idempotent.',
   },
   args: {
     sagaId: {
       type: 'positional',
-      description: 'Saga task ID (must have label=saga)',
+      description: "Saga task ID (must have type='saga')",
       required: true,
     },
   },

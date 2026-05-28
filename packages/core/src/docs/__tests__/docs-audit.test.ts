@@ -12,17 +12,16 @@
  * @saga T10516
  */
 
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  writeAuditEntry,
-  readAuditLog,
-  verifyAuditTrail,
   countAuditEntriesForSlug,
   DOCS_AUDIT_FILE,
+  readAuditLog,
+  verifyAuditTrail,
+  writeAuditEntry,
 } from '../docs-audit.js';
 
 // ─── Test helpers ─────────────────────────────────────────────────────────────
@@ -210,7 +209,18 @@ describe('docs-audit', () => {
 
   describe('all mutation operations', () => {
     it('writes entries for all 8 ops', () => {
-      const ops: Array<{ op: 'docs.add' | 'docs.update' | 'docs.remove' | 'docs.supersede' | 'docs.publish' | 'docs.publish-pr' | 'docs.sync' | 'docs.import'; slug: string }> = [
+      const ops: Array<{
+        op:
+          | 'docs.add'
+          | 'docs.update'
+          | 'docs.remove'
+          | 'docs.supersede'
+          | 'docs.publish'
+          | 'docs.publish-pr'
+          | 'docs.sync'
+          | 'docs.import';
+        slug: string;
+      }> = [
         { op: 'docs.add', slug: 'doc-1' },
         { op: 'docs.update', slug: 'doc-1' },
         { op: 'docs.remove', slug: 'doc-1' },

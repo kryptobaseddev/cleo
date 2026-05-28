@@ -40,17 +40,17 @@ function mockAccessor(tasks: Task[]): DataAccessor {
   } as unknown as DataAccessor;
 }
 
-/** Build a mock accessor that simulates a Saga (label='saga') + grouped members. */
+/** Build a mock accessor that simulates a Saga (`type='saga'`) + member Epics. */
 function mockAccessorWithSaga(tasks: Task[], sagaId: string, memberIds: string[]): DataAccessor {
-  // Inject the `relates` array onto the saga task so resolveSagaMemberIds picks it up.
   const tasksWithRelations = tasks.map((t) => {
     if (t.id === sagaId) {
       return {
         ...t,
-        type: 'epic' as const,
-        labels: ['saga', ...(t.labels ?? []).filter((l) => l !== 'saga')],
-        relates: memberIds.map((mid) => ({ taskId: mid, type: 'groups' })),
+        type: 'saga' as const,
       } as Task;
+    }
+    if (memberIds.includes(t.id)) {
+      return { ...t, parentId: sagaId } as Task;
     }
     return t;
   });
@@ -162,12 +162,9 @@ describe('findTasks --parent (T10108)', () => {
     expect(result.results.map((r) => r.id)).toEqual(['T001']);
   });
 
-  it('routes Saga parents through groups relation (ADR-073 §1)', async () => {
-    // Saga members are top-level Epics (parentId: null) linked via
-    // task_relations.type='groups'. The parentId column path won't find them,
-    // so findTasks must route through resolveSagaMemberIds like listTasks does.
+  it('routes Saga parents through parentId containment (ADR-073 §1)', async () => {
     const tasks = [
-      makeTask({ id: 'T9758', parentId: null, type: 'epic' }), // saga (label injected by helper)
+      makeTask({ id: 'T9758', parentId: null, type: 'saga' }),
       makeTask({ id: 'EPIC001', parentId: null, type: 'epic' }), // member epic
       makeTask({ id: 'EPIC002', parentId: null, type: 'epic' }), // member epic
       makeTask({ id: 'EPIC003', parentId: null, type: 'epic' }), // NOT a member

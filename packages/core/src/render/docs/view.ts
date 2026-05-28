@@ -165,7 +165,7 @@ export function renderDocsView(
 
     if (rawLine.startsWith('>')) {
       const content = rawLine.replace(/^>\s?/, '');
-      output.push(`${QD}│${N} ${I}${renderInline(content, B, D, N, I, CD, useColor)}${N}`);
+      output.push(`${QD}│${N} ${I}${renderInline(content, B, D, N, I, CD)}${N}`);
       i++;
       continue;
     }
@@ -175,7 +175,7 @@ export function renderDocsView(
       const indent = (bulletMatch[1] ?? '').length;
       const text = bulletMatch[2] ?? '';
       const pad = '  '.repeat(indent > 0 ? 1 : 0);
-      output.push(`${pad}${D}•${N} ${renderInline(text, B, D, N, I, CD, useColor)}`);
+      output.push(`${pad}${D}•${N} ${renderInline(text, B, D, N, I, CD)}`);
       i++;
       continue;
     }
@@ -185,12 +185,12 @@ export function renderDocsView(
       const indent = (numMatch[1] ?? '').length;
       const text = numMatch[2] ?? '';
       const pad = '  '.repeat(indent > 0 ? 1 : 0);
-      output.push(`${pad}${D}•${N} ${renderInline(text, B, D, N, I, CD, useColor)}`);
+      output.push(`${pad}${D}•${N} ${renderInline(text, B, D, N, I, CD)}`);
       i++;
       continue;
     }
 
-    const wrapped = wrapText(renderInline(rawLine, B, D, N, I, CD, useColor), width, useColor);
+    const wrapped = wrapText(renderInline(rawLine, B, D, N, I, CD), width, useColor);
     output.push(wrapped);
     i++;
   }
@@ -209,7 +209,6 @@ function renderInline(
   N: string,
   I: string,
   CD: string,
-  useColor: boolean,
 ): string {
   let result = text;
   result = result.replace(/`([^`]+)`/g, (_, code: string) => `${CD} ${code} ${N}`);
@@ -223,13 +222,7 @@ function renderInline(
   return result;
 }
 
-function renderCodeBlock(
-  lines: string[],
-  width: number,
-  D: string,
-  N: string,
-  CD: string,
-): string {
+function renderCodeBlock(lines: string[], width: number, D: string, N: string, CD: string): string {
   if (lines.length === 0) return '';
   const border = D + '┌' + '─'.repeat(Math.min(width - 2, 78)) + '┐' + N;
   const bottom = D + '└' + '─'.repeat(Math.min(width - 2, 78)) + '┘' + N;

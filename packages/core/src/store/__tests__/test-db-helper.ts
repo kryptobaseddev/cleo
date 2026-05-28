@@ -12,6 +12,8 @@ import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
+import { canonicalProjectId } from '../../nexus/identity.js';
+import { registerProjectOnEncounter } from '../../paths.js';
 import type { DataAccessor } from '../data-accessor.js';
 import { resetDbState } from '../sqlite.js';
 import { createSqliteDataAccessor } from '../sqlite-data-accessor.js';
@@ -80,7 +82,9 @@ export async function createTestDb(): Promise<TestDbEnv> {
   // Write test config that disables session enforcement and lifecycle enforcement
   // so unit tests don't require active sessions or pipeline stage validation.
   const cleoDir = join(tempDir, '.cleo');
+  const cleoHome = join(tempDir, '.cleo-home');
   mkdirSync(cleoDir, { recursive: true });
+  mkdirSync(cleoHome, { recursive: true });
   // validateProjectRoot (T1864/T9092) requires a real .git/ directory sibling
   // alongside .cleo/ as the legacy-fallback acceptance marker. Tests that call
   // getProjectRoot() with this tempDir will fail with E_INVALID_PROJECT_ROOT
@@ -96,6 +100,22 @@ export async function createTestDb(): Promise<TestDbEnv> {
     verification: { enabled: false },
   });
   writeFileSync(join(cleoDir, 'config.json'), configContent);
+  const { id: projectId } = await canonicalProjectId(tempDir);
+  writeFileSync(
+    join(cleoDir, 'project-info.json'),
+    JSON.stringify(
+      {
+        $schema: './schemas/project-info.schema.json',
+        schemaVersion: '1.0.0',
+        projectId,
+        projectHash: projectId,
+        cleoVersion: 'test',
+        lastUpdated: new Date().toISOString(),
+      },
+      null,
+      2,
+    ),
+  );
   // Verify write succeeded
   const { readdirSync } = await import('node:fs');
   const contents = readdirSync(cleoDir);
@@ -108,16 +128,19 @@ export async function createTestDb(): Promise<TestDbEnv> {
   // In integration runners CLEO_ROOT may point at the real project root; force
   // sqlite path resolution to this isolated fixture while opening the DB.
   const previousCleoDir = process.env['CLEO_DIR'];
+  const previousCleoHome = process.env['CLEO_HOME'];
   process.env['CLEO_DIR'] = cleoDir;
+  process.env['CLEO_HOME'] = cleoHome;
   let accessor: DataAccessor;
   try {
+    await registerProjectOnEncounter(tempDir, projectId);
     accessor = await createSqliteDataAccessor(tempDir);
-  } finally {
-    if (previousCleoDir === undefined) {
-      delete process.env['CLEO_DIR'];
-    } else {
-      process.env['CLEO_DIR'] = previousCleoDir;
-    }
+  } catch (error) {
+    if (previousCleoDir === undefined) delete process.env['CLEO_DIR'];
+    else process.env['CLEO_DIR'] = previousCleoDir;
+    if (previousCleoHome === undefined) delete process.env['CLEO_HOME'];
+    else process.env['CLEO_HOME'] = previousCleoHome;
+    throw error;
   }
 
   // Verify config.json still exists after DB initialization
@@ -136,6 +159,10 @@ export async function createTestDb(): Promise<TestDbEnv> {
     cleanup: async () => {
       await accessor.close();
       resetDbState();
+      if (previousCleoDir === undefined) delete process.env['CLEO_DIR'];
+      else process.env['CLEO_DIR'] = previousCleoDir;
+      if (previousCleoHome === undefined) delete process.env['CLEO_HOME'];
+      else process.env['CLEO_HOME'] = previousCleoHome;
       // Windows can release SQLite file handles a tick later than closeDb()
       // returns. Retry first; if Windows still reports an EPERM/EBUSY cleanup
       // race, quarantine/warn instead of failing an otherwise-passed test.
