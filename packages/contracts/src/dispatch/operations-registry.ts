@@ -2757,7 +2757,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'saga.add',
-    description: 'tasks.saga.add (mutate) — link an Epic to a Saga via parent_id containment',
+    description: 'tasks.saga.add (mutate) — link an Epic to a Saga via task_relations type=groups',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -2784,7 +2784,7 @@ export const OPERATIONS: OperationDef[] = [
     domain: 'tasks',
     operation: 'saga.detach',
     description:
-      'tasks.saga.detach (mutate) — remove a Saga member by clearing parent_id containment; idempotent; appends to .cleo/audit/saga-detach.jsonl (T10118)',
+      'tasks.saga.detach (mutate) — remove a Saga member relation (task_relations type=groups); idempotent; appends to .cleo/audit/saga-detach.jsonl (T10118)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -2869,7 +2869,7 @@ export const OPERATIONS: OperationDef[] = [
     domain: 'tasks',
     operation: 'saga.repair',
     description:
-      'tasks.saga.repair (mutate) — detach I5-violating parentId from a Saga; idempotent',
+      'tasks.saga.repair (mutate) — detach I5-violating parentId and re-attach via task_relations type=groups; idempotent',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -2915,14 +2915,14 @@ export const OPERATIONS: OperationDef[] = [
     ] satisfies ParamDef[],
   },
   {
-    // T10637/T10638 — migrate legacy groups Saga membership to parent_id containment.
-    // Converts legacy groups relations from a type='saga' task into proper
-    // Epic parent_id containment. Non-Epic targets are documented as conflicts.
+    // T10637 — migrate parent_id-based Saga membership to groups relations.
+    // Converts Epics whose parent_id points to a type='saga' task into proper
+    // groups relations. Non-Epic tasks are documented as conflicts.
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'saga.migrate-containment',
     description:
-      'tasks.saga.migrate-containment (mutate) — convert legacy groups Saga membership to parent_id containment; idempotent; audits to saga-contain-migration.jsonl',
+      'tasks.saga.migrate-containment (mutate) — convert parent_id-based Saga membership to groups relations; idempotent; audits to saga-contain-migration.jsonl',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -7245,46 +7245,17 @@ export const OPERATIONS: OperationDef[] = [
     ],
   },
   // ── docs.llm-output (T11137) — unified LLM output surface ──────────────────
-  {
-    gateway: 'query',
-    domain: 'docs',
-    operation: 'llm-output',
-    description:
-      'docs.llm-output (query) — unified LLM output: task export (rich Markdown) or attachment-bundle (llms.txt). Replaces `docs export` and `docs generate`.',
-    tier: 1,
-    idempotent: true,
-    sessionRequired: false,
-    requiredParams: ['for'],
+  { gateway: 'query', domain: 'docs', operation: 'llm-output', description: 'docs.llm-output (query) — unified LLM output: task export (rich Markdown) or attachment-bundle (llms.txt). Replaces `docs export` and `docs generate`.', tier: 1, idempotent: true, sessionRequired: false, requiredParams: ['for'],
     params: [
       { name: 'for', type: 'string' as const, required: true, description: 'Target entity ID' },
-      {
-        name: 'mode',
-        type: 'string' as const,
-        required: false,
-        description: 'Output mode: task-export|attachment-bundle (auto-detected)',
-      },
+      { name: 'mode', type: 'string' as const, required: false, description: "Output mode: task-export|attachment-bundle (auto-detected)" },
       { name: 'out', type: 'string' as const, required: false, description: 'Output file path' },
-      {
-        name: 'includeAttachments',
-        type: 'boolean' as const,
-        required: false,
-        description: 'Include attachment manifest (task-export)',
-      },
-      {
-        name: 'includeMemoryRefs',
-        type: 'boolean' as const,
-        required: false,
-        description: 'Include memory refs (task-export)',
-      },
-      {
-        name: 'attach',
-        type: 'boolean' as const,
-        required: false,
-        description: 'Save as llms-txt attachment (attachment-bundle)',
-      },
+      { name: 'includeAttachments', type: 'boolean' as const, required: false, description: 'Include attachment manifest (task-export)' },
+      { name: 'includeMemoryRefs', type: 'boolean' as const, required: false, description: 'Include memory refs (task-export)' },
+      { name: 'attach', type: 'boolean' as const, required: false, description: 'Save as llms-txt attachment (attachment-bundle)' },
     ],
   },
-  // ── docs.update (T10161 — Epic T10157 / Saga T9855) ──────────────────────
+    // ── docs.update (T10161 — Epic T10157 / Saga T9855) ──────────────────────
   {
     gateway: 'mutate',
     domain: 'docs',

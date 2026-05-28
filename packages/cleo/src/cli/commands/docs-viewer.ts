@@ -18,7 +18,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ExitCode } from '@cleocode/contracts';
 import { getCleoHome, getProjectRoot } from '@cleocode/core';
-import { defineCommand } from 'citty';
+import { defineCommand, showUsage } from 'citty';
 import {
   isProcessAlive,
   readViewerPidFile,
@@ -131,7 +131,7 @@ async function spawnDetachedServer(opts: {
 const serveCommand = defineCommand({
   meta: {
     name: 'serve',
-    description: 'Run a local web viewer for published docs',
+    description: '[legacy] Run docs viewer — prefer `cleo docs viewer start`',
   },
   args: {
     port: {
@@ -326,7 +326,7 @@ const serveCommand = defineCommand({
 const openCommand = defineCommand({
   meta: {
     name: 'open',
-    description: 'Open the docs viewer in the browser (auto-starts server if needed)',
+    description: '[legacy] Open docs viewer in browser — prefer `cleo docs viewer open`',
   },
   args: {
     slug: {
@@ -430,7 +430,7 @@ const openCommand = defineCommand({
 const stopCommand = defineCommand({
   meta: {
     name: 'stop',
-    description: 'Stop the running docs viewer (SIGTERM + cleanup pidfile)',
+    description: '[legacy] Stop the docs viewer — prefer `cleo docs viewer stop`',
   },
   args: {
     timeout: {
@@ -514,7 +514,7 @@ const stopCommand = defineCommand({
 const viewerStatusCommand = defineCommand({
   meta: {
     name: 'viewer-status',
-    description: 'Report viewer running state (pid, port, url)',
+    description: '[legacy] Report viewer state — prefer `cleo docs viewer status`',
   },
   async run() {
     const record = await readViewerPidFile();
@@ -568,9 +568,40 @@ const viewerStatusCommand = defineCommand({
   },
 });
 
+
+/**
+ * `cleo docs viewer` — unified managed lifecycle for the docs viewer.
+ *
+ * Subcommands: start, stop, open, status.
+ * Default (no subcommand): shows status.
+ *
+ * @saga T10516
+ * @task T11135 — flatten viewer surface into single managed lifecycle
+ */
+const viewerCommand = defineCommand({
+  meta: {
+    name: 'viewer',
+    description: 'Manage the docs web viewer lifecycle (start/stop/open/status)',
+  },
+  subCommands: {
+    start: serveCommand,
+    stop: stopCommand,
+    open: openCommand,
+    status: viewerStatusCommand,
+  },
+  async run({ cmd, rawArgs }) {
+    const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
+    if (firstArg && cmd.subCommands && firstArg in cmd.subCommands) return;
+    await viewerStatusCommand.run({ args: {} } as Parameters<
+      typeof viewerStatusCommand.run
+    >[0]);
+  },
+});
+
 export const docsViewerSubcommands = {
   serve: serveCommand,
   open: openCommand,
   stop: stopCommand,
   'viewer-status': viewerStatusCommand,
+  viewer: viewerCommand,
 };

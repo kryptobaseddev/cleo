@@ -15,14 +15,15 @@
  * @task T11183 (Epic T10519 / Saga T10516)
  */
 
-import { type Dirent, readdirSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { readdirSync } from 'node:fs';
+import { type Dirent } from 'node:fs';
 import { join } from 'node:path';
 import { eq, sql } from 'drizzle-orm';
 import { getProjectRoot } from '../paths.js';
-import { CleoBlobStore } from '../store/llmtxt-blob-adapter.js';
-import { attachmentRefs, attachments as attachmentsTable } from '../store/schema/attachments.js';
 import { getDb } from '../store/sqlite.js';
+import { attachments as attachmentsTable, attachmentRefs } from '../store/schema/attachments.js';
+import { CleoBlobStore } from '../store/llmtxt-blob-adapter.js';
 
 export interface ConsolidationStats {
   total: number;
@@ -48,9 +49,7 @@ function findLegacyBlobPath(projectRoot: string, sha256: string): string | null 
     for (const entry of entries) {
       if (entry.isFile() && entry.name.startsWith(rest)) return join(dir, entry.name);
     }
-  } catch {
-    /* dir may not exist */
-  }
+  } catch { /* dir may not exist */ }
   return null;
 }
 
@@ -61,9 +60,7 @@ function buildExistingShaSet(projectRoot: string): Set<string> {
     for (const entry of readdirSync(blobsDir)) {
       if (entry.length === 64 && /^[0-9a-f]{64}$/.test(entry)) shas.add(entry);
     }
-  } catch {
-    /* dir may not exist */
-  }
+  } catch { /* dir may not exist */ }
   return shas;
 }
 
@@ -86,42 +83,19 @@ export async function consolidateBlobs(
   const dryRun = options.dryRun ?? false;
   const limit = options.limit ?? Infinity;
 
-  const stats: ConsolidationStats = {
-    total: 0,
-    migrated: 0,
-    alreadyPresent: 0,
-    missingFiles: 0,
-    errors: 0,
-    errorDetails: [],
-  };
+  const stats: ConsolidationStats = { total: 0, migrated: 0, alreadyPresent: 0, missingFiles: 0, errors: 0, errorDetails: [] };
 
-  let rows: Array<{
-    attachmentId: string;
-    sha256: string;
-    slug: string | null;
-    type: string | null;
-    ownerId: string | null;
-  }> = [];
+  let rows: Array<{ attachmentId: string; sha256: string; slug: string | null; type: string | null; ownerId: string | null }> = [];
   try {
     const db = await getDb();
-    rows = db
-      .select({
-        attachmentId: attachmentsTable.id,
-        sha256: attachmentsTable.sha256,
-        slug: attachmentsTable.slug,
-        type: attachmentsTable.type,
-        ownerId: attachmentRefs.ownerId,
-      })
-      .from(attachmentsTable)
-      .leftJoin(attachmentRefs, eq(attachmentsTable.id, attachmentRefs.attachmentId))
-      .all();
+    rows = db.select({
+      attachmentId: attachmentsTable.id, sha256: attachmentsTable.sha256,
+      slug: attachmentsTable.slug, type: attachmentsTable.type,
+      ownerId: attachmentRefs.ownerId,
+    }).from(attachmentsTable).leftJoin(attachmentRefs, eq(attachmentsTable.id, attachmentRefs.attachmentId)).all();
   } catch (err) {
     stats.errors++;
-    stats.errorDetails.push({
-      attachmentId: 'N/A',
-      sha256: 'N/A',
-      message: `Failed to read attachments: ${String(err)}`,
-    });
+    stats.errorDetails.push({ attachmentId: 'N/A', sha256: 'N/A', message: `Failed to read attachments: ${String(err)}` });
     return stats;
   }
 
@@ -129,10 +103,7 @@ export async function consolidateBlobs(
   const existingShas = dryRun ? new Set<string>() : buildExistingShaSet(root);
 
   let blobStore: CleoBlobStore | null = null;
-  if (!dryRun) {
-    blobStore = new CleoBlobStore({ projectRoot: root });
-    await blobStore.open();
-  }
+  if (!dryRun) { blobStore = new CleoBlobStore({ projectRoot: root }); await blobStore.open(); }
 
   try {
     let processed = 0;
@@ -143,78 +114,41 @@ export async function consolidateBlobs(
       const docSlug = ownerId ?? '__project__';
       const blobName = deriveBlobName(slug, type, attachmentId);
 
-      if (existingShas.has(sha256)) {
-        stats.alreadyPresent++;
-        continue;
-      }
+      if (existingShas.has(sha256)) { stats.alreadyPresent++; continue; }
 
       const legacyPath = findLegacyBlobPath(root, sha256);
-      if (!legacyPath) {
-        stats.missingFiles++;
-        continue;
-      }
+      if (!legacyPath) { stats.missingFiles++; continue; }
 
       try {
         const bytes = await readFile(legacyPath);
         if (!dryRun && blobStore) {
-          await blobStore.attach(
-            docSlug,
-            blobName,
-            new Uint8Array(bytes),
-            deriveContentType(blobName),
-          );
+          await blobStore.attach(docSlug, blobName, new Uint8Array(bytes), deriveContentType(blobName));
         }
         stats.migrated++;
       } catch (err) {
         stats.errors++;
         if (stats.errorDetails.length < 50) {
-          stats.errorDetails.push({
-            attachmentId,
-            sha256,
-            message: `Migration failed: ${String(err)}`,
-          });
+          stats.errorDetails.push({ attachmentId, sha256, message: `Migration failed: ${String(err)}` });
         }
       }
     }
   } finally {
-    if (blobStore) {
-      try {
-        await blobStore.close();
-      } catch {
-        /* cleanup */
-      }
-    }
+    if (blobStore) { try { await blobStore.close(); } catch { /* cleanup */ } }
   }
   return stats;
 }
 
 export async function verifyConsolidation(options: { projectRoot?: string } = {}): Promise<{
-  consistent: boolean;
-  total: number;
-  matched: number;
-  missing: Array<{ attachmentId: string; sha256: string; slug: string | null }>;
+  consistent: boolean; total: number; matched: number; missing: Array<{ attachmentId: string; sha256: string; slug: string | null }>;
 }> {
   const root = options.projectRoot ?? getProjectRoot();
-  const result = {
-    consistent: true,
-    total: 0,
-    matched: 0,
-    missing: [] as Array<{ attachmentId: string; sha256: string; slug: string | null }>,
-  };
+  const result = { consistent: true, total: 0, matched: 0, missing: [] as Array<{ attachmentId: string; sha256: string; slug: string | null }> };
 
   try {
     const db = await getDb();
-    const rows = db
-      .select({
-        attachmentId: attachmentsTable.id,
-        sha256: attachmentsTable.sha256,
-        slug: attachmentsTable.slug,
-        ownerId: attachmentRefs.ownerId,
-      })
-      .from(attachmentsTable)
-      .leftJoin(attachmentRefs, eq(attachmentsTable.id, attachmentRefs.attachmentId))
-      .where(sql`${attachmentsTable.slug} IS NOT NULL`)
-      .all();
+    const rows = db.select({ attachmentId: attachmentsTable.id, sha256: attachmentsTable.sha256, slug: attachmentsTable.slug, ownerId: attachmentRefs.ownerId })
+      .from(attachmentsTable).leftJoin(attachmentRefs, eq(attachmentsTable.id, attachmentRefs.attachmentId))
+      .where(sql`${attachmentsTable.slug} IS NOT NULL`).all();
 
     const blobStore = new CleoBlobStore({ projectRoot: root });
     await blobStore.open();
@@ -224,26 +158,10 @@ export async function verifyConsolidation(options: { projectRoot?: string } = {}
         try {
           const blob = await blobStore.get(row.ownerId ?? '__project__', row.slug!);
           if (blob && blob.hash === row.sha256) result.matched++;
-          else {
-            result.consistent = false;
-            result.missing.push({
-              attachmentId: row.attachmentId,
-              sha256: row.sha256,
-              slug: row.slug,
-            });
-          }
-        } catch {
-          result.consistent = false;
-          result.missing.push({
-            attachmentId: row.attachmentId,
-            sha256: row.sha256,
-            slug: row.slug,
-          });
-        }
+          else { result.consistent = false; result.missing.push({ attachmentId: row.attachmentId, sha256: row.sha256, slug: row.slug }); }
+        } catch { result.consistent = false; result.missing.push({ attachmentId: row.attachmentId, sha256: row.sha256, slug: row.slug }); }
       }
-    } finally {
-      await blobStore.close();
-    }
+    } finally { await blobStore.close(); }
   } catch (err) {
     result.consistent = false;
     result.missing.push({ attachmentId: 'N/A', sha256: 'N/A', slug: `Error: ${String(err)}` });
