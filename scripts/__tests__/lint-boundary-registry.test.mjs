@@ -131,7 +131,9 @@ function buildCleanFixture() {
     );
   }
   for (const p of packages) {
-    entries.push(entry({ module: p, tsWrapper: `packages/${p}`, intent: 'ts-only', status: 'active' }));
+    entries.push(
+      entry({ module: p, tsWrapper: `packages/${p}`, intent: 'ts-only', status: 'active' }),
+    );
   }
   return entries;
 }
@@ -386,11 +388,12 @@ describe('lint-boundary-registry — invalid status', () => {
         tsWrapper: `packages/${['a', 'b', 'c', 'd'][i]}`,
         intent: 'ts-only',
         status,
-        // Use exempt statuses or external home to avoid MISSING violations.
-        canonicalHome: status === 'archived' ? 'archived'
-          : status === 'migrated-out' ? { external: '/other/repo' }
-          : status === 'deprecated' ? 'cleocode'
-          : 'cleocode',
+        canonicalHome:
+          status === 'archived'
+            ? 'archived'
+            : status === 'migrated-out'
+              ? { external: '/other/repo' }
+              : 'cleocode',
       }),
     );
     writeFixture(entries);

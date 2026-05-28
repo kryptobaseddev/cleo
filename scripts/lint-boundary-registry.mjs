@@ -319,8 +319,12 @@ function crossCheck(registry) {
  */
 function printReport(report) {
   const { orphans, missing, driftIntent, invalidIntent, invalidStatus, ok } = report;
-  const total = orphans.length + missing.length + driftIntent.length +
-    invalidIntent.length + invalidStatus.length;
+  const total =
+    orphans.length +
+    missing.length +
+    driftIntent.length +
+    invalidIntent.length +
+    invalidStatus.length;
 
   if (jsonOutput) {
     console.log(
@@ -382,14 +386,18 @@ function printReport(report) {
     console.error('');
   }
   if (invalidIntent.length > 0) {
-    console.error(`INVALID INTENT (${invalidIntent.length}) — intent not one of ts-only|rust-published|rust-hotpath:`);
+    console.error(
+      `INVALID INTENT (${invalidIntent.length}) — intent not one of ts-only|rust-published|rust-hotpath:`,
+    );
     for (const i of invalidIntent) {
       console.error(`  ${i.module.padEnd(28)} intent=${i.declaredIntent}`);
     }
     console.error('');
   }
   if (invalidStatus.length > 0) {
-    console.error(`INVALID STATUS (${invalidStatus.length}) — status not one of active|deprecated|migrated-out|archived:`);
+    console.error(
+      `INVALID STATUS (${invalidStatus.length}) — status not one of active|deprecated|migrated-out|archived:`,
+    );
     for (const s of invalidStatus) {
       console.error(`  ${s.module.padEnd(28)} status=${s.declaredStatus}`);
     }
