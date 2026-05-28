@@ -22,6 +22,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { E_CWD_WALKUP_FORBIDDEN, ExitCode } from '@cleocode/contracts';
 import {
+  computeCanonicalProjectId as _computeCanonicalProjectId,
   getCanonicalTemplatesTildePath as _getCanonicalTemplatesTildePath,
   getCleoTemplatesTildePath as _getCleoTemplatesTildePath,
   isAbsolutePath as _isAbsolutePath,
@@ -464,6 +465,19 @@ export function getCleoDirAbsolute(cwd?: string, opts?: { bootstrap?: boolean })
  * @task T11018
  */
 export function resolveCanonicalCleoDir(projectId: string): string {
+  // CLEO_DIR override (backward-compat, T11262 regression fix). An absolute
+  // CLEO_DIR pins the canonical `.cleo` directory for the whole process,
+  // bypassing the nexus `project_registry` lookup. This mirrors
+  // {@link getProjectRoot}'s long-standing CLEO_DIR precedence and restores the
+  // contract that 156 test files and the `--cleo-dir` CLI flag depend on — the
+  // PM-Core V2 projectId/nexus migration (T11013/T11018) routed `getDbPath` and
+  // ~40 other `.cleo` resolvers through this chokepoint without carrying the
+  // CLEO_DIR override forward, so an empty per-fork nexus registry threw
+  // E_PROJECT_NOT_FOUND across the unit suite.
+  const overrideDir = _cleoDirEnvOverride();
+  if (overrideDir !== null) {
+    return overrideDir;
+  }
   const result = _resolveCanonicalCleoDir(projectId);
   if (result === null) {
     throw new CleoError(
@@ -527,6 +541,30 @@ function _resolveProjectByCwdFromNexus(cwd?: string): string | null {
 }
 
 /**
+ * Backward-compat `CLEO_DIR` override for the canonical `.cleo` resolution
+ * chokepoint ({@link resolveProjectByCwd} + {@link resolveCanonicalCleoDir}).
+ *
+ * When `CLEO_DIR` is set to an absolute path it pins the canonical `.cleo`
+ * directory for the entire process, bypassing the projectId → nexus
+ * `project_registry` resolution. This mirrors {@link getProjectRoot}'s
+ * long-standing `CLEO_DIR` precedence and preserves the contract that test
+ * harnesses (156 files set `CLEO_DIR=/tmp/.../.cleo`) and the `--cleo-dir` CLI
+ * flag depend on. The PM-Core V2 projectId/nexus migration (T11013/T11018)
+ * routed `getDbPath` and ~40 other `.cleo` resolvers through the new chain
+ * without carrying this override forward, so an empty per-fork nexus registry
+ * threw `E_PROJECT_NOT_FOUND` across the entire unit suite (T11262).
+ *
+ * @returns the absolute `.cleo` directory from `CLEO_DIR`, or `null` when the
+ *   variable is unset or relative.
+ * @internal
+ * @task T11262
+ */
+function _cleoDirEnvOverride(): string | null {
+  const cleoDirEnv = process.env['CLEO_DIR'];
+  return cleoDirEnv && isAbsolutePath(cleoDirEnv) ? cleoDirEnv : null;
+}
+
+/**
  * Resolve the canonical projectId from a working directory.
  *
  * First reads `.cleo/project-info.json` from CWD or an ancestor directory (AC2).
@@ -548,6 +586,17 @@ function _resolveProjectByCwdFromNexus(cwd?: string): string | null {
  * @task T11013
  */
 export function resolveProjectByCwd(cwd?: string): string {
+  // CLEO_DIR override (backward-compat, T11262 regression fix). When CLEO_DIR
+  // is an absolute path it pins the project for the whole process; return a
+  // deterministic projectId derived from the pinned project root so callers
+  // that chain into resolveCanonicalCleoDir (which also honours CLEO_DIR) never
+  // hit the empty-registry NEXUS_PROJECT_NOT_FOUND throw. See _cleoDirEnvOverride.
+  const overrideDir = _cleoDirEnvOverride();
+  if (overrideDir !== null) {
+    const projectRoot = overrideDir.replace(/[\\/]\.cleo$/, '');
+    return _computeCanonicalProjectId(projectRoot);
+  }
+
   // AC2: Try local project-info.json first (via paths package)
   const pathsResult = _pathsResolveProjectByCwd(cwd);
   if (pathsResult !== null) {
