@@ -284,7 +284,7 @@ export function reconcileJournal(
 
   // Scenario 2: Journal has orphaned entries from a previous CLEO version
   //
-  // Two distinct sub-cases require different handling:
+  // Three distinct sub-cases require different handling:
   //
   // A) DB is AHEAD of this install (forward-compatibility): all local hashes
   //    are present in the DB, but the DB also has additional entries for
@@ -296,16 +296,41 @@ export function reconcileJournal(
   //    them back — only for this install to delete them again on the next run.
   //    ACTION: skip reconciliation, log at debug only.
   //
-  // B) DB has stale hashes from a genuinely old CLEO version whose checksum
-  //    algorithm produced different hashes for the same migration files (i.e.,
-  //    at least one local hash is MISSING from the DB while other DB entries
-  //    are unrecognised). ACTION: delete and re-seed as before, log at warn.
+  // B) HASH DRIFT — orphan entries have a NAME that matches a local migration
+  //    but a different hash. This happens when a migration file's SQL is
+  //    modified in a release (e.g. v2026.5.128's t033 idempotency fix). The
+  //    migration was applied with the old SQL; the new SQL is logically the
+  //    same migration. Wiping the journal would force every migration to be
+  //    re-probed, which fails for data-only migrations whose DDL can't be
+  //    probed. ACTION: UPDATE the entry's hash in place. The migration stays
+  //    applied; only the hash is brought forward.
+  //
+  // C) TRUE ORPHANS — entries whose name has no local match (the migration
+  //    file was removed from disk, or the journal is from a fundamentally
+  //    different cleo lineage). ACTION: delete + re-probe via DDL.
   if (tableExists(nativeDb, '__drizzle_migrations') && tableExists(nativeDb, existenceTable)) {
     const localMigrations = readMigrationFiles({ migrationsFolder });
     const localHashes = new Set(localMigrations.map((m) => m.hash));
-    const dbEntries = nativeDb.prepare('SELECT hash FROM "__drizzle_migrations"').all() as Array<{
-      hash: string;
+    const localByName = new Map(localMigrations.map((m) => [m.name ?? '', m]));
+
+    // Read full entries with hash, name, id. Older journals may lack `name`;
+    // those entries fall through to true-orphan handling below.
+    const migCols = nativeDb.prepare('PRAGMA table_info("__drizzle_migrations")').all() as Array<{
+      name: string;
     }>;
+    const hasMigNameCol = migCols.some((c) => c.name === 'name');
+    type JournalRow = { id: number; hash: string; name: string | null };
+    const dbEntries: JournalRow[] = hasMigNameCol
+      ? (nativeDb
+          .prepare('SELECT id, hash, name FROM "__drizzle_migrations"')
+          .all() as JournalRow[])
+      : (
+          nativeDb.prepare('SELECT id, hash FROM "__drizzle_migrations"').all() as Array<{
+            id: number;
+            hash: string;
+          }>
+        ).map((r) => ({ ...r, name: null }));
+
     const orphanedEntries = dbEntries.filter((e) => !localHashes.has(e.hash));
     const hasOrphanedEntries = orphanedEntries.length > 0;
 
@@ -322,24 +347,64 @@ export function reconcileJournal(
           `Migration journal has ${orphanedEntries.length} entries for migrations not known to this install (DB is ahead). Skipping reconciliation.`,
         );
       } else {
-        // Sub-case B: Genuine stale hashes from an older CLEO version.
-        // ROOT-CAUSE FIX (T632): The previous implementation DELETEd the journal
-        // and INSERTed all local migrations as applied WITHOUT running their SQL.
-        // That meant ALTER TABLE migrations (T417 agent, T528 provenance, etc.)
-        // got marked applied but their columns were never added — forcing
-        // ensureColumns band-aids in memory-sqlite.ts to patch the missing schema.
-        //
-        // Real fix: clear orphaned entries, then PROBE each local migration's
-        // DDL. Mark applied ONLY if the DDL targets already exist in the schema.
-        // Drizzle's migrate() (called next) will run whatever remains unjournaled.
+        // Partition orphans into hash-drift (name-matched) vs true orphans.
+        const driftEntries: Array<{ row: JournalRow; newHash: string }> = [];
+        const trueOrphanEntries: JournalRow[] = [];
+        for (const orphan of orphanedEntries) {
+          const localMatch = orphan.name ? localByName.get(orphan.name) : undefined;
+          if (localMatch && localMatch.hash !== orphan.hash) {
+            driftEntries.push({ row: orphan, newHash: localMatch.hash });
+          } else {
+            trueOrphanEntries.push(orphan);
+          }
+        }
+
         const log = getLogger(logSubsystem);
-        log.warn(
-          { orphaned: orphanedEntries.length },
-          `Detected stale migration journal entries from a previous CLEO version. Reconciling via DDL probe.`,
-        );
-        nativeDb.exec('DELETE FROM "__drizzle_migrations"');
-        for (const m of localMigrations) {
-          probeAndMarkApplied(nativeDb, m, logSubsystem);
+
+        // Sub-case B: HASH DRIFT — UPDATE hash in place. The migration was
+        // applied; the SQL has been edited in a release; the journal entry
+        // is logically correct, only its hash is stale.
+        if (driftEntries.length > 0) {
+          log.warn(
+            {
+              drifted: driftEntries.length,
+              names: driftEntries.map((d) => d.row.name),
+            },
+            `Detected ${driftEntries.length} hash-drift journal entries (migration SQL edited in a release). Updating hashes in place.`,
+          );
+          const updateStmt = nativeDb.prepare(
+            'UPDATE "__drizzle_migrations" SET hash = ? WHERE id = ?',
+          );
+          for (const { row, newHash } of driftEntries) {
+            updateStmt.run(newHash, row.id);
+          }
+        }
+
+        // Sub-case C: TRUE ORPHANS — entries whose name has no local match.
+        // Only NOW do we fall back to the legacy delete+re-probe path, and
+        // only for the truly-orphaned entries.
+        if (trueOrphanEntries.length > 0) {
+          log.warn(
+            { orphaned: trueOrphanEntries.length },
+            `Detected ${trueOrphanEntries.length} true-orphan journal entries from a previous CLEO lineage. Reconciling via DDL probe.`,
+          );
+          const deleteStmt = nativeDb.prepare('DELETE FROM "__drizzle_migrations" WHERE id = ?');
+          for (const e of trueOrphanEntries) deleteStmt.run(e.id);
+          // Re-probe local migrations that may now have no journal entry.
+          // The previous implementation cleared the WHOLE journal here; the
+          // selective delete above keeps every applied migration journaled,
+          // so the probe only inserts entries for genuinely missing ones.
+          const journaledHashesAfter = new Set(
+            (
+              nativeDb.prepare('SELECT hash FROM "__drizzle_migrations"').all() as Array<{
+                hash: string;
+              }>
+            ).map((r) => r.hash),
+          );
+          for (const m of localMigrations) {
+            if (journaledHashesAfter.has(m.hash)) continue;
+            probeAndMarkApplied(nativeDb, m, logSubsystem);
+          }
         }
       }
     }
