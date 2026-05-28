@@ -13,6 +13,7 @@ related:
     path: ../architecture/T10517-architecture-decision.md
 created: 2026-05-27
 updated: 2026-05-27
+similarity-exempt: RCASD lifecycle scaffold placeholder intentionally shares template wording until authored.
 ---
 # Specification (T10517)
 

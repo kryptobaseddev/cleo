@@ -13,6 +13,7 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { resolveOrCwd } from '../paths.js';
 
 /** Result of auditing version fields across the codebase. */
 export interface VersionAuditResult {
@@ -53,7 +54,7 @@ function parseCalver(v: string): CalverParts | null {
  * @returns The version string from package.json, or `0.0.0` when unavailable.
  */
 export function getCanonicalCleoVersion(projectRoot?: string): string {
-  const root = projectRoot ?? process.cwd();
+  const root = resolveOrCwd(projectRoot);
   const pkgPath = join(root, 'package.json');
   try {
     const raw = readFileSync(pkgPath, 'utf-8');

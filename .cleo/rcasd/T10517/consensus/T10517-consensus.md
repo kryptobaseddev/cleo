@@ -9,6 +9,7 @@ related:
     path: ../research/T10517-research.md
 created: 2026-05-27
 updated: 2026-05-27
+similarity-exempt: RCASD lifecycle scaffold placeholder intentionally shares template wording until authored.
 ---
 # Consensus (T10517)
 

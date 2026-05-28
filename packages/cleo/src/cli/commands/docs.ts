@@ -21,6 +21,7 @@ import {
   DocKindRegistry,
   ExitCode,
 } from '@cleocode/contracts';
+import { pushWarning } from '@cleocode/core';
 import {
   CleoError,
   CounterMismatchError,
@@ -782,9 +783,12 @@ const supersedeCommand = defineCommand({
   args: supersedeCommandArgs,
   async run({ args, rawArgs }) {
     // T11179: supersede is deprecated.
-    process.stderr.write(
-      'cleo: docs supersede is deprecated - use `cleo docs update` for new work (T11179)\n',
-    );
+    pushWarning({
+      code: 'W_DEPRECATED_COMMAND',
+      message: 'cleo docs supersede is deprecated - use `cleo docs update` for new work (T11179)',
+      deprecated: 'docs supersede',
+      replacement: 'docs update',
+    });
     try {
       assertKnownFlags(rawArgs, supersedeCommandArgs, 'docs supersede');
     } catch (err) {
@@ -2665,9 +2669,12 @@ const listTypesCommand = defineCommand({
     },
   },
   async run({ args }) {
-    process.stderr.write(
-      'cleo: docs list-types is deprecated -- use `cleo docs schema` instead (T11142)\\n',
-    );
+    pushWarning({
+      code: 'W_DEPRECATED_COMMAND',
+      message: 'cleo docs list-types is deprecated -- use `cleo docs schema` instead (T11142)',
+      deprecated: 'docs list-types',
+      replacement: 'docs schema',
+    });
     const projectRoot = getProjectRoot();
     const { registry, configError } = loadCliRegistry(projectRoot);
     const kinds = registry.list().map(toWireKind);
@@ -2770,8 +2777,6 @@ export const docsCommand = defineCommand({
     status: statusCommand,
     'gap-check': gapCheckCommand,
     import: importCommand,
-    // Migration tool (T11179)
-    migrate: migrateCommand,
     // Utilities
     // T9788 — canonical doc-kind taxonomy discovery surface.
     schema: schemaCommand,

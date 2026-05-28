@@ -218,7 +218,7 @@ function isCleoContributorProject(projectRoot: string): boolean {
  */
 export function createDefaultConfig(): Record<string, unknown> {
   return {
-    version: '2.10.0',
+    version: '2.11.0',
     output: {
       defaultFormat: 'json',
       showColor: true,
@@ -238,7 +238,34 @@ export function createDefaultConfig(): Record<string, unknown> {
       multiSession: false,
     },
     lifecycle: {
-      mode: 'strict',
+      mode: 'advisory',
+    },
+    release: {
+      guards: {
+        epicCompleteness: 'warn',
+      },
+    },
+    enforcement: {
+      acceptance: {
+        mode: 'warn',
+      },
+    },
+    brain: {
+      autoCapture: true,
+      memoryBridge: {
+        mode: 'file',
+        autoRefresh: true,
+        contextAware: true,
+      },
+      summarization: {
+        enabled: true,
+      },
+      embedding: {
+        enabled: true,
+      },
+      llmExtraction: {
+        enabled: false,
+      },
     },
   };
 }
@@ -423,21 +450,6 @@ export async function ensureProjectInfo(
       config: configSchemaVersion,
       sqlite: SQLITE_SCHEMA_VERSION,
       projectContext: projectContextSchemaVersion,
-    },
-    injection: {
-      'CLAUDE.md': null,
-      'AGENTS.md': null,
-      'GEMINI.md': null,
-    },
-    health: {
-      status: 'unknown',
-      lastCheck: null,
-      issues: [],
-    },
-    features: {
-      multiSession: false,
-      verification: false,
-      contextAlerts: false,
     },
   };
 

@@ -57,6 +57,7 @@ import { LLM_OUTPUT_MODES } from '@cleocode/contracts/operations/docs';
 import { pushWarning } from '@cleocode/core';
 import type {
   AttachmentRef,
+  ExportDocumentOptions,
   LlmsTxtAttachment,
   LocalFileAttachment,
   UrlAttachment,
@@ -178,6 +179,14 @@ function registeredKindValues(): readonly string[] {
   return getDocKindRegistry()
     .list()
     .map((d) => d.kind);
+}
+
+async function currentAttachmentBackend(): Promise<AttachmentBackend> {
+  return resolveAttachmentBackend();
+}
+
+function exportTaskDocument(options: ExportDocumentOptions) {
+  return exportDocument(options);
 }
 
 // ─── DocsTypedOps ─────────────────────────────────────────────────────────────
@@ -507,7 +516,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
 
     // T11050 — route list through the canonical DocsReadModel
     const model = createDocsReadModel();
-    const backend: AttachmentBackend = await resolveAttachmentBackend();
+    const backend: AttachmentBackend = await currentAttachmentBackend();
 
     if (isProjectScope) {
       // Project-scoped: use the read model's listProjectDocs
@@ -702,7 +711,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     }
     const cwd = getProjectRoot();
     if (mode === 'task-export') {
-      const result = await exportDocument({
+      const result = await exportTaskDocument({
         taskId: forId,
         includeAttachments: params.includeAttachments !== false,
         includeMemoryRefs: params.includeMemoryRefs === true,
@@ -805,7 +814,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     const bytesBase64 =
       contentBytes.length <= MAX_INLINE ? contentBytes.toString('base64') : undefined;
 
-    const backend: AttachmentBackend = await resolveAttachmentBackend();
+    const backend: AttachmentBackend = await currentAttachmentBackend();
 
     return lafsSuccess<DocsFetchResult>(
       {
@@ -1076,7 +1085,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           ownerType: 'task',
           // Cast: core returns 'llmtxt' (Wave C — legacy backend retired for mirror store).
           attachmentBackend:
-            (await resolveAttachmentBackend()) as DocsAddResult['attachmentBackend'],
+            (await currentAttachmentBackend()) as DocsAddResult['attachmentBackend'],
           slug: outcome.result.slug,
           type: 'changeset',
         },
@@ -1307,7 +1316,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         backend = mirrorResult.backend;
       } catch {
         // Mirror write is best-effort — never fail docs add on it.
-        backend = await resolveAttachmentBackend();
+        backend = await currentAttachmentBackend();
       }
 
       // T945 Stage A — mint `llmtxt:<sha256>` graph node + `embeds` edge
@@ -1431,7 +1440,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
 
       // URL writes stay in tasks.db; v2 focuses on local-file / blob kinds.
       // Wave C — resolveAttachmentBackend() always returns 'llmtxt'.
-      const backend: AttachmentBackend = await resolveAttachmentBackend();
+      const backend: AttachmentBackend = await currentAttachmentBackend();
 
       // T9976 — emit structured memory observation for docs.add URL path (fire-and-forget).
       const urlPayload: DocAttachmentObservationPayload = {
@@ -1533,7 +1542,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       /* Mirror remove is best-effort. */
     }
     // Wave C — always 'llmtxt' for llmtxt-backed stores.
-    const backend: AttachmentBackend = await resolveAttachmentBackend();
+    const backend: AttachmentBackend = await currentAttachmentBackend();
 
     // T11139 — audit trail
     try {
@@ -1619,7 +1628,8 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         ? new Uint8Array(await readFile(resolve(filePath as string)))
         : new Uint8Array(Buffer.from(inlineContent as string, 'utf-8'));
       const contentType = hasFile ? mimeFromPath(resolve(filePath as string)) : 'text/plain';
-      const rows = await createAttachmentStore().listAllInProject(projectRoot);
+      const store = createAttachmentStore();
+      const rows = await store.listAllInProject(projectRoot);
       const ownerIds = Array.from(
         new Set(
           rows
@@ -1637,7 +1647,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         backend = mirrorResult.backend;
       }
     } catch {
-      backend = await resolveAttachmentBackend();
+      backend = await currentAttachmentBackend();
     }
 
     // T11139 — audit trail

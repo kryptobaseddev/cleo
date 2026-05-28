@@ -13,6 +13,7 @@ related:
     path: ../decomposition/T10517-decomposition.md
 created: 2026-05-27
 updated: 2026-05-27
+similarity-exempt: RCASD lifecycle scaffold placeholder intentionally shares template wording until authored.
 ---
 # Implementation (T10517)
 
