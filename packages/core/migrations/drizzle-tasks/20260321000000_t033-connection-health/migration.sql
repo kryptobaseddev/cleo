@@ -285,7 +285,10 @@ CREATE TABLE `release_manifests_new` (
   CONSTRAINT `fk_release_manifests_epic_id` FOREIGN KEY (`epic_id`) REFERENCES `tasks`(`id`) ON DELETE SET NULL
 );
 --> statement-breakpoint
-INSERT INTO `release_manifests_new` SELECT `id`, `version`, `status`, `pipeline_id`, `epic_id`, `tasks_json`, `changelog`, `notes`, `previous_version`, `commit_sha`, `git_tag`, `npm_dist_tag`, `created_at`, `prepared_at`, `committed_at`, `tagged_at`, `pushed_at` FROM `release_manifests`;
+INSERT INTO `release_manifests_new` (`id`, `version`, `status`, `pipeline_id`, `epic_id`, `tasks_json`, `changelog`, `notes`, `previous_version`, `commit_sha`, `git_tag`, `npm_dist_tag`, `created_at`, `prepared_at`, `committed_at`, `tagged_at`, `pushed_at`)
+SELECT `id`, `version`, `status`, `pipeline_id`, `epic_id`, `tasks_json`, `changelog`, `notes`, `previous_version`, `commit_sha`, `git_tag`, `npm_dist_tag`, `created_at`, `prepared_at`, `committed_at`, `tagged_at`, `pushed_at`
+FROM `release_manifests`
+WHERE EXISTS (SELECT 1 FROM `release_manifests` LIMIT 1);
 --> statement-breakpoint
 DROP TABLE `release_manifests`;
 --> statement-breakpoint
