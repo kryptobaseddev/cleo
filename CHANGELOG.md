@@ -1,5 +1,28 @@
 # Changelog
 
+## [2026.5.127] (2026-05-28)
+
+### Added
+
+- T11202: WorkGraph relation semantics — ADR-088 + CLEO-TASKS-API-SPEC distinguish containment, hard deps, soft relations
+- T11203: Reparent/retype cascade spec — API-SPEC §8 with ReparentResult, RetypePlan, RetypeResult shapes
+- project-info.json: `name`, `remoteUrl`, `createdAt` fields for .cleo/ portability
+- createDefaultConfig: `release`, `enforcement`, `brain` sections (new cleo init)
+
+### Changed
+
+- T11204: Swept stale `groups` doctrine from contracts, tests, migration SQL
+- project-info.json: Removed dead `injection`, `health`, `features` blocks
+- legacyProjectId: De-duplicated to `@cleocode/paths` canonical source
+- cleo upgrade: Now force-regenerates config + project-info (preserves projectId + createdAt)
+- ensureProjectInfo: Backfills missing `name` on non-force path
+- createDefaultConfig: version 2.10.0→2.11.0, lifecycle.mode strict→advisory
+
+### Fixed
+
+- Test harnesses: project-info.json + nexus registration for graph-auto-populate, reconcile, t9625-closure
+- Dogfood ledger: Updated with session assessments for DHQ-015, DHQ-021
+
 ## [2026.5.126] (2026-05-27)
 
 ### Added
