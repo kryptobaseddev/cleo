@@ -6,12 +6,6 @@
 **Commit**: `f3dcceb02`
 **Scope**: `packages/playbooks`, `packages/contracts/src/playbook.ts`
 
-> Note: an earlier ADR at `.cleo/adrs/ADR-053-project-agnostic-release-pipeline.md`
-> also bears the number 53. The two live in separate directories and cover
-> unrelated concerns (release pipeline vs. playbook runtime). The
-> `.cleo/adrs/` tree is the historical in-repo log; `docs/adr/` is the shipping
-> canonical tree used by ADR-052 (T933) and this ADR (T930/T910). Future ADRs
-> land under `docs/adr/`.
 
 ## Context
 

@@ -1,0 +1,146 @@
+CLEOCODE TEST AUDIT: Task-Named Test Files
+    
+    Scope
+    
+    23 task-named test files (7,984 lines) out of 1,329 total test files.  
+    All live in packages/core/ — core is the only package with this anti-pattern.
+    
+    
+    
+    The 23 Files, Categorized
+    
+    SCHEMA MIGRATION PARITY TESTS (9 files) — verify DB matches what a specific migration produces:
+    
+    | File                                          | Lines | What it actually tests                               |
+    |-----------------------------------------------|-------|------------------------------------------------------|
+    | t944-role-scope-schema.test.ts                | 487   | role/scope/severity columns + experiments side-table |
+    | t10639-child-task-projection-backfill.test.ts | 480   | child_task AC projection backfill migration          |
+    | t10505-ac-backfill.test.ts                    | 472   | acceptance_criteria backfill migration               |
+    | t10277-saga-tasktype.test.ts                  | 409   | saga TaskType migration (T10329)                     |
+    | t10503-evidence-ac-bindings-schema.test.ts    | 394   | evidence_ac_bindings M:N table                       |
+    | t10158-attachments-provenance-schema.test.ts  | 306   | attachments 7 provenance columns                     |
+    | t1830-decision-category.test.ts               | 288   | decision_category column + filter                    |
+    | t9073-severity-any-role-schema.test.ts        | 219   | severity CHECK widened                               |
+    | t310-readiness.test.ts                        | 111   | T310 readiness gate check                            |
+    
+    FEATURE/INTEGRATION TESTS (10 files) — test behavior introduced by tasks:
+    
+    | File                                   | Lines | What it actually tests                           |
+    |----------------------------------------|-------|--------------------------------------------------|
+    | t310-integration.test.ts               | 1150  | conduit + signaldock cross-project lifecycle     |
+    | t311-integration.test.ts               | 661   | .cleobundle export/import lifecycle              |
+    | t11031-it.test.ts                      | 555   | strict mode, deprecation warnings, cross-mount   |
+    | t920-migration-guard.test.ts           | 300   | T528 duplicate-column migration guard            |
+    | t11024-move-rename.test.ts             | 333   | nexus move/rename/reconcile                      |
+    | t9073-severity-cross-role.test.ts      | 225   | severity attestation for all roles               |
+    | t9625-closure.test.ts                  | 220   | saga closure regression                          |
+    | t11021-project-registry.test.ts        | 219   | project registry lookup + auto-register          |
+    | t877-pipeline-stage-invariants.test.ts | 206   | pipeline stage invariants                        |
+    | t944-role-scope-wiring.test.ts         | 166   | kind/scope/severity wiring (addTask + findTasks) |
+    
+    REGRESSION TESTS (3 files) — specific bug regression locks:
+    
+    | File                                  | Lines | What it actually tests              |
+    |---------------------------------------|-------|-------------------------------------|
+    | T10165-backfill-adr-index.test.ts     | 293   | ADR index backfill into attachments |
+    | t10287-orphan-cleo-regression.test.ts | 89    | orphan .cleo/ in non-CLEO repos     |
+    | t10079-primary-worktree-root.test.ts  | 54    | primary worktree root routing       |
+    
+    STALE DUPLICATE (1 file) — leftover artifact:
+    
+    File: packages/core/packages/core/src/nexus/tests/t11024-move-rename.test.ts
+    Lines: 347
+    Status: DUPLICATE — same content as the one in the real path; lives in a nested packages/core/packages/core/ artifact directory with no other files. Should be deleted immediately.
+    
+    
+    
+    Key Problems Found
+    
+    1. Split twins across directories (T9073, T944)
+    
+    Same task tested in two different directories with different concerns:
+    - t9073-severity-any-role-schema.test.ts in store/tests/ → tests DB CHECK constraint
+    - t9073-severity-cross-role.test.ts in tasks/tests/ → tests attestation wiring
+    - t944-role-scope-schema.test.ts in store/tests/ → tests DB columns
+    - t944-role-scope-wiring.test.ts in tasks/tests/ → tests addTask/findTasks
+    
+    Each pair should be one canonical file in the right location.
+    
+    2. Schema parity test pattern is repetitive
+    
+    All 9 schema tests follow an identical template: create temp dir, run migrations, check PRAGMA table_info, tear down. There's a migration-schema-parity.test.ts that doesn't exist but should — these could be consolidated into ONE parameterized test file with a table-driven approach.
+    
+    3. Zero explicit test categorization
+    
+    Of 1,329 test files:
+    - 6 .integration.test.ts (0.5%)
+    - 2 .e2e.test.ts (0.2%)
+    - 0 .unit.test.ts (0%)
+    - 63 in tests/integration/ or tests/unit/ folders (CAAMP package only)
+    
+    No test labeling system exists. Every test is just *.test.ts. There's no way to run "only unit tests" or "only integration tests" in CI.
+    
+    4. No test hierarchy exists
+    
+    There's no concept of Unit → Integration → System → Acceptance testing layers. Tests mix concerns freely — a schema parity test (unit) lives next to a full cross-project lifecycle test (integration) with no distinguishing marker.
+    
+    
+    
+    Proposed Canonization Plan
+    
+    Phase 1: Rename & Merge (immediate — ~2 hours)
+    
+    | Current                                                                    | Canonical Name                                          | Action                              |
+    |----------------------------------------------------------------------------|---------------------------------------------------------|-------------------------------------|
+    | t9073-severity-any-role-schema.test.ts + t9073-severity-cross-role.test.ts | severity.test.ts in tasks/tests/                        | MERGE both aspects into one file    |
+    | t944-role-scope-schema.test.ts + t944-role-scope-wiring.test.ts            | role-scope.test.ts in tasks/tests/                      | MERGE schema + wiring into one file |
+    | t310-integration.test.ts                                                   | conduit-signaldock-lifecycle.test.ts                    | RENAME                              |
+    | t310-readiness.test.ts                                                     | fold into conduit-readiness.test.ts                     | MERGE into new canonical file       |
+    | t311-integration.test.ts                                                   | cleobundle-lifecycle.test.ts                            | RENAME                              |
+    | t877-pipeline-stage-invariants.test.ts                                     | pipeline-stage-invariants.test.ts                       | RENAME (already in lifecycle/)      |
+    | t920-migration-guard.test.ts                                               | brain-duplicate-column-guard.test.ts                    | RENAME (in memory/tests/)           |
+    | t9625-closure.test.ts                                                      | fold into existing sagas/tests/ tests                   | MERGE into existing saga test suite |
+    | t10158-attachments-provenance-schema.test.ts                               | attachments-provenance-schema.test.ts                   | RENAME                              |
+    | t10277-saga-tasktype.test.ts                                               | saga-tasktype-schema.test.ts                            | RENAME                              |
+    | t10503-evidence-ac-bindings-schema.test.ts                                 | evidence-ac-bindings-schema.test.ts                     | RENAME                              |
+    | t10505-ac-backfill.test.ts                                                 | acceptance-criteria-backfill.test.ts                    | RENAME                              |
+    | t10639-child-task-projection-backfill.test.ts                              | child-task-projection-backfill.test.ts                  | RENAME                              |
+    | t1830-decision-category.test.ts                                            | decision-category.test.ts                               | RENAME                              |
+    | t10079-primary-worktree-root.test.ts                                       | worktree-root-routing.test.ts                           | RENAME                              |
+    | t10287-orphan-cleo-regression.test.ts                                      | orphan-cleo-detection.test.ts                           | RENAME                              |
+    | t11021-project-registry.test.ts                                            | merge into existing project-registry.test.ts (32 lines) | MERGE (one already exists!)         |
+    | t11024-move-rename.test.ts                                                 | nexus-move-rename.test.ts                               | RENAME                              |
+    | t11031-it.test.ts                                                          | paths-strict-integration.test.ts                        | RENAME                              |
+    | T10165-backfill-adr-index.test.ts                                          | adr-index-backfill.test.ts                              | RENAME + move out of manual/        |
+    | packages/core/packages/core/src/nexus/tests/t11024-move-rename.test.ts     | —                                                       | DELETE (stale duplicate)            |
+    
+    Phase 2: Test Taxonomy (1-2 days)
+    
+    Add naming conventions for explicit test layers:
+    
+    
+    *.unit.test.ts        — Pure unit, no FS/DB/network, fast (<50ms each)
+    *.integration.test.ts — Real DB/FS, tmp dirs, no network, run in CI always
+    *.e2e.test.ts         — Full CLI invocation, real processes
+    *.acceptance.test.ts  — AC verification against task definitions
+    
+    
+    Add vitest project configs for each layer so CI can run:
+    - pnpm test:unit → only *.unit.test.ts (fast, pre-commit)
+    - pnpm test:integration → *.integration.test.ts (CI gate)
+    - pnpm test:e2e → *.e2e.test.ts (release gate)
+    
+    Phase 3: Consolidate Schema Tests (1 day)
+    
+    Create a single migration-schema-parity.test.ts with a table-driven approach:
+    
+    ts
+    const MIGRATIONS = [
+      { migration: 'T9073', table: 'tasks', column: 'severity', check: '...' },
+      { migration: 'T944', table: 'tasks', columns: ['role', 'scope', 'severity'] },
+      // ... all 9
+    ];
+    
+    describe.each(MIGRATIONS)('migration $migration', ({...}) => {
+      // single test template applied to all
+    });
