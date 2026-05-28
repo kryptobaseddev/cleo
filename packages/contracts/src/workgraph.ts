@@ -1160,7 +1160,6 @@ export function validateWorkGraphHierarchy(
   for (const node of nodes) {
     const parentId = node.parentId ?? null;
     const parent = parentId === null ? undefined : byId.get(parentId);
-    const allowedParents = PARENT_TYPE_MATRIX[node.type];
     const valid =
       parentId === null
         ? canWorkGraphTaskTypeBeRoot(node.type)

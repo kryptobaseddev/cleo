@@ -162,9 +162,8 @@ export interface TasksFindParams {
   /**
    * Filter by parent task ID — restricts the result set to tasks whose
    * `parentId` equals this value. Mirrors the `--parent` axis on
-   * `cleo list`. When the parent task is a Saga (Epic with
-   * `label='saga'`), routing goes through `task_relations.type='groups'`
-   * member IDs instead of the `parentId` column (ADR-073 §1).
+   * `cleo list`. In PM-Core V2, Saga membership is canonical `parentId`
+   * containment; `task_relations` rows are non-containment only.
    *
    * Composes with other filters via AND. Closes T10108 — pre-fix,
    * `cleo find "" --parent <id>` returned every task in the project

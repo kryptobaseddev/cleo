@@ -26,9 +26,18 @@ wins and this spec is a bug.
 
 The **tasks** domain is the authoritative record of every unit of work in a
 CLEO project. A task is a row in `tasks` table in `tasks.db`. Tasks are
-typed (`epic` / `task` / `subtask`), linked via `parent_id`, related via
-`task_dependencies`, and tracked through two orthogonal axes: **status** and
-**pipeline_stage**.
+typed (`saga` / `epic` / `task` / `subtask`), contained via `parent_id`,
+blocked for scheduling via `task_dependencies`, connected by soft relation
+edges via `task_relations`, and tracked through two orthogonal axes:
+**status** and **pipeline_stage**.
+
+PM-Core V2 uses three separate graph surfaces:
+
+| Surface | Storage | Semantics |
+|---------|---------|-----------|
+| Containment | `tasks.parent_id` | The solid parent/child tree. Drives direct children, ancestors, descendants, rollups, completion projection, and cascade mutation planning. |
+| Hard dependency | `task_dependencies` | Scheduler/readiness edge. A task, epic, or saga cannot be considered dependency-ready until upstream dependencies are satisfied. Inherited Saga/Epic dependency projection is tracked by T11202. |
+| Soft relation | `task_relations` | Dotted-line context graph. Useful for related work, provenance, duplicate/supersede/extend/fix links, advisory blocks, and cross-saga grouping. It never creates containment and never blocks scheduling by itself. |
 
 Evidence:
 - Schema: `packages/core/src/store/tasks-schema.ts:137-219` (column list)
@@ -56,6 +65,12 @@ Evidence:
   the 5 required gates lacks validated evidence atoms per ADR-051.
   Source: `packages/cleo/src/dispatch/domains/tasks.ts:321-340` +
   `docs/specs/T832-gate-integrity-spec.md`.
+- **INV-7 — Containment is `parent_id` only.** Saga/Epic/Task/Subtask hierarchy,
+  child listing, rollups, closure, and reparent cascades MUST derive from
+  `tasks.parent_id`, not `task_relations`.
+- **INV-8 — Soft relations are non-blocking.** `task_relations` rows, including
+  `groups` and `blocks`, MUST NOT be treated as scheduler dependencies. Use
+  `task_dependencies` for execution blocking.
 
 ---
 
@@ -251,7 +266,7 @@ surface). Error codes are drawn from
 | `tasks.archive` | `cleo archive [<id>]` | PROPOSED `POST /api/tasks/:id/archive` | `taskId?`, `before?`, `taskIds?`, `includeCancelled?`, `dryRun?` | `{ archived }` | `NOT_FOUND` (404), `VALIDATION_ERROR` (400) | yes | Soft-archive (bulk or single) | `tasks.ts:351-363` |
 | `tasks.restore` | `cleo restore <id>` | PROPOSED `POST /api/tasks/:id/restore` | `taskId`, `from?` ({done, archived}), `status?`, `reason?`, `preserveStatus?`, `cascade?`, `notes?` | `{ task }` | `NOT_FOUND` (404), `VALIDATION_ERROR` (400) | yes | Restore from any terminal state | `tasks.ts:365-388` |
 | `tasks.cancel` | `cleo cancel <id>` | PROPOSED `POST /api/tasks/:id/cancel` | `taskId`, `reason?` | `{ task }` | `NOT_FOUND` (404), `TASK_COMPLETED` (409) | yes | Soft terminal (reversible) | `tasks.ts:390-397` |
-| `tasks.reparent` | `cleo reparent <id> <newParent>` | PROPOSED `POST /api/tasks/:id/reparent` | `taskId`, `newParentId` (string OR null) | `{ task }` | `NOT_FOUND` (404), `CIRCULAR_REFERENCE` (409), `INVALID_PARENT_TYPE` (409) | yes | Move task under new parent; `null` reroots | `tasks.ts:399-406` |
+| `tasks.reparent` | `cleo reparent <id> <newParent>` | PROPOSED `POST /api/tasks/:id/reparent` | `taskId`, `newParentId` (string OR null) | `{ task }` today; SHOULD include moved root, old/new parent, descendants updated, type changes, reopened ancestors, and warnings per T11203 | `NOT_FOUND` (404), `CIRCULAR_REFERENCE` (409), `INVALID_PARENT_TYPE` (409) | yes | Move task and its subtree under new parent; `null` reroots | `tasks.ts:399-406` |
 | `tasks.reorder` | `cleo reorder <id> <pos>` | PROPOSED `POST /api/tasks/:id/reorder` | `taskId`, `position` | `{ task }` | `NOT_FOUND` (404), `VALIDATION_ERROR` (400) | yes | Change sibling order | `tasks.ts:408-415` |
 | `tasks.relates.add` | `cleo relates add <id> <related>` | PROPOSED `POST /api/tasks/:id/relates` | `taskId`, `relatedId\|targetId`, `type`, `reason?` | `{ relation }` | `NOT_FOUND` (404), `VALIDATION_ERROR` (400), `ALREADY_EXISTS` (200 `NO_CHANGE`) | yes | Record a relation between tasks | `tasks.ts:417-438` |
 | `tasks.start` | `cleo start <id>` | PROPOSED `POST /api/tasks/:id/start` | `taskId` | `{ task, sessionId }` | `NOT_FOUND` (404), `SESSION_REQUIRED` (409), `TASK_CLAIMED` (409), `TASK_NOT_IN_SCOPE` (409) | yes | Set as current task for active session | `tasks.ts:440-443` |

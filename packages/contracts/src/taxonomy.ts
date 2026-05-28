@@ -460,7 +460,7 @@ export const BUILTIN_TAXONOMY_TAGS: ReadonlyArray<CanonicalTagMetadata> = [
 export const CANONICAL_TAG_VALUES = BUILTIN_TAXONOMY_TAGS.map((t) => t.tag);
 
 /** Every tag indexed by its canonical id. */
-const TAG_BY_ID = new Map<string, CanonicalTagMetadata>(
+const _TAG_BY_ID = new Map<string, CanonicalTagMetadata>(
   BUILTIN_TAXONOMY_TAGS.map((t) => [t.tag, t]),
 );
 

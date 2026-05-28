@@ -114,7 +114,7 @@ const PUBLISHED_LIFECYCLE_STATES: ReadonlySet<AttachmentLifecycleStatus> =
  *
  * Pattern: `.cleo/attachments/sha256/<sha256[0..2]>/<sha256[2..]>`
  */
-function legacyBlobPath(projectRoot: string, sha256: string): string {
+function _legacyBlobPath(projectRoot: string, sha256: string): string {
   const prefix = sha256.slice(0, 2);
   const rest = sha256.slice(2);
   return join(projectRoot, '.cleo', 'attachments', 'sha256', prefix, rest);

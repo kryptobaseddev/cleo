@@ -29,17 +29,18 @@ function taskLogId(): string {
 }
 
 /**
- * Move task under a different parent.
+ * Move a task and its descendants under a different parent.
  *
  * @param projectRoot - Absolute path to the CLEO project root directory
  * @param taskId - The task ID to reparent
  * @param newParentId - The new parent task ID, or null to promote to root level
- * @returns Confirmation with old and new parent IDs and optional type change
+ * @returns Confirmation with old/new parent IDs, reopened ancestors, and the updated subtree IDs
  *
  * @remarks
- * Validates against circular references, depth limits, and sibling limits from
- * the project hierarchy config. Automatically adjusts task type based on new depth
- * (depth 1 = "task", depth >= 2 = "subtask").
+ * Validates circular references, depth limits, sibling limits, and the PM-Core
+ * V2 parent/type matrix before writing. Reparenting moves the whole subtree;
+ * Saga and Epic types are preserved while Task/Subtask descendants are adjusted
+ * only when their new parent tier requires it.
  *
  * @example
  * ```typescript

@@ -103,13 +103,13 @@ export interface ListTasksResult {
    *
    * - `'saga.groups'` — legacy binding-source label retained for compatibility;
    *   the `--parent` target was a Saga and children were resolved via
-   *   canonical `parentId` containment.
+   *   canonical `parentId` containment, not relation-based grouping.
    *
    * Absent when the default `parentId`-based query produced the result.
    * Dispatch layers (e.g. LAFS envelope wrappers) MAY lift this into
    * envelope meta as `meta.bindingSource`.
    *
-   * @see ADR-073 §1 — Saga ↔ Epic linkage
+   * @see ADR-088 — PM-Core V2 WorkGraph containment
    * @task T9658
    */
   bindingSource?: typeof LIST_BINDING_SAGA_GROUPS;
@@ -122,7 +122,7 @@ export interface ListTasksResult {
  * resolved via canonical `parentId` containment. All other filters (`status`,
  * `priority`, `type`, `phase`, `label`, `excludeArchived`) are applied to the
  * resolved member set in-memory. The returned `bindingSource` field is set to
- * `'saga.groups'` so dispatch layers can surface the routing in envelope meta.
+ * `'saga.groups'` for legacy client compatibility only.
  *
  * @task T4460
  * @task T9658 — Saga-aware --parent routing

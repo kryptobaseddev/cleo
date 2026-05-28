@@ -121,16 +121,18 @@ export const ARCHIVE_REASONS = [
  * `task_relations.relation_type`.
  *
  *   - `related`     — generic non-blocking association
- *   - `blocks`      — source MUST complete before target can proceed
+ *   - `blocks`      — advisory non-blocking block context; hard scheduler
+ *                     blocking belongs in `task_dependencies`
  *   - `duplicates`  — source is a duplicate of target (target is canonical)
  *   - `absorbs`     — source's work was absorbed into target
  *   - `fixes`       — source fixes target (bug→fix linkage)
  *   - `extends`     — source extends or refines target
  *   - `supersedes`  — source replaces target (target is retired)
- *   - `groups`      — source groups target (Saga→Epic per ADR-073)
+ *   - `groups`      — soft grouping/provenance association; PM-Core V2
+ *                     containment belongs in `tasks.parent_id`
  *
  * @task T944
- * @task ADR-073 (`groups` relation for Saga membership)
+ * @task ADR-088 (`groups` relation is non-containment only)
  */
 export const TASK_RELATION_TYPES = [
   'related',

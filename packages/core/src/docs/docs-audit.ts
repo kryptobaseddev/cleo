@@ -21,7 +21,6 @@
 import { createHmac, randomBytes } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
-import { getCleoDirAbsolute } from '../paths.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -32,7 +31,7 @@ export const DOCS_AUDIT_FILE = '.cleo/audit/docs-audit.jsonl';
 const CHECKPOINT_SECRET_BYTES = 32;
 
 /** File that stores the checkpoint secret. */
-const CHECKPOINT_SECRET_FILE = '.cleo/audit/.audit-secret';
+const _CHECKPOINT_SECRET_FILE = '.cleo/audit/.audit-secret';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 

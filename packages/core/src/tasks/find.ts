@@ -94,12 +94,9 @@ export interface FindTasksOptions {
    * `parentId` equals this value. Mirrors the `--parent` axis on
    * `cleo list`.
    *
-   * When the parent target is a Saga (Epic with `labels.includes('saga')`),
-   * routing goes through `task_relations.type='groups'` member IDs (via
-   * `resolveSagaMemberIds`) instead of the `parentId` column — the same
-   * dual-path resolution `listTasks` uses (ADR-073 §1). Saga members are
-   * top-level Epics with `parentId: null`, so the parentId column would
-   * otherwise return zero rows.
+   * When the parent target is a Saga, membership is resolved from canonical
+   * `parentId` containment. `task_relations` rows are soft non-containment
+   * context only and must not drive parent filtering.
    *
    * Composes with other filters via AND. Filter-only mode is valid:
    * `cleo find --parent <id>` with no query / no --id returns every
