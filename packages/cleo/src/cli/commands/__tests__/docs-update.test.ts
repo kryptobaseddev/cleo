@@ -527,7 +527,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
 //   AC3: Tests run without depending on machine-specific temp paths
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('T11060 — outside-project path rejection (sanitizePath)', () => {
+describe('Docs update — outside-project path rejection', () => {
   const projectRoot = '/tmp/t11060-test-project';
 
   it('rejects absolute path outside projectRoot with E_PATH_TRAVERSAL', () => {
@@ -589,7 +589,7 @@ describe('T11060 — outside-project path rejection (sanitizePath)', () => {
   });
 });
 
-describe('T11060 — invalid docs status enum (isLifecycleStatus)', () => {
+describe('Docs update — invalid docs status enum', () => {
   it('rejects "review" — not in canonical lifecycle list', () => {
     expect(isLifecycleStatus('review')).toBe(false);
   });
@@ -620,7 +620,7 @@ describe('T11060 — invalid docs status enum (isLifecycleStatus)', () => {
   }
 });
 
-describe('T11060 — DOCS_UPDATE_LIFECYCLE_STATUS_LIST contract', () => {
+describe('Docs update — lifecycle status list contract', () => {
   it('contains all six canonical statuses pipe-delimited', () => {
     for (const status of DOCS_LIFECYCLE_STATUSES) {
       expect(DOCS_UPDATE_LIFECYCLE_STATUS_LIST).toContain(status);
@@ -638,7 +638,7 @@ describe('T11060 — DOCS_UPDATE_LIFECYCLE_STATUS_LIST contract', () => {
   });
 });
 
-describe('T11060 — error message contract', () => {
+describe('Docs update — error message contract', () => {
   it('E_INVALID_STATUS message includes canonical lifecycle status list', () => {
     const msg = `status must be one of: ${DOCS_UPDATE_LIFECYCLE_STATUS_LIST} — got 'review'`;
 

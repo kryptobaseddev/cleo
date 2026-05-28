@@ -1,5 +1,5 @@
 /**
- * T11062 — E4: cover slug collision guidance and North Star round trip.
+ * Docs slug generation and North Star round-trip regression coverage.
  *
  * Core-level regression tests for S5 (slug collision guidance) and
  * S6 (hidden slug suffix behavior). Uses @cleocode/core/internal imports.
@@ -21,7 +21,7 @@ import {
 import { describe, expect, it } from 'vitest';
 import { SIX_REGRESSION_SCENARIOS } from '../../__tests__/fixtures/docs-dogfood-harness.js';
 
-describe('T11062 — S5+S6 catalog integrity', () => {
+describe('Docs slug generation — S5+S6 catalog integrity', () => {
   it('S5 owned by T11062', () => {
     const s5 = SIX_REGRESSION_SCENARIOS[4];
     expect(s5.id).toBe('S5');
@@ -53,7 +53,7 @@ describe('T11062 — S5+S6 catalog integrity', () => {
   });
 });
 
-describe('T11062 AC1 — E_SLUG_RESERVED has 3 suggestions', () => {
+describe('Docs slug collision — E_SLUG_RESERVED suggestions', () => {
   it('E_SLUG_RESERVED error shape carries suggestions array', () => {
     const err = {
       code: 'E_SLUG_RESERVED' as const,
@@ -67,7 +67,7 @@ describe('T11062 AC1 — E_SLUG_RESERVED has 3 suggestions', () => {
   });
 });
 
-describe('T11062 AC1/AC3 — slugify and generateSlug (S6)', () => {
+describe('Docs slug generation — slugify and generateSlug behavior', () => {
   it('slugify normalizes to kebab-case', () => {
     expect(slugify('Hello World')).toBe('hello-world');
     expect(slugify('My Doc Title')).toBe('my-doc-title');
@@ -122,7 +122,7 @@ describe('T11062 AC1/AC3 — slugify and generateSlug (S6)', () => {
   });
 });
 
-describe('T11062 AC2 — North Star round-trip contract', () => {
+describe('Docs North Star — round-trip contract', () => {
   it('slugify is deterministic', () => {
     expect(slugify('North Star Architecture Decision')).toBe('north-star-architecture-decision');
     expect(slugify('North Star Architecture Decision')).toBe(
@@ -139,7 +139,7 @@ describe('T11062 AC2 — North Star round-trip contract', () => {
   });
 });
 
-describe('T11062 — CI readiness', () => {
+describe('Docs slug generation — CI readiness', () => {
   it('imports are package-relative, no hardcoded paths', () => {
     expect(typeof slugify).toBe('function');
     expect(typeof generateSlug).toBe('function');

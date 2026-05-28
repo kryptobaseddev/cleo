@@ -1,5 +1,5 @@
 /**
- * T11061 — Docs update owner-ref and publish regression tests.
+ * Docs update owner-ref and publish regression tests.
  *
  * Covers the T10516 regression scenarios S3 (update without owner reference)
  * and S4 (publish selects older blob) at the dispatch layer.
@@ -28,7 +28,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -42,24 +42,49 @@ function sha256(content: string): string {
 
 let tempDir: string;
 let fixture: string;
+let previousCwd: string;
+
+async function setupDocsProject(
+  prefix: string,
+  fixtureName: string,
+  content: string,
+): Promise<void> {
+  tempDir = await mkdtemp(join(tmpdir(), prefix));
+  previousCwd = process.cwd();
+  process.env['CLEO_PROJECT_ROOT'] = tempDir;
+  process.env['CLEO_ROOT'] = tempDir;
+  process.env['CLEO_DIR'] = join(tempDir, '.cleo');
+  await mkdir(process.env['CLEO_DIR'], { recursive: true });
+  process.chdir(tempDir);
+  fixture = join(tempDir, fixtureName);
+  await writeFile(fixture, content, 'utf-8');
+}
+
+async function cleanupDocsProject(): Promise<void> {
+  const { closeDb } = await import('@cleocode/core/internal');
+  closeDb();
+  process.chdir(previousCwd);
+  delete process.env['CLEO_PROJECT_ROOT'];
+  delete process.env['CLEO_ROOT'];
+  delete process.env['CLEO_DIR'];
+  await rm(tempDir, { recursive: true, force: true });
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // AC1 (S3): Update creates owner-publishable latest version
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('T11061 AC1 (S3) — update creates owner-publishable latest version', () => {
+describe('Docs update/publish — update creates owner-publishable latest version', () => {
   beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'cleo-t11061-ac1-'));
-    process.env['CLEO_DIR'] = join(tempDir, '.cleo');
-    fixture = join(tempDir, 'fixture-v1.md');
-    await writeFile(fixture, '# Version 1\n\nOriginal content for owner-ref test.', 'utf-8');
+    await setupDocsProject(
+      'cleo-t11061-ac1-',
+      'fixture-v1.md',
+      '# Version 1\n\nOriginal content for owner-ref test.',
+    );
   });
 
   afterEach(async () => {
-    const { closeDb } = await import('@cleocode/core/internal');
-    closeDb();
-    delete process.env['CLEO_DIR'];
-    await rm(tempDir, { recursive: true, force: true });
+    await cleanupDocsProject();
   });
 
   it('RTC-S3-1: after update, default publish (no attachmentId) resolves the new blob', async () => {
@@ -165,19 +190,13 @@ describe('T11061 AC1 (S3) — update creates owner-publishable latest version', 
 // AC2 (S4): Publish default does not publish an old blob after update
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('T11061 AC2 (S4) — publish default selects latest blob after update', () => {
+describe('Docs update/publish — publish default selects latest blob after update', () => {
   beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'cleo-t11061-ac2-'));
-    process.env['CLEO_DIR'] = join(tempDir, '.cleo');
-    fixture = join(tempDir, 'fixture-s4.md');
-    await writeFile(fixture, '# Old Content\n\nOriginal blob.', 'utf-8');
+    await setupDocsProject('cleo-t11061-ac2-', 'fixture-s4.md', '# Old Content\n\nOriginal blob.');
   });
 
   afterEach(async () => {
-    const { closeDb } = await import('@cleocode/core/internal');
-    closeDb();
-    delete process.env['CLEO_DIR'];
-    await rm(tempDir, { recursive: true, force: true });
+    await cleanupDocsProject();
   });
 
   it('RTC-S4-1: publish default selects latest blob, not stale pre-update blob', async () => {
@@ -242,19 +261,17 @@ describe('T11061 AC2 (S4) — publish default selects latest blob after update',
 // AC3: Fetch, status, and publish SHA consistency
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('T11061 AC3 — fetch, status, and publish SHA consistency', () => {
+describe('Docs update/publish — fetch, status, and publish SHA consistency', () => {
   beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'cleo-t11061-ac3-'));
-    process.env['CLEO_DIR'] = join(tempDir, '.cleo');
-    fixture = join(tempDir, 'fixture-ac3.md');
-    await writeFile(fixture, '# SHA Consistency\n\nTesting cross-op SHA agreement.', 'utf-8');
+    await setupDocsProject(
+      'cleo-t11061-ac3-',
+      'fixture-ac3.md',
+      '# SHA Consistency\n\nTesting cross-op SHA agreement.',
+    );
   });
 
   afterEach(async () => {
-    const { closeDb } = await import('@cleocode/core/internal');
-    closeDb();
-    delete process.env['CLEO_DIR'];
-    await rm(tempDir, { recursive: true, force: true });
+    await cleanupDocsProject();
   });
 
   it('update SHA, publish SHA, and fetch SHA all agree (no drift)', async () => {

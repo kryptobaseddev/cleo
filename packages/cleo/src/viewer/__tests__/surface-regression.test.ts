@@ -1,5 +1,5 @@
 /**
- * T11189 — Regression test suite for viewer surface flattening.
+ * Regression test suite for viewer surface flattening.
  *
  * Comprehensive regression coverage for the docs viewer HTTP server surface.
  * Protects against regressions in JSON envelope shapes, response consistency
@@ -180,7 +180,7 @@ function makeLargeDoc(words: number): string {
 
 // ─── 1. LAFS Envelope Consistency ────────────────────────────────────────────
 
-describe('T11189 — LAFS envelope consistency', () => {
+describe('Viewer API — LAFS envelope consistency', () => {
   it('health endpoint returns success envelope with status ok', async () => {
     const handle = await startViewerOnOSPort();
     try {
@@ -303,7 +303,7 @@ const ALL_BUILTIN_DOC_TYPES = [
   'rcasd',
 ];
 
-describe('T11189 — /api/docs list across all doc types', () => {
+describe('Viewer API — /api/docs list across all doc types', () => {
   it('returns empty docs array on a fresh project', async () => {
     const handle = await startViewerOnOSPort();
     try {
@@ -391,7 +391,7 @@ describe('T11189 — /api/docs list across all doc types', () => {
 
 // ─── 3. Docs Detail — /api/docs/:slug ───────────────────────────────────────
 
-describe('T11189 — /api/docs/:slug detail', () => {
+describe('Viewer API — /api/docs/:slug detail', () => {
   it('returns doc detail with content for a published note', async () => {
     const content = '# My Note\n\nThis is a test note.\n';
     await publish('my-note', content, 'note');
@@ -498,7 +498,7 @@ describe('T11189 — /api/docs/:slug detail', () => {
 
 // ─── 4. Search Endpoint Regression ───────────────────────────────────────────
 
-describe('T11189 — /api/search regression', () => {
+describe('Viewer API — /api/search regression', () => {
   it('rejects missing query with E_VALIDATION (400)', async () => {
     const handle = await startViewerOnOSPort();
     try {
@@ -619,7 +619,7 @@ describe('T11189 — /api/search regression', () => {
 
 // ─── 5. Static Assets ────────────────────────────────────────────────────────
 
-describe('T11189 — static asset serving', () => {
+describe('Viewer server — static asset serving', () => {
   it('GET / redirects to /viewer/index.html (302)', async () => {
     const handle = await startViewerOnOSPort();
     try {
@@ -716,7 +716,7 @@ describe('T11189 — static asset serving', () => {
 
 // ─── 6. SPA Routing ──────────────────────────────────────────────────────────
 
-describe('T11189 — SPA routing (/docs/:slug)', () => {
+describe('Viewer server — SPA routing (/docs/:slug)', () => {
   it('GET /docs/:slug returns index.html for client-side routing', async () => {
     const handle = await startViewerOnOSPort();
     try {
@@ -744,7 +744,7 @@ describe('T11189 — SPA routing (/docs/:slug)', () => {
 
 // ─── 7. Port Allocation ──────────────────────────────────────────────────────
 
-describe('T11189 — port allocation', () => {
+describe('Viewer server — port allocation', () => {
   it('tryListen binds on port 0 (OS-assigned)', async () => {
     const handler = (_req: IncomingMessage, res: ServerResponse) => {
       res.writeHead(200);
@@ -804,7 +804,7 @@ describe('T11189 — port allocation', () => {
 
 // ─── 8. Pidfile Operations ──────────────────────────────────────────────────
 
-describe('T11189 — pidfile operations', () => {
+describe('Viewer server — pidfile operations', () => {
   it('writeViewerPidFile creates a readable pidfile', async () => {
     const record = {
       pid: 12345,
@@ -867,7 +867,7 @@ describe('T11189 — pidfile operations', () => {
 
 // ─── 9. Performance Regression Guard ────────────────────────────────────────
 
-describe('T11189 — performance guard', () => {
+describe('Viewer server — performance guard', () => {
   it('viewer renders docs list in < 2000ms for docs up to 10K words', async () => {
     const largeContent = makeLargeDoc(10_000);
     await publish('perf-doc', largeContent, 'note');
@@ -907,7 +907,7 @@ describe('T11189 — performance guard', () => {
 
 // ─── 10. Cross-Doc-Type Consistency ─────────────────────────────────────────
 
-describe('T11189 — cross-doc-type consistency', () => {
+describe('Viewer API — cross-doc-type consistency', () => {
   it('doc detail shape is identical across all built-in doc types', async () => {
     const expectedKeys = ['id', 'slug', 'type', 'title', 'mime', 'sha256', 'content', 'sizeBytes'];
 
@@ -988,7 +988,7 @@ describe('T11189 — cross-doc-type consistency', () => {
 
 // ─── 11. Edge Cases ─────────────────────────────────────────────────────────
 
-describe('T11189 — edge cases', () => {
+describe('Viewer API — edge cases', () => {
   it('slug with special characters is URL-decoded correctly', async () => {
     const slug = 'doc-with-dashes-and_underscores';
     await publish(slug, '# Special\n\nChars.\n', 'note');

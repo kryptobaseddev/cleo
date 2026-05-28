@@ -1,5 +1,5 @@
 /**
- * T11062 — Slug collision guidance and North Star round-trip regression tests.
+ * Docs slug collision guidance and North Star round-trip regression tests.
  *
  * Covers the T10516 regression scenarios S5 (slug collision guidance) and
  * S6 (North Star update/publish round-trip). All tests use the dispatch
@@ -25,7 +25,7 @@
  * @saga    T10516 (SG-DOCS-CLI-SIMPLIFICATION)
  */
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -33,20 +33,45 @@ import { DocsHandler } from '../docs.js';
 
 let tempDir: string;
 let fixture: string;
+let previousCwd: string;
 
-describe('T11062 — Slug collision guidance (S5)', () => {
+async function setupDocsProject(
+  prefix: string,
+  fixtureName: string,
+  content: string,
+): Promise<void> {
+  tempDir = await mkdtemp(join(tmpdir(), prefix));
+  previousCwd = process.cwd();
+  process.env['CLEO_PROJECT_ROOT'] = tempDir;
+  process.env['CLEO_ROOT'] = tempDir;
+  process.env['CLEO_DIR'] = join(tempDir, '.cleo');
+  await mkdir(process.env['CLEO_DIR'], { recursive: true });
+  process.chdir(tempDir);
+  fixture = join(tempDir, fixtureName);
+  await writeFile(fixture, content, 'utf-8');
+}
+
+async function cleanupDocsProject(): Promise<void> {
+  const { closeDb } = await import('@cleocode/core/internal');
+  closeDb();
+  process.chdir(previousCwd);
+  delete process.env['CLEO_PROJECT_ROOT'];
+  delete process.env['CLEO_ROOT'];
+  delete process.env['CLEO_DIR'];
+  await rm(tempDir, { recursive: true, force: true });
+}
+
+describe('Docs slug collision guidance (S5)', () => {
   beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'cleo-t11062-s5-'));
-    process.env['CLEO_DIR'] = join(tempDir, '.cleo');
-    fixture = join(tempDir, 'fixture.md');
-    await writeFile(fixture, '# Test doc\n\nBody content for testing.', 'utf-8');
+    await setupDocsProject(
+      'cleo-t11062-s5-',
+      'fixture.md',
+      '# Test doc\n\nBody content for testing.',
+    );
   });
 
   afterEach(async () => {
-    const { closeDb } = await import('@cleocode/core/internal');
-    closeDb();
-    delete process.env['CLEO_DIR'];
-    await rm(tempDir, { recursive: true, force: true });
+    await cleanupDocsProject();
   });
 
   // ── AC1: E_SLUG_RESERVED includes three recovery alternatives ─────────────
@@ -177,19 +202,17 @@ describe('T11062 — Slug collision guidance (S5)', () => {
   });
 });
 
-describe('T11062 — North Star round-trip (S6)', () => {
+describe('Docs North Star round-trip (S6)', () => {
   beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'cleo-t11062-s6-'));
-    process.env['CLEO_DIR'] = join(tempDir, '.cleo');
-    fixture = join(tempDir, 'northstar-fixture.md');
-    await writeFile(fixture, '# North Star Fixture\n\nInitial content.', 'utf-8');
+    await setupDocsProject(
+      'cleo-t11062-s6-',
+      'northstar-fixture.md',
+      '# North Star Fixture\n\nInitial content.',
+    );
   });
 
   afterEach(async () => {
-    const { closeDb } = await import('@cleocode/core/internal');
-    closeDb();
-    delete process.env['CLEO_DIR'];
-    await rm(tempDir, { recursive: true, force: true });
+    await cleanupDocsProject();
   });
 
   it('completes the full North Star round-trip: add → update → publish → status → fetch', async () => {
@@ -340,19 +363,17 @@ describe('T11062 — North Star round-trip (S6)', () => {
   });
 });
 
-describe('T11062 — Slug collision across writers (S5 extension)', () => {
+describe('Docs slug collision across writers (S5 extension)', () => {
   beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'cleo-t11062-cross-'));
-    process.env['CLEO_DIR'] = join(tempDir, '.cleo');
-    fixture = join(tempDir, 'cross-fixture.md');
-    await writeFile(fixture, '# Cross-writer test\n\nShared slug namespace.', 'utf-8');
+    await setupDocsProject(
+      'cleo-t11062-cross-',
+      'cross-fixture.md',
+      '# Cross-writer test\n\nShared slug namespace.',
+    );
   });
 
   afterEach(async () => {
-    const { closeDb } = await import('@cleocode/core/internal');
-    closeDb();
-    delete process.env['CLEO_DIR'];
-    await rm(tempDir, { recursive: true, force: true });
+    await cleanupDocsProject();
   });
 
   it('collision between two docs.add calls with the same slug produces E_SLUG_RESERVED with guidance', async () => {

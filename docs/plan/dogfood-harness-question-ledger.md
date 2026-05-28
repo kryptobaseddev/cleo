@@ -333,9 +333,9 @@ Question: Why does the documented docs update/sync workflow fail or force agents
 
 Owner surface: `T10516`, especially `T10518` and `T10519`; related to DHQ-004.
 
-Observed: `cleo docs sync --from docs/adr/ADR-088-pm-core-v2-workgraph-relations-completion-criteria.md --for T11202 --content-type text/markdown` returned `Unknown operation: mutate:docs.sync`, even though `cleo docs sync --help` advertises that mode. The workaround was raw file patch plus `cleo docs add` with a new slug, which preserves bytes but does not feel like a canonical update/supersession workflow.
+Observed: `cleo docs sync --from docs/adr/ADR-088-pm-core-v2-workgraph-relations-completion-criteria.md --for T11202 --content-type text/markdown` returned `Unknown operation: mutate:docs.sync`, even though `cleo docs sync --help` advertises that mode. The agent then used raw file patch plus `cleo docs add` with a new slug instead of first discovering whether the canonical slug already existed and using `cleo docs update <slug> --file <path>`. Follow-up inspection showed `docs.update` was implemented and registered, while `docs.sync` was advertised by CLI help but not registered as a dispatch operation. This is both a CLI contract bug and an agent-protocol failure: the harness should make the correct operation obvious, and agents should not invent new SSoT slugs for canonical-looking files without a discovery/update preflight.
 
-Answer vehicle: Core docs writer/update API with typed operations for update, supersede, publish, and reverse-ingest; CLI help generated from that registry; regression test that help-advertised docs verbs dispatch successfully.
+Answer vehicle: Core docs writer/update API with typed operations for update, supersede, publish, and reverse-ingest; CLI help generated from that registry; regression test that help-advertised docs verbs dispatch successfully; agent-facing preflight rule: before `docs add` for an existing repo doc, run `docs list`/slug discovery, then `docs update <slug> --file <path> --dry-run`, and only add a new slug when the doc is genuinely new or the user explicitly wants a separate artifact.
 
 Status: open / newly captured.
 

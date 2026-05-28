@@ -1,5 +1,5 @@
 /**
- * T11187 — Dogfood regression harness from 2026-05-25 failure patterns.
+ * Docs dogfood scenario coverage harness from 2026-05-25 failure patterns.
  *
  * Canonical harness-level validation for epic T10521. Validates:
  *   1. Harness infrastructure — scenario coverage, test case structure,
@@ -31,7 +31,7 @@ import {
 // AC1: Harness infrastructure self-consistency
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('T11187 AC1 — Harness infrastructure', () => {
+describe('Docs dogfood scenario coverage — harness infrastructure', () => {
   describe('SIX_REGRESSION_TEST_CASES', () => {
     it('has exactly 15 test cases covering all 6 scenarios', () => {
       expect(SIX_REGRESSION_TEST_CASES).toHaveLength(15);
@@ -116,7 +116,7 @@ describe('T11187 AC1 — Harness infrastructure', () => {
 // AC2: Scenario consistency
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('T11187 AC2 — Scenario consistency', () => {
+describe('Docs dogfood scenario coverage — scenario consistency', () => {
   it('scenarios S1-S6 have correct failure-class mapping', () => {
     expect(SIX_REGRESSION_SCENARIOS[0].failureClass).toBe('Path traversal guard');
     expect(SIX_REGRESSION_SCENARIOS[1].failureClass).toBe('Drift state mismatch');
@@ -146,7 +146,7 @@ describe('T11187 AC2 — Scenario consistency', () => {
 // AC3: Cross-scenario coverage audit
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('T11187 AC3 — Cross-scenario coverage audit', () => {
+describe('Docs dogfood scenario coverage — cross-scenario audit', () => {
   it('all 6 scenarios documented, all 15 test cases defined', () => {
     expect(SIX_REGRESSION_SCENARIOS).toHaveLength(6);
     expect(SIX_REGRESSION_TEST_CASES).toHaveLength(15);

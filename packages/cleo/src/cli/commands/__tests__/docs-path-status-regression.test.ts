@@ -1,5 +1,5 @@
 /**
- * T11060 — Docs dogfood regression tests for 2026-05-25 failures.
+ * Docs path guard and lifecycle-status regression tests for 2026-05-25 failures.
  *
  * Covers two dogfood failure classes from the 2026-05-25 sessions:
  *   (a) Outside-project file rejection produces an actionable agent-facing error
@@ -29,7 +29,7 @@ import { describe, expect, it } from 'vitest';
 // AC1: Outside-project file rejection
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('T11060 AC1 — outside-project file rejection (sanitizePath)', () => {
+describe('Docs path guard — outside-project file rejection', () => {
   const projectRoot = '/tmp/t11060-project';
 
   it('rejects absolute path outside projectRoot with E_PATH_TRAVERSAL', () => {
@@ -100,7 +100,7 @@ describe('T11060 AC1 — outside-project file rejection (sanitizePath)', () => {
 // AC2: Invalid docs status enum
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('T11060 AC2 — invalid docs status enum (isLifecycleStatus)', () => {
+describe('Docs lifecycle status — invalid status rejection', () => {
   it('rejects "review" — not in canonical lifecycle list', () => {
     expect(isLifecycleStatus('review')).toBe(false);
   });
@@ -141,7 +141,7 @@ describe('T11060 AC2 — invalid docs status enum (isLifecycleStatus)', () => {
 // DOCS_UPDATE_LIFECYCLE_STATUS_LIST contract
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('T11060 — DOCS_UPDATE_LIFECYCLE_STATUS_LIST contains all canonical statuses', () => {
+describe('Docs lifecycle status list — canonical statuses', () => {
   it('includes all six lifecycle statuses in the pipe-delimited list', () => {
     for (const status of DOCS_LIFECYCLE_STATUSES) {
       expect(DOCS_UPDATE_LIFECYCLE_STATUS_LIST).toContain(status);
@@ -170,7 +170,7 @@ describe('T11060 — DOCS_UPDATE_LIFECYCLE_STATUS_LIST contains all canonical st
 // AC3: Error message contract — the errors are agent-actionable
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('T11060 AC3 — error message contract verification', () => {
+describe('Docs path/status errors — agent-facing messages', () => {
   it('E_INVALID_STATUS error includes the canonical lifecycle status list', () => {
     // Verify that the status list used in error messages is complete.
     // The updateDocBySlug function uses this format:
