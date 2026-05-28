@@ -56,6 +56,11 @@ It walks `git diff --diff-filter=A` between the PR base and `HEAD`,
 flagging any NEW `*.md` that bypasses the SSoT. Existing legacy files
 imported by T9791 are NEVER flagged — the gate is forward-only.
 
+Envelope-first doctrine is documented in `docs/specs/LAFS-ENVELOPE-CONTRACT.md`
+(`lafs-envelope-contract`, owner T11113). Use it as the human-readable contract
+for LAFS envelope shape, metadata, invariants, errors, pagination, MVI, and
+transport conventions.
+
 If you genuinely need a doc-kind not yet listed:
 1. Add it to `packages/contracts/src/docs-taxonomy.ts` (`BUILTIN_DOC_KINDS`).
 2. Add a routing entry to `.cleo/canon.yml`.
