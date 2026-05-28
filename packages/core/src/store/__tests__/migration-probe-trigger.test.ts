@@ -109,7 +109,10 @@ describe('reconcileJournal — CREATE TRIGGER probe', () => {
     const afterRow = nativeDb
       .prepare('SELECT hash FROM "__drizzle_migrations" WHERE hash=?')
       .get(triggerMig!.hash);
-    expect(afterRow, 'probeAndMarkApplied must journal trigger-only migration when triggers exist').toBeDefined();
+    expect(
+      afterRow,
+      'probeAndMarkApplied must journal trigger-only migration when triggers exist',
+    ).toBeDefined();
 
     nativeDb.close();
   });
@@ -182,7 +185,9 @@ describe('t033 release_manifests rebuild idempotency', () => {
         `);
       }).not.toThrow();
 
-      const dstCount = nativeDb.prepare('SELECT COUNT(*) AS n FROM release_manifests_new').get() as {
+      const dstCount = nativeDb
+        .prepare('SELECT COUNT(*) AS n FROM release_manifests_new')
+        .get() as {
         n: number;
       };
       expect(dstCount.n).toBe(0);
