@@ -78,7 +78,7 @@ PM-Core V2 will use one canonical WorkGraph backed by `tasks` rows and explicit 
 - Hard dependency APIs must remain distinct from soft relation APIs so agents can safely draw solid scheduler edges separately from dotted-line context edges.
 - Completion APIs can expose parent closure as a contract over typed criteria instead of ad hoc status aggregation.
 - Legacy data migrations need dry-run evidence, backup/restore rehearsal, and owner-approved apply before changing live task databases.
-- Open follow-up work: T11202 specifies soft relation and inherited dependency semantics; T11203 specifies safe reparent/retype cascade output and atomicity; T11204 sweeps stale `groups` doctrine from docs, skills, and contracts.
+- Open follow-up work: T11202 specifies soft relation and inherited dependency semantics; T11203 specifies safe reparent/retype cascade output and atomicity (see `docs/specs/CLEO-TASKS-API-SPEC.md` §8); T11204 sweeps stale `groups` doctrine from docs, skills, and contracts.
 
 ## Acceptance Trace
 
