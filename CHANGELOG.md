@@ -1,5 +1,16 @@
 # Changelog
 
+## [2026.5.129] (2026-05-28)
+
+### Fixed
+
+- **Migration journal hash-drift regression introduced by v2026.5.128**: modifying t033's SQL changed its drizzle content-hash. Every upgrading install hit a journal-wipe + migration-rerun crash. `reconcileJournal` saw the DB's old hash as orphaned, the local's new hash as missing, fired Sub-case B, DELETEd the entire journal, and re-probed every migration via DDL. Data-only migrations (UPDATEs, INSERTs, t10505 backfills) couldn't be DDL-probed and were left unjournaled. Drizzle re-ran them and t877's CREATE TRIGGER crashed with "trigger already exists", rolling back the migration transaction and leaving CLI commands unusable.
+- **Fix**: `reconcileJournal` now partitions orphans by NAME match before the destructive path.
+  - **HASH DRIFT** (orphan's name matches a local migration but hash differs): `UPDATE` the entry's hash in place. The migration was applied — just with the old SQL. Journal stays whole.
+  - **TRUE ORPHANS** (no name match — migration removed from disk, or install is from a different cleo lineage): selective `DELETE` + DDL probe. Never a wholesale journal wipe.
+  - Sub-case A "DB is ahead" branch unchanged.
+- Adds `migration-hash-drift.test.ts` with 3 regression cases pinning the new behaviour.
+
 ## [2026.5.128] (2026-05-28)
 
 ### Fixed
