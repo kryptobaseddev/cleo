@@ -589,7 +589,31 @@ export function createAttachmentStore(): AttachmentStore {
       const hash = sha256Of(buf);
       const mime = mimeFromAttachment({ sha256: hash, ...attachment } as Attachment);
       const filePath = blobPath(hash, mime, cwd);
-      const fullAttachment: Attachment = { sha256: hash, ...attachment } as Attachment;
+      // T11262: compute the canonical storageKey for blob kinds at the
+      // chokepoint so all callers (changeset writer, ivtr-loop, import-
+      // accessor, docs-add) produce contract-compliant rows even when they
+      // pass an empty placeholder `storageKey: ''`. This matches the
+      // {prefix}/{rest}{ext} layout used by `blobPath()` so reads can derive
+      // the on-disk path purely from the stored shape.
+      const computedStorageKey =
+        attachment.kind === 'blob'
+          ? `${hash.slice(0, 2)}/${hash.slice(2)}${extFromMime(mime)}`
+          : null;
+      const blobOverrides: { sha256: string; storageKey?: string } =
+        attachment.kind === 'blob' && computedStorageKey !== null
+          ? { sha256: hash, storageKey: computedStorageKey }
+          : { sha256: hash };
+      const fullAttachment: Attachment = {
+        ...attachment,
+        ...blobOverrides,
+      } as Attachment;
+      // Validate against the canonical Zod contract before persisting —
+      // catches any future shape drift at the writer chokepoint (T11262).
+      // Imported lazily to avoid pulling Zod into module init for callers
+      // that only read attachments. Synchronous import works because the
+      // module graph already includes `@cleocode/contracts`.
+      const { attachmentSchema } = await import('@cleocode/contracts');
+      attachmentSchema.parse(fullAttachment);
       const slug = extras?.slug;
       const type = extras?.type;
 
