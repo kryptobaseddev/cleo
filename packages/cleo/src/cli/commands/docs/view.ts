@@ -18,10 +18,14 @@
 
 import { Buffer } from 'node:buffer';
 import { ExitCode } from '@cleocode/contracts';
-import { renderDocsView } from '@cleocode/core';
+import { type DocsViewOptions, renderDocsView } from '@cleocode/core';
 import { createDocsReadModel } from '@cleocode/core/docs/docs-read-model';
 import { defineCommand } from '../../lib/define-cli-command.js';
-import { cliError, cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput } from '../../renderers/index.js';
+
+function isDocsViewColorMode(value: string): value is NonNullable<DocsViewOptions['color']> {
+  return value === 'auto' || value === 'always' || value === 'never';
+}
 
 const viewCommand = defineCommand({
   meta: {
@@ -78,7 +82,7 @@ const viewCommand = defineCommand({
       return;
     }
 
-    if (!['auto', 'always', 'never'].includes(colorMode)) {
+    if (!isDocsViewColorMode(colorMode)) {
       cliError(
         `--color must be one of: auto|always|never — got '${colorMode}'`,
         ExitCode.VALIDATION_ERROR,

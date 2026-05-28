@@ -966,7 +966,7 @@ const exportCommand = defineCommand({
  * Replaces `docs export` and `docs generate` with a single --mode flag.
  * @task T11137 @saga T10516 @epic T10517
  */
-const _llmOutputCommand = defineCommand({
+export const _llmOutputCommand = defineCommand({
   meta: {
     name: 'llm-output',
     description:

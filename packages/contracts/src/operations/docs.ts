@@ -601,6 +601,10 @@ export interface DocsUpdateResult {
    * first update and increments by 1 thereafter.
    */
   version: number;
+  /** CLEO release or owner version associated with the new row. */
+  ownerVersion?: string;
+  /** Sequential per-slug document version associated with the new row. */
+  docVersion?: number;
   /**
    * True when this update was squashed into an existing audit entry within
    * the 5-minute squash window (no new audit line was written).

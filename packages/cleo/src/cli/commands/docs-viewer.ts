@@ -517,56 +517,60 @@ const viewerStatusCommand = defineCommand({
     description: '[legacy] Report viewer state — prefer `cleo docs viewer status`',
   },
   async run() {
-    const record = await readViewerPidFile();
-    if (!record) {
-      cliOutput(
-        { running: false, pidFile: viewerPidFilePath() },
-        {
-          command: 'docs viewer-status',
-          operation: 'docs.viewer-status',
-          message: 'viewer not running',
-        },
-      );
-      return;
-    }
-    const alive = isProcessAlive(record.pid);
-    if (!alive) {
-      await removeViewerPidFile();
-      cliOutput(
-        {
-          running: false,
-          reason: 'stale pidfile',
-          pid: record.pid,
-          pidFile: viewerPidFilePath(),
-        },
-        {
-          command: 'docs viewer-status',
-          operation: 'docs.viewer-status',
-          message: `stale pidfile removed (pid ${record.pid} not alive)`,
-        },
-      );
-      return;
-    }
+    await runViewerStatus();
+  },
+});
+
+async function runViewerStatus(): Promise<void> {
+  const record = await readViewerPidFile();
+  if (!record) {
+    cliOutput(
+      { running: false, pidFile: viewerPidFilePath() },
+      {
+        command: 'docs viewer-status',
+        operation: 'docs.viewer-status',
+        message: 'viewer not running',
+      },
+    );
+    return;
+  }
+  const alive = isProcessAlive(record.pid);
+  if (!alive) {
+    await removeViewerPidFile();
     cliOutput(
       {
-        running: true,
+        running: false,
+        reason: 'stale pidfile',
         pid: record.pid,
-        port: record.port,
-        host: record.host,
-        projectRoot: record.projectRoot,
-        startedAt: record.startedAt,
-        uptimeMs: Date.now() - record.startedAt,
-        url: `http://${record.host}:${record.port}`,
         pidFile: viewerPidFilePath(),
       },
       {
         command: 'docs viewer-status',
         operation: 'docs.viewer-status',
-        message: `viewer running (pid ${record.pid})`,
+        message: `stale pidfile removed (pid ${record.pid} not alive)`,
       },
     );
-  },
-});
+    return;
+  }
+  cliOutput(
+    {
+      running: true,
+      pid: record.pid,
+      port: record.port,
+      host: record.host,
+      projectRoot: record.projectRoot,
+      startedAt: record.startedAt,
+      uptimeMs: Date.now() - record.startedAt,
+      url: `http://${record.host}:${record.port}`,
+      pidFile: viewerPidFilePath(),
+    },
+    {
+      command: 'docs viewer-status',
+      operation: 'docs.viewer-status',
+      message: `viewer running (pid ${record.pid})`,
+    },
+  );
+}
 
 /**
  * `cleo docs viewer` — unified managed lifecycle for the docs viewer.
@@ -591,7 +595,7 @@ const viewerCommand = defineCommand({
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
     if (firstArg && cmd.subCommands && firstArg in cmd.subCommands) return;
-    await viewerStatusCommand.run({ args: {} } as Parameters<typeof viewerStatusCommand.run>[0]);
+    await runViewerStatus();
   },
 });
 
