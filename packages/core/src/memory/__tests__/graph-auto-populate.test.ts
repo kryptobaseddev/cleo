@@ -38,6 +38,15 @@ beforeEach(async () => {
   await mkdir(cleoDir, { recursive: true });
   process.env['CLEO_DIR'] = cleoDir;
   process.env['CLEO_HOME'] = cleoDir;
+  // Create project-info.json so resolveProjectByCwd validates the temp project.
+  await writeFile(join(cleoDir, 'project-info.json'), JSON.stringify({
+    $schema: './schemas/project-info.schema.json',
+    schemaVersion: '1.0.0',
+    projectId: 'test-graph-autopop',
+    projectHash: 'test-graph-autopop',
+    cleoVersion: 'test',
+    lastUpdated: new Date().toISOString(),
+  }));
   // Enable autoCapture so graph writes actually fire.
   await writeFile(join(cleoDir, 'config.json'), JSON.stringify({ brain: { autoCapture: true } }));
 });
