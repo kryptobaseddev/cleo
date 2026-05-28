@@ -7,7 +7,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ScaffoldResult } from '@cleocode/contracts/scaffold-diagnostics';
 import { generateProjectHash } from '../nexus/hash.js';
@@ -433,6 +433,15 @@ export async function ensureProjectInfo(
   const cleoVersion = getCleoVersion();
   const now = new Date().toISOString();
 
+  // Detect git remote URL for provenance (best-effort, non-fatal).
+  let remoteUrl: string | null = null;
+  try {
+    const { findGitRemoteUrl } = await import('../nexus/identity.js');
+    remoteUrl = await findGitRemoteUrl(projectRoot);
+  } catch {
+    // Non-fatal: projects outside git repos simply have no remote.
+  }
+
   const { readSchemaVersionFromFile } = await import('../validation/schema-integrity.js');
   const { SQLITE_SCHEMA_VERSION } = await import('../store/sqlite.js');
   const configSchemaVersion = readSchemaVersionFromFile('config.schema.json') ?? cleoVersion;
@@ -444,7 +453,10 @@ export async function ensureProjectInfo(
     schemaVersion: '1.0.0',
     projectId: randomUUID(),
     projectHash,
+    name: basename(resolve(projectRoot)),
+    ...(remoteUrl && { remoteUrl }),
     cleoVersion,
+    createdAt: now,
     lastUpdated: now,
     schemas: {
       config: configSchemaVersion,

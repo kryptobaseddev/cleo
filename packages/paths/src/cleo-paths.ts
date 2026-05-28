@@ -265,7 +265,10 @@ export function computeCanonicalProjectId(repoPath: string): string {
 
 /**
  * Compute the legacy base64url(path) ID for a given path.
- * This is the old algorithm used before T9149 W5.
+ *
+ * **Canonical source** for this function. `@cleocode/core` re-exports
+ * from here via `nexus/identity.ts`. This is the old algorithm used
+ * before T9149 W5: `Buffer.from(path).toString('base64url').slice(0, 32)`.
  */
 export function legacyProjectId(repoPath: string): string {
   return Buffer.from(repoPath).toString('base64url').slice(0, 32);

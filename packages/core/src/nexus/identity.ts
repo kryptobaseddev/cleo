@@ -17,6 +17,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
+import { legacyProjectId } from '@cleocode/paths';
 
 const execFileAsync = promisify(execFile);
 
@@ -161,12 +162,14 @@ export async function canonicalProjectId(repoPath: string): Promise<CanonicalPro
 /**
  * Compute the legacy base64url(path) ID for a given path.
  *
+ * Canonical source: `@cleocode/paths` (`packages/paths/src/cleo-paths.ts`).
+ * Re-exported here for backward compatibility — all internal nexus consumers
+ * should import from `@cleocode/paths` directly.
+ *
  * This is the old algorithm used before W5: `Buffer.from(path).toString('base64url').slice(0, 32)`.
  * Used to populate `projectIdAliases` when migrating existing registrations.
  */
-export function legacyProjectId(repoPath: string): string {
-  return Buffer.from(repoPath).toString('base64url').slice(0, 32);
-}
+export { legacyProjectId } from '@cleocode/paths';
 
 /**
  * Build the set of legacy IDs that should be aliased to the canonical ID.
