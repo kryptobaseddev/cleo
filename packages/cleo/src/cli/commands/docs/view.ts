@@ -20,7 +20,7 @@ import { Buffer } from 'node:buffer';
 import { ExitCode } from '@cleocode/contracts';
 import { renderDocsView } from '@cleocode/core';
 import { createDocsReadModel } from '@cleocode/core/internal';
-import { defineCommand } from 'citty';
+import { defineCommand } from '../../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
 const viewCommand = defineCommand({

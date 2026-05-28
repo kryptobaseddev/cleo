@@ -10,7 +10,7 @@
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { defineCommand, showUsage } from 'citty';
+import { defineCommand, showUsage } from '../lib/define-cli-command.js';
 
 const validateCommand = defineCommand({
   meta: {

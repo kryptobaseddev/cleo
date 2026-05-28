@@ -497,7 +497,7 @@ function _resolveProjectByCwdFromNexus(cwd?: string): string | null {
     const start = resolve(cwd ?? process.cwd());
     let current = start;
 
-    const db = new DatabaseSync(nexusDbPath, { readOnly: true });
+    const db = new DatabaseSync(nexusDbPath, { readOnly: true }); // db-open-allowed: bootstrap path resolver cannot import core DB chokepoint without a cycle
     try {
       const stmt = db.prepare(
         'SELECT project_id FROM project_registry WHERE project_path = ? LIMIT 1',

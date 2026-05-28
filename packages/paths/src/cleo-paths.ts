@@ -381,7 +381,7 @@ export function resolveCanonicalCleoDir(projectId: string): string | null {
 
   let db: DatabaseSync | undefined;
   try {
-    db = new DatabaseSync(nexusDbPath, { readOnly: true });
+    db = new DatabaseSync(nexusDbPath, { readOnly: true }); // db-open-allowed: leaf path package cannot depend on core DB chokepoint
 
     // Try direct project_registry lookup first.
     const directStmt = db.prepare(
