@@ -1,5 +1,14 @@
 # Changelog
 
+## [2026.5.128] (2026-05-28)
+
+### Fixed
+
+- **Critical migration boot-loop**: `cleo briefing` / any command exited with `E_INTERNAL` "Failed to run the query 'CREATE TABLE IF NOT EXISTS release_manifests …'" on databases whose `__drizzle_migrations` journal was missing the `t033-connection-health` entry. Drizzle re-ran the unjournaled migration on every invocation; the rebuild transaction rolled back; the journal write was lost; loop. Two root-cause fixes:
+  - `probeAndMarkApplied` (`packages/core/src/store/migration-manager.ts`) now collects `CREATE TRIGGER` targets and probes them in `sqlite_master`. Trigger-only migrations such as `t877-pipeline-stage-invariants` are now correctly journaled when their triggers already exist (`totalTargets` was previously 0 for trigger-only DDL, so the probe always returned `false` and Drizzle re-ran the migration to "trigger already exists").
+  - `t033-connection-health/migration.sql` now guards `INSERT INTO release_manifests_new SELECT ... FROM release_manifests` with `WHERE EXISTS (SELECT 1 FROM release_manifests LIMIT 1)` and lists destination columns explicitly. The `CREATE _new → DROP → RENAME` rebuild still runs; the row copy becomes a safe no-op when the source is empty.
+- Adds `packages/core/src/store/__tests__/migration-probe-trigger.test.ts` (2 regression cases) pinning both behaviours.
+
 ## [2026.5.127] (2026-05-28)
 
 ### Added
