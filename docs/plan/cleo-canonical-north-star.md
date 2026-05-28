@@ -1,6 +1,6 @@
 # CLEO — Canonical North Star
 
-> **Status**: canonical · 2026-05-25 (v3 — full reconstruction after raw-write loss; integrates both work streams + BRAIN decisions D018-D024)
+> **Status**: canonical · 2026-05-28 (v4 — adds Cockpit TUI architecture decision §1.6 / ADR-089; T11117 complete)
 > **Supersedes**: nothing — consolidates two pre-existing canonical docs into a single navigable index
 > **Purpose**: single entrypoint for "where does this work fit?" — links the persona/memory roadmap (`CLEO-PRIME-SENTIENT-MASTERPLAN.md`) with the harness/IPC architecture (`CleoCode-Architecture-Harness-Planning.md`) and maps every live saga onto a tier.
 
@@ -13,7 +13,7 @@ Both remain authoritative for their layer. **Do not re-litigate them in this doc
 | **Sentient Masterplan** | `docs/plans/CLEO-PRIME-SENTIENT-MASTERPLAN.md` (1,587 lines) | BRAIN / persona / memory / PSYCHE / 14 tiers (Tier 1-14) | canonical |
 | **Harness Architecture** | `docs/research/CleoCode-Architecture-Harness-Planning.md` (95 lines) | UI / IPC / TUI / TS Daemon / ZeroMQ / VCM / PTY isolation | canonical — **promote to plans/ when first wave ships** |
 
-**The seam between them** is the LAFS envelope (ADR-039): the harness layer transports envelopes, the persona layer produces and consumes them. The envelope contract itself is hardened by **T10343 SG-ENVELOPE-FIRST** (filed 2026-05-23).
+**The seam between them** is the LAFS envelope (ADR-039): the harness layer transports envelopes, the persona layer produces and consumes them. The human-readable contract is `docs/specs/LAFS-ENVELOPE-CONTRACT.md`; the envelope contract itself is hardened by **T10343 SG-ENVELOPE-FIRST** (filed 2026-05-23).
 
 ## 1.5 Glossary — disambiguating "harness"
 
@@ -25,9 +25,33 @@ The word **"harness"** is overloaded across canon docs and historical epics. Thr
 | **"Cockpit harness"** (the operator TUI) | Rust binary: `ratatui` + `crossterm` + `tokio`. Separate process. Connects to the Daemon over envelope-IPC. Renders panes, PTY isolation, Living Brain visualization. NOT in-process with the kernel | `crates/cockpit/` (new) | **T10402 SG-COCKPIT-HARNESS** |
 | **"Harness layer"** (the architectural tier) | The whole Tier 0 of the system — both surfaces above PLUS the envelope contract that joins them. An abstract layer name, not a single artifact | spans T10400 + T10401 + T10402 + T10403 + T10409 + T10418 + T10419 | (no single saga — it's the tier name) |
 
-**Why this matters**: T1737's original "Native TypeScript + Rust via napi-rs" referred to the **Daemon harness**, NOT the Cockpit. The Cockpit being Rust does not contradict T1737 — they're two different surfaces. The TS Daemon stays TypeScript (event-loop friendly for LLM orchestration, async I/O, npm ecosystem). The Cockpit is Rust (crash-resistant UI, ratatui ecosystem, in-process PTY multiplexing). Both consume the same envelope contract.
+|**Why this matters**: T1737's original "Native TypeScript + Rust via napi-rs" referred to the **Daemon harness**, NOT the Cockpit. The Cockpit being Rust does not contradict T1737 — they're two different surfaces. The TS Daemon stays TypeScript (event-loop friendly for LLM orchestration, async I/O, npm ecosystem). The Cockpit is Rust (crash-resistant UI, ratatui ecosystem, in-process PTY multiplexing). Both consume the same envelope contract.
 
-**Per envelope-first doctrine (T10343)**: language choice within a surface is implementation detail, NOT architecture. The architecture IS the envelope.
+|**Per envelope-first doctrine (T10343)**: language choice within a surface is implementation detail, NOT architecture. The architecture IS the envelope.
+
+### 1.6 Cockpit TUI architecture decision (envelope-driven) — ADR-089
+
+**Problem**: Cockpit TUI needs to query CLEO state (tasks, sessions, memory) from a Rust TUI process.
+
+**Options considered**:
+1. **Envelope-IPC via cleo subprocess calls** (LAFS envelope contract) — recommended default
+2. **In-process Rust binding to CLEO core** — rejected: tight coupling, language barrier, violates envelope-first doctrine
+3. **Shared SQLite DB access from Rust** — rejected: bypasses business logic, concurrency issues, breaks envelope contract
+
+**Decision**: Envelope-IPC via cleo subprocess or Unix socket is the canonical Cockpit↔Daemon integration pattern.
+
+**Rationale**:
+- Language-agnostic: same LAFS envelope contract as CLI consumers
+- Daemon optional: subprocess calls for simplicity, Unix socket for performance
+- Consistent with envelope-first doctrine (ADR-087): the boundary IS the envelope
+- No tight coupling between Rust TUI and TypeScript daemon internals
+- Cockpit can run standalone (subprocess mode) or co-located (daemon + Unix socket)
+
+**Measurement gate**: T11115 (subprocess overhead must be <50ms on warm cache; if exceeded, daemon mode via Unix socket is required). Gate owned by T10401 SG-HARNESS-DAEMON-IPC.
+
+**Implementation path**: Cockpit spawns `cleo <verb> --json` subprocesses, parses LAFS envelopes, renders TUI. Future optimization: Unix socket to running daemon for <10ms latency. Both modes use identical envelope contract — no protocol fork.
+
+**Status**: ratified 2026-05-28. Recorded as BRAIN observation O-mpp1boa4-0.
 
 ## 2. Tier inventory — Sentient Masterplan + Harness Layer
 
@@ -60,7 +84,7 @@ Every existing/proposed saga listed with its tier alignment, full children roste
 | Saga | Tier | Status | Note |
 |---|---|---|---|
 | **T10281 SG-BRAIN-DB-RESILIENCE** | 1 (P0 prereq) | pending | Wave 0 (T10286 BRAIN P0 hotfix) **shipped 2026-05-23**; brain.db `integrity_check=ok` confirmed. E1-E4 still in flight. Outputs feed T10405 SG-PSYCHE-FOUNDATION Tier 4 chokepoint |
-| **T10343 SG-ENVELOPE-FIRST** (doctrine) | 0 (seam) | pending | LAFS envelope as canonical CLEO boundary; WorkloadIntent enum simplification; **implementation now lives in T10400 SG-CLEO-SDK-API** (via `extends` relation) |
+| **T10343 SG-ENVELOPE-FIRST** (doctrine) | 0 (seam) | pending | LAFS envelope as canonical CLEO boundary; human-readable contract at `docs/specs/LAFS-ENVELOPE-CONTRACT.md`; WorkloadIntent enum simplification; **implementation now lives in T10400 SG-CLEO-SDK-API** (via `extends` relation) |
 | **T10295 SG-PROJECT-AUTHORITY** | 1 + 7 | pending | projectId as truth (kill CWD-walk-up); enables Gateway projectId routing in T10401; `getVaultDbPath()` helper for T10409 |
 | T1892 BBTT | 1 | done | Tier 1 historical work; informed the masterplan |
 | T9245 evidence-validator | 1 | done | the loophole fix |
