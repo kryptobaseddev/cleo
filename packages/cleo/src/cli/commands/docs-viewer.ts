@@ -521,7 +521,7 @@ const viewerStatusCommand = defineCommand({
   },
 });
 
-async function runViewerStatus(): Promise<void> {
+const runViewerStatus = async (): Promise<void> => {
   const record = await readViewerPidFile();
   if (!record) {
     cliOutput(
@@ -570,7 +570,7 @@ async function runViewerStatus(): Promise<void> {
       message: `viewer running (pid ${record.pid})`,
     },
   );
-}
+};
 
 /**
  * `cleo docs viewer` — unified managed lifecycle for the docs viewer.
