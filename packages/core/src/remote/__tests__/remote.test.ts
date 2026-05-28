@@ -31,6 +31,11 @@ vi.mock('../../store/git-checkpoint.js', () => ({
 
 // Mock paths.js — return a stable fake cleoDir
 vi.mock('../../paths.js', () => ({
+  // remote/index.ts migrated to the projectId/nexus resolution chain (T11011)
+  // — mock the functions it actually imports. The legacy getCleoDirAbsolute
+  // export is retained for any incidental reference.
+  resolveProjectByCwd: vi.fn().mockReturnValue('test-project'),
+  resolveCanonicalCleoDir: vi.fn().mockReturnValue('/fake/.cleo'),
   getCleoDirAbsolute: vi.fn().mockReturnValue('/fake/.cleo'),
 }));
 
