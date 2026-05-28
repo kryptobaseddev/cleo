@@ -136,8 +136,7 @@ function probeAndMarkApplied(
   const createTableRegex = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"]?(\w+)[`"]?/gi;
   const createIndexRegex =
     /CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"]?(\w+)[`"]?/gi;
-  const createTriggerRegex =
-    /CREATE\s+TRIGGER\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"]?(\w+)[`"]?/gi;
+  const createTriggerRegex = /CREATE\s+TRIGGER\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"]?(\w+)[`"]?/gi;
 
   const alterTargets: Array<{ table: string; column: string }> = [];
   for (const m of fullSql.matchAll(alterColumnRegex)) {
@@ -189,7 +188,8 @@ function probeAndMarkApplied(
     triggerTargets.push(m[1] as string);
   }
 
-  const totalTargets = alterTargets.length + tableTargets.length + indexTargets.length + triggerTargets.length;
+  const totalTargets =
+    alterTargets.length + tableTargets.length + indexTargets.length + triggerTargets.length;
   if (totalTargets === 0) {
     // No probable DDL — could be UPDATE/INSERT/DELETE/etc. Leave for migrate().
     return false;
