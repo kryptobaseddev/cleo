@@ -24,7 +24,7 @@ vi.mock('llmtxt/similarity', () => ({
   rankBySimilarity: vi.fn(),
 }));
 
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import * as simMod from 'llmtxt/similarity';
 import {
   readViewerPidFile,

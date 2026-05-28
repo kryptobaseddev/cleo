@@ -19,7 +19,7 @@
  * @task T11187 (Epic T10521 · Saga T10516)
  */
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   auditScenarioCoverage,
   SIX_REGRESSION_SCENARIOS,

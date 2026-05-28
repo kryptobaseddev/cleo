@@ -10,7 +10,6 @@
  */
 
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -19,7 +18,6 @@ import {
   type DocsDogfoodContext,
   fileSha256,
   SIX_REGRESSION_SCENARIOS,
-  seedDoc,
   sha256,
 } from './fixtures/docs-dogfood-harness.js';
 

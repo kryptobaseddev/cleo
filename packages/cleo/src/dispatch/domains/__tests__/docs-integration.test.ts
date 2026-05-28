@@ -65,7 +65,7 @@ describe('docs dispatch integration (T947)', () => {
     expect(data.ownerId).toBe('T900');
     expect(data.refCount).toBeGreaterThanOrEqual(1);
 
-    // Wave C observability — v2 store always uses llmtxt backend.
+    // Wave C observability — the mirror store always uses llmtxt backend.
     expect(response.meta['attachmentBackend']).toBe('llmtxt');
   });
 

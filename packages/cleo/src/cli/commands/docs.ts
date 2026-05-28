@@ -840,7 +840,7 @@ const generateCommand = defineCommand({
   async run({ args }) {
     // T11179/T11137: generate is deprecated — use unified llm-output.
     humanInfo(
-      'cleo: docs generate is deprecated — use `cleo docs llm-output --for ${args.for} --mode attachment-bundle` (T11137)',
+      `cleo: docs generate is deprecated — use \`cleo docs llm-output --for ${args.for} --mode attachment-bundle\` (T11137)`,
     );
     await dispatchFromCli(
       'query',
@@ -1440,7 +1440,7 @@ const queryCommand = defineCommand({
       process.exit(ExitCode.VALIDATION_ERROR);
     }
 
-    let limit;
+    let limit: number | undefined;
     if (typeof args.limit === 'string') {
       const parsed = Number.parseInt(args.limit, 10);
       if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -1454,7 +1454,7 @@ const queryCommand = defineCommand({
       limit = parsed;
     }
 
-    let threshold;
+    let threshold: number | undefined;
     if (typeof args.threshold === 'string') {
       const parsed = Number.parseFloat(args.threshold);
       if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
