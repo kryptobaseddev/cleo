@@ -381,6 +381,20 @@ function printReport(report) {
     }
     console.error('');
   }
+  if (invalidIntent.length > 0) {
+    console.error(`INVALID INTENT (${invalidIntent.length}) — intent not one of ts-only|rust-published|rust-hotpath:`);
+    for (const i of invalidIntent) {
+      console.error(`  ${i.module.padEnd(28)} intent=${i.declaredIntent}`);
+    }
+    console.error('');
+  }
+  if (invalidStatus.length > 0) {
+    console.error(`INVALID STATUS (${invalidStatus.length}) — status not one of active|deprecated|migrated-out|archived:`);
+    for (const s of invalidStatus) {
+      console.error(`  ${s.module.padEnd(28)} status=${s.declaredStatus}`);
+    }
+    console.error('');
+  }
   console.error('Fix: amend BOUNDARY_REGISTRY in packages/contracts/src/boundary.ts');
   console.error('via an ADR-078 amendment + PR. See AGENTS.md "Boundary Registry" section.');
   return 1;

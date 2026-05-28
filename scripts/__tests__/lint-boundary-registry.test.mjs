@@ -5,14 +5,15 @@
  *   - The script accepts a `--fixture <path>` flag that bypasses the canonical
  *     compiled registry and loads BOUNDARY_REGISTRY from a synthetic ESM module
  *     instead. This lets us exercise every branch (clean, orphan, missing,
- *     intent-drift) without mutating the real packages/contracts/dist/boundary.js.
+ *     intent-drift, invalid-intent, invalid-status) without mutating the real
+ *     packages/contracts/dist/boundary.js.
  *   - Each test writes a small fixture .mjs file under a tmpdir, runs the
  *     script with that fixture, and asserts on exit code + JSON output.
  *   - Disk enumeration still runs against the real cleocode tree, so fixtures
  *     either include EVERY on-disk crate/package (to demonstrate "clean"), or
  *     intentionally omit some entries (to demonstrate "orphan").
  *
- * @task T10198
+ * @task T10198 / T11107 (three-trigger update)
  * @saga T10176
  * @adr ADR-078
  */
@@ -74,7 +75,8 @@ function runLint(extraArgs = []) {
 function entry(overrides) {
   return {
     module: 'sample',
-    intent: 'cpu-bound',
+    intent: 'ts-only',
+    status: 'active',
     canonicalHome: 'cleocode',
     perfBudget: {},
     safetyBudget: { panic_unwind: 'forbidden', root_escape: 'forbidden' },
@@ -120,16 +122,16 @@ function buildCleanFixture() {
     entries.push(
       entry({
         module: c,
-        // napi crates get napiBinding instead of rustCore so the intent-drift
-        // heuristic stays happy.
+        status: 'active',
+        // napi crates are rust-published (napiBinding + FFI surface).
         ...(c.endsWith('-napi')
-          ? { napiBinding: `crates/${c}`, intent: 'ffi-surface' }
-          : { rustCore: `crates/${c}` }),
+          ? { napiBinding: `crates/${c}`, intent: 'rust-published' }
+          : { rustCore: `crates/${c}`, intent: 'rust-hotpath' }),
       }),
     );
   }
   for (const p of packages) {
-    entries.push(entry({ module: p, tsWrapper: `packages/${p}`, intent: 'orchestration-glue' }));
+    entries.push(entry({ module: p, tsWrapper: `packages/${p}`, intent: 'ts-only', status: 'active' }));
   }
   return entries;
 }
@@ -195,7 +197,8 @@ describe('lint-boundary-registry — missing detection', () => {
       entry({
         module: 'phantom-crate',
         rustCore: 'crates/does-not-exist-on-disk',
-        intent: 'cpu-bound',
+        intent: 'rust-hotpath',
+        status: 'active',
       }),
     );
     writeFixture(clean);
@@ -212,7 +215,8 @@ describe('lint-boundary-registry — missing detection', () => {
       entry({
         module: 'phantom-package',
         tsWrapper: 'packages/does-not-exist-on-disk',
-        intent: 'orchestration-glue',
+        intent: 'ts-only',
+        status: 'active',
       }),
     );
     writeFixture(clean);
@@ -222,19 +226,54 @@ describe('lint-boundary-registry — missing detection', () => {
     expect(parsed.counts.missing).toBeGreaterThanOrEqual(1);
   });
 
-  it('does NOT report MISSING when canonicalHome === "archived"', () => {
+  it('does NOT report MISSING when status === "archived"', () => {
     const clean = buildCleanFixture();
     clean.push(
       entry({
         module: 'phantom-archived',
         rustCore: 'crates/does-not-exist-on-disk',
-        intent: 'migration-pending',
+        intent: 'rust-hotpath',
+        status: 'archived',
         canonicalHome: 'archived',
       }),
     );
     writeFixture(clean);
     const result = runLint(['--json']);
-    // Archived path is exempt from missing — exit 0 unless other failures exist.
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.counts.missing).toBe(0);
+  });
+
+  it('does NOT report MISSING when status === "migrated-out" with external canonicalHome', () => {
+    const clean = buildCleanFixture();
+    clean.push(
+      entry({
+        module: 'phantom-migrated',
+        rustCore: 'crates/does-not-exist-on-disk',
+        intent: 'ts-only',
+        status: 'migrated-out',
+        canonicalHome: { external: '/other/repo' },
+      }),
+    );
+    writeFixture(clean);
+    const result = runLint(['--json']);
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.counts.missing).toBe(0);
+  });
+
+  it('does NOT report MISSING when status === "deprecated" (phased out, path may be deleted)', () => {
+    const clean = buildCleanFixture();
+    clean.push(
+      entry({
+        module: 'phantom-deprecated',
+        rustCore: 'crates/does-not-exist-on-disk',
+        intent: 'ts-only',
+        status: 'deprecated',
+      }),
+    );
+    writeFixture(clean);
+    const result = runLint(['--json']);
     expect(result.status).toBe(0);
     const parsed = JSON.parse(result.stdout);
     expect(parsed.counts.missing).toBe(0);
@@ -246,17 +285,139 @@ describe('lint-boundary-registry — missing detection', () => {
 // ============================================================================
 
 describe('lint-boundary-registry — intent drift', () => {
-  it('exits 1 when napiBinding is declared but intent is not ffi-surface', () => {
+  it('exits 1 when napiBinding is declared but intent is not rust-published', () => {
     const clean = buildCleanFixture();
-    // Pick an existing napi crate but tag it with a non-ffi intent.
+    // Pick an existing napi crate but tag it with a non-rust-published intent.
     const napiCrateIdx = clean.findIndex((e) => e.napiBinding);
     expect(napiCrateIdx).toBeGreaterThanOrEqual(0);
-    clean[napiCrateIdx] = { ...clean[napiCrateIdx], intent: 'data-manifest' };
+    clean[napiCrateIdx] = { ...clean[napiCrateIdx], intent: 'ts-only' };
     writeFixture(clean);
     const result = runLint(['--json']);
     expect(result.status).toBe(1);
     const parsed = JSON.parse(result.stdout);
     expect(parsed.counts.driftIntent).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// ============================================================================
+// INVALID INTENT — entry intent not in the 3-trigger set
+// ============================================================================
+
+describe('lint-boundary-registry — invalid intent', () => {
+  it('exits 1 when an entry has an invalid intent value', () => {
+    const clean = buildCleanFixture();
+    clean.push(
+      entry({
+        module: 'bad-intent-module',
+        tsWrapper: 'packages/does-not-exist',
+        intent: 'cpu-bound', // old intent, not in 3-trigger set
+        status: 'active',
+      }),
+    );
+    writeFixture(clean);
+    const result = runLint(['--json']);
+    expect(result.status).toBe(1);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.counts.invalidIntent).toBeGreaterThanOrEqual(1);
+    expect(parsed.invalidIntent.some((i) => i.module === 'bad-intent-module')).toBe(true);
+  });
+
+  it('exits 1 when an entry is missing intent entirely', () => {
+    const clean = buildCleanFixture();
+    const bad = entry({
+      module: 'no-intent-module',
+      tsWrapper: 'packages/does-not-exist',
+      status: 'active',
+    });
+    delete bad.intent;
+    clean.push(bad);
+    writeFixture(clean);
+    const result = runLint(['--json']);
+    expect(result.status).toBe(1);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.counts.invalidIntent).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// ============================================================================
+// INVALID STATUS — entry status not in the 4-value set
+// ============================================================================
+
+describe('lint-boundary-registry — invalid status', () => {
+  it('exits 1 when an entry has an invalid status value', () => {
+    const clean = buildCleanFixture();
+    clean.push(
+      entry({
+        module: 'bad-status-module',
+        tsWrapper: 'packages/does-not-exist',
+        intent: 'ts-only',
+        status: 'unknown-status',
+      }),
+    );
+    writeFixture(clean);
+    const result = runLint(['--json']);
+    expect(result.status).toBe(1);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.counts.invalidStatus).toBeGreaterThanOrEqual(1);
+    expect(parsed.invalidStatus.some((s) => s.module === 'bad-status-module')).toBe(true);
+  });
+
+  it('exits 1 when an entry is missing status entirely', () => {
+    const clean = buildCleanFixture();
+    const bad = entry({
+      module: 'no-status-module',
+      tsWrapper: 'packages/does-not-exist',
+      intent: 'ts-only',
+    });
+    delete bad.status;
+    clean.push(bad);
+    writeFixture(clean);
+    const result = runLint(['--json']);
+    expect(result.status).toBe(1);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.counts.invalidStatus).toBeGreaterThanOrEqual(1);
+  });
+
+  it('accepts all 4 valid status values', () => {
+    const validStatuses = ['active', 'deprecated', 'migrated-out', 'archived'];
+    const entries = validStatuses.map((status, i) =>
+      entry({
+        module: `valid-status-${i}`,
+        tsWrapper: `packages/${['a', 'b', 'c', 'd'][i]}`,
+        intent: 'ts-only',
+        status,
+        // Use exempt statuses or external home to avoid MISSING violations.
+        canonicalHome: status === 'archived' ? 'archived'
+          : status === 'migrated-out' ? { external: '/other/repo' }
+          : status === 'deprecated' ? 'cleocode'
+          : 'cleocode',
+      }),
+    );
+    writeFixture(entries);
+    const result = runLint(['--json']);
+    // Status validation should pass; MISSING is expected for non-exempt entries
+    // with imaginary paths.
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.counts.invalidStatus).toBe(0);
+  });
+
+  it('accepts all 3 valid intent values', () => {
+    const validIntents = ['ts-only', 'rust-hotpath', 'rust-published'];
+    const entries = validIntents.map((intent, i) =>
+      entry({
+        module: `valid-intent-${i}`,
+        tsWrapper: `packages/${['x', 'y', 'z'][i]}`,
+        intent,
+        status: 'archived', // exempt from MISSING check
+        canonicalHome: 'archived',
+      }),
+    );
+    writeFixture(entries);
+    const result = runLint(['--json']);
+    // Intent validation should pass; orphan/missing violations are expected
+    // since the tiny fixture doesn't cover every on-disk module.
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.counts.invalidIntent).toBe(0);
   });
 });
 
