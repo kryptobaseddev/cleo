@@ -297,17 +297,6 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'tasks',
-    operation: 'tree',
-    description: 'tasks.tree (query)',
-    tier: 1,
-    idempotent: true,
-    sessionRequired: false,
-    requiredParams: [],
-    params: [],
-  },
-  {
-    gateway: 'query',
-    domain: 'tasks',
     operation: 'blockers',
     description: 'tasks.blockers (query)',
     tier: 1,
@@ -1070,6 +1059,13 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: ['query'],
     params: [
+      {
+        name: 'query',
+        type: 'string',
+        required: true,
+        description: 'FTS5 search query string',
+        cli: { positional: true },
+      },
       {
         name: 'agent',
         type: 'string',
