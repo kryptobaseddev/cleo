@@ -23,6 +23,11 @@
       "pattern": "^[a-f0-9]{12}$",
       "description": "Unique 12-character hex hash derived from absolute project path (SHA-256 prefix). Links to global registry entry."
     },
+    "projectId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Portable project-local identity stored with .cleo/project-info.json. Runtime path resolution may expose a derived canonical registry ID and retain this value as a legacy alias."
+    },
     "cleoVersion": {
       "type": "string",
       "pattern": "^\\d+\\.\\d+\\.\\d+$",

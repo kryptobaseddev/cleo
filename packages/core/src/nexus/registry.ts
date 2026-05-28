@@ -36,6 +36,7 @@ import { nexusAuditLog, projectIdAliases, projectRegistry } from '../store/nexus
 // Re-export only: resetNexusDbState used by tests and index barrel.
 import { resetNexusDbState } from '../store/nexus-sqlite.js';
 import { generateProjectHash } from './hash.js';
+import { canonicalProjectId, legacyProjectId } from './identity.js';
 
 // ── Domain types ─────────────────────────────────────────────────────
 //
@@ -309,6 +310,27 @@ async function readProjectId(projectPath: string): Promise<string> {
   }
 }
 
+/** Record alternate project identity tokens as aliases for registry lookup. */
+async function recordProjectIdAliases(
+  projectId: string,
+  aliases: Iterable<string>,
+  createdAt: string,
+): Promise<void> {
+  const { getNexusDb } = await import('../store/nexus-sqlite.js');
+  const db = await getNexusDb();
+  for (const legacyId of new Set(aliases)) {
+    if (!legacyId) continue;
+    try {
+      await db
+        .insert(projectIdAliases)
+        .values({ legacyId, canonicalId: projectId, createdAt })
+        .onConflictDoNothing();
+    } catch {
+      // Alias rows are compatibility accelerators; registry writes remain authoritative.
+    }
+  }
+}
+
 /**
  * Register a project in the global registry (nexus.db).
  * @returns The project hash.
@@ -397,6 +419,7 @@ export async function nexusRegister(
   const now = new Date().toISOString();
   let projectId = await readProjectId(projectPath);
   const resolvedPath = resolve(projectPath);
+  const canonicalIdentity = await canonicalProjectId(resolvedPath);
   const brainDbPath = join(resolvedPath, '.cleo', 'brain.db');
   const tasksDbPath = join(resolvedPath, '.cleo', 'tasks.db');
 
@@ -439,6 +462,12 @@ export async function nexusRegister(
       statsJson: '{}',
     });
   }
+
+  await recordProjectIdAliases(
+    projectId,
+    [projectId, canonicalIdentity.id, legacyProjectId(resolvedPath)],
+    now,
+  );
 
   await writeNexusAudit({
     action: 'register',
@@ -809,6 +838,8 @@ export async function nexusReconcile(
 
   const projectId = await readProjectId(projectRoot);
   const currentHash = generateProjectHash(projectRoot);
+  const canonicalIdentity = await canonicalProjectId(projectRoot);
+  const stableProjectId = projectId || canonicalIdentity.id;
 
   // Scenario 4 check: hash matches but different projectId
   if (projectId) {
@@ -859,6 +890,11 @@ export async function nexusReconcile(
           success: true,
           details: { status: 'ok' },
         });
+        await recordProjectIdAliases(
+          stableProjectId,
+          [stableProjectId, canonicalIdentity.id, legacyProjectId(projectRoot)],
+          now,
+        );
         return { status: 'ok' };
       }
 
@@ -884,6 +920,11 @@ export async function nexusReconcile(
         success: true,
         details: { status: 'path_updated', oldPath, newPath: projectRoot },
       });
+      await recordProjectIdAliases(
+        stableProjectId,
+        [stableProjectId, canonicalIdentity.id, legacyProjectId(projectRoot)],
+        now,
+      );
       return { status: 'path_updated', oldPath, newPath: projectRoot };
     }
   }
@@ -908,6 +949,11 @@ export async function nexusReconcile(
       success: true,
       details: { status: 'ok' },
     });
+    await recordProjectIdAliases(
+      hashMatch.projectId,
+      [hashMatch.projectId, canonicalIdentity.id, legacyProjectId(projectRoot)],
+      now,
+    );
     return { status: 'ok' };
   }
 

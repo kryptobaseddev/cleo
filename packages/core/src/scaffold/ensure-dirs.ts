@@ -9,7 +9,8 @@ import { mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { ScaffoldResult } from '@cleocode/contracts/scaffold-diagnostics';
-import { getCleoHome, resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
+import { getCleoHome } from '../paths.js';
+import { resolveScaffoldCleoDir } from './ensure-config.js';
 import { hasGitIdentity } from './init.js';
 
 export { generateProjectHash } from '../nexus/hash.js';
@@ -43,8 +44,7 @@ export async function ensureCleoStructure(projectRoot: string): Promise<Scaffold
     };
   }
 
-  const projectId = resolveProjectByCwd(projectRoot);
-  const cleoDir = resolveCanonicalCleoDir(projectId);
+  const cleoDir = resolveScaffoldCleoDir(projectRoot);
 
   const alreadyExists = existsSync(cleoDir);
   await mkdir(cleoDir, { recursive: true });
@@ -70,8 +70,7 @@ export async function ensureCleoStructure(projectRoot: string): Promise<Scaffold
  * @returns Scaffold result indicating the action taken
  */
 export async function ensureCleoGitRepo(projectRoot: string): Promise<ScaffoldResult> {
-  const projectId = resolveProjectByCwd(projectRoot);
-  const cleoDir = resolveCanonicalCleoDir(projectId);
+  const cleoDir = resolveScaffoldCleoDir(projectRoot);
   const cleoGitDir = join(cleoDir, '.git');
 
   if (existsSync(cleoGitDir)) {
@@ -182,8 +181,7 @@ export async function ensureProjectGitInitialCommit(projectRoot: string): Promis
  * @returns Scaffold result indicating the action taken
  */
 export async function ensureSqliteDb(projectRoot: string): Promise<ScaffoldResult> {
-  const projectId = resolveProjectByCwd(projectRoot);
-  const cleoDir = resolveCanonicalCleoDir(projectId);
+  const cleoDir = resolveScaffoldCleoDir(projectRoot);
   const dbPath = join(cleoDir, 'tasks.db');
 
   if (existsSync(dbPath)) {
@@ -211,8 +209,7 @@ export async function ensureSqliteDb(projectRoot: string): Promise<ScaffoldResul
  * @returns Scaffold result indicating the action taken
  */
 export async function ensureBrainDb(projectRoot: string): Promise<ScaffoldResult> {
-  const projectId = resolveProjectByCwd(projectRoot);
-  const cleoDir = resolveCanonicalCleoDir(projectId);
+  const cleoDir = resolveScaffoldCleoDir(projectRoot);
   const dbPath = join(cleoDir, 'brain.db');
 
   if (existsSync(dbPath)) {

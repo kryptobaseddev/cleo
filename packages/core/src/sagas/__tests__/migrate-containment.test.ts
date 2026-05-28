@@ -18,6 +18,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { canonicalProjectId } from '../../nexus/identity.js';
+import { registerProjectOnEncounter } from '../../paths.js';
 import { migrateSagaContainment } from '../migrate-containment.js';
 
 type DbHandle = {
@@ -38,6 +40,18 @@ async function createRawTestDb(): Promise<{
   const cleoDir = join(tempDir, '.cleo');
   mkdirSync(cleoDir, { recursive: true });
   mkdirSync(join(tempDir, '.git'), { recursive: true });
+
+  // Write project-info.json and register in nexus.
+  const { id: projectId } = await canonicalProjectId(tempDir);
+  writeFileSync(join(cleoDir, 'project-info.json'), JSON.stringify({
+    $schema: './schemas/project-info.schema.json',
+    schemaVersion: '1.0.0',
+    projectId,
+    projectHash: projectId,
+    cleoVersion: 'test',
+    lastUpdated: new Date().toISOString(),
+  }));
+  await registerProjectOnEncounter(tempDir, projectId);
 
   // Write minimal config
   writeFileSync(

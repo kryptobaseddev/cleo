@@ -15,6 +15,25 @@ import { getConfigPath, resolveCanonicalCleoDir, resolveProjectByCwd } from '../
 import { saveJson } from '../store/json.js';
 
 /**
+ * Resolve the `.cleo` directory for scaffold steps.
+ *
+ * During first-time `cleo init`, `project-info.json` and nexus registration do
+ * not exist yet, so the projectId-based resolver is intentionally unavailable.
+ * Scaffold callers fall back to the local project root in that bootstrap window.
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @returns Absolute path to the project's `.cleo` directory.
+ */
+export function resolveScaffoldCleoDir(projectRoot: string): string {
+  try {
+    const projectId = resolveProjectByCwd(projectRoot);
+    return resolveCanonicalCleoDir(projectId);
+  } catch {
+    return join(projectRoot, '.cleo');
+  }
+}
+
+/**
  * Embedded fallback for .cleo/.gitignore content (deny-by-default).
  *
  * ADR-013 §9: config.json / project-info.json are NOT re-included here.
@@ -227,8 +246,7 @@ export function createDefaultConfig(): Record<string, unknown> {
  * @returns Scaffold result indicating whether the gitignore was created, repaired, or skipped
  */
 export async function ensureGitignore(projectRoot: string): Promise<ScaffoldResult> {
-  const projectId = resolveProjectByCwd(projectRoot);
-  const cleoDir = resolveCanonicalCleoDir(projectId);
+  const cleoDir = resolveScaffoldCleoDir(projectRoot);
   const gitignorePath = join(cleoDir, '.gitignore');
   const templateContent = getGitignoreContent();
 
@@ -267,8 +285,7 @@ export async function ensureGitignore(projectRoot: string): Promise<ScaffoldResu
  */
 export async function ensureWorktreeInclude(projectRoot: string): Promise<ScaffoldResult> {
   const canonicalPath = join(projectRoot, '.worktreeinclude');
-  const projectId = resolveProjectByCwd(projectRoot);
-  return join(resolveCanonicalCleoDir(projectId), 'worktree-include');
+  const legacyPath = join(resolveScaffoldCleoDir(projectRoot), 'worktree-include');
   const templateContent = getWorktreeIncludeContent();
 
   if (existsSync(canonicalPath)) {
@@ -362,8 +379,7 @@ export async function ensureProjectInfo(
   projectRoot: string,
   opts?: { force?: boolean },
 ): Promise<ScaffoldResult> {
-  const projectId = resolveProjectByCwd(projectRoot);
-  const cleoDir = resolveCanonicalCleoDir(projectId);
+  const cleoDir = resolveScaffoldCleoDir(projectRoot);
   const projectInfoPath = join(cleoDir, 'project-info.json');
 
   if (existsSync(projectInfoPath) && !opts?.force) {

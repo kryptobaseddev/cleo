@@ -168,9 +168,9 @@ export function resolveLegacyCleoDir(override?: string): string {
  * from walking up from a working directory.
  *
  * @public
- /** Result of {@link resolveProjectByCwd} — the project identity resolved from walking up from a working directory. */
+ */
 export interface ResolvedProject {
-  /** Stable canonical project ID (12-hex-char SHA-256 of git-root|name|remote). */
+  /** Canonical runtime project ID (12-hex-char SHA-256 of git-root|name|remote). */
   projectId: string;
   /** Absolute realpath to the project root directory. */
   projectRoot: string;
@@ -275,10 +275,9 @@ export function legacyProjectId(repoPath: string): string {
  * Walk up from `cwd` (or `process.cwd()`) looking for `.cleo/project-info.json`
  * and return the project identity if found.
  *
- * This replaces the ancestor-walk pattern in `getCleoDirAbsolute` with a
- * projectId-aware lookup. Instead of resolving a `.cleo/` directory via
- * git-root heuristics, it reads the stable `projectId` from the canonical
- * project-info file — enabling move-safe project identification.
+ * The project-info file acts as the local sentinel and supplies `legacyUUID`.
+ * The returned `projectId` is the derived canonical runtime ID, not the raw
+ * project-local UUID stored in the file.
  *
  * **Cross-mount divergence (T11023):** Uses `realpathSync` to normalize
  * bind-mounts and symlinks so the same repo at `/mnt/projects/X` and

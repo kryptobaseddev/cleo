@@ -43,6 +43,10 @@ function sha256(content: string): string {
 let tempDir: string;
 let fixture: string;
 let previousCwd: string;
+let previousCleoHome: string | undefined;
+let previousCleoProjectRoot: string | undefined;
+let previousCleoRoot: string | undefined;
+let previousCleoDir: string | undefined;
 
 async function setupDocsProject(
   prefix: string,
@@ -51,10 +55,34 @@ async function setupDocsProject(
 ): Promise<void> {
   tempDir = await mkdtemp(join(tmpdir(), prefix));
   previousCwd = process.cwd();
+  previousCleoHome = process.env['CLEO_HOME'];
+  previousCleoProjectRoot = process.env['CLEO_PROJECT_ROOT'];
+  previousCleoRoot = process.env['CLEO_ROOT'];
+  previousCleoDir = process.env['CLEO_DIR'];
+  process.env['CLEO_HOME'] = join(tempDir, 'cleo-home');
   process.env['CLEO_PROJECT_ROOT'] = tempDir;
   process.env['CLEO_ROOT'] = tempDir;
   process.env['CLEO_DIR'] = join(tempDir, '.cleo');
+  const projectId = createHash('sha256').update(`${tempDir}||`).digest('hex').slice(0, 12);
   await mkdir(process.env['CLEO_DIR'], { recursive: true });
+  await mkdir(process.env['CLEO_HOME'], { recursive: true });
+  await writeFile(
+    join(process.env['CLEO_DIR'], 'project-info.json'),
+    JSON.stringify({ projectId }),
+    'utf-8',
+  );
+  const { DatabaseSync } = await import('node:sqlite');
+  const nexusDb = new DatabaseSync(join(process.env['CLEO_HOME'], 'nexus.db'));
+  try {
+    nexusDb.exec(
+      'CREATE TABLE IF NOT EXISTS project_registry (project_id TEXT PRIMARY KEY, project_path TEXT NOT NULL)',
+    );
+    nexusDb
+      .prepare('INSERT OR REPLACE INTO project_registry (project_id, project_path) VALUES (?, ?)')
+      .run(projectId, tempDir);
+  } finally {
+    nexusDb.close();
+  }
   process.chdir(tempDir);
   fixture = join(tempDir, fixtureName);
   await writeFile(fixture, content, 'utf-8');
@@ -64,9 +92,14 @@ async function cleanupDocsProject(): Promise<void> {
   const { closeDb } = await import('@cleocode/core/internal');
   closeDb();
   process.chdir(previousCwd);
-  delete process.env['CLEO_PROJECT_ROOT'];
-  delete process.env['CLEO_ROOT'];
-  delete process.env['CLEO_DIR'];
+  if (previousCleoHome === undefined) delete process.env['CLEO_HOME'];
+  else process.env['CLEO_HOME'] = previousCleoHome;
+  if (previousCleoProjectRoot === undefined) delete process.env['CLEO_PROJECT_ROOT'];
+  else process.env['CLEO_PROJECT_ROOT'] = previousCleoProjectRoot;
+  if (previousCleoRoot === undefined) delete process.env['CLEO_ROOT'];
+  else process.env['CLEO_ROOT'] = previousCleoRoot;
+  if (previousCleoDir === undefined) delete process.env['CLEO_DIR'];
+  else process.env['CLEO_DIR'] = previousCleoDir;
   await rm(tempDir, { recursive: true, force: true });
 }
 

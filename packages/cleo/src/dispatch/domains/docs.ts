@@ -1615,20 +1615,27 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     let backend: AttachmentBackend = 'llmtxt';
     try {
       const blobMirror = createAttachmentBlobStore(getProjectRoot());
-      // Derive the old owner from the update params or fall back to slug.
-      // The llmtxt mirror keys by (ownerId, blobName), so we use the slug as
-      // the blob name and a synthetic owner derived from the slug itself
-      // (the canonical docs publish path resolves owners via CLEO task
-      // lookups, not via the mirror key).
-      const resolvedOwnerId = `slug:${outcome.result.slug}`;
-      const mirrorResult = await blobMirror.put(resolvedOwnerId, {
-        name: outcome.result.slug,
-        data: hasFile
-          ? new Uint8Array(await readFile(resolve(filePath as string)))
-          : new Uint8Array(Buffer.from(inlineContent as string, 'utf-8')),
-        contentType: hasFile ? mimeFromPath(resolve(filePath as string)) : 'text/plain',
-      });
-      backend = mirrorResult.backend;
+      const updatedBytes = hasFile
+        ? new Uint8Array(await readFile(resolve(filePath as string)))
+        : new Uint8Array(Buffer.from(inlineContent as string, 'utf-8'));
+      const contentType = hasFile ? mimeFromPath(resolve(filePath as string)) : 'text/plain';
+      const rows = await createAttachmentStore().listAllInProject(projectRoot);
+      const ownerIds = Array.from(
+        new Set(
+          rows
+            .filter((row) => row.metadata.id === outcome.result.attachmentId)
+            .map((row) => row.ownerId),
+        ),
+      );
+      const mirrorOwnerIds = ownerIds.length > 0 ? ownerIds : [`slug:${outcome.result.slug}`];
+      for (const mirrorOwnerId of mirrorOwnerIds) {
+        const mirrorResult = await blobMirror.put(mirrorOwnerId, {
+          name: outcome.result.slug,
+          data: updatedBytes,
+          contentType,
+        });
+        backend = mirrorResult.backend;
+      }
     } catch {
       backend = await resolveAttachmentBackend();
     }
@@ -1756,7 +1763,12 @@ function docsEnvelopeToResponse(
   envelope: {
     success: boolean;
     data?: unknown;
-    error?: { code: string | number; message: string; details?: Record<string, unknown> };
+    error?: {
+      code: string | number;
+      message: string;
+      details?: Record<string, unknown>;
+      fix?: string;
+    };
   },
   gateway: string,
   operation: string,
@@ -1769,6 +1781,7 @@ function docsEnvelopeToResponse(
       error: {
         code: String(envelope.error?.code ?? 'E_INTERNAL'),
         message: envelope.error?.message ?? 'Unknown error',
+        ...(envelope.error?.fix !== undefined ? { fix: envelope.error.fix } : {}),
         // T9636 — preserve structured details (e.g. slug suggestions) so the
         // CLI can render alternative slugs without a separate API call.
         ...(envelope.error?.details !== undefined ? { details: envelope.error.details } : {}),

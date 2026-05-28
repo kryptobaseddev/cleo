@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ScaffoldResult } from '@cleocode/contracts/scaffold-diagnostics';
 import { pushWarning } from '../output.js';
-import { resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
+import { resolveScaffoldCleoDir } from './ensure-config.js';
 
 /**
  * Detect and write project-context.json.
@@ -25,8 +25,7 @@ export async function ensureProjectContext(
   projectRoot: string,
   opts?: { force?: boolean; staleDays?: number },
 ): Promise<ScaffoldResult> {
-  const projectId = resolveProjectByCwd(projectRoot);
-  const cleoDir = resolveCanonicalCleoDir(projectId);
+  const cleoDir = resolveScaffoldCleoDir(projectRoot);
   const contextPath = join(cleoDir, 'project-context.json');
   const staleDays = opts?.staleDays ?? 30;
 
