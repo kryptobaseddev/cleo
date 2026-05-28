@@ -2053,17 +2053,17 @@ const watchCommand = defineCommand({
 
     for await (const item of stream) {
       if (item.kind === 'ping') {
-        process.stdout.write(`event: ping\ndata: ${JSON.stringify({ ts: item.ts })}\n\n`);
+        process.stdout.write(`event: ping\ndata: ${JSON.stringify({ ts: item.ts })}\n\n`); // stdout-discipline-allowed: SSE stream frame // stdout-write-allowed: SSE stream frame
       } else if (item.kind === 'events') {
         for (const event of item.events) {
-          process.stdout.write(`event: observation\ndata: ${JSON.stringify(event)}\n\n`);
+          process.stdout.write(`event: observation\ndata: ${JSON.stringify(event)}\n\n`); // stdout-discipline-allowed: SSE stream frame // stdout-write-allowed: SSE stream frame
         }
       } else if (item.kind === 'error') {
         cliError(item.message, 1, { name: item.code }, { operation: 'memory.watch' });
         process.exit(1);
         return;
       } else if (item.kind === 'close') {
-        process.stdout.write(`event: close\ndata: ${JSON.stringify({ ts: item.ts })}\n\n`);
+        process.stdout.write(`event: close\ndata: ${JSON.stringify({ ts: item.ts })}\n\n`); // stdout-discipline-allowed: SSE stream frame // stdout-write-allowed: SSE stream frame
       }
     }
   },

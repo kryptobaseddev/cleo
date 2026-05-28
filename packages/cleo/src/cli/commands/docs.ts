@@ -1045,8 +1045,8 @@ const _llmOutputCommand = defineCommand({
             `Wrote ${result.sectionCount} ${result.mode === 'task-export' ? 'page(s)' : 'section(s)'} to ${writtenPath}`,
           );
         } else {
-          process.stdout.write(result.content);
-          if (!result.content.endsWith('\n')) process.stdout.write('\n');
+          process.stdout.write(result.content); // stdout-discipline-allowed: raw markdown payload passthrough // stdout-write-allowed: raw markdown payload passthrough
+          if (!result.content.endsWith('\n')) process.stdout.write('\n'); // stdout-discipline-allowed: preserve trailing newline for raw payload // stdout-write-allowed: preserve trailing newline for raw payload
         }
       }
     } catch (err) {
@@ -1136,8 +1136,8 @@ const llmOutputCommand = defineCommand({
             `Wrote ${result.sectionCount} ${result.mode === 'task-export' ? 'page(s)' : 'section(s)'} to ${writtenPath}`,
           );
         } else {
-          process.stdout.write(result.content);
-          if (!result.content.endsWith('\n')) process.stdout.write('\n');
+          process.stdout.write(result.content); // stdout-discipline-allowed: raw markdown payload passthrough // stdout-write-allowed: raw markdown payload passthrough
+          if (!result.content.endsWith('\n')) process.stdout.write('\n'); // stdout-discipline-allowed: preserve trailing newline for raw payload // stdout-write-allowed: preserve trailing newline for raw payload
         }
       }
     } catch (err) {

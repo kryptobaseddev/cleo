@@ -157,8 +157,8 @@ const viewCommand = defineCommand({
     }
 
     if (renderMode === 'markdown') {
-      process.stdout.write(content);
-      if (!content.endsWith('\n')) process.stdout.write('\n');
+      process.stdout.write(content); // stdout-discipline-allowed: raw markdown view mode passthrough // stdout-write-allowed: raw markdown view mode passthrough
+      if (!content.endsWith('\n')) process.stdout.write('\n'); // stdout-discipline-allowed: preserve trailing newline for raw markdown // stdout-write-allowed: preserve trailing newline for raw markdown
       return;
     }
 
@@ -173,7 +173,7 @@ const viewCommand = defineCommand({
       { width, color: colorMode },
     );
 
-    process.stdout.write(rendered + '\n');
+    process.stdout.write(rendered + '\n'); // stdout-discipline-allowed: terminal renderer output passthrough // stdout-write-allowed: terminal renderer output passthrough
   },
 });
 
