@@ -409,7 +409,16 @@ export const addCommand = defineCommand({
       description: (args.description ?? args.desc) as string | undefined,
       filesInfer: args['files-infer'] as boolean | undefined,
       filesRaw: args.files as string | undefined,
-      acceptanceRaw: args.acceptance as string | undefined,
+      // T11114: citty overwrites repeated string flags. If the user passed
+      // --acceptance multiple times, citty may deliver an array. Normalize
+      // both string and string[] into a single pipe-separated string so
+      // inferTaskAddParams (which uses splitAcceptance) handles it uniformly.
+      acceptanceRaw:
+        args.acceptance === undefined
+          ? undefined
+          : Array.isArray(args.acceptance)
+            ? (args.acceptance as string[]).join('|')
+            : (args.acceptance as string),
       parentRaw: params['parent'] as string | undefined,
       type: params['type'] as string | undefined,
     });

@@ -68,7 +68,12 @@ const createCommand = defineCommand({
         description: args.description,
         // T9839/gh-409: route through bracket+quote-aware parser so criteria
         // containing `ENUM (a|b|c)` or quoted unions aren't shredded.
-        acceptance: args.acceptance ? parseAcceptanceCriteria(args.acceptance) : undefined,
+        // T11114: handle repeated --acceptance flag (citty may deliver string[]).
+        acceptance: args.acceptance
+          ? parseAcceptanceCriteria(
+              Array.isArray(args.acceptance) ? (args.acceptance as string[]).join('|') : args.acceptance,
+            )
+          : undefined,
         dryRun: args['dry-run'] === true,
       },
       { command: 'saga', operation: 'tasks.saga.create' },

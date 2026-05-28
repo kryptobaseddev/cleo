@@ -489,7 +489,13 @@ export const updateCommand = defineCommand({
     if (args.note !== undefined) params['notes'] = params['notes'] ?? args.note;
     // T9839/gh-409: route through bracket+quote-aware parser to preserve
     // criteria containing `ENUM (a|b|c)` or quoted unions like `'a'|'b'`.
-    if (args.acceptance) params['acceptance'] = parseAcceptanceCriteria(args.acceptance as string);
+    // T11114: handle repeated --acceptance flag (citty may deliver string[]).
+    if (args.acceptance) {
+      const raw = Array.isArray(args.acceptance)
+        ? (args.acceptance as string[]).join('|')
+        : (args.acceptance as string);
+      params['acceptance'] = parseAcceptanceCriteria(raw);
+    }
     if (args.files) params['files'] = (args.files as string).split(',').map((s) => s.trim());
     if (args['add-files'])
       params['addFiles'] = (args['add-files'] as string).split(',').map((s) => s.trim());
