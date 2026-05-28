@@ -417,16 +417,46 @@ export async function ensureProjectInfo(
   if (existsSync(projectInfoPath) && !opts?.force) {
     try {
       const existing = JSON.parse(readFileSync(projectInfoPath, 'utf-8'));
+      let repaired = false;
+
       if (typeof existing.projectId !== 'string' || existing.projectId.length === 0) {
         existing.projectId = randomUUID();
         existing.lastUpdated = new Date().toISOString();
-        await writeFile(projectInfoPath, JSON.stringify(existing, null, 2));
-        return { action: 'repaired', path: projectInfoPath, details: 'Added projectId' };
+        repaired = true;
       }
+
+      // Backfill missing name (cheap — always available from basename).
+      if (typeof existing.name !== 'string' || existing.name.length === 0) {
+        existing.name = basename(resolve(projectRoot));
+        existing.lastUpdated = new Date().toISOString();
+        repaired = true;
+      }
+
+      if (repaired) {
+        await writeFile(projectInfoPath, JSON.stringify(existing, null, 2));
+        return { action: 'repaired', path: projectInfoPath, details: 'Backfilled missing fields' };
+      }
+      return { action: 'skipped', path: projectInfoPath, details: 'Already exists' };
     } catch {
       // If parse fails, fall through to regenerate
     }
-    return { action: 'skipped', path: projectInfoPath, details: 'Already exists' };
+  }
+
+  // Preserve immutable identity fields when force-regenerating.
+  let existingProjectId: string | undefined;
+  let existingCreatedAt: string | undefined;
+  if (opts?.force && existsSync(projectInfoPath)) {
+    try {
+      const existing = JSON.parse(readFileSync(projectInfoPath, 'utf-8'));
+      if (typeof existing.projectId === 'string' && existing.projectId.length > 0) {
+        existingProjectId = existing.projectId;
+      }
+      if (typeof existing.createdAt === 'string' && existing.createdAt.length > 0) {
+        existingCreatedAt = existing.createdAt;
+      }
+    } catch {
+      // If parse fails, treat as fresh creation.
+    }
   }
 
   const projectHash = generateProjectHash(projectRoot);
@@ -451,12 +481,12 @@ export async function ensureProjectInfo(
   const projectInfo = {
     $schema: './schemas/project-info.schema.json',
     schemaVersion: '1.0.0',
-    projectId: randomUUID(),
+    projectId: existingProjectId ?? randomUUID(),
     projectHash,
     name: basename(resolve(projectRoot)),
     ...(remoteUrl && { remoteUrl }),
     cleoVersion,
-    createdAt: now,
+    createdAt: existingCreatedAt ?? now,
     lastUpdated: now,
     schemas: {
       config: configSchemaVersion,
@@ -466,7 +496,8 @@ export async function ensureProjectInfo(
   };
 
   await writeFile(projectInfoPath, JSON.stringify(projectInfo, null, 2));
-  return { action: 'created', path: projectInfoPath };
+  const action = opts?.force && existsSync(projectInfoPath) ? 'regenerated' : 'created';
+  return { action, path: projectInfoPath };
 }
 
 /**

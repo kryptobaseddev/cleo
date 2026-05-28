@@ -755,14 +755,14 @@ export async function runUpgrade(
       /* best-effort */
     }
 
-    // Ensure .cleo/config.json exists and matches current template semantics
+    // Ensure .cleo/config.json is current with shipped template semantics.
     try {
-      const configResult = await ensureConfig(projectRootForMaint);
+      const configResult = await ensureConfig(projectRootForMaint, { force: true });
       if (configResult.action !== 'skipped') {
         actions.push({
           action: 'config_file',
           status: 'applied',
-          details: configResult.details ?? 'Created or updated config.json',
+          details: configResult.details ?? 'Regenerated config.json',
         });
       }
     } catch {
@@ -783,14 +783,14 @@ export async function runUpgrade(
       /* best-effort */
     }
 
-    // Create project-info.json if missing
+    // Regenerate project-info.json with current schema (preserves projectId + createdAt).
     try {
-      const infoResult = await ensureProjectInfo(projectRootForMaint);
+      const infoResult = await ensureProjectInfo(projectRootForMaint, { force: true });
       if (infoResult.action !== 'skipped') {
         actions.push({
           action: 'project_info',
           status: 'applied',
-          details: infoResult.details ?? 'Created project-info.json',
+          details: infoResult.details ?? 'Regenerated project-info.json',
         });
       }
     } catch {

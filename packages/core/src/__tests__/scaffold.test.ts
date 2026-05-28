@@ -257,7 +257,7 @@ describe('ensureConfig', () => {
     // After force, it should have written a new config (action is 'repaired' since file existed)
     expect(result.action).toBe('repaired');
     const config = JSON.parse(readFileSync(join(tmpDir, '.cleo', 'config.json'), 'utf-8'));
-    expect(config.version).toBe('2.10.0');
+    expect(config.version).toBe('2.11.0');
   });
 });
 
