@@ -732,6 +732,26 @@ export function resolveCleoDir(cwd?: string): string {
     return join(root, '.cleo');
   }
 
+  // 3b. Worktree gitlink: when `cwd` is inside a git worktree (`.git` is a FILE
+  //     pointing to `<mainRepo>/.git/worktrees/<name>`), the canonical project
+  //     root is the MAIN repo, not the worktree dir. Worktrees live separately
+  //     (e.g. under <cleoHome>/worktrees/) and have no `.cleo/` of their own, so
+  //     the ancestor walk above never finds one. Mirrors getProjectRoot and the
+  //     pre-refactor resolveProjectByCwd gitlink handling (T9092/T11034).
+  const start = resolve(cwd ?? process.cwd());
+  let current = start;
+  while (true) {
+    const mainRepo = _resolveMainRepoFromGitlink(current);
+    if (mainRepo !== null) {
+      return join(mainRepo, '.cleo');
+    }
+    const parent = dirname(current);
+    if (parent === current) {
+      break;
+    }
+    current = parent;
+  }
+
   // 4. Cross-project nexus registry lookup (cwd registered but not under a
   //    `.cleo/` tree on disk).
   const nexusProjectId = _resolveProjectByCwdFromNexus(cwd);
