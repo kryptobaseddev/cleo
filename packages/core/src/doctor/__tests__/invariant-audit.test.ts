@@ -45,7 +45,7 @@ function neutralizeSagaStructuralGuards(db: NativeDbForTest): void {
     .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'")
     .get() as { sql?: string } | undefined;
   const sql = row?.sql;
-  if (!sql || !sql.includes('chk_tasks_saga_no_parent')) return;
+  if (typeof sql !== 'string' || !sql.includes('chk_tasks_saga_no_parent')) return;
 
   const stripped = sql.replace(
     /,?\s*(?:--[^\n]*\n\s*)?CONSTRAINT\s+[`"]?chk_tasks_saga_no_parent[`"]?\s+CHECK\s*\([^)]*\)/i,

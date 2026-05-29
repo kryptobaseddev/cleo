@@ -53,7 +53,7 @@ function neutralizeSagaStructuralGuards(db: NativeDbForTest): void {
     .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'")
     .get() as { sql?: string } | undefined;
   const sql = row?.sql;
-  if (!sql || !sql.includes('chk_tasks_saga_no_parent')) return;
+  if (typeof sql !== 'string' || !sql.includes('chk_tasks_saga_no_parent')) return;
 
   // Remove the named saga-no-parent CHECK clause (with its leading comment and
   // trailing comma) so a saga row may carry a parent_id for the audit fixture.
