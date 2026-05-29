@@ -61,6 +61,20 @@ export default defineConfig({
     // Without this, workers with open SQLite handles or process.once('SIGTERM')
     // handlers that call async code can block the runner indefinitely.
     teardownTimeout: 10_000,
+    // T11281/T10490: Send worker console output straight to the terminal
+    // instead of forwarding it to the main process over RPC. CLEO's best-effort
+    // telemetry (setImmediate brain observers, intelligence/worktree hooks
+    // dispatched via Promise.allSettled) keeps logging AFTER a test file
+    // finishes; on Darwin timing the in-flight `onUserConsoleLog` RPC races the
+    // worker teardown, surfacing as `EnvironmentTeardownError: Closing rpc while
+    // "onUserConsoleLog" was pending` — a single unhandled rejection that fails
+    // the shard even though all test files pass (macos-latest shard 2, runs
+    // 26649981753 / 26650685810; --retry cannot help an unhandled error with no
+    // failing test). Disabling the intercept removes the RPC entirely — output
+    // is still inherited into the teed shard log (the schema-warning-budget gate
+    // still parses it) and real test failures/unhandled errors are unaffected.
+    // Root-cause (deferred-op test-boundary escape) tracked under T10490.
+    disableConsoleIntercept: true,
     // Per-fork global isolation. vitest.setup.ts redirects CLEO_HOME and
     // NEXUS_HOME to a throwaway tmp dir so any test that resolves a "global"
     // path (signaldock.db, nexus global registry, etc.) without explicit
