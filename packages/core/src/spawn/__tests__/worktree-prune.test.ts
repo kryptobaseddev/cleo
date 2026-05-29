@@ -14,6 +14,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(),
+  // execFile is consumed by the worktree status-enrichment path (list.ts) that
+  // prune transitively imports; provide it so the mock is shape-complete.
+  execFile: vi.fn(),
 }));
 
 // Spy on fs — we'll mock existsSync / rmSync / appendFileSync selectively.
