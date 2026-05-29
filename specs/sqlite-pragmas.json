@@ -7,14 +7,15 @@
     "description": "Tuned for multi-process CLI workloads against shared project DBs (tasks.db, brain.db, conduit.db). WAL + NORMAL synchronous gives durable-on-commit with last-tx tolerance on power cut; busy_timeout queues concurrent writers; cache_size and mmap_size keep hot pages in memory."
   },
   "sqliteVersionPin": {
-    "version": "3.51.2",
-    "source": "node:sqlite (bundled with Node.js 24.13.x)",
-    "nodeMinimum": "24.13.0",
+    "version": "3.53.0",
+    "source": "node:sqlite (bundled with Node.js 24.16.0+)",
+    "nodeMinimum": "24.16.0",
     "upstreamBugTracker": "https://sqlite.org/src/timeline",
     "nodeSqliteIssues": "https://github.com/nodejs/node/issues?q=is%3Aissue+label%3Asqlite",
-    "rationale": "Saga T10281 (E-DB-INTEGRITY) recorded a live brain.db malformation on 2026-05-23 under node:sqlite v3.51.2 (errcode=11 ERR_SQLITE_ERROR; `epic:T1075` signature in the diagnostic dump). T10301 RCA (D012) identified upstream concurrent-write race as the suspect class. This pin is held until the upstream fix is confirmed via the bug tracker above. The pin is a soft pin (warn on mismatch, do not fail) — `packages/core/src/__tests__/sqlite-version-pin.test.ts` is the gate.",
-    "task": "T10313",
-    "saga": "T10281",
+    "rationale": "RESOLVED (Saga T11242 substrate consolidation, supersedes T10281 hold). The live brain.db malformation on 2026-05-23 (errcode=11; `epic:T1075` signature) under node:sqlite v3.51.2 was the WAL-reset database-corruption class. SQLite 3.53.0 (2026-04-09, https://sqlite.org/releaselog/3_53_0.html) ships the upstream WAL-reset fix; 3.53.1 (2026-05-05) adds only regression point-fixes. Node 24.16.0 (2026-05-21) is the first Node release that bundles node:sqlite SQLite 3.53.0 — so the floor is raised from 24.13.0 to 24.16.0 to close the silent-corruption window (Node 24.13/24.14 ship the pre-fix 3.51.x). Driver decision (owner-ratified 2026-05-29): remain on first-party node:sqlite (DatabaseSync); do NOT adopt better-sqlite3 — 3.53.0 already carries the fix that matters and node:sqlite keeps the persistence layer zero-native-dependency. The pin stays soft (warn on drift, do not fail) — `packages/core/src/__tests__/sqlite-version-pin.test.ts` is the gate; the engines.node >=24.16.0 floor is the hard guard.",
+    "task": "T11242",
+    "supersedes": "T10313",
+    "saga": "T11242",
     "epic": "T10283"
   },
   "pragmas": [

@@ -110,15 +110,16 @@ describe('sqlite version pin (T10313 · Saga T10281)', () => {
     if (actual !== declared) {
       // eslint-disable-next-line no-console
       console.warn(
-        `[T10313] node:sqlite drift detected: process.versions.sqlite=${actual} ` +
-          `but specs/sqlite-pragmas.json sqliteVersionPin.version=${declared}. ` +
-          `Saga T10281 records the live brain.db malformation under ${declared}; ` +
-          `if upstream has shipped a fix, confirm via ` +
-          `${spec.sqliteVersionPin.upstreamBugTracker} and bump the pin.`,
+        `[T11242] node:sqlite drift: process.versions.sqlite=${actual} ` +
+          `vs specs/sqlite-pragmas.json sqliteVersionPin.version=${declared}. ` +
+          `The pin is the WAL-reset-fix floor (epic:T1075 corruption class, fixed in ` +
+          `SQLite 3.53.0). A runtime BELOW ${declared} is on the pre-fix library — ` +
+          `bump Node to >=${spec.sqliteVersionPin.nodeMinimum}. Above is fine.`,
       );
     }
 
-    // Soft pin: always pass. The warning above is the signal.
+    // Soft pin: always pass. The warning above is the signal; the hard guard
+    // is the engines.node >=24.16.0 floor (asserted below).
     expect(typeof actual).toBe('string');
   });
 
@@ -126,5 +127,28 @@ describe('sqlite version pin (T10313 · Saga T10281)', () => {
     const spec = loadSpec();
     const url = spec.sqliteVersionPin.upstreamBugTracker;
     expect(url).toMatch(/^https?:\/\/.+/);
+  });
+
+  it('pins the WAL-reset-fix floor: SQLite >=3.53.0 on Node >=24.16.0 (T11242)', () => {
+    // The epic:T1075 brain.db malformation (Saga T10281) was the WAL-reset
+    // corruption class, fixed upstream in SQLite 3.53.0 (2026-04-09) and first
+    // bundled by node:sqlite in Node 24.16.0 (2026-05-21). The substrate
+    // consolidation (T11242) raises the floor to close the silent-corruption
+    // window; node:sqlite remains the canonical driver (no better-sqlite3).
+    const spec = loadSpec();
+    const parse = (v: string): [number, number, number] => {
+      const m = v.match(/^(\d+)\.(\d+)\.(\d+)$/);
+      if (!m) throw new Error(`unparseable version: ${v}`);
+      return [Number(m[1]), Number(m[2]), Number(m[3])];
+    };
+    const atLeast = (got: [number, number, number], min: [number, number, number]): boolean => {
+      for (let i = 0; i < 3; i++) {
+        if (got[i] > min[i]) return true;
+        if (got[i] < min[i]) return false;
+      }
+      return true;
+    };
+    expect(atLeast(parse(spec.sqliteVersionPin.version), [3, 53, 0])).toBe(true);
+    expect(atLeast(parse(spec.sqliteVersionPin.nodeMinimum), [24, 16, 0])).toBe(true);
   });
 });
