@@ -3,7 +3,7 @@
   "version": "2026.5.122",
   "private": false,
   "type": "module",
-  "description": "CLEO unified-graph Brain substrate — BRAIN + NEXUS + TASKS + CONDUIT + SIGNALDOCK projection",
+  "description": "CLEO unified-graph Brain substrate \u2014 BRAIN + NEXUS + TASKS + CONDUIT + SIGNALDOCK projection",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
   "exports": {
@@ -43,7 +43,7 @@
     "memory"
   ],
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=24.16.0"
   },
   "author": "CLEO Code <hello@cleocode.dev> (https://cleocode.dev)",
   "license": "MIT",

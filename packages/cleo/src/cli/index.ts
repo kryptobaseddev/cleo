@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 /**
  * CLEO CLI - Main entry point.
  *
@@ -12,31 +13,23 @@
  * hoisted. See build.mjs for the banner configuration.
  */
 
-// ---------------------------------------------------------------------------
-// Node version guard — runs before any @cleocode/core imports.
-// CLEO requires Node >= 24 because packages/core/src/store/llmtxt-blob-adapter.ts
-// imports node:sqlite (DatabaseSync), which only became stable in Node 24.
-// ---------------------------------------------------------------------------
-{
-  const [major] = process.versions.node.split('.').map(Number);
-  if (typeof major !== 'number' || major < 24) {
-    process.stderr.write(
-      `\nError: cleo requires Node.js >= 24.0.0\n` +
-        `You are running Node ${process.versions.node}.\n\n` +
-        `Node 24 provides the stable node:sqlite DatabaseSync API that CLEO\n` +
-        `uses for its attachment store (zero native deps). Older Node versions\n` +
-        `fail at runtime with ERR_UNKNOWN_BUILTIN_MODULE.\n\n` +
-        `Upgrade via nvm:   nvm install 24 && nvm use 24\n` +
-        `Or via fnm:        fnm install 24 && fnm use 24\n` +
-        `Or via NodeSource: https://github.com/nodesource/distributions\n\n`,
-    );
-    process.exit(1);
-  }
-}
-
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// ---------------------------------------------------------------------------
+// Node version guard — runs BEFORE any @cleocode/core import.
+//
+// Delegates to the @cleocode/paths SSoT gate, which compares the FULL running
+// semver against the runtime-read `engines.node` floor (currently >=24.16.0)
+// instead of a major-only literal. The old `major < 24` check waved 24.13.1
+// through — major 24, but below 24.16.0 where the bundled SQLite WAL-reset fix
+// (SQLite 3.53.0) landed — letting the persistence layer diverge from CI.
+//
+// @cleocode/paths is the only import safe here: a zero-dep leaf that does NOT
+// eagerly load node:sqlite (lazy via createRequire), so an under-floor Node
+// fails with an actionable message rather than at node:sqlite load.
+// ---------------------------------------------------------------------------
+import { enforceNodeVersion } from '@cleocode/paths';
 import {
   type CommandDef,
   type showUsage as cittyShowUsage,
@@ -62,6 +55,13 @@ import { isOutputMode, type OutputMode, setOutputMode } from './output-context.j
 import { setProjectionOptOut } from './projection-context.js';
 import { resolveSubCommandForHelp } from './resolve-subcommand.js';
 import { setSummaryMode } from './summary-context.js';
+
+// Node version guard — first executable statement. Runs before any command
+// dispatch (which lazily `import()`s @cleocode/core → node:sqlite), so an
+// under-floor Node fails here with actionable guidance. The only static imports
+// above are CLI-local + @cleocode/paths (a zero-dep leaf that does not eagerly
+// load node:sqlite). See @cleocode/paths node-version-gate for the SSoT floor.
+enforceNodeVersion();
 
 function getPackageVersion(): string {
   const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '../../package.json');

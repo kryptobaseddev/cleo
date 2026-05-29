@@ -14,5 +14,8 @@
     "type": "git",
     "url": "https://github.com/kryptobaseddev/cleo",
     "directory": "packages/agents"
+  },
+  "engines": {
+    "node": ">=24.16.0"
   }
 }

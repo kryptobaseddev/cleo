@@ -1,7 +1,7 @@
 {
   "name": "@cleocode/studio",
   "version": "2026.5.122",
-  "description": "CLEO Studio — unified web portal for Nexus, Brain, and Tasks visualization",
+  "description": "CLEO Studio \u2014 unified web portal for Nexus, Brain, and Tasks visualization",
   "type": "module",
   "private": false,
   "exports": {
@@ -60,7 +60,7 @@
     "vite": "^8.0.8"
   },
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=24.16.0"
   },
   "repository": {
     "type": "git",

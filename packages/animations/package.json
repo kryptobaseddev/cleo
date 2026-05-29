@@ -2,7 +2,7 @@
   "name": "@cleocode/animations",
   "version": "2026.5.122",
   "type": "module",
-  "description": "CLEO terminal animations — braille spinners, progress bars, and sparks for the cleo CLI and CleoOS. Forked from gunnargray-dev/unicode-animations (MIT).",
+  "description": "CLEO terminal animations \u2014 braille spinners, progress bars, and sparks for the cleo CLI and CleoOS. Forked from gunnargray-dev/unicode-animations (MIT).",
   "publishConfig": {
     "access": "public"
   },
@@ -77,7 +77,7 @@
   "author": "CLEO Code <hello@cleocode.dev> (https://cleocode.dev)",
   "license": "MIT",
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=24.16.0"
   },
   "dependencies": {
     "@cleocode/contracts": "workspace:*"
