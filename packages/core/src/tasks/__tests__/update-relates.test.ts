@@ -10,7 +10,7 @@
  * @task T9514
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
@@ -148,6 +148,8 @@ describe('updateTask relates persistence (integration — real SQLite, T9514)', 
 
   beforeEach(async () => {
     testDir = mkdtempSync(join(tmpdir(), 'cleo-update-relates-T9514-'));
+    // Pre-create `.cleo/` so resolveCleoDir resolves the temp dir (T11262).
+    mkdirSync(join(testDir, '.cleo'), { recursive: true });
     accessor = await createSqliteDataAccessor(testDir);
     // Seed three tasks so relates targets are valid
     await seedTask('T001', 'Source task');

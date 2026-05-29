@@ -131,6 +131,12 @@ function makeCompletableAccessorMock(opts: {
   const tx = {
     upsertSingleTask: vi.fn().mockResolvedValue(undefined),
     appendLog: vi.fn().mockResolvedValue(undefined),
+    // T10509/T10595: the AC-coverage gate now runs INSIDE the write transaction,
+    // so it calls getAcRows/getAcBindings on the transaction accessor (tx), not
+    // the outer accessor. Empty arrays = zero-AC task → coverage short-circuits ok.
+    getAcRows: vi.fn().mockResolvedValue([]),
+    getAcBindings: vi.fn().mockResolvedValue([]),
+    insertAcBindings: vi.fn().mockResolvedValue(undefined),
   };
   return {
     loadSingleTask: vi.fn(async (id: string) => {

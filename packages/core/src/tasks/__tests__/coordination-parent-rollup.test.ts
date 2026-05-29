@@ -81,7 +81,7 @@ describe('coordination parent rollup (T9040)', () => {
       {
         id: 'C001',
         title: 'Child 1',
-        type: 'task',
+        type: 'subtask',
         status: 'done',
         priority: 'medium',
         parentId: 'P001',
@@ -90,7 +90,7 @@ describe('coordination parent rollup (T9040)', () => {
       {
         id: 'C002',
         title: 'Child 2',
-        type: 'task',
+        type: 'subtask',
         status: 'active',
         priority: 'medium',
         parentId: 'P001',
@@ -127,7 +127,7 @@ describe('coordination parent rollup (T9040)', () => {
       {
         id: 'C003',
         title: 'Child 1',
-        type: 'task',
+        type: 'subtask',
         status: 'active',
         priority: 'medium',
         parentId: 'P002',
@@ -135,7 +135,7 @@ describe('coordination parent rollup (T9040)', () => {
       {
         id: 'C004',
         title: 'Child 2 (still pending)',
-        type: 'task',
+        type: 'subtask',
         status: 'pending',
         priority: 'medium',
         parentId: 'P002',
@@ -168,7 +168,7 @@ describe('coordination parent rollup (T9040)', () => {
       {
         id: 'C005',
         title: 'Child 1',
-        type: 'task',
+        type: 'subtask',
         status: 'done',
         priority: 'medium',
         parentId: 'P003',
@@ -177,7 +177,7 @@ describe('coordination parent rollup (T9040)', () => {
       {
         id: 'C006',
         title: 'Child 2',
-        type: 'task',
+        type: 'subtask',
         status: 'active',
         priority: 'medium',
         parentId: 'P003',
@@ -210,7 +210,7 @@ describe('coordination parent rollup (T9040)', () => {
       {
         id: 'C007',
         title: 'Child 1',
-        type: 'task',
+        type: 'subtask',
         status: 'done',
         priority: 'medium',
         parentId: 'P004',
@@ -219,7 +219,7 @@ describe('coordination parent rollup (T9040)', () => {
       {
         id: 'C008',
         title: 'Child 2',
-        type: 'task',
+        type: 'subtask',
         status: 'active',
         priority: 'medium',
         parentId: 'P004',
@@ -251,7 +251,7 @@ describe('coordination parent rollup (T9040)', () => {
       {
         id: 'C009',
         title: 'Child 1 (cancelled)',
-        type: 'task',
+        type: 'subtask',
         status: 'cancelled',
         priority: 'medium',
         parentId: 'P005',
@@ -260,7 +260,7 @@ describe('coordination parent rollup (T9040)', () => {
       {
         id: 'C010',
         title: 'Child 2 (last active)',
-        type: 'task',
+        type: 'subtask',
         status: 'active',
         priority: 'medium',
         parentId: 'P005',

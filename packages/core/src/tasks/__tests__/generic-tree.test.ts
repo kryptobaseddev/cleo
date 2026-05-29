@@ -55,10 +55,11 @@ async function seedSagaFixture(): Promise<void> {
     {
       id: 'SG-TPL',
       title: 'SG-TEMPLATE-CONFIG-SSOT',
-      type: 'epic',
+      // PM-Core V2: 'saga' is the canonical TaskType; isSagaShape now keys on
+      // type==='saga', not the legacy labels:['saga'] marker.
+      type: 'saga',
       status: 'pending',
       priority: 'high',
-      labels: ['saga'],
     },
     baseEpic('E-MEM-01', 'Member Epic 01'),
     baseEpic('E-MEM-02', 'Member Epic 02'),
@@ -201,10 +202,9 @@ describe('buildGenericTaskTree (T10134)', () => {
       {
         id: 'SG-A',
         title: 'Saga',
-        type: 'epic',
+        type: 'saga',
         status: 'pending',
         priority: 'high',
-        labels: ['saga'],
       },
       { id: 'E-A', title: 'Epic', type: 'epic', status: 'pending', priority: 'high' },
       {
@@ -241,8 +241,9 @@ describe('buildGenericTaskTree (T10134)', () => {
   it('is cycle-safe when a parent loop is present in the data', async () => {
     // Synthetic regression — a corrupted DB row pointing parent → child loop.
     // The walker must terminate via the visited set rather than recurse forever.
+    // PM-Core V2 type matrix: a valid 3-level parent chain is epic→task→subtask.
     await seedTasks(env.accessor, [
-      { id: 'L-A', title: 'A', type: 'task', status: 'pending', priority: 'medium' },
+      { id: 'L-A', title: 'A', type: 'epic', status: 'pending', priority: 'medium' },
       {
         id: 'L-B',
         title: 'B',
@@ -254,7 +255,7 @@ describe('buildGenericTaskTree (T10134)', () => {
       {
         id: 'L-C',
         title: 'C',
-        type: 'task',
+        type: 'subtask',
         status: 'pending',
         priority: 'medium',
         parentId: 'L-B',

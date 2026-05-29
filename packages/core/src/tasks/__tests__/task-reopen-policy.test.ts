@@ -37,6 +37,23 @@ function makeEpic(id: string, status: 'pending' | 'active' | 'done' = 'done') {
   };
 }
 
+/**
+ * Build a saga fixture. PM-Core V2 type matrix requires the root of a
+ * saga→epic→task chain to be a 'saga' (epic→epic is rejected).
+ */
+function makeSaga(id: string, status: 'pending' | 'active' | 'done' = 'done') {
+  return {
+    id,
+    title: `Saga ${id}`,
+    type: 'saga' as const,
+    status,
+    priority: 'medium' as const,
+    createdAt: now,
+    updatedAt: now,
+    ...(status === 'done' ? { completedAt: COMPLETED_AT } : {}),
+  };
+}
+
 function makeTask(
   id: string,
   parentId: string | undefined,
@@ -97,7 +114,7 @@ describe('T10605: reopen policy', () => {
     it('reopens the full ancestor chain (grandparent and parent) when a done leaf is reopened', async () => {
       // SG001 (done) → E001 (done) → T002 (done)
       await seedTasks(accessor, [
-        makeEpic('SG001'),
+        makeSaga('SG001'),
         { ...makeEpic('E001'), parentId: 'SG001' },
         makeTask('T002', 'E001'),
       ]);

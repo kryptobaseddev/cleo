@@ -803,6 +803,37 @@ export function resolveCleoDir(cwd?: string): string {
 }
 
 /**
+ * Non-throwing variant of {@link resolveCleoDir}.
+ *
+ * Resolves the canonical `.cleo/` directory for `cwd`, returning `null` instead
+ * of throwing `E_NO_PROJECT` when no CLEO project can be resolved. Use this for
+ * genuinely-OPTIONAL `.cleo/` lookups — callers that must degrade gracefully
+ * when invoked outside a CLEO project (e.g. loading the optional
+ * `project-context.json` tier of the variable-substitution resolver, or any
+ * best-effort `.cleo`-resident enrichment). For required resolution that should
+ * fail loudly, use {@link resolveCleoDir}.
+ *
+ * Only the terminal `E_NO_PROJECT` (`NEXUS_PROJECT_NOT_FOUND`) is swallowed;
+ * any other error (e.g. a forbidden-walkup guard) still propagates.
+ *
+ * @param cwd - Optional working directory. Defaults to `process.cwd()`.
+ * @returns Absolute path to the resolved `.cleo/` directory, or `null`.
+ *
+ * @public
+ * @task T11280
+ */
+export function tryResolveCleoDir(cwd?: string): string | null {
+  try {
+    return resolveCleoDir(cwd);
+  } catch (err) {
+    if (err instanceof CleoError && err.code === ExitCode.NEXUS_PROJECT_NOT_FOUND) {
+      return null;
+    }
+    throw err;
+  }
+}
+
+/**
  * Internal: resolve the canonical `.cleo/` directory using the T10297
  * projectId-based resolution chain.
  *

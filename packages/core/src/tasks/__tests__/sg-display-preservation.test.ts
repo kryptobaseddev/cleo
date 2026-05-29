@@ -2,24 +2,26 @@
  * SG- display preservation at the data layer — Saga T10326 W3.B / T10333.
  *
  * Proves that `buildGenericTaskTree` produces a `TreeNodeKind` of `'saga'`
- * for BOTH saga storage shapes during the deprecation window:
+ * for the canonical first-class saga storage shape (`type: 'saga'`).
  *
- *   - **Canonical post-migration shape**: `type: 'saga'`, no `'saga'` label.
- *   - **Legacy label-encoded shape**:     `type: 'epic'`, `labels: ['saga']`.
+ * T10638 (PM-Core V2) removed the deprecation-window dual acceptance:
+ * `isSagaShape` (`packages/core/src/sagas/enforcement.ts`) now keys SOLELY on
+ * `type === 'saga'`. The legacy label-encoded shape (`type: 'epic'`,
+ * `labels: ['saga']`) is therefore NO LONGER recognized as a saga — it renders
+ * as a plain epic. This test pins both the canonical-saga invariant AND the
+ * intentional retirement of the label-encoded shape at the data-layer
+ * boundary.
  *
  * The display-prefix derivation is **type-based** by construction —
- * `toTreeKind` consults `isSagaShape`
- * (`packages/core/src/sagas/enforcement.ts`) to map either shape to the
- * canonical `'saga'` discriminator. All downstream renderers (focus
+ * `toTreeKind` consults `isSagaShape`. All downstream renderers (focus
  * envelope, briefing roll-up, list pipe, generic tree) consume the typed
- * `kind` field and never re-inspect `task.type` or `task.labels`. This
- * test pins that invariant at the data-layer boundary, complementing the
- * renderer-level snapshot at
- * `packages/cleo/src/cli/renderers/__tests__/sg-display-preservation.test.ts`.
+ * `kind` field and never re-inspect `task.type` or `task.labels`.
  *
- * Mandate: ADR-073 §4 (amended 2026-05-23) + ADR-083 §2.5 + ADR-083 §2.6.
+ * Mandate: ADR-073 §4 (amended 2026-05-23) + ADR-083 §2.5 + ADR-083 §2.6;
+ * label-shape retirement per T10638.
  *
  * @task T10333
+ * @task T10638
  * @saga T10326
  * @see .cleo/adrs/ADR-073-above-epic-naming.md §4
  * @see .cleo/adrs/ADR-083-cleo-persona-and-hierarchy-reconciliation.md §2.5
@@ -74,9 +76,10 @@ async function seedCanonicalSaga(): Promise<void> {
 }
 
 /**
- * Seed a structurally-identical saga using the **legacy label-encoded shape**
- * (`type: 'epic'`, `labels: ['saga']`). Tests the deprecation-window dual
- * acceptance.
+ * Seed a structurally-identical tree using the **retired legacy label-encoded
+ * shape** (`type: 'epic'`, `labels: ['saga']`). Post-T10638 this is NO LONGER
+ * recognized as a saga — it renders as a plain epic. Used to assert the
+ * retirement, not dual acceptance.
  */
 async function seedLegacySaga(): Promise<void> {
   await seedTasks(env.accessor, [
@@ -121,36 +124,38 @@ describe('SG- display preservation at toTreeKind boundary (T10333)', () => {
     expect(root?.metadata.edgeType).toBe('root');
   });
 
-  it('legacy saga shape (type=epic + label=saga) also yields kind=saga', async () => {
+  it('retired legacy label shape (type=epic + label=saga) is NO LONGER a saga (T10638)', async () => {
     await seedLegacySaga();
 
     const result = await buildGenericTaskTree(env.tempDir, 'SG-LEG');
     const root = result.tree.tree[0];
 
     expect(root?.id).toBe('SG-LEG');
-    expect(root?.kind).toBe('saga');
+    // T10638 retired the label-encoded shape: isSagaShape keys solely on
+    // type==='saga', so a type=epic node renders as a plain epic.
+    expect(root?.kind).toBe('epic');
     expect(root?.title).toBe('Legacy saga');
     expect(root?.metadata.edgeType).toBe('root');
   });
 
-  it('both shapes produce identical TreeNodeKind discriminators across the entire tree', async () => {
+  it('canonical saga is kind=saga while the retired label shape is kind=epic (T10638)', async () => {
     await seedCanonicalSaga();
     await seedLegacySaga();
 
     const canonical = await buildGenericTaskTree(env.tempDir, 'SG-CAN');
     const legacy = await buildGenericTaskTree(env.tempDir, 'SG-LEG');
 
-    // Same shape, same node count, same kind/status/depth/edgeType per row.
+    // Same structural shape (node count + depth) across both fixtures.
     expect(legacy.tree.totalNodes).toBe(canonical.tree.totalNodes);
     expect(legacy.tree.maxDepth).toBe(canonical.tree.maxDepth);
 
     const canonicalKinds = canonical.tree.tree.map((n) => n.kind);
     const legacyKinds = legacy.tree.tree.map((n) => n.kind);
-    expect(legacyKinds).toEqual(canonicalKinds);
 
-    // Both root nodes are kind=saga; both 2 member epics are kind=epic.
+    // Canonical root is kind=saga; the retired label shape's root is a plain
+    // epic (only the root kind differs — both have 2 member epics).
     expect(canonicalKinds).toEqual(['saga', 'epic', 'epic']);
-    expect(legacyKinds).toEqual(['saga', 'epic', 'epic']);
+    expect(legacyKinds).toEqual(['epic', 'epic', 'epic']);
   });
 
   it('member-epic walk produces identical edge metadata across shapes', async () => {
