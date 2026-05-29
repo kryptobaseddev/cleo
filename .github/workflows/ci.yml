@@ -1585,3 +1585,79 @@ jobs:
         run: pnpm exec forge-ts check --human || true
       - name: Build documentation
         run: pnpm exec forge-ts build || true
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Aggregate success gate. Branch protection on `main` requires a single
+  # status context named "CI"; this job IS that context. GitHub posts one
+  # check-run per *job* (not per workflow), so the workflow being named "CI"
+  # never produced a "CI" check — the required context was a phantom that
+  # blocked every PR's normal-merge path (only an admin override could merge).
+  #
+  # This job runs ALWAYS (even when upstream jobs are skipped by the path
+  # filter) and fails iff any upstream job concluded `failure` or `cancelled`.
+  # `skipped` (path-filtered) and `success` are accepted, so docs-only PRs that
+  # skip the code jobs still satisfy the gate.
+  # ──────────────────────────────────────────────────────────────────────────
+  ci:
+    name: CI
+    if: always()
+    runs-on: ubuntu-latest
+    needs:
+      - changes
+      - biome
+      - adr-index-jsonl-frozen-lint
+      - worktree-location-lint
+      - orphan-cleo-dir-check
+      - agent-outputs-registration
+      - ssot-lint
+      - path-drift-lint
+      - project-root-anti-pattern-lint
+      - paths-ssot-lint
+      - cwd-walkup-lint
+      - saga-label-anti-pattern-lint
+      - invariant-registry-lint
+      - invariants-docs-render-drift
+      - raw-git-worktree-lint
+      - saga-symbol-leakage-lint
+      - json-stream-hygiene-lint
+      - rust-vendor-parity-lint
+      - contracts-dep-lint
+      - contracts-fan-out-lint
+      - format-error-misuse-lint
+      - deprecations-lint
+      - pragma-drift
+      - db-open-guard
+      - cross-db-annotation-lint
+      - core-first-lint
+      - ssot-exempt-lint
+      - deployed-template-parity
+      - cli-boundary-lint
+      - dockind-writer-uniqueness
+      - docs-similarity-lint
+      - manual-write-sweep
+      - canon-drift
+      - canon-check
+      - docs-drift
+      - migration-integrity
+      - migration-lint
+      - drizzle-kit-check
+      - typecheck
+      - unit-tests
+      - build-verify
+      - validate-json
+      - install-test
+      - worktree-napi-gate
+      - forge-ts-check
+    steps:
+      - name: Verify every required job passed (or was skipped)
+        env:
+          RESULTS: ${{ join(needs.*.result, ',') }}
+        run: |
+          echo "Upstream job results: ${RESULTS}"
+          # Fail the gate if ANY upstream job failed or was cancelled.
+          # 'skipped' (path-filtered) and 'success' are acceptable.
+          if printf '%s' "${RESULTS}" | tr ',' '\n' | grep -qE '^(failure|cancelled)$'; then
+            echo "::error::One or more required CI jobs failed or were cancelled — see the upstream job results above."
+            exit 1
+          fi
+          echo "All required CI jobs succeeded or were skipped."
