@@ -210,6 +210,11 @@ async function runCleo(
 
 describe.skipIf(!CLEO_BIN_AVAILABLE)(
   'T682 — STDP Phase 5 Functional Test (real CLI, real brain.db)',
+  // T11281: retry under load — this real-CLI/real-brain.db suite is a known
+  // contention flake that passes in isolation but can exceed timing/SQLITE_BUSY
+  // tolerances under the full parallel shard sweep (CI only gives macOS-shard-1
+  // --retry today, so a test-level guard covers the other shards).
+  { retry: 2 },
   () => {
     beforeEach(async () => {
       tempDir = await mkdtemp(join(tmpdir(), 'cleo-stdp-functional-'));
