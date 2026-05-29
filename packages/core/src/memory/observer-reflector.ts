@@ -54,10 +54,16 @@
 
 import { randomBytes } from 'node:crypto';
 import { executeForRole } from '../llm/role-executor.js';
+import { getLogger } from '../logger.js';
 import { getBrainNativeDb } from '../store/memory-sqlite.js';
 import { addGraphEdge } from './graph-auto-populate.js';
 import { storeLearning } from './learnings.js';
 import { storePattern } from './patterns.js';
+
+// Structured (pino) logger — direct stderr write, NOT `console.*`, so these
+// best-effort deferred logs do not race vitest worker teardown
+// (EnvironmentTeardownError / onUserConsoleLog). (T11281/T10490)
+const log = getLogger('observer-reflector');
 
 // ============================================================================
 // Internal row type (raw SQLite snake_case columns, not Drizzle camelCase)
@@ -466,7 +472,7 @@ function storeObserverNote(
     return id;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[observer-reflector] Failed to store observer note: ${msg}`);
+    log.warn(`Failed to store observer note: ${msg}`);
     return null;
   }
 }
@@ -609,7 +615,7 @@ export async function runObserver(
   // Parse response
   const notes = parseJsonResponse<ObserverNote[]>(rawResponse);
   if (!notes || !Array.isArray(notes) || notes.length === 0) {
-    console.warn('[observer-reflector] Observer: failed to parse LLM response as ObserverNote[]');
+    log.warn('Observer: failed to parse LLM response as ObserverNote[]');
     return empty;
   }
 
@@ -781,7 +787,7 @@ export async function runReflector(
   // Parse response
   const output = parseJsonResponse<ReflectorOutput>(rawResponse);
   if (!output || typeof output !== 'object') {
-    console.warn('[observer-reflector] Reflector: failed to parse LLM response');
+    log.warn('Reflector: failed to parse LLM response');
     return empty;
   }
 

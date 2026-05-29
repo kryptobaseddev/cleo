@@ -17,9 +17,17 @@
  */
 
 import { createHash } from 'node:crypto';
+import { getLogger } from '../logger.js';
 import type { BrainEdgeType, BrainNodeType } from '../store/memory-schema.js';
 import { brainPageEdges, brainPageNodes } from '../store/memory-schema.js';
 import { getBrainDb } from '../store/memory-sqlite.js';
+
+// Structured (pino) logger — writes directly to stderr, NOT through `console.*`.
+// These are BEST-EFFORT graph side-effects fired from deferred/fire-and-forget
+// observers; using `console.warn` here let the post-test log race vitest worker
+// teardown (`EnvironmentTeardownError: Closing rpc while onUserConsoleLog was
+// pending`). The pino logger bypasses vitest's console interceptor. (T11281/T10490)
+const log = getLogger('brain-graph');
 
 // Re-export types so callers can import them from this module without
 // reaching into memory-schema directly.
@@ -119,7 +127,7 @@ export async function upsertGraphNode(
       });
   } catch (err) {
     // Log but never surface — this is a best-effort side effect.
-    console.warn('[brain-graph] upsertGraphNode failed:', err);
+    log.warn({ err }, 'upsertGraphNode failed');
   }
 }
 
@@ -168,7 +176,7 @@ export async function addGraphEdge(
       })
       .onConflictDoNothing();
   } catch (err) {
-    console.warn('[brain-graph] addGraphEdge failed:', err);
+    log.warn({ err }, 'addGraphEdge failed');
   }
 }
 
@@ -238,7 +246,7 @@ export async function ensureTaskNode(
       metadata,
     );
   } catch (err) {
-    console.warn('[brain-graph] ensureTaskNode failed:', err);
+    log.warn({ err }, 'ensureTaskNode failed');
   }
 }
 
@@ -278,7 +286,7 @@ export async function ensureLlmtxtNode(
     );
     await addGraphEdge(projectRoot, ownerId, nodeId, 'embeds', 1.0, 'auto:docs-add');
   } catch (err) {
-    console.warn('[brain-graph] ensureLlmtxtNode failed:', err);
+    log.warn({ err }, 'ensureLlmtxtNode failed');
   }
 }
 
@@ -332,7 +340,7 @@ export async function ensureMessageNode(
       );
     }
   } catch (err) {
-    console.warn('[brain-graph] ensureMessageNode failed:', err);
+    log.warn({ err }, 'ensureMessageNode failed');
   }
 }
 
@@ -377,6 +385,6 @@ export async function ensureCommitNode(
       'auto:commit-hook',
     );
   } catch (err) {
-    console.warn('[brain-graph] ensureCommitNode failed:', err);
+    log.warn({ err }, 'ensureCommitNode failed');
   }
 }

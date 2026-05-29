@@ -25,8 +25,14 @@
  * @task T739
  */
 
+import { getLogger } from '../logger.js';
 import { getBrainDb, getBrainNativeDb, isBrainVecLoaded } from '../store/memory-sqlite.js';
 import { typedAll, typedGet } from '../store/typed-query.js';
+
+// Structured (pino) logger — direct stderr write, NOT `console.*`, so these
+// best-effort deferred logs do not race vitest worker teardown
+// (EnvironmentTeardownError / onUserConsoleLog). (T11281/T10490)
+const log = getLogger('temporal-supersession');
 
 // ============================================================================
 // Types
@@ -465,7 +471,7 @@ export async function detectSupersession(
     candidates.sort((a, b) => b.similarity - a.similarity);
     return candidates;
   } catch (err) {
-    console.warn('[temporal-supersession] detectSupersession failed:', err);
+    log.warn({ err }, 'detectSupersession failed');
     return [];
   }
 }
