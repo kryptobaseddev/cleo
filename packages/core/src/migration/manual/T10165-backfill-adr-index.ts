@@ -66,6 +66,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { blobAttachmentSchema } from '@cleocode/contracts';
 import { and, eq } from 'drizzle-orm';
 import {
   ATTACHMENT_LIFECYCLE_STATUSES,
@@ -333,14 +334,23 @@ export async function backfillAdrIndex(
     }
 
     const attachmentId = randomUUID();
-    const attachmentJson = JSON.stringify({
-      kind: 'blob',
+    // T11262: storageKey MUST be the contract-compliant CAS path
+    // (`<sha[:2]>/<sha[2:]><ext>`, mirroring attachment-store.ts blobPath) so the
+    // row satisfies `attachmentSchema`'s `storageKey: z.string().min(1)` and the
+    // T11242 exodus round-trip. The ADR bytes themselves live in-tree at
+    // `.cleo/adrs/` rather than the blob CAS, but the key is still recorded for
+    // contract conformance. mime is always text/markdown here -> '.md'.
+    const storageKey = `${fileSha.sha256.slice(0, 2)}/${fileSha.sha256.slice(2)}.md`;
+    const attachmentValue = {
+      kind: 'blob' as const,
       sha256: fileSha.sha256,
-      storageKey: '', // ADR bytes live in-tree at `.cleo/adrs/`, not the blob CAS
+      storageKey,
       mime: 'text/markdown',
       size: fileSha.bytes.length,
       description: row.title,
-    });
+    };
+    blobAttachmentSchema.parse(attachmentValue);
+    const attachmentJson = JSON.stringify(attachmentValue);
 
     if (!dryRun) {
       await db
