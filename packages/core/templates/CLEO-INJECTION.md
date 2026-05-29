@@ -220,7 +220,7 @@ Starter playbooks ship with `@cleocode/playbooks`: `rcasd.cantbook`, `ivtr.cantb
 | List valid doc kinds | `cleo docs list-types` |
 | Generate llms.txt summary | `cleo docs generate --for <taskId>` |
 
-Path policy: use repo-relative paths inside current repo/worktree. For git-tracked copies, publish via `cleo docs publish --for <ownerId> --to <repo-relative-path>`. Before batch mutations, run `cleo add-batch --dry-run` and verify `/data/insertedCount` = 0. Trust `cleo docs list-types` over stale enum lists for kind selection.
+Path policy: use repo-relative paths inside current repo/worktree — do not attach arbitrary external absolute paths from `/tmp` or another checkout. For git-tracked copies, publish via `cleo docs publish --for <ownerId> --to <repo-relative-path>`. Before batch mutations, run `cleo add-batch --dry-run` and verify `/data/insertedCount` = 0. Trust runtime help (`cleo docs list-types`) over stale enum lists for kind selection — `DocKindRegistry` is the runtime source of truth.
 <!-- /CLEO-INJECTION:section=documents -->
 <!-- CLEO-INJECTION:section=human-render -->
 ## Human Render Contract (ADR-077)

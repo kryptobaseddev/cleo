@@ -194,8 +194,8 @@ describe('ct-cleo SKILL.md — PM-Core V2 doctrine (T10645)', () => {
   it('documents WorkGraph scaffold subsystem (T10632/T10633/T10634)', () => {
     expect(skillContent).toContain('WorkGraph');
     expect(skillContent).toContain('T10632');
-    expect(skillContent).toContain('cleo graph validate');
-    expect(skillContent).toContain('cleo graph apply');
+    expect(skillContent).toContain('cleo workgraph validate');
+    expect(skillContent).toContain('cleo workgraph apply');
   });
 
   it('documents Completion Criteria with typed ACs (child_task / text / evidence_bound)', () => {
