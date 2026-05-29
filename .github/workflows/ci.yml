@@ -1278,11 +1278,17 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          # macOS shard 1 gets retry=2 to absorb vitest+pnpm+timing flakes
-          # (T10490 — fake-timers cleanup, pnpm worker pool contention on Darwin).
-          # Root cause tracked for permanent fix; retry is an interim guard.
+          # BOTH macOS shards get retry=2 to absorb Darwin vitest+pnpm+timing
+          # flakes (T10490 — fake-timers cleanup, pnpm worker-pool contention,
+          # and the `EnvironmentTeardownError: Closing rpc while onUserConsoleLog
+          # was pending` race where deferred best-effort ops emit console output
+          # as the worker tears down). shard 2 was previously unguarded and
+          # failed on this non-deterministic teardown race (run 26649981753).
+          # Briefing §8.5 prescribed standardizing the macOS retry beyond shard 1.
+          # Root cause (deferred-op test-boundary escape) tracked under T10490;
+          # retry is the sanctioned interim guard.
           RETRY_FLAG=""
-          if [[ "${{ matrix.os }}" == "macos-latest" && "${{ matrix.shard }}" == "1" ]]; then
+          if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
             RETRY_FLAG="--retry=2"
           fi
           pnpm exec vitest run --shard=${{ matrix.shard }}/2 $RETRY_FLAG 2>&1 | tee /tmp/vitest-shard${{ matrix.shard }}.log
