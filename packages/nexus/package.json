@@ -70,7 +70,7 @@
   "dependencies": {
     "@aflsolutions/graphology-communities-leiden": "1.1.1",
     "@cleocode/contracts": "workspace:*",
-    "drizzle-orm": "1.0.0-beta.22-ec7b61d",
+    "drizzle-orm": "1.0.0-rc.3",
     "graphology": "^0.26.0",
     "graphology-communities-louvain": "^2.0.2",
     "graphology-types": "^0.24.8",

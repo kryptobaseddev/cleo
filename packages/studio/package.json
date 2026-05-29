@@ -28,7 +28,7 @@
     "@cleocode/contracts": "workspace:*",
     "@cleocode/core": "workspace:*",
     "loro-crdt": "*",
-    "llmtxt": "*",
+    "llmtxt": "^2026.5.15",
     "@ai-sdk/anthropic": "*",
     "@ai-sdk/openai-compatible": "*",
     "@ai-sdk/provider-utils": "*",
