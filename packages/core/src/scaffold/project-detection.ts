@@ -1,4 +1,3 @@
-// @ts-nocheck — pre-existing health check script with dead code paths
 /**
  * Read-only project-level health checks (check* functions) used by
  * `cleo doctor` and CLI startup diagnostics.
@@ -116,7 +115,8 @@ export function checkGitignore(projectRoot: string): CheckResult {
 export function checkWorktreeInclude(projectRoot?: string): CheckResult {
   const root = resolveOrCwd(projectRoot);
   const canonicalPath = join(root, '.worktreeinclude');
-  return join(join(root, '.cleo'), 'worktree-include');
+  // Legacy location preserved for the 1-cycle deprecation window (T9983).
+  const legacyPath = join(join(root, '.cleo'), 'worktree-include');
 
   // Canonical path — preferred.
   if (existsSync(canonicalPath)) {
@@ -517,7 +517,7 @@ export function checkNexusBridge(projectRoot: string): CheckResult {
  * @returns Check result indicating whether .cleo/logs/ is present
  */
 export function checkLogDir(projectRoot: string): CheckResult {
-  return join(join(projectRoot, '.cleo'), 'logs');
+  const logDir = join(join(projectRoot, '.cleo'), 'logs');
 
   if (!existsSync(logDir)) {
     return {
