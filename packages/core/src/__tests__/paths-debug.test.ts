@@ -33,18 +33,17 @@ describe('DEBUG worktree resolution', () => {
       // Set up worktree gitlink
       writeFileSync(join(worktree, '.git'), `gitdir: ${mainRepo}/.git/worktrees/debug-wt\n`);
 
-      // What does resolveProjectByCwd return?
-      let result: string;
-      let threw = false;
+      // From a worktree gitlink, resolveProjectByCwd follows the gitlink to the
+      // main repo and returns its CANONICAL project id. Post-T11013/T10297 the
+      // canonical id is a sha256-derived 12-hex handle (NOT the raw
+      // project-info.json `projectId` field), so assert on that shape rather
+      // than the literal seed value. It may alternatively throw with a
+      // `cleo init` remediation hint when no project resolves.
       try {
-        result = resolveProjectByCwd(worktree);
-        console.log('RESULT:', result);
-        expect(result).toBe('DEBUG-MAIN-ID');
-      } catch (err: any) {
-        threw = true;
-        console.log('THREW:', err.message);
-        // If it throws, we expect it to throw with cleo init hint
-        expect(err.message).toContain('cleo init');
+        const result = resolveProjectByCwd(worktree);
+        expect(result).toMatch(/^[0-9a-f]{12}$/);
+      } catch (err) {
+        expect((err as Error).message).toContain('cleo init');
       }
     } finally {
       if (origHome !== undefined) {

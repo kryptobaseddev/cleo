@@ -598,6 +598,17 @@ export function createAttachmentStore(): AttachmentStore {
         attachment.kind === 'blob'
           ? `${hash.slice(0, 2)}/${hash.slice(2)}${extFromMime(mime)}`
           : null;
+      // T11280: the canonical attachment contract requires a non-negative
+      // `size` (bytes) on blob/local-file kinds. Derive it from the buffer at
+      // this chokepoint so callers (search-docs publish, changeset writer,
+      // ivtr-loop, docs-add) need not pass it. An explicitly-provided `size`
+      // wins. Mirrors the sha256/storageKey injection above.
+      const providedSize =
+        'size' in attachment && typeof attachment.size === 'number' ? attachment.size : undefined;
+      const sizeOverride: { size?: number } =
+        attachment.kind === 'blob' || attachment.kind === 'local-file'
+          ? { size: providedSize ?? buf.length }
+          : {};
       const blobOverrides: { sha256: string; storageKey?: string } =
         attachment.kind === 'blob' && computedStorageKey !== null
           ? { sha256: hash, storageKey: computedStorageKey }
@@ -605,6 +616,7 @@ export function createAttachmentStore(): AttachmentStore {
       const fullAttachment: Attachment = {
         ...attachment,
         ...blobOverrides,
+        ...sizeOverride,
       } as Attachment;
       // Validate against the canonical Zod contract before persisting —
       // catches any future shape drift at the writer chokepoint (T11262).

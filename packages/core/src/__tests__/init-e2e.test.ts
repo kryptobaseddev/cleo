@@ -106,7 +106,9 @@ describe('E2E: cleo init in fresh project (T4694)', () => {
     expect(await fileExists(configPath)).toBe(true);
 
     const content = JSON.parse(await readFile(configPath, 'utf-8'));
-    expect(content.version).toBe('2.10.0');
+    // PM-Core V2 (c636c662b): createDefaultConfig writes config version 2.11.0
+    // (release/enforcement/brain sections added).
+    expect(content.version).toBe('2.11.0');
     expect(content.output).toBeDefined();
     expect(content.output.defaultFormat).toBe('json');
     expect(content.hierarchy).toBeDefined();
