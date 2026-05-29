@@ -160,7 +160,9 @@ describe('scaffold.ts ensureProjectInfo projectId backfill', () => {
     const result = await ensureProjectInfo(tempDir);
 
     expect(result.action).toBe('repaired');
-    expect(result.details).toBe('Added projectId');
+    // PM-Core V2 (c636c662b): ensureProjectInfo backfills projectId AND name,
+    // so the repair message is the generic 'Backfilled missing fields'.
+    expect(result.details).toBe('Backfilled missing fields');
 
     const updated = JSON.parse(await readFile(infoPath, 'utf-8'));
     expect(typeof updated.projectId).toBe('string');
@@ -174,10 +176,12 @@ describe('scaffold.ts ensureProjectInfo projectId backfill', () => {
     expect(updated.cleoVersion).toBe('2026.3.11');
   });
 
-  it('skips when projectId already exists', async () => {
+  it('skips when projectId and name already exist', async () => {
     const existing = {
       projectHash: 'abc123def456',
       projectId: 'existing-uuid-value',
+      // PM-Core V2 also backfills name — include it so nothing needs repair.
+      name: 'existing-project',
       cleoVersion: '2026.3.11',
       lastUpdated: '2026-03-04T00:00:00.000Z',
     };
