@@ -24,6 +24,8 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { canonicalProjectId } from '../../nexus/identity.js';
 import { registerProjectOnEncounter } from '../../paths.js';
+import { resetDbState } from '../../store/sqlite.js';
+import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
 import { migrateSagaContainment } from '../migrate-containment.js';
 
 type DbHandle = {
@@ -32,10 +34,16 @@ type DbHandle = {
 };
 
 /**
- * Create a minimal isolated test DB with tasks + task_relations tables.
- * Uses bare node:sqlite to bypass Drizzle's constraint layer — necessary
- * because the migration exists for legacy rows inserted before the
- * parent-type-matrix trigger was added.
+ * Create an isolated test DB with the canonical migrated schema, then expose a
+ * bare node:sqlite handle on the same file for raw seeding/assertions.
+ *
+ * The schema is produced via the real {@link createSqliteDataAccessor} migration
+ * path (T11280) — hand-rolling a partial schema diverges from the migration
+ * chain and triggers a destructive re-run (e.g. the wave0 `sessions` rebuild
+ * failing on a missing `name` column). The raw handle is then used to seed the
+ * LEGACY shape (standalone Epics + `task_relations.type='groups'`) that the
+ * migration exists to convert — these rows do not violate the parent-type
+ * matrix, so raw seeding is only needed to write the `groups` relation rows.
  */
 async function createRawTestDb(): Promise<{
   db: DbHandle;
@@ -71,64 +79,23 @@ async function createRawTestDb(): Promise<{
     }),
   );
 
+  // Build the canonical schema + migration journal via the real accessor, then
+  // close it so a bare handle can seed legacy rows without a destructive
+  // mid-migration re-run.
+  resetDbState();
+  const accessor = await createSqliteDataAccessor(tempDir);
+  await accessor.close();
+  resetDbState();
+
   const { DatabaseSync } = await import('node:sqlite');
   const sqlite = new DatabaseSync(join(cleoDir, 'tasks.db'));
 
-  // Create minimal schema (mirrors production tables that migrateSagaContainment queries)
-  sqlite.exec(`
-    CREATE TABLE IF NOT EXISTS tasks (
-      id TEXT PRIMARY KEY,
-      title TEXT NOT NULL DEFAULT '',
-      type TEXT NOT NULL DEFAULT 'task',
-      status TEXT NOT NULL DEFAULT 'pending',
-      parent_id TEXT,
-      labels TEXT DEFAULT '[]',
-      priority TEXT DEFAULT 'medium',
-      pipeline_stage TEXT,
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now'))
-    );
-    CREATE TABLE IF NOT EXISTS task_relations (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      task_id TEXT NOT NULL,
-      related_to TEXT NOT NULL,
-      relation_type TEXT NOT NULL DEFAULT 'relates',
-      reason TEXT,
-      created_at TEXT DEFAULT (datetime('now')),
-      UNIQUE(task_id, related_to, relation_type)
-    );
-  `);
-
-  // Minimal tables needed for getTaskAccessor
-  sqlite.exec(`
-    CREATE TABLE IF NOT EXISTS sessions (
-      id TEXT PRIMARY KEY,
-      scope TEXT DEFAULT 'global',
-      status TEXT DEFAULT 'active',
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now'))
-    );
-    CREATE TABLE IF NOT EXISTS task_acceptance_criteria (
-      id TEXT PRIMARY KEY,
-      task_id TEXT NOT NULL,
-      ordinal INTEGER NOT NULL DEFAULT 1,
-      criterion TEXT NOT NULL DEFAULT '',
-      created_at TEXT DEFAULT (datetime('now'))
-    );
-    CREATE TABLE IF NOT EXISTS evidence_ac_bindings (
-      id TEXT PRIMARY KEY,
-      task_id TEXT NOT NULL,
-      ac_id TEXT NOT NULL,
-      evidence_atom_id TEXT,
-      binding_type TEXT DEFAULT 'coverage',
-      created_at TEXT DEFAULT (datetime('now'))
-    );
-    CREATE TABLE IF NOT EXISTS project_info (
-      key TEXT PRIMARY KEY,
-      value TEXT
-    );
-  `);
-  sqlite.exec("INSERT OR IGNORE INTO project_info (key, value) VALUES ('id', 'test-project')");
+  // Drop the PM-Core V2 guards that would reject the LEGACY rows these tests
+  // seed (a parent-child `task_relations.type='groups'` edge is exactly the
+  // stale data migrateSagaContainment exists to clean up, but the
+  // task_relations_non_containment trigger now rejects it on insert). (T11280)
+  sqlite.exec('DROP TRIGGER IF EXISTS task_relations_non_containment_insert');
+  sqlite.exec('DROP TRIGGER IF EXISTS task_relations_non_containment_update');
 
   const db: DbHandle = {
     exec: (sql: string) => sqlite.exec(sql),
@@ -140,6 +107,7 @@ async function createRawTestDb(): Promise<{
     projectRoot: tempDir,
     cleanup: () => {
       sqlite.close();
+      resetDbState();
       try {
         rmSync(tempDir, { recursive: true, force: true });
       } catch {
@@ -245,12 +213,14 @@ describe('migrateSagaContainment', () => {
     expect(r1.success).toBe(true);
     expect(r1.data!.migrated).toBe(1);
 
-    // Second run: already has parentId=saga — skipped
+    // Second run is a no-op: run 1 reparented the Epic AND removed the legacy
+    // groups relation, so the groups-relation scan now finds nothing — neither
+    // migrated nor skipped. Idempotency = a safe no-op, not a re-skip.
     const r2 = await migrateSagaContainment(projectRoot, { sagaId: 'T100' });
     expect(r2.success).toBe(true);
     if (!r2.success) return;
     expect(r2.data!.migrated).toBe(0);
-    expect(r2.data!.skipped).toBe(1);
+    expect(r2.data!.skipped).toBe(0);
 
     // State unchanged: parent_id still set, no groups rows
     expect(getParentId(db, 'T200')).toBe('T100');
