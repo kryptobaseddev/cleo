@@ -21,7 +21,7 @@ import { eq } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { getLogger } from '../logger.js';
-import { resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
+import { resolveCleoDir } from '../paths.js';
 import type { RequiredColumn } from './migration-manager.js';
 import {
   createSafetyBackup,
@@ -71,8 +71,7 @@ let _gitTrackingChecked = false;
  * Get the path to the SQLite database file.
  */
 export function getDbPath(cwd?: string): string {
-  const projectId = resolveProjectByCwd(cwd);
-  return join(resolveCanonicalCleoDir(projectId), DB_FILENAME);
+  return join(resolveCleoDir(cwd), DB_FILENAME);
 }
 
 /**

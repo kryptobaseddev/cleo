@@ -52,7 +52,7 @@ import { desc, eq } from 'drizzle-orm';
 import { parseChangesetDir } from '../changesets/index.js';
 import { WriterRegistry } from '../docs/writer-registry.js';
 import { getLogger } from '../logger.js';
-import { getProjectRoot, resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
+import { getProjectRoot, resolveCleoDir } from '../paths.js';
 import { getProjectInfoSync } from '../project-info.js';
 import { isSagaShape } from '../sagas/enforcement.js';
 import { resolveSagaMemberIds } from '../sagas/storage.js';
@@ -953,7 +953,7 @@ function parseVersionParts(version: string): number[] {
  * @task T9525, T10368
  */
 function writePlanFile(plan: ReleasePlan, projectRoot: string): string {
-  const releaseDir = join(resolveCanonicalCleoDir(resolveProjectByCwd(projectRoot)), 'release');
+  const releaseDir = join(resolveCleoDir(projectRoot), 'release');
   mkdirSync(releaseDir, { recursive: true });
   const finalPath = join(releaseDir, `${plan.resolvedVersion}.plan.json`);
   const tmpPath = `${finalPath}.tmp`;
@@ -1728,11 +1728,7 @@ export async function releasePlan(
   let changelogWritten = false;
   if (dryRun) {
     // In dry-run mode, compute the path but DO NOT touch the filesystem or DB.
-    planPath = join(
-      resolveCanonicalCleoDir(resolveProjectByCwd(projectRoot)),
-      'release',
-      `${plan.resolvedVersion}.plan.json`,
-    );
+    planPath = join(resolveCleoDir(projectRoot), 'release', `${plan.resolvedVersion}.plan.json`);
   } else {
     planPath = writePlanFile(plan, projectRoot);
     await upsertReleasesRow(plan, dbChannel, projectRoot);

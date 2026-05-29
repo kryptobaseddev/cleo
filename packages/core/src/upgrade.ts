@@ -32,12 +32,7 @@ import {
 } from './init.js';
 import { ensureInjection } from './injection.js';
 import { detectLegacyAgentOutputs, migrateAgentOutputs } from './migration/agent-outputs.js';
-import {
-  getCleoHome,
-  getProjectRoot,
-  resolveCanonicalCleoDir,
-  resolveProjectByCwd,
-} from './paths.js';
+import { getCleoHome, getProjectRoot, resolveCleoDir } from './paths.js';
 import {
   ensureCleoGitRepo,
   ensureCleoStructure,
@@ -162,8 +157,7 @@ export async function runUpgrade(
   }
 
   // Determine what actions are actually needed
-  const projectId = resolveProjectByCwd(options.cwd);
-  const cleoDir = resolveCanonicalCleoDir(projectId);
+  const cleoDir = resolveCleoDir(options.cwd);
   const dbPath = join(cleoDir, 'tasks.db');
   const dbExists = existsSync(dbPath);
 
@@ -195,8 +189,7 @@ export async function runUpgrade(
       let migrationLock: ReleaseFn | null = null;
       try {
         // CRITICAL: Acquire migration lock before any destructive operations
-        const projectId = resolveProjectByCwd(options.cwd);
-        const cleoDir = resolveCanonicalCleoDir(projectId);
+        const cleoDir = resolveCleoDir(options.cwd);
         const dbPath = join(cleoDir, 'tasks.db');
         try {
           migrationLock = await acquireLock(dbPath, { stale: 30_000, retries: 0 });
@@ -409,8 +402,7 @@ export async function runUpgrade(
       } catch (err) {
         // Catastrophic error — attempt to restore from backup
         try {
-          const projectId = resolveProjectByCwd(options.cwd);
-          const cleoDir = resolveCanonicalCleoDir(projectId);
+          const cleoDir = resolveCleoDir(options.cwd);
           const dbPath = join(cleoDir, 'tasks.db');
           const safetyDir = join(cleoDir, 'backups', 'safety');
           if (existsSync(safetyDir)) {
@@ -1292,8 +1284,7 @@ export async function runUpgrade(
  */
 export async function diagnoseUpgrade(options: { cwd?: string } = {}): Promise<DiagnoseResult> {
   const findings: DiagnoseFinding[] = [];
-  const projectId = resolveProjectByCwd(options.cwd);
-  const cleoDir = resolveCanonicalCleoDir(projectId);
+  const cleoDir = resolveCleoDir(options.cwd);
   const dbPath = join(cleoDir, 'tasks.db');
   const brainDbPath = join(cleoDir, 'brain.db');
 

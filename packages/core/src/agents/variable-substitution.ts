@@ -39,7 +39,7 @@ import type {
   VariableResolver,
 } from '@cleocode/contracts';
 import { pushWarning } from '../output.js';
-import { resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
+import { resolveCleoDir } from '../paths.js';
 
 /**
  * Mustache placeholder regex — matches `{{var}}` / `{{ var.path }}` with
@@ -427,7 +427,7 @@ export interface LoadProjectContextResult {
  * @task T1238
  */
 export function loadProjectContext(projectRoot: string): LoadProjectContextResult {
-  const cleoDir = resolveCanonicalCleoDir(resolveProjectByCwd(projectRoot));
+  const cleoDir = resolveCleoDir(projectRoot);
   const path = join(cleoDir, 'project-context.json');
 
   if (!existsSync(path)) {

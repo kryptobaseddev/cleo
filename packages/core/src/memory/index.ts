@@ -14,8 +14,7 @@ import {
   getBackupDir,
   getManifestPath as getCentralManifestPath,
   getProjectRoot,
-  resolveCanonicalCleoDir,
-  resolveProjectByCwd,
+  resolveCleoDir,
 } from '../paths.js';
 import { safeReadFile } from '../store/atomic.js';
 import type { DataAccessor } from '../store/data-accessor.js';
@@ -93,7 +92,7 @@ export interface ListResearchOptions {
  * @task T4465
  */
 function getResearchPath(cwd?: string): string {
-  return join(resolveCanonicalCleoDir(resolveProjectByCwd(cwd)), 'research.json');
+  return join(resolveCleoDir(cwd), 'research.json');
 }
 
 /**

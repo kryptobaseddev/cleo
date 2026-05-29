@@ -18,7 +18,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { getLogger } from '../logger.js';
-import { resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
+import { resolveCleoDir } from '../paths.js';
 import * as brainSchema from './memory-schema.js';
 import {
   createSafetyBackup,
@@ -55,8 +55,7 @@ let _vecLoaded = false;
  * Get the path to the brain.db SQLite database file.
  */
 export function getBrainDbPath(cwd?: string): string {
-  const projectId = resolveProjectByCwd(cwd);
-  return join(resolveCanonicalCleoDir(projectId), DB_FILENAME);
+  return join(resolveCleoDir(cwd), DB_FILENAME);
 }
 
 /**
@@ -673,8 +672,7 @@ function openBrainDbWithRecovery(dbPath: string, cwd: string | undefined): Datab
   const tryOpen = (): DatabaseSync => openNativeDatabase(dbPath, { allowExtension: true });
 
   const runRecovery = (): void => {
-    const projectId = resolveProjectByCwd(cwd);
-    const cleoDir = resolveCanonicalCleoDir(projectId);
+    const cleoDir = resolveCleoDir(cwd);
     recoverMalformedBrainDb({
       corruptPath: dbPath,
       snapshotDir: join(cleoDir, 'backups', 'snapshot'),

@@ -37,7 +37,7 @@ import { dirname, join } from 'node:path';
 import { and, count, desc, eq, sql } from 'drizzle-orm';
 import { generateProjectHash } from '../nexus/hash.js';
 import { createPage } from '../pagination.js';
-import { getProjectRoot, resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
+import { getProjectRoot, resolveCleoDir } from '../paths.js';
 import * as schema from '../store/tasks-schema.js';
 import type { ReleaseChannel } from './channel.js';
 import { resolveChannelFromBranch } from './channel.js';
@@ -1083,7 +1083,7 @@ export interface PushPolicy {
  * Returns undefined if no push config exists.
  */
 async function readPushPolicy(cwd?: string): Promise<PushPolicy | undefined> {
-  const configPath = join(resolveCanonicalCleoDir(resolveProjectByCwd(cwd)), 'config.json');
+  const configPath = join(resolveCleoDir(cwd), 'config.json');
   let config: Record<string, unknown> | undefined;
   try {
     const raw = await readFile(configPath, 'utf-8');
@@ -1348,10 +1348,7 @@ export async function markReleaseShipped(
 export async function migrateReleasesJsonToSqlite(
   projectRoot?: string,
 ): Promise<{ migrated: number }> {
-  const releasesPath = join(
-    resolveCanonicalCleoDir(resolveProjectByCwd(projectRoot)),
-    'releases.json',
-  );
+  const releasesPath = join(resolveCleoDir(projectRoot), 'releases.json');
 
   if (!existsSync(releasesPath)) {
     return { migrated: 0 };

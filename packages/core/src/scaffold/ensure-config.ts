@@ -11,7 +11,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ScaffoldResult } from '@cleocode/contracts/scaffold-diagnostics';
 import { generateProjectHash } from '../nexus/hash.js';
-import { getConfigPath, resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
+import { getConfigPath, resolveCleoDir } from '../paths.js';
 import { saveJson } from '../store/json.js';
 
 /**
@@ -31,8 +31,7 @@ export function resolveScaffoldCleoDir(projectRoot: string): string {
   }
 
   try {
-    const projectId = resolveProjectByCwd(projectRoot);
-    return resolveCanonicalCleoDir(projectId);
+    return resolveCleoDir(projectRoot);
   } catch {
     return localCleoDir;
   }

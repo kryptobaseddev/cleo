@@ -500,9 +500,9 @@ export async function getDreamStatus(projectRoot: string): Promise<DreamStatus> 
   let lastTickAt: string | null = null;
   try {
     const { readSentientState } = await import('../sentient/state.js');
-    const { resolveCanonicalCleoDir, resolveProjectByCwd } = await import('../paths.js');
+    const { resolveCleoDir } = await import('../paths.js');
     const { join } = await import('node:path');
-    const stateDir = resolveCanonicalCleoDir(resolveProjectByCwd(projectRoot));
+    const stateDir = resolveCleoDir(projectRoot);
     const statePath = join(stateDir, 'sentient-state.json');
     const state = await readSentientState(statePath);
     lastTickAt = state.lastTickAt ?? null;

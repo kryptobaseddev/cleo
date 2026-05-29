@@ -565,6 +565,45 @@ function _cleoDirEnvOverride(): string | null {
 }
 
 /**
+ * Walk up from `cwd` to find the nearest ancestor that contains a `.cleo/`
+ * directory, returning that ancestor (the project root) — or `null` if none is
+ * found below the `$HOME`/filesystem-root guard.
+ *
+ * Unlike {@link getProjectRoot}, this does NOT require sibling markers
+ * (`.git/`, `package.json`) or a `project-info.json`: the mere presence of a
+ * `.cleo/` directory identifies a project root. This restores the long-standing
+ * "presence of `.cleo` = project" contract that the projectId/nexus migration
+ * (T11013/T11018) made strict — relied on by test fixtures that create a bare
+ * `.cleo/` (e.g. `createTestProjectDb`) and by not-yet-`cleo init` checkouts.
+ *
+ * Bounded by the same `$HOME`/`/` guard as {@link getProjectRoot} (T889/T909)
+ * to avoid the orphan-DB vector where a stray `~/.cleo/` would capture the walk.
+ *
+ * @internal
+ * @task T11262
+ */
+function _findCleoDirRoot(cwd?: string): string | null {
+  const homeRoot = homedir();
+  let current = resolve(cwd ?? process.cwd());
+  while (true) {
+    const isDangerousRoot = current === homeRoot || current === '/' || current === '';
+    if (!isDangerousRoot) {
+      try {
+        if (statSync(join(current, '.cleo')).isDirectory()) {
+          return current;
+        }
+      } catch {
+        // `.cleo` absent at this level — keep walking up.
+      }
+    }
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return null;
+}
+
+/**
  * Resolve the canonical projectId from a working directory.
  *
  * First reads `.cleo/project-info.json` from CWD or an ancestor directory (AC2).
@@ -636,6 +675,74 @@ export function resolveProjectByCwd(cwd?: string): string {
   }
 
   // AC5: Throw with remediation hint
+  throw new CleoError(
+    ExitCode.NEXUS_PROJECT_NOT_FOUND,
+    'No CLEO project found — not in a CLEO project directory and no registry match. ' +
+      'Run `cleo init` to create a new project, or cd into an existing CLEO project.',
+    {
+      fix: 'Run `cleo init` to initialize a CLEO project here, or cd into a project with a .cleo/ directory',
+    },
+  );
+}
+
+/**
+ * Resolve the absolute `.cleo/` directory for a working directory — the single
+ * canonical chokepoint for project-scoped path resolution (T11262).
+ *
+ * This replaces the lossy two-step `resolveCanonicalCleoDir(resolveProjectByCwd(cwd))`
+ * pattern, which derived a projectId from `cwd` and then re-resolved that id to
+ * a path **only** through the nexus `project_registry` — throwing for any
+ * project that exists on disk but is not registered (the dominant failure mode
+ * in tests and fresh checkouts). Resolution here derives the `.cleo` directory
+ * **directly**, with one well-defined precedence and no id round-trip:
+ *
+ *   1. Active worktree scope (spawn adapters, T380/ADR-041) — wins over all else.
+ *   2. Absolute `CLEO_DIR` override — pins the `.cleo` dir for the whole process
+ *      (test harnesses, `--cleo-dir` CLI).
+ *   3. Nearest ancestor containing a `.cleo/` directory — presence of `.cleo/`
+ *      identifies the project root (`<root>/.cleo`); no `project-info.json` or
+ *      nexus registration required. Bounded by the `$HOME`/`/` guard.
+ *   4. Cross-project nexus `project_registry` lookup by `cwd` — for callers
+ *      whose `cwd` is not under a `.cleo/` tree but is registered.
+ *   5. Throw `E_NO_PROJECT` with a remediation hint.
+ *
+ * @param cwd - Optional working directory. Defaults to `process.cwd()`.
+ * @returns Absolute path to the resolved `.cleo/` directory.
+ * @throws {CleoError} `ExitCode.NEXUS_PROJECT_NOT_FOUND` when no project resolves.
+ *
+ * @public
+ * @task T11262
+ */
+export function resolveCleoDir(cwd?: string): string {
+  // 1. Active worktree scope wins (matches getProjectRoot precedence).
+  const scope = worktreeScope.getStore();
+  if (scope !== undefined) {
+    return join(scope.worktreeRoot, '.cleo');
+  }
+
+  // 2. Absolute CLEO_DIR override.
+  const override = _cleoDirEnvOverride();
+  if (override !== null) {
+    return override;
+  }
+
+  // 3. Nearest ancestor with a `.cleo/` directory — presence = project root.
+  const root = _findCleoDirRoot(cwd);
+  if (root !== null) {
+    return join(root, '.cleo');
+  }
+
+  // 4. Cross-project nexus registry lookup (cwd registered but not under a
+  //    `.cleo/` tree on disk).
+  const nexusProjectId = _resolveProjectByCwdFromNexus(cwd);
+  if (nexusProjectId !== null) {
+    const dir = _resolveCanonicalCleoDir(nexusProjectId);
+    if (dir !== null) {
+      return dir;
+    }
+  }
+
+  // 5. Throw with remediation hint.
   throw new CleoError(
     ExitCode.NEXUS_PROJECT_NOT_FOUND,
     'No CLEO project found — not in a CLEO project directory and no registry match. ' +

@@ -12,7 +12,7 @@
 
 import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
+import { resolveCleoDir } from '../paths.js';
 import { readJsonFile, writeJsonFileAtomic } from '../store/file-utils.js';
 import type { ManifestStageData, RcasdManifest } from './index.js';
 
@@ -130,8 +130,7 @@ export interface ChangeEntry {
  * @task T4801
  */
 export function buildIndex(cwd?: string): RcasdIndex {
-  const projectId = resolveProjectByCwd(cwd);
-  const cleoDir = resolveCanonicalCleoDir(projectId);
+  const cleoDir = resolveCleoDir(cwd);
   const lifecycleDirs = [join(cleoDir, 'rcasd'), join(cleoDir, 'rcsd')];
   const seenTaskIds = new Set<string>();
 
@@ -285,8 +284,7 @@ export function buildIndex(cwd?: string): RcasdIndex {
  * @task T4801
  */
 export function writeIndex(index: RcasdIndex, cwd?: string): void {
-  const projectId = resolveProjectByCwd(cwd);
-  const cleoDir = resolveCanonicalCleoDir(projectId);
+  const cleoDir = resolveCleoDir(cwd);
   if (!existsSync(cleoDir)) {
     mkdirSync(cleoDir, { recursive: true });
   }
@@ -302,8 +300,7 @@ export function writeIndex(index: RcasdIndex, cwd?: string): void {
  * @task T4801
  */
 export function readIndex(cwd?: string): RcasdIndex | null {
-  const projectId = resolveProjectByCwd(cwd);
-  const cleoDir = resolveCanonicalCleoDir(projectId);
+  const cleoDir = resolveCleoDir(cwd);
   const indexPath = join(cleoDir, 'RCASD-INDEX.json');
 
   if (!existsSync(indexPath)) {

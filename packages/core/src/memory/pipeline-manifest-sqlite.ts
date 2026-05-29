@@ -31,7 +31,7 @@ async function getNativeDb(): Promise<
 }
 
 import { createPage } from '../pagination.js';
-import { getProjectRoot, resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
+import { getProjectRoot, resolveCleoDir } from '../paths.js';
 import {
   type ContradictionDetail,
   type ExtendedManifestEntry,
@@ -1094,7 +1094,7 @@ export async function migrateManifestJsonlToSqlite(
   projectRoot?: string,
 ): Promise<{ migrated: number; skipped: number }> {
   const root = getProjectRoot(projectRoot);
-  const manifestPath = join(resolveCanonicalCleoDir(resolveProjectByCwd(root)), 'MANIFEST.jsonl');
+  const manifestPath = join(resolveCleoDir(root), 'MANIFEST.jsonl');
 
   if (!existsSync(manifestPath)) {
     return { migrated: 0, skipped: 0 };
