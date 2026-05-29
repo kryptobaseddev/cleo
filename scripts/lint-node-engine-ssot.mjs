@@ -89,6 +89,30 @@ if (fallbackTriple !== rootTriple) {
   );
 }
 
+// ── 3. CI workflow node-version must match the root floor ────────────────────
+// The test/build workflow spawns the real `cleo` binary, which runs the
+// enforceNodeVersion() gate. If CI's Node is below the floor the gate enforces,
+// every spawned-CLI test fails (the `node-version: '24'` runner-roulette gave
+// macOS 24.15.0 < 24.16.0). Pin CI to the floor and keep it in lock-step here.
+const ciPath = join(REPO_ROOT, '.github', 'workflows', 'ci.yml');
+try {
+  const ciSrc = readFileSync(ciPath, 'utf8');
+  const versions = new Set();
+  for (const m of ciSrc.matchAll(/node-version:\s*['"]?([^'"\n]+)['"]?/g)) {
+    versions.add(m[1].trim());
+  }
+  for (const v of versions) {
+    if (triple(v) !== rootTriple) {
+      violations.push(
+        `.github/workflows/ci.yml: node-version '${v}' != root floor ${rootTriple} ` +
+          `(CI runs the test suite + spawns the cleo CLI; it MUST meet the gate floor)`,
+      );
+    }
+  }
+} catch {
+  // ci.yml absent (e.g. consumer repo) — skip.
+}
+
 // ── Report ───────────────────────────────────────────────────────────────────
 if (violations.length > 0) {
   console.error(`\n✗ engines.node SSoT drift (root floor = ${rootEngine}):\n`);

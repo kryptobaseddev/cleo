@@ -130,7 +130,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - name: Lint adr-index.jsonl frozen invariants
         run: node scripts/lint-adr-index-jsonl-frozen.mjs --check-no-growth --base=origin/main
 
@@ -150,7 +150,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - name: Lint worktree locations
         # In CI the only registered worktree is the primary checkout — no
         # rogue worktrees should exist. The script exits 0 when clean.
@@ -177,7 +177,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - name: Resolve PR base ref
         # `github.base_ref` is unset on pushes; fall back to `main` so direct
         # pushes to feature branches are still scanned.
@@ -200,7 +200,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - name: Lint agent-outputs registration
         run: node scripts/lint-agent-outputs-registration.mjs --since origin/main --severity error
 
@@ -212,7 +212,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - name: Lint Contracts/Core SSoT (ADR-057)
         # No untrusted input used — pure static analysis of checked-in source files.
         run: node scripts/lint-contracts-core-ssot.mjs --exit-on-fail
@@ -230,7 +230,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - name: Lint CLEO data-path drift in packages/core/src
         run: node scripts/lint-path-drift.mjs
 
@@ -255,7 +255,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - name: Lint project-root anti-pattern in packages/
         run: node scripts/lint-project-root-anti-pattern.mjs --strict
 
@@ -274,7 +274,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - name: Lint paths SSoT anti-patterns in packages/
         run: node scripts/lint-paths-ssot.mjs
 
@@ -296,7 +296,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - name: Lint getCleoDirAbsolute + CWD-walk-up patterns in packages/
         run: node scripts/lint-no-cwd-walkup.mjs --check
 
@@ -319,7 +319,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - name: Lint saga-label anti-patterns in packages/
         run: node scripts/lint-saga-label-anti-pattern.mjs --strict
 
@@ -345,7 +345,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - name: Lint invariant registry forward + reverse symmetry
         run: node scripts/lint-invariant-registry.mjs
 
@@ -367,7 +367,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - uses: pnpm/action-setup@v4
         with:
           version: '10.30.0'
@@ -401,7 +401,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - name: Lint raw git-worktree shell-outs in packages/
         run: node scripts/lint-no-raw-git-worktree.mjs
 
@@ -420,7 +420,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - name: Lint saga symbol leakage in packages/
         run: node scripts/lint-saga-symbol-leakage.mjs
 
@@ -440,7 +440,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - name: Lint JSON stream hygiene in cli/commands + core JSON paths
         run: node scripts/lint-json-stream-hygiene.mjs
 
@@ -462,7 +462,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - name: Enforce LAFS schema parity (TS canonical <-> lafs-core vendor)
         run: node scripts/lint-lafs-schema-parity.mjs --exit-on-fail
       - name: Enforce hook-mappings parity (TS canonical <-> cant-core vendor)
@@ -476,7 +476,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - name: Enforce contracts dep declarations
         # No untrusted input used — pure static analysis of checked-in source files.
         run: node scripts/lint-contracts-dep.mjs
@@ -501,7 +501,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - name: Detect high-fan-out types that should be in packages/contracts
         run: node scripts/lint-contracts-fan-out.mjs
 
@@ -520,7 +520,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - name: Reject cliOutput(formatError) / cliError(formatError) double-wraps
         run: node scripts/lint-format-error-misuse.mjs
 
@@ -538,7 +538,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - uses: pnpm/action-setup@v4
         with:
           version: '10.30.0'
@@ -564,7 +564,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - uses: pnpm/action-setup@v4
         with:
           version: '10.30.0'
@@ -593,7 +593,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - name: Reject raw DatabaseSync() opens outside core/store
         # ADR-068: all DB opens must flow through openCleoDb(role, cwd) in packages/core/src/store/.
         # The allowlist in scripts/lint-no-raw-db-opens.mjs covers legitimate uses
@@ -617,7 +617,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - name: Lint cross-DB columns in Drizzle schemas (baseline mode)
         run: node scripts/lint-cross-db-annotations.mjs --check
 
@@ -629,7 +629,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - name: CORE-first boundary check (baseline mode — T9616-T9621 in-flight)
         # T9622: enforce that CLI commands and Studio routes do not issue raw SQLite
         # calls (.prepare()) or import from @cleocode/core/internal.
@@ -659,7 +659,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - name: Fetch base branch for diff
         run: git fetch origin main --depth=1
       - name: Lint SSoT-EXEMPT comments in PR diff (strict — no new exemptions)
@@ -691,7 +691,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - uses: pnpm/action-setup@v4
         with:
           version: '10.30.0'
@@ -724,7 +724,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - name: CLI package boundary gate (baseline mode — T9837e)
         # No untrusted input used — pure static analysis of checked-in source files.
         run: node scripts/lint-cli-package-boundary.mjs --check
@@ -749,7 +749,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - name: DocKind Writer Uniqueness gate (baseline mode)
         # Pure static analysis of checked-in source files — no untrusted input.
         run: node scripts/lint-dockind-writer-uniqueness.mjs
@@ -779,7 +779,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - name: Resolve PR base ref
         # GHA's `github.base_ref` is unset on pushes; default to `main` so
         # local pushes to feature branches still get scanned.
@@ -814,7 +814,7 @@ jobs:
           fetch-depth: 0  # full history required for git log --diff-filter=A
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - uses: pnpm/action-setup@v4
         with:
           version: '10.30.0'
@@ -853,7 +853,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - uses: pnpm/action-setup@v4
         with:
           version: '10.30.0'
@@ -895,7 +895,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - uses: pnpm/action-setup@v4
         with:
           version: '10.30.0'
@@ -936,7 +936,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - uses: pnpm/action-setup@v4
         with:
           version: '10.30.0'
@@ -1032,7 +1032,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - uses: pnpm/action-setup@v4
         with:
           version: '10.30.0'
@@ -1068,7 +1068,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - uses: pnpm/action-setup@v4
         with:
           version: '10.30.0'
@@ -1099,7 +1099,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - uses: pnpm/action-setup@v4
         with:
           version: '10.30.0'
@@ -1137,7 +1137,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - uses: pnpm/action-setup@v4
         with:
           version: '10.30.0'
@@ -1312,7 +1312,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - uses: pnpm/action-setup@v4
         with:
           version: '10.30.0'
@@ -1457,7 +1457,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - uses: pnpm/action-setup@v4
         with:
           version: '10.30.0'
@@ -1565,7 +1565,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.16.0'
       - uses: pnpm/action-setup@v4
         with:
           run_install: false
