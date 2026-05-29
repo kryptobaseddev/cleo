@@ -70,6 +70,7 @@ CI job: `Architectural Boundary Check (SG-ARCH-SOLID T9837)` (baseline mode by d
 | 5 | `SSoT-EXEMPT` linkage (T10075)        | `scripts/lint-no-ssot-exempt.mjs`               | inline                                            | Every `// SSoT-EXEMPT` comment must reference an open `T####` task.                  |
 | 6 | CLI package boundary (T9837e)         | `scripts/lint-cli-package-boundary.mjs`         | `scripts/.lint-cli-boundary-baseline.json`        | No standalone named function >30 LOC in `packages/cleo/src/cli/commands/**/*.ts` — move helpers to `core/`. |
 | 7 | Deployed template parity (T9860)      | `scripts/lint-deployed-template-parity.mjs`     | `.lint-deployed-template-parity-baseline.json`    | `.github/workflows/*` MUST match rendered output of `packages/core/templates/workflows/*.yml.tmpl`. |
+| 8 | `engines.node` SSoT (T11281)          | `scripts/lint-node-engine-ssot.mjs`             | inline (root `package.json`)                      | Every `packages/*/package.json` `engines.node` MUST equal root's; `FALLBACK_MIN_NODE` in `node-version-gate.ts` matches. The Node gate reads `engines.node` at runtime — bumping the floor is one root edit. |
 
 **Common modes (all gates):** `--strict` zero-tolerance · `--baseline` regenerate · default fail-on-net-add.
 
