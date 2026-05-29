@@ -41,23 +41,15 @@ function neutralizeSagaStructuralGuards(db: NativeDbForTest): void {
   db.exec('DROP TRIGGER IF EXISTS tasks_parent_type_matrix_insert');
   db.exec('DROP TRIGGER IF EXISTS tasks_parent_type_matrix_update');
 
-  const row = db
-    .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'")
-    .get() as { sql?: string } | undefined;
-  const sql = row?.sql;
-  if (typeof sql !== 'string' || !sql.includes('chk_tasks_saga_no_parent')) return;
-
-  const stripped = sql.replace(
-    /,?\s*(?:--[^\n]*\n\s*)?CONSTRAINT\s+[`"]?chk_tasks_saga_no_parent[`"]?\s+CHECK\s*\([^)]*\)/i,
-    '',
-  );
-  if (stripped === sql) return;
-
-  db.exec('PRAGMA writable_schema=ON');
-  db.prepare("UPDATE sqlite_master SET sql=? WHERE type='table' AND name='tasks'").run(stripped);
-  db.exec('PRAGMA writable_schema=OFF');
-  db.exec('PRAGMA schema_version');
-  db.exec('VACUUM');
+  // Disable CHECK-constraint enforcement (incl. chk_tasks_saga_no_parent) on
+  // THIS connection so the audit fixtures can seed deliberately
+  // invariant-violating rows (e.g. a saga carrying a parent_id). Replaces the
+  // former `PRAGMA writable_schema=ON; UPDATE sqlite_master …` schema surgery,
+  // which node:sqlite @ SQLite 3.53.0 rejects with "table sqlite_master may not
+  // be modified" — DEFENSIVE mode blocks sqlite_master writes even under
+  // writable_schema=ON. `ignore_check_constraints` is version-agnostic and
+  // needs no schema mutation. (node:sqlite 3.53.0 standardization — 6620e8e96.)
+  db.exec('PRAGMA ignore_check_constraints=ON');
 }
 
 /**
