@@ -2295,6 +2295,7 @@ export async function registerProjectOnEncounter(
 ): Promise<void> {
   try {
     const { canonicalProjectId: computeCanonicalId } = await import('./nexus/identity.js');
+    const { generateProjectHash } = await import('./nexus/hash.js');
     const canonicalResult = await computeCanonicalId(projectRoot);
     const canonicalId = canonicalResult.id;
     const { getNexusDb } = await import('./store/nexus-sqlite.js');
@@ -2334,7 +2335,12 @@ export async function registerProjectOnEncounter(
     }
     await db.insert(projectRegistry).values({
       projectId: canonicalId,
-      projectHash: canonicalResult.components.gitRoot,
+      // T11280: projectHash MUST be the canonical sha256-derived hash of the
+      // resolved path (matching nexusRegister/generateProjectHash), NOT the raw
+      // gitRoot path. The previous value polluted the registry with a path in
+      // the hash column, producing spurious name-collision errors when a later
+      // nexusRegister computed the real hash for the same project.
+      projectHash: generateProjectHash(resolvedPath),
       projectPath: resolvedPath,
       name: projectName,
       registeredAt: now,

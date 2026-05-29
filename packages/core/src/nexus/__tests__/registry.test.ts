@@ -155,9 +155,11 @@ describe('nexusRegister', () => {
 
   it('registers empty project when directory has no pre-existing tasks.db', async () => {
     const emptyDir = join(testDir, 'empty');
-    await mkdir(emptyDir, { recursive: true });
+    // The project is initialized (has `.cleo/`) but carries zero tasks; the
+    // SQLite accessor auto-creates tasks.db inside `.cleo/` so registration
+    // succeeds with taskCount=0. resolveCleoDir needs the `.cleo/` (T11262).
+    await mkdir(join(emptyDir, '.cleo'), { recursive: true });
 
-    // SQLite accessor auto-creates tasks.db, so registration succeeds with zero tasks
     const hash = await nexusRegister(emptyDir, 'empty', 'read');
     expect(hash).toMatch(/^[a-f0-9]{12}$/);
     const project = await nexusGetProject('empty');

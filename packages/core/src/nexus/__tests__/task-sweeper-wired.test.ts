@@ -146,6 +146,8 @@ describe('task-sweeper post-analyze wiring', { sequential: true }, () => {
     // Arrange: synthetic repo with 3 commits, each tagged T001 / T002 / T003
     const repoDir = join(tmpDir, 'repo');
     mkdirSync(repoDir);
+    // resolveCleoDir resolves repoDir via its `.cleo/` directory (T11262).
+    mkdirSync(join(repoDir, '.cleo'), { recursive: true });
     await makeGitRepoWithTaskCommits(repoDir, 3);
 
     // Seed nexus_nodes so there are symbols to link against.
@@ -210,6 +212,7 @@ describe('task-sweeper post-analyze wiring', { sequential: true }, () => {
     // Arrange
     const repoDir = join(tmpDir, 'repo-idem');
     mkdirSync(repoDir);
+    mkdirSync(join(repoDir, '.cleo'), { recursive: true });
     await makeGitRepoWithTaskCommits(repoDir, 2);
 
     await getBrainDb(repoDir);
@@ -259,6 +262,7 @@ describe('task-sweeper post-analyze wiring', { sequential: true }, () => {
     // Arrange: plain directory, not a git repo
     const plainDir = join(tmpDir, 'plain-dir');
     mkdirSync(plainDir);
+    mkdirSync(join(plainDir, '.cleo'), { recursive: true });
     writeFile(plainDir, 'src/index.ts');
 
     await getBrainDb(plainDir);

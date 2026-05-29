@@ -8,7 +8,7 @@
  * - runGitLogTaskLinker: git-log sweeper + idempotency
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type DatabaseSync from 'better-sqlite3';
@@ -25,8 +25,10 @@ describe('tasks-bridge', () => {
   let nexusDb: DatabaseSync.Database;
 
   beforeEach(async () => {
-    // Create isolated temp directory for this test
+    // Create isolated temp directory for this test, with a `.cleo/` so the
+    // canonical resolveCleoDir SSoT resolves it as a project root (T11262).
     projectRoot = mkdtempSync(join(tmpdir(), 'tasks-bridge-test-'));
+    mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
 
     // Initialize databases (will create schema)
     await getBrainDb(projectRoot);
