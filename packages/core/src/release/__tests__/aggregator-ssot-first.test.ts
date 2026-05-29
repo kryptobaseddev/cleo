@@ -31,6 +31,8 @@ let projectRoot: string;
 
 beforeEach(() => {
   projectRoot = mkdtempSync(join(tmpdir(), 'cleo-ssot-first-'));
+  // Pre-create `.cleo/` so resolveCleoDir resolves the temp dir (T11262).
+  mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
 });
 
 afterEach(() => {
