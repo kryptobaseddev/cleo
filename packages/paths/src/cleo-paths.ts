@@ -257,6 +257,39 @@ function _readProjectInfoName(repoRoot: string): string | undefined {
 }
 
 /**
+ * Canonicalize a filesystem path across operating systems — resolve symlinks
+ * and mount/alias divergence (macOS `/var` → `/private/var`, Windows
+ * drive-letter case + 8.3 short names, Linux bind-mounts) via
+ * {@link realpathSync}.
+ *
+ * Falls back to the lexically-resolved absolute path when the target does not
+ * exist on disk, so identity/root computations never throw for a moved,
+ * deleted, or not-yet-created project path.
+ *
+ * **SSoT:** this is the single path-canonicalization entry point for the CLEO
+ * SDK. Never call `realpathSync` ad-hoc for path identity — route through here
+ * so the OS-specific normalization stays consistent across every consumer and
+ * test (notably the macOS `/var` vs `/private/var` split).
+ *
+ * @param p - A relative or absolute filesystem path.
+ * @returns The realpath-canonicalized absolute path, or the lexically-resolved
+ *   absolute path when the target does not exist.
+ *
+ * @public
+ * @task T11023
+ */
+export function canonicalizePath(p: string): string {
+  const resolved = resolve(p);
+  try {
+    return realpathSync(resolved);
+  } catch {
+    // Target does not exist (moved / deleted / not-yet-created) — the
+    // lexically-resolved absolute path is the best canonical form available.
+    return resolved;
+  }
+}
+
+/**
  * Compute the canonical project ID for a given repository path (T9149/T11023).
  *
  * Algorithm:
@@ -276,7 +309,7 @@ function _readProjectInfoName(repoRoot: string): string | undefined {
  * @task T9149
  */
 export function computeCanonicalProjectId(repoPath: string): string {
-  const realRepoPath = realpathSync(resolve(repoPath));
+  const realRepoPath = canonicalizePath(repoPath);
 
   const gitRoot = _findGitRootSync(realRepoPath);
   const effectiveRoot = gitRoot ?? realRepoPath;
@@ -344,16 +377,12 @@ export function resolveProjectByCwd(cwd?: string): ResolvedProject | null {
         const data = JSON.parse(raw) as Record<string, unknown>;
 
         if (typeof data.projectId === 'string' && data.projectId.length > 0) {
-          // T11023: Normalize projectRoot via realpathSync to handle cross-mount
-          // divergence — same repo at /mnt/projects/X and /workspace/X resolves
-          // to the same real path (AC2, AC3).
-          let realRoot: string;
-          try {
-            realRoot = realpathSync(current);
-          } catch {
-            // realpathSync fails on nonexistent paths — fall back to resolved path
-            realRoot = current;
-          }
+          // T11023: Normalize projectRoot via the canonicalizePath SSoT to
+          // handle cross-mount + cross-OS divergence — same repo at
+          // /mnt/projects/X and /workspace/X (and macOS /var vs /private/var)
+          // resolves to the same real path (AC2, AC3). Falls back to the
+          // lexical path when `current` no longer exists on disk.
+          const realRoot = canonicalizePath(current);
 
           // T11023: Compute canonical projectId using T9149 algorithm
           // (git-root + realpath fingerprint) for mount-invariant identity (AC1).

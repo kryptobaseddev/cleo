@@ -24,6 +24,7 @@
 export { isAbsolutePath } from './abs-path.js';
 export {
   _resetCleoPlatformPathsCache,
+  canonicalizePath,
   computeCanonicalProjectId,
   getCanonicalTemplatesTildePath,
   getCleoHome,

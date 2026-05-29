@@ -7,6 +7,7 @@ import envPaths from 'env-paths';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   _resetCleoPlatformPathsCache,
+  canonicalizePath,
   computeCanonicalProjectId,
   getCanonicalTemplatesTildePath,
   getCleoHome,
@@ -177,6 +178,10 @@ describe('cleo-paths', () => {
         'cleo-paths-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
       );
       mkdirSync(tempDir, { recursive: true });
+      // Canonicalize the fixture root the SAME way resolveProjectByCwd does
+      // (realpath) so assertions match cross-OS — notably macOS, where tmpdir()
+      // is /var/folders/… but realpath resolves to /private/var/folders/…
+      tempDir = canonicalizePath(tempDir);
     });
 
     afterEach(() => {
