@@ -466,11 +466,21 @@ export async function loadOwningTaskStatuses(
   const out = new Map<string, string>();
   if (taskIds.length === 0) return out;
 
-  // openCleoDb returns CleoDbHandle whose `.db` field is `unknown` — we narrow
-  // here to the node:sqlite DatabaseSync surface we actually use. The cast is
-  // localised and the alternative (changing the chokepoint signature) would
-  // ripple across every store-using package.
-  const handle = await openCleoDb('tasks', projectRoot);
+  // Task-status enrichment is BEST-EFFORT: `git worktree list` is the primary
+  // source of truth and must succeed even when the tasks DB cannot be opened
+  // (no `.cleo/` project resolvable from `projectRoot`, fresh checkout, or a
+  // transient open failure). Degrade to no status rather than failing the whole
+  // listing — callers treat a missing entry as `owningTaskStatus: null`.
+  let handle: Awaited<ReturnType<typeof openCleoDb>>;
+  try {
+    // openCleoDb returns CleoDbHandle whose `.db` field is `unknown` — we narrow
+    // here to the node:sqlite DatabaseSync surface we actually use. The cast is
+    // localised and the alternative (changing the chokepoint signature) would
+    // ripple across every store-using package.
+    handle = await openCleoDb('tasks', projectRoot);
+  } catch {
+    return out;
+  }
   try {
     const db = handle.db as DatabaseSync;
     const placeholders = taskIds.map(() => '?').join(', ');
