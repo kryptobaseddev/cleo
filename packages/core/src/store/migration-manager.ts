@@ -176,8 +176,24 @@ function probeAndMarkApplied(
   const isRebuildOnlyMigration =
     allCreatedTablesAreRenamed && tableTargets.length > 0 && alterTargets.length === 0;
 
+  // T11280: Any migration that performs a table rebuild/rename (renameMap > 0)
+  // recreates that table's indexes as a side-effect of the rebuild idiom. Those
+  // recreated indexes can be LEGITIMATELY DROPPED by a LATER migration (e.g.
+  // wave0-schema-hardening creates `idx_task_relations_related_to`, which
+  // t9519/t10571 subsequently drop when they rebuild `task_relations` with a
+  // new primary key). Probing for such an index therefore reports the migration
+  // as un-applied even though its DDL ran — causing migrate() to destructively
+  // re-run the rebuild and crash on "table sessions already exists".
+  //
+  // Final-table presence is the only reliable evidence for a rebuild migration,
+  // so suppress the fragile index probe whenever the migration renames at least
+  // one table — even if it ALSO creates genuinely-new tables (the previous
+  // `allCreatedTablesAreRenamed` gate was too narrow). Pure CREATE INDEX
+  // migrations (no rename, no rebuild) still probe their indexes normally.
+  const performsTableRebuild = renameMap.size > 0;
+
   const indexTargets: string[] = [];
-  if (!isRebuildOnlyMigration) {
+  if (!isRebuildOnlyMigration && !performsTableRebuild) {
     for (const m of fullSql.matchAll(createIndexRegex)) {
       indexTargets.push(m[1] as string);
     }

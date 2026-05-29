@@ -423,12 +423,15 @@ describe('JSON to SQLite migration', () => {
         _meta: { schemaVersion: '2.10.0' },
         tasks: [
           {
+            // PM-Core V2 type matrix: task -> subtask (a task may only parent a
+            // subtask, never another task). Keep T003 as the deepest level via
+            // type 'subtask' so the 3-level reverse-insertion hierarchy stands.
             id: 'T003',
-            title: 'Grandchild task',
+            title: 'Grandchild subtask',
             description: 'Child of T002',
             status: 'pending',
             priority: 'low',
-            type: 'task',
+            type: 'subtask',
             parentId: 'T002',
             createdAt: '2026-01-03T00:00:00.000Z',
           },

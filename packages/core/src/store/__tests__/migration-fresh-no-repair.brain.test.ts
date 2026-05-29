@@ -84,6 +84,10 @@ describe('brain.db fresh init — zero "Adding missing column" warnings', () => 
     // ------------------------------------------------------------------
     vi.doMock('../../paths.js', () => ({
       getCleoHome: () => cleoHome,
+      // memory-sqlite.ts (under test) resolves brain.db via the canonical
+      // resolveCleoDir SSoT helper (T11262). With the tempDir cwd it must
+      // return join(tempDir, '.cleo') so brain.db lands in our isolated tree.
+      resolveCleoDir: (cwd?: string) => (cwd ? join(cwd, '.cleo') : join(cleoHome, '.cleo')),
       getCleoDirAbsolute: (cwd?: string) => (cwd ? join(cwd, '.cleo') : join(cleoHome, '.cleo')),
       getProjectRoot: () => tempDir,
     }));
