@@ -17,11 +17,19 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { existsSync, readFileSync, statSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+// T11280: node:sqlite is loaded LAZILY (via createRequire below) rather than as
+// an eager top-level import. paths.ts is imported transitively by sqlite.ts, and
+// an eager `node:sqlite` import here would defeat the lazy-init invariant proven
+// by sqlite-lazy-init.test.ts ("importing sqlite.ts does NOT require node:sqlite
+// at module-load time", T1331). Only the rare nexus-registry fallback in
+// _resolveProjectByCwdFromNexus actually opens a database.
+import type { DatabaseSync as DatabaseSyncType } from 'node:sqlite';
 import { E_CWD_WALKUP_FORBIDDEN, ExitCode } from '@cleocode/contracts';
 import {
+  computeCanonicalProjectId as _computeCanonicalProjectId,
   getCanonicalTemplatesTildePath as _getCanonicalTemplatesTildePath,
   getCleoTemplatesTildePath as _getCleoTemplatesTildePath,
   isAbsolutePath as _isAbsolutePath,
@@ -30,6 +38,27 @@ import {
 } from '@cleocode/paths';
 import { CleoError } from './errors.js';
 import { getPlatformPaths } from './system/platform-paths.js';
+
+/**
+ * Lazily-resolved `node:sqlite` `DatabaseSync` constructor.
+ *
+ * Loaded via `createRequire` on first use rather than a top-level import so
+ * that importing this module (and, transitively, `sqlite.ts`) never eagerly
+ * pulls in `node:sqlite` — preserving the T1331 lazy-init invariant. Only the
+ * nexus-registry fallback ({@link _resolveProjectByCwdFromNexus}) needs it.
+ *
+ * @internal
+ * @task T11280
+ */
+function _getDatabaseSyncCtor(): new (
+  ...args: ConstructorParameters<typeof DatabaseSyncType>
+) => DatabaseSyncType {
+  const _require = createRequire(import.meta.url);
+  const mod = _require('node:sqlite') as {
+    DatabaseSync: new (...args: ConstructorParameters<typeof DatabaseSyncType>) => DatabaseSyncType;
+  };
+  return mod.DatabaseSync;
+}
 
 // ============================================================================
 // Worktree Scope (T380/ADR-041 §D3)
@@ -400,9 +429,17 @@ export function getCleoDirAbsolute(cwd?: string, opts?: { bootstrap?: boolean })
     // T11021: Auto-register project on first encounter (fire-and-forget).
     // T11023: pass legacyUUID so it gets registered as an alias alongside
     // the canonical ID.
-    registerProjectOnEncounter(project.projectRoot, project.legacyUUID ?? project.projectId).catch(
-      () => {},
-    );
+    // T11281: unit tests that exercise the nexus registration/reconcile contract
+    // in isolation set CLEO_DISABLE_PROJECT_AUTOREGISTER=1 so this encounter-time
+    // side-effect does not pre-register the fixture project out from under the
+    // test's explicit registration state. Off by default — production always
+    // auto-registers on encounter.
+    if (process.env['CLEO_DISABLE_PROJECT_AUTOREGISTER'] !== '1') {
+      registerProjectOnEncounter(
+        project.projectRoot,
+        project.legacyUUID ?? project.projectId,
+      ).catch(() => {});
+    }
     try {
       const projectRoot = getProjectRoot(cwd);
       const canonical = _resolveCanonicalCleoDir(project.projectId);
@@ -464,6 +501,19 @@ export function getCleoDirAbsolute(cwd?: string, opts?: { bootstrap?: boolean })
  * @task T11018
  */
 export function resolveCanonicalCleoDir(projectId: string): string {
+  // CLEO_DIR override (backward-compat, T11262 regression fix). An absolute
+  // CLEO_DIR pins the canonical `.cleo` directory for the whole process,
+  // bypassing the nexus `project_registry` lookup. This mirrors
+  // {@link getProjectRoot}'s long-standing CLEO_DIR precedence and restores the
+  // contract that 156 test files and the `--cleo-dir` CLI flag depend on — the
+  // PM-Core V2 projectId/nexus migration (T11013/T11018) routed `getDbPath` and
+  // ~40 other `.cleo` resolvers through this chokepoint without carrying the
+  // CLEO_DIR override forward, so an empty per-fork nexus registry threw
+  // E_PROJECT_NOT_FOUND across the unit suite.
+  const overrideDir = _cleoDirEnvOverride();
+  if (overrideDir !== null) {
+    return overrideDir;
+  }
   const result = _resolveCanonicalCleoDir(projectId);
   if (result === null) {
     throw new CleoError(
@@ -497,6 +547,7 @@ function _resolveProjectByCwdFromNexus(cwd?: string): string | null {
     const start = resolve(cwd ?? process.cwd());
     let current = start;
 
+    const DatabaseSync = _getDatabaseSyncCtor();
     const db = new DatabaseSync(nexusDbPath, { readOnly: true }); // db-open-allowed: bootstrap path resolver cannot import core DB chokepoint without a cycle
     try {
       const stmt = db.prepare(
@@ -527,6 +578,69 @@ function _resolveProjectByCwdFromNexus(cwd?: string): string | null {
 }
 
 /**
+ * Backward-compat `CLEO_DIR` override for the canonical `.cleo` resolution
+ * chokepoint ({@link resolveProjectByCwd} + {@link resolveCanonicalCleoDir}).
+ *
+ * When `CLEO_DIR` is set to an absolute path it pins the canonical `.cleo`
+ * directory for the entire process, bypassing the projectId → nexus
+ * `project_registry` resolution. This mirrors {@link getProjectRoot}'s
+ * long-standing `CLEO_DIR` precedence and preserves the contract that test
+ * harnesses (156 files set `CLEO_DIR=/tmp/.../.cleo`) and the `--cleo-dir` CLI
+ * flag depend on. The PM-Core V2 projectId/nexus migration (T11013/T11018)
+ * routed `getDbPath` and ~40 other `.cleo` resolvers through the new chain
+ * without carrying this override forward, so an empty per-fork nexus registry
+ * threw `E_PROJECT_NOT_FOUND` across the entire unit suite (T11262).
+ *
+ * @returns the absolute `.cleo` directory from `CLEO_DIR`, or `null` when the
+ *   variable is unset or relative.
+ * @internal
+ * @task T11262
+ */
+function _cleoDirEnvOverride(): string | null {
+  const cleoDirEnv = process.env['CLEO_DIR'];
+  return cleoDirEnv && isAbsolutePath(cleoDirEnv) ? cleoDirEnv : null;
+}
+
+/**
+ * Walk up from `cwd` to find the nearest ancestor that contains a `.cleo/`
+ * directory, returning that ancestor (the project root) — or `null` if none is
+ * found below the `$HOME`/filesystem-root guard.
+ *
+ * Unlike {@link getProjectRoot}, this does NOT require sibling markers
+ * (`.git/`, `package.json`) or a `project-info.json`: the mere presence of a
+ * `.cleo/` directory identifies a project root. This restores the long-standing
+ * "presence of `.cleo` = project" contract that the projectId/nexus migration
+ * (T11013/T11018) made strict — relied on by test fixtures that create a bare
+ * `.cleo/` (e.g. `createTestProjectDb`) and by not-yet-`cleo init` checkouts.
+ *
+ * Bounded by the same `$HOME`/`/` guard as {@link getProjectRoot} (T889/T909)
+ * to avoid the orphan-DB vector where a stray `~/.cleo/` would capture the walk.
+ *
+ * @internal
+ * @task T11262
+ */
+function _findCleoDirRoot(cwd?: string): string | null {
+  const homeRoot = homedir();
+  let current = resolve(cwd ?? process.cwd());
+  while (true) {
+    const isDangerousRoot = current === homeRoot || current === '/' || current === '';
+    if (!isDangerousRoot) {
+      try {
+        if (statSync(join(current, '.cleo')).isDirectory()) {
+          return current;
+        }
+      } catch {
+        // `.cleo` absent at this level — keep walking up.
+      }
+    }
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return null;
+}
+
+/**
  * Resolve the canonical projectId from a working directory.
  *
  * First reads `.cleo/project-info.json` from CWD or an ancestor directory (AC2).
@@ -548,6 +662,17 @@ function _resolveProjectByCwdFromNexus(cwd?: string): string | null {
  * @task T11013
  */
 export function resolveProjectByCwd(cwd?: string): string {
+  // CLEO_DIR override (backward-compat, T11262 regression fix). When CLEO_DIR
+  // is an absolute path it pins the project for the whole process; return a
+  // deterministic projectId derived from the pinned project root so callers
+  // that chain into resolveCanonicalCleoDir (which also honours CLEO_DIR) never
+  // hit the empty-registry NEXUS_PROJECT_NOT_FOUND throw. See _cleoDirEnvOverride.
+  const overrideDir = _cleoDirEnvOverride();
+  if (overrideDir !== null) {
+    const projectRoot = overrideDir.replace(/[\\/]\.cleo$/, '');
+    return _computeCanonicalProjectId(projectRoot);
+  }
+
   // AC2: Try local project-info.json first (via paths package)
   const pathsResult = _pathsResolveProjectByCwd(cwd);
   if (pathsResult !== null) {
@@ -595,6 +720,125 @@ export function resolveProjectByCwd(cwd?: string): string {
       fix: 'Run `cleo init` to initialize a CLEO project here, or cd into a project with a .cleo/ directory',
     },
   );
+}
+
+/**
+ * Resolve the absolute `.cleo/` directory for a working directory — the single
+ * canonical chokepoint for project-scoped path resolution (T11262).
+ *
+ * This replaces the lossy two-step `resolveCanonicalCleoDir(resolveProjectByCwd(cwd))`
+ * pattern, which derived a projectId from `cwd` and then re-resolved that id to
+ * a path **only** through the nexus `project_registry` — throwing for any
+ * project that exists on disk but is not registered (the dominant failure mode
+ * in tests and fresh checkouts). Resolution here derives the `.cleo` directory
+ * **directly**, with one well-defined precedence and no id round-trip:
+ *
+ *   1. Active worktree scope (spawn adapters, T380/ADR-041) — wins over all else.
+ *   2. Absolute `CLEO_DIR` override — pins the `.cleo` dir for the whole process
+ *      (test harnesses, `--cleo-dir` CLI).
+ *   3. Nearest ancestor containing a `.cleo/` directory — presence of `.cleo/`
+ *      identifies the project root (`<root>/.cleo`); no `project-info.json` or
+ *      nexus registration required. Bounded by the `$HOME`/`/` guard.
+ *   4. Cross-project nexus `project_registry` lookup by `cwd` — for callers
+ *      whose `cwd` is not under a `.cleo/` tree but is registered.
+ *   5. Throw `E_NO_PROJECT` with a remediation hint.
+ *
+ * @param cwd - Optional working directory. Defaults to `process.cwd()`.
+ * @returns Absolute path to the resolved `.cleo/` directory.
+ * @throws {CleoError} `ExitCode.NEXUS_PROJECT_NOT_FOUND` when no project resolves.
+ *
+ * @public
+ * @task T11262
+ */
+export function resolveCleoDir(cwd?: string): string {
+  // 1. Active worktree scope wins (matches getProjectRoot precedence).
+  const scope = worktreeScope.getStore();
+  if (scope !== undefined) {
+    return join(scope.worktreeRoot, '.cleo');
+  }
+
+  // 2. Absolute CLEO_DIR override.
+  const override = _cleoDirEnvOverride();
+  if (override !== null) {
+    return override;
+  }
+
+  // 3. Nearest ancestor with a `.cleo/` directory — presence = project root.
+  const root = _findCleoDirRoot(cwd);
+  if (root !== null) {
+    return join(root, '.cleo');
+  }
+
+  // 3b. Worktree gitlink: when `cwd` is inside a git worktree (`.git` is a FILE
+  //     pointing to `<mainRepo>/.git/worktrees/<name>`), the canonical project
+  //     root is the MAIN repo, not the worktree dir. Worktrees live separately
+  //     (e.g. under <cleoHome>/worktrees/) and have no `.cleo/` of their own, so
+  //     the ancestor walk above never finds one. Mirrors getProjectRoot and the
+  //     pre-refactor resolveProjectByCwd gitlink handling (T9092/T11034).
+  const start = resolve(cwd ?? process.cwd());
+  let current = start;
+  while (true) {
+    const mainRepo = _resolveMainRepoFromGitlink(current);
+    if (mainRepo !== null) {
+      return join(mainRepo, '.cleo');
+    }
+    const parent = dirname(current);
+    if (parent === current) {
+      break;
+    }
+    current = parent;
+  }
+
+  // 4. Cross-project nexus registry lookup (cwd registered but not under a
+  //    `.cleo/` tree on disk).
+  const nexusProjectId = _resolveProjectByCwdFromNexus(cwd);
+  if (nexusProjectId !== null) {
+    const dir = _resolveCanonicalCleoDir(nexusProjectId);
+    if (dir !== null) {
+      return dir;
+    }
+  }
+
+  // 5. Throw with remediation hint.
+  throw new CleoError(
+    ExitCode.NEXUS_PROJECT_NOT_FOUND,
+    'No CLEO project found — not in a CLEO project directory and no registry match. ' +
+      'Run `cleo init` to create a new project, or cd into an existing CLEO project.',
+    {
+      fix: 'Run `cleo init` to initialize a CLEO project here, or cd into a project with a .cleo/ directory',
+    },
+  );
+}
+
+/**
+ * Non-throwing variant of {@link resolveCleoDir}.
+ *
+ * Resolves the canonical `.cleo/` directory for `cwd`, returning `null` instead
+ * of throwing `E_NO_PROJECT` when no CLEO project can be resolved. Use this for
+ * genuinely-OPTIONAL `.cleo/` lookups — callers that must degrade gracefully
+ * when invoked outside a CLEO project (e.g. loading the optional
+ * `project-context.json` tier of the variable-substitution resolver, or any
+ * best-effort `.cleo`-resident enrichment). For required resolution that should
+ * fail loudly, use {@link resolveCleoDir}.
+ *
+ * Only the terminal `E_NO_PROJECT` (`NEXUS_PROJECT_NOT_FOUND`) is swallowed;
+ * any other error (e.g. a forbidden-walkup guard) still propagates.
+ *
+ * @param cwd - Optional working directory. Defaults to `process.cwd()`.
+ * @returns Absolute path to the resolved `.cleo/` directory, or `null`.
+ *
+ * @public
+ * @task T11280
+ */
+export function tryResolveCleoDir(cwd?: string): string | null {
+  try {
+    return resolveCleoDir(cwd);
+  } catch (err) {
+    if (err instanceof CleoError && err.code === ExitCode.NEXUS_PROJECT_NOT_FOUND) {
+      return null;
+    }
+    throw err;
+  }
 }
 
 /**
@@ -2059,8 +2303,18 @@ export async function registerProjectOnEncounter(
 ): Promise<void> {
   try {
     const { canonicalProjectId: computeCanonicalId } = await import('./nexus/identity.js');
+    const { generateProjectHash } = await import('./nexus/hash.js');
     const canonicalResult = await computeCanonicalId(projectRoot);
     const canonicalId = canonicalResult.id;
+    // T11281 (owner directive 2026-05-29): the registry's projectId is the
+    // project's IMMUTABLE lifetime identity — assigned once, stored in
+    // .cleo/project-info.json, and carried verbatim through move / rename /
+    // export-import, no matter which nexus it registers with. The path-derived
+    // canonical id is NOT move-stable (it changes when the path changes), so it
+    // is recorded only as an ALIAS; projectHash (generateProjectHash) is the
+    // path fingerprint that updates on move. Fall back to the canonical id only
+    // when the project carries no stored id yet (first assignment / fresh init).
+    const immutableId = infoProjectId && infoProjectId.length > 0 ? infoProjectId : canonicalId;
     const { getNexusDb } = await import('./store/nexus-sqlite.js');
     const { eq } = await import('drizzle-orm');
     const { projectRegistry, projectIdAliases } = await import('./store/nexus-schema.js');
@@ -2068,7 +2322,7 @@ export async function registerProjectOnEncounter(
     const existingRows = await db
       .select()
       .from(projectRegistry)
-      .where(eq(projectRegistry.projectId, canonicalId))
+      .where(eq(projectRegistry.projectId, immutableId))
       .limit(1);
     const now = new Date().toISOString();
     const resolvedPath = resolve(projectRoot);
@@ -2077,51 +2331,78 @@ export async function registerProjectOnEncounter(
     if (existingRows.length > 0) {
       const existingPath = existingRows[0].projectPath as string;
       if (existingPath !== resolvedPath) {
+        // Seamless move/rename/export-import: same immutable projectId, new
+        // path. Update the path AND the projectHash fingerprint so the dual
+        // fingerprint tracks the new location (T11281).
         const newBrainDbPath = join(resolvedPath, '.cleo', 'brain.db');
         const newTasksDbPath = join(resolvedPath, '.cleo', 'tasks.db');
         await db
           .update(projectRegistry)
           .set({
             projectPath: resolvedPath,
+            projectHash: generateProjectHash(resolvedPath),
             brainDbPath: newBrainDbPath,
             tasksDbPath: newTasksDbPath,
             lastSeen: now,
           })
-          .where(eq(projectRegistry.projectId, canonicalId));
+          .where(eq(projectRegistry.projectId, immutableId));
       } else {
         await db
           .update(projectRegistry)
           .set({ lastSeen: now })
-          .where(eq(projectRegistry.projectId, canonicalId));
+          .where(eq(projectRegistry.projectId, immutableId));
       }
       return;
     }
-    await db.insert(projectRegistry).values({
-      projectId: canonicalId,
-      projectHash: canonicalResult.components.gitRoot,
-      projectPath: resolvedPath,
-      name: projectName,
-      registeredAt: now,
-      lastSeen: now,
-      healthStatus: 'unknown',
-      healthLastCheck: null,
-      permissions: 'read',
-      lastSync: now,
-      taskCount: 0,
-      labelsJson: '[]',
-      brainDbPath: join(resolvedPath, '.cleo', 'brain.db'),
-      tasksDbPath: join(resolvedPath, '.cleo', 'tasks.db'),
-      statsJson: '{}',
-    });
+    // T11281: This insert follows a non-transactional select-by-projectId
+    // "not found" check above. Because the caller is a fire-and-forget
+    // `registerProjectOnEncounter(...).catch(() => {})` (paths.ts auto-register
+    // on first encounter, T11021), it can race a concurrent explicit
+    // `nexusRegister`/`registerProjectOnEncounter` for the same project: both
+    // pass the existence check, then both INSERT, and the loser throws
+    // `UNIQUE constraint failed: project_registry.project_path` (or the
+    // projectId PK). The auto-register is best-effort and idempotent by intent,
+    // so a lost race must be a silent no-op, not a thrown error. onConflictDoNothing
+    // makes the canonical-id PK and the project_path UNIQUE index both safe.
+    await db
+      .insert(projectRegistry)
+      .values({
+        projectId: immutableId,
+        // T11280: projectHash MUST be the canonical sha256-derived hash of the
+        // resolved path (matching nexusRegister/generateProjectHash), NOT the raw
+        // gitRoot path. The previous value polluted the registry with a path in
+        // the hash column, producing spurious name-collision errors when a later
+        // nexusRegister computed the real hash for the same project.
+        projectHash: generateProjectHash(resolvedPath),
+        projectPath: resolvedPath,
+        name: projectName,
+        registeredAt: now,
+        lastSeen: now,
+        healthStatus: 'unknown',
+        healthLastCheck: null,
+        permissions: 'read',
+        lastSync: now,
+        taskCount: 0,
+        labelsJson: '[]',
+        brainDbPath: join(resolvedPath, '.cleo', 'brain.db'),
+        tasksDbPath: join(resolvedPath, '.cleo', 'tasks.db'),
+        statsJson: '{}',
+      })
+      .onConflictDoNothing();
+    // Map every alternate identity token — the path-derived canonical id, the
+    // legacy base64url id, and any declared legacy aliases — to the IMMUTABLE
+    // registry id, so a lookup by ANY of them resolves to the project's lifetime
+    // row via the alias table (T11281). The immutable id is never its own alias.
     const aliases = canonicalResult.legacyAliases ?? [];
     const { legacyProjectId } = await import('./nexus/identity.js');
     const directLegacy = legacyProjectId(resolvedPath);
-    const allAliases = new Set<string>([directLegacy, infoProjectId, ...aliases]);
+    const allAliases = new Set<string>([directLegacy, canonicalId, infoProjectId, ...aliases]);
+    allAliases.delete(immutableId);
     for (const legacyId of allAliases) {
       try {
         await db
           .insert(projectIdAliases)
-          .values({ legacyId, canonicalId, createdAt: now })
+          .values({ legacyId, canonicalId: immutableId, createdAt: now })
           .onConflictDoNothing();
       } catch {
         /* best-effort */

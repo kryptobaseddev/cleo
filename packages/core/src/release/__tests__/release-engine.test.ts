@@ -67,10 +67,12 @@ async function setupTestDb(): Promise<void> {
 describe('Release Engine', () => {
   beforeEach(async () => {
     TEST_ROOT = await mkdtemp(join(tmpdir(), 'cleo-release-engine-'));
-    // T9583: validateProjectRoot legacy-fallback requires `.cleo/` +
-    // `.git/` siblings. setupTestDb() creates `.cleo/` via the data
-    // accessor; add `.git/` so getProjectRoot() accepts TEST_ROOT.
+    // T9583/T11262: validateProjectRoot legacy-fallback requires `.cleo/` +
+    // `.git/` siblings, and the canonical resolveCleoDir SSoT now requires the
+    // `.cleo/` to pre-exist (no orphan synthesis). Create both before opening
+    // the data accessor.
     const { mkdir } = await import('node:fs/promises');
+    await mkdir(join(TEST_ROOT, '.cleo'), { recursive: true });
     await mkdir(join(TEST_ROOT, '.git'), { recursive: true });
     await setupTestDb();
   });

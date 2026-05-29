@@ -372,7 +372,7 @@
     "ai": "^6.0.162",
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
-    "drizzle-orm": "1.0.0-beta.22-ec7b61d",
+    "drizzle-orm": "1.0.0-rc.3",
     "env-paths": "^4.0.0",
     "js-tiktoken": "^1.0.21",
     "pino": "^10.3.1",
@@ -401,7 +401,7 @@
     "jsonrepair": "^3.8.0"
   },
   "engines": {
-    "node": ">=24.13.0"
+    "node": ">=24.16.0"
   },
   "license": "MIT",
   "publishConfig": {
@@ -428,6 +428,6 @@
   },
   "optionalDependencies": {
     "@cleocode/studio": "workspace:^",
-    "llmtxt": "^2026.4.13"
+    "llmtxt": "^2026.5.15"
   }
 }

@@ -39,7 +39,7 @@ import type {
   VariableResolver,
 } from '@cleocode/contracts';
 import { pushWarning } from '../output.js';
-import { resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
+import { tryResolveCleoDir } from '../paths.js';
 
 /**
  * Mustache placeholder regex — matches `{{var}}` / `{{ var.path }}` with
@@ -427,7 +427,18 @@ export interface LoadProjectContextResult {
  * @task T1238
  */
 export function loadProjectContext(projectRoot: string): LoadProjectContextResult {
-  const cleoDir = resolveCanonicalCleoDir(resolveProjectByCwd(projectRoot));
+  // project-context.json is an OPTIONAL tier — when invoked outside a CLEO
+  // project (no resolvable `.cleo/`), degrade gracefully rather than throwing
+  // E_NO_PROJECT, per this function's non-throwing contract (T1238/T11280).
+  const cleoDir = tryResolveCleoDir(projectRoot);
+  if (cleoDir === null) {
+    return {
+      context: null,
+      path: join(projectRoot, '.cleo', 'project-context.json'),
+      loaded: false,
+      reason: 'no CLEO project resolved for project context lookup',
+    };
+  }
   const path = join(cleoDir, 'project-context.json');
 
   if (!existsSync(path)) {

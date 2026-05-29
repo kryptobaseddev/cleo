@@ -1,7 +1,7 @@
 {
   "name": "@cleocode/runtime",
   "version": "2026.5.122",
-  "description": "Long-running process layer for CLEO — agent polling, SSE connections, heartbeat, key rotation",
+  "description": "Long-running process layer for CLEO \u2014 agent polling, SSE connections, heartbeat, key rotation",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -33,5 +33,8 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "engines": {
+    "node": ">=24.16.0"
   }
 }

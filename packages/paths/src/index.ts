@@ -24,6 +24,7 @@
 export { isAbsolutePath } from './abs-path.js';
 export {
   _resetCleoPlatformPathsCache,
+  canonicalizePath,
   computeCanonicalProjectId,
   getCanonicalTemplatesTildePath,
   getCleoHome,
@@ -36,6 +37,18 @@ export {
   resolveLegacyCleoDir,
   resolveProjectByCwd,
 } from './cleo-paths.js';
+export {
+  type EnforceOptions,
+  enforceNodeVersion,
+  evaluateNodeVersion,
+  FALLBACK_MIN_NODE,
+  getRequiredNodeVersion,
+  type NodeManager,
+  type NodeVersionVerdict,
+  parseSemver,
+  type Semver,
+  type UpgradeHint,
+} from './node-version-gate.js';
 export {
   createPlatformPathsResolver,
   type PlatformPaths,

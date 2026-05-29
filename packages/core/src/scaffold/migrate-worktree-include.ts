@@ -19,7 +19,7 @@
 import { existsSync } from 'node:fs';
 import { copyFile, mkdir, rename } from 'node:fs/promises';
 import { join } from 'node:path';
-import { resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
+import { resolveCleoDir } from '../paths.js';
 
 /**
  * Outcome of {@link migrateWorktreeIncludeFile}.
@@ -78,8 +78,7 @@ export async function migrateWorktreeIncludeFile(
 ): Promise<MigrateWorktreeIncludeResult> {
   const dryRun = opts.dryRun === true;
   const canonicalPath = join(projectRoot, '.worktreeinclude');
-  const projectId = resolveProjectByCwd(projectRoot);
-  const cleoDir = resolveCanonicalCleoDir(projectId);
+  const cleoDir = resolveCleoDir(projectRoot);
   const legacyPath = join(cleoDir, 'worktree-include');
 
   const canonicalExists = existsSync(canonicalPath);

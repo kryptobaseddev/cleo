@@ -62,6 +62,9 @@ beforeEach(async () => {
   process.env['CLEO_HOME'] = registryDir;
   process.env['NEXUS_HOME'] = join(registryDir, 'nexus');
   process.env['NEXUS_CACHE_DIR'] = join(registryDir, 'nexus', 'cache');
+  // T11281: isolate the reconcile-contract unit from the encounter-time
+  // auto-register side-effect so each scenario controls registration state.
+  process.env['CLEO_DISABLE_PROJECT_AUTOREGISTER'] = '1';
 
   resetNexusDbState();
 });
@@ -70,6 +73,7 @@ afterEach(async () => {
   delete process.env['CLEO_HOME'];
   delete process.env['NEXUS_HOME'];
   delete process.env['NEXUS_CACHE_DIR'];
+  delete process.env['CLEO_DISABLE_PROJECT_AUTOREGISTER'];
   resetNexusDbState();
   resetDbState();
   await rm(testDir, { recursive: true, force: true });

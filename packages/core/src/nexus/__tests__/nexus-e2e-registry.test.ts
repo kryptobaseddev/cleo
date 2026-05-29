@@ -82,6 +82,10 @@ beforeEach(async () => {
   process.env['NEXUS_CACHE_DIR'] = join(registryDir, 'nexus', 'cache');
   process.env['NEXUS_CURRENT_PROJECT'] = 'e2e-project';
   delete process.env['NEXUS_SKIP_PERMISSION_CHECK'];
+  // T11281: isolate registry/reconcile assertions from the encounter-time
+  // auto-register side-effect so explicit registration controls state (no
+  // fire-and-forget race against project_path UNIQUE).
+  process.env['CLEO_DISABLE_PROJECT_AUTOREGISTER'] = '1';
 
   resetNexusDbState();
   resetDbState();
@@ -94,6 +98,7 @@ afterEach(async () => {
   delete process.env['NEXUS_CACHE_DIR'];
   delete process.env['NEXUS_CURRENT_PROJECT'];
   delete process.env['NEXUS_SKIP_PERMISSION_CHECK'];
+  delete process.env['CLEO_DISABLE_PROJECT_AUTOREGISTER'];
   resetNexusDbState();
   resetDbState();
   invalidateGraphCache();

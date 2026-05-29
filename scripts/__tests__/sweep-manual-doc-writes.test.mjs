@@ -163,20 +163,20 @@ describe('sweep-manual-doc-writes — classification', () => {
     writeFileSync(join(projectRoot, '.cleo/research/r-orphan.md'), orphanBody);
     gitCommit(projectRoot, 'post-cutoff additions');
 
-    // Stub `cleo`:
-    //   - ADR-002 in-sync   → blobBySha keyed by file SHA
-    //   - ADR-003 drift     → list contains slug 'adr-003-drift' but with a
-    //                          different sha (the on-disk SHA is NOT in blobBySha)
-    //   - r-orphan          → neither index has it
+    // Stub `cleo` (T11294 — list now returns the FULL content sha, so the
+    // sweep resolves in-sync from the single `docs list` call with zero
+    // per-file `docs fetch` spawns):
+    //   - ADR-002 in-sync → list sha256 === file SHA (full)
+    //   - ADR-003 drift   → list contains slug 'adr-003-drift' with a DIFFERENT
+    //                        full sha (on-disk content differs)
+    //   - r-orphan        → neither sha nor slug index has it
     const insyncSha = sha256(insyncBody);
+    const driftListSha = 'd'.repeat(64); // full, deliberately != driftBody sha
     writeStub({
       listAttachments: [
-        { slug: 'adr-002-insync', type: 'adr', sha256: insyncSha.slice(0, 8) + '…', id: 'att-1' },
-        { slug: 'adr-003-drift', type: 'adr', sha256: 'deadbeef…', id: 'att-2' },
+        { slug: 'adr-002-insync', type: 'adr', sha256: insyncSha, id: 'att-1' },
+        { slug: 'adr-003-drift', type: 'adr', sha256: driftListSha, id: 'att-2' },
       ],
-      blobBySha: {
-        [insyncSha]: { slug: 'adr-002-insync', type: 'adr', id: 'att-1' },
-      },
     });
 
     const env = { ...process.env, PATH: `${stubBin}:${process.env.PATH}` };

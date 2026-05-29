@@ -40,7 +40,7 @@
  * @task T9839
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -56,6 +56,8 @@ describe('Parallel task updates (gh#391 SQLITE_BUSY retry)', () => {
 
   beforeEach(async () => {
     testDir = mkdtempSync(join(tmpdir(), 'cleo-gh391-'));
+    // Pre-create `.cleo/` so resolveCleoDir resolves the temp dir (T11262).
+    mkdirSync(join(testDir, '.cleo'), { recursive: true });
     resetDbState();
     accessor = await createSqliteDataAccessor(testDir);
   });

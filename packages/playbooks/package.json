@@ -1,7 +1,7 @@
 {
   "name": "@cleocode/playbooks",
   "version": "2026.5.122",
-  "description": "Playbook DSL + runtime for CLEO — T889 Orchestration Coherence v3",
+  "description": "Playbook DSL + runtime for CLEO \u2014 T889 Orchestration Coherence v3",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -25,7 +25,7 @@
   "dependencies": {
     "@cleocode/contracts": "workspace:*",
     "@cleocode/core": "workspace:*",
-    "drizzle-orm": "1.0.0-beta.22-ec7b61d",
+    "drizzle-orm": "1.0.0-rc.3",
     "js-yaml": "^4.1.0"
   },
   "devDependencies": {
@@ -48,5 +48,8 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "engines": {
+    "node": ">=24.16.0"
   }
 }

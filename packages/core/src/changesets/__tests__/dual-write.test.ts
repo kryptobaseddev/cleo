@@ -13,7 +13,7 @@
  * @task T9793
  */
 
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ChangesetEntry } from '@cleocode/contracts';
@@ -30,6 +30,8 @@ let projectRoot: string;
 
 beforeEach(() => {
   projectRoot = mkdtempSync(join(tmpdir(), 'cleo-changeset-dual-'));
+  // Pre-create `.cleo/` so resolveCleoDir resolves the temp dir (T11262).
+  mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
 });
 
 afterEach(() => {

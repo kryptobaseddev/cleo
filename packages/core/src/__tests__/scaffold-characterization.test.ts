@@ -251,11 +251,13 @@ describe('characterization: ensureProjectInfo', () => {
     expect(existsSync(join(tmpDir, '.cleo', 'project-info.json'))).toBe(true);
   });
 
-  it('returns action=skipped when file exists and has projectId', async () => {
+  it('returns action=skipped when file exists and has projectId and name', async () => {
     writeFileSync(
       join(tmpDir, '.cleo', 'project-info.json'),
       JSON.stringify({
         projectId: 'abc-123',
+        // PM-Core V2 also backfills name — include it so nothing needs repair.
+        name: 'abc-project',
         projectHash: 'x',
         cleoVersion: '1',
         lastUpdated: new Date().toISOString(),
@@ -272,7 +274,8 @@ describe('characterization: ensureProjectInfo', () => {
     );
     const result = await ensureProjectInfo(tmpDir);
     expect(result.action).toBe('repaired');
-    expect(result.details).toContain('projectId');
+    // PM-Core V2 (c636c662b) backfills projectId AND name → generic message.
+    expect(result.details).toBe('Backfilled missing fields');
   });
 
   it('written file contains projectHash and cleoVersion', async () => {

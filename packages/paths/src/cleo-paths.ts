@@ -12,9 +12,16 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+// T11280: node:sqlite is loaded LAZILY (via createRequire below) rather than as
+// an eager top-level value import. @cleocode/paths is imported transitively by
+// core's sqlite.ts; an eager `node:sqlite` import here pulls the native binding
+// in at module-load, defeating the lazy-init invariant proven by core's
+// sqlite-lazy-init.test.ts (T1331). Only resolveCanonicalCleoDir's nexus-registry
+// lookup actually opens a database.
+import type { DatabaseSync as DatabaseSyncType } from 'node:sqlite';
 import {
   createPlatformPathsResolver,
   type PlatformPaths,
@@ -22,6 +29,24 @@ import {
 } from './platform-paths.js';
 
 const TEMPLATES_SUBDIR = 'templates';
+
+/**
+ * Returns the `node:sqlite` `DatabaseSync` constructor, loaded on first use.
+ *
+ * Loaded via `createRequire` so that importing this module does not eagerly pull
+ * in `node:sqlite` — preserving the lazy-init invariant (T1331/T11280).
+ *
+ * @internal
+ */
+function getDatabaseSyncCtor(): new (
+  ...args: ConstructorParameters<typeof DatabaseSyncType>
+) => DatabaseSyncType {
+  const _require = createRequire(import.meta.url);
+  const mod = _require('node:sqlite') as {
+    DatabaseSync: new (...args: ConstructorParameters<typeof DatabaseSyncType>) => DatabaseSyncType;
+  };
+  return mod.DatabaseSync;
+}
 
 const cleoResolver = createPlatformPathsResolver('cleo', 'CLEO_HOME', 'CLEO_CONFIG_HOME');
 
@@ -232,6 +257,39 @@ function _readProjectInfoName(repoRoot: string): string | undefined {
 }
 
 /**
+ * Canonicalize a filesystem path across operating systems — resolve symlinks
+ * and mount/alias divergence (macOS `/var` → `/private/var`, Windows
+ * drive-letter case + 8.3 short names, Linux bind-mounts) via
+ * {@link realpathSync}.
+ *
+ * Falls back to the lexically-resolved absolute path when the target does not
+ * exist on disk, so identity/root computations never throw for a moved,
+ * deleted, or not-yet-created project path.
+ *
+ * **SSoT:** this is the single path-canonicalization entry point for the CLEO
+ * SDK. Never call `realpathSync` ad-hoc for path identity — route through here
+ * so the OS-specific normalization stays consistent across every consumer and
+ * test (notably the macOS `/var` vs `/private/var` split).
+ *
+ * @param p - A relative or absolute filesystem path.
+ * @returns The realpath-canonicalized absolute path, or the lexically-resolved
+ *   absolute path when the target does not exist.
+ *
+ * @public
+ * @task T11023
+ */
+export function canonicalizePath(p: string): string {
+  const resolved = resolve(p);
+  try {
+    return realpathSync(resolved);
+  } catch {
+    // Target does not exist (moved / deleted / not-yet-created) — the
+    // lexically-resolved absolute path is the best canonical form available.
+    return resolved;
+  }
+}
+
+/**
  * Compute the canonical project ID for a given repository path (T9149/T11023).
  *
  * Algorithm:
@@ -251,7 +309,7 @@ function _readProjectInfoName(repoRoot: string): string | undefined {
  * @task T9149
  */
 export function computeCanonicalProjectId(repoPath: string): string {
-  const realRepoPath = realpathSync(resolve(repoPath));
+  const realRepoPath = canonicalizePath(repoPath);
 
   const gitRoot = _findGitRootSync(realRepoPath);
   const effectiveRoot = gitRoot ?? realRepoPath;
@@ -319,16 +377,12 @@ export function resolveProjectByCwd(cwd?: string): ResolvedProject | null {
         const data = JSON.parse(raw) as Record<string, unknown>;
 
         if (typeof data.projectId === 'string' && data.projectId.length > 0) {
-          // T11023: Normalize projectRoot via realpathSync to handle cross-mount
-          // divergence — same repo at /mnt/projects/X and /workspace/X resolves
-          // to the same real path (AC2, AC3).
-          let realRoot: string;
-          try {
-            realRoot = realpathSync(current);
-          } catch {
-            // realpathSync fails on nonexistent paths — fall back to resolved path
-            realRoot = current;
-          }
+          // T11023: Normalize projectRoot via the canonicalizePath SSoT to
+          // handle cross-mount + cross-OS divergence — same repo at
+          // /mnt/projects/X and /workspace/X (and macOS /var vs /private/var)
+          // resolves to the same real path (AC2, AC3). Falls back to the
+          // lexical path when `current` no longer exists on disk.
+          const realRoot = canonicalizePath(current);
 
           // T11023: Compute canonical projectId using T9149 algorithm
           // (git-root + realpath fingerprint) for mount-invariant identity (AC1).
@@ -382,8 +436,9 @@ export function resolveCanonicalCleoDir(projectId: string): string | null {
 
   if (!existsSync(nexusDbPath)) return null;
 
-  let db: DatabaseSync | undefined;
+  let db: DatabaseSyncType | undefined;
   try {
+    const DatabaseSync = getDatabaseSyncCtor();
     db = new DatabaseSync(nexusDbPath, { readOnly: true }); // db-open-allowed: leaf path package cannot depend on core DB chokepoint
 
     // Try direct project_registry lookup first.

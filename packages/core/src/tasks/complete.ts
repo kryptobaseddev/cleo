@@ -20,6 +20,7 @@ import { getProjectRoot, resolveOrCwd } from '../paths.js';
 import { buildSagaAutoCloseEvidence, findSagasGroupingTask } from '../sagas/storage.js';
 import { wrapWithAgentSession } from '../sessions/agent-session-adapter.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
+import { trackBackgroundOp } from '../store/background-ops.js';
 import type { DataAccessor, TransactionAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { getActiveSession } from '../store/session-store.js';
@@ -988,42 +989,46 @@ export async function completeTask(
   // Auto-populate brain graph nodes for the completed task (best-effort, T537).
   // Graph topology is still written here — only the noise-producing memory
   // row writes were removed.
-  import('../memory/graph-auto-populate.js')
-    .then(({ upsertGraphNode, addGraphEdge }) =>
-      (async () => {
-        const projectRoot = resolveOrCwd(cwd);
-        await upsertGraphNode(
-          projectRoot,
-          `task:${task.id}`,
-          'task',
-          `${task.id}: ${task.title}`.substring(0, 200),
-          1.0,
-          task.title,
-          { status: 'done', priority: task.priority },
-        );
-        if (task.parentId) {
+  // Tracked (T10490) so the test harness can flush it before tearing down the
+  // shared SQLite singleton; production still runs it fully detached.
+  trackBackgroundOp(
+    import('../memory/graph-auto-populate.js')
+      .then(({ upsertGraphNode, addGraphEdge }) =>
+        (async () => {
+          const projectRoot = resolveOrCwd(cwd);
           await upsertGraphNode(
             projectRoot,
-            `epic:${task.parentId}`,
-            'epic',
-            task.parentId,
-            1.0,
-            '',
-          );
-          await addGraphEdge(
-            projectRoot,
             `task:${task.id}`,
-            `epic:${task.parentId}`,
-            'part_of',
+            'task',
+            `${task.id}: ${task.title}`.substring(0, 200),
             1.0,
-            'auto:task-complete',
+            task.title,
+            { status: 'done', priority: task.priority },
           );
-        }
-      })(),
-    )
-    .catch(() => {
-      /* Graph population is best-effort */
-    });
+          if (task.parentId) {
+            await upsertGraphNode(
+              projectRoot,
+              `epic:${task.parentId}`,
+              'epic',
+              task.parentId,
+              1.0,
+              '',
+            );
+            await addGraphEdge(
+              projectRoot,
+              `task:${task.id}`,
+              `epic:${task.parentId}`,
+              'part_of',
+              1.0,
+              'auto:task-complete',
+            );
+          }
+        })(),
+      )
+      .catch(() => {
+        /* Graph population is best-effort */
+      }),
+  );
 
   // Dispatch PostToolUse hook — triggers observer, quality feedback, and memory bridge refresh.
   // This is the missing link between "task completed" and "brain processes it" (T555).

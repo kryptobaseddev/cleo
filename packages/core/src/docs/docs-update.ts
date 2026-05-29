@@ -26,6 +26,7 @@ import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
+  blobAttachmentSchema,
   DOCS_LIFECYCLE_STATUSES,
   type DocsLifecycleStatus,
   type DocsUpdateParams,
@@ -526,13 +527,23 @@ export async function updateDocBySlug(
   // future put of the same content will reuse the file rather than
   // creating a duplicate.
   const mime = hasContent ? 'text/plain' : 'application/octet-stream';
-  const newAttachmentJson = JSON.stringify({
-    kind: 'blob',
-    name: oldRow.slug ?? slug,
+  // Contract-compliant BlobAttachment shape (T11262). Historic rows used
+  // {name, blobId} which violated the canonical {sha256, storageKey} shape
+  // defined in `@cleocode/contracts/attachment.ts` and broke read paths that
+  // call `.split('/')` on `storageKey`. Compute the storage key from the SHA
+  // + MIME so reads can derive the on-disk path without re-resolving.
+  const newStorageKey = `${newSha256.slice(0, 2)}/${newSha256.slice(2)}${extFromMime(mime)}`;
+  const newAttachmentValue = {
+    kind: 'blob' as const,
+    sha256: newSha256,
+    storageKey: newStorageKey,
     mime,
     size: buf.length,
-    blobId: newSha256,
-  });
+  };
+  // Validate against the canonical contract before persisting — any future
+  // shape drift fails fast at the writer chokepoint (T11262 Part 3).
+  blobAttachmentSchema.parse(newAttachmentValue);
+  const newAttachmentJson = JSON.stringify(newAttachmentValue);
   const newBlobPath = blobPath(newSha256, mime, projectRoot);
 
   try {

@@ -24,6 +24,7 @@ import { join } from 'node:path';
 import { getCleoHome } from '@cleocode/paths';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { getNativeTasksDb } from '../store/sqlite.js';
 import { taskRelatesRemove } from '../tasks/engine-wrap.js';
 import { coreTaskReparent } from '../tasks/task-reparent.js';
 import { SAGA_GROUPS_RELATION } from './constants.js';
@@ -112,12 +113,23 @@ export async function migrateSagaContainment(
   params: MigrateSagaContainmentParams = {},
 ): Promise<EngineResult<MigrateSagaContainmentResult>> {
   const { sagaId, dryRun = false } = params;
-  const accessor = await getTaskAccessor(projectRoot);
-  const db = (accessor as { db?: { all: (sql: string, ...args: unknown[]) => unknown[] } }).db;
+  // Open (or reuse) the tasks.db singleton so the native handle is available.
+  await getTaskAccessor(projectRoot);
+  const nativeDb = getNativeTasksDb();
 
-  if (!db) {
+  if (!nativeDb) {
     return engineError('E_GENERAL', 'Database handle not available from accessor');
   }
+
+  // T11280: read-only scan helper over the canonical native handle. The
+  // SqliteDataAccessor does not expose a raw `.db`; the native DatabaseSync's
+  // prepared-statement `.all(...)` is the SSoT surface for ad-hoc reads.
+  const db = {
+    all: (sql: string, ...args: unknown[]): unknown[] =>
+      nativeDb
+        .prepare(sql)
+        .all(...(args as Parameters<ReturnType<typeof nativeDb.prepare>['all']>)),
+  };
 
   // 1. Find sagas to scan.
   const sagaFilter = sagaId ? `AND p.id = ?` : '';

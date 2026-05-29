@@ -8,10 +8,10 @@
  * - runGitLogTaskLinker: git-log sweeper + idempotency
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type DatabaseSync from 'better-sqlite3';
+import type { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { EDGE_TYPES } from '../../memory/edge-types.js';
 import { BRAIN_EDGE_TYPES } from '../../store/memory-schema.js';
@@ -21,12 +21,14 @@ import { getSymbolsForTask, getTasksForSymbol, linkTaskToSymbols } from '../task
 
 describe('tasks-bridge', () => {
   let projectRoot: string;
-  let brainDb: DatabaseSync.Database;
-  let nexusDb: DatabaseSync.Database;
+  let brainDb: DatabaseSync;
+  let nexusDb: DatabaseSync;
 
   beforeEach(async () => {
-    // Create isolated temp directory for this test
+    // Create isolated temp directory for this test, with a `.cleo/` so the
+    // canonical resolveCleoDir SSoT resolves it as a project root (T11262).
     projectRoot = mkdtempSync(join(tmpdir(), 'tasks-bridge-test-'));
+    mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
 
     // Initialize databases (will create schema)
     await getBrainDb(projectRoot);

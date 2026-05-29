@@ -24,6 +24,7 @@ import type {
   DependencyReport,
   DependencySpec,
 } from '@cleocode/contracts';
+import { evaluateNodeVersion } from '@cleocode/paths';
 import { PLATFORM } from '../platform.js';
 
 /** ESM-safe require function for loading native addons. */
@@ -64,20 +65,6 @@ function tryExec(cmd: string, args: string[], timeoutMs = 3000): string | null {
 function which(cmd: string): string | null {
   const tool = PLATFORM === 'windows' ? 'where' : 'which';
   return tryExec(tool, [cmd]);
-}
-
-/**
- * Parse a semver-style major version from an arbitrary version string.
- * Returns the numeric major version, or `null` if unparseable.
- *
- * @param raw - Raw version string (e.g. "git version 2.43.0", "v24.1.0").
- */
-function parseMajorVersion(raw: string): number | null {
-  // Match first sequence of digits (possibly preceded by "v")
-  const match = /\bv?(\d+)/.exec(raw);
-  if (!match) return null;
-  const major = Number(match[1]);
-  return Number.isNaN(major) ? null : major;
 }
 
 // ============================================================================
@@ -162,30 +149,29 @@ const DEPENDENCY_SPECS: DependencySpec[] = [
 // ============================================================================
 
 /**
- * Check Node.js availability and version constraint (>=24.0.0).
+ * Check Node.js availability and version constraint.
  *
- * Node is always present when CLEO runs — this check validates the VERSION
- * meets the minimum requirement, not merely that Node exists.
+ * Node is always present when CLEO runs — this validates the VERSION meets the
+ * minimum. Delegates to the {@link evaluateNodeVersion} SSoT gate in
+ * `@cleocode/paths` (full-semver compare against the runtime-read `engines.node`
+ * floor) rather than a local major-only literal: 24.13.1 has major 24 but is
+ * below the 24.16.0 floor where the bundled SQLite WAL-reset fix landed.
  */
 function checkNode(): DependencyCheckResult {
-  const raw = process.version; // e.g. "v24.1.0"
-  const version = raw.replace(/^v/, '');
-  const major = parseMajorVersion(raw) ?? 0;
-  const healthy = major >= 24;
+  const v = evaluateNodeVersion();
 
   return {
     name: 'node',
     category: 'required',
     installed: true,
-    version,
+    version: v.current,
     location: process.execPath,
-    healthy,
-    ...(healthy
+    healthy: v.compliant,
+    ...(v.compliant
       ? {}
       : {
-          error: `Node.js ${version} does not meet the minimum requirement of >=24.0.0`,
-          suggestedFix:
-            'Upgrade Node.js: curl -fsSL https://fnm.vercel.app/install | bash && fnm install 24',
+          error: `Node.js ${v.current} does not meet the minimum requirement of >=${v.required}`,
+          suggestedFix: v.hints[0]?.command ?? `Upgrade Node.js to >= ${v.required}`,
         }),
   };
 }

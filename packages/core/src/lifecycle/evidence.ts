@@ -10,7 +10,7 @@
 
 import { basename, relative } from 'node:path';
 import { getLogger } from '../logger.js';
-import { resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
+import { resolveCleoDir } from '../paths.js';
 import * as schema from '../store/tasks-schema.js';
 
 const log = getLogger('lifecycle:evidence');
@@ -169,8 +169,7 @@ export async function linkProvenance(
   filePath: string,
   cwd?: string,
 ): Promise<EvidenceRecord> {
-  const projectId = resolveProjectByCwd(cwd);
-  const cleoDir = resolveCanonicalCleoDir(projectId);
+  const cleoDir = resolveCleoDir(cwd);
   const relativeUri = relative(cleoDir, filePath).replaceAll('\\', '/');
   const description = basename(filePath);
 

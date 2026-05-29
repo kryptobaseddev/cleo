@@ -22,5 +22,8 @@
     "type": "git",
     "url": "https://github.com/kryptobaseddev/cleo",
     "directory": "packages/skills"
+  },
+  "engines": {
+    "node": ">=24.16.0"
   }
 }

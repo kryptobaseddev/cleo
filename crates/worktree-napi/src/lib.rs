@@ -46,8 +46,8 @@ use worktrunk_core::copy::{copy_dir_recursive, copy_leaf};
 use worktrunk_core::git::{ProcessRepo, Repo};
 use worktrunk_core::git_wt::{
     WorktreeHandle, WorktreeInfo, destroy_worktree as core_destroy_worktree,
-    list_worktrees as core_list_worktrees, lock_worktree,
-    provision_worktree as core_provision_worktree,
+    integrate_worktree as core_integrate_worktree, list_worktrees as core_list_worktrees,
+    lock_worktree, provision_worktree as core_provision_worktree,
 };
 use worktrunk_core::progress::Progress;
 use worktrunk_core::remove_dir::remove_dir_with_progress as core_remove_dir_with_progress;
@@ -185,6 +185,83 @@ pub fn destroy_worktree(opts: DestroyOpts) -> napi::Result<DestroyResult> {
     Ok(DestroyResult {
         removed: true,
         branch_deleted: false,
+    })
+}
+
+// ── integrate_worktree ──────────────────────────────────────────────
+
+/// Options for [`integrate_worktree`] (T11124).
+#[napi(object)]
+pub struct IntegrateOpts {
+    /// Absolute path to the git repository (the main repo / project root).
+    pub repo_root: String,
+    /// Absolute path to the agent worktree directory (used for diagnostics).
+    pub worktree_path: String,
+    /// The worktree's branch to merge (e.g. `task/T1587-slug`).
+    pub branch: String,
+    /// The branch to merge into (e.g. `main`).
+    pub target_branch: String,
+    /// Optional human task title, embedded in the merge-commit subject.
+    pub task_title: Option<String>,
+    /// When `true`, skip the pre-merge `git fetch` (offline / local-only).
+    pub skip_fetch: bool,
+}
+
+/// Result of [`integrate_worktree`] (T11124).
+#[napi(object)]
+pub struct IntegrateResult {
+    /// Task ID extracted from the branch (e.g. `T1587`).
+    pub task_id: String,
+    /// The branch that was merged into.
+    pub target_branch: String,
+    /// Whether the integration succeeded (including the no-commits no-op).
+    pub merged: bool,
+    /// 40-char merge-commit SHA, or empty when there was nothing to merge or
+    /// the merge failed.
+    pub merge_commit: String,
+    /// Number of commits the branch was ahead of `target_branch`.
+    pub commit_count: u32,
+    /// Whether a rebase fallback was used (always `false` today).
+    pub rebased: bool,
+    /// Failure reason when `merged` is `false`.
+    pub error: Option<String>,
+}
+
+/// Integrate a finished agent worktree branch into its target via a
+/// non-fast-forward merge, preserving agent commit SHAs (ADR-062, T11124).
+///
+/// Wraps [`worktrunk_core::git_wt::integrate_worktree`]. Branch-missing and
+/// merge-conflict cases are returned as `merged: false` with `error` set — they
+/// are NOT napi errors. A napi error is only raised when `git` itself cannot be
+/// invoked.
+///
+/// # Errors
+///
+/// Returns a [`napi::Error`] only when the underlying git invocation fails at
+/// the process level (e.g. `git` missing from PATH).
+#[napi]
+pub fn integrate_worktree(opts: IntegrateOpts) -> napi::Result<IntegrateResult> {
+    let repo_root = PathBuf::from(&opts.repo_root);
+    let worktree_path = PathBuf::from(&opts.worktree_path);
+
+    let outcome = core_integrate_worktree(
+        &repo_root,
+        &worktree_path,
+        &opts.branch,
+        &opts.target_branch,
+        opts.task_title.as_deref(),
+        opts.skip_fetch,
+    )
+    .map_err(napi_err)?;
+
+    Ok(IntegrateResult {
+        task_id: outcome.task_id,
+        target_branch: outcome.target_branch,
+        merged: outcome.merged,
+        merge_commit: outcome.merge_commit,
+        commit_count: outcome.commit_count,
+        rebased: outcome.rebased,
+        error: outcome.error,
     })
 }
 

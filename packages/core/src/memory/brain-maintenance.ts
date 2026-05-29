@@ -20,9 +20,15 @@
  */
 
 import { runDeriverBatch } from '../deriver/consumer.js';
+import { getLogger } from '../logger.js';
 import { reconcileOrphanedRefs } from '../store/cross-db-cleanup.js';
 import { applyTemporalDecay, consolidateMemories, runTierPromotion } from './brain-lifecycle.js';
 import { populateEmbeddings } from './brain-retrieval.js';
+
+// Structured (pino) logger — direct stderr write, NOT `console.*`, so these
+// best-effort deferred logs do not race vitest worker teardown
+// (EnvironmentTeardownError / onUserConsoleLog). (T11281/T10490)
+const log = getLogger('maintenance');
 
 // ============================================================================
 // Constants
@@ -278,7 +284,7 @@ export async function runPruneSweep(
   }
 
   if (dryRun) {
-    console.error(
+    log.info(
       `[prune-sweep] dry-run: would delete ${wouldDelete} entries across 4 tables (cap=${cap})`,
     );
     return { deleted: 0, wouldDelete, dryRun, byTable };
@@ -326,7 +332,7 @@ export async function runPruneSweep(
     }
   }
 
-  console.error(
+  log.info(
     `[prune-sweep] step-9f: deleted ${deleted} entries (would-qualify=${wouldDelete}, cap=${cap})`,
   );
 
@@ -477,7 +483,7 @@ export async function runBrainMaintenance(
       pruneSweepResult.byTable = raw.byTable;
       onProgress?.('prune-sweep', 1, 1);
     } catch (err) {
-      console.warn('[maintenance] Step 9f prune sweep failed:', err);
+      log.warn({ err }, 'Step 9f prune sweep failed');
     }
   }
 
@@ -492,7 +498,7 @@ export async function runBrainMaintenance(
       deriverResult.staleRequeued = raw.staleRequeued;
       onProgress?.('deriver', 1, 1);
     } catch (err) {
-      console.warn('[maintenance] Deriver batch step failed:', err);
+      log.warn({ err }, 'Deriver batch step failed');
     }
   }
 

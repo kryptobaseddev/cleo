@@ -102,7 +102,13 @@ export type DocsType = BuiltinDocKind;
 export interface DocsAttachmentRow {
   /** Attachment identifier (UUID-like string). */
   id: string;
-  /** SHA-256 hash of content; truncated to 8 chars in list views. */
+  /**
+   * Full SHA-256 hex digest of the content (64 chars). The machine envelope
+   * always carries the complete hash so consumers can do exact content-equality
+   * checks; human/table rendering may abbreviate it for display. (T11294 —
+   * truncating it here previously forced the Manual-Write-Sweep into O(docs)
+   * `docs fetch` spawns to recover the real digest.)
+   */
   sha256: string;
   /** Attachment kind / storage mode. */
   kind: AttachmentKind;

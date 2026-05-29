@@ -58,6 +58,9 @@ describe('release.push agent protocol guard', () => {
   beforeEach(async () => {
     TEST_ROOT = mkdtempSync(join(tmpdir(), 'cleo-release-push-guard-'));
     CLEO_DIR = join(TEST_ROOT, '.cleo');
+    // Pre-create `.cleo/` so resolveCleoDir resolves TEST_ROOT deterministically
+    // rather than relying on a CLEO_DIR env leaked by a prior test (T11262).
+    mkdirSync(CLEO_DIR, { recursive: true });
     await setupTestDb();
     writeConfig({ release: { push: { enabled: true, requireCleanTree: false } } });
     // Save original env values

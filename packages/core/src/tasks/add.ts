@@ -25,6 +25,7 @@ import { CleoError } from '../errors.js';
 import { resolveOrCwd } from '../paths.js';
 import { allocateNextTaskId } from '../sequence/index.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
+import { trackBackgroundOp } from '../store/background-ops.js';
 import type { DataAccessor, TransactionAccessor } from '../store/data-accessor.js';
 import {
   acItemToText,
@@ -1340,18 +1341,22 @@ export async function addTask(
   // completion. Prior to this hook, addTask never wrote to the graph, so new
   // tasks were invisible until completeTask ran. Fire-and-forget: any failure
   // is swallowed inside ensureTaskNode so graph writes never fail task creation.
-  import('../memory/graph-auto-populate.js')
-    .then(({ ensureTaskNode }) =>
-      ensureTaskNode(resolveOrCwd(cwd), taskId, options.title, {
-        status,
-        priority,
-        type: taskType,
-        ...(parentId ? { parentId } : {}),
+  // Tracked (T10490) so the test harness can flush it before tearing down the
+  // shared SQLite singleton; production still runs it fully detached.
+  trackBackgroundOp(
+    import('../memory/graph-auto-populate.js')
+      .then(({ ensureTaskNode }) =>
+        ensureTaskNode(resolveOrCwd(cwd), taskId, options.title, {
+          status,
+          priority,
+          type: taskType,
+          ...(parentId ? { parentId } : {}),
+        }),
+      )
+      .catch(() => {
+        /* Graph population is best-effort — never fail addTask. */
       }),
-    )
-    .catch(() => {
-      /* Graph population is best-effort — never fail addTask. */
-    });
+  );
 
   // T1634 — LOOM auto-init for new epics.
   // Every new epic automatically initializes the RCASD-IVTR lifecycle pipeline
@@ -1360,11 +1365,15 @@ export async function addTask(
   // uninitialized pipeline). Fire-and-forget: failures are swallowed inside
   // initLoomForEpic so LOOM init never blocks or fails epic creation.
   if (taskType === 'epic') {
-    import('../orchestrate/lifecycle-ops.js')
-      .then(({ initLoomForEpic }) => initLoomForEpic(taskId, resolveOrCwd(cwd)))
-      .catch(() => {
-        /* LOOM init is best-effort — never fail addTask. */
-      });
+    // Tracked (T10490) — initLoomForEpic touches the shared tasks singleton via
+    // getDb(); flushing it before a test teardown prevents cross-test races.
+    trackBackgroundOp(
+      import('../orchestrate/lifecycle-ops.js')
+        .then(({ initLoomForEpic }) => initLoomForEpic(taskId, resolveOrCwd(cwd)))
+        .catch(() => {
+          /* LOOM init is best-effort — never fail addTask. */
+        }),
+    );
   }
 
   return {

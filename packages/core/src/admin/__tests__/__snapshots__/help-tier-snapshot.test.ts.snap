@@ -498,6 +498,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1
       "list",
       "fetch",
       "generate",
+      "llm-output",
     ],
   },
   "focus": {
@@ -817,7 +818,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1
 }
 `;
 
-exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1 — operation count snapshot > tier-1-operationCount 1`] = `294`;
+exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1 — operation count snapshot > tier-1-operationCount 1`] = `295`;
 
 exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — domain-grouped operations snapshot > tier-2-groupedOperations 1`] = `
 {
@@ -933,6 +934,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
       "list",
       "fetch",
       "generate",
+      "llm-output",
     ],
   },
   "focus": {
@@ -1367,4 +1369,4 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
 }
 `;
 
-exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — operation count snapshot (full surface) > tier-2-operationCount 1`] = `413`;
+exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — operation count snapshot (full surface) > tier-2-operationCount 1`] = `414`;

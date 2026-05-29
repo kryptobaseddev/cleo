@@ -109,8 +109,10 @@ describe('docs dispatch integration (T947)', () => {
     expect(entry?.kind).toBe('local-file');
     expect(entry?.description).toBe('integration fixture');
     expect(entry?.labels).toEqual(['integration', 'smoke']);
-    // Truncated sha256 ("<first-8>…") in list responses
-    expect(entry?.sha256.startsWith(addData.sha256.slice(0, 8))).toBe(true);
+    // Full sha256 in list responses (T11294) — a content-hash field in the
+    // machine envelope must be the complete digest, not a display-truncated form.
+    expect(entry?.sha256).toBe(addData.sha256);
+    expect(entry?.sha256).toMatch(/^[0-9a-f]{64}$/);
 
     // Backend observability on read path — always llmtxt (Wave C).
     expect(listResp.meta['attachmentBackend']).toBe('llmtxt');

@@ -530,8 +530,12 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       // Build the wire projection from ResolvedDoc[] — match DocsListResult shape
       const projected = docs.map((doc) => ({
         id: doc.id,
-        sha256: `${doc.sha256.slice(0, 8)}…`,
-        _sortSha: doc.sha256,
+        // Full content hash — a SHA-256 field in a machine envelope must be the
+        // real digest, never a display-truncated form (T11294: the per-doc
+        // `docs fetch` the Manual-Write-Sweep had to spawn existed solely to
+        // recover the full hash the list previously hid). Human/table rendering
+        // abbreviates for display, not the data layer.
+        sha256: doc.sha256,
         kind: 'blob' as const,
         mime: doc.mimeType ?? '—',
         size: doc.sizeBytes,
@@ -547,8 +551,8 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
 
       projected.sort((a, b) =>
         comparator(
-          { sha256: a._sortSha, slug: a.slug, createdAt: a.createdAt },
-          { sha256: b._sortSha, slug: b.slug, createdAt: b.createdAt },
+          { sha256: a.sha256, slug: a.slug, createdAt: a.createdAt },
+          { sha256: b.sha256, slug: b.slug, createdAt: b.createdAt },
         ),
       );
 
@@ -570,7 +574,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           limit: Number.isFinite(effectiveLimit) ? effectiveLimit : 0,
           orderBy,
           ...(hintParts.length > 0 ? { hint: hintParts.join(' ') } : {}),
-          attachments: projected.map(({ _sortSha: _drop, ...row }) => row),
+          attachments: projected,
           attachmentBackend: backend as DocsListResult['attachmentBackend'],
         },
         'list',
@@ -585,8 +589,8 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
 
     const projectedOwner = ownerDocs.map((doc) => ({
       id: doc.id,
-      sha256: `${doc.sha256.slice(0, 8)}…`,
-      _sortSha: doc.sha256,
+      // Full content hash (see project-scope note above; T11294).
+      sha256: doc.sha256,
       kind: 'blob' as const,
       mime: doc.mimeType ?? '—',
       size: doc.sizeBytes,
@@ -600,8 +604,8 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
 
     projectedOwner.sort((a, b) =>
       comparator(
-        { sha256: a._sortSha, slug: a.slug, createdAt: a.createdAt },
-        { sha256: b._sortSha, slug: b.slug, createdAt: b.createdAt },
+        { sha256: a.sha256, slug: a.slug, createdAt: a.createdAt },
+        { sha256: b.sha256, slug: b.slug, createdAt: b.createdAt },
       ),
     );
 
@@ -626,7 +630,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         limit: Number.isFinite(effectiveLimit) ? effectiveLimit : 0,
         orderBy,
         ...(hintParts.length > 0 ? { hint: hintParts.join(' ') } : {}),
-        attachments: slicedOwner.map(({ _sortSha: _drop, ...row }) => row),
+        attachments: slicedOwner,
         attachmentBackend: backend as DocsListResult['attachmentBackend'],
       },
       'list',

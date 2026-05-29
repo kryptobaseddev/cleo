@@ -25,7 +25,7 @@
     "isolation"
   ],
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=24.16.0"
   },
   "author": "CLEO Code <hello@cleocode.dev>",
   "license": "MIT",

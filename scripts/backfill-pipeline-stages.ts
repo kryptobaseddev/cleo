@@ -18,8 +18,8 @@
  */
 
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
-import Database from 'better-sqlite3';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const projectRoot = join(__dirname, '..');
@@ -40,7 +40,7 @@ function resolveStage(task: TaskRow): string {
 }
 
 function run(): void {
-  const db = new Database(dbPath);
+  const db = new DatabaseSync(dbPath);
 
   const rows = db
     .prepare(
@@ -66,15 +66,21 @@ function run(): void {
 
   const counts: Record<string, number> = {};
 
-  const runAll = db.transaction(() => {
+  // node:sqlite's DatabaseSync has no `.transaction()` helper (that is a
+  // better-sqlite3 API). Wrap the batch in an explicit BEGIN/COMMIT with a
+  // ROLLBACK on failure to preserve the all-or-nothing semantics.
+  db.exec('BEGIN');
+  try {
     for (const task of rows) {
       const stage = resolveStage(task);
       update.run(stage, now, task.id);
       counts[stage] = (counts[stage] ?? 0) + 1;
     }
-  });
-
-  runAll();
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
 
   console.log('Backfill complete. Stage distribution applied:');
   for (const [stage, count] of Object.entries(counts).sort()) {

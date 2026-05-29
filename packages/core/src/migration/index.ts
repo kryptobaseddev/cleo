@@ -73,13 +73,7 @@ export {
 import { join } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
-import {
-  getBackupDir,
-  getConfigPath,
-  getTaskPath,
-  resolveCanonicalCleoDir,
-  resolveProjectByCwd,
-} from '../paths.js';
+import { getBackupDir, getConfigPath, getTaskPath, resolveCleoDir } from '../paths.js';
 import { readJson, saveJson } from '../store/json.js';
 
 /** Schema version info. */
@@ -281,10 +275,7 @@ export async function getMigrationStatus(cwd?: string): Promise<MigrationStatus>
 
   // Check archive
   try {
-    const archivePath = join(
-      resolveCanonicalCleoDir(resolveProjectByCwd(cwd)),
-      'todo-archive.json',
-    );
+    const archivePath = join(resolveCleoDir(cwd), 'todo-archive.json');
     const archiveData = await readJson(archivePath);
     if (archiveData) {
       const current = detectVersion(archiveData);
@@ -314,7 +305,7 @@ export async function runMigration(
   const filePaths: Record<string, string> = {
     todo: getTaskPath(cwd),
     config: getConfigPath(cwd),
-    archive: join(resolveCanonicalCleoDir(resolveProjectByCwd(cwd)), 'todo-archive.json'),
+    archive: join(resolveCleoDir(cwd), 'todo-archive.json'),
   };
 
   const filePath = filePaths[fileType];

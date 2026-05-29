@@ -31,7 +31,7 @@
 import { chmod, constants, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { AgentIdentity, identityFromSeed, verifySignature } from 'llmtxt/identity';
-import { resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
+import { resolveCleoDir } from '../paths.js';
 
 /**
  * Re-export the {@link AgentIdentity} class so callers can import everything
@@ -87,7 +87,7 @@ const KEY_RELATIVE_PATH = join('keys', 'cleo-identity.json');
  * @task T947
  */
 export function getCleoIdentityPath(cwd?: string): string {
-  const cleoDir = resolveCanonicalCleoDir(resolveProjectByCwd(cwd));
+  const cleoDir = resolveCleoDir(cwd);
   return join(cleoDir, KEY_RELATIVE_PATH);
 }
 

@@ -11,7 +11,7 @@
  * brain.db + tasks.db data, asserts >0 rows across substrates where seeded.
  */
 
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -159,6 +159,8 @@ describe('living-brain SDK', () => {
 
   beforeEach(async () => {
     projectRoot = mkdtempSync(join(tmpdir(), 'living-brain-test-'));
+    // Pre-create `.cleo/` so resolveCleoDir resolves the temp dir (T11262).
+    mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
 
     // Initialize databases (creates schema)
     await getBrainDb(projectRoot);
@@ -350,6 +352,7 @@ describe('living-brain SDK', () => {
     it('getSymbolFullContext does not throw when nexus DB is absent', async () => {
       // Use a fresh project root with no nexus DB initialized
       const emptyRoot = mkdtempSync(join(tmpdir(), 'living-brain-empty-'));
+      mkdirSync(join(emptyRoot, '.cleo'), { recursive: true });
       try {
         // Only init brain.db — no nexus
         await getBrainDb(emptyRoot);
@@ -366,6 +369,7 @@ describe('living-brain SDK', () => {
 
     it('getTaskCodeImpact does not throw when no edges exist', async () => {
       const emptyRoot = mkdtempSync(join(tmpdir(), 'living-brain-empty2-'));
+      mkdirSync(join(emptyRoot, '.cleo'), { recursive: true });
       try {
         await getBrainDb(emptyRoot);
         const impact = await getTaskCodeImpact('T001', emptyRoot);
@@ -381,6 +385,7 @@ describe('living-brain SDK', () => {
 
     it('getBrainEntryCodeAnchors does not throw when brain DB is empty', async () => {
       const emptyRoot = mkdtempSync(join(tmpdir(), 'living-brain-empty3-'));
+      mkdirSync(join(emptyRoot, '.cleo'), { recursive: true });
       try {
         await getBrainDb(emptyRoot);
         const anchors = await getBrainEntryCodeAnchors('observation:nonexistent', emptyRoot);

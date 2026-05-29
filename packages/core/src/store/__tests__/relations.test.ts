@@ -7,7 +7,7 @@
  */
 
 import type { Task } from '@cleocode/contracts';
-import { mkdtempSync, rmSync } from 'fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -18,8 +18,11 @@ describe('Task Relations Persistence (T5168)', () => {
   let accessor: Awaited<ReturnType<typeof createSqliteDataAccessor>>;
 
   beforeEach(async () => {
-    // Create a temporary directory for each test
+    // Create a temporary directory for each test, with a `.cleo/` so the
+    // canonical resolveCleoDir SSoT resolves it as a project root (no orphan
+    // synthesis — T11262/T9803).
     testDir = mkdtempSync(join(tmpdir(), 'cleo-relations-test-'));
+    mkdirSync(join(testDir, '.cleo'), { recursive: true });
     accessor = await createSqliteDataAccessor(testDir);
   });
 

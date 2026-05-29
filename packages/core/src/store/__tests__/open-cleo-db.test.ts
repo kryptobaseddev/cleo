@@ -19,7 +19,11 @@ import { openCleoDb, openCleoDbSnapshot, validateProjectIdConsistency } from '..
 // ---------------------------------------------------------------------------
 
 function makeTempDir(): string {
-  return mkdtempSync(join(tmpdir(), 'cleo-test-open-cleo-db-'));
+  const dir = mkdtempSync(join(tmpdir(), 'cleo-test-open-cleo-db-'));
+  // Pre-create `.cleo/` so the canonical resolveCleoDir SSoT resolves this
+  // temp dir as a project root (no orphan synthesis — T11262/T9803).
+  mkdirSync(join(dir, '.cleo'), { recursive: true });
+  return dir;
 }
 
 function cleanupTempDir(dir: string): void {

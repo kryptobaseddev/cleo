@@ -7,6 +7,7 @@ import envPaths from 'env-paths';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   _resetCleoPlatformPathsCache,
+  canonicalizePath,
   computeCanonicalProjectId,
   getCanonicalTemplatesTildePath,
   getCleoHome,
@@ -177,6 +178,10 @@ describe('cleo-paths', () => {
         'cleo-paths-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
       );
       mkdirSync(tempDir, { recursive: true });
+      // Canonicalize the fixture root the SAME way resolveProjectByCwd does
+      // (realpath) so assertions match cross-OS — notably macOS, where tmpdir()
+      // is /var/folders/… but realpath resolves to /private/var/folders/…
+      tempDir = canonicalizePath(tempDir);
     });
 
     afterEach(() => {
@@ -271,11 +276,35 @@ describe('cleo-paths', () => {
     });
 
     it('uses process.cwd() when no cwd argument', () => {
-      const result = resolveProjectByCwd();
-      expect(result).not.toBeNull();
-      // T11023: projectId is 12-char hex
-      expect(result!.projectId).toMatch(/^[0-9a-f]{12}$/);
-      expect(result!.projectRoot.length).toBeGreaterThan(0);
+      // T11281: drive the no-argument (process.cwd()) path from a deterministic
+      // fixture project rather than depending on the ambient repo carrying a
+      // .cleo/project-info.json — that file is gitignored and ABSENT in CI, so
+      // the previous assertion (`not.toBeNull()`) failed there. chdir into the
+      // fixture, assert, then restore cwd.
+      const fixtureDir = join(tmpdir(), `cleo-cwd-default-${Date.now()}`);
+      const cleoDir = join(fixtureDir, '.cleo');
+      mkdirSync(cleoDir, { recursive: true });
+      writeFileSync(
+        join(cleoDir, 'project-info.json'),
+        JSON.stringify({ projectId: 'cwd-default-uuid' }),
+      );
+      try {
+        execFileSync('git', ['init'], { cwd: fixtureDir, stdio: 'ignore' });
+      } catch {
+        /* git optional — computeCanonicalProjectId falls back to path */
+      }
+      const origCwd = process.cwd();
+      try {
+        process.chdir(fixtureDir);
+        const result = resolveProjectByCwd();
+        expect(result).not.toBeNull();
+        // T11023: projectId is the 12-char-hex canonical runtime id
+        expect(result!.projectId).toMatch(/^[0-9a-f]{12}$/);
+        expect(result!.projectRoot.length).toBeGreaterThan(0);
+      } finally {
+        process.chdir(origCwd);
+        rmSync(fixtureDir, { recursive: true, force: true });
+      }
     });
 
     // T11023: Cross-mount divergence tests (AC5)

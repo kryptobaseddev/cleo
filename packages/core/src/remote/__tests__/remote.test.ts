@@ -31,6 +31,12 @@ vi.mock('../../store/git-checkpoint.js', () => ({
 
 // Mock paths.js — return a stable fake cleoDir
 vi.mock('../../paths.js', () => ({
+  // remote/index.ts resolves its `.cleo/` dir via the canonical resolveCleoDir
+  // SSoT helper (T11262). Mock that single export; the legacy helpers are
+  // retained for any incidental reference.
+  resolveCleoDir: vi.fn().mockReturnValue('/fake/.cleo'),
+  resolveProjectByCwd: vi.fn().mockReturnValue('test-project'),
+  resolveCanonicalCleoDir: vi.fn().mockReturnValue('/fake/.cleo'),
   getCleoDirAbsolute: vi.fn().mockReturnValue('/fake/.cleo'),
 }));
 

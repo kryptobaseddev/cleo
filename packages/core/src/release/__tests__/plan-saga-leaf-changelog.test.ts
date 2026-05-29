@@ -128,13 +128,14 @@ async function seedSagaWithMembers(
   const memberEpicIds: string[] = [];
   try {
     await accessor.setMetaValue('schema_version', '2.10.0');
-    // Build the Saga first (Epic with label='saga').
+    // PM-Core V2 (T10638): saga is type='saga' and membership is parent_id
+    // containment (saga→epic), NOT the legacy type='epic'+labels:['saga'] +
+    // task_relations.type='groups' shape.
     await accessor.upsertSingleTask(
       makeTask({
         id: sagaId,
-        type: 'epic',
+        type: 'saga',
         title: 'Saga',
-        labels: ['saga'],
         pipelineStage: 'contribution',
       }),
     );
@@ -146,6 +147,8 @@ async function seedSagaWithMembers(
           id: memberId,
           type: 'epic',
           title: `Member Epic ${m}`,
+          // Member Epics are contained by the Saga via parent_id (saga→epic).
+          parentId: sagaId,
           pipelineStage: 'contribution',
         }),
       );
@@ -155,8 +158,6 @@ async function seedSagaWithMembers(
           makeTask({ id: childId, parentId: memberId, title: `M${m}-Child${c}` }),
         );
       }
-      // Link saga → member via type='groups' (ADR-073 I3).
-      await accessor.addRelation(sagaId, memberId, 'groups');
     }
   } finally {
     await accessor.close();
@@ -299,16 +300,16 @@ describe('releasePlan --saga (T9838 Fix 1)', () => {
   });
 
   it('returns E_EPIC_EMPTY when a saga has zero member epics', async () => {
-    // Saga exists, labels=['saga'], but no `relates` of type='groups'.
+    // PM-Core V2 (T10638): saga is type='saga' with zero parent_id-contained
+    // member epics.
     const accessor = await createSqliteDataAccessor(testDir);
     try {
       await accessor.setMetaValue('schema_version', '2.10.0');
       await accessor.upsertSingleTask(
         makeTask({
           id: 'T9997',
-          type: 'epic',
+          type: 'saga',
           title: 'Lonely Saga',
-          labels: ['saga'],
         }),
       );
     } finally {

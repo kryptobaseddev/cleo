@@ -37,6 +37,12 @@ vi.mock('../../sentient/state.js', () => ({
 }));
 
 vi.mock('../../paths.js', () => ({
+  // dream-cycle.ts (under test) dynamically imports resolveCleoDir to locate
+  // sentient-state.json (T11262). Mock that canonical helper; the legacy
+  // helpers are retained for any incidental reference.
+  resolveCleoDir: vi.fn().mockReturnValue('/fake/.cleo'),
+  resolveProjectByCwd: vi.fn().mockReturnValue('test-project'),
+  resolveCanonicalCleoDir: vi.fn().mockReturnValue('/fake/.cleo'),
   getCleoDirAbsolute: vi.fn().mockReturnValue('/fake/.cleo'),
 }));
 

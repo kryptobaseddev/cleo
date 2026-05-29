@@ -6,7 +6,7 @@
  * of silently losing data through the in-memory mutation path.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
@@ -21,6 +21,8 @@ describe('relates.ts addRelation persistence (T5168)', () => {
 
   beforeEach(async () => {
     testDir = mkdtempSync(join(tmpdir(), 'cleo-relates-core-test-'));
+    // Pre-create `.cleo/` so resolveCleoDir resolves the temp dir (T11262).
+    mkdirSync(join(testDir, '.cleo'), { recursive: true });
     accessor = await createSqliteDataAccessor(testDir);
 
     // Seed two tasks

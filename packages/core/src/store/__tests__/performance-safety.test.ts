@@ -24,7 +24,11 @@ vi.mock('../git-checkpoint.js', () => ({
   gitCheckpoint: vi.fn().mockResolvedValue(undefined),
 }));
 
-describe('Safety Performance', () => {
+// T11281: retry under load — these are hard wall-clock assertions (<50ms /
+// <200ms / etc.) that are inherently sensitive to CPU + SQLite contention during
+// the full parallel shard sweep. They pass in isolation; retry absorbs transient
+// contention on the shards CI does not already pass --retry to (only macOS-1).
+describe('Safety Performance', { retry: 2 }, () => {
   let tempDir: string;
   let cleoDir: string;
 

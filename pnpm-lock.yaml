@@ -30,8 +30,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(ajv@8.18.0)
       drizzle-orm:
-        specifier: 1.0.0-beta.22-ec7b61d
-        version: 1.0.0-beta.22-ec7b61d(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6)
+        specifier: 1.0.0-rc.3
+        version: 1.0.0-rc.3(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6)
       env-paths:
         specifier: ^4.0.0
         version: 4.0.0
@@ -39,8 +39,8 @@ importers:
         specifier: ^1.0.21
         version: 1.0.21
       llmtxt:
-        specifier: ^2026.4.9
-        version: 2026.4.9(@cleocode/lafs@packages+lafs)(better-sqlite3@12.9.0)(drizzle-orm@1.0.0-beta.22-ec7b61d(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9)
+        specifier: ^2026.5.15
+        version: 2026.5.15(@cleocode/lafs@packages+lafs)(drizzle-orm@1.0.0-rc.3(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9)
       pino:
         specifier: ^10.3.1
         version: 10.3.1
@@ -82,8 +82,8 @@ importers:
         specifier: ^22.19.11
         version: 22.19.15
       drizzle-kit:
-        specifier: 1.0.0-beta.19-d95b7a4
-        version: 1.0.0-beta.19-d95b7a4
+        specifier: 1.0.0-rc.3
+        version: 1.0.0-rc.3
       esbuild:
         specifier: '>=0.25.0'
         version: 0.28.0
@@ -313,8 +313,8 @@ importers:
         specifier: ^0.24.8
         version: 0.24.8
       llmtxt:
-        specifier: ^2026.4.13
-        version: 2026.4.13(@cleocode/lafs@packages+lafs)(better-sqlite3@12.9.0)(drizzle-orm@1.0.0-beta.22-ec7b61d(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9)
+        specifier: ^2026.5.15
+        version: 2026.5.15(@cleocode/lafs@packages+lafs)(drizzle-orm@1.0.0-rc.3(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9)
       node-cron:
         specifier: ^4.2.1
         version: 4.2.1
@@ -472,8 +472,8 @@ importers:
         specifier: ^3.4.0
         version: 3.4.0
       drizzle-orm:
-        specifier: 1.0.0-beta.22-ec7b61d
-        version: 1.0.0-beta.22-ec7b61d(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6)
+        specifier: 1.0.0-rc.3
+        version: 1.0.0-rc.3(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6)
       env-paths:
         specifier: ^4.0.0
         version: 4.0.0
@@ -564,8 +564,8 @@ importers:
         specifier: workspace:^
         version: link:../studio
       llmtxt:
-        specifier: ^2026.4.13
-        version: 2026.4.13(@cleocode/lafs@packages+lafs)(better-sqlite3@12.9.0)(drizzle-orm@1.0.0-beta.22-ec7b61d(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9)
+        specifier: ^2026.5.15
+        version: 2026.5.15(@cleocode/lafs@packages+lafs)(drizzle-orm@1.0.0-rc.3(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9)
 
   packages/git-shim:
     dependencies:
@@ -641,8 +641,8 @@ importers:
         specifier: workspace:*
         version: link:../contracts
       drizzle-orm:
-        specifier: 1.0.0-beta.22-ec7b61d
-        version: 1.0.0-beta.22-ec7b61d(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6)
+        specifier: 1.0.0-rc.3
+        version: 1.0.0-rc.3(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6)
       graphology:
         specifier: ^0.26.0
         version: 0.26.0(graphology-types@0.24.8)
@@ -718,8 +718,8 @@ importers:
         specifier: workspace:*
         version: link:../core
       drizzle-orm:
-        specifier: 1.0.0-beta.22-ec7b61d
-        version: 1.0.0-beta.22-ec7b61d(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6)
+        specifier: 1.0.0-rc.3
+        version: 1.0.0-rc.3(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6)
       js-yaml:
         specifier: ^4.1.0
         version: 4.1.1
@@ -810,8 +810,8 @@ importers:
         specifier: ^4.7.10
         version: 4.12.12
       llmtxt:
-        specifier: '*'
-        version: 2026.4.13(@cleocode/lafs@packages+lafs)(better-sqlite3@12.9.0)(drizzle-orm@1.0.0-beta.22-ec7b61d(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9)
+        specifier: ^2026.5.15
+        version: 2026.5.15(@cleocode/lafs@2026.5.122)(drizzle-orm@1.0.0-rc.3(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9)
       loro-crdt:
         specifier: '*'
         version: 1.11.0
@@ -1374,6 +1374,11 @@ packages:
 
   '@cleocode/lafs@2026.4.9':
     resolution: {integrity: sha512-9htqNRQfVxBc22WQDipGgdkOkzn6vtmbxgJvZo8RS7ALw8XhnzCglq+ZeC8T1PufPz6NgIfQywkHlLzWgp7vTg==}
+    engines: {node: '>=22.0.0'}
+    hasBin: true
+
+  '@cleocode/lafs@2026.5.122':
+    resolution: {integrity: sha512-lVRQ/DO5AElaTptms5J+XykHo7FT/Clmst+9NwBTmgYezP3uOPpP6s77E8n45QQ0+R67ID3x1RwKTma8RsACzg==}
     engines: {node: '>=22.0.0'}
     hasBin: true
 
@@ -3462,17 +3467,16 @@ packages:
   draco3d@1.5.7:
     resolution: {integrity: sha512-m6WCKt/erDXcw+70IJXnG7M3awwQPAsZvJGX5zY7beBqpELw6RDGkYVU0W43AFxye4pDZ5i2Lbyc/NNGqwjUVQ==}
 
-  drizzle-kit@1.0.0-beta.19-d95b7a4:
-    resolution: {integrity: sha512-M0sqc+42TYBod6kEZ3AsW6+JWe3+76gR1aDFbHH5DmuLKEwewmbzlhBG6qnvV6YA1cIIbkuam3dC7r6PREOCXw==}
+  drizzle-kit@1.0.0-rc.3:
+    resolution: {integrity: sha512-lwGIi6GTlEYzrtac1Szecns+zrAxjaOoNysfBCKRQOXQE7nMJ8IU2I2S6ek3FHEm1N30dQb5YrTdqV7zNH6n7A==}
     hasBin: true
 
-  drizzle-orm@1.0.0-beta.22-ec7b61d:
-    resolution: {integrity: sha512-v0uwVKvJEWS06KAdVRDB3fSFtdDvBb1yLLJOBjHnN4OWXQXy5V/rN/gAnHieu+H1T14euHoiiSP1z7AdO81xoA==}
+  drizzle-orm@1.0.0-rc.3:
+    resolution: {integrity: sha512-akZOa5UxapFbdBG8IDkfBRpSZJpMHaOJtGgp7oi1oHaiU8S3KN92waHo2l5aRuv1D9tMGYpv3BQFOsiGcNjLTQ==}
     peerDependencies:
       '@aws-sdk/client-rds-data': '>=3'
       '@cloudflare/workers-types': '>=4'
-      '@effect/sql': ^0.48.5
-      '@effect/sql-pg': ^0.49.7
+      '@effect/sql-pg': '>=4.0.0-beta.58 || >=4.0.0'
       '@electric-sql/pglite': '>=0.2.0'
       '@libsql/client': '>=0.10.0'
       '@libsql/client-wasm': '>=0.10.0'
@@ -3496,8 +3500,8 @@ packages:
       arktype: '>=2.0.0'
       better-sqlite3: '>=9.3.0'
       bun-types: '*'
+      effect: '>=4.0.0-beta.58 || >=4.0.0'
       expo-sqlite: '>=14.0.0'
-      gel: '>=2'
       mssql: ^11.0.1
       mysql2: '>=2'
       pg: '>=8'
@@ -3511,8 +3515,6 @@ packages:
       '@aws-sdk/client-rds-data':
         optional: true
       '@cloudflare/workers-types':
-        optional: true
-      '@effect/sql':
         optional: true
       '@effect/sql-pg':
         optional: true
@@ -3562,9 +3564,9 @@ packages:
         optional: true
       bun-types:
         optional: true
-      expo-sqlite:
+      effect:
         optional: true
-      gel:
+      expo-sqlite:
         optional: true
       mssql:
         optional: true
@@ -4409,48 +4411,20 @@ packages:
   linkify-it@5.0.0:
     resolution: {integrity: sha512-5aHCbzQRADcdP+ATqnDuhhJ/MRIqDkZX5pyjFHRRysS8vZ5AbqGEoFIb6pYHPZ+L/OC2Lc+xT8uHVVR5CAK/wQ==}
 
-  llmtxt@2026.4.13:
-    resolution: {integrity: sha512-4dk53xhm7Yvmj6m/yXVQZRzRodqQQZzrgSbTwcCUde2sB8mooaLZFs7zxe7EZbeeLMcm08xnGOtAzUe67Uj91w==}
-    engines: {node: '>=22.0.0'}
+  llmtxt@2026.5.15:
+    resolution: {integrity: sha512-VnHiGQUhYUVI6l4BdnxCmohpbwvU2KVvIIHFc7nFiNM8G8ZhBVflF/XAEQm3/rP5AkN9PXPL9bpocBizmNGRbw==}
+    engines: {node: '>=24.16'}
     hasBin: true
     peerDependencies:
       '@cleocode/lafs': '>=2026.3'
       '@vlcn.io/crsqlite': '>=0.16.3'
-      better-sqlite3: '>=11.0.0'
-      drizzle-orm: '>=1.0.0-beta.21'
+      drizzle-orm: '>=1.0.0-rc.3'
       onnxruntime-node: '>=1.18.0'
       postgres: '>=3.4.0'
     peerDependenciesMeta:
       '@cleocode/lafs':
         optional: true
       '@vlcn.io/crsqlite':
-        optional: true
-      better-sqlite3:
-        optional: true
-      drizzle-orm:
-        optional: true
-      onnxruntime-node:
-        optional: true
-      postgres:
-        optional: true
-
-  llmtxt@2026.4.9:
-    resolution: {integrity: sha512-vdrZHk9wZpkA1TYaiXq219giBoec4O+5I6BgAlA9VZzkstcAZtdXwetyYMRY+ovsCoACR3oj4M7EaDyXYzye7A==}
-    engines: {node: '>=22.0.0'}
-    hasBin: true
-    peerDependencies:
-      '@cleocode/lafs': '>=2026.3'
-      '@vlcn.io/crsqlite': '>=0.16.3'
-      better-sqlite3: '>=11.0.0'
-      drizzle-orm: '>=1.0.0-beta.21'
-      onnxruntime-node: '>=1.18.0'
-      postgres: '>=3.4.0'
-    peerDependenciesMeta:
-      '@cleocode/lafs':
-        optional: true
-      '@vlcn.io/crsqlite':
-        optional: true
-      better-sqlite3:
         optional: true
       drizzle-orm:
         optional: true
@@ -6998,6 +6972,18 @@ snapshots:
       - '@grpc/grpc-js'
       - supports-color
 
+  '@cleocode/lafs@2026.5.122':
+    dependencies:
+      '@a2a-js/sdk': 0.3.13(express@5.2.1)
+      ajv: 8.18.0
+      ajv-formats: 3.0.1(ajv@8.18.0)
+      express: 5.2.1
+    transitivePeerDependencies:
+      - '@bufbuild/protobuf'
+      - '@grpc/grpc-js'
+      - supports-color
+    optional: true
+
   '@codluv/versionguard@1.2.0':
     dependencies:
       '@clack/prompts': 1.2.0
@@ -9150,7 +9136,7 @@ snapshots:
 
   draco3d@1.5.7: {}
 
-  drizzle-kit@1.0.0-beta.19-d95b7a4:
+  drizzle-kit@1.0.0-rc.3:
     dependencies:
       '@drizzle-team/brocli': 0.11.0
       '@js-temporal/polyfill': 0.5.1
@@ -9158,7 +9144,7 @@ snapshots:
       get-tsconfig: 4.13.6
       jiti: 2.6.1
 
-  drizzle-orm@1.0.0-beta.22-ec7b61d(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6):
+  drizzle-orm@1.0.0-rc.3(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6):
     optionalDependencies:
       '@opentelemetry/api': 1.9.0
       '@sinclair/typebox': 0.34.49
@@ -10015,7 +10001,7 @@ snapshots:
     dependencies:
       uc.micro: 2.1.0
 
-  llmtxt@2026.4.13(@cleocode/lafs@packages+lafs)(better-sqlite3@12.9.0)(drizzle-orm@1.0.0-beta.22-ec7b61d(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9):
+  llmtxt@2026.5.15(@cleocode/lafs@2026.5.122)(drizzle-orm@1.0.0-rc.3(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9):
     dependencies:
       '@noble/ed25519': 3.1.0
       '@noble/hashes': 2.2.0
@@ -10024,13 +10010,12 @@ snapshots:
       yjs: 13.6.30
       zod: 4.3.6
     optionalDependencies:
-      '@cleocode/lafs': link:packages/lafs
-      better-sqlite3: 12.9.0
-      drizzle-orm: 1.0.0-beta.22-ec7b61d(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6)
+      '@cleocode/lafs': 2026.5.122
+      drizzle-orm: 1.0.0-rc.3(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6)
       onnxruntime-node: 1.24.3
       postgres: 3.4.9
 
-  llmtxt@2026.4.9(@cleocode/lafs@packages+lafs)(better-sqlite3@12.9.0)(drizzle-orm@1.0.0-beta.22-ec7b61d(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9):
+  llmtxt@2026.5.15(@cleocode/lafs@packages+lafs)(drizzle-orm@1.0.0-rc.3(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9):
     dependencies:
       '@noble/ed25519': 3.1.0
       '@noble/hashes': 2.2.0
@@ -10040,8 +10025,7 @@ snapshots:
       zod: 4.3.6
     optionalDependencies:
       '@cleocode/lafs': link:packages/lafs
-      better-sqlite3: 12.9.0
-      drizzle-orm: 1.0.0-beta.22-ec7b61d(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6)
+      drizzle-orm: 1.0.0-rc.3(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6)
       onnxruntime-node: 1.24.3
       postgres: 3.4.9
 

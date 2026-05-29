@@ -364,16 +364,18 @@ describe('releasePlan — error envelopes', () => {
     try {
       await accessor.setMetaValue('schema_version', '2.10.0');
       await accessor.upsertSingleTask(makeTask({ id: 'T9999', type: 'epic', title: 'Epic' }));
-      // Child task with no verification.evidence — should trigger R-301
+      // Child task with no verification.evidence — should trigger R-301.
+      // Status MUST be non-'done': T9758 (5d60cbc4a) grandfathers already-done
+      // tasks past the evidence gate (ADR-051 §11.1 forbids adding evidence to
+      // completed tasks), so an 'active' child is the genuine missing-evidence case.
       await accessor.upsertSingleTask({
         id: 'T10001',
         parentId: 'T9999',
         title: 'Empty-evidence child',
         description: 'Has no evidence atoms',
-        status: 'done',
+        status: 'active',
         priority: 'medium',
         createdAt: new Date().toISOString(),
-        pipelineStage: 'contribution',
         verification: {
           passed: false,
           round: 1,

@@ -9,7 +9,7 @@
  */
 
 import { existsSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -236,9 +236,13 @@ describe('SQLite store', () => {
       const originalCleoDir = process.env['CLEO_DIR'];
       delete process.env['CLEO_DIR'];
 
-      // Create two different directories
+      // Create two different directories, each with a `.cleo/` so the
+      // canonical resolveCleoDir SSoT resolves them (presence of `.cleo/`
+      // identifies a project root — no orphan synthesis, T11262/T9803).
       const tempDir1 = await mkdtemp(join(tmpdir(), 'cleo-test-1-'));
       const tempDir2 = await mkdtemp(join(tmpdir(), 'cleo-test-2-'));
+      await mkdir(join(tempDir1, '.cleo'), { recursive: true });
+      await mkdir(join(tempDir2, '.cleo'), { recursive: true });
 
       try {
         // Get db for first directory
@@ -277,6 +281,8 @@ describe('SQLite store', () => {
       delete process.env['CLEO_DIR'];
 
       const tempDir1 = await mkdtemp(join(tmpdir(), 'cleo-test-3-'));
+      // Pre-create `.cleo/` so resolveCleoDir resolves the cwd (T11262).
+      await mkdir(join(tempDir1, '.cleo'), { recursive: true });
 
       try {
         // Get db for directory twice

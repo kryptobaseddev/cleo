@@ -117,12 +117,22 @@ describe('detectContextStaleness', () => {
 
   it('returns null exactly at the staleness boundary (age == threshold)', async () => {
     // Age strictly equal to the threshold is NOT stale; detector emits only when age > threshold.
-    const detectedAt = new Date(Date.now() - CONTEXT_STALENESS_MS).toISOString();
-    mockLoadProjectContext.mockResolvedValue(makeContext(detectedAt));
+    // Freeze the clock so the detector's Date.now() equals the value used to
+    // derive detectedAt. Without this, wall-time elapsed between this line and
+    // the detector's read pushes ageMs to threshold+ε (> threshold), flipping
+    // the result to a proposal — an intermittent shard failure under CI load.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-01T00:00:00.000Z'));
+    try {
+      const detectedAt = new Date(Date.now() - CONTEXT_STALENESS_MS).toISOString();
+      mockLoadProjectContext.mockResolvedValue(makeContext(detectedAt));
 
-    const proposal = await detectContextStaleness(PROJECT_ROOT);
+      const proposal = await detectContextStaleness(PROJECT_ROOT);
 
-    expect(proposal).toBeNull();
+      expect(proposal).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

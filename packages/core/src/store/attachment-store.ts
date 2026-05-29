@@ -21,7 +21,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Attachment, AttachmentMetadata, AttachmentRef } from '@cleocode/contracts';
 import { and, eq, sql } from 'drizzle-orm';
-import { resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
+import { resolveCleoDir } from '../paths.js';
 import type { CleoBlobStore as CleoBlobStoreType } from './llmtxt-blob-adapter.js';
 import { getDb, getNativeTasksDb } from './sqlite.js';
 import { type AttachmentLifecycleStatus, attachmentRefs, attachments } from './tasks-schema.js';
@@ -165,8 +165,7 @@ function extFromMime(mime: string): string {
  * @param cwd - Optional working directory for path resolution
  */
 function getAttachmentSha256Dir(cwd?: string): string {
-  const projectId = resolveProjectByCwd(cwd);
-  return join(resolveCanonicalCleoDir(projectId), 'attachments', 'sha256');
+  return join(resolveCleoDir(cwd), 'attachments', 'sha256');
 }
 
 /**
@@ -589,7 +588,43 @@ export function createAttachmentStore(): AttachmentStore {
       const hash = sha256Of(buf);
       const mime = mimeFromAttachment({ sha256: hash, ...attachment } as Attachment);
       const filePath = blobPath(hash, mime, cwd);
-      const fullAttachment: Attachment = { sha256: hash, ...attachment } as Attachment;
+      // T11262: compute the canonical storageKey for blob kinds at the
+      // chokepoint so all callers (changeset writer, ivtr-loop, import-
+      // accessor, docs-add) produce contract-compliant rows even when they
+      // pass an empty placeholder `storageKey: ''`. This matches the
+      // {prefix}/{rest}{ext} layout used by `blobPath()` so reads can derive
+      // the on-disk path purely from the stored shape.
+      const computedStorageKey =
+        attachment.kind === 'blob'
+          ? `${hash.slice(0, 2)}/${hash.slice(2)}${extFromMime(mime)}`
+          : null;
+      // T11280: the canonical attachment contract requires a non-negative
+      // `size` (bytes) on blob/local-file kinds. Derive it from the buffer at
+      // this chokepoint so callers (search-docs publish, changeset writer,
+      // ivtr-loop, docs-add) need not pass it. An explicitly-provided `size`
+      // wins. Mirrors the sha256/storageKey injection above.
+      const providedSize =
+        'size' in attachment && typeof attachment.size === 'number' ? attachment.size : undefined;
+      const sizeOverride: { size?: number } =
+        attachment.kind === 'blob' || attachment.kind === 'local-file'
+          ? { size: providedSize ?? buf.length }
+          : {};
+      const blobOverrides: { sha256: string; storageKey?: string } =
+        attachment.kind === 'blob' && computedStorageKey !== null
+          ? { sha256: hash, storageKey: computedStorageKey }
+          : { sha256: hash };
+      const fullAttachment: Attachment = {
+        ...attachment,
+        ...blobOverrides,
+        ...sizeOverride,
+      } as Attachment;
+      // Validate against the canonical Zod contract before persisting —
+      // catches any future shape drift at the writer chokepoint (T11262).
+      // Imported lazily to avoid pulling Zod into module init for callers
+      // that only read attachments. Synchronous import works because the
+      // module graph already includes `@cleocode/contracts`.
+      const { attachmentSchema } = await import('@cleocode/contracts');
+      attachmentSchema.parse(fullAttachment);
       const slug = extras?.slug;
       const type = extras?.type;
 

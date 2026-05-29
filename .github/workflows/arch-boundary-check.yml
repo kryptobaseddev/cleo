@@ -30,6 +30,9 @@ jobs:
       - name: Run lint-no-direct-db-open (baseline mode)
         run: node scripts/lint-no-direct-db-open.mjs
 
+      - name: Run lint-node-engine-ssot (T11281)
+        run: node scripts/lint-node-engine-ssot.mjs
+
   define-command-ssot:
     # T10072 · Epic T9837 · Saga T9831 SG-ARCH-SOLID
     #

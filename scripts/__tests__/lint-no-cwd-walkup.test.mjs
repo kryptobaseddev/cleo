@@ -199,8 +199,9 @@ describe('runLint — programmatic', () => {
   });
 
   it('detects RULE-1 violation in explicit file', () => {
-    const result = runLint({ explicitFiles: ['packages/core/src/upgrade.ts'] }, REPO_ROOT);
-    // This file should have getCleoDirAbsolute references
+    const result = runLint({ explicitFiles: ['packages/core/src/project-info.ts'] }, REPO_ROOT);
+    // project-info.ts still calls the deprecated getCleoDirAbsolute shim
+    // (not yet migrated under Epic T10297) — it is a live RULE-1 violator.
     expect(result.violations.some((v) => v.rule === 'RULE-1')).toBe(true);
   });
 
@@ -238,8 +239,9 @@ describe('CLI bootstrap', () => {
   });
 
   it('exits 1 with FAIL when a violating file is present', () => {
-    // packages/core/src/upgrade.ts definitely has getCleoDirAbsolute references
-    const r = runCli(['--files', 'packages/core/src/upgrade.ts']);
+    // packages/core/src/project-info.ts still references the deprecated
+    // getCleoDirAbsolute shim (unmigrated under Epic T10297) — a live RULE-1 violator.
+    const r = runCli(['--files', 'packages/core/src/project-info.ts']);
     expect(r.status).toBe(1);
     expect(r.stderr).toContain('RULE-1');
   });
@@ -247,8 +249,8 @@ describe('CLI bootstrap', () => {
   it('--check with --files exits 0 when within baseline', () => {
     // Baseline already exists from the earlier --baseline run
     // A single file that IS in the baseline should pass --check
-    const r = runCli(['--check', '--files', 'packages/core/src/upgrade.ts']);
-    // Check mode against baseline: the violations in upgrade.ts are already
+    const r = runCli(['--check', '--files', 'packages/core/src/project-info.ts']);
+    // Check mode against baseline: the violations in project-info.ts are already
     // counted in the baseline, so even though the file has violations,
     // --check should pass if the total doesn't exceed baseline.
     // But --files mode only scans the given file, so the total will be lower

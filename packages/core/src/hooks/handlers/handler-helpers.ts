@@ -36,6 +36,30 @@ export function isMissingBrainSchemaError(err: unknown): boolean {
   return message.includes('no such table') && message.includes('brain_');
 }
 
+/**
+ * Return true when the error is the "No CLEO project found" resolution error
+ * thrown by `resolveCleoDir` (CleoError `NEXUS_PROJECT_NOT_FOUND`) when no CLEO
+ * project is resolvable from the current context.
+ *
+ * Brain-capture hooks are best-effort: an observation with no project to write
+ * into is a no-op, not a crash. Handlers swallow this exactly like the
+ * missing-schema case, so a context with no resolvable project never fails the
+ * agent flow.
+ *
+ * This also closes a cross-file test-isolation leak (T11281): the
+ * `brain-tool-complete` PostToolUse capture could resolve with no anchor inside a
+ * shared vitest fork — most acutely in CI, where the gitignored
+ * `.cleo/project-info.json` is absent — and the uncaught throw collateral-failed
+ * sibling test files (saga-audit / invariant-audit). Swallowing it at the source
+ * fixes the leak without a global env / resolution-precedence change.
+ *
+ * @param err - The caught error value (may be any type).
+ */
+export function isNoProjectError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return String(err.message || '').includes('No CLEO project found');
+}
+
 // ---------------------------------------------------------------------------
 // Auto-capture config gate
 // ---------------------------------------------------------------------------

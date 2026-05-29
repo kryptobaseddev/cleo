@@ -26,7 +26,7 @@
  * @see PR #600 (T10361 → T10167 closure)
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
@@ -39,6 +39,8 @@ describe('E3 absorbed-task closure (T10363)', () => {
 
   beforeEach(async () => {
     testDir = mkdtempSync(join(tmpdir(), 'cleo-e3-absorbed-'));
+    // Pre-create `.cleo/` so resolveCleoDir resolves the temp dir (T11262).
+    mkdirSync(join(testDir, '.cleo'), { recursive: true });
     accessor = await createSqliteDataAccessor(testDir);
   });
 

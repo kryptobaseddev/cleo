@@ -113,6 +113,10 @@ The DB schema `TASK_RELATION_TYPES` (`related`, `blocks`, `duplicates`, `absorbs
 ## Task Hierarchy (PM-Core V2 — ADR-088)
 
 **Canonical source:** `docs/adr/ADR-088-pm-core-v2-workgraph-relations-completion-criteria.md`.
+Legacy charter ADR-073 remains authoritative for pre-PM-Core V2 semantics; ADR-088
+governs the PM-Core V2 target. The **T10638 migration removed** legacy
+`task_relations.groups` hierarchy reads and the dual-shape `label='saga'` fallback —
+containment is now read exclusively from `tasks.parent_id`.
 
 | Tier    | Prefix | type value | Scope-of-change                                    |
 |---------|--------|------------|----------------------------------------------------|
@@ -136,14 +140,15 @@ from `parent_id`. The parent matrix is:
 Prefixes (`SG-`, `E-`) are DISPLAY + import-mapping only.
 
 **Non-containment (I3):** `task_relations` is for secondary graph semantics ONLY — dependency,
-ordering, cross-reference, evidence, supersession, provenance. `task_relations` MUST NOT satisfy
-containment, child listing, ancestor/descendant traversal, parent rollup, parent completion,
-nesting-budget, or closure semantics. The `groups` relation type is retired; do not use it for
-hierarchy.
+ordering, cross-reference, evidence, supersession, provenance. A `task_relations` row
+MUST NOT satisfy containment, child listing, ancestor/descendant traversal, parent rollup,
+parent completion, nesting-budget, or closure semantics. The `groups` relation type is
+retired for hierarchy; do not use `task_relations.groups` for parent/child semantics.
 
 ## Typed Completion Criteria (PM-Core V2)
 
-`task_acceptance_criteria.kind` is one of:
+PM-Core V2 introduces **typed acceptance criteria** — `task_acceptance_criteria.kind`
+is one of:
 
 | Kind | Requires `target_task_id` | Purpose |
 |------|--------------------------|---------|
@@ -153,10 +158,13 @@ hierarchy.
 
 **Key rules:**
 - A parent with children uses `child_task` criteria by default; these are **deterministic
-  projections** from `parent_id` containment.
+  projections** from `parent_id` containment (the T10639 child_task-projection backfill
+  derives parent completion from child state — mixed-criteria mode is migration-only or
+  explicit advanced scope).
 - `text` and `evidence_bound` criteria must NOT use `target_task_id`.
-- Cancelled children do NOT automatically satisfy parent completion.
-- Adding child work under a done parent reopens affected ancestors.
+- Cancelled children do NOT automatically satisfy parent completion; they require waiver
+  or replacement evidence.
+- Adding or reopening required child work under a done parent reopens affected ancestors.
 
 ## Saga Operations (PM-Core V2)
 
@@ -182,10 +190,10 @@ cleo saga members <sagaId>
 individually. Do not use `task_relations.groups` as a fallback for hierarchy — it is
 non-containment only per I3.
 
-## WorkGraph (PM-Core V2)
+## WorkGraph (PM-Core V2 — T10632/T10633/T10634)
 
-The WorkGraph subsystem provides scaffold validation, atomic application, and planning
-document generation:
+The WorkGraph subsystem provides scaffold validation (T10632), atomic application (T10633),
+and planning document generation (T10634):
 
 | Feature | What it does |
 |---------|--------------|
@@ -202,21 +210,26 @@ cleo workgraph validate --file scaffold.json --dry-run
 cleo workgraph apply --file scaffold.json
 ```
 
-## Task Context (PM-Core V2)
+## Task Context (PM-Core V2 — T10629/T10630/T10631)
 
 Bounded task context with token budgeting for agent ergonomics:
 
 | Feature | What it does |
 |---------|--------------|
-| Task Context Pack | `coreTaskContext` returns targeted task information (identity, acceptance criteria, blockers, edges, activity) respecting a configurable token budget. Uses `TasksContextOmission` to track overages and provides expansion hints. |
-| Saga Context & Readiness | Saga-level aggregate rollups: completion percentages, ready-frontiers, and blocker enumeration across all member epics via `parent_id` containment. |
+| Task Context Pack | The `tasks.context` operation (T10629) backs `coreTaskContext` (T10630): it returns targeted task information (identity, acceptance criteria, blockers, attached docs, graph edges, recent activity) respecting a configurable token budget (default 1500). Uses `TasksContextOmission` to track overages and provides expansion hints. |
+| Saga Context & Readiness | Saga-level aggregate rollups: completion percentages, ready-frontiers, and blocker enumeration across all member epics via `parent_id` containment. Grouped readiness report via `orchestrate.report` (T10631). |
 
-Example — get task context for agent use:
+The task-context **pack** is surfaced for agents via `cleo focus <taskId>` (compact, for
+prompt injection) and `cleo orchestrate report <taskId>` (full grouped readiness). Do not
+confuse this with `cleo context`, which is the separate context-WINDOW usage monitor
+(`cleo context status` / `cleo context check`).
+
+Example — get the task-context pack for agent use:
 ```bash
-# Full context with budget
+# Full grouped readiness report for a task
 cleo orchestrate report <taskId>
 
-# Compact context for prompt injection
+# Compact context pack for prompt injection
 cleo focus <taskId>
 ```
 

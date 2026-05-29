@@ -10,7 +10,7 @@
 
 import { hooks } from '../registry.js';
 import type { PostToolUsePayload, PreToolUsePayload } from '../types.js';
-import { isMissingBrainSchemaError } from './handler-helpers.js';
+import { isMissingBrainSchemaError, isNoProjectError } from './handler-helpers.js';
 import { maybeRefreshMemoryBridge } from './memory-bridge-refresh.js';
 
 /**
@@ -30,7 +30,10 @@ export async function handleToolStart(
       sourceType: 'agent',
     });
   } catch (err) {
-    if (!isMissingBrainSchemaError(err)) throw err;
+    // Best-effort brain capture: swallow migration-lag (schema not yet created)
+    // AND "no CLEO project resolvable" (T11281) — both are non-failures for an
+    // observation hook. Anything else re-throws.
+    if (!isMissingBrainSchemaError(err) && !isNoProjectError(err)) throw err;
   }
 }
 
@@ -54,7 +57,10 @@ export async function handleToolComplete(
       sourceType: 'agent',
     });
   } catch (err) {
-    if (!isMissingBrainSchemaError(err)) throw err;
+    // Best-effort brain capture: swallow migration-lag (schema not yet created)
+    // AND "no CLEO project resolvable" (T11281) — both are non-failures for an
+    // observation hook. Anything else re-throws.
+    if (!isMissingBrainSchemaError(err) && !isNoProjectError(err)) throw err;
   }
 
   // T554: Fire-and-forget observer — runs after observation is stored so the

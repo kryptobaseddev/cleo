@@ -786,19 +786,45 @@ interface MutableResolvedDoc {
  * Extract a human-readable blob/attachment name from an AttachmentMetadata record.
  *
  * Handles all Attachment variant kinds:
- *   - `blob`        → `attachment.storageKey` (last segment)
- *   - `local-file`  → `path.basename(attachment.path)`
+ *   - `blob`        → `attachment.storageKey` (last segment); falls back to
+ *                     legacy `name`/`blobId` fields when `storageKey` is absent
+ *                     (T11262 — historic rows written before the contract was
+ *                     enforced at the writer chokepoint).
+ *   - `local-file`  → `path.basename(attachment.path)` (defensive against
+ *                     missing `path`)
  *   - `url`         → the last path segment of the URL
  *   - `llms-txt`    → `"llms-txt"` (flat content, no file)
  *   - `llmtxt-doc`  → `"llmtxt-doc"` (pointer into llmtxt backend)
+ *
+ * Never throws on malformed input — always falls through to `null`.
+ *
+ * @task T11262
  */
 function extractBlobName(meta: AttachmentMetadata): string | null {
   const att = meta.attachment;
+  // Legacy/malformed shape fallback (T11262). Some historic blob rows pre-date
+  // the writer-chokepoint enforcement and carry `name`/`blobId` instead of
+  // `storageKey`. Reading must NEVER throw on those rows — list/fetch must
+  // remain functional even when a single project row is poisoned.
+  const legacyName = (att as { name?: unknown }).name;
   switch (att.kind) {
-    case 'blob':
-      return att.storageKey.split('/').pop() ?? null;
-    case 'local-file':
-      return att.path.split('/').pop() ?? null;
+    case 'blob': {
+      const sk = (att as { storageKey?: unknown }).storageKey;
+      if (typeof sk === 'string' && sk.length > 0) {
+        return sk.split('/').pop() ?? null;
+      }
+      if (typeof legacyName === 'string' && legacyName.length > 0) {
+        return legacyName;
+      }
+      return null;
+    }
+    case 'local-file': {
+      const p = (att as { path?: unknown }).path;
+      if (typeof p === 'string' && p.length > 0) {
+        return p.split('/').pop() ?? null;
+      }
+      return null;
+    }
     case 'url':
       try {
         const urlPath = new URL(att.url).pathname;

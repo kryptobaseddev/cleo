@@ -14,7 +14,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { checkSchema } from '../json-schema-validator.js';
-import { resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
+import { resolveCleoDir } from '../paths.js';
 import { getSchemaVersion, resolveSchemaPath } from '../schema-management.js';
 
 // ============================================================================
@@ -214,7 +214,7 @@ async function readSqliteVersion(cwd?: string): Promise<string | null> {
  * @param cwd - Project root (defaults to process.cwd())
  */
 export async function checkSchemaIntegrity(cwd?: string): Promise<SchemaIntegrityReport> {
-  const cleoDir = resolveCanonicalCleoDir(resolveProjectByCwd(cwd));
+  const cleoDir = resolveCleoDir(cwd);
   const files = INTEGRITY_TARGETS.map((t) => checkFile(t, cleoDir));
   const sqliteVersion = await readSqliteVersion(cwd);
 

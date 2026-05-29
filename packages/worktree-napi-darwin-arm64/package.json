@@ -20,5 +20,8 @@
     "type": "git",
     "url": "https://github.com/kryptobaseddev/cleo",
     "directory": "packages/worktree-napi-darwin-arm64"
+  },
+  "engines": {
+    "node": ">=24.16.0"
   }
 }

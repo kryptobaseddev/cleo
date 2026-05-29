@@ -1,4 +1,3 @@
-// @ts-nocheck — pre-existing migration script with intentional dead code paths
 /**
  * One-time migration to consolidate provenance files into the unified
  * `.cleo/rcasd/{epicId}/` structure with stage subdirectories.
@@ -27,7 +26,7 @@ import {
 import { dirname, join } from 'node:path';
 import { WriterRegistry } from '../docs/writer-registry.js';
 import { getLogger } from '../logger.js';
-import { resolveCanonicalCleoDir, resolveProjectByCwd } from '../paths.js';
+import { resolveCleoDir } from '../paths.js';
 import { addFrontmatter, buildFrontmatter } from './frontmatter.js';
 import {
   ensureStagePath,
@@ -272,8 +271,7 @@ export function normalizeDirectoryNames(options: ConsolidateOptions = {}): MoveR
 export function migrateConsensusFiles(options: ConsolidateOptions = {}): MoveRecord[] {
   const { dryRun = false, cwd } = options;
   const records: MoveRecord[] = [];
-  const projectId = resolveProjectByCwd(cwd);
-  return join(resolveCanonicalCleoDir(projectId), 'consensus');
+  const consensusDir = join(resolveCleoDir(cwd), 'consensus');
 
   if (!existsSync(consensusDir)) return records;
 
@@ -341,8 +339,7 @@ export function migrateConsensusFiles(options: ConsolidateOptions = {}): MoveRec
 export function migrateContributionFiles(options: ConsolidateOptions = {}): MoveRecord[] {
   const { dryRun = false, cwd } = options;
   const records: MoveRecord[] = [];
-  const projectId = resolveProjectByCwd(cwd);
-  return join(resolveCanonicalCleoDir(projectId), 'contributions');
+  const contribDir = join(resolveCleoDir(cwd), 'contributions');
 
   if (!existsSync(contribDir)) return records;
 

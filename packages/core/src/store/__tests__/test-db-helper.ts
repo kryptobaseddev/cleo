@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
 import { canonicalProjectId } from '../../nexus/identity.js';
 import { registerProjectOnEncounter } from '../../paths.js';
+import { awaitBackgroundOps } from '../background-ops.js';
 import type { DataAccessor } from '../data-accessor.js';
 import { resetDbState } from '../sqlite.js';
 import { createSqliteDataAccessor } from '../sqlite-data-accessor.js';
@@ -76,6 +77,11 @@ export interface TestDbEnv {
  */
 export async function createTestDb(): Promise<TestDbEnv> {
   const tempDir = mkdtempSync(join(tmpdir(), 'cleo-test-'));
+  // Drain any best-effort background ops left in flight by a PRIOR test before
+  // we reset the singleton — otherwise a detached graph/LOOM write from the
+  // last test can land on this fixture's fresh connection and corrupt its reads
+  // (T10490: the intermittent pipeline-stage shard failure class).
+  await awaitBackgroundOps();
   // Reset singleton to avoid cross-test contamination
   resetDbState();
 
@@ -157,6 +163,9 @@ export async function createTestDb(): Promise<TestDbEnv> {
     cleoDir,
     accessor,
     cleanup: async () => {
+      // Flush this test's best-effort background ops before closing/resetting
+      // so none survives into the next test (T10490).
+      await awaitBackgroundOps();
       await accessor.close();
       resetDbState();
       if (previousCleoDir === undefined) delete process.env['CLEO_DIR'];

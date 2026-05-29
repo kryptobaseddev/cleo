@@ -48,6 +48,10 @@ const LEGACY_GROUP_RELATION_OWNERS = new Set([
   'packages/core/src/sagas/repair.ts',
   'packages/core/src/sagas/storage.ts',
   'packages/core/src/doctor/saga-audit.ts',
+  // T10582/T10584 WorkGraph relation API: references task_relations + groups +
+  // hierarchy keywords precisely to DETECT and FORBID the groups-as-hierarchy
+  // anti-pattern (E_WORKGRAPH_GROUPS_AS_HIERARCHY), not to traverse via groups.
+  'packages/core/src/workgraph/relations.ts',
   // CLI command files are presentation facades that mention legacy groups in
   // help text while dispatching to core saga operations for behavior.
   'packages/cleo/src/cli/commands/find.ts',

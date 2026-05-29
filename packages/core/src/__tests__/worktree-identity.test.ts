@@ -19,6 +19,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { canonicalizePath } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { getCleoDirAbsolute } from '../paths.js';
@@ -51,7 +52,12 @@ function makeCleoFixture(opts?: {
   projectName?: string;
   skipProjectInfo?: boolean;
 }): WorktreeFixture {
-  const tmp = mkdtempSync(join(tmpdir(), 'cleo-wt-identity-'));
+  // Canonicalize the fixture root at creation (realpath) so every downstream
+  // path — git init, project-info, worktree gitlink, and getCleoDirAbsolute's
+  // realpath-normalized resolution — agrees. Without this, macOS tmpdir()
+  // (/var/folders/…) diverges from its realpath (/private/var/folders/…) and
+  // the worktree→main-repo assertions mismatch. (Root cause C, T11023.)
+  const tmp = canonicalizePath(mkdtempSync(join(tmpdir(), 'cleo-wt-identity-')));
   const projectRoot = join(tmp, opts?.projectName ?? 'test-project');
   const cleoHome = join(tmp, 'cleo-home');
   const cleoDir = join(projectRoot, '.cleo');
