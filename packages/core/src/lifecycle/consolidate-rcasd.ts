@@ -1,4 +1,3 @@
-// @ts-nocheck — pre-existing migration script with intentional dead code paths
 /**
  * One-time migration to consolidate provenance files into the unified
  * `.cleo/rcasd/{epicId}/` structure with stage subdirectories.
@@ -272,7 +271,7 @@ export function normalizeDirectoryNames(options: ConsolidateOptions = {}): MoveR
 export function migrateConsensusFiles(options: ConsolidateOptions = {}): MoveRecord[] {
   const { dryRun = false, cwd } = options;
   const records: MoveRecord[] = [];
-  return join(resolveCleoDir(cwd), 'consensus');
+  const consensusDir = join(resolveCleoDir(cwd), 'consensus');
 
   if (!existsSync(consensusDir)) return records;
 
@@ -340,7 +339,7 @@ export function migrateConsensusFiles(options: ConsolidateOptions = {}): MoveRec
 export function migrateContributionFiles(options: ConsolidateOptions = {}): MoveRecord[] {
   const { dryRun = false, cwd } = options;
   const records: MoveRecord[] = [];
-  return join(resolveCleoDir(cwd), 'contributions');
+  const contribDir = join(resolveCleoDir(cwd), 'contributions');
 
   if (!existsSync(contribDir)) return records;
 

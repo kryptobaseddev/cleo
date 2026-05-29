@@ -27,7 +27,48 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 let tempDir: string;
 
 interface NativeDbForTest {
-  prepare: (sql: string) => { run: (...args: (string | number | null)[]) => void };
+  prepare: (sql: string) => {
+    run: (...args: (string | number | null)[]) => void;
+    get: (...args: (string | number | null)[]) => unknown;
+  };
+  exec: (sql: string) => void;
+}
+
+/**
+ * Neutralize the PM-Core V2 structural guards that would reject the
+ * DELIBERATELY invariant-violating rows this audit test must seed (a saga with
+ * a parent for I5, a saga contained by another saga for I7). The audit's whole
+ * purpose is to detect such malformed data — which can pre-date the guards or
+ * arrive via a migration — so the fixture must be able to materialize it.
+ *
+ * Drops the parent-type-matrix triggers and strips the
+ * `chk_tasks_saga_no_parent` CHECK from the stored `tasks` schema via
+ * `writable_schema` (SQLite cannot drop a CHECK in-place). (T11280)
+ */
+function neutralizeSagaStructuralGuards(db: NativeDbForTest): void {
+  db.exec('DROP TRIGGER IF EXISTS tasks_parent_type_matrix_insert');
+  db.exec('DROP TRIGGER IF EXISTS tasks_parent_type_matrix_update');
+
+  const row = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'")
+    .get() as { sql?: string } | undefined;
+  const sql = row?.sql;
+  if (!sql || !sql.includes('chk_tasks_saga_no_parent')) return;
+
+  // Remove the named saga-no-parent CHECK clause (with its leading comment and
+  // trailing comma) so a saga row may carry a parent_id for the audit fixture.
+  const stripped = sql.replace(
+    /,?\s*(?:--[^\n]*\n\s*)?CONSTRAINT\s+[`"]?chk_tasks_saga_no_parent[`"]?\s+CHECK\s*\([^)]*\)/i,
+    '',
+  );
+  if (stripped === sql) return;
+
+  db.exec('PRAGMA writable_schema=ON');
+  db.prepare("UPDATE sqlite_master SET sql=? WHERE type='table' AND name='tasks'").run(stripped);
+  db.exec('PRAGMA writable_schema=OFF');
+  // Force SQLite to reparse the mutated schema on this connection.
+  db.exec('PRAGMA schema_version');
+  db.exec('VACUUM');
 }
 
 /**
@@ -44,7 +85,7 @@ function insertTask(
   row: {
     id: string;
     title: string;
-    type: 'epic' | 'task' | 'subtask';
+    type: 'saga' | 'epic' | 'task' | 'subtask';
     status?: 'pending' | 'active' | 'done' | 'blocked';
     parentId?: string | null;
     labels?: string[];
@@ -65,11 +106,15 @@ function insertTask(
   );
 }
 
-/** Link a member task into a saga via `task_relations.type='groups'`. */
+/**
+ * Link a member into a saga via `parent_id` containment. PM-Core V2 (T10638)
+ * resolves saga membership through `parent_id` (saga→epic), not the legacy
+ * `task_relations.type='groups'` edge. Requires the matrix triggers to be
+ * dropped first when the member would violate the type matrix (e.g. nested
+ * saga for the I7 case).
+ */
 function linkMember(db: NativeDbForTest, sagaId: string, memberId: string): void {
-  db.prepare(
-    "INSERT INTO task_relations (task_id, related_to, relation_type) VALUES (?, ?, 'groups')",
-  ).run(sagaId, memberId);
+  db.prepare('UPDATE tasks SET parent_id = ? WHERE id = ?').run(sagaId, memberId);
 }
 
 describe('auditSagaHierarchy (T10119)', () => {
@@ -78,9 +123,12 @@ describe('auditSagaHierarchy (T10119)', () => {
     await mkdir(join(tempDir, '.cleo'), { recursive: true });
     process.env['CLEO_DIR'] = join(tempDir, '.cleo');
 
-    // Initialize tasks.db.
-    const { getDb } = await import('../../store/sqlite.js');
+    // Initialize tasks.db, then neutralize the PM-Core V2 structural guards so
+    // the fixtures can seed deliberately invariant-violating rows for the audit.
+    const { getDb, getNativeDb } = await import('../../store/sqlite.js');
     await getDb(tempDir);
+    const nativeDb = getNativeDb() as NativeDbForTest | null;
+    if (nativeDb) neutralizeSagaStructuralGuards(nativeDb);
   });
 
   afterEach(async () => {
@@ -111,7 +159,7 @@ describe('auditSagaHierarchy (T10119)', () => {
     if (!db) throw new Error('nativeDb not initialized');
 
     // Clean saga + one normal Epic member.
-    insertTask(db, { id: 'T9301', title: 'Clean Saga', type: 'epic', labels: ['saga'] });
+    insertTask(db, { id: 'T9301', title: 'Clean Saga', type: 'saga' });
     insertTask(db, { id: 'T9311', title: 'Member Epic', type: 'epic' });
     linkMember(db, 'T9301', 'T9311');
 
@@ -135,8 +183,7 @@ describe('auditSagaHierarchy (T10119)', () => {
     insertTask(db, {
       id: 'T9302',
       title: 'Saga with parent',
-      type: 'epic',
-      labels: ['saga'],
+      type: 'saga',
       parentId: 'T9390',
     });
 
@@ -159,9 +206,9 @@ describe('auditSagaHierarchy (T10119)', () => {
     const db = getNativeDb() as NativeDbForTest | null;
     if (!db) throw new Error('nativeDb not initialized');
 
-    insertTask(db, { id: 'T9303', title: 'Outer Saga', type: 'epic', labels: ['saga'] });
-    // Nested saga — invariant I7 violation.
-    insertTask(db, { id: 'T93031', title: 'Inner Saga', type: 'epic', labels: ['saga'] });
+    insertTask(db, { id: 'T9303', title: 'Outer Saga', type: 'saga' });
+    // Nested saga — invariant I7 violation (a saga member that is itself a saga).
+    insertTask(db, { id: 'T93031', title: 'Inner Saga', type: 'saga' });
     linkMember(db, 'T9303', 'T93031');
 
     const { auditSagaHierarchy } = await import('../saga-audit.js');
@@ -185,9 +232,8 @@ describe('auditSagaHierarchy (T10119)', () => {
     insertTask(db, {
       id: 'T9304',
       title: 'Drifting Saga',
-      type: 'epic',
+      type: 'saga',
       status: 'pending',
-      labels: ['saga'],
     });
     insertTask(db, { id: 'T9321', title: 'Member 1', type: 'epic', status: 'done' });
     insertTask(db, { id: 'T9322', title: 'Member 2', type: 'epic', status: 'done' });
@@ -222,9 +268,8 @@ describe('auditSagaHierarchy (T10119)', () => {
     insertTask(db, {
       id: 'T9305',
       title: 'Closed Saga',
-      type: 'epic',
+      type: 'saga',
       status: 'done',
-      labels: ['saga'],
     });
     insertTask(db, { id: 'T9323', title: 'Member 3', type: 'epic', status: 'done' });
     linkMember(db, 'T9305', 'T9323');

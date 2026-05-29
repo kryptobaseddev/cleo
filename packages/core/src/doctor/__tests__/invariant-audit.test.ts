@@ -24,7 +24,40 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 let tempDir: string;
 
 interface NativeDbForTest {
-  prepare: (sql: string) => { run: (...args: (string | number | null)[]) => void };
+  prepare: (sql: string) => {
+    run: (...args: (string | number | null)[]) => void;
+    get: (...args: (string | number | null)[]) => unknown;
+  };
+  exec: (sql: string) => void;
+}
+
+/**
+ * Neutralize the PM-Core V2 structural guards (parent-type-matrix triggers +
+ * the `chk_tasks_saga_no_parent` CHECK) so this audit test can seed the
+ * DELIBERATELY invariant-violating saga-with-parent row that ADR-073.I5
+ * detection must catch. Mirrors saga-audit.test.ts. (T11280)
+ */
+function neutralizeSagaStructuralGuards(db: NativeDbForTest): void {
+  db.exec('DROP TRIGGER IF EXISTS tasks_parent_type_matrix_insert');
+  db.exec('DROP TRIGGER IF EXISTS tasks_parent_type_matrix_update');
+
+  const row = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'")
+    .get() as { sql?: string } | undefined;
+  const sql = row?.sql;
+  if (!sql || !sql.includes('chk_tasks_saga_no_parent')) return;
+
+  const stripped = sql.replace(
+    /,?\s*(?:--[^\n]*\n\s*)?CONSTRAINT\s+[`"]?chk_tasks_saga_no_parent[`"]?\s+CHECK\s*\([^)]*\)/i,
+    '',
+  );
+  if (stripped === sql) return;
+
+  db.exec('PRAGMA writable_schema=ON');
+  db.prepare("UPDATE sqlite_master SET sql=? WHERE type='table' AND name='tasks'").run(stripped);
+  db.exec('PRAGMA writable_schema=OFF');
+  db.exec('PRAGMA schema_version');
+  db.exec('VACUUM');
 }
 
 /**
@@ -36,7 +69,7 @@ function insertTask(
   row: {
     id: string;
     title: string;
-    type: 'epic' | 'task' | 'subtask';
+    type: 'saga' | 'epic' | 'task' | 'subtask';
     status?: 'pending' | 'active' | 'done' | 'blocked';
     parentId?: string | null;
     labels?: string[];
@@ -63,8 +96,10 @@ describe('auditInvariantRegistry (T10340)', () => {
     await mkdir(join(tempDir, '.cleo'), { recursive: true });
     process.env['CLEO_DIR'] = join(tempDir, '.cleo');
 
-    const { getDb } = await import('../../store/sqlite.js');
+    const { getDb, getNativeDb } = await import('../../store/sqlite.js');
     await getDb(tempDir);
+    const nativeDb = getNativeDb() as NativeDbForTest | null;
+    if (nativeDb) neutralizeSagaStructuralGuards(nativeDb);
   });
 
   afterEach(async () => {
@@ -114,8 +149,7 @@ describe('auditInvariantRegistry (T10340)', () => {
     insertTask(db, {
       id: 'SG_BAD',
       title: 'Saga with parent',
-      type: 'epic',
-      labels: ['saga'],
+      type: 'saga',
       parentId: 'E_PARENT',
     });
 
