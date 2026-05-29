@@ -124,6 +124,183 @@ pub fn destroy_worktree(repo_root: &Path, worktree_path: &Path, force: bool) -> 
     Ok(())
 }
 
+/// Outcome of [`integrate_worktree`].
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct IntegrateOutcome {
+    /// Task ID extracted from the worktree branch (e.g. `T1587`), or the raw
+    /// branch name when no `T<digits>` token is present.
+    pub task_id: String,
+    /// The branch the worktree was merged into.
+    pub target_branch: String,
+    /// Whether the integration succeeded (including the no-op no-commits case).
+    pub merged: bool,
+    /// The 40-char merge-commit SHA, or empty when there were no commits to
+    /// merge (parity with target) or when the merge failed.
+    pub merge_commit: String,
+    /// Number of commits the worktree branch was ahead of `target_branch`.
+    pub commit_count: u32,
+    /// Whether a rebase fallback was used (always `false` — fast-forward is
+    /// disabled via `--no-ff` to preserve agent commit SHAs; reserved for a
+    /// future rebase strategy).
+    pub rebased: bool,
+    /// Failure reason when `merged` is `false`.
+    pub error: Option<String>,
+}
+
+/// Extract the canonical `T<digits>` task ID from a worktree branch name.
+///
+/// Branches follow `task/T####-slug` or `feat/T####-slug`; falls back to the
+/// raw branch string when no token is found.
+fn extract_task_id(branch: &str) -> String {
+    let bytes = branch.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'T' && i + 1 < bytes.len() && bytes[i + 1].is_ascii_digit() {
+            let start = i;
+            let mut j = i + 1;
+            while j < bytes.len() && bytes[j].is_ascii_digit() {
+                j += 1;
+            }
+            return branch[start..j].to_string();
+        }
+        i += 1;
+    }
+    branch.to_string()
+}
+
+fn git_ok(repo_root: &Path, args: &[&str]) -> std::io::Result<std::process::Output> {
+    Command::new("git").args(args).current_dir(repo_root).output()
+}
+
+/// Integrate a finished agent worktree branch into `target_branch` via a
+/// non-fast-forward merge — the provenance-preserving SSoT for "complete a
+/// worktree" (ADR-062, T11124).
+///
+/// `--no-ff` is mandatory: it keeps every agent commit SHA reachable in the
+/// target history (a cherry-pick/squash would destroy that provenance). The
+/// merge commit subject embeds the task ID so `git log --grep T####` recovers
+/// the full task lineage.
+///
+/// Semantics (the [`IntegrateOutcome`] contract):
+/// - branch missing → `merged: false`, `error: "...does not exist"`.
+/// - zero commits ahead of target → `merged: true`, `commit_count: 0`,
+///   `merge_commit: ""` (no-op; caller still prunes the worktree).
+/// - otherwise → `merged: true`, `commit_count: N`, `merge_commit: <40-char>`.
+/// - merge conflict → the merge is aborted and `merged: false` with the git
+///   stderr in `error`.
+///
+/// HEAD in `repo_root` is left on `target_branch` in all success paths.
+///
+/// # Errors
+///
+/// Returns `Err` only for git invocation failures that are not representable as
+/// an [`IntegrateOutcome`] (e.g. `git` is not on PATH). Branch-missing and
+/// conflict cases are returned as `Ok` with `merged: false`.
+pub fn integrate_worktree(
+    repo_root: &Path,
+    _worktree_path: &Path,
+    branch: &str,
+    target_branch: &str,
+    task_title: Option<&str>,
+    skip_fetch: bool,
+) -> anyhow::Result<IntegrateOutcome> {
+    let task_id = extract_task_id(branch);
+    let mk = |merged: bool, merge_commit: String, commit_count: u32, error: Option<String>| {
+        IntegrateOutcome {
+            task_id: task_id.clone(),
+            target_branch: target_branch.to_string(),
+            merged,
+            merge_commit,
+            commit_count,
+            rebased: false,
+            error,
+        }
+    };
+
+    // 1. Branch must exist.
+    let verify = git_ok(repo_root, &["rev-parse", "--verify", "--quiet", branch])
+        .context("failed to invoke git rev-parse --verify")?;
+    if !verify.status.success() {
+        return Ok(mk(
+            false,
+            String::new(),
+            0,
+            Some(format!("task branch '{branch}' does not exist")),
+        ));
+    }
+
+    // 2. Optionally fetch the target so the merge is against the latest tip.
+    if !skip_fetch {
+        // Best-effort: a fetch failure (offline / no remote) must not abort an
+        // otherwise-local integration.
+        let _ = git_ok(repo_root, &["fetch", "--quiet"]);
+    }
+
+    // 3. Land HEAD on the target branch.
+    let checkout = git_ok(repo_root, &["checkout", target_branch])
+        .context("failed to invoke git checkout")?;
+    if !checkout.status.success() {
+        let stderr = String::from_utf8_lossy(&checkout.stderr);
+        return Ok(mk(
+            false,
+            String::new(),
+            0,
+            Some(format!("git checkout {target_branch} failed: {}", stderr.trim())),
+        ));
+    }
+
+    // 4. Count commits the branch is ahead of target.
+    let count_out = git_ok(
+        repo_root,
+        &["rev-list", "--count", &format!("{target_branch}..{branch}")],
+    )
+    .context("failed to invoke git rev-list --count")?;
+    let commit_count: u32 = if count_out.status.success() {
+        String::from_utf8_lossy(&count_out.stdout)
+            .trim()
+            .parse()
+            .unwrap_or(0)
+    } else {
+        0
+    };
+
+    // 5. Nothing to merge — parity with target. Caller prunes the worktree.
+    if commit_count == 0 {
+        return Ok(mk(true, String::new(), 0, None));
+    }
+
+    // 6. Non-fast-forward merge, preserving agent SHAs.
+    let title = task_title.unwrap_or("integrate worktree");
+    let message = format!("{task_id}: {title} (worktree merge)");
+    let merge = git_ok(
+        repo_root,
+        &["merge", "--no-ff", branch, "-m", &message],
+    )
+    .context("failed to invoke git merge --no-ff")?;
+    if !merge.status.success() {
+        let stderr = String::from_utf8_lossy(&merge.stderr);
+        // Abort the half-applied merge so the repo is left clean.
+        let _ = git_ok(repo_root, &["merge", "--abort"]);
+        return Ok(mk(
+            false,
+            String::new(),
+            commit_count,
+            Some(format!("git merge --no-ff {branch} failed: {}", stderr.trim())),
+        ));
+    }
+
+    // 7. Capture the merge commit SHA.
+    let head_out = git_ok(repo_root, &["rev-parse", "HEAD"])
+        .context("failed to invoke git rev-parse HEAD after merge")?;
+    let merge_commit = if head_out.status.success() {
+        String::from_utf8_lossy(&head_out.stdout).trim().to_string()
+    } else {
+        String::new()
+    };
+
+    Ok(mk(true, merge_commit, commit_count, None))
+}
+
 /// List all worktrees in `repo_root` via `git worktree list --porcelain`.
 ///
 /// The porcelain format groups records by blank lines and uses key-prefixed
