@@ -17,9 +17,16 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { existsSync, readFileSync, statSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+// T11280: node:sqlite is loaded LAZILY (via createRequire below) rather than as
+// an eager top-level import. paths.ts is imported transitively by sqlite.ts, and
+// an eager `node:sqlite` import here would defeat the lazy-init invariant proven
+// by sqlite-lazy-init.test.ts ("importing sqlite.ts does NOT require node:sqlite
+// at module-load time", T1331). Only the rare nexus-registry fallback in
+// _resolveProjectByCwdFromNexus actually opens a database.
+import type { DatabaseSync as DatabaseSyncType } from 'node:sqlite';
 import { E_CWD_WALKUP_FORBIDDEN, ExitCode } from '@cleocode/contracts';
 import {
   computeCanonicalProjectId as _computeCanonicalProjectId,
@@ -31,6 +38,27 @@ import {
 } from '@cleocode/paths';
 import { CleoError } from './errors.js';
 import { getPlatformPaths } from './system/platform-paths.js';
+
+/**
+ * Lazily-resolved `node:sqlite` `DatabaseSync` constructor.
+ *
+ * Loaded via `createRequire` on first use rather than a top-level import so
+ * that importing this module (and, transitively, `sqlite.ts`) never eagerly
+ * pulls in `node:sqlite` — preserving the T1331 lazy-init invariant. Only the
+ * nexus-registry fallback ({@link _resolveProjectByCwdFromNexus}) needs it.
+ *
+ * @internal
+ * @task T11280
+ */
+function _getDatabaseSyncCtor(): new (
+  ...args: ConstructorParameters<typeof DatabaseSyncType>
+) => DatabaseSyncType {
+  const _require = createRequire(import.meta.url);
+  const mod = _require('node:sqlite') as {
+    DatabaseSync: new (...args: ConstructorParameters<typeof DatabaseSyncType>) => DatabaseSyncType;
+  };
+  return mod.DatabaseSync;
+}
 
 // ============================================================================
 // Worktree Scope (T380/ADR-041 §D3)
@@ -511,6 +539,7 @@ function _resolveProjectByCwdFromNexus(cwd?: string): string | null {
     const start = resolve(cwd ?? process.cwd());
     let current = start;
 
+    const DatabaseSync = _getDatabaseSyncCtor();
     const db = new DatabaseSync(nexusDbPath, { readOnly: true }); // db-open-allowed: bootstrap path resolver cannot import core DB chokepoint without a cycle
     try {
       const stmt = db.prepare(

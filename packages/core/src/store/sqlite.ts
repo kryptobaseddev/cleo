@@ -16,10 +16,16 @@
  */
 
 import { copyFileSync, existsSync, mkdirSync, renameSync, unlinkSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join, resolve, sep } from 'node:path';
 import { eq } from 'drizzle-orm';
-import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
-import { drizzle } from 'drizzle-orm/node-sqlite';
+// T11280: `drizzle` is loaded LAZILY (see _getDrizzle) rather than via a
+// top-level value import. drizzle-orm/node-sqlite/driver.js statically imports
+// `node:sqlite`, so an eager value import here would pull the native binding in
+// at module-load — defeating the lazy-init invariant proven by
+// sqlite-lazy-init.test.ts ("importing sqlite.ts does NOT require node:sqlite at
+// module-load time", T1331). The type import is erased at runtime and is safe.
+import type { drizzle as drizzleFn, NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { getLogger } from '../logger.js';
 import { resolveCleoDir } from '../paths.js';
 import type { RequiredColumn } from './migration-manager.js';
@@ -50,6 +56,33 @@ export { type DatabaseSync, openNativeDatabase } from './sqlite-native.js';
 import type { DatabaseSync } from './sqlite-native.js';
 
 import * as schema from './tasks-schema.js';
+
+/**
+ * Cached `drizzle` factory from `drizzle-orm/node-sqlite`, loaded on first use.
+ *
+ * Loaded via `createRequire` rather than a top-level import so that importing
+ * `sqlite.ts` does not eagerly pull in `node:sqlite` (which the drizzle driver
+ * statically imports). Memoized after the first call. Mirrors the
+ * `getDbSyncConstructor` lazy pattern in sqlite-native.ts (T1331/T11280).
+ *
+ * @internal
+ */
+let _drizzle: typeof drizzleFn | null = null;
+
+/**
+ * Returns the `drizzle` factory, loading `drizzle-orm/node-sqlite` on first call.
+ *
+ * @internal
+ * @task T11280
+ */
+function _getDrizzle(): typeof drizzleFn {
+  if (_drizzle === null) {
+    const _require = createRequire(import.meta.url);
+    const mod = _require('drizzle-orm/node-sqlite') as { drizzle: typeof drizzleFn };
+    _drizzle = mod.drizzle;
+  }
+  return _drizzle;
+}
 
 /** Database file name within .cleo/ directory. */
 const DB_FILENAME = 'tasks.db';
@@ -186,7 +219,7 @@ async function autoRecoverFromBackup(
     _nativeDb = restoredNativeDb;
 
     // Re-run migrations on restored DB to ensure schema is current
-    const restoredDb = drizzle({ client: restoredNativeDb, schema });
+    const restoredDb = _getDrizzle()({ client: restoredNativeDb, schema });
     runMigrations(restoredNativeDb, restoredDb);
 
     // Update the singleton drizzle instance
@@ -242,7 +275,7 @@ export async function getDb(cwd?: string): Promise<NodeSQLiteDatabase<typeof sch
     _nativeDb = nativeDb;
 
     // Create drizzle ORM wrapper via node-sqlite
-    const db = drizzle({ client: nativeDb, schema });
+    const db = _getDrizzle()({ client: nativeDb, schema });
 
     // Run drizzle migrations (creates/updates tables)
     runMigrations(nativeDb, db);

@@ -12,9 +12,16 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+// T11280: node:sqlite is loaded LAZILY (via createRequire below) rather than as
+// an eager top-level value import. @cleocode/paths is imported transitively by
+// core's sqlite.ts; an eager `node:sqlite` import here pulls the native binding
+// in at module-load, defeating the lazy-init invariant proven by core's
+// sqlite-lazy-init.test.ts (T1331). Only resolveCanonicalCleoDir's nexus-registry
+// lookup actually opens a database.
+import type { DatabaseSync as DatabaseSyncType } from 'node:sqlite';
 import {
   createPlatformPathsResolver,
   type PlatformPaths,
@@ -22,6 +29,24 @@ import {
 } from './platform-paths.js';
 
 const TEMPLATES_SUBDIR = 'templates';
+
+/**
+ * Returns the `node:sqlite` `DatabaseSync` constructor, loaded on first use.
+ *
+ * Loaded via `createRequire` so that importing this module does not eagerly pull
+ * in `node:sqlite` — preserving the lazy-init invariant (T1331/T11280).
+ *
+ * @internal
+ */
+function getDatabaseSyncCtor(): new (
+  ...args: ConstructorParameters<typeof DatabaseSyncType>
+) => DatabaseSyncType {
+  const _require = createRequire(import.meta.url);
+  const mod = _require('node:sqlite') as {
+    DatabaseSync: new (...args: ConstructorParameters<typeof DatabaseSyncType>) => DatabaseSyncType;
+  };
+  return mod.DatabaseSync;
+}
 
 const cleoResolver = createPlatformPathsResolver('cleo', 'CLEO_HOME', 'CLEO_CONFIG_HOME');
 
@@ -382,8 +407,9 @@ export function resolveCanonicalCleoDir(projectId: string): string | null {
 
   if (!existsSync(nexusDbPath)) return null;
 
-  let db: DatabaseSync | undefined;
+  let db: DatabaseSyncType | undefined;
   try {
+    const DatabaseSync = getDatabaseSyncCtor();
     db = new DatabaseSync(nexusDbPath, { readOnly: true }); // db-open-allowed: leaf path package cannot depend on core DB chokepoint
 
     // Try direct project_registry lookup first.
