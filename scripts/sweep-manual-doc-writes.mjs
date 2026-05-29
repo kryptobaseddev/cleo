@@ -164,19 +164,20 @@ function sha256Hex(content) {
 }
 
 /**
- * Build a slug→{type,sha256,attachmentId} index from `cleo docs list`.
+ * Build slug→meta AND sha256→meta indices from a SINGLE `cleo docs list` call.
  *
- * The list command paginates; we ask for an unbounded result set
- * (`--limit 0`) and accept that the `sha256` field is rendered with a
- * unicode ellipsis (`…`) for table-friendly display. The truncation
- * makes `sha256` unsuitable for equality comparisons here — we use the
- * full SHA via `cleo docs fetch <fullSha>` only when probing for
- * in-sync status. Slug + type from the listing is the cheap part.
+ * The list command paginates; we ask for an unbounded result set (`--limit 0`).
+ * Since T11294 the `--json` `sha256` field carries the FULL 64-hex content
+ * digest, so an in-memory `shaIndex.get(fileSha)` answers "is this exact
+ * content already in the SSoT?" with ZERO per-file spawns. Previously the list
+ * sha was ellipsis-truncated for display, forcing an O(docs) `cleo docs fetch`
+ * spawn per file (× the 7-10s CLI cold start = hours; the job never finished
+ * inside its CI timeout).
  *
  * @param {string} repoRoot
  * @param {string[]} cleoBin
  * @param {boolean} allowUnavailable
- * @returns {{ index: Map<string, { type: string, sha256: string, attachmentId: string }>, ssotAvailable: boolean }}
+ * @returns {{ index: Map<string, { type: string, sha256: string, attachmentId: string }>, shaIndex: Map<string, { slug: string | null, type: string, attachmentId: string, sha256: string }>, ssotAvailable: boolean }}
  */
 function loadSlugIndex(repoRoot, cleoBin, allowUnavailable = false) {
   const [cmd, ...prefix] = cleoBin;
@@ -190,7 +191,7 @@ function loadSlugIndex(repoRoot, cleoBin, allowUnavailable = false) {
       console.warn(
         `sweep-manual-doc-writes: SSoT unavailable; treating docs as unresolved: ${proc.stderr || proc.stdout}`,
       );
-      return { index: new Map(), ssotAvailable: false };
+      return { index: new Map(), shaIndex: new Map(), ssotAvailable: false };
     }
     throw new Error(`cleo docs list failed: ${proc.stderr || proc.stdout}`);
   }
@@ -200,59 +201,33 @@ function loadSlugIndex(repoRoot, cleoBin, allowUnavailable = false) {
   }
   /** @type {Map<string, { type: string, sha256: string, attachmentId: string }>} */
   const index = new Map();
+  /** @type {Map<string, { slug: string | null, type: string, attachmentId: string, sha256: string }>} */
+  const shaIndex = new Map();
   for (const a of env.data.attachments || []) {
+    // Defensive: tolerate a legacy ellipsis-truncated sha (pre-T11294 binary)
+    // by stripping the marker. A truncated value simply won't match a full
+    // file sha (falling through to slug classification) instead of crashing.
+    const sha = typeof a.sha256 === 'string' ? a.sha256.replace(/…$/, '') : '';
+    // The sha index covers ALL attachments (slugged or not) so the
+    // "in-sync regardless of slug" content probe needs zero per-file spawns.
+    if (sha) {
+      shaIndex.set(sha, {
+        slug: a.slug ?? null,
+        type: a.type ?? 'unknown',
+        attachmentId: a.id,
+        sha256: sha,
+      });
+    }
     if (!a.slug) continue;
-    // Last-wins is fine — slug is unique per project per DocKind in
-    // the post-T10288/E1 world; the truncated SHA here is only used as
-    // a tie-breaker hint, not for content equality.
+    // Last-wins is fine — slug is unique per project per DocKind in the
+    // post-T10288/E1 world.
     index.set(a.slug, {
       type: a.type ?? 'unknown',
-      sha256: typeof a.sha256 === 'string' ? a.sha256.replace(/…$/, '') : '',
+      sha256: sha,
       attachmentId: a.id,
     });
   }
-  return { index, ssotAvailable: true };
-}
-
-/**
- * Probe the SSoT for an attachment by full SHA-256. Returns the parsed
- * metadata when present, or null on `E_NOT_FOUND`. Any other failure
- * mode (network, db lock, …) re-throws so the sweep fails loudly.
- *
- * @param {string} sha
- * @param {string} repoRoot
- * @param {string[]} cleoBin
- * @returns {{ slug?: string, type?: string, attachmentId: string, sha256: string } | null}
- */
-function fetchBySha(sha, repoRoot, cleoBin) {
-  const [cmd, ...prefix] = cleoBin;
-  const proc = spawnSync(cmd, [...prefix, 'docs', 'fetch', sha], {
-    cwd: repoRoot,
-    encoding: 'utf-8',
-  });
-  // `cleo docs fetch` exits non-zero on E_NOT_FOUND but still emits a
-  // valid envelope. We always parse stdout when present.
-  let env;
-  try {
-    env = JSON.parse(proc.stdout);
-  } catch {
-    if (proc.status !== 0) return null;
-    throw new Error(`cleo docs fetch ${sha} stdout not JSON: ${proc.stdout}`);
-  }
-  if (!env.success) {
-    if (env.error?.codeName === 'E_NOT_FOUND') return null;
-    throw new Error(
-      `cleo docs fetch ${sha} unexpected error: ${env.error?.message ?? proc.stderr}`,
-    );
-  }
-  const meta = env.data?.metadata;
-  if (!meta) return null;
-  return {
-    slug: meta.slug,
-    type: meta.type,
-    attachmentId: meta.id,
-    sha256: meta.sha256,
-  };
+  return { index, shaIndex, ssotAvailable: true };
 }
 
 /**
@@ -269,21 +244,22 @@ function deriveSlugCandidate(filePath) {
 }
 
 /**
- * Classify one file against the SSoT.
+ * Classify one file against the SSoT using ONLY the in-memory indices built
+ * from the single `cleo docs list` call — zero per-file spawns (T11294).
  *
  * @param {string} file
  * @param {string} fileSha
  * @param {Map<string, { type: string, sha256: string, attachmentId: string }>} slugIndex
- * @param {string} repoRoot
- * @param {string[]} cleoBin
+ * @param {Map<string, { slug: string | null, type: string, attachmentId: string, sha256: string }>} shaIndex
  * @param {boolean} ssotAvailable
  * @returns {{ remediation: 'in-sync' | 'drift' | 'orphan', ssotSlug: string | null, ssotType: string | null, ssotAttachmentId: string | null, ssotSha: string | null }}
  */
-function classify(file, fileSha, slugIndex, repoRoot, cleoBin, ssotAvailable) {
-  // 1. Cheapest probe — does ANY blob with this exact SHA exist in
-  //    the SSoT? If yes, the file is in-sync regardless of slug.
+function classify(file, fileSha, slugIndex, shaIndex, ssotAvailable) {
+  // 1. Cheapest probe — does ANY blob with this exact content SHA exist in
+  //    the SSoT? If yes, the file is in-sync regardless of slug. In-memory
+  //    lookup against the full-sha index (no spawn).
   if (ssotAvailable) {
-    const byShaHit = fetchBySha(fileSha, repoRoot, cleoBin);
+    const byShaHit = shaIndex.get(fileSha);
     if (byShaHit) {
       return {
         remediation: 'in-sync',
@@ -304,8 +280,8 @@ function classify(file, fileSha, slugIndex, repoRoot, cleoBin, ssotAvailable) {
       ssotSlug: slug,
       ssotType: bySlug.type,
       ssotAttachmentId: bySlug.attachmentId,
-      // The listing SHA is intentionally truncated — surface what we
-      // know but the canonical truth lives in the per-attachment row.
+      // Full content SHA from the listing (T11294) — the slug matched but the
+      // content differs, so this is drift the SSoT needs to re-publish.
       ssotSha: bySlug.sha256,
     };
   }
@@ -331,11 +307,11 @@ export function runSweep(argv = process.argv.slice(2)) {
   const opts = parseArgs(argv);
   const rawPaths = loadRawMdPaths(opts.repoRoot);
   const files = listMdFilesAddedSince(opts.cutoff, rawPaths, opts.repoRoot);
-  const { index: slugIndex, ssotAvailable } = loadSlugIndex(
-    opts.repoRoot,
-    opts.cleoBin,
-    opts.allowUnresolved,
-  );
+  const {
+    index: slugIndex,
+    shaIndex,
+    ssotAvailable,
+  } = loadSlugIndex(opts.repoRoot, opts.cleoBin, opts.allowUnresolved);
 
   /** @type {Array<{file: string, fileSha: string | null, remediation: string, ssotSlug: string | null, ssotType: string | null, ssotAttachmentId: string | null, ssotSha: string | null}>} */
   const items = [];
@@ -355,7 +331,7 @@ export function runSweep(argv = process.argv.slice(2)) {
     }
     const content = readFileSync(abs);
     const fileSha = sha256Hex(content);
-    const cls = classify(file, fileSha, slugIndex, opts.repoRoot, opts.cleoBin, ssotAvailable);
+    const cls = classify(file, fileSha, slugIndex, shaIndex, ssotAvailable);
     items.push({ file, fileSha, ...cls });
   }
 
