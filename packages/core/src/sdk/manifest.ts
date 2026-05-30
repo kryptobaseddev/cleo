@@ -18,6 +18,6 @@
  * @task T1815
  * @epic T1768
  */
-export type { ManifestEntry } from '../../memory/pipeline-manifest-sqlite.js';
+export type { ManifestEntry } from '../memory/pipeline-manifest-sqlite.js';
 
-export { pipelineManifestAppend } from '../../memory/pipeline-manifest-sqlite.js';
+export { pipelineManifestAppend } from '../memory/pipeline-manifest-sqlite.js';

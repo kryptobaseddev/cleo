@@ -81,12 +81,12 @@ import type { ConduitSubscriptionConfig } from '../orchestration/spawn-prompt.js
 import { resolveEffectiveTier } from '../orchestration/tier-selector.js';
 import { validateSpawnReadiness } from '../orchestration/validate-spawn.js';
 import { getProjectRoot } from '../paths.js';
+import { provisionIsolatedShell } from '../sdk/isolation.js';
 import { spawnWorktree } from '../sentient/worktree-dispatch.js';
 import { initializeDefaultAdapters, spawnRegistry } from '../spawn/adapter-registry.js';
 import { allocateSpawnSession } from '../spawn/agent-identity.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { getActiveSession } from '../store/session-store.js';
-import { provisionIsolatedShell } from '../tools/sdk/isolation.js';
 import { openSignaldockDbForComposer } from './plan.js';
 
 export type { EngineResult };

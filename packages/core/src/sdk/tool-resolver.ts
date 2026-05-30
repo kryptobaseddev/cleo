@@ -19,6 +19,6 @@ export type {
   ResolutionSource,
   ResolvedToolCommand,
   ResolveToolResult,
-} from '../../tasks/tool-resolver.js';
+} from '../tasks/tool-resolver.js';
 
-export { CANONICAL_TOOLS, resolveToolCommand } from '../../tasks/tool-resolver.js';
+export { CANONICAL_TOOLS, resolveToolCommand } from '../tasks/tool-resolver.js';

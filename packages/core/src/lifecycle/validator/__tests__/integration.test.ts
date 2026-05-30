@@ -43,6 +43,8 @@ import type {
   ValidatorVerdict,
 } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { validatorAttest } from '../../../sdk/validator-attest.js';
+import { validatorReject } from '../../../sdk/validator-reject.js';
 import { createTestDb, type TestDbEnv } from '../../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../../store/data-accessor.js';
 import { resetDbState } from '../../../store/sqlite.js';
@@ -52,8 +54,6 @@ import {
   resolveWaivers,
 } from '../../../tasks/ac-coverage-gate.js';
 import { addTask } from '../../../tasks/add.js';
-import { validatorAttest } from '../../../tools/sdk/validator-attest.js';
-import { validatorReject } from '../../../tools/sdk/validator-reject.js';
 import {
   runValidatorMaxN,
   VALIDATOR_RETRIES_AUDIT_FILE,

@@ -15,10 +15,10 @@ import { dirname, join, resolve } from 'node:path';
 import type { Task } from '@cleocode/contracts';
 import { TASK_STATUSES } from '@cleocode/contracts';
 import { getManifestPath as getCentralManifestPath } from '../paths.js';
+import { resolveToolCommand } from '../sdk/tool-resolver.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { computeChecksum } from '../store/json.js';
 import { detectCircularDeps, validateDependencies } from '../tasks/dependency-check.js';
-import { resolveToolCommand } from '../tools/sdk/tool-resolver.js';
 import { validateSchema as ajvValidateSchema } from './schema-validator.js';
 import {
   hasErrors,

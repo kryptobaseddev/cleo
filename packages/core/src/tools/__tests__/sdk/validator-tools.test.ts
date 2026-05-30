@@ -15,14 +15,14 @@
 import { randomUUID } from 'node:crypto';
 import type { AgentRole, ValidatorAttestation, ValidatorRejection } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { spawnValidator } from '../../../sdk/spawn-validator.js';
+import { validatorAcPull } from '../../../sdk/validator-ac-pull.js';
+import { validatorAttest } from '../../../sdk/validator-attest.js';
+import { validatorReject } from '../../../sdk/validator-reject.js';
 import { createTestDb, type TestDbEnv } from '../../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../../store/data-accessor.js';
 import { resetDbState } from '../../../store/sqlite.js';
 import { addTask } from '../../../tasks/add.js';
-import { spawnValidator } from '../../sdk/spawn-validator.js';
-import { validatorAcPull } from '../../sdk/validator-ac-pull.js';
-import { validatorAttest } from '../../sdk/validator-attest.js';
-import { validatorReject } from '../../sdk/validator-reject.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

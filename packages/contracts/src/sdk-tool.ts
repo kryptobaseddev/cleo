@@ -10,7 +10,7 @@
  * - MUST be pure or side-effect-isolated (testable without running an agent).
  * - SHOULD be deterministic given identical inputs.
  *
- * Canonical location: `packages/core/src/tools/sdk/`
+ * Canonical location: `packages/core/src/sdk/`
  *
  * Distinct from Category A (Agent Tool — LLM-callable primitive registered in
  * AgentToolRegistry) and Category C (Domain Utility — internal to a specific

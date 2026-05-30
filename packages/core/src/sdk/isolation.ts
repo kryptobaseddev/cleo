@@ -27,9 +27,9 @@ export type {
   IsolationEnvKey,
   IsolationOptions,
   IsolationResult,
-} from '../../worktree/isolation.js';
+} from '../worktree/isolation.js';
 export {
   ISOLATION_ENV_KEYS,
   provisionIsolatedShell,
   validateAbsolutePath,
-} from '../../worktree/isolation.js';
+} from '../worktree/isolation.js';
