@@ -13,6 +13,10 @@
     "./daemon": {
       "types": "./dist/daemon/index.d.ts",
       "import": "./dist/daemon/index.js"
+    },
+    "./gateway": {
+      "types": "./dist/gateway/index.d.ts",
+      "import": "./dist/gateway/index.js"
     }
   },
   "scripts": {
