@@ -182,3 +182,16 @@ temp/
 # (T10178 — global-install resolution fix for @cleocode/worktree-napi.)
 crates/worktree-napi/worktree-napi.*.node
 packages/worktree-napi-*/worktree-napi.*.node
+
+# ── Local-only artifacts — untracked from github, kept on disk (T11392) ──
+.bg-shell/
+.tmp-dashboard-test/
+T9220/
+tasks-batch-T10400.json
+graphify-out/
+scenarios/
+tools/
+dev/
+audit/
+tmp-doc-source/
+editors/
