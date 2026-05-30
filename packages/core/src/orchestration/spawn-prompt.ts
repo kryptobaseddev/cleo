@@ -341,6 +341,19 @@ export interface BuildSpawnPromptInput {
    */
   retrievalBundle?: import('@cleocode/contracts').RetrievalBundle;
   /**
+   * Tier-2 attention digest lines for the PSYCHE-MEMORY block (T11374).
+   *
+   * Pre-rendered, budget-bounded markdown lines from
+   * `renderAttentionDigestLines(buildAttentionDigest(...))` for the spawned
+   * task's scope. Injected into the `## PSYCHE-MEMORY` block alongside the
+   * retrieval bundle when `tier >= 1`. Empty/absent ⇒ nothing is injected (the
+   * empty-attention contract).
+   *
+   * @task T11374
+   * @epic T11288
+   */
+  attentionDigestLines?: readonly string[];
+  /**
    * Task document attachments to embed in the spawn prompt.
    *
    * Auto-fetched by {@link composeSpawnPayload} via `blobList` for the task ID.
@@ -1544,12 +1557,23 @@ function buildAntiPatternBlock(): string {
  *
  * @task T1260 PSYCHE E3
  */
-function buildPsycheMemoryBlock(bundle: import('@cleocode/contracts').RetrievalBundle): string {
+function buildPsycheMemoryBlock(
+  bundle: import('@cleocode/contracts').RetrievalBundle,
+  attentionDigestLines?: readonly string[],
+): string {
   const lines: string[] = ['## PSYCHE-MEMORY'];
   lines.push('');
   lines.push(
     `> Token budget used: ${bundle.tokenCounts.total} (cold=${bundle.tokenCounts.cold}, warm=${bundle.tokenCounts.warm}, hot=${bundle.tokenCounts.hot})`,
   );
+
+  // -- Tier-2 attention digest (T11374) — budget-bounded MVI lines from the
+  //    open working-memory jots visible to the spawned task's scope. Empty when
+  //    there are no open items (the empty-attention contract: inject nothing).
+  if (attentionDigestLines && attentionDigestLines.length > 0) {
+    lines.push('');
+    lines.push(...attentionDigestLines);
+  }
 
   // -- Cold: user profile --
   if (bundle.cold.userProfile.length > 0) {
@@ -1625,8 +1649,11 @@ function buildPsycheMemoryBlock(bundle: import('@cleocode/contracts').RetrievalB
     }
   }
 
-  // Empty bundle notice (expected until T1147 W7 sweep ships in .132)
+  // Empty bundle notice (expected until T1147 W7 sweep ships in .132).
+  // Tier-2 attention lines count as content — if the agent has open jots the
+  // block is non-empty even when the retrieval bundle is bare (T11374).
   const hasContent =
+    (attentionDigestLines !== undefined && attentionDigestLines.length > 0) ||
     bundle.cold.userProfile.length > 0 ||
     bundle.cold.peerInstructions ||
     bundle.cold.sigilCard !== undefined ||
@@ -1769,9 +1796,12 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   }
   // PSYCHE-MEMORY (T1260 E3) — only emitted for tier 1/2 when the retrieval
   // bundle is present. The bundle may be empty until T1147 W7 (.132) sweeps
-  // legacy entries; callers must not crash on an empty bundle.
+  // legacy entries; callers must not crash on an empty bundle. T11374 threads
+  // the Tier-2 attention digest lines into the same block (budget-bounded).
   if (tier >= 1 && input.retrievalBundle) {
-    authoredSections.push(buildPsycheMemoryBlock(input.retrievalBundle));
+    authoredSections.push(
+      buildPsycheMemoryBlock(input.retrievalBundle, input.attentionDigestLines),
+    );
   }
   authoredSections.push(buildFilePathsBlock(taskId, outputDir, rcasdDir, testRunsDir));
   // Task Documents (T1614) — only emitted when the task has attachments.

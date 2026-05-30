@@ -12,7 +12,24 @@
  * @epic T9964 E-ORIENT-V2
  */
 
+import type { MviDigest } from '../mvi.js';
+import type { AttentionScopeKind } from './attention.js';
 import type { MemoryCompactHit } from './memory.js';
+
+/**
+ * A minimal preview element for the attention digest (T11374 · Epic T11288).
+ *
+ * The MVI digest preview carries only the few fields an agent needs to glance
+ * at a jot — the full item is one `cleo attention show` away (the expand hint).
+ */
+export interface AttentionDigestPreviewItem {
+  /** Item id. */
+  id: string;
+  /** Truncated jot content. */
+  content: string;
+  /** Scope kind the jot is keyed to. */
+  scopeKind: AttentionScopeKind;
+}
 
 // ---------------------------------------------------------------------------
 // Params
@@ -205,6 +222,15 @@ export interface FocusShowResult {
    * Omitted when the BRAIN store is unavailable.
    */
   brainContext?: FocusBrainContext;
+  /**
+   * Tier-2 attention digest — a budget-bounded MVI summary of the open
+   * working-memory jots visible to the calling agent in this scope (T11374 ·
+   * Epic T11288). Carries a one-line summary, the live count, a tiny preview,
+   * and the `cleo attention show` expand hint — never a full dump. Omitted when
+   * there are zero open items (the empty-attention contract) or the buffer is
+   * unavailable.
+   */
+  attentionDigest?: MviDigest<AttentionDigestPreviewItem>;
   /** Estimated token weight of this envelope. */
   tokensEstimated: number;
 }

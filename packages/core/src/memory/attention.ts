@@ -42,11 +42,13 @@
  */
 
 import { randomBytes } from 'node:crypto';
+import type { MviDigest } from '@cleocode/contracts';
 import type {
   AttentionAddParams,
   AttentionItem,
   AttentionScopeKind,
 } from '@cleocode/contracts/operations/attention';
+import type { AttentionDigestPreviewItem } from '@cleocode/contracts/operations/focus';
 import { resolveSagaMemberIds } from '../sagas/storage.js';
 import { readFocusState } from '../sessions/focus-state-store.js';
 import { resolveAgentIdFromEnv, resolveSessionIdFromEnv } from '../sessions/session-id.js';
@@ -109,30 +111,50 @@ export interface ResolvedAttentionIdentity {
 }
 
 /**
+ * Options for {@link resolveAttentionIdentity}.
+ *
+ * @task T11374
+ */
+export interface ResolveAttentionIdentityOptions {
+  /**
+   * Explicit task id to anchor the scope chain on, OVERRIDING the env-resolved
+   * `focus_state` currentTask. Used by the spawn path (T11374) to scope a
+   * worker's digest to the TASK being spawned rather than the orchestrator's
+   * own current task. The agent/session scopes (`agent`, `session`) still come
+   * from the environment; only the task→epic→saga spine uses this id.
+   */
+  taskId?: string | null;
+}
+
+/**
  * Resolve the calling agent's attention identity + visible scope chain.
  *
  * Pure E0 + task-ancestry resolution; the chain is the leakage boundary.
  * Order (narrowest first): `agent` (CLEO_AGENT_ID) → `task` (focus_state
- * currentTask) → `epic` (task.parentId) → `saga` (epic's saga membership) →
- * `session` (CLEO_SESSION_ID) → `global`. Kinds whose id does not resolve are
- * skipped, but `global` is always present as the broadest fallback.
+ * currentTask, or {@link ResolveAttentionIdentityOptions.taskId} override) →
+ * `epic` (task.parentId) → `saga` (epic's saga membership) → `session`
+ * (CLEO_SESSION_ID) → `global`. Kinds whose id does not resolve are skipped,
+ * but `global` is always present as the broadest fallback.
  *
  * @param projectRoot - Absolute project root.
+ * @param options - Optional explicit task override (spawn path).
  * @returns The resolved identity + visible scope chain.
  * @task T11372
  * @task T11373
+ * @task T11374
  */
 export async function resolveAttentionIdentity(
   projectRoot: string,
+  options: ResolveAttentionIdentityOptions = {},
 ): Promise<ResolvedAttentionIdentity> {
   const sessionId = resolveSessionIdFromEnv();
   const agentId = resolveAgentIdFromEnv();
 
   const accessor = await getTaskAccessor(projectRoot);
   try {
-    // Current task via per-session focus_state (env-aware, per-agent).
-    const focus = await readFocusState(accessor, sessionId);
-    const currentTaskId = focus?.currentTask ?? null;
+    // Current task: explicit override (spawn) wins; else per-session focus_state.
+    const currentTaskId =
+      options.taskId ?? (await readFocusState(accessor, sessionId))?.currentTask ?? null;
 
     const chain: AttentionScope[] = [];
 
@@ -282,6 +304,12 @@ export interface ListAttentionOptions {
   limit?: number;
   /** Reference time (unix ms) for the TTL predicate. Defaults to `Date.now()`. */
   now?: number;
+  /**
+   * Explicit task anchor for the scope chain, OVERRIDING the env-resolved
+   * current task (spawn path — T11374). See
+   * {@link ResolveAttentionIdentityOptions.taskId}.
+   */
+  taskId?: string | null;
 }
 
 /**
@@ -312,7 +340,7 @@ export async function listAttention(
   projectRoot: string,
   options: ListAttentionOptions = {},
 ): Promise<ListAttentionResult> {
-  const identity = await resolveAttentionIdentity(projectRoot);
+  const identity = await resolveAttentionIdentity(projectRoot, { taskId: options.taskId });
   const scopes = options.scope
     ? identity.chain.filter((s) => s.kind === options.scope)
     : identity.chain;
@@ -349,4 +377,97 @@ export async function expireAttention(
     now: options.now,
     decayThreshold: options.decayThreshold ?? DEFAULT_DECAY_THRESHOLD,
   });
+}
+
+/** Max characters of jot content carried into a digest preview line. */
+const DIGEST_CONTENT_CHARS = 60;
+
+/** Default number of items carried in the digest preview. */
+const DEFAULT_DIGEST_PREVIEW = 3;
+
+/**
+ * Options for {@link buildAttentionDigest}.
+ *
+ * @task T11374
+ */
+export interface AttentionDigestOptions {
+  /** Number of preview items to carry (default {@link DEFAULT_DIGEST_PREVIEW}). */
+  previewLimit?: number;
+  /** Reference time (unix ms) for the TTL predicate. */
+  now?: number;
+  /**
+   * Explicit task anchor for the scope chain (spawn path — T11374). When set,
+   * the digest reflects the jots visible to THAT task's scope rather than the
+   * env-resolved current task — so a spawned worker sees the epic/saga-scoped
+   * context for the task it is about to work, not the orchestrator's.
+   */
+  taskId?: string | null;
+}
+
+/**
+ * Build a budget-bounded MVI digest of the calling agent's OPEN attention items.
+ *
+ * This is the single primitive both the `cleo focus` envelope and the spawn-
+ * prompt PSYCHE-MEMORY block render (T11374). It is a one-line `summary` + the
+ * live `count` + a bounded `preview` (≤ `previewLimit`) + exactly one expand
+ * hint (`cleo attention show`) — NEVER a full dump — so it stays well inside the
+ * focus token ceiling. Returns `null` when there are zero open items (the
+ * empty-attention contract: callers inject nothing / a zero-count line and
+ * never crash).
+ *
+ * @param projectRoot - Absolute project root.
+ * @param options - Preview size + reference time.
+ * @returns The MVI digest, or `null` when no open items exist.
+ * @task T11374
+ * @epic T11288
+ */
+export async function buildAttentionDigest(
+  projectRoot: string,
+  options: AttentionDigestOptions = {},
+): Promise<MviDigest<AttentionDigestPreviewItem> | null> {
+  const previewLimit = options.previewLimit ?? DEFAULT_DIGEST_PREVIEW;
+  const { items } = await listAttention(projectRoot, {
+    now: options.now,
+    taskId: options.taskId,
+  });
+  if (items.length === 0) return null;
+
+  const preview: AttentionDigestPreviewItem[] = items.slice(0, previewLimit).map((i) => ({
+    id: i.id,
+    content:
+      i.content.length > DIGEST_CONTENT_CHARS
+        ? `${i.content.slice(0, DIGEST_CONTENT_CHARS - 1)}…`
+        : i.content,
+    scopeKind: i.scopeKind,
+  }));
+
+  return {
+    summary: `${items.length} open attention item${items.length === 1 ? '' : 's'}`,
+    count: items.length,
+    preview,
+    expand: { kind: 'suggested-commands', commands: ['cleo attention show'] },
+  };
+}
+
+/**
+ * Render an attention {@link MviDigest} as compact markdown lines for the
+ * spawn-prompt PSYCHE-MEMORY block. Returns `[]` for a null/empty digest so the
+ * caller injects nothing (the empty-attention contract).
+ *
+ * @param digest - The digest from {@link buildAttentionDigest}, or `null`.
+ * @returns Markdown lines (a header + one bullet per preview item + expand hint).
+ * @task T11374
+ */
+export function renderAttentionDigestLines(
+  digest: MviDigest<AttentionDigestPreviewItem> | null,
+): string[] {
+  if (!digest || digest.count === 0) return [];
+  const lines: string[] = ['### Attention (Tier-2 working memory)', `> ${digest.summary}`];
+  for (const item of digest.preview ?? []) {
+    lines.push(`- [${item.scopeKind}] ${item.content}`);
+  }
+  if (digest.expand.kind === 'suggested-commands' && digest.expand.commands.length > 0) {
+    lines.push(`> expand: ${digest.expand.commands[0]}`);
+  }
+  return lines;
 }

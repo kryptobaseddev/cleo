@@ -587,16 +587,19 @@ export {
   type GateStateRecord,
   type GateStatusRawData,
 } from './lifecycle/verification/explain.js';
-// Memory — Tier-2 attention buffer (T11372 · Epic T11288)
+// Memory — Tier-2 attention buffer (T11372 · T11374 · Epic T11288)
 export {
+  type AttentionDigestOptions,
   type AttentionScope,
   addAttention,
+  buildAttentionDigest,
   DEFAULT_DECAY_THRESHOLD,
   expireAttention,
   type ListAttentionOptions,
   type ListAttentionResult,
   listAttention,
   type ResolvedAttentionIdentity,
+  renderAttentionDigestLines,
   resolveAttentionIdentity,
   SCOPE_ORDER,
 } from './memory/attention.js';

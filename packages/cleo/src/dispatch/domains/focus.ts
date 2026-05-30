@@ -33,6 +33,7 @@ import type {
 import type { MemoryCompactHit } from '@cleocode/contracts/operations/memory';
 import { getProjectRoot } from '@cleocode/core';
 import {
+  buildAttentionDigest,
   createAttachmentStore,
   memoryFind,
   orchestrateReady,
@@ -164,6 +165,30 @@ async function fetchBrainContext(taskId: string): Promise<FocusBrainContext | un
       learnings: toHits(lrnResult),
       decisions: toHits(decResult),
     };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Build the Tier-2 attention digest for the focus envelope (T11374).
+ *
+ * Best-effort: returns `undefined` on any failure (the buffer may be empty or
+ * unavailable) so the envelope is never blocked. The digest is produced by the
+ * core MVI primitive `buildAttentionDigest`, which returns `null` (→ `undefined`
+ * here) when there are zero open items — the empty-attention contract.
+ *
+ * @param projectRoot - Absolute project root.
+ * @returns The attention MVI digest, or `undefined` when empty/unavailable.
+ *
+ * @internal
+ */
+async function fetchAttentionDigest(
+  projectRoot: string,
+): Promise<FocusShowResult['attentionDigest'] | undefined> {
+  try {
+    const digest = await buildAttentionDigest(projectRoot);
+    return digest ?? undefined;
   } catch {
     return undefined;
   }
@@ -319,19 +344,23 @@ async function buildFocusEnvelope(
         : undefined;
 
   // ── 7. Parallel sub-calls ─────────────────────────────────────────────────
-  const [sagaMembersResult, readyResult, docsResult, brainResult] = await Promise.allSettled([
-    isSaga
-      ? fetchSagaMembersWithTitles(projectRoot, id)
-      : Promise.resolve(undefined as FocusSagaMember[] | undefined),
+  const [sagaMembersResult, readyResult, docsResult, brainResult, attentionResult] =
+    await Promise.allSettled([
+      isSaga
+        ? fetchSagaMembersWithTitles(projectRoot, id)
+        : Promise.resolve(undefined as FocusSagaMember[] | undefined),
 
-    epicIdForReady && TASK_ID_RE.test(epicIdForReady)
-      ? orchestrateReady(epicIdForReady, projectRoot)
-      : Promise.resolve(null),
+      epicIdForReady && TASK_ID_RE.test(epicIdForReady)
+        ? orchestrateReady(epicIdForReady, projectRoot)
+        : Promise.resolve(null),
 
-    fetchAttachedDocs(projectRoot, id),
+      fetchAttachedDocs(projectRoot, id),
 
-    fetchBrainContext(id),
-  ]);
+      fetchBrainContext(id),
+
+      // T11374: Tier-2 attention digest for the calling agent's resolved scope.
+      fetchAttentionDigest(projectRoot),
+    ]);
 
   // ── 8. Recent git activity (sync, cheap) ──────────────────────────────────
   const recentActivity = fetchRecentActivity(id, projectRoot);
@@ -365,6 +394,9 @@ async function buildFocusEnvelope(
   const brainContext: FocusBrainContext | undefined =
     brainResult.status === 'fulfilled' ? brainResult.value : undefined;
 
+  const attentionDigest: FocusShowResult['attentionDigest'] | undefined =
+    attentionResult.status === 'fulfilled' ? attentionResult.value : undefined;
+
   const envelope: FocusShowResult = {
     identity,
     scope,
@@ -374,6 +406,7 @@ async function buildFocusEnvelope(
     ...(attachedDocs != null ? { attachedDocs } : {}),
     ...(recentActivity.length > 0 ? { recentActivity } : {}),
     ...(brainContext != null ? { brainContext } : {}),
+    ...(attentionDigest != null ? { attentionDigest } : {}),
     tokensEstimated: 0,
   };
 
