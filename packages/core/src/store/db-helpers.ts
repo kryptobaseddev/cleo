@@ -128,6 +128,62 @@ export async function upsertTask(
     .values(values)
     .onConflictDoUpdate({ target: schema.tasks.id, set })
     .run();
+
+  // T11356: keep the task_labels junction in sync with the labels_json column.
+  // The junction is the index-backed membership SSoT for label filters; reads
+  // join it instead of running `labels_json LIKE '%label%'` (which matched
+  // across JSON array boundaries and could not use an index).
+  await updateTaskLabels(db, row.id, parseLabels(row.labelsJson));
+}
+
+/**
+ * Parse a `labels_json` text column into a deduplicated string-array.
+ *
+ * Invalid / non-array JSON yields an empty list — the junction is then emptied
+ * for that task, matching the "no labels" state.
+ *
+ * @param labelsJson - The serialized JSON array from `tasks.labels_json`.
+ * @returns Deduplicated, non-empty label strings.
+ */
+export function parseLabels(labelsJson: string | null | undefined): string[] {
+  if (!labelsJson) return [];
+  try {
+    const parsed: unknown = JSON.parse(labelsJson);
+    if (!Array.isArray(parsed)) return [];
+    const seen = new Set<string>();
+    for (const l of parsed) {
+      if (typeof l === 'string' && l.length > 0) seen.add(l);
+    }
+    return [...seen];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Replace the {@link schema.taskLabels} junction rows for one task so they
+ * exactly mirror its label set (T11356).
+ *
+ * Delete-then-insert keeps the junction authoritative without read-modify-write
+ * races: the prior label set is dropped and the supplied set re-inserted. Called
+ * from {@link upsertTask} and from raw-SQL proposal inserters that bypass it.
+ *
+ * @param db - Drizzle tasks.db handle.
+ * @param taskId - The owning task id.
+ * @param labels - The full label set the junction should reflect.
+ */
+export async function updateTaskLabels(
+  db: DrizzleDb,
+  taskId: string,
+  labels: string[],
+): Promise<void> {
+  await db.delete(schema.taskLabels).where(eq(schema.taskLabels.taskId, taskId)).run();
+  if (labels.length === 0) return;
+  await db
+    .insert(schema.taskLabels)
+    .values(labels.map((label) => ({ taskId, label })))
+    .onConflictDoNothing()
+    .run();
 }
 
 /**

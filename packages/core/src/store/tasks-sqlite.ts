@@ -25,6 +25,7 @@ import {
   safeDeleteTask,
   safeUpdateTask,
 } from './data-safety.js';
+import { parseLabels, updateTaskLabels } from './db-helpers.js';
 import { getDb, getNativeDb } from './sqlite.js';
 import type { TaskRow } from './tasks-schema.js';
 import * as schema from './tasks-schema.js';
@@ -43,6 +44,9 @@ async function insertTaskRow(task: Task, cwd?: string): Promise<Task> {
       db.insert(schema.taskDependencies).values({ taskId: task.id, dependsOn: depId }).run();
     }
   }
+
+  // T11356: keep the task_labels junction in sync with labels_json.
+  await updateTaskLabels(db, task.id, parseLabels(row.labelsJson));
 
   return task;
 }
@@ -123,6 +127,11 @@ export async function updateTask(
     for (const depId of updates.depends) {
       db.insert(schema.taskDependencies).values({ taskId, dependsOn: depId }).run();
     }
+  }
+
+  // T11356: keep the task_labels junction in sync when labels change.
+  if (updates.labels !== undefined) {
+    await updateTaskLabels(db, taskId, parseLabels(updateRow.labelsJson as string));
   }
 
   return getTask(taskId, cwd);

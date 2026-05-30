@@ -247,32 +247,35 @@ describe('transactionalInsertProposal', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Index verification (T1126)
+// Index verification (T1126 → T11356)
 // ---------------------------------------------------------------------------
 
-describe('sentient proposal index', () => {
-  it('partial index exists in schema and accelerates count query', () => {
+describe('sentient proposal index (T11356)', () => {
+  it('uses a plain date(created_at) index — no fragile JSON-LIKE partial predicate', () => {
     const db = createTestDb();
-    // Create the partial index that the real DB has
+    // T11356: the former partial index idx_tasks_sentient_proposals_today
+    // (WHERE labels_json LIKE '%sentient-tier2%') is replaced by a plain
+    // date(created_at) expression index. Label membership now resolves through
+    // the task_labels junction (idx_task_labels_label), not a JSON-LIKE scan.
     db.exec(`
-      CREATE INDEX idx_tasks_sentient_proposals_today
+      CREATE INDEX idx_tasks_created_date
       ON tasks(date(created_at))
-      WHERE labels_json LIKE '%sentient-tier2%'
     `);
 
-    // Verify the index exists via PRAGMA
     const indexes = db.prepare('PRAGMA index_list(tasks)').all() as Array<{ name: string }>;
-    const idx = indexes.find((i) => i.name === 'idx_tasks_sentient_proposals_today');
+    const idx = indexes.find((i) => i.name === 'idx_tasks_created_date');
     expect(idx).toBeDefined();
 
-    // Verify the index is partial (has WHERE clause)
+    // The replacement index is NOT partial — it carries no WHERE clause and no
+    // dependency on the serialized labels_json column.
     const info = db
       .prepare(
-        "SELECT sql FROM sqlite_master WHERE name = 'idx_tasks_sentient_proposals_today' AND type = 'index'",
+        "SELECT sql FROM sqlite_master WHERE name = 'idx_tasks_created_date' AND type = 'index'",
       )
       .get() as { sql: string } | undefined;
-    expect(info?.sql).toContain('WHERE');
-    expect(info?.sql).toContain('sentient-tier2');
+    expect(info?.sql).toContain('created_at');
+    expect(/\bWHERE\b/i.test(info?.sql ?? '')).toBe(false);
+    expect(info?.sql).not.toContain('sentient-tier2');
 
     db.close();
   });

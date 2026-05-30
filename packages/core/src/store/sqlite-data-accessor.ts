@@ -659,8 +659,15 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       }
 
       if (filters.label) {
-        // label stored in JSON array — use LIKE on the serialized column
-        conditions.push(like(schema.tasks.labelsJson, `%${JSON.stringify(filters.label)}%`));
+        // T11356: exact, index-backed label membership via the task_labels
+        // junction. The former `labels_json LIKE '%"label"%'` matched across
+        // JSON array boundaries (substring on serialized JSON) and could not
+        // use an index.
+        const labelMatchIds = db
+          .select({ taskId: schema.taskLabels.taskId })
+          .from(schema.taskLabels)
+          .where(eq(schema.taskLabels.label, filters.label));
+        conditions.push(inArray(schema.tasks.id, labelMatchIds));
       }
 
       const where = conditions.length > 0 ? and(...conditions) : undefined;
