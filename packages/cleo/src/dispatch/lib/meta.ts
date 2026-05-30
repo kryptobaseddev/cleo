@@ -1,53 +1,12 @@
 /**
- * Dispatch-local metadata factory.
+ * Dispatch-local metadata factory (thin re-export shim).
  *
- * Generates LAFS-conformant metadata for dispatch layer responses.
- * Generates LAFS-conformant metadata for dispatch responses.
- *
- * @task T4772
- */
-
-import { randomUUID } from 'node:crypto';
-import type { DispatchResponse, Source } from '../types.js';
-
-/**
- * Create metadata for a dispatch response.
- *
- * @param gateway   - Gateway name (e.g., 'query', 'mutate')
- * @param domain    - Domain name (e.g., 'tasks', 'session')
- * @param operation - Operation name (e.g., 'show', 'list')
- * @param startTime - Timestamp from Date.now() at start of request
- * @param source    - Where the request originated
- * @param requestId - Optional pre-generated request ID
- * @param sessionId - Optional session ID to include in metadata
- * @param originSessionId - Optional root workflow/saga session ID
- * @param executionSessionId - Optional execution-attempt session ID
- * @returns Metadata conforming to DispatchResponse['meta']
+ * `createDispatchMeta` was relocated to `@cleocode/runtime/gateway`
+ * (R3-T3 · T11447 · SG-RUNTIME-UNIFICATION). This shim re-exports it so
+ * in-package consumers importing from `'../lib/meta.js'` compile unchanged.
  *
  * @task T4772
- * @task T4959
+ * @task T11447
  */
-export function createDispatchMeta(
-  gateway: string,
-  domain: string,
-  operation: string,
-  startTime: number,
-  source: Source = 'cli',
-  requestId?: string,
-  sessionId?: string | null,
-  originSessionId?: string | null,
-  executionSessionId?: string | null,
-): DispatchResponse['meta'] {
-  return {
-    gateway: gateway as DispatchResponse['meta']['gateway'],
-    domain,
-    operation,
-    timestamp: new Date().toISOString(),
-    duration_ms: Date.now() - startTime,
-    source,
-    requestId: requestId ?? randomUUID(),
-    ...(sessionId != null && { sessionId }),
-    ...(originSessionId != null && { originSessionId }),
-    ...(executionSessionId != null && { executionSessionId }),
-  };
-}
+
+export { createDispatchMeta } from '@cleocode/runtime/gateway';
