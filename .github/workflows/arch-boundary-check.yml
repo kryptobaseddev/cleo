@@ -165,3 +165,29 @@ jobs:
           node-version: '24'
       - name: Lint no runtime logic in contracts (baseline mode)
         run: node scripts/lint-no-runtime-in-contracts.mjs
+
+  tools-skills-boundary:
+    # T11409 · Epic T11390 (E3) · Saga T11387 SG-PACKAGE-ARCH
+    #
+    # Enforces the TOOLS-vs-SKILLS boundary (ATOMIC_TOOL_BOUNDARY in
+    # packages/contracts/src/boundary.ts): atomic tool primitives are DEFINED
+    # only under packages/core/src/tools + packages/contracts/src/tools; the
+    # harness/provider packages (mcp-adapter, caamp, cleo-os) CONSUME them, never
+    # redefine. Baseline mode: pre-existing out-of-home definitions are pinned in
+    # scripts/.lint-tools-vs-skills-boundary-baseline.json; only NET-NEW
+    # redefinitions fail.
+    #
+    # After migrating an out-of-home definition INTO core/src/tools:
+    #   node scripts/lint-tools-vs-skills-boundary.mjs --update-baseline
+    #
+    # Pure static analysis of checked-in source — no untrusted user input.
+    name: Tools-vs-Skills Boundary Lint (T11409)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Lint tools-vs-skills boundary (baseline mode)
+        run: node scripts/lint-tools-vs-skills-boundary.mjs
