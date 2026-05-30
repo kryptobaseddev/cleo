@@ -243,8 +243,24 @@ export interface BuildSpawnPromptInput {
   tier?: SpawnTier;
   /** Absolute project root. */
   projectRoot: string;
-  /** Orchestrator's active session id, if known. */
+  /**
+   * Per-agent session id for the spawned task, if known.
+   *
+   * T11343: this is the spawned agent's OWN session (allocated by
+   * {@link allocateSpawnSession}), not the orchestrator's. Injected into the
+   * `## Worktree Setup` export block as `CLEO_SESSION_ID` so the agent's
+   * `cleo` calls resolve its own session via env-first resolution. Also
+   * rendered in the `## Session Linkage` block.
+   */
   sessionId?: string | null;
+  /**
+   * Per-agent identity handle for the spawned task (T11343).
+   *
+   * Injected into the `## Worktree Setup` export block as `CLEO_AGENT_ID` so
+   * audit rows / memory observations are attributed to the spawned agent.
+   * Defaults to a deterministic handle derived from the task id when absent.
+   */
+  agentId?: string | null;
   /** Current date (ISO yyyy-mm-dd). Defaults to today. */
   date?: string;
   /**
@@ -546,6 +562,7 @@ function buildWorktreeSetupBlock(
   worktreePath: string,
   worktreeBranch: string,
   taskId: string,
+  identity: { sessionId?: string | null; agentId?: string | null } = {},
 ): string {
   // Derive projectHash from the canonical path layout:
   //   ~/.local/share/cleo/worktrees/<projectHash>/<taskId>
@@ -556,11 +573,18 @@ function buildWorktreeSetupBlock(
 
   // Use the utility as the single source of truth for the preamble snippet.
   // The returned preamble includes: cd || exit 1, pwd prefix-guard, export block.
+  //
+  // T11343 — thread the spawned agent's OWN session + identity so the export
+  // block in the prompt sets `CLEO_SESSION_ID` / `CLEO_AGENT_ID`. The agent's
+  // subsequent `cleo` calls then resolve ITS session via env-first resolution,
+  // never the orchestrator's most-recent active row.
   const isolation = provisionIsolatedShell({
     worktreePath,
     branch: worktreeBranch,
     role: 'worker',
     projectHash,
+    ...(identity.sessionId ? { sessionId: identity.sessionId } : {}),
+    ...(identity.agentId ? { agentId: identity.agentId } : {}),
   });
 
   // The cd guard snippet in a copy-pastable form for the CRITICAL section.
@@ -1708,7 +1732,16 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   // Worktree Setup (T1140) — only emitted when the engine provisioned one.
   // Omitted when --no-worktree was passed or worktree creation failed.
   if (worktreePath) {
-    authoredSections.push(buildWorktreeSetupBlock(worktreePath, worktreeBranch, taskId));
+    // T11343 — pass the per-agent identity through so the worktree-setup
+    // export block carries CLEO_SESSION_ID / CLEO_AGENT_ID. agentId defaults
+    // to the deterministic handle (mirrors `deriveAgentHandle`) so a prompt
+    // built without an explicit handle still attributes to a stable agent.
+    authoredSections.push(
+      buildWorktreeSetupBlock(worktreePath, worktreeBranch, taskId, {
+        sessionId: input.sessionId,
+        agentId: input.agentId ?? `agent-${taskId.toLowerCase()}`,
+      }),
+    );
   }
   // Spawn-clone exclude filter (T9226) — emitted when the engine applied
   // sparse-checkout exclusions to keep the worktree lean.

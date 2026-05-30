@@ -338,6 +338,10 @@ describe('drift detection: ISOLATION_ENV_KEYS alignment', () => {
       'CLEO_BRANCH_PROTECTION',
       'CLEO_WORKTREE_BRANCH',
       'CLEO_PROJECT_HASH',
+      // Per-agent session identity injected at spawn (T11284 · SG-COGNITIVE-SUBSTRATE):
+      // kills session-bleed + memory scope-leakage by binding each agent's identity.
+      'CLEO_SESSION_ID',
+      'CLEO_AGENT_ID',
     ]);
     for (const key of ISOLATION_ENV_KEYS) {
       expect(knownShimEnvKeys.has(key)).toBe(true);

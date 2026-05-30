@@ -53,16 +53,24 @@ export async function sentientProposeList(
   params: ProposeListParams,
 ): Promise<ProposeListResult> {
   const { getDb } = await import('@cleocode/core/internal');
-  const { tasks } = await import('@cleocode/core/store/tasks-schema');
-  const { and, eq, like } = await import('drizzle-orm');
+  const { tasks, taskLabels } = await import('@cleocode/core/store/tasks-schema');
+  const { and, eq, inArray } = await import('drizzle-orm');
 
   const db = await getDb(projectRoot);
   const limit = params.limit && params.limit > 0 ? params.limit : 50;
 
+  // T11356: exact, index-backed Tier-2 membership via the task_labels junction
+  // (was `labels_json LIKE '%sentient-tier2%'`, which matched across JSON array
+  // boundaries and could not use an index).
+  const tier2Ids = db
+    .select({ taskId: taskLabels.taskId })
+    .from(taskLabels)
+    .where(eq(taskLabels.label, TIER2_LABEL));
+
   const rows = await db
     .select()
     .from(tasks)
-    .where(and(eq(tasks.status, 'proposed'), like(tasks.labelsJson, `%${TIER2_LABEL}%`)))
+    .where(and(eq(tasks.status, 'proposed'), inArray(tasks.id, tier2Ids)))
     .limit(limit)
     .all();
 
@@ -136,21 +144,21 @@ export async function sentientProposeAccept(
   params: ProposeAcceptParams,
 ): Promise<ProposeAcceptResult> {
   const { getDb } = await import('@cleocode/core/internal');
-  const { tasks } = await import('@cleocode/core/store/tasks-schema');
-  const { and, eq, like } = await import('drizzle-orm');
+  const { tasks, taskLabels } = await import('@cleocode/core/store/tasks-schema');
+  const { and, eq, inArray } = await import('drizzle-orm');
 
   const db = await getDb(projectRoot);
+
+  // T11356: index-backed Tier-2 membership via the task_labels junction.
+  const tier2Ids = db
+    .select({ taskId: taskLabels.taskId })
+    .from(taskLabels)
+    .where(eq(taskLabels.label, TIER2_LABEL));
 
   const existing = await db
     .select()
     .from(tasks)
-    .where(
-      and(
-        eq(tasks.id, params.id),
-        eq(tasks.status, 'proposed'),
-        like(tasks.labelsJson, `%${TIER2_LABEL}%`),
-      ),
-    )
+    .where(and(eq(tasks.id, params.id), eq(tasks.status, 'proposed'), inArray(tasks.id, tier2Ids)))
     .get();
 
   if (!existing) {
@@ -184,22 +192,22 @@ export async function sentientProposeReject(
   params: ProposeRejectParams,
 ): Promise<ProposeRejectResult> {
   const { getDb } = await import('@cleocode/core/internal');
-  const { tasks } = await import('@cleocode/core/store/tasks-schema');
-  const { and, eq, like } = await import('drizzle-orm');
+  const { tasks, taskLabels } = await import('@cleocode/core/store/tasks-schema');
+  const { and, eq, inArray } = await import('drizzle-orm');
 
   const db = await getDb(projectRoot);
   const reason = params.reason ?? 'rejected by owner';
 
+  // T11356: index-backed Tier-2 membership via the task_labels junction.
+  const tier2Ids = db
+    .select({ taskId: taskLabels.taskId })
+    .from(taskLabels)
+    .where(eq(taskLabels.label, TIER2_LABEL));
+
   const existing = await db
     .select()
     .from(tasks)
-    .where(
-      and(
-        eq(tasks.id, params.id),
-        eq(tasks.status, 'proposed'),
-        like(tasks.labelsJson, `%${TIER2_LABEL}%`),
-      ),
-    )
+    .where(and(eq(tasks.id, params.id), eq(tasks.status, 'proposed'), inArray(tasks.id, tier2Ids)))
     .get();
 
   if (!existing) {

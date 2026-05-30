@@ -6,10 +6,12 @@
  * @task T1450 — normalized (projectRoot, params) signature
  */
 
-import type { Session, SessionContextDriftParams, Task, TaskWorkState } from '@cleocode/contracts';
+import type { Session, SessionContextDriftParams, Task } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { resolveCurrentSession } from '../store/session-store.js';
+import { readFocusState } from './focus-state-store.js';
 
 export interface ContextDriftResult {
   score: number;
@@ -51,15 +53,10 @@ export async function getContextDrift(
 ): Promise<ContextDriftResult> {
   const accessor = await getTaskAccessor(projectRoot);
   const { tasks } = await accessor.queryTasks({});
-  const focus = await accessor.getMetaValue<TaskWorkState>('focus_state');
-  const current = {
-    tasks,
-    focus: focus ?? undefined,
-  };
 
-  // Find the active session (or specified session)
+  // T11344 — resolve the target session FIRST (explicit id, else env-first
+  // caller session) so T11345 can read the matching per-session focus_state.
   let session: Session | undefined;
-
   if (params.sessionId) {
     const sessions = await accessor.loadSessions();
     session = sessions.find((s) => s.id === params.sessionId);
@@ -67,9 +64,16 @@ export async function getContextDrift(
       throw new CleoError(ExitCode.SESSION_NOT_FOUND, `Session '${params.sessionId}' not found`);
     }
   } else {
-    const activeSession = await accessor.getActiveSession();
+    const activeSession = await resolveCurrentSession(projectRoot);
     session = activeSession ?? undefined;
   }
+
+  // T11345 — read the resolved session's per-session focus_state.
+  const focus = await readFocusState(accessor, session?.id ?? null);
+  const current = {
+    tasks,
+    focus: focus ?? undefined,
+  };
 
   const factors: string[] = [];
 

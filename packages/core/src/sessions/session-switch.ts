@@ -9,6 +9,7 @@ import type { Session, TaskWorkState } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { readFocusState, writeFocusState } from './focus-state-store.js';
 
 /**
  * Switch to a different session.
@@ -53,12 +54,12 @@ export async function switchSession(projectRoot: string, sessionId: string): Pro
   targetSession.endedAt = undefined;
   targetSession.resumeCount = (targetSession.resumeCount || 0) + 1;
 
-  // Update focus if target session has a task
+  // T11345 — update the TARGET session's per-session focus_state (keyed by the
+  // session being switched TO), not the global key.
   if (targetSession.taskWork?.taskId) {
-    const focus =
-      (await accessor.getMetaValue<TaskWorkState>('focus_state')) ?? ({} as TaskWorkState);
+    const focus = (await readFocusState(accessor, sessionId)) ?? ({} as TaskWorkState);
     focus.currentTask = targetSession.taskWork.taskId;
-    await accessor.setMetaValue('focus_state', focus);
+    await writeFocusState(accessor, sessionId, focus);
   }
 
   await accessor.upsertSingleSession(targetSession);

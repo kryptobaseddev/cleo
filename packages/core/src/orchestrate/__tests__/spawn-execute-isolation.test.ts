@@ -34,12 +34,16 @@ describe('provisionIsolatedShell — orchestrateSpawnExecute contract', () => {
     expect(isolation.cwd).not.toBe(projectRoot);
   });
 
-  it('env block contains all ISOLATION_ENV_KEYS', () => {
+  it('env block contains all ISOLATION_ENV_KEYS (all non-empty when identity supplied)', () => {
+    // T11343 — orchestrateSpawnExecute injects the per-agent session + agent id,
+    // so the realistic isolation env carries all six keys non-empty.
     const isolation = provisionIsolatedShell({
       worktreePath,
       branch,
       role: 'worker',
       projectHash,
+      sessionId: 'ses_20260530000000_abcdef',
+      agentId: 'agent-t9999',
     });
 
     for (const key of ISOLATION_ENV_KEYS) {
@@ -47,6 +51,12 @@ describe('provisionIsolatedShell — orchestrateSpawnExecute contract', () => {
       expect(typeof isolation.env[key]).toBe('string');
       expect(isolation.env[key].length).toBeGreaterThan(0);
     }
+  });
+
+  it('identity env keys default to empty when not supplied (T11343 — no clobber)', () => {
+    const isolation = provisionIsolatedShell({ worktreePath, branch, role: 'worker', projectHash });
+    expect(isolation.env.CLEO_SESSION_ID).toBe('');
+    expect(isolation.env.CLEO_AGENT_ID).toBe('');
   });
 
   it('env CLEO_WORKTREE_ROOT points to worktree, not project root', () => {

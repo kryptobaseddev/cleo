@@ -13,7 +13,7 @@
  * @task T4844
  */
 
-import { getLogger, getProjectInfoSync } from '@cleocode/core/internal';
+import { getLogger, getProjectInfoSync, resolveSessionIdFromEnv } from '@cleocode/core/internal';
 import { getConfig } from '../lib/config.js';
 import type { DispatchNext, DispatchRequest, DispatchResponse, Middleware } from '../types.js';
 
@@ -59,7 +59,9 @@ async function getActiveSessionInfo(): Promise<{ id: string; gradeMode: boolean 
   if (gradeId && process.env.CLEO_SESSION_GRADE === 'true') {
     return { id: gradeId, gradeMode: true };
   }
-  const envId = process.env.CLEO_SESSION_ID;
+  // T11344: defer to the SINGLE canonical env-first resolver so audit shares
+  // ONE precedence with the session-resolver middleware and `lookupCliSession`.
+  const envId = resolveSessionIdFromEnv();
   if (envId) {
     return { id: envId, gradeMode: false };
   }

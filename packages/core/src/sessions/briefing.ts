@@ -25,14 +25,15 @@ import type {
   RetrievalBundle,
   SessionBriefingShowParams,
   Task,
-  TaskWorkState,
 } from '@cleocode/contracts';
 import type { SessionMemoryContext } from '../memory/session-memory.js';
 import { truncateString } from '../render/helpers.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { depsReady } from '../tasks/deps-ready.js';
+import { readFocusState } from './focus-state-store.js';
 import { getLastHandoff, type HandoffData } from './handoff.js';
+import { resolveSessionIdFromEnv } from './session-id.js';
 import type { TaskWorkStateExt } from './types.js';
 
 /**
@@ -263,7 +264,12 @@ export async function computeBriefing(
 ): Promise<SessionBriefing> {
   const accessor = await getTaskAccessor(projectRoot);
   const { tasks } = await accessor.queryTasks({});
-  const focus = (await accessor.getMetaValue<TaskWorkState>('focus_state')) as
+  // T11345 — read the PER-SESSION focus_state for the briefing's session.
+  // Precedence: explicit params.activeSessionId (env-resolved by the engine-op)
+  // → env-first resolver → legacy global key (backward-compat fallback inside
+  // readFocusState). This scopes the "current task" line to the CALLER's agent.
+  const focusSessionId = params.activeSessionId ?? resolveSessionIdFromEnv();
+  const focus = ((await readFocusState(accessor, focusSessionId)) ?? undefined) as
     | TaskWorkStateExt
     | undefined;
 

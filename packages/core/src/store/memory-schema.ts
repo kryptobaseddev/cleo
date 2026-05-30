@@ -964,6 +964,44 @@ export const brainStickyNotes = sqliteTable(
   ],
 );
 
+// === STICKY_TAGS JUNCTION (T11355 · E4 JSON-storage optimization) ===
+
+/**
+ * Denormalized sticky-note → tag membership edge.
+ *
+ * Replaces the load-all-then-JS-filter pattern that
+ * `packages/core/src/sticky/list.ts` previously used: when a tag filter was
+ * active the SQL `LIMIT` was dropped, every row loaded, every `tags_json`
+ * `JSON.parse`-d, and the result `.filter()`-d in memory. Tag filtering now
+ * runs in SQL via this junction with the `LIMIT` honored.
+ *
+ * `brain_sticky_notes.tags_json` is retained as the legacy whole-array
+ * compatibility column (read by `cleo sticky show/convert/archive/purge`);
+ * the junction is the membership-query SSoT and is kept in sync on every
+ * sticky write. `(sticky_id, tag)` is the natural composite identity — a tag
+ * appears at most once per sticky.
+ *
+ * @task T11355
+ * @epic T11286
+ * @saga T11283
+ */
+export const stickyTags = sqliteTable(
+  'sticky_tags',
+  {
+    /** Owning sticky note. ON DELETE CASCADE — tags die with their note. */
+    stickyId: text('sticky_id')
+      .notNull()
+      .references(() => brainStickyNotes.id, { onDelete: 'cascade' }),
+    /** A single tag string (one row per tag). */
+    tag: text('tag').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.stickyId, table.tag] }),
+    // Membership lookup path — `WHERE tag = ?` is the dominant filter access.
+    index('idx_sticky_tags_tag').on(table.tag),
+  ],
+);
+
 // === BRAIN_MEMORY_LINKS TABLE ===
 
 /** Cross-references between BRAIN entries and tasks in tasks.db. */
@@ -1980,6 +2018,10 @@ export type BrainPageEdgeRow = typeof brainPageEdges.$inferSelect;
 export type NewBrainPageEdgeRow = typeof brainPageEdges.$inferInsert;
 export type BrainStickyNoteRow = typeof brainStickyNotes.$inferSelect;
 export type NewBrainStickyNoteRow = typeof brainStickyNotes.$inferInsert;
+/** Row type for sticky_tags SELECT queries (T11355). */
+export type StickyTagRow = typeof stickyTags.$inferSelect;
+/** Row type for sticky_tags INSERT operations (T11355). */
+export type NewStickyTagRow = typeof stickyTags.$inferInsert;
 export type BrainPlasticityEventRow = typeof brainPlasticityEvents.$inferSelect;
 export type NewBrainPlasticityEventRow = typeof brainPlasticityEvents.$inferInsert;
 

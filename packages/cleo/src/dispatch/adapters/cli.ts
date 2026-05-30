@@ -133,15 +133,29 @@ export function getCliDispatcher(): Dispatcher {
 }
 
 /**
- * Best-effort lookup of the active session ID from SQLite.
- * Used by session-resolver middleware for CLI commands.
+ * Best-effort lookup of the current session ID for CLI commands.
+ *
+ * T11344 (Epic T11284) — env-first resolution. The canonical
+ * `resolveSessionIdFromEnv()` is consulted BEFORE `getActiveSession()` so a
+ * short-lived `cleo` call inside a spawned agent's worktree resolves THAT
+ * agent's `CLEO_SESSION_ID` (injected by spawn isolation, T11343) rather than
+ * collapsing onto the orchestrator's most-recent active row. The DB lookup is
+ * the fallback only when no session env var is set. This single env-first
+ * precedence is shared with the session-resolver + audit middleware — no
+ * duplicated precedence logic.
+ *
  * Returns null on any failure (many CLI commands don't need a session).
  *
  * @epic T4959
+ * @task T11344
  */
 async function lookupCliSession(): Promise<string | null> {
   try {
-    const { getActiveSession } = await import('@cleocode/core/internal');
+    const { resolveSessionIdFromEnv, getActiveSession } = await import('@cleocode/core/internal');
+    // Env-first: the spawned agent's own session id wins over the DB's
+    // most-recent active row (the session-bleed root cause).
+    const fromEnv = resolveSessionIdFromEnv();
+    if (fromEnv) return fromEnv;
     const session = await getActiveSession();
     return session?.id ?? null;
   } catch {

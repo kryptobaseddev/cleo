@@ -351,7 +351,8 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:integration": "vitest run --include 'src/store/__tests__/*-integration.test.ts'"
+    "test:integration": "vitest run --include 'src/store/__tests__/*-integration.test.ts'",
+    "postinstall": "node scripts/install-supervisor-binary.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.69",
@@ -412,6 +413,8 @@
     "migrations",
     "schemas",
     "templates",
+    "binaries",
+    "scripts/install-supervisor-binary.mjs",
     "README.md",
     "STABILITY.md"
   ],

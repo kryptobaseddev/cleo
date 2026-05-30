@@ -7,6 +7,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { resolveOrCwd } from '../paths.js';
+import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
 
 function getCleoDir(cwd?: string): string {
   return join(resolveOrCwd(cwd), '.cleo');
@@ -20,14 +21,12 @@ function getStateFile(session?: string, cwd?: string): string {
     if (existsSync(sessionFile)) return sessionFile;
   }
 
-  // Check for current session binding
-  const currentSessionFile = join(cleoDir, '.current-session');
-  if (existsSync(currentSessionFile)) {
-    const currentSession = readFileSync(currentSessionFile, 'utf-8').trim();
-    if (currentSession) {
-      const sessionFile = join(cleoDir, 'context-states', `context-state-${currentSession}.json`);
-      if (existsSync(sessionFile)) return sessionFile;
-    }
+  // T11347 — bind to the CALLER's session via the canonical env-first resolver
+  // (replaces the dead `.current-session` file read, which had ZERO writers).
+  const currentSession = resolveSessionIdFromEnv();
+  if (currentSession) {
+    const sessionFile = join(cleoDir, 'context-states', `context-state-${currentSession}.json`);
+    if (existsSync(sessionFile)) return sessionFile;
   }
 
   // Fall back to global state file
@@ -206,25 +205,10 @@ export interface ContextData {
 export function getContextWindow(cwd: string, opts?: { session?: string }): ContextData {
   const cleoDir = getCleoDir(cwd);
 
-  // Resolve primary state file
-  let stateFile: string;
-  if (opts?.session) {
-    const sessionFile = join(cleoDir, 'context-states', `context-state-${opts.session}.json`);
-    stateFile = existsSync(sessionFile) ? sessionFile : join(cleoDir, '.context-state.json');
-  } else {
-    const currentSessionPath = join(cleoDir, '.current-session');
-    if (existsSync(currentSessionPath)) {
-      const currentSession = readFileSync(currentSessionPath, 'utf-8').trim();
-      if (currentSession) {
-        const sessionFile = join(cleoDir, 'context-states', `context-state-${currentSession}.json`);
-        stateFile = existsSync(sessionFile) ? sessionFile : join(cleoDir, '.context-state.json');
-      } else {
-        stateFile = join(cleoDir, '.context-state.json');
-      }
-    } else {
-      stateFile = join(cleoDir, '.context-state.json');
-    }
-  }
+  // T11347 — resolve the primary state file via the shared `getStateFile`
+  // helper (DRY) which is env-first and no longer reads the dead
+  // `.current-session` file pointer (zero writers existed).
+  const stateFile = getStateFile(opts?.session, cwd);
 
   // Collect session files
   const sessions: ContextData['sessions'] = [];

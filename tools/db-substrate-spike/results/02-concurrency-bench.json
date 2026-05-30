@@ -1,0 +1,76 @@
+{
+  "task": "T11322",
+  "config": {
+    "writers": 100,
+    "rateHz": 10,
+    "durationS": 300,
+    "intervalMs": 100
+  },
+  "pragmas": "WAL + synchronous=NORMAL + busy_timeout=30000 + wal_autocheckpoint=1000 + foreign_keys=ON",
+  "baselineEven": {
+    "scenario": "baseline-per-domain-even",
+    "fileLayout": "5 separate files (even round-robin)",
+    "stats": {
+      "count": 299275,
+      "min": 0.01773999999568332,
+      "max": 78.98212000000058,
+      "mean": 0.1173848569242334,
+      "p50": 0.0472040000022389,
+      "p95": 0.16327400002046488,
+      "p99": 1.198869999992894,
+      "p999": 5.454752999998163
+    },
+    "totalCommits": 299275,
+    "totalErrors": 0,
+    "observedThroughputHz": 997.6
+  },
+  "baselineSkewed": {
+    "scenario": "baseline-skewed-hot-tasks",
+    "fileLayout": "1 hot file (~80% writers) + 4 cool files (~20%)",
+    "stats": {
+      "count": 299347,
+      "min": 0.01689299999270588,
+      "max": 181.9871470000362,
+      "mean": 0.27057075377075623,
+      "p50": 0.04948400001740083,
+      "p95": 1.1237139999866486,
+      "p99": 3.226554000051692,
+      "p999": 16.737978999968618
+    },
+    "totalCommits": 299347,
+    "totalErrors": 0,
+    "observedThroughputHz": 997.8
+  },
+  "consolidated": {
+    "scenario": "consolidated-single-file",
+    "fileLayout": "1 single consolidated WAL file (all domains)",
+    "stats": {
+      "count": 302381,
+      "min": 0.01095200004056096,
+      "max": 128.61363999999594,
+      "mean": 0.25652568263873493,
+      "p50": 0.044618999934755266,
+      "p95": 1.1148100000573322,
+      "p99": 3.2124119999352843,
+      "p999": 18.270706000039354
+    },
+    "totalCommits": 302381,
+    "totalErrors": 0,
+    "observedThroughputHz": 1007.9
+  },
+  "gate": {
+    "metric": "consolidated p99 / FAITHFUL skewed-baseline p99 (real migration delta)",
+    "skewedBaselineP99Ms": 3.227,
+    "consolidatedP99Ms": 3.212,
+    "ratioVsSkewed": 0.996,
+    "budget": "<= 1.5",
+    "pass": true
+  },
+  "worstCaseBound": {
+    "note": "Even-split baseline is the worst case (every per-domain file absorbs only 1/5 of the writers, maximally favoring the multi-file layout).",
+    "evenBaselineP99Ms": 1.199,
+    "ratioVsEven": 2.68,
+    "withinBudget": false
+  },
+  "verdict": "PASS"
+}

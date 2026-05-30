@@ -43,14 +43,19 @@ const T10572_TRIGGER_NAMES = [
 ] as const;
 
 const RAW_SQL_INDEX_NAMES = [
-  'idx_tasks_sentient_proposals_today',
+  // T11356: the fragile partial index idx_tasks_sentient_proposals_today (LIKE
+  // on serialized JSON) was replaced by a plain date(created_at) expression
+  // index; label membership now resolves through the task_labels junction.
+  'idx_tasks_created_date',
   'idx_acceptance_projection_dirty_task_id',
   'idx_acceptance_projection_dirty_queued_at',
   'idx_acceptance_projection_state_status_freshness',
 ] as const;
 
 const RAW_SQL_PARTIAL_INDEX_NAMES = [
-  'idx_tasks_sentient_proposals_today',
+  // T11356: idx_tasks_sentient_proposals_today removed (was the only WHERE-clause
+  // partial index pinned on a JSON-LIKE predicate). The remaining entries are
+  // genuine partial indexes that still carry a WHERE clause.
   'idx_sessions_agent_handle',
   'uniq_attachments_slug',
   'idx_attachments_type',

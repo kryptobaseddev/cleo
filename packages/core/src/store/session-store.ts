@@ -10,6 +10,7 @@
 
 import type { Session } from '@cleocode/contracts';
 import { and, desc, eq, isNull } from 'drizzle-orm';
+import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import { rowToSession } from './converters.js';
 import { getDb } from './sqlite.js';
 import * as schema from './tasks-schema.js';
@@ -299,4 +300,58 @@ export async function getActiveSession(cwd?: string): Promise<Session | null> {
 
   if (rows.length === 0) return null;
   return rowToSession(rows[0]!);
+}
+
+/**
+ * Resolve the CALLER's current session, env-first (T11344 · Epic T11284).
+ *
+ * THE canonical identity-resolution helper. Replaces bare `getActiveSession()`
+ * for any consumer that means "the session of whoever is calling THIS process":
+ *
+ * 1. If `resolveSessionIdFromEnv()` returns an id AND a session row with that
+ *    id exists, return it — this is the spawned agent's OWN session
+ *    (`CLEO_SESSION_ID` injected by spawn isolation, T11343).
+ * 2. Otherwise fall back to `getActiveSession()` (most-recent active row).
+ *
+ * Making most-recent-active the FALLBACK rather than the default identity is
+ * what dissolves multi-agent session-bleed AND memory scope-leakage: a
+ * short-lived `cleo` call in agent A's worktree no longer resolves agent B's
+ * session just because B wrote to the DB more recently.
+ *
+ * The env-named session is honoured even when its status is not `active`
+ * (the caller explicitly set `CLEO_SESSION_ID`), so callers that need an
+ * active-only guarantee should check `.status` on the result.
+ *
+ * @param cwd - Working directory for DB resolution.
+ * @returns The resolved session, or `null` when none can be resolved.
+ * @task T11344
+ */
+export async function resolveCurrentSession(cwd?: string): Promise<Session | null> {
+  const envId = resolveSessionIdFromEnv();
+  if (envId) {
+    const byEnv = await getSession(envId, cwd);
+    if (byEnv) return byEnv;
+    // env id named a session that does not exist — fall through to active.
+  }
+  return getActiveSession(cwd);
+}
+
+/**
+ * Resolve the CALLER's current session id, env-first (T11344).
+ *
+ * Thin id-only convenience over {@link resolveCurrentSession}. Prefer this over
+ * `(await getActiveSession())?.id` in identity-resolution hot paths.
+ *
+ * @param cwd - Working directory for DB resolution.
+ * @returns The resolved session id, or `null`.
+ * @task T11344
+ */
+export async function resolveCurrentSessionId(cwd?: string): Promise<string | null> {
+  const envId = resolveSessionIdFromEnv();
+  if (envId) {
+    const byEnv = await getSession(envId, cwd);
+    if (byEnv) return byEnv.id;
+  }
+  const active = await getActiveSession(cwd);
+  return active?.id ?? null;
 }

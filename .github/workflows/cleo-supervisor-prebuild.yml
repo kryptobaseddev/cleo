@@ -1,0 +1,187 @@
+name: cleo-supervisor prebuild
+
+# @task T11340 — SG-RUNTIME-UNIFICATION R1 (T11252).
+#
+# Cross-compiles the cleo-supervisor native binary for all 5 distribution
+# targets, models the worktree-napi-prebuild.yml matrix, and produces the
+# sha256 manifest that the @cleocode/core postinstall picker (P2) verifies
+# against. On a tag push it ATTACHES the 5 binaries + manifest to the matching
+# GitHub Release via GITHUB_TOKEN only (Pattern P2 — ZERO new OIDC trust
+# configs). On PRs it is dogfood/validation only.
+#
+# The supervisor is a STANDALONE executable ([[bin]]), not a napi `.node`
+# addon, so the build step is `cargo build --release --target` (with `cross`
+# for the Linux arm64 cross-compile) rather than `napi build`. The matrix,
+# runners, and cross handling mirror worktree-napi-prebuild.yml exactly.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths:
+      - 'crates/cleo-supervisor/**'
+      - 'rust-toolchain.toml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'packages/core/scripts/install-supervisor-binary.mjs'
+      - 'packages/core/scripts/gen-supervisor-manifest.mjs'
+      - '.github/workflows/cleo-supervisor-prebuild.yml'
+  pull_request:
+    paths:
+      - 'crates/cleo-supervisor/**'
+      - 'rust-toolchain.toml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'packages/core/scripts/install-supervisor-binary.mjs'
+      - 'packages/core/scripts/gen-supervisor-manifest.mjs'
+      - '.github/workflows/cleo-supervisor-prebuild.yml'
+  workflow_dispatch:
+  merge_group:
+
+permissions:
+  contents: write # required to attach assets to the GitHub Release on tag push.
+
+jobs:
+  build:
+    name: ${{ matrix.triple }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            triple: linux-x64-gnu
+            cross: false
+            ext: ''
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+            triple: linux-arm64-gnu
+            cross: true
+            ext: ''
+          - target: x86_64-apple-darwin
+            runner: macos-14
+            triple: darwin-x64
+            cross: false
+            ext: ''
+          - target: aarch64-apple-darwin
+            runner: macos-14
+            triple: darwin-arm64
+            cross: false
+            ext: ''
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            triple: win32-x64-msvc
+            cross: false
+            ext: '.exe'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (${{ matrix.target }})
+        uses: dtolnay/rust-toolchain@1.94.0
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross (Linux arm64)
+        if: matrix.cross == true
+        shell: bash
+        run: cargo install cross --locked
+
+      - name: Build cleo-supervisor (${{ matrix.target }})
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            cross build --release --target ${{ matrix.target }} -p cleo-supervisor
+          else
+            cargo build --release --target ${{ matrix.target }} -p cleo-supervisor
+          fi
+          SRC="target/${{ matrix.target }}/release/cleo-supervisor${{ matrix.ext }}"
+          DEST="cleo-supervisor.${{ matrix.triple }}${{ matrix.ext }}"
+          cp "$SRC" "$DEST"
+          ls -la "$DEST"
+
+      - name: Smoke test --version (native targets only)
+        if: matrix.cross == false && matrix.triple != 'darwin-x64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./cleo-supervisor.${{ matrix.triple }}${{ matrix.ext }} --version
+          ./cleo-supervisor.${{ matrix.triple }}${{ matrix.ext }} --help
+
+      - name: Upload prebuilt artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cleo-supervisor-${{ matrix.triple }}
+          path: cleo-supervisor.${{ matrix.triple }}*
+          if-no-files-found: error
+          retention-days: 14
+
+  # Aggregate all 5 platform builds into a single pass/fail signal CI consumes,
+  # and (on tag push) attach the binaries + sha256 manifest to the matching
+  # GitHub Release via GITHUB_TOKEN (Pattern P2 — no new OIDC).
+  publish:
+    name: gate + release-attach
+    needs: build
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Verify all 5 platform builds passed
+        shell: bash
+        run: |
+          if [[ "${{ needs.build.result }}" == "success" ]]; then
+            echo "✓ cleo-supervisor prebuild passed on all 5 platform targets"
+          elif [[ "${{ needs.build.result }}" == "skipped" ]]; then
+            echo "○ No matching paths — gate is not applicable"
+            exit 0
+          else
+            echo "✗ cleo-supervisor prebuild failed (result: ${{ needs.build.result }})"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        if: needs.build.result == 'success'
+
+      - name: Download all prebuilt binaries
+        if: needs.build.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          path: supervisor-bin
+          pattern: cleo-supervisor-*
+          merge-multiple: true
+
+      - name: Generate sha256 manifest
+        if: needs.build.result == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -la supervisor-bin/
+          node packages/core/scripts/gen-supervisor-manifest.mjs \
+            --bin-dir supervisor-bin \
+            --out supervisor-bin/cleo-supervisor-manifest.json
+          echo "--- manifest ---"
+          cat supervisor-bin/cleo-supervisor-manifest.json
+
+      # On a tag push, attach the 5 binaries + manifest to the GitHub Release
+      # that release.yml creates for the same tag. GITHUB_TOKEN only.
+      - name: Attach binaries to GitHub Release (P2)
+        if: needs.build.result == 'success' && startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF_NAME: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # release.yml may create the release concurrently; retry until it exists.
+          for attempt in 1 2 3 4 5 6; do
+            if gh release view "$REF_NAME" >/dev/null 2>&1; then
+              break
+            fi
+            echo "Release $REF_NAME not yet created (attempt $attempt) — waiting 20s..."
+            sleep 20
+          done
+          gh release upload "$REF_NAME" \
+            supervisor-bin/cleo-supervisor.* \
+            supervisor-bin/cleo-supervisor-manifest.json \
+            --clobber
+          echo "Attached cleo-supervisor binaries + manifest to $REF_NAME"

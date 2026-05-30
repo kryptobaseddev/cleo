@@ -17,6 +17,7 @@ import { SESSION_JOURNAL_SCHEMA_VERSION } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { paginate } from '../pagination.js';
 import { type ContextInjectionData, injectContext } from '../sessions/context-inject.js';
+import { readFocusState, writeFocusState } from '../sessions/focus-state-store.js';
 import {
   archiveSessions,
   cleanupSessions,
@@ -46,6 +47,7 @@ import {
 import { generateSessionId, resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import { appendSessionJournalEntry } from '../sessions/session-journal.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { resolveCurrentSession } from '../store/session-store.js';
 import {
   currentTask,
   getTaskHistory,
@@ -122,8 +124,12 @@ export async function sessionStatus(projectRoot: string): Promise<
 > {
   try {
     const accessor = await getTaskAccessor(projectRoot);
-    const focusState = await accessor.getMetaValue<TaskWorkState>('focus_state');
-    const active = await accessor.getActiveSession();
+    // T11344 — env-first identity resolution. The CALLER's session
+    // (`CLEO_SESSION_ID`) wins over the DB's most-recent active row so a
+    // spawned agent's `cleo session status` reports ITS own session.
+    const active = await resolveCurrentSession(projectRoot);
+    // T11345 — read the per-session focus_state key for the resolved session.
+    const focusState = await readFocusState(accessor, active?.id ?? null);
 
     // Surface persisted override count for the active session (T1501).
     let overrideCount = 0;
@@ -133,7 +139,7 @@ export async function sessionStatus(projectRoot: string): Promise<
     }
 
     return engineSuccess({
-      hasActiveSession: !!active,
+      hasActiveSession: !!active && active.status === 'active',
       session: active ?? null,
       taskWork: focusState ?? null,
       overrideCount,
@@ -527,24 +533,27 @@ export async function sessionStart(
       },
     };
 
-    // Update focus state via metadata
-    const existingFocus = (await accessor.getMetaValue<TaskWorkState>('focus_state')) ?? {
+    // T11345 — initialise a FRESH per-session focus_state keyed to THIS
+    // session id. We do NOT inherit the global blob: doing so would import a
+    // concurrent agent's currentTask into the new session (the bleed this
+    // Epic eliminates). `primarySession` records ownership for diagnostics.
+    const sessionFocus: TaskWorkState = {
       currentTask: null,
       currentPhase: null,
       blockedUntil: null,
       sessionNote: null,
       sessionNotes: [],
       nextAction: null,
-      primarySession: null,
+      primarySession: sessionId,
     };
 
     if (params.startTask) {
-      existingFocus.currentTask = params.startTask;
+      sessionFocus.currentTask = params.startTask;
     } else if (params.autoStart && rootTaskId) {
-      existingFocus.currentTask = rootTaskId;
+      sessionFocus.currentTask = rootTaskId;
     }
 
-    await accessor.setMetaValue('focus_state', existingFocus);
+    await writeFocusState(accessor, sessionId, sessionFocus);
 
     // Update file meta
     const currentMeta = (await accessor.getMetaValue<Record<string, unknown>>('file_meta')) ?? {};
@@ -637,44 +646,82 @@ export async function sessionStart(
 }
 
 /**
- * End the current session.
+ * End the caller's session, scoped env-first (T11346 · Epic T11284).
  *
- * Clears focus state, updates session status, optionally builds a
- * summarization prompt, and appends a session_end journal entry.
+ * Clears the per-session focus state, updates session status, optionally builds
+ * a summarization prompt, and appends a session_end journal entry.
+ *
+ * T11346 — the target session is resolved env-first (the CALLER's session via
+ * `resolveCurrentSession`), NOT `getActiveSession()` (most-recent active row).
+ * An explicit `params.sessionId` overrides env/active resolution. This means
+ * one agent calling `cleo session end` can no longer end a different
+ * concurrently-active agent's session — it ends ITS own, or no-ops with
+ * `E_SESSION_NOT_FOUND` for a session it does not own.
  *
  * @param projectRoot - Absolute path to the project root
  * @param notes - Optional notes to record
- * @param params - Optional session summary input
+ * @param params - Optional session summary input + explicit target session id
  * @returns EngineResult with sessionId, ended flag, and optional memoryPrompt
  *
  * @task T1573
+ * @task T11346
  */
 export async function sessionEnd(
   projectRoot: string,
   notes?: string,
-  params?: { sessionSummary?: SessionSummaryInput },
+  params?: { sessionSummary?: SessionSummaryInput; sessionId?: string },
 ): Promise<EngineResult<{ sessionId: string; ended: boolean; memoryPrompt?: string }>> {
   try {
     const accessor = await getTaskAccessor(projectRoot);
-    const activeSession = await accessor.getActiveSession();
 
-    const sessionId = activeSession?.id;
-    if (!sessionId) {
+    // T11346 — resolve the caller's target session. Precedence:
+    //   1. explicit params.sessionId (looked up by id)
+    //   2. env-first resolved session (CLEO_SESSION_ID → … → active fallback)
+    // The orchestrator's most-recent active row is NEVER the implicit target.
+    let activeSession: Session | null;
+    if (params?.sessionId) {
+      const sessions = await accessor.loadSessions();
+      activeSession = sessions.find((s: Session) => s.id === params.sessionId) ?? null;
+      if (!activeSession) {
+        return engineError(
+          'E_SESSION_NOT_FOUND',
+          `Session '${params.sessionId}' not found — cannot end a session you do not own.`,
+          { fix: "Use 'cleo session list --all' to see available sessions." },
+        );
+      }
+    } else {
+      activeSession = await resolveCurrentSession(projectRoot);
+    }
+
+    if (!activeSession) {
       return engineError('E_SESSION_NOT_FOUND', 'No active session to end', {
         fix: 'Start a session first with: session start --scope <scope> --name <name>',
       });
     }
+    const sessionId = activeSession.id;
+
+    // T11346 — refuse to end a session that is already terminal (e.g. another
+    // agent ended it, or this is a stale env id). No-op rather than clobber.
+    if (activeSession.status !== 'active') {
+      return engineError(
+        'E_SESSION_NOT_FOUND',
+        `Session '${sessionId}' is ${activeSession.status}, not active — nothing to end.`,
+        { details: { sessionId, status: activeSession.status } },
+      );
+    }
     const now = new Date().toISOString();
 
-    // Clear focus
-    const focusEnd = await accessor.getMetaValue<TaskWorkState>('focus_state');
+    // T11345 — clear the PER-SESSION focus_state key for the resolved session,
+    // not the global key. Ending agent A's session leaves agent B's focus_state
+    // untouched.
+    const focusEnd = await readFocusState(accessor, sessionId);
     if (focusEnd) {
       focusEnd.currentTask = null;
       if (notes) {
         if (!focusEnd.sessionNotes) focusEnd.sessionNotes = [];
         focusEnd.sessionNotes.push({ timestamp: now, note: notes });
       }
-      await accessor.setMetaValue('focus_state', focusEnd);
+      await writeFocusState(accessor, sessionId, focusEnd);
     }
 
     // Bump file_meta generation
@@ -827,13 +874,22 @@ export async function sessionResume(
     resumeMeta.generation = ((resumeMeta.generation as number) || 0) + 1;
     await accessor.setMetaValue('file_meta', resumeMeta);
 
-    // Restore focus from session task work
+    // T11345 — restore focus into the resumed session's PER-SESSION key. Read
+    // env-aware (falls back to the legacy global key for pre-T11345 sessions);
+    // initialise a fresh blob when none exists so resume always lands the
+    // currentTask under the correct session key.
     if (session.taskWork?.taskId) {
-      const resumeFocus = await accessor.getMetaValue<TaskWorkState>('focus_state');
-      if (resumeFocus) {
-        resumeFocus.currentTask = session.taskWork.taskId;
-        await accessor.setMetaValue('focus_state', resumeFocus);
-      }
+      const resumeFocus = (await readFocusState(accessor, sessionId)) ?? {
+        currentTask: null,
+        currentPhase: null,
+        blockedUntil: null,
+        sessionNote: null,
+        sessionNotes: [],
+        nextAction: null,
+        primarySession: sessionId,
+      };
+      resumeFocus.currentTask = session.taskWork.taskId;
+      await writeFocusState(accessor, sessionId, resumeFocus);
     }
 
     await accessor.upsertSingleSession(session);
@@ -1026,8 +1082,9 @@ export async function sessionRecordDecision(
   try {
     let resolvedSessionId = params.sessionId;
     if (!resolvedSessionId) {
-      const accessor = await getTaskAccessor(projectRoot);
-      const activeSession = await accessor.getActiveSession();
+      // T11344 — attribute the decision to the CALLER's session (env-first),
+      // not the DB's most-recent active row.
+      const activeSession = await resolveCurrentSession(projectRoot);
       resolvedSessionId = activeSession?.id ?? 'default';
     }
     const result = await recordDecision(projectRoot, {

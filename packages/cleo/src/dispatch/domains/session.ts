@@ -119,8 +119,11 @@ async function sessionStartOp(params: SessionStartParams) {
 }
 
 async function sessionEndOp(params: SessionEndParams) {
+  // T11346 — thread the optional explicit sessionId through. When absent,
+  // sessionEnd resolves the caller's session env-first (never another agent's).
   return sessionEnd(getProjectRoot(), params.note, {
     sessionSummary: params.sessionSummary,
+    ...(params.sessionId ? { sessionId: params.sessionId } : {}),
   });
 }
 

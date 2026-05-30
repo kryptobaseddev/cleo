@@ -11,6 +11,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getCleoDir } from '../paths.js';
+import { resolveSessionIdFromEnv } from './session-id.js';
 
 /** Synchronous config value reader (avoids async config pipeline for sync functions). */
 function readConfigValueSync(path: string, defaultValue: unknown, cwd?: string): unknown {
@@ -55,15 +56,21 @@ function getAlertStateFile(cwd?: string): string {
   return join(getCleoDir(cwd), '.context-alert-state.json');
 }
 
-/** Get the current session ID. */
-export function getCurrentSessionId(cwd?: string): string | null {
-  if (process.env.CLEO_SESSION) return process.env.CLEO_SESSION;
-
-  const sessionFile = join(getCleoDir(cwd), '.current-session');
-  if (existsSync(sessionFile)) {
-    return readFileSync(sessionFile, 'utf-8').trim() || null;
-  }
-  return null;
+/**
+ * Get the current session ID from the environment (T11347 · Epic T11284).
+ *
+ * Unified resolution via the canonical {@link resolveSessionIdFromEnv}, which
+ * reads `CLEO_SESSION_ID` (canonical) then `CLEO_SESSION` (legacy alias) then
+ * the harness keys. The dead `.current-session` file read was removed: it had
+ * ZERO writers anywhere in the codebase (a stale stub), so it could only ever
+ * return null. `cwd` is retained for signature stability.
+ *
+ * @param _cwd - Unused (retained for API stability after the dead-file removal).
+ * @returns The resolved session id, or `null`.
+ * @task T11347
+ */
+export function getCurrentSessionId(_cwd?: string): string | null {
+  return resolveSessionIdFromEnv();
 }
 
 /** Get the root session ID that originated the current workflow/saga, if any. */
