@@ -25,6 +25,7 @@ import type {
   PatternRecord,
 } from '@cleocode/contracts';
 import { getProjectRoot } from '../paths.js';
+import { truncateString } from '../render/helpers.js';
 import { getBrainNativeDb } from '../store/memory-sqlite.js';
 import { listDecisions, searchDecisions } from './decisions.js';
 import { graphStats } from './graph-queries.js';
@@ -77,10 +78,8 @@ export interface FindMemoryEntriesResult {
   total: number;
 }
 
-function truncate(s: string | null | undefined, n = 160): string {
-  if (!s) return '';
-  return s.length > n ? `${s.slice(0, n - 1)}…` : s;
-}
+/** Default preview length (chars) for memory-search hit narratives. */
+const PREVIEW_LEN = 160;
 
 /**
  * Cross-table LIKE search across all four brain tables.
@@ -154,7 +153,7 @@ export async function findMemoryEntries(
           id: r.id,
           table: 'observations',
           title: r.title ?? '(untitled)',
-          preview: truncate(r.narrative),
+          preview: truncateString(r.narrative, PREVIEW_LEN),
           createdAt: r.created_at,
           quality: r.quality_score,
           tier: r.memory_tier,
@@ -192,8 +191,8 @@ export async function findMemoryEntries(
         hits.push({
           id: r.id,
           table: 'decisions',
-          title: truncate(r.decision, 100),
-          preview: truncate(r.rationale),
+          title: truncateString(r.decision, 100),
+          preview: truncateString(r.rationale, PREVIEW_LEN),
           createdAt: r.created_at,
           quality: r.quality_score,
           tier: r.memory_tier,
@@ -232,8 +231,8 @@ export async function findMemoryEntries(
         hits.push({
           id: r.id,
           table: 'patterns',
-          title: truncate(r.pattern, 100),
-          preview: truncate(r.context),
+          title: truncateString(r.pattern, 100),
+          preview: truncateString(r.context, PREVIEW_LEN),
           createdAt: r.extracted_at,
           quality: r.quality_score,
           tier: r.memory_tier,
@@ -272,8 +271,8 @@ export async function findMemoryEntries(
         hits.push({
           id: r.id,
           table: 'learnings',
-          title: truncate(r.insight, 100),
-          preview: truncate(r.source),
+          title: truncateString(r.insight, 100),
+          preview: truncateString(r.source, PREVIEW_LEN),
           createdAt: r.created_at,
           quality: r.quality_score,
           tier: r.memory_tier,

@@ -19,6 +19,7 @@
  * @epic T9855
  */
 
+import { truncateString } from '@cleocode/core';
 import type { OutputMode } from '../output-context.js';
 
 /**
@@ -108,17 +109,6 @@ function extractCount(data: unknown): number {
 }
 
 /**
- * Truncate a cell value to `max` chars, appending `…` when shortened.
- *
- * Operates on the JS character (UTF-16 code unit) length — sufficient for
- * the ASCII / BMP titles CLEO emits.
- */
-function truncate(value: string, max: number): string {
-  if (value.length <= max) return value;
-  return value.slice(0, Math.max(0, max - 1)) + '…';
-}
-
-/**
  * Render a list-shaped payload as a fixed-width ASCII table.
  *
  * Columns: `id`, `status`, `priority`, `title` (truncated to 60 chars).
@@ -133,7 +123,7 @@ function renderTableList(tasks: Array<Record<string, unknown>>): string {
     id: typeof t['id'] === 'string' ? t['id'] : '',
     status: typeof t['status'] === 'string' ? t['status'] : '',
     priority: typeof t['priority'] === 'string' ? t['priority'] : '',
-    title: truncate(typeof t['title'] === 'string' ? t['title'] : '', COL_TITLE_MAX),
+    title: truncateString(typeof t['title'] === 'string' ? t['title'] : '', COL_TITLE_MAX),
   }));
 
   const widths = {
@@ -183,7 +173,7 @@ function renderTableGeneric(data: Record<string, unknown>): string {
   }));
 
   const VAL_MAX = 80;
-  for (const r of rows) r.value = truncate(r.value, VAL_MAX);
+  for (const r of rows) r.value = truncateString(r.value, VAL_MAX);
 
   const widths = {
     field: Math.max(5, ...rows.map((r) => r.field.length)),
@@ -275,7 +265,7 @@ export function renderSummary(data: unknown): OutputModeResult {
 function renderSummaryRow(record: Record<string, unknown>): string {
   const id = typeof record['id'] === 'string' ? record['id'] : '';
   const status = typeof record['status'] === 'string' ? record['status'] : '';
-  const title = truncate(typeof record['title'] === 'string' ? record['title'] : '', 60);
+  const title = truncateString(typeof record['title'] === 'string' ? record['title'] : '', 60);
   return `${id} [${status}] ${title}`;
 }
 

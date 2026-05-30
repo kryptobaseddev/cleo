@@ -5,10 +5,12 @@
  * the opt-out resolver.
  */
 
+import { TokenEstimator } from '@cleocode/lafs';
 import { describe, expect, it } from 'vitest';
 import {
   applyProjectionPlan,
   PROJECTION_PLANS,
+  projectMVI,
   projectMvi,
   projectMviList,
   resolveProjectionMode,
@@ -232,5 +234,97 @@ describe('applyProjectionPlan', () => {
     expect(applyProjectionPlan(null, 'tasks.show', 'mvi')).toBeNull();
     expect(applyProjectionPlan(undefined, 'tasks.show', 'mvi')).toBeUndefined();
     expect(applyProjectionPlan(42, 'tasks.show', 'mvi')).toBe(42);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// projectMVI — generalized, budget-aware projector (T11351 · Epic T11285)
+// ---------------------------------------------------------------------------
+
+describe('projectMVI generalized projector (T11351)', () => {
+  it('known kind keeps the same allow-list as projectMvi', () => {
+    const viaNew = projectMVI(FULL_TASK, { kind: 'task' });
+    const viaOld = projectMvi(FULL_TASK, 'task');
+    expect(viaNew).toEqual(viaOld);
+    expect(viaNew).not.toHaveProperty('description');
+    expect(viaNew).not.toHaveProperty('acceptance');
+  });
+
+  it("mode 'full' returns the record unchanged", () => {
+    expect(projectMVI(FULL_TASK, { kind: 'task', mode: 'full' })).toBe(FULL_TASK);
+  });
+
+  it('UNKNOWN kind degrades to generic identity fields — never the full payload', () => {
+    const weird = {
+      id: 'X1',
+      name: 'widget',
+      status: 'active',
+      secretBlob: 'x'.repeat(5000),
+      internalState: { a: 1, b: 2, c: 3 },
+      audit: ['e1', 'e2', 'e3'],
+    };
+    const projected = projectMVI(weird, { kind: 'unknown' });
+    // Identity/routing kept...
+    expect(projected).toHaveProperty('id', 'X1');
+    expect(projected).toHaveProperty('name', 'widget');
+    expect(projected).toHaveProperty('status', 'active');
+    // ...full payload NOT leaked.
+    expect(projected).not.toHaveProperty('secretBlob');
+    expect(projected).not.toHaveProperty('internalState');
+    expect(projected).not.toHaveProperty('audit');
+  });
+
+  it('an unrecognized kind string is treated as unknown (no leak)', () => {
+    const weird = { id: 'Y1', title: 'thing', payload: 'p'.repeat(2000) };
+    // `as` only to feign an out-of-band kind value at the boundary.
+    const projected = projectMVI(weird, { kind: 'mysteryKind' as never });
+    expect(projected).toHaveProperty('id', 'Y1');
+    expect(projected).not.toHaveProperty('payload');
+  });
+
+  it('honors a real token budget — reduces output below the budget', () => {
+    const estimator = new TokenEstimator();
+    const before = estimator.estimate(projectMvi(FULL_TASK, 'task'));
+    // Pick a budget well below the full MVI field-set estimate.
+    const budget = Math.max(1, Math.floor(before / 2));
+    const reduced = projectMVI(FULL_TASK, { kind: 'task', budget });
+    expect(estimator.estimate(reduced)).toBeLessThanOrEqual(budget);
+    // id stays routable through reduction.
+    expect(reduced).toHaveProperty('id', 'T9922');
+  });
+
+  it('keeps id as the last-resort minimum under a tiny budget', () => {
+    const reduced = projectMVI(FULL_TASK, { kind: 'task', budget: 1 });
+    expect(reduced).toHaveProperty('id', 'T9922');
+    // Everything else dropped to honor the budget.
+    expect(Object.keys(reduced)).toEqual(['id']);
+  });
+
+  it('an unknown-kind over-budget record both avoids leak AND fits the budget', () => {
+    const estimator = new TokenEstimator();
+    const weird = {
+      id: 'Z9',
+      title: 'big',
+      status: 'open',
+      bulk: 'q'.repeat(8000),
+    };
+    const budget = 8;
+    const projected = projectMVI(weird, { kind: 'unknown', budget });
+    expect(projected).not.toHaveProperty('bulk');
+    expect(estimator.estimate(projected)).toBeLessThanOrEqual(budget);
+    expect(projected).toHaveProperty('id', 'Z9');
+  });
+
+  it('no budget → pure field-allow-listing (no estimator pass)', () => {
+    const projected = projectMVI(FULL_TASK, { kind: 'task' });
+    expect(projected).toHaveProperty('priority', 'high');
+    expect(projected).toHaveProperty('parentId', 'T9919');
+  });
+
+  it('passes through null / primitive / array inputs unchanged', () => {
+    expect(projectMVI(null as never, { kind: 'task' })).toBeNull();
+    expect(projectMVI(42 as never, { kind: 'task' })).toBe(42);
+    const arr = [{ id: 'A' }] as never;
+    expect(projectMVI(arr, { kind: 'task' })).toBe(arr);
   });
 });

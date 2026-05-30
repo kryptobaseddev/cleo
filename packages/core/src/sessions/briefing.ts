@@ -27,6 +27,7 @@ import type {
   Task,
 } from '@cleocode/contracts';
 import type { SessionMemoryContext } from '../memory/session-memory.js';
+import { truncateString } from '../render/helpers.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { depsReady } from '../tasks/deps-ready.js';
@@ -339,7 +340,7 @@ export async function computeBriefing(
       // Truncate title fields to 80 chars to reduce token count.
       // BrainCompactHit has a `title` string field — we map over arrays.
       const truncHits = <T extends { title: string }>(hits: T[]): T[] =>
-        hits.map((h) => ({ ...h, title: truncate(h.title, MAX_MEMORY_TITLE_LEN_DIET) }));
+        hits.map((h) => ({ ...h, title: truncateString(h.title, MAX_MEMORY_TITLE_LEN_DIET) }));
       memoryContext = {
         ...rawMemoryContext,
         recentLearnings: truncHits(rawMemoryContext.recentLearnings),
@@ -876,7 +877,7 @@ function computeUrgentTasks(
 
     buckets.push({
       id: t.id,
-      title: options.truncateTitles ? truncate(t.title, MAX_TITLE_LEN_DIET) : t.title,
+      title: options.truncateTitles ? truncateString(t.title, MAX_TITLE_LEN_DIET) : t.title,
       priority,
       ...(severity ? { severity } : {}),
       tier,
@@ -969,7 +970,7 @@ function computeBlockedTasks(
     if (blockedBy.length > 0) {
       blocked.push({
         id: t.id,
-        title: options.truncateTitles ? truncate(t.title, MAX_TITLE_LEN_DIET) : t.title,
+        title: options.truncateTitles ? truncateString(t.title, MAX_TITLE_LEN_DIET) : t.title,
         blockedBy,
       });
     }
@@ -1042,7 +1043,7 @@ function computeActiveEpics(
     const completionPercent = calculateEpicCompletion(t.id, taskMap);
     epics.push({
       id: t.id,
-      title: options.truncateTitles ? truncate(t.title, MAX_TITLE_LEN_DIET) : t.title,
+      title: options.truncateTitles ? truncateString(t.title, MAX_TITLE_LEN_DIET) : t.title,
       completionPercent,
     });
   }
@@ -1133,13 +1134,6 @@ const MAX_TITLE_LEN_DIET = 60;
 const MAX_MEMORY_TITLE_LEN_DIET = 80;
 
 /**
- * Truncate a string to the given max length, appending `…` when truncated.
- */
-function truncate(str: string, maxLen: number): string {
-  return str.length > maxLen ? `${str.slice(0, maxLen - 1)}…` : str;
-}
-
-/**
  * Strip empty arrays from a handoff data object.
  *
  * Empty `tasksCompleted`, `tasksCreated`, `nextSuggested`, `openBlockers`,
@@ -1215,7 +1209,7 @@ function applyBriefingDiet(
     : bundle.warm.peerLearnings.slice(0, MAX_PEER_LEARNINGS_DIET).map(
         (l): DietLearning => ({
           id: l.id,
-          insight: truncate(l.insight, MAX_MEMORY_TITLE_LEN_DIET),
+          insight: truncateString(l.insight, MAX_MEMORY_TITLE_LEN_DIET),
           createdAt: l.createdAt,
           ...(l.provenanceClass !== undefined ? { provenanceClass: l.provenanceClass } : {}),
           _next: { fetch: `cleo memory fetch ${l.id}` },
@@ -1233,7 +1227,7 @@ function applyBriefingDiet(
     : bundle.warm.decisions.slice(0, MAX_DECISIONS_DIET).map(
         (d): DietDecision => ({
           id: d.id,
-          decision: truncate(d.decision, MAX_MEMORY_TITLE_LEN_DIET),
+          decision: truncateString(d.decision, MAX_MEMORY_TITLE_LEN_DIET),
           createdAt: d.createdAt,
           ...(d.provenanceClass !== undefined ? { provenanceClass: d.provenanceClass } : {}),
           _next: { fetch: `cleo memory fetch ${d.id}` },

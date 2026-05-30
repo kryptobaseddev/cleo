@@ -345,3 +345,54 @@ export function truncated<T>(
     footer: `${DIM}… and ${arr.length - max} more (use --json or --limit ${arr.length} for full list)${NC}`,
   };
 }
+
+// ---------------------------------------------------------------------------
+// truncateString — single shared scalar-string truncation primitive (T11353)
+// ---------------------------------------------------------------------------
+
+/** Default single-glyph ellipsis appended by {@link truncateString}. */
+const DEFAULT_ELLIPSIS = '…';
+
+/**
+ * Truncate a plain (non-ANSI) string to at most `max` characters, appending an
+ * ellipsis when truncation occurs.
+ *
+ * This is the single SSoT for scalar-string truncation — it replaces the 6+
+ * ad-hoc `truncate(str, max)` helpers that were copy-pasted across
+ * `output-mode.ts`, `briefing.ts`, `memory/public-api.ts`, `gate-runner.ts`,
+ * and friends. The result length never exceeds `max`: the ellipsis is counted
+ * against the budget, so `truncateString('abcdef', 4)` returns `'abc…'`.
+ *
+ * For ANSI-colored content use {@link truncateVisible} (which counts visible
+ * columns and never splits an escape sequence); for windowing an *array* use
+ * {@link truncated}.
+ *
+ * @param value - The string to truncate. `null` / `undefined` collapse to `''`.
+ * @param max - Maximum length of the returned string (including the ellipsis).
+ * @param ellipsis - The suffix appended when truncated. Defaults to `'…'`.
+ *   Pass `'...'` for ASCII contexts.
+ * @returns The original string when it fits, otherwise a truncated string of
+ *   length ≤ `max`.
+ *
+ * @example
+ * ```ts
+ * truncateString('a very long title', 8);        // 'a very…'
+ * truncateString('a very long title', 8, '...');  // 'a ve...'
+ * truncateString(null, 10);                        // ''
+ * ```
+ *
+ * @task T11353
+ * @epic T11285
+ */
+export function truncateString(
+  value: string | null | undefined,
+  max: number,
+  ellipsis: string = DEFAULT_ELLIPSIS,
+): string {
+  if (!value) return '';
+  if (max <= 0) return '';
+  if (value.length <= max) return value;
+  // When the ellipsis alone would overflow the budget, hard-slice instead.
+  if (ellipsis.length >= max) return value.slice(0, max);
+  return value.slice(0, max - ellipsis.length) + ellipsis;
+}
