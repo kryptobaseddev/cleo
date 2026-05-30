@@ -23,6 +23,8 @@ import { dirname, isAbsolute, join, normalize, relative, sep } from 'node:path';
 import type { Session, Task } from '@cleocode/contracts';
 import { getCleoHome } from '@cleocode/paths';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { resolveCurrentSession } from '../store/session-store.js';
+import { readFocusState } from './focus-state-store.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -256,8 +258,11 @@ export async function detectSessionDrift(opts: DetectSessionDriftOptions): Promi
   } = opts;
 
   const accessor = await getTaskAccessor(projectRoot);
-  const session = await accessor.getActiveSession();
-  const focus = await accessor.getMetaValue<{ currentTask?: string | null }>('focus_state');
+  // T11344/T11345 — resolve the CALLER's session env-first and read ITS
+  // per-session focus_state so drift is measured against the agent's own
+  // current task, not whichever session last touched the DB.
+  const session = await resolveCurrentSession(projectRoot);
+  const focus = await readFocusState(accessor, session?.id ?? null);
   const activeTaskId = resolveActiveTaskId(session, focus?.currentTask ?? null);
 
   // Always read the modified-files set so a no-task report still reflects

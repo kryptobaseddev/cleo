@@ -200,15 +200,20 @@ export function createAgentWorktree(taskId: string, projectRoot: string): AgentW
  *
  * @param worktree - The created worktree state.
  * @param shimDir - Directory containing the git shim symlink.
+ * @param identity - Per-agent session + agent identity to inject (T11343).
+ *   `sessionId` → `CLEO_SESSION_ID`, `agentId` → `CLEO_AGENT_ID`. Only set
+ *   when non-empty so an unallocated identity never clobbers an inherited env.
  * @returns Spawn result with env vars, CWD, and prompt preamble.
  *
  * @task T1118
  * @task T1120
  * @task T1121
+ * @task T11343
  */
 export function buildWorktreeSpawnResult(
   worktree: AgentWorktreeState,
   shimDir: string,
+  identity: { sessionId?: string | null; agentId?: string | null } = {},
 ): WorktreeSpawnResult {
   const currentPath = process.env['PATH'] ?? '';
   const envVars: Record<string, string> = {
@@ -222,6 +227,18 @@ export function buildWorktreeSpawnResult(
     // Prepend the shim directory so `git` resolves to the shim.
     PATH: `${shimDir}:${currentPath}`,
   };
+
+  // T11343 — bind the spawned agent's OWN session + identity into the worker
+  // env so every short-lived `cleo` call inside the worktree resolves THIS
+  // agent's session via `resolveSessionIdFromEnv()` rather than collapsing onto
+  // the orchestrator's most-recent active row (the session-bleed root cause).
+  // Only set when non-empty so we never emit a clobbering empty export.
+  if (identity.sessionId) {
+    envVars.CLEO_SESSION_ID = identity.sessionId;
+  }
+  if (identity.agentId) {
+    envVars.CLEO_AGENT_ID = identity.agentId;
+  }
 
   const preamble = [
     '## BRANCH ISOLATION PROTOCOL (MANDATORY)',

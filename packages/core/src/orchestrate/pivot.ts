@@ -21,11 +21,12 @@
 
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { TaskWorkState } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { memoryObserve } from '../memory/engine-compat.js';
 import { getProjectRoot } from '../paths.js';
+import { readFocusState } from '../sessions/focus-state-store.js';
+import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { startTask, stopTask } from '../task-work/index.js';
@@ -139,7 +140,8 @@ async function isTaskActive(
   acc: DataAccessor,
   fromTaskId: string,
 ): Promise<{ active: boolean; reason: string }> {
-  const focus = await acc.getMetaValue<TaskWorkState>('focus_state');
+  // T11345 — read the CALLER's per-session focus_state (env-first).
+  const focus = await readFocusState(acc, resolveSessionIdFromEnv());
   if (focus?.currentTask === fromTaskId) {
     return { active: true, reason: 'currentFocus' };
   }
@@ -240,7 +242,8 @@ export async function pivotTask(
   // ---------------------------------------------------------------------------
   // Stop only if from is the current focus. If from is "active by stage"
   // we leave focus_state alone (there is no focus to clear) before starting to.
-  const focus = await acc.getMetaValue<TaskWorkState>('focus_state');
+  // T11345 — read the CALLER's per-session focus_state (env-first).
+  const focus = await readFocusState(acc, resolveSessionIdFromEnv());
   if (focus?.currentTask === fromTaskId) {
     await stopTask(root, acc);
   }

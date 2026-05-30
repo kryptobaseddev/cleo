@@ -309,13 +309,23 @@ export type BranchLockErrorCode =
  * Exported as a frozen const tuple so git-shim, harness adapters, and test
  * utilities can reference the authoritative key list without duplication.
  *
+ * `CLEO_SESSION_ID` + `CLEO_AGENT_ID` were added in T11343 (Epic T11284,
+ * SG-COGNITIVE-SUBSTRATE) so every spawned agent carries its OWN session and
+ * agent identity into the isolation shell. Before this, spawn injected only
+ * worktree-binding keys and every short-lived `cleo` call inside the worktree
+ * collapsed onto "whoever touched the DB last" via `getActiveSession()` —
+ * the root cause of multi-agent session-bleed AND memory scope-leakage.
+ *
  * @task T1759
+ * @task T11343
  */
 export const ISOLATION_ENV_KEYS = [
   'CLEO_WORKTREE_ROOT',
   'CLEO_AGENT_ROLE',
   'CLEO_WORKTREE_BRANCH',
   'CLEO_PROJECT_HASH',
+  'CLEO_SESSION_ID',
+  'CLEO_AGENT_ID',
 ] as const satisfies readonly string[];
 
 /** Union of all isolation env key strings. */
@@ -402,6 +412,32 @@ export interface IsolationOptions {
   role: 'worker' | 'orchestrator';
   /** Project hash scoping this worktree under the XDG root (sha256(projectRoot)[:16]). */
   projectHash: string;
+  /**
+   * Per-agent CLEO session id to bind to the isolation shell (T11343).
+   *
+   * Injected as `CLEO_SESSION_ID` so every short-lived `cleo` call inside the
+   * worktree resolves THIS agent's session via `resolveSessionIdFromEnv()`
+   * rather than collapsing onto the orchestrator's most-recent active row.
+   * When omitted, `CLEO_SESSION_ID` is set to the empty string and downstream
+   * resolution falls back to the legacy `getActiveSession()` path (backward
+   * compatible — no behaviour change for callers that do not yet allocate a
+   * per-agent session).
+   *
+   * @defaultValue '' (empty — falls back to active-session resolution)
+   * @task T11343
+   */
+  sessionId?: string;
+  /**
+   * Per-agent identity handle to bind to the isolation shell (T11343).
+   *
+   * Injected as `CLEO_AGENT_ID` so audit rows, conduit messages, and memory
+   * observations are attributed to the spawned agent rather than to the
+   * orchestrator. When omitted, `CLEO_AGENT_ID` is set to the empty string.
+   *
+   * @defaultValue '' (empty — no per-agent attribution)
+   * @task T11343
+   */
+  agentId?: string;
 }
 
 /**
@@ -468,17 +504,23 @@ export interface IsolationResult {
  * @task T1759
  */
 export function provisionIsolatedShell(options: IsolationOptions): IsolationResult {
-  const { worktreePath, branch, role, projectHash } = options;
+  const { worktreePath, branch, role, projectHash, sessionId, agentId } = options;
 
   // --- cwd -----------------------------------------------------------------
   const cwd = worktreePath;
 
   // --- env -----------------------------------------------------------------
+  // T11343: CLEO_SESSION_ID + CLEO_AGENT_ID bind the spawned agent's own
+  // identity into the shell. Empty-string default keeps backward compatibility
+  // — `resolveSessionIdFromEnv()` treats '' as absent and falls back to the
+  // legacy active-session resolution path.
   const env: Record<(typeof ISOLATION_ENV_KEYS)[number], string> = {
     CLEO_WORKTREE_ROOT: worktreePath,
     CLEO_AGENT_ROLE: role,
     CLEO_WORKTREE_BRANCH: branch,
     CLEO_PROJECT_HASH: projectHash,
+    CLEO_SESSION_ID: sessionId ?? '',
+    CLEO_AGENT_ID: agentId ?? '',
   };
 
   // --- preamble ------------------------------------------------------------
@@ -487,7 +529,12 @@ export function provisionIsolatedShell(options: IsolationOptions): IsolationResu
   //   - The worktree directory having been pruned before the agent starts.
   //   - A future change where cwd is silently coerced to something else.
   //   - Symlink traversal producing a path that doesn't share the prefix.
-  const exportBlock = ISOLATION_ENV_KEYS.map((k) => `export ${k}="${env[k]}"`).join('\n');
+  // T11343: skip empty values so an unallocated CLEO_SESSION_ID / CLEO_AGENT_ID
+  // does not emit a clobbering `export KEY=""` that would clear an inherited
+  // value. Worktree-binding keys are always non-empty so they always export.
+  const exportBlock = ISOLATION_ENV_KEYS.filter((k) => env[k] !== '')
+    .map((k) => `export ${k}="${env[k]}"`)
+    .join('\n');
 
   const preamble = [
     '## Worktree Isolation (REQUIRED — do not skip)',

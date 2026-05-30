@@ -581,6 +581,17 @@ export interface SessionEndParams {
    * @task T140 @epic T134
    */
   sessionSummary?: import('../config.js').SessionSummaryInput;
+  /**
+   * Explicit session id to end (T11346 · Epic T11284).
+   *
+   * When omitted, session-end targets the CALLER's session resolved env-first
+   * (`CLEO_SESSION_ID` → … → most-recent active). When provided, this id
+   * overrides env/active resolution. Either way, one agent can no longer end a
+   * different concurrently-active agent's session implicitly.
+   *
+   * @task T11346
+   */
+  sessionId?: string;
 }
 /** Result of `session.end`. */
 export interface SessionEndResult {
