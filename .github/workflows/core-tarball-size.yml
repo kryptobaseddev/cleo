@@ -1,0 +1,66 @@
+name: Core Tarball Size Gate
+
+# @task T11342 — SG-RUNTIME-UNIFICATION R1 (T11252).
+#
+# Asserts the packed @cleocode/core tarball stays <= 25 MB and bundles ONLY the
+# linux-x64-gnu cleo-supervisor fallback binary (Pattern P1). Fails the build
+# with a largest-contributors message when the budget is exceeded or an extra
+# platform binary sneaks in. Runs on PRs touching packages/core or the
+# supervisor crate.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/core/**'
+      - 'crates/cleo-supervisor/**'
+      - '.github/workflows/core-tarball-size.yml'
+  pull_request:
+    paths:
+      - 'packages/core/**'
+      - 'crates/cleo-supervisor/**'
+      - '.github/workflows/core-tarball-size.yml'
+  workflow_dispatch:
+  merge_group:
+
+jobs:
+  tarball-size:
+    name: core tarball <= 25MB
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile --filter '!@cleocode/studio'
+
+      # @cleocode/core's `files` includes `dist`, so it must be built before
+      # `npm pack` reflects the real tarball contents.
+      - name: Build @cleocode/core (+ deps)
+        run: pnpm --filter @cleocode/core... run build
+
+      # Stage the P1 fallback binary so the gate measures the REAL shipped
+      # tarball (with the linux-x64-gnu fallback bundled), not a stripped one.
+      - name: Build + stage linux-x64-gnu supervisor fallback
+        run: |
+          set -euo pipefail
+          cargo build --release -p cleo-supervisor
+          mkdir -p packages/core/binaries/fallback
+          cp target/release/cleo-supervisor packages/core/binaries/fallback/cleo-supervisor
+          # Stage a representative manifest so the bundled-binary check sees the
+          # real shipped layout (manifest is NOT counted as a platform binary).
+          mkdir -p /tmp/sup-bin
+          cp target/release/cleo-supervisor /tmp/sup-bin/cleo-supervisor.linux-x64-gnu
+          node packages/core/scripts/gen-supervisor-manifest.mjs \
+            --bin-dir /tmp/sup-bin \
+            --out packages/core/binaries/cleo-supervisor-manifest.json
+
+      - name: Assert tarball size + fallback policy
+        run: node packages/core/scripts/check-core-tarball-size.mjs
