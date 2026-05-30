@@ -83,6 +83,7 @@ import { validateSpawnReadiness } from '../orchestration/validate-spawn.js';
 import { getProjectRoot } from '../paths.js';
 import { spawnWorktree } from '../sentient/worktree-dispatch.js';
 import { initializeDefaultAdapters, spawnRegistry } from '../spawn/adapter-registry.js';
+import { allocateSpawnSession } from '../spawn/agent-identity.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { getActiveSession } from '../store/session-store.js';
 import { provisionIsolatedShell } from '../tools/sdk/isolation.js';
@@ -780,12 +781,24 @@ export async function orchestrateSpawnExecute(
     // Route the spawn through the canonical composer (T932). This activates
     // atomicity, harness dedup, resolved-agent metadata, and traceability
     // meta — all returned in a single SpawnPayload envelope.
+    //
+    // T11343 — allocate the spawned task's OWN per-agent session (not the
+    // orchestrator's) and inject it into the isolation shell below. See
+    // orchestrateSpawn for the full rationale. Falls back to the orchestrator
+    // session id only if allocation fails.
     let activeSessionId: string | null = null;
+    let spawnAgentId: string | null = null;
     try {
-      const active = await getActiveSession(cwd);
-      activeSessionId = active?.id ?? null;
+      const identity = await allocateSpawnSession(cwd, taskId);
+      activeSessionId = identity.sessionId;
+      spawnAgentId = identity.agentId;
     } catch {
-      activeSessionId = null;
+      try {
+        const active = await getActiveSession(cwd);
+        activeSessionId = active?.id ?? null;
+      } catch {
+        activeSessionId = null;
+      }
     }
 
     const payload = await composeSpawnForTask(taskId, cwd, {
@@ -866,11 +879,16 @@ export async function orchestrateSpawnExecute(
     let agentEnvOverride: Record<string, string> | undefined;
     try {
       const worktreeResult = await spawnWorktree(cwd, { taskId });
+      // T11343 — bind the spawned agent's OWN session + identity into the
+      // isolation shell so `resolveSessionIdFromEnv()` returns the agent's
+      // session, never the orchestrator's most-recent active row.
       const isolation = provisionIsolatedShell({
         worktreePath: worktreeResult.path,
         branch: worktreeResult.branch,
         role: 'worker',
         projectHash: worktreeResult.projectHash,
+        ...(activeSessionId ? { sessionId: activeSessionId } : {}),
+        ...(spawnAgentId ? { agentId: spawnAgentId } : {}),
       });
       agentWorkingDirectory = isolation.cwd;
       agentEnvOverride = isolation.env;
@@ -1276,16 +1294,28 @@ export async function orchestrateSpawn(
       );
     }
 
-    // Thread the orchestrator's active session id into the spawn prompt so
-    // the subagent logs every mutation against the same session. Failure to
-    // load the session is non-fatal — the prompt degrades gracefully with a
-    // "no active session" notice.
+    // T11343 (Epic T11284) — allocate a PER-AGENT session for the spawned task
+    // and thread ITS id (not the orchestrator's) into the spawn prompt + the
+    // isolation shell. This is the foundation fix: before this, every spawn
+    // injected the orchestrator's `getActiveSession()` id, so every short-lived
+    // `cleo` call inside the worktree collapsed onto "whoever touched the DB
+    // last" — the root cause of multi-agent session-bleed AND memory
+    // scope-leakage. Allocation is idempotent across `--resume` (reuses the
+    // same-handle active session). Failure is non-fatal: we degrade to the
+    // orchestrator's active session id so the prompt still links somewhere.
     let activeSessionId: string | null = null;
+    let spawnAgentId: string | null = null;
     try {
-      const active = await getActiveSession(root);
-      activeSessionId = active?.id ?? null;
+      const identity = await allocateSpawnSession(root, taskId);
+      activeSessionId = identity.sessionId;
+      spawnAgentId = identity.agentId;
     } catch {
-      activeSessionId = null;
+      try {
+        const active = await getActiveSession(root);
+        activeSessionId = active?.id ?? null;
+      } catch {
+        activeSessionId = null;
+      }
     }
 
     // T1253 — Derive CONDUIT subscription config from the task's parent epic.
@@ -1555,6 +1585,14 @@ export async function orchestrateSpawn(
     // Build a WorktreeSpawnResult-compatible envelope from the SDK result so
     // harness adapters that read worktree/worktreeEnv/worktreeCwd continue to
     // work without modification (backward-compat shim).
+    //
+    // T11343 — merge the per-agent identity into the worktree env so harness
+    // adapters that spawn from `worktreeEnv` inject the agent's OWN
+    // `CLEO_SESSION_ID` / `CLEO_AGENT_ID`, not the orchestrator's. Only set
+    // when non-empty so an unallocated identity never clobbers.
+    const identityEnv: Record<string, string> = {};
+    if (activeSessionId) identityEnv.CLEO_SESSION_ID = activeSessionId;
+    if (spawnAgentId) identityEnv.CLEO_AGENT_ID = spawnAgentId;
     const worktreeAdapterResult: import('@cleocode/contracts').WorktreeSpawnResult | null =
       sdkWorktreeResult
         ? {
@@ -1567,7 +1605,7 @@ export async function orchestrateSpawn(
               createdAt: sdkWorktreeResult.createdAt,
               locked: sdkWorktreeResult.locked,
             },
-            envVars: sdkWorktreeResult.envVars,
+            envVars: { ...sdkWorktreeResult.envVars, ...identityEnv },
             cwd: sdkWorktreeResult.path,
             preamble: sdkWorktreeResult.preamble,
           }
