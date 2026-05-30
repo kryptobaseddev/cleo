@@ -38,3 +38,8 @@ export type {
   SubsystemLifecyclePhase,
   SubsystemState,
 } from '@cleocode/contracts';
+
+export { defineSubsystem } from './define-subsystem.js';
+export { SubsystemRegistry } from './registry.js';
+export type { SupervisorIpcClient } from './supervisor-client.js';
+export { createSupervisorIpcClient, MalformedIpcFrameError } from './supervisor-client.js';

@@ -10,6 +10,7 @@
  * @task T11366
  */
 
+import { describe, expect, it } from 'vitest';
 import {
   type HealthStatus,
   MonitorResponseSchema,
@@ -18,8 +19,6 @@ import {
   summarizeHealth,
   toMonitorChildren,
 } from '../../index.js';
-
-import { describe, expect, it } from 'vitest';
 
 describe('daemon HealthStatus ↔ supervisor-ipc MonitorResponse (T11366)', () => {
   const rows: SubsystemHealth[] = [
