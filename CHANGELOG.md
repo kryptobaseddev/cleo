@@ -1,5 +1,42 @@
 # Changelog
 
+## [2026.5.130] (2026-05-30)
+
+### Added
+
+
+
+### Changed
+
+- freeze the clock in the context-staleness boundary test so age==threshold is deterministic (was an intermittent ubuntu-shard-1 flake) _(provenance: [T10490](https://github.com/kryptobaseddev/cleo/search?q=T10490&type=commits))_
+- Standardize on node:sqlite @ SQLite 3.53.0 (eliminate first-party better-sqlite3); raise engines.node floor to 24.16.0 to close the WAL-reset silent-corruption window; resolve the T10313 version pin _(provenance: [T11281](https://github.com/kryptobaseddev/cleo/search?q=T11281&type=commits))_
+- Canonical resolveCleoDir(cwd) path-resolution SSoT replaces the lossy projectId/nexus two-step that broke project resolution for unregistered/on-disk projects _(provenance: [T11262](https://github.com/kryptobaseddev/cleo/search?q=T11262&type=commits); [#812](https://github.com/kryptobaseddev/cleo/pull/812))_
+- add an aggregate CI gate job so the required 'CI' branch-protection context resolves to a real check (was a phantom blocking every PR) _(provenance: [T11294](https://github.com/kryptobaseddev/cleo/search?q=T11294&type=commits))_
+
+### Fixed
+
+- track + flush best-effort background DB ops so detached graph/LOOM writes never survive a test boundary (fixes intermittent pipeline-stage shard race) _(provenance: [T10490](https://github.com/kryptobaseddev/cleo/search?q=T10490&type=commits))_
+- cleo docs fetch/list no longer crash on blob attachments; contract-compliant BlobAttachment writer + heal of malformed rows _(provenance: [T11262](https://github.com/kryptobaseddev/cleo/search?q=T11262&type=commits); [#812](https://github.com/kryptobaseddev/cleo/pull/812))_
+- Complete E9 docs SSoT hardening — idempotent migration heals 2476 empty-storageKey blob rows to contract-compliant CAS paths; fix the last non-compliant writer (T10165) with inline blobAttachmentSchema validation _(provenance: [T11262](https://github.com/kryptobaseddev/cleo/search?q=T11262&type=commits))_
+- Stabilize the unit suite (pre-existing PM-Core V2 breakage): migration reconciler over-strict re-run, node:sqlite lazy-init, dead-code health checks, nexus projectHash, attachment size _(provenance: [T11281](https://github.com/kryptobaseddev/cleo/search?q=T11281&type=commits); [#812](https://github.com/kryptobaseddev/cleo/pull/812))_
+- Project identity is now immutable for life — registerProjectOnEncounter registers the stored project-info id (not the path-derived canonical id), updating only projectPath + projectHash on move/rename/export-import; canonical id recorded as alias. Idempotent under the fire-and-forget race. Fixes the canonical-id-vs-stored-id reconcile conflict (reconcile 5/5, nexus-e2e 25/25, nexus suite 372 pass, 0 regressions) _(provenance: [T11281](https://github.com/kryptobaseddev/cleo/search?q=T11281&type=commits))_
+- Enforce Node >=24.16.0 via engines.node SSoT gate; fix node:sqlite 3.53.0 audit-test regression + cross-OS path canonicalization _(provenance: [T11281](https://github.com/kryptobaseddev/cleo/search?q=T11281&type=commits), [T11242](https://github.com/kryptobaseddev/cleo/search?q=T11242&type=commits))_
+- docs list --json emits full sha256; Manual Write Sweep is O(1) cleo spawns (was O(docs), 1963 docs × 7-10s → never finished) _(provenance: [T11294](https://github.com/kryptobaseddev/cleo/search?q=T11294&type=commits), [T11292](https://github.com/kryptobaseddev/cleo/search?q=T11292&type=commits))_
+
+### Deprecated
+
+
+
+### Removed
+
+
+
+### Security
+
+
+
+### BREAKING CHANGES
+
 ## [2026.5.129] (2026-05-28)
 
 ### Fixed
