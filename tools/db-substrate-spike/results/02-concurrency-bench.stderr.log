@@ -1,0 +1,4 @@
+[T11322] writers=100 rate=10/s duration=300s (intervalMs=100) — running baseline then consolidated...
+[T11322] baseline-even done — p99=1.199ms
+[T11322] baseline-skewed done — p99=3.227ms
+[T11322] consolidated done — p99=3.212ms
