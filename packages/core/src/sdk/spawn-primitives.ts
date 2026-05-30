@@ -19,4 +19,4 @@
  * @task T1815
  * @epic T1768
  */
-export { buildAgentEnv, buildWorktreeSpawnResult } from '../../spawn/branch-lock.js';
+export { buildAgentEnv, buildWorktreeSpawnResult } from '../spawn/branch-lock.js';

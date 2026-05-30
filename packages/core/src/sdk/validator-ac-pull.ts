@@ -16,9 +16,9 @@
  * @saga T10377 (SG-IVTR-AC-BINDING)
  */
 
-import { getTaskAccessor } from '../../store/data-accessor.js';
-import type { JsonSchema, RegisteredSdkTool } from '../../task-tools/sdk-tool.js';
-import { defineSdkTool } from '../../task-tools/sdk-tool.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
+import type { JsonSchema, RegisteredSdkTool } from '../task-tools/sdk-tool.js';
+import { defineSdkTool } from '../task-tools/sdk-tool.js';
 
 /**
  * Input envelope for the {@link validatorAcPull} SDK tool.

@@ -59,7 +59,7 @@ export type {
   ScaffoldProjectStep,
 } from '../scaffold/scaffold-project.js';
 export { scaffoldProject } from '../scaffold/scaffold-project.js';
+// SDK Tools (Category B) — harness-agnostic infrastructure (T1768 / ADR-064)
+export * from '../sdk/index.js';
 // TaskTools (Category B) — pure-functional task graph SDK tools (T10068 / T9835)
 export * from '../task-tools/index.js';
-// SDK Tools (Category B) — harness-agnostic infrastructure (T1768 / ADR-064)
-export * from './sdk/index.js';

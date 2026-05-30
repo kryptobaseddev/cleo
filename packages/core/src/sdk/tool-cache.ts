@@ -20,10 +20,10 @@ export type {
   RunToolOptions,
   ToolCacheEntry,
   ToolRunResult,
-} from '../../tasks/tool-cache.js';
+} from '../tasks/tool-cache.js';
 
-export { runToolCached } from '../../tasks/tool-cache.js';
+export { runToolCached } from '../tasks/tool-cache.js';
 
-export type { AcquireSlotOptions, ReleaseSlotFn } from '../../tasks/tool-semaphore.js';
+export type { AcquireSlotOptions, ReleaseSlotFn } from '../tasks/tool-semaphore.js';
 
-export { acquireGlobalSlot } from '../../tasks/tool-semaphore.js';
+export { acquireGlobalSlot } from '../tasks/tool-semaphore.js';
