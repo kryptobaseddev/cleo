@@ -605,8 +605,21 @@ export type { ContextDriftResult } from './session-drift.js';
 export { getContextDrift } from './session-drift.js';
 export type { SessionHistoryEntry, SessionHistoryParams } from './session-history.js';
 export { getSessionHistory } from './session-history.js';
-// T9975 — env-precedence session resolution
-export { resolveSessionIdFromEnv } from './session-id.js';
+// T11345 — per-session focus_state keying (single SSoT helper)
+export type { FocusStateMetaAccessor } from './focus-state-store.js';
+export {
+  focusStateKey,
+  LEGACY_FOCUS_STATE_KEY,
+  readFocusState,
+  writeFocusState,
+} from './focus-state-store.js';
+// T9975 / T11344 — env-precedence session + agent resolution
+export {
+  CANONICAL_SESSION_ENV_KEY,
+  resolveAgentIdFromEnv,
+  resolveSessionIdFromEnv,
+  SESSION_ENV_KEY_PRECEDENCE,
+} from './session-id.js';
 export type { SessionBridgeData, SessionBridgeResult } from './session-memory-bridge.js';
 export { bridgeSessionToMemory } from './session-memory-bridge.js';
 // Re-export extended session modules (engine-compatible)

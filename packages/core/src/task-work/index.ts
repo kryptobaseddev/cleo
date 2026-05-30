@@ -12,11 +12,30 @@ import type { TaskWorkState } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { resolveOrCwd } from '../paths.js';
+import { readFocusState, writeFocusState } from '../sessions/focus-state-store.js';
+import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { logOperation } from '../tasks/add.js';
 import { getUnresolvedDeps } from '../tasks/dependency-check.js';
 import { isValidPipelineStage } from '../tasks/pipeline-stage.js';
+
+/**
+ * Resolve the focus_state session key for the CALLER (T11345 · Epic T11284).
+ *
+ * Env-first: a spawned agent's `CLEO_SESSION_ID` keys its own focus_state
+ * (`focus_state:<id>`); an orchestrator/CLI call with no session env resolves
+ * to `null`, which {@link readFocusState}/{@link writeFocusState} map to the
+ * legacy global `focus_state` key (backward-compatible — no behaviour change
+ * outside spawned agents). This is what stops two concurrent agents from
+ * clobbering each other's current task.
+ *
+ * @returns The resolved session id, or `null` for the legacy global key.
+ * @task T11345
+ */
+function resolveFocusSessionId(): string | null {
+  return resolveSessionIdFromEnv();
+}
 
 /**
  * RCASD planning stages — tasks in these stages auto-advance to 'implementation'
@@ -61,7 +80,7 @@ export async function currentTask(
   accessor?: DataAccessor,
 ): Promise<TaskCurrentResult> {
   const acc = accessor ?? (await getTaskAccessor(cwd));
-  const focus = await acc.getMetaValue<TaskWorkState>('focus_state');
+  const focus = await readFocusState(acc, resolveFocusSessionId());
 
   return {
     currentTask: focus?.currentTask ?? null,
@@ -116,7 +135,9 @@ export async function startTask(
     await acc.updateTaskFields(taskId, { pipelineStage: 'implementation' });
   }
 
-  const focus = (await acc.getMetaValue<TaskWorkState>('focus_state')) ?? ({} as TaskWorkState);
+  // T11345 — read/write the CALLER's per-session focus_state key.
+  const focusSessionId = resolveFocusSessionId();
+  const focus = (await readFocusState(acc, focusSessionId)) ?? ({} as TaskWorkState);
   const previousTask = focus.currentTask ?? null;
 
   // Update focus
@@ -133,7 +154,7 @@ export async function startTask(
   }
   focus.sessionNotes.push(noteEntry);
 
-  await acc.setMetaValue('focus_state', focus);
+  await writeFocusState(acc, focusSessionId, focus);
 
   // Set assignee on the task (claim semantics)
   if (!task.assignee) {
@@ -179,7 +200,9 @@ export async function stopTask(
   accessor?: DataAccessor,
 ): Promise<{ previousTask: string | null }> {
   const acc = accessor ?? (await getTaskAccessor(cwd));
-  const focus = await acc.getMetaValue<TaskWorkState>('focus_state');
+  // T11345 — read/write the CALLER's per-session focus_state key.
+  const focusSessionId = resolveFocusSessionId();
+  const focus = await readFocusState(acc, focusSessionId);
 
   const previousTask = focus?.currentTask ?? null;
 
@@ -211,7 +234,7 @@ export async function stopTask(
       });
   }
 
-  await acc.setMetaValue('focus_state', focus);
+  await writeFocusState(acc, focusSessionId, focus);
 
   await logOperation(
     'task_stop',
@@ -235,7 +258,7 @@ export async function getWorkHistory(
   accessor?: DataAccessor,
 ): Promise<TaskWorkHistoryEntry[]> {
   const acc = accessor ?? (await getTaskAccessor(cwd));
-  const focus = await acc.getMetaValue<TaskWorkState>('focus_state');
+  const focus = await readFocusState(acc, resolveFocusSessionId());
 
   const notes = focus?.sessionNotes ?? [];
   const history: TaskWorkHistoryEntry[] = [];
