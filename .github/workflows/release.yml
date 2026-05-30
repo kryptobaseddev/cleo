@@ -188,11 +188,13 @@ jobs:
             echo "package.json (root) synced to $VERSION"
           fi
           # Then every workspace package manifest that participates in local
-          # build/version checks. The worktree-napi manifests are kept in sync
-          # for local napi-rs builds but are NOT published as separate npm
-          # packages; release.yml bundles their .node outputs into
-          # @cleocode/worktree/native instead.
-          for pkg in packages/contracts packages/paths packages/core packages/caamp packages/lafs packages/cant packages/nexus packages/brain packages/runtime packages/adapters packages/cleo packages/cleo-os packages/agents packages/skills packages/playbooks packages/worktree packages/git-shim packages/mcp-adapter packages/studio packages/animations crates/worktree-napi packages/worktree-napi-linux-x64-gnu packages/worktree-napi-linux-arm64-gnu packages/worktree-napi-darwin-arm64 packages/worktree-napi-win32-x64-msvc; do
+          # build/version checks. The per-platform worktree-napi-* manifest
+          # packages were removed (T11398 / E1 · SG-PACKAGE-ARCH): the native
+          # .node binaries are bundled into @cleocode/worktree/native (Pattern
+          # P1) / fetched from the GitHub Release (Pattern P2), so no separate
+          # per-platform npm package is published. The crate (crates/worktree-napi)
+          # stays in the loop for local napi-rs build/version sync.
+          for pkg in packages/contracts packages/paths packages/core packages/caamp packages/lafs packages/cant packages/nexus packages/brain packages/runtime packages/adapters packages/cleo packages/cleo-os packages/agents packages/skills packages/playbooks packages/worktree packages/git-shim packages/mcp-adapter packages/studio packages/animations crates/worktree-napi; do
             if [[ -f "$pkg/package.json" ]]; then
               jq --arg v "$VERSION" '.version = $v' "$pkg/package.json" > "$pkg/package.tmp" \
                 && mv "$pkg/package.tmp" "$pkg/package.json"
@@ -770,16 +772,14 @@ jobs:
           publish_pkg playbooks
           publish_pkg cleo
           publish_pkg cleo-os
-          # mcp-adapter is the external-only MCP bridge — depends on `cleo`
-          # only via subprocess at runtime (not via npm/workspace deps), so it
-          # can publish independently. Position last so any failure here does
-          # not block the spine packages above. (T1148 W8-9 / external bridge)
-          publish_pkg mcp-adapter
-          # studio is the SvelteKit web frontend — depends on @cleocode/core
-          # and @cleocode/brain so must publish AFTER both. Added 2026-05-05
-          # after Issue #102 / PR #103 surfaced that studio was missing from
-          # this publish list (alongside the env-paths Windows fix).
-          publish_pkg studio
+          # mcp-adapter (external-only MCP bridge) and studio (SvelteKit web
+          # frontend) were REMOVED from the publish surface (T11399 / E1 ·
+          # SG-PACKAGE-ARCH). Neither is depended-on by any published
+          # @cleocode/* package: mcp-adapter talks to `cleo` only via runtime
+          # subprocess, and studio is an app, not a consumed library. Dropping
+          # them reduces the publish surface 20 → 18 on the path to the owner's
+          # single-artifact target (1, via R8/R10 internalization). This
+          # reverses the 2026-05-05 Issue #102 / PR #103 addition of studio.
 
           if [[ ${#FAILED_PKGS[@]} -gt 0 ]]; then
             echo "::error::Real publish failures for: ${FAILED_PKGS[*]}"

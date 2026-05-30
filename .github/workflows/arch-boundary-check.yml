@@ -114,3 +114,28 @@ jobs:
           node-version: '24'
       - name: Lint stdout-write allowlist (check mode)
         run: node scripts/lint-stdout-write-allowlist.mjs --check
+
+  publish-surface:
+    # T11400 · Epic T11388 (E1) · Saga T11387 SG-PACKAGE-ARCH
+    #
+    # Locks the npm publish surface (the `publish_pkg` list in
+    # .github/workflows/release.yml) against silent growth and re-introduction
+    # of dead artifacts. Asserts: exact entry count (EXPECTED_PUBLISH_COUNT,
+    # currently 18 post-E1, trending to the owner's single-artifact target of
+    # 1 via R8/R10); every entry is a public, correctly-named package; and no
+    # per-platform worktree-napi-* stub appears in the list or on disk.
+    #
+    # To shrink the surface: delete the publish_pkg line AND decrement
+    # EXPECTED_PUBLISH_COUNT in scripts/lint-publish-surface.mjs in the same PR.
+    #
+    # Pure static analysis of checked-in source — no untrusted user input.
+    name: Publish Surface Lint (T11400)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Lint npm publish surface
+        run: node scripts/lint-publish-surface.mjs
