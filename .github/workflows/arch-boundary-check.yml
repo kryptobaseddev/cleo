@@ -191,3 +191,25 @@ jobs:
           node-version: '24'
       - name: Lint tools-vs-skills boundary (baseline mode)
         run: node scripts/lint-tools-vs-skills-boundary.mjs
+
+  crate-publish-guard:
+    # T11389 · Epic T11389 (E2) · Saga T11387 SG-PACKAGE-ARCH
+    #
+    # Zero crates.io publishes (owner decision 2026-05-30): every
+    # crates/<name>/Cargo.toml MUST declare `publish = false`. A crate that
+    # omits it (Cargo defaults to publishable) or sets `publish = true` could
+    # leak an internal crate to crates.io on a stray `cargo publish`. To make a
+    # crate genuinely external, set publish = true AND add it to the ALLOWLIST
+    # in scripts/lint-no-crate-publish.mjs with rationale.
+    #
+    # Pure static analysis of checked-in Cargo.toml — no untrusted user input.
+    name: Crate Publish Guard (T11389)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Lint crate publish=false (zero crates.io)
+        run: node scripts/lint-no-crate-publish.mjs

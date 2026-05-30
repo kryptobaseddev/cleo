@@ -5,6 +5,7 @@ edition = "2024"
 rust-version = "1.94"
 description = "napi-rs bindings for lafs-core schema validation"
 
+publish = false
 [lib]
 crate-type = ["cdylib"]
 
