@@ -27,6 +27,7 @@
     "@cleocode/caamp": "workspace:*",
     "@cleocode/cant": "workspace:*",
     "@cleocode/contracts": "workspace:*",
+    "@cleocode/core": "workspace:*",
     "@cleocode/lafs": "workspace:*",
     "@cleocode/nexus": "workspace:*",
     "@cleocode/paths": "workspace:*",
@@ -50,14 +51,6 @@
     "tree-sitter-rust": "0.23.1",
     "tree-sitter-typescript": "^0.23.2",
     "yaml": "^2.8.3"
-  },
-  "peerDependencies": {
-    "@cleocode/core": "workspace:*"
-  },
-  "peerDependenciesMeta": {
-    "@cleocode/core": {
-      "optional": false
-    }
   },
   "engines": {
     "node": ">=24.16.0"
