@@ -1,0 +1,84 @@
+name: cleo-supervisor smoke
+
+# @task T11341 — SG-RUNTIME-UNIFICATION R1 (T11252).
+#
+# Runs the committed daemon-lifecycle smoke + idle-RSS harness on the saga's
+# required platform matrix: Linux x64, Linux arm64, and macOS arm64 (saga
+# acceptance gate #7). The idle-RSS test asserts steady-state RSS <= 15 MB
+# after a 60s settle with no clients; the lifecycle test SIGKILLs a child and
+# asserts a backoff restart + atomic pidfile update following the implemented
+# schedule.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/cleo-supervisor/**'
+      - 'rust-toolchain.toml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/cleo-supervisor-smoke.yml'
+  pull_request:
+    paths:
+      - 'crates/cleo-supervisor/**'
+      - 'rust-toolchain.toml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/cleo-supervisor-smoke.yml'
+  workflow_dispatch:
+  merge_group:
+
+jobs:
+  smoke:
+    name: ${{ matrix.triple }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - triple: linux-x64
+            runner: ubuntu-latest
+            cross: false
+          - triple: linux-arm64
+            runner: ubuntu-24.04-arm
+            cross: false
+          - triple: darwin-arm64
+            runner: macos-14
+            cross: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.94.0
+
+      # Lifecycle smoke: SIGKILL child -> backoff restart -> atomic pidfile.
+      # Also runs the fast idle_rss_smoke + the backoff-schedule assertion.
+      - name: Lifecycle + fast smoke tests
+        shell: bash
+        run: cargo test -p cleo-supervisor --tests
+
+      # Full idle-RSS budget: 60s settle, no clients, RSS <= 15 MB.
+      - name: Idle-RSS 60s budget (<= 15 MB)
+        shell: bash
+        run: cargo test -p cleo-supervisor --test idle_rss -- --ignored --nocapture
+
+  gate:
+    name: gate
+    needs: smoke
+    runs-on: ubuntu-latest
+    if: always()
+    timeout-minutes: 1
+    steps:
+      - name: Verify smoke passed on all 3 platforms
+        shell: bash
+        run: |
+          if [[ "${{ needs.smoke.result }}" == "success" ]]; then
+            echo "✓ cleo-supervisor smoke passed on linux-x64 + linux-arm64 + darwin-arm64"
+          elif [[ "${{ needs.smoke.result }}" == "skipped" ]]; then
+            echo "○ No matching paths — gate is not applicable"
+            exit 0
+          else
+            echo "✗ cleo-supervisor smoke failed (result: ${{ needs.smoke.result }})"
+            exit 1
+          fi
