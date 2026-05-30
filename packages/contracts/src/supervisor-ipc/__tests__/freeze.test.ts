@@ -57,6 +57,26 @@ describe('supervisor-ipc v1.0 freeze guard (T11339)', () => {
       SUPERVISOR_IPC_REQUEST_KINDS.length + SUPERVISOR_IPC_RESPONSE_KINDS.length,
     );
   });
+
+  // T11369 (R2 AC8/AC9) — pin the EXACT complete message-kind tuple. Any
+  // in-place add/rename/remove to the v1.0 set fails here, forcing a new
+  // versioned directory + version-negotiation shim per the contract-evolution
+  // policy (doc slug `daemon-ipc-contract-evolution-policy`) rather than silent
+  // drift that would break R4-R7 adapters.
+  it('pins the EXACT complete frozen message-kind set (T11369)', () => {
+    expect([...SUPERVISOR_IPC_MESSAGE_KINDS]).toEqual([
+      'spawn',
+      'restart',
+      'monitor',
+      'health',
+      'spawned',
+      'restarted',
+      'monitor',
+      'health',
+      'event',
+      'error',
+    ]);
+  });
 });
 
 describe('supervisor-ipc v1.0 wire-shape parity with Rust serde (T11339 AC3)', () => {

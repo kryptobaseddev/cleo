@@ -82,6 +82,18 @@
       "types": "./dist/nexus-tasks-bridge-ops.d.ts",
       "import": "./dist/nexus-tasks-bridge-ops.js"
     },
+    "./daemon": {
+      "types": "./dist/daemon/index.d.ts",
+      "import": "./dist/daemon/index.js"
+    },
+    "./daemon-ipc": {
+      "types": "./dist/daemon-ipc/index.d.ts",
+      "import": "./dist/daemon-ipc/index.js"
+    },
+    "./supervisor-ipc": {
+      "types": "./dist/supervisor-ipc/index.d.ts",
+      "import": "./dist/supervisor-ipc/index.js"
+    },
     "./dispatch/*": {
       "types": "./dist/dispatch/*.d.ts",
       "import": "./dist/dispatch/*.js"
