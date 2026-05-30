@@ -18,6 +18,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { getLogger } from '../logger.js';
 import { getBrainAccessor } from '../store/memory-accessor.js';
 import { typedAll } from '../store/typed-query.js';
 import type { BrainConsolidationObservationRow } from './brain-row-types.js';
@@ -1206,7 +1207,7 @@ export async function runConsolidation(
       discarded: attentionResult.discarded,
     };
   } catch (err) {
-    console.warn('[consolidation] Step 9g attention consolidation failed:', err);
+    getLogger('consolidation').warn({ err }, 'Step 9g attention consolidation failed');
   }
 
   // Step 9e: Log this consolidation run to brain_consolidation_events (T694)
