@@ -677,12 +677,15 @@ export {
   type MutateProjectionPlan,
 } from './dispatch/mutate-projection.js';
 // T9922 (Saga T9855 / E8.3) — MVI record projection (default for read ops)
+// T11351 (Epic T11285) — generalized budget-aware projectMVI + ProjectMVIOptions
 export {
   applyProjectionPlan,
   PROJECTION_PLANS,
   type ProjectionKind,
   type ProjectionMode,
   type ProjectionPlan,
+  type ProjectMVIOptions,
+  projectMVI,
   projectMvi,
   projectMviList,
   resolveProjectionMode,

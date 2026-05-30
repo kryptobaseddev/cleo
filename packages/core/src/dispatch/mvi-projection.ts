@@ -20,7 +20,10 @@
  *
  * @epic T9855 (Saga)
  * @task T9922 (E8.3)
+ * @task T11351 (Epic T11285 EP-MVI-PRIMITIVE) — generalized budget-aware projector
  */
+
+import { TokenEstimator } from '@cleocode/lafs';
 
 /**
  * Mode of projection applied to a single record.
@@ -73,6 +76,28 @@ const MVI_FIELDS: Record<Exclude<ProjectionKind, 'unknown'>, ReadonlySet<string>
 };
 
 /**
+ * Generic identity/routing field allow-list applied to UNKNOWN kinds.
+ *
+ * When the projector meets a record kind that is not in {@link MVI_FIELDS}, it
+ * must NOT leak the full payload (the pre-T11351 `projectMvi` passthrough did
+ * exactly that). Instead it keeps only these universally-safe identity and
+ * control-flow keys — the intersection an agent needs to route on any record.
+ *
+ * @task T11351
+ */
+const GENERIC_MVI_FIELDS: ReadonlySet<string> = new Set([
+  'id',
+  'title',
+  'name',
+  'slug',
+  'status',
+  'priority',
+  'type',
+  'kind',
+  'parentId',
+]);
+
+/**
  * Pick the MVI-allow-listed keys out of a record.
  *
  * @internal
@@ -118,6 +143,134 @@ export function projectMvi<T extends Record<string, unknown>>(
   if (kind === 'unknown') return record;
   const allow = MVI_FIELDS[kind];
   return pickFields(record, allow);
+}
+
+/**
+ * Options for the generalized {@link projectMVI} projector.
+ *
+ * @task T11351
+ */
+export interface ProjectMVIOptions {
+  /**
+   * Record kind. Known kinds (`task`/`epic`/`saga`/`doc`) use their
+   * {@link MVI_FIELDS} allow-list; `'unknown'` (or any unrecognized value)
+   * degrades to the {@link GENERIC_MVI_FIELDS} identity/routing set rather than
+   * leaking the full record.
+   */
+  kind: ProjectionKind;
+  /**
+   * Projection mode. `'full'` is a no-op (returns the record unchanged);
+   * `'mvi'` applies field selection. Defaults to `'mvi'`.
+   */
+  mode?: ProjectionMode;
+  /**
+   * Optional hard token budget. When set, the projected record is measured by
+   * the LAFS {@link TokenEstimator} and trailing fields are dropped until it
+   * fits. `id` is preserved as the last-resort minimum so the result is always
+   * routable. Omit for field-allow-listing only (no token enforcement).
+   */
+  budget?: number;
+}
+
+/**
+ * Drop trailing keys from a record until the LAFS token estimate fits `budget`.
+ *
+ * Iterates keys in insertion order, dropping from the end. `id` is treated as
+ * sticky — it is never dropped while any other field could be — so the reduced
+ * record stays routable. When even `{ id }` exceeds budget the record is
+ * returned with just `id` (best effort; the LAFS budget chokepoint is the
+ * coarser backstop for truly pathological cases).
+ *
+ * @internal
+ */
+function reduceToBudget<T extends Record<string, unknown>>(
+  record: Partial<T>,
+  budget: number,
+  estimator: TokenEstimator,
+): Partial<T> {
+  if (estimator.estimate(record) <= budget) return record;
+
+  const keys = Object.keys(record);
+  // Drop non-id keys from the end until we fit (or only id remains).
+  const droppable = keys.filter((k) => k !== 'id');
+  for (let drop = 1; drop <= droppable.length; drop++) {
+    const keep = new Set<string>(keys);
+    for (let i = 0; i < drop; i++) {
+      const victim = droppable[droppable.length - 1 - i];
+      if (victim !== undefined) keep.delete(victim);
+    }
+    const candidate: Partial<T> = {};
+    for (const key of keys) {
+      if (keep.has(key)) (candidate as Record<string, unknown>)[key] = record[key];
+    }
+    if (estimator.estimate(candidate) <= budget) return candidate;
+  }
+
+  // Last resort: id only (or empty when there is no id).
+  const minimal: Partial<T> = {};
+  if ('id' in record) {
+    (minimal as Record<string, unknown>)['id'] = (record as Record<string, unknown>)['id'];
+  }
+  return minimal;
+}
+
+/**
+ * The single, generalized, budget-aware MVI projector.
+ *
+ * Supersedes the kind-only {@link projectMvi} for callers that need (a) graceful
+ * degradation on unknown kinds and (b) a real token budget rather than pure
+ * field-allow-listing:
+ *
+ * 1. `mode: 'full'` → returns the record unchanged.
+ * 2. Known kind → keeps the kind's {@link MVI_FIELDS} allow-list.
+ * 3. Unknown kind → keeps only {@link GENERIC_MVI_FIELDS} (never the full
+ *    payload — this closes the pre-T11351 unknown-kind leak).
+ * 4. If `budget` is set → delegates to the LAFS {@link TokenEstimator} and drops
+ *    trailing fields until the projected record fits, keeping `id` as the
+ *    last-resort minimum.
+ *
+ * @typeParam T - The record shape.
+ * @param record  - The record to project. Non-object inputs are returned as-is.
+ * @param options - {@link ProjectMVIOptions}.
+ * @returns A new projected (and possibly budget-reduced) record.
+ *
+ * @example
+ * ```ts
+ * // Known kind, no budget — same field set as projectMvi(record, 'task').
+ * projectMVI(taskRecord, { kind: 'task' });
+ *
+ * // Unknown kind — generic identity fields only, never the full payload.
+ * projectMVI(weirdRecord, { kind: 'unknown' });
+ *
+ * // Budget-aware — reduces below 20 tokens.
+ * projectMVI(bigRecord, { kind: 'task', budget: 20 });
+ * ```
+ *
+ * @task T11351
+ * @epic T11285
+ */
+export function projectMVI<T extends Record<string, unknown>>(
+  record: T,
+  options: ProjectMVIOptions,
+): Partial<T> {
+  if (record === null || typeof record !== 'object' || Array.isArray(record)) {
+    return record;
+  }
+  const mode = options.mode ?? 'mvi';
+  if (mode === 'full') return record;
+
+  // Step 1+2+3: field selection (known allow-list or generic fallback).
+  const allow =
+    options.kind === 'unknown' || !(options.kind in MVI_FIELDS)
+      ? GENERIC_MVI_FIELDS
+      : MVI_FIELDS[options.kind as Exclude<ProjectionKind, 'unknown'>];
+  const projected = pickFields(record, allow);
+
+  // Step 4: optional token-budget reduction via the LAFS estimator.
+  if (typeof options.budget === 'number' && options.budget > 0) {
+    return reduceToBudget(projected, options.budget, new TokenEstimator());
+  }
+  return projected;
 }
 
 /**
