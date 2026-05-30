@@ -784,6 +784,22 @@ export type {
   PatternRecord,
   SessionSummary,
 } from './memory.js';
+// === MVI progressive-disclosure primitive (T11349 · Epic T11285 · Saga T11283) ===
+export type {
+  ExpansionHint,
+  MviDigest,
+  NextDirectivesHint,
+  StructuredOpsHint,
+  SuggestedCommandsHint,
+} from './mvi.js';
+export {
+  expansionFromNextDirectives,
+  expansionFromStructuredOps,
+  expansionFromSuggestedCommands,
+  isNextDirectivesHint,
+  isStructuredOpsHint,
+  isSuggestedCommandsHint,
+} from './mvi.js';
 export type {
   Contract,
   ContractCompatibilityMatrix,
