@@ -1,0 +1,46 @@
+{
+  "spike": "T11244 — SQLite 3.53.0 consolidation architectural lock",
+  "concurrencyWindowS": 20,
+  "concurrencyGateAuthoritative": false,
+  "note": "T11322 ran at 20s < 240s gate window — its verdict is ADVISORY and excluded from the lock. Authoritative result: results/02-concurrency-bench.json (full 300s run = PASS @ ratio 0.996×).",
+  "results": [
+    {
+      "task": "T11321",
+      "verdict": "PASS",
+      "exitCode": 0,
+      "advisory": false
+    },
+    {
+      "task": "T11322",
+      "verdict": "PASS",
+      "exitCode": 0,
+      "advisory": true
+    },
+    {
+      "task": "T11323",
+      "verdict": "PASS",
+      "exitCode": 0,
+      "advisory": false
+    },
+    {
+      "task": "T11324",
+      "verdict": "PASS",
+      "exitCode": 0,
+      "advisory": false
+    },
+    {
+      "task": "T11325",
+      "verdict": "PASS",
+      "exitCode": 0,
+      "advisory": false
+    },
+    {
+      "task": "T11326",
+      "verdict": "PASS",
+      "exitCode": 0,
+      "advisory": false
+    }
+  ],
+  "architecturalLock": "HOLDS",
+  "verdict": "PASS"
+}
