@@ -288,6 +288,29 @@ export type {
   ParsedClaudeCodeCredential,
 } from './credentials.js';
 export { parseClaudeCodeCredentials } from './credentials.js';
+// === Daemon lifecycle + subsystem contracts (T11366 · SG-RUNTIME-UNIFICATION R2) ===
+export type {
+  DaemonLifecycleHooks,
+  HealthStatus,
+  Subsystem,
+  SubsystemDefinition,
+  SubsystemHealth,
+  SubsystemLifecyclePhase,
+  SubsystemState,
+} from './daemon/index.js';
+export {
+  HealthStatusSchema,
+  SUBSYSTEM_LIFECYCLE_PHASES,
+  SubsystemHealthSchema,
+  SubsystemStateSchema,
+  summarizeHealth,
+  toMonitorChildren,
+} from './daemon/index.js';
+// === Daemon-IPC v1.0 (AC8 alias of supervisor-ipc — T11369 · R2 gates R4-R7) ===
+// `daemon-ipc` is the AC8-named re-export barrel over the FROZEN supervisor-ipc
+// v1.0 contract — one contract, two names. The subpath
+// `@cleocode/contracts/daemon-ipc` resolves via the package `./*` export.
+export { DAEMON_IPC_PROTOCOL_VERSION } from './daemon-ipc/index.js';
 // === DataAccessor Interface ===
 export type {
   AcBindingRow,
@@ -1950,24 +1973,6 @@ export {
   SupervisorIpcResponseEnvelopeSchema,
   SupervisorIpcResponseSchema,
 } from './supervisor-ipc/index.js';
-// === Daemon lifecycle + subsystem contracts (T11366 · SG-RUNTIME-UNIFICATION R2) ===
-export type {
-  DaemonLifecycleHooks,
-  HealthStatus,
-  Subsystem,
-  SubsystemDefinition,
-  SubsystemHealth,
-  SubsystemLifecyclePhase,
-  SubsystemState,
-} from './daemon/index.js';
-export {
-  HealthStatusSchema,
-  SUBSYSTEM_LIFECYCLE_PHASES,
-  SubsystemHealthSchema,
-  SubsystemStateSchema,
-  summarizeHealth,
-  toMonitorChildren,
-} from './daemon/index.js';
 // === Task Types ===
 export type {
   AcceptanceItem,
