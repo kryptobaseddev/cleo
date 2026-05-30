@@ -335,9 +335,10 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
   },
   {
     module: 'cleo-supervisor',
-    intent: 'orchestration-glue',
+    intent: 'scaffold-pending-consumer',
     rustCore: 'crates/cleo-supervisor',
     canonicalHome: 'cleocode',
+    plannedConsumerEta: '2026-06-30',
     perfBudget: {
       startup_max_ms: 200,
       memory_max_mb: 15,
