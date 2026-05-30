@@ -16,6 +16,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { resolveSessionIdFromEnv } from '@cleocode/core/internal';
 import { getBoundSession } from '../context/session-context.js';
 import type { DispatchNext, DispatchRequest, DispatchResponse, Middleware } from '../types.js';
 
@@ -78,14 +79,20 @@ export function createSessionResolver(cliSessionLookup?: () => Promise<string | 
       }
     }
 
-    // Tier 4: Legacy env var (transitional — will be removed)
+    // Tier 4: Env-var resolution.
+    // Grade-mode id wins (it overrides for behavioral grading); otherwise defer
+    // to the SINGLE canonical env-first resolver (T11344) so this middleware,
+    // the audit middleware, and `lookupCliSession` share ONE precedence — no
+    // duplicated `process.env.CLEO_SESSION_ID` reads. Reached for non-CLI
+    // sources (where Tier 3's `cliSessionLookup` is skipped); CLI sources
+    // already resolved env-first via Tier 3.
     const envGradeId = process.env.CLEO_SESSION_GRADE_ID;
     if (envGradeId && process.env.CLEO_SESSION_GRADE === 'true') {
       req.sessionId = envGradeId;
       req.originSessionId ??= resolveOriginSessionId(req.sessionId, req.executionSessionId);
       return next();
     }
-    const envId = process.env.CLEO_SESSION_ID;
+    const envId = resolveSessionIdFromEnv();
     if (envId) {
       req.sessionId = envId;
       req.originSessionId ??= resolveOriginSessionId(req.sessionId, req.executionSessionId);

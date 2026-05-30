@@ -79,15 +79,55 @@ export function extractSessionTimestamp(id: string): Date | null {
 }
 
 /**
+ * Canonical environment variable key carrying the active CLEO session id.
+ *
+ * Unified in T11347 (Epic T11284): `CLEO_SESSION_ID` is THE canonical key.
+ * The legacy bare `CLEO_SESSION` key (read in a single legacy callsite) is a
+ * documented alias resolved by {@link resolveSessionIdFromEnv} for backward
+ * compatibility — new code MUST write `CLEO_SESSION_ID`.
+ *
+ * @task T11347
+ */
+export const CANONICAL_SESSION_ENV_KEY = 'CLEO_SESSION_ID' as const;
+
+/**
+ * Ordered list of session-id environment variables consulted by the canonical
+ * env-first resolver. First non-empty value wins.
+ *
+ * Order (T11347-unified):
+ * 1. `CLEO_SESSION_ID`   — canonical; set by spawn isolation (T11343),
+ *    `cleo session start`, and `cleo session adopt`.
+ * 2. `CLEO_SESSION`      — legacy alias (single legacy reader); kept for one
+ *    deprecation cycle so older shells keep resolving.
+ * 3. `CLAUDE_SESSION_ID` — injected by the Claude Code harness.
+ * 4. `AIDER_SESSION_ID`  — injected by the Aider harness.
+ *
+ * @task T9975
+ * @task T11347
+ */
+export const SESSION_ENV_KEY_PRECEDENCE = [
+  'CLEO_SESSION_ID',
+  'CLEO_SESSION',
+  'CLAUDE_SESSION_ID',
+  'AIDER_SESSION_ID',
+] as const;
+
+/**
  * Resolve the active session ID via environment-variable precedence (T9975).
  *
- * Priority order (first defined wins):
- * 1. `CLEO_SESSION_ID`   — explicitly set by `cleo session start` or `cleo session adopt`
- * 2. `CLAUDE_SESSION_ID` — injected by the Claude Code harness
- * 3. `AIDER_SESSION_ID`  — injected by the Aider harness
+ * THE single canonical env-first resolver (T11344, Epic T11284). Every
+ * session-resolution hot path — `lookupCliSession`, the session-resolver
+ * middleware, the audit middleware — consults THIS function so the precedence
+ * logic is never duplicated. It returns the per-agent session id injected into
+ * the isolation shell by spawn (T11343), making `getActiveSession()` a fallback
+ * rather than the default identity. This is what dissolves multi-agent
+ * session-bleed: a short-lived `cleo` call inside a worktree resolves the
+ * agent's OWN session, not "whoever touched the DB last".
  *
- * Returns `null` when none of the three variables are set, signalling that
- * the caller should fall back to `getActiveSession()` (most-recent active row).
+ * Precedence is defined by {@link SESSION_ENV_KEY_PRECEDENCE}. Empty-string
+ * values are treated as absent (spawn sets `''` when no per-agent session was
+ * allocated), so an empty env var transparently falls through to the next key
+ * and ultimately to the caller's `getActiveSession()` fallback.
  *
  * This function NEVER reads the database — it is synchronous and safe to call
  * in hot paths. Database fallback is the caller's responsibility.
@@ -95,13 +135,31 @@ export function extractSessionTimestamp(id: string): Date | null {
  * @returns The session ID string when an env var is set, otherwise `null`.
  *
  * @task T9975
+ * @task T11344
  */
 export function resolveSessionIdFromEnv(): string | null {
-  return (
-    (process.env['CLEO_SESSION_ID'] ?? null) ||
-    (process.env['CLAUDE_SESSION_ID'] ?? null) ||
-    (process.env['AIDER_SESSION_ID'] ?? null)
-  );
+  for (const key of SESSION_ENV_KEY_PRECEDENCE) {
+    const value = process.env[key];
+    if (value !== undefined && value !== '') {
+      return value;
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve the active agent identity handle from the environment (T11343).
+ *
+ * Returns the `CLEO_AGENT_ID` injected by spawn into the isolation shell, or
+ * `null` when unset/empty. Used to attribute audit rows, conduit messages, and
+ * memory observations to the spawned agent rather than the orchestrator.
+ *
+ * @returns The agent id string when set, otherwise `null`.
+ * @task T11343
+ */
+export function resolveAgentIdFromEnv(): string | null {
+  const value = process.env['CLEO_AGENT_ID'];
+  return value !== undefined && value !== '' ? value : null;
 }
 
 function parseCompactTimestamp(ts: string): Date | null {

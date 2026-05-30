@@ -1175,6 +1175,21 @@ export {
 } from './sessions/handoff.js';
 export type { HandoffMarkdownContext } from './sessions/handoff-markdown.js';
 export { emitHandoffMarkdown, renderHandoffMarkdown } from './sessions/handoff-markdown.js';
+// Canonical env-first session/agent identity resolution (T11344 · T11343 · Epic T11284)
+export {
+  CANONICAL_SESSION_ENV_KEY,
+  resolveAgentIdFromEnv,
+  resolveSessionIdFromEnv,
+  SESSION_ENV_KEY_PRECEDENCE,
+} from './sessions/session-id.js';
+// Per-session focus_state keying SSoT (T11345 · Epic T11284)
+export type { FocusStateMetaAccessor } from './sessions/focus-state-store.js';
+export {
+  focusStateKey,
+  LEGACY_FOCUS_STATE_KEY,
+  readFocusState,
+  writeFocusState,
+} from './sessions/focus-state-store.js';
 // Sessions (additional)
 export {
   archiveSessions,
@@ -1348,7 +1363,12 @@ export {
 // opener which is the SSoT for every write-path consumer.
 export type { CleoDbHandle, CleoDbRole } from './store/open-cleo-db.js';
 export { openCleoDb } from './store/open-cleo-db.js';
-export { createSession, getActiveSession } from './store/session-store.js';
+export {
+  createSession,
+  getActiveSession,
+  resolveCurrentSession,
+  resolveCurrentSessionId,
+} from './store/session-store.js';
 export {
   _resetGlobalSignaldockDb_TESTING_ONLY,
   checkGlobalSignaldockDbHealth,
