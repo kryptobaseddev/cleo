@@ -69,7 +69,7 @@ const OUTPUT_SCHEMA: JsonSchema = {
 async function fetchBrainEntriesFn(
   input: FetchBrainEntriesInput,
 ): Promise<FetchBrainEntriesOutput> {
-  const { fetchBrainEntries: fetch } = await import('../../memory/retrieval/fetch.js');
+  const { fetchBrainEntries: fetch } = await import('../memory/retrieval/fetch.js');
   const result = await fetch(input.projectRoot, input.params);
   return { result };
 }

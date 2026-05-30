@@ -9,11 +9,11 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { fetchBrainEntries } from '../../brain-tools/brain-fetch.js';
-import { observeBrain } from '../../brain-tools/brain-observe.js';
-import { searchBrain } from '../../brain-tools/brain-search.js';
-import { timelineBrain } from '../../brain-tools/brain-timeline.js';
-import { buildRetrievalBundle } from '../../brain-tools/build-retrieval-bundle.js';
+import { fetchBrainEntries } from '../../../brain-tools/brain-fetch.js';
+import { observeBrain } from '../../../brain-tools/brain-observe.js';
+import { searchBrain } from '../../../brain-tools/brain-search.js';
+import { timelineBrain } from '../../../brain-tools/brain-timeline.js';
+import { buildRetrievalBundle } from '../../../brain-tools/build-retrieval-bundle.js';
 
 // ---------------------------------------------------------------------------
 // searchBrain

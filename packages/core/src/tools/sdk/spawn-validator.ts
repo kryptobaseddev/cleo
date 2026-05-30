@@ -27,8 +27,8 @@
 import type { AgentRole } from '@cleocode/contracts';
 import type { EngineResult } from '../../engine-result.js';
 import { orchestrateSpawn } from '../../orchestrate/spawn-ops.js';
-import type { JsonSchema, RegisteredSdkTool } from '../task-tools/sdk-tool.js';
-import { defineSdkTool } from '../task-tools/sdk-tool.js';
+import type { JsonSchema, RegisteredSdkTool } from '../../task-tools/sdk-tool.js';
+import { defineSdkTool } from '../../task-tools/sdk-tool.js';
 
 /**
  * Input envelope for the {@link spawnValidator} SDK tool.

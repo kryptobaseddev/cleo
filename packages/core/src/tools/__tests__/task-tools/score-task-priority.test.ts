@@ -1,6 +1,6 @@
 import type { ScoreTaskInput } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
-import { scoreTask } from '../../task-tools/score-task-priority.js';
+import { scoreTask } from '../../../task-tools/score-task-priority.js';
 
 // Task with a dependency so depsReady bonus only applies when statuses provided
 const HIGH_TASK: ScoreTaskInput = {
