@@ -334,6 +334,13 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/diagnostics.js')).diagnosticsCommand as CommandDef,
   },
   {
+    exportName: '_llmOutputCommand',
+    name: 'llm-output',
+    description:
+      'Unified LLM output: task export (rich Markdown with frontmatter + body + attachments + memory refs) ',
+    load: async () => (await import('../commands/docs.js'))._llmOutputCommand as CommandDef,
+  },
+  {
     exportName: 'docsCommand',
     name: 'docs',
     description: 'Canonical six-verb docs path: add, update, fetch, list, remove, publish. ',
@@ -438,6 +445,13 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     name: 'gc',
     description: 'Transcript garbage collection: manual trigger and status',
     load: async () => (await import('../commands/gc.js')).gcCommand as CommandDef,
+  },
+  {
+    exportName: 'goalCommand',
+    name: 'goal',
+    description:
+      'DB-persisted, per-agent, evidence-gate-aware goal loop (set/status/subgoal/append).',
+    load: async () => (await import('../commands/goal.js')).goalCommand as CommandDef,
   },
   {
     exportName: 'gradeCommand',

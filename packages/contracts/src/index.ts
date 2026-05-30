@@ -633,6 +633,28 @@ export {
   AGENT_TYPES,
   BRAIN_OBSERVATION_TYPES,
 } from './facade.js';
+// === CLEO-native Goal System (T11376 · Epic T11290 · Saga T11283) ===
+export type {
+  FuzzyGoal,
+  GoalAdvanceResult,
+  GoalContinuation,
+  GoalJudge,
+  GoalJudgeVerdict,
+  GoalKind,
+  GoalKindTag,
+  GoalRecord,
+  GoalStatus,
+  TaskCompletionGoal,
+} from './goal.js';
+export {
+  GOAL_STATUSES,
+  GOAL_TARGET_TASK_ID_REGEX,
+  GOAL_TERMINAL_STATUSES,
+  isFuzzyGoal,
+  isTaskCompletionGoal,
+  isTerminalGoalStatus,
+  isValidGoalTargetTaskId,
+} from './goal.js';
 // === Graph Intelligence Types (T512, T529, T1862, T9145) ===
 export type {
   AmbiguousProvenance,
