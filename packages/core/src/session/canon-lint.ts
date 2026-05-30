@@ -33,6 +33,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, sep } from 'node:path';
 import { parse as parseYaml } from 'yaml';
+import { truncateString } from '../render/helpers.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -164,7 +165,7 @@ function deriveSessionId(transcriptPath: string): string {
  */
 function truncateEvidence(s: string): string {
   const oneLine = s.replace(/\s+/g, ' ').trim();
-  return oneLine.length > 200 ? `${oneLine.slice(0, 200)}…` : oneLine;
+  return truncateString(oneLine, 200);
 }
 
 /**

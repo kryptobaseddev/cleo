@@ -37,6 +37,7 @@ import type {
   TestGate,
 } from '@cleocode/contracts';
 import { getProjectRoot } from '../paths.js';
+import { truncateString } from '../render/helpers.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
 
 const execFileAsync = promisify(execFile);
@@ -184,7 +185,7 @@ async function runTestGate(
   }
 
   const durationMs = Date.now() - startMs;
-  const combined = truncate(`${stdout}\n${stderr}`.trim(), MAX_EVIDENCE_BYTES);
+  const combined = truncateString(`${stdout}\n${stderr}`.trim(), MAX_EVIDENCE_BYTES);
 
   if (timedOut) {
     return makeResult(
@@ -319,7 +320,7 @@ async function runFileGate(
       gate,
       'fail',
       durationMs,
-      truncate(evidence, MAX_EVIDENCE_BYTES),
+      truncateString(evidence, MAX_EVIDENCE_BYTES),
       failures[0],
     );
   }
@@ -438,7 +439,7 @@ async function runCommandGate(
   }
 
   const durationMs = Date.now() - startMs;
-  const combined = truncate(`${stdout}\n${stderr}`.trim(), MAX_EVIDENCE_BYTES);
+  const combined = truncateString(`${stdout}\n${stderr}`.trim(), MAX_EVIDENCE_BYTES);
 
   if (timedOut) {
     return makeResult(
@@ -549,7 +550,7 @@ async function runLintGate(
   }
 
   const durationMs = Date.now() - startMs;
-  const combined = truncate(`${stdout}\n${stderr}`.trim(), MAX_EVIDENCE_BYTES);
+  const combined = truncateString(`${stdout}\n${stderr}`.trim(), MAX_EVIDENCE_BYTES);
 
   if (timedOut) {
     return makeResult(
@@ -680,7 +681,7 @@ async function runHttpGate(
         gate,
         'fail',
         durationMs,
-        truncate(body, 500),
+        truncateString(body, 500),
         `Response body did not match /${gate.bodyMatches}/`,
       );
     }
@@ -720,12 +721,6 @@ function runManualGate(
 function resolveCwd(projectRoot: string, cwd?: string): string {
   if (!cwd) return projectRoot;
   return isAbsolute(cwd) ? cwd : join(projectRoot, cwd);
-}
-
-/** Truncate a string to `maxBytes` characters, appending `…` if trimmed. */
-function truncate(s: string, maxBytes: number): string {
-  if (s.length <= maxBytes) return s;
-  return `${s.slice(0, maxBytes)}…`;
 }
 
 /** Construct an `AcceptanceGateResult` record. */

@@ -22,6 +22,7 @@ import {
   padVisible,
   pagerFooter,
   truncated,
+  truncateString,
   truncateVisible,
   visibleLength,
 } from '../helpers.js';
@@ -180,5 +181,46 @@ describe('truncated', () => {
     const r = truncated([1, 2, 3, 4, 5, 6, 7, 8], 3);
     expect(r.items).toEqual([1, 2, 3]);
     expect(r.footer).toContain('and 5 more');
+  });
+});
+
+describe('truncateString (T11353 — shared scalar-string truncation SSoT)', () => {
+  it('returns the string unchanged when within max', () => {
+    expect(truncateString('hello', 5)).toBe('hello');
+    expect(truncateString('hi', 10)).toBe('hi');
+  });
+
+  it('truncates with a single-glyph ellipsis, length never exceeds max', () => {
+    const out = truncateString('a very long title', 8);
+    expect(out.endsWith('…')).toBe(true);
+    expect(out.length).toBeLessThanOrEqual(8);
+    expect(out).toBe('a very …'.slice(0, 7) + '…');
+  });
+
+  it('honors a custom ASCII ellipsis (parity with cleo-startup style)', () => {
+    const out = truncateString('a very long title', 8, '...');
+    expect(out.endsWith('...')).toBe(true);
+    expect(out.length).toBeLessThanOrEqual(8);
+  });
+
+  it('collapses null / undefined / empty to an empty string', () => {
+    expect(truncateString(null, 10)).toBe('');
+    expect(truncateString(undefined, 10)).toBe('');
+    expect(truncateString('', 10)).toBe('');
+  });
+
+  it('returns empty for non-positive max', () => {
+    expect(truncateString('abc', 0)).toBe('');
+    expect(truncateString('abc', -1)).toBe('');
+  });
+
+  it('hard-slices when the ellipsis alone would overflow the budget', () => {
+    // ellipsis '...' (len 3) cannot fit in max=2 → hard slice.
+    expect(truncateString('abcdef', 2, '...')).toBe('ab');
+  });
+
+  it('matches the legacy slice(0, max-1)+… behavior of the replaced helpers', () => {
+    // The output-mode / briefing / public-api helpers all did this.
+    expect(truncateString('abcdef', 4)).toBe('abc…');
   });
 });
