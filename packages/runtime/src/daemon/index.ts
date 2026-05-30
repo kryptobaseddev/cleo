@@ -40,6 +40,8 @@ export type {
 } from '@cleocode/contracts';
 
 export { defineSubsystem } from './define-subsystem.js';
+export type { SubsystemLogFields, SubsystemLogger } from './logger.js';
+export { createSubsystemLogger } from './logger.js';
 export { SubsystemRegistry } from './registry.js';
 export type { SupervisorIpcClient } from './supervisor-client.js';
 export { createSupervisorIpcClient, MalformedIpcFrameError } from './supervisor-client.js';
