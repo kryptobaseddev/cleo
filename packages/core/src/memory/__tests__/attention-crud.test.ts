@@ -146,17 +146,22 @@ describe('attention CRUD (T11372 · Epic T11288)', () => {
     await writeFocusState(env.accessor, sessionId, { currentTask: 'T001' });
 
     await asAgent({ sessionId, agentId: 'agent-x' }, async () => {
+      // Freeze the reference clock at insert time so the "both live" read is
+      // deterministic regardless of insert latency. (Under heavy parallel SQLite
+      // contention the two inserts + the read can exceed the 1s TTL on the
+      // wall clock, which previously raced this assertion.)
+      const insertedAt = Date.now();
       // One item with a 1-second TTL, one without.
       await addAttention(env.tempDir, { content: 'ephemeral', ttlSeconds: 1 });
       await addAttention(env.tempDir, { content: 'durable' });
 
-      // Both live now.
-      const live = await listAttention(env.tempDir, {});
+      // Both live at insert time (TTL not yet elapsed).
+      const live = await listAttention(env.tempDir, { now: insertedAt });
       expect(live.items.map((i) => i.content).sort()).toEqual(['durable', 'ephemeral']);
 
       // Advance the clock past the TTL — the ephemeral item drops from the
       // open-items query (excluded by the TTL predicate, BEFORE any sweep).
-      const future = Date.now() + 5_000;
+      const future = insertedAt + 5_000;
       const afterTtl = await listAttention(env.tempDir, { now: future });
       expect(afterTtl.items.map((i) => i.content)).toEqual(['durable']);
 
