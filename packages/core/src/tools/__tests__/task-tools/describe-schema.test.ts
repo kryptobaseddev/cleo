@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeSchema, describeSchemaRegistered } from '../../task-tools/describe-schema.js';
+import { describeSchema, describeSchemaRegistered } from '../../../task-tools/describe-schema.js';
 
 describe('describeSchema', () => {
   it('returns at least 10 tables', () => {

@@ -1,6 +1,6 @@
 import type { CriticalPathEdge, CriticalPathNode } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
-import { computeCriticalPath } from '../../task-tools/compute-critical-path.js';
+import { computeCriticalPath } from '../../../task-tools/compute-critical-path.js';
 
 describe('computeCriticalPath', () => {
   it('finds the longest path in a linear chain', () => {

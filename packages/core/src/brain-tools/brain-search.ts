@@ -70,7 +70,7 @@ const OUTPUT_SCHEMA: JsonSchema = {
  * ```
  */
 async function searchBrainFn(input: SearchBrainInput): Promise<SearchBrainOutput> {
-  const { searchBrainCompact } = await import('../../memory/retrieval/search.js');
+  const { searchBrainCompact } = await import('../memory/retrieval/search.js');
   const result = await searchBrainCompact(input.projectRoot, input.params);
   return { result };
 }

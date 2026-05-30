@@ -100,7 +100,7 @@ async function buildRetrievalBundleFn(
   input: BuildRetrievalBundleInput,
 ): Promise<BuildRetrievalBundleOutput> {
   const { buildRetrievalBundle: build } = await import(
-    '../../memory/retrieval/build-retrieval-bundle.js'
+    '../memory/retrieval/build-retrieval-bundle.js'
   );
   const bundle = await build(input.req, input.projectRoot);
   return { bundle };

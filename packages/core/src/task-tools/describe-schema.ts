@@ -31,7 +31,7 @@ import type {
 } from '@cleocode/contracts';
 import type { Column, Table } from 'drizzle-orm';
 import { getTableColumns, getTableName } from 'drizzle-orm';
-import * as schema from '../../store/schema/index.js';
+import * as schema from '../store/schema/index.js';
 import { defineSdkTool } from './sdk-tool.js';
 
 /** Internal drizzle symbol that holds the extra-config builder (indexes, checks, FKs). */

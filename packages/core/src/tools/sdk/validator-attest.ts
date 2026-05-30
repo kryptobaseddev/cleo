@@ -26,8 +26,8 @@ import {
   validatorAttestationSchema,
 } from '@cleocode/contracts';
 import { getTaskAccessor } from '../../store/data-accessor.js';
-import type { JsonSchema, RegisteredSdkTool } from '../task-tools/sdk-tool.js';
-import { defineSdkTool } from '../task-tools/sdk-tool.js';
+import type { JsonSchema, RegisteredSdkTool } from '../../task-tools/sdk-tool.js';
+import { defineSdkTool } from '../../task-tools/sdk-tool.js';
 
 /**
  * Input envelope for the {@link validatorAttest} SDK tool.

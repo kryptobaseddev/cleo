@@ -71,7 +71,7 @@ const OUTPUT_SCHEMA: JsonSchema = {
  * ```
  */
 async function timelineBrainFn(input: TimelineBrainInput): Promise<TimelineBrainOutput> {
-  const { timelineBrain: timeline } = await import('../../memory/retrieval/timeline.js');
+  const { timelineBrain: timeline } = await import('../memory/retrieval/timeline.js');
   const result = await timeline(input.projectRoot, input.params);
   return { result };
 }

@@ -14,6 +14,8 @@
  * @epic T1566
  */
 
+// BrainTools (Category B) — pure-functional BRAIN retrieval SDK tools (T10070 / T9835)
+export * from '../brain-tools/index.js';
 export type { DoctorProjectOptions, DoctorProjectResult } from '../doctor/doctor-project.js';
 // ProjectTools SDK Tools (Category B) — scaffold + doctor primitives (T10069 / T9835b)
 export { doctorProject } from '../doctor/doctor-project.js';
@@ -57,9 +59,7 @@ export type {
   ScaffoldProjectStep,
 } from '../scaffold/scaffold-project.js';
 export { scaffoldProject } from '../scaffold/scaffold-project.js';
-// BrainTools (Category B) — pure-functional BRAIN retrieval SDK tools (T10070 / T9835)
-export * from './brain-tools/index.js';
+// TaskTools (Category B) — pure-functional task graph SDK tools (T10068 / T9835)
+export * from '../task-tools/index.js';
 // SDK Tools (Category B) — harness-agnostic infrastructure (T1768 / ADR-064)
 export * from './sdk/index.js';
-// TaskTools (Category B) — pure-functional task graph SDK tools (T10068 / T9835)
-export * from './task-tools/index.js';

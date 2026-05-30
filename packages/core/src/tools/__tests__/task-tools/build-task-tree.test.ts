@@ -1,6 +1,6 @@
 import type { BuildTaskTreeInput } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
-import { buildTaskTree } from '../../task-tools/build-task-tree.js';
+import { buildTaskTree } from '../../../task-tools/build-task-tree.js';
 
 const BASE_TASKS: BuildTaskTreeInput[] = [
   {

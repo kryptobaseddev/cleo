@@ -73,7 +73,7 @@ const OUTPUT_SCHEMA: JsonSchema = {
  * ```
  */
 async function observeBrainFn(input: ObserveBrainInput): Promise<ObserveBrainOutput> {
-  const { observeBrain: observe } = await import('../../memory/retrieval/observe.js');
+  const { observeBrain: observe } = await import('../memory/retrieval/observe.js');
   const result = await observe(input.projectRoot, input.params);
   return { result };
 }

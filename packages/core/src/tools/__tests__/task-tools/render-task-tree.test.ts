@@ -1,6 +1,6 @@
 import type { CriticalPathEdge, CriticalPathNode, RenderTaskTreeInput } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
-import { renderTaskTreeMermaid, renderTaskTreeText } from '../../task-tools/render-task-tree.js';
+import { renderTaskTreeMermaid, renderTaskTreeText } from '../../../task-tools/render-task-tree.js';
 
 const NODES: CriticalPathNode[] = [
   { id: 'T1', title: 'Setup', status: 'done', depends: [] },
