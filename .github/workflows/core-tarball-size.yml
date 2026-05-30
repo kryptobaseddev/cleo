@@ -5,23 +5,18 @@ name: Core Tarball Size Gate
 # Asserts the packed @cleocode/core tarball stays <= 25 MB and bundles ONLY the
 # linux-x64-gnu cleo-supervisor fallback binary (Pattern P1). Fails the build
 # with a largest-contributors message when the budget is exceeded or an extra
-# platform binary sneaks in. Runs on PRs touching packages/core or the
-# supervisor crate.
+# platform binary sneaks in.
+#
+# Runs at RELEASE-TAG time (and on-demand), NOT on PRs/main: the assertion is only
+# meaningful once the cross-compiled linux-x64-gnu fallback binary has been produced
+# by cleo-supervisor-prebuild.yml (tag-triggered) and bundled into the packed tarball.
+# On PRs the fallback is a placeholder, so the gate would false-fail (T11252 integration).
 
 on:
   push:
-    branches: [main]
-    paths:
-      - 'packages/core/**'
-      - 'crates/cleo-supervisor/**'
-      - '.github/workflows/core-tarball-size.yml'
-  pull_request:
-    paths:
-      - 'packages/core/**'
-      - 'crates/cleo-supervisor/**'
-      - '.github/workflows/core-tarball-size.yml'
+    tags:
+      - 'v*'
   workflow_dispatch:
-  merge_group:
 
 jobs:
   tarball-size:

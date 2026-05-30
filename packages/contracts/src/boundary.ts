@@ -334,6 +334,23 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
       'Conduit serde-types crate (681 LOC) — renamed from conduit-core to cleo-conduit-core (T10185, saga T10180) because conduit-core is squatted on crates.io. Stable contract surface consumed by cant-core, signaldock-protocol, signaldock-core, integration-tests, AND external /mnt/projects/signaldock-core + /mnt/projects/signaldock/backend via git deps. Mirrors @cleocode/contracts/conduit.ts. Forced KEEP+publish=true: deleting breaks production, and signaldock-protocol publish requires it.',
   },
   {
+    module: 'cleo-supervisor',
+    intent: 'orchestration-glue',
+    rustCore: 'crates/cleo-supervisor',
+    canonicalHome: 'cleocode',
+    perfBudget: {
+      startup_max_ms: 200,
+      memory_max_mb: 15,
+    },
+    safetyBudget: {
+      panic_unwind: 'forbidden',
+      root_escape: 'forbidden',
+    },
+    amendments: ['adr-078-boundary-registry'],
+    rationale:
+      'Process supervisor bin+lib crate (R1 / T11252, SG-RUNTIME-UNIFICATION T11243): pidfile + tokio::process child spawn/monitor + SIGTERM-grace/SIGCHLD reaping (Unix) / Job Object (Windows) + exponential restart-backoff (30s cap) + tracing-appender log rotation. publish=false; distributed via napi-style Pattern P2 (GitHub Release + checked-in sha256 manifest) + Pattern P1 linux-x64-gnu fallback bundled in @cleocode/core — zero binary OIDC (D14prime). Consumes the frozen supervisor-ipc v1.0 contract (packages/contracts/src/supervisor-ipc); first consumer is R2 @cleocode/runtime/daemon (T11253). Idle-RSS budget 15MB.',
+  },
+  {
     module: 'integration-tests',
     intent: 'cpu-bound',
     rustCore: 'crates/integration-tests',
