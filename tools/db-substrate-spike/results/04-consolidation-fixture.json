@@ -1,0 +1,63 @@
+{
+  "task": "T11324",
+  "perScope": [
+    {
+      "scope": "project",
+      "tables": [
+        "brain_memory",
+        "conduit_event",
+        "docs_attachment",
+        "tasks_task",
+        "telemetry_span"
+      ],
+      "allFiveDomainsColocated": true,
+      "fkCheckCleanRows": 0,
+      "fkCheckDetectsOrphan": true,
+      "orphanViolations": [
+        {
+          "table": "brain_memory",
+          "rowid": 2,
+          "parent": "tasks_task",
+          "fkid": 0
+        }
+      ]
+    },
+    {
+      "scope": "global",
+      "tables": [
+        "brain_memory",
+        "conduit_event",
+        "docs_attachment",
+        "tasks_task",
+        "telemetry_span"
+      ],
+      "allFiveDomainsColocated": true,
+      "fkCheckCleanRows": 0,
+      "fkCheckDetectsOrphan": true,
+      "orphanViolations": [
+        {
+          "table": "brain_memory",
+          "rowid": 2,
+          "parent": "tasks_task",
+          "fkid": 0
+        }
+      ]
+    }
+  ],
+  "attachAlternativeRejected": {
+    "crossFileFkBlocked": true,
+    "crossFileFkError": "no such table: main.parent",
+    "attachLimitProbe": {
+      "maxAttached": 10,
+      "failedAtIndex": 11
+    },
+    "evidence": "Cross-file FK is impossible: an FK whose parent lives in an ATTACHed file fails because SQLite resolves the parent name in the MAIN schema only (observed error: no such table: main.parent). ATTACH ceiling = 10 simultaneous DBs (default SQLITE_LIMIT_ATTACHED), leaving no headroom for a 5+ domain topology. WAL + ATTACH additionally breaks cross-file COMMIT atomicity per SQLite docs. ATTACH REJECTED in favor of single-file-per-scope Pattern A."
+  },
+  "summary": {
+    "allFiveDomainsColocatedPerScope": true,
+    "fkCheckZeroRowsAfterValidSeed": true,
+    "fkCheckDetectsInjectedOrphan": true,
+    "attachCrossFileFkBlocked": true
+  },
+  "verdict": "PASS"
+}
