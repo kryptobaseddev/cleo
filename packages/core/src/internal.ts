@@ -2151,6 +2151,44 @@ export {
   configSet,
   configSetPreset,
 } from './config/engine-ops.js';
+// Tools engine ops — ENG-MIG-8 / T1575
+export {
+  toolsAdapterActivate,
+  toolsAdapterDetect,
+  toolsAdapterDispose,
+  toolsAdapterHealth,
+  toolsAdapterList,
+  toolsAdapterShow,
+  toolsIssueDiagnostics,
+  toolsProviderDetect,
+  toolsProviderHooks,
+  toolsProviderInject,
+  toolsProviderInjectStatus,
+  toolsProviderList,
+  toolsProviderSupports,
+  toolsSkillCatalogInfo,
+  toolsSkillCatalogProfiles,
+  toolsSkillCatalogProtocols,
+  toolsSkillCatalogResources,
+  toolsSkillDependencies,
+  toolsSkillDispatch,
+  toolsSkillDoctorDiagnose,
+  toolsSkillFederatedFind,
+  toolsSkillFind,
+  toolsSkillImportHermes,
+  toolsSkillInstall,
+  toolsSkillList,
+  toolsSkillMigrate,
+  toolsSkillPrecedenceResolve,
+  toolsSkillPrecedenceShow,
+  toolsSkillPruneTelemetry,
+  toolsSkillRefresh,
+  toolsSkillShow,
+  toolsSkillSpawnProviders,
+  toolsSkillStats,
+  toolsSkillUninstall,
+  toolsSkillVerify,
+} from './engine/engine-ops.js';
 // Init (additional)
 export { initCoreSkills, installHandoffRedirectStubs } from './init.js';
 export {
@@ -2442,44 +2480,6 @@ export { listLabels, showLabelTasks } from './tasks/labels.js';
 // Tasks — plan, labels, suggests
 export { coreTaskPlan } from './tasks/plan.js';
 export { suggestRelated } from './tasks/relates.js';
-// Tools engine ops — ENG-MIG-8 / T1575
-export {
-  toolsAdapterActivate,
-  toolsAdapterDetect,
-  toolsAdapterDispose,
-  toolsAdapterHealth,
-  toolsAdapterList,
-  toolsAdapterShow,
-  toolsIssueDiagnostics,
-  toolsProviderDetect,
-  toolsProviderHooks,
-  toolsProviderInject,
-  toolsProviderInjectStatus,
-  toolsProviderList,
-  toolsProviderSupports,
-  toolsSkillCatalogInfo,
-  toolsSkillCatalogProfiles,
-  toolsSkillCatalogProtocols,
-  toolsSkillCatalogResources,
-  toolsSkillDependencies,
-  toolsSkillDispatch,
-  toolsSkillDoctorDiagnose,
-  toolsSkillFederatedFind,
-  toolsSkillFind,
-  toolsSkillImportHermes,
-  toolsSkillInstall,
-  toolsSkillList,
-  toolsSkillMigrate,
-  toolsSkillPrecedenceResolve,
-  toolsSkillPrecedenceShow,
-  toolsSkillPruneTelemetry,
-  toolsSkillRefresh,
-  toolsSkillShow,
-  toolsSkillSpawnProviders,
-  toolsSkillStats,
-  toolsSkillUninstall,
-  toolsSkillVerify,
-} from './tools/engine-ops.js';
 // Verification gates — enums/classes
 export { GateStatus, VerificationGate } from './validation/operation-verification-gates.js';
 // Worktree lifecycle — audit log + prune + force-unlock (T9547 / T9515)

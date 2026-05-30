@@ -68,7 +68,7 @@ describe('toolsSkillStats (T9690)', () => {
 
   it('returns the top-N usage rollup only by default', async () => {
     await seed();
-    const { toolsSkillStats } = await import('../engine-ops.js');
+    const { toolsSkillStats } = await import('../../engine/engine-ops.js');
     const result = await toolsSkillStats({ top: 5 });
     expect(result.success).toBe(true);
     if (!result.success || !result.data) throw new Error('expected success');
@@ -81,7 +81,7 @@ describe('toolsSkillStats (T9690)', () => {
 
   it('includes source-type breakdown when bySource=true', async () => {
     await seed();
-    const { toolsSkillStats } = await import('../engine-ops.js');
+    const { toolsSkillStats } = await import('../../engine/engine-ops.js');
     const result = await toolsSkillStats({ top: 5, bySource: true });
     expect(result.success).toBe(true);
     if (!result.success || !result.data) throw new Error('expected success');
@@ -94,7 +94,7 @@ describe('toolsSkillStats (T9690)', () => {
 
   it('includes lifecycle breakdown when byLifecycle=true', async () => {
     await seed();
-    const { toolsSkillStats } = await import('../engine-ops.js');
+    const { toolsSkillStats } = await import('../../engine/engine-ops.js');
     const result = await toolsSkillStats({ top: 5, byLifecycle: true });
     expect(result.success).toBe(true);
     if (!result.success || !result.data) throw new Error('expected success');
@@ -105,7 +105,7 @@ describe('toolsSkillStats (T9690)', () => {
 
   it('lists agent-created skills when agentCreated=true', async () => {
     await seed();
-    const { toolsSkillStats } = await import('../engine-ops.js');
+    const { toolsSkillStats } = await import('../../engine/engine-ops.js');
     const result = await toolsSkillStats({ top: 5, agentCreated: true });
     expect(result.success).toBe(true);
     if (!result.success || !result.data) throw new Error('expected success');
@@ -116,7 +116,7 @@ describe('toolsSkillStats (T9690)', () => {
 
   it('honors top=N limit', async () => {
     await seed();
-    const { toolsSkillStats } = await import('../engine-ops.js');
+    const { toolsSkillStats } = await import('../../engine/engine-ops.js');
     const result = await toolsSkillStats({ top: 1 });
     expect(result.success).toBe(true);
     if (!result.success || !result.data) throw new Error('expected success');
@@ -126,7 +126,7 @@ describe('toolsSkillStats (T9690)', () => {
 
   it('returns sinceDays passthrough on the response envelope', async () => {
     await seed();
-    const { toolsSkillStats } = await import('../engine-ops.js');
+    const { toolsSkillStats } = await import('../../engine/engine-ops.js');
     const result = await toolsSkillStats({ top: 5, sinceDays: 30 });
     expect(result.success).toBe(true);
     if (!result.success || !result.data) throw new Error('expected success');

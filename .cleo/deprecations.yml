@@ -27,7 +27,7 @@ deprecations:
   # in `packages/core/src/release/changesets-aggregator.ts`.
 
   - id: agent-output-raw-md-write
-    path: packages/core/src/tools/adr-backfill-walker.ts
+    path: packages/core/src/backfill/adr-backfill-walker.ts
     since: v2026.5.93
     remove: v2026.6.0
     replacement: cleo docs add --type note
