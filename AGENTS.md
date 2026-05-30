@@ -71,6 +71,7 @@ CI job: `Architectural Boundary Check (SG-ARCH-SOLID T9837)` (baseline mode by d
 | 6 | CLI package boundary (T9837e)         | `scripts/lint-cli-package-boundary.mjs`         | `scripts/.lint-cli-boundary-baseline.json`        | No standalone named function >30 LOC in `packages/cleo/src/cli/commands/**/*.ts` — move helpers to `core/`. |
 | 7 | Deployed template parity (T9860)      | `scripts/lint-deployed-template-parity.mjs`     | `.lint-deployed-template-parity-baseline.json`    | `.github/workflows/*` MUST match rendered output of `packages/core/templates/workflows/*.yml.tmpl`. |
 | 8 | `engines.node` SSoT (T11281)          | `scripts/lint-node-engine-ssot.mjs`             | inline (root `package.json`)                      | Every `packages/*/package.json` `engines.node` MUST equal root's; `FALLBACK_MIN_NODE` in `node-version-gate.ts` matches. The Node gate reads `engines.node` at runtime — bumping the floor is one root edit. |
+| 9 | Publish surface SSoT (T11400)         | `scripts/lint-publish-surface.mjs`              | inline (`EXPECTED_PUBLISH_COUNT`)                 | The `publish_pkg` list in `.github/workflows/release.yml` is the npm publish SSoT. Entry count MUST equal `EXPECTED_PUBLISH_COUNT` (18 post-E1, trending DOWN to 1 per owner decision 1); every entry is public + correctly-named; no per-platform `worktree-napi-*` stub in the list or on disk. To shrink: delete the line **and** decrement the constant in the same PR. |
 
 **Common modes (all gates):** `--strict` zero-tolerance · `--baseline` regenerate · default fail-on-net-add.
 

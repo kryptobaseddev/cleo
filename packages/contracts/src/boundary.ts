@@ -512,7 +512,7 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
     },
     amendments: ['adr-087-worktree-ffi-topology'],
     rationale:
-      'napi binding shim (515 LOC) for worktrunk-core, used by packages/core spawn-pipeline tests, packages/core/src/scaffold/ensure-config.ts, and shipped via packages/worktree-napi-* per-platform npm packages. Internal-only.',
+      'napi binding shim (515 LOC) for worktrunk-core, used by packages/core spawn-pipeline tests and packages/core/src/scaffold/ensure-config.ts. The native .node binaries are bundled into @cleocode/worktree/native (Pattern P1) and fetched from the GitHub Release (Pattern P2); the per-platform packages/worktree-napi-* manifest packages were removed and are NOT published (D14prime / ADR-087, T11398). Internal-only.',
   },
   {
     module: 'worktrunk-core',
@@ -767,7 +767,7 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
     },
     amendments: [],
     rationale:
-      'External MCP bridge (379 LOC) — 0 in-repo consumers (binary only). MCP SDK is JS-native; TS-only fit.',
+      'External MCP bridge (379 LOC) — 0 in-repo consumers (binary only); talks to `cleo` via runtime subprocess, not an npm/workspace dep. MCP SDK is JS-native; TS-only fit. REMOVED from the npm publish surface (T11399 / E1 · SG-PACKAGE-ARCH): no published @cleocode/* package depends on it. To be routed through the R3 gateway as a transport adapter rather than published standalone.',
   },
   {
     module: 'nexus',
@@ -869,7 +869,7 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
     },
     amendments: [],
     rationale:
-      'SvelteKit frontend (16,636 LOC, d3/three/sigma) — 0 in-repo consumers. SvelteKit + browser code; TS always.',
+      'SvelteKit frontend (16,636 LOC, d3/three/sigma) — 0 in-repo consumers; it is an application, not a consumed library. SvelteKit + browser code; TS always. REMOVED from the npm publish surface (T11399 / E1 · SG-PACKAGE-ARCH), reversing the 2026-05-05 Issue #102 / PR #103 addition: apps are deployed, not published.',
   },
   {
     module: 'worktree',
@@ -888,6 +888,6 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
     },
     amendments: ['adr-087-worktree-ffi-topology', 'adr-078-boundary-registry'],
     rationale:
-      'Worktree SSoT primitive layer (1,972 LOC) — canonical create/destroy/list/prune/include/copy-on-write bound by @cleocode/paths. Post-PR-#487 the responsibilities are distinct from packages/core/src/worktree/ (SDK-level enrichment). Consumes worktrunk-core via worktree-napi.',
+      'Worktree SSoT primitive layer (1,972 LOC) — canonical create/destroy/list/prune/include/copy-on-write bound by @cleocode/paths. Post-PR-#487 the responsibilities are distinct from packages/core/src/worktree/ (SDK-level enrichment). Consumes worktrunk-core via the worktree-napi binding, whose native .node binaries are bundled into native/ (Pattern P1) / fetched from the GitHub Release (Pattern P2) — no separate per-platform npm package is published (D14prime / ADR-087, T11398).',
   },
 ] as const;
