@@ -13,6 +13,7 @@
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { ContractViolationRecord } from '@cleocode/contracts';
+import type { GatewaySource } from '@cleocode/contracts/gateway';
 import { getLogger } from './logger.js';
 import { getProjectRoot } from './paths.js';
 
@@ -36,7 +37,12 @@ export interface AuditEntry {
   metadata: {
     taskId?: string;
     userId?: string;
-    source: 'dispatch' | 'cli';
+    /**
+     * Transport that issued the request. Accepts every {@link GatewaySource}
+     * (R3 widened the gateway from CLI-only to cli|mcp|rpc|http); the legacy
+     * `'dispatch'` value is retained so historical audit logs still parse.
+     */
+    source: GatewaySource | 'dispatch';
     gateway?: 'mutate' | 'query';
   };
   error?: string;

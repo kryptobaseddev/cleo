@@ -10,6 +10,14 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./gateway": {
+      "types": "./dist/gateway.d.ts",
+      "import": "./dist/gateway.js"
+    },
+    "./gateway.js": {
+      "types": "./dist/gateway.d.ts",
+      "import": "./dist/gateway.js"
+    },
     "./provenance": {
       "types": "./dist/provenance.d.ts",
       "import": "./dist/provenance.js"
