@@ -1950,6 +1950,24 @@ export {
   SupervisorIpcResponseEnvelopeSchema,
   SupervisorIpcResponseSchema,
 } from './supervisor-ipc/index.js';
+// === Daemon lifecycle + subsystem contracts (T11366 · SG-RUNTIME-UNIFICATION R2) ===
+export type {
+  DaemonLifecycleHooks,
+  HealthStatus,
+  Subsystem,
+  SubsystemDefinition,
+  SubsystemHealth,
+  SubsystemLifecyclePhase,
+  SubsystemState,
+} from './daemon/index.js';
+export {
+  HealthStatusSchema,
+  SUBSYSTEM_LIFECYCLE_PHASES,
+  SubsystemHealthSchema,
+  SubsystemStateSchema,
+  summarizeHealth,
+  toMonitorChildren,
+} from './daemon/index.js';
 // === Task Types ===
 export type {
   AcceptanceItem,
