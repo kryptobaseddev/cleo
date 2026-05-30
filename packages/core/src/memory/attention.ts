@@ -174,7 +174,7 @@ export async function resolveAttentionIdentity(
         if (sagaCandidate) {
           // Confirm the candidate is genuinely a saga (its members include epicId).
           const memberIds = await resolveSagaMemberIds(accessor, sagaCandidate).catch(() => null);
-          if (memberIds && memberIds.includes(epicId)) {
+          if (memberIds?.includes(epicId)) {
             chain.push({ kind: 'saga', id: sagaCandidate });
           }
         }

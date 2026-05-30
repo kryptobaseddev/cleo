@@ -688,6 +688,10 @@ export class BrainDataAccessor {
     limit?: number,
   ): Promise<BrainAttentionRow[]> {
     const t = brainSchema.brainAttention;
+    // Explicit projection: every JSONB-safe column plus `tags` read whole-value
+    // via json(col) (jsonbText). The selected shape is field-identical to
+    // BrainAttentionRow, so the awaited rows satisfy the declared return type
+    // without an `as unknown as` cast — each field is typed by its column.
     let query = this.db
       .select({
         id: t.id,
@@ -709,7 +713,22 @@ export class BrainDataAccessor {
       .orderBy(desc(t.createdAt));
     if (where) query = query.where(where) as typeof query;
     if (limit) query = query.limit(limit) as typeof query;
-    return query as unknown as Promise<BrainAttentionRow[]>;
+    const rows = await query;
+    return rows.map(
+      (r): BrainAttentionRow => ({
+        id: r.id,
+        content: r.content,
+        sessionId: r.sessionId,
+        agentId: r.agentId,
+        scopeKind: r.scopeKind,
+        scopeId: r.scopeId,
+        tags: r.tags,
+        createdAt: r.createdAt,
+        expiresAt: r.expiresAt,
+        decayScore: r.decayScore,
+        status: r.status,
+      }),
+    );
   }
 
   // =========================================================================

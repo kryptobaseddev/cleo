@@ -1112,9 +1112,7 @@ export const brainAttention = sqliteTable(
      */
     tags: jsonb<string[]>('tags').default(sql`jsonb('[]')`),
     /** Creation time, unix epoch milliseconds. */
-    createdAt: integer('created_at')
-      .notNull()
-      .default(sql`(unixepoch() * 1000)`),
+    createdAt: integer('created_at').notNull().default(sql`(unixepoch() * 1000)`),
     /**
      * Optional hard TTL, unix epoch milliseconds. When set and in the past the
      * item is excluded from the open-items query and is swept to `discarded`.

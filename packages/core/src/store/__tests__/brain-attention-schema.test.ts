@@ -142,23 +142,23 @@ describe('brain_attention schema (T11371)', () => {
 
   it('rejects a raw-BLOB whole read of tags through the drizzle jsonb fromDriver', async () => {
     const { getBrainDb, closeBrainDb } = await import('../memory-sqlite.js');
-    const { getBrainAccessor } = await import('../memory-accessor.js');
     const brainSchema = await import('../memory-schema.js');
     const { eq } = await import('drizzle-orm');
     closeBrainDb();
-    await getBrainDb();
 
-    const accessor = await getBrainAccessor();
-    // Reach the underlying drizzle db to prove a raw `select()` of the jsonb
-    // column throws (fromDriver guard) — this is the load-bearing E4 contract.
-    const db = (accessor as unknown as { db: import('drizzle-orm/node-sqlite').NodeSQLiteDatabase })
-      .db;
+    // getBrainDb returns the drizzle instance directly — no private-field reach.
+    const db = await getBrainDb();
     await db
       .insert(brainSchema.brainAttention)
       .values({ id: 'att_raw_1', content: 'x', scopeKind: 'global', scopeId: 'global' });
 
+    // A plain `select()` projects the JSONB BLOB raw → fromDriver MUST throw,
+    // directing callers to json(col) / json_each (the load-bearing E4 contract).
     await expect(
-      db.select().from(brainSchema.brainAttention).where(eq(brainSchema.brainAttention.id, 'att_raw_1')),
+      db
+        .select()
+        .from(brainSchema.brainAttention)
+        .where(eq(brainSchema.brainAttention.id, 'att_raw_1')),
     ).rejects.toThrow(/jsonb column read as raw BLOB/);
   });
 });
