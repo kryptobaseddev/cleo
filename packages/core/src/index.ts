@@ -42,6 +42,8 @@ export * as compliance from './compliance/index.js';
 export * as conduit from './conduit/index.js';
 export * as context from './context/index.js';
 export * as gc from './gc/index.js';
+// CLEO-native goal system (T11290 · Saga T11283 · SG-COGNITIVE-SUBSTRATE).
+export * as goal from './goal/index.js';
 export * as harness from './harness/index.js';
 export * as coreHooks from './hooks/index.js';
 export * as identity from './identity/index.js';
