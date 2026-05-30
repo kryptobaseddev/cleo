@@ -19,6 +19,7 @@ import { describe, expect, it } from 'vitest';
 import {
   dispatchErrorSchema,
   dispatchRequestSchema,
+  dispatchResponseMetaSchema,
   dispatchResponseSchema,
   GATEWAY_CONTRACT_VERSION,
   GATEWAY_SOURCES,
@@ -152,6 +153,66 @@ describe('gateway contract — field-shape snapshot (drift guard)', () => {
         "page",
         "partial",
         "success",
+      ]
+    `);
+  });
+});
+
+// ─── gateway-contract v1.0 FREEZE (R3-T8 · T11452) ──────────────────────────
+// Locks the COMPLETE v1.0 contract surface (version + 4 transports + every
+// frozen shape's field set). Any change here is a breaking contract change and
+// REQUIRES a GATEWAY_CONTRACT_VERSION bump — mirrors the supervisor-ipc v1.0
+// freeze. The spec doc (slug `gateway-contract-v1`) is the human-readable SoT.
+describe('gateway-contract v1.0 FREEZE', () => {
+  it('version is pinned at 1.0.0', () => {
+    expect(GATEWAY_CONTRACT_VERSION).toBe('1.0.0');
+  });
+
+  it('the four transports are frozen', () => {
+    expect([...GATEWAY_SOURCES]).toEqual(['cli', 'mcp', 'rpc', 'http']);
+  });
+
+  it('error fields are frozen', () => {
+    expect(Object.keys(dispatchErrorSchema.shape).sort()).toMatchInlineSnapshot(`
+      [
+        "alternatives",
+        "code",
+        "details",
+        "exitCode",
+        "fix",
+        "message",
+        "problemDetails",
+      ]
+    `);
+  });
+
+  it('response meta fields are frozen (catchall preserves extensibility)', () => {
+    expect(Object.keys(dispatchResponseMetaSchema.shape).sort()).toMatchInlineSnapshot(`
+      [
+        "domain",
+        "duration_ms",
+        "executionSessionId",
+        "gateway",
+        "operation",
+        "originSessionId",
+        "rateLimit",
+        "requestId",
+        "sessionId",
+        "source",
+        "timestamp",
+        "version",
+      ]
+    `);
+  });
+
+  it('stream-event fields are frozen', () => {
+    expect(Object.keys(gatewayStreamEventSchema.shape).sort()).toMatchInlineSnapshot(`
+      [
+        "data",
+        "error",
+        "kind",
+        "requestId",
+        "seq",
       ]
     `);
   });
