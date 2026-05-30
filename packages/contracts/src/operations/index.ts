@@ -7,6 +7,7 @@
 
 export * from './admin.js';
 export * from './agent-operation-contract.js';
+export * from './attention.js';
 export * from './brain.js';
 export * from './conduit.js';
 export * from './dialectic.js';

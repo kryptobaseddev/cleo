@@ -94,6 +94,12 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/archive.js')).archiveCommand as CommandDef,
   },
   {
+    exportName: 'attentionCommand',
+    name: 'attention',
+    description: 'Tier-2 scope-keyed working memory — quick decaying jots (alias: jot)',
+    load: async () => (await import('../commands/attention.js')).attentionCommand as CommandDef,
+  },
+  {
     exportName: 'auditCommand',
     name: 'audit',
     description: 'Git-backed audit tooling (lineage reconstruction, integrity checks). ',

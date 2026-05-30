@@ -8691,6 +8691,128 @@ export const OPERATIONS: OperationDef[] = [
   },
 
   // ---------------------------------------------------------------------------
+  // T11373 — attention domain: Tier-2 scope-keyed working-memory jots (E2)
+  // ---------------------------------------------------------------------------
+  {
+    gateway: 'mutate' as const,
+    domain: 'attention',
+    operation: 'add',
+    description:
+      'attention.add (mutate · alias jot) — record a scope-keyed working-memory ' +
+      'jot. Session/agent identity + current task are auto-resolved from the ' +
+      'environment (E0); the item keys to the narrowest scope (agent>task>epic>' +
+      'saga>session>global). No session/agent/task flags by default.',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['content'],
+    params: [
+      {
+        name: 'content',
+        type: 'string' as const,
+        required: true,
+        description: 'The jot content',
+        cli: { positional: true },
+      },
+      {
+        name: 'tags',
+        type: 'array' as const,
+        required: false,
+        description: 'Tags to attach (comma-separated on the CLI)',
+      },
+      {
+        name: 'scope',
+        type: 'string' as const,
+        required: false,
+        description:
+          'Explicit scope escalation: agent|task|epic|saga|session|global (default: narrowest)',
+      },
+      {
+        name: 'ttlSeconds',
+        type: 'number' as const,
+        required: false,
+        description: 'Optional time-to-live in seconds (sets expires_at)',
+      },
+    ] satisfies ParamDef[],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'attention',
+    operation: 'list',
+    description:
+      'attention.list (query) — list open working-memory jots visible to the ' +
+      'calling agent across its resolved scope chain. Optional --scope / --tag filters.',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'scope',
+        type: 'string' as const,
+        required: false,
+        description: 'Restrict to one scope kind: agent|task|epic|saga|session|global',
+      },
+      {
+        name: 'tags',
+        type: 'array' as const,
+        required: false,
+        description: 'Filter by tags (contains-ALL; comma-separated on the CLI)',
+      },
+      {
+        name: 'includeAll',
+        type: 'boolean' as const,
+        required: false,
+        description: 'Include non-open (consolidated/discarded) items too. Default: false',
+      },
+      {
+        name: 'limit',
+        type: 'number' as const,
+        required: false,
+        description: 'Maximum rows. Default: 50',
+      },
+    ] satisfies ParamDef[],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'attention',
+    operation: 'show',
+    description:
+      'attention.show (query) — synonym for attention.list; emits the open ' +
+      'working-memory jots for the calling agent within token budget.',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'scope',
+        type: 'string' as const,
+        required: false,
+        description: 'Restrict to one scope kind: agent|task|epic|saga|session|global',
+      },
+      {
+        name: 'tags',
+        type: 'array' as const,
+        required: false,
+        description: 'Filter by tags (contains-ALL; comma-separated on the CLI)',
+      },
+      {
+        name: 'includeAll',
+        type: 'boolean' as const,
+        required: false,
+        description: 'Include non-open items too. Default: false',
+      },
+      {
+        name: 'limit',
+        type: 'number' as const,
+        required: false,
+        description: 'Maximum rows. Default: 50',
+      },
+    ] satisfies ParamDef[],
+  },
+
+  // ---------------------------------------------------------------------------
   // T10629 — tasks.context: bounded task-scoped context pack with token budget
   // ---------------------------------------------------------------------------
   {

@@ -31,6 +31,7 @@ import {
   sqliteTable,
   text,
 } from 'drizzle-orm/sqlite-core';
+import { jsonb } from './schema/jsonb.js';
 
 export type { BrainCognitiveType, BrainMemoryTier, BrainSourceConfidence };
 // Re-export BRAIN_OBSERVATION_SOURCE_TYPES from contracts so any existing
@@ -149,6 +150,51 @@ export const BRAIN_STICKY_COLORS = ['yellow', 'blue', 'green', 'red', 'purple'] 
 
 /** Sticky note priority levels. */
 export const BRAIN_STICKY_PRIORITIES = ['low', 'medium', 'high'] as const;
+
+/**
+ * Scope-kind taxonomy for Tier-2 attention items (T11371 · Epic T11288).
+ *
+ * Ordered NARROWEST → BROADEST. An attention item is auto-keyed to the
+ * narrowest scope present at write time so two concurrent agents working
+ * different tasks (or even the same epic) never read each other's
+ * task/agent-scoped jots — cross-agent leakage is structurally impossible
+ * because visibility is by-construction (scope-keying) rather than
+ * filter-after-load.
+ *
+ * - `agent`   — bound to one agent identity (`CLEO_AGENT_ID`). Narrowest.
+ * - `task`    — bound to a single task the agent is working.
+ * - `epic`    — bound to the parent epic of the current task.
+ * - `saga`    — bound to the saga containing that epic.
+ * - `session` — bound to a session id with no resolvable task.
+ * - `global`  — project-wide fallback when no identity resolves. Broadest.
+ *
+ * @task T11371
+ * @epic T11288
+ * @saga T11283
+ */
+export const BRAIN_ATTENTION_SCOPE_KINDS = [
+  'agent',
+  'task',
+  'epic',
+  'saga',
+  'session',
+  'global',
+] as const;
+
+/**
+ * Lifecycle status for a Tier-2 attention item (T11371 · Epic T11288).
+ *
+ * - `open`         — live working-memory item, surfaced in the digest.
+ * - `consolidated` — promoted into durable memory (e.g. an observation); no
+ *   longer surfaced as live attention.
+ * - `discarded`    — expired (past `expires_at`), decayed below threshold, or
+ *   explicitly dismissed; excluded from the default open-items query.
+ *
+ * @task T11371
+ * @epic T11288
+ * @saga T11283
+ */
+export const BRAIN_ATTENTION_STATUSES = ['open', 'consolidated', 'discarded'] as const;
 
 // === BRAIN_DECISIONS TABLE ===
 
@@ -999,6 +1045,95 @@ export const stickyTags = sqliteTable(
     primaryKey({ columns: [table.stickyId, table.tag] }),
     // Membership lookup path — `WHERE tag = ?` is the dominant filter access.
     index('idx_sticky_tags_tag').on(table.tag),
+  ],
+);
+
+// === BRAIN_ATTENTION TABLE (T11371 · E2 Tier-2 working-memory) ===
+
+/**
+ * Tier-2 attention buffer — decaying, scope-keyed working-memory items.
+ *
+ * Each row is ONE jot (never a single JSON-blob aggregate) so every item
+ * decays and scopes independently. The item is auto-keyed to the NARROWEST
+ * scope present at write time (`scope_kind` + `scope_id`, ordered by
+ * {@link BRAIN_ATTENTION_SCOPE_KINDS}): an agent working task `T-A` writes a
+ * `task`-scoped item that is structurally invisible to an agent working `T-B`,
+ * while an `epic`/`saga`-scoped item is visible to every agent under that
+ * ancestor. Visibility is therefore by-construction (the scope key) rather than
+ * by filter-after-load — which is what makes cross-agent leakage impossible
+ * (Epic T11288 AC; leakage test in T11375).
+ *
+ * `tags` is a JSONB BLOB declared via the E4 {@link jsonb} helper
+ * (`store/schema/jsonb.ts`). It MUST be read in-SQL via `json_each(tags)` /
+ * `jsonb_extract` for membership filtering, or projected with `json(tags)` /
+ * `jsonbText` for whole-value reads — NEVER `JSON.parse`-d off the raw BLOB
+ * (`jsonb`'s `fromDriver` throws to enforce this). The tag filter in
+ * {@link BrainDataAccessor} runs `json_each(tags)` in SQL, never a
+ * load-all-then-JS-filter.
+ *
+ * Decay/TTL model: an item is "live" while `status = 'open'` AND
+ * (`expires_at IS NULL` OR `expires_at > now`) AND (`decay_score IS NULL` OR
+ * `decay_score >= threshold`). Items failing the predicate are excluded from
+ * the default open-items query and may be swept to `status = 'discarded'`.
+ *
+ * @task T11371
+ * @epic T11288
+ * @saga T11283
+ */
+export const brainAttention = sqliteTable(
+  'brain_attention',
+  {
+    /** Stable item id (`att_<ts>_<hex>`). */
+    id: text('id').primaryKey(),
+    /** The jot content — a short working-memory note. */
+    content: text('content').notNull(),
+    /**
+     * Resolved session id of the writing agent (env-first via E0
+     * `resolveSessionIdFromEnv`). Used for session-scoped items and audit.
+     * @cross-db tasks.sessions.id — brain→tasks soft FK (writing agent's session). Resolved by the brain accessor; no DB-level FK (SQLite cannot enforce cross-file constraints).
+     */
+    sessionId: text('session_id'),
+    /**
+     * Resolved agent identity handle of the writer (env-first via E0
+     * `resolveAgentIdFromEnv`, i.e. `CLEO_AGENT_ID`). Drives `agent`-scope.
+     * @cross-db tasks.sessions.agent_handle — brain→tasks soft FK (writer's agent handle). Resolved by the brain accessor; no DB-level FK.
+     */
+    agentId: text('agent_id'),
+    /** Narrowest scope kind the item was keyed to. */
+    scopeKind: text('scope_kind', { enum: BRAIN_ATTENTION_SCOPE_KINDS }).notNull(),
+    /**
+     * The id of the scope the item is bound to: a task/epic/saga id for those
+     * kinds, the agent id for `agent`, the session id for `session`, or the
+     * literal `'global'` for `global`.
+     */
+    scopeId: text('scope_id').notNull(),
+    /**
+     * Tag set as a JSONB BLOB (E4 {@link jsonb} helper). Defaults to an empty
+     * JSONB array. Filter via `json_each(tags)` in SQL; never parse the raw BLOB.
+     */
+    tags: jsonb<string[]>('tags').default(sql`jsonb('[]')`),
+    /** Creation time, unix epoch milliseconds. */
+    createdAt: integer('created_at').notNull().default(sql`(unixepoch() * 1000)`),
+    /**
+     * Optional hard TTL, unix epoch milliseconds. When set and in the past the
+     * item is excluded from the open-items query and is swept to `discarded`.
+     */
+    expiresAt: integer('expires_at'),
+    /**
+     * Optional decay score in `[0, 1]`. When below the sweep threshold the item
+     * is excluded from the open-items query. NULL means "no decay applied".
+     */
+    decayScore: real('decay_score'),
+    /** Lifecycle status — see {@link BRAIN_ATTENTION_STATUSES}. */
+    status: text('status', { enum: BRAIN_ATTENTION_STATUSES }).notNull().default('open'),
+  },
+  (table) => [
+    // Scoped reads — the dominant access path (resolve all items for a scope).
+    index('idx_brain_attention_scope').on(table.scopeKind, table.scopeId),
+    // Session-scoped sweep / audit lookups.
+    index('idx_brain_attention_session').on(table.sessionId),
+    // TTL sweep path — find open, expired items in one index scan.
+    index('idx_brain_attention_status_expires').on(table.status, table.expiresAt),
   ],
 );
 
@@ -2022,6 +2157,16 @@ export type NewBrainStickyNoteRow = typeof brainStickyNotes.$inferInsert;
 export type StickyTagRow = typeof stickyTags.$inferSelect;
 /** Row type for sticky_tags INSERT operations (T11355). */
 export type NewStickyTagRow = typeof stickyTags.$inferInsert;
+/**
+ * Row type for brain_attention SELECT queries (T11371 · Epic T11288).
+ *
+ * NOTE: `tags` is a JSONB BLOB whose {@link jsonb} `fromDriver` throws on a raw
+ * `SELECT tags` read. Read it via `json_each(tags)` (membership) or
+ * `jsonbText(brainAttention.tags)` (whole-value) — never project it raw.
+ */
+export type BrainAttentionRow = typeof brainAttention.$inferSelect;
+/** Row type for brain_attention INSERT operations (T11371 · Epic T11288). */
+export type NewBrainAttentionRow = typeof brainAttention.$inferInsert;
 export type BrainPlasticityEventRow = typeof brainPlasticityEvents.$inferSelect;
 export type NewBrainPlasticityEventRow = typeof brainPlasticityEvents.$inferInsert;
 

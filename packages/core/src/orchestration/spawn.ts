@@ -556,6 +556,24 @@ export async function composeSpawnPayload(
     }
   }
 
+  // 6c-bis. Tier-2 attention digest (T11374 · Epic T11288). Scope the digest to
+  //         the TASK being spawned (not the orchestrator's current task) so the
+  //         worker sees the epic/saga-scoped jots relevant to its assignment.
+  //         Budget-bounded MVI lines; best-effort, never blocks spawn.
+  let attentionDigestLines: readonly string[] | undefined;
+  if (tier >= 1) {
+    try {
+      const { buildAttentionDigest, renderAttentionDigestLines } = await import(
+        '../memory/attention.js'
+      );
+      const digest = await buildAttentionDigest(projectRoot, { taskId: task.id });
+      const rendered = renderAttentionDigestLines(digest);
+      if (rendered.length > 0) attentionDigestLines = rendered;
+    } catch {
+      // best-effort — brain.db may not be initialised; proceed without attention
+    }
+  }
+
   // 6d. Auto-fetch task document attachments (T1614).
   //     Best-effort: errors are silently swallowed so a missing blob store never
   //     blocks spawn. Text-based attachments ≤ INLINE_TEXT_SIZE_LIMIT_BYTES are
@@ -644,6 +662,7 @@ export async function composeSpawnPayload(
     conduitSubscription: options.conduitSubscription,
     dashboardSummary,
     retrievalBundle,
+    ...(attentionDigestLines !== undefined ? { attentionDigestLines } : {}),
     docAttachments,
     spawnCloneExclude: options.spawnCloneExclude,
   });

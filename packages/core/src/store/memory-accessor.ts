@@ -10,9 +10,10 @@
  */
 
 import type { SQL } from 'drizzle-orm';
-import { and, asc, desc, eq, gte, inArray, ne, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import type {
+  BrainAttentionRow,
   BrainConsolidationEventRow,
   BrainDecisionRow,
   BrainLearningRow,
@@ -26,6 +27,7 @@ import type {
   BrainStickyNoteRow,
   BrainWeightHistoryInsert,
   BrainWeightHistoryRow,
+  NewBrainAttentionRow,
   NewBrainDecisionRow,
   NewBrainLearningRow,
   NewBrainMemoryLinkRow,
@@ -37,6 +39,7 @@ import type {
 } from './memory-schema.js';
 import * as brainSchema from './memory-schema.js';
 import { getBrainDb } from './memory-sqlite.js';
+import { jsonbText } from './schema/jsonb.js';
 
 export class BrainDataAccessor {
   constructor(private db: NodeSQLiteDatabase<typeof brainSchema>) {}
@@ -504,6 +507,228 @@ export class BrainDataAccessor {
     await this.db
       .delete(brainSchema.brainStickyNotes)
       .where(eq(brainSchema.brainStickyNotes.id, id));
+  }
+
+  // =========================================================================
+  // Attention CRUD (T11372 · Epic T11288 — Tier-2 working memory)
+  // =========================================================================
+
+  /**
+   * Insert one attention (jot) row.
+   *
+   * Row-per-item: each jot is its own row so it decays and scopes
+   * independently. `tags` is a JSONB BLOB written via the {@link jsonb} helper
+   * (`toDriver` wraps in `jsonb()`), never serialized TEXT. Reads MUST use
+   * `json_each` / `json(col)` — never the raw BLOB.
+   *
+   * @param row - New attention row (scope already resolved by the caller).
+   * @returns The persisted row (tags read back via `json(col)` to satisfy the
+   *   JSONB read rule).
+   * @task T11372
+   */
+  async addAttention(row: NewBrainAttentionRow): Promise<BrainAttentionRow> {
+    await this.db.insert(brainSchema.brainAttention).values(row);
+    return this.getAttention(row.id) as Promise<BrainAttentionRow>;
+  }
+
+  /**
+   * Fetch one attention row by id, reading `tags` whole-value via `json(col)`.
+   *
+   * A plain `select()` of the JSONB column would hit the {@link jsonb}
+   * `fromDriver` guard and throw, so `tags` is projected with `jsonbText`.
+   *
+   * @param id - Attention item id.
+   * @returns The row, or `null` when absent.
+   * @task T11372
+   */
+  async getAttention(id: string): Promise<BrainAttentionRow | null> {
+    const rows = await this.selectAttention(eq(brainSchema.brainAttention.id, id));
+    return rows[0] ?? null;
+  }
+
+  /**
+   * List attention items for a scope set, applying live-item + tag filters
+   * entirely in SQL (never load-all-then-JS-filter).
+   *
+   * Scope filtering is by exact `(scope_kind, scope_id)` pairs — the visible
+   * scope chain the caller resolved (narrowest → broader ancestors). Because
+   * visibility is the scope key, items outside the chain are never read, so
+   * cross-agent leakage is impossible by construction.
+   *
+   * Tag filtering uses `json_each(tags)` membership ("contains ALL" requested
+   * tags) — a GROUP BY + HAVING COUNT(DISTINCT) subquery, exactly mirroring the
+   * index-backed sticky-tags pattern but over the JSONB column directly.
+   *
+   * The default (`openOnly`, the common path) excludes items that are
+   * `consolidated`/`discarded`, past `expires_at`, or below `decayThreshold`.
+   *
+   * @param params - Scope chain, optional tag filter, liveness controls, limit.
+   * @returns Matching rows, newest first, `tags` read via `json(col)`.
+   * @task T11372
+   */
+  async findAttention(params: {
+    /** Visible scope chain as `(kind, id)` pairs. Empty ⇒ no scope restriction. */
+    scopes?: Array<{
+      kind: (typeof brainSchema.BRAIN_ATTENTION_SCOPE_KINDS)[number];
+      id: string;
+    }>;
+    /** "Contains ALL" tag membership filter via `json_each`. */
+    tags?: string[];
+    /** When true (default) only live `open` items are returned. */
+    openOnly?: boolean;
+    /** Decay floor; items with `decay_score < threshold` are excluded. */
+    decayThreshold?: number;
+    /** Reference time (unix ms) for the TTL predicate. Defaults to `Date.now()`. */
+    now?: number;
+    /** Max rows (SQL LIMIT — applied even with a tag filter). */
+    limit?: number;
+  }): Promise<BrainAttentionRow[]> {
+    const conditions: SQL[] = [];
+    const t = brainSchema.brainAttention;
+
+    // Scope chain — exact (kind, id) membership. This is the leakage boundary.
+    if (params.scopes && params.scopes.length > 0) {
+      const scopeClauses = params.scopes.map((s) =>
+        and(eq(t.scopeKind, s.kind), eq(t.scopeId, s.id)),
+      );
+      const combined = scopeClauses.length === 1 ? scopeClauses[0] : or(...scopeClauses);
+      if (combined) conditions.push(combined);
+    }
+
+    // Liveness: open status + TTL not past + decay above threshold.
+    if (params.openOnly !== false) {
+      conditions.push(eq(t.status, 'open'));
+      const nowMs = params.now ?? Date.now();
+      // expires_at IS NULL OR expires_at > now
+      const ttl = or(isNull(t.expiresAt), gt(t.expiresAt, nowMs));
+      if (ttl) conditions.push(ttl);
+      if (typeof params.decayThreshold === 'number') {
+        // decay_score IS NULL OR decay_score >= threshold
+        const decay = or(isNull(t.decayScore), gte(t.decayScore, params.decayThreshold));
+        if (decay) conditions.push(decay);
+      }
+    }
+
+    // Tag membership via json_each — contains ALL requested tags.
+    if (params.tags && params.tags.length > 0) {
+      const wanted = [...new Set(params.tags)];
+      const matchingIds = this.db
+        .select({ id: sql<string>`a.id` })
+        .from(sql`${t} AS a, json_each(a.tags) AS je`)
+        .where(inArray(sql`je.value`, wanted))
+        .groupBy(sql`a.id`)
+        .having(sql`count(distinct je.value) = ${wanted.length}`);
+      conditions.push(inArray(t.id, matchingIds));
+    }
+
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+    return this.selectAttention(where, params.limit);
+  }
+
+  /**
+   * Sweep expired / decayed open items to `status = 'discarded'`.
+   *
+   * Idempotent: only flips rows that are currently `open` AND past
+   * `expires_at` (or, when `decayThreshold` is given, below the floor). Returns
+   * the number of rows discarded so callers can log the sweep.
+   *
+   * @param params - Reference time + optional decay floor.
+   * @returns Count of rows transitioned to `discarded`.
+   * @task T11372
+   */
+  async expireAttention(params: { now?: number; decayThreshold?: number } = {}): Promise<number> {
+    const t = brainSchema.brainAttention;
+    const nowMs = params.now ?? Date.now();
+    const expiredByTtl = and(eq(t.status, 'open'), lt(t.expiresAt, nowMs));
+    const clauses: SQL[] = [];
+    if (expiredByTtl) clauses.push(expiredByTtl);
+    if (typeof params.decayThreshold === 'number') {
+      const decayed = and(eq(t.status, 'open'), lt(t.decayScore, params.decayThreshold));
+      if (decayed) clauses.push(decayed);
+    }
+    const where = clauses.length === 1 ? clauses[0] : or(...clauses);
+    // Count first so we can report without a RETURNING dependency.
+    const before = await this.db
+      .select({ id: t.id })
+      .from(t)
+      .where(where ?? sql`0`);
+    if (before.length === 0) return 0;
+    await this.db
+      .update(t)
+      .set({ status: 'discarded' })
+      .where(where ?? sql`0`);
+    return before.length;
+  }
+
+  /**
+   * Set the lifecycle status of one attention item (e.g. `consolidated`).
+   *
+   * @param id - Attention item id.
+   * @param status - New status.
+   * @task T11372
+   */
+  async setAttentionStatus(
+    id: string,
+    status: (typeof brainSchema.BRAIN_ATTENTION_STATUSES)[number],
+  ): Promise<void> {
+    await this.db
+      .update(brainSchema.brainAttention)
+      .set({ status })
+      .where(eq(brainSchema.brainAttention.id, id));
+  }
+
+  /**
+   * Shared SELECT that projects `tags` whole-value via `json(col)` so the
+   * JSONB `fromDriver` guard is never hit. Newest-first ordering.
+   *
+   * @internal
+   */
+  private async selectAttention(
+    where: SQL | undefined,
+    limit?: number,
+  ): Promise<BrainAttentionRow[]> {
+    const t = brainSchema.brainAttention;
+    // Explicit projection: every JSONB-safe column plus `tags` read whole-value
+    // via json(col) (jsonbText). The selected shape is field-identical to
+    // BrainAttentionRow, so the awaited rows satisfy the declared return type
+    // without an `as unknown as` cast — each field is typed by its column.
+    let query = this.db
+      .select({
+        id: t.id,
+        content: t.content,
+        sessionId: t.sessionId,
+        agentId: t.agentId,
+        scopeKind: t.scopeKind,
+        scopeId: t.scopeId,
+        // Whole-value JSONB read — emits canonical TEXT, parsed to string[].
+        // Wrap the column in `sql` so the jsonbText helper receives an SQL
+        // expression (its param type is SQL | SQL.Aliased, not a column).
+        tags: jsonbText<string[]>(sql`${t.tags}`),
+        createdAt: t.createdAt,
+        expiresAt: t.expiresAt,
+        decayScore: t.decayScore,
+        status: t.status,
+      })
+      .from(t)
+      .orderBy(desc(t.createdAt));
+    if (where) query = query.where(where) as typeof query;
+    if (limit) query = query.limit(limit) as typeof query;
+    const rows = await query;
+    return rows.map(
+      (r): BrainAttentionRow => ({
+        id: r.id,
+        content: r.content,
+        sessionId: r.sessionId,
+        agentId: r.agentId,
+        scopeKind: r.scopeKind,
+        scopeId: r.scopeId,
+        tags: r.tags,
+        createdAt: r.createdAt,
+        expiresAt: r.expiresAt,
+        decayScore: r.decayScore,
+        status: r.status,
+      }),
+    );
   }
 
   // =========================================================================

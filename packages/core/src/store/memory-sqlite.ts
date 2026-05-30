@@ -541,6 +541,43 @@ function runBrainMigrations(
     `CREATE INDEX IF NOT EXISTS idx_brain_task_obs_task
       ON brain_task_observations (task_id)`,
   );
+
+  // T11371: brain_attention — Tier-2 scope-keyed, decaying working-memory buffer
+  // (Epic T11288 · Saga T11283). The Drizzle migration
+  // 20260530000001_t11371-add-attention-table handles fresh installs; this
+  // self-healing CREATE IF NOT EXISTS is the safety-net for installs where the
+  // journal reconciler marked prior migrations applied before this table was
+  // added, or where the test runner uses a module-cached DB from before the
+  // migration ran (mirrors the brain_task_observations / deriver_queue pattern).
+  // `tags` is a JSONB BLOB (E4 jsonb<string[]>() helper) — read in-SQL via
+  // json_each(tags) / json(tags), NEVER JSON.parse off the raw BLOB.
+  nativeDb.exec(
+    `CREATE TABLE IF NOT EXISTS brain_attention (
+      id          TEXT PRIMARY KEY,
+      content     TEXT NOT NULL,
+      session_id  TEXT,
+      agent_id    TEXT,
+      scope_kind  TEXT NOT NULL,
+      scope_id    TEXT NOT NULL,
+      tags        BLOB DEFAULT (jsonb('[]')),
+      created_at  INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      expires_at  INTEGER,
+      decay_score REAL,
+      status      TEXT NOT NULL DEFAULT 'open'
+    )`,
+  );
+  nativeDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_brain_attention_scope
+      ON brain_attention (scope_kind, scope_id)`,
+  );
+  nativeDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_brain_attention_session
+      ON brain_attention (session_id)`,
+  );
+  nativeDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_brain_attention_status_expires
+      ON brain_attention (status, expires_at)`,
+  );
 }
 
 /**
