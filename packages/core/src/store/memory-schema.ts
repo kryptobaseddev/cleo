@@ -1090,12 +1090,13 @@ export const brainAttention = sqliteTable(
     /**
      * Resolved session id of the writing agent (env-first via E0
      * `resolveSessionIdFromEnv`). Used for session-scoped items and audit.
-     * @cross-key sessions — soft reference; no DB-level FK.
+     * @cross-db tasks.sessions.id — brain→tasks soft FK (writing agent's session). Resolved by the brain accessor; no DB-level FK (SQLite cannot enforce cross-file constraints).
      */
     sessionId: text('session_id'),
     /**
      * Resolved agent identity handle of the writer (env-first via E0
      * `resolveAgentIdFromEnv`, i.e. `CLEO_AGENT_ID`). Drives `agent`-scope.
+     * @cross-db tasks.sessions.agent_handle — brain→tasks soft FK (writer's agent handle). Resolved by the brain accessor; no DB-level FK.
      */
     agentId: text('agent_id'),
     /** Narrowest scope kind the item was keyed to. */

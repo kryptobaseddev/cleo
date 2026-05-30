@@ -19,7 +19,7 @@
 import { ExitCode } from '@cleocode/contracts';
 import type { AttentionItem } from '@cleocode/contracts/operations/attention';
 import { CleoError } from '@cleocode/core';
-import { defineCommand, showUsage } from 'citty';
+import { defineCommand, showUsage } from '../lib/define-cli-command.js';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
