@@ -896,6 +896,25 @@ export interface RunConsolidationResult {
     wouldDelete: number;
     dryRun: boolean;
   };
+  /**
+   * Tier-2 attention consolidation result from Step 9g (T11382 · Epic T11289).
+   *
+   * The dream-cycle's review of the `brain_attention` working-memory buffer:
+   * salient entries promoted to durable memory via the sticky-convert conduit,
+   * noise/expired entries discarded via the homeostatic sweep, mid-salience
+   * entries kept open. Populated when the step ran (always in runConsolidation —
+   * best-effort). See `attention-consolidate.ts`.
+   */
+  attentionConsolidation?: {
+    /** Live attention entries reviewed this cycle. */
+    reviewed: number;
+    /** Entries promoted to durable memory via the conduit. */
+    promoted: number;
+    /** Entries left `open` for the next cycle. */
+    kept: number;
+    /** Entries swept to `discarded` (TTL/decay). */
+    discarded: number;
+  };
 }
 
 /**
@@ -1165,6 +1184,29 @@ export async function runConsolidation(
     };
   } catch (err) {
     console.warn('[consolidation] Step 9f prune sweep failed:', err);
+  }
+
+  // Step 9g: Tier-2 attention consolidation — review the brain_attention
+  // working-memory buffer (T11382 · Epic T11289 · Saga T11283).
+  //
+  // The dream-cycle reviews every live jot, applies one promote|keep|discard
+  // verdict from the SAME composite 6-signal scorer used for observations,
+  // promotes salient entries to durable memory via the sticky-convert conduit
+  // (carrying scope provenance so cross-agent leakage cannot occur), and sweeps
+  // noise/expired entries via the homeostatic decay sweep. Runs BEFORE Step 9e
+  // so the consolidation event log captures the Tier-2 outcome in
+  // step_results_json. Best-effort — never blocks the pipeline.
+  try {
+    const { consolidateAttention } = await import('./attention-consolidate.js');
+    const attentionResult = await consolidateAttention(projectRoot);
+    result.attentionConsolidation = {
+      reviewed: attentionResult.reviewed,
+      promoted: attentionResult.promoted,
+      kept: attentionResult.kept,
+      discarded: attentionResult.discarded,
+    };
+  } catch (err) {
+    console.warn('[consolidation] Step 9g attention consolidation failed:', err);
   }
 
   // Step 9e: Log this consolidation run to brain_consolidation_events (T694)

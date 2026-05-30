@@ -9,6 +9,7 @@
 
 import type { Session } from '@cleocode/contracts';
 import { getBrainAccessor } from '../store/memory-accessor.js';
+import type { BrainAttentionRow } from '../store/memory-schema.js';
 import type { ConvertedTarget } from './types.js';
 
 /**
@@ -286,6 +287,72 @@ export async function convertStickyToSessionNote(
     });
 
     return { success: true, sessionId: targetSessionId };
+  } catch (error) {
+    return { success: false, error: { code: 'E_CONVERT_FAILED', message: String(error) } };
+  }
+}
+
+/**
+ * Promote a Tier-2 attention entry to a durable BRAIN observation — the
+ * dream-cycle's promotion conduit (E3 · Epic T11289 · Saga T11283).
+ *
+ * Stickies remain the conduit (council verdict): rather than build a parallel
+ * promotion path, this reuses the exact `convertStickyToMemory` shape — write a
+ * `brain_observations` row via `observeBrain`, then attach provenance — so the
+ * single salient-→-durable path is shared. The caller
+ * ({@link consolidateAttention}) is responsible for flipping the source row to
+ * `status='consolidated'` after a successful promotion (idempotency lives with
+ * the buffer-status transition, not here).
+ *
+ * ## Leakage preservation (Epic T11289 AC; T11383)
+ *
+ * The promoted observation carries the entry's scope as structured provenance:
+ *
+ * - `crossRef` records `attention:<id>` + `scope:<kind>:<id>` so the durable row
+ *   is traceable back to the exact scope key it came from.
+ * - `agent` records the writing agent's id so an agent-scoped jot's durable form
+ *   is attributed to that agent, never surfaced under another agent's identity.
+ * - `provenanceChain` records the source attention id.
+ *
+ * Because the scope key travels with the observation, agent A's promoted entry
+ * can never be mis-attributed to agent B's scope — the structural read-time
+ * guarantee of the buffer is carried forward into Tier-3.
+ *
+ * @param row - The attention entry to promote (already scored + verdict='promote').
+ * @param projectRoot - Project root path (brain.db resolution).
+ * @returns Result with the new durable observation id, or a structured error.
+ * @task T11383
+ * @epic T11289
+ */
+export async function promoteAttentionToMemory(
+  row: BrainAttentionRow,
+  projectRoot: string,
+): Promise<{ success: boolean; memoryId?: string; error?: { code: string; message: string } }> {
+  // Import memory module dynamically to avoid a circular dependency
+  // (memory → sticky → memory).
+  const { observeBrain } = await import('../memory/brain-retrieval.js');
+
+  // Scope provenance carried into the durable row — the leakage boundary.
+  const scopeRef = `scope:${row.scopeKind}:${row.scopeId}`;
+  const attentionRef = `attention:${row.id}`;
+
+  try {
+    const result = await observeBrain(projectRoot, {
+      text: row.content,
+      title: row.content.slice(0, 50),
+      type: 'discovery',
+      sourceType: 'agent',
+      origin: 'auto-extract',
+      // Provenance: trace back to the exact scope key + source jot.
+      crossRef: [attentionRef, scopeRef],
+      provenanceChain: [row.id],
+      // Attribute the durable row to the writing agent so an agent-scoped jot
+      // never surfaces under a different agent's identity.
+      ...(row.agentId ? { agent: row.agentId } : {}),
+      ...(row.sessionId ? { sourceSessionId: row.sessionId } : {}),
+    });
+
+    return { success: true, memoryId: result.id };
   } catch (error) {
     return { success: false, error: { code: 'E_CONVERT_FAILED', message: String(error) } };
   }
