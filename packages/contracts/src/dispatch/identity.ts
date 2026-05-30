@@ -96,6 +96,9 @@ export const CANONICAL_DOMAINS = [
   'worktree',
   // T9973: 'cleo focus <id>' — single-envelope task orientation (8 calls → 1).
   'focus',
+  // T11373: 'cleo attention add|show|list' (alias 'jot') — Tier-2 scope-keyed
+  // working-memory buffer (Epic T11288 · Saga T11283).
+  'attention',
 ] as const;
 
 /**

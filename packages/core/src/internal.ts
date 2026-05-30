@@ -587,6 +587,19 @@ export {
   type GateStateRecord,
   type GateStatusRawData,
 } from './lifecycle/verification/explain.js';
+// Memory — Tier-2 attention buffer (T11372 · Epic T11288)
+export {
+  type AttentionScope,
+  addAttention,
+  DEFAULT_DECAY_THRESHOLD,
+  expireAttention,
+  type ListAttentionOptions,
+  type ListAttentionResult,
+  listAttention,
+  type ResolvedAttentionIdentity,
+  resolveAttentionIdentity,
+  SCOPE_ORDER,
+} from './memory/attention.js';
 export type { BrainBackfillResult } from './memory/brain-backfill.js';
 export { backfillBrainGraph } from './memory/brain-backfill.js';
 // Memory — brain export (T626-M6)

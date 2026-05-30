@@ -10,6 +10,7 @@
 
 import type { DomainHandler } from '../types.js';
 import { AdminHandler } from './admin.js';
+import { AttentionHandler } from './attention.js';
 import { CheckHandler } from './check.js';
 import { ConduitHandler } from './conduit.js';
 import { DiagnosticsHandler } from './diagnostics.js';
@@ -34,6 +35,7 @@ import { WorktreeHandler } from './worktree.js';
 
 export {
   AdminHandler,
+  AttentionHandler,
   CheckHandler,
   ConduitHandler,
   DiagnosticsHandler,
@@ -65,6 +67,8 @@ export function createDomainHandlers(): Map<string, DomainHandler> {
 
   handlers.set('tasks', new TasksHandler());
   handlers.set('session', new SessionHandler());
+  // T11373: attention domain — Tier-2 scope-keyed working-memory jots (Epic T11288)
+  handlers.set('attention', new AttentionHandler());
   handlers.set('memory', new MemoryHandler());
   handlers.set('intelligence', new IntelligenceHandler());
   handlers.set('check', new CheckHandler());
