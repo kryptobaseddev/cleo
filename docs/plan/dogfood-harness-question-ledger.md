@@ -429,3 +429,91 @@ Until then it remains in this ledger and in its owning task/saga.
 - **DHQ-025 confirmed**: `cleo current` returned T10297 (stale completed epic), not session-relevant context.
 - **DHQ-026 confirmed**: Every cleo command emitted the nested-nexus warning, adding noise to JSON parsing.
 - **DHQ-022 hit**: Encountered when updating canonical docs — used raw file patches instead of proper docs update path.
+
+---
+
+## Session assessment 2026-05-30 (SG-PACKAGE-ARCH Wave-A execution — 15 PRs)
+
+Largest dogfood run to date: **15 PRs merged** (E1 complete; R3 gateway contract+dispatcher-relocation+regression-net+v1.0-freeze = 4/9; E3 atomic-tool layer contracts/fs/shell/guard + boundary + full `core/src/tools` reclaim = 7/10; E2 crate-publish footgun; **4 new CI gates** 9–12). Every PR evidence-gated + CI-green. The friction below is ranked by how much agent time it cost, and is **CORE-API/TOOLS-first** per the guiding principle — the CLI is downstream.
+
+### NEW questions captured this session
+
+### DHQ-027 — No atomic module/dir relocation tool (import-graph rewrite is manual + CI-discovered)
+
+Question: Why is there no Core "relocate module/dir" operation that rewrites the ENTIRE importer graph atomically, when `gitnexus_rename` only handles symbols?
+
+Owner surface: Core refactoring SDK tools (T10878 / T10965); relates to the whole E3 reclaim + R3 relocation classes.
+
+Observed (HIGHEST-COST friction this session): each file/dir relocation (R3-T3 dispatcher → `@cleocode/runtime/gateway`; T11404 `core/src/tools` reclaim across #837/#838/#839) required manual, error-prone fixes across **seven distinct breakage classes**, each found only by a ~12-min CI round-trip: (1) the moved files' own relative imports (depth changes on dir moves: `../../` → `../`), (2) barrel re-export paths, (3) external importers **including the `.js` form and dynamic `await import('...')` calls** (static greps miss these), (4) **mirror test dirs** (`tools/__tests__/<dir>/` paralleling `tools/<dir>/`), (5) `.cleo/deprecations.yml` stale paths, (6) stale doc comments, (7) cross-package consumers. T11404 alone burned ~4 CI cycles re-discovering these one at a time. The roadmap mandates large "right-size/reclaim" work — this is the single biggest multiplier on that cost.
+
+Answer vehicle: a Core `relocateModule({from, to})` tool that (a) resolves the full importer set incl dynamic imports + registry refs (deprecations.yml, boundary.ts), (b) rewrites every path with correct depth math, (c) updates barrels + mirror tests, (d) returns a blast-radius report + a dry-run diff. CLI is a thin wrapper.
+
+Status: open / newly captured.
+
+Next review trigger: next module/dir relocation or reclaim task.
+
+### DHQ-028 — No pre-push import-resolution verification (broken imports surface only in CI)
+
+Question: Why can an agent only discover a broken relative/dynamic import via a 12-minute CI unit-shard round-trip, when a static+dynamic resolver could report it in seconds locally?
+
+Owner surface: Core verification SDK (T10974 / T10965); relates to DHQ-024.
+
+Observed: `tsc` build PASSED while `vitest` then failed at runtime with `Cannot find module '../engine-ops.js'` — because the build excludes test files and never executes `await import(...)` strings. So broken test imports (skills-prune/skills-stats dynamic-imports, the `tools/__tests__/task-tools/*` mirror tests) were invisible until CI. Each miss = one merge-blocking CI cycle. An agent has no fast "do all imports in these files resolve?" check.
+
+Answer vehicle: a Core `verifyImports(paths)` tool that walks static + dynamic (`import('...')`) relative imports and asserts each resolves to an existing file; runs in <1s; surfaced as a pre-commit/pre-push affordance.
+
+Status: open / newly captured.
+
+Next review trigger: next refactor that moves or renames a module.
+
+### DHQ-029 — Targeted local test execution is non-functional for agents (vitest workspace-filter broken)
+
+Question: Why do BOTH the documented per-package test command (`pnpm --filter @cleocode/cleo run test`) AND `npx vitest run <path>` / `--project <name> <path>` return `No test files found`, leaving an agent unable to run a single test locally?
+
+Owner surface: Core test-runner tool (DHQ-023 escalation); test harness config (T10965).
+
+Observed: I could NOT run any targeted test in this shell — every filter form (`run <fullpath>`, `--project X <path>`, bare filename) hit `No test files found` under the root vitest workspace-projects config. Workaround was standalone-`node` import + manual assertion replication, then trust CI. This made CI the ONLY real test feedback loop (compounding DHQ-027/028). This is more severe than DHQ-023 (broad fan-out): here the agent gets ZERO targeted execution.
+
+Answer vehicle: a Core `runTests({files|package|testName})` tool that resolves the correct invocation for the monorepo's project config, runs deterministically, and returns structured pass/fail — independent of the brittle vitest CLI filter semantics.
+
+Status: open / newly captured.
+
+Next review trigger: next agent attempt to run a focused test.
+
+### DHQ-030 — `implemented` evidence gate (T9245 AC-file inference) is wrong for refactors / shim-supersession / multi-PR / research; forces overrides
+
+Question: Why does the `implemented` gate require the commit to touch a PRE-DECLARED AC file, when (a) a superior shim approach can make the declared file unnecessary, (b) the declared file belongs to a sibling task, (c) the work legitimately spans multiple PRs, or (d) it's a no-commit research task?
+
+Owner surface: Core evidence engine + ADR-051 (T10974); supersedes/extends DHQ-007.
+
+Observed: `cleo complete` failed the `implemented` gate via T9245 on FOUR tasks this session, each requiring `CLEO_OWNER_OVERRIDE` despite the work being genuinely complete + CI-green: **T11447** (AC declared `cli.ts`, but the shim relocation correctly left cli.ts untouched — zero churn was the *better* design), **T11409** (AC declared `dispatch/domains/tools.ts`, which is a *different* task's god-domain), **T11404** (a 3-PR relocation can't be one file set), **T11402** (research/inventory, no code commit). The override cap (10) was exceeded (~27 used) → required the `.cleo/rcasd/override-cap-waiver.yml`. The `pr:<n>` atom already satisfies `testsPassed`+`qaPassed` (PR merged + CI green) but NOT `implemented` — yet a merged PR is the strongest possible "implemented" proof.
+
+Answer vehicle: Core evidence engine should (1) accept `pr:<n>` for `implemented` (merged + CI-green is implementation proof), and/or (2) derive `implemented` from the commit's ACTUAL touched files matching the task's *work* rather than a brittle pre-declared, drift-prone AC-file list; and (3) treat administrative/refactor closeout distinctly from unsafe bypass (DHQ-002).
+
+Status: open / newly captured (acute escalation of DHQ-002/007).
+
+Next review trigger: next refactor/relocation/research task completion.
+
+### DHQ-031 — Decomposed-task ACs drift from ground truth (design-spike snapshot staleness)
+
+Question: Why do decomposed tasks carry ACs that reference files/symbols which no longer exist, with no freshness signal?
+
+Owner surface: Core planning-scaffold + task-freshness (T10986 / T10965); relates to DHQ-016.
+
+Observed: the Wave-A design-spike decomposition was substantially STALE vs current code: **T11413/T11414** (collapse triplicated `formatBytes`/`redact`) were already done (files gone); **T11416** (relocate render factories) already satisfied by T10114; **T11417** (retire dead `ALL_OPERATIONS`) referenced symbols that don't exist anywhere; **T11403/T11409** referenced squatted namespaces. Executing any decomposed AC required first re-verifying it against ground truth (grep for the referenced file/symbol) — otherwise an agent would "implement" already-done or moved work. The decomposition was correct at spike-time but the repo moved.
+
+Answer vehicle: stamp decomposed tasks with the commit SHA their ACs were authored against; a Core `verifyAcFreshness(taskId)` tool that flags ACs whose referenced paths/symbols no longer resolve, prompting re-scope before execution.
+
+Status: open / newly captured.
+
+Next review trigger: before executing any task from a multi-day-old decomposition.
+
+### Frictions encountered (this session)
+
+- **DHQ-027/028/029 dominated**: refactor/relocation cost was almost entirely import-graph + test-resolution archaeology discovered via CI, not the actual code change. A `relocateModule` + `verifyImports` + `runTests` Core trio would have cut this session's wall-clock by a large margin.
+- **DHQ-030 acute**: 4 override-required completions for genuinely-complete refactor/research work; override cap exceeded → waiver needed. `pr:<n>`-satisfies-`implemented` is the highest-leverage single fix.
+- **`cleo changeset add --summary` containing `': '` produces invalid YAML frontmatter** (`E_CHANGESET_YAML_INVALID`) — the writer emits the summary unquoted. Recurs; fix = quote the value in the changeset writer (a CORE writer bug, surfaced via CLI). Also: slug pattern `^t\d+-[a-z0-9-]+$` rejects `t11404b-...` (letter after digits) — non-obvious; the error message is good though.
+- **A `*/` literal inside a JSDoc block comment closes the comment** (hit writing a lint that documented `crates/*/Cargo.toml`) → `SyntaxError`. Self-inflicted, but a reminder that generated/authored doc-comments with path globs are a footgun.
+- **Promise-returning guard methods must be `async`** so policy-deny *rejects* rather than sync-throws — vitest `.rejects` needs a rejected promise; a `try/catch await` standalone check masked it. Caught by CI.
+- **DHQ-010 confirmed again**: had to run `node packages/cleo/dist/cli/index.js` (not global `cleo`) to smoke-test relocated code against the local build.
+- **Positives**: the arch-gate pattern (baseline + `--check`/`--strict` + `--update-baseline`) is excellent for shipping forward-only locks — I added 4 gates (9–12) cleanly on it. `pr:<n>` retroactive atom for tests/qa is great. `cleo check arch` is fast + reliable. Admin-merge of CI-green branches works well at scale.
