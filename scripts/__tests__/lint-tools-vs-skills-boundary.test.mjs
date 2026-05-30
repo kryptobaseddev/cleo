@@ -6,17 +6,11 @@
  * @saga T11387
  */
 
-import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PRIMITIVE_HOMES, scanToolBoundaryViolations } from '../lint-tools-vs-skills-boundary.mjs';
-
-const __dirname = resolve(fileURLToPath(import.meta.url), '..');
-const REPO_ROOT = resolve(__dirname, '../..');
-const SCRIPT = join(REPO_ROOT, 'scripts/lint-tools-vs-skills-boundary.mjs');
 
 let root;
 beforeEach(() => {
@@ -65,10 +59,11 @@ describe('scanToolBoundaryViolations', () => {
   });
 });
 
-describe('integration: real repo tree (baseline mode)', () => {
-  it('the committed tree passes baseline mode (exit 0)', () => {
-    const res = spawnSync('node', [SCRIPT], { cwd: REPO_ROOT, encoding: 'utf8' });
-    expect(res.status).toBe(0);
-    expect(res.stdout).toMatch(/no net-new/);
-  });
-});
+// NOTE: there is intentionally NO "spawn the lint against the live repo tree"
+// integration test here. Unlike the other lint gates (which scan a single
+// narrow file/dir), this lint scans ALL of packages/*/src for primitive NAMES,
+// so spawning it during the parallel vitest run races any concurrent test that
+// transiently writes a primitive-named fixture under packages/ — a flaky
+// false-positive (observed on T11404). The deterministic CI job
+// `Tools-vs-Skills Boundary Lint` enforces the real-tree check on its own;
+// the synthetic-tree unit tests above fully cover the classifier logic.

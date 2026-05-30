@@ -64,7 +64,7 @@ describe('toolsSkillPruneTelemetry (T9693)', () => {
 
   it('deletes rows older than --older-than DAYS (default 180)', async () => {
     await seedUsage();
-    const { toolsSkillPruneTelemetry } = await import('../engine-ops.js');
+    const { toolsSkillPruneTelemetry } = await import('../../engine/engine-ops.js');
     const result = await toolsSkillPruneTelemetry({ olderThanDays: 180 });
     expect(result.success).toBe(true);
     if (!result.success || !result.data) throw new Error('expected success');
@@ -76,7 +76,7 @@ describe('toolsSkillPruneTelemetry (T9693)', () => {
 
   it('honors custom olderThanDays threshold', async () => {
     await seedUsage();
-    const { toolsSkillPruneTelemetry } = await import('../engine-ops.js');
+    const { toolsSkillPruneTelemetry } = await import('../../engine/engine-ops.js');
     const result = await toolsSkillPruneTelemetry({ olderThanDays: 50 });
     expect(result.success).toBe(true);
     if (!result.success || !result.data) throw new Error('expected success');
@@ -86,7 +86,7 @@ describe('toolsSkillPruneTelemetry (T9693)', () => {
 
   it('dry-run returns projected count without writes', async () => {
     await seedUsage();
-    const { toolsSkillPruneTelemetry } = await import('../engine-ops.js');
+    const { toolsSkillPruneTelemetry } = await import('../../engine/engine-ops.js');
     const result = await toolsSkillPruneTelemetry({ olderThanDays: 180, dryRun: true });
     expect(result.success).toBe(true);
     if (!result.success || !result.data) throw new Error('expected success');
@@ -103,7 +103,7 @@ describe('toolsSkillPruneTelemetry (T9693)', () => {
 
   it('--vacuum runs after the delete', async () => {
     await seedUsage();
-    const { toolsSkillPruneTelemetry } = await import('../engine-ops.js');
+    const { toolsSkillPruneTelemetry } = await import('../../engine/engine-ops.js');
     const result = await toolsSkillPruneTelemetry({ olderThanDays: 180, vacuum: true });
     expect(result.success).toBe(true);
     if (!result.success || !result.data) throw new Error('expected success');
@@ -112,7 +112,7 @@ describe('toolsSkillPruneTelemetry (T9693)', () => {
 
   it('reports oldestRemaining and newestRemaining bounds', async () => {
     await seedUsage();
-    const { toolsSkillPruneTelemetry } = await import('../engine-ops.js');
+    const { toolsSkillPruneTelemetry } = await import('../../engine/engine-ops.js');
     const result = await toolsSkillPruneTelemetry({ olderThanDays: 180 });
     expect(result.success).toBe(true);
     if (!result.success || !result.data) throw new Error('expected success');
@@ -124,7 +124,7 @@ describe('toolsSkillPruneTelemetry (T9693)', () => {
   });
 
   it('rejects negative olderThanDays', async () => {
-    const { toolsSkillPruneTelemetry } = await import('../engine-ops.js');
+    const { toolsSkillPruneTelemetry } = await import('../../engine/engine-ops.js');
     const result = await toolsSkillPruneTelemetry({ olderThanDays: -1 });
     expect(result.success).toBe(false);
     if (result.success) throw new Error('expected failure');
