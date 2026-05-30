@@ -139,3 +139,29 @@ jobs:
           node-version: '24'
       - name: Lint npm publish surface
         run: node scripts/lint-publish-surface.mjs
+
+  contracts-purity:
+    # T11418 · Epic T11392 (E5) · Saga T11387 SG-PACKAGE-ARCH
+    #
+    # Forward-only lock: packages/contracts/ is the type SoT. This gate FAILS
+    # when a NEW exported runtime helper (a bodied function/arrow that is not a
+    # type guard, zod schema, or const data) is added to a contracts source
+    # file. Pre-existing runtime helpers are pinned in
+    # scripts/.lint-no-runtime-in-contracts-baseline.json and migrate OUT over
+    # time under E5 (T11392); --strict will pass once contracts is pure.
+    #
+    # After migrating a helper OUT of contracts:
+    #   node scripts/lint-no-runtime-in-contracts.mjs --update-baseline
+    #   git add scripts/.lint-no-runtime-in-contracts-baseline.json && git commit
+    #
+    # Pure static analysis of checked-in source — no untrusted user input.
+    name: Contracts Purity Lint (T11418)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Lint no runtime logic in contracts (baseline mode)
+        run: node scripts/lint-no-runtime-in-contracts.mjs
