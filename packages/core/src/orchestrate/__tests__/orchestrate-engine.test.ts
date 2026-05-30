@@ -20,6 +20,7 @@ import {
   orchestrateWaves,
   sessionContextInject,
   sessionEnd,
+  sessionShow,
   sessionStart,
   sessionStatus,
 } from '@cleocode/core/internal';
@@ -458,9 +459,15 @@ describe('Orchestrate Engine', () => {
       expect(data.steps.spawn.status).toBe('completed');
       expect(data.idempotency.policy).toBe('non-idempotent');
 
-      const sessionState = await sessionStatus(TEST_ROOT);
-      expect(sessionState.success).toBe(true);
-      expect(sessionState.data?.hasActiveSession).toBe(false);
+      // T11346/T11343 — the PREDECESSOR (orchestrator) session is ended; the
+      // spawn step then allocates the successor agent's OWN per-agent session
+      // (Epic T11284 — every spawned agent gets its own session). So the
+      // predecessor must be terminal even though a successor session is now
+      // active. Assert on the predecessor specifically rather than on global
+      // "any active session" (which used to be the bleed surface).
+      const predecessor = await sessionShow(TEST_ROOT, data.predecessorSessionId as string);
+      expect(predecessor.success).toBe(true);
+      expect(predecessor.data?.status).not.toBe('active');
     });
 
     it('should fail with no active session and surface step metadata', async () => {
