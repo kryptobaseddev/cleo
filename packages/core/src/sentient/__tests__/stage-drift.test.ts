@@ -54,6 +54,15 @@ function createTestDb(): DatabaseSync {
       scope TEXT NOT NULL DEFAULT 'feature'
     )
   `);
+  // T11356/T11357: the drift proposal inserter writes Tier-2 membership into the
+  // task_labels junction, and checkDedupCollision joins it. Mirror the table.
+  db.exec(`
+    CREATE TABLE task_labels (
+      task_id TEXT NOT NULL,
+      label TEXT NOT NULL,
+      PRIMARY KEY (task_id, label)
+    )
+  `);
   return db;
 }
 

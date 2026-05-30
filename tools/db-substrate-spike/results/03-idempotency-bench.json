@@ -1,0 +1,63 @@
+{
+  "task": "T11323",
+  "driver": "drizzle-orm/node-sqlite (rc.3) + node:sqlite DatabaseSync client",
+  "emittedConflictSql": "insert into \"conduit_event\" (\"idempotency_key\", \"task_id\", \"payload\", \"created_at\") values (?, ?, ?, ?) on conflict (\"conduit_event\".\"idempotency_key\") do nothing",
+  "assertions": {
+    "emitsOnConflictDoNothing": true,
+    "retriesYieldExactlyOneRow": {
+      "rows": 1,
+      "expected": 1,
+      "pass": true
+    },
+    "firstWriteWins": {
+      "persistedPayload": "{\"n\":0}",
+      "expected": "{\"n\":0}",
+      "pass": true
+    },
+    "uniqueIndexOverheadWithin10pct": {
+      "insertSamples": 20000,
+      "method": "isolated: plain INSERT WITH-PK vs WITHOUT-PK (identical columns, interleaved)",
+      "withPkP50Ms": 0.0193,
+      "noPkP50Ms": 0.0206,
+      "indexOverheadP50Pct": -6.26,
+      "withPkMeanMs": 0.0315,
+      "noPkMeanMs": 0.034,
+      "indexOverheadMeanPct": -7.46,
+      "fullPatternP50Ms": 0.0233,
+      "fullPatternOverheadP50Pct": 13.04,
+      "pass": true,
+      "note": "Primary budget metric = p50 index overhead (median, robust to GC tails). Full Pattern-A path (PK + ON CONFLICT) reported for transparency."
+    }
+  },
+  "withPkInsertStats": {
+    "count": 20000,
+    "min": 0.017098000000032698,
+    "max": 4.495542999999998,
+    "mean": 0.03150444624999944,
+    "p50": 0.019301000000041313,
+    "p95": 0.03959100000020044,
+    "p99": 0.06072099999983038,
+    "p999": 3.324686000000156
+  },
+  "noPkInsertStats": {
+    "count": 20000,
+    "min": 0.018233999999893058,
+    "max": 5.088940999999977,
+    "mean": 0.034044761249996704,
+    "p50": 0.02059000000008382,
+    "p95": 0.04235599999992701,
+    "p99": 0.06985800000006748,
+    "p999": 3.3389640000000327
+  },
+  "fullPatternInsertStats": {
+    "count": 20000,
+    "min": 0.020879000000149972,
+    "max": 5.366788999999926,
+    "mean": 0.03735538354999933,
+    "p50": 0.02327500000001237,
+    "p95": 0.04739300000005642,
+    "p99": 0.07944399999996676,
+    "p999": 3.2941889999999603
+  },
+  "verdict": "PASS"
+}

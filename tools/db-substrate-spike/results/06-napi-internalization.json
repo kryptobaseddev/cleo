@@ -1,0 +1,55 @@
+{
+  "task": "T11326",
+  "assetUnderTest": {
+    "provenance": "real-binary:/mnt/projects/cleocode/packages/worktree-napi-linux-x64-gnu/worktree-napi.linux-x64-gnu.node",
+    "sizeBytes": 3149272,
+    "sha256": "ebe1ca6d598dc4053c27061e48eb89f87305887ecc968252e646ec143a68bc71"
+  },
+  "scenarios": {
+    "p2HappyPath": {
+      "triple": "linux-x64-gnu",
+      "source": "p2-fetch",
+      "verified": true,
+      "origin": "https://github.com/cleocode/cleo/releases/download/v0.0.0/worktree-napi.linux-x64-gnu.node"
+    },
+    "p2Tamper": {
+      "triple": "linux-x64-gnu",
+      "source": "p2-fetch",
+      "verified": false,
+      "origin": "https://github.com/cleocode/cleo/releases/download/v0.0.0/worktree-napi.linux-x64-gnu.node",
+      "error": "sha256 mismatch: expected ebe1ca6d598dc4053c27061e48eb89f87305887ecc968252e646ec143a68bc71, got 7eed052e32ec7a31dda10d18b063a6d0412eca4e14531b8544fcd4f958e6e519"
+    },
+    "p1Fallback": {
+      "triple": "linux-x64-gnu",
+      "source": "p1-bundled-fallback",
+      "verified": true,
+      "origin": "bundled:worktree-napi.linux-x64-gnu.node"
+    },
+    "mirrorOverride": {
+      "triple": "linux-x64-gnu",
+      "source": "p2-fetch",
+      "verified": true,
+      "origin": "https://npm-mirror.corp.internal/cleo-napi/worktree-napi.linux-x64-gnu.node",
+      "mirrorUrlSeen": "https://npm-mirror.corp.internal/cleo-napi/worktree-napi.linux-x64-gnu.node"
+    },
+    "noFallbackOffline": {
+      "triple": "darwin-arm64",
+      "source": "p2-fetch",
+      "verified": false,
+      "origin": "https://github.com/cleocode/cleo/releases/download/v0.0.0/worktree-napi.darwin-arm64.node",
+      "error": "P2 fetch failed (offline) and no P1 bundled fallback exists for darwin-arm64"
+    }
+  },
+  "checks": {
+    "p2HappyPathVerified": true,
+    "p2TamperFailsClosed": true,
+    "p1FallbackVerified": true,
+    "mirrorRedirectsFetch": true,
+    "noFallbackFailsClosed": true
+  },
+  "zeroSeparateOidc": {
+    "claim": "P2 publishes binaries as GitHub Release ASSETS; P1 bundles linux-x64-gnu inside the @cleocode/core tarball. Neither is a separate npm package publish, so this pattern contributes 0 binary-publish OIDC flows.",
+    "binaryPublishOidcCount": 0
+  },
+  "verdict": "PASS"
+}

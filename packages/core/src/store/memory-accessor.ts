@@ -10,7 +10,7 @@
  */
 
 import type { SQL } from 'drizzle-orm';
-import { and, asc, desc, eq, gte, ne, or } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, ne, or, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import type {
   BrainConsolidationEventRow,
@@ -366,8 +366,48 @@ export class BrainDataAccessor {
   // Sticky Notes CRUD
   // =========================================================================
 
+  /**
+   * Parse a `tags_json` text column into a deduplicated string-array.
+   *
+   * Used to keep the {@link brainSchema.stickyTags} junction in sync with the
+   * legacy whole-array column. Invalid / non-array JSON yields an empty list.
+   */
+  private static parseStickyTags(tagsJson: string | null | undefined): string[] {
+    if (!tagsJson) return [];
+    try {
+      const parsed: unknown = JSON.parse(tagsJson);
+      if (!Array.isArray(parsed)) return [];
+      const seen = new Set<string>();
+      for (const t of parsed) {
+        if (typeof t === 'string' && t.length > 0) seen.add(t);
+      }
+      return [...seen];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Replace the junction rows for one sticky so they exactly mirror its tags.
+   *
+   * Delete-then-insert keeps `sticky_tags` authoritative without RMW races:
+   * the prior tag set is dropped and the supplied set re-inserted. Called on
+   * every sticky create/update (T11355).
+   *
+   * @param stickyId - The owning sticky note id.
+   * @param tags - The full tag set the junction should reflect.
+   */
+  private async syncStickyTags(stickyId: string, tags: string[]): Promise<void> {
+    await this.db
+      .delete(brainSchema.stickyTags)
+      .where(eq(brainSchema.stickyTags.stickyId, stickyId));
+    if (tags.length === 0) return;
+    await this.db.insert(brainSchema.stickyTags).values(tags.map((tag) => ({ stickyId, tag })));
+  }
+
   async addStickyNote(row: NewBrainStickyNoteRow): Promise<BrainStickyNoteRow> {
     await this.db.insert(brainSchema.brainStickyNotes).values(row);
+    await this.syncStickyTags(row.id, BrainDataAccessor.parseStickyTags(row.tagsJson));
     const result = await this.db
       .select()
       .from(brainSchema.brainStickyNotes)
@@ -383,11 +423,25 @@ export class BrainDataAccessor {
     return result[0] ?? null;
   }
 
+  /**
+   * Find sticky notes with optional column filters and an index-backed,
+   * SQL-side tag filter via the {@link brainSchema.stickyTags} junction.
+   *
+   * When `tags` is supplied the query keeps only notes that contain ALL of the
+   * requested tags (membership runs through a junction subquery, never a
+   * load-all-then-JS-filter). The `limit` is applied at the SQL layer in every
+   * case — including with a tag filter — so callers never over-fetch.
+   *
+   * @param params - Status/color/priority equality filters, an all-of `tags`
+   *   membership filter, and an optional row `limit`.
+   * @returns Matching sticky-note rows, newest first.
+   */
   async findStickyNotes(
     params: {
       status?: (typeof brainSchema.BRAIN_STICKY_STATUSES)[number];
       color?: (typeof brainSchema.BRAIN_STICKY_COLORS)[number];
       priority?: (typeof brainSchema.BRAIN_STICKY_PRIORITIES)[number];
+      tags?: string[];
       limit?: number;
     } = {},
   ): Promise<BrainStickyNoteRow[]> {
@@ -401,6 +455,19 @@ export class BrainDataAccessor {
     }
     if (params.priority) {
       conditions.push(eq(brainSchema.brainStickyNotes.priority, params.priority));
+    }
+
+    // SQL-side tag membership: notes whose junction rows cover every requested
+    // tag. GROUP BY + HAVING COUNT(DISTINCT tag) = N implements "contains ALL".
+    if (params.tags && params.tags.length > 0) {
+      const wantedTags = [...new Set(params.tags)];
+      const matchingIds = this.db
+        .select({ stickyId: brainSchema.stickyTags.stickyId })
+        .from(brainSchema.stickyTags)
+        .where(inArray(brainSchema.stickyTags.tag, wantedTags))
+        .groupBy(brainSchema.stickyTags.stickyId)
+        .having(sql`count(distinct ${brainSchema.stickyTags.tag}) = ${wantedTags.length}`);
+      conditions.push(inArray(brainSchema.brainStickyNotes.id, matchingIds));
     }
 
     let query = this.db
@@ -424,9 +491,16 @@ export class BrainDataAccessor {
       .update(brainSchema.brainStickyNotes)
       .set({ ...updates, updatedAt: new Date().toISOString().replace('T', ' ').slice(0, 19) })
       .where(eq(brainSchema.brainStickyNotes.id, id));
+    // Keep the junction in sync when tags_json changes.
+    if (updates.tagsJson !== undefined) {
+      await this.syncStickyTags(id, BrainDataAccessor.parseStickyTags(updates.tagsJson));
+    }
   }
 
   async deleteStickyNote(id: string): Promise<void> {
+    // ON DELETE CASCADE removes junction rows, but PRAGMA foreign_keys may be
+    // off on some handles — delete explicitly to guarantee no orphans.
+    await this.db.delete(brainSchema.stickyTags).where(eq(brainSchema.stickyTags.stickyId, id));
     await this.db
       .delete(brainSchema.brainStickyNotes)
       .where(eq(brainSchema.brainStickyNotes.id, id));

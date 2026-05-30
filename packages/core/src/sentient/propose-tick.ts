@@ -484,6 +484,16 @@ export async function runProposeTick(options: ProposeTickOptions): Promise<Propo
 
       if (result.inserted) {
         written++;
+        // T11356: keep the task_labels junction in sync so Tier-2 membership
+        // filters (sentientProposeList/Accept/Reject) — now junction joins, not
+        // labels_json LIKE — see this proposal. INSERT OR IGNORE is idempotent.
+        if (tasksNativeDb) {
+          const labelStmt = tasksNativeDb.prepare(
+            'INSERT OR IGNORE INTO task_labels (task_id, label) VALUES (?, ?)',
+          );
+          labelStmt.run(taskId, TIER2_LABEL);
+          labelStmt.run(taskId, `source:${candidate.source}`);
+        }
       } else if (result.reason === 'rate-limit') {
         // Rate limit hit mid-loop — stop writing.
         break;

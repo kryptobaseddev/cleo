@@ -442,6 +442,15 @@ export async function runStageDriftScan(options: StageDriftOptions): Promise<Sta
       const result = transactionalInsertProposal(db, sql, params, DEFAULT_DAILY_PROPOSAL_LIMIT);
       if (result.inserted) {
         proposalsWritten++;
+        // T11356: keep the task_labels junction in sync so Tier-2 membership
+        // filters (now junction joins, not labels_json LIKE) see this proposal.
+        if (db) {
+          const labelStmt = db.prepare(
+            'INSERT OR IGNORE INTO task_labels (task_id, label) VALUES (?, ?)',
+          );
+          labelStmt.run(taskId, 'sentient-tier2');
+          labelStmt.run(taskId, DRIFT_SOURCE_LABEL);
+        }
       } else if (result.reason === 'rate-limit') {
         break;
       }
