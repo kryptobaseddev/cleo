@@ -891,3 +891,39 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
       'Worktree SSoT primitive layer (1,972 LOC) — canonical create/destroy/list/prune/include/copy-on-write bound by @cleocode/paths. Post-PR-#487 the responsibilities are distinct from packages/core/src/worktree/ (SDK-level enrichment). Consumes worktrunk-core via the worktree-napi binding, whose native .node binaries are bundled into native/ (Pattern P1) / fetched from the GitHub Release (Pattern P2) — no separate per-platform npm package is published (D14prime / ADR-087, T11398).',
   },
 ] as const;
+
+// ============================================================
+// TOOLS-vs-SKILLS boundary (E3 · T11409 · SG-PACKAGE-ARCH)
+// ============================================================
+
+/**
+ * The canonical home-and-consumption boundary for the CORE-SDK tool layer.
+ *
+ * Atomic **tool primitives** (the smallest stateless side-effect units — see
+ * `@cleocode/contracts/tools/atomic` + `core/src/tools/*`) and their contracts
+ * have exactly the two homes in {@link AtomicToolBoundary.primitiveHomes}.
+ * **Composite skills** (multi-step capabilities that COMPOSE primitives) live
+ * in {@link AtomicToolBoundary.skillsHome}. The harness/provider packages in
+ * {@link AtomicToolBoundary.consumersNoRedefine} CONSUME the primitives via
+ * import and MUST NOT redefine them.
+ *
+ * Enforced (baseline mode) by `scripts/lint-tools-vs-skills-boundary.mjs`.
+ *
+ * @see ADR-078 — Boundary Registry
+ * @task T11409
+ */
+export interface AtomicToolBoundary {
+  /** The only packages that may DEFINE atomic-tool primitives + contracts. */
+  readonly primitiveHomes: readonly string[];
+  /** Composite, multi-step capabilities (compose primitives) live here. */
+  readonly skillsHome: string;
+  /** Consume primitives via import — MUST NOT redefine them. */
+  readonly consumersNoRedefine: readonly string[];
+}
+
+/** {@inheritDoc AtomicToolBoundary} */
+export const ATOMIC_TOOL_BOUNDARY: AtomicToolBoundary = {
+  primitiveHomes: ['packages/core/src/tools', 'packages/contracts/src/tools'],
+  skillsHome: 'packages/skills',
+  consumersNoRedefine: ['packages/mcp-adapter', 'packages/caamp', 'packages/cleo-os'],
+};
