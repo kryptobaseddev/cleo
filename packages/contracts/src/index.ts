@@ -288,6 +288,29 @@ export type {
   ParsedClaudeCodeCredential,
 } from './credentials.js';
 export { parseClaudeCodeCredentials } from './credentials.js';
+// === Daemon lifecycle + subsystem contracts (T11366 · SG-RUNTIME-UNIFICATION R2) ===
+export type {
+  DaemonLifecycleHooks,
+  HealthStatus,
+  Subsystem,
+  SubsystemDefinition,
+  SubsystemHealth,
+  SubsystemLifecyclePhase,
+  SubsystemState,
+} from './daemon/index.js';
+export {
+  HealthStatusSchema,
+  SUBSYSTEM_LIFECYCLE_PHASES,
+  SubsystemHealthSchema,
+  SubsystemStateSchema,
+  summarizeHealth,
+  toMonitorChildren,
+} from './daemon/index.js';
+// === Daemon-IPC v1.0 (AC8 alias of supervisor-ipc — T11369 · R2 gates R4-R7) ===
+// `daemon-ipc` is the AC8-named re-export barrel over the FROZEN supervisor-ipc
+// v1.0 contract — one contract, two names. The subpath
+// `@cleocode/contracts/daemon-ipc` resolves via the package `./*` export.
+export { DAEMON_IPC_PROTOCOL_VERSION } from './daemon-ipc/index.js';
 // === DataAccessor Interface ===
 export type {
   AcBindingRow,
@@ -610,6 +633,28 @@ export {
   AGENT_TYPES,
   BRAIN_OBSERVATION_TYPES,
 } from './facade.js';
+// === CLEO-native Goal System (T11376 · Epic T11290 · Saga T11283) ===
+export type {
+  FuzzyGoal,
+  GoalAdvanceResult,
+  GoalContinuation,
+  GoalJudge,
+  GoalJudgeVerdict,
+  GoalKind,
+  GoalKindTag,
+  GoalRecord,
+  GoalStatus,
+  TaskCompletionGoal,
+} from './goal.js';
+export {
+  GOAL_STATUSES,
+  GOAL_TARGET_TASK_ID_REGEX,
+  GOAL_TERMINAL_STATUSES,
+  isFuzzyGoal,
+  isTaskCompletionGoal,
+  isTerminalGoalStatus,
+  isValidGoalTargetTaskId,
+} from './goal.js';
 // === Graph Intelligence Types (T512, T529, T1862, T9145) ===
 export type {
   AmbiguousProvenance,
