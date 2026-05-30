@@ -409,11 +409,24 @@ export async function getMemoryQualityReport(projectRoot: string): Promise<Memor
     );
     totalRetrievals = logCount[0]?.cnt ?? 0;
 
+    // T11357: count distinct retrieved entries via native json_each instead of
+    // the hand-rolled `replace(entry_ids, ',', '","')` string-rebuild (which
+    // was correct only for legacy comma-separated rows and produced a single
+    // malformed element for the canonical JSON-array form written today).
+    // entry_ids is JSON.stringify(string[]) on every new write; json_each
+    // iterates that array directly. The json_valid guard tolerates legacy
+    // comma-separated rows by rebuilding them into a JSON array only when the
+    // value is NOT already valid JSON.
     const uniqueCount = typedAll<CountRow>(
       nativeDb.prepare(
-        `SELECT COUNT(DISTINCT value) AS cnt
-         FROM brain_retrieval_log,
-              json_each('["' || replace(entry_ids, ',', '","') || '"]')`,
+        `SELECT COUNT(DISTINCT je.value) AS cnt
+         FROM brain_retrieval_log AS l,
+              json_each(
+                CASE
+                  WHEN json_valid(l.entry_ids) THEN l.entry_ids
+                  ELSE '["' || replace(l.entry_ids, ',', '","') || '"]'
+                END
+              ) AS je`,
       ),
     );
     uniqueEntriesRetrieved = uniqueCount[0]?.cnt ?? 0;

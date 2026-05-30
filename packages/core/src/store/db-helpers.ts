@@ -8,7 +8,7 @@
  */
 
 import type { Session, Task } from '@cleocode/contracts';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { getLogger } from '../logger.js';
 import type { NewTaskRow } from './tasks-schema.js';
@@ -228,6 +228,60 @@ export async function upsertSession(db: DrizzleDb, session: Session): Promise<vo
     .values(values)
     .onConflictDoUpdate({ target: schema.sessions.id, set: setFields })
     .run();
+}
+
+/**
+ * Append-able session id-list / notes columns (T11357).
+ *
+ * These three columns are JSON arrays that grow on session events. The
+ * append-in-SQL helper below targets exactly this set.
+ */
+export type AppendableSessionColumn = 'notesJson' | 'tasksCompletedJson' | 'tasksCreatedJson';
+
+/** Maps the Drizzle field name to its physical SQLite column name. */
+const APPENDABLE_SESSION_COLUMNS: Record<AppendableSessionColumn, string> = {
+  notesJson: 'notes_json',
+  tasksCompletedJson: 'tasks_completed_json',
+  tasksCreatedJson: 'tasks_created_json',
+};
+
+/**
+ * Append one element to a session's JSON-array column **in SQL** via
+ * `json_insert(col, '$[#]', ?)` — no app-side read-modify-write of the whole
+ * array (T11357 · AC4).
+ *
+ * ## Why `json_insert` (TEXT) and not `jsonb_insert` (BLOB)
+ *
+ * `sessions.{notes,tasks_completed,tasks_created}_json` are read WHOLE by
+ * `rowToSession` (`safeParseJsonArray(row.notesJson)`) and by backup/export
+ * paths. Storing them as a JSONB BLOB would force every one of those readers
+ * onto `json(col)` and break the plain-column reads. `json_insert` performs the
+ * same `$[#]` end-of-array append the audit calls for while keeping the column
+ * canonical TEXT, so existing whole-value readers stay correct. The `$[#]`
+ * path is the SQLite idiom for "append to the end of the array".
+ *
+ * The column is coalesced to `'[]'` first so an append onto a NULL/empty column
+ * yields a single-element array rather than NULL.
+ *
+ * @param db - Drizzle sessions.db handle (tasks.db schema).
+ * @param sessionId - Target session id.
+ * @param column - Which appendable array column to grow.
+ * @param value - The string element to append.
+ */
+export async function appendSessionListItem(
+  db: DrizzleDb,
+  sessionId: string,
+  column: AppendableSessionColumn,
+  value: string,
+): Promise<void> {
+  const physicalColumn = APPENDABLE_SESSION_COLUMNS[column];
+  db.run(
+    sql`UPDATE sessions
+        SET ${sql.raw(physicalColumn)} = json_insert(
+          COALESCE(${sql.raw(physicalColumn)}, '[]'), '$[#]', ${value}
+        )
+        WHERE id = ${sessionId}`,
+  );
 }
 
 /**

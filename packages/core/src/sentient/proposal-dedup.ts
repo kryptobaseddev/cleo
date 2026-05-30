@@ -216,25 +216,30 @@ export function checkDedupCollision(opts: DedupCheckOptions): DedupCheckResult {
   // Build the parent_id predicate.  SQLite has no parameterized "IS NULL",
   // so we branch on whether the parent is null.  Both branches use the same
   // hash + label + window predicates.
+  //
+  // T11357: the dedupHash match is now an EXACT json_extract rather than a
+  // fragile `notes_json LIKE '%dedupHash%<hex>%'` substring scan.
+  // T11356: Tier-2 membership resolves through the index-backed task_labels
+  // junction rather than `labels_json LIKE '%sentient-tier2%'`.
+  //
+  // The proposal-meta envelope is JSON-stringified twice (the meta object, then
+  // again as the first element of `notes_json[]`), so the hash lives at
+  // `notes_json -> $[0] (a JSON string) -> $.dedupHash`. Extracting the inner
+  // string with json_extract($[0]) and then json_extract($.dedupHash) yields the
+  // exact value — no substring matching, no cross-field false positives.
   const baseSql = `
     SELECT id
     FROM tasks
-    WHERE labels_json LIKE :labelPattern
-      AND notes_json  LIKE :hashPattern
+    WHERE id IN (SELECT task_id FROM task_labels WHERE label = :tier2Label)
+      AND json_extract(json_extract(notes_json, '$[0]'), '$.dedupHash') = :dedupHash
       ${windowHours > 0 ? `AND datetime(created_at) >= datetime('now', :windowSpec)` : ''}
       AND ${parentKey === null ? 'parent_id IS NULL' : 'parent_id = :parentId'}
     LIMIT 1
   `;
 
-  // The proposal-meta envelope is JSON-stringified twice (once as the meta
-  // object, then again as the first element of `notes_json[]`).  As a result
-  // the canonical persisted form is `\"dedupHash\":\"<hex>\"` (with escaped
-  // double quotes).  The LIKE pattern below uses the bare hex digest so it
-  // matches regardless of which serialization layer wrapped it — sha-256 hex
-  // cannot collide with any other JSON value (64 chars of `[0-9a-f]`).
   const params: Record<string, string> = {
-    labelPattern: `%${SENTIENT_TIER2_TAG}%`,
-    hashPattern: `%dedupHash%${dedupHash}%`,
+    tier2Label: SENTIENT_TIER2_TAG,
+    dedupHash,
   };
   if (windowHours > 0) params.windowSpec = `-${windowHours} hours`;
   if (parentKey !== null) params.parentId = parentKey;
