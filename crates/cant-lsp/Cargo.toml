@@ -5,6 +5,7 @@ edition = "2024"
 rust-version = "1.94"
 description = "Language Server Protocol implementation for CANT DSL"
 
+publish = false
 [[bin]]
 name = "cant-lsp"
 path = "src/main.rs"

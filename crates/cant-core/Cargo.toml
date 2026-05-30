@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/kryptobaseddev/cleo"
 keywords = ["cleo", "cant", "parser", "dsl", "agent"]
 categories = ["parser-implementations", "development-tools"]
-publish = true
+publish = false
 
 [lib]
 crate-type = ["rlib"]

@@ -6,7 +6,7 @@ rust-version = "1.94"
 description = "Canonical Conduit wire types for CLEO ecosystem"
 license = "MIT"
 repository = "https://github.com/kryptobaseddev/cleo"
-publish = true
+publish = false
 
 [lib]
 crate-type = ["rlib"]
