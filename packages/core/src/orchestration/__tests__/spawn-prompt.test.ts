@@ -555,16 +555,24 @@ describe('buildSpawnPrompt — export block snapshot and drift detection (T1760)
   const PROJECT_HASH = 'abc123'; // second-to-last segment of the worktree path
 
   it('export block in rendered prompt matches provisionIsolatedShell preamble verbatim', () => {
-    // Compute the expected export block directly from the utility (single source of truth).
+    // T11343 — buildSpawnPrompt defaults agentId to the deterministic handle
+    // `agent-<taskId>` when no explicit agentId is passed. Mirror that here so
+    // the canonical preamble matches the rendered worktree-setup export block.
+    const defaultAgentId = `agent-${BASE_TASK.id.toLowerCase()}`;
     const isolation = provisionIsolatedShell({
       worktreePath: WORKTREE,
       branch: BRANCH,
       role: 'worker',
       projectHash: PROJECT_HASH,
+      agentId: defaultAgentId,
     });
 
-    // Extract the export lines from the preamble (the canonical output).
-    const expectedExportLines = ISOLATION_ENV_KEYS.map((k) => `export ${k}="${isolation.env[k]}"`);
+    // Extract the export lines from the preamble (the canonical output). Empty
+    // values (e.g. no sessionId) are skipped by the export block, so only emit
+    // expected lines for non-empty env values.
+    const expectedExportLines = ISOLATION_ENV_KEYS.filter((k) => isolation.env[k] !== '').map(
+      (k) => `export ${k}="${isolation.env[k]}"`,
+    );
 
     const result = buildSpawnPrompt({
       task: BASE_TASK,
@@ -575,7 +583,7 @@ describe('buildSpawnPrompt — export block snapshot and drift detection (T1760)
       tier: 0,
     });
 
-    // Every export line from the utility MUST appear verbatim in the rendered prompt.
+    // Every non-empty export line from the utility MUST appear verbatim.
     for (const line of expectedExportLines) {
       expect(result.prompt, `rendered prompt must contain verbatim export line: ${line}`).toContain(
         line,

@@ -23,17 +23,19 @@ const SAMPLE_OPTS = {
 };
 
 describe('ISOLATION_ENV_KEYS', () => {
-  it('contains the four canonical env keys', () => {
+  it('contains the canonical env keys incl. per-agent identity (T11343)', () => {
     expect(ISOLATION_ENV_KEYS).toEqual([
       'CLEO_WORKTREE_ROOT',
       'CLEO_AGENT_ROLE',
       'CLEO_WORKTREE_BRANCH',
       'CLEO_PROJECT_HASH',
+      'CLEO_SESSION_ID',
+      'CLEO_AGENT_ID',
     ]);
   });
 
-  it('is a readonly tuple (length 4)', () => {
-    expect(ISOLATION_ENV_KEYS).toHaveLength(4);
+  it('is a readonly tuple (length 6 — T11343 added CLEO_SESSION_ID + CLEO_AGENT_ID)', () => {
+    expect(ISOLATION_ENV_KEYS).toHaveLength(6);
   });
 });
 
@@ -53,12 +55,25 @@ describe('provisionIsolatedShell', () => {
   });
 
   describe('env', () => {
-    it('returns all four canonical env vars', () => {
+    it('returns all canonical env vars (identity defaults to empty)', () => {
       const { env } = provisionIsolatedShell(SAMPLE_OPTS);
       expect(env.CLEO_WORKTREE_ROOT).toBe(SAMPLE_OPTS.worktreePath);
       expect(env.CLEO_AGENT_ROLE).toBe('worker');
       expect(env.CLEO_WORKTREE_BRANCH).toBe(SAMPLE_OPTS.branch);
       expect(env.CLEO_PROJECT_HASH).toBe(SAMPLE_OPTS.projectHash);
+      // T11343 — identity keys present but empty when not supplied (no clobber).
+      expect(env.CLEO_SESSION_ID).toBe('');
+      expect(env.CLEO_AGENT_ID).toBe('');
+    });
+
+    it('populates CLEO_SESSION_ID + CLEO_AGENT_ID when supplied (T11343)', () => {
+      const { env } = provisionIsolatedShell({
+        ...SAMPLE_OPTS,
+        sessionId: 'ses_20260530000000_abcdef',
+        agentId: 'agent-t1234',
+      });
+      expect(env.CLEO_SESSION_ID).toBe('ses_20260530000000_abcdef');
+      expect(env.CLEO_AGENT_ID).toBe('agent-t1234');
     });
 
     it('env keys exactly match ISOLATION_ENV_KEYS', () => {
@@ -96,11 +111,33 @@ describe('provisionIsolatedShell', () => {
       expect(preamble).toContain(`cd "${SAMPLE_OPTS.worktreePath}" || exit 1`);
     });
 
-    it('contains export for all isolation env keys', () => {
+    it('contains export for every NON-EMPTY isolation env key', () => {
+      // T11343 — the export block skips empty values so an unallocated
+      // CLEO_SESSION_ID / CLEO_AGENT_ID does not emit a clobbering export.
+      // With SAMPLE_OPTS (no identity) only the worktree-binding keys export.
       const { preamble } = provisionIsolatedShell(SAMPLE_OPTS);
-      for (const key of ISOLATION_ENV_KEYS) {
+      const alwaysExported = [
+        'CLEO_WORKTREE_ROOT',
+        'CLEO_AGENT_ROLE',
+        'CLEO_WORKTREE_BRANCH',
+        'CLEO_PROJECT_HASH',
+      ];
+      for (const key of alwaysExported) {
         expect(preamble).toContain(`export ${key}=`);
       }
+      // Empty identity keys are NOT exported.
+      expect(preamble).not.toContain('export CLEO_SESSION_ID=');
+      expect(preamble).not.toContain('export CLEO_AGENT_ID=');
+    });
+
+    it('exports identity keys in the preamble when supplied (T11343)', () => {
+      const { preamble } = provisionIsolatedShell({
+        ...SAMPLE_OPTS,
+        sessionId: 'ses_xyz',
+        agentId: 'agent-xyz',
+      });
+      expect(preamble).toContain('export CLEO_SESSION_ID="ses_xyz"');
+      expect(preamble).toContain('export CLEO_AGENT_ID="agent-xyz"');
     });
 
     it('contains the pwd guard case statement', () => {
