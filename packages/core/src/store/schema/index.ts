@@ -27,6 +27,7 @@ export * from './audit.js';
 export * from './background-jobs.js';
 export * from './evidence-bindings.js';
 export * from './experiments.js';
+export * from './jsonb.js';
 export * from './lifecycle.js';
 export * from './manifest.js';
 export * from './provenance/index.js';

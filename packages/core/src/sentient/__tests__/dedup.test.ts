@@ -66,6 +66,15 @@ function createTasksDb(): DatabaseSync {
       scope TEXT NOT NULL DEFAULT 'feature'
     )
   `);
+  // T11356/T11357: dedup now joins the task_labels junction (Tier-2 membership)
+  // and uses an exact json_extract on notes_json (no labels_json/notes_json LIKE).
+  db.exec(`
+    CREATE TABLE task_labels (
+      task_id TEXT NOT NULL,
+      label TEXT NOT NULL,
+      PRIMARY KEY (task_id, label)
+    )
+  `);
   return db;
 }
 
@@ -110,6 +119,11 @@ function insertExistingProposal(
     notesJson: JSON.stringify([meta]),
     createdAt: args.createdAt ?? new Date().toISOString(),
   });
+  // T11356: mirror the junction the proposal inserters now maintain so the
+  // Tier-2-membership join in checkDedupCollision sees this proposal.
+  const labelStmt = db.prepare('INSERT OR IGNORE INTO task_labels (task_id, label) VALUES (?, ?)');
+  labelStmt.run(args.id, SENTIENT_TIER2_TAG);
+  labelStmt.run(args.id, 'source:brain');
 }
 
 // ---------------------------------------------------------------------------

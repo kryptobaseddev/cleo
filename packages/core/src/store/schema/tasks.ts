@@ -229,10 +229,12 @@ export const tasks = sqliteTable(
     index('idx_tasks_role').on(table.kind),
     index('idx_tasks_scope').on(table.scope),
     index('idx_tasks_role_status').on(table.kind, table.status),
-    // T1126 / T1174 — partial index now schema-expressed.
-    index('idx_tasks_sentient_proposals_today')
-      .on(sql`date(${table.createdAt})`)
-      .where(sql`${table.labelsJson} LIKE '%sentient-tier2%'`),
+    // T11356: the former partial index used a fragile
+    // `labels_json LIKE '%sentient-tier2%'` predicate that matched across JSON
+    // array boundaries. Label membership now resolves through the index-backed
+    // task_labels junction (idx_task_labels_label); this plain expression index
+    // on date(created_at) still accelerates the daily proposal-count scan.
+    index('idx_tasks_created_date').on(sql`date(${table.createdAt})`),
   ],
 );
 
@@ -424,6 +426,42 @@ export const taskDependencies = sqliteTable(
   (table) => [
     primaryKey({ columns: [table.taskId, table.dependsOn] }),
     index('idx_deps_depends_on').on(table.dependsOn),
+  ],
+);
+
+// === TASK LABELS JUNCTION (T11356 · E4 JSON-storage optimization) ===
+
+/**
+ * Denormalized task → label membership edge.
+ *
+ * Replaces fragile `labels_json LIKE '%label%'` filters that matched across
+ * JSON array boundaries (e.g. `'tier2'` matched `'sentient-tier2-stale'`) and
+ * could not use an index. Membership filtering now joins this junction.
+ *
+ * `tasks.labels_json` is RETAINED as the legacy whole-array compatibility
+ * column (read by converters and many display paths); the junction is the
+ * membership-query SSoT and is kept in sync on every task write. Mirrors the
+ * shape of {@link taskDependencies} / {@link taskRelations}. `(task_id, label)`
+ * is the natural composite identity — a label appears at most once per task.
+ *
+ * @task T11356
+ * @epic T11286
+ * @saga T11283
+ */
+export const taskLabels = sqliteTable(
+  'task_labels',
+  {
+    /** Owning task. ON DELETE CASCADE — labels die with their task. */
+    taskId: text('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    /** A single label string (one row per label). */
+    label: text('label').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.taskId, table.label] }),
+    // Membership lookup path — `WHERE label = ?` is the dominant filter access.
+    index('idx_task_labels_label').on(table.label),
   ],
 );
 
@@ -712,6 +750,10 @@ export type NewTaskRow = typeof tasks.$inferInsert;
 export type SessionRow = typeof sessions.$inferSelect;
 export type NewSessionRow = typeof sessions.$inferInsert;
 export type TaskDependencyRow = typeof taskDependencies.$inferSelect;
+/** Row type for task_labels SELECT queries (T11356). */
+export type TaskLabelRow = typeof taskLabels.$inferSelect;
+/** Row type for task_labels INSERT operations (T11356). */
+export type NewTaskLabelRow = typeof taskLabels.$inferInsert;
 export type TaskRelationRow = typeof taskRelations.$inferSelect;
 export type WorkHistoryRow = typeof taskWorkHistory.$inferSelect;
 export type ExternalTaskLinkRow = typeof externalTaskLinks.$inferSelect;

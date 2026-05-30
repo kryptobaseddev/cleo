@@ -42,28 +42,17 @@ export async function listStickies(
 ): Promise<StickyNote[]> {
   const accessor = await getBrainAccessor(projectRoot);
 
-  // Tags are stored as JSON in a text column, so we filter in-memory after
-  // the SQL query. Request extra rows (no limit) when tag filtering is active
-  // so we don't inadvertently clip the result set before filtering.
-  const hasTagFilter = params.tags && params.tags.length > 0;
-
+  // T11355: tag filtering now runs in SQL via the sticky_tags junction
+  // (contains-ALL semantics), so the LIMIT is honored at the SQL layer and we
+  // never load-all-then-JS-filter. The previous in-memory filter dropped the
+  // LIMIT when a tag filter was active — the worst pattern in the repo.
   const rows = await accessor.findStickyNotes({
     status: params.status,
     color: params.color,
     priority: params.priority,
-    limit: hasTagFilter ? undefined : params.limit,
+    tags: params.tags,
+    limit: params.limit,
   });
 
-  let notes = rows.map(rowToStickyNote);
-
-  // In-memory tag filter: keep notes that contain ALL requested tags.
-  if (hasTagFilter) {
-    const requiredTags = params.tags!;
-    notes = notes.filter((note) => requiredTags.every((t) => note.tags.includes(t)));
-    if (params.limit && notes.length > params.limit) {
-      notes = notes.slice(0, params.limit);
-    }
-  }
-
-  return notes;
+  return rows.map(rowToStickyNote);
 }
