@@ -22,6 +22,7 @@ import { type CliOutputOptions, cliError, cliOutput } from '../../cli/renderers/
 import { Dispatcher } from '../dispatcher.js';
 import { createDomainHandlers } from '../domains/index.js';
 import { createAudit } from '../middleware/audit.js';
+import { createBudgetEnforcement } from '../middleware/budget-enforcement.js';
 import { createFieldFilter } from '../middleware/field-filter.js';
 import { createIdempotency } from '../middleware/idempotency.js';
 import { createMutateMinimalEnvelope } from '../middleware/mutate-minimal-envelope.js';
@@ -174,6 +175,11 @@ export function createCliDispatcher(): Dispatcher {
       // policy to the read-side projection — sits in the same pre-audit slot
       // so audit/telemetry record the trimmed bytes.
       createMutateMinimalEnvelope(),
+      // T11350 (Epic T11285 EP-MVI-PRIMITIVE): LIVE MVI token-budget chokepoint.
+      // Runs AFTER projection/minimal-envelope (measures the trimmed payload)
+      // and BEFORE audit/telemetry (so they record the final budget-enforced
+      // bytes). Enforces per-op ceilings from BUDGET_POLICIES (e.g. focus ≤1500).
+      createBudgetEnforcement(),
       createAudit(), // T4959: CLI now gets audit trail
       createIdempotency(), // T10600: duplicate retry protection after audit wraps the response
       createTelemetry(), // T624: opt-in self-improvement telemetry
