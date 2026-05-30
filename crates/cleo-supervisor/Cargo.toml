@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 kryptobaseddev
+#
+# This file is part of crates/cleo-supervisor in the CleoCode monorepo.
+#
+# cleo-supervisor is the native Rust process supervisor for the
+# SG-RUNTIME-UNIFICATION saga (T11243 / epic R1 T11252). It ports the proven
+# StudioSupervisor shape (packages/core/src/sentient/daemon.ts) — atomic
+# pidfile, SIGTERM-grace-then-SIGKILL, exponential-backoff-capped-at-30s
+# crash restart — to tokio/Rust, and is distributed as a standalone binary
+# via the napi-style P2/P1 packaging pattern (NOT a Bun process; D8').
+
+[package]
+name = "cleo-supervisor"
+version.workspace = true
+edition = "2024"
+rust-version = "1.94"
+description = "Native Rust process supervisor for CLEO: atomic pidfile, crash-restart with exponential backoff, SIGTERM cascade, log rotation"
+license = "MIT"
+publish = false
+
+# Standalone executable. The supervisor is a native binary distributed via the
+# worktree-napi-style cross-compile + GitHub-Release packaging (T11340), NOT a
+# napi `.node` addon. A thin library target is also built so unit/integration
+# tests can exercise the internal modules without re-compiling main.rs.
+[[bin]]
+name = "cleo-supervisor"
+path = "src/main.rs"
+
+[lib]
+name = "cleo_supervisor"
+path = "src/lib.rs"
+
+[dependencies]
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+nix = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

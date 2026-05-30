@@ -6,6 +6,7 @@ members = [
     "crates/cant-router",
     "crates/cant-runtime",
     "crates/cleo-conduit-core",
+    "crates/cleo-supervisor",
     "crates/lafs-core",
     "crates/lafs-napi",
     "crates/worktree-napi",
@@ -23,6 +24,7 @@ default-members = [
     "crates/cant-router",
     "crates/cant-runtime",
     "crates/cleo-conduit-core",
+    "crates/cleo-supervisor",
     "crates/lafs-core",
     "crates/lafs-napi",
     "crates/worktree-napi",
@@ -64,6 +66,22 @@ sha2 = "0.10"
 # Observability
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+# Non-blocking, rolling file appender for the cleo-supervisor daemon log
+# rotation (T11338 AC4). Pinned at the workspace level so the supervisor
+# crate references it via `tracing-appender = { workspace = true }`.
+tracing-appender = "0.2"
+
+# Platform signal + process-group primitives for cleo-supervisor (T11338 AC3).
+# `nix` provides Unix signals (SIGTERM/SIGKILL), `waitpid` zombie reaping and
+# `setsid`/process-group control; `windows-sys` provides the Win32 Job Object
+# APIs used to bind child processes to the supervisor's lifetime so they die
+# with it.
+nix = { version = "0.31", features = ["signal", "process"] }
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+] }
 
 # napi-rs bindings
 napi = { version = "3", features = ["napi4"] }
