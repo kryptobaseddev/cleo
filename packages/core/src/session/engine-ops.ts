@@ -17,6 +17,7 @@ import { SESSION_JOURNAL_SCHEMA_VERSION } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { paginate } from '../pagination.js';
 import { type ContextInjectionData, injectContext } from '../sessions/context-inject.js';
+import { readFocusState, writeFocusState } from '../sessions/focus-state-store.js';
 import {
   archiveSessions,
   cleanupSessions,
@@ -43,7 +44,6 @@ import {
   suspendSession,
   switchSession,
 } from '../sessions/index.js';
-import { readFocusState, writeFocusState } from '../sessions/focus-state-store.js';
 import { generateSessionId, resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import { appendSessionJournalEntry } from '../sessions/session-journal.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
@@ -693,16 +693,16 @@ export async function sessionEnd(
       activeSession = await resolveCurrentSession(projectRoot);
     }
 
-    const sessionId = activeSession?.id;
-    if (!sessionId) {
+    if (!activeSession) {
       return engineError('E_SESSION_NOT_FOUND', 'No active session to end', {
         fix: 'Start a session first with: session start --scope <scope> --name <name>',
       });
     }
+    const sessionId = activeSession.id;
 
     // T11346 — refuse to end a session that is already terminal (e.g. another
     // agent ended it, or this is a stale env id). No-op rather than clobber.
-    if (activeSession && activeSession.status !== 'active') {
+    if (activeSession.status !== 'active') {
       return engineError(
         'E_SESSION_NOT_FOUND',
         `Session '${sessionId}' is ${activeSession.status}, not active — nothing to end.`,

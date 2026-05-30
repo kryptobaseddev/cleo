@@ -41,7 +41,12 @@ import { createSession, resolveCurrentSessionId } from '../../store/session-stor
 import { currentTask, startTask } from '../../task-work/index.js';
 
 /** Distinct env keys we manage so afterEach can restore process.env cleanly. */
-const SESSION_ENV_KEYS = ['CLEO_SESSION_ID', 'CLEO_SESSION', 'CLAUDE_SESSION_ID', 'AIDER_SESSION_ID'];
+const SESSION_ENV_KEYS = [
+  'CLEO_SESSION_ID',
+  'CLEO_SESSION',
+  'CLAUDE_SESSION_ID',
+  'AIDER_SESSION_ID',
+];
 
 /** A simulated concurrent agent: its session id and the task it works on. */
 interface AgentFixture {
@@ -142,9 +147,7 @@ describe('multi-agent session-identity isolation (T11348 · Epic T11284)', () =>
 
     // Each agent reads back ONLY its own currentTask.
     for (const agent of AGENTS) {
-      const result = await asAgent(agent.sessionId, () =>
-        currentTask(env.tempDir, env.accessor),
-      );
+      const result = await asAgent(agent.sessionId, () => currentTask(env.tempDir, env.accessor));
       expect(result.currentTask).toBe(agent.taskId);
     }
 

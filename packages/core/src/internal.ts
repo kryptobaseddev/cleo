@@ -1166,6 +1166,14 @@ export type { ContextInjectionData } from './sessions/context-inject.js';
 export { injectContext } from './sessions/context-inject.js';
 export { getDecisionLog, recordDecision } from './sessions/decisions.js';
 export type { FindSessionsParams, MinimalSessionRecord } from './sessions/find.js';
+// Per-session focus_state keying SSoT (T11345 · Epic T11284)
+export type { FocusStateMetaAccessor } from './sessions/focus-state-store.js';
+export {
+  focusStateKey,
+  LEGACY_FOCUS_STATE_KEY,
+  readFocusState,
+  writeFocusState,
+} from './sessions/focus-state-store.js';
 export type { DebriefData, HandoffData } from './sessions/handoff.js';
 export {
   computeDebrief,
@@ -1175,21 +1183,6 @@ export {
 } from './sessions/handoff.js';
 export type { HandoffMarkdownContext } from './sessions/handoff-markdown.js';
 export { emitHandoffMarkdown, renderHandoffMarkdown } from './sessions/handoff-markdown.js';
-// Canonical env-first session/agent identity resolution (T11344 · T11343 · Epic T11284)
-export {
-  CANONICAL_SESSION_ENV_KEY,
-  resolveAgentIdFromEnv,
-  resolveSessionIdFromEnv,
-  SESSION_ENV_KEY_PRECEDENCE,
-} from './sessions/session-id.js';
-// Per-session focus_state keying SSoT (T11345 · Epic T11284)
-export type { FocusStateMetaAccessor } from './sessions/focus-state-store.js';
-export {
-  focusStateKey,
-  LEGACY_FOCUS_STATE_KEY,
-  readFocusState,
-  writeFocusState,
-} from './sessions/focus-state-store.js';
 // Sessions (additional)
 export {
   archiveSessions,
@@ -1200,7 +1193,14 @@ export {
   showSession,
   switchSession,
 } from './sessions/index.js';
-export { generateSessionId } from './sessions/session-id.js';
+// Canonical env-first session/agent identity resolution (T11344 · T11343 · Epic T11284)
+export {
+  CANONICAL_SESSION_ENV_KEY,
+  generateSessionId,
+  resolveAgentIdFromEnv,
+  resolveSessionIdFromEnv,
+  SESSION_ENV_KEY_PRECEDENCE,
+} from './sessions/session-id.js';
 export type { DecisionRecord } from './sessions/types.js';
 export { readRegistry } from './skills/agents/registry.js';
 // Skill-store doctor (T9652 — read-only health report)

@@ -581,6 +581,14 @@ export {
 } from './drift-watchdog.js';
 export type { FindSessionsParams, MinimalSessionRecord } from './find.js';
 export { findSessions } from './find.js';
+// T11345 — per-session focus_state keying (single SSoT helper)
+export type { FocusStateMetaAccessor } from './focus-state-store.js';
+export {
+  focusStateKey,
+  LEGACY_FOCUS_STATE_KEY,
+  readFocusState,
+  writeFocusState,
+} from './focus-state-store.js';
 export type {
   ComputeDebriefOptions,
   ComputeHandoffOptions,
@@ -605,14 +613,6 @@ export type { ContextDriftResult } from './session-drift.js';
 export { getContextDrift } from './session-drift.js';
 export type { SessionHistoryEntry, SessionHistoryParams } from './session-history.js';
 export { getSessionHistory } from './session-history.js';
-// T11345 — per-session focus_state keying (single SSoT helper)
-export type { FocusStateMetaAccessor } from './focus-state-store.js';
-export {
-  focusStateKey,
-  LEGACY_FOCUS_STATE_KEY,
-  readFocusState,
-  writeFocusState,
-} from './focus-state-store.js';
 // T9975 / T11344 — env-precedence session + agent resolution
 export {
   CANONICAL_SESSION_ENV_KEY,
