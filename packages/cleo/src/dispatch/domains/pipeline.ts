@@ -43,14 +43,6 @@ import {
   showChain,
 } from '@cleocode/core/internal';
 import {
-  defineTypedHandler,
-  lafsError,
-  lafsSuccess,
-  type OpsFromCore,
-  typedDispatch,
-  wrapCoreResult,
-} from '../adapters/typed.js';
-import {
   lifecycleCheck,
   lifecycleGateFail,
   lifecycleGatePass,
@@ -79,7 +71,15 @@ import {
   releaseRollback,
   releaseRollbackFull,
   releaseShow,
-} from '../lib/engine.js';
+} from '@cleocode/runtime/gateway';
+import {
+  defineTypedHandler,
+  lafsError,
+  lafsSuccess,
+  type OpsFromCore,
+  typedDispatch,
+  wrapCoreResult,
+} from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { errorResult, getListParams, handleErrorResult } from './_base.js';
 import { dispatchMeta } from './_meta.js';

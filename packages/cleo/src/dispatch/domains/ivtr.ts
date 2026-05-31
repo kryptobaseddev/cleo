@@ -41,6 +41,7 @@ import {
   resolvePhasePrompt,
   startIvtr,
 } from '@cleocode/core/internal';
+import { engineError, engineSuccess, releaseIvtrAutoSuggest } from '@cleocode/runtime/gateway';
 import {
   defineTypedHandler,
   lafsError,
@@ -48,8 +49,6 @@ import {
   type OpsFromCore,
   typedDispatch,
 } from '../adapters/typed.js';
-import { engineError, engineSuccess } from '../engines/_error.js';
-import { releaseIvtrAutoSuggest } from '../lib/engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { handleErrorResult, unsupportedOp } from './_base.js';
 import { dispatchMeta } from './_meta.js';

@@ -330,7 +330,7 @@ async function acquireDb(): Promise<_DatabaseSyncType> {
  */
 async function buildDefaultDispatcher(): Promise<AgentDispatcher> {
   if (__playbookRuntimeOverrides.dispatcher) return __playbookRuntimeOverrides.dispatcher;
-  const { orchestrateSpawnExecute } = await import('../lib/engine.js');
+  const { orchestrateSpawnExecute } = await import('@cleocode/runtime/gateway');
   const { getProjectRoot } = await import('@cleocode/core/internal');
   const projectRoot = getProjectRoot();
   return {

@@ -23,9 +23,39 @@
 import type { DispatchRequest, DispatchResponse } from '@cleocode/contracts/gateway';
 import { Dispatcher, type DispatcherConfig } from './dispatcher.js';
 
+export {
+  type BackgroundJob,
+  BackgroundJobManager,
+  type BackgroundJobManagerConfig,
+  type BackgroundJobStatus,
+  DurableJobStore,
+} from './background-jobs.js';
 export type { DispatcherConfig } from './dispatcher.js';
 export { Dispatcher } from './dispatcher.js';
+// Shared handler dependencies (R3-K1 · T11455) — relocated here so the runtime
+// can assemble the domain-handler map without importing `@cleocode/cleo`.
+// The domain handlers + cli adapter import these from `@cleocode/runtime/gateway`
+// instead of cleo-internal `engines/` / `lib/` / `cli/paths` / `nexus-decorator`.
+export * from './engine.js';
+export {
+  cleoErrorToEngineError,
+  type EngineResult,
+  type ErrorMeta,
+  engineError,
+  engineSuccess,
+  STRING_TO_EXIT,
+} from './engine-error.js';
+export { mapNumericExitCodeToString } from './exit-codes.js';
+export { getJobManager, setJobManager } from './job-manager-accessor.js';
 export { createDispatchMeta } from './meta.js';
+export {
+  buildNexusMetaExtensions,
+  formatSuggestedNext,
+  pickDecoratorMetaExtensions,
+  stampNexusMeta,
+  validateSuggestedNext,
+} from './nexus-decorator.js';
+export { BRAIN_DB_FILENAME, CLEO_DIR_NAME, WORKFLOWS_SUBDIR } from './paths.js';
 export { compose } from './pipeline.js';
 export type { OperationDef, Resolution } from './registry.js';
 export {
