@@ -33,30 +33,45 @@
  * NOT double-prefixed; bare tables (`tasks` → `tasks_tasks`, `attachments` →
  * `docs_attachments`) gain their domain prefix.
  *
- * ## Coverage status (T11360 — partial, by design)
+ * ## Coverage status (T11360 — partial, by design · 27 tables authored)
  *
- * Authored here (a coherent, fully-green slice — 9 tables):
+ * **Batch 1 (PR #849 — merged):**
  *   - **docs** (D11 collapse, AC3): docs_attachments · docs_attachment_refs ·
  *     docs_manifest_entries · docs_pipeline_manifest
  *   - **telemetry**: telemetry_events · telemetry_schema_meta
  *   - **provenance/commits** (E10 §3b boolean + §5b enum demonstrator):
  *     tasks_commits · tasks_task_commits · tasks_commit_files
  *
- * Remaining for follow-on T11360 increments (NOT in this slice): the rest of
- * tasks-core (tasks_tasks, tasks_sessions, lifecycle, releases, PRs,
- * playbooks, agents, chain, audit, evidence, experiments, background-jobs,
- * task_labels junction), the full conduit_* family (14 tables, incl. the 45
- * epoch→ISO8601 timestamp conversions + idempotency keys), and the brain_*
- * memory family (22 tables, mirrored project+global). Each follows the exact
- * pattern established here.
+ * **Batch 2 (this increment — 18 tables):**
+ *   - **conduit** (14 tables · ALL 45 §4 epoch→ISO8601 conversions resolved
+ *     to seconds per §8.1 + §7 idempotency keys on messages / topic_messages /
+ *     delivery_jobs + §3b `enabled` boolean): conduit_conversations ·
+ *     conduit_messages · conduit_delivery_jobs · conduit_dead_letters ·
+ *     conduit_message_pins · conduit_attachments · conduit_attachment_versions ·
+ *     conduit_attachment_approvals · conduit_attachment_contributors ·
+ *     conduit_project_agent_refs · conduit_topics · conduit_topic_subscriptions ·
+ *     conduit_topic_messages · conduit_topic_message_acks (the two
+ *     leading-underscore legacy meta tables `_conduit_meta` /
+ *     `_conduit_migrations` are intentionally OMITTED — §6b rename/drop owned
+ *     by EP-DRIZZLE-CONTAINMENT WS2 at exodus).
+ *   - **tasks-core batch 2** (4 tables · §4 ms-epoch on background_jobs +
+ *     §7 idempotency + AC4 junction): tasks_background_jobs · tasks_experiments ·
+ *     tasks_evidence_ac_bindings · tasks_task_labels.
+ *
+ * Remaining for follow-on increments (NOT yet authored): the rest of
+ * tasks-core (tasks_tasks, tasks_sessions, lifecycle, releases, PRs, playbooks,
+ * agents, chain, audit, manifest-stage tables) and the brain_* memory family
+ * (22 tables, mirrored project+global). Each follows the exact pattern here.
  *
  * @task T11360
  * @epic T11245
  * @saga T11242
- * @see docs/migration/sqlite-schema-canonical.md §1 (per-scope counts) · §3–§6 (typing rules)
+ * @see docs/migration/sqlite-schema-canonical.md §1 (per-scope counts) · §3–§8 (typing rules)
  * @see drizzle/cleo-project.config.ts (per-scope domain membership)
  */
 
+export * from './conduit.js';
 export * from './docs.js';
 export * from './provenance-commits.js';
+export * from './tasks-core-batch2.js';
 export * from './telemetry.js';
