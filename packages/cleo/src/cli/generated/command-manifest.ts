@@ -453,6 +453,12 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/gc.js')).gcCommand as CommandDef,
   },
   {
+    exportName: 'goCommand',
+    name: 'go',
+    description: 'SG-AUTOPILOT: run one turn of briefing→sagaNext→ready→stage-branch→ivtr loop',
+    load: async () => (await import('../commands/go.js')).goCommand as CommandDef,
+  },
+  {
     exportName: 'goalCommand',
     name: 'goal',
     description:

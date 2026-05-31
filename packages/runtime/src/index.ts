@@ -18,6 +18,11 @@ import { HeartbeatService } from './services/heartbeat.js';
 import { KeyRotationService } from './services/key-rotation.js';
 import { SseConnectionService } from './services/sse-connection.js';
 
+// R4 (T11255) — sentient daemon subsystem adapter
+export {
+  bootstrapSentientRegistry,
+  createSentientSubsystem,
+} from './sentient-subsystem.js';
 export type { AgentPollerConfig, MessageHandler } from './services/agent-poller.js';
 export { AgentPoller } from './services/agent-poller.js';
 export type { HeartbeatConfig } from './services/heartbeat.js';

@@ -375,7 +375,7 @@ export class StudioSupervisor {
  * @param globalConfigPath - Absolute path to `~/.cleo/config.json`.
  * @returns Whether the daemon should supervise Studio.
  */
-async function readSuperviseStudioConfig(globalConfigPath: string): Promise<boolean> {
+export async function readSuperviseStudioConfig(globalConfigPath: string): Promise<boolean> {
   try {
     const raw = await readFile(globalConfigPath, 'utf-8');
     const parsed = JSON.parse(raw) as Record<string, unknown>;
