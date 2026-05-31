@@ -366,12 +366,6 @@ export default defineConfig({
       ).pathname,
       '@cleocode/core': new URL('../../packages/core/src/index.ts', import.meta.url).pathname,
       '@cleocode/lafs': new URL('../../packages/lafs/src/index.ts', import.meta.url).pathname,
-      // T9965: @a2a-js/sdk is a dep of @cleocode/lafs; in worktrees it resolves
-      // through lafs/node_modules rather than root node_modules.
-      '@a2a-js/sdk': new URL(
-        '../../packages/lafs/node_modules/@a2a-js/sdk/dist/index.js',
-        import.meta.url,
-      ).pathname,
       // T9965: js-yaml + @iarna/toml are deps of @cleocode/caamp; in worktrees
       // they resolve through caamp/node_modules rather than root node_modules.
       '@iarna/toml': new URL(
