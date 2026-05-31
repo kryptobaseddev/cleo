@@ -1,5 +1,38 @@
 # Changelog
 
+## [2026.5.131] (2026-05-31)
+
+### Added
+
+- Promote the CQRS gateway contract to @cleocode/contracts/gateway and widen Source to a 4-transport union (cli|mcp|rpc|http) _(provenance: [T11446](https://github.com/kryptobaseddev/cleo/search?q=T11446&type=commits), [T11254](https://github.com/kryptobaseddev/cleo/search?q=T11254&type=commits))_
+- Build @cleocode/runtime/gateway/mcp as a thin MCP transport adapter that routes tools/call through the gateway and generates tools/list from the OPERATIONS registry behind a default-deny mcpExposed flag, deprecating the standalone @cleocode/mcp-adapter _(provenance: [T11448](https://github.com/kryptobaseddev/cleo/search?q=T11448&type=commits))_
+- Build @cleocode/runtime/gateway/http as the fourth and final gateway transport adapter — framework-agnostic unary (POST → JSON LAFS) + SSE (GatewayStreamEvent) over the unified gateway — and route the two Studio SSE endpoints through its shared abort-safe stream builder with a byte-identical wire _(provenance: [T11450](https://github.com/kryptobaseddev/cleo/search?q=T11450&type=commits))_
+
+### Changed
+
+- Add R3 transport-inventory golden regression net (CLI/MCP/SSE current-state baseline) + topology spec _(provenance: [T11445](https://github.com/kryptobaseddev/cleo/search?q=T11445&type=commits), [T11254](https://github.com/kryptobaseddev/cleo/search?q=T11254&type=commits))_
+- Relocate the CQRS Dispatcher core to @cleocode/runtime/gateway (subpath) with cleo re-export shims — zero behavior change _(provenance: [T11447](https://github.com/kryptobaseddev/cleo/search?q=T11447&type=commits), [T11254](https://github.com/kryptobaseddev/cleo/search?q=T11254&type=commits))_
+- Freeze gateway-contract v1.0 — lock the full contract surface (version + 4 transports + all frozen shapes) + spec doc _(provenance: [T11452](https://github.com/kryptobaseddev/cleo/search?q=T11452&type=commits), [T11254](https://github.com/kryptobaseddev/cleo/search?q=T11254&type=commits))_
+- Decouple the domain-handler subgraph from cleo-internals — relocate the shared handler dependencies (engine barrel, engine-error/exit-codes, template-parser, nexus-decorator, job-manager-accessor/background-jobs, path constants) into @cleocode/runtime/gateway so the runtime can assemble the handler map without importing @cleocode/cleo _(provenance: [T11455](https://github.com/kryptobaseddev/cleo/search?q=T11455&type=commits))_
+
+### Fixed
+
+
+
+### Deprecated
+
+
+
+### Removed
+
+
+
+### Security
+
+
+
+### BREAKING CHANGES
+
 ## [2026.5.130] (2026-05-30)
 
 ### Added
