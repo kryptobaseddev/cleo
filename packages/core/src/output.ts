@@ -22,7 +22,7 @@
 import { randomUUID } from 'node:crypto';
 import type { LafsEnvelope, LafsError, LafsSuccess } from '@cleocode/contracts';
 import type { CliEnvelope, CliEnvelopeError, CliMeta, LAFSPage, Warning } from '@cleocode/lafs';
-import { getCurrentWarningCollector } from '@cleocode/lafs';
+import { getCurrentWarningCollector, validateEnvelope } from '@cleocode/lafs';
 import { CleoError } from './errors.js';
 import {
   getCurrentExecutionSessionId,
@@ -164,6 +164,65 @@ function createCliMeta(operation: string, duration_ms = 0): CliMeta {
  * @task T338
  * @epic T4663
  */
+/**
+ * Validate a canonical CLI envelope under strict mode (CLEO_STRICT_ENVELOPE /
+ * CLEO_ENV=ci) and log a structured warning to stderr on violation.
+ *
+ * Validation uses the same `validateEnvelope` path as the LAFS SDK (native
+ * Rust fast-path when available, AJV fallback otherwise). This avoids a
+ * blocking throw in production — the envelope is emitted but the process exit
+ * code is set to LAFS_VIOLATION (104) so callers can detect failures.
+ *
+ * The check is gated to avoid the T11292 latency regression noted for the
+ * 7-10s CLI startup case. Activate via:
+ *   - CLEO_STRICT_ENVELOPE=1 — always validate
+ *   - CLEO_ENV=ci             — validate in CI
+ *   - NODE_ENV=test           — validate in test
+ *
+ * @internal
+ * @task T11420
+ */
+function maybeValidateEnvelope(envelope: unknown): void {
+  const strict =
+    process.env['CLEO_STRICT_ENVELOPE'] === '1' ||
+    process.env['CLEO_ENV'] === 'ci' ||
+    process.env['NODE_ENV'] === 'test';
+  if (!strict) return;
+
+  const result = validateEnvelope(envelope);
+  if (!result.valid) {
+    // Structured stderr diagnostic (gated to not pollute normal output)
+    if (process.env['CLEO_DEBUG'] || process.env['CLEO_STRICT_ENVELOPE'] === '1') {
+      process.stderr.write(
+        `[lafs-validator] envelope shape violation: ${result.errors.join('; ')}\n`,
+      );
+    }
+    process.exitCode = 104; // ExitCode.LAFS_VIOLATION
+  }
+}
+
+/**
+ * Format a successful result as a canonical CLI envelope.
+ *
+ * Produces the unified `CliEnvelope<T>` shape: `{success, data, meta, page?}`.
+ * This replaces all three legacy shapes (minimal `{ok,r,_m}`, full `{$schema,_meta,result}`,
+ * and observe `{success,result}`) with a single canonical format (ADR-039).
+ *
+ * The `mvi` option in `FormatOptions` is accepted for backward compatibility but
+ * no longer affects the envelope shape — the canonical shape is always emitted.
+ *
+ * @param data - The operation result payload.
+ * @param message - Optional success message (attached to `meta.message`).
+ * @param operationOrOpts - Operation name string or `FormatOptions` object.
+ * @returns JSON-serialized `CliEnvelope<T>`.
+ *
+ * @task T4672
+ * @task T4668
+ * @task T4670
+ * @task T338
+ * @task T11420
+ * @epic T4663
+ */
 export function formatSuccess<T>(
   data: T,
   message?: string,
@@ -202,6 +261,7 @@ export function formatSuccess<T>(
     ...(opts.page && { page: opts.page }),
   };
 
+  maybeValidateEnvelope(envelope);
   return JSON.stringify(envelope);
 }
 
@@ -218,6 +278,7 @@ export function formatSuccess<T>(
  *
  * @task T4672
  * @task T338
+ * @task T11420
  * @epic T4663
  */
 export function formatError(error: CleoError, operation?: string): string {
@@ -241,6 +302,7 @@ export function formatError(error: CleoError, operation?: string): string {
     error: errorObj,
     meta: createCliMeta(operation ?? 'cli.output'),
   };
+  maybeValidateEnvelope(envelope);
   return JSON.stringify(envelope);
 }
 

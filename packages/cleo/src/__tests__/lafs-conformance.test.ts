@@ -26,7 +26,7 @@
  */
 
 import { ExitCode, getExitCodeName, isErrorCode, isSuccessCode } from '@cleocode/contracts';
-import { createEnvelope, runEnvelopeConformance } from '@cleocode/lafs';
+import { createEnvelope, runEnvelopeConformance, validateEnvelope } from '@cleocode/lafs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   getCleoErrorRegistry,
@@ -397,10 +397,11 @@ describe('LAFS Integration with Core Modules', () => {
       accessor,
     );
     const json = formatSuccess({ task: result.task });
-    // Canonical CLI envelope shape check (ADR-039). The CLEO CLI no longer
-    // emits the legacy LAFS schema shape, so `validateEnvelope` is not
-    // applicable here — tracked separately for a future LAFS schema update.
+    // T11419: envelope.schema.json now accepts the CLEO canonical shape (meta/data).
+    // Both isValidLafsEnvelope() and validateEnvelope() MUST pass.
     expect(isValidLafsEnvelope(json).valid).toBe(true);
+    const schemaResult = validateEnvelope(JSON.parse(json));
+    expect(schemaResult.valid).toBe(true);
     const envelope = JSON.parse(json);
     expect(envelope.success).toBe(true);
     expect(envelope.data).toBeDefined();
@@ -417,6 +418,8 @@ describe('LAFS Integration with Core Modules', () => {
     const json = formatSuccess({ task: result.task }, undefined, 'tasks.add');
     const envelope = JSON.parse(json);
     expect(isValidLafsEnvelope(json).valid).toBe(true);
+    // T11419: CLEO CLI shape is now schema-validated by validateEnvelope()
+    expect(validateEnvelope(envelope).valid).toBe(true);
     expect(envelope.meta.operation).toBe('tasks.add');
   });
 
@@ -425,6 +428,8 @@ describe('LAFS Integration with Core Modules', () => {
     const result = await listPhases(env.tempDir, accessor);
     const json = formatSuccess(result);
     expect(isValidLafsEnvelope(json).valid).toBe(true);
+    // T11419: also passes the LAFS schema validator
+    expect(validateEnvelope(JSON.parse(json)).valid).toBe(true);
   });
 
   it('error from showTask produces valid canonical CLI error envelope', async () => {

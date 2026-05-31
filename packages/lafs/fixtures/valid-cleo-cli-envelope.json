@@ -1,0 +1,12 @@
+{
+  "success": true,
+  "data": {
+    "task": { "id": "T001", "title": "Example task" }
+  },
+  "meta": {
+    "operation": "tasks.show",
+    "requestId": "req_cleo_cli_01",
+    "duration_ms": 42,
+    "timestamp": "2026-05-31T00:00:00Z"
+  }
+}

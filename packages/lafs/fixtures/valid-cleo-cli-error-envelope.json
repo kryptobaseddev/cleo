@@ -1,0 +1,15 @@
+{
+  "success": false,
+  "error": {
+    "code": "E_CLEO_NOT_FOUND",
+    "message": "Task not found",
+    "category": "NOT_FOUND",
+    "retryable": false
+  },
+  "meta": {
+    "operation": "tasks.show",
+    "requestId": "req_cleo_cli_err_01",
+    "duration_ms": 5,
+    "timestamp": "2026-05-31T00:00:00Z"
+  }
+}

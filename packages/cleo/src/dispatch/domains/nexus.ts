@@ -724,16 +724,16 @@ function nexusQueryEnvelopeToResponse(
   const env = envelope as {
     success: boolean;
     data?: unknown;
-    page?: import('@cleocode/lafs').LAFSPage;
+    page?: import('@cleocode/contracts').LAFSPage;
     error?: { code: string | number; message: string };
   };
   // Two page sources: envelope-level (preferred) or legacy data.page (fallback).
-  let pageMetadata: import('@cleocode/lafs').LAFSPage | undefined = env.page;
+  let pageMetadata: import('@cleocode/contracts').LAFSPage | undefined = env.page;
   let resultData: unknown = env.data;
   if (!pageMetadata && env.success && resultData && typeof resultData === 'object') {
     const dataObj = resultData as Record<string, unknown>;
     if ('page' in dataObj && dataObj.page) {
-      pageMetadata = dataObj.page as import('@cleocode/lafs').LAFSPage;
+      pageMetadata = dataObj.page as import('@cleocode/contracts').LAFSPage;
       const { page: _removed, ...cleanData } = dataObj;
       resultData = cleanData;
     }

@@ -2,316 +2,439 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://lafs.dev/schemas/v1/envelope.schema.json",
   "title": "LAFS Envelope v1",
-  "type": "object",
-  "required": [
-    "$schema",
-    "_meta",
-    "success",
-    "result"
-  ],
-  "properties": {
-    "$schema": {
-      "type": "string",
-      "const": "https://lafs.dev/schemas/v1/envelope.schema.json"
-    },
-    "_meta": {
+  "description": "Accepts both the canonical LAFS SDK shape (_meta/result) and the CLEO CLI canonical shape (meta/data). See ADR-039 and T11419.",
+  "oneOf": [
+    {
+      "title": "LAFS SDK envelope (_meta / result shape)",
       "type": "object",
-      "additionalProperties": false,
       "required": [
-        "specVersion",
-        "schemaVersion",
-        "timestamp",
-        "operation",
-        "requestId",
-        "transport",
-        "strict",
-        "mvi",
-        "contextVersion"
+        "$schema",
+        "_meta",
+        "success",
+        "result"
       ],
       "properties": {
-        "specVersion": {
+        "$schema": {
           "type": "string",
-          "pattern": "^\\d+\\.\\d+\\.\\d+$"
+          "const": "https://lafs.dev/schemas/v1/envelope.schema.json"
         },
-        "schemaVersion": {
-          "type": "string",
-          "pattern": "^\\d+\\.\\d+\\.\\d+$"
+        "_meta": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "specVersion",
+            "schemaVersion",
+            "timestamp",
+            "operation",
+            "requestId",
+            "transport",
+            "strict",
+            "mvi",
+            "contextVersion"
+          ],
+          "properties": {
+            "specVersion": {
+              "type": "string",
+              "pattern": "^\\d+\\.\\d+\\.\\d+$"
+            },
+            "schemaVersion": {
+              "type": "string",
+              "pattern": "^\\d+\\.\\d+\\.\\d+$"
+            },
+            "timestamp": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "operation": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "requestId": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 128
+            },
+            "transport": {
+              "type": "string",
+              "enum": ["cli", "http", "grpc", "sdk"]
+            },
+            "strict": {
+              "type": "boolean"
+            },
+            "mvi": {
+              "type": "string",
+              "enum": ["minimal", "standard", "full", "custom"],
+              "description": "Disclosure level: minimal (MVI only), standard (common fields), full (all fields), custom (per _fields parameter)"
+            },
+            "contextVersion": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "sessionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "Session identifier for correlating multi-step agent workflows"
+            },
+            "originSessionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "Root session that originally initiated the workflow or saga"
+            },
+            "executionSessionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "Specific execution instance for the command, saga step, or delegated worker"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "code": { "type": "string", "description": "Warning identifier (e.g., DEPRECATED_FIELD)" },
+                  "message": { "type": "string", "description": "Human-readable warning" },
+                  "deprecated": { "type": "string", "description": "The deprecated feature or field name" },
+                  "replacement": { "type": "string", "description": "Suggested replacement, if any" },
+                  "removeBy": { "type": "string", "description": "Version when the deprecated feature will be removed" }
+                },
+                "required": ["code", "message"]
+              },
+              "description": "Non-fatal advisory warnings (deprecations, migration hints)"
+            }
+          }
         },
-        "timestamp": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "operation": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 128
-        },
-        "requestId": {
-          "type": "string",
-          "minLength": 3,
-          "maxLength": 128
-        },
-        "transport": {
-          "type": "string",
-          "enum": ["cli", "http", "grpc", "sdk"]
-        },
-        "strict": {
+        "success": {
           "type": "boolean"
         },
-        "mvi": {
-          "type": "string",
-          "enum": ["minimal", "standard", "full", "custom"],
-          "description": "Disclosure level: minimal (MVI only), standard (common fields), full (all fields), custom (per _fields parameter)"
+        "result": {
+          "type": ["object", "array", "null"]
         },
-        "contextVersion": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "sessionId": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256,
-          "description": "Session identifier for correlating multi-step agent workflows"
-        },
-        "originSessionId": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256,
-          "description": "Root session that originally initiated the workflow or saga"
-        },
-        "executionSessionId": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256,
-          "description": "Specific execution instance for the command, saga step, or delegated worker"
-        },
-        "warnings": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "code": { "type": "string", "description": "Warning identifier (e.g., DEPRECATED_FIELD)" },
-              "message": { "type": "string", "description": "Human-readable warning" },
-              "deprecated": { "type": "string", "description": "The deprecated feature or field name" },
-              "replacement": { "type": "string", "description": "Suggested replacement, if any" },
-              "removeBy": { "type": "string", "description": "Version when the deprecated feature will be removed" }
+        "error": {
+          "type": ["object", "null"],
+          "additionalProperties": true,
+          "required": [
+            "code",
+            "message",
+            "category",
+            "retryable",
+            "retryAfterMs",
+            "details"
+          ],
+          "properties": {
+            "code": {
+              "type": "string",
+              "pattern": "^E_[A-Z0-9]+_[A-Z0-9_]+$"
             },
-            "required": ["code", "message"]
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            },
+            "category": {
+              "type": "string",
+              "enum": [
+                "VALIDATION",
+                "AUTH",
+                "PERMISSION",
+                "NOT_FOUND",
+                "CONFLICT",
+                "RATE_LIMIT",
+                "TRANSIENT",
+                "INTERNAL",
+                "CONTRACT",
+                "MIGRATION"
+              ]
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "retryAfterMs": {
+              "type": ["integer", "null"],
+              "minimum": 0
+            },
+            "details": {
+              "type": "object"
+            },
+            "agentAction": {
+              "type": "string",
+              "enum": ["retry", "retry_modified", "escalate", "stop", "wait", "refresh_context", "authenticate"],
+              "description": "Machine-actionable instruction for the consuming agent"
+            },
+            "escalationRequired": {
+              "type": "boolean",
+              "description": "Whether human/owner intervention is required"
+            },
+            "suggestedAction": {
+              "type": "string",
+              "maxLength": 512,
+              "description": "Brief actionable instruction for error recovery"
+            },
+            "docUrl": {
+              "type": "string",
+              "format": "uri",
+              "description": "Documentation URL for this error type"
+            }
+          }
+        },
+        "page": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["offset", "cursor", "none"]
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "offset": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "nextCursor": {
+              "type": ["string", "null"],
+              "maxLength": 2048
+            },
+            "hasMore": {
+              "type": "boolean"
+            },
+            "total": {
+              "type": ["integer", "null"],
+              "minimum": 0
+            }
           },
-          "description": "Non-fatal advisory warnings (deprecations, migration hints)"
-        }
-      }
-    },
-    "success": {
-      "type": "boolean"
-    },
-    "result": {
-      "type": ["object", "array", "null"]
-    },
-    "error": {
-      "type": ["object", "null"],
-      "additionalProperties": true,
-      "required": [
-        "code",
-        "message",
-        "category",
-        "retryable",
-        "retryAfterMs",
-        "details"
-      ],
-      "properties": {
-        "code": {
-          "type": "string",
-          "pattern": "^E_[A-Z0-9]+_[A-Z0-9_]+$"
-        },
-        "message": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 1024
-        },
-        "category": {
-          "type": "string",
-          "enum": [
-            "VALIDATION",
-            "AUTH",
-            "PERMISSION",
-            "NOT_FOUND",
-            "CONFLICT",
-            "RATE_LIMIT",
-            "TRANSIENT",
-            "INTERNAL",
-            "CONTRACT",
-            "MIGRATION"
+          "allOf": [
+            {
+              "if": {
+                "type": "object",
+                "properties": { "mode": { "const": "cursor" } },
+                "required": ["mode"]
+              },
+              "then": {
+                "required": ["mode", "nextCursor", "hasMore"],
+                "properties": {
+                  "mode": true,
+                  "nextCursor": true,
+                  "hasMore": true,
+                  "limit": true,
+                  "total": true
+                }
+              }
+            },
+            {
+              "if": {
+                "type": "object",
+                "properties": { "mode": { "const": "offset" } },
+                "required": ["mode"]
+              },
+              "then": {
+                "required": ["mode", "limit", "offset", "hasMore"],
+                "properties": {
+                  "mode": true,
+                  "limit": true,
+                  "offset": true,
+                  "hasMore": true,
+                  "total": true
+                }
+              }
+            },
+            {
+              "if": {
+                "type": "object",
+                "properties": { "mode": { "const": "none" } },
+                "required": ["mode"]
+              },
+              "then": {
+                "required": ["mode"],
+                "properties": {
+                  "mode": true
+                }
+              }
+            }
           ]
         },
-        "retryable": {
-          "type": "boolean"
-        },
-        "retryAfterMs": {
-          "type": ["integer", "null"],
-          "minimum": 0
-        },
-        "details": {
-          "type": "object"
-        },
-        "agentAction": {
-          "type": "string",
-          "enum": ["retry", "retry_modified", "escalate", "stop", "wait", "refresh_context", "authenticate"],
-          "description": "Machine-actionable instruction for the consuming agent"
-        },
-        "escalationRequired": {
-          "type": "boolean",
-          "description": "Whether human/owner intervention is required"
-        },
-        "suggestedAction": {
-          "type": "string",
-          "maxLength": 512,
-          "description": "Brief actionable instruction for error recovery"
-        },
-        "docUrl": {
-          "type": "string",
-          "format": "uri",
-          "description": "Documentation URL for this error type"
-        }
-      }
-    },
-    "page": {
-      "type": ["object", "null"],
-      "additionalProperties": false,
-      "required": ["mode"],
-      "properties": {
-        "mode": {
-          "type": "string",
-          "enum": ["offset", "cursor", "none"]
-        },
-        "limit": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 1000
-        },
-        "offset": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "nextCursor": {
-          "type": ["string", "null"],
-          "maxLength": 2048
-        },
-        "hasMore": {
-          "type": "boolean"
-        },
-        "total": {
-          "type": ["integer", "null"],
-          "minimum": 0
+        "_extensions": {
+          "type": "object",
+          "description": "Vendor extensions. Keys SHOULD use x- prefix (e.g., x-myvendor-trace-id).",
+          "additionalProperties": true
         }
       },
       "allOf": [
         {
           "if": {
-            "type": "object",
-            "properties": { "mode": { "const": "cursor" } },
-            "required": ["mode"]
+            "properties": {
+              "success": { "const": true }
+            }
           },
           "then": {
-            "required": ["mode", "nextCursor", "hasMore"],
             "properties": {
-              "mode": true,
-              "nextCursor": true,
-              "hasMore": true,
-              "limit": true,
-              "total": true
+              "error": { "type": "null" }
             }
           }
         },
         {
           "if": {
-            "type": "object",
-            "properties": { "mode": { "const": "offset" } },
-            "required": ["mode"]
+            "properties": {
+              "success": { "const": false }
+            }
           },
           "then": {
-            "required": ["mode", "limit", "offset", "hasMore"],
+            "required": ["error"],
             "properties": {
-              "mode": true,
-              "limit": true,
-              "offset": true,
-              "hasMore": true,
-              "total": true
+              "error": { "type": "object" }
             }
           }
         },
         {
           "if": {
-            "type": "object",
-            "properties": { "mode": { "const": "none" } },
-            "required": ["mode"]
+            "properties": {
+              "_meta": {
+                "type": "object",
+                "properties": {
+                  "strict": { "const": true }
+                }
+              }
+            }
           },
           "then": {
-            "required": ["mode"],
+            "additionalProperties": false,
             "properties": {
-              "mode": true
+              "$schema": true,
+              "_meta": true,
+              "success": true,
+              "result": true,
+              "error": true,
+              "page": true,
+              "_extensions": true
             }
+          },
+          "else": {
+            "additionalProperties": true
           }
         }
       ]
     },
-    "_extensions": {
+    {
+      "title": "CLEO CLI canonical success envelope (meta / data shape, ADR-039)",
+      "description": "Success variant: success=true with data field. No _meta field present.",
       "type": "object",
-      "description": "Vendor extensions. Keys SHOULD use x- prefix (e.g., x-myvendor-trace-id).",
-      "additionalProperties": true
-    }
-  },
-  "allOf": [
-    {
-      "if": {
-        "properties": {
-          "success": { "const": true }
-        }
-      },
-      "then": {
-        "properties": {
-          "error": { "type": "null" }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "success": { "const": false }
-        }
-      },
-      "then": {
-        "required": ["error"],
-        "properties": {
-          "error": { "type": "object" }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "_meta": {
-            "type": "object",
-            "properties": {
-              "strict": { "const": true }
+      "required": ["success", "data", "meta"],
+      "properties": {
+        "success": { "type": "boolean", "const": true },
+        "data": {},
+        "meta": {
+          "type": "object",
+          "required": ["operation", "requestId", "duration_ms", "timestamp"],
+          "properties": {
+            "operation": { "type": "string", "minLength": 1 },
+            "requestId": { "type": "string", "minLength": 1 },
+            "duration_ms": { "type": "number" },
+            "timestamp": { "type": "string" },
+            "sessionId": { "type": "string" },
+            "originSessionId": { "type": "string" },
+            "executionSessionId": { "type": "string" },
+            "message": { "type": "string" },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["code", "message"],
+                "properties": {
+                  "code": { "type": "string" },
+                  "message": { "type": "string" }
+                },
+                "additionalProperties": true
+              }
+            },
+            "suggestedNext": {
+              "type": "array",
+              "items": { "type": "string" }
             }
-          }
+          },
+          "additionalProperties": true
+        },
+        "page": {
+          "type": "object",
+          "required": ["mode"],
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["offset", "cursor", "none"]
+            },
+            "limit": { "type": "integer", "minimum": 1 },
+            "offset": { "type": "integer", "minimum": 0 },
+            "nextCursor": { "type": ["string", "null"] },
+            "hasMore": { "type": "boolean" },
+            "total": { "type": ["integer", "null"], "minimum": 0 }
+          },
+          "additionalProperties": true
         }
       },
-      "then": {
-        "additionalProperties": false,
-        "properties": {
-          "$schema": true,
-          "_meta": true,
-          "success": true,
-          "result": true,
-          "error": true,
-          "page": true,
-          "_extensions": true
+      "additionalProperties": true,
+      "not": {
+        "required": ["_meta"]
+      }
+    },
+    {
+      "title": "CLEO CLI canonical error envelope (meta / error shape, ADR-039)",
+      "description": "Error variant: success=false with error field. No _meta field present.",
+      "type": "object",
+      "required": ["success", "error", "meta"],
+      "properties": {
+        "success": { "type": "boolean", "const": false },
+        "error": {
+          "type": "object",
+          "required": ["code", "message"],
+          "properties": {
+            "code": { "type": ["string", "number"] },
+            "message": { "type": "string", "minLength": 1 },
+            "category": { "type": "string" },
+            "retryable": { "type": "boolean" },
+            "agentAction": { "type": "string" }
+          },
+          "additionalProperties": true
+        },
+        "meta": {
+          "type": "object",
+          "required": ["operation", "requestId", "duration_ms", "timestamp"],
+          "properties": {
+            "operation": { "type": "string", "minLength": 1 },
+            "requestId": { "type": "string", "minLength": 1 },
+            "duration_ms": { "type": "number" },
+            "timestamp": { "type": "string" },
+            "sessionId": { "type": "string" },
+            "originSessionId": { "type": "string" },
+            "executionSessionId": { "type": "string" },
+            "message": { "type": "string" },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["code", "message"],
+                "properties": {
+                  "code": { "type": "string" },
+                  "message": { "type": "string" }
+                },
+                "additionalProperties": true
+              }
+            },
+            "suggestedNext": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          },
+          "additionalProperties": true
         }
       },
-      "else": {
-        "additionalProperties": true
+      "additionalProperties": true,
+      "not": {
+        "required": ["_meta"]
       }
     }
   ]

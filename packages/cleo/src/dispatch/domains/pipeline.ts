@@ -770,8 +770,8 @@ const _pipelineTypedHandler = defineTypedHandler<PipelineOps>('pipeline', {
 //
 // These helpers extract the fat post-dispatch transformation blocks from
 // PipelineHandler.query so each branch in the query method is ≤5 LOC.
-// SSoT-EXEMPT: pagination + page-envelope lifting are dispatch-layer concerns
-// (LAFSPage type incompatibility between @cleocode/lafs and @cleocode/contracts).
+// SSoT-EXEMPT: pagination + page-envelope lifting are dispatch-layer concerns.
+// LAFSPage is now imported from @cleocode/contracts (canonical re-export, T11423).
 // ---------------------------------------------------------------------------
 
 /** Apply phase.list pagination to a typed-dispatch envelope. */
@@ -821,7 +821,9 @@ function pipelineEnvelopeResponse(
   startTime: number,
 ): DispatchResponse {
   const envelopeData = envelope.data as Record<string, unknown> | undefined;
-  const enginePage = envelopeData?._enginePage as import('@cleocode/lafs').LAFSPage | undefined;
+  const enginePage = envelopeData?._enginePage as
+    | import('@cleocode/contracts').LAFSPage
+    | undefined;
   const responseData =
     envelopeData?._enginePage !== undefined
       ? (({ _enginePage: _p, ...rest }) => rest)(
@@ -846,8 +848,8 @@ function pipelineEnvelopeResponse(
  * Delegates all operations to the typed inner handler via `typedDispatch`.
  * Special cases:
  * - `stage.guidance` — resolved in the typed handler (stage-from-epicId logic).
- * - `phase.list` / `chain.list` — pagination applied in this outer handler to avoid
- *   LAFSPage type incompatibility between `@cleocode/lafs` and `@cleocode/contracts`.
+ * - `phase.list` / `chain.list` — pagination applied in this outer handler;
+ *   LAFSPage now imports from `@cleocode/contracts` (T11423).
  *
  * @task T1441 — OpsFromCore inference migration (Wave D · T1435)
  */
