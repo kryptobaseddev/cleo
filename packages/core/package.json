@@ -121,6 +121,11 @@
       "import": "./dist/gc/index.js",
       "require": "./dist/gc/index.js"
     },
+    "./db": {
+      "types": "./dist/db/index.d.ts",
+      "import": "./dist/db/index.js",
+      "require": "./dist/db/index.js"
+    },
     "./doctor": {
       "types": "./dist/doctor/index.d.ts",
       "import": "./dist/doctor/index.js",
