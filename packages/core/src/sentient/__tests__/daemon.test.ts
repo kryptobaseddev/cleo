@@ -70,6 +70,11 @@ function mkTickOptions(projectRoot: string, overrides: Partial<TickOptions> = {}
     statePath: join(projectRoot, SENTIENT_STATE_FILE),
     pickTask: async () => null,
     spawn: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
+    // T11498: skip the re-verify gate in non-gate-specific tests so that
+    // tests for other tick machinery (kill-switch, state transitions, etc.)
+    // are not broken by the now-mandatory re-verify step. Tests that cover
+    // the gate itself live in re-verify-gate.test.ts.
+    skipReVerify: true,
     ...overrides,
   };
 }
