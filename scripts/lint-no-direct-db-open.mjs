@@ -32,7 +32,6 @@
  *   - `packages/core/src/agents/seed-install.ts` — one-shot global install
  *   - `packages/core/src/orchestration/classify.ts` — JSDoc @example blocks (false-positives)
  *   - `packages/core/src/nexus/**` — nexus graph per-project opens (non-CLEO-metadata DBs)
- *   - `packages/brain/src/db-connections.ts` — package-boundary constraint (no core dep)
  *   - `packages/studio/src/lib/server/db/connections.ts` — per-project ProjectContext-driven opens
  *   - Test files (`__tests__/`, `.test.ts`, `.spec.ts`) — may open raw for seeding
  *   - Test factory/helper paths (see TEST_FACTORY_PREFIXES)
@@ -103,9 +102,6 @@ const ALLOW_PATH_PREFIXES = [
   'packages/core/src/orchestration/classify.ts',
   // Nexus graph DB — per-project non-CLEO-metadata files (nexus/store.ts uses db-open-allowed)
   'packages/core/src/nexus/',
-  // @cleocode/brain MUST NOT depend on @cleocode/core (package-boundary constraint).
-  // Uses inline applyBrainPragmas mirror of SSoT; tracked for consolidation via contracts.
-  'packages/brain/src/db-connections.ts',
   // Studio per-project getters take a ProjectContext and cannot route through openCleoDb;
   // they do apply pragma SSoT via applyPerfPragmas.
   'packages/studio/src/lib/server/db/connections.ts',
