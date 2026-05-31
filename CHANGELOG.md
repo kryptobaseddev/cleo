@@ -1,5 +1,34 @@
 # Changelog
 
+## [2026.5.133] (2026-05-31)
+
+### Added
+
+- E7: Tier-2 auto-promotion + cleo classify + RCASD/IVTR output schema validation (SG-AUTOPILOT) _(provenance: [T11499](https://github.com/kryptobaseddev/cleo/search?q=T11499&type=commits))_
+- E3 openCleoDb dual-scope delegation + WAL coexistence test (T11246 · SG-DB-SUBSTRATE-V2) _(provenance: [T11517](https://github.com/kryptobaseddev/cleo/search?q=T11517&type=commits), [T11518](https://github.com/kryptobaseddev/cleo/search?q=T11518&type=commits), [T11520](https://github.com/kryptobaseddev/cleo/search?q=T11520&type=commits))_
+
+### Changed
+
+- E4-T5 brain db-connections — route through openDualScopeDb chokepoint; add @cleocode/core dep; remove Gate-3 allowlist exemption (T11247 · SG-DB-SUBSTRATE-V2) _(provenance: [T11516](https://github.com/kryptobaseddev/cleo/search?q=T11516&type=commits))_
+
+### Fixed
+
+
+
+### Deprecated
+
+
+
+### Removed
+
+
+
+### Security
+
+
+
+### BREAKING CHANGES
+
 ## [2026.5.132] (2026-05-31)
 
 ### Added
