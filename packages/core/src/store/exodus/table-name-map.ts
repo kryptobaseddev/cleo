@@ -31,6 +31,8 @@
  * tasks.db and signaldock.db).
  *
  * @task T11532 (ROOT CAUSE 1 — name-mapping gap)
+ * @task T11533 (ROOT CAUSE 3 — signaldock skills mapping + brain_release_links skip +
+ *               brain_session_narrative mapping)
  * @epic T11248
  * @saga T11242
  */
@@ -114,16 +116,29 @@ const TASKS_DB_MAP: ReadonlyMap<string, string> = new Map([
 ]);
 
 /**
- * brain.db (project) and global brain.db — tables from memory-schema.ts.
+ * brain.db (project) and global brain.db — tables from memory-schema.ts /
+ * cleo-shared/brain.ts.
  *
  * Most tables are already `brain_*` prefixed in the legacy schema and keep the
- * same name in the consolidated schema. Two exceptions:
- *   - `sticky_tags` → `brain_sticky_tags` (lost prefix in legacy)
- *   - `deriver_queue` → `brain_deriver_queue` (lost prefix in legacy)
+ * same name in the consolidated schema. Three exceptions:
+ *   - `sticky_tags`        → `brain_sticky_tags` (lost prefix in legacy)
+ *   - `deriver_queue`      → `brain_deriver_queue` (lost prefix in legacy)
+ *   - `session_narrative`  → `brain_session_narrative` (lost prefix in legacy)
  *
  * Tables present in the live DB but NOT in the consolidated target schema
  * (virtual tables, orphan telemetry, etc.) map to `null` — they will be
  * logged as explicit skips rather than silently discarded.
+ *
+ * ## brain_release_links (T11533 fix)
+ *
+ * The legacy brain.db contains a `brain_release_links` table (8 rows) used by
+ * `cleo release reconcile` to track release provenance. The consolidated
+ * cleo-project schema does NOT include this table (it lives in tasks-domain
+ * provenance tables instead). The prior mapping pointed to itself (identity),
+ * which caused the copy to fail silently with "target not found" and skip the
+ * rows. Corrected to `null` (explicit documented skip) so the journal records
+ * the intentional exclusion and post-exodus the release reconcile subsystem
+ * will rebuild this data from tasks_releases + tasks_commits.
  */
 const BRAIN_DB_MAP: ReadonlyMap<string, string | null> = new Map([
   // Already-prefixed brain_* tables (identity mapping)
@@ -146,25 +161,32 @@ const BRAIN_DB_MAP: ReadonlyMap<string, string | null> = new Map([
   ['brain_backfill_runs', 'brain_backfill_runs'],
   ['brain_memory_trees', 'brain_memory_trees'],
   ['brain_observations_staging', 'brain_observations_staging'],
-  // Already prefixed in legacy but kept as-is
-  ['brain_release_links', 'brain_release_links'],
-  // Unprefixed legacy names
+  // brain_release_links: NOT in consolidated schema (T11533 fix — was pointing to identity
+  // but the table doesn't exist in cleo-project; explicit skip with journal note).
+  // Post-exodus: rebuilt from tasks_releases + tasks_commits by release reconcile.
+  ['brain_release_links', null],
+  // Unprefixed legacy names (gain brain_ prefix in consolidated)
   ['sticky_tags', 'brain_sticky_tags'],
   ['deriver_queue', 'brain_deriver_queue'],
+  // session_narrative → brain_session_narrative (T11533 fix — was missing from map,
+  // causing identity fallback to 'session_narrative' which doesn't exist in consolidated).
+  ['session_narrative', 'brain_session_narrative'],
   // Tables present in live DB but NOT in consolidated schema — explicit logged skip
-  // brain_usage_log: runtime-only telemetry table created by quality-feedback.ts
-  //   with CREATE TABLE IF NOT EXISTS (not Drizzle-managed). 8471 rows.
-  //   Intentionally excluded from consolidated schema (non-canonical side-table);
-  //   the memory quality-feedback subsystem will recreate it on first write post-exodus.
+  // brain_usage_log: runtime-only quality-feedback telemetry (8471 rows). Not Drizzle-managed.
+  //   Created by quality-feedback.ts via CREATE TABLE IF NOT EXISTS; excluded from the
+  //   consolidated Drizzle schema. Post-exodus, the subsystem recreates it on first write.
   ['brain_usage_log', null],
-  // brain_task_observations: created by memory-sqlite.ts via raw SQL, not in Drizzle schema.
+  // brain_task_observations: runtime-only observation cache. Not in Drizzle schema.
   ['brain_task_observations', null],
   // brain_embeddings: vec0 VIRTUAL TABLE — cannot be migrated via INSERT/SELECT.
   //   Requires the sqlite-vec extension (vec0) to be loaded. Skip — will be
   //   recreated lazily by memory-sqlite.ts after the exodus cutover.
   ['brain_embeddings', null],
-  // brain_embeddings_info: metadata companion to brain_embeddings virtual table.
+  // brain_embeddings_info: metadata companion to brain_embeddings vec0 virtual table.
   ['brain_embeddings_info', null],
+  // agent_credentials: runtime credential cache (not Drizzle-managed). Zero or minimal rows.
+  //   Excluded from consolidated schema; the credential provider recreates on first auth.
+  ['agent_credentials', null],
 ]);
 
 /**
@@ -219,6 +241,15 @@ const NEXUS_DB_MAP: ReadonlyMap<string, string> = new Map([
  *
  * Note: signaldock.db has a `sessions` table (identity session management),
  * which maps to `signaldock_sessions` — NOT `tasks_sessions`.
+ *
+ * ## `skills` mapping (T11533 ROOT CAUSE 3 fix)
+ *
+ * signaldock.db contains a `skills` table (36 rows — pre-seeded skill slug catalog,
+ * `export const skills = sqliteTable('skills', …)` in `signaldock-schema.ts`).
+ * In the consolidated global schema this becomes `signaldock_skills`. Without
+ * this entry the legacy `skills` table fell through to an identity mapping,
+ * looked for a `skills` table in the global cleo.db (absent), and was silently
+ * skipped — resulting in signaldock_skills=0 despite 36 source rows.
  */
 const SIGNALDOCK_DB_MAP: ReadonlyMap<string, string> = new Map([
   ['users', 'signaldock_users'],
@@ -226,14 +257,18 @@ const SIGNALDOCK_DB_MAP: ReadonlyMap<string, string> = new Map([
   ['agents', 'signaldock_agents'],
   ['claim_codes', 'signaldock_claim_codes'],
   ['agent_capabilities', 'signaldock_agent_capabilities'],
+  // agent_skills junction: agent <-> skill slug catalog bindings
   ['agent_skills', 'signaldock_agent_skills'],
   ['agent_connections', 'signaldock_agent_connections'],
   ['accounts', 'signaldock_accounts'],
   ['sessions', 'signaldock_sessions'],
   ['verifications', 'signaldock_verifications'],
   ['org_agent_keys', 'signaldock_org_agent_keys'],
-  // Capability table (cleo-global/signaldock.ts adds this)
+  // Capability catalog (pre-seeded, 19 entries)
   ['capabilities', 'signaldock_capabilities'],
+  // Skill catalog (pre-seeded, 36 entries) — T11533 ROOT CAUSE 3 fix:
+  // was missing → identity fallback → 'skills' absent in global → 0 rows copied.
+  ['skills', 'signaldock_skills'],
 ]);
 
 /**
@@ -353,8 +388,8 @@ export function resolveConsolidatedTableName(
 function getSkipReason(sourceKind: SourceKind, legacyTable: string): string {
   const reasons: Partial<Record<string, string>> = {
     brain_usage_log:
-      'runtime-only quality-feedback telemetry (not Drizzle-managed); ' +
-      'recreated lazily on first write after exodus cutover',
+      'runtime-only quality-feedback telemetry (not Drizzle-managed, 8471 rows); ' +
+      'excluded from consolidated Drizzle schema; recreated lazily on first write after exodus cutover',
     brain_task_observations:
       'runtime-only observation cache (not Drizzle-managed); ' +
       'recreated lazily after exodus cutover',
@@ -364,9 +399,12 @@ function getSkipReason(sourceKind: SourceKind, legacyTable: string): string {
     brain_embeddings_info:
       'metadata companion to brain_embeddings vec0 virtual table; ' +
       'excluded from consolidated schema (derived/recreatable)',
+    brain_release_links:
+      'not in consolidated cleo-project schema (T11533 fix); ' +
+      'release provenance rebuilt from tasks_releases + tasks_commits after exodus cutover',
     agent_credentials:
       'runtime credential cache (not Drizzle-managed); ' +
-      'intentionally excluded from consolidated schema',
+      'intentionally excluded from consolidated schema; recreated on first auth',
   };
   return (
     reasons[legacyTable] ?? `table '${legacyTable}' from ${sourceKind} has no consolidated target`

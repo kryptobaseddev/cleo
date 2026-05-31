@@ -38,9 +38,21 @@
  * columns from `PRAGMA table_info` and orders by those instead; for tables
  * without an explicit PK it falls back to `rowid`.
  *
+ * ## Column-order digest stability (T11533 ROOT CAUSE 4)
+ *
+ * `SELECT *` returns columns in schema-definition order, which differs between
+ * the legacy source DB and the consolidated target DB (consolidated schema adds
+ * new columns in different positions). When both sides have the same row count,
+ * the `SELECT *`-based hashes will still differ because the JSON of each row
+ * reflects different column orderings — causing spurious `hashMatch=false` even
+ * when the data is identical. The fix: compute the digest using only the
+ * INTERSECTION of source and target column names, sorted alphabetically, so
+ * the column ordering is identical on both sides.
+ *
  * @task T11248 (E5 · AC7 · SG-DB-SUBSTRATE-V2)
  * @task T11531 (verify hardening — parity gate)
  * @task T11532 (P0 rowid crash + name-mapping + explicit skip for virtual tables)
+ * @task T11533 (P0 nexus_nodes hash-drift fix — column-intersection digest)
  * @saga T11242
  */
 
@@ -98,23 +110,45 @@ function orderByClause(db: DatabaseSync, tableName: string): string {
 
 /**
  * Compute an ordered canonical-JSON SHA-256 digest (32 hex chars) for all rows
- * in a table.
+ * in a table, restricted to the given column list.
  *
- * Rows are fetched `ORDER BY <pk or rowid>` so the ordering is deterministic.
+ * ## Column-intersection digest (T11533 ROOT CAUSE 4)
+ *
+ * Instead of `SELECT *` (which returns columns in schema-definition order,
+ * differing between legacy and consolidated DBs), we SELECT only the specified
+ * columns in the provided order. When the caller passes the SORTED INTERSECTION
+ * of source and target columns, both sides produce identically-structured JSON
+ * rows — eliminating spurious hash mismatches from column reordering.
+ *
+ * Rows are fetched `ORDER BY <pk or rowid>` so the row ordering is deterministic.
  * Each row is canonicalized as `JSON.stringify(row)` and appended to the hash.
  *
  * Returns `{ count: 0, hash: '' }` if the table is a virtual table (e.g. vec0)
  * that cannot be selected from, rather than throwing.
+ *
+ * @param db         - Database handle to query.
+ * @param tableName  - Physical table name.
+ * @param columns    - Explicit column list in the desired canonical order.
+ *   Pass `null` to fall back to `SELECT *` (for backward-compat callers that
+ *   have confirmed schema parity).
  */
-function computeTableDigest(db: DatabaseSync, tableName: string): { count: number; hash: string } {
+function computeTableDigest(
+  db: DatabaseSync,
+  tableName: string,
+  columns: readonly string[] | null,
+): { count: number; hash: string } {
   const { createHash } = _require('node:crypto') as typeof import('node:crypto');
   const hasher = createHash('sha256');
 
   const orderBy = orderByClause(db, tableName);
+  const selectClause =
+    columns !== null && columns.length > 0 ? columns.map((c) => `"${c}"`).join(', ') : '*';
 
   let rows: unknown[];
   try {
-    rows = db.prepare(`SELECT * FROM "${tableName}" ORDER BY ${orderBy}`).all() as unknown[];
+    rows = db
+      .prepare(`SELECT ${selectClause} FROM "${tableName}" ORDER BY ${orderBy}`)
+      .all() as unknown[];
   } catch (err) {
     // Virtual tables (e.g. brain_embeddings via vec0) may throw "no such module"
     // or similar — treat as 0 rows rather than crashing the entire verify.
@@ -134,6 +168,43 @@ function computeTableDigest(db: DatabaseSync, tableName: string): { count: numbe
     count: rows.length,
     hash: hasher.digest('hex').slice(0, 32),
   };
+}
+
+/**
+ * Return a sorted list of column names present in both the source and target
+ * tables, for use as the canonical column ordering in `computeTableDigest`.
+ *
+ * Sorting alphabetically ensures both source and target produce identically
+ * ordered rows in `JSON.stringify(row)` regardless of schema-definition order.
+ *
+ * Returns `null` when either side has no columns (virtual/FTS table fallback).
+ *
+ * @param srcDb      - Source database handle.
+ * @param srcTable   - Physical table name in the source DB.
+ * @param tgtDb      - Target database handle.
+ * @param tgtTable   - Physical table name in the target DB.
+ */
+function sharedColumnsSorted(
+  srcDb: DatabaseSync,
+  srcTable: string,
+  tgtDb: DatabaseSync,
+  tgtTable: string,
+): readonly string[] | null {
+  try {
+    const srcCols = (
+      srcDb.prepare(`PRAGMA table_info("${srcTable}")`).all() as Array<{ name: string }>
+    ).map((r) => r.name);
+    const tgtColSet = new Set(
+      (tgtDb.prepare(`PRAGMA table_info("${tgtTable}")`).all() as Array<{ name: string }>).map(
+        (r) => r.name,
+      ),
+    );
+    if (srcCols.length === 0 || tgtColSet.size === 0) return null;
+    // Intersection, sorted alphabetically for determinism
+    return srcCols.filter((c) => tgtColSet.has(c)).sort();
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -246,7 +317,8 @@ export function runExodusVerify(
 
           if (!targetTables.has(targetTableName)) {
             // Consolidated target table missing entirely.
-            const srcResult = computeTableDigest(srcSnap.db, legacyTableName);
+            // Use null columns (SELECT *) since there's no target to intersect with.
+            const srcResult = computeTableDigest(srcSnap.db, legacyTableName, null);
             const countMatch = srcResult.count === 0; // ok only if source was empty
             const result: VerifyTableResult = {
               tableName: targetTableName,
@@ -277,8 +349,16 @@ export function runExodusVerify(
             continue;
           }
 
-          const srcDigest = computeTableDigest(srcSnap.db, legacyTableName);
-          const tgtDigest = computeTableDigest(targetSnap.db, targetTableName);
+          // T11533 ROOT CAUSE 4: compute digest using sorted column intersection
+          // so schema-definition-order differences don't produce false hash mismatches.
+          const cols = sharedColumnsSorted(
+            srcSnap.db,
+            legacyTableName,
+            targetSnap.db,
+            targetTableName,
+          );
+          const srcDigest = computeTableDigest(srcSnap.db, legacyTableName, cols);
+          const tgtDigest = computeTableDigest(targetSnap.db, targetTableName, cols);
 
           const countMatch = srcDigest.count === tgtDigest.count;
           const hashMatch = srcDigest.hash === tgtDigest.hash;

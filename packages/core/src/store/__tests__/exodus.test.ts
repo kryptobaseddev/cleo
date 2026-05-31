@@ -985,3 +985,380 @@ describe('T11532 regression — computeTableDigest does NOT crash on WITHOUT ROW
     expect(entry?.sourceCount).toBe(2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// T11533 REGRESSION — FK-defer + NOT NULL coalesce + signaldock skills +
+//                     column-intersection digest
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a source DB with a PARENT table and a CHILD table that has a FK
+ * reference to the parent. Rows are inserted parent-first (correct order).
+ *
+ * The target DB schema has the same tables. When FK enforcement is ON during
+ * copy and the child is copied before the parent (or at the same time), the
+ * INSERT fails with "FOREIGN KEY constraint failed" and drops the child rows.
+ * With FK-defer (T11533), all rows survive regardless of copy order.
+ *
+ * DB Open Guard Gate 3: allowed in test files for fixture seeding.
+ */
+function createFkFixture(
+  sourcePath: string,
+  targetPath: string,
+  parentRowCount: number,
+  childRowCount: number,
+): void {
+  // Source: parent table + child table with FK
+  const src = new DatabaseSync(sourcePath);
+  try {
+    src.exec('PRAGMA foreign_keys = ON');
+    src.exec(`CREATE TABLE "parents" (id INTEGER PRIMARY KEY, name TEXT NOT NULL)`);
+    src.exec(`CREATE TABLE "children" (
+      id INTEGER PRIMARY KEY,
+      parent_id INTEGER NOT NULL REFERENCES "parents"(id),
+      val TEXT
+    )`);
+    for (let i = 1; i <= parentRowCount; i++) {
+      src.exec(`INSERT INTO "parents" (id, name) VALUES (${i}, 'parent-${i}')`);
+    }
+    for (let i = 1; i <= childRowCount; i++) {
+      const parentId = ((i - 1) % parentRowCount) + 1;
+      src.exec(
+        `INSERT INTO "children" (id, parent_id, val) VALUES (${i}, ${parentId}, 'child-${i}')`,
+      );
+    }
+  } finally {
+    src.close();
+  }
+
+  // Target: same schema but empty (migration fills it)
+  const tgt = new DatabaseSync(targetPath);
+  try {
+    tgt.exec('PRAGMA foreign_keys = ON');
+    tgt.exec(`CREATE TABLE "parents" (id INTEGER PRIMARY KEY, name TEXT NOT NULL)`);
+    tgt.exec(`CREATE TABLE "children" (
+      id INTEGER PRIMARY KEY,
+      parent_id INTEGER NOT NULL REFERENCES "parents"(id),
+      val TEXT
+    )`);
+  } finally {
+    tgt.close();
+  }
+}
+
+describe('T11533 regression — FK-defer: child rows survive when copied before parent', () => {
+  let tmpDir: string;
+  let sourcePath: string;
+  let targetProjectPath: string;
+  let targetGlobalPath: string;
+  let stagingDir: string;
+
+  const PARENT_ROWS = 5;
+  const CHILD_ROWS = 20;
+
+  beforeEach(() => {
+    tmpDir = makeTempDir();
+    sourcePath = join(tmpDir, 'tasks.db');
+    targetProjectPath = join(tmpDir, 'target-project.db');
+    targetGlobalPath = join(tmpDir, 'target-global.db');
+    stagingDir = join(tmpDir, 'staging');
+    mkdirSync(stagingDir, { recursive: true });
+
+    createFkFixture(sourcePath, targetProjectPath, PARENT_ROWS, CHILD_ROWS);
+    createTargetDb(targetGlobalPath, []);
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  it('migrates all child rows even with FK ON in target schema (FK-defer regression)', async () => {
+    const targetProjectDb = new DatabaseSync(targetProjectPath);
+    const targetGlobalDb = new DatabaseSync(targetGlobalPath);
+
+    const makeFakeHandle = (native: DatabaseSyncType) => ({
+      db: { $client: native },
+      close: () => {
+        /* keep open for assertions */
+      },
+    });
+
+    vi.mock('../dual-scope-db.js', () => ({
+      openDualScopeDb: vi.fn(),
+      resolveDualScopeDbPath: vi.fn(),
+    }));
+
+    const dualScopeModule = await import('../dual-scope-db.js');
+    vi.mocked(dualScopeModule.openDualScopeDb).mockImplementation((scope: string) => {
+      if (scope === 'project') return Promise.resolve(makeFakeHandle(targetProjectDb) as never);
+      return Promise.resolve(makeFakeHandle(targetGlobalDb) as never);
+    });
+    vi.mocked(dualScopeModule.resolveDualScopeDbPath).mockImplementation((scope: string) =>
+      scope === 'project' ? targetProjectPath : targetGlobalPath,
+    );
+
+    const { runExodusMigrate: migrate } = await import('../exodus/migrate.js');
+
+    // Use source name 'sourceA' (unrecognized → identity mapping) so tables
+    // 'parents' and 'children' map to themselves (identity fallback).
+    const sources: LegacyDbDescriptor[] = [
+      { name: 'sourceA', path: sourcePath, targetScope: 'project' },
+    ];
+
+    const plan: ExodusPlan = {
+      sources,
+      totalSourceBytes: 0,
+      availableBytes: 100_000_000,
+      diskPreflight: true,
+      stagingDir,
+      resumeFromStaging: false,
+      projectDbPath: targetProjectPath,
+      globalDbPath: targetGlobalPath,
+    };
+
+    const result = await migrate(plan, false, undefined);
+
+    expect(result.ok).toBe(true);
+
+    // PRIMARY ASSERTION: ALL parent and child rows must survive despite FK constraints.
+    const parentCount = countRows(targetProjectPath, 'parents');
+    const childCount = countRows(targetProjectPath, 'children');
+    expect(
+      parentCount,
+      `FK-defer regression: expected ${PARENT_ROWS} parent rows, got ${parentCount}`,
+    ).toBe(PARENT_ROWS);
+    expect(
+      childCount,
+      `FK-defer regression: expected ${CHILD_ROWS} child rows, got ${childCount} — children dropped due to FK constraint`,
+    ).toBe(CHILD_ROWS);
+
+    targetProjectDb.close();
+    targetGlobalDb.close();
+  });
+});
+
+describe('T11533 regression — NOT NULL coalesce: rows with NULL in target-only NOT NULL columns survive', () => {
+  let tmpDir: string;
+  let sourcePath: string;
+  let targetProjectPath: string;
+  let targetGlobalPath: string;
+  let stagingDir: string;
+
+  beforeEach(() => {
+    tmpDir = makeTempDir();
+    sourcePath = join(tmpDir, 'tasks.db');
+    targetProjectPath = join(tmpDir, 'target-project.db');
+    targetGlobalPath = join(tmpDir, 'target-global.db');
+    stagingDir = join(tmpDir, 'staging');
+    mkdirSync(stagingDir, { recursive: true });
+    createTargetDb(targetGlobalPath, []);
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  it('copies all rows even when source has NULL for a target-only NOT NULL column (COALESCE fix)', async () => {
+    // Source: table with id + val columns only
+    // Target: same table with id + val + required_col (NOT NULL, no default)
+    // Source rows have val=NULL for some rows — these would be silently dropped
+    // by INSERT OR IGNORE if required_col had no COALESCE treatment.
+    const src = new DatabaseSync(sourcePath);
+    try {
+      src.exec(`CREATE TABLE "tbl" (id INTEGER PRIMARY KEY, val TEXT)`);
+      // Insert 10 rows: 5 with val=NULL (would fail NOT NULL if val were the constrained col)
+      for (let i = 1; i <= 10; i++) {
+        if (i % 2 === 0) {
+          src.exec(`INSERT INTO "tbl" (id, val) VALUES (${i}, NULL)`);
+        } else {
+          src.exec(`INSERT INTO "tbl" (id, val) VALUES (${i}, 'val-${i}')`);
+        }
+      }
+    } finally {
+      src.close();
+    }
+
+    // Target: same table with an EXTRA required_col NOT NULL (no default)
+    const tgt = new DatabaseSync(targetProjectPath);
+    try {
+      tgt.exec(`CREATE TABLE "tbl" (id INTEGER PRIMARY KEY, val TEXT, required_col TEXT NOT NULL)`);
+    } finally {
+      tgt.close();
+    }
+
+    const targetProjectDb = new DatabaseSync(targetProjectPath);
+    const targetGlobalDb = new DatabaseSync(targetGlobalPath);
+
+    const makeFakeHandle = (native: DatabaseSyncType) => ({
+      db: { $client: native },
+      close: () => {
+        /* keep open */
+      },
+    });
+
+    vi.mock('../dual-scope-db.js', () => ({
+      openDualScopeDb: vi.fn(),
+      resolveDualScopeDbPath: vi.fn(),
+    }));
+
+    const dualScopeModule = await import('../dual-scope-db.js');
+    vi.mocked(dualScopeModule.openDualScopeDb).mockImplementation((scope: string) => {
+      if (scope === 'project') return Promise.resolve(makeFakeHandle(targetProjectDb) as never);
+      return Promise.resolve(makeFakeHandle(targetGlobalDb) as never);
+    });
+    vi.mocked(dualScopeModule.resolveDualScopeDbPath).mockImplementation((scope: string) =>
+      scope === 'project' ? targetProjectPath : targetGlobalPath,
+    );
+
+    const { runExodusMigrate: migrate } = await import('../exodus/migrate.js');
+
+    const sources: LegacyDbDescriptor[] = [
+      { name: 'sourceA', path: sourcePath, targetScope: 'project' },
+    ];
+
+    const plan: ExodusPlan = {
+      sources,
+      totalSourceBytes: 0,
+      availableBytes: 100_000_000,
+      diskPreflight: true,
+      stagingDir,
+      resumeFromStaging: false,
+      projectDbPath: targetProjectPath,
+      globalDbPath: targetGlobalPath,
+    };
+
+    const result = await migrate(plan, false, undefined);
+
+    expect(result.ok).toBe(true);
+
+    // PRIMARY ASSERTION: ALL 10 rows must be in the target.
+    // Before fix, rows with val=NULL would be silently dropped by INSERT OR IGNORE
+    // because required_col NOT NULL without a source value would cause a violation.
+    // With COALESCE fix, the intersection only copies shared columns (id, val),
+    // and required_col gets its NOT NULL obligation from the COALESCE('') default.
+    const rowCount = countRows(targetProjectPath, 'tbl');
+    expect(
+      rowCount,
+      `NOT NULL coalesce regression: expected 10 rows, got ${rowCount} — rows with NULL val were silently dropped`,
+    ).toBe(10);
+
+    targetProjectDb.close();
+    targetGlobalDb.close();
+  });
+});
+
+describe('T11533 regression — resolveConsolidatedTableName: signaldock skills mapping', () => {
+  it('maps signaldock.db skills → signaldock_skills (not identity fallback)', () => {
+    // Before T11533 fix: 'skills' was not in SIGNALDOCK_DB_MAP → identity fallback
+    // → 'skills' absent in global cleo.db → 0 rows. After fix: maps to 'signaldock_skills'.
+    expect(resolveConsolidatedTableName('signaldock', 'skills')).toEqual({
+      kind: 'mapped',
+      targetName: 'signaldock_skills',
+    });
+  });
+
+  it('maps signaldock.db capabilities → signaldock_capabilities', () => {
+    expect(resolveConsolidatedTableName('signaldock', 'capabilities')).toEqual({
+      kind: 'mapped',
+      targetName: 'signaldock_capabilities',
+    });
+  });
+
+  it('maps signaldock.db agents → signaldock_agents', () => {
+    expect(resolveConsolidatedTableName('signaldock', 'agents')).toEqual({
+      kind: 'mapped',
+      targetName: 'signaldock_agents',
+    });
+  });
+
+  it('maps brain.db session_narrative → brain_session_narrative (T11533 fix)', () => {
+    // Was missing from BRAIN_DB_MAP → identity fallback → 'session_narrative' absent
+    // in consolidated → 0 rows. After fix: maps to 'brain_session_narrative'.
+    expect(resolveConsolidatedTableName('brain (project)', 'session_narrative')).toEqual({
+      kind: 'mapped',
+      targetName: 'brain_session_narrative',
+    });
+  });
+
+  it('returns skip for brain.db brain_release_links (T11533 fix — not in consolidated)', () => {
+    // Before T11533: identity mapping → 'brain_release_links' absent → silent skip.
+    // After T11533: explicit null → logged skip with documented reason.
+    const r = resolveConsolidatedTableName('brain (project)', 'brain_release_links');
+    expect(r.kind).toBe('skip');
+  });
+
+  it('returns skip for brain.db agent_credentials (not in consolidated)', () => {
+    const r = resolveConsolidatedTableName('brain (project)', 'agent_credentials');
+    expect(r.kind).toBe('skip');
+  });
+});
+
+describe('T11533 regression — runExodusVerify: column-intersection digest (hashMatch stability)', () => {
+  let tmpDir: string;
+  let sourcePath: string;
+  let targetProjectPath: string;
+  let targetGlobalPath: string;
+
+  beforeEach(() => {
+    tmpDir = makeTempDir();
+    sourcePath = join(tmpDir, 'tasks.db');
+    targetProjectPath = join(tmpDir, 'project.db');
+    targetGlobalPath = join(tmpDir, 'global.db');
+    createTargetDb(targetGlobalPath, []);
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('hashMatch=true when same data exists but target has EXTRA columns (column-drift digest fix)', () => {
+    // Source: tasks.db table 'no_rowid_table' with (key, val) — use name that
+    // maps to 'no_rowid_table' via identity fallback (unrecognized tasks column).
+    // We use 'extra_col_test' to avoid name-map interference.
+    // Source schema: id INTEGER PRIMARY KEY, val TEXT
+    // Target schema: id INTEGER PRIMARY KEY, val TEXT, extra_tgt_col TEXT
+    // Verify MUST compute digest on intersection (id, val) only → hashMatch=true.
+    const src = new DatabaseSync(sourcePath);
+    try {
+      src.exec(`CREATE TABLE "nexus_nodes" (id INTEGER PRIMARY KEY, val TEXT)`);
+      for (let i = 1; i <= 5; i++) {
+        src.exec(`INSERT INTO "nexus_nodes" VALUES (${i}, 'v${i}')`);
+      }
+    } finally {
+      src.close();
+    }
+
+    // Target: same table with an EXTRA column (simulates consolidated schema drift)
+    const tgt = new DatabaseSync(targetProjectPath);
+    try {
+      tgt.exec(
+        `CREATE TABLE "nexus_nodes" (id INTEGER PRIMARY KEY, val TEXT, extra_tgt_col TEXT DEFAULT NULL)`,
+      );
+      // Same data as source
+      for (let i = 1; i <= 5; i++) {
+        tgt.exec(`INSERT INTO "nexus_nodes" (id, val) VALUES (${i}, 'v${i}')`);
+      }
+    } finally {
+      tgt.close();
+    }
+
+    // Use 'nexus' source so nexus_nodes maps to 'nexus_nodes' (identity in NEXUS_DB_MAP)
+    const sources: LegacyDbDescriptor[] = [
+      { name: 'nexus', path: sourcePath, targetScope: 'project' },
+    ];
+
+    const result = runExodusVerify(sources, targetProjectPath, targetGlobalPath, undefined);
+
+    expect(result.ok, `verify must pass: ${result.error ?? ''}`).toBe(true);
+
+    const entry = result.tables.find((t) => t.tableName === 'nexus_nodes');
+    expect(entry, 'must have nexus_nodes entry').toBeDefined();
+    expect(entry?.countMatch, 'count must match').toBe(true);
+    expect(
+      entry?.hashMatch,
+      'hashMatch must be true when data is same but target has extra column (T11533 column-intersection fix)',
+    ).toBe(true);
+  });
+});
