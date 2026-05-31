@@ -133,7 +133,8 @@ describe('openCleoDb', () => {
       busy_timeout?: number;
       timeout?: number;
     };
-    expect(busyTimeout.busy_timeout ?? busyTimeout.timeout).toBe(5000);
+    // SSoT busy_timeout (specs/sqlite-pragmas.json) — raised 5000 → 30000 (T11363).
+    expect(busyTimeout.busy_timeout ?? busyTimeout.timeout).toBe(30000);
 
     handle.close();
   });
@@ -190,7 +191,8 @@ describe('openCleoDbSnapshot', () => {
         busy_timeout?: number;
         timeout?: number;
       };
-      expect(busy.busy_timeout ?? busy.timeout).toBe(5000);
+      // SSoT busy_timeout (specs/sqlite-pragmas.json) — raised 5000 → 30000 (T11363).
+      expect(busy.busy_timeout ?? busy.timeout).toBe(30000);
     } finally {
       snap.close();
     }

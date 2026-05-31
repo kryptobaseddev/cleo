@@ -23,62 +23,37 @@
  * the `dbCredentials.url` below is the drizzle-kit baseline only (generate/check),
  * not the live runtime location.
  *
- * **Generation boundary (settles the file-split ambiguity).** The `schema` list
- * below declares per-scope DOMAIN MEMBERSHIP, not a generate-ready snapshot. The
- * source modules still carry UNPREFIXED physical table names, so several names
- * collide across domains in a single file (e.g. `schema/attachments.ts` and
- * `conduit-schema.ts` both define `attachments` → `tasks_attachments` vs
- * `conduit_attachments`). Pattern-A domain-prefixing that resolves these
- * collisions is applied by the **E3 exodus prefixer (T11248)**; `drizzle-kit
- * generate` against this config is therefore deferred until exodus emits the
- * prefixed consolidated schema. This task (T11358) authors the target shape
- * (scope axis, file naming, membership, counts) only.
+ * **Generation boundary — RESOLVED (T11363).** The `schema` field below now
+ * points at the CONSOLIDATED, domain-prefixed Pattern-A family under
+ * `packages/core/src/store/schema/cleo-project/index.ts` (the barrel authored by
+ * T11360, mirrored brain via `cleo-shared`). Those modules carry the FINAL
+ * prefixed physical names (`tasks_tasks`, `tasks_commits`, `docs_attachments`,
+ * `telemetry_events`, …), so the cross-domain physical-name collisions that
+ * blocked generation against the OLD unprefixed live modules no longer exist —
+ * `drizzle-kit generate` against this config emits a single clean consolidation
+ * migration into `out`.
  *
- * **Domain-prefixed target modules (T11360).** The realized, E10-typed,
- * domain-prefixed Pattern-A target shape is authored under
- * `packages/core/src/store/schema/cleo-project/` (barrel `index.ts`). Those
- * modules carry the FINAL prefixed physical names (`tasks_commits`,
- * `docs_attachments`, `telemetry_events`, …) and the strict typing exodus
- * deploys. They are intentionally NOT added to the `schema` list below: this
- * config's list is the LIVE-module membership the audit derives `targetTable`
- * from, and adding the prefixed twins would double-declare each table at
- * generate time. The `cleo-project/` barrel is the generate-ready membership
- * once exodus (T11248) swaps the substrate and the live modules are retired.
+ * Pointing at the prefixed barrel (not the live unprefixed modules) is exactly
+ * the "generate-ready membership" the prior T11358/T11360 notes described: the
+ * audit's per-scope domain membership is the consolidated family, and the v3
+ * consolidation migration generated here is the canonical target the exodus
+ * cutover (T11248) applies.
  *
  * @task T11358
  * @task T11360
+ * @task T11363
  * @epic T11245
  * @saga T11242
  * @see docs/migration/sqlite-schema-canonical.md §1 (canonical per-scope counts)
- * @see packages/core/src/store/schema/cleo-project/index.ts (target-shape barrel)
+ * @see packages/core/src/store/schema/cleo-project/index.ts (consolidated target barrel)
  */
 
 import { defineConfig } from 'drizzle-kit';
 
 export default defineConfig({
-  schema: [
-    // tasks-core (45 tables) — task lifecycle, provenance, releases, playbooks, agents
-    './packages/core/src/store/schema/tasks.ts',
-    './packages/core/src/store/schema/attachments.ts',
-    './packages/core/src/store/schema/audit.ts',
-    './packages/core/src/store/schema/background-jobs.ts',
-    './packages/core/src/store/schema/evidence-bindings.ts',
-    './packages/core/src/store/schema/experiments.ts',
-    './packages/core/src/store/schema/lifecycle.ts',
-    './packages/core/src/store/schema/manifest.ts',
-    './packages/core/src/store/schema/provenance/commits.ts',
-    './packages/core/src/store/schema/provenance/pull-requests.ts',
-    './packages/core/src/store/schema/provenance/releases.ts',
-    './packages/core/src/store/schema/chain-schema.ts',
-    './packages/core/src/store/schema/agent-schema.ts',
-    './packages/core/src/store/schema/playbooks.ts',
-    // conduit (14 tables) — project-local messaging / delivery / attachments
-    './packages/core/src/store/schema/conduit-schema.ts',
-    // telemetry (2 tables) — project-tier telemetry counters
-    './packages/core/src/store/schema/telemetry-schema.ts',
-    // brain / memory (22 tables) — SHARED with cleo-global.config.ts (project-local memory)
-    './packages/core/src/store/schema/memory-schema.ts',
-  ],
+  // Consolidated, domain-prefixed Pattern-A target schema (T11360 barrel + mirrored
+  // brain via cleo-shared). No physical-name collisions → generate-ready (T11363).
+  schema: './packages/core/src/store/schema/cleo-project/index.ts',
   out: './packages/core/migrations/drizzle-cleo-project',
   dialect: 'sqlite',
   dbCredentials: {

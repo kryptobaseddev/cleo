@@ -332,7 +332,7 @@ export const E_WORKFLOW_NOT_FOUND = 'E_WORKFLOW_NOT_FOUND' as const;
  * retry. Emitted by {@link withWriteRetry} (in `@cleocode/core`'s
  * `store/with-retry.ts`) when a SQLite write transaction fails 4 consecutive
  * attempts with `SQLITE_BUSY: database is locked` despite the engine-level
- * `busy_timeout=5000ms` pragma.
+ * `busy_timeout=30000ms` pragma.
  *
  * **Recovery**: retry the operation after a brief delay (the contended writer
  * usually commits within 1-2 seconds). If the error reoccurs reliably, suspect

@@ -39,10 +39,13 @@
  * @remarks
  * Choices and rationale for the values below (mirroring `specs/sqlite-pragmas.json`):
  *
- * - `busy_timeout = 5000` — Wait up to 5 s for a competing writer's lock
+ * - `busy_timeout = 30000` — Wait up to 30 s for a competing writer's lock
  *   before failing with SQLITE_BUSY. Without this, concurrent CLI
  *   invocations (verify + complete + tests) immediately error out;
- *   with this, they queue politely.
+ *   with this, they queue politely. Raised from 5 s to 30 s (T11363,
+ *   SG-DB-SUBSTRATE-V2) so the consolidated single-file-per-scope substrate —
+ *   where many domains now contend for one writer lock — tolerates the longer
+ *   tail under heavy parallel-agent fan-out.
  * - `journal_mode = WAL` — Enables concurrent reader+writer access.
  * - `synchronous = NORMAL` — Safe with WAL: durable on commit, only the
  *   in-flight transaction is at risk on power cut. ~2-3× faster than the
@@ -103,7 +106,7 @@ interface SqlitePragmaSpec {
 const SPEC: SqlitePragmaSpec = {
   version: 1,
   pragmas: [
-    ['busy_timeout', '5000'],
+    ['busy_timeout', '30000'],
     ['journal_mode', 'WAL'],
     ['synchronous', 'NORMAL'],
     ['foreign_keys', 'ON'],
@@ -177,7 +180,7 @@ export interface PerfPragmaOptions {
   mmapSizeBytes?: number;
   /**
    * Busy timeout in milliseconds — how long writers wait for a competing
-   * lock before SQLITE_BUSY. Default comes from the SSoT (`5000`).
+   * lock before SQLITE_BUSY. Default comes from the SSoT (`30000`).
    */
   busyTimeoutMs?: number;
 }

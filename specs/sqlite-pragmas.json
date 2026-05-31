@@ -19,7 +19,7 @@
     "epic": "T10283"
   },
   "pragmas": [
-    ["busy_timeout", "5000"],
+    ["busy_timeout", "30000"],
     ["journal_mode", "WAL"],
     ["synchronous", "NORMAL"],
     ["foreign_keys", "ON"],
