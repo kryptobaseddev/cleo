@@ -8,13 +8,21 @@
  * - Crash recovery via `.cleo/gc-state.json` startup-check
  * - node-cron v4 for scheduling (zero runtime deps, cross-platform)
  *
- * Startup algorithm (systemd `Persistent=true` semantics in pure Node.js):
- * 1. Read gc-state.json
- * 2. If pendingPrune non-empty → resume deletion (crash recovery)
- * 3. If lastRunAt null OR elapsed > 24h → run GC immediately (missed-run recovery)
- * 4. Schedule future runs via node-cron (daily at 03:00 UTC)
- * 5. Write daemonPid to state
+ * R5 migration (T11256)
+ * ----------------------
+ * The standalone cron loop that previously lived inside `bootstrapDaemon` has
+ * been migrated to the `@cleocode/runtime` subsystem framework
+ * (`gc-subsystem.ts`). `bootstrapDaemon` now delegates to
+ * `createGcSubsystem(cleoDir).start()` so the same startup algorithm (crash
+ * recovery → missed-run recovery → cron schedule) is expressed once, in the
+ * `Subsystem<GcSubsystemContext>` shape, and the standalone entry-point
+ * (`daemon-entry.ts`) drives it through the uniform lifecycle.
  *
+ * The spawn helpers (`spawnGCDaemon`, `stopGCDaemon`, `getGCDaemonStatus`) are
+ * preserved unchanged — they are the parent-process-side interface and are
+ * unaffected by the internal lifecycle migration.
+ *
+ * @see packages/core/src/gc/gc-subsystem.ts — subsystem adapter (R5-T1)
  * @see ADR-047 — Autonomous GC and Disk Safety
  * @see T751 §2.2 for sidecar daemon pattern rationale
  * @task T731
@@ -27,19 +35,8 @@ import { createWriteStream } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import cron from 'node-cron';
-import { runGC } from './runner.js';
+import { createGcSubsystem } from './gc-subsystem.js';
 import { patchGCState, readGCState } from './state.js';
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/** Cron expression: daily at 03:00 UTC. */
-const GC_CRON_EXPR = '0 3 * * *';
-
-/** Interval for missed-run recovery check (24 hours in ms). */
-const GC_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // Daemon Bootstrap (runs when this module is executed as a standalone script)
@@ -48,69 +45,19 @@ const GC_INTERVAL_MS = 24 * 60 * 60 * 1000;
 /**
  * Bootstrap the GC daemon process.
  *
- * Performs crash recovery, missed-run recovery, and schedules future GC runs.
- * This function runs in the long-lived daemon process.
+ * Delegates to `createGcSubsystem(cleoDir).start()` which performs crash
+ * recovery, missed-run recovery, and schedules future GC runs — the
+ * standalone cron loop no longer lives here (R5 migration, T11256).
  *
  * @param cleoDir - Absolute path to the `.cleo/` directory
  */
 export async function bootstrapDaemon(cleoDir: string): Promise<void> {
-  const statePath = join(cleoDir, 'gc-state.json');
-
-  // Register daemon PID in state file
-  await patchGCState(statePath, {
-    daemonPid: process.pid,
-    daemonStartedAt: new Date().toISOString(),
-  });
-
-  const state = await readGCState(statePath);
-
-  // Step 1: Crash recovery — resume pending prune from prior run
-  if (state.pendingPrune && state.pendingPrune.length > 0) {
-    try {
-      await runGC({ cleoDir, resumeFrom: state.pendingPrune });
-    } catch {
-      // Crash recovery failure is non-fatal; continue with scheduled runs
-    }
-  }
-
-  // Step 2: Missed-run recovery — if last run was > 24h ago, run immediately
-  const lastRunTs = state.lastRunAt ? new Date(state.lastRunAt).getTime() : 0;
-  const elapsed = Date.now() - lastRunTs;
-  if (elapsed > GC_INTERVAL_MS) {
-    try {
-      await runGC({ cleoDir });
-    } catch {
-      // Immediate GC failure is non-fatal; cron will retry next cycle
-    }
-  }
-
-  // Step 3: Schedule future runs via node-cron
-  // noOverlap: true prevents double-runs if a previous run exceeds 24h
-  cron.schedule(
-    GC_CRON_EXPR,
-    async () => {
-      try {
-        await runGC({ cleoDir });
-      } catch {
-        // Log failures via stderr (already redirected to gc.log by spawn)
-        const state2 = await readGCState(statePath);
-        await patchGCState(statePath, {
-          consecutiveFailures: state2.consecutiveFailures + 1,
-          lastRunResult: 'failed',
-          escalationNeeded: state2.consecutiveFailures + 1 >= 3,
-          escalationReason:
-            state2.consecutiveFailures + 1 >= 3
-              ? `GC daemon: ${state2.consecutiveFailures + 1} consecutive failures. Check logs.`
-              : state2.escalationReason,
-        });
-      }
-    },
-    {
-      timezone: 'UTC',
-      noOverlap: true,
-      name: 'cleo-gc',
-    },
-  );
+  const subsystem = createGcSubsystem(cleoDir);
+  // start() handles crash recovery, missed-run recovery, and cron scheduling.
+  // The returned context (cron task handle) keeps the cron alive for the
+  // lifetime of this process — we intentionally do not call shutdown() so the
+  // daemon continues running until the process receives SIGTERM.
+  await subsystem.start();
 }
 
 // ---------------------------------------------------------------------------
