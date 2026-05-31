@@ -93,7 +93,7 @@ let signaldockDb: DatabaseSync | null = null;
 function applyBrainPragmas(db: DatabaseSync): void {
   db.exec(
     [
-      'PRAGMA busy_timeout = 5000',
+      'PRAGMA busy_timeout = 30000',
       'PRAGMA journal_mode = WAL',
       'PRAGMA synchronous = NORMAL',
       'PRAGMA foreign_keys = ON',

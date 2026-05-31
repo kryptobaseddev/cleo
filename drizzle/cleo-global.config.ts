@@ -26,33 +26,30 @@
  * `$XDG_DATA_HOME/cleo/cleo.db` (per-OS XDG location); the `dbCredentials.url`
  * below is the drizzle-kit baseline only.
  *
- * **Generation boundary (settles the file-split ambiguity).** The `schema` list
- * declares per-scope DOMAIN MEMBERSHIP, not a generate-ready snapshot. Source
- * modules carry UNPREFIXED physical table names; Pattern-A domain-prefixing is
- * applied by the **E3 exodus prefixer (T11248)**, so `drizzle-kit generate`
- * against this config is deferred until exodus emits the prefixed consolidated
- * schema. This task (T11358) authors the target shape only.
+ * **Generation boundary — RESOLVED (T11363).** The `schema` field now points at
+ * the CONSOLIDATED, domain-prefixed Pattern-A family under
+ * `packages/core/src/store/schema/cleo-global/index.ts` (the barrel authored by
+ * T11361 — nexus_* / skills_* / signaldock_* + mirrored brain_* via
+ * `cleo-shared`). Those modules carry the FINAL prefixed physical names, so the
+ * cross-domain collisions that blocked generation against the OLD unprefixed live
+ * modules no longer exist — `drizzle-kit generate` emits a single clean
+ * consolidation migration into `out`.
  *
  * @task T11358
+ * @task T11361
+ * @task T11363
  * @epic T11245
  * @saga T11242
  * @see docs/migration/sqlite-schema-canonical.md §1 (canonical per-scope counts)
+ * @see packages/core/src/store/schema/cleo-global/index.ts (consolidated target barrel)
  */
 
 import { defineConfig } from 'drizzle-kit';
 
 export default defineConfig({
-  schema: [
-    // nexus (10 tables) — cross-project code-intelligence index
-    './packages/core/src/store/schema/nexus-schema.ts',
-    './packages/core/src/store/schema/code-index.ts',
-    // skills (4 tables) — global skills catalog
-    './packages/core/src/store/schema/skills-schema.ts',
-    // signaldock (13 tables) — global agent identity / capabilities (folded per D1)
-    './packages/core/src/store/schema/signaldock-schema.ts',
-    // brain / memory (22 tables) — SHARED with cleo-project.config.ts (global cross-project memory)
-    './packages/core/src/store/schema/memory-schema.ts',
-  ],
+  // Consolidated, domain-prefixed Pattern-A target schema (T11361 barrel + mirrored
+  // brain via cleo-shared). No physical-name collisions → generate-ready (T11363).
+  schema: './packages/core/src/store/schema/cleo-global/index.ts',
   out: './packages/core/migrations/drizzle-cleo-global',
   dialect: 'sqlite',
   dbCredentials: {

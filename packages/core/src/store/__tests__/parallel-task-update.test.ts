@@ -3,7 +3,7 @@
  *
  * **Bug**: 19 parallel `cleo update <id> --add-labels …` invocations from a
  * single shell used to lose ~50% of writes to `SQLITE_BUSY: database is
- * locked` despite the engine-level `busy_timeout=5000ms` pragma. A serial
+ * locked` despite the engine-level `busy_timeout=30000ms` pragma. A serial
  * loop succeeded 19/19. This test pins the fix in place.
  *
  * **Test surface**: two complementary scenarios, both anchored on

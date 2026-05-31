@@ -71,7 +71,7 @@ const EMBEDDED_SSOT = {
   // Same shape as sqlite-pragmas.ts SPEC, plus `fileInvariants` and
   // `driftPragmas`. Only the fields we consume are typed.
   pragmas: [
-    ['busy_timeout', '5000'],
+    ['busy_timeout', '30000'],
     ['journal_mode', 'WAL'],
     ['synchronous', 'NORMAL'],
     ['foreign_keys', 'ON'],

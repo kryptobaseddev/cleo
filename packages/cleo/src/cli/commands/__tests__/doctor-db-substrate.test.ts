@@ -737,7 +737,7 @@ describe('doctor db-substrate (T10307)', () => {
 
   it('T10310: pragmaDrift surfaces busy_timeout drift on a freshly-created DB', async () => {
     // A freshly-created node:sqlite DB defaults to busy_timeout=0, but the
-    // SSoT expects 5000. A raw read-only snapshot (no applyPragmas) will
+    // SSoT expects 30000. A raw read-only snapshot (no applyPragmas) will
     // therefore report drift on `busy_timeout`. Same for `foreign_keys`
     // (default 0/OFF) and `synchronous` (default 2/FULL). page_size + journal_mode
     // + application_id will match the SSoT defaults (4096, no-WAL, 0 stamp).
@@ -753,7 +753,7 @@ describe('doctor db-substrate (T10307)', () => {
     expect(tasks.pragmaDrift).not.toBeNull();
     const drift = tasks.pragmaDrift ?? [];
     const pragmas = drift.map((d) => d.pragma);
-    // busy_timeout will drift (default 0 vs canonical 5000).
+    // busy_timeout will drift (default 0 vs canonical 30000).
     expect(pragmas).toContain('busy_timeout');
     // journal_mode WILL drift on a fresh DB because seedHealthyDb does
     // not switch the file to WAL — default is `delete`.
@@ -807,7 +807,7 @@ describe('doctor db-substrate (T10307)', () => {
       db.exec('PRAGMA page_size = 4096');
       // Apply every canonical pragma the walker checks.
       db.exec('PRAGMA journal_mode = WAL');
-      db.exec('PRAGMA busy_timeout = 5000');
+      db.exec('PRAGMA busy_timeout = 30000');
       db.exec('PRAGMA foreign_keys = ON');
       db.exec('PRAGMA synchronous = NORMAL');
       db.exec('PRAGMA application_id = 0');

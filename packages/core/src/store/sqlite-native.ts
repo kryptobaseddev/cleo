@@ -206,7 +206,9 @@ export function openNativeDatabase(
   const db = new DatabaseSyncCtor(path, {
     enableForeignKeyConstraints: true,
     readOnly: options?.readonly ?? false,
-    timeout: options?.timeout ?? 5000,
+    // Default handle-open lock timeout mirrors the SSoT busy_timeout
+    // (specs/sqlite-pragmas.json — raised 5000 → 30000 in T11363).
+    timeout: options?.timeout ?? 30000,
     allowExtension: options?.allowExtension ?? false,
   });
 
@@ -217,7 +219,7 @@ export function openNativeDatabase(
   // WAL is handled separately below (with retry logic), so disable here.
   applyPerfPragmas(db, {
     enableWal: false, // WAL applied below with retry (T1331)
-    busyTimeoutMs: options?.timeout ?? 5000,
+    busyTimeoutMs: options?.timeout ?? 30000, // SSoT busy_timeout (T11363)
   });
 
   // Enable WAL for concurrent multi-process access (ADR-006, ADR-010)

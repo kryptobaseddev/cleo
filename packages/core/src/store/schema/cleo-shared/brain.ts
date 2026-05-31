@@ -633,8 +633,15 @@ export const brainAttention = sqliteTable(
     scopeKind: text('scope_kind', { enum: BRAIN_ATTENTION_SCOPE_KINDS }).notNull(),
     /** Scope-bound id. */
     scopeId: text('scope_id').notNull(),
-    /** Tag set as a JSONB BLOB (E4 jsonb helper — read via json_each/jsonbText). */
-    tags: jsonb<string[]>('tags').default(sql`jsonb('[]')`),
+    /**
+     * Tag set as a JSONB BLOB (E4 jsonb helper — read via json_each/jsonbText).
+     *
+     * The default is parenthesized — `(jsonb('[]'))` — because SQLite requires a
+     * function-call column DEFAULT to be wrapped in parentheses
+     * (`DEFAULT (expr)`); the bare `DEFAULT jsonb('[]')` form drizzle-kit would
+     * otherwise carry is a `near "(": syntax error` at `CREATE TABLE` time.
+     */
+    tags: jsonb<string[]>('tags').default(sql`(jsonb('[]'))`),
     /** ISO-8601 UTC creation instant (was ms epoch, §4 / §8.1). */
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
     /** ISO-8601 UTC hard-TTL instant; NULL = no TTL (was ms epoch, §4 / §8.1). */

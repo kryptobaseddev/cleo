@@ -1,8 +1,8 @@
 /**
  * Application-level retry helpers for SQLITE_BUSY contention.
  *
- * SQLite's engine-level `busy_timeout` pragma (set to 5000ms in
- * {@link applyPerfPragmas}) makes a single statement wait up to 5s for a
+ * SQLite's engine-level `busy_timeout` pragma (set to 30000ms in
+ * {@link applyPerfPragmas}) makes a single statement wait up to 30s for a
  * competing writer to release its lock. That alone is NOT enough for
  * highly-parallel CLI invocations of `cleo update <id> --add-labels ...`
  * (gh#391): up to ~50% of writes still fail with `SQLITE_BUSY: database
@@ -16,9 +16,9 @@
  *
  * **Layering contract**:
  *
- *  1. `busy_timeout=5000ms` (engine-level, in {@link applyPerfPragmas}) —
+ *  1. `busy_timeout=30000ms` (engine-level, in {@link applyPerfPragmas}) —
  *     handles the *common* case where a competing writer commits within
- *     5 seconds. The statement waits in-place; no application code runs.
+ *     30 seconds. The statement waits in-place; no application code runs.
  *  2. `withWriteRetry` (this module, app-level) — handles the *uncommon*
  *     case where the engine-level wait expires (or the writer holds a
  *     RESERVED lock during a long transaction). Retries the entire
@@ -26,8 +26,8 @@
  *     jitter) backoff before throwing {@link E_WRITE_CONTENTION}.
  *
  * Total worst-case latency is therefore bounded by
- * `MAX_ATTEMPTS × busy_timeout + sum(backoffs)` ≈ `4 × 5000 + 1500` =
- * `~21.5s`. In practice the first retry usually succeeds because the
+ * `MAX_ATTEMPTS × busy_timeout + sum(backoffs)` ≈ `4 × 30000 + 1500` =
+ * `~121.5s`. In practice the first retry usually succeeds because the
  * competing writer has committed by then.
  *
  * **Why a separate module from migration-manager.ts**: the migration

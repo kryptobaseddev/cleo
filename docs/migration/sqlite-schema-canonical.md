@@ -202,16 +202,43 @@ The dual-scope target is authored as two drizzle-kit (rc.3) configs:
 
 Wired into root `package.json` as `db:generate:cleo-project` / `db:generate:cleo-global`.
 
-> **Generation boundary.** These configs declare per-scope domain MEMBERSHIP, not a
-> generate-ready snapshot. Source modules carry UNPREFIXED physical table names, so
-> several collide across domains in one file (e.g. `schema/attachments.ts` and
-> `conduit-schema.ts` both define `attachments` → `tasks_attachments` vs
-> `conduit_attachments`). Pattern-A domain-prefixing that resolves the collisions is
-> applied by the **E3 exodus prefixer (T11248)**; running `drizzle-kit generate`
-> against the consolidated configs is therefore deferred until exodus emits the
-> prefixed schema. Until then `db:check` continues to validate the per-domain baseline
-> configs only; the two `cleo-*` configs join the check loop once their first prefixed
-> baseline migration exists.
+> **Generation boundary — RESOLVED (T11363).** The two configs now point their
+> `schema` at the CONSOLIDATED, domain-prefixed Pattern-A barrels
+> (`packages/core/src/store/schema/cleo-{project,global}/index.ts`, authored by
+> T11360 / T11361 with the mirrored `brain_*` family in `cleo-shared/`). Because
+> those modules carry the FINAL prefixed physical names (`tasks_tasks`,
+> `conduit_attachments`, `docs_attachments`, …), the cross-domain physical-name
+> collisions that previously blocked generation no longer exist, so
+> `drizzle-kit generate` now emits a single clean **v3 consolidation migration**
+> per scope (folder-per-migration: `<timestamp>_t11363-consolidation-cleo-<scope>/`
+> with `migration.sql` + `snapshot.json`, no legacy `_meta`/`_journal`):
+>
+> | Scope | Migration folder | Tables |
+> |---|---|---|
+> | project | `drizzle-cleo-project/…_t11363-consolidation-cleo-project` | 87 (tasks 45 + conduit 14 + docs 4 + telemetry 2 + brain 22) |
+> | global | `drizzle-cleo-global/…_t11363-consolidation-cleo-global` | 50 (nexus 10 + skills 4 + signaldock 13 + brain 23) |
+>
+> Both apply cleanly to an EMPTY DB (verified with `foreign_keys` ON and OFF).
+>
+> **CHECK constraints (raw DDL).** drizzle-kit rc.3 emits no per-column CHECK from
+> the schema (§3 / §4 / §5), so the boolean / enum / timestamp CHECKs are appended
+> as raw table-level DDL inside each `CREATE TABLE` by
+> `scripts/inject-consolidation-checks.mjs` — derived programmatically from the
+> schema's own `enumValues` / `{ mode: 'boolean' }` / `_at`-timestamp column
+> metadata, **never hand-typed** (284 project + 160 global CHECKs). The
+> `db:generate:cleo-*` scripts chain the injector after generate; the
+> `db:check:consolidation-checks` script (`--check`) is the drift guard that
+> re-derives the block from the live schema and asserts byte-identity.
+>
+> **Collapse intent (AC5).** These two scope migrations are the canonical exodus
+> target: they SUPERSEDE the 7 legacy per-domain dirs
+> (`drizzle-{tasks,brain,nexus,signaldock,telemetry,conduit,skills}`). The legacy
+> dirs are NOT deleted in this PR — the live runtime still journals against them
+> and the `migration-baseline` test still drives `tasks`/`brain`/`nexus` — but at
+> exodus cutover (T11248) the runtime swaps to the consolidated two-file substrate
+> and the legacy per-domain dirs are retired. Until then `db:check` continues to
+> validate the per-domain baseline configs; the two `cleo-*` configs are validated
+> by the empty-DB apply proof + `db:check:consolidation-checks` drift guard.
 
 ---
 
