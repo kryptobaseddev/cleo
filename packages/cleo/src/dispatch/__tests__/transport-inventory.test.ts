@@ -135,9 +135,12 @@ describe('R3-T1 transport inventory — topology invariants', () => {
     expect(JSON.parse(readFileSync(pkgPath, 'utf8')).name).toBe('@cleocode/adapters');
   });
 
-  it('rpc/http transports are contract-declared but have no adapter yet (R3-T5/T6)', () => {
+  it('the rpc transport now has its adapter (R3-T5 · T11449); http is still pending (R3-T6)', () => {
     expect(GATEWAY_SOURCES).toContain('rpc');
     expect(GATEWAY_SOURCES).toContain('http');
-    expect(existsSync(join(REPO_ROOT, 'packages/runtime/src/gateway/rpc'))).toBe(false);
+    // R3-T5 (T11449) landed the CLI-RPC adapter under the runtime gateway.
+    expect(existsSync(join(REPO_ROOT, 'packages/runtime/src/gateway/rpc'))).toBe(true);
+    // http remains contract-declared but adapter-less until R3-T6.
+    expect(existsSync(join(REPO_ROOT, 'packages/runtime/src/gateway/http'))).toBe(false);
   });
 });

@@ -88,6 +88,20 @@ export {
   resolve,
   validateRequiredParams,
 } from './registry.js';
+// CLI-RPC transport adapter (R3-T5 · T11449) — thin NDJSON-over-unix-socket
+// server over the gateway. Also reachable via the `@cleocode/runtime/gateway/rpc`
+// subpath. Reuses the FROZEN supervisor-ipc NDJSON framing discipline.
+export {
+  buildErrorFrame,
+  type DecodeResult,
+  decodeLine,
+  encodeFrame,
+  LineBuffer,
+  type RpcServerHandle,
+  type RpcServerOptions,
+  routeFrame,
+  startRpcServer,
+} from './rpc/index.js';
 
 /**
  * Transport-agnostic gateway entrypoint. Wraps a configured {@link Dispatcher}
