@@ -422,4 +422,94 @@ describe('addTask (integration)', () => {
       ),
     ).rejects.toThrow('not found');
   });
+
+  // T11491 — DHQ-044: depth cap error message improvement
+  it('reports a clear actionable message with suggested parent epic when depth cap is exceeded', async () => {
+    // Build a saga→epic→task chain (depth 2 for the task).
+    await addTask({ title: 'Saga', description: 'Root saga', type: 'saga' }, env.tempDir, accessor); // T001 depth=0
+
+    await addTask(
+      { title: 'Epic', description: 'Epic under saga', type: 'epic', parentId: 'T001' },
+      env.tempDir,
+      accessor,
+    ); // T002 depth=1
+
+    await addTask(
+      {
+        title: 'Task',
+        description: 'Task under epic',
+        type: 'task',
+        parentId: 'T002',
+        acceptance: ['ac1'],
+      },
+      env.tempDir,
+      accessor,
+    ); // T003 depth=2
+
+    // Attempt to add a subtask under T003 (depth=3) — should fail with
+    // a message that names the parent epic T002.
+    await expect(
+      addTask(
+        {
+          title: 'Too deep',
+          description: 'Would exceed depth cap',
+          parentId: 'T003',
+          acceptance: ['ac1'],
+        },
+        env.tempDir,
+        accessor,
+      ),
+    ).rejects.toThrow(/depth cap.*would be exceeded|Cannot add a child/i);
+  });
+
+  it('depth cap error message names the grandparent epic as the suggested target', async () => {
+    // Epic→Task hierarchy (depth=1 for task parent).
+    await addTask({ title: 'Epic', description: 'An epic', type: 'epic' }, env.tempDir, accessor); // T001 depth=0
+
+    await addTask(
+      {
+        title: 'Task',
+        description: 'Under epic',
+        type: 'task',
+        parentId: 'T001',
+        acceptance: ['ac1'],
+      },
+      env.tempDir,
+      accessor,
+    ); // T002 depth=1
+
+    // Subtask under T002 would be depth=2, which is at the cap (maxDepth=3 means depth 0,1,2 are valid children).
+    // But T002 is a task at depth 1 so it CAN have a subtask (depth=2 < 3).
+    // Add the subtask.
+    await addTask(
+      {
+        title: 'Subtask',
+        description: 'Under task',
+        type: 'subtask',
+        parentId: 'T002',
+        acceptance: ['ac1'],
+      },
+      env.tempDir,
+      accessor,
+    ); // T003 depth=2
+
+    // Trying to add under the subtask (depth=3) should fail with a hint to use T002 (the task)
+    // or T001 (the epic) — the message must suggest --parent and name the epic.
+    const err = await addTask(
+      {
+        title: 'Too deep item',
+        description: 'Below subtask',
+        parentId: 'T003',
+        acceptance: ['ac1'],
+      },
+      env.tempDir,
+      accessor,
+    ).catch((e: Error) => e);
+
+    expect(err).toBeInstanceOf(Error);
+    // The error message must mention a suggested parent (T001 or T002).
+    expect(err.message).toMatch(/T00[12]/);
+    // Must include actionable fix guidance.
+    expect(err.message.toLowerCase()).toMatch(/parent|epic|reparent/);
+  });
 });

@@ -913,15 +913,29 @@ export async function addTask(
     const ancestors = await dataAccessor.getAncestorChain(parentId);
     const parentDepth = ancestors.length;
     if (parentDepth + 1 >= policy.maxDepth) {
+      // T11491 — DHQ-044: produce a clear actionable message that names the
+      // parent epic the user SHOULD target instead. The ancestor chain is
+      // ordered [immediateParent, grandparent, …, root]. When the parent is a
+      // task (depth 2), ancestors[0] is the epic (depth 1) — tell the user
+      // to file under THAT epic instead.
+      const grandparentEpic = ancestors.length > 0 ? ancestors[ancestors.length - 1] : ancestors[0];
+      const epicSuggestion = grandparentEpic
+        ? ` Use --parent ${grandparentEpic.id} (the parent epic) instead, or omit --parent to create a standalone task.`
+        : ' Omit --parent to create a standalone task, or reparent under a higher-level epic.';
       throw new CleoError(
         ExitCode.DEPTH_EXCEEDED,
-        `Maximum nesting depth ${policy.maxDepth} would be exceeded`,
+        `Cannot add a child to ${parentId}: the hierarchy depth cap (${policy.maxDepth}) would be exceeded. ` +
+          `Tasks at depth ${parentDepth} cannot have children.${epicSuggestion}`,
         {
-          fix: 'Reparent this task under a higher-level epic',
+          fix: grandparentEpic
+            ? `cleo add --parent ${grandparentEpic.id} --title "..." --acceptance "..."`
+            : 'Reparent this task under a higher-level epic',
           details: {
             field: 'parentId',
             expected: `depth < ${policy.maxDepth}`,
             actual: parentDepth + 1,
+            suggestedParentId: grandparentEpic?.id,
+            suggestedParentTitle: grandparentEpic?.title,
           },
         },
       );

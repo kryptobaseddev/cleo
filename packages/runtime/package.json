@@ -37,7 +37,8 @@
   },
   "dependencies": {
     "@cleocode/contracts": "workspace:*",
-    "@cleocode/core": "workspace:*"
+    "@cleocode/core": "workspace:*",
+    "node-cron": "^4.2.1"
   },
   "devDependencies": {
     "tsup": "^8.0.0",

@@ -33,3 +33,4 @@ export * from './skill-review-prompt.js';
 export * from './stage-drift-tick.js';
 export * from './state.js';
 export * from './tick.js';
+export { warmupWorktreeBackend } from './worktree-dispatch.js';
