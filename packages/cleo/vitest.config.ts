@@ -407,6 +407,16 @@ export default defineConfig({
         '../../packages/worktree/src/index.ts',
         import.meta.url,
       ).pathname,
+      // T11257 R6: @cleocode/runtime/daemon — web-subsystem.ts imports
+      // defineSubsystem from the daemon subpath. Alias the subpath to the
+      // source tree so vitest resolves it without needing the dist build.
+      '@cleocode/runtime/daemon': new URL(
+        '../../packages/runtime/src/daemon/index.ts',
+        import.meta.url,
+      ).pathname,
+      // T11257 R6: @cleocode/runtime root alias for runtime index.
+      '@cleocode/runtime': new URL('../../packages/runtime/src/index.ts', import.meta.url)
+        .pathname,
       // T9315: citty is not symlinked into root node_modules in sparse worktrees;
       // alias it to the pnpm store copy so tests that import CLI command files
       // (which use defineCommand) resolve without node_modules setup.
