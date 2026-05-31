@@ -25,6 +25,10 @@
     "./gateway/rpc": {
       "types": "./dist/gateway/rpc/index.d.ts",
       "import": "./dist/gateway/rpc/index.js"
+    },
+    "./gateway/http": {
+      "types": "./dist/gateway/http/index.d.ts",
+      "import": "./dist/gateway/http/index.js"
     }
   },
   "scripts": {

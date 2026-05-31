@@ -23,6 +23,7 @@
  */
 
 import type { BrainNode, BrainStreamEvent } from '@cleocode/brain';
+import { createSseStream, encodeSseFrame, SSE_HEADERS } from '@cleocode/runtime/gateway/http';
 import { getBrainDb, getConduitDb, getTasksDb } from '$lib/server/db/connections.js';
 import type { ProjectContext } from '$lib/server/project-context.js';
 import type { RequestHandler } from './$types';
@@ -84,13 +85,19 @@ interface MsgRow {
 // ---------------------------------------------------------------------------
 
 /**
- * Serialises an `BrainStreamEvent` to the `data: …\n\n` SSE wire format.
+ * Serialises a `BrainStreamEvent` to the `data: …\n\n` SSE wire format.
+ *
+ * Delegates to the shared `encodeSseFrame` primitive from the gateway HTTP
+ * adapter (R3-T6 · T11450) so this Studio stream and every gateway-routed SSE
+ * stream share one tested encoder. A `data:`-only frame (no `event:` field) is
+ * byte-identical to the prior handwritten `data: <json>\n\n` form, preserving
+ * the observable wire exactly.
  *
  * @param event - The event to encode.
  * @returns SSE-formatted string ready for the stream.
  */
 function sseEncode(event: BrainStreamEvent): string {
-  return `data: ${JSON.stringify(event)}\n\n`;
+  return encodeSseFrame({ data: event });
 }
 
 // ---------------------------------------------------------------------------
@@ -398,97 +405,62 @@ export const GET: RequestHandler = ({ locals, request }) => {
   const signal = request.signal;
   const projectCtx = locals.projectCtx;
 
-  const stream = new ReadableStream({
-    start(controller) {
-      /** Whether the stream has been closed (prevent double-close). */
-      let closed = false;
+  // Route the stream lifecycle through the shared gateway HTTP SSE primitive
+  // (R3-T6 · T11450). The observable wire is unchanged: every frame is emitted
+  // via `sseEncode` (→ `encodeSseFrame`), producing the same `data: <json>\n\n`
+  // bytes in the same order (hello first, then heartbeat/poll frames). The
+  // builder owns abort-on-disconnect + run-once teardown.
+  const stream = createSseStream((emitter) => {
+    /** Emit one BrainStreamEvent on the wire (drops after close, never throws). */
+    function emit(event: BrainStreamEvent): void {
+      emitter.sendRaw(sseEncode(event));
+    }
 
-      function close(): void {
-        if (closed) return;
-        closed = true;
-        try {
-          controller.close();
-        } catch {
-          // Already closed
-        }
+    // Initialise per-connection watermarks
+    const watermarks = initWatermarks(projectCtx);
+
+    // Send hello immediately
+    emit({ type: 'hello', ts: new Date().toISOString() });
+
+    // ---------------------------------------------------------------------------
+    // Heartbeat timer
+    // ---------------------------------------------------------------------------
+    const heartbeatTimer = setInterval(() => {
+      if (emitter.closed) {
+        clearInterval(heartbeatTimer);
+        return;
+      }
+      emit({ type: 'heartbeat', ts: new Date().toISOString() });
+    }, HEARTBEAT_INTERVAL_MS);
+
+    // ---------------------------------------------------------------------------
+    // Poll timer
+    // ---------------------------------------------------------------------------
+    const pollTimer = setInterval(() => {
+      if (emitter.closed) {
+        clearInterval(pollTimer);
+        return;
       }
 
-      // Abort on client disconnect
-      signal.addEventListener('abort', close);
+      const events: BrainStreamEvent[] = [
+        ...detectNewObservations(watermarks, projectCtx),
+        ...detectEdgeWeightChanges(watermarks, projectCtx),
+        ...detectTaskStatusChanges(watermarks, projectCtx),
+        ...detectNewMessages(watermarks, projectCtx),
+      ];
 
-      // Initialise per-connection watermarks
-      const watermarks = initWatermarks(projectCtx);
+      for (const event of events) {
+        if (emitter.closed) break;
+        emit(event);
+      }
+    }, POLL_INTERVAL_MS);
 
-      // Send hello immediately
-      controller.enqueue(
-        new TextEncoder().encode(sseEncode({ type: 'hello', ts: new Date().toISOString() })),
-      );
+    // Teardown: clear timers when the stream ends (client disconnect / close).
+    return () => {
+      clearInterval(heartbeatTimer);
+      clearInterval(pollTimer);
+    };
+  }, signal);
 
-      // ---------------------------------------------------------------------------
-      // Heartbeat timer
-      // ---------------------------------------------------------------------------
-      const heartbeatTimer = setInterval(() => {
-        if (closed) {
-          clearInterval(heartbeatTimer);
-          return;
-        }
-        try {
-          controller.enqueue(
-            new TextEncoder().encode(
-              sseEncode({ type: 'heartbeat', ts: new Date().toISOString() }),
-            ),
-          );
-        } catch {
-          clearInterval(heartbeatTimer);
-          close();
-        }
-      }, HEARTBEAT_INTERVAL_MS);
-
-      // ---------------------------------------------------------------------------
-      // Poll timer
-      // ---------------------------------------------------------------------------
-      const pollTimer = setInterval(() => {
-        if (closed) {
-          clearInterval(pollTimer);
-          return;
-        }
-
-        const events: BrainStreamEvent[] = [
-          ...detectNewObservations(watermarks, projectCtx),
-          ...detectEdgeWeightChanges(watermarks, projectCtx),
-          ...detectTaskStatusChanges(watermarks, projectCtx),
-          ...detectNewMessages(watermarks, projectCtx),
-        ];
-
-        for (const event of events) {
-          if (closed) break;
-          try {
-            controller.enqueue(new TextEncoder().encode(sseEncode(event)));
-          } catch {
-            clearInterval(pollTimer);
-            clearInterval(heartbeatTimer);
-            close();
-            return;
-          }
-        }
-      }, POLL_INTERVAL_MS);
-
-      // Ensure timers are cleared when stream is cancelled externally
-      return () => {
-        clearInterval(heartbeatTimer);
-        clearInterval(pollTimer);
-        signal.removeEventListener('abort', close);
-        close();
-      };
-    },
-  });
-
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    },
-  });
+  return new Response(stream, { headers: { ...SSE_HEADERS } });
 };
