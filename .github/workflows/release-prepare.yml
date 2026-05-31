@@ -50,6 +50,11 @@ on:
           - beta
           - alpha
           - rc
+      skip-tests:
+        description: 'Skip the full test suite in Preflight (use when main CI is already green — avoids the 10min+ timeout). Lint and typecheck still run.'
+        type: boolean
+        required: false
+        default: false
 
 # R-202: contents:write (commit + branch), pull-requests:write (gh pr create),
 # id-token:write (signed tags only). MUST NOT request packages:write — npm
@@ -73,10 +78,17 @@ defaults:
 jobs:
   # R-204: lint + typecheck + test + build BEFORE any commit. Failure here
   # MUST fail the workflow and prevent `prepare` from running.
-  preflight:
-    name: Preflight (lint + typecheck + test + build)
+  #
+  # T11490 — DHQ-042: the full unsharded test suite can exceed 10 min and
+  # time out the preflight. Two mitigations:
+  #   (a) `skip-tests` input (default false) — when the caller knows main CI
+  #       is already green, tests can be skipped to avoid the redundant run.
+  #   (b) The test step is sharded across 2 parallel matrix workers, keeping
+  #       each shard under 10 min even without skipping.
+  preflight-lint-typecheck:
+    name: Preflight (lint + typecheck)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       # R-263: third-party Actions pinned to major+minor.
       - name: Checkout
@@ -107,9 +119,67 @@ jobs:
         run: pnpm run typecheck
         timeout-minutes: 5
 
-      - name: Test
-        run: pnpm run test
+  # T11490 — DHQ-042: test shards run in parallel to stay under 10 min.
+  # Skipped when skip-tests=true (e.g. dispatched after a green main CI).
+  preflight-test:
+    name: Preflight (test shard ${{ matrix.shard }}/2)
+    if: ${{ inputs.skip-tests != true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: true
+      matrix:
+        shard: [1, 2]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+        timeout-minutes: 5
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        timeout-minutes: 2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+        timeout-minutes: 3
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        timeout-minutes: 5
+
+      - name: Test (shard ${{ matrix.shard }}/2)
+        run: pnpm exec vitest run --shard=${{ matrix.shard }}/2
         timeout-minutes: 10
+
+  preflight-build:
+    name: Preflight (build)
+    runs-on: ubuntu-latest
+    needs: [preflight-lint-typecheck]
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+        timeout-minutes: 5
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        timeout-minutes: 2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+        timeout-minutes: 3
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        timeout-minutes: 5
 
       - name: Build
         run: pnpm run build
@@ -121,10 +191,17 @@ jobs:
 
   # R-203: prepare needs preflight.
   # R-205: plan resolution → version bump → CHANGELOG → commit → push → bump-PR.
+  # T11490: needs both lint/typecheck and build to pass; test shards are
+  # independent (always() used so prepare can run even when tests are skipped).
   prepare:
     name: Prepare bump-PR
     runs-on: ubuntu-latest
-    needs: preflight
+    needs: [preflight-lint-typecheck, preflight-test, preflight-build]
+    if: |
+      always() &&
+      needs.preflight-lint-typecheck.result == 'success' &&
+      needs.preflight-build.result == 'success' &&
+      (needs.preflight-test.result == 'success' || needs.preflight-test.result == 'skipped')
     timeout-minutes: 20
     outputs:
       branch: ${{ steps.branch.outputs.name }}
@@ -263,7 +340,9 @@ jobs:
     name: Cleanup on failure
     runs-on: ubuntu-latest
     needs:
-      - preflight
+      - preflight-lint-typecheck
+      - preflight-test
+      - preflight-build
       - prepare
     if: failure()
     timeout-minutes: 10

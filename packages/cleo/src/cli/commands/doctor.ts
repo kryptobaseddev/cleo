@@ -382,10 +382,22 @@ export const doctorCommand = defineCommand({
         'Migrate <root>/.cleo/worktree-include (legacy) → <root>/.worktreeinclude (canonical, T9983). ' +
         'Combine with --dry-run to preview.',
     },
+    /**
+     * T11489 — DHQ-037/019: detect and auto-heal a leaked `core.worktree` key
+     * in the shared `.git/config`. Reports E_WT_CONFIG_LEAK when found; heals
+     * automatically unless `--dry-run` is passed.
+     */
+    'check-worktree-config': {
+      type: 'boolean',
+      description:
+        'Detect and auto-heal a leaked core.worktree key in .git/config (T11489 / DHQ-037). ' +
+        'Combine with --dry-run to report without healing.',
+    },
     'dry-run': {
       type: 'boolean',
       description:
-        'With --quarantine-rogue-cleo-dirs or --scan-stray-nexus-dbs: print what would be done without acting',
+        'With --quarantine-rogue-cleo-dirs, --scan-stray-nexus-dbs, or --check-worktree-config: ' +
+        'print what would be done without acting',
     },
     /**
      * Show brain.db health dashboard (T1908 / BBTT-W2-4).
@@ -442,6 +454,75 @@ export const doctorCommand = defineCommand({
     progress.start();
 
     try {
+      // T11489 — DHQ-037/019: detect + auto-heal leaked core.worktree in .git/config
+      if (args['check-worktree-config']) {
+        const { execFileSync: execFile } = await import('node:child_process');
+        const { join: pathJoin } = await import('node:path');
+        const { existsSync } = await import('node:fs');
+        const { detectAndHealCoreWorktreeLeak } = await import('@cleocode/worktree');
+        const projectRoot = getProjectRoot();
+        // Derive git root from project root (git rev-parse --show-toplevel).
+        let gitRoot = projectRoot;
+        try {
+          gitRoot = execFile('git', ['rev-parse', '--show-toplevel'], {
+            cwd: projectRoot,
+            encoding: 'utf-8' as const,
+            stdio: ['pipe', 'pipe', 'pipe'] as const,
+          }).trim();
+        } catch {
+          // Use projectRoot as fallback.
+        }
+        const isDryRun = args['dry-run'] === true;
+        progress.step(0, 'Checking for leaked core.worktree in .git/config');
+
+        if (isDryRun) {
+          // Dry-run: probe only, do not heal.
+          const gitConfigPath = pathJoin(gitRoot, '.git', 'config');
+          let leakedValue: string | undefined;
+          if (existsSync(gitConfigPath)) {
+            try {
+              leakedValue =
+                execFile('git', ['config', '--file', gitConfigPath, '--get', 'core.worktree'], {
+                  encoding: 'utf-8' as const,
+                  stdio: ['pipe', 'pipe', 'pipe'] as const,
+                }).trim() || undefined;
+            } catch {
+              // Key absent — no leak.
+            }
+          }
+          const report = {
+            gitRoot,
+            gitConfigPath,
+            leakDetected: !!leakedValue,
+            leakedValue,
+            healed: false,
+            dryRun: true,
+            message: leakedValue
+              ? `DRY-RUN: core.worktree="${leakedValue}" found — would unset`
+              : 'No core.worktree leak detected',
+          };
+          progress.complete(report.message);
+          cliOutput(report, { command: 'doctor', operation: 'doctor.check-worktree-config' });
+          if (leakedValue) process.exitCode = 2;
+        } else {
+          const result = detectAndHealCoreWorktreeLeak(gitRoot);
+          const report = {
+            gitRoot,
+            ...result,
+            dryRun: false,
+            message: result.leakDetected
+              ? result.healed
+                ? `E_WT_CONFIG_LEAK healed: removed core.worktree="${result.leakedValue}"`
+                : `E_WT_CONFIG_LEAK detected but heal FAILED: ${result.healError}`
+              : 'No core.worktree leak detected',
+          };
+          progress.complete(report.message);
+          cliOutput(report, { command: 'doctor', operation: 'doctor.check-worktree-config' });
+          if (result.leakDetected && !result.healed) process.exitCode = 1;
+        }
+        return;
+      }
+
       // T1908 / BBTT-W2-4: brain health dashboard
       if (args.brain) {
         const { computeBrainHealthDashboard } = await import(
