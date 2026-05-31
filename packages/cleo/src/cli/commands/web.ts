@@ -76,9 +76,7 @@ const startCommand = defineCommand({
         console.error(formatError(err));
         process.exit(err.code);
       }
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`Error starting web server: ${msg}`);
-      process.exit(ExitCode.GENERAL_ERROR);
+      throw err;
     }
   },
 });
@@ -118,9 +116,7 @@ const stopCommand = defineCommand({
         console.error(formatError(err));
         process.exit(err.code);
       }
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`Error stopping web server: ${msg}`);
-      process.exit(ExitCode.GENERAL_ERROR);
+      throw err;
     }
   },
 });
@@ -181,9 +177,7 @@ const restartCommand = defineCommand({
         console.error(formatError(err));
         process.exit(err.code);
       }
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`Error restarting web server: ${msg}`);
-      process.exit(ExitCode.GENERAL_ERROR);
+      throw err;
     }
   },
 });
@@ -200,9 +194,7 @@ const statusCommand = defineCommand({
         console.error(formatError(err));
         process.exit(err.code);
       }
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`Error reading web server status: ${msg}`);
-      process.exit(ExitCode.GENERAL_ERROR);
+      throw err;
     }
   },
 });
@@ -241,9 +233,7 @@ const openCommand = defineCommand({
         console.error(formatError(err));
         process.exit(err.code);
       }
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`Error opening web UI: ${msg}`);
-      process.exit(ExitCode.GENERAL_ERROR);
+      throw err;
     }
   },
 });
