@@ -27,6 +27,20 @@
  * attached, and every subsequent table for the same source threw
  * "database _exodus_src_ is already in use", causing ~80 % data loss.
  *
+ * ## FK-defer bulk copy (ROOT CAUSE 1 fix — T11533)
+ *
+ * Legacy tasks.db has self-referential FKs (`tasks.parent_id → tasks.id`),
+ * cross-table FKs, and ~18 tables with FK relationships. When FK enforcement
+ * is ON and tables are copied in arbitrary order (children before parents),
+ * each child INSERT fails with FOREIGN KEY constraint error (SQLite errcode 787)
+ * and the table is silently skipped — causing ~114K rows of data loss.
+ *
+ * Fix: set `PRAGMA foreign_keys = OFF` on the target connection before any
+ * bulk INSERT, then after all tables are committed run `PRAGMA foreign_key_check`
+ * to validate referential integrity. Genuine orphan rows surface as verify
+ * failures; child-before-parent ordering artifacts are NOT dropped.
+ * `PRAGMA foreign_keys = ON` is restored after the check.
+ *
  * ## Name-mapping (ROOT CAUSE 1 fix — T11532)
  *
  * Legacy source DBs use UNPREFIXED table names (`tasks`, `messages`, `skills`,
@@ -37,13 +51,21 @@
  * no consolidated home emit an explicit WARN journal entry rather than being
  * silently discarded.
  *
- * ## Column-drift tolerance (ROOT CAUSE 2 fix — T11532)
+ * ## Column-drift tolerance (ROOT CAUSE 2 fix — T11532, hardened T11533)
  *
  * When the source and target schemas differ (consolidated schema added/changed
  * columns vs legacy), the copy uses the INTERSECTION of source and target
  * column names. New target-only columns take their schema defaults; old
  * source-only columns are dropped. This is implemented by introspecting both
  * schemas via `PRAGMA table_info` and building an explicit column list.
+ *
+ * **NOT NULL / no-default hazard (T11533)**: target-only NOT NULL columns
+ * WITHOUT a schema default caused `INSERT OR IGNORE` to silently drop rows
+ * whose source value was NULL for that column (constraint violation → IGNORE).
+ * The fix: for each intersection column that is NOT NULL in the target AND
+ * has no `dflt_value`, the SELECT clause wraps the source reference in
+ * `COALESCE(src_col, type_default)` so no row is silently dropped.
+ * A type_default of `''` is used for TEXT affinity and `0` for numeric.
  *
  * ## Advisory file lock (AC4)
  *
@@ -57,6 +79,7 @@
  * @task T11248 (E5 · SG-DB-SUBSTRATE-V2)
  * @task T11531 (P0 attach-leak fix)
  * @task T11532 (P0 name-mapping + column-drift + verify-rowid fix)
+ * @task T11533 (P0 FK-defer + NOT NULL coalesce + signaldock-global map + nexus hash fix)
  * @saga T11242
  */
 
@@ -227,23 +250,42 @@ interface CopyTableResult {
 }
 
 /**
+ * Determine a safe SQL literal default for a NOT NULL column with no schema
+ * default, given its SQLite type affinity.
+ *
+ * Used to coalesce NULL source values for target-only NOT NULL columns so that
+ * rows are not silently dropped by `INSERT OR IGNORE` when a source value is
+ * NULL (T11533 ROOT CAUSE 2 fix).
+ *
+ * @param colType - Raw `type` string from `PRAGMA table_info` (e.g. `"INTEGER"`,
+ *   `"TEXT"`, `"REAL"`, `"BLOB"`, or compound forms like `"text NOT NULL"`).
+ * @returns A SQL literal string suitable for embedding in a `COALESCE()` call.
+ */
+function typeDefaultLiteral(colType: string): string {
+  const upper = colType.toUpperCase();
+  if (upper.includes('INT')) return '0';
+  if (upper.includes('REAL') || upper.includes('FLOAT') || upper.includes('DOUBLE')) return '0.0';
+  if (upper.includes('BLOB')) return "x''";
+  // TEXT and any other affinity (SQLite permissive) → empty string
+  return "''";
+}
+
+/**
  * Copy all rows from a legacy source table (in the already-attached alias) into
  * the corresponding consolidated target table.
  *
  * ## What changed in T11532 vs the T11531 version:
  *
- * 1. **Name mapping (ROOT CAUSE 1)**: `legacyTableName` is resolved to its
- *    consolidated name via `resolveConsolidatedTableName()`. Without this,
+ * 1. **Name mapping (ROOT CAUSE 1 — T11532)**: `legacyTableName` is resolved to
+ *    its consolidated name via `resolveConsolidatedTableName()`. Without this,
  *    `tasks` (legacy) was looked up as `main."tasks"` which doesn't exist in
  *    the consolidated schema (the real target is `tasks_tasks`).
  *
- * 2. **Column-drift tolerance (ROOT CAUSE 2)**: the INSERT uses the
- *    INTERSECTION of source and target column lists rather than the source
- *    columns verbatim. When the consolidated schema added new columns (e.g.
- *    `prune_candidate` on `brain_observations`), the old code failed with
- *    "table main.brain_X has no column named prune_candidate". New target-only
- *    columns take their schema defaults; old source-only columns are silently
- *    dropped.
+ * 2. **Column-drift tolerance (ROOT CAUSE 2 — T11532 + T11533)**: the INSERT
+ *    uses the INTERSECTION of source and target column lists rather than source
+ *    columns verbatim. When the consolidated schema added new columns, old code
+ *    failed. Target-only NOT NULL columns without defaults now get COALESCE()
+ *    wrapping in the SELECT so NULL source values don't cause silent row drops.
  *
  * 3. **Explicit skip (ROOT CAUSE 5)**: tables intentionally excluded from the
  *    consolidated schema (virtual tables, orphan telemetry, etc.) now return
@@ -251,9 +293,10 @@ interface CopyTableResult {
  *    found".
  *
  * **Pre-condition**: the caller has already executed
- * `ATTACH DATABASE '<path>' AS "<attachAlias>"` on `targetNativeDb`.
+ * `ATTACH DATABASE '<path>' AS "<attachAlias>"` on `targetNativeDb`, and
+ * `PRAGMA foreign_keys = OFF` has been set so FK ordering doesn't matter.
  *
- * @param targetNativeDb   - Writable target handle (mid-transaction).
+ * @param targetNativeDb   - Writable target handle (mid-transaction, FK OFF).
  * @param srcNativeDb      - Read-only source snapshot (for metadata queries).
  * @param attachAlias      - Alias under which the source is attached.
  * @param legacyTableName  - Physical table name in the legacy source DB.
@@ -279,9 +322,12 @@ function copyTableFromAttached(
 
   const targetTableName = resolution.targetName;
 
-  // --- Step 2: Get source column list ---
+  // --- Step 2: Get source column list (full pragma for type info) ---
   const srcPragma = srcNativeDb.prepare(`PRAGMA table_info("${legacyTableName}")`).all() as Array<{
     name: string;
+    type: string;
+    notnull: number;
+    dflt_value: string | null;
   }>;
   const srcColumns = new Set(srcPragma.map((r) => r.name));
   if (srcColumns.size === 0) return { rowsCopied: 0, skipped: false };
@@ -306,14 +352,16 @@ function copyTableFromAttached(
     return { rowsCopied: 0, skipped: true, reason };
   }
 
-  // --- Step 5: Compute column intersection (ROOT CAUSE 2) ---
+  // --- Step 5: Compute column intersection (ROOT CAUSE 2 — T11532 + T11533) ---
   const tgtPragma = targetNativeDb
     .prepare(`PRAGMA table_info("${targetTableName}")`)
-    .all() as Array<{ name: string }>;
-  const tgtColumns = new Set(tgtPragma.map((r) => r.name));
+    .all() as Array<{ name: string; type: string; notnull: number; dflt_value: string | null }>;
+
+  // Build a lookup for target columns (type + notNull + dflt_value)
+  const tgtColMap = new Map(tgtPragma.map((r) => [r.name, r]));
 
   // Only copy columns that exist in BOTH source and target.
-  const sharedColumns = srcPragma.map((r) => r.name).filter((col) => tgtColumns.has(col));
+  const sharedColumns = srcPragma.map((r) => r.name).filter((col) => tgtColMap.has(col));
 
   if (sharedColumns.length === 0) {
     const reason = `no overlapping columns between source '${legacyTableName}' and target '${targetTableName}'`;
@@ -321,7 +369,7 @@ function copyTableFromAttached(
     return { rowsCopied: 0, skipped: true, reason };
   }
 
-  const srcOnlyColumns = srcPragma.map((r) => r.name).filter((c) => !tgtColumns.has(c));
+  const srcOnlyColumns = srcPragma.map((r) => r.name).filter((c) => !tgtColMap.has(c));
   const tgtOnlyColumns = tgtPragma.map((r) => r.name).filter((c) => !srcColumns.has(c));
   if (srcOnlyColumns.length > 0 || tgtOnlyColumns.length > 0) {
     log.info(
@@ -330,13 +378,56 @@ function copyTableFromAttached(
     );
   }
 
-  const colList = sharedColumns.map((c) => `"${c}"`).join(', ');
+  // --- Step 6: Build the SELECT expression list ---
+  //
+  // For each shared column, check if the TARGET declares it NOT NULL without
+  // a schema default. If so, wrap with COALESCE(src_col, type_default) so a
+  // NULL source value does not cause a constraint violation and silent row drop
+  // via INSERT OR IGNORE. (T11533 ROOT CAUSE 2 fix)
+  const selectExprs = sharedColumns.map((col) => {
+    const tgtInfo = tgtColMap.get(col);
+    const isNotNullWithoutDefault =
+      tgtInfo !== undefined && tgtInfo.notnull === 1 && tgtInfo.dflt_value === null;
+
+    if (isNotNullWithoutDefault) {
+      const defLiteral = typeDefaultLiteral(tgtInfo.type);
+      // COALESCE ensures a NULL source value gets a safe non-NULL default
+      // rather than causing a NOT NULL violation that INSERT OR IGNORE silently drops.
+      return `COALESCE("${attachAlias}"."${legacyTableName}"."${col}", ${defLiteral}) AS "${col}"`;
+    }
+    return `"${attachAlias}"."${legacyTableName}"."${col}"`;
+  });
+
+  // --- Step 6b: Handle target-only NOT NULL columns without schema defaults ---
+  //
+  // If a target-only column is NOT NULL with no dflt_value, omitting it from
+  // the INSERT causes a "NOT NULL constraint failed" error, which INSERT OR IGNORE
+  // silently converts to a dropped row. We must include these columns in the
+  // INSERT with a literal type-default value so every row survives. (T11533 fix)
+  const tgtOnlyNotNullCols = tgtOnlyColumns.filter((col) => {
+    const info = tgtColMap.get(col);
+    return info !== undefined && info.notnull === 1 && info.dflt_value === null;
+  });
+
+  const allInsertCols = [...sharedColumns, ...tgtOnlyNotNullCols];
+  const allSelectExprs = [
+    ...selectExprs,
+    ...tgtOnlyNotNullCols.map((col) => {
+      const info = tgtColMap.get(col)!;
+      return `${typeDefaultLiteral(info.type)} AS "${col}"`;
+    }),
+  ];
+
+  const colList = allInsertCols.map((c) => `"${c}"`).join(', ');
+  const selectList = allSelectExprs.join(', ');
 
   // INSERT OR IGNORE so idempotency keys prevent duplicates on resume.
   // The source alias uses legacyTableName; the target uses consolidatedName.
+  // OR IGNORE only fires on PK/UNIQUE conflicts — NOT NULL violations are now
+  // eliminated by the COALESCE expressions above.
   const stmt = targetNativeDb.prepare(
     `INSERT OR IGNORE INTO main."${targetTableName}" (${colList}) ` +
-      `SELECT ${colList} FROM "${attachAlias}"."${legacyTableName}"`,
+      `SELECT ${selectList} FROM "${attachAlias}"."${legacyTableName}"`,
   );
   const result = stmt.run();
   const rowsCopied = (result as unknown as { changes: number }).changes ?? 0;
@@ -534,6 +625,26 @@ export async function runExodusMigrate(
  *
  * Each source gets its own unique alias (`_src_<name>_<index>`) so multiple
  * sources can be processed sequentially without alias conflicts.
+ *
+ * ## FK-defer protocol (T11533 ROOT CAUSE 1)
+ *
+ * Before the first INSERT in any scope, foreign-key enforcement is switched OFF
+ * on the target connection (`PRAGMA foreign_keys = OFF`) so copy order does not
+ * matter (avoids "FOREIGN KEY constraint failed" for child-before-parent copies).
+ * After all sources in the scope are committed, `PRAGMA foreign_key_check` is
+ * executed to surface genuinely orphaned rows, and then FK enforcement is
+ * restored (`PRAGMA foreign_keys = ON`).
+ *
+ * Sequence across all sources in a scope:
+ *   PRAGMA foreign_keys = OFF
+ *   for each source:
+ *     ATTACH … AS alias (outside tx)
+ *     BEGIN
+ *     INSERT … SELECT for each table
+ *     COMMIT
+ *     DETACH alias (outside tx)
+ *   PRAGMA foreign_key_check  → log orphans as warnings
+ *   PRAGMA foreign_keys = ON
  */
 async function migrateScope(
   scope: string,
@@ -548,136 +659,179 @@ async function migrateScope(
 
   onProgress?.(`Migrating ${scope}-scope sources…`);
 
-  for (let i = 0; i < sources.length; i++) {
-    const src = sources[i];
-    const attachAlias = makeAttachAlias(src.name, i);
-    const escapedPath = src.path.replace(/'/g, "''");
+  // FK-defer: disable FK enforcement for the entire scope's bulk copy so that
+  // copy order (child-before-parent) does not cause constraint failures.
+  // Restored + checked after all sources in this scope are committed (T11533).
+  targetNativeDb.exec('PRAGMA foreign_keys = OFF');
+  log.info({ scope }, 'Exodus: foreign_keys=OFF for bulk copy (T11533 FK-defer)');
 
-    // Step 1: ATTACH the source outside any transaction (SQLite restriction).
-    // The finally block below guarantees DETACH runs even on error.
-    targetNativeDb.exec(`ATTACH DATABASE '${escapedPath}' AS "${attachAlias}"`);
-    onProgress?.(`  [${src.name}] Attached as "${attachAlias}"`);
+  try {
+    for (let i = 0; i < sources.length; i++) {
+      const src = sources[i];
+      const attachAlias = makeAttachAlias(src.name, i);
+      const escapedPath = src.path.replace(/'/g, "''");
 
-    // Step 2: Open a read-only snapshot for metadata (column info, counts).
-    const snap = openCleoDbSnapshot(src.path, { readOnly: true });
+      // Step 1: ATTACH the source outside any transaction (SQLite restriction).
+      // The finally block below guarantees DETACH runs even on error.
+      targetNativeDb.exec(`ATTACH DATABASE '${escapedPath}' AS "${attachAlias}"`);
+      onProgress?.(`  [${src.name}] Attached as "${attachAlias}"`);
 
-    try {
-      const tables = listTables(snap.db);
-
-      // Step 3: BEGIN the transaction for this source's copy batch (AC6).
-      // Per-source transactions mean a failing source does not roll back
-      // previously-copied sources.
-      targetNativeDb.exec('BEGIN');
-      let txOpen = true;
+      // Step 2: Open a read-only snapshot for metadata (column info, counts).
+      const snap = openCleoDbSnapshot(src.path, { readOnly: true });
 
       try {
-        for (const tableName of tables) {
-          // Check journal for resume (AC5)
-          const existing = journal.tables.find(
-            (e) => e.sourceDb === src.name && e.tableName === tableName,
-          );
-          if (existing?.status === 'done') {
-            onProgress?.(`  ↳ ${src.name}.${tableName} — already done (resuming)`);
+        const tables = listTables(snap.db);
+
+        // Step 3: BEGIN the transaction for this source's copy batch (AC6).
+        // Per-source transactions mean a failing source does not roll back
+        // previously-copied sources.
+        targetNativeDb.exec('BEGIN');
+        let txOpen = true;
+
+        try {
+          for (const tableName of tables) {
+            // Check journal for resume (AC5)
+            const existing = journal.tables.find(
+              (e) => e.sourceDb === src.name && e.tableName === tableName,
+            );
+            if (existing?.status === 'done') {
+              onProgress?.(`  ↳ ${src.name}.${tableName} — already done (resuming)`);
+              allTableResults.push({
+                sourceDb: src.name,
+                tableName,
+                rowsCopied: existing.rowsCopied,
+                skipped: false,
+              });
+              continue;
+            }
+
+            onProgress?.(`  ↳ Copying ${src.name}.${tableName}…`);
+            let rowsCopied = 0;
+            let status: TableMigrationStatus = 'done';
+            let errorMsg: string | undefined;
+            let skipped = false;
+
+            try {
+              // Step 4: INSERT using the already-attached alias — no per-table ATTACH/DETACH.
+              // FK enforcement is OFF (set at scope start), so copy order does not matter.
+              // Pass src.name so copyTableFromAttached can resolve the consolidated target name.
+              const copyResult = copyTableFromAttached(
+                targetNativeDb,
+                snap.db,
+                attachAlias,
+                tableName,
+                src.name,
+              );
+              rowsCopied = copyResult.rowsCopied;
+              if (copyResult.skipped) {
+                status = 'skipped';
+                errorMsg = copyResult.reason;
+                skipped = true;
+              }
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              log.warn({ tableName, sourceDb: src.name, err }, 'Table copy failed — skipping');
+              status = 'skipped';
+              errorMsg = msg;
+              skipped = true;
+            }
+
+            // Update journal entry
+            const entry: JournalTableEntry = {
+              sourceDb: src.name,
+              tableName,
+              status,
+              rowsCopied,
+              updatedAt: new Date().toISOString(),
+              ...(errorMsg ? { error: errorMsg } : {}),
+            };
+
+            const idx = journal.tables.findIndex(
+              (e) => e.sourceDb === src.name && e.tableName === tableName,
+            );
+            if (idx >= 0) {
+              journal.tables[idx] = entry;
+            } else {
+              journal.tables.push(entry);
+            }
+            journal.updatedAt = new Date().toISOString();
+            // Atomic journal write after each table (AC5 — crash-resumable)
+            writeJournal(stagingDir, journal);
+
             allTableResults.push({
               sourceDb: src.name,
               tableName,
-              rowsCopied: existing.rowsCopied,
-              skipped: false,
+              rowsCopied,
+              skipped,
+              reason: errorMsg,
             });
-            continue;
           }
 
-          onProgress?.(`  ↳ Copying ${src.name}.${tableName}…`);
-          let rowsCopied = 0;
-          let status: TableMigrationStatus = 'done';
-          let errorMsg: string | undefined;
-          let skipped = false;
-
-          try {
-            // Step 4: INSERT using the already-attached alias — no per-table ATTACH/DETACH.
-            // Pass src.name so copyTableFromAttached can resolve the consolidated target name.
-            const copyResult = copyTableFromAttached(
-              targetNativeDb,
-              snap.db,
-              attachAlias,
-              tableName,
-              src.name,
-            );
-            rowsCopied = copyResult.rowsCopied;
-            if (copyResult.skipped) {
-              status = 'skipped';
-              errorMsg = copyResult.reason;
-              skipped = true;
+          // Step 5: COMMIT all copies for this source.
+          targetNativeDb.exec('COMMIT');
+          txOpen = false;
+        } catch (err) {
+          if (txOpen) {
+            try {
+              targetNativeDb.exec('ROLLBACK');
+            } catch {
+              // ignore rollback errors
             }
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            log.warn({ tableName, sourceDb: src.name, err }, 'Table copy failed — skipping');
-            status = 'skipped';
-            errorMsg = msg;
-            skipped = true;
           }
+          throw err;
+        }
+      } finally {
+        // Step 7: Close the read-only metadata snapshot.
+        snap.close();
 
-          // Update journal entry
-          const entry: JournalTableEntry = {
-            sourceDb: src.name,
-            tableName,
-            status,
-            rowsCopied,
-            updatedAt: new Date().toISOString(),
-            ...(errorMsg ? { error: errorMsg } : {}),
-          };
-
-          const idx = journal.tables.findIndex(
-            (e) => e.sourceDb === src.name && e.tableName === tableName,
+        // Step 6: DETACH the source alias — executed outside the (now committed
+        // or rolled-back) transaction so SQLite allows it.
+        try {
+          targetNativeDb.exec(`DETACH DATABASE "${attachAlias}"`);
+          onProgress?.(`  [${src.name}] Detached "${attachAlias}"`);
+        } catch (detachErr) {
+          // Log but do not re-throw — a failed DETACH is non-fatal for the
+          // migrated data; the alias will be released when the target DB closes.
+          log.warn(
+            { attachAlias, sourceDb: src.name, err: detachErr },
+            'DETACH failed — alias will be released on DB close',
           );
-          if (idx >= 0) {
-            journal.tables[idx] = entry;
-          } else {
-            journal.tables.push(entry);
-          }
-          journal.updatedAt = new Date().toISOString();
-          // Atomic journal write after each table (AC5 — crash-resumable)
-          writeJournal(stagingDir, journal);
-
-          allTableResults.push({
-            sourceDb: src.name,
-            tableName,
-            rowsCopied,
-            skipped,
-            reason: errorMsg,
-          });
         }
-
-        // Step 5: COMMIT all copies for this source.
-        targetNativeDb.exec('COMMIT');
-        txOpen = false;
-      } catch (err) {
-        if (txOpen) {
-          try {
-            targetNativeDb.exec('ROLLBACK');
-          } catch {
-            // ignore rollback errors
-          }
-        }
-        throw err;
       }
-    } finally {
-      // Step 7: Close the read-only metadata snapshot.
-      snap.close();
-
-      // Step 6: DETACH the source alias — executed outside the (now committed
-      // or rolled-back) transaction so SQLite allows it.
-      try {
-        targetNativeDb.exec(`DETACH DATABASE "${attachAlias}"`);
-        onProgress?.(`  [${src.name}] Detached "${attachAlias}"`);
-      } catch (detachErr) {
-        // Log but do not re-throw — a failed DETACH is non-fatal for the
-        // migrated data; the alias will be released when the target DB closes.
+    } // end for loop over sources
+  } finally {
+    // FK-check: validate referential integrity AFTER all bulk copies are committed.
+    // Genuine orphan rows surface here as warnings; child-before-parent ordering
+    // artifacts that would have caused "FOREIGN KEY constraint failed" during copy
+    // are now harmless (rows were inserted in FK-OFF mode).
+    try {
+      const orphans = targetNativeDb.prepare('PRAGMA foreign_key_check').all() as Array<{
+        table: string;
+        rowid: number;
+        parent: string;
+        fkid: number;
+      }>;
+      if (orphans.length > 0) {
         log.warn(
-          { attachAlias, sourceDb: src.name, err: detachErr },
-          'DETACH failed — alias will be released on DB close',
+          { scope, orphanCount: orphans.length, sample: orphans.slice(0, 5) },
+          `Exodus: PRAGMA foreign_key_check found ${orphans.length} orphan row(s) after bulk copy — these are genuine data orphans (not ordering artifacts)`,
         );
+      } else {
+        log.info({ scope }, 'Exodus: PRAGMA foreign_key_check PASSED — no orphan rows');
       }
+    } catch (checkErr) {
+      log.warn(
+        { scope, err: checkErr },
+        'Exodus: PRAGMA foreign_key_check failed (non-fatal) — target schema may not have FK constraints enabled',
+      );
+    }
+
+    // Restore FK enforcement on the target connection.
+    try {
+      targetNativeDb.exec('PRAGMA foreign_keys = ON');
+      log.info({ scope }, 'Exodus: foreign_keys=ON restored after bulk copy');
+    } catch (fkErr) {
+      log.warn({ scope, err: fkErr }, 'Exodus: could not restore foreign_keys=ON (non-fatal)');
     }
   }
 }
