@@ -13,6 +13,9 @@
  *     it the goal is fuzzy (LLM-judge fallback).
  *   - `cleo goal status` — the CURRENT agent's active goal (resolved per-agent
  *     via the env identity, so concurrent agents see their own goal).
+ *   - `cleo goal advance <goalId>` — advance the named goal one turn through the
+ *     budgeted loop, persist the result, and return a continuation nudge when
+ *     the goal is still active. This is the entry point for the Stop-hook loop.
  *   - `cleo goal subgoal <intent> [--task T###] [--turns N]` — create a child
  *     goal linked to the active goal via `parentGoalId`.
  *   - `cleo goal append <criterion>` — append an acceptance criterion to the
@@ -20,6 +23,7 @@
  *
  * @epic T11290 EP-CLEO-GOAL-SYSTEM
  * @task T11381
+ * @task T11496 E4-GOAL-LOOP
  * @saga T11283 SG-COGNITIVE-SUBSTRATE
  */
 
@@ -147,6 +151,51 @@ const subgoalCommand = defineCommand({
   },
 });
 
+/**
+ * `cleo goal advance <goalId>` — advance a goal one turn through the
+ * turn-budgeted loop, persist the result, and return a continuation nudge.
+ *
+ * This is the runtime caller for the `advanceGoal` engine that previously had
+ * NO callers (AC1). The returned envelope carries:
+ *   - `advanceResult` — verdict, nextStatus, turnsRemaining
+ *   - `goal`          — the updated goal record after persistence
+ *   - `continuation`  — the nudge text when the goal is still active, or null
+ *
+ * The Stop-hook reads `continuation` to decide whether to emit a block
+ * decision that re-injects the nudge into the next Claude turn (AC2).
+ *
+ * @task T11496 E4-GOAL-LOOP
+ */
+const advanceCommand = defineCommand({
+  meta: {
+    name: 'advance',
+    description:
+      'Advance a goal one turn (load → judge → persist → continuation). Entry point for the Stop-hook loop.',
+  },
+  args: {
+    goalId: {
+      type: 'positional',
+      description: 'The goal id (idempotency key) to advance',
+    },
+  },
+  async run({ args }) {
+    const goalId = String(args.goalId ?? '').trim();
+    if (goalId.length === 0) {
+      cliError('goal advance requires a <goalId>', ExitCode.VALIDATION_ERROR, {
+        name: 'E_VALIDATION',
+      });
+      return;
+    }
+    const cwd = getProjectRoot();
+    const result = await goal.advanceGoalWithPersist(goalId, { cwd });
+    if (!result) {
+      cliError(`Goal '${goalId}' not found.`, ExitCode.NOT_FOUND, { name: 'E_NOT_FOUND' });
+      return;
+    }
+    cliOutput(result, { command: 'goal advance', operation: 'goal.advance' });
+  },
+});
+
 const appendCommand = defineCommand({
   meta: {
     name: 'append',
@@ -181,20 +230,22 @@ const appendCommand = defineCommand({
 });
 
 /**
- * Parent `cleo goal` command — routes to the set/status/subgoal/append
+ * Parent `cleo goal` command — routes to the set/status/advance/subgoal/append
  * subcommands; prints usage when invoked bare.
  *
  * @task T11381
+ * @task T11496 E4-GOAL-LOOP
  */
 export const goalCommand = defineCommand({
   meta: {
     name: 'goal',
     description:
-      'DB-persisted, per-agent, evidence-gate-aware goal loop (set/status/subgoal/append).',
+      'DB-persisted, per-agent, evidence-gate-aware goal loop (set/status/advance/subgoal/append).',
   },
   subCommands: {
     set: setCommand,
     status: statusCommand,
+    advance: advanceCommand,
     subgoal: subgoalCommand,
     append: appendCommand,
   },

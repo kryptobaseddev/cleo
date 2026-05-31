@@ -38,6 +38,7 @@
 
 import type { TaskViewPipelineStage } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+import { armGoalLoop } from '../goal/arm.js';
 import { startIvtr } from '../lifecycle/ivtr-loop.js';
 import { orchestrateReady } from '../orchestrate/query-ops.js';
 import { getProjectRoot } from '../paths.js';
@@ -111,6 +112,7 @@ export type CleoGoAction =
  * Result payload for {@link cleoGo}.
  *
  * @task T11494
+ * @task T11496 E4-GOAL-LOOP
  */
 export interface CleoGoResult {
   /** The action taken by the driver in this turn. */
@@ -119,6 +121,15 @@ export interface CleoGoResult {
    * Structured diagnostics for display / logging. Always present; may be empty.
    */
   diagnostics: string[];
+  /**
+   * The id of the goal that was armed (or reused) for the Stop-hook loop.
+   *
+   * `null` when no saga was selected (workgraph `complete` action) — there is
+   * nothing to arm when the workgraph is already done.
+   *
+   * @task T11496
+   */
+  armedGoalId: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -176,6 +187,7 @@ export async function cleoGo(params: CleoGoParams = {}): Promise<EngineResult<Cl
     return engineSuccess<CleoGoResult>({
       outcome: { action: 'complete' },
       diagnostics: ['No non-terminal sagas remain — workgraph is complete.'],
+      armedGoalId: null,
     });
   }
 
@@ -183,6 +195,22 @@ export async function cleoGo(params: CleoGoParams = {}): Promise<EngineResult<Cl
   diagnostics.push(
     `active saga: ${sagaId}${next.sagaTitle ? ` (${next.sagaTitle})` : ''} — ${next.completionPct ?? 0}% complete`,
   );
+
+  // 2b. Arm the goal loop (AC3 of T11496): create/reuse a per-saga goal that
+  //     the Stop-hook advances each turn to self-renudge until satisfied.
+  //     Best-effort: failure is non-fatal (diagnostics only).
+  let armedGoalId: string | null = null;
+  try {
+    const armedGoal = await armGoalLoop({
+      sagaId,
+      sagaTitle: next.sagaTitle,
+      cwd: root,
+    });
+    armedGoalId = armedGoal.id;
+    diagnostics.push(`goal loop armed: ${armedGoalId}`);
+  } catch (err: unknown) {
+    diagnostics.push(`goal loop arm failed (non-fatal): ${(err as Error).message}`);
+  }
 
   // 3. orchestrateReady — get the ready frontier for the saga.
   const readyResult = await orchestrateReady(sagaId, root);
@@ -226,6 +254,7 @@ export async function cleoGo(params: CleoGoParams = {}): Promise<EngineResult<Cl
         currentStage,
       },
       diagnostics,
+      armedGoalId,
     });
   }
 
@@ -243,6 +272,7 @@ export async function cleoGo(params: CleoGoParams = {}): Promise<EngineResult<Cl
         readyFrontier,
       },
       diagnostics,
+      armedGoalId,
     });
   }
 
@@ -273,5 +303,6 @@ export async function cleoGo(params: CleoGoParams = {}): Promise<EngineResult<Cl
       tasks: ivtrStarted,
     },
     diagnostics,
+    armedGoalId,
   });
 }
