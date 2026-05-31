@@ -342,13 +342,34 @@ function getSystemdUnitFile() {
  * lifecycle (restart policy, log collection). stdout/stderr are appended
  * to the shared daemon log via StandardOutput/StandardError directives.
  *
+ * When `scopeSagaId` or `scopeEpicId` is supplied the unit injects
+ * `CLEO_SENTIENT_SAGA` / `CLEO_SENTIENT_EPIC` into the service environment
+ * so the daemon only picks tasks within that scope (T11497 AC3).
+ *
  * @param {string} cleoExec - Absolute path to the `cleo` binary.
+ * @param {{ scopeSagaId?: string; scopeEpicId?: string }} [scope] - Optional scope filter.
  * @returns {string} Systemd unit file content.
  */
-function buildSystemdUnit(cleoExec) {
+function buildSystemdUnit(cleoExec, scope) {
   const logFile = getDaemonLogFile();
+  // Build extra Environment= lines for scope env vars (one per line, systemd convention).
+  const scopeLines = [];
+  if (scope?.scopeSagaId) {
+    scopeLines.push(`Environment=CLEO_SENTIENT_SAGA=${scope.scopeSagaId}`);
+  }
+  if (scope?.scopeEpicId) {
+    scopeLines.push(`Environment=CLEO_SENTIENT_EPIC=${scope.scopeEpicId}`);
+  }
+  const scopeEnv = scopeLines.length > 0 ? `\n${scopeLines.join('\n')}` : '';
+
+  const description = scope?.scopeSagaId
+    ? `CLEO Sentient Daemon (saga ${scope.scopeSagaId} scoped)`
+    : scope?.scopeEpicId
+      ? `CLEO Sentient Daemon (epic ${scope.scopeEpicId} scoped)`
+      : 'CLEO Sentient Daemon (autonomous task hygiene + dream cycles)';
+
   return `[Unit]
-Description=CLEO Sentient Daemon (autonomous task hygiene + dream cycles)
+Description=${description}
 Documentation=https://github.com/kryptobaseddev/cleocode
 After=network.target
 
@@ -359,7 +380,7 @@ Restart=on-failure
 RestartSec=5
 StandardOutput=append:${logFile}
 StandardError=append:${logFile}
-Environment=CLEO_SENTIENT_DAEMON=1
+Environment=CLEO_SENTIENT_DAEMON=1${scopeEnv}
 
 [Install]
 WantedBy=default.target
@@ -370,10 +391,11 @@ WantedBy=default.target
  * Install and optionally activate the systemd user unit.
  *
  * @param {string} cleoExec - Absolute path to the `cleo` binary.
+ * @param {{ scopeSagaId?: string; scopeEpicId?: string }} [scope] - Optional scope filter (T11497 AC3).
  */
-function installSystemd(cleoExec) {
+function installSystemd(cleoExec, scope) {
   const unitFile = getSystemdUnitFile();
-  const unit = buildSystemdUnit(cleoExec);
+  const unit = buildSystemdUnit(cleoExec, scope);
   const written = writeIfChanged(unitFile, unit);
 
   if (written) {
@@ -443,11 +465,30 @@ function getLaunchdPlistFile() {
  * The plist uses KeepAlive=true so launchd restarts the daemon on exit,
  * and RunAtLoad=true to start it immediately on launchctl load.
  *
+ * When `scopeSagaId` or `scopeEpicId` is supplied the EnvironmentVariables
+ * dict includes `CLEO_SENTIENT_SAGA` / `CLEO_SENTIENT_EPIC` so the daemon
+ * only picks tasks within that scope (T11497 AC3).
+ *
  * @param {string} cleoExec - Absolute path to the `cleo` binary.
+ * @param {{ scopeSagaId?: string; scopeEpicId?: string }} [scope] - Optional scope filter.
  * @returns {string} Plist XML content.
  */
-function buildLaunchdPlist(cleoExec) {
+function buildLaunchdPlist(cleoExec, scope) {
   const logFile = getDaemonLogFile();
+  // Build extra <key>/<string> pairs for scope env vars.
+  const scopePlistEntries = [];
+  if (scope?.scopeSagaId) {
+    scopePlistEntries.push(
+      `    <key>CLEO_SENTIENT_SAGA</key>\n    <string>${scope.scopeSagaId}</string>`,
+    );
+  }
+  if (scope?.scopeEpicId) {
+    scopePlistEntries.push(
+      `    <key>CLEO_SENTIENT_EPIC</key>\n    <string>${scope.scopeEpicId}</string>`,
+    );
+  }
+  const scopePlist = scopePlistEntries.length > 0 ? `\n${scopePlistEntries.join('\n')}` : '';
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -476,7 +517,7 @@ function buildLaunchdPlist(cleoExec) {
   <key>EnvironmentVariables</key>
   <dict>
     <key>CLEO_SENTIENT_DAEMON</key>
-    <string>1</string>
+    <string>1</string>${scopePlist}
   </dict>
 
   <key>RunAtLoad</key>
@@ -490,10 +531,11 @@ function buildLaunchdPlist(cleoExec) {
  * Install and optionally load the launchd plist.
  *
  * @param {string} cleoExec - Absolute path to the `cleo` binary.
+ * @param {{ scopeSagaId?: string; scopeEpicId?: string }} [scope] - Optional scope filter (T11497 AC3).
  */
-function installLaunchd(cleoExec) {
+function installLaunchd(cleoExec, scope) {
   const plistFile = getLaunchdPlistFile();
-  const plist = buildLaunchdPlist(cleoExec);
+  const plist = buildLaunchdPlist(cleoExec, scope);
   const written = writeIfChanged(plistFile, plist);
 
   if (written) {
@@ -620,18 +662,23 @@ function resolveCleoExec() {
  *
  * WSL is detected and treated as Linux (systemd path resolution).
  *
+ * @param {{ scopeSagaId?: string; scopeEpicId?: string }} [opts] - Optional scope
+ *   filter. When supplied, `CLEO_SENTIENT_SAGA` / `CLEO_SENTIENT_EPIC` are
+ *   injected into the service environment so the daemon only picks tasks
+ *   within the given Saga or Epic. (T11497 E5-HEADLESS AC3)
  * @returns {Promise<void>}
  */
-export async function installDaemonService() {
+export async function installDaemonService(opts) {
   try {
     ensureLogDir();
     const cleoExec = resolveCleoExec();
     const platform = process.platform;
+    const scope = opts ?? {};
 
     if (platform === 'linux' || isWSL()) {
-      installSystemd(cleoExec);
+      installSystemd(cleoExec, scope);
     } else if (platform === 'darwin') {
-      installLaunchd(cleoExec);
+      installLaunchd(cleoExec, scope);
     } else if (platform === 'win32') {
       installWindows();
     } else {

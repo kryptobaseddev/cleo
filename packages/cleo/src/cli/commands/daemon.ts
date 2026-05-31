@@ -323,6 +323,13 @@ const statusCommand = defineCommand({
  * Writes a systemd user unit (Linux) or launchd plist (macOS) and activates it.
  * Idempotent: re-running does not duplicate or restart the service unnecessarily.
  * Respects CLEO_DAEMON_DISABLE=1 to skip activation (CI/container environments).
+ *
+ * When `--saga <id>` or `--epic <id>` is given the service unit is scoped:
+ * `CLEO_SENTIENT_SAGA` / `CLEO_SENTIENT_EPIC` are injected into the
+ * service environment so the daemon only picks tasks within that scope.
+ * Re-running with a different (or no) saga regenerates and reloads the unit.
+ *
+ * @task T11497 E5-HEADLESS AC3
  */
 const installCommand = defineCommand({
   meta: {
@@ -330,25 +337,56 @@ const installCommand = defineCommand({
     description: 'Register the CLEO daemon as a user-level system service (systemd / launchd)',
   },
   args: {
+    saga: {
+      type: 'string',
+      description:
+        'Scope the daemon to tasks within a Saga (sets CLEO_SENTIENT_SAGA in service env)',
+      required: false,
+    },
+    epic: {
+      type: 'string',
+      description:
+        'Scope the daemon to tasks directly under an Epic (sets CLEO_SENTIENT_EPIC in service env)',
+      required: false,
+    },
     json: {
       type: 'boolean',
       description: 'Output result as JSON',
     },
   },
-  async run({ args: _args }) {
+  async run({ args }) {
     try {
       const scriptPath = resolveDaemonInstallerScript();
       const { installDaemonService } = (await import(scriptPath)) as {
-        installDaemonService: () => Promise<void>;
+        installDaemonService: (opts?: {
+          scopeSagaId?: string;
+          scopeEpicId?: string;
+        }) => Promise<void>;
       };
-      await installDaemonService();
+      const scopeSagaId =
+        typeof args.saga === 'string' && args.saga.length > 0 ? args.saga : undefined;
+      const scopeEpicId =
+        typeof args.epic === 'string' && args.epic.length > 0 ? args.epic : undefined;
+      await installDaemonService({ scopeSagaId, scopeEpicId });
+
+      const scopeNote =
+        scopeEpicId !== undefined
+          ? ` (scoped to epic ${scopeEpicId})`
+          : scopeSagaId !== undefined
+            ? ` (scoped to saga ${scopeSagaId})`
+            : '';
 
       cliOutput(
-        { platform: process.platform, message: 'Daemon service installation complete.' },
+        {
+          platform: process.platform,
+          scopeSagaId,
+          scopeEpicId,
+          message: `Daemon service installation complete${scopeNote}.`,
+        },
         {
           command: 'daemon',
           operation: 'daemon.install',
-          message: 'CLEO: Daemon service installation complete.',
+          message: `CLEO: Daemon service installation complete${scopeNote}.`,
         },
       );
     } catch (err) {

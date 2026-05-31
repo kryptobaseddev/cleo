@@ -72,6 +72,9 @@ vi.mock('@cleocode/core/sentient', async () => {
       worktreePrune: { totalPruned: 0 },
     })),
     warmupWorktreeBackend: vi.fn(async () => undefined),
+    // reVerifyWorkerReport is imported by sentient-subsystem.ts (T11497 AC2).
+    // The mock returns a stub function so the subsystem can thread it into tickOptions.
+    reVerifyWorkerReport: vi.fn(async () => ({ accepted: true })),
     SENTIENT_CRON_EXPR: '*/5 * * * *',
     SENTIENT_PROPOSE_CRON_EXPR: '0 */2 * * *',
     SENTIENT_HYGIENE_CRON_EXPR: '0 2 * * *',
@@ -176,5 +179,40 @@ describe('createSentientSubsystem (T11255 R4)', () => {
       expect.stringContaining('.cleo/sentient-state.json'),
       expect.objectContaining({ pid: null }),
     );
+  });
+
+  it('safeRunTick is called with reVerify wired (AC2/T11497)', async () => {
+    const { safeRunTick } = await import('@cleocode/core/sentient');
+
+    const registry = new SubsystemRegistry();
+    registry.register(createSentientSubsystem(projectRoot, { superviseStudio: false }));
+    await registry.startAll();
+
+    // The boot tick fires during start(). Assert safeRunTick was called with
+    // an options object that includes the reVerify field (not undefined).
+    const calls = vi.mocked(safeRunTick).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    const bootTickOpts = calls[0]![0];
+    expect(bootTickOpts).toHaveProperty('reVerify');
+    expect(typeof bootTickOpts.reVerify).toBe('function');
+
+    await registry.shutdownAll();
+  });
+
+  it('scopeSagaId from opts is threaded into safeRunTick options (AC1/T11497)', async () => {
+    const { safeRunTick } = await import('@cleocode/core/sentient');
+
+    const registry = new SubsystemRegistry();
+    registry.register(
+      createSentientSubsystem(projectRoot, { superviseStudio: false, scopeSagaId: 'T9999' }),
+    );
+    await registry.startAll();
+
+    const calls = vi.mocked(safeRunTick).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    const bootTickOpts = calls[0]![0];
+    expect(bootTickOpts.scopeSagaId).toBe('T9999');
+
+    await registry.shutdownAll();
   });
 });

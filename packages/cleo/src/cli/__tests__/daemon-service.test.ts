@@ -122,3 +122,31 @@ describe('uninstallDaemonService — typed result', () => {
     expect(['linux', 'darwin', 'win32']).toContain(result.platform);
   });
 });
+
+// ---------------------------------------------------------------------------
+// T11497 E5-HEADLESS AC3 — saga-scoped installDaemonService
+// ---------------------------------------------------------------------------
+
+describe('T11497 AC3 — installDaemonService saga/epic scope opts', () => {
+  afterEach(() => {
+    delete process.env['CLEO_DAEMON_DISABLE'];
+  });
+
+  it('installDaemonService accepts { scopeSagaId } without throwing', async () => {
+    process.env['CLEO_DAEMON_DISABLE'] = '1';
+    const mod = await import(resolveInstallerScript());
+    await expect(mod.installDaemonService({ scopeSagaId: 'T9999' })).resolves.toBeUndefined();
+  });
+
+  it('installDaemonService accepts { scopeEpicId } without throwing', async () => {
+    process.env['CLEO_DAEMON_DISABLE'] = '1';
+    const mod = await import(resolveInstallerScript());
+    await expect(mod.installDaemonService({ scopeEpicId: 'T8888' })).resolves.toBeUndefined();
+  });
+
+  it('installDaemonService accepts empty opts without throwing (no scope)', async () => {
+    process.env['CLEO_DAEMON_DISABLE'] = '1';
+    const mod = await import(resolveInstallerScript());
+    await expect(mod.installDaemonService({})).resolves.toBeUndefined();
+  });
+});

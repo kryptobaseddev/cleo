@@ -9,6 +9,14 @@
  * @package @cleocode/core
  */
 
+// Re-export reVerifyWorkerReport from the orchestrate subsystem so that
+// @cleocode/runtime (which cannot import @cleocode/core/orchestrate directly)
+// can access it through the sentient public surface (T11497 AC2).
+export {
+  type ReVerifyOptions,
+  reVerifyWorkerReport,
+  type WorkerReport,
+} from '../orchestrate/worker-verify.js';
 export * from './allowlist.js';
 export * from './background-review.js';
 export * from './baseline.js';
