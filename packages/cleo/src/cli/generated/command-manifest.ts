@@ -959,7 +959,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'workgraphCommand',
     name: 'workgraph',
-    description: 'PM-Core V2 WorkGraph operations — validate, apply, plan, structure',
+    description: 'PM-Core V2 WorkGraph operations — validate, apply, plan, structure, status',
     load: async () => (await import('../commands/workgraph.js')).workgraphCommand as CommandDef,
   },
   {
