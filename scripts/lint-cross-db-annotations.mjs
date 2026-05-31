@@ -140,8 +140,9 @@ const CROSS_DB_COLUMN_NAMES = new Set([
  */
 const INTRA_DB_FILES = new Set([
   'packages/core/src/store/tasks-schema.ts',
-  'packages/core/src/store/chain-schema.ts',
-  'packages/core/src/store/signaldock-schema.ts',
+  // chain-schema.ts + signaldock-schema.ts relocated into store/schema/ (T11359);
+  // that whole subtree is already exempt via INTRA_DB_DIR_PREFIXES below, so no
+  // explicit entries are needed here.
 ]);
 
 const INTRA_DB_DIR_PREFIXES = ['packages/core/src/store/schema/'];
