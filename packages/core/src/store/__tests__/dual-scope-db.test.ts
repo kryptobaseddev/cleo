@@ -41,22 +41,28 @@ beforeEach(() => {
   projectDir = join(testRoot, 'project');
   cleoDirProject = join(projectDir, '.cleo');
   mkdirSync(cleoDirProject, { recursive: true });
-  // Global scope: needs the XDG_DATA_HOME/cleo path
-  globalDir = join(testRoot, 'global');
+  // Global scope: CLEO_HOME must end in 'cleo' so the DB path becomes
+  // <CLEO_HOME>/cleo.db, which satisfies the /cleo[/\]cleo\.db$/ assertion.
+  // vitest.setup.ts already sets CLEO_HOME to a per-fork sandbox, but we
+  // override it here so the global DB lands in our isolated testRoot.
+  globalDir = join(testRoot, 'cleo');
   mkdirSync(globalDir, { recursive: true });
 
-  // Override XDG_DATA_HOME so getCleoHome() resolves to our test dir.
-  // This avoids touching the real global cleo.db during tests.
-  process.env.XDG_DATA_HOME = testRoot;
-  process.env.APPDATA = testRoot; // Windows fallback (not used in CI but safe)
+  // CLEO_HOME is the env var that getCleoHome() reads (via getCleoPlatformPaths()
+  // → createPlatformPathsResolver('cleo', 'CLEO_HOME')).  Setting XDG_DATA_HOME
+  // alone does not work because env-paths' XDG_DATA_HOME path appends the app
+  // name ("cleo"), making the result <XDG_DATA_HOME>/cleo, whereas CLEO_HOME is
+  // used as-is.  We set CLEO_HOME = testRoot/cleo so the path becomes
+  // testRoot/cleo/cleo.db, satisfying /cleo[/\]cleo\.db$/.
+  process.env.CLEO_HOME = globalDir;
 });
 
 afterEach(() => {
   // Close and evict all cached handles.
   _resetDualScopeDbCache();
-  // Restore env
-  delete process.env.XDG_DATA_HOME;
-  delete process.env.APPDATA;
+  // Restore env — delete our CLEO_HOME override so subsequent tests get the
+  // per-fork sandbox set by vitest.setup.ts.
+  delete process.env.CLEO_HOME;
   // Clean up temp dirs
   try {
     rmSync(testRoot, { recursive: true, force: true });
@@ -168,11 +174,12 @@ describe('insertIdempotent + idempotency guarantee (E4 AC7)', () => {
     };
 
     // Dynamic import with as-any cast to avoid typing the full schema module.
-    const { tasksTasksTable } = (await import('../schema/cleo-project/tasks-core.js')) as any; // db-open-allowed: test-only schema import
+    // The table is exported as `tasksTasks` (not `tasksTasksTable`) per tasks-core.ts.
+    const { tasksTasks } = (await import('../schema/cleo-project/tasks-core.js')) as any; // db-open-allowed: test-only schema import
 
     let insertedCount = 0;
     for (let i = 0; i < 100; i++) {
-      const n = await insertIdempotent(handle.db, tasksTasksTable, row, 'idempotencyKey');
+      const n = await insertIdempotent(handle.db, tasksTasks, row, 'idempotencyKey');
       insertedCount += n;
     }
 
