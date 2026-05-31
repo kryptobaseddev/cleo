@@ -22,10 +22,10 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { getConduitDbPath } from '../store/conduit-sqlite.js';
-import type { BrainNodeType } from '../store/memory-schema.js';
-import { brainPageEdges, brainPageNodes } from '../store/memory-schema.js';
 import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
 import { getNexusDb, getNexusNativeDb } from '../store/nexus-sqlite.js';
+import type { BrainNodeType } from '../store/schema/memory-schema.js';
+import { brainPageEdges, brainPageNodes } from '../store/schema/memory-schema.js';
 import { applyPerfPragmas } from '../store/sqlite-pragmas.js';
 import { typedAll } from '../store/typed-query.js';
 

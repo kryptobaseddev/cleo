@@ -66,5 +66,11 @@ export {
   type ScannedFile,
   walkRepositoryPaths,
 } from './pipeline/index.js';
-// Schema — Drizzle SQLite table definitions
-export { type CodeIndexRow, codeIndex, type NewCodeIndexRow } from './schema/code-index.js';
+// Schema — Drizzle SQLite table definitions.
+// `code_index` was relocated into the consolidated substrate schema directory
+// (`@cleocode/core/store/schema/code-index`) for Gate 4 (Contracts Fan-Out)
+// compliance — T11359 · E2 · SG-DB-SUBSTRATE-V2. A re-export shim cannot live
+// here: `@cleocode/core` depends on `@cleocode/nexus`, so importing the table
+// back would close a `core → nexus → core` cycle. The re-export had no
+// consumers (the table is owned and migrated by the core substrate), so it is
+// dropped rather than shimmed. Import `codeIndex` from `@cleocode/core` instead.

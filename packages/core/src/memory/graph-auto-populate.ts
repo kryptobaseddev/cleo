@@ -18,9 +18,9 @@
 
 import { createHash } from 'node:crypto';
 import { getLogger } from '../logger.js';
-import type { BrainEdgeType, BrainNodeType } from '../store/memory-schema.js';
-import { brainPageEdges, brainPageNodes } from '../store/memory-schema.js';
 import { getBrainDb } from '../store/memory-sqlite.js';
+import type { BrainEdgeType, BrainNodeType } from '../store/schema/memory-schema.js';
+import { brainPageEdges, brainPageNodes } from '../store/schema/memory-schema.js';
 
 // Structured (pino) logger — writes directly to stderr, NOT through `console.*`.
 // These are BEST-EFFORT graph side-effects fired from deferred/fire-and-forget

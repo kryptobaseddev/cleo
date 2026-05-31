@@ -22,7 +22,7 @@ import type {
   BrainCognitiveType,
   BrainMemoryTier,
   BrainSourceConfidence,
-} from '../store/memory-schema.js';
+} from '../store/schema/memory-schema.js';
 import { isEmbeddingAvailable } from './brain-embedding.js';
 import { searchSimilar } from './brain-similarity.js';
 import { addGraphEdge } from './graph-auto-populate.js';

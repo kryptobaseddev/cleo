@@ -192,7 +192,7 @@ describe('WarpChain chain-store', () => {
   it('enforces DB foreign key for chain instances', async () => {
     const { getDb } = await import('../../store/sqlite.js');
     const { getNativeTasksDb } = await import('../../store/sqlite.js');
-    const { warpChainInstances } = await import('../../store/chain-schema.js');
+    const { warpChainInstances } = await import('../../store/schema/chain-schema.js');
 
     const db = await getDb(tempDir);
     // Enable FKs for this specific test — it validates FK enforcement
@@ -294,7 +294,7 @@ describe('WarpChain chain-store', () => {
       '../chain-store.js'
     );
     const { getDb } = await import('../../store/sqlite.js');
-    const { warpChainInstances } = await import('../../store/chain-schema.js');
+    const { warpChainInstances } = await import('../../store/schema/chain-schema.js');
     const chain = makeMinimalChain();
     await addChain(chain, tempDir);
 

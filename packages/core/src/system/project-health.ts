@@ -857,7 +857,7 @@ async function writeHealthBack(
   try {
     const [{ getNexusDb }, { projectRegistry }, { eq }] = await Promise.all([
       import('../store/nexus-sqlite.js'),
-      import('../store/nexus-schema.js'),
+      import('../store/schema/nexus-schema.js'),
       import('drizzle-orm'),
     ]);
     const db = await getNexusDb();

@@ -281,7 +281,7 @@ describe('checkAllRegisteredProjects', () => {
     // For the unreachable case, insert a row directly since nexusRegister
     // refuses to register a non-existent path.
     const { getNexusDb } = await import('../../store/nexus-sqlite.js');
-    const { projectRegistry } = await import('../../store/nexus-schema.js');
+    const { projectRegistry } = await import('../../store/schema/nexus-schema.js');
     const nexusDb = await getNexusDb();
     const now = new Date().toISOString();
     await nexusDb.insert(projectRegistry).values({

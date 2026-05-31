@@ -1,7 +1,7 @@
 /**
  * Drizzle-kit config for CLEO telemetry.db (opt-in command analytics).
  *
- * Schema: packages/core/src/telemetry/schema.ts
+ * Schema: packages/core/src/store/schema/telemetry-schema.ts
  * Tables: telemetry_events, telemetry_schema_meta
  *
  * @task T1163
@@ -11,7 +11,7 @@
 import { defineConfig } from 'drizzle-kit';
 
 export default defineConfig({
-  schema: './packages/core/src/telemetry/schema.ts',
+  schema: './packages/core/src/store/schema/telemetry-schema.ts',
   out: './packages/core/migrations/drizzle-telemetry',
   dialect: 'sqlite',
   dbCredentials: {

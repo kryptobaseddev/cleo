@@ -18,7 +18,7 @@ import {
 } from '@cleocode/contracts';
 import { taskExistsInTasksDb } from '../store/cross-db-cleanup.js';
 import { getBrainAccessor } from '../store/memory-accessor.js';
-import type { BrainDecisionRow, NewBrainDecisionRow } from '../store/memory-schema.js';
+import type { BrainDecisionRow, NewBrainDecisionRow } from '../store/schema/memory-schema.js';
 import { getDb } from '../store/sqlite.js';
 import { autoCrossLinkDecision } from './decision-cross-link.js';
 import { addGraphEdge, upsertGraphNode } from './graph-auto-populate.js';
@@ -309,7 +309,7 @@ export async function validateDecisionConflicts(
  */
 async function nextDecisionId(projectRoot: string): Promise<string> {
   const { getBrainDb } = await import('../store/memory-sqlite.js');
-  const { brainDecisions } = await import('../store/memory-schema.js');
+  const { brainDecisions } = await import('../store/schema/memory-schema.js');
   const { desc } = await import('drizzle-orm');
   const db = await getBrainDb(projectRoot);
   const rows = await db

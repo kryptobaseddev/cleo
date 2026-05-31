@@ -35,7 +35,7 @@ async function registerAndGetRegisteredId(
   await registerProjectOnEncounter(projectRoot, infoProjectId);
   const { getNexusDb } = await import('../store/nexus-sqlite.js');
   const db = await getNexusDb();
-  const { projectRegistry } = await import('../store/nexus-schema.js');
+  const { projectRegistry } = await import('../store/schema/nexus-schema.js');
   const { eq } = await import('drizzle-orm');
   const rows = await db
     .select()
@@ -201,7 +201,7 @@ describe('registerProjectOnEncounter (T11021 AC2, AC3, AC5)', () => {
       // There is NO lingering second row at the old path.
       const { getNexusDb } = await import('../store/nexus-sqlite.js');
       const db = await getNexusDb();
-      const { projectRegistry } = await import('../store/nexus-schema.js');
+      const { projectRegistry } = await import('../store/schema/nexus-schema.js');
       const { eq } = await import('drizzle-orm');
       const oldRows = await db
         .select()

@@ -31,10 +31,10 @@ import { getLogger } from '../logger.js';
 import { paginate } from '../pagination.js';
 import { getCleoHome } from '../paths.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import type { ProjectRegistryRow } from '../store/nexus-schema.js';
-import { nexusAuditLog, projectIdAliases, projectRegistry } from '../store/nexus-schema.js';
 // Re-export only: resetNexusDbState used by tests and index barrel.
 import { resetNexusDbState } from '../store/nexus-sqlite.js';
+import type { ProjectRegistryRow } from '../store/schema/nexus-schema.js';
+import { nexusAuditLog, projectIdAliases, projectRegistry } from '../store/schema/nexus-schema.js';
 import { generateProjectHash } from './hash.js';
 import { canonicalProjectId, legacyProjectId } from './identity.js';
 

@@ -38,12 +38,6 @@
 import { desc, eq, lt, sql } from 'drizzle-orm';
 import { withProvenance } from '../sentient/skill-provenance.js';
 import {
-  getSkillRow as _getSkillRow,
-  listSkillsBySource as _listSkillsBySource,
-  upsertSkillRow as _upsertSkillRow,
-  openSkillsDb,
-} from './skills-db.js';
-import {
   type NewSkillRow,
   type NewSkillUsageRow,
   type SkillLifecycleState,
@@ -58,7 +52,13 @@ import {
   skillReviews as skillReviewsTable,
   skills as skillsTable,
   skillUsage as skillUsageTable,
-} from './skills-schema.js';
+} from './schema/skills-schema.js';
+import {
+  getSkillRow as _getSkillRow,
+  listSkillsBySource as _listSkillsBySource,
+  upsertSkillRow as _upsertSkillRow,
+  openSkillsDb,
+} from './skills-db.js';
 
 // ---------------------------------------------------------------------------
 // Telemetry — Sphere B writes (Sphere A is opt-out aggregated only, §5)

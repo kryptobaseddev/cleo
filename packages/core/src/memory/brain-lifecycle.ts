@@ -326,7 +326,7 @@ export async function consolidateMemories(
     await accessor.addObservation({
       id,
       type: cluster[0]!
-        .type as typeof import('../store/memory-schema.js').BRAIN_OBSERVATION_TYPES[number],
+        .type as typeof import('../store/schema/memory-schema.js').BRAIN_OBSERVATION_TYPES[number],
       title: summaryTitle,
       narrative: summaryNarrative,
       contentHash,

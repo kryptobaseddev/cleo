@@ -2236,7 +2236,7 @@ export async function resolveProjectById(projectId: string): Promise<ProjectRegi
   try {
     const { getNexusDb } = await import('./store/nexus-sqlite.js');
     const { eq } = await import('drizzle-orm');
-    const { projectRegistry, projectIdAliases } = await import('./store/nexus-schema.js');
+    const { projectRegistry, projectIdAliases } = await import('./store/schema/nexus-schema.js');
     const db = await getNexusDb();
     const directRows = await db
       .select()
@@ -2317,7 +2317,7 @@ export async function registerProjectOnEncounter(
     const immutableId = infoProjectId && infoProjectId.length > 0 ? infoProjectId : canonicalId;
     const { getNexusDb } = await import('./store/nexus-sqlite.js');
     const { eq } = await import('drizzle-orm');
-    const { projectRegistry, projectIdAliases } = await import('./store/nexus-schema.js');
+    const { projectRegistry, projectIdAliases } = await import('./store/schema/nexus-schema.js');
     const db = await getNexusDb();
     const existingRows = await db
       .select()

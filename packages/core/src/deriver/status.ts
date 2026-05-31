@@ -9,8 +9,8 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite';
-import type { DeriverQueueStatus } from '../store/memory-schema.js';
 import { getBrainNativeDb } from '../store/memory-sqlite.js';
+import type { DeriverQueueStatus } from '../store/schema/memory-schema.js';
 
 // ============================================================================
 // Types

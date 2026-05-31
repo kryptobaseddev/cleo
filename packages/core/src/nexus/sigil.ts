@@ -22,8 +22,8 @@ import type { NexusSigilListResult } from '@cleocode/contracts';
 import { eq } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
-import * as nexusSchema from '../store/nexus-schema.js';
 import { getNexusDb } from '../store/nexus-sqlite.js';
+import * as nexusSchema from '../store/schema/nexus-schema.js';
 
 /** Type alias for the Drizzle nexus database instance. */
 type NexusDb = NodeSQLiteDatabase<typeof nexusSchema>;

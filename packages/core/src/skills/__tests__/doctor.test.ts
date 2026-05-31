@@ -23,8 +23,8 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { type NewSkillRow, skills as skillsTable } from '../../store/schema/skills-schema.js';
 import { closeSkillsDb, openSkillsDb, resetSkillsDbState } from '../../store/skills-db.js';
-import { type NewSkillRow, skills as skillsTable } from '../../store/skills-schema.js';
 import { diagnoseSkillStore, renderDoctorDiagnoseReport } from '../doctor.js';
 
 // ---------------------------------------------------------------------------

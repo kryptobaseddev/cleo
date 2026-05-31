@@ -95,7 +95,7 @@ describe('toolsSkillPruneTelemetry (T9693)', () => {
     expect(result.data.dbSizeAfter).toBe(result.data.dbSizeBefore);
     // Verify the actual rows are still there.
     const { openSkillsDb } = await import('../../store/skills-db.js');
-    const { skillUsage } = await import('../../store/skills-schema.js');
+    const { skillUsage } = await import('../../store/schema/skills-schema.js');
     const db = await openSkillsDb({ path: dbPath });
     const rows = db.select().from(skillUsage).all();
     expect(rows.length).toBe(5);

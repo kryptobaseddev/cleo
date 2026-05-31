@@ -37,9 +37,9 @@ import { dirname, join } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import type { ProjectAgentRef } from '@cleocode/contracts';
 import { drizzle } from 'drizzle-orm/node-sqlite';
-import * as conduitSchema from './conduit-schema.js';
 import { migrateSanitized, reconcileJournal } from './migration-manager.js';
 import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
+import * as conduitSchema from './schema/conduit-schema.js';
 import { applyPerfPragmas, optimizeBeforeClose } from './sqlite-pragmas.js';
 
 const _require = createRequire(import.meta.url);

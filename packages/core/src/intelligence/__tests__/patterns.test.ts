@@ -9,7 +9,7 @@ import type { Task } from '@cleocode/contracts';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import type { BrainDataAccessor } from '../../store/memory-accessor.js';
-import type { BrainObservationRow, BrainPatternRow } from '../../store/memory-schema.js';
+import type { BrainObservationRow, BrainPatternRow } from '../../store/schema/memory-schema.js';
 import {
   extractPatternsFromHistory,
   matchPatterns,

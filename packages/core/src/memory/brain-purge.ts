@@ -14,13 +14,13 @@
  */
 
 import { inArray, ne, sql } from 'drizzle-orm';
+import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
 import {
   brainDecisions,
   brainLearnings,
   brainObservations,
   brainPatterns,
-} from '../store/memory-schema.js';
-import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
+} from '../store/schema/memory-schema.js';
 import { ensureFts5Tables, rebuildFts5Index } from './brain-search.js';
 
 /** Result counts from a purge run. */

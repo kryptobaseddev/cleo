@@ -240,7 +240,7 @@ async function rowExistsForAdrNumber(
   adrNumber: number,
 ): Promise<{ exists: boolean; rowId?: string }> {
   const { getBrainDb } = await import('../store/memory-sqlite.js');
-  const { brainDecisions } = await import('../store/memory-schema.js');
+  const { brainDecisions } = await import('../store/schema/memory-schema.js');
   const { eq } = await import('drizzle-orm');
   const db = await getBrainDb(projectRoot);
   const rows = await db
@@ -254,7 +254,7 @@ async function rowExistsForAdrNumber(
 /** Get the next available decision ID (D001, D002, …). */
 async function nextDecisionId(projectRoot: string): Promise<string> {
   const { getBrainDb } = await import('../store/memory-sqlite.js');
-  const { brainDecisions } = await import('../store/memory-schema.js');
+  const { brainDecisions } = await import('../store/schema/memory-schema.js');
   const { desc } = await import('drizzle-orm');
   const db = await getBrainDb(projectRoot);
   const rows = await db
@@ -274,7 +274,7 @@ async function decisionIdForAdrNumber(
   adrNumber: number,
 ): Promise<string | null> {
   const { getBrainDb } = await import('../store/memory-sqlite.js');
-  const { brainDecisions } = await import('../store/memory-schema.js');
+  const { brainDecisions } = await import('../store/schema/memory-schema.js');
   const { eq } = await import('drizzle-orm');
   const db = await getBrainDb(projectRoot);
   const rows = await db
@@ -302,7 +302,7 @@ async function insertAdrDecisionRow(
   },
 ): Promise<void> {
   const { getBrainDb } = await import('../store/memory-sqlite.js');
-  const { brainDecisions } = await import('../store/memory-schema.js');
+  const { brainDecisions } = await import('../store/schema/memory-schema.js');
   const db = await getBrainDb(projectRoot);
   const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
   await db.insert(brainDecisions).values({

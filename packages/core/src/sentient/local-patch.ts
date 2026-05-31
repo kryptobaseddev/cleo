@@ -41,8 +41,8 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { resolveSkillsRoot } from '../skills/skill-root.js';
+import { skillPatches, skills as skillsTable } from '../store/schema/skills-schema.js';
 import { E_CANONICAL_READ_ONLY, openSkillsDb } from '../store/skills-db.js';
-import { skillPatches, skills as skillsTable } from '../store/skills-schema.js';
 import { withProvenance } from './skill-provenance.js';
 
 // ---------------------------------------------------------------------------

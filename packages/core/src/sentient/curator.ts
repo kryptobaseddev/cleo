@@ -64,13 +64,17 @@
 import { cpSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { is_canonical, resolveSkillsRoot } from '../skills/skill-root.js';
+import type {
+  SkillLifecycleState,
+  SkillRow,
+  SkillSourceType,
+} from '../store/schema/skills-schema.js';
 import {
   closeSkillsDb,
   listSkillsBySource,
   openSkillsDb,
   upsertSkillRow,
 } from '../store/skills-db.js';
-import type { SkillLifecycleState, SkillRow, SkillSourceType } from '../store/skills-schema.js';
 
 // ---------------------------------------------------------------------------
 // Defaults

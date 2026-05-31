@@ -6,7 +6,7 @@
 import type { BrainObservationType } from '@cleocode/contracts';
 import { BRAIN_OBSERVATION_TYPES as ContractTypes } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
-import { BRAIN_OBSERVATION_TYPES as SchemaTypes } from '../memory-schema.js';
+import { BRAIN_OBSERVATION_TYPES as SchemaTypes } from '../schema/memory-schema.js';
 
 describe('BRAIN_OBSERVATION_TYPES', () => {
   it('should include diary type in schema', () => {

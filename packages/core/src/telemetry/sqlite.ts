@@ -16,8 +16,8 @@ import { drizzle } from 'drizzle-orm/node-sqlite';
 import { getCleoHome } from '../paths.js';
 import { ensureColumns, migrateWithRetry, reconcileJournal } from '../store/migration-manager.js';
 import { resolveCorePackageMigrationsFolder } from '../store/resolve-migrations-folder.js';
+import * as telemetrySchema from '../store/schema/telemetry-schema.js';
 import { openNativeDatabase } from '../store/sqlite.js';
-import * as telemetrySchema from './schema.js';
 
 /** Database file name in the global CLEO home directory. */
 const DB_FILENAME = 'telemetry.db';

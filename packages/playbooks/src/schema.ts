@@ -1,40 +1,19 @@
 /**
  * Drizzle ORM table definitions for playbook state.
+ *
+ * The canonical `sqliteTable` definitions were relocated into the consolidated
+ * substrate schema directory (`@cleocode/core/store/schema/playbooks`) for
+ * Gate 4 (Contracts Fan-Out) compliance — T11359 · E2 · SG-DB-SUBSTRATE-V2.
+ * This module is now a re-export shim so existing `from '../schema.js'` imports
+ * keep working unchanged. `@cleocode/playbooks` already depends on
+ * `@cleocode/core`, so importing the tables back here introduces no cycle.
+ *
  * Both tables are added to tasks.db via migration at
  * packages/core/migrations/drizzle-tasks/20260417220000_t889-playbook-tables/.
  *
  * @task T889 / T904 / W4-6
+ * @task T11359
  */
-
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
-
-export const playbookRuns = sqliteTable('playbook_runs', {
-  runId: text('run_id').primaryKey(),
-  playbookName: text('playbook_name').notNull(),
-  playbookHash: text('playbook_hash').notNull(),
-  currentNode: text('current_node'),
-  bindings: text('bindings').notNull().default('{}'),
-  errorContext: text('error_context'),
-  status: text('status').notNull().default('running'),
-  iterationCounts: text('iteration_counts').notNull().default('{}'),
-  epicId: text('epic_id'),
-  sessionId: text('session_id'),
-  startedAt: text('started_at').notNull().default("(datetime('now'))"),
-  completedAt: text('completed_at'),
-});
-
-export const playbookApprovals = sqliteTable('playbook_approvals', {
-  approvalId: text('approval_id').primaryKey(),
-  runId: text('run_id').notNull(),
-  nodeId: text('node_id').notNull(),
-  token: text('token').notNull().unique(),
-  requestedAt: text('requested_at').notNull().default("(datetime('now'))"),
-  approvedAt: text('approved_at'),
-  approver: text('approver'),
-  reason: text('reason'),
-  status: text('status').notNull().default('pending'),
-  autoPassed: integer('auto_passed').notNull().default(0),
-});
 
 export type {
   PlaybookApproval,
@@ -42,3 +21,4 @@ export type {
   PlaybookRun,
   PlaybookRunStatus,
 } from '@cleocode/contracts';
+export { playbookApprovals, playbookRuns } from '@cleocode/core/store/schema/playbooks.js';

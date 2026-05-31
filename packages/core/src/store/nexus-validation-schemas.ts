@@ -24,7 +24,7 @@ const { createInsertSchema, createSelectSchema } = createSchemaFactory(
   z as unknown as Parameters<typeof createSchemaFactory>[0],
 );
 
-import { nexusAuditLog, nexusSchemaMeta, projectRegistry } from './nexus-schema.js';
+import { nexusAuditLog, nexusSchemaMeta, projectRegistry } from './schema/nexus-schema.js';
 
 // === PROJECT REGISTRY ===
 

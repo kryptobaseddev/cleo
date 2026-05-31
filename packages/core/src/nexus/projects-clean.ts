@@ -163,7 +163,7 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
 
   const { getNexusDb } = await import('../store/nexus-sqlite.js');
   const { projectRegistry: regTable, nexusAuditLog: auditTable } = await import(
-    '../store/nexus-schema.js'
+    '../store/schema/nexus-schema.js'
   );
   const { randomUUID } = await import('node:crypto');
   const { inArray, sql } = await import('drizzle-orm');

@@ -12,6 +12,8 @@
 import type { SQL } from 'drizzle-orm';
 import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
+import { getBrainDb } from './memory-sqlite.js';
+import { jsonbText } from './schema/jsonb.js';
 import type {
   BrainAttentionRow,
   BrainConsolidationEventRow,
@@ -36,10 +38,8 @@ import type {
   NewBrainPageNodeRow,
   NewBrainPatternRow,
   NewBrainStickyNoteRow,
-} from './memory-schema.js';
-import * as brainSchema from './memory-schema.js';
-import { getBrainDb } from './memory-sqlite.js';
-import { jsonbText } from './schema/jsonb.js';
+} from './schema/memory-schema.js';
+import * as brainSchema from './schema/memory-schema.js';
 
 export class BrainDataAccessor {
   constructor(private db: NodeSQLiteDatabase<typeof brainSchema>) {}

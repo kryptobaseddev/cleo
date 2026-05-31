@@ -265,7 +265,7 @@ describe('Agent Registry (T041)', () => {
 
       // Pull raw metadata to verify other keys survive
       const { getDb } = await import('../../store/sqlite.js');
-      const { agentInstances: table } = await import('../agent-schema.js');
+      const { agentInstances: table } = await import('../../store/schema/agent-schema.js');
       const { eq } = await import('drizzle-orm');
       const db = await getDb(tempDir);
       const row = await db

@@ -39,7 +39,7 @@ import {
   BRAIN_STICKY_COLORS,
   BRAIN_STICKY_PRIORITIES,
   BRAIN_STICKY_STATUSES,
-} from './memory-schema.js';
+} from './schema/memory-schema.js';
 
 // Status constants from the canonical registry
 import {

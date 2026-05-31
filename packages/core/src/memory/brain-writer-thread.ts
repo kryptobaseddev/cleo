@@ -48,7 +48,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ObserveBrainParams, ObserveBrainResult } from '@cleocode/contracts';
 import { getLogger } from '../logger.js';
-import type { NewBrainDecisionRow, NewBrainLearningRow } from '../store/memory-schema.js';
+import type { NewBrainDecisionRow, NewBrainLearningRow } from '../store/schema/memory-schema.js';
 
 // ============================================================================
 // Discriminated union — BrainWriteOp

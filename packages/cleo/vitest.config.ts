@@ -119,7 +119,7 @@ export default defineConfig({
         import.meta.url,
       ).pathname,
       '@cleocode/core/store/nexus-schema': new URL(
-        '../../packages/core/src/store/nexus-schema.ts',
+        '../../packages/core/src/store/schema/nexus-schema.ts',
         import.meta.url,
       ).pathname,
       // T10304: backup-recover-brain SSoT (Saga T10281 Epic T10286) — used by

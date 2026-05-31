@@ -20,8 +20,8 @@ import { drizzle } from 'drizzle-orm/node-sqlite';
 import { getLogger } from '../logger.js';
 import { getCleoHome } from '../paths.js';
 import { ensureColumns, migrateWithRetry, reconcileJournal } from './migration-manager.js';
-import * as nexusSchema from './nexus-schema.js';
 import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
+import * as nexusSchema from './schema/nexus-schema.js';
 import { isSqliteBusy, openNativeDatabase } from './sqlite.js';
 
 /** Database file name within ~/.cleo/ directory. */

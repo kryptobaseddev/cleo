@@ -54,7 +54,7 @@ import { readFocusState } from '../sessions/focus-state-store.js';
 import { resolveAgentIdFromEnv, resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { getBrainAccessor } from '../store/memory-accessor.js';
-import type { BrainAttentionRow } from '../store/memory-schema.js';
+import type { BrainAttentionRow } from '../store/schema/memory-schema.js';
 
 /**
  * Scope kinds ordered NARROWEST → BROADEST. The auto-resolver keys a jot to the

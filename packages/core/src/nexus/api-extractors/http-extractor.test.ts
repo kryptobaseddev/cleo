@@ -6,8 +6,8 @@
 
 import type { HttpContract } from '@cleocode/contracts/nexus-contract-ops.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import * as nexusSchema from '../../store/nexus-schema.js';
 import { getNexusDb, resetNexusDbState } from '../../store/nexus-sqlite.js';
+import * as nexusSchema from '../../store/schema/nexus-schema.js';
 import { extractHttpContracts } from './http-extractor.js';
 
 describe('HTTP Contract Extractor', () => {

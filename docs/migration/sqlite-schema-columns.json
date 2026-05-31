@@ -20,34 +20,34 @@
     "packages/core/src/store/schema/provenance/commits.ts",
     "packages/core/src/store/schema/provenance/pull-requests.ts",
     "packages/core/src/store/schema/provenance/releases.ts",
-    "packages/core/src/store/chain-schema.ts",
-    "packages/core/src/store/conduit-schema.ts",
-    "packages/core/src/store/memory-schema.ts",
-    "packages/core/src/store/nexus-schema.ts",
-    "packages/core/src/store/signaldock-schema.ts",
-    "packages/core/src/store/skills-schema.ts",
-    "packages/core/src/agents/agent-schema.ts",
-    "packages/core/src/telemetry/schema.ts",
-    "packages/nexus/src/schema/code-index.ts",
-    "packages/playbooks/src/schema.ts"
+    "packages/core/src/store/schema/chain-schema.ts",
+    "packages/core/src/store/schema/conduit-schema.ts",
+    "packages/core/src/store/schema/memory-schema.ts",
+    "packages/core/src/store/schema/nexus-schema.ts",
+    "packages/core/src/store/schema/signaldock-schema.ts",
+    "packages/core/src/store/schema/skills-schema.ts",
+    "packages/core/src/store/schema/agent-schema.ts",
+    "packages/core/src/store/schema/telemetry-schema.ts",
+    "packages/core/src/store/schema/code-index.ts",
+    "packages/core/src/store/schema/playbooks.ts"
   ],
   "counts": {
-    "tables": 114,
-    "columns": 1181,
-    "nonConformers": 149,
+    "tables": 117,
+    "columns": 1195,
+    "nonConformers": 151,
     "bySemanticType": {
-      "id": 164,
-      "text": 402,
-      "enum": 87,
-      "fk": 81,
+      "id": 168,
+      "text": 405,
+      "enum": 89,
+      "fk": 83,
       "numeric": 118,
       "json": 63,
       "boolean": 16,
       "timestamp-text": 161,
       "boolean-untyped": 12,
-      "timestamp-epoch": 45,
+      "timestamp-epoch": 47,
       "blob": 1,
-      "real": 27,
+      "real": 28,
       "timestamp-date": 4
     }
   },
@@ -1049,6 +1049,45 @@
           "primaryKey": false,
           "unique": false,
           "fk": true,
+          "default": null,
+          "enumRef": null,
+          "mode": null,
+          "autoIncrement": false,
+          "nonConformer": null
+        }
+      ]
+    },
+    {
+      "tableVar": "taskLabels",
+      "tableName": "task_labels",
+      "relPath": "packages/core/src/store/schema/tasks.ts",
+      "targetScope": "tasks",
+      "targetTable": "tasks_task_labels",
+      "columns": [
+        {
+          "field": "taskId",
+          "column": "task_id",
+          "affinity": "TEXT",
+          "semanticType": "fk",
+          "nullable": false,
+          "primaryKey": false,
+          "unique": false,
+          "fk": true,
+          "default": null,
+          "enumRef": null,
+          "mode": null,
+          "autoIncrement": false,
+          "nonConformer": null
+        },
+        {
+          "field": "label",
+          "column": "label",
+          "affinity": "TEXT",
+          "semanticType": "text",
+          "nullable": false,
+          "primaryKey": false,
+          "unique": false,
+          "fk": false,
           "default": null,
           "enumRef": null,
           "mode": null,
@@ -7003,7 +7042,7 @@
     {
       "tableVar": "warpChains",
       "tableName": "warp_chains",
-      "relPath": "packages/core/src/store/chain-schema.ts",
+      "relPath": "packages/core/src/store/schema/chain-schema.ts",
       "targetScope": "tasks",
       "targetTable": "tasks_warp_chains",
       "columns": [
@@ -7132,7 +7171,7 @@
     {
       "tableVar": "warpChainInstances",
       "tableName": "warp_chain_instances",
-      "relPath": "packages/core/src/store/chain-schema.ts",
+      "relPath": "packages/core/src/store/schema/chain-schema.ts",
       "targetScope": "tasks",
       "targetTable": "tasks_warp_chain_instances",
       "columns": [
@@ -7291,7 +7330,7 @@
     {
       "tableVar": "conversations",
       "tableName": "conversations",
-      "relPath": "packages/core/src/store/conduit-schema.ts",
+      "relPath": "packages/core/src/store/schema/conduit-schema.ts",
       "targetScope": "tasks",
       "targetTable": "conduit_conversations",
       "columns": [
@@ -7405,7 +7444,7 @@
     {
       "tableVar": "messages",
       "tableName": "messages",
-      "relPath": "packages/core/src/store/conduit-schema.ts",
+      "relPath": "packages/core/src/store/schema/conduit-schema.ts",
       "targetScope": "tasks",
       "targetTable": "conduit_messages",
       "columns": [
@@ -7624,7 +7663,7 @@
     {
       "tableVar": "deliveryJobs",
       "tableName": "delivery_jobs",
-      "relPath": "packages/core/src/store/conduit-schema.ts",
+      "relPath": "packages/core/src/store/schema/conduit-schema.ts",
       "targetScope": "tasks",
       "targetTable": "conduit_delivery_jobs",
       "columns": [
@@ -7783,7 +7822,7 @@
     {
       "tableVar": "deadLetters",
       "tableName": "dead_letters",
-      "relPath": "packages/core/src/store/conduit-schema.ts",
+      "relPath": "packages/core/src/store/schema/conduit-schema.ts",
       "targetScope": "tasks",
       "targetTable": "conduit_dead_letters",
       "columns": [
@@ -7882,7 +7921,7 @@
     {
       "tableVar": "messagePins",
       "tableName": "message_pins",
-      "relPath": "packages/core/src/store/conduit-schema.ts",
+      "relPath": "packages/core/src/store/schema/conduit-schema.ts",
       "targetScope": "tasks",
       "targetTable": "conduit_message_pins",
       "columns": [
@@ -7981,7 +8020,7 @@
     {
       "tableVar": "attachments",
       "tableName": "attachments",
-      "relPath": "packages/core/src/store/conduit-schema.ts",
+      "relPath": "packages/core/src/store/schema/conduit-schema.ts",
       "targetScope": "tasks",
       "targetTable": "conduit_attachments",
       "columns": [
@@ -8230,7 +8269,7 @@
     {
       "tableVar": "attachmentVersions",
       "tableName": "attachment_versions",
-      "relPath": "packages/core/src/store/conduit-schema.ts",
+      "relPath": "packages/core/src/store/schema/conduit-schema.ts",
       "targetScope": "tasks",
       "targetTable": "conduit_attachment_versions",
       "columns": [
@@ -8479,7 +8518,7 @@
     {
       "tableVar": "attachmentApprovals",
       "tableName": "attachment_approvals",
-      "relPath": "packages/core/src/store/conduit-schema.ts",
+      "relPath": "packages/core/src/store/schema/conduit-schema.ts",
       "targetScope": "tasks",
       "targetTable": "conduit_attachment_approvals",
       "columns": [
@@ -8608,7 +8647,7 @@
     {
       "tableVar": "attachmentContributors",
       "tableName": "attachment_contributors",
-      "relPath": "packages/core/src/store/conduit-schema.ts",
+      "relPath": "packages/core/src/store/schema/conduit-schema.ts",
       "targetScope": "tasks",
       "targetTable": "conduit_attachment_contributors",
       "columns": [
@@ -8722,7 +8761,7 @@
     {
       "tableVar": "projectAgentRefs",
       "tableName": "project_agent_refs",
-      "relPath": "packages/core/src/store/conduit-schema.ts",
+      "relPath": "packages/core/src/store/schema/conduit-schema.ts",
       "targetScope": "tasks",
       "targetTable": "conduit_project_agent_refs",
       "columns": [
@@ -8821,7 +8860,7 @@
     {
       "tableVar": "topics",
       "tableName": "topics",
-      "relPath": "packages/core/src/store/conduit-schema.ts",
+      "relPath": "packages/core/src/store/schema/conduit-schema.ts",
       "targetScope": "tasks",
       "targetTable": "conduit_topics",
       "columns": [
@@ -8920,7 +8959,7 @@
     {
       "tableVar": "topicSubscriptions",
       "tableName": "topic_subscriptions",
-      "relPath": "packages/core/src/store/conduit-schema.ts",
+      "relPath": "packages/core/src/store/schema/conduit-schema.ts",
       "targetScope": "tasks",
       "targetTable": "conduit_topic_subscriptions",
       "columns": [
@@ -8974,7 +9013,7 @@
     {
       "tableVar": "topicMessages",
       "tableName": "topic_messages",
-      "relPath": "packages/core/src/store/conduit-schema.ts",
+      "relPath": "packages/core/src/store/schema/conduit-schema.ts",
       "targetScope": "tasks",
       "targetTable": "conduit_topic_messages",
       "columns": [
@@ -9088,7 +9127,7 @@
     {
       "tableVar": "topicMessageAcks",
       "tableName": "topic_message_acks",
-      "relPath": "packages/core/src/store/conduit-schema.ts",
+      "relPath": "packages/core/src/store/schema/conduit-schema.ts",
       "targetScope": "tasks",
       "targetTable": "conduit_topic_message_acks",
       "columns": [
@@ -9157,7 +9196,7 @@
     {
       "tableVar": "conduitMeta",
       "tableName": "_conduit_meta",
-      "relPath": "packages/core/src/store/conduit-schema.ts",
+      "relPath": "packages/core/src/store/schema/conduit-schema.ts",
       "targetScope": "tasks",
       "targetTable": "_conduit_meta",
       "columns": [
@@ -9211,7 +9250,7 @@
     {
       "tableVar": "conduitMigrations",
       "tableName": "_conduit_migrations",
-      "relPath": "packages/core/src/store/conduit-schema.ts",
+      "relPath": "packages/core/src/store/schema/conduit-schema.ts",
       "targetScope": "tasks",
       "targetTable": "_conduit_migrations",
       "columns": [
@@ -9250,7 +9289,7 @@
     {
       "tableVar": "brainDecisions",
       "tableName": "brain_decisions",
-      "relPath": "packages/core/src/store/memory-schema.ts",
+      "relPath": "packages/core/src/store/schema/memory-schema.ts",
       "targetScope": "brain",
       "targetTable": "brain_decisions",
       "columns": [
@@ -9769,7 +9808,7 @@
     {
       "tableVar": "brainPatterns",
       "tableName": "brain_patterns",
-      "relPath": "packages/core/src/store/memory-schema.ts",
+      "relPath": "packages/core/src/store/schema/memory-schema.ts",
       "targetScope": "brain",
       "targetTable": "brain_patterns",
       "columns": [
@@ -10198,7 +10237,7 @@
     {
       "tableVar": "brainLearnings",
       "tableName": "brain_learnings",
-      "relPath": "packages/core/src/store/memory-schema.ts",
+      "relPath": "packages/core/src/store/schema/memory-schema.ts",
       "targetScope": "brain",
       "targetTable": "brain_learnings",
       "columns": [
@@ -10552,7 +10591,7 @@
     {
       "tableVar": "brainObservations",
       "tableName": "brain_observations",
-      "relPath": "packages/core/src/store/memory-schema.ts",
+      "relPath": "packages/core/src/store/schema/memory-schema.ts",
       "targetScope": "brain",
       "targetTable": "brain_observations",
       "columns": [
@@ -11146,7 +11185,7 @@
     {
       "tableVar": "brainStickyNotes",
       "tableName": "brain_sticky_notes",
-      "relPath": "packages/core/src/store/memory-schema.ts",
+      "relPath": "packages/core/src/store/schema/memory-schema.ts",
       "targetScope": "brain",
       "targetTable": "brain_sticky_notes",
       "columns": [
@@ -11303,9 +11342,207 @@
       ]
     },
     {
+      "tableVar": "stickyTags",
+      "tableName": "sticky_tags",
+      "relPath": "packages/core/src/store/schema/memory-schema.ts",
+      "targetScope": "brain",
+      "targetTable": "brain_sticky_tags",
+      "columns": [
+        {
+          "field": "stickyId",
+          "column": "sticky_id",
+          "affinity": "TEXT",
+          "semanticType": "fk",
+          "nullable": false,
+          "primaryKey": false,
+          "unique": false,
+          "fk": true,
+          "default": null,
+          "enumRef": null,
+          "mode": null,
+          "autoIncrement": false,
+          "nonConformer": null
+        },
+        {
+          "field": "tag",
+          "column": "tag",
+          "affinity": "TEXT",
+          "semanticType": "text",
+          "nullable": false,
+          "primaryKey": false,
+          "unique": false,
+          "fk": false,
+          "default": null,
+          "enumRef": null,
+          "mode": null,
+          "autoIncrement": false,
+          "nonConformer": null
+        }
+      ]
+    },
+    {
+      "tableVar": "brainAttention",
+      "tableName": "brain_attention",
+      "relPath": "packages/core/src/store/schema/memory-schema.ts",
+      "targetScope": "brain",
+      "targetTable": "brain_attention",
+      "columns": [
+        {
+          "field": "id",
+          "column": "id",
+          "affinity": "TEXT",
+          "semanticType": "id",
+          "nullable": false,
+          "primaryKey": true,
+          "unique": false,
+          "fk": false,
+          "default": null,
+          "enumRef": null,
+          "mode": null,
+          "autoIncrement": false,
+          "nonConformer": null
+        },
+        {
+          "field": "content",
+          "column": "content",
+          "affinity": "TEXT",
+          "semanticType": "text",
+          "nullable": false,
+          "primaryKey": false,
+          "unique": false,
+          "fk": false,
+          "default": null,
+          "enumRef": null,
+          "mode": null,
+          "autoIncrement": false,
+          "nonConformer": null
+        },
+        {
+          "field": "sessionId",
+          "column": "session_id",
+          "affinity": "TEXT",
+          "semanticType": "id",
+          "nullable": true,
+          "primaryKey": false,
+          "unique": false,
+          "fk": false,
+          "default": null,
+          "enumRef": null,
+          "mode": null,
+          "autoIncrement": false,
+          "nonConformer": null
+        },
+        {
+          "field": "agentId",
+          "column": "agent_id",
+          "affinity": "TEXT",
+          "semanticType": "id",
+          "nullable": true,
+          "primaryKey": false,
+          "unique": false,
+          "fk": false,
+          "default": null,
+          "enumRef": null,
+          "mode": null,
+          "autoIncrement": false,
+          "nonConformer": null
+        },
+        {
+          "field": "scopeKind",
+          "column": "scope_kind",
+          "affinity": "TEXT",
+          "semanticType": "enum",
+          "nullable": false,
+          "primaryKey": false,
+          "unique": false,
+          "fk": false,
+          "default": null,
+          "enumRef": "BRAIN_ATTENTION_SCOPE_KINDS",
+          "mode": null,
+          "autoIncrement": false,
+          "nonConformer": null
+        },
+        {
+          "field": "scopeId",
+          "column": "scope_id",
+          "affinity": "TEXT",
+          "semanticType": "id",
+          "nullable": false,
+          "primaryKey": false,
+          "unique": false,
+          "fk": false,
+          "default": null,
+          "enumRef": null,
+          "mode": null,
+          "autoIncrement": false,
+          "nonConformer": null
+        },
+        {
+          "field": "createdAt",
+          "column": "created_at",
+          "affinity": "INTEGER",
+          "semanticType": "timestamp-epoch",
+          "nullable": false,
+          "primaryKey": false,
+          "unique": false,
+          "fk": false,
+          "default": "sql`(unixepoch() * 1000)`",
+          "enumRef": null,
+          "mode": null,
+          "autoIncrement": false,
+          "nonConformer": "INTEGER epoch timestamp — target canonical form is TEXT ISO8601 + CHECK"
+        },
+        {
+          "field": "expiresAt",
+          "column": "expires_at",
+          "affinity": "INTEGER",
+          "semanticType": "timestamp-epoch",
+          "nullable": true,
+          "primaryKey": false,
+          "unique": false,
+          "fk": false,
+          "default": null,
+          "enumRef": null,
+          "mode": null,
+          "autoIncrement": false,
+          "nonConformer": "INTEGER epoch timestamp — target canonical form is TEXT ISO8601 + CHECK"
+        },
+        {
+          "field": "decayScore",
+          "column": "decay_score",
+          "affinity": "REAL",
+          "semanticType": "real",
+          "nullable": true,
+          "primaryKey": false,
+          "unique": false,
+          "fk": false,
+          "default": null,
+          "enumRef": null,
+          "mode": null,
+          "autoIncrement": false,
+          "nonConformer": null
+        },
+        {
+          "field": "status",
+          "column": "status",
+          "affinity": "TEXT",
+          "semanticType": "enum",
+          "nullable": false,
+          "primaryKey": false,
+          "unique": false,
+          "fk": false,
+          "default": "'open'",
+          "enumRef": "BRAIN_ATTENTION_STATUSES",
+          "mode": null,
+          "autoIncrement": false,
+          "nonConformer": null
+        }
+      ]
+    },
+    {
       "tableVar": "brainMemoryLinks",
       "tableName": "brain_memory_links",
-      "relPath": "packages/core/src/store/memory-schema.ts",
+      "relPath": "packages/core/src/store/schema/memory-schema.ts",
       "targetScope": "brain",
       "targetTable": "brain_memory_links",
       "columns": [
@@ -11389,7 +11626,7 @@
     {
       "tableVar": "brainSchemaMeta",
       "tableName": "brain_schema_meta",
-      "relPath": "packages/core/src/store/memory-schema.ts",
+      "relPath": "packages/core/src/store/schema/memory-schema.ts",
       "targetScope": "brain",
       "targetTable": "brain_schema_meta",
       "columns": [
@@ -11428,7 +11665,7 @@
     {
       "tableVar": "brainPageNodes",
       "tableName": "brain_page_nodes",
-      "relPath": "packages/core/src/store/memory-schema.ts",
+      "relPath": "packages/core/src/store/schema/memory-schema.ts",
       "targetScope": "brain",
       "targetTable": "brain_page_nodes",
       "columns": [
@@ -11572,7 +11809,7 @@
     {
       "tableVar": "brainPageEdges",
       "tableName": "brain_page_edges",
-      "relPath": "packages/core/src/store/memory-schema.ts",
+      "relPath": "packages/core/src/store/schema/memory-schema.ts",
       "targetScope": "brain",
       "targetTable": "brain_page_edges",
       "columns": [
@@ -11761,7 +11998,7 @@
     {
       "tableVar": "brainRetrievalLog",
       "tableName": "brain_retrieval_log",
-      "relPath": "packages/core/src/store/memory-schema.ts",
+      "relPath": "packages/core/src/store/schema/memory-schema.ts",
       "targetScope": "brain",
       "targetTable": "brain_retrieval_log",
       "columns": [
@@ -11935,7 +12172,7 @@
     {
       "tableVar": "brainPlasticityEvents",
       "tableName": "brain_plasticity_events",
-      "relPath": "packages/core/src/store/memory-schema.ts",
+      "relPath": "packages/core/src/store/schema/memory-schema.ts",
       "targetScope": "brain",
       "targetTable": "brain_plasticity_events",
       "columns": [
@@ -12124,7 +12361,7 @@
     {
       "tableVar": "brainWeightHistory",
       "tableName": "brain_weight_history",
-      "relPath": "packages/core/src/store/memory-schema.ts",
+      "relPath": "packages/core/src/store/schema/memory-schema.ts",
       "targetScope": "brain",
       "targetTable": "brain_weight_history",
       "columns": [
@@ -12313,7 +12550,7 @@
     {
       "tableVar": "brainModulators",
       "tableName": "brain_modulators",
-      "relPath": "packages/core/src/store/memory-schema.ts",
+      "relPath": "packages/core/src/store/schema/memory-schema.ts",
       "targetScope": "brain",
       "targetTable": "brain_modulators",
       "columns": [
@@ -12442,7 +12679,7 @@
     {
       "tableVar": "brainConsolidationEvents",
       "tableName": "brain_consolidation_events",
-      "relPath": "packages/core/src/store/memory-schema.ts",
+      "relPath": "packages/core/src/store/schema/memory-schema.ts",
       "targetScope": "brain",
       "targetTable": "brain_consolidation_events",
       "columns": [
@@ -12556,7 +12793,7 @@
     {
       "tableVar": "brainTranscriptEvents",
       "tableName": "brain_transcript_events",
-      "relPath": "packages/core/src/store/memory-schema.ts",
+      "relPath": "packages/core/src/store/schema/memory-schema.ts",
       "targetScope": "brain",
       "targetTable": "brain_transcript_events",
       "columns": [
@@ -12700,7 +12937,7 @@
     {
       "tableVar": "brainPromotionLog",
       "tableName": "brain_promotion_log",
-      "relPath": "packages/core/src/store/memory-schema.ts",
+      "relPath": "packages/core/src/store/schema/memory-schema.ts",
       "targetScope": "brain",
       "targetTable": "brain_promotion_log",
       "columns": [
@@ -12829,7 +13066,7 @@
     {
       "tableVar": "brainBackfillRuns",
       "tableName": "brain_backfill_runs",
-      "relPath": "packages/core/src/store/memory-schema.ts",
+      "relPath": "packages/core/src/store/schema/memory-schema.ts",
       "targetScope": "brain",
       "targetTable": "brain_backfill_runs",
       "columns": [
@@ -12988,7 +13225,7 @@
     {
       "tableVar": "sessionNarrative",
       "tableName": "session_narrative",
-      "relPath": "packages/core/src/store/memory-schema.ts",
+      "relPath": "packages/core/src/store/schema/memory-schema.ts",
       "targetScope": "brain",
       "targetTable": "brain_session_narrative",
       "columns": [
@@ -13072,7 +13309,7 @@
     {
       "tableVar": "deriverQueue",
       "tableName": "deriver_queue",
-      "relPath": "packages/core/src/store/memory-schema.ts",
+      "relPath": "packages/core/src/store/schema/memory-schema.ts",
       "targetScope": "brain",
       "targetTable": "brain_deriver_queue",
       "columns": [
@@ -13246,7 +13483,7 @@
     {
       "tableVar": "brainMemoryTrees",
       "tableName": "brain_memory_trees",
-      "relPath": "packages/core/src/store/memory-schema.ts",
+      "relPath": "packages/core/src/store/schema/memory-schema.ts",
       "targetScope": "brain",
       "targetTable": "brain_memory_trees",
       "columns": [
@@ -13360,7 +13597,7 @@
     {
       "tableVar": "brainObservationsStaging",
       "tableName": "brain_observations_staging",
-      "relPath": "packages/core/src/store/memory-schema.ts",
+      "relPath": "packages/core/src/store/schema/memory-schema.ts",
       "targetScope": "brain",
       "targetTable": "brain_observations_staging",
       "columns": [
@@ -13519,7 +13756,7 @@
     {
       "tableVar": "projectRegistry",
       "tableName": "project_registry",
-      "relPath": "packages/core/src/store/nexus-schema.ts",
+      "relPath": "packages/core/src/store/schema/nexus-schema.ts",
       "targetScope": "brain",
       "targetTable": "nexus_project_registry",
       "columns": [
@@ -13768,7 +14005,7 @@
     {
       "tableVar": "projectIdAliases",
       "tableName": "project_id_aliases",
-      "relPath": "packages/core/src/store/nexus-schema.ts",
+      "relPath": "packages/core/src/store/schema/nexus-schema.ts",
       "targetScope": "brain",
       "targetTable": "nexus_project_id_aliases",
       "columns": [
@@ -13822,7 +14059,7 @@
     {
       "tableVar": "nexusAuditLog",
       "tableName": "nexus_audit_log",
-      "relPath": "packages/core/src/store/nexus-schema.ts",
+      "relPath": "packages/core/src/store/schema/nexus-schema.ts",
       "targetScope": "brain",
       "targetTable": "nexus_audit_log",
       "columns": [
@@ -14056,7 +14293,7 @@
     {
       "tableVar": "nexusSchemaMeta",
       "tableName": "nexus_schema_meta",
-      "relPath": "packages/core/src/store/nexus-schema.ts",
+      "relPath": "packages/core/src/store/schema/nexus-schema.ts",
       "targetScope": "brain",
       "targetTable": "nexus_schema_meta",
       "columns": [
@@ -14095,7 +14332,7 @@
     {
       "tableVar": "nexusNodes",
       "tableName": "nexus_nodes",
-      "relPath": "packages/core/src/store/nexus-schema.ts",
+      "relPath": "packages/core/src/store/schema/nexus-schema.ts",
       "targetScope": "brain",
       "targetTable": "nexus_nodes",
       "columns": [
@@ -14374,7 +14611,7 @@
     {
       "tableVar": "nexusRelations",
       "tableName": "nexus_relations",
-      "relPath": "packages/core/src/store/nexus-schema.ts",
+      "relPath": "packages/core/src/store/schema/nexus-schema.ts",
       "targetScope": "brain",
       "targetTable": "nexus_relations",
       "columns": [
@@ -14563,7 +14800,7 @@
     {
       "tableVar": "nexusContracts",
       "tableName": "nexus_contracts",
-      "relPath": "packages/core/src/store/nexus-schema.ts",
+      "relPath": "packages/core/src/store/schema/nexus-schema.ts",
       "targetScope": "brain",
       "targetTable": "nexus_contracts",
       "columns": [
@@ -14767,7 +15004,7 @@
     {
       "tableVar": "userProfile",
       "tableName": "user_profile",
-      "relPath": "packages/core/src/store/nexus-schema.ts",
+      "relPath": "packages/core/src/store/schema/nexus-schema.ts",
       "targetScope": "brain",
       "targetTable": "nexus_user_profile",
       "columns": [
@@ -14911,7 +15148,7 @@
     {
       "tableVar": "sigils",
       "tableName": "sigils",
-      "relPath": "packages/core/src/store/nexus-schema.ts",
+      "relPath": "packages/core/src/store/schema/nexus-schema.ts",
       "targetScope": "brain",
       "targetTable": "nexus_sigils",
       "columns": [
@@ -15040,7 +15277,7 @@
     {
       "tableVar": "users",
       "tableName": "users",
-      "relPath": "packages/core/src/store/signaldock-schema.ts",
+      "relPath": "packages/core/src/store/schema/signaldock-schema.ts",
       "targetScope": "brain",
       "targetTable": "signaldock_users",
       "columns": [
@@ -15319,7 +15556,7 @@
     {
       "tableVar": "organization",
       "tableName": "organization",
-      "relPath": "packages/core/src/store/signaldock-schema.ts",
+      "relPath": "packages/core/src/store/schema/signaldock-schema.ts",
       "targetScope": "brain",
       "targetTable": "signaldock_organization",
       "columns": [
@@ -15448,7 +15685,7 @@
     {
       "tableVar": "agents",
       "tableName": "agents",
-      "relPath": "packages/core/src/store/signaldock-schema.ts",
+      "relPath": "packages/core/src/store/schema/signaldock-schema.ts",
       "targetScope": "brain",
       "targetTable": "signaldock_agents",
       "columns": [
@@ -16042,7 +16279,7 @@
     {
       "tableVar": "claimCodes",
       "tableName": "claim_codes",
-      "relPath": "packages/core/src/store/signaldock-schema.ts",
+      "relPath": "packages/core/src/store/schema/signaldock-schema.ts",
       "targetScope": "brain",
       "targetTable": "signaldock_claim_codes",
       "columns": [
@@ -16156,7 +16393,7 @@
     {
       "tableVar": "capabilities",
       "tableName": "capabilities",
-      "relPath": "packages/core/src/store/signaldock-schema.ts",
+      "relPath": "packages/core/src/store/schema/signaldock-schema.ts",
       "targetScope": "brain",
       "targetTable": "signaldock_capabilities",
       "columns": [
@@ -16255,7 +16492,7 @@
     {
       "tableVar": "skills",
       "tableName": "skills",
-      "relPath": "packages/core/src/store/signaldock-schema.ts",
+      "relPath": "packages/core/src/store/schema/signaldock-schema.ts",
       "targetScope": "brain",
       "targetTable": "signaldock_skills",
       "columns": [
@@ -16354,7 +16591,7 @@
     {
       "tableVar": "agentCapabilities",
       "tableName": "agent_capabilities",
-      "relPath": "packages/core/src/store/signaldock-schema.ts",
+      "relPath": "packages/core/src/store/schema/signaldock-schema.ts",
       "targetScope": "brain",
       "targetTable": "signaldock_agent_capabilities",
       "columns": [
@@ -16393,7 +16630,7 @@
     {
       "tableVar": "agentSkills",
       "tableName": "agent_skills",
-      "relPath": "packages/core/src/store/signaldock-schema.ts",
+      "relPath": "packages/core/src/store/schema/signaldock-schema.ts",
       "targetScope": "brain",
       "targetTable": "signaldock_agent_skills",
       "columns": [
@@ -16462,7 +16699,7 @@
     {
       "tableVar": "agentConnections",
       "tableName": "agent_connections",
-      "relPath": "packages/core/src/store/signaldock-schema.ts",
+      "relPath": "packages/core/src/store/schema/signaldock-schema.ts",
       "targetScope": "brain",
       "targetTable": "signaldock_agent_connections",
       "columns": [
@@ -16591,7 +16828,7 @@
     {
       "tableVar": "accounts",
       "tableName": "accounts",
-      "relPath": "packages/core/src/store/signaldock-schema.ts",
+      "relPath": "packages/core/src/store/schema/signaldock-schema.ts",
       "targetScope": "brain",
       "targetTable": "signaldock_accounts",
       "columns": [
@@ -16795,7 +17032,7 @@
     {
       "tableVar": "sessions",
       "tableName": "sessions",
-      "relPath": "packages/core/src/store/signaldock-schema.ts",
+      "relPath": "packages/core/src/store/schema/signaldock-schema.ts",
       "targetScope": "brain",
       "targetTable": "signaldock_sessions",
       "columns": [
@@ -16969,7 +17206,7 @@
     {
       "tableVar": "verifications",
       "tableName": "verifications",
-      "relPath": "packages/core/src/store/signaldock-schema.ts",
+      "relPath": "packages/core/src/store/schema/signaldock-schema.ts",
       "targetScope": "brain",
       "targetTable": "signaldock_verifications",
       "columns": [
@@ -17068,7 +17305,7 @@
     {
       "tableVar": "orgAgentKeys",
       "tableName": "org_agent_keys",
-      "relPath": "packages/core/src/store/signaldock-schema.ts",
+      "relPath": "packages/core/src/store/schema/signaldock-schema.ts",
       "targetScope": "brain",
       "targetTable": "signaldock_org_agent_keys",
       "columns": [
@@ -17152,7 +17389,7 @@
     {
       "tableVar": "skills",
       "tableName": "skills",
-      "relPath": "packages/core/src/store/skills-schema.ts",
+      "relPath": "packages/core/src/store/schema/skills-schema.ts",
       "targetScope": "brain",
       "targetTable": "skills_skills",
       "columns": [
@@ -17371,7 +17608,7 @@
     {
       "tableVar": "skillUsage",
       "tableName": "skill_usage",
-      "relPath": "packages/core/src/store/skills-schema.ts",
+      "relPath": "packages/core/src/store/schema/skills-schema.ts",
       "targetScope": "brain",
       "targetTable": "skills_skill_usage",
       "columns": [
@@ -17485,7 +17722,7 @@
     {
       "tableVar": "skillReviews",
       "tableName": "skill_reviews",
-      "relPath": "packages/core/src/store/skills-schema.ts",
+      "relPath": "packages/core/src/store/schema/skills-schema.ts",
       "targetScope": "brain",
       "targetTable": "skills_skill_reviews",
       "columns": [
@@ -17599,7 +17836,7 @@
     {
       "tableVar": "skillPatches",
       "tableName": "skill_patches",
-      "relPath": "packages/core/src/store/skills-schema.ts",
+      "relPath": "packages/core/src/store/schema/skills-schema.ts",
       "targetScope": "brain",
       "targetTable": "skills_skill_patches",
       "columns": [
@@ -17728,7 +17965,7 @@
     {
       "tableVar": "agentInstances",
       "tableName": "agent_instances",
-      "relPath": "packages/core/src/agents/agent-schema.ts",
+      "relPath": "packages/core/src/store/schema/agent-schema.ts",
       "targetScope": "tasks",
       "targetTable": "tasks_agent_instances",
       "columns": [
@@ -17932,7 +18169,7 @@
     {
       "tableVar": "agentErrorLog",
       "tableName": "agent_error_log",
-      "relPath": "packages/core/src/agents/agent-schema.ts",
+      "relPath": "packages/core/src/store/schema/agent-schema.ts",
       "targetScope": "tasks",
       "targetTable": "tasks_agent_error_log",
       "columns": [
@@ -18046,7 +18283,7 @@
     {
       "tableVar": "telemetryEvents",
       "tableName": "telemetry_events",
-      "relPath": "packages/core/src/telemetry/schema.ts",
+      "relPath": "packages/core/src/store/schema/telemetry-schema.ts",
       "targetScope": "tasks",
       "targetTable": "telemetry_events",
       "columns": [
@@ -18205,7 +18442,7 @@
     {
       "tableVar": "telemetrySchemaMeta",
       "tableName": "telemetry_schema_meta",
-      "relPath": "packages/core/src/telemetry/schema.ts",
+      "relPath": "packages/core/src/store/schema/telemetry-schema.ts",
       "targetScope": "tasks",
       "targetTable": "telemetry_schema_meta",
       "columns": [
@@ -18244,7 +18481,7 @@
     {
       "tableVar": "codeIndex",
       "tableName": "code_index",
-      "relPath": "packages/nexus/src/schema/code-index.ts",
+      "relPath": "packages/core/src/store/schema/code-index.ts",
       "targetScope": "brain",
       "targetTable": "nexus_code_index",
       "columns": [
@@ -18448,7 +18685,7 @@
     {
       "tableVar": "playbookRuns",
       "tableName": "playbook_runs",
-      "relPath": "packages/playbooks/src/schema.ts",
+      "relPath": "packages/core/src/store/schema/playbooks.ts",
       "targetScope": "tasks",
       "targetTable": "tasks_playbook_runs",
       "columns": [
@@ -18637,7 +18874,7 @@
     {
       "tableVar": "playbookApprovals",
       "tableName": "playbook_approvals",
-      "relPath": "packages/playbooks/src/schema.ts",
+      "relPath": "packages/core/src/store/schema/playbooks.ts",
       "targetScope": "tasks",
       "targetTable": "tasks_playbook_approvals",
       "columns": [

@@ -9,7 +9,7 @@
 
 import type { Session } from '@cleocode/contracts';
 import { getBrainAccessor } from '../store/memory-accessor.js';
-import type { BrainAttentionRow } from '../store/memory-schema.js';
+import type { BrainAttentionRow } from '../store/schema/memory-schema.js';
 import type { ConvertedTarget } from './types.js';
 
 /**

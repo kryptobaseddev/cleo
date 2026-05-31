@@ -9,7 +9,7 @@
 
 import type { HttpContract } from '@cleocode/contracts';
 import { and, eq } from 'drizzle-orm';
-import type { NexusNodeRow } from '../../store/nexus-schema.js';
+import type { NexusNodeRow } from '../../store/schema/nexus-schema.js';
 
 /**
  * Extract all HTTP contracts from a project's NEXUS graph.

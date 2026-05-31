@@ -17,7 +17,7 @@ import type {
 } from '@cleocode/contracts/nexus-route-ops.js';
 import { and, eq } from 'drizzle-orm';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
-import type { NexusNodeRow, NexusRelationRow } from '../store/nexus-schema.js';
+import type { NexusNodeRow, NexusRelationRow } from '../store/schema/nexus-schema.js';
 
 /**
  * Query all route nodes in the project and their handler relations.

@@ -56,15 +56,15 @@ export default defineConfig({
     './packages/core/src/store/schema/provenance/commits.ts',
     './packages/core/src/store/schema/provenance/pull-requests.ts',
     './packages/core/src/store/schema/provenance/releases.ts',
-    './packages/core/src/store/chain-schema.ts',
-    './packages/core/src/agents/agent-schema.ts',
-    './packages/playbooks/src/schema.ts',
+    './packages/core/src/store/schema/chain-schema.ts',
+    './packages/core/src/store/schema/agent-schema.ts',
+    './packages/core/src/store/schema/playbooks.ts',
     // conduit (14 tables) — project-local messaging / delivery / attachments
-    './packages/core/src/store/conduit-schema.ts',
+    './packages/core/src/store/schema/conduit-schema.ts',
     // telemetry (2 tables) — project-tier telemetry counters
-    './packages/core/src/telemetry/schema.ts',
+    './packages/core/src/store/schema/telemetry-schema.ts',
     // brain / memory (22 tables) — SHARED with cleo-global.config.ts (project-local memory)
-    './packages/core/src/store/memory-schema.ts',
+    './packages/core/src/store/schema/memory-schema.ts',
   ],
   out: './packages/core/migrations/drizzle-cleo-project',
   dialect: 'sqlite',

@@ -420,7 +420,7 @@ async function executeTransferInternal(params: TransferParams): Promise<Transfer
   // Step 7: Write audit log
   try {
     const { getNexusDb } = await import('../store/nexus-sqlite.js');
-    const { nexusAuditLog } = await import('../store/nexus-schema.js');
+    const { nexusAuditLog } = await import('../store/schema/nexus-schema.js');
     const db = await getNexusDb();
     await db.insert(nexusAuditLog).values({
       id: randomUUID(),

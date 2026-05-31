@@ -53,7 +53,7 @@ function estimateTokens(text: string): number {
 export async function fetchIdentity(
   peerId: string,
   nexusDb: import('drizzle-orm/node-sqlite').NodeSQLiteDatabase<
-    typeof import('../../store/nexus-schema.js')
+    typeof import('../../store/schema/nexus-schema.js')
   >,
 ): Promise<{
   userProfile: import('@cleocode/contracts').UserProfileTrait[];

@@ -62,6 +62,11 @@ export {
   SafetyDataAccessor,
   wrapWithSafety,
 } from './safety-data-accessor.js';
+export type {
+  NewSkillRow,
+  SkillRow,
+  SkillSourceType,
+} from './schema/skills-schema.js';
 // Skills DB helpers (per-user skills.db chokepoint — T9651 / T9657)
 export {
   closeSkillsDb,
@@ -76,11 +81,6 @@ export {
   SKILLS_SCHEMA_VERSION,
   upsertSkillRow,
 } from './skills-db.js';
-export type {
-  NewSkillRow,
-  SkillRow,
-  SkillSourceType,
-} from './skills-schema.js';
 export {
   listBrainBackups,
   listSqliteBackups,

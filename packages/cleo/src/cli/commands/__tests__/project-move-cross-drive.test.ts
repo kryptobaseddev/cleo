@@ -69,7 +69,7 @@ describe('T11030 — project move integration (cross-drive)', () => {
     try {
       const { getNexusDb } = await import('../../../../../core/src/store/nexus-sqlite.js');
       const { projectRegistry, projectIdAliases } = await import(
-        '../../../../../core/src/store/nexus-schema.js'
+        '../../../../../core/src/store/schema/nexus-schema.js'
       );
       const db = await getNexusDb();
       const now = new Date().toISOString();
@@ -140,7 +140,9 @@ describe('T11030 — project move integration (cross-drive)', () => {
   it('AC2: project is registered in nexus', async () => {
     // Pre-populated in beforeAll; verify it exists
     const { getNexusDb } = await import('../../../../../core/src/store/nexus-sqlite.js');
-    const { projectRegistry } = await import('../../../../../core/src/store/nexus-schema.js');
+    const { projectRegistry } = await import(
+      '../../../../../core/src/store/schema/nexus-schema.js'
+    );
     const db = await getNexusDb();
     const rows = await db
       .select()
@@ -225,7 +227,9 @@ describe('T11030 — project move integration (cross-drive)', () => {
   it('AC9: nexus row resolves at new path via projectId', async () => {
     try {
       const { getNexusDb } = await import('../../../../../core/src/store/nexus-sqlite.js');
-      const { projectRegistry } = await import('../../../../../core/src/store/nexus-schema.js');
+      const { projectRegistry } = await import(
+        '../../../../../core/src/store/schema/nexus-schema.js'
+      );
       const db = await getNexusDb();
       const rows = await db
         .select()

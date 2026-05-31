@@ -19,7 +19,6 @@ import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { getLogger } from '../logger.js';
 import { resolveCleoDir } from '../paths.js';
-import * as brainSchema from './memory-schema.js';
 import {
   createSafetyBackup,
   ensureColumns,
@@ -29,6 +28,7 @@ import {
 } from './migration-manager.js';
 import { recoverMalformedBrainDb } from './recover-brain-db.js';
 import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
+import * as brainSchema from './schema/memory-schema.js';
 // Import openNativeDatabase directly from the leaf module (sqlite-native.ts) to
 // avoid any static import from sqlite.ts that could re-enter the circular chain
 // agent-resolver → ... → memory-sqlite → sqlite.ts (T1325/T1331 v3).

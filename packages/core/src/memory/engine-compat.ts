@@ -1362,7 +1362,7 @@ export async function memoryGraphAdd(
         fromId: params.fromId,
         toId: params.toId,
         edgeType:
-          params.edgeType as typeof import('../store/memory-schema.js').BRAIN_EDGE_TYPES[number],
+          params.edgeType as typeof import('../store/schema/memory-schema.js').BRAIN_EDGE_TYPES[number],
         weight: params.weight,
       });
       return { success: true, data: { type: 'edge', edge } };
@@ -1373,7 +1373,7 @@ export async function memoryGraphAdd(
       const node = await accessor.addPageNode({
         id: params.nodeId,
         nodeType:
-          params.nodeType as typeof import('../store/memory-schema.js').BRAIN_NODE_TYPES[number],
+          params.nodeType as typeof import('../store/schema/memory-schema.js').BRAIN_NODE_TYPES[number],
         label: params.label,
         metadataJson: params.metadataJson,
       });
@@ -1479,7 +1479,7 @@ export async function memoryGraphNeighbors(
     const neighbors = await accessor.getNeighbors(
       params.nodeId,
       params.edgeType as
-        | typeof import('../store/memory-schema.js').BRAIN_EDGE_TYPES[number]
+        | typeof import('../store/schema/memory-schema.js').BRAIN_EDGE_TYPES[number]
         | undefined,
     );
     return { success: true, data: { neighbors, total: neighbors.length } };
@@ -1844,7 +1844,7 @@ export async function memoryGraphRemove(
       await accessor.removePageEdge(
         params.fromId,
         params.toId,
-        params.edgeType as typeof import('../store/memory-schema.js').BRAIN_EDGE_TYPES[number],
+        params.edgeType as typeof import('../store/schema/memory-schema.js').BRAIN_EDGE_TYPES[number],
       );
       return {
         success: true,

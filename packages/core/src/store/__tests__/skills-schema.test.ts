@@ -29,8 +29,8 @@ import type {
   NewSkillReviewRow,
   NewSkillRow,
   NewSkillUsageRow,
-} from '../skills-schema.js';
-import { skillPatches, skillReviews, skills, skillUsage } from '../skills-schema.js';
+} from '../schema/skills-schema.js';
+import { skillPatches, skillReviews, skills, skillUsage } from '../schema/skills-schema.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

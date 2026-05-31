@@ -71,7 +71,7 @@ describe('ensureTaskNode', () => {
   it('creates a task:T### node at creation time', async () => {
     const { ensureTaskNode } = await import('../graph-auto-populate.js');
     const { getBrainDb } = await import('../../store/memory-sqlite.js');
-    const { brainPageNodes } = await import('../../store/memory-schema.js');
+    const { brainPageNodes } = await import('../../store/schema/memory-schema.js');
 
     await ensureTaskNode(tempDir, 'T945', 'Universal semantic graph', {
       status: 'pending',
@@ -92,7 +92,7 @@ describe('ensureTaskNode', () => {
   it('is idempotent — calling twice does not create duplicate nodes', async () => {
     const { ensureTaskNode } = await import('../graph-auto-populate.js');
     const { getBrainDb } = await import('../../store/memory-sqlite.js');
-    const { brainPageNodes } = await import('../../store/memory-schema.js');
+    const { brainPageNodes } = await import('../../store/schema/memory-schema.js');
 
     await ensureTaskNode(tempDir, 'T100', 'First call');
     await ensureTaskNode(tempDir, 'T100', 'Second call');
@@ -111,7 +111,7 @@ describe('ensureLlmtxtNode', () => {
   it('creates an llmtxt:<sha> node and an embeds edge from the owner', async () => {
     const { ensureLlmtxtNode } = await import('../graph-auto-populate.js');
     const { getBrainDb } = await import('../../store/memory-sqlite.js');
-    const { brainPageEdges, brainPageNodes } = await import('../../store/memory-schema.js');
+    const { brainPageEdges, brainPageNodes } = await import('../../store/schema/memory-schema.js');
 
     const sha = 'abcd1234ef567890abcd1234ef567890abcd1234ef567890abcd1234ef567890';
     await ensureLlmtxtNode(tempDir, sha, 'task:T945', 'design-spec.md');
@@ -137,7 +137,7 @@ describe('ensureMessageNode', () => {
   it('creates a msg:<id> node with no edges when content has no task refs', async () => {
     const { ensureMessageNode } = await import('../graph-auto-populate.js');
     const { getBrainDb } = await import('../../store/memory-sqlite.js');
-    const { brainPageEdges, brainPageNodes } = await import('../../store/memory-schema.js');
+    const { brainPageEdges, brainPageNodes } = await import('../../store/schema/memory-schema.js');
 
     await ensureMessageNode(tempDir, 'msg_abc', 'just a plain chat without ids');
 
@@ -155,7 +155,7 @@ describe('ensureMessageNode', () => {
   it('extracts T### task references and emits discusses edges for each', async () => {
     const { ensureMessageNode } = await import('../graph-auto-populate.js');
     const { getBrainDb } = await import('../../store/memory-sqlite.js');
-    const { brainPageEdges } = await import('../../store/memory-schema.js');
+    const { brainPageEdges } = await import('../../store/schema/memory-schema.js');
 
     await ensureMessageNode(
       tempDir,
@@ -180,7 +180,7 @@ describe('ensureCommitNode', () => {
   it('creates a commit:<sha> node and a touches_code edge from the task', async () => {
     const { ensureCommitNode } = await import('../graph-auto-populate.js');
     const { getBrainDb } = await import('../../store/memory-sqlite.js');
-    const { brainPageEdges, brainPageNodes } = await import('../../store/memory-schema.js');
+    const { brainPageEdges, brainPageNodes } = await import('../../store/schema/memory-schema.js');
 
     const sha = '04021568adeadbeefcafef00d1234567890abcde';
     await ensureCommitNode(tempDir, sha, 'T945');
@@ -207,7 +207,7 @@ describe('new edge types accept inserts', () => {
   it('accepts all five T945 Stage A edge types via addGraphEdge', async () => {
     const { addGraphEdge, upsertGraphNode } = await import('../graph-auto-populate.js');
     const { getBrainDb } = await import('../../store/memory-sqlite.js');
-    const { brainPageEdges } = await import('../../store/memory-schema.js');
+    const { brainPageEdges } = await import('../../store/schema/memory-schema.js');
 
     // Seed distinct source/target nodes so each PK (from, to, type) is unique.
     await upsertGraphNode(tempDir, 'task:T001', 'task', 'Source task', 0.7, 'one');

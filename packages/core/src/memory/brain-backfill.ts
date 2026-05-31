@@ -27,6 +27,7 @@
 
 import { createHash, randomBytes } from 'node:crypto';
 import { getBrainAccessor } from '../store/memory-accessor.js';
+import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
 import type {
   BrainBackfillRunRow,
   BrainDecisionRow,
@@ -35,9 +36,8 @@ import type {
   BrainPatternRow,
   NewBrainPageEdgeRow,
   NewBrainPageNodeRow,
-} from '../store/memory-schema.js';
-import * as brainSchema from '../store/memory-schema.js';
-import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
+} from '../store/schema/memory-schema.js';
+import * as brainSchema from '../store/schema/memory-schema.js';
 
 // ============================================================================
 // Types

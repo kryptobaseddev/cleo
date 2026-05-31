@@ -4,7 +4,7 @@
  * signaldock.db holds cross-project agent identity, capabilities catalog,
  * and cloud-sync tables. Project-local messaging state lives in conduit.db.
  *
- * Schema: packages/core/src/store/signaldock-schema.ts
+ * Schema: packages/core/src/store/schema/signaldock-schema.ts
  * Migrations: packages/core/migrations/drizzle-signaldock/
  *
  * @task T1166
@@ -15,7 +15,7 @@
 import { defineConfig } from 'drizzle-kit';
 
 export default defineConfig({
-  schema: './packages/core/src/store/signaldock-schema.ts',
+  schema: './packages/core/src/store/schema/signaldock-schema.ts',
   out: './packages/core/migrations/drizzle-signaldock',
   dialect: 'sqlite',
   dbCredentials: {
