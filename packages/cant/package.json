@@ -1,7 +1,7 @@
 {
   "name": "@cleocode/cant",
   "version": "2026.5.122",
-  "description": "CANT protocol parser and runtime for CLEO \u2014 wraps cant-core via napi-rs",
+  "description": "CANT DSL \u2014 cant-core (SSoT) parser, validator, and pipeline executor via napi-rs; agent identity, message parsing, and migration utilities",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
