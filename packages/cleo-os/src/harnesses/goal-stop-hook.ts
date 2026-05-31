@@ -152,7 +152,7 @@ async function main(): Promise<void> {
       decision: 'block',
       reason: continuation.content,
     };
-    process.stdout.write(JSON.stringify(decision) + '\n');
+    process.stdout.write(JSON.stringify(decision) + '\n'); // stdout-discipline-allowed: Stop-hook contract — Claude Code reads decision JSON from stdout to determine whether to continue // stdout-write-allowed: Stop-hook protocol output (not render layer — Claude Code reads raw stdout)
   }
   // Otherwise (terminal goal) — no output → Claude Code stops normally.
 }
