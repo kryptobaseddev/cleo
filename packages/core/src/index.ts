@@ -715,6 +715,24 @@ export {
 } from './dispatch/suggested-next.js';
 // T9915 (Saga T9855 / E7.2) — SSoT input validator over OperationInputContract
 export { validateOperationInput } from './dispatch/validation.js';
+// ---------------------------------------------------------------------------
+// Orchestration flat re-exports (T11499 E7-CLOSE-LOOPS — classify CLI surface)
+// ---------------------------------------------------------------------------
+// classifyReadiness and classifyTask are also accessible via the `orchestration`
+// namespace but are promoted here as flat exports so CLI command files can
+// import them directly from '@cleocode/core' (lint-core-first RULE-3).
+export type {
+  ClassifyOptions,
+  ClassifyResult,
+  GrillTrigger,
+  ReadinessResult,
+  ReadinessSignals,
+  ReadinessVerdict,
+} from './orchestration/index.js';
+export {
+  classifyReadiness,
+  classifyTask,
+} from './orchestration/index.js';
 // Setup wizard `--config-json` merger
 export { mergeConfigJson, WIZARD_SECTION_IDS } from './setup/config-json-merge.js';
 // Backup bundle inspect primitives (tar parser, encryption detect, byte fmt)

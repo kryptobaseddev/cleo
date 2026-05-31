@@ -208,6 +208,13 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/claim.js')).claimCommand as CommandDef,
   },
   {
+    exportName: 'classifyCommand',
+    name: 'classify',
+    description:
+      'Classify a task: readiness verdict (proceed|grill) + persona routing (agent, confidence)',
+    load: async () => (await import('../commands/classify.js')).classifyCommand as CommandDef,
+  },
+  {
     exportName: 'unclaimCommand',
     name: 'unclaim',
     description: 'Unclaim a task by removing its current assignee',

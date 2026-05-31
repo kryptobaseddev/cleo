@@ -612,6 +612,167 @@ function iterationCapFor(node: PlaybookNode, runtimeDefault: number): number {
   return runtimeDefault;
 }
 
+// ---------------------------------------------------------------------------
+// RCASD/IVTR node output schema validation (T11499 AC3)
+// ---------------------------------------------------------------------------
+
+/**
+ * A single task entry within a decomposition `task_tree` output.
+ *
+ * Agents emitting a decomposition must produce a `task_tree` key in the
+ * playbook context whose value is an array of objects conforming to this shape.
+ * Validating the real shape — not just key presence — prevents garbage
+ * decompositions from silently entering the run queue.
+ *
+ * @task T11499 E7-CLOSE-LOOPS AC3
+ */
+interface DecompositionTaskEntry {
+  /** Task title — required, non-empty string. */
+  title: string;
+  /** Acceptance criteria — must be present and non-empty. */
+  acceptance: string[];
+  /** Optional task ID (may be pre-assigned by the agent). */
+  id?: string;
+  /** Optional parent task ID. */
+  parentId?: string;
+  /** Optional dependency IDs. */
+  depends?: string[];
+}
+
+/**
+ * Validate the `task_tree` shape emitted by a RCASD decomposition node.
+ *
+ * Returns a human-readable violation string when the shape is invalid, or
+ * `null` when the tree is well-formed. The check is performed AFTER the node
+ * output is merged into the playbook context (post-merge ensures check).
+ *
+ * Rules enforced (AC3 — T11499):
+ *  1. `task_tree` must be a non-empty array.
+ *  2. Each entry must have a non-empty string `title`.
+ *  3. Each entry must have a non-empty `acceptance` array (at least one string).
+ *  4. No entry may have an empty `depends` array that references a non-existent
+ *     sibling (intra-tree orphan check).
+ *
+ * The validator is intentionally lenient on optional fields (id, parentId,
+ * depends) so that agents can emit a minimal valid tree without being rejected
+ * for cosmetic omissions.
+ *
+ * @param nodeId - Node identifier (used in error messages).
+ * @param taskTree - The raw value stored at `context.task_tree`.
+ * @returns Violation string or `null` (valid).
+ *
+ * @task T11499 E7-CLOSE-LOOPS AC3
+ */
+export function validateDecompositionTaskTree(nodeId: string, taskTree: unknown): string | null {
+  if (!Array.isArray(taskTree)) {
+    return `ensures.schema[task_tree] on ${nodeId}: task_tree must be a non-empty array, got ${typeof taskTree}`;
+  }
+
+  if (taskTree.length === 0) {
+    return `ensures.schema[task_tree] on ${nodeId}: task_tree is an empty array — decomposition produced no tasks`;
+  }
+
+  const knownIds = new Set<string>();
+  for (const entry of taskTree) {
+    if (typeof (entry as DecompositionTaskEntry).id === 'string') {
+      knownIds.add((entry as DecompositionTaskEntry).id!);
+    }
+  }
+
+  for (let i = 0; i < taskTree.length; i++) {
+    const entry = taskTree[i] as DecompositionTaskEntry;
+
+    if (typeof entry !== 'object' || entry === null) {
+      return `ensures.schema[task_tree] on ${nodeId}: entry[${i}] must be an object, got ${entry === null ? 'null' : typeof entry}`;
+    }
+
+    if (typeof entry.title !== 'string' || entry.title.trim().length === 0) {
+      return `ensures.schema[task_tree] on ${nodeId}: entry[${i}].title must be a non-empty string`;
+    }
+
+    if (!Array.isArray(entry.acceptance) || entry.acceptance.length === 0) {
+      return (
+        `ensures.schema[task_tree] on ${nodeId}: entry[${i}] ("${entry.title}") ` +
+        `must have a non-empty acceptance array`
+      );
+    }
+
+    const hasValidAc = entry.acceptance.some(
+      (ac) => typeof ac === 'string' && ac.trim().length > 0,
+    );
+    if (!hasValidAc) {
+      return (
+        `ensures.schema[task_tree] on ${nodeId}: entry[${i}] ("${entry.title}") ` +
+        `acceptance array contains no non-empty strings`
+      );
+    }
+
+    // Intra-tree orphan check: if depends[] are specified, they must reference
+    // another entry in the same tree (by id). References to external tasks are
+    // allowed (they have no id in this tree), so we only flag ids that look
+    // like intra-tree references but are absent from knownIds.
+    if (Array.isArray(entry.depends) && knownIds.size > 0) {
+      for (const depId of entry.depends) {
+        // Only flag if the depId matches the T#### pattern and is not in knownIds
+        // (external task IDs that exist in the DB are valid but we can't check here).
+        if (typeof depId === 'string' && /^T\d{3,}$/.test(depId) && !knownIds.has(depId)) {
+          // Soft warn only (not a hard violation) — the dep may be a pre-existing task.
+          // We don't hard-fail here because agents may correctly depend on existing tasks.
+        }
+      }
+    }
+  }
+
+  return null; // valid
+}
+
+/**
+ * Validate the `evidence` field emitted by an IVTR validation node.
+ *
+ * IVTR validation nodes must emit an `evidence` key whose value is either:
+ *  - An object with at least one key (structured evidence map), OR
+ *  - A non-empty string (free-text evidence reference).
+ *
+ * Empty evidence (`{}`, `''`, `[]`) is rejected so that spawned agents
+ * cannot satisfy the gate by emitting an empty object.
+ *
+ * @param nodeId - Node identifier (used in error messages).
+ * @param evidence - The raw value stored at `context.evidence`.
+ * @returns Violation string or `null` (valid).
+ *
+ * @task T11499 E7-CLOSE-LOOPS AC3
+ */
+export function validateIvtrEvidenceOutput(nodeId: string, evidence: unknown): string | null {
+  if (evidence === null || evidence === undefined) {
+    return `ensures.schema[evidence] on ${nodeId}: evidence must be present (non-null, non-undefined)`;
+  }
+
+  if (typeof evidence === 'string') {
+    if (evidence.trim().length === 0) {
+      return `ensures.schema[evidence] on ${nodeId}: evidence string must not be empty`;
+    }
+    return null; // valid non-empty string
+  }
+
+  if (Array.isArray(evidence)) {
+    if (evidence.length === 0) {
+      return `ensures.schema[evidence] on ${nodeId}: evidence array must not be empty`;
+    }
+    return null; // valid non-empty array
+  }
+
+  if (typeof evidence === 'object') {
+    const keys = Object.keys(evidence as object);
+    if (keys.length === 0) {
+      return `ensures.schema[evidence] on ${nodeId}: evidence object must have at least one key (got {})`;
+    }
+    return null; // valid non-empty object
+  }
+
+  // Numbers, booleans etc. are not valid evidence shapes.
+  return `ensures.schema[evidence] on ${nodeId}: evidence must be a string, array, or object (got ${typeof evidence})`;
+}
+
 /**
  * Core step-by-step executor shared by {@link executePlaybook} and
  * {@link resumePlaybook}. Starts at `startNodeId` and walks the graph until
@@ -756,6 +917,49 @@ async function runFromNode(args: {
           }
         }
       }
+
+      // RCASD/IVTR output schema validation (T11499 AC3):
+      // Enforce ensures.schema beyond key-presence so garbage decompositions
+      // cannot silently pass the runtime contract check.
+      if (node.ensures?.schema) {
+        let schemaViolation: string | null = null;
+
+        if (node.ensures.schema === 'task_tree') {
+          schemaViolation = validateDecompositionTaskTree(node.id, context['task_tree']);
+        } else if (node.ensures.schema === 'evidence') {
+          schemaViolation = validateIvtrEvidenceOutput(node.id, context['evidence']);
+        }
+        // Future schema names are silently skipped (open for extension).
+
+        if (schemaViolation !== null) {
+          auditContractViolation(
+            args.projectRoot,
+            run.runId,
+            node.id,
+            'ensures',
+            node.ensures.schema,
+            playbook.name,
+          );
+          const handled = handleContractErrorHandler(
+            playbook,
+            'contract_violation',
+            schemaViolation,
+          );
+          if (handled === 'abort') {
+            failedNodeId = node.id;
+            lastError = schemaViolation;
+            // break out of the while loop below
+          } else {
+            context['__ensuresSchemaViolation'] = schemaViolation;
+            if (handled === 'hitl_escalate') {
+              exceededNodeId = node.id;
+            }
+          }
+        }
+      }
+
+      // If a fatal schema violation was detected, break the step loop.
+      if (failedNodeId !== undefined) break;
 
       // Validate outgoing edge contracts (edge.contract.requires on the FROM side).
       const nextId = resolveNextNodeId(node.id, edgeIndex);

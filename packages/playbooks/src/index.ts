@@ -59,6 +59,7 @@ export {
   type PolicyRule,
 } from './policy.js';
 // W4-10 / T930: playbook runtime state machine + HITL resume
+// T11499 E7-CLOSE-LOOPS AC3: schema validators exported for testing + external use
 export {
   type AgentDispatcher,
   type AgentDispatchInput,
@@ -74,6 +75,8 @@ export {
   type PlaybookTerminalStatus,
   type ResumePlaybookOptions,
   resumePlaybook,
+  validateDecompositionTaskTree,
+  validateIvtrEvidenceOutput,
 } from './runtime.js';
 // W4-8: state layer CRUD for playbook_runs + playbook_approvals
 export {
