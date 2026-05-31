@@ -277,13 +277,13 @@ export type EvidenceAtom =
        *
        * Closes the release-verb dogfood gap (T9764): tasks that ship via the
        * standard PR + admin-merge flow lacked a zero-friction way to record
-       * `testsPassed` / `qaPassed` evidence after the fact. Re-running
-       * `tool:test` against the entire monorepo is overkill for one-line
-       * tasks, and `note:` is rejected for hard gates on critical
+       * `implemented` / `testsPassed` / `qaPassed` evidence after the fact.
+       * Re-running `tool:test` against the entire monorepo is overkill for
+       * one-line tasks, and `note:` is rejected for hard gates on critical
        * verifications.
        *
-       * A `pr:<number>` atom satisfies BOTH `testsPassed` and `qaPassed`
-       * simultaneously when:
+       * A `pr:<number>` atom satisfies `implemented`, `testsPassed`, and
+       * `qaPassed` simultaneously (T9838) when:
        *   1. `state === 'MERGED'` (PR was actually shipped to main)
        *   2. `mergedAt` is non-null (defends against API races)
        *   3. The status-check rollup contains ≥1 SUCCESS check and zero

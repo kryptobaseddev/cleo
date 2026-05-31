@@ -11,13 +11,14 @@
  *   - resolver returns E_EVIDENCE_TOOL_FAILED when `gh` is missing
  *   - cache hit on re-call avoids invoking `gh`
  *   - cache invalidates when mergedAt changes
- *   - gate-evidence-minimum accepts `pr` for testsPassed AND qaPassed
+ *   - gate-evidence-minimum accepts `pr` for implemented, testsPassed, AND qaPassed (T9838)
  *   - validateAtom dispatches `pr` through to the resolver
  *
  * Uses an injectable `FetchGhPrPayload` mock to keep tests hermetic — no
  * real network calls happen.
  *
  * @task T9764
+ * @task T9838
  * @epic T9762
  */
 

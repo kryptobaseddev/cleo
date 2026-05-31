@@ -2,9 +2,10 @@
  * `pr:<number>` evidence-atom validator.
  *
  * Resolves a GitHub pull request via the `gh` CLI and decides whether the PR
- * satisfies the `testsPassed` and `qaPassed` gates. Closes the release-verb
- * dogfood gap (T9764): tasks that ship via the standard PR + admin-merge flow
- * previously had no zero-friction way to record evidence retroactively —
+ * satisfies the `implemented`, `testsPassed`, and `qaPassed` gates (T9838).
+ * Closes the release-verb dogfood gap (T9764): tasks that ship via the
+ * standard PR + admin-merge flow previously had no zero-friction way to record
+ * evidence retroactively —
  * `tool:test` re-runs the entire monorepo suite and `note:` is rejected for
  * hard gates on critical verifications.
  *
