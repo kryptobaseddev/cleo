@@ -14,6 +14,10 @@
       "types": "./dist/gateway.d.ts",
       "import": "./dist/gateway.js"
     },
+    "./gateway/rpc": {
+      "types": "./dist/gateway/rpc/index.d.ts",
+      "import": "./dist/gateway/rpc/index.js"
+    },
     "./tools/atomic": {
       "types": "./dist/tools/atomic.d.ts",
       "import": "./dist/tools/atomic.js"

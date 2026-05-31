@@ -21,6 +21,10 @@
     "./gateway/mcp": {
       "types": "./dist/gateway/mcp/index.d.ts",
       "import": "./dist/gateway/mcp/index.js"
+    },
+    "./gateway/rpc": {
+      "types": "./dist/gateway/rpc/index.d.ts",
+      "import": "./dist/gateway/rpc/index.js"
     }
   },
   "scripts": {
