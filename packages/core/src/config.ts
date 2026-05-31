@@ -12,7 +12,10 @@ import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { CleoConfig, ConfigSource, ResolvedValue } from '@cleocode/contracts';
-import { IMPLICIT_FALLBACK_MODEL } from './llm/role-resolver.js';
+// Import from the dependency-free leaf (NOT ./llm/role-resolver.js) so this
+// module's eager DEFAULTS read cannot enter role-resolver's circular import
+// chain and hit a temporal-dead-zone ReferenceError. See llm/fallback-model.ts.
+import { IMPLICIT_FALLBACK_MODEL } from './llm/fallback-model.js';
 import { getConfigPath, getGlobalConfigPath } from './paths.js';
 import { readJson, saveJson } from './store/json.js';
 

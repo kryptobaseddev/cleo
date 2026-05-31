@@ -105,11 +105,18 @@ describe('grep guard — no hardcoded haiku model outside the source-of-truth', 
     ).toEqual([]);
   });
 
-  it('the canonical const lives in packages/core/src/llm/role-resolver.ts', () => {
+  it('the canonical IMPLICIT_FALLBACK_MODEL const lives in packages/core/src/llm/fallback-model.ts', () => {
+    // Hoisted out of role-resolver.ts into a dependency-free leaf (T11359) to
+    // break a circular-import TDZ — config.ts reads it eagerly and must not
+    // enter role-resolver's heavy import chain. role-resolver.ts re-exports it
+    // for back-compat; the literal still lives ONLY under packages/core/src/llm/.
     const root = packagesRoot();
-    const canonical = join(root, 'core', 'src', 'llm', 'role-resolver.ts');
+    const canonical = join(root, 'core', 'src', 'llm', 'fallback-model.ts');
     const contents = readFileSync(canonical, 'utf-8');
     expect(contents).toContain(`export const IMPLICIT_FALLBACK_MODEL = '${FORBIDDEN_LITERAL}'`);
+    // role-resolver.ts must still re-export it so existing consumers are unaffected.
+    const resolver = readFileSync(join(root, 'core', 'src', 'llm', 'role-resolver.ts'), 'utf-8');
+    expect(resolver).toContain('IMPLICIT_FALLBACK_MODEL');
   });
 });
 
