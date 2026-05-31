@@ -358,6 +358,10 @@ const coreBuildOptions = {
   plugins: [
     workspacePlugin('bundle-core-deps', {
       '@cleocode/contracts': resolve(__dirname, 'packages/contracts/src/index.ts'),
+      // E5/T11392: @cleocode/utils is a pure private leaf (never published). Inline
+      // its source into the core bundle so the published @cleocode/core tarball does
+      // not emit an external `import '@cleocode/utils'` that npm could not resolve.
+      '@cleocode/utils': resolve(__dirname, 'packages/utils/src/index.ts'),
     }),
   ],
 };
@@ -411,6 +415,10 @@ const cleoBuildOptions = {
   plugins: [
     workspacePlugin('bundle-cleo-deps', {
       '@cleocode/contracts': resolve(__dirname, 'packages/contracts/src/index.ts'),
+      // E5/T11392: inline the pure private @cleocode/utils leaf (never published) so
+      // the published CLI bundle carries its source instead of an unresolvable
+      // external import. Same rationale as the playbooks/animations inline entries.
+      '@cleocode/utils': resolve(__dirname, 'packages/utils/src/index.ts'),
       // @cleocode/core and @cleocode/core/internal are REMOVED from inline map.
       // T1178 (W3-2+W3-6): core is now in sharedExternals — esbuild emits
       // `import` statements and the runtime resolves core from node_modules
@@ -692,6 +700,9 @@ async function build() {
       await chmod('packages/lafs/dist/src/cli.js', 0o755).catch(() => {});
     }),
     buildPkg('@cleocode/paths', 'packages/paths/dist/'),
+    // E5/T11392: @cleocode/utils is a zero-dep leaf consumed by core+cleo; build
+    // its dist/*.d.ts here so core/cleo `tsc --emitDeclarationOnly` resolves it.
+    buildPkg('@cleocode/utils', 'packages/utils/dist/'),
   ]);
 
   // ---------------------------------------------------------------------------

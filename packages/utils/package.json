@@ -1,0 +1,44 @@
+{
+  "name": "@cleocode/utils",
+  "version": "2026.5.122",
+  "private": true,
+  "type": "module",
+  "description": "CLEO shared pure-utility leaf — zero-dependency, stateless helpers (formatBytes, …) collapsed from duplicated inline copies across packages. Bundled into @cleocode/cleo, never published (owner decision: single published artifact).",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "cleo",
+    "utils",
+    "leaf"
+  ],
+  "engines": {
+    "node": ">=24.16.0"
+  },
+  "author": "CLEO Code <hello@cleocode.dev>",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.4"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kryptobaseddev/cleo.git",
+    "directory": "packages/utils"
+  }
+}
