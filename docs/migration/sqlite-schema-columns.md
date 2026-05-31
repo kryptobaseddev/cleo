@@ -1,6 +1,26 @@
 ### Scope: `brain` (target DB: `.cleo/brain.db`)
 
-#### `packages/core/src/store/memory-schema.ts`
+#### `packages/core/src/store/schema/code-index.ts`
+
+##### `code_index` → `nexus_code_index`
+
+| column | affinity | semantic type | null | PK | UQ | FK | default | enum / non-conformer |
+|---|---|---|:--:|:--:|:--:|:--:|---|---|
+| `id` | TEXT | id |  |  |  |  |  |  |
+| `project_id` | TEXT | id |  |  |  |  |  |  |
+| `file_path` | TEXT | text |  |  |  |  |  |  |
+| `symbol_name` | TEXT | text |  |  |  |  |  |  |
+| `kind` | TEXT | text |  |  |  |  |  | ⚠ enum-like TEXT 'kind' lacks { enum } / CHECK (col IN (...)) |
+| `start_line` | INTEGER | numeric |  |  |  |  |  |  |
+| `end_line` | INTEGER | numeric |  |  |  |  |  |  |
+| `language` | TEXT | text |  |  |  |  |  |  |
+| `exported` | INTEGER | boolean | ✓ |  |  |  | `false` |  |
+| `parent` | TEXT | text | ✓ |  |  |  |  |  |
+| `return_type` | TEXT | text | ✓ |  |  |  |  |  |
+| `doc_summary` | TEXT | text | ✓ |  |  |  |  |  |
+| `indexed_at` | TEXT | timestamp-text |  |  |  |  |  |  |
+
+#### `packages/core/src/store/schema/memory-schema.ts`
 
 ##### `brain_decisions` → `brain_decisions`
 
@@ -160,6 +180,28 @@
 | `color` | TEXT | enum | ✓ |  |  |  |  | `BRAIN_STICKY_COLORS` |
 | `priority` | TEXT | enum | ✓ |  |  |  |  | `BRAIN_STICKY_PRIORITIES` |
 | `source_type` | TEXT | text | ✓ |  |  |  | `'sticky-note'` |  |
+
+##### `sticky_tags` → `brain_sticky_tags`
+
+| column | affinity | semantic type | null | PK | UQ | FK | default | enum / non-conformer |
+|---|---|---|:--:|:--:|:--:|:--:|---|---|
+| `sticky_id` | TEXT | fk |  |  |  |  |  |  |
+| `tag` | TEXT | text |  |  |  |  |  |  |
+
+##### `brain_attention` → `brain_attention`
+
+| column | affinity | semantic type | null | PK | UQ | FK | default | enum / non-conformer |
+|---|---|---|:--:|:--:|:--:|:--:|---|---|
+| `id` | TEXT | id |  |  |  |  |  |  |
+| `content` | TEXT | text |  |  |  |  |  |  |
+| `session_id` | TEXT | id | ✓ |  |  |  |  |  |
+| `agent_id` | TEXT | id | ✓ |  |  |  |  |  |
+| `scope_kind` | TEXT | enum |  |  |  |  |  | `BRAIN_ATTENTION_SCOPE_KINDS` |
+| `scope_id` | TEXT | id |  |  |  |  |  |  |
+| `created_at` | INTEGER | timestamp-epoch |  |  |  |  | `sql`(unixepoch() * 1000)`` | ⚠ INTEGER epoch timestamp — target canonical form is TEXT ISO8601 + CHECK |
+| `expires_at` | INTEGER | timestamp-epoch | ✓ |  |  |  |  | ⚠ INTEGER epoch timestamp — target canonical form is TEXT ISO8601 + CHECK |
+| `decay_score` | REAL | real | ✓ |  |  |  |  |  |
+| `status` | TEXT | enum |  |  |  |  | `'open'` | `BRAIN_ATTENTION_STATUSES` |
 
 ##### `brain_memory_links` → `brain_memory_links`
 
@@ -379,7 +421,7 @@
 | `validation_status` | TEXT | text |  |  |  |  | `'pending'` |  |
 | `created_at` | TEXT | timestamp-text |  |  |  |  | `sql`(datetime('now'))`` |  |
 
-#### `packages/core/src/store/nexus-schema.ts`
+#### `packages/core/src/store/schema/nexus-schema.ts`
 
 ##### `project_registry` → `nexus_project_registry`
 
@@ -522,7 +564,7 @@
 | `created_at` | INTEGER | timestamp-date |  |  |  |  |  | ⚠ Drizzle { mode: "timestamp" } Date mapping — target canonical form is TEXT ISO8601 + CHECK |
 | `updated_at` | INTEGER | timestamp-date |  |  |  |  |  | ⚠ Drizzle { mode: "timestamp" } Date mapping — target canonical form is TEXT ISO8601 + CHECK |
 
-#### `packages/core/src/store/signaldock-schema.ts`
+#### `packages/core/src/store/schema/signaldock-schema.ts`
 
 ##### `users` → `signaldock_users`
 
@@ -722,7 +764,7 @@
 | `created_by` | TEXT | text |  |  |  |  |  |  |
 | `created_at` | INTEGER | timestamp-epoch |  |  |  |  |  | ⚠ INTEGER epoch timestamp — target canonical form is TEXT ISO8601 + CHECK |
 
-#### `packages/core/src/store/skills-schema.ts`
+#### `packages/core/src/store/schema/skills-schema.ts`
 
 ##### `skills` → `skills_skills`
 
@@ -780,29 +822,9 @@
 | `status` | TEXT | enum |  |  |  |  | `'proposed'` | `['proposed', 'applied', 'reverted', 'rejected']` |
 | `reverted_by_patch_id` | INTEGER | numeric | ✓ |  |  |  |  |  |
 
-#### `packages/nexus/src/schema/code-index.ts`
-
-##### `code_index` → `nexus_code_index`
-
-| column | affinity | semantic type | null | PK | UQ | FK | default | enum / non-conformer |
-|---|---|---|:--:|:--:|:--:|:--:|---|---|
-| `id` | TEXT | id |  |  |  |  |  |  |
-| `project_id` | TEXT | id |  |  |  |  |  |  |
-| `file_path` | TEXT | text |  |  |  |  |  |  |
-| `symbol_name` | TEXT | text |  |  |  |  |  |  |
-| `kind` | TEXT | text |  |  |  |  |  | ⚠ enum-like TEXT 'kind' lacks { enum } / CHECK (col IN (...)) |
-| `start_line` | INTEGER | numeric |  |  |  |  |  |  |
-| `end_line` | INTEGER | numeric |  |  |  |  |  |  |
-| `language` | TEXT | text |  |  |  |  |  |  |
-| `exported` | INTEGER | boolean | ✓ |  |  |  | `false` |  |
-| `parent` | TEXT | text | ✓ |  |  |  |  |  |
-| `return_type` | TEXT | text | ✓ |  |  |  |  |  |
-| `doc_summary` | TEXT | text | ✓ |  |  |  |  |  |
-| `indexed_at` | TEXT | timestamp-text |  |  |  |  |  |  |
-
 ### Scope: `tasks` (target DB: `.cleo/tasks.db`)
 
-#### `packages/core/src/agents/agent-schema.ts`
+#### `packages/core/src/store/schema/agent-schema.ts`
 
 ##### `agent_instances` → `tasks_agent_instances`
 
@@ -834,7 +856,165 @@
 | `occurred_at` | TEXT | timestamp-text |  |  |  |  | `sql`(datetime('now'))`` |  |
 | `resolved` | INTEGER | boolean |  |  |  |  | `false` |  |
 
-#### `packages/core/src/store/chain-schema.ts`
+#### `packages/core/src/store/schema/attachments.ts`
+
+##### `attachments` → `docs_attachments`
+
+| column | affinity | semantic type | null | PK | UQ | FK | default | enum / non-conformer |
+|---|---|---|:--:|:--:|:--:|:--:|---|---|
+| `id` | TEXT | id |  |  |  |  |  |  |
+| `sha256` | TEXT | text |  |  |  |  |  |  |
+| `attachment_json` | TEXT | json |  |  |  |  |  | ⚠ JSON-in-TEXT — needs write-time validator or json1 read assertion (T11330) |
+| `created_at` | TEXT | timestamp-text |  |  |  |  |  |  |
+| `ref_count` | INTEGER | numeric |  |  |  |  | `0` |  |
+| `slug` | TEXT | text | ✓ |  |  |  |  |  |
+| `type` | TEXT | text | ✓ |  |  |  |  | ⚠ enum-like TEXT 'type' lacks { enum } / CHECK (col IN (...)) |
+| `lifecycle_status` | TEXT | enum |  |  |  |  | `'draft'` | `ATTACHMENT_LIFECYCLE_STATUSES` |
+| `supersedes` | TEXT | fk | ✓ |  |  |  |  |  |
+| `superseded_by` | TEXT | fk | ✓ |  |  |  |  |  |
+| `summary` | TEXT | text | ✓ |  |  |  |  |  |
+| `keywords` | TEXT | text | ✓ |  |  |  |  |  |
+| `topics` | TEXT | text | ✓ |  |  |  |  |  |
+| `related_tasks` | TEXT | text | ✓ |  |  |  |  |  |
+| `owner_version` | TEXT | text | ✓ |  |  |  |  |  |
+| `doc_version` | INTEGER | numeric |  |  |  |  | `1` |  |
+
+##### `attachment_refs` → `docs_attachment_refs`
+
+| column | affinity | semantic type | null | PK | UQ | FK | default | enum / non-conformer |
+|---|---|---|:--:|:--:|:--:|:--:|---|---|
+| `attachment_id` | TEXT | id |  |  |  |  |  |  |
+| `owner_type` | TEXT | enum |  |  |  |  |  | `ATTACHMENT_OWNER_TYPES` |
+| `owner_id` | TEXT | id |  |  |  |  |  |  |
+| `attached_at` | TEXT | timestamp-text |  |  |  |  |  |  |
+| `attached_by` | TEXT | text | ✓ |  |  |  |  |  |
+
+#### `packages/core/src/store/schema/audit.ts`
+
+##### `schema_meta` → `tasks_schema_meta`
+
+| column | affinity | semantic type | null | PK | UQ | FK | default | enum / non-conformer |
+|---|---|---|:--:|:--:|:--:|:--:|---|---|
+| `key` | TEXT | text |  |  |  |  |  |  |
+| `value` | TEXT | text |  |  |  |  |  |  |
+
+##### `audit_log` → `tasks_audit_log`
+
+| column | affinity | semantic type | null | PK | UQ | FK | default | enum / non-conformer |
+|---|---|---|:--:|:--:|:--:|:--:|---|---|
+| `id` | TEXT | id |  |  |  |  |  |  |
+| `timestamp` | TEXT | text |  |  |  |  | `sql`(datetime('now'))`` |  |
+| `action` | TEXT | text |  |  |  |  |  |  |
+| `task_id` | TEXT | id |  |  |  |  |  |  |
+| `actor` | TEXT | text |  |  |  |  | `'system'` |  |
+| `details_json` | TEXT | json | ✓ |  |  |  | `'{}'` | ⚠ JSON-in-TEXT — needs write-time validator or json1 read assertion (T11330) |
+| `before_json` | TEXT | json | ✓ |  |  |  |  | ⚠ JSON-in-TEXT — needs write-time validator or json1 read assertion (T11330) |
+| `after_json` | TEXT | json | ✓ |  |  |  |  | ⚠ JSON-in-TEXT — needs write-time validator or json1 read assertion (T11330) |
+| `domain` | TEXT | text | ✓ |  |  |  |  |  |
+| `operation` | TEXT | text | ✓ |  |  |  |  |  |
+| `session_id` | TEXT | id | ✓ |  |  |  |  |  |
+| `request_id` | TEXT | id | ✓ |  |  |  |  |  |
+| `idempotency_key` | TEXT | text | ✓ |  |  |  |  |  |
+| `duration_ms` | INTEGER | numeric | ✓ |  |  |  |  |  |
+| `success` | INTEGER | numeric | ✓ |  |  |  |  |  |
+| `source` | TEXT | text | ✓ |  |  |  |  |  |
+| `gateway` | TEXT | text | ✓ |  |  |  |  |  |
+| `error_message` | TEXT | text | ✓ |  |  |  |  |  |
+| `project_hash` | TEXT | text | ✓ |  |  |  |  |  |
+
+##### `token_usage` → `tasks_token_usage`
+
+| column | affinity | semantic type | null | PK | UQ | FK | default | enum / non-conformer |
+|---|---|---|:--:|:--:|:--:|:--:|---|---|
+| `id` | TEXT | id |  |  |  |  |  |  |
+| `created_at` | TEXT | timestamp-text |  |  |  |  | `sql`(datetime('now'))`` |  |
+| `provider` | TEXT | text |  |  |  |  | `'unknown'` |  |
+| `model` | TEXT | text | ✓ |  |  |  |  |  |
+| `transport` | TEXT | enum |  |  |  |  | `'unknown'` | `TOKEN_USAGE_TRANSPORTS` |
+| `gateway` | TEXT | text | ✓ |  |  |  |  |  |
+| `domain` | TEXT | text | ✓ |  |  |  |  |  |
+| `operation` | TEXT | text | ✓ |  |  |  |  |  |
+| `session_id` | TEXT | fk | ✓ |  |  |  |  |  |
+| `task_id` | TEXT | fk | ✓ |  |  |  |  |  |
+| `request_id` | TEXT | id | ✓ |  |  |  |  |  |
+| `input_chars` | INTEGER | numeric |  |  |  |  | `0` |  |
+| `output_chars` | INTEGER | numeric |  |  |  |  | `0` |  |
+| `input_tokens` | INTEGER | numeric |  |  |  |  | `0` |  |
+| `output_tokens` | INTEGER | numeric |  |  |  |  | `0` |  |
+| `total_tokens` | INTEGER | numeric |  |  |  |  | `0` |  |
+| `method` | TEXT | enum |  |  |  |  | `'heuristic'` | `TOKEN_USAGE_METHODS` |
+| `confidence` | TEXT | enum |  |  |  |  | `'coarse'` | `TOKEN_USAGE_CONFIDENCE` |
+| `request_hash` | TEXT | text | ✓ |  |  |  |  |  |
+| `response_hash` | TEXT | text | ✓ |  |  |  |  |  |
+| `metadata_json` | TEXT | json |  |  |  |  | `'{}'` | ⚠ JSON-in-TEXT — needs write-time validator or json1 read assertion (T11330) |
+
+##### `architecture_decisions` → `tasks_architecture_decisions`
+
+| column | affinity | semantic type | null | PK | UQ | FK | default | enum / non-conformer |
+|---|---|---|:--:|:--:|:--:|:--:|---|---|
+| `id` | TEXT | id |  |  |  |  |  |  |
+| `title` | TEXT | text |  |  |  |  |  |  |
+| `status` | TEXT | enum |  |  |  |  | `'proposed'` | `ADR_STATUSES` |
+| `supersedes_id` | TEXT | fk | ✓ |  |  |  |  |  |
+| `superseded_by_id` | TEXT | fk | ✓ |  |  |  |  |  |
+| `consensus_manifest_id` | TEXT | fk | ✓ |  |  |  |  |  |
+| `content` | TEXT | text |  |  |  |  |  |  |
+| `created_at` | TEXT | timestamp-text |  |  |  |  | `sql`(datetime('now'))`` |  |
+| `updated_at` | TEXT | timestamp-text | ✓ |  |  |  |  |  |
+| `date` | TEXT | text |  |  |  |  | `''` |  |
+| `accepted_at` | TEXT | timestamp-text | ✓ |  |  |  |  |  |
+| `gate` | TEXT | enum | ✓ |  |  |  |  | `['HITL', 'automated']` |
+| `gate_status` | TEXT | enum | ✓ |  |  |  |  | `GATE_STATUSES` |
+| `amends_id` | TEXT | fk | ✓ |  |  |  |  |  |
+| `file_path` | TEXT | text |  |  |  |  | `''` |  |
+| `summary` | TEXT | text | ✓ |  |  |  |  |  |
+| `keywords` | TEXT | text | ✓ |  |  |  |  |  |
+| `topics` | TEXT | text | ✓ |  |  |  |  |  |
+
+##### `adr_task_links` → `tasks_adr_task_links`
+
+| column | affinity | semantic type | null | PK | UQ | FK | default | enum / non-conformer |
+|---|---|---|:--:|:--:|:--:|:--:|---|---|
+| `adr_id` | TEXT | fk |  |  |  |  |  |  |
+| `task_id` | TEXT | fk |  |  |  |  |  |  |
+| `link_type` | TEXT | enum |  |  |  |  | `'related'` | `['related', 'governed_by', 'implements']` |
+
+##### `adr_relations` → `tasks_adr_relations`
+
+| column | affinity | semantic type | null | PK | UQ | FK | default | enum / non-conformer |
+|---|---|---|:--:|:--:|:--:|:--:|---|---|
+| `from_adr_id` | TEXT | fk |  |  |  |  |  |  |
+| `to_adr_id` | TEXT | fk |  |  |  |  |  |  |
+| `relation_type` | TEXT | enum |  |  |  |  |  | `['supersedes', 'amends', 'related']` |
+
+##### `status_registry` → `tasks_status_registry`
+
+| column | affinity | semantic type | null | PK | UQ | FK | default | enum / non-conformer |
+|---|---|---|:--:|:--:|:--:|:--:|---|---|
+| `name` | TEXT | text |  |  |  |  |  |  |
+| `entity_type` | TEXT | enum |  |  |  |  |  | `['task', 'session', 'lifecycle_pipeline', 'lifecycle_stage', 'adr', 'gate', 'manifest']` |
+| `namespace` | TEXT | enum |  |  |  |  |  | `['workflow', 'governance', 'manifest']` |
+| `description` | TEXT | text |  |  |  |  |  |  |
+| `is_terminal` | INTEGER | boolean |  |  |  |  | `false` |  |
+
+#### `packages/core/src/store/schema/background-jobs.ts`
+
+##### `background_jobs` → `tasks_background_jobs`
+
+| column | affinity | semantic type | null | PK | UQ | FK | default | enum / non-conformer |
+|---|---|---|:--:|:--:|:--:|:--:|---|---|
+| `id` | TEXT | id |  |  |  |  |  |  |
+| `operation` | TEXT | text |  |  |  |  |  |  |
+| `status` | TEXT | enum |  |  |  |  | `'pending'` | `BACKGROUND_JOB_STATUSES` |
+| `started_at` | INTEGER | timestamp-epoch |  |  |  |  |  | ⚠ INTEGER epoch timestamp — target canonical form is TEXT ISO8601 + CHECK |
+| `completed_at` | INTEGER | timestamp-epoch | ✓ |  |  |  |  | ⚠ INTEGER epoch timestamp — target canonical form is TEXT ISO8601 + CHECK |
+| `result` | TEXT | text | ✓ |  |  |  |  |  |
+| `error` | TEXT | text | ✓ |  |  |  |  |  |
+| `progress` | INTEGER | numeric | ✓ |  |  |  |  |  |
+| `heartbeat_at` | INTEGER | timestamp-epoch |  |  |  |  |  | ⚠ INTEGER epoch timestamp — target canonical form is TEXT ISO8601 + CHECK |
+| `claimed_by` | TEXT | text | ✓ |  |  |  |  |  |
+
+#### `packages/core/src/store/schema/chain-schema.ts`
 
 ##### `warp_chains` → `tasks_warp_chains`
 
@@ -864,7 +1044,7 @@
 | `created_at` | TEXT | timestamp-text | ✓ |  |  |  | `sql`(datetime('now'))`` |  |
 | `updated_at` | TEXT | timestamp-text | ✓ |  |  |  | `sql`(datetime('now'))`` |  |
 
-#### `packages/core/src/store/conduit-schema.ts`
+#### `packages/core/src/store/schema/conduit-schema.ts`
 
 ##### `conversations` → `conduit_conversations`
 
@@ -1067,164 +1247,6 @@
 | `name` | TEXT | text |  |  |  |  |  |  |
 | `applied_at` | INTEGER | timestamp-epoch |  |  |  |  | `sql`(strftime('%s', 'now'))`` | ⚠ INTEGER epoch timestamp — target canonical form is TEXT ISO8601 + CHECK |
 
-#### `packages/core/src/store/schema/attachments.ts`
-
-##### `attachments` → `docs_attachments`
-
-| column | affinity | semantic type | null | PK | UQ | FK | default | enum / non-conformer |
-|---|---|---|:--:|:--:|:--:|:--:|---|---|
-| `id` | TEXT | id |  |  |  |  |  |  |
-| `sha256` | TEXT | text |  |  |  |  |  |  |
-| `attachment_json` | TEXT | json |  |  |  |  |  | ⚠ JSON-in-TEXT — needs write-time validator or json1 read assertion (T11330) |
-| `created_at` | TEXT | timestamp-text |  |  |  |  |  |  |
-| `ref_count` | INTEGER | numeric |  |  |  |  | `0` |  |
-| `slug` | TEXT | text | ✓ |  |  |  |  |  |
-| `type` | TEXT | text | ✓ |  |  |  |  | ⚠ enum-like TEXT 'type' lacks { enum } / CHECK (col IN (...)) |
-| `lifecycle_status` | TEXT | enum |  |  |  |  | `'draft'` | `ATTACHMENT_LIFECYCLE_STATUSES` |
-| `supersedes` | TEXT | fk | ✓ |  |  |  |  |  |
-| `superseded_by` | TEXT | fk | ✓ |  |  |  |  |  |
-| `summary` | TEXT | text | ✓ |  |  |  |  |  |
-| `keywords` | TEXT | text | ✓ |  |  |  |  |  |
-| `topics` | TEXT | text | ✓ |  |  |  |  |  |
-| `related_tasks` | TEXT | text | ✓ |  |  |  |  |  |
-| `owner_version` | TEXT | text | ✓ |  |  |  |  |  |
-| `doc_version` | INTEGER | numeric |  |  |  |  | `1` |  |
-
-##### `attachment_refs` → `docs_attachment_refs`
-
-| column | affinity | semantic type | null | PK | UQ | FK | default | enum / non-conformer |
-|---|---|---|:--:|:--:|:--:|:--:|---|---|
-| `attachment_id` | TEXT | id |  |  |  |  |  |  |
-| `owner_type` | TEXT | enum |  |  |  |  |  | `ATTACHMENT_OWNER_TYPES` |
-| `owner_id` | TEXT | id |  |  |  |  |  |  |
-| `attached_at` | TEXT | timestamp-text |  |  |  |  |  |  |
-| `attached_by` | TEXT | text | ✓ |  |  |  |  |  |
-
-#### `packages/core/src/store/schema/audit.ts`
-
-##### `schema_meta` → `tasks_schema_meta`
-
-| column | affinity | semantic type | null | PK | UQ | FK | default | enum / non-conformer |
-|---|---|---|:--:|:--:|:--:|:--:|---|---|
-| `key` | TEXT | text |  |  |  |  |  |  |
-| `value` | TEXT | text |  |  |  |  |  |  |
-
-##### `audit_log` → `tasks_audit_log`
-
-| column | affinity | semantic type | null | PK | UQ | FK | default | enum / non-conformer |
-|---|---|---|:--:|:--:|:--:|:--:|---|---|
-| `id` | TEXT | id |  |  |  |  |  |  |
-| `timestamp` | TEXT | text |  |  |  |  | `sql`(datetime('now'))`` |  |
-| `action` | TEXT | text |  |  |  |  |  |  |
-| `task_id` | TEXT | id |  |  |  |  |  |  |
-| `actor` | TEXT | text |  |  |  |  | `'system'` |  |
-| `details_json` | TEXT | json | ✓ |  |  |  | `'{}'` | ⚠ JSON-in-TEXT — needs write-time validator or json1 read assertion (T11330) |
-| `before_json` | TEXT | json | ✓ |  |  |  |  | ⚠ JSON-in-TEXT — needs write-time validator or json1 read assertion (T11330) |
-| `after_json` | TEXT | json | ✓ |  |  |  |  | ⚠ JSON-in-TEXT — needs write-time validator or json1 read assertion (T11330) |
-| `domain` | TEXT | text | ✓ |  |  |  |  |  |
-| `operation` | TEXT | text | ✓ |  |  |  |  |  |
-| `session_id` | TEXT | id | ✓ |  |  |  |  |  |
-| `request_id` | TEXT | id | ✓ |  |  |  |  |  |
-| `idempotency_key` | TEXT | text | ✓ |  |  |  |  |  |
-| `duration_ms` | INTEGER | numeric | ✓ |  |  |  |  |  |
-| `success` | INTEGER | numeric | ✓ |  |  |  |  |  |
-| `source` | TEXT | text | ✓ |  |  |  |  |  |
-| `gateway` | TEXT | text | ✓ |  |  |  |  |  |
-| `error_message` | TEXT | text | ✓ |  |  |  |  |  |
-| `project_hash` | TEXT | text | ✓ |  |  |  |  |  |
-
-##### `token_usage` → `tasks_token_usage`
-
-| column | affinity | semantic type | null | PK | UQ | FK | default | enum / non-conformer |
-|---|---|---|:--:|:--:|:--:|:--:|---|---|
-| `id` | TEXT | id |  |  |  |  |  |  |
-| `created_at` | TEXT | timestamp-text |  |  |  |  | `sql`(datetime('now'))`` |  |
-| `provider` | TEXT | text |  |  |  |  | `'unknown'` |  |
-| `model` | TEXT | text | ✓ |  |  |  |  |  |
-| `transport` | TEXT | enum |  |  |  |  | `'unknown'` | `TOKEN_USAGE_TRANSPORTS` |
-| `gateway` | TEXT | text | ✓ |  |  |  |  |  |
-| `domain` | TEXT | text | ✓ |  |  |  |  |  |
-| `operation` | TEXT | text | ✓ |  |  |  |  |  |
-| `session_id` | TEXT | fk | ✓ |  |  |  |  |  |
-| `task_id` | TEXT | fk | ✓ |  |  |  |  |  |
-| `request_id` | TEXT | id | ✓ |  |  |  |  |  |
-| `input_chars` | INTEGER | numeric |  |  |  |  | `0` |  |
-| `output_chars` | INTEGER | numeric |  |  |  |  | `0` |  |
-| `input_tokens` | INTEGER | numeric |  |  |  |  | `0` |  |
-| `output_tokens` | INTEGER | numeric |  |  |  |  | `0` |  |
-| `total_tokens` | INTEGER | numeric |  |  |  |  | `0` |  |
-| `method` | TEXT | enum |  |  |  |  | `'heuristic'` | `TOKEN_USAGE_METHODS` |
-| `confidence` | TEXT | enum |  |  |  |  | `'coarse'` | `TOKEN_USAGE_CONFIDENCE` |
-| `request_hash` | TEXT | text | ✓ |  |  |  |  |  |
-| `response_hash` | TEXT | text | ✓ |  |  |  |  |  |
-| `metadata_json` | TEXT | json |  |  |  |  | `'{}'` | ⚠ JSON-in-TEXT — needs write-time validator or json1 read assertion (T11330) |
-
-##### `architecture_decisions` → `tasks_architecture_decisions`
-
-| column | affinity | semantic type | null | PK | UQ | FK | default | enum / non-conformer |
-|---|---|---|:--:|:--:|:--:|:--:|---|---|
-| `id` | TEXT | id |  |  |  |  |  |  |
-| `title` | TEXT | text |  |  |  |  |  |  |
-| `status` | TEXT | enum |  |  |  |  | `'proposed'` | `ADR_STATUSES` |
-| `supersedes_id` | TEXT | fk | ✓ |  |  |  |  |  |
-| `superseded_by_id` | TEXT | fk | ✓ |  |  |  |  |  |
-| `consensus_manifest_id` | TEXT | fk | ✓ |  |  |  |  |  |
-| `content` | TEXT | text |  |  |  |  |  |  |
-| `created_at` | TEXT | timestamp-text |  |  |  |  | `sql`(datetime('now'))`` |  |
-| `updated_at` | TEXT | timestamp-text | ✓ |  |  |  |  |  |
-| `date` | TEXT | text |  |  |  |  | `''` |  |
-| `accepted_at` | TEXT | timestamp-text | ✓ |  |  |  |  |  |
-| `gate` | TEXT | enum | ✓ |  |  |  |  | `['HITL', 'automated']` |
-| `gate_status` | TEXT | enum | ✓ |  |  |  |  | `GATE_STATUSES` |
-| `amends_id` | TEXT | fk | ✓ |  |  |  |  |  |
-| `file_path` | TEXT | text |  |  |  |  | `''` |  |
-| `summary` | TEXT | text | ✓ |  |  |  |  |  |
-| `keywords` | TEXT | text | ✓ |  |  |  |  |  |
-| `topics` | TEXT | text | ✓ |  |  |  |  |  |
-
-##### `adr_task_links` → `tasks_adr_task_links`
-
-| column | affinity | semantic type | null | PK | UQ | FK | default | enum / non-conformer |
-|---|---|---|:--:|:--:|:--:|:--:|---|---|
-| `adr_id` | TEXT | fk |  |  |  |  |  |  |
-| `task_id` | TEXT | fk |  |  |  |  |  |  |
-| `link_type` | TEXT | enum |  |  |  |  | `'related'` | `['related', 'governed_by', 'implements']` |
-
-##### `adr_relations` → `tasks_adr_relations`
-
-| column | affinity | semantic type | null | PK | UQ | FK | default | enum / non-conformer |
-|---|---|---|:--:|:--:|:--:|:--:|---|---|
-| `from_adr_id` | TEXT | fk |  |  |  |  |  |  |
-| `to_adr_id` | TEXT | fk |  |  |  |  |  |  |
-| `relation_type` | TEXT | enum |  |  |  |  |  | `['supersedes', 'amends', 'related']` |
-
-##### `status_registry` → `tasks_status_registry`
-
-| column | affinity | semantic type | null | PK | UQ | FK | default | enum / non-conformer |
-|---|---|---|:--:|:--:|:--:|:--:|---|---|
-| `name` | TEXT | text |  |  |  |  |  |  |
-| `entity_type` | TEXT | enum |  |  |  |  |  | `['task', 'session', 'lifecycle_pipeline', 'lifecycle_stage', 'adr', 'gate', 'manifest']` |
-| `namespace` | TEXT | enum |  |  |  |  |  | `['workflow', 'governance', 'manifest']` |
-| `description` | TEXT | text |  |  |  |  |  |  |
-| `is_terminal` | INTEGER | boolean |  |  |  |  | `false` |  |
-
-#### `packages/core/src/store/schema/background-jobs.ts`
-
-##### `background_jobs` → `tasks_background_jobs`
-
-| column | affinity | semantic type | null | PK | UQ | FK | default | enum / non-conformer |
-|---|---|---|:--:|:--:|:--:|:--:|---|---|
-| `id` | TEXT | id |  |  |  |  |  |  |
-| `operation` | TEXT | text |  |  |  |  |  |  |
-| `status` | TEXT | enum |  |  |  |  | `'pending'` | `BACKGROUND_JOB_STATUSES` |
-| `started_at` | INTEGER | timestamp-epoch |  |  |  |  |  | ⚠ INTEGER epoch timestamp — target canonical form is TEXT ISO8601 + CHECK |
-| `completed_at` | INTEGER | timestamp-epoch | ✓ |  |  |  |  | ⚠ INTEGER epoch timestamp — target canonical form is TEXT ISO8601 + CHECK |
-| `result` | TEXT | text | ✓ |  |  |  |  |  |
-| `error` | TEXT | text | ✓ |  |  |  |  |  |
-| `progress` | INTEGER | numeric | ✓ |  |  |  |  |  |
-| `heartbeat_at` | INTEGER | timestamp-epoch |  |  |  |  |  | ⚠ INTEGER epoch timestamp — target canonical form is TEXT ISO8601 + CHECK |
-| `claimed_by` | TEXT | text | ✓ |  |  |  |  |  |
-
 #### `packages/core/src/store/schema/evidence-bindings.ts`
 
 ##### `evidence_ac_bindings` → `tasks_evidence_ac_bindings`
@@ -1366,6 +1388,40 @@
 | `metadata_json` | TEXT | json | ✓ |  |  |  |  | ⚠ JSON-in-TEXT — needs write-time validator or json1 read assertion (T11330) |
 | `created_at` | TEXT | timestamp-text |  |  |  |  |  |  |
 | `archived_at` | TEXT | timestamp-text | ✓ |  |  |  |  |  |
+
+#### `packages/core/src/store/schema/playbooks.ts`
+
+##### `playbook_runs` → `tasks_playbook_runs`
+
+| column | affinity | semantic type | null | PK | UQ | FK | default | enum / non-conformer |
+|---|---|---|:--:|:--:|:--:|:--:|---|---|
+| `run_id` | TEXT | id |  |  |  |  |  |  |
+| `playbook_name` | TEXT | text |  |  |  |  |  |  |
+| `playbook_hash` | TEXT | text |  |  |  |  |  |  |
+| `current_node` | TEXT | text | ✓ |  |  |  |  |  |
+| `bindings` | TEXT | json |  |  |  |  | `'{}'` | ⚠ JSON-in-TEXT — needs write-time validator or json1 read assertion (T11330) |
+| `error_context` | TEXT | text | ✓ |  |  |  |  |  |
+| `status` | TEXT | text |  |  |  |  | `'running'` | ⚠ enum-like TEXT 'status' lacks { enum } / CHECK (col IN (...)) |
+| `iteration_counts` | TEXT | json |  |  |  |  | `'{}'` | ⚠ JSON-in-TEXT — needs write-time validator or json1 read assertion (T11330) |
+| `epic_id` | TEXT | id | ✓ |  |  |  |  |  |
+| `session_id` | TEXT | id | ✓ |  |  |  |  |  |
+| `started_at` | TEXT | timestamp-text |  |  |  |  | `"(datetime('now'))"` |  |
+| `completed_at` | TEXT | timestamp-text | ✓ |  |  |  |  |  |
+
+##### `playbook_approvals` → `tasks_playbook_approvals`
+
+| column | affinity | semantic type | null | PK | UQ | FK | default | enum / non-conformer |
+|---|---|---|:--:|:--:|:--:|:--:|---|---|
+| `approval_id` | TEXT | id |  |  |  |  |  |  |
+| `run_id` | TEXT | id |  |  |  |  |  |  |
+| `node_id` | TEXT | id |  |  |  |  |  |  |
+| `token` | TEXT | text |  |  |  |  |  |  |
+| `requested_at` | TEXT | timestamp-text |  |  |  |  | `"(datetime('now'))"` |  |
+| `approved_at` | TEXT | timestamp-text | ✓ |  |  |  |  |  |
+| `approver` | TEXT | text | ✓ |  |  |  |  |  |
+| `reason` | TEXT | text | ✓ |  |  |  |  |  |
+| `status` | TEXT | text |  |  |  |  | `'pending'` | ⚠ enum-like TEXT 'status' lacks { enum } / CHECK (col IN (...)) |
+| `auto_passed` | INTEGER | boolean-untyped |  |  |  |  | `0` | ⚠ INTEGER boolean flag lacks { mode: "boolean" } + CHECK (col IN (0,1)) |
 
 #### `packages/core/src/store/schema/provenance/commits.ts`
 
@@ -1650,6 +1706,13 @@
 | `task_id` | TEXT | fk |  |  |  |  |  |  |
 | `depends_on` | TEXT | fk |  |  |  |  |  |  |
 
+##### `task_labels` → `tasks_task_labels`
+
+| column | affinity | semantic type | null | PK | UQ | FK | default | enum / non-conformer |
+|---|---|---|:--:|:--:|:--:|:--:|---|---|
+| `task_id` | TEXT | fk |  |  |  |  |  |  |
+| `label` | TEXT | text |  |  |  |  |  |  |
+
 ##### `task_relations` → `tasks_task_relations`
 
 | column | affinity | semantic type | null | PK | UQ | FK | default | enum / non-conformer |
@@ -1737,7 +1800,7 @@
 | `linked_at` | TEXT | timestamp-text |  |  |  |  | `sql`(datetime('now'))`` |  |
 | `last_sync_at` | TEXT | timestamp-text | ✓ |  |  |  |  |  |
 
-#### `packages/core/src/telemetry/schema.ts`
+#### `packages/core/src/store/schema/telemetry-schema.ts`
 
 ##### `telemetry_events` → `telemetry_events`
 
@@ -1760,38 +1823,4 @@
 |---|---|---|:--:|:--:|:--:|:--:|---|---|
 | `key` | TEXT | text |  |  |  |  |  |  |
 | `value` | TEXT | text |  |  |  |  |  |  |
-
-#### `packages/playbooks/src/schema.ts`
-
-##### `playbook_runs` → `tasks_playbook_runs`
-
-| column | affinity | semantic type | null | PK | UQ | FK | default | enum / non-conformer |
-|---|---|---|:--:|:--:|:--:|:--:|---|---|
-| `run_id` | TEXT | id |  |  |  |  |  |  |
-| `playbook_name` | TEXT | text |  |  |  |  |  |  |
-| `playbook_hash` | TEXT | text |  |  |  |  |  |  |
-| `current_node` | TEXT | text | ✓ |  |  |  |  |  |
-| `bindings` | TEXT | json |  |  |  |  | `'{}'` | ⚠ JSON-in-TEXT — needs write-time validator or json1 read assertion (T11330) |
-| `error_context` | TEXT | text | ✓ |  |  |  |  |  |
-| `status` | TEXT | text |  |  |  |  | `'running'` | ⚠ enum-like TEXT 'status' lacks { enum } / CHECK (col IN (...)) |
-| `iteration_counts` | TEXT | json |  |  |  |  | `'{}'` | ⚠ JSON-in-TEXT — needs write-time validator or json1 read assertion (T11330) |
-| `epic_id` | TEXT | id | ✓ |  |  |  |  |  |
-| `session_id` | TEXT | id | ✓ |  |  |  |  |  |
-| `started_at` | TEXT | timestamp-text |  |  |  |  | `"(datetime('now'))"` |  |
-| `completed_at` | TEXT | timestamp-text | ✓ |  |  |  |  |  |
-
-##### `playbook_approvals` → `tasks_playbook_approvals`
-
-| column | affinity | semantic type | null | PK | UQ | FK | default | enum / non-conformer |
-|---|---|---|:--:|:--:|:--:|:--:|---|---|
-| `approval_id` | TEXT | id |  |  |  |  |  |  |
-| `run_id` | TEXT | id |  |  |  |  |  |  |
-| `node_id` | TEXT | id |  |  |  |  |  |  |
-| `token` | TEXT | text |  |  |  |  |  |  |
-| `requested_at` | TEXT | timestamp-text |  |  |  |  | `"(datetime('now'))"` |  |
-| `approved_at` | TEXT | timestamp-text | ✓ |  |  |  |  |  |
-| `approver` | TEXT | text | ✓ |  |  |  |  |  |
-| `reason` | TEXT | text | ✓ |  |  |  |  |  |
-| `status` | TEXT | text |  |  |  |  | `'pending'` | ⚠ enum-like TEXT 'status' lacks { enum } / CHECK (col IN (...)) |
-| `auto_passed` | INTEGER | boolean-untyped |  |  |  |  | `0` | ⚠ INTEGER boolean flag lacks { mode: "boolean" } + CHECK (col IN (0,1)) |
 
