@@ -770,8 +770,8 @@ const _pipelineTypedHandler = defineTypedHandler<PipelineOps>('pipeline', {
 //
 // These helpers extract the fat post-dispatch transformation blocks from
 // PipelineHandler.query so each branch in the query method is ≤5 LOC.
-// SSoT-EXEMPT: pagination + page-envelope lifting are dispatch-layer concerns.
-// LAFSPage is now imported from @cleocode/contracts (canonical re-export, T11423).
+// SSoT-EXEMPT: pagination + page-envelope lifting are dispatch-layer concerns (T11423).
+// LAFSPage is now imported from @cleocode/contracts (canonical re-export).
 // ---------------------------------------------------------------------------
 
 /** Apply phase.list pagination to a typed-dispatch envelope. */

@@ -475,14 +475,18 @@ jobs:
     # Pure static analysis of checked-in fixture files — no untrusted input.
     name: LAFS Envelope Conformance Gate (T11422)
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 3
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24.16.0'
-      - name: Install AJV and ajv-formats (validator dependencies)
-        run: npm install --no-save ajv ajv-formats
+      - name: Install validator dependencies (ajv + ajv-formats)
+        # Install only the two validation packages needed by the gate script.
+        # We install into packages/lafs/ (which already lists ajv as a dep) so
+        # the pnpm workspace protocol is satisfied without a full monorepo install.
+        run: pnpm --filter @cleocode/lafs install --prefer-offline
       - name: Validate CLEO CLI envelope fixtures against envelope.schema.json
         run: node scripts/lint-lafs-envelope-conformance.mjs --verbose
 

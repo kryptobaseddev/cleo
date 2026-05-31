@@ -46,7 +46,10 @@ function log(msg) {
 }
 
 // ─── Load schema via require (CommonJS-compatible, no top-level await needed) ─
-const require = createRequire(import.meta.url);
+// We resolve ajv/ajv-formats from packages/lafs/ (they are lafs dependencies)
+// to avoid the workspace:* protocol issue when running npm install at the repo root.
+const LAFS_PKG = resolve(REPO, 'packages/lafs');
+const require = createRequire(`${LAFS_PKG}/`);
 
 if (!existsSync(SCHEMA_PATH)) {
   fail(`Schema not found: ${SCHEMA_PATH}`);
@@ -54,7 +57,7 @@ if (!existsSync(SCHEMA_PATH)) {
 
 const envelopeSchema = require(SCHEMA_PATH);
 
-// ─── Load AJV (same approach as packages/lafs/src/validateEnvelope.ts) ──────
+// ─── Load AJV (from packages/lafs/node_modules — lafs lists ajv as a dependency) ─
 const AjvModule = require('ajv');
 const AddFormatsModule = require('ajv-formats');
 
