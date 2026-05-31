@@ -12,6 +12,9 @@
  *   - Transactional rate-limit check (BEGIN IMMEDIATE + COUNT + INSERT)
  *   - Kill-switch re-check at each checkpoint (Round 2 audit §9)
  *   - tier2Enabled guard (default false — owner opt-in)
+ *   - Auto-promotion scan: proposals exceeding weight threshold that pass
+ *     the classifyReadiness grill gate transition proposed→pending automatically
+ *     (E7-CLOSE-LOOPS T11499 AC1)
  *
  * Scoped OUT:
  *   - LLM calls (NONE — all proposal titles are structured templates)
@@ -23,11 +26,13 @@
  *   LLM text can enter the task title column from the Tier-2 proposer.
  *
  * @task T1008
+ * @task T11499 E7-CLOSE-LOOPS — Tier-2 auto-promotion + cleo classify
  * @see ADR-054 — Sentient Loop Tier-2
  */
 
-import type { ProposalCandidate } from '@cleocode/contracts';
+import type { ProposalCandidate, Task } from '@cleocode/contracts';
 import { pushWarning } from '@cleocode/lafs';
+import { classifyReadiness } from '../orchestration/classify-readiness.js';
 import { runBrainIngester } from './ingesters/brain-ingester.js';
 import { runNexusIngester } from './ingesters/nexus-ingester.js';
 import { runTestIngester } from './ingesters/test-ingester.js';
@@ -54,6 +59,29 @@ export const PROPOSAL_TITLE_PATTERN = /^\[T2-(BRAIN|NEXUS|TEST)\]/;
  * Used by the rate limiter to identify proposals.
  */
 export const TIER2_LABEL = 'sentient-tier2';
+
+/**
+ * Minimum proposal weight required for auto-promotion consideration.
+ *
+ * Proposals below this threshold remain in `proposed` status and require
+ * manual `cleo sentient propose accept` to enter the Tier-1 run queue.
+ *
+ * The value 0.7 corresponds to the 70th-percentile weight signal (combined
+ * brain citation density + nexus coupling score) surfaced by the ingesters.
+ *
+ * @task T11499 E7-CLOSE-LOOPS
+ */
+export const TIER2_AUTO_PROMOTE_WEIGHT_THRESHOLD = 0.7 as const;
+
+/**
+ * Maximum number of proposals auto-promoted in a single scan pass.
+ *
+ * Guards against bulk promotions flooding the Tier-1 run queue when a
+ * BRAIN reconciler sweep suddenly raises many candidates above the threshold.
+ *
+ * @task T11499 E7-CLOSE-LOOPS
+ */
+export const TIER2_AUTO_PROMOTE_MAX_PER_PASS = 5 as const;
 
 // ---------------------------------------------------------------------------
 // Outcome types
@@ -564,4 +592,339 @@ export async function safeRunProposeTick(options: ProposeTickOptions): Promise<P
       detail: `propose tick threw: ${message}`,
     };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Tier-2 Auto-Promotion Scan (E7-CLOSE-LOOPS · T11499 AC1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Outcome of a single auto-promotion scan pass.
+ *
+ * @task T11499 E7-CLOSE-LOOPS
+ */
+export interface AutoPromoteOutcome {
+  /** Number of proposals promoted to `pending` in this pass. */
+  promoted: number;
+  /** Number of proposals inspected (above weight threshold). */
+  scanned: number;
+  /** Number of proposals grilled (blocked by classifyReadiness). */
+  grilled: number;
+  /** Human-readable summary. */
+  detail: string;
+}
+
+/**
+ * Options for {@link runProposalAutoPromoteScan}.
+ *
+ * @task T11499 E7-CLOSE-LOOPS
+ */
+export interface AutoPromoteScanOptions {
+  /** Absolute path to the project root (contains `.cleo/`). */
+  projectRoot: string;
+  /** Absolute path to sentient-state.json. */
+  statePath: string;
+  /**
+   * Override for the tasks DB handle (used by SELECT + UPDATE).
+   * When omitted, the real `getNativeTasksDb()` is used.
+   */
+  tasksDb?: import('node:sqlite').DatabaseSync | null;
+  /**
+   * Weight threshold for auto-promotion candidacy.
+   * Proposals whose stored `weight` is below this value are skipped.
+   * Defaults to {@link TIER2_AUTO_PROMOTE_WEIGHT_THRESHOLD} (0.7).
+   */
+  weightThreshold?: number;
+  /**
+   * Maximum proposals to promote per pass.
+   * Defaults to {@link TIER2_AUTO_PROMOTE_MAX_PER_PASS} (5).
+   */
+  maxPerPass?: number;
+}
+
+/**
+ * Scan all `proposed` Tier-2 tasks and auto-promote those that:
+ *  1. Have a proposal weight ≥ `weightThreshold` (default 0.7), AND
+ *  2. Pass the {@link classifyReadiness} grill gate — i.e. verdict `'proceed'`.
+ *
+ * Promotes eligible tasks from `proposed` → `pending` so they enter the
+ * Tier-1 run queue without requiring manual `cleo sentient propose accept`.
+ * This closes the BRAIN learning loop (E7-CLOSE-LOOPS T11499 AC1).
+ *
+ * **Grill gate semantics**: `classifyReadiness` checks five triggers
+ * (MISSING_AC, OWNER_DECISION_REQUIRED, IVTR_MAX_RETRIES, RELEASE_GATE,
+ * AMBIGUOUS_SCOPE). A proposal that fires any trigger is left in `proposed`
+ * status and counted in the `grilled` field so callers can surface it.
+ *
+ * **Kill-switch respected**: if the sentient kill-switch is active no
+ * promotions are attempted and the function returns immediately.
+ *
+ * **Pure DB path**: no ingesters are invoked. The scan reads existing
+ * `proposed` tasks directly from `tasks.db` via the junction query.
+ *
+ * @param options - Scan options (see {@link AutoPromoteScanOptions}).
+ * @returns Structured outcome describing how many proposals were promoted.
+ *
+ * @task T11499 E7-CLOSE-LOOPS AC1
+ */
+export async function runProposalAutoPromoteScan(
+  options: AutoPromoteScanOptions,
+): Promise<AutoPromoteOutcome> {
+  const {
+    projectRoot,
+    statePath,
+    weightThreshold = TIER2_AUTO_PROMOTE_WEIGHT_THRESHOLD,
+    maxPerPass = TIER2_AUTO_PROMOTE_MAX_PER_PASS,
+  } = options;
+
+  // Kill-switch guard — do nothing if the daemon is halted.
+  const state = await readSentientState(statePath);
+  if (state.killSwitch) {
+    return {
+      promoted: 0,
+      scanned: 0,
+      grilled: 0,
+      detail: 'auto-promote scan skipped: killSwitch active',
+    };
+  }
+
+  // Resolve tasks DB.
+  let tasksNativeDb: import('node:sqlite').DatabaseSync | null;
+  if (options.tasksDb !== undefined) {
+    tasksNativeDb = options.tasksDb;
+  } else {
+    const { getNativeDb, getDb } = await import('@cleocode/core/internal');
+    await getDb(projectRoot);
+    tasksNativeDb = getNativeDb();
+  }
+
+  if (!tasksNativeDb) {
+    return {
+      promoted: 0,
+      scanned: 0,
+      grilled: 0,
+      detail: 'auto-promote scan skipped: tasks DB not available',
+    };
+  }
+
+  // Query all `proposed` Tier-2 tasks via junction (index-backed).
+  // We fetch the full row so we can build a Task object for classifyReadiness.
+  const proposedRows = tasksNativeDb
+    .prepare(
+      `SELECT t.id, t.title, t.description, t.status, t.priority,
+              t.labels_json, t.notes_json, t.created_at, t.updated_at,
+              t.acceptance_json, t.type, t.kind, t.scope, t.phase,
+              t.pipeline_stage, t.blocked_by
+       FROM tasks t
+       INNER JOIN task_labels tl ON tl.task_id = t.id AND tl.label = ?
+       WHERE t.status = 'proposed'
+       ORDER BY t.created_at ASC`,
+    )
+    .all(TIER2_LABEL) as Array<Record<string, unknown>>;
+
+  if (proposedRows.length === 0) {
+    return {
+      promoted: 0,
+      scanned: 0,
+      grilled: 0,
+      detail: 'no proposed Tier-2 tasks found',
+    };
+  }
+
+  // Filter to candidates above the weight threshold.
+  const candidates: Array<{ row: Record<string, unknown>; weight: number }> = [];
+  for (const row of proposedRows) {
+    const weight = extractProposalWeight(row.notes_json as string | null);
+    if (weight >= weightThreshold) {
+      candidates.push({ row, weight });
+    }
+  }
+
+  if (candidates.length === 0) {
+    return {
+      promoted: 0,
+      scanned: 0,
+      grilled: 0,
+      detail: `no proposed tasks exceed weight threshold ${weightThreshold}`,
+    };
+  }
+
+  // Sort by weight descending — promote highest-signal proposals first.
+  candidates.sort((a, b) => b.weight - a.weight);
+
+  let promoted = 0;
+  let grilled = 0;
+  const scanned = candidates.length;
+  const toConsider = candidates.slice(0, maxPerPass);
+
+  const now = new Date().toISOString();
+  const updateStmt = tasksNativeDb.prepare(
+    `UPDATE tasks SET status = 'pending', updated_at = ? WHERE id = ? AND status = 'proposed'`,
+  );
+
+  for (const { row } of toConsider) {
+    const taskId = row.id as string;
+
+    // Build a minimal Task object for classifyReadiness.
+    const task: Task = buildTaskFromRow(row);
+
+    // Grill gate: classifyReadiness determines if the task can proceed autonomously.
+    const readiness = classifyReadiness(task);
+    if (readiness.verdict === 'grill') {
+      grilled++;
+      continue;
+    }
+
+    // Promote: proposed → pending.
+    try {
+      const result = updateStmt.run(now, taskId);
+      if ((result as { changes: number }).changes > 0) {
+        promoted++;
+      }
+    } catch {
+      // Non-fatal — log via warning and continue to next candidate.
+      pushWarning({
+        code: 'W_PROPOSE_AUDIT_FAILED',
+        severity: 'warn',
+        message: `[sentient/propose-tick] auto-promote UPDATE failed for ${taskId}`,
+        context: { phase: 'auto-promote', taskId },
+      });
+    }
+  }
+
+  // Persist stat increment.
+  if (promoted > 0) {
+    const latestState = await readSentientState(statePath);
+    await patchSentientState(statePath, {
+      tier2Stats: {
+        ...latestState.tier2Stats,
+        proposalsAccepted: latestState.tier2Stats.proposalsAccepted + promoted,
+      },
+    });
+  }
+
+  return {
+    promoted,
+    scanned,
+    grilled,
+    detail:
+      `auto-promote scan: scanned ${scanned} candidate(s) above weight ${weightThreshold}, ` +
+      `promoted ${promoted}, grilled ${grilled}`,
+  };
+}
+
+/**
+ * Safe wrapper for {@link runProposalAutoPromoteScan} — swallows unexpected exceptions.
+ *
+ * @param options - Scan options
+ * @returns Structured outcome, or an error-annotated outcome if the scan threw.
+ * @task T11499 E7-CLOSE-LOOPS AC1
+ */
+export async function safeRunProposalAutoPromoteScan(
+  options: AutoPromoteScanOptions,
+): Promise<AutoPromoteOutcome> {
+  try {
+    return await runProposalAutoPromoteScan(options);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      promoted: 0,
+      scanned: 0,
+      grilled: 0,
+      detail: `auto-promote scan threw: ${message}`,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers for auto-promotion scan
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract the `weight` field from a proposal's `notes_json` column.
+ *
+ * The proposal-meta envelope is stored as `JSON.stringify([JSON.stringify({kind:'proposal-meta',...})])`.
+ * Returns 0 when absent or unparseable so callers can use simple comparison.
+ */
+function extractProposalWeight(notesJson: string | null | undefined): number {
+  if (!notesJson) return 0;
+  try {
+    const outer = JSON.parse(notesJson);
+    if (!Array.isArray(outer) || outer.length === 0) return 0;
+    const first = outer[0];
+    if (typeof first !== 'string') return 0;
+    const meta = JSON.parse(first);
+    if (meta.kind === 'proposal-meta' && typeof meta.weight === 'number') {
+      return meta.weight;
+    }
+    return 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Build a minimal {@link Task} object from a raw SQLite row so that
+ * {@link classifyReadiness} can evaluate it without opening any extra DB.
+ *
+ * Only the fields inspected by `classifyReadiness` are populated; others
+ * remain at their zero values. The `id` and `title` are always present (NOT
+ * NULL columns in the schema).
+ */
+function buildTaskFromRow(row: Record<string, unknown>): Task {
+  // Parse acceptance criteria from acceptance_json (array of strings).
+  let acceptance: string[] = [];
+  try {
+    const raw = row.acceptance_json as string | null;
+    if (raw) {
+      const parsed: unknown = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        acceptance = parsed.filter((x): x is string => typeof x === 'string');
+      }
+    }
+  } catch {
+    // leave empty
+  }
+
+  // Parse labels from labels_json.
+  let labels: string[] = [];
+  try {
+    const raw = row.labels_json as string | null;
+    if (raw) {
+      const parsed: unknown = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        labels = parsed.filter((x): x is string => typeof x === 'string');
+      }
+    }
+  } catch {
+    // leave empty
+  }
+
+  const task: Task = {
+    id: (row.id as string) ?? '',
+    title: (row.title as string) ?? '',
+    description: (row.description as string) ?? '',
+    status: 'proposed',
+    priority: ((row.priority as string) ?? 'medium') as Task['priority'],
+    type: ((row.type as string) ?? 'task') as Task['type'],
+    kind: ((row.kind as string) ?? 'work') as Task['kind'],
+    labels,
+    acceptance,
+    createdAt: (row.created_at as string) ?? new Date().toISOString(),
+  };
+
+  // Conditionally assign optional fields only when present.
+  const pipelineStage = row.pipeline_stage as string | undefined | null;
+  if (pipelineStage) task.pipelineStage = pipelineStage;
+
+  const blockedBy = row.blocked_by as string | undefined | null;
+  if (blockedBy) task.blockedBy = blockedBy;
+
+  const phase = row.phase as string | undefined | null;
+  if (phase) task.phase = phase;
+
+  const scope = row.scope as string | undefined | null;
+  if (scope) task.scope = scope as Task['scope'];
+
+  return task;
 }

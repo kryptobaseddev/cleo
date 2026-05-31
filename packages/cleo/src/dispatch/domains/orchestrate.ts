@@ -101,6 +101,12 @@ interface OrchestrateAnalyzeParams {
 interface OrchestrateClassifyParams {
   request: string;
   context?: string;
+  /**
+   * Optional task ID. When provided, `classifyTask` from `@cleocode/core` is
+   * used to route against the agent persona registry instead of the keyword
+   * scan over `.cant` team definitions (T11499 AC2 — close the hardened path).
+   */
+  taskId?: string;
 }
 
 interface OrchestrateFanoutStatusParams {
@@ -339,7 +345,7 @@ async function orchestrateAnalyzeOp(params: OrchestrateAnalyzeParams) {
 }
 
 async function orchestrateClassifyOp(params: OrchestrateClassifyParams) {
-  return orchestrateClassify(params.request, params.context, getProjectRoot());
+  return orchestrateClassify(params.request, params.context, getProjectRoot(), params.taskId);
 }
 
 function orchestrateFanoutStatusOp(params: OrchestrateFanoutStatusParams) {
@@ -1268,17 +1274,100 @@ export class OrchestrateHandler implements DomainHandler {
 // ---------------------------------------------------------------------------
 
 /**
- * T408 — Classify a request against the CANT team registry.
+ * T408 / T11499 — Classify a request against the CANT team registry.
+ *
+ * When `taskId` is provided the function resolves the full task record and
+ * delegates to `classifyTask` (the real persona-registry classifier) so that
+ * autopilot routing uses real confidence scores instead of the legacy 0.5/0.1
+ * stub (T11499 AC2 — close-loops).
+ *
+ * When `taskId` is absent the function falls back to the keyword scan over
+ * `.cant` team definitions (the original W7a behaviour).
  *
  * @param request - The request text to classify.
  * @param context - Optional additional context.
  * @param projectRoot - Project root directory.
+ * @param taskId - Optional task ID for persona-registry routing (T11499 AC2).
  */
 async function orchestrateClassify(
   request: string,
   context: string | undefined,
   projectRoot: string,
+  taskId?: string,
 ): Promise<{ success: boolean; data?: ClassifyResult; error?: { code: string; message: string } }> {
+  // ── Task-ID path: delegate to classifyTask (T11499 AC2) ──────────────────
+  if (taskId) {
+    try {
+      const { getDb } = await import('@cleocode/core/internal');
+      const { tasks } = await import('@cleocode/core/store/tasks-schema');
+      const { eq } = await import('drizzle-orm');
+      const { classifyTask } = await import('@cleocode/core');
+
+      const db = await getDb(projectRoot);
+      const row = await db.select().from(tasks).where(eq(tasks.id, taskId)).get();
+      if (!row) {
+        return {
+          success: false,
+          error: {
+            code: 'E_NOT_FOUND',
+            message: `Task ${taskId} not found`,
+          },
+        };
+      }
+
+      // Convert Drizzle row to Task shape (minimal — classifyTask only reads
+      // title, description, labels, type, kind, size).
+      const task = {
+        id: row.id,
+        title: row.title,
+        description: row.description ?? '',
+        status: row.status,
+        priority: row.priority ?? 'medium',
+        type: row.type ?? undefined,
+        kind: row.kind ?? undefined,
+        size: row.size ?? undefined,
+        labels: (() => {
+          try {
+            const parsed: unknown = JSON.parse(row.labelsJson ?? '[]');
+            return Array.isArray(parsed) ? (parsed as string[]) : [];
+          } catch {
+            return [];
+          }
+        })(),
+        createdAt: row.createdAt,
+      };
+
+      const result = classifyTask(task);
+
+      return {
+        success: true,
+        data: {
+          team: result.agentId,
+          lead: result.role === 'lead' ? result.agentId : null,
+          protocol: result.role,
+          stage: null,
+          confidence: result.confidence,
+          reasoning: result.warning
+            ? `${result.reason} | warning: ${result.warning}`
+            : result.reason,
+        },
+      };
+    } catch (error) {
+      getLogger('domain:orchestrate').error(
+        { operation: 'classify', taskId, err: error },
+        error instanceof Error ? error.message : String(error),
+      );
+      return {
+        success: false,
+        error: {
+          code: 'E_CLASSIFY_FAILED',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
+  }
+
+  // ── CANT team-registry path (original W7a keyword scan) ──────────────────
   try {
     const { getCleoCantWorkflowsDir } = await import('@cleocode/core/internal');
     const { readFileSync, readdirSync, existsSync } = await import('node:fs');
@@ -1350,6 +1439,13 @@ async function orchestrateClassify(
 
     matches.sort((a, b) => b.score - a.score);
     const best = matches[0]!;
+    // Derive real confidence from keyword match density (replaces stub 0.5/0.1).
+    // Score = matched-word-count; normalise against total hint words (floor 0.1).
+    const allHintWords = best.consultWhen.toLowerCase().split(/\s+/).filter(Boolean);
+    const normalised =
+      allHintWords.length > 0 ? Math.min(best.score / allHintWords.length, 1.0) : 0;
+    const confidence = best.score > 0 ? Math.max(normalised, 0.5) : 0.1;
+
     return {
       success: true,
       data: {
@@ -1357,7 +1453,7 @@ async function orchestrateClassify(
         lead: null,
         protocol: 'base-subagent',
         stage: best.stages[0] ?? null,
-        confidence: best.score > 0 ? 0.5 : 0.1,
+        confidence,
         reasoning:
           best.score > 0
             ? `Matched team '${best.team}' via consult-when hint: "${best.consultWhen}"`
