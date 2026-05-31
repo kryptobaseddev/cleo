@@ -60,12 +60,42 @@ describe('renderOutputMode — id', () => {
 });
 
 describe('renderOutputMode — count', () => {
+  // (T10599) When a listing carries no distinct `filtered` field, `total` wins
+  // over the returned-rows length. This preserves the documented pagination
+  // contract: a page of 2 returned rows out of a 17-match read reports 17.
   it('honours explicit `total` over array length', () => {
     const out = renderOutputMode('count', {
       tasks: [{ id: 'T1' }, { id: 'T2' }],
       total: 17,
     });
     expect(out.text).toBe('17');
+  });
+
+  // (T11481 · DHQ-034) Filtered-vs-total semantic. A `tasks.list` envelope is
+  // `{tasks, total, filtered}` where `total` is the GLOBAL project task count
+  // and `filtered` is the filter-aware match count. `--output count` on a
+  // filtered listing (`list --parent X`, `list --status Y`) MUST report the
+  // FILTERED match count — not the global total.
+  it('(T11481) prefers `filtered` over the global `total` for a filtered listing', () => {
+    const out = renderOutputMode('count', {
+      tasks: [{ id: 'T1' }, { id: 'T2' }],
+      total: 2554, // global project task count
+      filtered: 19, // filter-aware match count
+    });
+    expect(out.text).toBe('19');
+  });
+
+  // (T11481 · DHQ-034) Pagination must NOT be confused with the match count.
+  // A Saga `bindingSource:'saga.groups'` page can bind `tasks.length=10` while
+  // `filtered=19`; count mode reports the match count (19), not the page size.
+  it('(T11481) prefers `filtered` over the returned-rows length under pagination', () => {
+    const out = renderOutputMode('count', {
+      tasks: Array.from({ length: 10 }, (_, i) => ({ id: `T${i}` })),
+      total: 2554,
+      filtered: 19,
+      bindingSource: 'saga.groups',
+    });
+    expect(out.text).toBe('19');
   });
 
   it('(T10599 AC1) honours minimal mutate `count` for dry-run add-batch output', () => {
