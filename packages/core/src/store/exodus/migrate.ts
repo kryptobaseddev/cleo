@@ -27,6 +27,24 @@
  * attached, and every subsequent table for the same source threw
  * "database _exodus_src_ is already in use", causing ~80 % data loss.
  *
+ * ## Name-mapping (ROOT CAUSE 1 fix — T11532)
+ *
+ * Legacy source DBs use UNPREFIXED table names (`tasks`, `messages`, `skills`,
+ * …) while the consolidated `cleo.db` uses DOMAIN-PREFIXED names
+ * (`tasks_tasks`, `conduit_messages`, `skills_skills`, …). The
+ * `resolveConsolidatedTableName()` function from `table-name-map.ts` performs
+ * the deterministic legacy→consolidated mapping before every copy. Tables with
+ * no consolidated home emit an explicit WARN journal entry rather than being
+ * silently discarded.
+ *
+ * ## Column-drift tolerance (ROOT CAUSE 2 fix — T11532)
+ *
+ * When the source and target schemas differ (consolidated schema added/changed
+ * columns vs legacy), the copy uses the INTERSECTION of source and target
+ * column names. New target-only columns take their schema defaults; old
+ * source-only columns are dropped. This is implemented by introspecting both
+ * schemas via `PRAGMA table_info` and building an explicit column list.
+ *
  * ## Advisory file lock (AC4)
  *
  * The source DB files are opened read-only via `openCleoDbSnapshot` which
@@ -38,6 +56,7 @@
  *
  * @task T11248 (E5 · SG-DB-SUBSTRATE-V2)
  * @task T11531 (P0 attach-leak fix)
+ * @task T11532 (P0 name-mapping + column-drift + verify-rowid fix)
  * @saga T11242
  */
 
@@ -56,6 +75,7 @@ import { getLogger } from '../../logger.js';
 import { getCleoVersion } from '../../scaffold/ensure-config.js';
 import { openDualScopeDb } from '../dual-scope-db.js';
 import { openCleoDbSnapshot } from '../open-cleo-db.js';
+import { resolveConsolidatedTableName } from './table-name-map.js';
 import type {
   ExodusJournal,
   ExodusMigrateResult,
@@ -195,63 +215,132 @@ function makeAttachAlias(name: string, index: number): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Copy all rows from `tableName` in the already-attached source alias into the
- * target DB (which must have an active transaction).
+ * Result of `copyTableFromAttached` — extends the row count with skip metadata.
+ */
+interface CopyTableResult {
+  /** Number of rows inserted into the target (0 if skipped or empty). */
+  readonly rowsCopied: number;
+  /** True if the table was intentionally skipped (no consolidated target, etc.). */
+  readonly skipped: boolean;
+  /** Human-readable skip reason when `skipped === true`. */
+  readonly reason?: string;
+}
+
+/**
+ * Copy all rows from a legacy source table (in the already-attached alias) into
+ * the corresponding consolidated target table.
+ *
+ * ## What changed in T11532 vs the T11531 version:
+ *
+ * 1. **Name mapping (ROOT CAUSE 1)**: `legacyTableName` is resolved to its
+ *    consolidated name via `resolveConsolidatedTableName()`. Without this,
+ *    `tasks` (legacy) was looked up as `main."tasks"` which doesn't exist in
+ *    the consolidated schema (the real target is `tasks_tasks`).
+ *
+ * 2. **Column-drift tolerance (ROOT CAUSE 2)**: the INSERT uses the
+ *    INTERSECTION of source and target column lists rather than the source
+ *    columns verbatim. When the consolidated schema added new columns (e.g.
+ *    `prune_candidate` on `brain_observations`), the old code failed with
+ *    "table main.brain_X has no column named prune_candidate". New target-only
+ *    columns take their schema defaults; old source-only columns are silently
+ *    dropped.
+ *
+ * 3. **Explicit skip (ROOT CAUSE 5)**: tables intentionally excluded from the
+ *    consolidated schema (virtual tables, orphan telemetry, etc.) now return
+ *    a logged skip result rather than being silently treated as "target not
+ *    found".
  *
  * **Pre-condition**: the caller has already executed
  * `ATTACH DATABASE '<path>' AS "<attachAlias>"` on `targetNativeDb`.
  *
- * This approach avoids reading all rows into JS memory — SQLite handles the
- * copy entirely in the engine.
- *
- * Returns the number of rows copied, or 0 if the target table does not exist
- * or the source table is empty.
- *
- * @param targetNativeDb  - The target `DatabaseSync` handle (writable, mid-transaction).
- * @param srcNativeDb     - A read-only snapshot of the source DB (for metadata queries).
- * @param attachAlias     - The alias under which the source is attached to `targetNativeDb`.
- * @param tableName       - The table to copy.
+ * @param targetNativeDb   - Writable target handle (mid-transaction).
+ * @param srcNativeDb      - Read-only source snapshot (for metadata queries).
+ * @param attachAlias      - Alias under which the source is attached.
+ * @param legacyTableName  - Physical table name in the legacy source DB.
+ * @param sourceName       - `LegacyDbDescriptor.name` (for name resolution).
  */
 function copyTableFromAttached(
   targetNativeDb: DatabaseSync,
   srcNativeDb: DatabaseSync,
   attachAlias: string,
-  tableName: string,
-): number {
-  // Get column names for an explicit column list so INSERT survives schema evolution.
-  const pragma = srcNativeDb.prepare(`PRAGMA table_info("${tableName}")`).all() as Array<{
+  legacyTableName: string,
+  sourceName: string,
+): CopyTableResult {
+  // --- Step 1: Resolve the consolidated target table name (ROOT CAUSE 1) ---
+  const resolution = resolveConsolidatedTableName(sourceName, legacyTableName);
+
+  if (resolution.kind === 'skip') {
+    log.warn(
+      { legacyTableName, sourceName, reason: resolution.reason },
+      `Exodus: explicitly skipping table — ${resolution.reason}`,
+    );
+    return { rowsCopied: 0, skipped: true, reason: resolution.reason };
+  }
+
+  const targetTableName = resolution.targetName;
+
+  // --- Step 2: Get source column list ---
+  const srcPragma = srcNativeDb.prepare(`PRAGMA table_info("${legacyTableName}")`).all() as Array<{
     name: string;
   }>;
-  const columns = pragma.map((r) => r.name);
-  if (columns.length === 0) return 0;
+  const srcColumns = new Set(srcPragma.map((r) => r.name));
+  if (srcColumns.size === 0) return { rowsCopied: 0, skipped: false };
 
-  // Check source table has rows (skip the INSERT if empty to avoid noise).
-  const countRow = srcNativeDb.prepare(`SELECT COUNT(*) AS c FROM "${tableName}"`).get() as {
+  // --- Step 3: Check source row count (skip INSERT if empty to avoid noise) ---
+  const countRow = srcNativeDb.prepare(`SELECT COUNT(*) AS c FROM "${legacyTableName}"`).get() as {
     c: number;
   } | null;
   const sourceCount = countRow?.c ?? 0;
-  if (sourceCount === 0) return 0;
+  if (sourceCount === 0) return { rowsCopied: 0, skipped: false };
 
-  // Check if the target table exists in the consolidated DB.
+  // --- Step 4: Check the consolidated target table exists ---
+  const escapedTarget = targetTableName.replace(/'/g, "''");
   const existsRow = targetNativeDb
-    .prepare(
-      `SELECT name FROM sqlite_master WHERE type='table' AND name='${tableName.replace(/'/g, "''")}'`,
-    )
+    .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='${escapedTarget}'`)
     .get() as { name: string } | null;
 
   if (!existsRow) {
-    // Target table doesn't exist yet — log and skip (E6 will create these).
-    log.warn({ tableName, attachAlias }, 'Target table not found in consolidated DB — skipping');
-    return 0;
+    // Target table absent — log and treat as explicit skip
+    const reason = `consolidated target '${targetTableName}' not found (mapped from legacy '${legacyTableName}')`;
+    log.warn({ legacyTableName, targetTableName, sourceName, attachAlias }, `Exodus: ${reason}`);
+    return { rowsCopied: 0, skipped: true, reason };
   }
 
-  const colList = columns.map((c) => `"${c}"`).join(', ');
-  // INSERT OR IGNORE so idempotent keys prevent duplicates on resume.
+  // --- Step 5: Compute column intersection (ROOT CAUSE 2) ---
+  const tgtPragma = targetNativeDb
+    .prepare(`PRAGMA table_info("${targetTableName}")`)
+    .all() as Array<{ name: string }>;
+  const tgtColumns = new Set(tgtPragma.map((r) => r.name));
+
+  // Only copy columns that exist in BOTH source and target.
+  const sharedColumns = srcPragma.map((r) => r.name).filter((col) => tgtColumns.has(col));
+
+  if (sharedColumns.length === 0) {
+    const reason = `no overlapping columns between source '${legacyTableName}' and target '${targetTableName}'`;
+    log.warn({ legacyTableName, targetTableName, sourceName }, `Exodus: ${reason}`);
+    return { rowsCopied: 0, skipped: true, reason };
+  }
+
+  const srcOnlyColumns = srcPragma.map((r) => r.name).filter((c) => !tgtColumns.has(c));
+  const tgtOnlyColumns = tgtPragma.map((r) => r.name).filter((c) => !srcColumns.has(c));
+  if (srcOnlyColumns.length > 0 || tgtOnlyColumns.length > 0) {
+    log.info(
+      { legacyTableName, targetTableName, sourceName, srcOnlyColumns, tgtOnlyColumns },
+      'Exodus: column drift detected — copying intersection, dropping src-only cols, using defaults for tgt-only cols',
+    );
+  }
+
+  const colList = sharedColumns.map((c) => `"${c}"`).join(', ');
+
+  // INSERT OR IGNORE so idempotency keys prevent duplicates on resume.
+  // The source alias uses legacyTableName; the target uses consolidatedName.
   const stmt = targetNativeDb.prepare(
-    `INSERT OR IGNORE INTO main."${tableName}" (${colList}) SELECT ${colList} FROM "${attachAlias}"."${tableName}" ORDER BY rowid`,
+    `INSERT OR IGNORE INTO main."${targetTableName}" (${colList}) ` +
+      `SELECT ${colList} FROM "${attachAlias}"."${legacyTableName}"`,
   );
   const result = stmt.run();
-  return (result as unknown as { changes: number }).changes ?? 0;
+  const rowsCopied = (result as unknown as { changes: number }).changes ?? 0;
+  return { rowsCopied, skipped: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -506,7 +595,20 @@ async function migrateScope(
 
           try {
             // Step 4: INSERT using the already-attached alias — no per-table ATTACH/DETACH.
-            rowsCopied = copyTableFromAttached(targetNativeDb, snap.db, attachAlias, tableName);
+            // Pass src.name so copyTableFromAttached can resolve the consolidated target name.
+            const copyResult = copyTableFromAttached(
+              targetNativeDb,
+              snap.db,
+              attachAlias,
+              tableName,
+              src.name,
+            );
+            rowsCopied = copyResult.rowsCopied;
+            if (copyResult.skipped) {
+              status = 'skipped';
+              errorMsg = copyResult.reason;
+              skipped = true;
+            }
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             log.warn({ tableName, sourceDb: src.name, err }, 'Table copy failed — skipping');

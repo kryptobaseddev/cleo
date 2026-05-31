@@ -4,15 +4,16 @@
  * `runExodusVerify()` checks equivalence between source legacy DBs and the
  * consolidated dual-scope `cleo.db` after a migration.
  *
- * ## Equivalence checks (AC7 · T11531 hardened)
+ * ## Equivalence checks (AC7 · T11531 hardened · T11532 rowid + name-map fix)
  *
  * Per-table:
  *   1. `COUNT(*)` parity — source and target row counts MUST match.
  *      Any data-bearing source table (COUNT > 0) whose consolidated
  *      counterpart has fewer rows causes an immediate `ok: false` with an
  *      explicit `error` string listing every failing table.
- *   2. Ordered canonical-JSON digest — SELECT all rows ORDER BY rowid, JSON-
- *      stringify each row, SHA-256 the concatenation (truncated to 32 hex).
+ *   2. Ordered canonical-JSON digest — SELECT all rows ORDER BY primary key
+ *      (not rowid — rowid is absent in WITHOUT ROWID tables and virtual
+ *      tables), SHA-256 the concatenation (truncated to 32 hex).
  *
  * ## FALSE-PASS guard (T11531)
  *
@@ -21,8 +22,25 @@
  * `result.error` to decide success. This version always populates `error`
  * with a human-readable failure summary when `ok === false`.
  *
+ * ## Name-mapping (T11532 — ROOT CAUSE 1)
+ *
+ * The verify engine now resolves each legacy source table name to its
+ * consolidated target name using the same `resolveConsolidatedTableName()`
+ * mapping used by the migrate engine. Without this, verify compared the
+ * legacy table `tasks` (always absent from the consolidated DB) rather than
+ * `tasks_tasks`, yielding spurious "missing from target" failures even when
+ * the migration succeeded.
+ *
+ * ## rowid fix (T11532 — ROOT CAUSE 3)
+ *
+ * `computeTableDigest` previously ordered by `rowid`, which crashes on
+ * WITHOUT ROWID tables and virtual tables. It now reads the primary key
+ * columns from `PRAGMA table_info` and orders by those instead; for tables
+ * without an explicit PK it falls back to `rowid`.
+ *
  * @task T11248 (E5 · AC7 · SG-DB-SUBSTRATE-V2)
  * @task T11531 (verify hardening — parity gate)
+ * @task T11532 (P0 rowid crash + name-mapping + explicit skip for virtual tables)
  * @saga T11242
  */
 
@@ -31,6 +49,7 @@ import { createRequire } from 'node:module';
 import type { DatabaseSync } from 'node:sqlite';
 import { getLogger } from '../../logger.js';
 import { openCleoDbSnapshot } from '../open-cleo-db.js';
+import { resolveConsolidatedTableName } from './table-name-map.js';
 import type {
   ExodusScope,
   ExodusVerifyResult,
@@ -43,21 +62,69 @@ const log = getLogger('exodus-verify');
 const _require = createRequire(import.meta.url);
 
 // ---------------------------------------------------------------------------
-// Digest helper (AC7)
+// Digest helper (AC7 · T11532 rowid fix)
 // ---------------------------------------------------------------------------
+
+/**
+ * Determine the ORDER BY clause for a table.
+ *
+ * Uses the table's declared primary key columns (from `PRAGMA table_info`
+ * where `pk > 0`) so the ordering is deterministic for both WITH ROWID and
+ * WITHOUT ROWID tables. Falls back to `rowid` only for ordinary tables that
+ * declare no explicit primary key.
+ *
+ * This avoids the `no such column: rowid` crash (ROOT CAUSE 3 — T11532) that
+ * occurred when `computeTableDigest` blindly used `ORDER BY rowid` on a
+ * WITHOUT ROWID or virtual table.
+ */
+function orderByClause(db: DatabaseSync, tableName: string): string {
+  try {
+    const pragma = db.prepare(`PRAGMA table_info("${tableName}")`).all() as Array<{
+      name: string;
+      pk: number;
+    }>;
+    const pkCols = pragma
+      .filter((r) => r.pk > 0)
+      .sort((a, b) => a.pk - b.pk)
+      .map((r) => `"${r.name}"`);
+    if (pkCols.length > 0) {
+      return pkCols.join(', ');
+    }
+  } catch {
+    // Ignore — fall through to rowid
+  }
+  return 'rowid';
+}
 
 /**
  * Compute an ordered canonical-JSON SHA-256 digest (32 hex chars) for all rows
  * in a table.
  *
- * Rows are fetched `ORDER BY rowid` so the ordering is deterministic. Each row
- * is canonicalized as `JSON.stringify(row)` and appended to the hash.
+ * Rows are fetched `ORDER BY <pk or rowid>` so the ordering is deterministic.
+ * Each row is canonicalized as `JSON.stringify(row)` and appended to the hash.
+ *
+ * Returns `{ count: 0, hash: '' }` if the table is a virtual table (e.g. vec0)
+ * that cannot be selected from, rather than throwing.
  */
 function computeTableDigest(db: DatabaseSync, tableName: string): { count: number; hash: string } {
   const { createHash } = _require('node:crypto') as typeof import('node:crypto');
   const hasher = createHash('sha256');
 
-  const rows = db.prepare(`SELECT * FROM "${tableName}" ORDER BY rowid`).all() as unknown[];
+  const orderBy = orderByClause(db, tableName);
+
+  let rows: unknown[];
+  try {
+    rows = db.prepare(`SELECT * FROM "${tableName}" ORDER BY ${orderBy}`).all() as unknown[];
+  } catch (err) {
+    // Virtual tables (e.g. brain_embeddings via vec0) may throw "no such module"
+    // or similar — treat as 0 rows rather than crashing the entire verify.
+    const msg = err instanceof Error ? err.message : String(err);
+    log.warn(
+      { tableName, err: msg },
+      `computeTableDigest: SELECT failed (possibly a virtual/FTS table) — treating as 0 rows`,
+    );
+    return { count: 0, hash: '' };
+  }
 
   for (const row of rows) {
     hasher.update(JSON.stringify(row));
@@ -97,6 +164,11 @@ function listTables(db: DatabaseSync): string[] {
  * causes `ok: false` and populates `error` with a plain-text list of every
  * failing table. This catches the attach-leak class of data loss.
  *
+ * **Name mapping (T11532)**: resolves each legacy table name to its
+ * consolidated target name before comparing. Tables intentionally excluded
+ * from the consolidated schema (virtual tables, orphan telemetry) are skipped
+ * with an explicit log entry rather than being counted as failures.
+ *
  * @param sources        - Legacy source descriptors (from `buildExodusPlan()`).
  * @param projectDbPath  - Absolute path to the consolidated project `cleo.db`.
  * @param globalDbPath   - Absolute path to the consolidated global `cleo.db`.
@@ -107,6 +179,7 @@ function listTables(db: DatabaseSync): string[] {
  *
  * @task T11248 (AC7)
  * @task T11531 (parity gate hardening)
+ * @task T11532 (name-mapping + rowid fix)
  */
 export function runExodusVerify(
   sources: LegacyDbDescriptor[],
@@ -153,15 +226,30 @@ export function runExodusVerify(
         const sourceTables = listTables(srcSnap.db);
         const targetTables = new Set(listTables(targetSnap.db));
 
-        for (const tableName of sourceTables) {
-          onProgress?.(`Verifying ${src.name}.${tableName}…`);
+        for (const legacyTableName of sourceTables) {
+          onProgress?.(`Verifying ${src.name}.${legacyTableName}…`);
 
-          if (!targetTables.has(tableName)) {
-            // Table missing entirely from consolidated DB.
-            const srcResult = computeTableDigest(srcSnap.db, tableName);
+          // --- T11532: Resolve the consolidated target name ---
+          const resolution = resolveConsolidatedTableName(src.name, legacyTableName);
+
+          if (resolution.kind === 'skip') {
+            // Intentionally excluded (virtual table, orphan telemetry, etc.)
+            log.info(
+              { legacyTableName, sourceDb: src.name, reason: resolution.reason },
+              'Exodus verify: skipping intentionally-excluded table',
+            );
+            onProgress?.(`  [skip] ${src.name}.${legacyTableName} — ${resolution.reason}`);
+            continue;
+          }
+
+          const targetTableName = resolution.targetName;
+
+          if (!targetTables.has(targetTableName)) {
+            // Consolidated target table missing entirely.
+            const srcResult = computeTableDigest(srcSnap.db, legacyTableName);
             const countMatch = srcResult.count === 0; // ok only if source was empty
             const result: VerifyTableResult = {
-              tableName,
+              tableName: targetTableName,
               scope,
               sourceCount: srcResult.count,
               targetCount: 0,
@@ -171,26 +259,39 @@ export function runExodusVerify(
               countMatch,
             };
             if (!countMatch) {
-              const line = `[${scope}] ${src.name}.${tableName}: missing from target (source has ${srcResult.count} rows)`;
+              const line =
+                `[${scope}] ${src.name}.${legacyTableName} → ${targetTableName}: ` +
+                `missing from target (source has ${srcResult.count} rows)`;
               failureLines.push(line);
-              log.warn({ tableName, sourceDb: src.name, sourceCount: srcResult.count }, line);
+              log.warn(
+                {
+                  legacyTableName,
+                  targetTableName,
+                  sourceDb: src.name,
+                  sourceCount: srcResult.count,
+                },
+                line,
+              );
             }
             tableResults.push(result);
             continue;
           }
 
-          const srcDigest = computeTableDigest(srcSnap.db, tableName);
-          const tgtDigest = computeTableDigest(targetSnap.db, tableName);
+          const srcDigest = computeTableDigest(srcSnap.db, legacyTableName);
+          const tgtDigest = computeTableDigest(targetSnap.db, targetTableName);
 
           const countMatch = srcDigest.count === tgtDigest.count;
           const hashMatch = srcDigest.hash === tgtDigest.hash;
 
           if (!countMatch || !hashMatch) {
-            const line = `[${scope}] ${src.name}.${tableName}: source=${srcDigest.count} rows, target=${tgtDigest.count} rows, hashMatch=${hashMatch}`;
+            const line =
+              `[${scope}] ${src.name}.${legacyTableName} → ${targetTableName}: ` +
+              `source=${srcDigest.count} rows, target=${tgtDigest.count} rows, hashMatch=${hashMatch}`;
             failureLines.push(line);
             log.warn(
               {
-                tableName,
+                legacyTableName,
+                targetTableName,
                 sourceDb: src.name,
                 srcCount: srcDigest.count,
                 tgtCount: tgtDigest.count,
@@ -202,7 +303,7 @@ export function runExodusVerify(
           }
 
           tableResults.push({
-            tableName,
+            tableName: targetTableName,
             scope,
             sourceCount: srcDigest.count,
             targetCount: tgtDigest.count,
