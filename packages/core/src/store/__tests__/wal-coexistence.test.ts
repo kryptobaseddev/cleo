@@ -62,15 +62,12 @@ afterEach(() => {
 
 /**
  * Extract the native DatabaseSync handle from a Drizzle ORM handle via `$client`.
- * The `as any` cast is required because $client is typed as `unknown` on the
- * generic Drizzle handle — this is test-only introspection.
+ * Uses `as unknown as { $client: DatabaseSync }` to avoid the `any` lint rule —
+ * the `$client` field is typed `unknown` on the generic Drizzle handle.
  */
-function getNativeDb(
-  // biome-ignore lint/suspicious/noExplicitAny: test-only $client introspection
-  drizzleDb: any,
-): DatabaseSync {
+function getNativeDb(drizzleDb: unknown): DatabaseSync {
   // db-open-allowed: test-only $client introspection
-  return drizzleDb.$client as DatabaseSync;
+  return (drizzleDb as { $client: DatabaseSync }).$client;
 }
 
 /**
