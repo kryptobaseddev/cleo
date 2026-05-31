@@ -30,6 +30,7 @@
 
 import { getProjectRoot } from '@cleocode/core';
 import {
+  getSentientDaemonStatus,
   sentientAllowlistAdd,
   sentientAllowlistList,
   sentientAllowlistRemove,
@@ -56,6 +57,7 @@ import { envelopeToEngineResult, handleErrorResult, unsupportedOp, wrapResult } 
 // ---------------------------------------------------------------------------
 
 const coreOps = {
+  status: (_params: Record<string, never>) => getSentientDaemonStatus(getProjectRoot()),
   'propose.list': (params: Parameters<typeof sentientProposeList>[1]) =>
     sentientProposeList(getProjectRoot(), params),
   'propose.diff': (params: Parameters<typeof sentientProposeDiff>[1]) =>
@@ -88,6 +90,16 @@ const _sentientTypedHandler = defineTypedHandler<SentientOps>('sentient', {
   // -------------------------------------------------------------------------
   // Query ops
   // -------------------------------------------------------------------------
+
+  status: async (_params) => {
+    try {
+      const data = await coreOps.status(_params);
+      return lafsSuccess(data, 'status');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return lafsError('E_SENTIENT_STATUS', message, 'status');
+    }
+  },
 
   'propose.list': async (params) => {
     try {
@@ -205,7 +217,7 @@ const _sentientTypedHandler = defineTypedHandler<SentientOps>('sentient', {
 // Op sets
 // ---------------------------------------------------------------------------
 
-const QUERY_OPS = new Set<string>(['propose.list', 'propose.diff', 'allowlist.list']);
+const QUERY_OPS = new Set<string>(['status', 'propose.list', 'propose.diff', 'allowlist.list']);
 
 const MUTATE_OPS = new Set<string>([
   'propose.accept',
@@ -233,7 +245,7 @@ export class SentientHandler implements DomainHandler {
   /** Declared operations for introspection and validation. */
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['propose.list', 'propose.diff', 'allowlist.list'],
+      query: ['status', 'propose.list', 'propose.diff', 'allowlist.list'],
       mutate: [
         'propose.accept',
         'propose.reject',

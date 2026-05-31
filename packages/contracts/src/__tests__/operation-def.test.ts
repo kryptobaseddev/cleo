@@ -65,6 +65,7 @@ type _OperationDefShape = {
   sessionRequired: boolean;
   requiredParams: string[];
   params?: ParamDef[];
+  mcpExposed?: boolean;
 };
 
 type _AssertOperationDefPinned = AssertEquals1<Equals<OperationDef, _OperationDefShape>>;

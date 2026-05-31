@@ -76,6 +76,22 @@ export interface OperationDef {
    * @see T4897 for progressive migration
    */
   params?: ParamDef[];
+  /**
+   * Whether this operation is surfaced as an MCP tool by the
+   * `@cleocode/runtime/gateway/mcp` transport adapter.
+   *
+   * **Default-deny**: absent / `false` means the operation is NOT exposed over
+   * MCP. The MCP adapter generates its `tools/list` from the subset of
+   * {@link OperationDef} entries that explicitly set `mcpExposed: true`, so the
+   * external tool surface is opt-in rather than the full CQRS registry. This
+   * preserves the historically-curated MCP surface (the standalone
+   * `@cleocode/mcp-adapter` exposed exactly 3 sentient tools) while letting new
+   * tools be promoted one registry edit at a time.
+   *
+   * @see {@link https://modelcontextprotocol.io | Model Context Protocol}
+   * @task T11448
+   */
+  mcpExposed?: boolean;
 }
 
 // ── Resolution ───────────────────────────────────────────────────────
