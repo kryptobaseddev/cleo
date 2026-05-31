@@ -67,7 +67,7 @@ async function seedThreeProjects(): Promise<{
 
   // Insert the ghost row directly — nexusRegister refuses non-existent paths.
   const { getNexusDb } = await import('../../store/nexus-sqlite.js');
-  const { projectRegistry } = await import('../../store/nexus-schema.js');
+  const { projectRegistry } = await import('../../store/schema/nexus-schema.js');
   const db = await getNexusDb();
   const now = new Date().toISOString();
   await db.insert(projectRegistry).values({
@@ -180,7 +180,7 @@ describe('cleanProjects — T9117 removeFs', () => {
     const { nexusInit } = await import('../registry.js');
     await nexusInit();
     const { getNexusDb } = await import('../../store/nexus-sqlite.js');
-    const { projectRegistry } = await import('../../store/nexus-schema.js');
+    const { projectRegistry } = await import('../../store/schema/nexus-schema.js');
     const db = await getNexusDb();
     const now = new Date().toISOString();
     const dangerousPath = parse(tmpdir()).root;
@@ -226,7 +226,7 @@ describe('cleanProjects — T9117 vacuum', () => {
     const { nexusInit } = await import('../registry.js');
     await nexusInit();
     const { getNexusDb } = await import('../../store/nexus-sqlite.js');
-    const { projectRegistry } = await import('../../store/nexus-schema.js');
+    const { projectRegistry } = await import('../../store/schema/nexus-schema.js');
     const db = await getNexusDb();
     const now = new Date().toISOString();
     for (let i = 0; i < 50; i++) {

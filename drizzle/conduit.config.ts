@@ -5,7 +5,7 @@
  * and project-scoped agent reference overrides. Cross-project agent identity
  * lives in signaldock.db.
  *
- * Schema: packages/core/src/store/conduit-schema.ts
+ * Schema: packages/core/src/store/schema/conduit-schema.ts
  * Migrations: packages/core/migrations/drizzle-conduit/
  *
  * @task T1407
@@ -16,7 +16,7 @@
 import { defineConfig } from 'drizzle-kit';
 
 export default defineConfig({
-  schema: './packages/core/src/store/conduit-schema.ts',
+  schema: './packages/core/src/store/schema/conduit-schema.ts',
   out: './packages/core/migrations/drizzle-conduit',
   dialect: 'sqlite',
   dbCredentials: {

@@ -13,8 +13,8 @@ import { existsSync, readFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from 'drizzle-orm';
 import { getLogger } from '../logger.js';
-import { projectRegistry } from '../store/nexus-schema.js';
 import { getNexusDb } from '../store/nexus-sqlite.js';
+import { projectRegistry } from '../store/schema/nexus-schema.js';
 import { getRegistryPath } from './registry.js';
 
 /**

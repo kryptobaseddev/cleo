@@ -16,7 +16,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { BRAIN_EDGE_TYPES } from '../../store/memory-schema.js';
+import { BRAIN_EDGE_TYPES } from '../../store/schema/memory-schema.js';
 import { EDGE_TYPES } from '../edge-types.js';
 
 // ---------------------------------------------------------------------------

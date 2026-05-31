@@ -42,8 +42,12 @@ import type {
   SkillImportHermesRow,
 } from '@cleocode/contracts';
 import { withProvenance } from '../sentient/skill-provenance.js';
+import type {
+  NewSkillRow,
+  NewSkillUsageRow,
+  SkillSourceType,
+} from '../store/schema/skills-schema.js';
 import { upsertSkillRow } from '../store/skills-db.js';
-import type { NewSkillRow, NewSkillUsageRow, SkillSourceType } from '../store/skills-schema.js';
 import { insertUsage } from '../store/skills-store.js';
 
 // ---------------------------------------------------------------------------

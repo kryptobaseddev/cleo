@@ -18,7 +18,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { NewSkillRow, NewSkillUsageRow } from '../skills-schema.js';
+import type { NewSkillRow, NewSkillUsageRow } from '../schema/skills-schema.js';
 
 describe('skills-usage-queue (T9694)', () => {
   let tmpRoot: string;
@@ -57,7 +57,7 @@ describe('skills-usage-queue (T9694)', () => {
 
   async function countUsage(skillName: string): Promise<number> {
     const { openSkillsDb } = await import('../skills-db.js');
-    const { skillUsage } = await import('../skills-schema.js');
+    const { skillUsage } = await import('../schema/skills-schema.js');
     const { eq } = await import('drizzle-orm');
     const db = await openSkillsDb({ path: dbPath });
     const rows = db.select().from(skillUsage).where(eq(skillUsage.skillName, skillName)).all();

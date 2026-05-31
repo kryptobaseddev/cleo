@@ -38,17 +38,6 @@ export {
   listAgentsForProject,
   lookupAgent,
 } from '../store/agent-registry-accessor.js';
-// Load-balancing registry: task-count capacity, specializations, performance recording
-export {
-  type AgentCapacity,
-  type AgentPerformanceMetrics,
-  getAgentCapacity,
-  getAgentSpecializations,
-  getAgentsByCapacity,
-  MAX_TASKS_PER_AGENT,
-  recordAgentPerformance,
-  updateAgentSpecializations,
-} from './agent-registry.js';
 // Schema & types
 export {
   AGENT_INSTANCE_STATUSES,
@@ -62,7 +51,18 @@ export {
   agentInstances,
   type NewAgentErrorLogRow,
   type NewAgentInstanceRow,
-} from './agent-schema.js';
+} from '../store/schema/agent-schema.js';
+// Load-balancing registry: task-count capacity, specializations, performance recording
+export {
+  type AgentCapacity,
+  type AgentPerformanceMetrics,
+  getAgentCapacity,
+  getAgentSpecializations,
+  getAgentsByCapacity,
+  MAX_TASKS_PER_AGENT,
+  recordAgentPerformance,
+  updateAgentSpecializations,
+} from './agent-registry.js';
 // Capacity tracking
 export {
   type CapacitySummary,

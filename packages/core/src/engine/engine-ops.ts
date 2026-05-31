@@ -462,7 +462,7 @@ export async function toolsSkillPruneTelemetry(
       '../store/skills-db.js'
     );
     const { pruneUsageOlderThan } = await import('../store/skills-store.js');
-    const { skillUsage } = await import('../store/skills-schema.js');
+    const { skillUsage } = await import('../store/schema/skills-schema.js');
     const { lt, sql } = await import('drizzle-orm');
 
     const olderThanDays = request.olderThanDays ?? 180;

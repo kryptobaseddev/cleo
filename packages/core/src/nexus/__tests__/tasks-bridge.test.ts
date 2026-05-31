@@ -14,9 +14,9 @@ import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { EDGE_TYPES } from '../../memory/edge-types.js';
-import { BRAIN_EDGE_TYPES } from '../../store/memory-schema.js';
 import { closeBrainDb, getBrainDb, getBrainNativeDb } from '../../store/memory-sqlite.js';
 import { closeNexusDb, getNexusDb, getNexusNativeDb } from '../../store/nexus-sqlite.js';
+import { BRAIN_EDGE_TYPES } from '../../store/schema/memory-schema.js';
 import { getSymbolsForTask, getTasksForSymbol, linkTaskToSymbols } from '../tasks-bridge.js';
 
 describe('tasks-bridge', () => {

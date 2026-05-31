@@ -8,8 +8,12 @@
  */
 
 import { eq } from 'drizzle-orm';
+import {
+  type AgentInstanceRow,
+  type AgentType,
+  agentInstances,
+} from '../store/schema/agent-schema.js';
 import { getDb } from '../store/sqlite.js';
-import { type AgentInstanceRow, type AgentType, agentInstances } from './agent-schema.js';
 import { listAgentInstances } from './registry.js';
 
 // ============================================================================

@@ -17,7 +17,7 @@ import type {
   BrainLearningRow,
   BrainMemoryLinkRow,
   BrainPatternRow,
-} from '../store/memory-schema.js';
+} from '../store/schema/memory-schema.js';
 import { getDb } from '../store/sqlite.js';
 
 type MemoryType = (typeof BRAIN_MEMORY_TYPES)[number];

@@ -38,8 +38,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { and, eq } from 'drizzle-orm';
-import { brainBackfillRuns, brainObservationsStaging } from '../store/memory-schema.js';
 import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
+import { brainBackfillRuns, brainObservationsStaging } from '../store/schema/memory-schema.js';
 
 // ---------------------------------------------------------------------------
 // Constants

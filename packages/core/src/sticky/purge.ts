@@ -7,7 +7,7 @@
  */
 
 import { getBrainAccessor } from '../store/memory-accessor.js';
-import type { BrainStickyNoteRow } from '../store/memory-schema.js';
+import type { BrainStickyNoteRow } from '../store/schema/memory-schema.js';
 import type { StickyNote } from './types.js';
 
 /**

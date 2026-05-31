@@ -55,9 +55,9 @@
 import { existsSync, lstatSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import type { SkillRow, SkillSourceType } from '../store/schema/skills-schema.js';
+import { skills as skillsTable } from '../store/schema/skills-schema.js';
 import { openSkillsDb } from '../store/skills-db.js';
-import type { SkillRow, SkillSourceType } from '../store/skills-schema.js';
-import { skills as skillsTable } from '../store/skills-schema.js';
 import { resolveSkillsRoot } from './skill-root.js';
 
 // ---------------------------------------------------------------------------

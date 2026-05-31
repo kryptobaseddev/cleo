@@ -8,8 +8,12 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { nexusAuditLog, projectIdAliases, projectRegistry } from '../../store/nexus-schema.js';
 import { getNexusDb } from '../../store/nexus-sqlite.js';
+import {
+  nexusAuditLog,
+  projectIdAliases,
+  projectRegistry,
+} from '../../store/schema/nexus-schema.js';
 import { generateProjectHash } from '../hash.js';
 import {
   nexusGetProject,

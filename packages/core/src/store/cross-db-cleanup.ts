@@ -12,8 +12,8 @@
  */
 
 import { and, eq, isNotNull, or } from 'drizzle-orm';
-import * as brainSchema from './memory-schema.js';
 import { getBrainDb } from './memory-sqlite.js';
+import * as brainSchema from './schema/memory-schema.js';
 
 /**
  * Clean up brain.db references after a task is deleted from tasks.db.

@@ -1,7 +1,7 @@
 import { defineConfig } from 'drizzle-kit';
 
 export default defineConfig({
-  schema: './packages/core/src/store/memory-schema.ts',
+  schema: './packages/core/src/store/schema/memory-schema.ts',
   out: './packages/core/migrations/drizzle-brain',
   dialect: 'sqlite',
   dbCredentials: {

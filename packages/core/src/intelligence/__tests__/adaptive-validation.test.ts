@@ -16,7 +16,7 @@ import type {
   BrainLearningRow,
   BrainObservationRow,
   BrainPatternRow,
-} from '../../store/memory-schema.js';
+} from '../../store/schema/memory-schema.js';
 import {
   predictAndStore,
   scoreVerificationConfidence,

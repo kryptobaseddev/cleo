@@ -21,8 +21,12 @@
  */
 
 import { and, eq, inArray } from 'drizzle-orm';
+import {
+  type AgentInstanceRow,
+  type AgentType,
+  agentInstances,
+} from '../store/schema/agent-schema.js';
 import { getDb } from '../store/sqlite.js';
-import { type AgentInstanceRow, type AgentType, agentInstances } from './agent-schema.js';
 import {
   type AgentExecutionEvent,
   type AgentExecutionOutcome,

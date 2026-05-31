@@ -19,10 +19,10 @@ import {
   resetDbState,
 } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { projectRegistry } from '../../../../../core/src/store/nexus-schema.js';
 // Direct-path imports (not re-exported from core/internal) — matches the
 // pattern used by other CLI integration tests that need nexus-sqlite primitives.
 import { getNexusDb, resetNexusDbState } from '../../../../../core/src/store/nexus-sqlite.js';
+import { projectRegistry } from '../../../../../core/src/store/schema/nexus-schema.js';
 import { runDoctorProjects } from '../doctor-projects.js';
 
 const _require = createRequire(import.meta.url);

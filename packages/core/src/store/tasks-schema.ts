@@ -21,22 +21,22 @@ export type {
   AgentType,
   NewAgentErrorLogRow,
   NewAgentInstanceRow,
-} from '../agents/agent-schema.js';
+} from './schema/agent-schema.js';
 // Re-export agent schema tables so drizzle-kit picks them up for migrations.
 export {
   AGENT_INSTANCE_STATUSES,
   AGENT_TYPES,
   agentErrorLog,
   agentInstances,
-} from '../agents/agent-schema.js';
+} from './schema/agent-schema.js';
 export type {
   NewWarpChainInstanceRow,
   NewWarpChainRow,
   WarpChainInstanceRow,
   WarpChainRow,
-} from './chain-schema.js';
+} from './schema/chain-schema.js';
 // Re-export WarpChain schema tables so drizzle-kit picks them up for migrations.
-export { warpChainInstances, warpChains } from './chain-schema.js';
+export { warpChainInstances, warpChains } from './schema/chain-schema.js';
 // Re-export all domain tables, constants, and types from the schema subdirectory.
 export * from './schema/index.js';
 // Re-export status constants and types so existing imports from schema.ts still work.

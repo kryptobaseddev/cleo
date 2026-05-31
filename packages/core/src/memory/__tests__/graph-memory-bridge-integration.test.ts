@@ -63,14 +63,14 @@ describe('graph-memory-bridge', () => {
     qualityScore = 0.7,
   ): Promise<void> {
     const { getBrainDb } = await import('../../store/memory-sqlite.js');
-    const { brainPageNodes } = await import('../../store/memory-schema.js');
+    const { brainPageNodes } = await import('../../store/schema/memory-schema.js');
     const db = await getBrainDb(tempDir);
     const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
     await db
       .insert(brainPageNodes)
       .values({
         id,
-        nodeType: nodeType as import('../../store/memory-schema.js').BrainNodeType,
+        nodeType: nodeType as import('../../store/schema/memory-schema.js').BrainNodeType,
         label,
         qualityScore,
         contentHash: null,
@@ -90,7 +90,7 @@ describe('graph-memory-bridge', () => {
     kind = 'function',
   ): Promise<void> {
     const { getNexusDb } = await import('../../store/nexus-sqlite.js');
-    const { nexusNodes } = await import('../../store/nexus-schema.js');
+    const { nexusNodes } = await import('../../store/schema/nexus-schema.js');
 
     const db = await getNexusDb();
     await db
@@ -98,7 +98,7 @@ describe('graph-memory-bridge', () => {
       .values({
         id,
         projectId: 'test-project',
-        kind: kind as import('../../store/nexus-schema.js').NexusNodeKind,
+        kind: kind as import('../../store/schema/nexus-schema.js').NexusNodeKind,
         label,
         name,
         filePath,

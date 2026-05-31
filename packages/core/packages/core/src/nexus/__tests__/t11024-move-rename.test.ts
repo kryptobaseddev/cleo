@@ -32,7 +32,7 @@ import {
   nexusRenameProject,
   resetNexusDbState,
 } from '../registry.js';
-import { nexusAuditLog, projectRegistry } from '../../store/nexus-schema.js';
+import { nexusAuditLog, projectRegistry } from '../../store/schema/nexus-schema.js';
 import { getNexusDb } from '../../store/nexus-sqlite.js';
 
 /** Pre-register a project directly in nexus.db so nexusMoveProject/nexusRenameProject can find it. */

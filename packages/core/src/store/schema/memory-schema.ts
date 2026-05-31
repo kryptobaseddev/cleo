@@ -31,7 +31,7 @@ import {
   sqliteTable,
   text,
 } from 'drizzle-orm/sqlite-core';
-import { jsonb } from './schema/jsonb.js';
+import { jsonb } from './jsonb.js';
 
 export type { BrainCognitiveType, BrainMemoryTier, BrainSourceConfidence };
 // Re-export BRAIN_OBSERVATION_SOURCE_TYPES from contracts so any existing

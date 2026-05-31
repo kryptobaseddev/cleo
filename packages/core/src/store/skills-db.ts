@@ -43,13 +43,13 @@ import { getCleoHome } from '../paths.js';
 import { getCurrentWriteOrigin } from '../sentient/skill-provenance.js';
 import { migrateWithRetry, reconcileJournal, tableExists } from './migration-manager.js';
 import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
-import * as skillsSchema from './skills-schema.js';
+import * as skillsSchema from './schema/skills-schema.js';
 import {
   type NewSkillRow,
   type SkillRow,
   type SkillSourceType,
   skills as skillsTable,
-} from './skills-schema.js';
+} from './schema/skills-schema.js';
 import { isSqliteBusy, openNativeDatabase } from './sqlite.js';
 
 /** Database file name within `getCleoHome()`. */

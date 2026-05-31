@@ -29,12 +29,12 @@
  * @architecture docs/architecture/SG-CLEO-SKILLS-architecture-v3.md §5
  */
 
-import { openSkillsDb } from './skills-db.js';
 import {
   type NewSkillUsageRow,
   type SkillUsageRow,
   skillUsage as skillUsageTable,
-} from './skills-schema.js';
+} from './schema/skills-schema.js';
+import { openSkillsDb } from './skills-db.js';
 
 // ---------------------------------------------------------------------------
 // Configuration constants

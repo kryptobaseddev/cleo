@@ -10,7 +10,7 @@
  * @module intelligence
  */
 
-import type { BrainLearningRow, BrainPatternRow } from '../store/memory-schema.js';
+import type { BrainLearningRow, BrainPatternRow } from '../store/schema/memory-schema.js';
 
 // ============================================================================
 // Risk Scoring Types

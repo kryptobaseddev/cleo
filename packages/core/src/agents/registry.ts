@@ -13,7 +13,6 @@
 
 import { randomBytes } from 'node:crypto';
 import { and, eq, inArray, lt, sql } from 'drizzle-orm';
-import { getDb } from '../store/sqlite.js';
 import {
   type AgentErrorLogRow,
   type AgentErrorType,
@@ -22,7 +21,8 @@ import {
   type AgentType,
   agentErrorLog,
   agentInstances,
-} from './agent-schema.js';
+} from '../store/schema/agent-schema.js';
+import { getDb } from '../store/sqlite.js';
 
 // ============================================================================
 // ID generation

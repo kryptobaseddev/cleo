@@ -24,7 +24,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { NewSkillRow } from '../../store/skills-schema.js';
+import type { NewSkillRow } from '../../store/schema/skills-schema.js';
 
 describe('T9708 — canonical write-guard', () => {
   let tmpRoot: string;
@@ -256,7 +256,7 @@ describe('T9715 — applyLocalSkillPatch writes under ~/.cleo/skills + records p
     expect(written).toBe('# My Local Skill\n\nv2\n');
 
     // Patch row must be marked applied.
-    const { skillPatches } = await import('../../store/skills-schema.js');
+    const { skillPatches } = await import('../../store/schema/skills-schema.js');
     const { openSkillsDb: open } = await import('../../store/skills-db.js');
     const db = await open();
     const rows = db.select().from(skillPatches).all();

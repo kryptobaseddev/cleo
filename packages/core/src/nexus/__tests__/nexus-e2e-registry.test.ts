@@ -17,8 +17,12 @@ import type { Task } from '@cleocode/contracts';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { seedTasks } from '../../store/__tests__/test-db-helper.js';
-import { nexusAuditLog, nexusSchemaMeta, projectRegistry } from '../../store/nexus-schema.js';
 import { getNexusDb, NEXUS_SCHEMA_VERSION, resetNexusDbState } from '../../store/nexus-sqlite.js';
+import {
+  nexusAuditLog,
+  nexusSchemaMeta,
+  projectRegistry,
+} from '../../store/schema/nexus-schema.js';
 import { resetDbState } from '../../store/sqlite.js';
 import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
 import { invalidateGraphCache } from '../deps.js';

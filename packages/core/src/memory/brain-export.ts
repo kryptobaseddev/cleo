@@ -9,9 +9,9 @@
  * @epic T626
  */
 
-import type { BrainPageEdgeRow, BrainPageNodeRow } from '../store/memory-schema.js';
-import * as brainSchema from '../store/memory-schema.js';
 import { getBrainDb } from '../store/memory-sqlite.js';
+import type { BrainPageEdgeRow, BrainPageNodeRow } from '../store/schema/memory-schema.js';
+import * as brainSchema from '../store/schema/memory-schema.js';
 
 /**
  * GEXF export result with XML content.

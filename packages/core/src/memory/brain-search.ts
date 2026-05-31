@@ -15,7 +15,7 @@ import type {
   BrainLearningRow,
   BrainObservationRow,
   BrainPatternRow,
-} from '../store/memory-schema.js';
+} from '../store/schema/memory-schema.js';
 import { typedAll } from '../store/typed-query.js';
 import type { SimilarityResult } from './brain-similarity.js';
 import { searchSimilar } from './brain-similarity.js';

@@ -16,7 +16,7 @@
  * @epic T038
  */
 
-import type { AgentInstanceRow, AgentInstanceStatus } from './agent-schema.js';
+import type { AgentInstanceRow, AgentInstanceStatus } from '../store/schema/agent-schema.js';
 import { heartbeat, listAgentInstances, markCrashed } from './registry.js';
 
 // ============================================================================

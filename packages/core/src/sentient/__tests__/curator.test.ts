@@ -18,7 +18,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { NewSkillRow } from '../../store/skills-schema.js';
+import type { NewSkillRow } from '../../store/schema/skills-schema.js';
 import {
   __resetCuratorForTest,
   applyTransition,

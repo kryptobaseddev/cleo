@@ -144,7 +144,7 @@ describe('linkDecisionToTargets', () => {
     const { extractReferencedSymbols, linkDecisionToTargets } = await import(
       '../decision-cross-link.js'
     );
-    const { brainPageEdges } = await import('../../store/memory-schema.js');
+    const { brainPageEdges } = await import('../../store/schema/memory-schema.js');
 
     const refs = extractReferencedSymbols(
       'Refactored src/store/memory-schema.ts to add BrainPageNodes column',
@@ -168,7 +168,7 @@ describe('linkDecisionToTargets', () => {
     const { closeBrainDb, getBrainDb } = await import('../../store/memory-sqlite.js');
     closeBrainDb();
     const db = await getBrainDb(tempDir);
-    const { brainPageEdges } = await import('../../store/memory-schema.js');
+    const { brainPageEdges } = await import('../../store/schema/memory-schema.js');
 
     const { linkDecisionToTargets } = await import('../decision-cross-link.js');
     await linkDecisionToTargets(tempDir, 'D001', []);
@@ -220,7 +220,7 @@ describe('autoCrossLinkDecision', () => {
     const { closeBrainDb, getBrainDb } = await import('../../store/memory-sqlite.js');
     closeBrainDb();
     const db = await getBrainDb(tempDir);
-    const { brainPageEdges } = await import('../../store/memory-schema.js');
+    const { brainPageEdges } = await import('../../store/schema/memory-schema.js');
 
     const { autoCrossLinkDecision } = await import('../decision-cross-link.js');
     await autoCrossLinkDecision(

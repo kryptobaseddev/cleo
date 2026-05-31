@@ -91,7 +91,7 @@ describe('importFromHermes (T9691)', () => {
 
   async function countUsage(skillName: string): Promise<number> {
     const { openSkillsDb } = await import('../../store/skills-db.js');
-    const { skillUsage } = await import('../../store/skills-schema.js');
+    const { skillUsage } = await import('../../store/schema/skills-schema.js');
     const { eq } = await import('drizzle-orm');
     const db = await openSkillsDb({ path: dbPath });
     const rows = db.select().from(skillUsage).where(eq(skillUsage.skillName, skillName)).all();
@@ -154,7 +154,7 @@ describe('importFromHermes (T9691)', () => {
     // skills row count is unchanged; usage rows grow because we synthesize
     // each invocation — that's documented behaviour for T9691.
     const { openSkillsDb } = await import('../../store/skills-db.js');
-    const { skills } = await import('../../store/skills-schema.js');
+    const { skills } = await import('../../store/schema/skills-schema.js');
     const db = await openSkillsDb({ path: dbPath });
     const rows = db.select().from(skills).all();
     expect(rows.length).toBe(3);
@@ -171,7 +171,7 @@ describe('importFromHermes (T9691)', () => {
     expect(response.imported).toBe(3);
     expect(response.totalSynthesizedUsage).toBe(6 + 8 + 1);
     const { openSkillsDb } = await import('../../store/skills-db.js');
-    const { skills, skillUsage } = await import('../../store/skills-schema.js');
+    const { skills, skillUsage } = await import('../../store/schema/skills-schema.js');
     const db = await openSkillsDb({ path: dbPath });
     const skillsCount = db.select().from(skills).all().length;
     const usageCount = db.select().from(skillUsage).all().length;

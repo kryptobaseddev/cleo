@@ -47,7 +47,7 @@
 import { getLogger } from '../logger.js';
 import { promoteAttentionToMemory } from '../sticky/convert.js';
 import { getBrainAccessor } from '../store/memory-accessor.js';
-import type { BrainAttentionRow } from '../store/memory-schema.js';
+import type { BrainAttentionRow } from '../store/schema/memory-schema.js';
 import {
   computePromotionRationale,
   computePromotionScore,

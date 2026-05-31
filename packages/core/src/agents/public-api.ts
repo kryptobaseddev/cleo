@@ -17,7 +17,7 @@
 
 import { getProjectRoot } from '../paths.js';
 import { AgentRegistryAccessor } from '../store/agent-registry-accessor.js';
-import type { AgentInstanceRow } from './agent-schema.js';
+import type { AgentInstanceRow } from '../store/schema/agent-schema.js';
 import {
   deregisterAgent,
   getAgentInstance,

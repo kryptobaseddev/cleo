@@ -28,7 +28,7 @@
  * @architecture docs/architecture/SG-CLEO-SKILLS-architecture-v3.md §6/§7
  */
 
-import type { SkillLifecycleState } from '../store/skills-schema.js';
+import type { SkillLifecycleState } from '../store/schema/skills-schema.js';
 
 // ---------------------------------------------------------------------------
 // Arguments + return type

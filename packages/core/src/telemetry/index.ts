@@ -20,7 +20,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { and, count, desc, gt, lt, sql } from 'drizzle-orm';
 import { getCleoHome } from '../paths.js';
-import { telemetryEvents } from './schema.js';
+import { telemetryEvents } from '../store/schema/telemetry-schema.js';
 import { getTelemetryDb } from './sqlite.js';
 
 // ---------------------------------------------------------------------------
@@ -555,5 +555,5 @@ export function resetTelemetryBufferState(): void {
 // Re-exports
 // ---------------------------------------------------------------------------
 
-export * from './schema.js';
+export * from '../store/schema/telemetry-schema.js';
 export { getTelemetryDb, getTelemetryDbPath } from './sqlite.js';

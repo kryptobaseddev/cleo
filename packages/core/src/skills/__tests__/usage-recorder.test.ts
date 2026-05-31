@@ -19,7 +19,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { NewSkillRow } from '../../store/skills-schema.js';
+import type { NewSkillRow } from '../../store/schema/skills-schema.js';
 
 describe('usage-recorder (T9689)', () => {
   let tmpRoot: string;
@@ -70,7 +70,7 @@ describe('usage-recorder (T9689)', () => {
     const { flushSkillsUsage } = await import('../../store/skills-usage-queue.js');
     await flushSkillsUsage();
     const { openSkillsDb } = await import('../../store/skills-db.js');
-    const { skillUsage } = await import('../../store/skills-schema.js');
+    const { skillUsage } = await import('../../store/schema/skills-schema.js');
     const { eq } = await import('drizzle-orm');
     const db = await openSkillsDb({ path: dbPath });
     const rows = db.select().from(skillUsage).where(eq(skillUsage.skillName, skillName)).all();
@@ -93,7 +93,7 @@ describe('usage-recorder (T9689)', () => {
     expect(count).toBeGreaterThan(0);
 
     const { openSkillsDb } = await import('../../store/skills-db.js');
-    const { skillUsage } = await import('../../store/skills-schema.js');
+    const { skillUsage } = await import('../../store/schema/skills-schema.js');
     const { eq } = await import('drizzle-orm');
     const db = await openSkillsDb({ path: dbPath });
     const rows = db.select().from(skillUsage).where(eq(skillUsage.skillName, 'my-skill')).all();

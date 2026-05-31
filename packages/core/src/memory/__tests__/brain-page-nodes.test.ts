@@ -57,7 +57,7 @@ afterEach(async () => {
 /** Seed the graph with a set of nodes and edges for traversal tests. */
 async function seedGraph(projectRoot: string): Promise<void> {
   const { getBrainDb } = await import('../../store/memory-sqlite.js');
-  const { brainPageEdges, brainPageNodes } = await import('../../store/memory-schema.js');
+  const { brainPageEdges, brainPageNodes } = await import('../../store/schema/memory-schema.js');
 
   const db = await getBrainDb(projectRoot);
   const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
@@ -277,7 +277,7 @@ describe('materializeXfkEdges', () => {
   it('materializes brain_decisions.context_task_id as applies_to edges (XFKB-002)', async () => {
     const { materializeXfkEdges } = await import('../brain-page-nodes.js');
     const { getBrainDb } = await import('../../store/memory-sqlite.js');
-    const { brainDecisions } = await import('../../store/memory-schema.js');
+    const { brainDecisions } = await import('../../store/schema/memory-schema.js');
 
     // Insert a decision with a context_task_id
     const db = await getBrainDb(tempDir);
@@ -318,7 +318,7 @@ describe('materializeXfkEdges', () => {
   it('materializes brain_observations.source_session_id as produced_by edges (XFKB-004)', async () => {
     const { materializeXfkEdges } = await import('../brain-page-nodes.js');
     const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
-    const { brainObservations } = await import('../../store/memory-schema.js');
+    const { brainObservations } = await import('../../store/schema/memory-schema.js');
 
     // Insert an observation with a source_session_id using Drizzle ORM
     const db = await getBrainDb(tempDir);
@@ -354,7 +354,7 @@ describe('materializeXfkEdges', () => {
   it('is idempotent — calling twice does not create duplicate edges', async () => {
     const { materializeXfkEdges } = await import('../brain-page-nodes.js');
     const { getBrainDb } = await import('../../store/memory-sqlite.js');
-    const { brainDecisions } = await import('../../store/memory-schema.js');
+    const { brainDecisions } = await import('../../store/schema/memory-schema.js');
 
     const db = await getBrainDb(tempDir);
     const now = new Date().toISOString().replace('T', ' ').slice(0, 19);

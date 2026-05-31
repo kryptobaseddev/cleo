@@ -142,7 +142,7 @@ describe('brain_attention schema (T11371)', () => {
 
   it('rejects a raw-BLOB whole read of tags through the drizzle jsonb fromDriver', async () => {
     const { getBrainDb, closeBrainDb } = await import('../memory-sqlite.js');
-    const brainSchema = await import('../memory-schema.js');
+    const brainSchema = await import('../schema/memory-schema.js');
     const { eq } = await import('drizzle-orm');
     closeBrainDb();
 

@@ -355,12 +355,12 @@ describe('T998 — NEXUS plasticity', () => {
   // -----------------------------------------------------------------------
   describe('7. NEXUS_RELATION_TYPES includes co_changed and co_cited_in_task', () => {
     it('exports co_changed', async () => {
-      const { NEXUS_RELATION_TYPES } = await import('../../store/nexus-schema.js');
+      const { NEXUS_RELATION_TYPES } = await import('../../store/schema/nexus-schema.js');
       expect(NEXUS_RELATION_TYPES).toContain('co_changed');
     });
 
     it('exports co_cited_in_task', async () => {
-      const { NEXUS_RELATION_TYPES } = await import('../../store/nexus-schema.js');
+      const { NEXUS_RELATION_TYPES } = await import('../../store/schema/nexus-schema.js');
       expect(NEXUS_RELATION_TYPES).toContain('co_cited_in_task');
     });
   });

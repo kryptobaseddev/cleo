@@ -139,7 +139,7 @@ export default defineConfig({
         import.meta.url,
       ).pathname,
       '@cleocode/core/store/nexus-schema': new URL(
-        './packages/core/src/store/nexus-schema.ts',
+        './packages/core/src/store/schema/nexus-schema.ts',
         import.meta.url,
       ).pathname,
       // T946 sentient daemon consumes these core subpath exports at runtime.

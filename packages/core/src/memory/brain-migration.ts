@@ -12,7 +12,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getBrainAccessor } from '../store/memory-accessor.js';
-import type { NewBrainLearningRow, NewBrainPatternRow } from '../store/memory-schema.js';
+import type { NewBrainLearningRow, NewBrainPatternRow } from '../store/schema/memory-schema.js';
 
 /** Result from a migration run. */
 export interface BrainMigrationResult {

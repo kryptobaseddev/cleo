@@ -10,7 +10,7 @@
  * - `../logger.js` (getLogger)
  * - `../paths.js` (getCleoHome)
  * - `../store/data-accessor.js` (getTaskAccessor)
- * - `../store/nexus-schema.js` (Drizzle tables)
+ * - `../store/schema/nexus-schema.js` (Drizzle tables)
  * - `../store/nexus-sqlite.js` (getNexusDb)
  * - `../../config.js` (loadConfig — used by sharing module)
  *

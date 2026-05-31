@@ -14,7 +14,7 @@ import type {
 } from '@cleocode/contracts';
 import { sessionExistsInTasksDb } from '../../store/cross-db-cleanup.js';
 import { getBrainAccessor } from '../../store/memory-accessor.js';
-import type { BrainMemoryTier } from '../../store/memory-schema.js';
+import type { BrainMemoryTier } from '../../store/schema/memory-schema.js';
 import { getDb } from '../../store/sqlite.js';
 import { embedText, isEmbeddingAvailable } from '../brain-embedding.js';
 import { addGraphEdge, upsertGraphNode } from '../graph-auto-populate.js';
@@ -167,7 +167,7 @@ export async function observeBrain(
   if (!_skipGate) {
     const { verifyCandidate } = await import('../extraction-gate.js');
     const title = titleParam ?? text.slice(0, 120);
-    const resolvedSourceConf: import('../../store/memory-schema.js').BrainSourceConfidence =
+    const resolvedSourceConf: import('../../store/schema/memory-schema.js').BrainSourceConfidence =
       sourceConfidenceParam ??
       (sourceType === 'manual'
         ? 'owner'

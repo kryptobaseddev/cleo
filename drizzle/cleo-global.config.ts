@@ -44,14 +44,14 @@ import { defineConfig } from 'drizzle-kit';
 export default defineConfig({
   schema: [
     // nexus (10 tables) — cross-project code-intelligence index
-    './packages/core/src/store/nexus-schema.ts',
-    './packages/nexus/src/schema/code-index.ts',
+    './packages/core/src/store/schema/nexus-schema.ts',
+    './packages/core/src/store/schema/code-index.ts',
     // skills (4 tables) — global skills catalog
-    './packages/core/src/store/skills-schema.ts',
+    './packages/core/src/store/schema/skills-schema.ts',
     // signaldock (13 tables) — global agent identity / capabilities (folded per D1)
-    './packages/core/src/store/signaldock-schema.ts',
+    './packages/core/src/store/schema/signaldock-schema.ts',
     // brain / memory (22 tables) — SHARED with cleo-project.config.ts (global cross-project memory)
-    './packages/core/src/store/memory-schema.ts',
+    './packages/core/src/store/schema/memory-schema.ts',
   ],
   out: './packages/core/migrations/drizzle-cleo-global',
   dialect: 'sqlite',

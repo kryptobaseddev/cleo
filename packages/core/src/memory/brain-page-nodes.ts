@@ -24,10 +24,10 @@
  * @epic T1056
  */
 
-import type { BrainEdgeType, BrainNodeType } from '../store/memory-schema.js';
-import { BRAIN_EDGE_TYPES } from '../store/memory-schema.js';
 import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
 import { getNexusNativeDb } from '../store/nexus-sqlite.js';
+import type { BrainEdgeType, BrainNodeType } from '../store/schema/memory-schema.js';
+import { BRAIN_EDGE_TYPES } from '../store/schema/memory-schema.js';
 import { typedAll } from '../store/typed-query.js';
 import type { NodeContext, RelatedNode, TraceNode } from './graph-queries.js';
 import { contextBrainNode, relatedBrainNodes, traceBrainGraph } from './graph-queries.js';

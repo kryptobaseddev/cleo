@@ -73,7 +73,8 @@ async function runWatchdogTick(projectRoot: string): Promise<void> {
           {
             agentId: agent.id,
             agentType:
-              (agent.agentType as import('../../agents/agent-schema.js').AgentType) ?? 'custom',
+              (agent.agentType as import('../../store/schema/agent-schema.js').AgentType) ??
+              'custom',
             taskId: agent.taskId ?? 'unknown',
             taskType: 'unknown',
             outcome: 'failure',

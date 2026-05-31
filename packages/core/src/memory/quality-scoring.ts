@@ -17,7 +17,7 @@
  * @epic T523
  */
 
-import type { BrainMemoryTier, BrainSourceConfidence } from '../store/memory-schema.js';
+import type { BrainMemoryTier, BrainSourceConfidence } from '../store/schema/memory-schema.js';
 
 /** Minimum quality score for inclusion in search results. */
 export const QUALITY_SCORE_THRESHOLD = 0.3;

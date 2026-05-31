@@ -13,8 +13,8 @@
 
 import { randomBytes } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import type { DeriverQueueItemType } from '../store/memory-schema.js';
 import { getBrainNativeDb } from '../store/memory-sqlite.js';
+import type { DeriverQueueItemType } from '../store/schema/memory-schema.js';
 
 // ============================================================================
 // Types

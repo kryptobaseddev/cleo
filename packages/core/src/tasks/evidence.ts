@@ -1164,7 +1164,7 @@ async function validateDecision(decisionId: string, projectRoot: string): Promis
     const { eq } = await import('drizzle-orm');
     const db = await getBrainDb(projectRoot);
 
-    const brainSchema = await import('../store/memory-schema.js');
+    const brainSchema = await import('../store/schema/memory-schema.js');
     const rows = await db
       .select()
       .from(brainSchema.brainDecisions)

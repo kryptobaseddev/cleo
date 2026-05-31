@@ -15,6 +15,7 @@
  */
 
 import { and, eq, gt, isNull } from 'drizzle-orm';
+import { getBrainDb } from '../store/memory-sqlite.js';
 import {
   brainConsolidationEvents,
   brainDecisions,
@@ -22,8 +23,7 @@ import {
   brainObservations,
   brainPageEdges,
   brainPatterns,
-} from '../store/memory-schema.js';
-import { getBrainDb } from '../store/memory-sqlite.js';
+} from '../store/schema/memory-schema.js';
 import { runConsolidation } from './brain-lifecycle.js';
 
 // ---------------------------------------------------------------------------
