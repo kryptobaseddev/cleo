@@ -15,6 +15,7 @@ export {
   auditOrphanWorktrees,
 } from '../validation/doctor/checks.js';
 export * from './daemon.js';
+export * from './gc-subsystem.js';
 export * from './runner.js';
 export * from './state.js';
 export * from './transcript.js';
