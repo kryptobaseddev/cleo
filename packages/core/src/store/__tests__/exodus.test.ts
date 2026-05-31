@@ -13,9 +13,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { deriveStagingDirName, sourcesPresent } from '../exodus/plan.js';
-import { EXODUS_TARGET_SCHEMA_VERSION } from '../exodus/types.js';
 import { runExodusStatus } from '../exodus/status.js';
 import type { ExodusPlan, LegacyDbDescriptor } from '../exodus/types.js';
+import { EXODUS_TARGET_SCHEMA_VERSION } from '../exodus/types.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
