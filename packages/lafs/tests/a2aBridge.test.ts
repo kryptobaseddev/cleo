@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+// T11425: A2A runtime values moved to product-only subpath (not in CLEO-core closure)
 import {
   AGENT_CARD_PATH,
   HTTP_EXTENSION_HEADER,
@@ -6,7 +7,7 @@ import {
   createLafsArtifact,
   createTextArtifact,
   isExtensionRequired,
-} from "../src/index.js";
+} from "../src/a2a/index.js";
 
 describe("A2A bridge upstream SDK alignment (T102)", () => {
   it("exposes upstream path/header constants", () => {

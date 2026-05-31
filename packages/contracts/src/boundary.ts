@@ -747,9 +747,9 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
       root_escape: 'forbidden',
       network_egress: 'allowed',
     },
-    amendments: [],
+    amendments: ['T11425-T11427-e7-lafs-canonical'],
     rationale:
-      'Envelope + A2A bridge (11,353 LOC) consumed by 6 packages. Rust core (lafs-core + lafs-napi) handles canonical envelope serialization; TS layer is A2A express bridge + envelope validation glue (2,600 LOC a2a/* uses JS-only @a2a-js/sdk).',
+      'LAFS envelope SDK consumed by 6 packages (T11394 E7). Rust core (lafs-core + lafs-napi) is the hot-path validator wired via native-loader.ts with AJV fallback. contracts=type-SSoT, core=runtime+validate-SSoT, lafs=external-spec-SDK. A2A integration (@a2a-js/sdk) and Express ops primitives (health/shutdown/discovery) are product-only: isolated to the published `@cleocode/lafs/a2a` subpath and optional peer deps — NOT in the CLEO-core runtime closure (T11425/T11426). Budget chokepoint (applyBudgetEnforcement) is green.',
   },
   {
     module: 'runtime/gateway/mcp',

@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+// T11425: A2A runtime values moved to product-only subpath (not in CLEO-core closure)
 import {
   PushNotificationDispatcher,
   PushNotificationConfigStore,
   TaskArtifactAssembler,
   TaskEventBus,
   streamTaskEvents,
-} from "../src/index.js";
+} from "../src/a2a/index.js";
 
 afterEach(() => {
   vi.restoreAllMocks();

@@ -274,6 +274,30 @@ receive — no per-operation branching, no shape detection.
 
 ---
 
+## Amendment — T11427 (T11394 E7 / 2026-05-31) — Realized LAFS design
+
+Documents the realized design from the E7 LAFS canonical envelope epic (T11394, Saga T11387).
+
+**Role partitioning (canonical).**
+
+| Layer | Role |
+|-------|------|
+| `@cleocode/contracts` | Type SSoT — `CliEnvelope`, `CliMeta`, `LAFSPage`, `LAFSError` re-exported here; no runtime code |
+| `@cleocode/core` | Runtime + validate SSoT — `maybeValidateEnvelope()` wired into `formatSuccess()`/`formatError()` (T11420); validates in `CLEO_STRICT_ENVELOPE`/`CLEO_ENV=ci`/`NODE_ENV=test` mode |
+| `@cleocode/lafs` | External-spec SDK — `packages/lafs/` is the LAFS specification SDK; envelope.ts is the canonical type source; lafs-napi (Rust) is the hot-path validator wired via `native-loader.ts` with AJV fallback (T11421) |
+
+**Envelopes are validated (not trusted).** Per ADR-086 §3, every envelope received from an external source MUST be validated before consumption. `maybeValidateEnvelope()` is the canonical validation entry point; consumers MUST NOT bypass it.
+
+**Hot-path validator.** `packages/lafs/src/native-loader.ts` probes for the lafs-napi Rust binding and falls back to AJV when unavailable. The budget chokepoint (`applyBudgetEnforcement` / `checkBudget` / `BUDGET_EXCEEDED_CODE` from `@cleocode/lafs`) is green; regression test at `packages/cleo/src/dispatch/lib/__tests__/budget-regression.test.ts`.
+
+**Conformance as CI gate.** `scripts/lint-lafs-envelope-conformance.mjs` validates all `packages/lafs/fixtures/valid-cleo-cli-*.json` fixtures against `envelope.schema.json`; job `lafs-envelope-conformance` in `.github/workflows/ci.yml`.
+
+**A2A — product-only, not CLEO-core.** The A2A integration (`@a2a-js/sdk` + express HTTP primitives) is isolated to the published `@cleocode/lafs/a2a` subpath. Both are optional peer dependencies (T11425/T11426). The main `@cleocode/lafs` index exports A2A types only (compile-erased); runtime A2A values require `import ... from '@cleocode/lafs/a2a'`. No CLEO-core package depends on A2A at runtime.
+
+**ADR-086 conformance.** `CliEnvelope` is the canonical machine-readable CLI output shape. Writers MUST produce valid envelopes; readers MUST validate before trusting. The one-per-stdout-write discipline is enforced by `scripts/lint-stdout-write-allowlist.mjs`.
+
+---
+
 ## References
 
 - T335 — LAFS Envelope Remediation epic
@@ -295,3 +319,11 @@ receive — no per-operation branching, no shape detection.
 - `packages/cleo/src/dispatch/types.ts` — `DispatchResponse.meta` (renamed from `_meta`)
 - `scripts/lint-stdout-write-allowlist.mjs` — writer-allowlist CI gate
 - `scripts/lint-stdout-discipline.mjs` — console-write discipline CI gate
+- T11394 (Saga T11387 E7) — E7-LAFS-CANONICAL epic; T11419–T11427 leaves
+- T11425 — Retire a2a/* from CLEO-core dependency closure
+- T11426 — Right-size Express ops primitives out of CLEO-core
+- T11427 — Update ADR-039/ADR-086 + boundary.ts to realized LAFS design
+- `packages/contracts/src/boundary.ts` — lafs module entry (amendment T11425-T11427-e7-lafs-canonical)
+- `packages/lafs/src/native-loader.ts` — hot-path lafs-napi probe + AJV fallback
+- `packages/cleo/src/dispatch/lib/__tests__/budget-regression.test.ts` — budget chokepoint regression
+- `scripts/lint-lafs-envelope-conformance.mjs` — CI conformance gate (T11422)

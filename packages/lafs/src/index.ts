@@ -6,11 +6,20 @@
  * @remarks
  * This is the main entry point for the `@cleocode/lafs` package. It re-exports all
  * public modules including envelope creation, validation, conformance checking,
- * error registry, flag resolution, MVI projection, A2A integration, and operational
- * primitives (health, shutdown, circuit breaker).
+ * error registry, flag resolution, MVI projection, and operational primitives
+ * (health, shutdown, circuit breaker).
+ *
+ * A2A integration is available as a product-only subpath: `@cleocode/lafs/a2a`.
+ * It requires `@a2a-js/sdk` (optional peer dependency) and is NOT part of the
+ * CLEO-core runtime closure. Import directly when needed:
+ * ```ts
+ * import { TaskManager } from '@cleocode/lafs/a2a';
+ * ```
  */
 
-// A2A SDK types (non-conflicting subset)
+// A2A type-only re-exports from main index (T11425: types are compile-erased;
+// runtime values moved to product-only subpath '@cleocode/lafs/a2a').
+// For runtime A2A symbols, import from '@cleocode/lafs/a2a'.
 export type {
   Artifact,
   BuildLafsExtensionOptions,
@@ -41,49 +50,6 @@ export type {
   TaskStatusUpdateEvent,
   TaskStreamEvent,
   TextPart,
-} from './a2a/index.js';
-// A2A Integration
-// Explicitly re-export to avoid naming conflicts with discovery types
-// (AgentCard, AgentSkill, AgentCapabilities, AgentExtension).
-// For full A2A types, import from '@cleocode/lafs/a2a'.
-export {
-  A2A_EXTENSIONS_HEADER,
-  AGENT_CARD_PATH,
-  attachLafsEnvelope,
-  buildLafsExtension,
-  createFileArtifact,
-  createLafsArtifact,
-  createTextArtifact,
-  ExtensionSupportRequiredError,
-  extensionNegotiationMiddleware,
-  formatExtensionsHeader,
-  getExtensionParams,
-  HTTP_EXTENSION_HEADER,
-  INTERRUPTED_STATES,
-  InvalidStateTransitionError,
-  isExtensionRequired,
-  isInterruptedState,
-  isTerminalState,
-  isValidTransition,
-  // Extensions (T098)
-  LAFS_EXTENSION_URI,
-  // Bridge
-  LafsA2AResult,
-  negotiateExtensions,
-  PushNotificationConfigStore,
-  PushNotificationDispatcher,
-  parseExtensionsHeader,
-  streamTaskEvents,
-  TaskArtifactAssembler,
-  // Streaming and Async (T101)
-  TaskEventBus,
-  TaskImmutabilityError,
-  TaskManager,
-  TaskNotFoundError,
-  TaskRefinementError,
-  // Task Lifecycle (T099)
-  TERMINAL_STATES,
-  VALID_TRANSITIONS,
 } from './a2a/index.js';
 export * from './budgetEnforcement.js';
 export * from './circuit-breaker/index.js';
