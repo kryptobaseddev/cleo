@@ -12,6 +12,11 @@
  * @saga T11283 SG-COGNITIVE-SUBSTRATE
  */
 
+export {
+  type AdvanceWithPersistResult,
+  advanceGoalWithPersist,
+} from './advance-with-persist.js';
+export { type ArmGoalLoopParams, armGoalLoop } from './arm.js';
 export { buildContinuation, CONTINUATION_MAX_BYTES } from './continuation.js';
 export {
   CRITICAL_GATE_COUNT,

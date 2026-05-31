@@ -62,6 +62,8 @@ function mkTickOpts(projectRoot: string, overrides: Partial<TickOptions> = {}): 
     statePath: join(projectRoot, SENTIENT_STATE_FILE),
     pickTask: async () => null,
     spawn: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
+    // T11498: skip re-verify gate in dream-tick tests (not testing gate behaviour).
+    skipReVerify: true,
     ...overrides,
   };
 }

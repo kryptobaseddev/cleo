@@ -98,9 +98,9 @@ export const PACKAGE_DEPS = Object.freeze({
   'packages/runtime/dist/': Object.freeze(['packages/contracts/dist/', 'packages/core/dist/']),
   'packages/adapters/dist/': Object.freeze(['packages/contracts/dist/', 'packages/core/dist/']),
 
-  // Wave 7: playbooks + mcp-adapter — both depend on core only.
+  // Wave 7: playbooks — depends on core only.
+  // packages/mcp-adapter was deleted (R8 · T11259); MCP transport lives in @cleocode/runtime/gateway/mcp.
   'packages/playbooks/dist/': Object.freeze(['packages/contracts/dist/', 'packages/core/dist/']),
-  'packages/mcp-adapter/dist/': Object.freeze(['packages/contracts/dist/', 'packages/core/dist/']),
 
   // Wave 8: cleo (esbuild) depends on adapters, playbooks, runtime, core.
   'packages/cleo/dist/': Object.freeze([

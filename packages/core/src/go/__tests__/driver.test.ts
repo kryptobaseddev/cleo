@@ -24,6 +24,7 @@ import type { SagaNextResult } from '../../sagas/next.js';
 const mockSagaNext = vi.fn();
 const mockOrchestrateReady = vi.fn();
 const mockStartIvtr = vi.fn();
+const mockArmGoalLoop = vi.fn();
 
 vi.mock('../../sagas/next.js', () => ({
   sagaNext: (...args: unknown[]) => mockSagaNext(...args),
@@ -35,6 +36,10 @@ vi.mock('../../orchestrate/query-ops.js', () => ({
 
 vi.mock('../../lifecycle/ivtr-loop.js', () => ({
   startIvtr: (...args: unknown[]) => mockStartIvtr(...args),
+}));
+
+vi.mock('../../goal/arm.js', () => ({
+  armGoalLoop: (...args: unknown[]) => mockArmGoalLoop(...args),
 }));
 
 vi.mock('../../paths.js', () => ({
@@ -90,6 +95,7 @@ describe('cleoGo driver (T11494)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStartIvtr.mockResolvedValue({ taskId: 'T999', currentPhase: 'implement' });
+    mockArmGoalLoop.mockResolvedValue({ id: 'g-armed-1', status: 'active' });
   });
 
   afterEach(() => {
@@ -108,6 +114,8 @@ describe('cleoGo driver (T11494)', () => {
       const result = await cleoGo();
       expect(result.success).toBe(true);
       expect(result.data?.outcome.action).toBe('complete');
+      // No saga selected → no goal to arm.
+      expect(result.data?.armedGoalId).toBeNull();
     });
   });
 
@@ -301,6 +309,52 @@ describe('cleoGo driver (T11494)', () => {
 
       const result = await cleoGo({ sagaId: 'T100' });
       expect(result.success).toBe(false);
+    });
+  });
+
+  // ---- AC3: goal loop armed when a saga is selected ----------------------
+
+  describe('AC3: goal loop armed (T11496)', () => {
+    it('calls armGoalLoop with the selected sagaId', async () => {
+      mockSagaNext.mockResolvedValue({
+        success: true,
+        data: makeSagaNextResult({ sagaId: 'T100', sagaTitle: 'My Saga' }),
+      });
+      mockOrchestrateReady.mockResolvedValue(makeReadyResult([]));
+      mockArmGoalLoop.mockResolvedValue({ id: 'g-armed-saga', status: 'active' });
+
+      const result = await cleoGo({ sagaId: 'T100' });
+
+      expect(mockArmGoalLoop).toHaveBeenCalledOnce();
+      expect(mockArmGoalLoop.mock.calls[0]?.[0]).toMatchObject({ sagaId: 'T100' });
+      expect(result.data?.armedGoalId).toBe('g-armed-saga');
+    });
+
+    it('returns armedGoalId: null for the complete action', async () => {
+      mockSagaNext.mockResolvedValue({
+        success: true,
+        data: makeSagaNextResult({ sagaId: '', activeSagaCount: 0 }),
+      });
+
+      const result = await cleoGo();
+      expect(mockArmGoalLoop).not.toHaveBeenCalled();
+      expect(result.data?.armedGoalId).toBeNull();
+    });
+
+    it('is non-fatal: returns a result even when armGoalLoop throws', async () => {
+      mockSagaNext.mockResolvedValue({
+        success: true,
+        data: makeSagaNextResult({ sagaId: 'T100' }),
+      });
+      mockOrchestrateReady.mockResolvedValue(makeReadyResult([]));
+      mockArmGoalLoop.mockRejectedValue(new Error('DB locked'));
+
+      const result = await cleoGo({ sagaId: 'T100' });
+
+      // Driver must not fail — armedGoalId stays null when arm fails.
+      expect(result.success).toBe(true);
+      expect(result.data?.armedGoalId).toBeNull();
+      expect(result.data?.diagnostics.some((d) => d.includes('non-fatal'))).toBe(true);
     });
   });
 

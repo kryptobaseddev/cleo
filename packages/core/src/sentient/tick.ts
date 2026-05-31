@@ -794,24 +794,32 @@ export async function runTick(options: TickOptions): Promise<TickOutcome> {
 
   // -- Classify + record -----------------------------------------------------
   if (spawnResult.exitCode === 0) {
-    // T1589: orchestrator-side re-verification gate. Worker self-reports
-    // exit=0 but we MUST NOT trust it without re-running gates against
-    // ground truth (lie #4 in HONEST-HANDOFF-2026-04-28.md). The gate is
-    // skipped under --dry-run and when explicitly disabled; tests inject
-    // an `options.reVerify` stub instead of spawning real subprocesses.
+    // T1589 / T11498 (E6-TRUSTWORTHY-COMPLETION): orchestrator-side
+    // re-verification gate. Worker self-reports exit=0 but we MUST NOT trust
+    // it without re-running gates against ground truth (lie #4 in
+    // HONEST-HANDOFF-2026-04-28.md).
+    //
+    // REQUIRED (AC1): this gate is ALWAYS active in production unless the tick
+    // is running under `--dry-run` or `skipReVerify` is explicitly set to true.
+    // `options.reVerify` overrides the verifier for tests; production callers
+    // leave it unset and the real `reVerifyWorkerReport` fills in as the default.
+    // The previous conditional `options.reVerify !== undefined` made the gate a
+    // no-op when callers omitted the override — the `?? reVerifyWorkerReport`
+    // default makes it unconditional (T11498 AC1).
     const skipReVerify = options.skipReVerify === true || options.dryRun === true;
-    if (!skipReVerify && options.reVerify !== undefined) {
+    if (!skipReVerify) {
+      const verifier = options.reVerify ?? reVerifyWorkerReport;
       const report: WorkerReport = {
         taskId: task.id,
         selfReportSuccess: true,
         evidenceAtoms: ['tool:test'],
         touchedFiles: [],
       };
-      const verdict = await options.reVerify(report, { projectRoot });
+      const verdict = await verifier(report, { projectRoot });
       if (!verdict.accepted) {
         const currentAttempts = existingStuck?.attempts ?? 0;
         const nextAttempts = currentAttempts + 1;
-        const failureReason = `worker re-verify rejected (T1589): exit=0 but gates failed`;
+        const failureReason = `worker re-verify rejected (T1589/T11498): exit=0 but gates failed`;
         await writeFailureReceipt(
           projectRoot,
           task.id,
@@ -820,9 +828,21 @@ export async function runTick(options: TickOptions): Promise<TickOutcome> {
           failureReason,
         );
         await incrementStats(statePath, { tasksFailed: 1, ticksExecuted: 1 });
+        // Record backoff / stuck entry exactly like the normal failure path so
+        // the re-verify gate integrates into the existing retry machinery.
+        const backoff =
+          RETRY_BACKOFF_MS[nextAttempts - 1] ?? RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1];
+        const stuckRecord: StuckTaskRecord = {
+          attempts: nextAttempts,
+          lastFailureAt: new Date(now).toISOString(),
+          nextRetryAt: nextAttempts >= MAX_TASK_ATTEMPTS ? Number.MAX_SAFE_INTEGER : now + backoff,
+          lastReason: failureReason,
+        };
+        const postReject = await readSentientState(statePath);
         await patchSentientState(statePath, {
+          stuckTasks: { ...postReject.stuckTasks, [task.id]: stuckRecord },
           activeTaskId: null,
-          lastTickAt: new Date(Date.now()).toISOString(),
+          lastTickAt: new Date(now).toISOString(),
         });
         return {
           kind: 'failure',
@@ -831,10 +851,6 @@ export async function runTick(options: TickOptions): Promise<TickOutcome> {
         };
       }
     }
-    // Reference reVerifyWorkerReport so the import is retained even when
-    // tests inject a stub via options.reVerify (production callers can
-    // assign options.reVerify = reVerifyWorkerReport).
-    void reVerifyWorkerReport;
 
     await writeSuccessReceipt(projectRoot, task.id, spawnResult.exitCode);
     // Clear stuck entry on success.

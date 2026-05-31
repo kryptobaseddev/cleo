@@ -752,9 +752,9 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
       'Envelope + A2A bridge (11,353 LOC) consumed by 6 packages. Rust core (lafs-core + lafs-napi) handles canonical envelope serialization; TS layer is A2A express bridge + envelope validation glue (2,600 LOC a2a/* uses JS-only @a2a-js/sdk).',
   },
   {
-    module: 'mcp-adapter',
+    module: 'runtime/gateway/mcp',
     intent: 'orchestration-glue',
-    tsWrapper: 'packages/mcp-adapter',
+    tsWrapper: 'packages/runtime/src/gateway/mcp',
     canonicalHome: 'cleocode',
     perfBudget: {
       latency_p50_ms: 100,
@@ -767,7 +767,7 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
     },
     amendments: [],
     rationale:
-      'External MCP bridge (379 LOC) — 0 in-repo consumers (binary only); talks to `cleo` via runtime subprocess, not an npm/workspace dep. MCP SDK is JS-native; TS-only fit. REMOVED from the npm publish surface (T11399 / E1 · SG-PACKAGE-ARCH): no published @cleocode/* package depends on it. To be routed through the R3 gateway as a transport adapter rather than published standalone.',
+      'MCP transport adapter (R8 · T11259) — the standalone `packages/mcp-adapter` source was deleted and consolidated into `@cleocode/runtime/gateway/mcp` (R3-T4 · T11448). Routes every `tools/call` through the unified gateway (`source: "mcp"`) rather than calling `@cleocode/core` directly. Zero separate npm publish; the adapter ships as part of `@cleocode/runtime`.',
   },
   {
     module: 'nexus',
@@ -941,5 +941,5 @@ export interface AtomicToolBoundary {
 export const ATOMIC_TOOL_BOUNDARY: AtomicToolBoundary = {
   primitiveHomes: ['packages/core/src/tools', 'packages/contracts/src/tools'],
   skillsHome: 'packages/skills',
-  consumersNoRedefine: ['packages/mcp-adapter', 'packages/caamp', 'packages/cleo-os'],
+  consumersNoRedefine: ['packages/runtime', 'packages/caamp', 'packages/cleo-os'],
 };

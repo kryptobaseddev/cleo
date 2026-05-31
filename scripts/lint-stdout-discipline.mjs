@@ -40,8 +40,9 @@
  *       (separate binary) not yet migrated to the render SSoT.
  *     - `packages/core/src/sentient/daemon.ts` — daemon log lines
  *       (not user-facing rendering; could move to logger).
- *     - `packages/mcp-adapter/src/server.ts` — MCP stdio framing
- *       (protocol-level, not rendering).
+ *     - `packages/runtime/src/gateway/mcp/server.ts` — MCP stdio framing
+ *       (protocol-level, not rendering; uses injected `output.write()`, not
+ *       `process.stdout.write()` directly; `packages/mcp-adapter` deleted R8 · T11259).
  *     - `packages/caamp/scripts/provider-research.ts` — script in package
  *       (research output, fits scripts/ rationale by intent).
  *

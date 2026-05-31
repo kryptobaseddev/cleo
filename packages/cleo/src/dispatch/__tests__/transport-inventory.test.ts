@@ -7,22 +7,25 @@
  *
  *   - CLI adapter (baseline truth)  — the frozen gateway response contract that
  *     every `cleo` op flows through ({ data, meta:{…}, success }).
- *   - MCP stub                      — the 3 tools in `@cleocode/mcp-adapter`
- *     `ALL_TOOLS` (a real regression net: changing the MCP surface fails here).
+ *   - MCP adapter                   — the 3 tools exposed via the runtime gateway
+ *     `packages/runtime/src/gateway/mcp` (R8 · T11259: standalone `packages/mcp-adapter`
+ *     deleted; the tool surface is now generated from OPERATIONS behind `mcpExposed`).
  *   - Studio SSE                    — the event-ordering of the two live SSE
  *     streams (tasks/events + brain/stream).
  *   - Topology invariants          — `packages/gateway` does NOT exist;
- *     `packages/adapters` is the agent-PROVIDER package (unrelated to transport).
+ *     `packages/adapters` is the agent-PROVIDER package (unrelated to transport);
+ *     `packages/mcp-adapter` does NOT exist (deleted R8 · T11259).
  *
  * Cross-package surfaces (MCP, Studio) are asserted against SOURCE rather than
  * imported, because `packages/cleo` must not take a runtime dependency on
- * `@cleocode/mcp-adapter` or `@cleocode/studio` (package-boundary). Only the
+ * `@cleocode/runtime` or `@cleocode/studio` (package-boundary). Only the
  * `@cleocode/contracts/gateway` contract (a real cleo dep) is imported.
  *
  * The accompanying spec (slug `r3-transport-inventory`) pins the file:line
  * topology. See R3-T2 (T11446) for the promoted gateway contract.
  *
  * @task T11445
+ * @task T11259
  * @epic T11254
  * @saga T11243
  */
@@ -87,21 +90,24 @@ describe('R3-T1 transport inventory — CLI adapter (baseline truth)', () => {
   });
 });
 
-describe('R3-T1 transport inventory — MCP stub (3 tools)', () => {
-  const toolsSrc = readSrc('packages/mcp-adapter/src/tools.ts');
+describe('R3-T1 transport inventory — MCP adapter (3 tools via runtime gateway)', () => {
+  // R8 (T11259): standalone packages/mcp-adapter deleted; MCP surface now lives at
+  // packages/runtime/src/gateway/mcp and is generated from OPERATIONS behind mcpExposed.
+  const toolsListSrc = readSrc('packages/runtime/src/gateway/mcp/tools-list.ts');
 
-  it('exposes exactly the 3 current sentient tools via ALL_TOOLS (regression net)', () => {
-    if (!toolsSrc) return; // mcp-adapter absent in a trimmed checkout
-    expect(toolsSrc).toContain('cleo_sentient_status');
-    expect(toolsSrc).toContain('cleo_sentient_propose_list');
-    expect(toolsSrc).toContain('cleo_sentient_propose_enable');
-    expect(toolsSrc).toMatch(
-      /ALL_TOOLS[^=]*=\s*\[TOOL_SENTIENT_STATUS,\s*TOOL_PROPOSE_LIST,\s*TOOL_PROPOSE_ENABLE\]/,
-    );
+  it('runtime gateway/mcp exposes exactly the 3 sentient tools (regression net)', () => {
+    if (!toolsListSrc) return; // trimmed checkout
+    expect(toolsListSrc).toContain('cleo_sentient_status');
+    expect(toolsListSrc).toContain('cleo_sentient_propose_list');
+    expect(toolsListSrc).toContain('cleo_sentient_propose_enable');
   });
 
-  it('`mcp` is a member of the gateway 4-transport union (target for R3-T4 routing)', () => {
+  it('`mcp` is a member of the gateway 4-transport union', () => {
     expect(GATEWAY_SOURCES).toContain('mcp');
+  });
+
+  it('packages/mcp-adapter no longer exists (deleted R8 · T11259)', () => {
+    expect(existsSync(join(REPO_ROOT, 'packages/mcp-adapter'))).toBe(false);
   });
 });
 
@@ -129,6 +135,10 @@ describe('R3-T1 transport inventory — topology invariants', () => {
     expect(existsSync(join(REPO_ROOT, 'packages/gateway'))).toBe(false);
   });
 
+  it('there is NO packages/mcp-adapter (source deleted R8 · T11259; adapter lives in runtime)', () => {
+    expect(existsSync(join(REPO_ROOT, 'packages/mcp-adapter'))).toBe(false);
+  });
+
   it('packages/adapters is the agent-PROVIDER package, NOT a transport adapter', () => {
     const pkgPath = join(REPO_ROOT, 'packages/adapters/package.json');
     if (!existsSync(pkgPath)) return;
@@ -138,6 +148,8 @@ describe('R3-T1 transport inventory — topology invariants', () => {
   it('all four transports now have their adapters (R3-T4 mcp · T5 rpc · T6 http)', () => {
     expect(GATEWAY_SOURCES).toContain('rpc');
     expect(GATEWAY_SOURCES).toContain('http');
+    // R3-T4 (T11448) landed the MCP adapter under the runtime gateway.
+    expect(existsSync(join(REPO_ROOT, 'packages/runtime/src/gateway/mcp'))).toBe(true);
     // R3-T5 (T11449) landed the CLI-RPC adapter under the runtime gateway.
     expect(existsSync(join(REPO_ROOT, 'packages/runtime/src/gateway/rpc'))).toBe(true);
     // R3-T6 (T11450) landed the HTTP unary + SSE adapter under the runtime gateway.

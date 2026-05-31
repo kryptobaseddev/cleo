@@ -6,7 +6,7 @@
  * persistence are validated against the same surface external agents see.
  *
  * Coverage:
- *  - Subcommand registration: `cleo goal` exposes set/status/subgoal/append.
+ *  - Subcommand registration: `cleo goal` exposes set/status/advance/subgoal/append.
  *  - set → append → status round-trip (append persists; status reflects it).
  *  - subgoal links parentGoalId to the active goal.
  *  - status empty-state envelope ({ active: null }) when no goal exists.
@@ -133,10 +133,11 @@ interface CittyCommand {
 }
 
 describe('cleo goal — subcommand registration', () => {
-  it('exposes set, status, subgoal, and append', () => {
+  it('exposes set, status, advance, subgoal, and append', () => {
     const cmd = goalCommand as unknown as CittyCommand;
     expect(cmd.subCommands).toBeDefined();
     expect(Object.keys(cmd.subCommands ?? {}).sort()).toEqual([
+      'advance',
       'append',
       'set',
       'status',
@@ -190,6 +191,39 @@ describe.runIf(CLI_DIST_AVAILABLE)('cleo goal — end-to-end', () => {
     // --task makes it an evidence-judged task-completion goal.
     expect(subEnv.data?.goalKind.kind).toBe('task-completion');
     expect(subEnv.data?.goalKind.targetTaskId).toBe('T123');
+  });
+
+  it('advance returns a result envelope for an existing active goal (T11496 AC1)', () => {
+    // Create a goal first.
+    const setRes = runCli(['goal', 'set', 'advance me', '--turns', '5'], projectRoot, AGENT_A);
+    const setEnv = parseEnvelope<GoalData>(setRes.stdout);
+    const goalId = setEnv.data?.id;
+    expect(goalId).toBeTruthy();
+
+    // Advance it one turn.
+    const advRes = runCli(['goal', 'advance', goalId as string], projectRoot, AGENT_A);
+    const advEnv = parseEnvelope<{
+      advanceResult: { nextStatus: string; turnsRemaining: number };
+      goal: { status: string };
+      continuation: { role: string; content: string } | null;
+    }>(advRes.stdout);
+
+    expect(advEnv.success).toBe(true);
+    // Status should still be active (fuzzy goal, no LLM judge → keep-going).
+    expect(advEnv.data?.advanceResult.nextStatus).toBe('active');
+    // Goal record is updated.
+    expect(advEnv.data?.goal.status).toBe('active');
+    // Continuation is present for an active goal.
+    expect(advEnv.data?.continuation).not.toBeNull();
+    expect(advEnv.data?.continuation?.role).toBe('user');
+    expect(typeof advEnv.data?.continuation?.content).toBe('string');
+  });
+
+  it('advance returns E_NOT_FOUND for an unknown goalId (T11496 AC1)', () => {
+    const res = runCli(['goal', 'advance', 'no-such-goal'], projectRoot, AGENT_A);
+    const env = parseEnvelope(res.stdout);
+    expect(env.success).toBe(false);
+    expect(env.error?.codeName).toBe('E_NOT_FOUND');
   });
 
   it('set with an invalid --task is rejected', () => {

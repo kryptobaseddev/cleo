@@ -194,7 +194,9 @@ jobs:
           # P1) / fetched from the GitHub Release (Pattern P2), so no separate
           # per-platform npm package is published. The crate (crates/worktree-napi)
           # stays in the loop for local napi-rs build/version sync.
-          for pkg in packages/contracts packages/paths packages/core packages/caamp packages/lafs packages/cant packages/nexus packages/brain packages/runtime packages/adapters packages/cleo packages/cleo-os packages/agents packages/skills packages/playbooks packages/worktree packages/git-shim packages/mcp-adapter packages/studio packages/animations crates/worktree-napi; do
+          # packages/mcp-adapter removed (R8 · T11259): source deleted, consolidated
+          # into @cleocode/runtime/gateway/mcp. No separate version sync needed.
+          for pkg in packages/contracts packages/paths packages/core packages/caamp packages/lafs packages/cant packages/nexus packages/brain packages/runtime packages/adapters packages/cleo packages/cleo-os packages/agents packages/skills packages/playbooks packages/worktree packages/git-shim packages/studio packages/animations crates/worktree-napi; do
             if [[ -f "$pkg/package.json" ]]; then
               jq --arg v "$VERSION" '.version = $v' "$pkg/package.json" > "$pkg/package.tmp" \
                 && mv "$pkg/package.tmp" "$pkg/package.json"
