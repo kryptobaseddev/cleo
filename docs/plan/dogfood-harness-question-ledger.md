@@ -520,13 +520,109 @@ Next review trigger: before executing any task from a multi-day-old decompositio
 
 ---
 
+## DHQ-032..036 (Wave-A continuation session — preserved from closed PR #843; tracked in T11480 children)
+
+> **Resolution status (2026-05-31):** these were already captured + owned by the SG-CORE-SELF-TOOLING epic **T11480**; **DHQ-034→T11481, DHQ-036/033→T11482, DHQ-035→T11483 SHIPPED this session (PR #845)**; **DHQ-032/027→T11484** (pending, gated on T11456). Preserved here from PR #843 (closed as redundant — the tasks are the tracking SoT).
+
+### DHQ-032 — No Core "create/register new workspace package" tool — 6 disjoint manual edits, each missing one = a distinct CI failure
+
+Question: Why does adding ONE new workspace package (e.g. a pure leaf consumed by published `core`/`cleo`) require six unrelated manual edits in six files, with no Core scaffold operation and no single validator?
+
+Owner surface: Core scaffolding/packaging SDK (T10878 / T10965); relates to DHQ-027 (relocate) as the "create" sibling.
+
+Observed (dominant friction this session): shipping `@cleocode/utils` and wiring it into the published bundles took **~11 force-push reships**, each fixing exactly ONE of these wiring points discovered via a ~12-min CI round-trip: (1) `dependencies` (not devDeps) of cleo+core; (2) project references in `tsconfig.json` (root) + `packages/cleo/tsconfig.json` + `packages/core/tsconfig.json`; (3) `build.mjs` Wave-1 `buildPkg('@cleocode/utils', ...)` so `tsc --emitDeclarationOnly` resolves its `dist/*.d.ts`; (4) `build.mjs` `bundle-core-deps` AND `bundle-cleo-deps` esbuild inline maps so the published bundle inlines its source instead of emitting an unresolvable external import; (5) a `BOUNDARY_REGISTRY` entry in `packages/contracts/src/boundary.ts`; (6) `private:true` + NO standalone README (a new `*.md` trips Canon Drift). Missing #1/#2 = TS2307 typecheck; #3 = core `emitDeclarationOnly` TS2307 (Build & Verify); #4 = broken `import '@cleocode/utils'` in the npm tarball; #5 = Boundary Registry ORPHAN; #6 = Canon Drift fail. The pattern exactly mirrors `@cleocode/paths`, but nothing encodes that — an agent rediscovers all six the hard way.
+
+Answer vehicle: a Core `addWorkspacePackage({name, role, consumers, private})` tool that writes the package skeleton AND every wiring point (deps, tsconfig refs, build.mjs buildPkg + inline maps when consumed by a bundled package, boundary entry) atomically, returning a single dry-run diff + a completeness checklist. CLI wraps it.
+
+Status: open / newly captured.
+
+Next review trigger: next new workspace package.
+
+### DHQ-033 — `cleo add-batch` input contract is brittle and agent-hostile (acceptance MUST be array; `--output json` invalid) — silently fails the primary planning tool
+
+Question: Why does `add-batch` reject `acceptance` as a string with a cryptic per-item path error, and why is `--output json` an invalid mode on a mutation that emits JSON, when batch creation is THE planning-scaffold path (DHQ-016)?
+
+Owner surface: Core `tasks.add-batch` contract + output-mode contract (T10986 / DHQ-006 CLI-truth class).
+
+Observed: every `add-batch` of the Wave-A and SG-CI decompositions **failed silently for ~an hour** because (a) `acceptance` must be a JSON array — a string yields `E_VAL_TYPE: /tasks/0/acceptance expected array, received string` (I read the per-element failures as "phantom results" at first), and (b) `--output json` returns `invalid --output mode "json" (valid: envelope,id,table,count,silent)`. The decomposition only succeeded once acceptance was passed as `["criterion", ...]`. Both are exactly the DHQ-016 "Core planning-scaffold first" gap: the highest-value batch tool has the most brittle input contract and no pre-submit shape validation.
+
+Answer vehicle: Core add-batch should accept `acceptance` as string-or-array (split a `|`-delimited string like single `add` does) OR return a top-level actionable error before per-item validation; and the output-mode set should accept `json`/`envelope` as synonyms. Surface a `--dry-run` shape-validation that names the offending field once.
+
+Status: open / newly captured (concrete instance of DHQ-016 + DHQ-006).
+
+Next review trigger: next multi-task decomposition.
+
+### DHQ-034 — `cleo list --parent <id> --output count` returns a bogus global count, not the child count
+
+Question: Why does `cleo list --parent X --output count` return the same large number (2472) for every parent instead of that parent's child count?
+
+Owner surface: Core `tasks.list` count projection (T10965 ergonomics).
+
+Observed: I used `--output count` to verify decomposition child counts and it returned `2472` identically for all 11 distinct parents — a global/unfiltered count, ignoring `--parent`. The reliable workaround was `cleo list --parent X --output id | grep -c '^T'`. An agent that trusts `--output count` gets wrong verification and may re-create or mis-assess work. Likely the count path bypasses the parent filter applied to the id/table paths.
+
+Answer vehicle: Core fix so `--output count` honors the same filter predicate as `--output id`; regression test asserting `count == len(ids)` for a filtered list.
+
+Status: open / newly captured (confirmed bug).
+
+Next review trigger: next time an agent verifies a parent/child count.
+
+### DHQ-035 — Contract-literal authoring (e.g. BOUNDARY_REGISTRY intent) has no author-time validation; invalid enum → TS2322 cascading to ~15 gates
+
+Question: Why can an agent author a `BOUNDARY_REGISTRY` entry with an invalid `WorkloadIntent` (`'ts-only'`) and only learn it via a TypeScript compile error that cascades to ~15 downstream CI gates, instead of an immediate "valid values are …" signal?
+
+Owner surface: Core contracts authoring ergonomics + the stale-dist false-pass (DHQ-028 sibling).
+
+Observed: I guessed `intent: 'ts-only'` (the 10 valid `WorkloadIntent` values are cpu-bound | io-coordination | ffi-surface | orchestration-glue | data-manifest | harness-adapter | frontend | scaffold-pending-consumer | migration-pending | migrated-out; pure TS leaves use `orchestration-glue`). That single bad literal broke `@cleocode/contracts` compilation → `Build & Verify`, `Type Check`, and ~13 other gates all went red, obscuring the one-line cause. Compounded by the **stale-dist false-pass**: local `node build.mjs` / `pnpm --filter build` PASSED because a prior `dist/` existed — the type error only surfaced in CI's clean `--force` build. To faithfully repro CI locally an agent must `rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo` first, which is non-obvious.
+
+Answer vehicle: (1) a Core "add boundary entry" helper that validates `intent`/shape against the live enum and suggests the right value (or a zod-validated authoring path); (2) a Core `verifyCleanBuild` affordance that builds from a clean dist so an agent never trusts a stale-dist pass (extends DHQ-028 `verifyImports`).
+
+Status: open / newly captured.
+
+Next review trigger: next contracts-registry edit or any "passes locally, fails CI" build.
+
+### DHQ-036 — `cleo saga create` does not return an agent-parseable stable ID; sequential-ID guessing fails
+
+Question: Why must an agent guess the new saga's ID (and then the epics'/tasks' IDs) instead of receiving a structured `{created:[id]}` it can chain into `saga add` / `add-batch --parent`?
+
+Owner surface: Core `tasks.saga.create` return contract (DHQ-016 scaffold class).
+
+Observed: `cleo saga create` emitted a full task record on stdout; my inline parse assumed the wrong path and I guessed the ID as `T11472` (sequential from prior creates) — but the real ID was `T11460` (non-contiguous, because intervening creates consumed IDs). Every downstream `saga add T11472 …` and `add-batch --parent T11472` then failed with `Parent not found`, and I had to `cleo find` the saga, re-run epics/tasks under the correct parent. A transactional scaffold (DHQ-016) that returns a stable ID map would eliminate this entire failure class.
+
+Answer vehicle: the DHQ-016 Core planning-scaffold API: one mutation that creates saga+epics+tasks, wires membership, and returns `{sagaId, epicIds[], taskIds[]}` — no guessing, no sequential-ID assumptions.
+
+Status: open / newly captured (concrete instance of DHQ-016).
+
+Next review trigger: next saga/epic creation.
+
+### Frictions encountered (this session)
+
+- **DHQ-032 dominated** (≈11 reships for one leaf package); **DHQ-033/036 cost ~1h of phantom-looking add-batch failures**; **DHQ-035 cost a 15-gate red herring** from one bad enum literal.
+- **`git checkout -- <files>` mid-flow reverted an uncommitted migration**, and a subsequent plumbing `hash-object` then captured the reverted (regressed) files → a bad commit I had to rebuild from the last-known-good tree. Process lesson: when the working tree is half-reverted, rebuild from `git read-tree <GOOD_COMMIT>` and overlay only net-new files; ALWAYS assert staged contents (`git cat-file -p :file | grep`) before `commit-tree`.
+- **Shared-checkout contention** (100+ concurrent worktrees + another agent holding `.git/index.lock`): the working-tree/index path is unreliable. **Pure git plumbing** (`GIT_INDEX_FILE` temp index + `commit-tree` + `git push <sha>:refs/heads/...`) is immune to both worktree churn AND index.lock — this was the only reliable ship path and should arguably be a documented Core "safe commit" affordance for multi-agent repos.
+- **Harness-level (not cleo): tool-result delivery outage** caused fabricated/stale "success" results for ops that did not persist; I had to BELIEVE GROUND TRUTH (re-check `gh pr view` / `cleo show` existence) over any success string. Re-verify after any reported success when the channel is degraded.
+- **DHQ-010 confirmed again** (global `cleo` runs npm dist, not local build); **DHQ-030 confirmed again** (refactor/research completions still need overrides; `pr:<n>`-satisfies-`implemented` remains the highest-leverage single fix).
+- **Positives**: admin-merge of CI-green branches scaled well; `cleo docs add` + `cleo memory observe` reliable; the arch-gate baseline pattern remains excellent; the BOUNDARY_REGISTRY orphan gate correctly caught the unregistered package (it did its job).
+
 ## Session assessment 2026-05-31 (E2 substrate + R3 gateway — 18 PRs + shipped v2026.5.131)
 
 Largest dogfood run yet: **18 implementation PRs merged + a shipped release** (`@cleocode/cleo@2026.5.131`). Completed BOTH keystone epics fully — **E2 T11245 7/7** (consolidated dual-scope schema: project 87 + global 49 tables, idempotency keys, v3 migrations, parity/FK) and **R3 T11254 10/10** (gateway unification: contract v1.0 + CLI/MCP/RPC/HTTP-SSE adapters + daemon subsystem + cross-transport parity). ~20 background worker-agents orchestrated through a worktree → full-CI-oracle-validate → PR → merge → evidence → complete pipeline. The frictions below are **CORE-API/TOOLS-first** and ranked by agent-time cost. `#843` reserves DHQ-032..036, so new IDs start at DHQ-037.
 
 ### Reconciliation note (2026-05-31)
 
-Reconciled against DHQ-001..036 before logging. Only **2 genuinely-new** questions get new IDs (**DHQ-037**, **DHQ-042**). The rest of this session's frictions are **escalations/mass-confirmations of already-logged DHQs** and are recorded as dated notes UNDER their existing owner (no duplicate IDs) in the "Escalations" subsection below — each names the EXISTING owner epic for next-session remediation. (New child tasks were intentionally NOT filed: the owner epics T10974/T10878/T10936 are already at the depth-3 cap, and the ledger owner-surface field is the canonical logging mechanism per the ledger protocol.)
+Reconciled against DHQ-001..036 before logging. Only **3 genuinely-new** questions get new IDs (**DHQ-037**, **DHQ-042**, **DHQ-044**); the rest are escalations of already-logged DHQs (no duplicate IDs).
+
+**Now TRACKED as real tasks under the EPIC owners (the `E-*` epics accept task children; only the task-level owner T10974 hit the depth-3 cap — itself filed as DHQ-044):**
+
+| DHQ | Tracking task | Owner epic |
+|---|---|---|
+| DHQ-030/041 — `pr:<n>` ⇒ `implemented` | **T11487** | T10965 (E-AGENT-DOGFOOD-CORE-ERGONOMICS) |
+| DHQ-028 — `verifyTypes` + `verifyRuntimeBoot` | **T11488** | T10878 (E-CORE-TOOLS-LIFECYCLE-SDK) |
+| DHQ-037/019 — spawn worktree preflight + build-ready | **T11489** | T10936 (E-WORKTREE-HYGIENE-RECONCILIATION) |
+| DHQ-042 — release-prepare preflight timeout | **T11490** | T11302 (E-RELEASE-AUTOSCOPE) |
+| DHQ-044 — depth-3 cap blocks task-owner remediation | **T11491** | T10965 |
+| DHQ-027/043 — `relocateModule` (+ SSoT path-strings) | **T11484** | T11480 (SG-CORE-SELF-TOOLING) |
+
+These are no longer "frivolously logged" — they are owned, decomposed work that will surface in `cleo next`/`cleo focus` for the owning epics.
 
 ### NEW questions (not covered by DHQ-001..036)
 
