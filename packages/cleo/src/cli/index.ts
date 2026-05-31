@@ -51,7 +51,7 @@ import { lazyCommand } from './lazy-command.js';
 import { didYouMean } from './lib/did-you-mean.js';
 import { maybePromptFirstRun } from './lib/first-run-detection.js';
 import { resolveFormat } from './middleware/output-format.js';
-import { isOutputMode, type OutputMode, setOutputMode } from './output-context.js';
+import { resolveOutputMode, setOutputMode } from './output-context.js';
 import { setProjectionOptOut } from './projection-context.js';
 import { resolveSubCommandForHelp } from './resolve-subcommand.js';
 import { setSummaryMode } from './summary-context.js';
@@ -173,8 +173,11 @@ async function startCli(): Promise<void> {
   // mode here gives the operator/agent a deterministic stderr error with a
   // valid-modes list instead of silently falling through to the default.
   if (outputModeRaw !== undefined) {
-    if (!isOutputMode(outputModeRaw)) {
-      const validModes = ['envelope', 'id', 'table', 'count', 'silent'];
+    // T11482 (DHQ-033): `--output json` resolves to the canonical `envelope`
+    // payload via resolveOutputMode's alias table rather than being rejected.
+    const resolvedMode = resolveOutputMode(outputModeRaw);
+    if (resolvedMode === undefined) {
+      const validModes = ['envelope', 'json', 'id', 'table', 'count', 'silent'];
       const suggestions = didYouMean(outputModeRaw, validModes, 3);
       process.stderr.write(
         `Error: invalid --output mode "${outputModeRaw}"\n` +
@@ -185,7 +188,7 @@ async function startCli(): Promise<void> {
       }
       process.exit(2);
     }
-    setOutputMode(outputModeRaw as OutputMode);
+    setOutputMode(resolvedMode);
   }
 
   // T9932 — 1-line-per-record summary render. See summary-context.ts for the

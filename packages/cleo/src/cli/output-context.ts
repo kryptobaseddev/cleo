@@ -36,6 +36,30 @@ export const OUTPUT_MODES = ['envelope', 'id', 'table', 'count', 'silent'] as co
 /** Resolved `--output` mode for the current CLI invocation. */
 export type OutputMode = (typeof OUTPUT_MODES)[number];
 
+/**
+ * Accepted `--output` aliases that resolve to a canonical {@link OutputMode}.
+ *
+ * `json` is the natural request for the canonical LAFS JSON payload — operators
+ * and agents reach for `--output json` reflexively, and rejecting it (T11482 ·
+ * DHQ-033) is a needless papercut. It resolves to the default `envelope` mode.
+ */
+const OUTPUT_MODE_ALIASES: Readonly<Record<string, OutputMode>> = {
+  json: 'envelope',
+};
+
+/**
+ * Resolve a raw `--output` value to a canonical {@link OutputMode}, honouring
+ * the {@link OUTPUT_MODE_ALIASES} table (e.g. `json` → `envelope`).
+ *
+ * @param value - The raw `--output` argument as typed on the command line.
+ * @returns The canonical mode, or `undefined` when the value is neither a
+ *          canonical mode nor a known alias.
+ */
+export function resolveOutputMode(value: string): OutputMode | undefined {
+  if (isOutputMode(value)) return value;
+  return OUTPUT_MODE_ALIASES[value];
+}
+
 /** Current mode. Defaults to `'envelope'` (the canonical LAFS payload). */
 let currentMode: OutputMode = 'envelope';
 

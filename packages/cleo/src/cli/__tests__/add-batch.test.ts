@@ -297,3 +297,51 @@ describe('addBatchCommand dispatch behaviour (file input)', () => {
     expect(callArgs).not.toHaveProperty('dryRun');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Tests — per-task acceptance as a JSON array (T11482 · DHQ-036)
+//
+// validateOperationInput runs for real here (only dispatch + fs are mocked),
+// so these assert the actual INPUT_CONTRACTS['tasks.add-batch'] schema accepts
+// a per-task `acceptance` array and rejects a pipe-delimited string with the
+// x-fix-hint. This locks the "acceptance must be a JSON array" contract.
+// ---------------------------------------------------------------------------
+
+describe('addBatchCommand — per-task acceptance array (T11482)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('passes validation and dispatches when acceptance is a multi-item JSON array', async () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileMock.mockResolvedValue(
+      JSON.stringify([{ title: 'Multi-AC task', acceptance: ['ac1', 'ac2', 'ac3'] }]),
+    );
+    dispatchRawMock.mockResolvedValueOnce(makeSuccessEnvelope([{ id: 'T100', title: 'Multi-AC' }]));
+
+    const result = await invokeAddBatch({ file: '/tmp/tasks.json' });
+
+    expect(result.exitCode).not.toBe(6);
+    expect(dispatchRawMock).toHaveBeenCalledTimes(1);
+    const callArgs = dispatchRawMock.mock.calls[0]?.[3] as {
+      tasks: Array<{ acceptance: string[] }>;
+    };
+    expect(callArgs.tasks[0]?.acceptance).toEqual(['ac1', 'ac2', 'ac3']);
+  });
+
+  it('rejects a pipe-delimited acceptance STRING with exit 6 (acceptance must be an array)', async () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileMock.mockResolvedValue(
+      JSON.stringify([{ title: 'Bad AC', acceptance: 'ac1|ac2|ac3' }]),
+    );
+
+    const result = await invokeAddBatch({ file: '/tmp/tasks.json' });
+
+    expect(dispatchRawMock).not.toHaveBeenCalled();
+    expect(result.exitCode).toBe(6);
+  });
+});

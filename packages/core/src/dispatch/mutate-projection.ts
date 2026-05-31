@@ -239,6 +239,36 @@ export const MUTATE_PROJECTION_PLANS: Readonly<Record<string, MutateProjectionPl
       return envelope;
     },
   },
+  'tasks.saga.create': {
+    operation: 'tasks.saga.create',
+    extract: (data) => {
+      // saga.create returns `{task: TaskRecord, duplicate, dryRun?, ...}` (see
+      // core/sagas/create.ts). Without a plan the full record flowed through and
+      // `/data/created/0` was unresolvable, so `cleo saga create` surfaced no
+      // parseable saga ID (T11482 · DHQ-036). Project the created saga ID into
+      // the standard `created` bucket exactly like `tasks.add`.
+      const task = data['task'];
+      const createdIds = readTaskIdsFromBucket(data, 'created');
+      const id = readTaskId(task) ?? createdIds[0];
+      const status =
+        task && typeof task === 'object' ? (task as Record<string, unknown>)['status'] : undefined;
+      const envelope = makeEnvelope('created', id ? [id] : []);
+      if (typeof status === 'string') envelope['status'] = status;
+      if (data['duplicate'] === true) envelope['duplicate'] = true;
+      if (data['dryRun'] === true) {
+        envelope['dryRun'] = true;
+        const wouldCreate = data['wouldCreate'];
+        if (typeof wouldCreate === 'number') envelope['wouldCreate'] = wouldCreate;
+        const wouldAffect = data['wouldAffect'];
+        if (typeof wouldAffect === 'number') envelope['wouldAffect'] = wouldAffect;
+        const validatedCount = data['validatedCount'];
+        if (typeof validatedCount === 'number') envelope['validatedCount'] = validatedCount;
+        const insertedCount = data['insertedCount'];
+        envelope['insertedCount'] = typeof insertedCount === 'number' ? insertedCount : 0;
+      }
+      return envelope;
+    },
+  },
   'tasks.update': {
     operation: 'tasks.update',
     extract: (data) => {

@@ -399,6 +399,61 @@ describe('applyMutateProjection — tasks.delete', () => {
   });
 });
 
+describe('applyMutateProjection — tasks.saga.create (T11482 · DHQ-036)', () => {
+  it('declares a projection plan so saga.create surfaces a created ID', () => {
+    expect(MUTATE_PROJECTION_PLANS['tasks.saga.create']).toBeDefined();
+  });
+
+  it('projects the created saga ID into the `created` bucket', () => {
+    // saga.create returns `{task: TaskRecord, duplicate, ...}` — see
+    // core/sagas/create.ts. Without this plan `/data/created/0` was
+    // unresolvable, so `cleo saga create` surfaced no parseable saga ID.
+    const data = {
+      task: { ...FULL_TASK, id: 'T11480', type: 'saga', status: 'pending' },
+      duplicate: false,
+    };
+    const out = applyMutateProjection(data, 'tasks.saga.create', 'mvi') as Record<string, unknown>;
+    expect(out['count']).toBe(1);
+    expect(out['created']).toEqual(['T11480']);
+    expect(out['updated']).toEqual([]);
+    expect(out['deleted']).toEqual([]);
+    expect(out['ids']).toEqual(['T11480']);
+    expect(out['status']).toBe('pending');
+  });
+
+  it('projects the dry-run placeholder id and stamps dryRun metadata', () => {
+    // Dry-run synthesises a placeholder task id ("T???"), consistent with the
+    // tasks.add dry-run path. The projection surfaces that placeholder under
+    // `created` and stamps the dry-run summary fields so `--field` consumers
+    // and the count renderer behave identically to a live create.
+    const data = {
+      task: { id: 'T???', type: 'saga' },
+      duplicate: false,
+      dryRun: true,
+      wouldCreate: 1,
+      wouldAffect: 1,
+      validatedCount: 1,
+      insertedCount: 0,
+    };
+    const out = applyMutateProjection(data, 'tasks.saga.create', 'mvi') as Record<string, unknown>;
+    expect(out['count']).toBe(1);
+    expect(out['created']).toEqual(['T???']);
+    expect(out['dryRun']).toBe(true);
+    expect(out['wouldCreate']).toBe(1);
+    expect(out['insertedCount']).toBe(0);
+  });
+
+  it('surfaces the duplicate flag when the saga already exists', () => {
+    const data = {
+      task: { ...FULL_TASK, id: 'T11480', type: 'saga' },
+      duplicate: true,
+    };
+    const out = applyMutateProjection(data, 'tasks.saga.create', 'mvi') as Record<string, unknown>;
+    expect(out['created']).toEqual(['T11480']);
+    expect(out['duplicate']).toBe(true);
+  });
+});
+
 describe('applyMutateProjection — unknown ops + edge cases', () => {
   it('returns data unchanged when the op has no plan', () => {
     const data = { task: FULL_TASK };
