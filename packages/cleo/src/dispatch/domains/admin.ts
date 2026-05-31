@@ -70,13 +70,6 @@ import {
   writeSnapshot,
 } from '@cleocode/core/internal';
 import {
-  defineTypedHandler,
-  lafsError,
-  lafsSuccess,
-  type OpsFromCore,
-  typedDispatch,
-} from '../adapters/typed.js';
-import {
   configGet,
   configListPresets,
   configSet,
@@ -85,7 +78,14 @@ import {
   initProject,
   sessionContextInject,
   systemHooksMatrix,
-} from '../lib/engine.js';
+} from '@cleocode/runtime/gateway';
+import {
+  defineTypedHandler,
+  lafsError,
+  lafsSuccess,
+  type OpsFromCore,
+  typedDispatch,
+} from '../adapters/typed.js';
 import { OPERATIONS } from '../registry.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import {
@@ -485,7 +485,7 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
   },
 
   job: async (params) => {
-    const { getJobManager } = await import('../lib/job-manager-accessor.js');
+    const { getJobManager } = await import('@cleocode/runtime/gateway');
     const action = params.action ?? 'status';
 
     if (action === 'list') {
@@ -1006,7 +1006,7 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
   },
 
   'job.cancel': async (params) => {
-    const { getJobManager } = await import('../lib/job-manager-accessor.js');
+    const { getJobManager } = await import('@cleocode/runtime/gateway');
     const mgr = getJobManager();
     if (!mgr) {
       return lafsError(

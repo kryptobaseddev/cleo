@@ -27,9 +27,13 @@ import type {
   AdminSmokeProviderResult as SmokeProviderResult,
   AdminSpawnStatus as SpawnStatus,
 } from '@cleocode/contracts/operations/admin';
-import { BRAIN_DB_FILENAME, CLEO_DIR_NAME } from '../../../cli/paths.js';
-import type { EngineResult } from '../../engines/_error.js';
-import { engineError, engineSuccess } from '../../engines/_error.js';
+import {
+  BRAIN_DB_FILENAME,
+  CLEO_DIR_NAME,
+  type EngineResult,
+  engineError,
+  engineSuccess,
+} from '@cleocode/runtime/gateway';
 
 // ---------------------------------------------------------------------------
 // Known provider IDs (ADR-049)

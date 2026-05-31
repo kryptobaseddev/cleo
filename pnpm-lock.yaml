@@ -748,6 +748,9 @@ importers:
       '@cleocode/core':
         specifier: workspace:*
         version: link:../core
+      drizzle-orm:
+        specifier: 1.0.0-rc.3
+        version: 1.0.0-rc.3(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6)
     devDependencies:
       tsup:
         specifier: ^8.0.0

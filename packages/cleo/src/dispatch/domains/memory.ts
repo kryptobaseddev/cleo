@@ -60,7 +60,7 @@ import {
   memoryReasonWhy,
   memorySearchHybrid,
   memoryTimeline,
-} from '../lib/engine.js';
+} from '@cleocode/runtime/gateway';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import {
   errorResult,

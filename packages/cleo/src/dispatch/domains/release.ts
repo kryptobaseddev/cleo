@@ -43,7 +43,6 @@ import type {
   ValidateChangelogOptions,
 } from '@cleocode/core/internal';
 import { getLogger, getProjectRoot, resolveWorktreeRouting } from '@cleocode/core/internal';
-import type { OpsFromCore } from '../adapters/typed.js';
 import {
   releaseGateCheck,
   releaseIvtrAutoSuggest,
@@ -51,7 +50,8 @@ import {
   releasePlan,
   releaseReconcileV2,
   validateChangelog,
-} from '../lib/engine.js';
+} from '@cleocode/runtime/gateway';
+import type { OpsFromCore } from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { errorResult, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
 

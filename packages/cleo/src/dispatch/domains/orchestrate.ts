@@ -29,9 +29,8 @@ import {
   pivotTask,
   showTessera,
 } from '@cleocode/core/internal';
-import { CLEO_DIR_NAME, WORKFLOWS_SUBDIR } from '../../cli/paths.js';
-import type { OpsFromCore } from '../adapters/typed.js';
 import {
+  CLEO_DIR_NAME,
   orchestrateAnalyze,
   orchestrateBootstrap,
   orchestrateContext,
@@ -52,7 +51,9 @@ import {
   sessionContextInject,
   sessionEnd,
   sessionStatus,
-} from '../lib/engine.js';
+  WORKFLOWS_SUBDIR,
+} from '@cleocode/runtime/gateway';
+import type { OpsFromCore } from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { errorResult, getListParams, handleErrorResult, wrapResult } from './_base.js';
 import { dispatchMeta } from './_meta.js';

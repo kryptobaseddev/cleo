@@ -25,7 +25,8 @@
   },
   "dependencies": {
     "@cleocode/contracts": "workspace:*",
-    "@cleocode/core": "workspace:*"
+    "@cleocode/core": "workspace:*",
+    "drizzle-orm": "1.0.0-rc.3"
   },
   "devDependencies": {
     "tsup": "^8.0.0",

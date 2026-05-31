@@ -40,14 +40,6 @@ import {
   sagaRollup as coreSagaRollup,
 } from '@cleocode/core/sagas';
 import {
-  defineTypedHandler,
-  lafsError,
-  lafsSuccess,
-  type OpsFromCore,
-  typedDispatch,
-  wrapCoreResult,
-} from '../adapters/typed.js';
-import {
   addTaskWithSessionScope,
   completeTaskStrict,
   taskAnalyze,
@@ -92,7 +84,15 @@ import {
   taskUnclaim,
   taskUpdate,
   taskWorkHistory,
-} from '../lib/engine.js';
+} from '@cleocode/runtime/gateway';
+import {
+  defineTypedHandler,
+  lafsError,
+  lafsSuccess,
+  type OpsFromCore,
+  typedDispatch,
+  wrapCoreResult,
+} from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import {
   envelopeToEngineResult,

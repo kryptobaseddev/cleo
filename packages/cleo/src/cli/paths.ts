@@ -13,15 +13,31 @@
  * file MUST NOT import from other files inside `packages/cleo/src/` to avoid
  * circular-import risk (it is a pure constants/helpers leaf module).
  *
+ * @remarks
+ * `CLEO_DIR_NAME`, `WORKFLOWS_SUBDIR`, and `BRAIN_DB_FILENAME` are now owned by
+ * `@cleocode/runtime/gateway` (R3-K1 · T11455 · SG-RUNTIME-UNIFICATION) — the
+ * gateway domain handlers consume them, so the canonical definition lives in the
+ * runtime layer. They are re-exported here (single SSoT, no drift) so the rest
+ * of the CLI keeps importing from its established `cli/paths.ts` surface.
+ *
  * @task T090
+ * @task T11455
  */
 
 // ============================================================================
 // Directory names
 // ============================================================================
 
-/** Name of the project-local CLEO data directory. */
-export const CLEO_DIR_NAME = '.cleo' as const;
+// Canonical definitions of the gateway-shared constants live in
+// `@cleocode/runtime/gateway`; imported here so the backup/restore/doctor CLI
+// code keeps a single import surface (and so the local backup-file lists below
+// can interpolate them). Their `as const` literal types are preserved across
+// the import + re-export. This `@cleocode/runtime` import is external to
+// `packages/cleo/src/` — it does not reintroduce the in-package circular-import
+// risk the module header warns against.
+import { BRAIN_DB_FILENAME, CLEO_DIR_NAME, WORKFLOWS_SUBDIR } from '@cleocode/runtime/gateway';
+
+export { BRAIN_DB_FILENAME, CLEO_DIR_NAME, WORKFLOWS_SUBDIR };
 
 /** Subdirectory under .cleo/ that stores internal-state files for context tracking. */
 export const CONTEXT_STATES_SUBDIR = 'context-states' as const;
@@ -32,8 +48,8 @@ export const AGENTS_SUBDIR = 'agents' as const;
 /** Subdirectory under .cleo/ that stores CANT workflow files (legacy path). */
 export const CANT_AGENTS_SUBDIR = 'cant/agents' as const;
 
-/** Subdirectory under .cleo/ that stores CANT workflow definitions. */
-export const WORKFLOWS_SUBDIR = 'workflows' as const;
+// WORKFLOWS_SUBDIR is re-exported from `@cleocode/runtime/gateway` at the top
+// of this module (relocated · R3-K1 · T11455).
 
 /** Subdirectory under .cleo/ for metrics data (e.g. COMPLIANCE.jsonl). */
 export const METRICS_SUBDIR = 'metrics' as const;
@@ -54,8 +70,8 @@ export const RESTORE_IMPORTED_SUBDIR = 'restore-imported' as const;
 /** Project-local SQLite database for task data. */
 export const TASKS_DB_FILENAME = 'tasks.db' as const;
 
-/** Project-local SQLite database for cognitive memory (BRAIN). */
-export const BRAIN_DB_FILENAME = 'brain.db' as const;
+// BRAIN_DB_FILENAME is re-exported from `@cleocode/runtime/gateway` at the top
+// of this module (relocated · R3-K1 · T11455).
 
 /** Project-local SQLite database for inter-agent messaging (CONDUIT). */
 export const CONDUIT_DB_FILENAME = 'conduit.db' as const;

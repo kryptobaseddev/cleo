@@ -90,6 +90,7 @@ import {
   nexusWhy,
   nexusWiki,
 } from '@cleocode/core/internal';
+import { stampNexusMeta } from '@cleocode/runtime/gateway';
 import {
   defineTypedHandler,
   lafsError,
@@ -98,7 +99,6 @@ import {
   typedDispatch,
   wrapCoreResult,
 } from '../adapters/typed.js';
-import { stampNexusMeta } from '../nexus-decorator.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import {
   envelopeToEngineResult,

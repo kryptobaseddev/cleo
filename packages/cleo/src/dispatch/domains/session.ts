@@ -35,16 +35,6 @@ import {
   lintSessionForCanonViolations,
   sessions,
 } from '@cleocode/core/internal';
-import { eq } from 'drizzle-orm';
-import {
-  defineTypedHandler,
-  lafsError,
-  lafsSuccess,
-  type OpsFromCore,
-  typedDispatch,
-  wrapCoreResult,
-} from '../adapters/typed.js';
-import { bindSession, unbindSession } from '../context/session-context.js';
 import {
   sessionAdopt,
   sessionBriefing,
@@ -65,7 +55,17 @@ import {
   sessionStart,
   sessionStatus,
   sessionSuspend,
-} from '../lib/engine.js';
+} from '@cleocode/runtime/gateway';
+import { eq } from 'drizzle-orm';
+import {
+  defineTypedHandler,
+  lafsError,
+  lafsSuccess,
+  type OpsFromCore,
+  typedDispatch,
+  wrapCoreResult,
+} from '../adapters/typed.js';
+import { bindSession, unbindSession } from '../context/session-context.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { envelopeToEngineResult, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
 
