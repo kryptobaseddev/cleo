@@ -1,5 +1,44 @@
 # Changelog
 
+## [2026.5.132] (2026-05-31)
+
+### Added
+
+- R4: sentient daemon subsystem adapter in @cleocode/runtime (SG-RUNTIME-UNIFICATION) _(provenance: [T11255](https://github.com/kryptobaseddev/cleo/search?q=T11255&type=commits); [#865](https://github.com/kryptobaseddev/cleo/pull/865))_
+- verifyTypes + verifyRuntimeBoot evidence helpers (DHQ-028) _(provenance: [T11488](https://github.com/kryptobaseddev/cleo/search?q=T11488&type=commits); [#868](https://github.com/kryptobaseddev/cleo/pull/868))_
+- spawn worktree preflight + release-prepare sharding + depth-cap guidance (DHQ) _(provenance: [T11489](https://github.com/kryptobaseddev/cleo/search?q=T11489&type=commits), [T11490](https://github.com/kryptobaseddev/cleo/search?q=T11490&type=commits), [T11491](https://github.com/kryptobaseddev/cleo/search?q=T11491&type=commits); [#864](https://github.com/kryptobaseddev/cleo/pull/864))_
+- E1-SAGA-RESOLVE: sagaNext() core primitive + cleo saga next + cleo workgraph status + LOOM arg-swap fix (SG-AUTOPILOT) _(provenance: [T11493](https://github.com/kryptobaseddev/cleo/search?q=T11493&type=commits); [#863](https://github.com/kryptobaseddev/cleo/pull/863))_
+- E2-CLEO-GO: autopilot driver + cleo go command (SG-AUTOPILOT) _(provenance: [T11494](https://github.com/kryptobaseddev/cleo/search?q=T11494&type=commits); [#866](https://github.com/kryptobaseddev/cleo/pull/866))_
+- E3: classifyReadiness grill-gate predicate (SG-AUTOPILOT) _(provenance: [T11495](https://github.com/kryptobaseddev/cleo/search?q=T11495&type=commits); [#871](https://github.com/kryptobaseddev/cleo/pull/871))_
+- E4: cleo goal advance + Stop-hook goal loop (SG-AUTOPILOT) _(provenance: [T11496](https://github.com/kryptobaseddev/cleo/search?q=T11496&type=commits); [#874](https://github.com/kryptobaseddev/cleo/pull/874))_
+- E6: required worker re-verification gate — trustworthy completion (SG-AUTOPILOT) _(provenance: [T11498](https://github.com/kryptobaseddev/cleo/search?q=T11498&type=commits); [#873](https://github.com/kryptobaseddev/cleo/pull/873))_
+- E4 dual-scope DB chokepoint — openDualScopeDb + @cleocode/core/db subpath + idempotent write helpers (T11247 · SG-DB-SUBSTRATE-V2) _(provenance: [T11512](https://github.com/kryptobaseddev/cleo/search?q=T11512&type=commits), [T11513](https://github.com/kryptobaseddev/cleo/search?q=T11513&type=commits), [T11514](https://github.com/kryptobaseddev/cleo/search?q=T11514&type=commits), [T11515](https://github.com/kryptobaseddev/cleo/search?q=T11515&type=commits); [#867](https://github.com/kryptobaseddev/cleo/pull/867))_
+
+### Changed
+
+- R5: migrate gc daemon to runtime daemon subsystem (SG-RUNTIME-UNIFICATION) _(provenance: [T11256](https://github.com/kryptobaseddev/cleo/search?q=T11256&type=commits); [#869](https://github.com/kryptobaseddev/cleo/pull/869))_
+- R6: migrate cleo web command to daemon subsystem (SG-RUNTIME-UNIFICATION) _(provenance: [T11257](https://github.com/kryptobaseddev/cleo/search?q=T11257&type=commits); [#870](https://github.com/kryptobaseddev/cleo/pull/870))_
+- R7: migrate docs-viewer standalone spawn to daemon subsystem via createDocsViewerSubsystem+defineSubsystem _(provenance: [T11258](https://github.com/kryptobaseddev/cleo/search?q=T11258&type=commits), [T11508](https://github.com/kryptobaseddev/cleo/search?q=T11508&type=commits), [T11509](https://github.com/kryptobaseddev/cleo/search?q=T11509&type=commits))_
+- R8 — Delete standalone @cleocode/mcp-adapter; MCP transport consolidated into @cleocode/runtime/gateway/mcp _(provenance: [T11259](https://github.com/kryptobaseddev/cleo/search?q=T11259&type=commits), [T11510](https://github.com/kryptobaseddev/cleo/search?q=T11510&type=commits), [T11511](https://github.com/kryptobaseddev/cleo/search?q=T11511&type=commits))_
+
+### Fixed
+
+- pr:<n> atom now satisfies the implemented gate (DHQ-030/T9838) _(provenance: [T11487](https://github.com/kryptobaseddev/cleo/search?q=T11487&type=commits); [#862](https://github.com/kryptobaseddev/cleo/pull/862))_
+
+### Deprecated
+
+
+
+### Removed
+
+
+
+### Security
+
+
+
+### BREAKING CHANGES
+
 ## [2026.5.131] (2026-05-31)
 
 ### Added
