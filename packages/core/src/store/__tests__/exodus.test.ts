@@ -26,6 +26,7 @@ import type { DatabaseSync as DatabaseSyncType } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { deriveStagingDirName, sourcesPresent } from '../exodus/plan.js';
 import { runExodusStatus } from '../exodus/status.js';
+import { resolveConsolidatedTableName } from '../exodus/table-name-map.js';
 import type { ExodusPlan, LegacyDbDescriptor } from '../exodus/types.js';
 import { EXODUS_TARGET_SCHEMA_VERSION } from '../exodus/types.js';
 import { runExodusVerify } from '../exodus/verify.js';
@@ -565,5 +566,422 @@ describe('T11531 regression — runExodusMigrate copies all tables from all sour
 
     targetProjectDb.close();
     targetGlobalDb.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T11532 REGRESSION — name-mapping + column-drift + verify rowid fix
+//
+// These tests specifically cover the three root causes identified in T11532:
+//
+//   ROOT CAUSE 1: legacy unprefixed source table ('tasks') → prefixed target
+//                 ('tasks_tasks'). Without the mapping, INSERT copies 0 rows.
+//   ROOT CAUSE 2: target has extra column source lacks ('extra_col'). Without
+//                 intersection copy, the INSERT fails with "no such column".
+//   ROOT CAUSE 3: verify crashes with 'no such column: rowid' on WITHOUT ROWID
+//                 tables before reporting any mismatches (safety net broken).
+//
+// The migration test uses the SAME mock-openDualScopeDb pattern as T11531.
+// The verify test is direct (no mock needed — uses hand-crafted fixture DBs).
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a source DB with an UNPREFIXED table and a target DB with the
+ * corresponding PREFIXED table that also has an EXTRA column.
+ *
+ * This exercises both ROOT CAUSE 1 (name-mapping) and ROOT CAUSE 2 (column
+ * drift) in a single fixture.
+ *
+ * DB Open Guard Gate 3: allowed in test files for fixture seeding.
+ */
+function createNameMappingFixture(
+  sourcePath: string,
+  targetPath: string,
+  legacyName: string,
+  consolidatedName: string,
+  rowCount: number,
+): void {
+  // Source: legacy unprefixed table
+  const src = new DatabaseSync(sourcePath);
+  try {
+    src.exec(`CREATE TABLE "${legacyName}" (id INTEGER PRIMARY KEY, val TEXT)`);
+    for (let i = 1; i <= rowCount; i++) {
+      src.exec(`INSERT INTO "${legacyName}" VALUES (${i}, 'row-${i}')`);
+    }
+  } finally {
+    src.close();
+  }
+
+  // Target: consolidated prefixed table WITH an extra column the source lacks
+  const tgt = new DatabaseSync(targetPath);
+  try {
+    tgt.exec(
+      `CREATE TABLE "${consolidatedName}" (id INTEGER PRIMARY KEY, val TEXT, extra_col TEXT DEFAULT NULL)`,
+    );
+  } finally {
+    tgt.close();
+  }
+}
+
+describe('T11532 regression — resolveConsolidatedTableName (name-mapping unit tests)', () => {
+  it('maps tasks.db unprefixed table to tasks_ prefix', () => {
+    expect(resolveConsolidatedTableName('tasks', 'tasks')).toEqual({
+      kind: 'mapped',
+      targetName: 'tasks_tasks',
+    });
+    expect(resolveConsolidatedTableName('tasks', 'commit_files')).toEqual({
+      kind: 'mapped',
+      targetName: 'tasks_commit_files',
+    });
+    expect(resolveConsolidatedTableName('tasks', 'sessions')).toEqual({
+      kind: 'mapped',
+      targetName: 'tasks_sessions',
+    });
+  });
+
+  it('maps conduit.db unprefixed tables to conduit_ prefix', () => {
+    expect(resolveConsolidatedTableName('conduit', 'messages')).toEqual({
+      kind: 'mapped',
+      targetName: 'conduit_messages',
+    });
+  });
+
+  it('maps brain.db already-prefixed tables to themselves (identity)', () => {
+    expect(resolveConsolidatedTableName('brain (project)', 'brain_observations')).toEqual({
+      kind: 'mapped',
+      targetName: 'brain_observations',
+    });
+    expect(resolveConsolidatedTableName('brain (project)', 'brain_patterns')).toEqual({
+      kind: 'mapped',
+      targetName: 'brain_patterns',
+    });
+  });
+
+  it('maps brain.db sticky_tags to brain_sticky_tags (lost prefix case)', () => {
+    expect(resolveConsolidatedTableName('brain (project)', 'sticky_tags')).toEqual({
+      kind: 'mapped',
+      targetName: 'brain_sticky_tags',
+    });
+  });
+
+  it('returns skip for brain_usage_log (orphan telemetry)', () => {
+    const r = resolveConsolidatedTableName('brain (project)', 'brain_usage_log');
+    expect(r.kind).toBe('skip');
+  });
+
+  it('returns skip for brain_embeddings (vec0 virtual table)', () => {
+    const r = resolveConsolidatedTableName('brain (project)', 'brain_embeddings');
+    expect(r.kind).toBe('skip');
+  });
+
+  it('maps nexus.db unprefixed tables to nexus_ prefix', () => {
+    expect(resolveConsolidatedTableName('nexus', 'project_registry')).toEqual({
+      kind: 'mapped',
+      targetName: 'nexus_project_registry',
+    });
+    expect(resolveConsolidatedTableName('nexus', 'user_profile')).toEqual({
+      kind: 'mapped',
+      targetName: 'nexus_user_profile',
+    });
+  });
+
+  it('maps nexus.db already-prefixed tables to themselves (identity)', () => {
+    expect(resolveConsolidatedTableName('nexus', 'nexus_audit_log')).toEqual({
+      kind: 'mapped',
+      targetName: 'nexus_audit_log',
+    });
+    expect(resolveConsolidatedTableName('nexus', 'nexus_nodes')).toEqual({
+      kind: 'mapped',
+      targetName: 'nexus_nodes',
+    });
+  });
+
+  it('maps signaldock.db sessions to signaldock_sessions (not tasks_sessions)', () => {
+    // disambiguation: signaldock.db has its own 'sessions' table
+    expect(resolveConsolidatedTableName('signaldock', 'sessions')).toEqual({
+      kind: 'mapped',
+      targetName: 'signaldock_sessions',
+    });
+  });
+
+  it('maps tasks.db attachments to docs_attachments (not conduit_attachments)', () => {
+    // disambiguation: tasks.db has 'attachments' from attachments.ts → docs_attachments
+    expect(resolveConsolidatedTableName('tasks', 'attachments')).toEqual({
+      kind: 'mapped',
+      targetName: 'docs_attachments',
+    });
+  });
+
+  it('maps conduit.db attachments to conduit_attachments', () => {
+    // disambiguation: conduit.db has its own 'attachments' → conduit_attachments
+    expect(resolveConsolidatedTableName('conduit', 'attachments')).toEqual({
+      kind: 'mapped',
+      targetName: 'conduit_attachments',
+    });
+  });
+
+  it('maps skills.db tables to skills_ prefix', () => {
+    expect(resolveConsolidatedTableName('skills', 'skills')).toEqual({
+      kind: 'mapped',
+      targetName: 'skills_skills',
+    });
+    expect(resolveConsolidatedTableName('skills', 'skill_usage')).toEqual({
+      kind: 'mapped',
+      targetName: 'skills_skill_usage',
+    });
+  });
+});
+
+describe('T11532 regression — runExodusMigrate: unprefixed source → prefixed target + column drift', () => {
+  let tmpDir: string;
+  let sourceTasksPath: string;
+  let sourceConduitPath: string;
+  let targetProjectPath: string;
+  let targetGlobalPath: string;
+  let stagingDir: string;
+
+  beforeEach(() => {
+    tmpDir = makeTempDir();
+    sourceTasksPath = join(tmpDir, 'tasks.db');
+    sourceConduitPath = join(tmpDir, 'conduit.db');
+    targetProjectPath = join(tmpDir, 'cleo-project.db');
+    targetGlobalPath = join(tmpDir, 'cleo-global.db');
+    stagingDir = join(tmpDir, 'staging');
+    mkdirSync(stagingDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  it('copies unprefixed source table to prefixed target AND tolerates target extra column', async () => {
+    // Source 'tasks' DB: table 'tasks' (unprefixed, 50 rows)
+    // Target: table 'tasks_tasks' WITH extra_col the source lacks
+    //         table 'conduit_messages' for conduit source
+    createNameMappingFixture(sourceTasksPath, targetProjectPath, 'tasks', 'tasks_tasks', 50);
+
+    // Also add conduit_messages to the target and conduit source
+    {
+      const tgt = new DatabaseSync(targetProjectPath);
+      try {
+        tgt.exec(
+          `CREATE TABLE IF NOT EXISTS "conduit_messages" (id INTEGER PRIMARY KEY, val TEXT, extra_col TEXT DEFAULT NULL)`,
+        );
+      } finally {
+        tgt.close();
+      }
+    }
+    createSourceDb(sourceConduitPath, [{ name: 'messages', rowCount: 30 }]);
+    createTargetDb(targetGlobalPath, []);
+
+    const targetProjectDb = new DatabaseSync(targetProjectPath);
+    const targetGlobalDb = new DatabaseSync(targetGlobalPath);
+
+    const makeFakeHandle = (native: DatabaseSyncType) => ({
+      db: { $client: native },
+      close: () => {
+        /* keep open for assertions */
+      },
+    });
+
+    vi.mock('../dual-scope-db.js', () => ({
+      openDualScopeDb: vi.fn(),
+      resolveDualScopeDbPath: vi.fn(),
+    }));
+
+    const dualScopeModule = await import('../dual-scope-db.js');
+    vi.mocked(dualScopeModule.openDualScopeDb).mockImplementation((scope: string) => {
+      if (scope === 'project') return Promise.resolve(makeFakeHandle(targetProjectDb) as never);
+      return Promise.resolve(makeFakeHandle(targetGlobalDb) as never);
+    });
+    vi.mocked(dualScopeModule.resolveDualScopeDbPath).mockImplementation((scope: string) =>
+      scope === 'project' ? targetProjectPath : targetGlobalPath,
+    );
+
+    const { runExodusMigrate: migrate } = await import('../exodus/migrate.js');
+
+    const sources: LegacyDbDescriptor[] = [
+      { name: 'tasks', path: sourceTasksPath, targetScope: 'project' },
+      { name: 'conduit', path: sourceConduitPath, targetScope: 'project' },
+    ];
+
+    const plan: ExodusPlan = {
+      sources,
+      totalSourceBytes: 0,
+      availableBytes: 100_000_000,
+      diskPreflight: true,
+      stagingDir,
+      resumeFromStaging: false,
+      projectDbPath: targetProjectPath,
+      globalDbPath: targetGlobalPath,
+    };
+
+    const result = await migrate(plan, false, undefined);
+
+    expect(result.ok).toBe(true);
+
+    // PRIMARY ASSERTION (ROOT CAUSE 1 + 2):
+    // 'tasks' (legacy) → 'tasks_tasks' (consolidated) — ALL 50 rows must be present
+    const tasksTasksCount = countRows(targetProjectPath, 'tasks_tasks');
+    expect(
+      tasksTasksCount,
+      `ROOT CAUSE 1+2: 'tasks' → 'tasks_tasks': expected 50 rows, got ${tasksTasksCount}`,
+    ).toBe(50);
+
+    // 'messages' (legacy conduit) → 'conduit_messages' (consolidated) — 30 rows
+    const conduitMsgCount = countRows(targetProjectPath, 'conduit_messages');
+    expect(
+      conduitMsgCount,
+      `ROOT CAUSE 1+2: 'messages' → 'conduit_messages': expected 30 rows, got ${conduitMsgCount}`,
+    ).toBe(30);
+
+    targetProjectDb.close();
+    targetGlobalDb.close();
+  });
+});
+
+describe('T11532 regression — runExodusVerify: does NOT crash on name-mapped tables + fails loudly on shortfall', () => {
+  let tmpDir: string;
+  let sourceTasksPath: string;
+  let targetProjectPath: string;
+  let targetGlobalPath: string;
+
+  beforeEach(() => {
+    tmpDir = makeTempDir();
+    sourceTasksPath = join(tmpDir, 'tasks.db');
+    targetProjectPath = join(tmpDir, 'cleo-project.db');
+    targetGlobalPath = join(tmpDir, 'cleo-global.db');
+
+    // Source: tasks.db with 'tasks' table (100 rows)
+    createSourceDb(sourceTasksPath, [{ name: 'tasks', rowCount: 100 }]);
+
+    // Target: consolidated 'tasks_tasks' table with SAME schema as source
+    // (same columns: id INTEGER PRIMARY KEY, val TEXT).
+    // Note: column drift (extra_col) is tested in the migrate test — verify
+    // checks count + hash parity using whatever columns exist in both DBs.
+    const tgt = new DatabaseSync(targetProjectPath);
+    try {
+      tgt.exec(`CREATE TABLE "tasks_tasks" (id INTEGER PRIMARY KEY, val TEXT)`);
+    } finally {
+      tgt.close();
+    }
+
+    createTargetDb(targetGlobalPath, []);
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('returns ok:true when prefixed target has all rows (name-mapping verify regression)', () => {
+    // Seed tasks_tasks with all 100 rows — identical content to source
+    const tgt = new DatabaseSync(targetProjectPath);
+    try {
+      for (let i = 1; i <= 100; i++) {
+        // Use same val pattern as createSourceDb: '<tableName>-<i>'
+        tgt.exec(`INSERT INTO "tasks_tasks" (id, val) VALUES (${i}, 'tasks-${i}')`);
+      }
+    } finally {
+      tgt.close();
+    }
+
+    const sources: LegacyDbDescriptor[] = [
+      { name: 'tasks', path: sourceTasksPath, targetScope: 'project' },
+    ];
+
+    const result = runExodusVerify(sources, targetProjectPath, targetGlobalPath, undefined);
+
+    expect(result.ok, `verify must pass when all rows present: ${result.error ?? ''}`).toBe(true);
+    expect(result.error).toBeUndefined();
+
+    const tasksEntry = result.tables.find((t) => t.tableName === 'tasks_tasks');
+    expect(tasksEntry, 'verify result must include tasks_tasks entry').toBeDefined();
+    expect(tasksEntry?.countMatch).toBe(true);
+    expect(tasksEntry?.sourceCount).toBe(100);
+    expect(tasksEntry?.targetCount).toBe(100);
+  });
+
+  it('returns ok:false with error when prefixed target is empty (ROOT CAUSE 1 verify catches data loss)', () => {
+    // Target tasks_tasks intentionally left empty (simulates the pre-fix bug
+    // where 'tasks' rows were never copied because no name-mapping existed)
+    const sources: LegacyDbDescriptor[] = [
+      { name: 'tasks', path: sourceTasksPath, targetScope: 'project' },
+    ];
+
+    const result = runExodusVerify(sources, targetProjectPath, targetGlobalPath, undefined);
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(typeof result.error).toBe('string');
+    // Error must mention the consolidated table name, not the legacy name
+    expect(result.error).toContain('tasks_tasks');
+
+    const entry = result.tables.find((t) => t.tableName === 'tasks_tasks');
+    expect(entry?.countMatch).toBe(false);
+    expect(entry?.sourceCount).toBe(100);
+    expect(entry?.targetCount).toBe(0);
+  });
+});
+
+describe('T11532 regression — computeTableDigest does NOT crash on WITHOUT ROWID tables', () => {
+  let tmpDir: string;
+  let dbPath: string;
+  let targetGlobalPath: string;
+
+  beforeEach(() => {
+    tmpDir = makeTempDir();
+    dbPath = join(tmpDir, 'source.db');
+    targetGlobalPath = join(tmpDir, 'global.db');
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('verify succeeds for a WITHOUT ROWID source table (ROOT CAUSE 3 rowid crash fix)', () => {
+    // Create a WITHOUT ROWID source table
+    const srcDb = new DatabaseSync(dbPath);
+    try {
+      srcDb.exec(
+        `CREATE TABLE "no_rowid_table" (key TEXT NOT NULL, val TEXT, PRIMARY KEY (key)) WITHOUT ROWID`,
+      );
+      srcDb.exec(`INSERT INTO "no_rowid_table" VALUES ('k1', 'v1')`);
+      srcDb.exec(`INSERT INTO "no_rowid_table" VALUES ('k2', 'v2')`);
+    } finally {
+      srcDb.close();
+    }
+
+    // Target consolidated DB with a matching table (same name for this test
+    // since we're only testing the rowid fix, not the mapping fix)
+    const tgtProjectPath = join(tmpDir, 'project.db');
+    const tgt = new DatabaseSync(tgtProjectPath);
+    try {
+      tgt.exec(
+        `CREATE TABLE "no_rowid_table" (key TEXT NOT NULL, val TEXT, PRIMARY KEY (key)) WITHOUT ROWID`,
+      );
+      tgt.exec(`INSERT INTO "no_rowid_table" VALUES ('k1', 'v1')`);
+      tgt.exec(`INSERT INTO "no_rowid_table" VALUES ('k2', 'v2')`);
+    } finally {
+      tgt.close();
+    }
+
+    createTargetDb(targetGlobalPath, []);
+
+    const sources: LegacyDbDescriptor[] = [{ name: 'tasks', path: dbPath, targetScope: 'project' }];
+
+    // This must NOT throw "no such column: rowid"
+    let result: ReturnType<typeof runExodusVerify>;
+    expect(() => {
+      result = runExodusVerify(sources, tgtProjectPath, targetGlobalPath, undefined);
+    }).not.toThrow();
+
+    // After the fix it should correctly detect both rows as present in target
+    // (the 'no_rowid_table' maps through identity since it's not in TASKS_DB_MAP,
+    //  so kind=mapped, targetName='no_rowid_table')
+    expect(result!.ok).toBe(true);
+    const entry = result!.tables.find((t) => t.tableName === 'no_rowid_table');
+    expect(entry?.countMatch).toBe(true);
+    expect(entry?.sourceCount).toBe(2);
   });
 });
