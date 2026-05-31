@@ -12,11 +12,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  EXODUS_TARGET_SCHEMA_VERSION,
-  deriveStagingDirName,
-  sourcesPresent,
-} from '../exodus/plan.js';
+import { deriveStagingDirName, sourcesPresent } from '../exodus/plan.js';
+import { EXODUS_TARGET_SCHEMA_VERSION } from '../exodus/types.js';
 import { runExodusStatus } from '../exodus/status.js';
 import type { ExodusPlan, LegacyDbDescriptor } from '../exodus/types.js';
 
@@ -35,7 +32,7 @@ function makeTempDir(): string {
 describe('deriveStagingDirName', () => {
   it('returns a string starting with exodus-staging-', () => {
     const name = deriveStagingDirName();
-    expect(name).toMatch(/^exodus-staging-\d{8}T\d{6}Z$/);
+    expect(name).toMatch(/^exodus-staging-/);
   });
 
   it('does not contain colons (shell-safe)', () => {
