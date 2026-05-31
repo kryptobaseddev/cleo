@@ -16,7 +16,7 @@
  * @task T11455
  */
 
-import type { BackgroundJobManager } from './background-jobs.js';
+import type { BackgroundJobManager } from '@cleocode/core/store/background-jobs.js';
 
 /** Process-wide singleton instance, or `null` when no host has registered one. */
 let _instance: BackgroundJobManager | null = null;
