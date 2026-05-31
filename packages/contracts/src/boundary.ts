@@ -803,6 +803,22 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
       'XDG paths SSoT (588 LOC) consumed by 9 packages. Upgraded from data-manifest to orchestration-glue (T10295, T11026): the ID-aware resolver surface — resolveProjectByCwd + resolveCanonicalCleoDir — introduces projectId↔path lookup logic with cross-mount canonicalization and strict-mode enforcement. Still TS-only; no Rust port warranted.',
   },
   {
+    module: 'utils',
+    intent: 'orchestration-glue',
+    tsWrapper: 'packages/utils',
+    canonicalHome: 'cleocode',
+    perfBudget: {
+      latency_p50_ms: 5,
+    },
+    safetyBudget: {
+      panic_unwind: 'forbidden',
+      root_escape: 'forbidden',
+    },
+    amendments: [],
+    rationale:
+      'Pure zero-dependency helper leaf (formatBytes, ...) collapsed from duplicated inline copies. Zero cleocode deps; bundled into @cleocode/cleo, never published (E5 / T11392).',
+  },
+  {
     module: 'playbooks',
     intent: 'orchestration-glue',
     tsWrapper: 'packages/playbooks',

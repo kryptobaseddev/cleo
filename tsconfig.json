@@ -18,6 +18,7 @@
   "references": [
     { "path": "./packages/contracts" },
     { "path": "./packages/paths" },
+    { "path": "./packages/utils" },
     { "path": "./packages/lafs/tsconfig.build.json" },
     { "path": "./packages/animations" },
     { "path": "./packages/worktree" },

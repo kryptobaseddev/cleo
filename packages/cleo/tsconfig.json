@@ -31,6 +31,7 @@
     { "path": "../runtime" },
     { "path": "../cant" },
     { "path": "../paths" },
+    { "path": "../utils" },
     { "path": "../playbooks" }
   ],
   "include": ["src/**/*"],

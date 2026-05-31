@@ -33,6 +33,7 @@
     "@cleocode/paths": "workspace:*",
     "@cleocode/playbooks": "workspace:*",
     "@cleocode/runtime": "workspace:*",
+    "@cleocode/utils": "workspace:*",
     "check-disk-space": "^3.4.0",
     "citty": "^0.2.1",
     "graphology": "^0.26.0",

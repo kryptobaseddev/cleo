@@ -23,6 +23,7 @@
  */
 
 import type { Task } from '@cleocode/contracts';
+import { formatBytes } from '@cleocode/utils';
 import { getProjectRoot } from '../paths.js';
 import { blobList } from '../store/blob-ops.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
@@ -352,17 +353,6 @@ function buildMemorySection(memRefs: MemoryRef[]): string {
     lines.push('');
   }
   return lines.join('\n');
-}
-
-/**
- * Format a byte count as a human-readable string.
- *
- * @internal
- */
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 /**

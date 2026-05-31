@@ -27,22 +27,9 @@ import { pruneOrphanTempDirs, pruneOrphanWorktrees } from '@cleocode/core/gc/cle
 import { runGC } from '@cleocode/core/gc/runner.js';
 import { readGCState } from '@cleocode/core/gc/state.js';
 import { resolveLegacyCleoDir } from '@cleocode/paths';
+import { formatBytes } from '@cleocode/utils';
 import { defineCommand, showUsage } from 'citty';
 import { cliError, cliOutput } from '../renderers/index.js';
-
-/**
- * Format a byte count into a human-readable string.
- *
- * @param bytes - Number of bytes
- * @returns Human-readable string (e.g. `"1.2 GB"`, `"340 MB"`, `"0 B"`)
- */
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const exp = Math.floor(Math.log(bytes) / Math.log(1024));
-  const value = bytes / 1024 ** exp;
-  return `${value.toFixed(exp === 0 ? 0 : 1)} ${units[exp] ?? 'B'}`;
-}
 
 /** cleo gc run — trigger GC immediately (blocking) */
 const runCommand = defineCommand({
