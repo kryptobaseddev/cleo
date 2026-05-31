@@ -52,6 +52,7 @@ import {
   resolveWorktreeRootForHash,
 } from './paths.js';
 import { addWorktreeToSentinelIndex, appendWorktreeAuditLog } from './worktree-audit.js';
+import { assertNoWorktreeConfigLeak, ensureWorktreeBuildReady } from './worktree-preflight.js';
 
 /**
  * Assert that `targetPath` sits inside the canonical XDG worktrees root
@@ -196,6 +197,14 @@ export async function createWorktree(
   // This check runs BEFORE any filesystem mutation so the error is always clean.
   // There is NO escape hatch — per council verdict D009 the ban is absolute.
   assertCanonicalWorktreeLocation(worktreePath);
+
+  // T11489 — DHQ-037/019: detect and auto-heal a leaked core.worktree key in
+  // .git/config BEFORE any git worktree add. A stale `.claude/worktrees/<id>/`
+  // pointer can leave core.worktree set to a deleted path, causing every
+  // subsequent git worktree add to fail with the cryptic "must be run in a
+  // work tree" error. This call is idempotent — when no leak is present it
+  // returns immediately with no side-effects.
+  assertNoWorktreeConfigLeak(gitRoot);
 
   // Remove stale worktree at this path if it exists (left from a prior run).
   // Dirty worktrees are preserved to avoid losing uncommitted agent work.
@@ -403,6 +412,19 @@ export async function createWorktree(
     } else {
       failedPaths.push('pnpm install');
     }
+  } else {
+    // T11489 — DHQ-019: guarantee build-ready even when .worktreeinclude does
+    // not list pnpm-lock.yaml. ensureWorktreeBuildReady is a best-effort pass
+    // that detects pnpm-lock.yaml in the worktree and auto-installs rather than
+    // leaving the worktree non-functional. The structured InstallStatus is
+    // captured in copiedPaths/failedPaths for the spawn envelope.
+    const installStatus = ensureWorktreeBuildReady(worktreePath, gitRoot);
+    if (installStatus.action === 'installed') {
+      copiedPaths.push('node_modules/ (pnpm install — auto build-ready)');
+    } else if (installStatus.action === 'install-failed') {
+      failedPaths.push(`pnpm install (auto build-ready): ${installStatus.error ?? 'unknown'}`);
+    }
+    // 'already-ready' and 'no-lockfile' require no action on copiedPaths/failedPaths.
   }
 
   // Run post-start hooks after copy-on-write bootstrap.
