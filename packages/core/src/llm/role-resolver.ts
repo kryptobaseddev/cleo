@@ -40,19 +40,24 @@ import type { OpenAI } from 'openai';
 import { resolveOrCwd } from '../paths.js';
 import { type CredentialResult, resolveCredentials } from './credentials.js';
 import { getCredentialByLabel, pickCredentialForProvider } from './credentials-store.js';
+import { IMPLICIT_FALLBACK_MODEL } from './fallback-model.js';
 import { buildAnthropicClient } from './transports/anthropic-client-factory.js';
 import type { ModelTransport } from './types-config.js';
 
 /**
  * Implicit fallback model used when no role-specific and no `default` entry is
  * present in config. Mirrors the historical hardcoded `claude-haiku-4-5-20251001`
- * that the 7 call-sites previously embedded. Lives here (and ONLY here) so the
- * grep guard `grep -rn "claude-haiku-4-5-20251001" packages/` stays clean
- * outside `packages/core/src/llm/`.
+ * that the 7 call-sites previously embedded.
+ *
+ * The literal is defined in the dependency-free leaf `./fallback-model.ts` (so
+ * `config.ts` can read it without entering this module's circular import chain —
+ * see that file's docs) and re-exported here so existing
+ * `from './role-resolver.js'` consumers are unaffected. It still lives ONLY
+ * under `packages/core/src/llm/`, keeping the T9255 grep guard clean.
  *
  * @task T9255
  */
-export const IMPLICIT_FALLBACK_MODEL = 'claude-haiku-4-5-20251001';
+export { IMPLICIT_FALLBACK_MODEL };
 
 /**
  * Implicit fallback provider matching {@link IMPLICIT_FALLBACK_MODEL}.
