@@ -42,6 +42,8 @@
 
 import { spawn } from 'node:child_process';
 
+import { resolveOrCwd } from '../paths.js';
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -249,7 +251,7 @@ async function runStep(
  * @task T11488
  */
 export async function verifyTypes(opts: VerifyOptions = {}): Promise<VerifyResult> {
-  const cwd = opts.cwd ?? process.cwd();
+  const cwd = resolveOrCwd(opts.cwd);
   const tailBytes = opts.tailBytes ?? DEFAULT_TAIL_BYTES;
   const timeoutMs = opts.timeoutMs ?? 300_000;
 
@@ -294,7 +296,7 @@ export async function verifyTypes(opts: VerifyOptions = {}): Promise<VerifyResul
  * @task T11488
  */
 export async function verifyRuntimeBoot(opts: VerifyOptions = {}): Promise<RuntimeBootResult> {
-  const cwd = opts.cwd ?? process.cwd();
+  const cwd = resolveOrCwd(opts.cwd);
   const tailBytes = opts.tailBytes ?? DEFAULT_TAIL_BYTES;
   const timeoutMs = opts.timeoutMs ?? 120_000;
 
