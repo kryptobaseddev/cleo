@@ -33,6 +33,7 @@ import { type FileHandle, open as fsOpen, mkdir, readFile } from 'node:fs/promis
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import cron from 'node-cron';
+import { reVerifyWorkerReport } from '../orchestrate/worker-verify.js';
 import { safeRunCrossProjectHygiene } from './cross-project-hygiene.js';
 import { type ProposeTickOptions, safeRunProposeTick } from './propose-tick.js';
 import { patchSentientState, readSentientState, type SentientState } from './state.js';
@@ -638,6 +639,22 @@ export interface BootstrapDaemonOptions {
    * Only used when Studio supervision is enabled.
    */
   studioOptions?: StudioSupervisorOptions;
+  /**
+   * Scope the task picker to tasks within this Saga (member Epics + their
+   * children). When set, the daemon operates as a walk-away / headless
+   * autopilot scoped to a single Saga. Read from `CLEO_SENTIENT_SAGA` env
+   * var in the daemon-entry process when not supplied directly.
+   *
+   * @task T11497 E5-HEADLESS AC1 + AC3
+   */
+  scopeSagaId?: string;
+  /**
+   * Scope the task picker to tasks directly under this Epic. Overrides
+   * `scopeSagaId` when both are set.
+   *
+   * @task T11497 E5-HEADLESS AC1 + AC3
+   */
+  scopeEpicId?: string;
 }
 
 /**
@@ -773,7 +790,16 @@ export async function bootstrapDaemon(
   await warmupWorktreeBackend();
 
   // Kick off one tick immediately, then schedule cron.
-  const tickOptions: TickOptions = { projectRoot, statePath };
+  // Wire reVerify (AC2/T11497) so the T1589 re-verify gate re-runs gates
+  // on worker exit=0 instead of trusting the self-report.
+  // Wire scope filter (AC1/T11497) for headless / walk-away autopilot.
+  const tickOptions: TickOptions = {
+    projectRoot,
+    statePath,
+    reVerify: reVerifyWorkerReport,
+    scopeSagaId: opts.scopeSagaId,
+    scopeEpicId: opts.scopeEpicId,
+  };
   await patchSentientState(statePath, { lastCronFiredAt: new Date().toISOString() });
   const outcome = await safeRunTick(tickOptions);
   process.stderr.write(

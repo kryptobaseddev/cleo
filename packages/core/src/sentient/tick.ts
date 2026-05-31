@@ -171,6 +171,29 @@ export interface TickOptions {
    */
   pickTask?: (projectRoot: string) => Promise<Task | null>;
   /**
+   * Scope the picker to tasks that are members of a specific Saga (or its
+   * member Epics' children). When set, `defaultPickTask` fetches the Saga's
+   * member Epic IDs and restricts candidates to tasks whose `parentId` is one
+   * of those Epics. Dependency-wave ordering within the filtered set is applied.
+   *
+   * Used by the headless / walk-away variant (`cleo daemon install --saga <id>`
+   * and `cleo daemon start --foreground --saga <id>`).
+   *
+   * @task T11497 E5-HEADLESS
+   */
+  scopeSagaId?: string;
+  /**
+   * Scope the picker to tasks whose `parentId` is exactly this Epic ID.
+   * Dependency-wave ordering within the filtered set is applied.
+   * Takes precedence over `scopeSagaId` when both are set.
+   *
+   * Used by the headless / walk-away variant (`cleo daemon install --epic <id>`
+   * and `cleo daemon start --foreground --epic <id>`).
+   *
+   * @task T11497 E5-HEADLESS
+   */
+  scopeEpicId?: string;
+  /**
    * New observation count since last consolidation that triggers the volume
    * dream cycle. Defaults to {@link DREAM_VOLUME_THRESHOLD_DEFAULT}.
    * Pass 0 to disable volume trigger. Injected by tests.
@@ -338,17 +361,54 @@ function pruneStuckWindow(timestamps: readonly number[], now: number): number[] 
  * Default SDK-backed task picker. Delegates to the orchestration domain via
  * the @cleocode/core/sdk facade.
  *
- * Tier-1 scope: we pick any unblocked, non-proposed task regardless of which
- * epic it belongs to — the picker walks the full task set to find the next
- * actionable item.
+ * Tier-1 scope: picks the first ready task in dependency-wave order. When a
+ * `scopeEpicId` or `scopeSagaId` is supplied the candidate set is restricted
+ * to tasks within that Epic or Saga respectively, enabling the headless /
+ * walk-away daemon variant (T11497 E5-HEADLESS AC1).
+ *
+ * Ordering: wave 0 (no unmet deps) is preferred; within a wave tasks are
+ * sorted alphabetically by ID for determinism (reproducible for tests).
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param scope - Optional saga or epic scope filter.
  */
-async function defaultPickTask(projectRoot: string): Promise<Task | null> {
+async function defaultPickTask(
+  projectRoot: string,
+  scope?: { sagaId?: string; epicId?: string },
+): Promise<Task | null> {
   // Lazy import so unit tests that inject `pickTask` never trigger the SDK
   // load (which pulls in the full @cleocode/core graph).
   const { Cleo } = await import('@cleocode/core/sdk');
   const { getReadyTasks } = await import('@cleocode/core/tasks');
+  // graph-ops is an intra-package import (not part of the @cleocode/core/tasks barrel).
+  const { computeDependencyWaves } = await import('../tasks/graph-ops.js');
 
   const cleo = await Cleo.init(projectRoot);
+
+  // Resolve the allowed parent IDs when a scope filter is active.
+  let allowedParentIds: Set<string> | null = null;
+
+  if (scope?.epicId) {
+    // Epic scope: only tasks directly under this epic.
+    allowedParentIds = new Set([scope.epicId]);
+  } else if (scope?.sagaId) {
+    // Saga scope: resolve member epic IDs via parent_id containment (T10638).
+    // Lazy import keeps the happy-path test surface tight.
+    const { resolveSagaMemberIds } = await import('../sagas/storage.js');
+    const { getTaskAccessor } = await import('../store/data-accessor.js');
+    const accessor = await getTaskAccessor(projectRoot);
+    try {
+      const memberIds = await resolveSagaMemberIds(accessor, scope.sagaId);
+      if (memberIds === null || memberIds.length === 0) {
+        // Saga not found or has no members — nothing to pick.
+        return null;
+      }
+      allowedParentIds = new Set(memberIds);
+    } finally {
+      await accessor.close();
+    }
+  }
+
   // Use find() to get candidate tasks. We specifically avoid 'proposed' by
   // only filtering on pending/active/blocked. getReadyTasks() from the
   // dependency-check module is authoritative for "unblocked".
@@ -356,15 +416,33 @@ async function defaultPickTask(projectRoot: string): Promise<Task | null> {
     success?: boolean;
     data?: { tasks?: Task[] };
   };
-  const candidates: Task[] = Array.isArray(pending?.data?.tasks) ? pending.data.tasks : [];
+  const allCandidates: Task[] = Array.isArray(pending?.data?.tasks) ? pending.data.tasks : [];
+
+  // Apply scope filter when active.
+  const candidates =
+    allowedParentIds !== null
+      ? allCandidates.filter((t) => t.parentId != null && allowedParentIds!.has(t.parentId))
+      : allCandidates;
+
   if (candidates.length === 0) return null;
 
   const ready = getReadyTasks(candidates);
   if (ready.length === 0) return null;
 
-  // Deterministic pick: lowest id wins (reproducible for tests).
+  // Dependency-wave ordering: wave 0 (no unmet deps) is picked first.
+  // Within a wave, tasks are sorted alphabetically by ID for determinism.
+  // This replaces the previous lowest-id-first global sort (T11497 AC1).
+  const waves = computeDependencyWaves(ready);
+  if (waves.length > 0 && waves[0]!.taskIds.length > 0) {
+    const waveZeroIds = waves[0]!.taskIds; // already sorted alphabetically by computeDependencyWaves
+    const taskMap = new Map(ready.map((t) => [t.id, t]));
+    const first = taskMap.get(waveZeroIds[0]!);
+    if (first) return first;
+  }
+
+  // Fallback: alphabetical sort (cycle-safe, no wave computed).
   ready.sort((a, b) => a.id.localeCompare(b.id));
-  return ready[0];
+  return ready[0] ?? null;
 }
 
 /**
@@ -633,7 +711,15 @@ export async function runTick(options: TickOptions): Promise<TickOutcome> {
   }
 
   // -- Pick next unblocked task ---------------------------------------------
-  const picker = options.pickTask ?? defaultPickTask;
+  // When options.pickTask is injected (tests / custom pickers), use it directly.
+  // Otherwise delegate to defaultPickTask, forwarding the scope filter (T11497 AC1).
+  const scope =
+    options.scopeEpicId !== undefined || options.scopeSagaId !== undefined
+      ? { epicId: options.scopeEpicId, sagaId: options.scopeSagaId }
+      : undefined;
+  const picker = options.pickTask
+    ? (pr: string) => options.pickTask!(pr)
+    : (pr: string) => defaultPickTask(pr, scope);
   let task: Task | null;
   try {
     task = await picker(projectRoot);

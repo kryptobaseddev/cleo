@@ -37,6 +37,7 @@ import {
   readSentientState,
   readSuperviseStudioConfig,
   releaseLock,
+  reVerifyWorkerReport,
   SENTIENT_CRON_EXPR,
   SENTIENT_HYGIENE_CRON_EXPR,
   SENTIENT_LOCK_FILE,
@@ -151,7 +152,16 @@ export function createSentientSubsystem(
       await warmupWorktreeBackend();
 
       // 6. Boot tick (Tier-1 immediate run).
-      const tickOptions = { projectRoot, statePath };
+      // Wire reVerify (AC2/T11497) so the T1589 re-verify gate re-runs gates
+      // on worker exit=0 instead of trusting the self-report.
+      // Wire scope filter (AC1/T11497) for headless / walk-away autopilot.
+      const tickOptions = {
+        projectRoot,
+        statePath,
+        reVerify: reVerifyWorkerReport,
+        scopeSagaId: opts.scopeSagaId,
+        scopeEpicId: opts.scopeEpicId,
+      };
       await patchSentientState(statePath, { lastCronFiredAt: new Date().toISOString() });
       const outcome = await safeRunTick(tickOptions);
       log.info(

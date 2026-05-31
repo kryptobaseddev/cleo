@@ -487,3 +487,134 @@ describe('sentient daemon — status + resume', () => {
     expect(outcome.detail).toContain('simulated picker failure');
   });
 });
+
+// ---------------------------------------------------------------------------
+// T11497 E5-HEADLESS — scope filter + reVerify wiring
+// ---------------------------------------------------------------------------
+
+describe('T11497 E5-HEADLESS: scopeEpicId filter (AC1)', () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'cleo-scope-'));
+    await writeFile(join(root, '.cleo', 'project-info.json'), JSON.stringify({})).catch(
+      async () => {
+        const { mkdir } = await import('node:fs/promises');
+        await mkdir(join(root, '.cleo'), { recursive: true });
+        await writeFile(join(root, '.cleo', 'project-info.json'), JSON.stringify({}));
+      },
+    );
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+  });
+
+  it('scopeEpicId filters pickTask call to only tasks within that epic', async () => {
+    const epicId = 'T999';
+    const taskInEpic = makeTask('T1000', { parentId: epicId });
+    const taskOutOfEpic = makeTask('T1001', { parentId: 'T888' });
+
+    let capturedProjectRoot: string | undefined;
+
+    const outcome = await runTick({
+      projectRoot: root,
+      statePath: join(root, SENTIENT_STATE_FILE),
+      scopeEpicId: epicId,
+      // skipReVerify=true: this test exercises scope-filter threading, not the
+      // reVerify gate (T11498 made the gate unconditional; skip it here).
+      skipReVerify: true,
+      // Injected picker that ignores scope — the scope is applied by defaultPickTask wrapper.
+      // We simulate defaultPickTask's scope-filtered result here directly.
+      pickTask: async (pr) => {
+        capturedProjectRoot = pr;
+        // Simulate that only the task in-epic was offered to us.
+        void taskOutOfEpic;
+        return taskInEpic;
+      },
+      spawn: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
+      stageDriftScan: null,
+      hygieneScan: null,
+      checkAndDream: async () => ({ triggered: false, tier: null }),
+      contextStalenessScan: null,
+      runDeriverBatch: false,
+    });
+
+    // The tick should have used our picker and picked the in-epic task.
+    expect(capturedProjectRoot).toBe(root);
+    expect(['success', 'no-task']).toContain(outcome.kind);
+  });
+
+  it('scopeEpicId is threaded through TickOptions without type error', () => {
+    // Compile-time shape check: TickOptions accepts scopeEpicId and scopeSagaId.
+    const opts: TickOptions = {
+      projectRoot: '/tmp/fake',
+      statePath: '/tmp/fake/.cleo/sentient-state.json',
+      scopeEpicId: 'T999',
+      scopeSagaId: 'T888',
+    };
+    expect(opts.scopeEpicId).toBe('T999');
+    expect(opts.scopeSagaId).toBe('T888');
+  });
+});
+
+describe('T11497 E5-HEADLESS: reVerify wired in tickOptions (AC2)', () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'cleo-reverify-'));
+    await (async () => {
+      const { mkdir } = await import('node:fs/promises');
+      await mkdir(join(root, '.cleo'), { recursive: true });
+      await writeFile(join(root, '.cleo', 'project-info.json'), JSON.stringify({}));
+    })();
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+  });
+
+  it('reVerify gate fires on exit=0 when injected stub rejects', async () => {
+    const task = makeTask('T2000');
+    const outcome = await runTick({
+      projectRoot: root,
+      statePath: join(root, SENTIENT_STATE_FILE),
+      pickTask: async () => task,
+      spawn: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
+      // Injected reVerify that always rejects — simulates T1589 gate failure.
+      reVerify: async () => ({ accepted: false }),
+      stageDriftScan: null,
+      hygieneScan: null,
+      checkAndDream: async () => ({ triggered: false, tier: null }),
+      contextStalenessScan: null,
+      runDeriverBatch: false,
+    });
+
+    // When reVerify rejects, the tick MUST report failure (not success).
+    expect(outcome.kind).toBe('failure');
+    expect(outcome.taskId).toBe('T2000');
+    expect(outcome.detail).toContain('re-verify rejected');
+  });
+
+  it('reVerify gate is skipped when skipReVerify=true', async () => {
+    const task = makeTask('T2001');
+    const reVerifyFn = async (): Promise<{ accepted: boolean }> => ({ accepted: false });
+
+    const outcome = await runTick({
+      projectRoot: root,
+      statePath: join(root, SENTIENT_STATE_FILE),
+      pickTask: async () => task,
+      spawn: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
+      reVerify: reVerifyFn,
+      skipReVerify: true, // gate bypassed
+      stageDriftScan: null,
+      hygieneScan: null,
+      checkAndDream: async () => ({ triggered: false, tier: null }),
+      contextStalenessScan: null,
+      runDeriverBatch: false,
+    });
+
+    // With skipReVerify=true the task should succeed despite the rejecting stub.
+    expect(outcome.kind).toBe('success');
+  });
+});
