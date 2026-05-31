@@ -46,6 +46,21 @@ export {
   STRING_TO_EXIT,
 } from './engine-error.js';
 export { mapNumericExitCodeToString } from './exit-codes.js';
+// HTTP transport adapter (R3-T6 · T11450) — framework-agnostic unary + SSE over
+// the gateway. Also reachable via the `@cleocode/runtime/gateway/http` subpath.
+export {
+  createSseStream,
+  encodeSseFrame,
+  encodeStreamEvent,
+  type HttpUnaryRequest,
+  type HttpUnaryResult,
+  routeUnary,
+  SSE_HEADERS,
+  type SseEmitter,
+  type SseFrame,
+  type SseSource,
+  statusForResponse,
+} from './http/index.js';
 export { getJobManager, setJobManager } from './job-manager-accessor.js';
 // MCP transport adapter (R3-T4 · T11448) — thin stdio JSON-RPC over the
 // gateway. Also reachable via the `@cleocode/runtime/gateway/mcp` subpath.

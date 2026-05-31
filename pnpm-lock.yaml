@@ -785,6 +785,9 @@ importers:
       '@cleocode/core':
         specifier: workspace:*
         version: link:../core
+      '@cleocode/runtime':
+        specifier: workspace:*
+        version: link:../runtime
       '@cosmograph/cosmos':
         specifier: ^2.0.0-beta.26
         version: 2.0.0-beta.26

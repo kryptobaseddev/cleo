@@ -5,82 +5,73 @@
  * the last updated_at timestamp changes.
  */
 
+import { createSseStream, SSE_HEADERS } from '@cleocode/runtime/gateway/http';
 import { getTasksDb } from '$lib/server/db/connections.js';
 import type { RequestHandler } from './$types';
 
-export const GET: RequestHandler = ({ locals }) => {
-  const encoder = new TextEncoder();
+/** Poll interval (ms) for the tasks-events change detector. */
+const POLL_INTERVAL_MS = 2000;
+
+export const GET: RequestHandler = ({ locals, request }) => {
   const projectCtx = locals.projectCtx;
 
-  const stream = new ReadableStream({
-    start(controller) {
-      let lastUpdated = '';
-      let lastCount = 0;
-      let closed = false;
+  // Route the stream lifecycle through the shared gateway HTTP SSE primitive
+  // (R3-T6 · T11450). The observable wire is unchanged: named `event:` frames
+  // in the same order (connected first, then task-updated/heartbeat). The
+  // builder owns abort-on-disconnect + run-once teardown.
+  const stream = createSseStream((emitter) => {
+    let lastUpdated = '';
+    let lastCount = 0;
 
-      function send(event: string, data: unknown): void {
-        if (closed) return;
-        const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-        try {
-          controller.enqueue(encoder.encode(payload));
-        } catch {
-          closed = true;
-        }
+    /** Emit one named SSE event (drops after close, never throws). */
+    function send(event: string, data: unknown): void {
+      emitter.send({ event, data });
+    }
+
+    // Send initial connection acknowledgement
+    send('connected', { ts: new Date().toISOString() });
+
+    const interval = setInterval(() => {
+      if (emitter.closed) {
+        clearInterval(interval);
+        return;
       }
 
-      // Send initial connection acknowledgement
-      send('connected', { ts: new Date().toISOString() });
+      try {
+        const db = getTasksDb(projectCtx);
+        if (!db) return;
 
-      const interval = setInterval(() => {
-        if (closed) {
-          clearInterval(interval);
-          return;
+        const row = db
+          .prepare(
+            `SELECT MAX(updated_at) as latest, COUNT(*) as cnt FROM tasks WHERE status != 'archived'`,
+          )
+          .get() as { latest: string | null; cnt: number };
+
+        const latest = row?.latest ?? '';
+        const cnt = row?.cnt ?? 0;
+
+        if (latest !== lastUpdated || cnt !== lastCount) {
+          lastUpdated = latest;
+          lastCount = cnt;
+          send('task-updated', {
+            ts: new Date().toISOString(),
+            latestChange: latest,
+            activeCount: cnt,
+          });
+        } else {
+          // Send heartbeat to keep connection alive
+          send('heartbeat', { ts: new Date().toISOString() });
         }
+      } catch {
+        // DB temporarily unavailable — skip this tick
+      }
+    }, POLL_INTERVAL_MS);
 
-        try {
-          const db = getTasksDb(projectCtx);
-          if (!db) return;
+    // Teardown: clear the poll timer when the stream ends.
+    return () => {
+      clearInterval(interval);
+    };
+  }, request.signal);
 
-          const row = db
-            .prepare(
-              `SELECT MAX(updated_at) as latest, COUNT(*) as cnt FROM tasks WHERE status != 'archived'`,
-            )
-            .get() as { latest: string | null; cnt: number };
-
-          const latest = row?.latest ?? '';
-          const cnt = row?.cnt ?? 0;
-
-          if (latest !== lastUpdated || cnt !== lastCount) {
-            lastUpdated = latest;
-            lastCount = cnt;
-            send('task-updated', {
-              ts: new Date().toISOString(),
-              latestChange: latest,
-              activeCount: cnt,
-            });
-          } else {
-            // Send heartbeat to keep connection alive
-            send('heartbeat', { ts: new Date().toISOString() });
-          }
-        } catch {
-          // DB temporarily unavailable — skip this tick
-        }
-      }, 2000);
-
-      // Cleanup when client disconnects
-      return () => {
-        closed = true;
-        clearInterval(interval);
-      };
-    },
-  });
-
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    },
-  });
+  return new Response(stream, { headers: { ...SSE_HEADERS } });
 };
