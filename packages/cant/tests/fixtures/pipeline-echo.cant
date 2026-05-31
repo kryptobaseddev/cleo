@@ -1,0 +1,20 @@
+---
+kind: agent
+version: 1
+---
+
+# Echo pipeline fixture for E8 T11433 integration test.
+# Contains a single deterministic pipeline step that echoes a string.
+# Used to verify cant-runtime executePipeline runs end-to-end via napi.
+
+agent fixture-echo-agent:
+  description: "Fixture agent for E8 integration test (T11433)"
+  role: worker
+  permissions:
+    tasks: read
+
+pipeline echo-hello {
+  step say-hello {
+    run echo "hello from cant-runtime"
+  }
+}

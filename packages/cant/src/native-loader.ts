@@ -452,23 +452,6 @@ function resolveAgentsPackageRoot(): string | null {
 }
 
 /**
- * Extract the `role:` value from a raw `.cant` file body.
- *
- * Looks for a line matching `  role: <value>` within the `agent <id>:` block
- * using a simple regex — intentionally avoids full CANT parsing to remove the
- * native-addon dependency from this path (the addon may not be present in all
- * environments where the loader runs).
- *
- * @param content - Raw `.cant` file text.
- * @returns Extracted role string, or `null` when no `role:` line is found.
- * @internal
- */
-function extractRoleFromCant(content: string): string | null {
-  const match = /^\s{2}role:\s*(\S+)/m.exec(content);
-  return match ? (match[1] ?? null) : null;
-}
-
-/**
  * Map a raw role string from a `.cant` file to a {@link PeerKind}.
  *
  * Unrecognised values default to `"subagent"` so the loader remains
@@ -477,7 +460,7 @@ function extractRoleFromCant(content: string): string | null {
  * @param rawRole - Raw role string extracted from the `.cant` file.
  * @internal
  */
-function roleToPeerKind(rawRole: string | null): PeerKind {
+function roleToPeerKind(rawRole: string | null | undefined): PeerKind {
   switch (rawRole) {
     case 'orchestrator':
       return 'orchestrator';
@@ -491,60 +474,22 @@ function roleToPeerKind(rawRole: string | null): PeerKind {
 }
 
 /**
- * Extract the `description:` value from a raw `.cant` file body.
+ * Parse a single `.cant` file into a {@link PeerIdentity} via the canonical
+ * `cant_extract_agent_profiles` napi path (E8-AC2, T11430).
  *
- * Handles single-line descriptions (`description: "..."`) and multiline
- * block-scalar descriptions (`description: |`). Returns the first line of
- * the block-scalar body for multiline values. Returns empty string when no
- * `description:` field is found.
+ * When the native addon is available, agent id, role, and description are
+ * extracted by the Rust cant-core parser — eliminating the previous
+ * regex-based `extractRoleFromCant` / `extractAgentIdFromCant` /
+ * `extractDescriptionFromCant` helpers which are now retired.
  *
- * @param content - Raw `.cant` file text.
- * @internal
- */
-function extractDescriptionFromCant(content: string): string {
-  // Single-line: `  description: "some text"` or `  description: some text`
-  const singleLine = /^\s{2}description:\s+"([^"]+)"/m.exec(content);
-  if (singleLine) return singleLine[1] ?? '';
-  const singleLineUnquoted = /^\s{2}description:\s+(.+)/m.exec(content);
-  if (singleLineUnquoted) {
-    const raw = singleLineUnquoted[1] ?? '';
-    // Exclude multiline indicator '|'
-    if (raw.trim() !== '|') return raw.trim();
-  }
-  // Multiline block scalar: grab first non-empty line after `description: |`
-  const blockScalar = /^\s{2}description:\s+\|\s*\n((?:\s+\S[^\n]*\n?)+)/m.exec(content);
-  if (blockScalar) {
-    const bodyLines = (blockScalar[1] ?? '').split('\n');
-    for (const line of bodyLines) {
-      const trimmed = line.trim();
-      if (trimmed.length > 0) return trimmed;
-    }
-  }
-  return '';
-}
-
-/**
- * Extract the agent business id from a raw `.cant` file body.
- *
- * Looks for the `agent <id>:` declaration line. Returns `null` when not found.
- *
- * @param content - Raw `.cant` file text.
- * @internal
- */
-function extractAgentIdFromCant(content: string): string | null {
-  const match = /^agent\s+([a-z][a-z0-9-]*):/m.exec(content);
-  return match ? (match[1] ?? null) : null;
-}
-
-/**
- * Parse a single `.cant` file at `cantFile` into a {@link PeerIdentity}.
- *
- * Returns `null` when the file cannot be parsed (missing `agent <id>:` block
- * or unreadable file). The caller is responsible for logging / skipping nulls.
+ * Falls back to a minimal regex extractor ONLY when the native addon is
+ * absent AND `fallbackId` is provided (i.e. the universal-base path where
+ * the filename is the canonical id). Returns `null` when the file is
+ * unreadable or no agent id can be determined.
  *
  * @param cantFile - Absolute path to the `.cant` file.
- * @param fallbackId - Id to use when the `agent <id>:` block is absent (e.g.,
- *   when loading the universal base by a known filename).
+ * @param fallbackId - Id to use when no `agent <id>:` block can be parsed
+ *   (e.g. when loading the universal base by a known filename).
  * @internal
  */
 function parseCantFileToIdentity(cantFile: string, fallbackId?: string): PeerIdentity | null {
@@ -555,19 +500,81 @@ function parseCantFileToIdentity(cantFile: string, fallbackId?: string): PeerIde
     return null;
   }
 
-  const agentId = extractAgentIdFromCant(content) ?? fallbackId ?? null;
+  // Primary path: route through the cant-core napi bridge.
+  // The native `cantExtractAgentProfiles` returns loose objects whose shape
+  // mirrors the Rust AgentProfile extractor. Common observed fields:
+  //   - `name`         — agent business id (kebab-case)
+  //   - `agentId`      — alternative agent id field (if present)
+  //   - `role`         — role string (may also live inside `propertiesJson`)
+  //   - `description`  — agent description (may also live inside `propertiesJson`)
+  //   - `propertiesJson` — JSON-serialized top-level properties blob
+  if (isNativeAvailable()) {
+    try {
+      const raw = cantExtractAgentProfilesNative(content);
+      if (Array.isArray(raw) && raw.length > 0) {
+        const entry = raw[0] as Record<string, unknown>;
+
+        // Resolve agent id: prefer explicit agentId, fall back to name, then fallbackId.
+        const agentId =
+          (typeof entry['agentId'] === 'string' ? entry['agentId'] : undefined) ??
+          (typeof entry['name'] === 'string' ? entry['name'] : undefined) ??
+          fallbackId ??
+          null;
+        if (!agentId) return null;
+
+        // Resolve role: try direct field, then propertiesJson.
+        let rawRole: string | null = typeof entry['role'] === 'string' ? entry['role'] : null;
+        if (!rawRole && typeof entry['propertiesJson'] === 'string') {
+          try {
+            const props = JSON.parse(entry['propertiesJson']) as Record<string, unknown>;
+            rawRole = typeof props['role'] === 'string' ? props['role'] : null;
+          } catch {
+            // ignore malformed JSON
+          }
+        }
+        const peerKind = roleToPeerKind(rawRole);
+
+        // Resolve description: try direct field, then propertiesJson.
+        let description: string =
+          typeof entry['description'] === 'string' ? entry['description'] : '';
+        if (!description && typeof entry['propertiesJson'] === 'string') {
+          try {
+            const props = JSON.parse(entry['propertiesJson']) as Record<string, unknown>;
+            description = typeof props['description'] === 'string' ? props['description'] : '';
+          } catch {
+            // ignore malformed JSON
+          }
+        }
+
+        return {
+          peerId: agentId,
+          peerKind,
+          cantFile,
+          displayName: agentId,
+          description,
+        };
+      }
+    } catch {
+      // Fall through to regex fallback below.
+    }
+  }
+
+  // Degraded regex fallback — only used when the native addon is absent.
+  // Extracts the minimum fields needed to produce a usable PeerIdentity.
+  const agentIdMatch = /^agent\s+([a-z][a-z0-9-]*):/m.exec(content);
+  const agentId = (agentIdMatch !== null ? agentIdMatch[1] : undefined) ?? fallbackId ?? null;
   if (!agentId) return null;
 
-  const rawRole = extractRoleFromCant(content);
+  const roleMatch = /^\s{2}role:\s*(\S+)/m.exec(content);
+  const rawRole = roleMatch ? (roleMatch[1] ?? null) : null;
   const peerKind = roleToPeerKind(rawRole);
-  const description = extractDescriptionFromCant(content);
 
   return {
     peerId: agentId,
     peerKind,
     cantFile,
     displayName: agentId,
-    description,
+    description: '',
   };
 }
 
@@ -583,8 +590,10 @@ function parseCantFileToIdentity(cantFile: string, fallbackId?: string): PeerIde
  * Files that cannot be parsed (unreadable, missing `agent <id>:` block) are
  * silently skipped.
  *
- * This function is intentionally pure-TS and does NOT require the native addon.
- * It is safe to call in environments where `cant-napi` is absent (CI, test, etc.).
+ * When the native addon is available, agent identity fields are extracted via
+ * `cant_extract_agent_profiles` (cant-core, E8-AC2 / T11430). When the addon
+ * is absent the loader falls back to a minimal regex extractor so basic
+ * identity resolution still works in environments without the binary.
  *
  * @param agentsRoot - Optional override for the `packages/agents/` root. When
  *   omitted the path is resolved automatically relative to this file. Tests

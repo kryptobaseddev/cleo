@@ -19,7 +19,11 @@ members = [
 # and are published on crates.io (saga T10180).
 default-members = [
     "crates/cant-core",
-    "crates/cant-lsp",
+    # cant-lsp shelved from default build (E8 T11434). The crate is kept in the
+    # workspace so `cargo build --workspace` still compiles it and guards the
+    # cant-core API surface. To build the LSP binary explicitly:
+    #   cargo build -p cant-lsp [--release]
+    # A full editor-client roadmap is tracked in T11434.
     "crates/cant-napi",
     "crates/cant-router",
     "crates/cant-runtime",

@@ -19,8 +19,14 @@ pnpm add @cleocode/cant
 
 The package ships pre-built napi binaries via `optionalDependencies` for
 `x86_64-unknown-linux-gnu`. On other platforms `@cleocode/cant` falls back to
-graceful errors at runtime — the TypeScript surface still loads but
+typed errors at runtime — the TypeScript surface still loads but
 parser/validator/executor calls require a native binding present.
+
+**`cant-core` is the single source of truth (SSoT) for all CANT parsing.**
+There is no JS-regex fallback parser in the routine code path. If the native
+addon is absent, `parseCANTMessage` throws a typed error unless the
+`CLEO_CANT_ALLOW_JS_FALLBACK=1` env-var is explicitly set (degraded mode,
+not for production use).
 
 ## Public API
 
@@ -144,9 +150,19 @@ Requires a Rust toolchain. Produces `napi/cant.linux-x64-gnu.node`.
 Other platform triples are added via the workspace release pipeline,
 not locally.
 
+## Crate track
+
+| Crate | Status | Purpose |
+|-------|--------|---------|
+| `crates/cant-core` | Active — SSoT | Parser, validator, 42 static-analysis rules, pipeline executor |
+| `crates/cant-napi` | Active | napi-rs cdylib binding wrapping cant-core + cant-runtime |
+| `crates/cant-runtime` | Active | Deterministic pipeline execution engine (Path B) |
+| `crates/cant-router` | Retired from napi surface (E8 T11432) | Model-tier classifier — preserved in workspace but NOT linked into the published binary |
+| `crates/cant-lsp` | Shelved from default build (E8 T11434) | Language Server Protocol for `.cant` files — kept in workspace, build with `cargo build -p cant-lsp` |
+
 ## Related
 
-- [`crates/cant-core`](../../crates/cant-core) — Rust source of truth (parser, validator, executor)
+- [`crates/cant-core`](../../crates/cant-core) — Rust SSoT (parser, validator, pipeline executor)
 - [`crates/cant-napi`](../../crates/cant-napi) — napi-rs bindings (cdylib)
 - [`packages/cleo/templates/cleoos-hub/pi-extensions/cant-bridge.ts`](../cleo/templates/cleoos-hub/pi-extensions/cant-bridge.ts) — Pi-interactive runtime (Path A)
 - [`.cleo/adrs/ADR-035-pi-v2-v3-harness.md`](../../.cleo/adrs/ADR-035-pi-v2-v3-harness.md) — architecture decisions for the CANT execution model
