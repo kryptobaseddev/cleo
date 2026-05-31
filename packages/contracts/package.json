@@ -18,6 +18,10 @@
       "types": "./dist/tools/atomic.d.ts",
       "import": "./dist/tools/atomic.js"
     },
+    "./tools/composite": {
+      "types": "./dist/tools/composite.d.ts",
+      "import": "./dist/tools/composite.js"
+    },
     "./gateway.js": {
       "types": "./dist/gateway.d.ts",
       "import": "./dist/gateway.js"

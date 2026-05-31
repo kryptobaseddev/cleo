@@ -184,14 +184,18 @@ crates/worktree-napi/worktree-napi.*.node
 packages/worktree-napi-*/worktree-napi.*.node
 
 # ── Local-only artifacts — untracked from github, kept on disk (T11392) ──
-.bg-shell/
-.tmp-dashboard-test/
-T9220/
-tasks-batch-T10400.json
-graphify-out/
-scenarios/
-tools/
-dev/
-audit/
-tmp-doc-source/
-editors/
+# Anchored to the repo ROOT (leading `/`) so these scratch-dir names do NOT
+# shadow legitimate nested package dirs (e.g. packages/contracts/src/tools,
+# packages/*/dev, packages/*/scenarios). T11484: the bare `tools/` pattern was
+# silently ignoring new files under packages/contracts/src/tools/.
+/.bg-shell/
+/.tmp-dashboard-test/
+/T9220/
+/tasks-batch-T10400.json
+/graphify-out/
+/scenarios/
+/tools/
+/dev/
+/audit/
+/tmp-doc-source/
+/editors/

@@ -112,6 +112,17 @@ export default defineConfig({
         './packages/contracts/src/operations/docs.ts',
         import.meta.url,
       ).pathname,
+      // T11403 / T11484: atomic + composite tool contracts are subpath exports.
+      // Aliased to source so vitest resolves the runtime `as const` arrays
+      // (TOOL_CLASSES, MODULE_RELOCATION_BREAKAGE_CLASSES, …) without a build.
+      '@cleocode/contracts/tools/atomic': new URL(
+        './packages/contracts/src/tools/atomic.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/contracts/tools/composite': new URL(
+        './packages/contracts/src/tools/composite.ts',
+        import.meta.url,
+      ).pathname,
       '@cleocode/contracts': new URL('./packages/contracts/src/index.ts', import.meta.url).pathname,
       '@cleocode/core/internal': new URL('./packages/core/src/internal.ts', import.meta.url).pathname,
       // @cleocode/paths — workspace-local canonical path utilities (env-paths wrapper).
