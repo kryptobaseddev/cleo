@@ -156,6 +156,16 @@
       "import": "./dist/events/*.js",
       "require": "./dist/events/*.js"
     },
+    "./store/schema/*": {
+      "types": "./dist/store/schema/*.d.ts",
+      "import": "./dist/store/schema/*.js",
+      "require": "./dist/store/schema/*.js"
+    },
+    "./store/schema/*.js": {
+      "types": "./dist/store/schema/*.d.ts",
+      "import": "./dist/store/schema/*.js",
+      "require": "./dist/store/schema/*.js"
+    },
     "./store/*": {
       "types": "./dist/store/*.d.ts",
       "import": "./dist/store/*.js",
