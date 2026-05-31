@@ -43,6 +43,8 @@
     "db:generate": "drizzle-kit generate --config drizzle/tasks.config.ts",
     "db:generate:brain": "drizzle-kit generate --config drizzle/brain.config.ts",
     "db:generate:nexus": "drizzle-kit generate --config drizzle/nexus.config.ts",
+    "db:generate:cleo-project": "drizzle-kit generate --config drizzle/cleo-project.config.ts",
+    "db:generate:cleo-global": "drizzle-kit generate --config drizzle/cleo-global.config.ts",
     "db:generate:custom": "drizzle-kit generate --custom --config drizzle/tasks.config.ts",
     "db:new": "node scripts/new-migration.mjs",
     "db:check": "for cfg in drizzle/tasks.config.ts drizzle/brain.config.ts drizzle/nexus.config.ts drizzle/signaldock.config.ts drizzle/telemetry.config.ts; do node_modules/.bin/drizzle-kit check --config=$cfg || exit 1; done",

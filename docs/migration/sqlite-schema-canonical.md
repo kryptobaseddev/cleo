@@ -105,29 +105,113 @@ Each column row in `sqlite-schema-columns.json` carries:
 
 ## 1. Consolidated dual-scope target shape (locked decisions)
 
-Per the locked SG-DB-SUBSTRATE-V2 decisions (D1' supersedes D1):
+> **D1″ supersedes D1′ (owner ratification 2026-05-30, session 2).** The split axis is
+> now **lifecycle (project vs global)**, NOT domain-cluster, and both files are named
+> **`cleo.db`**. The earlier D1′ domain-split into `.cleo/tasks.db` + `.cleo/brain.db`
+> is superseded: it conflated project- and global-tier domains in one file (e.g. global
+> `nexus`/`skills` were folded into a project `brain.db`) and did not match the owner's
+> "dual `cleo.db`, one project + one global" intent. The Pattern-A mechanics
+> (single-file-per-scope, domain-prefixed tables, idempotent prefixer, the column→table
+> attribution) are PRESERVED; only the scope axis + file naming change.
+
+Per the locked SG-DB-SUBSTRATE-V2 decisions (**D1″ supersedes D1′ supersedes D1**):
 
 - **Substrate:** SQLite consolidation, **Pattern A** — single-file-per-scope,
-  domain-prefixed tables. Two scopes survive: `.cleo/tasks.db` and
-  `.cleo/brain.db`.
+  domain-prefixed tables. **Two scopes survive, split by LIFECYCLE:**
+  the **project** DB `<projectRoot>/.cleo/cleo.db` and the **global** DB
+  `$XDG_DATA_HOME/cleo/cleo.db` (per-OS XDG path via `@cleocode/paths`).
 - **Driver:** `node:sqlite` 3.53.0. **ORM:** `drizzle-orm@1.0.0-rc.3`
   (`drizzle-orm/node-sqlite`).
-- **Table prefixes:** `tasks_*` / `conduit_*` / `docs_*` / `telemetry_*` collapse
-  into `.cleo/tasks.db`; `brain_*` / `nexus_*` / `signaldock_*` / `skills_*`
-  collapse into `.cleo/brain.db`.
+- **Table prefixes (lifecycle assignment):** **project** `cleo.db` holds every
+  project-tier domain — `tasks_*` / `brain_*` (this project's memory) / `conduit_*` /
+  `docs_*` / `telemetry_*` (+ lifecycle/provenance/chain/playbooks/agents). **global**
+  `cleo.db` holds every global/cross-project domain — `nexus_*` / `skills_*` /
+  `signaldock_*` (global agent identity) / `brain_*` + `tasks_*` for the global-tier
+  brain & task stores. `brain_*` and `tasks_*` thus appear in BOTH files, disambiguated
+  by which scope's `cleo.db` they live in (per-project state vs cross-project state).
 
 Every column in the inventory is attributed to its `targetTable` using the
-file → domain map plus an idempotent prefixer (a table already carrying a
-recognized domain prefix — e.g. `brain_observations`, `nexus_audit_log` — is NOT
-double-prefixed). The canonical task table `tasks` becomes `tasks_tasks` under
-Pattern A.
+domain map plus an idempotent prefixer (a table already carrying a recognized domain
+prefix — e.g. `brain_observations`, `nexus_audit_log` — is NOT double-prefixed). The
+canonical task table `tasks` becomes `tasks_tasks` under Pattern A. The exodus tool
+routes each table to the **project** or **global** `cleo.db` by its domain's lifecycle
+tier (a domain is project-scoped unless it is in the global set `{nexus, skills,
+signaldock-global, global-brain, global-tasks, telemetry-global}`).
 
-### Scope assignment summary
+### Scope assignment summary (D1″ — lifecycle)
 
-| Target scope | DB file | Source domains | Tables | Columns |
+| Target scope | DB file | Source domains | Note |
+|---|---|---|---|
+| **project** | `<projectRoot>/.cleo/cleo.db` | tasks / brain (this project's memory) / conduit / docs / telemetry / lifecycle / provenance / chain / playbooks / agents | all project-tier state |
+| **global** | `$XDG_DATA_HOME/cleo/cleo.db` | nexus / skills / signaldock (global identity) / global-brain / global-tasks / telemetry-global | all cross-project state |
+
+> **Exactly two `*.db` files survive per machine view** (one project `cleo.db` + one
+> global `cleo.db`). No `tasks.db` / `brain.db` / `nexus.db` / `skills.db` /
+> `signaldock.db` / `telemetry.db` / `manifest.db` / `llmtxt.db` / `attachments/index.db`
+> sidecar survives; content-addressed blob FILES (not `.db`) are exempt.
+
+### Per-scope re-derived counts (T11358 — supersedes 66/631 + 48/550)
+
+The prior domain-split figures (`tasks` 66t/631c + `brain` 48t/550c) are SUPERSEDED.
+Counts below are re-derived against the **lifecycle** split directly from the audit
+artifact `docs/migration/sqlite-schema-columns.json` (114 tables / 1181 columns),
+by classifying each table to its domain via `targetTable` prefix, then routing each
+domain to its lifecycle tier. The classification is reproducible — re-run:
+
+```bash
+node -e 'const j=require("./docs/migration/sqlite-schema-columns.json");
+const dom=tt=>{for(const p of["nexus","skills","signaldock","brain","conduit","telemetry","docs"])if(tt.startsWith(p+"_"))return p;return"tasks-core"};
+const a={};for(const t of j.tables){const d=dom(t.targetTable);(a[d]??=(a[d]={t:0,c:0}));a[d].t++;a[d].c+=t.columns.length}console.table(a)'
+```
+
+| Domain (prefix) | Tables | Columns | Lifecycle tier |
+|---|--:|--:|---|
+| `tasks_*` (incl. provenance / releases / lifecycle / playbooks / agents / chain) | 45 | 450 | project |
+| `conduit_*` | 14 | 116 | project |
+| `docs_*` (attachments / manifest) | 4 | 48 | project |
+| `telemetry_*` | 2 | 12 | project |
+| `brain_*` (memory) | 22 | 277 | **mirrored** (project + global) |
+| `nexus_*` | 10 | 109 | global |
+| `skills_*` | 4 | 36 | global |
+| `signaldock_*` | 13 | 133 | global |
+| **Total (distinct source tables)** | **114** | **1181** | |
+
+**Per-scope cleo.db totals** (the `brain_*` schema is SHARED — same DDL deployed to
+both files, data partitioned by scope; it is counted in each):
+
+| Scope | DB file | Composition | Tables | Columns |
 |---|---|---|--:|--:|
-| `tasks` | `.cleo/tasks.db` | tasks / conduit / docs / telemetry / lifecycle / provenance / chain / playbooks / agents | 66 | 631 |
-| `brain` | `.cleo/brain.db` | brain (memory) / nexus / signaldock / skills | 48 | 550 |
+| **project** | `<projectRoot>/.cleo/cleo.db` | tasks-core 45 + conduit 14 + docs 4 + telemetry 2 + brain 22 | **87** | **903** |
+| **global** | `$XDG_DATA_HOME/cleo/cleo.db` | nexus 10 + skills 4 + signaldock 13 + brain 22 (mirrored) | **49** | **555** |
+
+> **Scope-membership decision (T11358).** Only `brain_*` (memory) is mirrored into
+> both scopes (the global brain holds cross-project memory; the project brain holds
+> project-local memory). Project-tier `tasks_*` and its satellites (provenance,
+> releases, lifecycle, playbooks) are **not** mirrored into global — a release/PR/run
+> is intrinsically a project concern. `signaldock_*` folds under the **global**
+> `cleo.db` per D1 (no standalone `signaldock.db`).
+
+### Dual drizzle-kit configs (T11358 — target shape)
+
+The dual-scope target is authored as two drizzle-kit (rc.3) configs:
+
+| Config | Scope | `out` | Schema membership |
+|---|---|---|---|
+| `drizzle/cleo-project.config.ts` | project | `packages/core/migrations/drizzle-cleo-project` | 17 project-tier + mirrored-brain modules |
+| `drizzle/cleo-global.config.ts` | global | `packages/core/migrations/drizzle-cleo-global` | nexus / skills / signaldock + mirrored-brain modules |
+
+Wired into root `package.json` as `db:generate:cleo-project` / `db:generate:cleo-global`.
+
+> **Generation boundary.** These configs declare per-scope domain MEMBERSHIP, not a
+> generate-ready snapshot. Source modules carry UNPREFIXED physical table names, so
+> several collide across domains in one file (e.g. `schema/attachments.ts` and
+> `conduit-schema.ts` both define `attachments` → `tasks_attachments` vs
+> `conduit_attachments`). Pattern-A domain-prefixing that resolves the collisions is
+> applied by the **E3 exodus prefixer (T11248)**; running `drizzle-kit generate`
+> against the consolidated configs is therefore deferred until exodus emits the
+> prefixed schema. Until then `db:check` continues to validate the per-domain baseline
+> configs only; the two `cleo-*` configs join the check loop once their first prefixed
+> baseline migration exists.
 
 ---
 
