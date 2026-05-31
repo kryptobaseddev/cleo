@@ -14,7 +14,14 @@ import {
   text,
 } from 'drizzle-orm/sqlite-core';
 
-const ATTACHMENT_OWNER_TYPES = [
+/**
+ * Allowed owner-entity types for `attachment_refs.owner_type`.
+ *
+ * Exported as the SSoT const array so the consolidated docs target schema
+ * (`schema/cleo-project/docs.ts`, T11360) references this identifier rather
+ * than re-declaring the literal — per the canonical typing report §5a.
+ */
+export const ATTACHMENT_OWNER_TYPES = [
   'task',
   'observation',
   'session',

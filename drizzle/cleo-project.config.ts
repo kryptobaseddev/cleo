@@ -34,10 +34,23 @@
  * prefixed consolidated schema. This task (T11358) authors the target shape
  * (scope axis, file naming, membership, counts) only.
  *
+ * **Domain-prefixed target modules (T11360).** The realized, E10-typed,
+ * domain-prefixed Pattern-A target shape is authored under
+ * `packages/core/src/store/schema/cleo-project/` (barrel `index.ts`). Those
+ * modules carry the FINAL prefixed physical names (`tasks_commits`,
+ * `docs_attachments`, `telemetry_events`, …) and the strict typing exodus
+ * deploys. They are intentionally NOT added to the `schema` list below: this
+ * config's list is the LIVE-module membership the audit derives `targetTable`
+ * from, and adding the prefixed twins would double-declare each table at
+ * generate time. The `cleo-project/` barrel is the generate-ready membership
+ * once exodus (T11248) swaps the substrate and the live modules are retired.
+ *
  * @task T11358
+ * @task T11360
  * @epic T11245
  * @saga T11242
  * @see docs/migration/sqlite-schema-canonical.md §1 (canonical per-scope counts)
+ * @see packages/core/src/store/schema/cleo-project/index.ts (target-shape barrel)
  */
 
 import { defineConfig } from 'drizzle-kit';
