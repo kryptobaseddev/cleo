@@ -1227,6 +1227,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
       "allowlist.remove",
     ],
     "query": [
+      "status",
       "propose.list",
       "propose.diff",
       "allowlist.list",
@@ -1387,4 +1388,4 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
 }
 `;
 
-exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — operation count snapshot (full surface) > tier-2-operationCount 1`] = `417`;
+exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — operation count snapshot (full surface) > tier-2-operationCount 1`] = `418`;
