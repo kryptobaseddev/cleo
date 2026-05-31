@@ -21,10 +21,23 @@
  * ```typescript
  * import { openCleoDb } from '@cleocode/core/store/open-cleo-db';
  *
+ * // Dual-scope consolidated cleo.db (D1″ lifecycle — E3/E4 exodus):
+ * const projHandle = await openCleoDb('project', cwd);
+ * const globHandle = await openCleoDb('global');
+ *
+ * // Legacy 8-role API (deprecated — use 'project'|'global' for new code):
  * const handle = await openCleoDb('tasks', cwd);
  * // use handle.db (DatabaseSync) ...
  * await handle.close();
  * ```
+ *
+ * ## Dual-scope delegation (T11517 · E3)
+ *
+ * When called with `'project'` or `'global'` as the role, `openCleoDb` delegates
+ * directly to {@link openDualScopeDb} from `./dual-scope-db.ts`, returning a
+ * `CleoDbHandle`-shaped wrapper. This is the preferred API for all new code
+ * after the E3 exodus. The legacy 8-role CleoDbRole API is retained as a
+ * deprecated shim for one migration cycle (E6 removes it).
  *
  * ## Snapshot opener (read-only, no migrations)
  *
@@ -34,7 +47,7 @@
  * migrations and singleton management, so the caller owns the handle's
  * lifecycle directly.
  *
- * @task T9047, T9685
+ * @task T9047, T9685, T11517
  * @adr ADR-068, ADR-069
  */
 
@@ -45,6 +58,8 @@ import { CleoError } from '../errors.js';
 import { resolveOrCwd } from '../paths.js';
 import { getProjectInfoSync } from '../project-info.js';
 import { getConduitNativeDb } from './conduit-sqlite.js';
+import type { DualScope } from './dual-scope-db.js';
+import { openDualScopeDb } from './dual-scope-db.js';
 import { getBrainDb } from './memory-sqlite.js';
 import { getNexusDb } from './nexus-sqlite.js';
 import { ensureGlobalSignaldockDb, getGlobalSignaldockNativeDb } from './signaldock-sqlite.js';
@@ -53,8 +68,23 @@ import { getDb as getTasksDb } from './sqlite.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
 import { assertDbPathIsNotWorktreeResident } from './worktree-isolation-guard.js';
 
-/** Canonical roles for the 6 SQLite databases (ADR-068), plus planned llmtxt/docs storage. */
+/**
+ * Canonical roles for the CLEO SQLite databases (ADR-068).
+ *
+ * ### Preferred (dual-scope, D1″ — E3 exodus)
+ * - `'project'` — consolidated per-project `cleo.db` (delegates to {@link openDualScopeDb})
+ * - `'global'`  — consolidated per-user `cleo.db`  (delegates to {@link openDualScopeDb})
+ *
+ * ### Legacy 8-role API (deprecated — kept for one migration cycle until E6)
+ * The legacy roles below are retained as shims during the E3→E6 transition.
+ * New code MUST use `'project'` or `'global'` instead.
+ *
+ * @task T11517 (E3-T1 · SG-DB-SUBSTRATE-V2)
+ */
 export type CleoDbRole =
+  // ── Dual-scope (preferred) ───────────────────────────────────────────────
+  | DualScope // 'project' | 'global'
+  // ── Legacy 8-role shims (deprecated — remove in E6) ────────────────────
   | 'tasks'
   | 'brain'
   | 'sessions'
@@ -64,7 +94,11 @@ export type CleoDbRole =
   | 'skills'
   | 'llmtxt';
 
-type ImplementedCleoDbRole = Exclude<CleoDbRole, 'llmtxt'>;
+/** Legacy 8-role union (deprecated — E6 removes these). */
+type LegacyCleoDbRole = Exclude<CleoDbRole, DualScope>;
+
+/** Legacy implemented roles (excludes the not-yet-implemented 'llmtxt'). */
+type ImplementedLegacyRole = Exclude<LegacyCleoDbRole, 'llmtxt'>;
 
 interface DrizzleWithClient {
   $client?: unknown;
@@ -124,7 +158,8 @@ async function openBrainDbHandle(cwd?: string): Promise<unknown> {
   return getBrainDb(cwd);
 }
 
-const ROLE_OPENERS: Record<ImplementedCleoDbRole, DbOpener> = {
+/** Openers for the legacy 8-role API (deprecated shim — E6 removes these). */
+const ROLE_OPENERS: Record<ImplementedLegacyRole, DbOpener> = {
   tasks: getTasksDb as unknown as DbOpener,
   // T10397: brain role MUST resolve to brain.db, NOT tasks.db. Prior to
   // this fix the entry was `getTasksDb`, silently corrupting every
@@ -259,18 +294,60 @@ export function validateProjectIdConsistency(role: CleoDbRole, db: unknown, cwd?
 }
 
 /**
- * Open (or create) a CLEO database by canonical role.
+ * Open (or create) a CLEO database by canonical role or dual-scope selector.
+ *
+ * ## Dual-scope delegation (preferred — T11517 · E3)
+ *
+ * When called with `'project'` or `'global'`, this function delegates to
+ * {@link openDualScopeDb} from `./dual-scope-db.ts`. The returned handle
+ * wraps the typed Drizzle client as `CleoDbHandle.db` for backward compat
+ * with legacy callers that treat `db` as an opaque `unknown`.
+ *
+ * ```ts
+ * // Preferred for new code after E3 exodus:
+ * const handle = await openCleoDb('project', cwd);
+ * const handle = await openCleoDb('global');
+ * ```
+ *
+ * ## Legacy 8-role API (deprecated)
+ *
+ * The legacy role strings (`'tasks'`, `'brain'`, `'signaldock'`, …) remain
+ * functional as deprecated shims for existing callers. E6 will remove them.
  *
  * Single chokepoint for all DB opens. Applies pragma SSoT at open time.
  * Enforces the worktree-isolation guard (T9806) on top of T9803's path-layer
  * THROWS-on-orphan fix.
+ *
+ * @task T9047, T9685, T11517
+ * @adr ADR-068, ADR-069
  */
 export async function openCleoDb(role: CleoDbRole, cwd?: string): Promise<CleoDbHandle> {
+  // ── Dual-scope delegation (preferred API — E3 onwards) ──────────────────
+  if (role === 'project' || role === 'global') {
+    // Delegate to the E4 chokepoint which applies pragma SSoT, runs migrations,
+    // and manages the singleton cache. Explicit conditional narrows the overload.
+    const dualHandle =
+      role === 'project'
+        ? await openDualScopeDb('project', cwd)
+        : await openDualScopeDb('global', cwd);
+    return {
+      // The Drizzle handle is compatible with `unknown` — callers that need
+      // the native DatabaseSync should use `@cleocode/core/db` directly.
+      db: dualHandle.db,
+      role,
+      async close() {
+        dualHandle.close();
+      },
+    };
+  }
+
+  // ── Legacy 8-role API (deprecated shim — E6 removes) ───────────────────
+
   if (role === 'llmtxt') {
     throw new Error('CLEO DB role llmtxt is not yet implemented');
   }
 
-  const opener = ROLE_OPENERS[role];
+  const opener = ROLE_OPENERS[role as ImplementedLegacyRole];
   if (!opener) {
     throw new Error(`Unknown CLEO DB role: ${role}`);
   }
