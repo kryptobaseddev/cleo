@@ -32,7 +32,8 @@
     { "path": "../cant" },
     { "path": "../paths" },
     { "path": "../utils" },
-    { "path": "../playbooks" }
+    { "path": "../playbooks" },
+    { "path": "../worktree" }
   ],
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "src/**/__tests__", "src/**/__mocks__", "src/**/*.test.ts"]

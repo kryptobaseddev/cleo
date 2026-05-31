@@ -300,6 +300,9 @@ importers:
       '@cleocode/utils':
         specifier: workspace:*
         version: link:../utils
+      '@cleocode/worktree':
+        specifier: workspace:*
+        version: link:../worktree
       check-disk-space:
         specifier: ^3.4.0
         version: 3.4.0
