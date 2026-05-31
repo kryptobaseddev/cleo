@@ -521,6 +521,9 @@ describe('T11497 E5-HEADLESS: scopeEpicId filter (AC1)', () => {
       projectRoot: root,
       statePath: join(root, SENTIENT_STATE_FILE),
       scopeEpicId: epicId,
+      // skipReVerify=true: this test exercises scope-filter threading, not the
+      // reVerify gate (T11498 made the gate unconditional; skip it here).
+      skipReVerify: true,
       // Injected picker that ignores scope — the scope is applied by defaultPickTask wrapper.
       // We simulate defaultPickTask's scope-filtered result here directly.
       pickTask: async (pr) => {
