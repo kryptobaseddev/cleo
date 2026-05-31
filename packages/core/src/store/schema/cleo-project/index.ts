@@ -33,35 +33,48 @@
  * NOT double-prefixed; bare tables (`tasks` → `tasks_tasks`, `attachments` →
  * `docs_attachments`) gain their domain prefix.
  *
- * ## Coverage status (T11360 — partial, by design · 27 tables authored)
+ * ## Coverage status (T11360 — 65 project-tier tables authored · only brain_* remains)
  *
- * **Batch 1 (PR #849 — merged):**
- *   - **docs** (D11 collapse, AC3): docs_attachments · docs_attachment_refs ·
- *     docs_manifest_entries · docs_pipeline_manifest
- *   - **telemetry**: telemetry_events · telemetry_schema_meta
- *   - **provenance/commits** (E10 §3b boolean + §5b enum demonstrator):
- *     tasks_commits · tasks_task_commits · tasks_commit_files
+ * **Batch 1 (PR #849 — merged · 9 tables):** docs (D11 collapse, AC3:
+ * docs_attachments · docs_attachment_refs · docs_manifest_entries ·
+ * docs_pipeline_manifest) · telemetry (telemetry_events · telemetry_schema_meta) ·
+ * provenance/commits (tasks_commits · tasks_task_commits · tasks_commit_files).
  *
- * **Batch 2 (this increment — 18 tables):**
- *   - **conduit** (14 tables · ALL 45 §4 epoch→ISO8601 conversions resolved
- *     to seconds per §8.1 + §7 idempotency keys on messages / topic_messages /
- *     delivery_jobs + §3b `enabled` boolean): conduit_conversations ·
- *     conduit_messages · conduit_delivery_jobs · conduit_dead_letters ·
- *     conduit_message_pins · conduit_attachments · conduit_attachment_versions ·
- *     conduit_attachment_approvals · conduit_attachment_contributors ·
- *     conduit_project_agent_refs · conduit_topics · conduit_topic_subscriptions ·
- *     conduit_topic_messages · conduit_topic_message_acks (the two
- *     leading-underscore legacy meta tables `_conduit_meta` /
- *     `_conduit_migrations` are intentionally OMITTED — §6b rename/drop owned
- *     by EP-DRIZZLE-CONTAINMENT WS2 at exodus).
- *   - **tasks-core batch 2** (4 tables · §4 ms-epoch on background_jobs +
- *     §7 idempotency + AC4 junction): tasks_background_jobs · tasks_experiments ·
- *     tasks_evidence_ac_bindings · tasks_task_labels.
+ * **Batch 2 (PR #851 — merged · 18 tables):** conduit (14 tables · ALL §4
+ * epoch→ISO8601 resolved to seconds per §8.1 + §7 idempotency keys + §3b
+ * `enabled` boolean; the two `_conduit_*` legacy meta tables OMITTED per §6b) ·
+ * tasks-core batch 2 (tasks_background_jobs [§4 ms-epoch + §7 idempotency] ·
+ * tasks_experiments · tasks_evidence_ac_bindings · tasks_task_labels [AC4]).
  *
- * Remaining for follow-on increments (NOT yet authored): the rest of
- * tasks-core (tasks_tasks, tasks_sessions, lifecycle, releases, PRs, playbooks,
- * agents, chain, audit, manifest-stage tables) and the brain_* memory family
- * (22 tables, mirrored project+global). Each follows the exact pattern here.
+ * **Batch 3 (this increment — 38 tables, completing the project-tier non-brain set):**
+ *   - **tasks-core** (11 tables · `tasks` → `tasks_tasks` AC1 example + §8.2
+ *     `sessions.grade_mode` boolean RESOLVED as genuine 0/1): tasks_tasks ·
+ *     tasks_task_acceptance_criteria · tasks_acceptance_projection_state ·
+ *     tasks_acceptance_projection_dirty · tasks_task_dependencies ·
+ *     tasks_task_relations · tasks_sessions · tasks_session_handoff_entries ·
+ *     tasks_task_work_history · tasks_task_acceptance_criteria_history ·
+ *     tasks_external_task_links.
+ *   - **lifecycle** (5 tables): tasks_lifecycle_{pipelines,stages,gate_results,
+ *     evidence,transitions}.
+ *   - **audit/governance** (7 tables · §7 audit_log idempotency model preserved):
+ *     tasks_schema_meta · tasks_audit_log · tasks_token_usage ·
+ *     tasks_architecture_decisions · tasks_adr_task_links · tasks_adr_relations ·
+ *     tasks_status_registry.
+ *   - **provenance (PRs + releases)** (8 tables · §3b booleans on PR
+ *     is_release_pr/is_bump_only + release_commits is_first/is_last/
+ *     is_release_chore + §5b enums): tasks_pull_requests · tasks_pr_commits ·
+ *     tasks_pr_tasks · tasks_releases · tasks_release_commits ·
+ *     tasks_release_changes · tasks_release_changesets · tasks_release_artifacts.
+ *   - **runtime** (chain · agents · playbooks · 6 tables · §3b
+ *     playbook_approvals.auto_passed + §5b status enums minted compiler-checked
+ *     from contracts unions): tasks_warp_chains · tasks_warp_chain_instances ·
+ *     tasks_agent_instances · tasks_agent_error_log · tasks_playbook_runs ·
+ *     tasks_playbook_approvals.
+ *
+ * **Remaining (the coordinated FINAL step):** ONLY the `brain_*` memory family
+ * (22 tables) — mirrored across the project AND global scopes, so it is authored
+ * once and shared by both `cleo-project` and `cleo-global` configs. Every
+ * project-tier non-brain table is now authored.
  *
  * @task T11360
  * @epic T11245
@@ -70,8 +83,13 @@
  * @see drizzle/cleo-project.config.ts (per-scope domain membership)
  */
 
+export * from './audit.js';
 export * from './conduit.js';
 export * from './docs.js';
+export * from './lifecycle.js';
 export * from './provenance-commits.js';
+export * from './provenance-rest.js';
+export * from './runtime.js';
+export * from './tasks-core.js';
 export * from './tasks-core-batch2.js';
 export * from './telemetry.js';
