@@ -37,7 +37,7 @@ import {
   runExodusVerify,
   sourcesPresent,
 } from '@cleocode/core/store/exodus/index.js';
-import { defineCommand } from 'citty';
+import { defineCommand } from '../lib/define-cli-command.js';
 import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
 import { cliError, cliOutput, humanInfo } from '../renderers/index.js';
 
