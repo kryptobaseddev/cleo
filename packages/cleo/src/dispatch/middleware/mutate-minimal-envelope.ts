@@ -48,6 +48,9 @@ type MutationBucket = 'created' | 'updated' | 'deleted';
 const OPERATION_BUCKETS: Readonly<Record<string, MutationBucket>> = {
   'tasks.add': 'created',
   'tasks.add-batch': 'created',
+  // T11482 (DHQ-036): saga.create now projects the created saga ID into the
+  // `created` bucket so `--field /data/created/0` resolves a parseable saga ID.
+  'tasks.saga.create': 'created',
   'tasks.update': 'updated',
   'tasks.complete': 'updated',
   'tasks.delete': 'deleted',

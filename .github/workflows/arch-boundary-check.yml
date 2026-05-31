@@ -213,3 +213,28 @@ jobs:
           node-version: '24'
       - name: Lint crate publish=false (zero crates.io)
         run: node scripts/lint-no-crate-publish.mjs
+
+  contract-literal-enums:
+    # Gate 13 (T11483 · DHQ-035) · Epic T11480 SG-CORE-SELF-TOOLING
+    #
+    # JSON-Schema `enum: [...]` literals in packages/contracts/src/operations/*
+    # hand-duplicate the canonical task-axis enum SSoTs (TASK_KINDS, TASK_SCOPES,
+    # TASK_SEVERITIES, TASK_SIZES, TASK_STATUSES, TaskPriority, TaskType). A typo
+    # or drifted member sails past tsc (the literal is string[]) and then
+    # detonates as a cascade of red CI gates far from the edit. This gate parses
+    # the SSoT + the contract literals from SOURCE (never dist/, so a stale dist
+    # cannot hide the drift) and FAILS when any literal enum member is not in its
+    # canonical SSoT. Run locally before pushing: node
+    # scripts/lint-contract-literal-enums.mjs
+    #
+    # Pure static analysis of checked-in TS source — no untrusted user input.
+    name: Contract Literal Enum SSoT (T11483)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Lint contract-literal enums against canonical SSoT
+        run: node scripts/lint-contract-literal-enums.mjs

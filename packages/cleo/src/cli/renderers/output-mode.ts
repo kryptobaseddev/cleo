@@ -72,11 +72,22 @@ function extractIds(data: unknown): string[] {
 /**
  * Pick the row count from a dispatch envelope.
  *
- * Honours explicit count fields before array lengths. `total` wins for
- * paginated read payloads; `count` is the canonical minimal mutate envelope
- * field and is especially important for dry-run mutations where the raw
- * inserted/created count can be zero while the predicted affected count is
- * non-zero.
+ * Honours explicit count fields before array lengths. The precedence below
+ * settles the filtered-listing-vs-total semantic (T11481 · DHQ-034):
+ *
+ *   1. `filtered` — the filter-aware match count of a `tasks.list` envelope
+ *      (`{tasks, total, filtered}`). For a filtered listing
+ *      (`list --parent X`, `list --status Y`) this is the count the operator
+ *      asked about — NOT the global `total` (every task in the project) and
+ *      NOT the returned-rows length (which differs from the match count under
+ *      pagination, e.g. a Saga `bindingSource:'saga.groups'` page binding
+ *      `tasks.length=10` while `filtered=19`).
+ *   2. `total` — paginated read payloads that carry no distinct `filtered`
+ *      field. Preserves the documented total-first behaviour (T10599) where
+ *      there is no filter dimension.
+ *   3. `count` — the canonical minimal mutate envelope field, especially for
+ *      dry-run mutations where the raw inserted/created count can be zero while
+ *      the predicted affected count is non-zero.
  *
  * @returns `0` when the data shape carries neither a counted collection
  *          nor a recognisable count field.
@@ -84,6 +95,11 @@ function extractIds(data: unknown): string[] {
 function extractCount(data: unknown): number {
   if (data === null || typeof data !== 'object') return 0;
   const rec = data as Record<string, unknown>;
+
+  // 1. Filter-aware match count of a `tasks.list` envelope. Wins over `total`
+  // so a filtered listing reports the number of MATCHES, not the global total.
+  const filtered = rec['filtered'];
+  if (typeof filtered === 'number' && Number.isFinite(filtered)) return filtered;
 
   const total = rec['total'];
   if (typeof total === 'number' && Number.isFinite(total)) return total;
