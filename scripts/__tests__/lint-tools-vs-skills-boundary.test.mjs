@@ -32,10 +32,14 @@ describe('scanToolBoundaryViolations', () => {
     expect(scanToolBoundaryViolations(root)).toEqual([]);
   });
 
-  it('FLAGS a primitive redefined in a consumer package (mcp-adapter)', () => {
-    writeFile('packages/mcp-adapter/src/x.ts', 'export async function executeShell(){return 1}');
+  it('FLAGS a primitive redefined in a consumer package (runtime)', () => {
+    // packages/mcp-adapter was deleted (R8 · T11259); runtime is now the consumer example.
+    writeFile(
+      'packages/runtime/src/gateway/x.ts',
+      'export async function executeShell(){return 1}',
+    );
     expect(scanToolBoundaryViolations(root)).toEqual([
-      'packages/mcp-adapter/src/x.ts:executeShell',
+      'packages/runtime/src/gateway/x.ts:executeShell',
     ]);
   });
 

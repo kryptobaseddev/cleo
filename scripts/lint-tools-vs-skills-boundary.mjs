@@ -7,7 +7,7 @@
  *   - Atomic tool **primitives** + their contracts are DEFINED only under
  *     `packages/core/src/tools/` and `packages/contracts/src/tools/`.
  *   - Composite **skills** live in `packages/skills`.
- *   - Harness/provider packages (`mcp-adapter`, `caamp`, `cleo-os`) CONSUME the
+ *   - Harness/provider packages (`runtime`, `caamp`, `cleo-os`) CONSUME the
  *     primitives via import and MUST NOT redefine them.
  *
  * This gate fails when an atomic-primitive name (see {@link PRIMITIVE_NAMES}) is
@@ -140,7 +140,7 @@ function main() {
     );
     for (const v of netNew) console.error(`  - ${v}`);
     console.error(
-      `\nAtomic tool primitives belong in ${PRIMITIVE_HOMES.join(' / ')}; consumers (mcp-adapter,` +
+      `\nAtomic tool primitives belong in ${PRIMITIVE_HOMES.join(' / ')}; consumers (runtime,` +
         ` caamp, cleo-os, …) IMPORT them, never redefine. See ATOMIC_TOOL_BOUNDARY in boundary.ts.\n`,
     );
     return 1;
