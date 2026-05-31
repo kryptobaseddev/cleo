@@ -467,6 +467,29 @@ jobs:
       - name: Enforce hook-mappings parity (TS canonical <-> cant-core vendor)
         run: node scripts/lint-cant-core-hook-mappings-parity.mjs --exit-on-fail
 
+  lafs-envelope-conformance:
+    # T11422 / E7-LAFS-CANONICAL (T11394) — enforce that representative CLEO CLI
+    # output fixtures (packages/lafs/fixtures/valid-cleo-cli-*.json) are accepted
+    # by the unified envelope.schema.json which covers both the LAFS SDK shape
+    # (_meta/result) and the CLEO CLI canonical shape (meta/data, ADR-039).
+    # Pure static analysis of checked-in fixture files — no untrusted input.
+    name: LAFS Envelope Conformance Gate (T11422)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+      - name: Install validator dependencies (ajv + ajv-formats)
+        # Install only the two validation packages needed by the gate script.
+        # We install into packages/lafs/ (which already lists ajv as a dep) so
+        # the pnpm workspace protocol is satisfied without a full monorepo install.
+        run: pnpm --filter @cleocode/lafs install --prefer-offline
+      - name: Validate CLEO CLI envelope fixtures against envelope.schema.json
+        run: node scripts/lint-lafs-envelope-conformance.mjs --verbose
+
   contracts-dep-lint:
     name: Contracts Dep Lint
     runs-on: ubuntu-latest
@@ -1607,6 +1630,7 @@ jobs:
       - saga-symbol-leakage-lint
       - json-stream-hygiene-lint
       - rust-vendor-parity-lint
+      - lafs-envelope-conformance
       - contracts-dep-lint
       - contracts-fan-out-lint
       - format-error-misuse-lint

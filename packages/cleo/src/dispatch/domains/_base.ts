@@ -11,8 +11,8 @@
  * @task T1712 — envelopeToEngineResult canonical helper preserving all error fields
  */
 
+import type { LAFSPage } from '@cleocode/contracts';
 import type { EngineResult, ProblemDetails } from '@cleocode/core';
-import type { LAFSPage } from '@cleocode/lafs';
 import type { DispatchResponse } from '../types.js';
 import { dispatchMeta } from './_meta.js';
 
