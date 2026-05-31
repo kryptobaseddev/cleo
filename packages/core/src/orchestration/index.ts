@@ -39,6 +39,13 @@ export {
   getRegisteredAgentIds,
   validateClassifierRules,
 } from './classify.js';
+export type {
+  GrillTrigger,
+  ReadinessResult,
+  ReadinessSignals,
+  ReadinessVerdict,
+} from './classify-readiness.js';
+export { classifyReadiness } from './classify-readiness.js';
 export type { ContextEstimation } from './context.js';
 export { countManifestEntries, estimateContext } from './context.js';
 export type { DashboardRateMetric, OrchestrateDashboardMetrics } from './dashboard.js';
