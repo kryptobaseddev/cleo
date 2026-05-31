@@ -82,8 +82,8 @@ const PUBLISHED_PACKAGES = [
   'playbooks',
   'cleo',
   'cleo-os',
-  'mcp-adapter',
-  'studio',
+  // 'mcp-adapter' removed (R8 · T11259): consolidated into @cleocode/runtime/gateway/mcp.
+  // 'studio' not published (E1 · T11399).
 ];
 
 // ---------------------------------------------------------------------------

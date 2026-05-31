@@ -654,7 +654,7 @@ async function build() {
     'core',
     'git-shim',
     'lafs',
-    'mcp-adapter',
+    // 'mcp-adapter' removed (R8 · T11259): package deleted, MCP transport is in @cleocode/runtime.
     'nexus',
     'paths',
     'playbooks',
@@ -682,7 +682,7 @@ async function build() {
   //   Wave 4:  caamp         (deps cant — must wait for wave 3)
   //   Wave 5:  core esbuild + tsc declarations  (deps caamp, nexus, worktree, paths)
   //   Wave 6:  runtime + adapters  (both dep core — run in parallel)
-  //   Wave 7:  playbooks + mcp-adapter  (both dep core only — run in parallel)
+  //   Wave 7:  playbooks  (deps core only — mcp-adapter deleted R8 · T11259)
   //   Wave 8:  cleo esbuild  (deps adapters, playbooks, runtime from above)
   //   Wave 9:  cleo-os       (deps cleo)
   //
@@ -820,28 +820,19 @@ export declare function is_canonical(skillPath: string, options?: IsCanonicalOpt
   ]);
 
   // ---------------------------------------------------------------------------
-  // Wave 7: playbooks + mcp-adapter (both dep core only — independent of each other)
+  // Wave 7: playbooks (dep core only — previously also built mcp-adapter here)
   //
-  // mcp-adapter was previously built after cleo in the sequential script, but
-  // its actual deps are only @cleocode/contracts + @cleocode/core — both ready
-  // after wave 5. Moving it here shaves it off the critical path entirely.
+  // packages/mcp-adapter removed (R8 · T11259): source deleted, MCP transport
+  // consolidated into @cleocode/runtime/gateway/mcp which is already built in
+  // Wave 6. No separate mcp-adapter build step needed.
   //
   // playbooks: tsconfig.tsbuildinfo must be removed first — composite: true
   // causes tsc -b to short-circuit when the cache thinks nothing changed, even
   // if dist/ was wiped. Root cause of the v2026.4.94 empty-tarball regression.
   // ---------------------------------------------------------------------------
-  console.log('\n[build] Wave 7: playbooks + mcp-adapter (parallel)');
-  await Promise.all([
-    (async () => {
-      await rm(resolve(__dirname, 'packages/playbooks/tsconfig.tsbuildinfo'), { force: true });
-      await buildPkg('@cleocode/playbooks', 'packages/playbooks/dist/');
-    })(),
-    (async () => {
-      await rm(resolve(__dirname, 'packages/mcp-adapter/tsconfig.tsbuildinfo'), { force: true });
-      await buildPkg('@cleocode/mcp-adapter', 'packages/mcp-adapter/dist/');
-      await chmod('packages/mcp-adapter/dist/cli.js', 0o755).catch(() => {});
-    })(),
-  ]);
+  console.log('\n[build] Wave 7: playbooks');
+  await rm(resolve(__dirname, 'packages/playbooks/tsconfig.tsbuildinfo'), { force: true });
+  await buildPkg('@cleocode/playbooks', 'packages/playbooks/dist/');
 
   // ---------------------------------------------------------------------------
   // Wave 8: cleo esbuild bundle (deps adapters, playbooks, runtime — all ready)

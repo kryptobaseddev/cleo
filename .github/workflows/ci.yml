@@ -90,8 +90,7 @@ jobs:
               - 'packages/git-shim/**'
             lafs:
               - 'packages/lafs/**'
-            mcp_adapter:
-              - 'packages/mcp-adapter/**'
+            # mcp_adapter removed (R8 · T11259): packages/mcp-adapter deleted.
             paths:
               - 'packages/paths/**'
             playbooks:
@@ -1246,7 +1245,7 @@ jobs:
             [[ "${{ needs.changes.outputs.cleo_os }}"     == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/cleo-os"
             [[ "${{ needs.changes.outputs.git_shim }}"    == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/git-shim"
             [[ "${{ needs.changes.outputs.lafs }}"        == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/lafs"
-            [[ "${{ needs.changes.outputs.mcp_adapter }}" == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/mcp-adapter"
+            # mcp-adapter removed (R8 · T11259); MCP transport is part of @cleocode/runtime.
             [[ "${{ needs.changes.outputs.paths }}"       == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/paths"
             [[ "${{ needs.changes.outputs.playbooks }}"   == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/playbooks"
             [[ "${{ needs.changes.outputs.runtime }}"     == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/runtime"
@@ -1410,25 +1409,12 @@ jobs:
       - name: Verify CLI binary
         shell: bash
         run: node packages/cleo/dist/cli/index.js version
-      - name: Verify mcp-adapter dist exists
+      - name: Verify runtime gateway/mcp dist exists
+        # R8 (T11259): standalone packages/mcp-adapter deleted; MCP transport consolidated
+        # into @cleocode/runtime/gateway/mcp. Verify the runtime dist ships the mcp adapter.
         shell: bash
         run: |
-          test -f packages/mcp-adapter/dist/cli.js || (echo "packages/mcp-adapter/dist/cli.js missing — build.mjs did not build @cleocode/mcp-adapter" && exit 1)
-      - name: Verify MCP adapter server starts and responds
-        if: matrix.os != 'windows-latest'
-        shell: bash
-        # Real smoke test: pipe a JSON-RPC 2.0 `initialize` request, close
-        # stdin, and assert the response carries the expected serverInfo.name.
-        # Catches regressions like:
-        #   - missing dist (MODULE_NOT_FOUND on cli.js / server.js)
-        #   - broken transitive imports (@cleocode/core load failure)
-        #   - protocol-handler crashes on initialize
-        # Failing exit code FAILS the job — no `|| true` masking.
-        run: |
-          OUTPUT=$(node -e "const { spawnSync } = require('node:child_process'); const r = spawnSync(process.execPath, ['packages/mcp-adapter/dist/cli.js'], { input: '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}\n', encoding: 'utf8', timeout: 10000 }); process.stdout.write(r.stdout || ''); process.stderr.write(r.stderr || ''); if (r.error) { console.error(r.error.message); process.exit(1); } process.exit(r.status ?? 1);")
-          echo "$OUTPUT"
-          echo "$OUTPUT" | grep -q '"name":"cleo-mcp-adapter"' \
-            || (echo "MCP adapter did not return expected initialize response" && exit 1)
+          test -f packages/runtime/dist/gateway/mcp/index.js || (echo "packages/runtime/dist/gateway/mcp/index.js missing — build.mjs did not build @cleocode/runtime" && exit 1)
 
   validate-json:
     name: Validate JSON Schemas
