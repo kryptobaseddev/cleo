@@ -285,7 +285,8 @@ cleo verify T### --gate testsPassed --evidence "tool:test"
 # qaPassed — lint + typecheck
 cleo verify T### --gate qaPassed --evidence "tool:lint;tool:typecheck"
 
-# retroactive PR atom (PR MERGED + CI green) satisfies testsPassed AND qaPassed
+# retroactive PR atom (PR MERGED + CI green) satisfies implemented + testsPassed + qaPassed
+cleo verify T### --gate implemented --evidence "pr:357"
 cleo verify T### --gate testsPassed --evidence "pr:357"
 cleo verify T### --gate qaPassed --evidence "pr:357"
 
@@ -325,7 +326,7 @@ All overrides append a line to `.cleo/audit/force-bypass.jsonl`. Use sparingly.
 
 ### `pr:<number>` retroactive atom (T9764)
 
-Accepts IFF PR `state=MERGED` AND required-workflow checks are `SUCCESS`/`SKIPPED`. Single atom satisfies BOTH `testsPassed` + `qaPassed`. Cache under `.cleo/cache/evidence/pr-<num>.json`.
+Accepts IFF PR `state=MERGED` AND required-workflow checks are `SUCCESS`/`SKIPPED`. Single atom satisfies `implemented` + `testsPassed` + `qaPassed` simultaneously (T9838). Cache under `.cleo/cache/evidence/pr-<num>.json`.
 
 ### Anti-patterns to avoid
 

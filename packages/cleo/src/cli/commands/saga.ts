@@ -281,6 +281,41 @@ const rollupCommand = defineCommand({
 });
 
 /**
+ * cleo saga next [<sagaId>] — return the next actionable Saga and its ready frontier.
+ *
+ * When no `sagaId` is supplied, auto-selects the highest-priority non-terminal Saga
+ * from the canonical Saga-to-Saga order (North Star §0.1). When `sagaId` is given,
+ * scopes the traversal to that Saga only.
+ *
+ * Output includes: sagaId, sagaTitle, sagaLabel, canonicalRank, activeSagaCount,
+ * member-epic rollup, readyFrontier task IDs, and blockers.
+ *
+ * @task T11493 — E1-SAGA-RESOLVE
+ * @saga T11492 — SG-AUTOPILOT
+ */
+const nextCommand = defineCommand({
+  meta: {
+    name: 'next',
+    description: 'Return the next actionable Saga and its ready-frontier task IDs',
+  },
+  args: {
+    sagaId: {
+      type: 'positional',
+      description: 'Optional saga task ID. Omit to auto-select from canonical order.',
+      required: false,
+    },
+  },
+  async run({ args }) {
+    const { sagas, getProjectRoot } = await import('@cleocode/core');
+    const projectRoot = getProjectRoot();
+    const sagaId =
+      typeof args.sagaId === 'string' && args.sagaId.length > 0 ? args.sagaId : undefined;
+    const result = await sagas.sagaNext(projectRoot, { sagaId });
+    cliOutput(result.success ? result.data : result, { command: 'saga', operation: 'saga.next' });
+  },
+});
+
+/**
  * Root saga command group — above-epic grouping tier (Saga, prefix SG-).
  *
  * Dispatches to `tasks.saga.*` registry operations.
@@ -301,6 +336,7 @@ export const sagaCommand = defineCommand({
     rollup: rollupCommand,
     repair: repairCommand,
     reconcile: reconcileCommand,
+    next: nextCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));

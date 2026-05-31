@@ -1,9 +1,10 @@
 /**
  * Zod schemas + helper types for the `pr:<number>` evidence atom.
  *
- * Closes the release-verb dogfood gap (T9764): tasks that ship via the
+ * Closes the release-verb dogfood gap (T9764 / T9838): tasks that ship via the
  * standard PR + admin-merge flow lacked a zero-friction way to record
- * `testsPassed` / `qaPassed` evidence retroactively. The release-verb
+ * `implemented` / `testsPassed` / `qaPassed` evidence retroactively. The
+ * release-verb
  * pipeline (`cleo release plan --epic <id>`) requires evidence atoms for
  * every child task before a plan can be built. `tool:test` is overkill
  * for one-line tasks (it re-runs the entire monorepo suite), and `note:`
