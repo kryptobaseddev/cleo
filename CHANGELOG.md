@@ -1,5 +1,33 @@
 # Changelog
 
+## [2026.5.134] (2026-05-31)
+
+### Added
+
+- feat(T11248): cleo exodus subcommand migrates legacy multi-DB fleet to consolidated dual-scope cleo.db _(provenance: [T11248](https://github.com/kryptobaseddev/cleo/search?q=T11248&type=commits))_
+
+### Changed
+
+- lafs: retire @a2a-js/sdk + express from CLEO-core runtime closure; update boundary.ts + ADR-039 _(provenance: [T11425](https://github.com/kryptobaseddev/cleo/search?q=T11425&type=commits), [T11426](https://github.com/kryptobaseddev/cleo/search?q=T11426&type=commits), [T11427](https://github.com/kryptobaseddev/cleo/search?q=T11427&type=commits))_
+
+### Fixed
+
+
+
+### Deprecated
+
+
+
+### Removed
+
+
+
+### Security
+
+
+
+### BREAKING CHANGES
+
 ## [2026.5.133] (2026-05-31)
 
 ### Added
