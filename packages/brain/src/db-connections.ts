@@ -17,15 +17,38 @@
  * `packages/studio/src/lib/server/db/connections.ts`, containing only the
  * getters required by the substrate adapters.
  *
+ * ## E4-T5 transition (T11516 · SG-DB-SUBSTRATE-V2)
+ *
+ * This module now depends on `@cleocode/core` and delegates to
+ * {@link openDualScopeDb} for new consolidated `cleo.db` access.  The legacy
+ * per-domain DB getters ({@link getNexusDb}, {@link getBrainDb}, etc.) still
+ * open the old per-domain files via per-line-allowed raw opens because the
+ * substrate adapters in this package still target those legacy table schemas.
+ * The full exodus to the consolidated `cleo.db` schema happens in E6 (T11249),
+ * at which point the per-line `// db-open-allowed` markers and the legacy
+ * getters are removed.
+ *
  * @task T969
+ * @task T11516 (E4-T5)
  */
 
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
+import { applyPerfPragmas } from '@cleocode/core/store/sqlite-pragmas.js';
 import { dbExists, getNexusDbPath, getSignaldockDbPath } from './cleo-home.js';
 import type { ProjectContext } from './project-context.js';
+
+/**
+ * Re-export of the dual-scope `cleo.db` chokepoint.
+ *
+ * Callers that target the new consolidated schema (E4+) should use
+ * `openDualScopeDb` directly rather than the legacy per-domain getters below.
+ *
+ * @see packages/core/src/store/dual-scope-db.ts
+ */
+export { openDualScopeDb } from '@cleocode/core/db';
 
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
@@ -79,57 +102,42 @@ let nexusDb: DatabaseSync | null = null;
 let signaldockDb: DatabaseSync | null = null;
 
 // ---------------------------------------------------------------------------
-// Pragma application (T9045 — inline because @cleocode/brain doesn't depend on @cleocode/core)
-//
-// Mirrors the canonical set from packages/core/src/store/sqlite-pragmas.ts.
-// Keep in sync with specs/sqlite-pragmas.json.
-// ---------------------------------------------------------------------------
-
-/**
- * Apply the canonical CLEO performance pragma set to a DatabaseSync handle.
- *
- * @internal — brain-package-local, no dep on core.
- */
-function applyBrainPragmas(db: DatabaseSync): void {
-  db.exec(
-    [
-      'PRAGMA busy_timeout = 30000',
-      'PRAGMA journal_mode = WAL',
-      'PRAGMA synchronous = NORMAL',
-      'PRAGMA foreign_keys = ON',
-      'PRAGMA cache_size = -8192',
-      'PRAGMA mmap_size = 67108864',
-    ].join('; '),
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Global DB getters (cached per process)
 // ---------------------------------------------------------------------------
 
 /**
  * Returns a read-only connection to the global nexus.db.
  * Returns null when the file does not exist on disk.
+ *
+ * @remarks
+ * Uses `applyPerfPragmas` from `@cleocode/core` (SSoT, T9045).
+ * The raw open is per-line-allowed during the E4 → E6 transition; substrate
+ * adapters still target legacy nexus.db table names. Full exodus in E6 (T11249).
  */
 export function getNexusDb(): DatabaseSync | null {
   if (nexusDb) return nexusDb;
   const path = getNexusDbPath();
   if (!dbExists(path)) return null;
-  nexusDb = new DatabaseSync(path, { open: true });
-  applyBrainPragmas(nexusDb); // T9045
+  nexusDb = new DatabaseSync(path, { open: true }); // db-open-allowed: E4-T5 coexistence — adapters target legacy nexus.db schema; full exodus in E6 (T11249)
+  applyPerfPragmas(nexusDb);
   return nexusDb;
 }
 
 /**
  * Returns a read-only connection to the global signaldock.db.
  * Returns null when the file does not exist on disk.
+ *
+ * @remarks
+ * Uses `applyPerfPragmas` from `@cleocode/core` (SSoT, T9045).
+ * The raw open is per-line-allowed during the E4 → E6 transition; substrate
+ * adapters still target legacy signaldock.db table names. Full exodus in E6 (T11249).
  */
 export function getSignaldockDb(): DatabaseSync | null {
   if (signaldockDb) return signaldockDb;
   const path = getSignaldockDbPath();
   if (!dbExists(path)) return null;
-  signaldockDb = new DatabaseSync(path, { open: true });
-  applyBrainPragmas(signaldockDb); // T9045
+  signaldockDb = new DatabaseSync(path, { open: true }); // db-open-allowed: E4-T5 coexistence — adapters target legacy signaldock.db schema; full exodus in E6 (T11249)
+  applyPerfPragmas(signaldockDb);
   return signaldockDb;
 }
 
@@ -166,13 +174,18 @@ function isMalformationError(err: unknown): boolean {
  * `recoverMalformedBrainDb()` pipeline before the next process re-opens.
  *
  * @param ctx - The active project context.
+ *
+ * @remarks
+ * Uses `applyPerfPragmas` from `@cleocode/core` (SSoT, T9045).
+ * The raw open is per-line-allowed during the E4 → E6 transition; substrate
+ * adapters still target legacy brain.db table names. Full exodus in E6 (T11249).
  */
 export function getBrainDb(ctx: ProjectContext): DatabaseSync | null {
   const path = ctx.brainDbPath;
   if (!existsSync(path)) return null;
   try {
-    const __db = new DatabaseSync(path, { open: true });
-    applyBrainPragmas(__db); // T9045
+    const __db = new DatabaseSync(path, { open: true }); // db-open-allowed: E4-T5 coexistence — adapters target legacy brain.db schema; full exodus in E6 (T11249)
+    applyPerfPragmas(__db);
     return __db;
   } catch (err) {
     if (isMalformationError(err)) return null;
@@ -187,12 +200,17 @@ export function getBrainDb(ctx: ProjectContext): DatabaseSync | null {
  * Returns null when tasks.db does not exist for the project.
  *
  * @param ctx - The active project context.
+ *
+ * @remarks
+ * Uses `applyPerfPragmas` from `@cleocode/core` (SSoT, T9045).
+ * The raw open is per-line-allowed during the E4 → E6 transition; substrate
+ * adapters still target legacy tasks.db table names. Full exodus in E6 (T11249).
  */
 export function getTasksDb(ctx: ProjectContext): DatabaseSync | null {
   const path = ctx.tasksDbPath;
   if (!existsSync(path)) return null;
-  const __db = new DatabaseSync(path, { open: true });
-  applyBrainPragmas(__db); // T9045
+  const __db = new DatabaseSync(path, { open: true }); // db-open-allowed: E4-T5 coexistence — adapters target legacy tasks.db schema; full exodus in E6 (T11249)
+  applyPerfPragmas(__db);
   return __db;
 }
 
@@ -206,11 +224,16 @@ export function getTasksDb(ctx: ProjectContext): DatabaseSync | null {
  * Returns null when conduit.db does not exist for the project.
  *
  * @param ctx - The active project context.
+ *
+ * @remarks
+ * Uses `applyPerfPragmas` from `@cleocode/core` (SSoT, T9045).
+ * The raw open is per-line-allowed during the E4 → E6 transition; substrate
+ * adapters still target legacy conduit.db table names. Full exodus in E6 (T11249).
  */
 export function getConduitDb(ctx: ProjectContext): DatabaseSync | null {
   const path = join(dirname(ctx.brainDbPath), 'conduit.db');
   if (!existsSync(path)) return null;
-  const __db = new DatabaseSync(path, { open: true });
-  applyBrainPragmas(__db); // T9045
+  const __db = new DatabaseSync(path, { open: true }); // db-open-allowed: E4-T5 coexistence — adapters target legacy conduit.db schema; full exodus in E6 (T11249)
+  applyPerfPragmas(__db);
   return __db;
 }

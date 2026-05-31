@@ -159,6 +159,9 @@ importers:
       '@cleocode/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@cleocode/core':
+        specifier: workspace:*
+        version: link:../core
       '@cleocode/paths':
         specifier: workspace:*
         version: link:../paths

@@ -96,7 +96,6 @@ CI job: `Architectural Boundary Check (SG-ARCH-SOLID T9837)` (baseline mode by d
 | `packages/core/src/agents/seed-install.ts`            | One-shot global install                         |
 | `packages/core/src/orchestration/classify.ts`         | JSDoc `@example` blocks only                    |
 | `packages/core/src/nexus/**`                          | Per-project graph DBs (non-CLEO metadata)       |
-| `packages/brain/src/db-connections.ts`                | Package-boundary constraint (no core dep)       |
 | `packages/studio/src/lib/server/db/connections.ts`    | Per-project ProjectContext opens                |
 | Test files (`__tests__/`, `.test.ts`, `.spec.ts`)     | May open raw for seeding                        |
 
