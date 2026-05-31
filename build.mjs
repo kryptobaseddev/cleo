@@ -87,6 +87,9 @@ const SUBPATH_DIRS = [
   'hygiene',
   // T10575 — public WorkGraph boundary exposed as @cleocode/core/workgraph.
   'workgraph',
+  // T11514 (E4-T3) — @cleocode/core/db subpath for dual-scope DB chokepoint
+  // (openDualScopeDb + idempotent helpers, SG-DB-SUBSTRATE-V2 · T11247).
+  'db',
 ];
 
 
