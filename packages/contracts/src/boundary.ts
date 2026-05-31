@@ -264,7 +264,7 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
     },
     amendments: [],
     rationale:
-      'napi binding shim (736 LOC) for cant-core. Loaded via packages/cant/src/native-loader.ts and packages/core/src/system/dependencies.ts. Internal-only — shipped via per-platform packages/cant-napi-* npm packages, not crates.io.',
+      'napi binding shim for cant-core + cant-runtime. Loaded via packages/cant/src/native-loader.ts and packages/core/src/system/dependencies.ts. Internal-only — shipped via per-platform packages/cant-napi-* npm packages, not crates.io. cant-router bindings removed (E8 T11432).',
   },
   {
     module: 'cant-router',
@@ -281,7 +281,9 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
     },
     amendments: [],
     rationale:
-      'Cant Router (984 LOC) — CPU-bound dispatch consumed by cant-napi and integration-tests. Flip publish=true: useful externally for cant ecosystem consumers.',
+      'Cant Router (984 LOC) — RETIRED from cant-napi dep-set (E8 T11432: zero live TS consumers). ' +
+      'Preserved in the workspace for reference; not linked into the published napi binary. ' +
+      'publish=false. Relocation/deletion tracked in T11432.',
   },
   {
     module: 'cant-runtime',

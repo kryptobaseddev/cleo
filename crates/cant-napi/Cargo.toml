@@ -11,7 +11,9 @@ crate-type = ["cdylib"]
 
 [dependencies]
 cant-core = { path = "../cant-core" }
-cant-router = { path = "../cant-router" }
+# cant-router removed — E8 T11432: zero live TS consumers; router retired from CANT track.
+# The router crate itself is preserved in the workspace for reference but no longer
+# linked into the published napi binary so it cannot silently ship dead code.
 cant-runtime = { path = "../cant-runtime" }
 napi = { version = "3", features = ["napi4", "serde-json", "async"] }
 napi-derive = "3"
