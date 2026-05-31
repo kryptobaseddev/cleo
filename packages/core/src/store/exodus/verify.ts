@@ -4,14 +4,25 @@
  * `runExodusVerify()` checks equivalence between source legacy DBs and the
  * consolidated dual-scope `cleo.db` after a migration.
  *
- * ## Equivalence checks (AC7)
+ * ## Equivalence checks (AC7 · T11531 hardened)
  *
  * Per-table:
- *   1. `COUNT(*)` parity — source and target row counts must match.
+ *   1. `COUNT(*)` parity — source and target row counts MUST match.
+ *      Any data-bearing source table (COUNT > 0) whose consolidated
+ *      counterpart has fewer rows causes an immediate `ok: false` with an
+ *      explicit `error` string listing every failing table.
  *   2. Ordered canonical-JSON digest — SELECT all rows ORDER BY rowid, JSON-
  *      stringify each row, SHA-256 the concatenation (truncated to 32 hex).
  *
+ * ## FALSE-PASS guard (T11531)
+ *
+ * The previous implementation set `overallOk = false` but left `error`
+ * undefined when count mismatches were detected. Some callers checked only
+ * `result.error` to decide success. This version always populates `error`
+ * with a human-readable failure summary when `ok === false`.
+ *
  * @task T11248 (E5 · AC7 · SG-DB-SUBSTRATE-V2)
+ * @task T11531 (verify hardening — parity gate)
  * @saga T11242
  */
 
@@ -81,14 +92,21 @@ function listTables(db: DatabaseSync): string[] {
  * Opens source DBs read-only and the consolidated target DBs read-only, then
  * compares row counts and canonical-JSON digests per table.
  *
+ * **Parity gate (T11531)**: for every legacy source table with `rows > 0`,
+ * the consolidated counterpart MUST have the same row count. Any shortfall
+ * causes `ok: false` and populates `error` with a plain-text list of every
+ * failing table. This catches the attach-leak class of data loss.
+ *
  * @param sources        - Legacy source descriptors (from `buildExodusPlan()`).
  * @param projectDbPath  - Absolute path to the consolidated project `cleo.db`.
  * @param globalDbPath   - Absolute path to the consolidated global `cleo.db`.
  * @param onProgress     - Optional progress callback.
  *
- * @returns {@link ExodusVerifyResult}
+ * @returns {@link ExodusVerifyResult} — `ok: false` with `error` populated
+ *   when any data-bearing table has mismatched counts.
  *
  * @task T11248 (AC7)
+ * @task T11531 (parity gate hardening)
  */
 export function runExodusVerify(
   sources: LegacyDbDescriptor[],
@@ -97,7 +115,8 @@ export function runExodusVerify(
   onProgress?: (msg: string) => void,
 ): ExodusVerifyResult {
   const tableResults: VerifyTableResult[] = [];
-  let overallOk = true;
+  /** Accumulates human-readable descriptions of every failing table. */
+  const failureLines: string[] = [];
 
   // Check target DBs exist
   if (!existsSync(projectDbPath)) {
@@ -138,8 +157,9 @@ export function runExodusVerify(
           onProgress?.(`Verifying ${src.name}.${tableName}…`);
 
           if (!targetTables.has(tableName)) {
-            // Table missing in target (E6 will populate it — treat as skipped rows = 0)
+            // Table missing entirely from consolidated DB.
             const srcResult = computeTableDigest(srcSnap.db, tableName);
+            const countMatch = srcResult.count === 0; // ok only if source was empty
             const result: VerifyTableResult = {
               tableName,
               scope,
@@ -147,12 +167,13 @@ export function runExodusVerify(
               targetCount: 0,
               sourceHash: srcResult.hash,
               targetHash: '',
-              hashMatch: srcResult.count === 0, // only ok if source was empty
-              countMatch: srcResult.count === 0,
+              hashMatch: countMatch,
+              countMatch,
             };
-            if (!result.countMatch) {
-              overallOk = false;
-              log.warn({ tableName, sourceDb: src.name }, 'Table missing in consolidated DB');
+            if (!countMatch) {
+              const line = `[${scope}] ${src.name}.${tableName}: missing from target (source has ${srcResult.count} rows)`;
+              failureLines.push(line);
+              log.warn({ tableName, sourceDb: src.name, sourceCount: srcResult.count }, line);
             }
             tableResults.push(result);
             continue;
@@ -165,16 +186,18 @@ export function runExodusVerify(
           const hashMatch = srcDigest.hash === tgtDigest.hash;
 
           if (!countMatch || !hashMatch) {
-            overallOk = false;
+            const line = `[${scope}] ${src.name}.${tableName}: source=${srcDigest.count} rows, target=${tgtDigest.count} rows, hashMatch=${hashMatch}`;
+            failureLines.push(line);
             log.warn(
               {
                 tableName,
+                sourceDb: src.name,
                 srcCount: srcDigest.count,
                 tgtCount: tgtDigest.count,
                 countMatch,
                 hashMatch,
               },
-              'Equivalence check failed',
+              `Equivalence check FAILED: ${line}`,
             );
           }
 
@@ -202,5 +225,12 @@ export function runExodusVerify(
     globalSnap.close();
   }
 
-  return { ok: overallOk, tables: tableResults };
+  if (failureLines.length > 0) {
+    // Explicit error string — ensures any caller checking `result.error` sees the failure.
+    const error = `Exodus verify FAILED: ${failureLines.length} table(s) with data loss:\n${failureLines.map((l) => `  • ${l}`).join('\n')}`;
+    log.error({ failureCount: failureLines.length }, error);
+    return { ok: false, tables: tableResults, error };
+  }
+
+  return { ok: true, tables: tableResults };
 }

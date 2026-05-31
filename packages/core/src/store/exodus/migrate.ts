@@ -6,12 +6,26 @@
  *
  * - Source DBs are opened **read-only** via `openCleoDbSnapshot` (AC4).
  * - Source files are backed up to the staging dir before any writes (AC5).
- * - Import is wrapped in `BEGIN … COMMIT` per scope; partial failure leaves
+ * - Import is wrapped in `BEGIN … COMMIT` per source; partial failure leaves
  *   the target DB untouched (AC6).
  * - Idempotency keys are propagated where the source row has them; generated
  *   where it does not (AC7).
  * - The staging journal is written atomically before each table copy so a
  *   crash can be resumed (AC5).
+ *
+ * ## ATTACH-once-per-source design (P0 fix — T11531)
+ *
+ * Each legacy source DB is ATTACHed to the target handle ONCE using a unique
+ * per-source alias, all tables from that source are copied under the single
+ * attachment, and then the alias is DETACHed. The ATTACH and DETACH are
+ * performed **outside** the BEGIN/COMMIT transaction block because SQLite
+ * forbids DETACH inside an active multi-statement transaction. The INSERT
+ * statements themselves are issued inside the transaction for atomicity (AC6).
+ *
+ * Prior implementation called ATTACH/DETACH per-table inside an open
+ * transaction — DETACH silently failed (SQLite restriction), the alias stayed
+ * attached, and every subsequent table for the same source threw
+ * "database _exodus_src_ is already in use", causing ~80 % data loss.
  *
  * ## Advisory file lock (AC4)
  *
@@ -23,6 +37,7 @@
  * an in-progress exodus and refuse to write.
  *
  * @task T11248 (E5 · SG-DB-SUBSTRATE-V2)
+ * @task T11531 (P0 attach-leak fix)
  * @saga T11242
  */
 
@@ -153,85 +168,90 @@ function releaseAdvisoryLock(dbPath: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// Core copy function
+// Unique ATTACH alias per source DB (T11531)
 // ---------------------------------------------------------------------------
 
 /**
- * Copy all rows from `tableName` in the source DB into the target DB using a
- * raw `INSERT INTO … SELECT * FROM …` after ATTACHing the source file.
+ * Convert a source DB name to a safe, unique SQLite ATTACH alias.
+ *
+ * SQLite identifiers may contain only word characters; we prefix with
+ * `_src_` so they never collide with target table names.
+ *
+ * @param name  - Logical name from `LegacyDbDescriptor.name` (e.g. `"brain (project)"`).
+ * @param index - Positional index used when names collide after sanitisation.
+ * @returns A unique, identifier-safe alias string.
+ */
+function makeAttachAlias(name: string, index: number): string {
+  const safe = name
+    .replace(/[^a-z0-9]/gi, '_')
+    .replace(/_+/g, '_')
+    .slice(0, 20);
+  // Include the index to guarantee uniqueness even if two names normalise identically.
+  return `_src_${safe}_${index}`;
+}
+
+// ---------------------------------------------------------------------------
+// Core copy function — operates on an ALREADY-ATTACHED source alias
+// ---------------------------------------------------------------------------
+
+/**
+ * Copy all rows from `tableName` in the already-attached source alias into the
+ * target DB (which must have an active transaction).
+ *
+ * **Pre-condition**: the caller has already executed
+ * `ATTACH DATABASE '<path>' AS "<attachAlias>"` on `targetNativeDb`.
  *
  * This approach avoids reading all rows into JS memory — SQLite handles the
- * copy entirely in the engine. The ATTACH is scoped to a single statement
- * sequence and detached immediately after (or on error).
+ * copy entirely in the engine.
  *
- * Returns the number of rows copied.
+ * Returns the number of rows copied, or 0 if the target table does not exist
+ * or the source table is empty.
  *
- * @param targetNativeDb - The target `DatabaseSync` handle (writable).
- * @param sourceDbPath   - Absolute path to the read-only source `.db` file.
- * @param tableName      - The table to copy.
- * @param idempotencyKeyCol - Optional column name for idempotency key
- *   propagation. When present, rows whose key is already in the target are
- *   skipped (INSERT OR IGNORE).
+ * @param targetNativeDb  - The target `DatabaseSync` handle (writable, mid-transaction).
+ * @param srcNativeDb     - A read-only snapshot of the source DB (for metadata queries).
+ * @param attachAlias     - The alias under which the source is attached to `targetNativeDb`.
+ * @param tableName       - The table to copy.
  */
-function copyTableViaAttach(
+function copyTableFromAttached(
   targetNativeDb: DatabaseSync,
-  sourceDbPath: string,
+  srcNativeDb: DatabaseSync,
+  attachAlias: string,
   tableName: string,
 ): number {
-  const attachAlias = '_exodus_src_';
-
-  // Check source table exists and has rows
-  const srcCheck = openCleoDbSnapshot(sourceDbPath, { readOnly: true });
-  let sourceCount = 0;
-  let columns: string[] = [];
-  try {
-    const countRow = srcCheck.db.prepare(`SELECT COUNT(*) AS c FROM "${tableName}"`).get() as {
-      c: number;
-    } | null;
-    sourceCount = countRow?.c ?? 0;
-
-    // Get column names for explicit column list
-    const pragma = srcCheck.db.prepare(`PRAGMA table_info("${tableName}")`).all() as Array<{
-      name: string;
-    }>;
-    columns = pragma.map((r) => r.name);
-  } finally {
-    srcCheck.close();
-  }
-
-  if (sourceCount === 0) return 0;
+  // Get column names for an explicit column list so INSERT survives schema evolution.
+  const pragma = srcNativeDb.prepare(`PRAGMA table_info("${tableName}")`).all() as Array<{
+    name: string;
+  }>;
+  const columns = pragma.map((r) => r.name);
   if (columns.length === 0) return 0;
 
-  // ATTACH source, copy via INSERT OR IGNORE, DETACH
-  // Use INSERT OR IGNORE so idempotent keys prevent duplicates on resume
-  const colList = columns.map((c) => `"${c}"`).join(', ');
-  targetNativeDb.exec(`ATTACH DATABASE '${sourceDbPath.replace(/'/g, "''")}' AS "${attachAlias}"`);
-  try {
-    // Check if target table exists
-    const existsRow = targetNativeDb
-      .prepare(
-        `SELECT name FROM sqlite_master WHERE type='table' AND name='${tableName.replace(/'/g, "''")}'`,
-      )
-      .get() as { name: string } | null;
+  // Check source table has rows (skip the INSERT if empty to avoid noise).
+  const countRow = srcNativeDb.prepare(`SELECT COUNT(*) AS c FROM "${tableName}"`).get() as {
+    c: number;
+  } | null;
+  const sourceCount = countRow?.c ?? 0;
+  if (sourceCount === 0) return 0;
 
-    if (!existsRow) {
-      // Target table doesn't exist yet — log and skip (E6 will create these)
-      log.warn({ tableName }, 'Target table not found in consolidated DB — skipping');
-      return 0;
-    }
+  // Check if the target table exists in the consolidated DB.
+  const existsRow = targetNativeDb
+    .prepare(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='${tableName.replace(/'/g, "''")}'`,
+    )
+    .get() as { name: string } | null;
 
-    const stmt = targetNativeDb.prepare(
-      `INSERT OR IGNORE INTO main."${tableName}" (${colList}) SELECT ${colList} FROM "${attachAlias}"."${tableName}" ORDER BY rowid`,
-    );
-    const result = stmt.run();
-    return (result as unknown as { changes: number }).changes ?? 0;
-  } finally {
-    try {
-      targetNativeDb.exec(`DETACH DATABASE "${attachAlias}"`);
-    } catch {
-      // Best-effort detach
-    }
+  if (!existsRow) {
+    // Target table doesn't exist yet — log and skip (E6 will create these).
+    log.warn({ tableName, attachAlias }, 'Target table not found in consolidated DB — skipping');
+    return 0;
   }
+
+  const colList = columns.map((c) => `"${c}"`).join(', ');
+  // INSERT OR IGNORE so idempotent keys prevent duplicates on resume.
+  const stmt = targetNativeDb.prepare(
+    `INSERT OR IGNORE INTO main."${tableName}" (${colList}) SELECT ${colList} FROM "${attachAlias}"."${tableName}" ORDER BY rowid`,
+  );
+  const result = stmt.run();
+  return (result as unknown as { changes: number }).changes ?? 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -266,6 +286,7 @@ function checkSchemaVersion(journal: ExodusJournal, forceCrossVersion: boolean):
  * @returns {@link ExodusMigrateResult}
  *
  * @task T11248 (AC4, AC5, AC6, AC7, AC9)
+ * @task T11531 (P0 attach-leak fix)
  */
 export async function runExodusMigrate(
   plan: ExodusPlan,
@@ -362,10 +383,7 @@ export async function runExodusMigrate(
     const projectNative = extractNativeDb(projectHandle);
     const globalNative = extractNativeDb(globalHandle);
 
-    // 3. Per-scope BEGIN/COMMIT transactions (AC6)
-    //    If any table copy fails, ROLLBACK leaves the target untouched.
-
-    // Process project-scope sources
+    // 3. Per-scope sources migration (AC6)
     const projectSources = sources.filter((s) => s.targetScope === 'project' && existsSync(s.path));
     const globalSources = sources.filter((s) => s.targetScope === 'global' && existsSync(s.path));
 
@@ -409,8 +427,24 @@ export async function runExodusMigrate(
 }
 
 /**
- * Migrate all tables from the given sources into the target native DB,
- * wrapped in a single BEGIN/COMMIT transaction per scope.
+ * Migrate all tables from the given sources into the target native DB.
+ *
+ * ## ATTACH-once-per-source protocol (T11531)
+ *
+ * SQLite forbids `DETACH` inside an active multi-statement transaction.
+ * To avoid the "database alias is already in use" error that caused ~80 %
+ * data loss, we use the following sequence **per source DB**:
+ *
+ *   1. ATTACH the source path under a unique alias (outside any transaction).
+ *   2. Open a read-only snapshot of the source for metadata queries.
+ *   3. BEGIN the write transaction on the target.
+ *   4. INSERT OR IGNORE … SELECT for each table using the attached alias.
+ *   5. COMMIT (or ROLLBACK on error).
+ *   6. DETACH the source alias in `finally` (outside the committed transaction).
+ *   7. Close the read-only snapshot.
+ *
+ * Each source gets its own unique alias (`_src_<name>_<index>`) so multiple
+ * sources can be processed sequentially without alias conflicts.
  */
 async function migrateScope(
   scope: string,
@@ -425,13 +459,29 @@ async function migrateScope(
 
   onProgress?.(`Migrating ${scope}-scope sources…`);
 
-  // Wrap entire scope in one transaction (AC6)
-  targetNativeDb.exec('BEGIN');
-  try {
-    for (const src of sources) {
-      const snap = openCleoDbSnapshot(src.path, { readOnly: true });
+  for (let i = 0; i < sources.length; i++) {
+    const src = sources[i];
+    const attachAlias = makeAttachAlias(src.name, i);
+    const escapedPath = src.path.replace(/'/g, "''");
+
+    // Step 1: ATTACH the source outside any transaction (SQLite restriction).
+    // The finally block below guarantees DETACH runs even on error.
+    targetNativeDb.exec(`ATTACH DATABASE '${escapedPath}' AS "${attachAlias}"`);
+    onProgress?.(`  [${src.name}] Attached as "${attachAlias}"`);
+
+    // Step 2: Open a read-only snapshot for metadata (column info, counts).
+    const snap = openCleoDbSnapshot(src.path, { readOnly: true });
+
+    try {
+      const tables = listTables(snap.db);
+
+      // Step 3: BEGIN the transaction for this source's copy batch (AC6).
+      // Per-source transactions mean a failing source does not roll back
+      // previously-copied sources.
+      targetNativeDb.exec('BEGIN');
+      let txOpen = true;
+
       try {
-        const tables = listTables(snap.db);
         for (const tableName of tables) {
           // Check journal for resume (AC5)
           const existing = journal.tables.find(
@@ -455,7 +505,8 @@ async function migrateScope(
           let skipped = false;
 
           try {
-            rowsCopied = copyTableViaAttach(targetNativeDb, src.path, tableName);
+            // Step 4: INSERT using the already-attached alias — no per-table ATTACH/DETACH.
+            rowsCopied = copyTableFromAttached(targetNativeDb, snap.db, attachAlias, tableName);
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             log.warn({ tableName, sourceDb: src.name, err }, 'Table copy failed — skipping');
@@ -494,17 +545,37 @@ async function migrateScope(
             reason: errorMsg,
           });
         }
-      } finally {
-        snap.close();
+
+        // Step 5: COMMIT all copies for this source.
+        targetNativeDb.exec('COMMIT');
+        txOpen = false;
+      } catch (err) {
+        if (txOpen) {
+          try {
+            targetNativeDb.exec('ROLLBACK');
+          } catch {
+            // ignore rollback errors
+          }
+        }
+        throw err;
+      }
+    } finally {
+      // Step 7: Close the read-only metadata snapshot.
+      snap.close();
+
+      // Step 6: DETACH the source alias — executed outside the (now committed
+      // or rolled-back) transaction so SQLite allows it.
+      try {
+        targetNativeDb.exec(`DETACH DATABASE "${attachAlias}"`);
+        onProgress?.(`  [${src.name}] Detached "${attachAlias}"`);
+      } catch (detachErr) {
+        // Log but do not re-throw — a failed DETACH is non-fatal for the
+        // migrated data; the alias will be released when the target DB closes.
+        log.warn(
+          { attachAlias, sourceDb: src.name, err: detachErr },
+          'DETACH failed — alias will be released on DB close',
+        );
       }
     }
-    targetNativeDb.exec('COMMIT');
-  } catch (err) {
-    try {
-      targetNativeDb.exec('ROLLBACK');
-    } catch {
-      // ignore rollback errors
-    }
-    throw err;
   }
 }
