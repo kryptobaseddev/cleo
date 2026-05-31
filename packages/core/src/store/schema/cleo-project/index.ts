@@ -48,7 +48,8 @@
  *
  * **Batch 3 (this increment — 38 tables, completing the project-tier non-brain set):**
  *   - **tasks-core** (11 tables · `tasks` → `tasks_tasks` AC1 example + §8.2
- *     `sessions.grade_mode` boolean RESOLVED as genuine 0/1): tasks_tasks ·
+ *     `sessions.grade_mode` boolean RESOLVED as genuine 0/1; T11362 adds the §7
+ *     `tasks_tasks.idempotency_key` + UNIQUE for sentient re-tick dedup): tasks_tasks ·
  *     tasks_task_acceptance_criteria · tasks_acceptance_projection_state ·
  *     tasks_acceptance_projection_dirty · tasks_task_dependencies ·
  *     tasks_task_relations · tasks_sessions · tasks_session_handoff_entries ·
@@ -56,7 +57,9 @@
  *     tasks_external_task_links.
  *   - **lifecycle** (5 tables): tasks_lifecycle_{pipelines,stages,gate_results,
  *     evidence,transitions}.
- *   - **audit/governance** (7 tables · §7 audit_log idempotency model preserved):
+ *   - **audit/governance** (7 tables · §7 audit_log idempotency model preserved —
+ *     its `(project_hash, domain, operation, idempotency_key)` lookup promoted to
+ *     a UNIQUE constraint by T11362 so the canonical retry-dedup is enforced):
  *     tasks_schema_meta · tasks_audit_log · tasks_token_usage ·
  *     tasks_architecture_decisions · tasks_adr_task_links · tasks_adr_relations ·
  *     tasks_status_registry.

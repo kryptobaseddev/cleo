@@ -67,10 +67,17 @@
  * scopes are separate files); intra-domain self-FKs (decision supersession,
  * sticky→tags) are real `.references()`.
  *
- * @task T11360
+ * - **§7 idempotency (Pattern A · T11362):** `brain_observations` — the highest-
+ *   leverage retried-write target (`cleo memory observe` retries + the
+ *   graph-memory-bridge `setImmediate` observers re-emit on race) — gains a
+ *   nullable `idempotency_key TEXT` + UNIQUE so a redelivered observation is a
+ *   no-op via `onConflictDoNothing`. Because this family is mirrored, the dedup
+ *   grain is each scope's own physical `cleo.db`.
+ *
+ * @task T11360 · T11362 (§7 idempotency key)
  * @epic T11245
  * @saga T11242
- * @see docs/migration/sqlite-schema-canonical.md §1 (mirrored) · §3 · §4 · §5b · §6 · §8.1
+ * @see docs/migration/sqlite-schema-canonical.md §1 (mirrored) · §3 · §4 · §5b · §6 · §7 · §8.1
  * @see docs/migration/sqlite-schema-columns.json (per-column affinity SSoT)
  */
 
@@ -84,6 +91,7 @@ import {
   real,
   sqliteTable,
   text,
+  unique,
 } from 'drizzle-orm/sqlite-core';
 import { jsonb } from '../jsonb.js';
 import {
@@ -490,6 +498,16 @@ export const brainObservations = sqliteTable(
     validatedAt: text('validated_at'),
     /** JSON provenance chain (TEXT per JSON audit). */
     provenanceChain: text('provenance_chain'),
+    /**
+     * Caller-supplied stable idempotency key (§7 Pattern A · highest leverage);
+     * NULL for legacy / non-agent observations. `cleo memory observe` retries and
+     * the graph-memory-bridge `setImmediate` async observers re-emit on race — a
+     * redelivered write with the same key is a no-op via `onConflictDoNothing`.
+     * UNIQUE ignores NULLs in SQLite, so only keyed writes dedup; because the
+     * `brain_*` family is mirrored into BOTH cleo.db scopes, the dedup grain is
+     * each scope's own `cleo.db` file.
+     */
+    idempotencyKey: text('idempotency_key'),
   },
   (table) => [
     index('idx_brain_observations_type').on(table.type),
@@ -514,6 +532,7 @@ export const brainObservations = sqliteTable(
     index('idx_brain_observations_tree_id').on(table.treeId),
     index('idx_brain_observations_origin').on(table.origin),
     index('idx_brain_observations_validated_at').on(table.validatedAt),
+    unique('uq_brain_observations_idempotency_key').on(table.idempotencyKey),
   ],
 );
 
