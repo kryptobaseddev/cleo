@@ -208,17 +208,17 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/claim.js')).claimCommand as CommandDef,
   },
   {
+    exportName: 'unclaimCommand',
+    name: 'unclaim',
+    description: 'Unclaim a task by removing its current assignee',
+    load: async () => (await import('../commands/claim.js')).unclaimCommand as CommandDef,
+  },
+  {
     exportName: 'classifyCommand',
     name: 'classify',
     description:
       'Classify a task: readiness verdict (proceed|grill) + persona routing (agent, confidence)',
     load: async () => (await import('../commands/classify.js')).classifyCommand as CommandDef,
-  },
-  {
-    exportName: 'unclaimCommand',
-    name: 'unclaim',
-    description: 'Unclaim a task by removing its current assignee',
-    load: async () => (await import('../commands/claim.js')).unclaimCommand as CommandDef,
   },
   {
     exportName: 'codeCommand',
@@ -420,6 +420,13 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     name: 'exists',
     description: 'Check if a task ID exists (exit 0=exists, 4=not found)',
     load: async () => (await import('../commands/exists.js')).existsCommand as CommandDef,
+  },
+  {
+    exportName: 'exodusCommand',
+    name: 'exodus',
+    description:
+      '[TRANSITIONAL] Migrate legacy multi-DB fleet to consolidated dual-scope cleo.db (SG-DB-SUBSTRATE-V2)',
+    load: async () => (await import('../commands/exodus.js')).exodusCommand as CommandDef,
   },
   {
     exportName: 'exportTasksCommand',
