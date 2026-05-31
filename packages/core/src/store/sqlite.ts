@@ -39,7 +39,11 @@ import { resolveCleoDir } from '../paths.js';
 // openDualScopeDb manages the DatabaseSync lifecycle, pragmas, and migrations
 // for the consolidated cleo.db. We extract the native handle and re-wrap it
 // with the legacy tasks-schema drizzle instance for E6 caller compatibility.
-import { openDualScopeDb, resolveDualScopeDbPath } from './dual-scope-db.js';
+import {
+  _resetDualScopeDbCache,
+  openDualScopeDb,
+  resolveDualScopeDbPath,
+} from './dual-scope-db.js';
 import type { RequiredColumn } from './migration-manager.js';
 import {
   createSafetyBackup,
@@ -228,7 +232,10 @@ async function autoRecoverFromBackup(
       'Database auto-recovered from backup successfully.',
     );
 
-    // Re-open the restored database — update the native singleton
+    // Re-open the restored database — update the native singleton.
+    // The dual-scope cache is now stale (its nativeDb was closed above);
+    // reset it so the singleton is re-established on next getDb().
+    _resetDualScopeDbCache();
     const restoredNativeDb = openNativeDatabase(dbPath);
     _nativeDb = restoredNativeDb;
 
@@ -444,15 +451,31 @@ function runMigrations(nativeDb: DatabaseSync, db: NodeSQLiteDatabase<typeof sch
 
 /**
  * Close the database connection and release resources.
+ *
+ * ## E6-L1 (T11521)
+ *
+ * Resets the dual-scope cache via {@link _resetDualScopeDbCache} so the next
+ * `getDb()` call re-initialises cleanly rather than receiving a stale cached
+ * handle whose `DatabaseSync` is already closed (which would produce
+ * "database is not open" errors in migration-manager).
+ *
+ * Without the cache eviction, `openDualScopeDb` would return the stale entry
+ * for the same (scope, cwd) key — its `DatabaseSync` already closed by
+ * `_nativeDb.close()` below — causing downstream "database is not open" errors
+ * in `runMigrations → tableExists` for the very next `getDb()` caller.
  */
 export function closeDb(): void {
+  // Evict ALL dual-scope cache entries so the next openDualScopeDb() call
+  // opens a fresh DatabaseSync. Without this, the cache would return the
+  // stale handle whose nativeDb we're about to close below.
+  _resetDualScopeDbCache();
   if (_nativeDb) {
     try {
       if (_nativeDb.isOpen) {
         _nativeDb.close();
       }
     } catch {
-      // Ignore close errors
+      // Ignore close errors — _resetDualScopeDbCache already closed it
     }
     _nativeDb = null;
   }
@@ -465,15 +488,22 @@ export function closeDb(): void {
  * Reset database singleton state without saving.
  * Used during migrations when database file is deleted and recreated.
  * Safe to call multiple times.
+ *
+ * ## E6-L1 (T11521)
+ *
+ * Also resets the dual-scope cache via {@link _resetDualScopeDbCache} so the
+ * next `getDb()` opens a fresh handle rather than reusing a stale one.
+ * Mirrors the cache-eviction logic in {@link closeDb}.
  */
 export function resetDbState(): void {
+  _resetDualScopeDbCache();
   if (_nativeDb) {
     try {
       if (_nativeDb.isOpen) {
         _nativeDb.close();
       }
     } catch {
-      // Ignore close errors
+      // Ignore close errors — _resetDualScopeDbCache already closed it
     }
     _nativeDb = null;
   }
@@ -498,11 +528,18 @@ export async function getSchemaVersion(cwd?: string): Promise<string | null> {
 /**
  * Check if the database file exists.
  *
- * @deprecated In E6 the tasks domain lives in `cleo.db`. This check returns
- * whether the legacy `tasks.db` file exists for backward-compat callers.
+ * ## E6-L1 (T11521)
+ *
+ * After the dual-scope migration, `getDb()` opens `cleo.db` via
+ * {@link openDualScopeDb} — not the legacy `tasks.db`. This function now
+ * checks for `cleo.db` so that callers (e.g. `migration-sqlite.ts`) correctly
+ * detect the E6 database and skip re-migration.
+ *
+ * {@link getDbPath} still returns the legacy `tasks.db` path for backward-compat
+ * callers that specifically need that file (e.g. backup path construction).
  */
 export function dbExists(cwd?: string): boolean {
-  return existsSync(getDbPath(cwd));
+  return existsSync(resolveDualScopeDbPath('project', cwd));
 }
 
 /**
