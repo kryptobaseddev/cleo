@@ -30,6 +30,16 @@ export {
   type BackgroundJobStatus,
   DurableJobStore,
 } from './background-jobs.js';
+// Gateway-as-daemon-subsystem (R3-T7 · T11451) — declare the external-facing
+// gateway (RPC unix socket + HTTP server) as a supervised `defineSubsystem`
+// unit so the R2 daemon registry drives its start/health/shutdown lifecycle.
+export {
+  defineGatewaySubsystem,
+  type GatewayScope,
+  type GatewaySubsystemContext,
+  type GatewaySubsystemOptions,
+  gatewaySubsystemName,
+} from './daemon-subsystem.js';
 export type { DispatcherConfig } from './dispatcher.js';
 export { Dispatcher } from './dispatcher.js';
 // Shared handler dependencies (R3-K1 · T11455) — relocated here so the runtime
@@ -48,17 +58,22 @@ export {
 export { mapNumericExitCodeToString } from './exit-codes.js';
 // HTTP transport adapter (R3-T6 · T11450) — framework-agnostic unary + SSE over
 // the gateway. Also reachable via the `@cleocode/runtime/gateway/http` subpath.
+// `startHttpServer` (R3-T7 · T11451) is the daemon-hostable `node:http` binding.
 export {
   createSseStream,
   encodeSseFrame,
   encodeStreamEvent,
+  type HttpServerHandle,
+  type HttpServerOptions,
   type HttpUnaryRequest,
   type HttpUnaryResult,
+  parseHttpRoute,
   routeUnary,
   SSE_HEADERS,
   type SseEmitter,
   type SseFrame,
   type SseSource,
+  startHttpServer,
   statusForResponse,
 } from './http/index.js';
 export { getJobManager, setJobManager } from './job-manager-accessor.js';
