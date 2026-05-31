@@ -19,6 +19,12 @@
  * operation coordinates and serializes the result. It carries NO
  * `@cleocode/cleo` dependency, NO SvelteKit dependency, and NO drizzle-orm.
  *
+ * For the daemon — which IS the embedder — `startHttpServer` (`./listen.js`,
+ * R3-T7 · T11451) is a thin `node:http` binding that parses
+ * `POST /<gateway>/<domain>/<operation>` and routes through {@link routeUnary},
+ * so the gateway daemon subsystem can host external HTTP clients without
+ * reaching across a package boundary.
+ *
  * @packageDocumentation
  * @module @cleocode/runtime/gateway/http
  *
@@ -27,6 +33,12 @@
  * @saga T11243
  */
 
+export {
+  type HttpServerHandle,
+  type HttpServerOptions,
+  parseHttpRoute,
+  startHttpServer,
+} from './listen.js';
 export { routeUnary, statusForResponse } from './server.js';
 export {
   createSseStream,
