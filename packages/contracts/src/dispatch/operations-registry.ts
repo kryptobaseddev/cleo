@@ -7653,6 +7653,22 @@ export const OPERATIONS: OperationDef[] = [
   // to public SDK consumers using @cleocode/core. Adding all 10 ops here.
   // ---------------------------------------------------------------------------
 
+  // sentient query: status (T11448 — exposed over MCP; mirrors the standalone
+  // mcp-adapter `cleo_sentient_status` tool + the `cleo sentient status` CLI op).
+  {
+    gateway: 'query',
+    domain: 'sentient',
+    operation: 'status',
+    description:
+      'sentient.status (query) — daemon state, kill-switch status, Tier-2 enabled flag, and proposal statistics',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [] satisfies ParamDef[],
+    mcpExposed: true,
+  },
+
   // sentient query: propose.list
   {
     gateway: 'query',
@@ -7672,6 +7688,7 @@ export const OPERATIONS: OperationDef[] = [
         description: 'Maximum number of proposals to return (default: 50)',
       },
     ] satisfies ParamDef[],
+    mcpExposed: true,
   },
 
   // sentient query: propose.diff
@@ -7784,6 +7801,7 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: [],
     params: [] satisfies ParamDef[],
+    mcpExposed: true,
   },
 
   // sentient mutate: propose.disable

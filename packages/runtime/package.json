@@ -17,6 +17,10 @@
     "./gateway": {
       "types": "./dist/gateway/index.d.ts",
       "import": "./dist/gateway/index.js"
+    },
+    "./gateway/mcp": {
+      "types": "./dist/gateway/mcp/index.d.ts",
+      "import": "./dist/gateway/mcp/index.js"
     }
   },
   "scripts": {

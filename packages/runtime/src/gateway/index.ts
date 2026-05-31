@@ -47,6 +47,24 @@ export {
 } from './engine-error.js';
 export { mapNumericExitCodeToString } from './exit-codes.js';
 export { getJobManager, setJobManager } from './job-manager-accessor.js';
+// MCP transport adapter (R3-T4 · T11448) — thin stdio JSON-RPC over the
+// gateway. Also reachable via the `@cleocode/runtime/gateway/mcp` subpath.
+export {
+  buildToolsList,
+  callTool,
+  exposedOperations,
+  type GatewayOperationKey,
+  MCP_TOOL_PREFIX,
+  type McpContent,
+  type McpInputProperty,
+  type McpServerOptions,
+  type McpTool,
+  type McpToolResult,
+  operationToMcpTool,
+  operationToToolName,
+  startMcpServer,
+  toolNameToOperationKey,
+} from './mcp/index.js';
 export { createDispatchMeta } from './meta.js';
 export {
   buildNexusMetaExtensions,
