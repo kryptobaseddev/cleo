@@ -33,7 +33,7 @@
  * NOT double-prefixed; bare tables (`tasks` → `tasks_tasks`, `attachments` →
  * `docs_attachments`) gain their domain prefix.
  *
- * ## Coverage status (T11360 — 65 project-tier tables authored · only brain_* remains)
+ * ## Coverage status (T11360 — COMPLETE · 89 project-tier tables · 87 canonical)
  *
  * **Batch 1 (PR #849 — merged · 9 tables):** docs (D11 collapse, AC3:
  * docs_attachments · docs_attachment_refs · docs_manifest_entries ·
@@ -71,18 +71,35 @@
  *     tasks_agent_instances · tasks_agent_error_log · tasks_playbook_runs ·
  *     tasks_playbook_approvals.
  *
- * **Remaining (the coordinated FINAL step):** ONLY the `brain_*` memory family
- * (22 tables) — mirrored across the project AND global scopes, so it is authored
- * once and shared by both `cleo-project` and `cleo-global` configs. Every
- * project-tier non-brain table is now authored.
+ * **Final batch (this increment · brain_* MIRRORED family · 24 tables):** the
+ * `brain_*` memory family — the ONE domain that lives in BOTH the project and
+ * global `cleo.db` (project-local vs cross-project memory). To avoid
+ * duplication it is authored ONCE under `../cleo-shared/brain.ts` and
+ * re-exported here; the future `cleo-global/index.ts` (T11361) re-exports the
+ * SAME shared module. §5b enums fixed (transcript_events.role,
+ * backfill_runs.{kind,status}); §4 ms-epoch → ISO8601 (decisions.validator_run_at,
+ * attention.{created_at,expires_at}, session_narrative.last_updated_at); §6b
+ * sticky tags → `brain_sticky_tags` junction; `brain_attention.tags` keeps the
+ * E4 jsonb BLOB.
+ *
+ * **PROJECT SCHEMA NOW COMPLETE.** Every project-tier table is authored: the
+ * canonical 87 (tasks-core 45 + conduit 14 + docs 4 + telemetry 2 + brain 22)
+ * plus the 2 E4 junctions added on main since the audit (`tasks_task_labels`,
+ * `brain_sticky_tags`) = 89 prefixed `sqliteTable`s across `cleo-project/` +
+ * `cleo-shared/`. (`brain_release_links` lives with `tasks_releases` provenance
+ * and the two `_conduit_*` legacy meta tables are dropped at exodus per §6b.)
+ * What remains for the saga is the GLOBAL scope (T11361: nexus_* / skills_* /
+ * signaldock_* + this same mirrored brain_*) and the exodus cutover (T11248).
  *
  * @task T11360
  * @epic T11245
  * @saga T11242
  * @see docs/migration/sqlite-schema-canonical.md §1 (per-scope counts) · §3–§8 (typing rules)
+ * @see ../cleo-shared/brain.ts (the mirrored brain_* family — also imported by cleo-global, T11361)
  * @see drizzle/cleo-project.config.ts (per-scope domain membership)
  */
 
+export * from '../cleo-shared/index.js';
 export * from './audit.js';
 export * from './conduit.js';
 export * from './docs.js';
