@@ -23,7 +23,10 @@
  *   `adr_relations.relation_type`, `status_registry.entity_type`/`namespace`)
  *   are promoted to named const arrays here (§5a — identifier over literal).
  * - **§7 idempotency:** `audit_log.idempotency_key` is the CANONICAL model the
- *   report cites (§7) — preserved, with a UNIQUE-lookup composite index.
+ *   report cites (§7) — preserved. T11362 promotes its
+ *   `(project_hash, domain, operation, idempotency_key)` composite to a true
+ *   UNIQUE constraint (the dedup grain — the same key recurs across distinct
+ *   domain/operation tuples, so the bare key is NOT unique).
  * - **§6a JSON:** `details_json` / `before_json` / `after_json` /
  *   `metadata_json` stay serialized TEXT per the JSON-Column Audit.
  *
@@ -31,7 +34,7 @@
  * are carried as plain TEXT id columns (resolved by the exodus prefixer);
  * intra-table self-FKs (ADR supersedes/amends) are real `.references()`.
  *
- * @task T11360
+ * @task T11360 · T11362 (§7 idempotency UNIQUE)
  * @epic T11245
  * @saga T11242
  * @see docs/migration/sqlite-schema-canonical.md §3 · §4 · §5 · §6a · §7
@@ -46,6 +49,7 @@ import {
   primaryKey,
   sqliteTable,
   text,
+  unique,
 } from 'drizzle-orm/sqlite-core';
 import { ADR_STATUSES, GATE_STATUSES } from '../../status-registry.js';
 import { TOKEN_USAGE_CONFIDENCE, TOKEN_USAGE_METHODS, TOKEN_USAGE_TRANSPORTS } from '../audit.js';
@@ -118,7 +122,14 @@ export const tasksAuditLog = sqliteTable(
     sessionId: text('session_id'),
     /** Dispatch request id. */
     requestId: text('request_id'),
-    /** Caller-supplied idempotency key (§7 canonical model — preserved). */
+    /**
+     * Caller-supplied idempotency key (§7 canonical model — preserved). The
+     * dedup grain is the composite `(project_hash, domain, operation,
+     * idempotency_key)` — the same key is legitimately reused across distinct
+     * `(domain, operation)` tuples, so the UNIQUE constraint is on that tuple
+     * (see `uq_tasks_audit_log_idempotency_lookup`), NOT the bare key. UNIQUE
+     * ignores rows whose `idempotency_key` is NULL, so only keyed mutations dedup.
+     */
     idempotencyKey: text('idempotency_key'),
     /** Operation duration in ms. */
     durationMs: integer('duration_ms'),
@@ -144,7 +155,11 @@ export const tasksAuditLog = sqliteTable(
     index('idx_tasks_audit_log_actor').on(table.actor),
     index('idx_tasks_audit_log_session_timestamp').on(table.sessionId, table.timestamp),
     index('idx_tasks_audit_log_domain_operation').on(table.domain, table.operation),
-    index('idx_tasks_audit_log_idempotency_lookup').on(
+    // §7: audit_log dedup grain is the composite, not the bare key — the same
+    // idempotency_key is reused across distinct (domain, operation) tuples. The
+    // UNIQUE constraint ignores NULL-key rows in SQLite, so only keyed writes
+    // coalesce via onConflictDoNothing.
+    unique('uq_tasks_audit_log_idempotency_lookup').on(
       table.projectHash,
       table.domain,
       table.operation,

@@ -50,10 +50,16 @@
  * intra-domain FKs are real `.references()`; the live cross-domain references
  * resolve within this same file once exodus consolidates.
  *
- * @task T11360
+ * **§7 idempotency (Pattern A · T11362):** `tasks_tasks` gains a nullable
+ * `idempotency_key TEXT` + UNIQUE so a sentient propose / stage-drift re-tick
+ * create coalesces via `onConflictDoNothing` (replacing the interim
+ * `notes_json LIKE '%dedupHash%'` scan). UNIQUE ignores NULL keys, so only
+ * keyed writes dedup; the grain is the project `cleo.db`.
+ *
+ * @task T11360 · T11362 (§7 idempotency key)
  * @epic T11245
  * @saga T11242
- * @see docs/migration/sqlite-schema-canonical.md §3 · §4 · §5 · §6a · §8.2
+ * @see docs/migration/sqlite-schema-canonical.md §3 · §4 · §5 · §6a · §7 · §8.2
  * @see docs/migration/sqlite-schema-columns.json (per-column affinity SSoT)
  */
 
@@ -175,6 +181,14 @@ export const tasksTasks = sqliteTable(
     assignee: text('assignee'),
     /** JSON IVTR orchestration state (TEXT per JSON audit). */
     ivtrState: text('ivtr_state'),
+    /**
+     * Caller-supplied stable idempotency key (§7 Pattern A); NULL for legacy /
+     * non-agent task creates. Sentient propose / stage-drift re-ticks set it so
+     * a retried create is a no-op via `onConflictDoNothing` (replaces the interim
+     * `notes_json LIKE '%dedupHash%'` scan). UNIQUE ignores NULLs in SQLite, so
+     * only keyed writes dedup; the dedup scope is the project `cleo.db` file.
+     */
+    idempotencyKey: text('idempotency_key'),
   },
   (table) => [
     index('idx_tasks_tasks_status').on(table.status),
@@ -193,6 +207,7 @@ export const tasksTasks = sqliteTable(
     index('idx_tasks_tasks_scope').on(table.scope),
     index('idx_tasks_tasks_role_status').on(table.kind, table.status),
     index('idx_tasks_tasks_created_date').on(sql`date(${table.createdAt})`),
+    unique('uq_tasks_tasks_idempotency_key').on(table.idempotencyKey),
   ],
 );
 
