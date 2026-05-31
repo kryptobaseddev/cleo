@@ -5,13 +5,17 @@
  * (a) `cleo add --type epic` auto-initializes LOOM (lifecycle pipeline exists after add)
  * (b) `initLoomForEpic` is idempotent — re-running on an already-initialized epic is a no-op
  * (c) `backfillEpicLoom` populates LOOM for existing un-LOOMed epics
+ * (d) `orchestrateStartup` correctly auto-initializes LOOM (T11493 regression — was silently
+ *     a no-op due to reversed arg order: `initLoomForEpic(root, epicId)` instead of
+ *     `initLoomForEpic(epicId, root)`).
  *
  * @task T1634
+ * @task T11493
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getLifecycleStatus } from '../../lifecycle/index.js';
-import { initLoomForEpic } from '../../orchestrate/lifecycle-ops.js';
+import { initLoomForEpic, orchestrateStartup } from '../../orchestrate/lifecycle-ops.js';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { resetDbState } from '../../store/sqlite.js';
@@ -278,5 +282,106 @@ describe('backfillEpicLoom (T1634)', () => {
     // No active epics — done/cancelled are excluded
     expect(backfillResult.total).toBe(0);
     expect(backfillResult.initialized).toBe(0);
+  });
+});
+
+/**
+ * Regression tests for T11493: orchestrateStartup LOOM arg-swap.
+ *
+ * The bug: `orchestrateStartup` called `initLoomForEpic(root, epicId)` but the
+ * function signature is `initLoomForEpic(epicId, root)`. This caused a silent
+ * no-op — LOOM was never initialized when triggered via `cleo orchestrate start`.
+ *
+ * The fix: swap the args at the call site (lifecycle-ops.ts line 119).
+ *
+ * @task T11493 — E1-SAGA-RESOLVE regression guard
+ */
+describe('T11493 regression: orchestrateStartup correctly auto-initializes LOOM', () => {
+  let env: TestDbEnv;
+  let accessor: DataAccessor;
+
+  beforeEach(async () => {
+    env = await createTestDb();
+    accessor = env.accessor;
+  });
+
+  afterEach(async () => {
+    await env.cleanup();
+    resetDbState();
+  });
+
+  it('orchestrateStartup initializes LOOM for a fresh epic (pre-bug: was silently a no-op)', async () => {
+    // Insert a bare epic directly so we control LOOM state (no addTask fire-and-forget).
+    const { getDb } = await import('../../store/sqlite.js');
+    const db = await getDb(env.tempDir);
+    const { tasks: tasksTable } = await import('../../store/tasks-schema.js');
+    const now = new Date().toISOString();
+    await db
+      .insert(tasksTable)
+      .values({
+        id: 'T500',
+        title: 'Regression Epic',
+        description: 'Epic for orchestrateStartup LOOM arg-swap regression test',
+        type: 'epic',
+        status: 'pending',
+        priority: 'medium',
+        pipelineStage: 'research',
+        position: 500,
+        positionVersion: 0,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    // Verify LOOM is NOT initialized before orchestrateStartup.
+    const before = await getLifecycleStatus(env.tempDir, { epicId: 'T500' });
+    expect(before.initialized).toBe(false);
+
+    // Call orchestrateStartup — this is the function that had the arg-swap bug.
+    const result = await orchestrateStartup('T500', env.tempDir);
+    expect(result.success).toBe(true);
+
+    // After orchestrateStartup, LOOM MUST be initialized.
+    // Before the fix: `initLoomForEpic(root, epicId)` treated `root` as the epicId
+    // → lifecycle lookup found no match → initialized:false → LOOM still absent.
+    const after = await getLifecycleStatus(env.tempDir, { epicId: 'T500' });
+    expect(after.initialized).toBe(
+      true,
+      'LOOM must be initialized after orchestrateStartup (T11493 regression)',
+    );
+  });
+
+  it('orchestrateStartup.autoInitialized is true on first call and false on second (idempotent)', async () => {
+    // Insert a bare epic.
+    const { getDb } = await import('../../store/sqlite.js');
+    const db = await getDb(env.tempDir);
+    const { tasks: tasksTable } = await import('../../store/tasks-schema.js');
+    const now = new Date().toISOString();
+    await db
+      .insert(tasksTable)
+      .values({
+        id: 'T501',
+        title: 'Idempotency Epic',
+        description: 'Tests orchestrateStartup idempotency for LOOM init',
+        type: 'epic',
+        status: 'pending',
+        priority: 'medium',
+        pipelineStage: 'research',
+        position: 501,
+        positionVersion: 0,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    const first = await orchestrateStartup('T501', env.tempDir);
+    expect(first.success).toBe(true);
+    expect((first.data as Record<string, unknown>).autoInitialized).toBe(true);
+    expect((first.data as Record<string, unknown>).currentStage).toBe('research');
+
+    const second = await orchestrateStartup('T501', env.tempDir);
+    expect(second.success).toBe(true);
+    expect((second.data as Record<string, unknown>).autoInitialized).toBe(false);
+    expect((second.data as Record<string, unknown>).currentStage).toBe('already-initialized');
   });
 });

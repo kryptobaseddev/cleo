@@ -116,7 +116,7 @@ export async function orchestrateStartup(
 
     // Auto-initialize lifecycle at 'research' stage if not already initialized.
     // initLoomForEpic is idempotent — re-invoking orchestrateStartup is safe.
-    const loomResult = await initLoomForEpic(root, epicId);
+    const loomResult = await initLoomForEpic(epicId, root);
     const autoInitialized = loomResult.initialized;
     const currentStage = autoInitialized ? 'research' : 'already-initialized';
 

@@ -61,6 +61,12 @@ export {
   sagaMembers,
 } from './members.js';
 export {
+  CANONICAL_SAGA_ORDER,
+  type SagaNextParams,
+  type SagaNextResult,
+  sagaNext,
+} from './next.js';
+export {
   type ReconcileResult,
   type ReconcileSagaParams,
   reconcileSaga,
