@@ -180,10 +180,11 @@ export type ParsedAtom =
       /**
        * Pull-request atom — references a GitHub PR by number. Validation
        * resolves the PR via `gh pr view` and checks state=MERGED plus
-       * all required-workflow checks green. Satisfies BOTH `testsPassed`
-       * and `qaPassed` simultaneously.
+       * all required-workflow checks green. Satisfies `implemented`,
+       * `testsPassed`, and `qaPassed` simultaneously (T9838).
        *
        * @task T9764
+       * @task T9838
        */
       kind: 'pr';
       /** PR number (positive integer). */
