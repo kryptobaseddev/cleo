@@ -69,17 +69,28 @@ export interface MigrationResult {
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Project-local tables to copy verbatim from legacy signaldock.db to conduit.db. */
+/**
+ * Project-local tables to copy from the legacy `signaldock.db` to the conduit DB.
+ *
+ * Each entry is a `{ src, dest }` pair. For most tables `src === dest`. The
+ * attachment-family tables differ: the legacy `signaldock.db` stored them under
+ * the BARE names (`attachments`, `attachment_versions`, …), but the consolidated
+ * conduit forward migration now creates them under the `conduit_`-prefixed names
+ * (T11563 — disjoint from the docs-domain bare `attachments` table that also
+ * lives in the consolidated `cleo.db`). The copy must therefore map the legacy
+ * source name to the prefixed destination name, otherwise rows would be inserted
+ * into the unrelated docs `attachments` table.
+ */
 const PROJECT_TIER_TABLES = [
-  'messages',
-  'conversations',
-  'delivery_jobs',
-  'dead_letters',
-  'message_pins',
-  'attachments',
-  'attachment_versions',
-  'attachment_approvals',
-  'attachment_contributors',
+  { src: 'messages', dest: 'messages' },
+  { src: 'conversations', dest: 'conversations' },
+  { src: 'delivery_jobs', dest: 'delivery_jobs' },
+  { src: 'dead_letters', dest: 'dead_letters' },
+  { src: 'message_pins', dest: 'message_pins' },
+  { src: 'attachments', dest: 'conduit_attachments' },
+  { src: 'attachment_versions', dest: 'conduit_attachment_versions' },
+  { src: 'attachment_approvals', dest: 'conduit_attachment_approvals' },
+  { src: 'attachment_contributors', dest: 'conduit_attachment_contributors' },
 ] as const;
 
 /** Global-identity tables to copy using INSERT OR IGNORE from legacy to global signaldock.db. */
@@ -166,24 +177,31 @@ function getTableColumns(db: DatabaseSync, tableName: string): string[] {
 }
 
 /**
- * Copy all rows from `tableName` in `srcDb` to the same table in `destDb`.
+ * Copy all rows from `srcTableName` in `srcDb` to `destTableName` in `destDb`.
  * Only columns that exist in both source and destination are copied (schema safety).
  * Uses INSERT OR IGNORE to handle unique constraint conflicts gracefully.
  *
+ * Source and destination table names may differ (T11563): the conduit
+ * attachment-family tables were renamed to `conduit_`-prefixed names in the
+ * consolidated `cleo.db`, while the legacy `signaldock.db` source still uses the
+ * bare names.
+ *
  * @param srcDb - Source database (legacy signaldock.db).
  * @param destDb - Destination database (conduit.db or global signaldock.db).
- * @param tableName - Table to copy.
+ * @param srcTableName - Table to read rows from in `srcDb`.
+ * @param destTableName - Table to write rows into in `destDb`. Defaults to `srcTableName`.
  * @param ignoreConflicts - When true uses INSERT OR IGNORE; when false uses INSERT.
  * @returns Number of rows found in source (not necessarily inserted — some may have been ignored).
  */
 function copyTableRows(
   srcDb: DatabaseSync,
   destDb: DatabaseSync,
-  tableName: string,
+  srcTableName: string,
+  destTableName: string = srcTableName,
   ignoreConflicts = false,
 ): number {
-  const srcCols = getTableColumns(srcDb, tableName);
-  const destCols = getTableColumns(destDb, tableName);
+  const srcCols = getTableColumns(srcDb, srcTableName);
+  const destCols = getTableColumns(destDb, destTableName);
   // Only copy columns that exist in both tables
   const cols = srcCols.filter((c) => destCols.includes(c));
   if (cols.length === 0) return 0;
@@ -191,9 +209,9 @@ function copyTableRows(
   const colList = cols.map((c) => `"${c}"`).join(', ');
   const placeholders = cols.map(() => '?').join(', ');
   const conflictClause = ignoreConflicts ? 'OR IGNORE' : '';
-  const insertSql = `INSERT ${conflictClause} INTO "${tableName}" (${colList}) VALUES (${placeholders})`;
+  const insertSql = `INSERT ${conflictClause} INTO "${destTableName}" (${colList}) VALUES (${placeholders})`;
 
-  const rows = srcDb.prepare(`SELECT ${colList} FROM "${tableName}"`).all() as Record<
+  const rows = srcDb.prepare(`SELECT ${colList} FROM "${srcTableName}"`).all() as Record<
     string,
     unknown
   >[];
@@ -387,10 +405,11 @@ export async function migrateSignaldockToConduit(projectRoot: string): Promise<M
   try {
     conduit.exec('BEGIN TRANSACTION');
 
-    // Copy project-local messaging tables verbatim
-    for (const tableName of PROJECT_TIER_TABLES) {
-      if (tableExistsInDb(legacy, tableName) && tableExistsInDb(conduit, tableName)) {
-        copyTableRows(legacy, conduit, tableName, false);
+    // Copy project-local messaging tables verbatim. Source/destination names may
+    // differ for the conduit attachment-family tables (T11563).
+    for (const { src, dest } of PROJECT_TIER_TABLES) {
+      if (tableExistsInDb(legacy, src) && tableExistsInDb(conduit, dest)) {
+        copyTableRows(legacy, conduit, src, dest, false);
       }
     }
 
@@ -538,10 +557,11 @@ export async function migrateSignaldockToConduit(projectRoot: string): Promise<M
   try {
     globalDb.exec('BEGIN TRANSACTION');
 
-    // Copy all global-identity tables using INSERT OR IGNORE
+    // Copy all global-identity tables using INSERT OR IGNORE. Source and
+    // destination share the same name for this tier.
     for (const tableName of GLOBAL_IDENTITY_TABLES) {
       if (tableExistsInDb(legacy, tableName) && tableExistsInDb(globalDb, tableName)) {
-        copyTableRows(legacy, globalDb, tableName, true /* ignoreConflicts */);
+        copyTableRows(legacy, globalDb, tableName, tableName, true /* ignoreConflicts */);
       }
     }
 
