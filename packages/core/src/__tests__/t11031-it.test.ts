@@ -32,7 +32,8 @@ function createTempProject(baseDir: string, opts?: { projectId?: string; project
 }
 
 function seedNexusDb(cleoHome: string, rows: Array<{ project_id: string; project_path: string }>) {
-  const dbPath = join(cleoHome, 'nexus.db');
+  // T11569: registry lives in the consolidated GLOBAL `cleo.db` (E6-L4/T11524).
+  const dbPath = join(cleoHome, 'cleo.db');
   const db = new DatabaseSync(dbPath);
   db.exec(
     'CREATE TABLE IF NOT EXISTS project_registry (project_id TEXT PRIMARY KEY, project_path TEXT NOT NULL)',
@@ -47,7 +48,8 @@ function seedNexusDb(cleoHome: string, rows: Array<{ project_id: string; project
 }
 
 function countRegistryRows(cleoHome: string): number {
-  const dbPath = join(cleoHome, 'nexus.db');
+  // T11569: registry lives in the consolidated GLOBAL `cleo.db` (E6-L4/T11524).
+  const dbPath = join(cleoHome, 'cleo.db');
   try {
     const db = new DatabaseSync(dbPath, { readOnly: true });
     const row = db.prepare('SELECT COUNT(*) as cnt FROM project_registry').get() as { cnt: number };

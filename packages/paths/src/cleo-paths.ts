@@ -411,13 +411,27 @@ export function resolveProjectByCwd(cwd?: string): ResolvedProject | null {
 /**
  * Resolve the canonical `.cleo` directory for a project given its `projectId`.
  *
- * Looks up the project in the global `nexus.db` registry (`project_registry`
- * table) to find the project's root path, then returns the `.cleo/` directory
- * under that root.
+ * Looks up the project in the consolidated GLOBAL `cleo.db` registry
+ * (`project_registry` table) to find the project's root path, then returns the
+ * `.cleo/` directory under that root.
+ *
+ * **Post-E6 consolidation (T11569):** The cross-project registry moved from the
+ * standalone `<cleoHome>/nexus.db` into the consolidated dual-scope
+ * `<cleoHome>/cleo.db` (SG-DB-SUBSTRATE-V2 · E6-L4, T11524). On a fresh post-E6
+ * install `nexus.db` is never created, so opening it here returned `null` and
+ * the core wrapper threw `E_PROJECT_NOT_FOUND` even for registered projects (the
+ * read path had diverged from the write path — same class as #909/T11562). This
+ * resolver now opens `cleo.db`. The live runtime registry table inside `cleo.db`
+ * is the bare `project_registry` (materialized by the legacy `drizzle-nexus`
+ * migrations via `establishLegacyNexusSchema`); the prefixed
+ * `nexus_project_registry` is the consolidated-migration existence sentinel and
+ * stays empty until the exodus cutover (T11248/T11553).
  *
  * **Legacy ID support (T11023 AC4):** If the `projectId` is not found in
  * `project_registry`, also checks the `project_id_aliases` table for a
- * legacy→canonical mapping before returning `null`.
+ * legacy→canonical mapping before returning `null`. The path-derived canonical
+ * 12-hex id is recorded as an alias of the immutable registry id (T11281), so a
+ * canonical id supplied by `resolveProjectByCwd` resolves through this fallback.
  *
  * This enables cross-project lookups: given a stable project ID, resolve where
  * that project lives on disk without walking from a working directory.
@@ -425,21 +439,25 @@ export function resolveProjectByCwd(cwd?: string): ResolvedProject | null {
  * @param projectId - The project ID to look up. Can be a canonical 12-hex-char
  *   ID, a legacy UUID, or a legacy base64url(path) ID.
  * @returns Absolute path to the `.cleo/` directory, or `null` if the
- *   projectId is not found in the nexus registry (or its alias table).
+ *   projectId is not found in the consolidated registry (or its alias table).
  *
  * @task T11008
  * @task T11023
+ * @task T11569
  */
 export function resolveCanonicalCleoDir(projectId: string): string | null {
   const cleoHome = getCleoHome();
-  const nexusDbPath = join(cleoHome, 'nexus.db');
+  // T11569: read the consolidated GLOBAL `cleo.db` (the registry moved out of
+  // the now-gone `nexus.db` at E6-L4/T11524). The bare `project_registry` table
+  // inside `cleo.db` is the live runtime registry SSoT.
+  const globalDbPath = join(cleoHome, 'cleo.db');
 
-  if (!existsSync(nexusDbPath)) return null;
+  if (!existsSync(globalDbPath)) return null;
 
   let db: DatabaseSyncType | undefined;
   try {
     const DatabaseSync = getDatabaseSyncCtor();
-    db = new DatabaseSync(nexusDbPath, { readOnly: true }); // db-open-allowed: leaf path package cannot depend on core DB chokepoint
+    db = new DatabaseSync(globalDbPath, { readOnly: true }); // db-open-allowed: leaf path package cannot depend on core DB chokepoint
 
     // Try direct project_registry lookup first.
     const directStmt = db.prepare(

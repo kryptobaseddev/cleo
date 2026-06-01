@@ -532,23 +532,29 @@ export function resolveCanonicalCleoDir(projectId: string): string {
 }
 
 /**
- * Walk up from cwd looking for a match in the global nexus.db project_registry
- * by project_path. Falls back when no `.cleo/project-info.json` is found locally.
+ * Walk up from cwd looking for a match in the consolidated GLOBAL `cleo.db`
+ * `project_registry` by project_path. Falls back when no
+ * `.cleo/project-info.json` is found locally.
+ *
+ * T11569: reads `<cleoHome>/cleo.db` (the registry moved out of the now-gone
+ * `nexus.db` at E6-L4/T11524). The bare `project_registry` table inside
+ * `cleo.db` is the live runtime registry SSoT.
  *
  * @internal
  * @task T11013
+ * @task T11569
  */
 function _resolveProjectByCwdFromNexus(cwd?: string): string | null {
   try {
     const cleoHome = getCleoHome();
-    const nexusDbPath = join(cleoHome, 'nexus.db');
-    if (!existsSync(nexusDbPath)) return null;
+    const globalDbPath = join(cleoHome, 'cleo.db');
+    if (!existsSync(globalDbPath)) return null;
 
     const start = resolve(cwd ?? process.cwd());
     let current = start;
 
     const DatabaseSync = _getDatabaseSyncCtor();
-    const db = new DatabaseSync(nexusDbPath, { readOnly: true }); // db-open-allowed: bootstrap path resolver cannot import core DB chokepoint without a cycle
+    const db = new DatabaseSync(globalDbPath, { readOnly: true }); // db-open-allowed: bootstrap path resolver cannot import core DB chokepoint without a cycle
     try {
       const stmt = db.prepare(
         'SELECT project_id FROM project_registry WHERE project_path = ? LIMIT 1',

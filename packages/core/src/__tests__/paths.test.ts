@@ -600,7 +600,8 @@ describe('resolveCanonicalCleoDir', () => {
   });
 
   function seedNexusDb(rows: Array<{ project_id: string; project_path: string }>) {
-    const dbPath = join(tmpHome, 'nexus.db');
+    // T11569: registry lives in the consolidated GLOBAL `cleo.db` (E6-L4/T11524).
+    const dbPath = join(tmpHome, 'cleo.db');
     const db = new DatabaseSync(dbPath);
     db.exec(
       'CREATE TABLE IF NOT EXISTS project_registry (project_id TEXT PRIMARY KEY, project_path TEXT NOT NULL)',
@@ -633,7 +634,7 @@ describe('resolveCanonicalCleoDir', () => {
     expect(() => resolveCanonicalCleoDir('nonexistent')).toThrow('E_PROJECT_NOT_FOUND');
   });
 
-  it('throws E_PROJECT_NOT_FOUND when nexus.db does not exist', () => {
+  it('throws E_PROJECT_NOT_FOUND when the consolidated cleo.db does not exist', () => {
     expect(() => resolveCanonicalCleoDir('any-id')).toThrow('E_PROJECT_NOT_FOUND');
   });
 
@@ -866,7 +867,8 @@ describe('resolveProjectByCwd', () => {
   }
 
   function seedNexusDb(rows: Array<{ project_id: string; project_path: string }>) {
-    const dbPath = join(tmpHome, 'nexus.db');
+    // T11569: registry lives in the consolidated GLOBAL `cleo.db` (E6-L4/T11524).
+    const dbPath = join(tmpHome, 'cleo.db');
     const db = new DatabaseSync(dbPath);
     db.exec(
       'CREATE TABLE IF NOT EXISTS project_registry (project_id TEXT PRIMARY KEY, project_path TEXT NOT NULL)',
@@ -1029,7 +1031,8 @@ describe('ID-Aware Path Resolver — resolveProjectByCwd + resolveCanonicalCleoD
   }
 
   function seedNexusDb(rows: Array<{ project_id: string; project_path: string }>) {
-    const dbPath = join(tmpHome, 'nexus.db');
+    // T11569: registry lives in the consolidated GLOBAL `cleo.db` (E6-L4/T11524).
+    const dbPath = join(tmpHome, 'cleo.db');
     const db = new DatabaseSync(dbPath);
     db.exec(
       'CREATE TABLE IF NOT EXISTS project_registry (project_id TEXT PRIMARY KEY, project_path TEXT NOT NULL)',
@@ -1174,8 +1177,8 @@ describe('ID-Aware Path Resolver — resolveProjectByCwd + resolveCanonicalCleoD
     expect(() => resolveCanonicalCleoDir('unknown-id')).toThrow('E_PROJECT_NOT_FOUND');
   });
 
-  it('resolveCanonicalCleoDir throws when nexus.db does not exist (AC7)', () => {
-    // No seedNexusDb call — nexus.db doesn't exist
+  it('resolveCanonicalCleoDir throws when the consolidated cleo.db does not exist (AC7)', () => {
+    // No seedNexusDb call — the consolidated cleo.db registry doesn't exist
 
     expect(() => resolveCanonicalCleoDir('any-id')).toThrow('E_PROJECT_NOT_FOUND');
   });
@@ -1193,7 +1196,7 @@ describe('ID-Aware Path Resolver — resolveProjectByCwd + resolveCanonicalCleoD
     // T11023: projectId is canonical 12-hex hash — use it for nexus lookup
     expect(projectId).toMatch(/^[0-9a-f]{12}$/);
 
-    // Register the canonical hash in nexus.db (not the raw UUID)
+    // Register the canonical hash in the consolidated cleo.db (not the raw UUID)
     seedNexusDb([{ project_id: projectId, project_path: projDir }]);
 
     const cleoDir = resolveCanonicalCleoDir(projectId);

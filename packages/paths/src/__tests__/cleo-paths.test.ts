@@ -390,8 +390,10 @@ describe('cleo-paths', () => {
       );
       mkdirSync(tempCleoHome, { recursive: true });
 
-      const nexusDbPath = join(tempCleoHome, 'nexus.db');
-      const db = new DatabaseSync(nexusDbPath);
+      // T11569: the cross-project registry lives in the consolidated GLOBAL
+      // `cleo.db` (E6-L4/T11524), no longer the standalone `nexus.db`.
+      const globalDbPath = join(tempCleoHome, 'cleo.db');
+      const db = new DatabaseSync(globalDbPath);
       db.exec(
         'CREATE TABLE IF NOT EXISTS project_registry (project_id TEXT PRIMARY KEY, project_path TEXT NOT NULL UNIQUE)',
       );
@@ -443,7 +445,7 @@ describe('cleo-paths', () => {
       expect(resolveCanonicalCleoDir('nonexistent-uuid')).toBeNull();
     });
 
-    it('returns null when nexus.db does not exist', () => {
+    it('returns null when the consolidated cleo.db does not exist', () => {
       const emptyHome = join(tmpdir(), 'cleo-empty-' + Date.now());
       mkdirSync(emptyHome, { recursive: true });
       process.env['CLEO_HOME'] = emptyHome;
