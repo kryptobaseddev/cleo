@@ -669,3 +669,50 @@ Next review trigger: next `cleo release open`.
 - **`--commit-plan` couldn't stage the plan** because `.cleo/release/` is gitignored (`git add` refused) — it warned + continued via `planBlobSha256`, which worked, but the message reads like a failure.
 - **commit-msg hook requires a task ID even on `chore(release):` commits** — minor, but release-chore commits aren't always task-anchored.
 - **Positives**: `cleo release plan --epic … --dry-run` + autoscope is genuinely good (clean scoped CHANGELOG with provenance links, backlog skipped); `release.yml` syncing package.json FROM the tag means no manual version-bump; `pr:<n>` for testsPassed+qaPassed is excellent; `cleo check arch` (5 gates) stayed fast + reliable across 18 PRs; admin-squash-merge of CI-green non-overlapping stale-base branches scaled flawlessly to ~12 parallel PRs; the `cleo-shared/` mirrored-module pattern (author brain_* once, import from both scope barrels) worked cleanly for the project/global schema split.
+
+## Session assessment 2026-06-01 (exodus zero-data-loss campaign + SG-AUTOPILOT 100% + 3 releases)
+
+Largest orchestration yet: **29 PRs merged + 3 shipped releases** (v2026.5.132/.133/.134), **SG-AUTOPILOT saga T11492 = 100% COMPLETE** (`cleo go` self-driver), runtime daemons **R1–R8** done, **5 of 6 tracked DHQ tasks shipped** (T11487/88/89/90/91). The headline was a **zero-data-loss campaign on the `cleo exodus` dual-DB migration**: driven from CATASTROPHIC (805K rows lost as-shipped in v2026.5.134) to **99.998% (15 rows, precisely specified, fix in flight)** across **8 adversarial sandboxed validations** (originals never touched; live DBs backed up to `snapshot-20260531-123805`). Findings below are **CORE-API/TOOLS-first**.
+
+### Reconciliation note (2026-06-01)
+
+Reconciled against DHQ-001..044 before logging. Only **1 genuinely-new** question gets a new ID (**DHQ-045**); the rest are RESOLUTIONS or escalations of already-logged DHQs (no duplicate IDs).
+
+**RESOLVED / shipped this session (already-owned DHQs):**
+
+| DHQ | Outcome this session |
+|---|---|
+| DHQ-030/041 — `pr:<n>` ⇒ `implemented` | **RESOLVED**: code already correct (shipped T9838/T9764); only 6 doc surfaces were stale → fixed (PR #862, T11487). `cleo verify --gate implemented --evidence pr:<n>` works with NO override. |
+| DHQ-028 — `verifyTypes()` + `verifyRuntimeBoot()` | **SHIPPED** (T11488, PR #868) in `packages/core/src/verification/`. |
+| DHQ-037/019 — spawn worktree preflight + build-ready | **SHIPPED** (T11489, PR #864). |
+| DHQ-042 — release-prepare preflight timeout | **SHIPPED** (T11490, PR #864 — sharded preflight). |
+| DHQ-001/T10523 — DB/evidence lock contention + stale-lock cleanup | **CONFIRMED again (hard evidence)**: `cleo` returned `database is locked` (busy_timeout 30s exceeded) under ~8 concurrent agents on the live `.cleo/tasks.db`/blobs; and a **stale `.git/index.lock` (57–68 min) left by died agents' interrupted git ops silently blocked git across worktrees** — cleared 3×. T10523's exact scope; evidence, not a new ID. |
+
+### DHQ-045 — CORE data-migration tooling ships without a real-data validation gate; name-matched unit fixtures mask catastrophic loss
+
+Question: Why did `cleo exodus` (the dual-DB consolidation migration, E5/T11248) merge AND ship in v2026.5.134 while silently losing ~805K rows (and at best still 15) across **5 distinct root-cause classes** — source-ATTACH-handle leak, legacy-unprefixed→consolidated-prefixed name gap, FK-ordering, epoch/CHECK type coercion, strict-enum-vs-legacy-data `INSERT OR IGNORE` silent drops — with its OWN `exodus verify` initially **FALSE-PASSING** (`success:true` while dropping 80%)?
+
+Owner surface: Core migration SDK + a migration-validation gate (`T11248` exodus / `T11242` substrate saga); CI. Remediation tasks: `T11531`/`T11532`/`T11533`/`T11546`/`T11547`/`T11548`/`T11549`/`T11550` — mostly shipped this session (PRs #885–#891).
+
+Observed: the migration's unit tests used **fixtures with MATCHING source/target table names + canonical enum values**, so they never exercised the real schema's domain-prefixing, the strict CHECK enums the T11363 consolidation added (legacy data carries `link_source='commit-message'`, `source_type='observer-compressed'`, `status='Accepted (2026-04-18)'`, `transport='mcp'`, `conventional_type='style'`, …), FK insertion order, or epoch-seconds-vs-ms drift. Every real-data failure was invisible to the suite. Only a sandboxed ROUND-TRIP against COPIES of the live legacy DBs (a Workflow: backup → `VACUUM INTO` sandbox → migrate → per-table parity + `PRAGMA foreign_key_check` + adversarial zero-loss recount) surfaced them, across 8 fix→validate iterations.
+
+Answer vehicle: a reusable CORE `verifyMigration(sourceDbs, targetDb)` primitive (per-table row-count parity + `foreign_key_check` + content checksum + enum/type-drift report) wired as BOTH (1) the `exodus verify` step (hardened to a real parity gate this session — make it the reusable primitive) and (2) a CI gate that runs the migration against a REAL representative-data fixture (not name-matched toy tables) and fails on any genuine base-table deficit. Migrations MUST normalize legacy enum/format drift (or extend the target CHECK) — never `INSERT OR IGNORE` silent partial drops; a per-table attempted-vs-inserted shortfall MUST surface.
+
+Status: open / newly captured. Remediation shipped T11531–T11549; the durable `verifyMigration` primitive + CI real-data gate = next-session work under `T11242`.
+
+Next review trigger: before the exodus cutover (E8/T11251) runs, or any new schema-consolidation migration.
+
+### Escalation of DHQ-001 (worker state truth) — agent context-exhaustion returns NO partial report; lean-ship-from-worktree recovery
+
+Owner: `T10437` multi-agent observability + orchestration harness (no new ID — escalation).
+
+Observed: substantial single-agent fixes/decompositions consistently hit **"Prompt is too long" at ~100–210 tool uses and DIED returning ONLY that string** — no partial report, no PR, work left UNCOMMITTED in the worktree. ~half the substantial fix-agents died pre-push (autopilot-lead, runtime-lead, dhq-infra-lead, exodus-lead, and several E6/exodus fix agents). Recovery required worktree archaeology then a LEAN "ship agent" (commit + validate + merge the existing implementation) — reliable. Two harness asks: (1) on context-exhaustion, flush a PARTIAL summary (what was done / files touched / next step) instead of a bare "Prompt is too long"; (2) the DHQ-001 dashboard must detect "dead agent + uncommitted/unpushed worktree". Mitigations that worked: bounded single-task scope, decompose-then-delegate, lean-ship-from-worktree.
+
+### Frictions encountered (this session)
+
+- **DHQ-045 was the entire arc** — the migration tool's correctness could only be established by an EXTERNAL real-data round-trip harness, not its own tests; CI was again the only trustworthy oracle (compounding DHQ-027/028/029).
+- **Stale `.git/index.lock` from died agents** (DHQ-001/T10523) silently blocked git ops for ~an hour at a time until hand-cleared — strongly seconds the "pure git plumbing safe-commit" affordance from 2026-05-31.
+- **`cleo add --severity P1` on a research EPIC fails `CHECK constraint failed: severity`** (severity appears valid only for `kind:bug`) — minor CORE validation friction (DHQ-006 class); error gives no hint that severity is kind-scoped.
+- **`cleo add` title >200 chars → `E_VALIDATION_FAILED`** mid-script (minor; DHQ-006 class).
+- **`cleo complete <epic>` surfaces dependency-knots late**: T11516 (E4-T5) carries a forward `depends` on T11249 (E6 store rewrite), so E4 epic-completion is gated on E6 — correct containment, but only visible at `complete` time, not at decomposition.
+- **Positives**: the **Workflow tool** was excellent for the adversarial validation harness (deterministic fan-out of independent zero-loss/parity/FK validators with structured verdicts; `resumeFromRunId`/`scriptPath` re-ran the same harness 5× cheaply); `cleo memory observe` checkpoints made the 8-iteration campaign resumable; admin-squash-merge scaled to ~30 PRs; the scoping-research (T11535) correctly **corrected the signaldock assumption** (it is live-wired, not dead) and confirmed the **nexus per-project-graph mis-scoping** (4 tables wrongly global).
