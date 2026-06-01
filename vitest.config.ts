@@ -128,6 +128,10 @@ export default defineConfig({
       // @cleocode/paths — workspace-local canonical path utilities (env-paths wrapper).
       // Must be aliased so vitest resolves packages/core/src/paths.ts without a build step.
       '@cleocode/paths': new URL('./packages/paths/src/index.ts', import.meta.url).pathname,
+      // @cleocode/utils — pure zero-dependency leaf (formatBytes, redact, …).
+      // Aliased to source so vitest resolves it without first building the
+      // package's dist/ (T11414 · E5). Mirrors the @cleocode/paths treatment.
+      '@cleocode/utils': new URL('./packages/utils/src/index.ts', import.meta.url).pathname,
       // T1187-followup / v2026.4.113: specific subpath alias for
       // buildManifestEntryFromShorthand (CLI → core SDK delegation).
       '@cleocode/core/memory/manifest-builder.js': new URL(
@@ -294,6 +298,10 @@ export default defineConfig({
       'packages/runtime/vitest.config.ts',
       'packages/skills/vitest.config.ts',
       'packages/studio/vitest.config.ts',
+      // T11414 / E5: the pure @cleocode/utils leaf was added in #842 but its
+      // vitest project was never attached here, so its unit tests (format-bytes,
+      // redact) silently did not run in CI shards. Attaching it now.
+      'packages/utils/vitest.config.ts',
       'packages/worktree/vitest.config.ts',
       // T10177: scripts/__tests__/*.test.mjs unit tests (bump-workspace-deps,
       // commit-msg-release-lint, lint-cli-package-boundary, etc.) re-attached
