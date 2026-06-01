@@ -246,14 +246,28 @@ function establishLegacyBrainSchema(
     // `brain_embeddings` is a vec0 virtual table once the extension is loaded;
     // DROP TABLE handles both regular and virtual tables when sqlite-vec is
     // present. Disable FKs during the drop so cross-table references do not
-    // block the teardown.
+    // block the teardown — then RESTORE the prior pragma state (the dual-scope
+    // pragma SSoT enables foreign_keys; leaving it OFF would break the
+    // idempotent-pragma contract, T10314).
+    const fkRow = nativeDb.prepare('PRAGMA foreign_keys').get() as
+      | { foreign_keys?: number }
+      | undefined;
+    const fkWasOn = fkRow?.foreign_keys === 1;
     nativeDb.exec('PRAGMA foreign_keys=OFF');
-    for (const table of CONSOLIDATED_BRAIN_TABLES) {
-      try {
-        nativeDb.exec(`DROP TABLE IF EXISTS \`${table}\``);
-      } catch (err) {
-        log.warn({ table, err }, 'Failed to drop consolidated brain table during legacy rebuild.');
+    try {
+      for (const table of CONSOLIDATED_BRAIN_TABLES) {
+        try {
+          nativeDb.exec(`DROP TABLE IF EXISTS \`${table}\``);
+        } catch (err) {
+          log.warn(
+            { table, err },
+            'Failed to drop consolidated brain table during legacy rebuild.',
+          );
+        }
       }
+    } finally {
+      // Restore the pragma to its pre-drop state (ON under the dual-scope SSoT).
+      nativeDb.exec(`PRAGMA foreign_keys=${fkWasOn ? 'ON' : 'OFF'}`);
     }
     log.debug(
       { count: CONSOLIDATED_BRAIN_TABLES.length },
