@@ -550,4 +550,120 @@ describe('storeDecision ADR write-gate hook (T1828)', () => {
 
     expect(decision.id).toBe('D001');
   });
+
+  // ===========================================================================
+  // T11552: brain_decisions.id UNIQUE-collision under concurrent writes.
+  //
+  // The original storeDecision read MAX(id)+1 in application code (an async fn
+  // with await boundaries) and INSERTed later, so two writers in the same
+  // instant both read e.g. D042 and both INSERTed D043 → the second hit the
+  // PRIMARY KEY constraint, dropping the decision. The fix allocates the id
+  // ATOMICALLY inside the INSERT (BrainDataAccessor.addDecisionWithSequentialId),
+  // so every concurrent decision lands with a distinct id and none is lost,
+  // with a bounded retry as defense-in-depth for the cross-process case.
+  // ===========================================================================
+  describe('concurrent / colliding decision inserts (T11552)', () => {
+    it('persists every decision when many are stored concurrently (distinct ids, none dropped)', async () => {
+      process.env['CLEO_ENV'] = 'test';
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
+      closeBrainDb();
+      const { storeDecision, listDecisions } = await import('../decisions.js');
+
+      // High fan-out: enough concurrent writers that a naive read-then-write
+      // (even with a retry budget) would exhaust its retries, since every
+      // caller reads the same stale MAX before any commit lands. The atomic
+      // in-SQL allocation must serialize them all without collision.
+      const COUNT = 30;
+      // Distinct decision text per entry so the duplicate-merge path never
+      // collapses them — every call MUST produce a fresh INSERT and thus
+      // exercises the atomic id allocation in parallel.
+      const results = await Promise.all(
+        Array.from({ length: COUNT }, (_, i) =>
+          storeDecision(tempDir, {
+            type: 'technical',
+            decision: `Concurrent decision number ${i} — unique text ${i}`,
+            rationale: `Rationale for concurrent decision ${i}`,
+            confidence: 'medium',
+          }),
+        ),
+      );
+
+      // All COUNT writes succeeded (no UNIQUE-collision rejection).
+      expect(results).toHaveLength(COUNT);
+
+      // Every returned id is unique — no two decisions collapsed onto one id.
+      const ids = results.map((r) => r.id);
+      expect(new Set(ids).size).toBe(COUNT);
+      // All ids are canonical sequential Dnnn.
+      for (const id of ids) {
+        expect(id).toMatch(/^D\d{3,}$/);
+      }
+
+      // The store actually contains all COUNT distinct rows.
+      const { decisions, total } = await listDecisions(tempDir, { limit: 100 });
+      expect(total).toBe(COUNT);
+      expect(new Set(decisions.map((d) => d.id)).size).toBe(COUNT);
+    });
+
+    it('recovers from a cross-process PRIMARY KEY collision raised mid-insert and re-allocates the next id', async () => {
+      process.env['CLEO_ENV'] = 'test';
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
+      closeBrainDb();
+      const { storeDecision } = await import('../decisions.js');
+      const { getBrainAccessor } = await import('../../store/memory-accessor.js');
+
+      // Seed D001 so the store is non-empty and the next natural id is D002.
+      await storeDecision(tempDir, {
+        type: 'architecture',
+        decision: 'Seed decision to occupy D001',
+        rationale: 'Establishes a non-empty sequence',
+        confidence: 'high',
+      });
+
+      // Simulate a SEPARATE PROCESS that committed a colliding row between our
+      // atomic statement's plan and its execution: monkeypatch the accessor's
+      // atomic insert so its FIRST call throws the exact node:sqlite UNIQUE
+      // error, then restores real behaviour. The defense-in-depth retry loop
+      // in storeDecision must catch it and re-run the atomic allocation, which
+      // now sees the higher committed MAX(id).
+      const accessor = await getBrainAccessor(tempDir);
+      const proto = Object.getPrototypeOf(accessor) as {
+        addDecisionWithSequentialId: (row: unknown) => Promise<unknown>;
+      };
+      const realAdd = proto.addDecisionWithSequentialId;
+      let injected = false;
+      proto.addDecisionWithSequentialId = async function patchedAdd(row: unknown) {
+        if (!injected) {
+          injected = true;
+          // Mirror node:sqlite's PRIMARY KEY collision shape exactly.
+          const err = new Error('UNIQUE constraint failed: brain_decisions.id');
+          (err as { code?: string }).code = 'ERR_SQLITE_ERROR';
+          (err as { errcode?: number }).errcode = 1555;
+          throw err;
+        }
+        return realAdd.call(this, row);
+      };
+
+      try {
+        const recovered = await storeDecision(tempDir, {
+          type: 'technical',
+          decision: 'Decision written despite an id collision',
+          rationale: 'The retry loop must recover and persist this row',
+          confidence: 'medium',
+        });
+
+        // The collision was injected once, then the retry succeeded.
+        expect(injected).toBe(true);
+        expect(recovered.id).toMatch(/^D\d{3,}$/);
+        expect(recovered.decision).toBe('Decision written despite an id collision');
+
+        // The decision is durably stored (not silently dropped).
+        const fetched = await accessor.getDecision(recovered.id);
+        expect(fetched).not.toBeNull();
+        expect(fetched?.decision).toBe('Decision written despite an id collision');
+      } finally {
+        proto.addDecisionWithSequentialId = realAdd;
+      }
+    });
+  });
 });
