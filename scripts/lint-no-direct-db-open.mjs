@@ -20,21 +20,24 @@
  *   1. `new DatabaseSync(` — Node.js built-in `node:sqlite` direct construction.
  *   2. `new Database(` — better-sqlite3 or other synchronous SQLite wrappers.
  *
- * Allowlisted locations (legitimate raw DB open sites):
+ * Allowlisted locations (legitimate raw DB open sites) — reduced to 3 canonical
+ * path entries after the E6 store-rewrite cascade (T11521-T11528) routed every
+ * per-domain accessor through `openDualScopeDb` (T11529 · E6-L9):
  *
- *   - `packages/core/src/store/**` — canonical open site; everything routes here
- *   - `packages/core/src/migration/**` — migration runner (schema bootstrapping)
- *   - `packages/core/src/memory/claude-mem-migration.ts` — one-shot memory migration
- *   - `packages/core/src/memory/graph-memory-bridge.ts` — hot-path conduit open
- *   - `packages/core/src/conduit/**` — conduit-sqlite is core-owned infrastructure
- *   - `packages/core/src/upgrade.ts` — one-shot signaldock migration
- *   - `packages/core/src/init.ts` — bootstrap open before chokepoint is available
- *   - `packages/core/src/agents/seed-install.ts` — one-shot global install
- *   - `packages/core/src/orchestration/classify.ts` — JSDoc @example blocks (false-positives)
- *   - `packages/core/src/nexus/**` — nexus graph per-project opens (non-CLEO-metadata DBs)
- *   - `packages/studio/src/lib/server/db/connections.ts` — per-project ProjectContext-driven opens
- *   - Test files (`__tests__/`, `.test.ts`, `.spec.ts`) — may open raw for seeding
- *   - Test factory/helper paths (see TEST_FACTORY_PREFIXES)
+ *   1. `packages/core/src/store/**` — the chokepoint itself (incl. `dual-scope-db.ts`);
+ *      everything routes here.
+ *   2. `packages/core/src/migration/**` — migration runner (schema bootstrapping,
+ *      runs before the chokepoint is available).
+ *   3. `packages/studio/src/lib/server/db/connections.ts` — per-project
+ *      ProjectContext-driven opens; pre-port (cannot route through `openCleoDb`,
+ *      applies pragma SSoT via `applyPerfPragmas`).
+ *
+ * Test files (`__tests__/`, `.test.ts`, `.spec.ts`) may open raw for seeding and
+ * are matched by ALLOW_PATH_REGEXES, not the canonical allowlist.
+ *
+ * Every other legitimate raw open (external claude-mem source, hot-path conduit,
+ * per-project nexus graph DBs) now carries an inline `// db-open-allowed` marker at
+ * the call site instead of a directory-wide allowlist entry.
  *
  * Per-line opt-out: append `// db-open-allowed` on the line with a brief rationale.
  *
@@ -82,29 +85,21 @@ const TEST_FILE_SUFFIXES = ['.test.ts', '.test.tsx', '.spec.ts', '.spec.tsx', '.
  * These correspond to the canonical exception sites documented above.
  */
 const ALLOW_PATH_PREFIXES = [
-  // Canonical chokepoint + all core/store sub-modules
+  // 1. Canonical chokepoint + all core/store sub-modules (incl. dual-scope-db.ts).
   'packages/core/src/store/',
-  // Migration runner — owns schema bootstrapping
+  // 2. Migration runner — owns schema bootstrapping (runs before the chokepoint).
   'packages/core/src/migration/',
-  // One-shot memory migration
-  'packages/core/src/memory/claude-mem-migration.ts',
-  // Hot-path conduit open (T9023 sweep complete)
-  'packages/core/src/memory/graph-memory-bridge.ts',
-  // Conduit infrastructure is core-owned
-  'packages/core/src/conduit/',
-  // One-shot signaldock migration (T9023 sweep complete)
-  'packages/core/src/upgrade.ts',
-  // Bootstrap open before chokepoint is available
-  'packages/core/src/init.ts',
-  // One-shot global install (T9023 sweep complete)
-  'packages/core/src/agents/seed-install.ts',
-  // classify.ts — JSDoc @example blocks with DatabaseSync (not actual code)
-  'packages/core/src/orchestration/classify.ts',
-  // Nexus graph DB — per-project non-CLEO-metadata files (nexus/store.ts uses db-open-allowed)
-  'packages/core/src/nexus/',
-  // Studio per-project getters take a ProjectContext and cannot route through openCleoDb;
-  // they do apply pragma SSoT via applyPerfPragmas.
+  // 3. Studio per-project getters take a ProjectContext and cannot route through
+  //    openCleoDb; they apply pragma SSoT via applyPerfPragmas (pre-port).
   'packages/studio/src/lib/server/db/connections.ts',
+  //
+  // E6-L9 (T11529): the per-domain entries below were removed after the store
+  // rewrite cascade (T11521-T11528) routed every accessor through openDualScopeDb.
+  // conduit/, upgrade.ts, init.ts, seed-install.ts no longer open raw; classify.ts
+  // only had JSDoc @example blocks (skipped by the comment-line filter); the
+  // remaining legitimate opens (claude-mem external source, graph-memory-bridge
+  // hot-path conduit, nexus per-project graph DBs) now carry inline
+  // `// db-open-allowed` markers at the call site.
 ];
 
 /** Regex patterns tested against the POSIX-relative path — always allowed. */

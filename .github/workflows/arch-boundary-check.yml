@@ -27,8 +27,8 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Run lint-no-direct-db-open (baseline mode)
-        run: node scripts/lint-no-direct-db-open.mjs
+      - name: Run lint-no-direct-db-open (strict mode — T11529 · E6-L9)
+        run: node scripts/lint-no-direct-db-open.mjs --strict
 
       - name: Run lint-node-engine-ssot (T11281)
         run: node scripts/lint-node-engine-ssot.mjs

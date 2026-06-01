@@ -165,9 +165,7 @@ export async function migrateClaudeMem(
   // Open source DB read-only
   let sourceDb: DatabaseSync;
   try {
-    sourceDb = new DatabaseSync(sourcePath, {
-      readOnly: true,
-    });
+    sourceDb = new DatabaseSync(sourcePath, { readOnly: true }); // db-open-allowed: one-shot migration reads an EXTERNAL ~/.claude-mem/claude-mem.db source (not a CLEO metadata DB)
     applyPerfPragmas(sourceDb, { enableWal: false }); // read-only: WAL cannot be set (T9022)
   } catch (err) {
     throw new Error(
