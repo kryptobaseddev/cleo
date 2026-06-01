@@ -30,14 +30,32 @@
  * both conduit.db and attachments.ts/tasks.db; `"sessions"` lives in both
  * tasks.db and signaldock.db).
  *
+ * ## Nexus code-graph residency move (ADR-090 · T11539)
+ *
+ * The four nexus code-graph tables — `nexus_nodes`, `nexus_relations`,
+ * `nexus_contracts`, `nexus_code_index` (ADR-090 "Category A") — were removed
+ * from the GLOBAL schema (`../schema/cleo-global/nexus.ts`) and now reside in
+ * PROJECT scope (`../schema/cleo-project/nexus-graph.ts`). They are still
+ * extracted from the legacy GLOBAL `nexus.db` source, but exodus MUST route them
+ * into the PROJECT-scope consolidated `cleo.db`, not the global one. The source
+ * descriptor `nexus` carries `targetScope: 'global'`, so a per-table scope
+ * override is required for these four tables — see
+ * {@link NEXUS_GRAPH_PROJECT_TABLES} and {@link resolveTableTargetScope}. The
+ * six registry/identity tables (`nexus_project_registry`,
+ * `nexus_project_id_aliases`, `nexus_audit_log`, `nexus_schema_meta`,
+ * `nexus_user_profile`, `nexus_sigils`) stay GLOBAL.
+ *
  * @task T11532 (ROOT CAUSE 1 — name-mapping gap)
  * @task T11533 (ROOT CAUSE 3 — signaldock skills mapping + brain_release_links skip +
  *               brain_session_narrative mapping)
  * @task T11546 (no-home-table fixes — schema_meta→tasks_schema_meta, brain_usage_log mapping,
  *               brain_schema_meta mapping)
+ * @task T11539 (nexus code-graph residency — route the 4 graph tables to PROJECT scope)
  * @epic T11248
  * @saga T11242
  */
+
+import type { ExodusScope } from './types.js';
 
 // ---------------------------------------------------------------------------
 // Per-source legacy→consolidated mapping tables
@@ -242,6 +260,16 @@ const CONDUIT_DB_MAP: ReadonlyMap<string, string> = new Map([
  *
  * Some tables are ALREADY prefixed (`nexus_audit_log`, `nexus_nodes`, etc.) and
  * map identity. Others lack the prefix and gain `nexus_` in consolidated.
+ *
+ * ## Scope split (ADR-090 · T11539)
+ *
+ * The legacy `nexus.db` source descriptor carries `targetScope: 'global'`, but
+ * the four code-graph tables (`code_index`/`nexus_code_index`, `nexus_nodes`,
+ * `nexus_relations`, `nexus_contracts`) now live in PROJECT scope. Their
+ * consolidated NAME is unchanged (identity / `nexus_code_index`), but their
+ * destination DB is the PROJECT `cleo.db` — see {@link NEXUS_GRAPH_PROJECT_TABLES}
+ * and {@link resolveTableTargetScope}. The remaining six registry/identity
+ * tables stay GLOBAL.
  */
 const NEXUS_DB_MAP: ReadonlyMap<string, string> = new Map([
   // Unprefixed legacy names
@@ -249,15 +277,71 @@ const NEXUS_DB_MAP: ReadonlyMap<string, string> = new Map([
   ['project_id_aliases', 'nexus_project_id_aliases'],
   ['user_profile', 'nexus_user_profile'],
   ['sigils', 'nexus_sigils'],
+  // code_index → nexus_code_index: routed to PROJECT scope (ADR-090 §2.1).
   ['code_index', 'nexus_code_index'],
   // Already-prefixed names (identity)
   ['nexus_audit_log', 'nexus_audit_log'],
+  // The 3 graph tables below keep identity names but route to PROJECT scope (ADR-090).
   ['nexus_nodes', 'nexus_nodes'],
   ['nexus_relations', 'nexus_relations'],
   ['nexus_contracts', 'nexus_contracts'],
   // schema_meta tables created by consolidated schema bootstrap
   ['nexus_schema_meta', 'nexus_schema_meta'],
 ]);
+
+/**
+ * Legacy table names of the four nexus code-graph tables that moved from GLOBAL
+ * to PROJECT scope (ADR-090 · T11538/T11539).
+ *
+ * Keyed by the LEGACY physical name as it appears in `nexus.db`:
+ *   - `nexus_nodes`, `nexus_relations`, `nexus_contracts` — already prefixed.
+ *   - `code_index` — bare in legacy `nexus.db`; → `nexus_code_index` consolidated.
+ *
+ * Membership drives {@link resolveTableTargetScope}: exodus copies/verifies
+ * these against the PROJECT consolidated `cleo.db`, NOT the GLOBAL one, even
+ * though the `nexus` source descriptor's `targetScope` is `'global'`.
+ *
+ * @task T11539
+ * @epic T11248
+ * @saga T11242
+ * @see cleo docs fetch adr-090-nexus-graph-residency-split
+ */
+export const NEXUS_GRAPH_PROJECT_TABLES: ReadonlySet<string> = new Set([
+  'nexus_nodes',
+  'nexus_relations',
+  'nexus_contracts',
+  'code_index',
+]);
+
+/**
+ * Resolve the consolidated TARGET SCOPE for a legacy source table.
+ *
+ * Most tables share the scope of their source DB descriptor (`sourceScope`).
+ * The exception is the four nexus code-graph tables — they are extracted from
+ * the GLOBAL legacy `nexus.db` but land in PROJECT scope per ADR-090 (T11539).
+ *
+ * This is the SSoT consumed by BOTH the exodus migrate runner (insert target DB)
+ * and the exodus verifier (verify target DB) so the two never disagree.
+ *
+ * @param sourceName  - `LegacyDbDescriptor.name` (e.g. `"nexus"`, `"tasks"`).
+ * @param legacyTable - Physical table name in the legacy source DB.
+ * @param sourceScope - The source descriptor's `targetScope`.
+ * @returns The scope of the consolidated `cleo.db` this table copies into.
+ *
+ * @task T11539
+ * @epic T11248
+ * @saga T11242
+ */
+export function resolveTableTargetScope(
+  sourceName: string,
+  legacyTable: string,
+  sourceScope: ExodusScope,
+): ExodusScope {
+  if (inferSourceKind(sourceName) === 'nexus' && NEXUS_GRAPH_PROJECT_TABLES.has(legacyTable)) {
+    return 'project';
+  }
+  return sourceScope;
+}
 
 /**
  * signaldock.db (global) — tables from signaldock-schema.ts, all prefixed `signaldock_*`.

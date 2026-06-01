@@ -1,5 +1,5 @@
 /**
- * Global-scope `cleo.db` — consolidated **nexus** domain (10 tables).
+ * Global-scope `cleo.db` — consolidated **nexus registry/identity** domain (6 tables).
  *
  * Part of the consolidated GLOBAL-scope `cleo.db` target shape authored for
  * SG-DB-SUBSTRATE-V2 (saga T11242, epic T11245/E2, task T11361). Target-shape
@@ -8,16 +8,25 @@
  * UNPREFIXED / partially-prefixed names until the exodus migration (T11248)
  * swaps the substrate to this shape.
  *
+ * ## Nexus code-graph residency move (ADR-090 · T11539 — REMOVED from here)
+ *
+ * The four per-project code/knowledge-graph tables — `nexus_nodes`,
+ * `nexus_relations`, `nexus_contracts`, `nexus_code_index` (ADR-090 "Category A")
+ * — were REMOVED from this GLOBAL module and now reside in PROJECT scope
+ * (`../cleo-project/nexus-graph.ts`, T11538), dropping the `project_id` column
+ * (scope is implicit in which project's `.cleo/cleo.db` is open). This reduces
+ * the nexus GLOBAL table count from 10 → 6. The six tables retained here are the
+ * genuinely-global "Category B" registry/identity tables (see below). Exodus
+ * routes the four graph tables to PROJECT scope per
+ * `../exodus/table-name-map.ts` (`NEXUS_GRAPH_PROJECT_TABLES`).
+ *
  * ## Idempotent prefixer (AC1)
  *
- * Five source tables already carry the recognized `nexus_` prefix and are NOT
- * double-prefixed: `nexus_audit_log` · `nexus_schema_meta` · `nexus_nodes` ·
- * `nexus_relations` · `nexus_contracts`. The remaining five bare tables gain the
- * domain prefix at exodus: `project_registry` → `nexus_project_registry` ·
- * `project_id_aliases` → `nexus_project_id_aliases` · `user_profile` →
- * `nexus_user_profile` · `sigils` → `nexus_sigils` · `code_index` →
- * `nexus_code_index` (the relocated tree-sitter symbol index, formerly in
- * `nexus.db` alongside the registry).
+ * The six retained tables: `nexus_audit_log` · `nexus_schema_meta` already carry
+ * the recognized `nexus_` prefix and are NOT double-prefixed. The remaining four
+ * bare tables gain the domain prefix at exodus: `project_registry` →
+ * `nexus_project_registry` · `project_id_aliases` → `nexus_project_id_aliases` ·
+ * `user_profile` → `nexus_user_profile` · `sigils` → `nexus_sigils`.
  *
  * ## E10 typing applied
  *
@@ -27,13 +36,11 @@
  *   (the 4 Date non-conformers in §4). They become canonical `text` ISO8601;
  *   the matching `CHECK (col GLOB 'YYYY-MM-DD*')` ships as raw DDL at exodus.
  * - **§5b enum-like bare TEXT → `{ enum }`:** `nexus_sigils.role` →
- *   `{ enum: SIGIL_ROLES }` and `nexus_code_index.kind` →
- *   `{ enum: CODE_INDEX_KINDS }`. The const arrays below are minted in-module
- *   (no cross-package contracts const exists for either) per §5b — the CHECK
- *   list derives from the identifier, never a hand-typed literal.
- * - **§3a already-conformant booleans:** `nexus_nodes.{is_exported,is_external}`
- *   and `nexus_code_index.exported` keep `{ mode:'boolean' }`; only the SQL
- *   `CHECK (col IN (0,1))` is added at exodus.
+ *   `{ enum: SIGIL_ROLES }`. The const array below is minted in-module (no
+ *   cross-package contracts const exists) per §5b — the CHECK list derives from
+ *   the identifier, never a hand-typed literal. (`nexus_code_index.kind` →
+ *   `{ enum: CODE_INDEX_KINDS }` moved with the graph tables to
+ *   `../cleo-project/nexus-graph.ts`.)
  *
  * ## FK reconciliation to single-file Pattern A (AC4)
  *
@@ -41,22 +48,23 @@
  * every cross-table reference; none crossed file boundaries via a real
  * `.references()`. Under the consolidated GLOBAL `cleo.db` they remain plain
  * `text` soft FKs:
- *   - intra-nexus refs (`nexus_nodes.project_id` → `nexus_project_registry`,
- *     `nexus_relations.{source_id,target_id}` → `nexus_nodes`, `parent_id`)
- *     stay soft because the source never declared them as enforced FKs and the
- *     graph stores unresolved external specifiers in the same column.
+ *   - `nexus_project_id_aliases.canonical_id` → `nexus_project_registry` and
+ *     `nexus_audit_log.project_id` → `nexus_project_registry` stay soft because
+ *     the source never declared them as enforced FKs.
  *   - cross-domain refs (`nexus_audit_log.session_id` → project-scope
  *     `tasks_sessions`, `nexus_user_profile.derived_from_message_id` →
  *     `conduit_session_messages`) point at the PROJECT-scope `cleo.db`, so they
  *     CANNOT be native FKs — they remain soft TEXT, resolved by the nexus
  *     accessor. No ATTACH; no cross-file FK.
  *
- * @task T11361
- * @epic T11245
+ * @task T11361 · T11539 (nexus graph residency removal)
+ * @epic T11245 · T11535 (nexus residency)
  * @saga T11242
+ * @see ../cleo-project/nexus-graph.ts (the PROJECT-scope home of the 4 graph tables)
  * @see docs/migration/sqlite-schema-canonical.md §1 (D1″ · global counts) · §4 · §5b
  * @see docs/migration/sqlite-schema-columns.json (per-column affinity SSoT)
  * @see ../nexus-schema.ts · ../code-index.ts (the runtime source modules)
+ * @see cleo docs fetch adr-090-nexus-graph-residency-split
  */
 
 import { sql } from 'drizzle-orm';
@@ -91,37 +99,6 @@ export const SIGIL_ROLES = [
 
 /** TypeScript union derived from {@link SIGIL_ROLES}. */
 export type SigilRole = (typeof SIGIL_ROLES)[number];
-
-/**
- * Legal `nexus_code_index.kind` values — tree-sitter symbol capture kinds.
- *
- * E10 §5b: `code_index.kind` was bare `text('kind')`. The legal set is the
- * symbol-kind taxonomy documented on the source column (the tree-sitter capture
- * groups): structural / module / callable / type-hierarchy / value-level
- * constructs. Kept as an in-module const so the exodus CHECK derives from this
- * identifier rather than a hand-typed literal.
- *
- * @task T11361
- */
-export const CODE_INDEX_KINDS = [
-  'function',
-  'method',
-  'class',
-  'interface',
-  'type',
-  'enum',
-  'variable',
-  'constant',
-  'module',
-  'import',
-  'export',
-  'struct',
-  'trait',
-  'impl',
-] as const;
-
-/** TypeScript union derived from {@link CODE_INDEX_KINDS}. */
-export type CodeIndexKind = (typeof CODE_INDEX_KINDS)[number];
 
 // ---------------------------------------------------------------------------
 // Registry + aliases
@@ -265,321 +242,6 @@ export const nexusAuditLog = sqliteTable(
 export const nexusSchemaMeta = makeSchemaMetaTable('nexus_schema_meta');
 
 // ---------------------------------------------------------------------------
-// Code-intelligence graph
-// ---------------------------------------------------------------------------
-
-/**
- * All node kind values — matches `GraphNodeKind` in `@cleocode/contracts`.
- * Kept as a const tuple for the Drizzle enum column. Ordering intentional:
- * structural → module → callable → type → value-level → language-specific →
- * graph-level → legacy.
- *
- * @task T11361 (target shape) · T529 (original)
- */
-export const NEXUS_NODE_KINDS = [
-  // Structural
-  'file',
-  'folder',
-  // Module-level
-  'module',
-  'namespace',
-  // Callable
-  'function',
-  'method',
-  'constructor',
-  // Type hierarchy
-  'class',
-  'interface',
-  'struct',
-  'trait',
-  'impl',
-  'type_alias',
-  'enum',
-  // Value-level
-  'property',
-  'constant',
-  'variable',
-  'static',
-  'record',
-  'delegate',
-  // Language-specific constructs
-  'macro',
-  'union',
-  'typedef',
-  'annotation',
-  'template',
-  // Graph-level (synthetic nodes from analysis phases)
-  'community',
-  'process',
-  'route',
-  // External references
-  'tool',
-  'section',
-  // Legacy (kept for T506 compatibility)
-  'import',
-  'export',
-  'type',
-] as const;
-
-/** TypeScript type derived from {@link NEXUS_NODE_KINDS}. */
-export type NexusNodeKind = (typeof NEXUS_NODE_KINDS)[number];
-
-/**
- * `nexus_nodes` — one row per symbol or structural element in the code
- * intelligence graph. Already domain-prefixed.
- *
- * @task T11361 (target shape) · T529 (original)
- */
-export const nexusNodes = sqliteTable(
-  'nexus_nodes',
-  {
-    /** Stable node ID (`<filePath>::<name>` / `<filePath>` / `community:<n>` / `process:<slug>`). */
-    id: text('id').primaryKey(),
-    /** Owning project (soft FK → nexus_project_registry.project_id). */
-    projectId: text('project_id').notNull(),
-    /** Node kind from {@link NEXUS_NODE_KINDS} (E10 §5a — already enum-typed). */
-    kind: text('kind', { enum: NEXUS_NODE_KINDS }).notNull(),
-    /** Human-readable display label. */
-    label: text('label').notNull(),
-    /** Symbol name as it appears in source; NULL for file/folder nodes. */
-    name: text('name'),
-    /** File path relative to project root; NULL for community/process nodes. */
-    filePath: text('file_path'),
-    /** Start line (1-based); NULL for structural nodes. */
-    startLine: integer('start_line'),
-    /** End line (1-based); NULL for structural nodes. */
-    endLine: integer('end_line'),
-    /** Source language (typescript, python, go, rust, …). */
-    language: text('language'),
-    /** Whether the symbol is publicly exported (E10 §3a — typed boolean). */
-    isExported: integer('is_exported', { mode: 'boolean' }).notNull().default(false),
-    /** Parent node id for nested symbols (intra-nexus soft FK → nexus_nodes.id). */
-    parentId: text('parent_id'),
-    /** JSON array of parameter name strings (serialized TEXT). */
-    parametersJson: text('parameters_json'),
-    /** Return-type annotation text. */
-    returnType: text('return_type'),
-    /** First line of the leading TSDoc/JSDoc comment. */
-    docSummary: text('doc_summary'),
-    /** Community membership id (soft FK → the community node's nexus_nodes.id). */
-    communityId: text('community_id'),
-    /** JSON blob for kind-specific metadata (serialized TEXT). */
-    metaJson: text('meta_json'),
-    /** Whether this node is an external/unresolved module (E10 §3a — typed boolean). */
-    isExternal: integer('is_external', { mode: 'boolean' }).notNull().default(false),
-    /** ISO-8601 UTC last-indexed instant (canonical TEXT, §4). */
-    indexedAt: text('indexed_at').notNull().default(sql`(datetime('now'))`),
-  },
-  (table) => [
-    index('idx_nexus_nodes_project').on(table.projectId),
-    index('idx_nexus_nodes_kind').on(table.kind),
-    index('idx_nexus_nodes_file').on(table.filePath),
-    index('idx_nexus_nodes_name').on(table.name),
-    index('idx_nexus_nodes_project_kind').on(table.projectId, table.kind),
-    index('idx_nexus_nodes_project_file').on(table.projectId, table.filePath),
-    index('idx_nexus_nodes_community').on(table.communityId),
-    index('idx_nexus_nodes_parent').on(table.parentId),
-    index('idx_nexus_nodes_exported').on(table.isExported),
-    index('idx_nexus_nodes_is_external').on(table.isExternal),
-  ],
-);
-
-/**
- * All relation type values — matches `GraphRelationType` in `@cleocode/contracts`.
- *
- * @task T11361 (target shape) · T529 (original)
- */
-export const NEXUS_RELATION_TYPES = [
-  // Structural
-  'contains',
-  // Definition / usage
-  'defines',
-  'imports',
-  'accesses',
-  // Callable
-  'calls',
-  // Type hierarchy
-  'extends',
-  'implements',
-  'method_overrides',
-  'method_implements',
-  // Class structure
-  'has_method',
-  'has_property',
-  // Graph-level (synthetic, from analysis phases)
-  'member_of',
-  'step_in_process',
-  // Web / API
-  'handles_route',
-  'fetches',
-  // Tool / agent
-  'handles_tool',
-  'entry_point_of',
-  // Wrapping / delegation
-  'wraps',
-  // Data access
-  'queries',
-  // Cross-graph (brain link)
-  'documents',
-  'applies_to',
-  // Plasticity co-access relations (T998)
-  'co_changed',
-  'co_cited_in_task',
-] as const;
-
-/** TypeScript type derived from {@link NEXUS_RELATION_TYPES}. */
-export type NexusRelationType = (typeof NEXUS_RELATION_TYPES)[number];
-
-/**
- * `nexus_relations` — one row per directed graph edge. Already domain-prefixed.
- *
- * @task T11361 (target shape) · T529 (original)
- */
-export const nexusRelations = sqliteTable(
-  'nexus_relations',
-  {
-    /** UUID v4 row identifier. */
-    id: text('id').primaryKey(),
-    /** Owning project (soft FK → nexus_project_registry.project_id). */
-    projectId: text('project_id').notNull(),
-    /** Source node id (intra-nexus soft FK → nexus_nodes.id). */
-    sourceId: text('source_id').notNull(),
-    /** Target node id or raw module specifier (intra-nexus soft FK → nexus_nodes.id). */
-    targetId: text('target_id').notNull(),
-    /** Semantic relation type from {@link NEXUS_RELATION_TYPES} (E10 §5a). */
-    type: text('type', { enum: NEXUS_RELATION_TYPES }).notNull(),
-    /** Extractor confidence [0.0, 1.0]. */
-    confidence: real('confidence').notNull(),
-    /** Human-readable note explaining why this relation was emitted. */
-    reason: text('reason'),
-    /** Step index within an execution flow (for step_in_process relations). */
-    step: integer('step'),
-    /** ISO-8601 UTC last-indexed instant (canonical TEXT, §4). */
-    indexedAt: text('indexed_at').notNull().default(sql`(datetime('now'))`),
-    /** Plasticity weight in [0.0, 1.0] (T998 Hebbian co-access strengthening). */
-    weight: real('weight').default(0.0),
-    /** ISO-8601 UTC last co-access strengthening instant; NULL until first strengthen. */
-    lastAccessedAt: text('last_accessed_at'),
-    /** Number of co-access strengthening events. */
-    coAccessedCount: integer('co_accessed_count').default(0),
-  },
-  (table) => [
-    index('idx_nexus_relations_project').on(table.projectId),
-    index('idx_nexus_relations_source').on(table.sourceId),
-    index('idx_nexus_relations_target').on(table.targetId),
-    index('idx_nexus_relations_type').on(table.type),
-    index('idx_nexus_relations_project_type').on(table.projectId, table.type),
-    index('idx_nexus_relations_source_type').on(table.sourceId, table.type),
-    index('idx_nexus_relations_target_type').on(table.targetId, table.type),
-    index('idx_nexus_relations_confidence').on(table.confidence),
-    index('idx_nexus_relations_last_accessed').on(table.lastAccessedAt),
-  ],
-);
-
-/**
- * All contract type values for cross-project API extraction.
- *
- * @task T11361 (target shape) · T1065 (original)
- */
-export const NEXUS_CONTRACT_TYPES = ['http', 'grpc', 'topic'] as const;
-
-/** TypeScript type derived from {@link NEXUS_CONTRACT_TYPES}. */
-export type NexusContractType = (typeof NEXUS_CONTRACT_TYPES)[number];
-
-/**
- * `nexus_contracts` — cross-project HTTP/gRPC/topic contract registry. Already
- * domain-prefixed.
- *
- * @task T11361 (target shape) · T1065 (original)
- */
-export const nexusContracts = sqliteTable(
-  'nexus_contracts',
-  {
-    /** Unique contract id. Primary key. */
-    contractId: text('contract_id').primaryKey(),
-    /** Owning project (soft FK → nexus_project_registry.project_id). */
-    projectId: text('project_id').notNull(),
-    /** Contract type from {@link NEXUS_CONTRACT_TYPES} (E10 §5a). */
-    type: text('type', { enum: NEXUS_CONTRACT_TYPES }).notNull(),
-    /** Path or endpoint identifier. */
-    path: text('path').notNull(),
-    /** HTTP/gRPC method; NULL for topics. */
-    method: text('method'),
-    /** Request schema as JSON string (serialized TEXT). */
-    requestSchemaJson: text('request_schema_json').notNull().default('{}'),
-    /** Response schema as JSON string (serialized TEXT). */
-    responseSchemaJson: text('response_schema_json').notNull().default('{}'),
-    /** Source symbol id (soft FK → nexus_nodes.id). */
-    sourceSymbolId: text('source_symbol_id'),
-    /** Route node id (soft FK → nexus_nodes.id). */
-    routeNodeId: text('route_node_id'),
-    /** Extraction confidence [0..1]. */
-    confidence: real('confidence').notNull().default(1.0),
-    /** Human-readable description. */
-    description: text('description'),
-    /** ISO-8601 UTC creation instant (canonical TEXT, §4). */
-    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
-    /** ISO-8601 UTC last-update instant (canonical TEXT, §4). */
-    updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
-  },
-  (table) => [
-    index('idx_nexus_contracts_project').on(table.projectId),
-    index('idx_nexus_contracts_type').on(table.type),
-    index('idx_nexus_contracts_path').on(table.path),
-    index('idx_nexus_contracts_method').on(table.method),
-    index('idx_nexus_contracts_project_type').on(table.projectId, table.type),
-    index('idx_nexus_contracts_source_symbol').on(table.sourceSymbolId),
-    index('idx_nexus_contracts_created').on(table.createdAt),
-  ],
-);
-
-/**
- * `nexus_code_index` — persistent index of code symbols extracted by
- * tree-sitter (one row per symbol per file). Bare `code_index` →
- * `nexus_code_index` under the AC1 idempotent prefixer (the relocated
- * code-intelligence index that lived in `nexus.db` alongside the registry).
- *
- * @task T11361 (target shape) · original `code-index.ts`
- */
-export const nexusCodeIndex = sqliteTable(
-  'nexus_code_index',
-  {
-    /** Stable row identifier (UUID v4). Primary key. */
-    id: text('id').primaryKey(),
-    /** Owning project (soft FK → nexus_project_registry.project_id). */
-    projectId: text('project_id').notNull(),
-    /** Relative file path within the project root. */
-    filePath: text('file_path').notNull(),
-    /** Symbol name as extracted from the AST. */
-    symbolName: text('symbol_name').notNull(),
-    /** Symbol kind from {@link CODE_INDEX_KINDS} (E10 §5b — was bare TEXT). */
-    kind: text('kind', { enum: CODE_INDEX_KINDS }).notNull(),
-    /** Start line in the source file (1-based). */
-    startLine: integer('start_line').notNull(),
-    /** End line in the source file (1-based). */
-    endLine: integer('end_line').notNull(),
-    /** Source language detected from the file extension. */
-    language: text('language').notNull(),
-    /** Whether the symbol has an `export` modifier (E10 §3a — typed boolean). */
-    exported: integer('exported', { mode: 'boolean' }).default(false),
-    /** Parent symbol name for nested declarations; NULL at module scope. */
-    parent: text('parent'),
-    /** Return-type annotation extracted from the declaration. */
-    returnType: text('return_type'),
-    /** First line of the leading JSDoc/docstring comment. */
-    docSummary: text('doc_summary'),
-    /** ISO-8601 UTC last-indexed instant (canonical TEXT, §4). */
-    indexedAt: text('indexed_at').notNull(),
-  },
-  (table) => [
-    index('idx_nexus_code_index_project').on(table.projectId),
-    index('idx_nexus_code_index_file').on(table.filePath),
-    index('idx_nexus_code_index_symbol').on(table.symbolName),
-    index('idx_nexus_code_index_kind').on(table.kind),
-  ],
-);
-
-// ---------------------------------------------------------------------------
 // Global identity / preference layers
 // ---------------------------------------------------------------------------
 
@@ -686,22 +348,6 @@ export type NewNexusAuditLogRow = typeof nexusAuditLog.$inferInsert;
 export type NexusSchemaMetaRow = typeof nexusSchemaMeta.$inferSelect;
 /** Row type for `nexus_schema_meta` INSERT (target shape). */
 export type NewNexusSchemaMetaRow = typeof nexusSchemaMeta.$inferInsert;
-/** Row type for `nexus_nodes` SELECT (target shape). */
-export type NexusNodeRow = typeof nexusNodes.$inferSelect;
-/** Row type for `nexus_nodes` INSERT (target shape). */
-export type NewNexusNodeRow = typeof nexusNodes.$inferInsert;
-/** Row type for `nexus_relations` SELECT (target shape). */
-export type NexusRelationRow = typeof nexusRelations.$inferSelect;
-/** Row type for `nexus_relations` INSERT (target shape). */
-export type NewNexusRelationRow = typeof nexusRelations.$inferInsert;
-/** Row type for `nexus_contracts` SELECT (target shape). */
-export type NexusContractRow = typeof nexusContracts.$inferSelect;
-/** Row type for `nexus_contracts` INSERT (target shape). */
-export type NewNexusContractRow = typeof nexusContracts.$inferInsert;
-/** Row type for `nexus_code_index` SELECT (target shape). */
-export type NexusCodeIndexRow = typeof nexusCodeIndex.$inferSelect;
-/** Row type for `nexus_code_index` INSERT (target shape). */
-export type NewNexusCodeIndexRow = typeof nexusCodeIndex.$inferInsert;
 /** Row type for `nexus_user_profile` SELECT (target shape). */
 export type NexusUserProfileRow = typeof nexusUserProfile.$inferSelect;
 /** Row type for `nexus_user_profile` INSERT (target shape). */

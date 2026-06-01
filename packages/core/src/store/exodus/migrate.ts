@@ -127,11 +127,12 @@ import { getLogger } from '../../logger.js';
 import { getCleoVersion } from '../../scaffold/ensure-config.js';
 import { openDualScopeDb } from '../dual-scope-db.js';
 import { openCleoDbSnapshot } from '../open-cleo-db.js';
-import { resolveConsolidatedTableName } from './table-name-map.js';
+import { resolveConsolidatedTableName, resolveTableTargetScope } from './table-name-map.js';
 import type {
   ExodusJournal,
   ExodusMigrateResult,
   ExodusPlan,
+  ExodusScope,
   JournalTableEntry,
   LegacyDbDescriptor,
   TableCopyResult,
@@ -743,12 +744,20 @@ function buildEpochToIsoExpr(srcRef: string): string {
  *
  * @param db          - Target DB with the consolidated schema.
  * @param tableName   - Physical table name (consolidated, e.g. `conduit_messages`).
+ * @param targetSchema - Schema name the target table lives in (`'main'`, or an
+ *   ATTACH alias for cross-scope routing — ADR-090 nexus graph residency, T11539).
  * @returns Set of column names that require ISO GLOB validation.
  */
-function detectIsoGlobColumns(db: DatabaseSync, tableName: string): Set<string> {
+function detectIsoGlobColumns(
+  db: DatabaseSync,
+  tableName: string,
+  targetSchema = 'main',
+): Set<string> {
   const escapedTable = tableName.replace(/'/g, "''");
   const row = db
-    .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='${escapedTable}'`)
+    .prepare(
+      `SELECT sql FROM "${targetSchema}".sqlite_master WHERE type='table' AND name='${escapedTable}'`,
+    )
     .get() as { sql: string } | null;
 
   if (!row?.sql) return new Set();
@@ -886,11 +895,23 @@ function buildSelectExpr(
  * `ATTACH DATABASE '<path>' AS "<attachAlias>"` on `targetNativeDb`, and
  * `PRAGMA foreign_keys = OFF` has been set so FK ordering doesn't matter.
  *
+ * ## Cross-scope routing (ADR-090 · T11539)
+ *
+ * `targetSchema` defaults to `'main'` (the connection's own consolidated DB). For
+ * the four nexus code-graph tables, which are extracted from the GLOBAL `nexus.db`
+ * source but must land in the PROJECT consolidated `cleo.db`, the caller attaches
+ * the project DB under an alias on the SAME connection and passes that alias as
+ * `targetSchema`. All target-side introspection (`sqlite_master`, `PRAGMA
+ * table_info`) and the `INSERT OR IGNORE` are then schema-qualified to that
+ * attached DB instead of `main`.
+ *
  * @param targetNativeDb   - Writable target handle (mid-transaction, FK OFF).
  * @param srcNativeDb      - Read-only source snapshot (for metadata queries).
  * @param attachAlias      - Alias under which the source is attached.
  * @param legacyTableName  - Physical table name in the legacy source DB.
  * @param sourceName       - `LegacyDbDescriptor.name` (for name resolution).
+ * @param targetSchema     - Schema the consolidated target table lives in
+ *   (`'main'` by default, or an ATTACH alias for cross-scope routing).
  */
 function copyTableFromAttached(
   targetNativeDb: DatabaseSync,
@@ -898,6 +919,7 @@ function copyTableFromAttached(
   attachAlias: string,
   legacyTableName: string,
   sourceName: string,
+  targetSchema = 'main',
 ): CopyTableResult {
   // --- Step 1: Resolve the consolidated target table name (ROOT CAUSE 1) ---
   const resolution = resolveConsolidatedTableName(sourceName, legacyTableName);
@@ -930,21 +952,28 @@ function copyTableFromAttached(
   if (sourceCount === 0) return { rowsCopied: 0, skipped: false };
 
   // --- Step 4: Check the consolidated target table exists ---
+  // Schema-qualified so cross-scope routing (ADR-090 T11539) introspects the
+  // attached project DB, not `main`, for the four nexus graph tables.
   const escapedTarget = targetTableName.replace(/'/g, "''");
   const existsRow = targetNativeDb
-    .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='${escapedTarget}'`)
+    .prepare(
+      `SELECT name FROM "${targetSchema}".sqlite_master WHERE type='table' AND name='${escapedTarget}'`,
+    )
     .get() as { name: string } | null;
 
   if (!existsRow) {
     // Target table absent — log and treat as explicit skip
     const reason = `consolidated target '${targetTableName}' not found (mapped from legacy '${legacyTableName}')`;
-    log.warn({ legacyTableName, targetTableName, sourceName, attachAlias }, `Exodus: ${reason}`);
+    log.warn(
+      { legacyTableName, targetTableName, sourceName, attachAlias, targetSchema },
+      `Exodus: ${reason}`,
+    );
     return { rowsCopied: 0, skipped: true, reason };
   }
 
   // --- Step 5: Compute column intersection (ROOT CAUSE 2 — T11532 + T11533) ---
   const tgtPragma = targetNativeDb
-    .prepare(`PRAGMA table_info("${targetTableName}")`)
+    .prepare(`PRAGMA "${targetSchema}".table_info("${targetTableName}")`)
     .all() as Array<{ name: string; type: string; notnull: number; dflt_value: string | null }>;
 
   // Build a lookup for target columns (type + notNull + dflt_value)
@@ -976,7 +1005,7 @@ function copyTableFromAttached(
   // T11549: the scale (seconds vs ms) is now detected per-row by magnitude heuristic
   // inside buildSelectExpr via buildEpochToIsoExpr — the per-source hint is kept for
   // logging only.
-  const isoGlobCols = detectIsoGlobColumns(targetNativeDb, targetTableName);
+  const isoGlobCols = detectIsoGlobColumns(targetNativeDb, targetTableName, targetSchema);
   const epochUnitHint = epochUnitForSource(sourceName);
 
   // Build a map of source column types for quick lookup in buildSelectExpr.
@@ -1065,8 +1094,10 @@ function copyTableFromAttached(
   // The source alias uses legacyTableName; the target uses consolidatedName.
   // OR IGNORE fires on PK/UNIQUE conflicts (safe for idempotent resume) AND
   // on CHECK constraint violations (dangerous — must detect and report).
+  // `targetSchema` is `main` by default; for cross-scope nexus graph tables
+  // (ADR-090 T11539) it is the ATTACH alias of the project consolidated cleo.db.
   const stmt = targetNativeDb.prepare(
-    `INSERT OR IGNORE INTO main."${targetTableName}" (${colList}) ` +
+    `INSERT OR IGNORE INTO "${targetSchema}"."${targetTableName}" (${colList}) ` +
       `SELECT ${selectList} FROM "${attachAlias}"."${legacyTableName}"`,
   );
   const result = stmt.run();
@@ -1152,7 +1183,7 @@ export async function runExodusMigrate(
   forceCrossVersion = false,
   onProgress?: (msg: string) => void,
 ): Promise<ExodusMigrateResult> {
-  const { sources, stagingDir, diskPreflight } = plan;
+  const { sources, stagingDir, diskPreflight, projectDbPath } = plan;
 
   // AC8: disk pre-flight
   if (!diskPreflight) {
@@ -1255,6 +1286,11 @@ export async function runExodusMigrate(
       allTableResults,
       onProgress,
     );
+    // Cross-scope routing (ADR-090 · T11539): the four nexus graph tables come
+    // from the GLOBAL `nexus.db` source but land in the PROJECT consolidated
+    // cleo.db. Pass the project DB path so the global pass can attach it and
+    // route those tables there. The project pass already committed + the project
+    // handle is idle, so the cross-attach write is the sole writer (WAL-safe).
     await migrateScope(
       'global',
       globalSources,
@@ -1263,6 +1299,7 @@ export async function runExodusMigrate(
       stagingDir,
       allTableResults,
       onProgress,
+      projectDbPath,
     );
 
     // Final journal update
@@ -1326,13 +1363,14 @@ export async function runExodusMigrate(
  *   PRAGMA foreign_keys = ON
  */
 async function migrateScope(
-  scope: string,
+  scope: ExodusScope,
   sources: LegacyDbDescriptor[],
   targetNativeDb: DatabaseSync,
   journal: ExodusJournal,
   stagingDir: string,
   allTableResults: TableCopyResult[],
   onProgress?: (msg: string) => void,
+  crossScopeTargetPath?: string,
 ): Promise<void> {
   if (sources.length === 0) return;
 
@@ -1354,6 +1392,19 @@ async function migrateScope(
       // The finally block below guarantees DETACH runs even on error.
       targetNativeDb.exec(`ATTACH DATABASE '${escapedPath}' AS "${attachAlias}"`);
       onProgress?.(`  [${src.name}] Attached as "${attachAlias}"`);
+
+      // Cross-scope routing (ADR-090 · T11539): the four nexus graph tables are
+      // extracted from the GLOBAL `nexus.db` source but land in PROJECT scope.
+      // When such tables exist for this source, ATTACH the cross-scope target
+      // consolidated `cleo.db` onto THIS connection so their INSERT … SELECT can
+      // schema-qualify the destination without a second connection/transaction.
+      let crossAlias: string | null = null;
+      if (crossScopeTargetPath) {
+        crossAlias = `_xscope_${attachAlias}`;
+        const escapedCrossPath = crossScopeTargetPath.replace(/'/g, "''");
+        targetNativeDb.exec(`ATTACH DATABASE '${escapedCrossPath}' AS "${crossAlias}"`);
+        onProgress?.(`  [${src.name}] Cross-scope target attached as "${crossAlias}"`);
+      }
 
       // Step 2: Open a read-only snapshot for metadata (column info, counts).
       const snap = openCleoDbSnapshot(src.path, { readOnly: true });
@@ -1394,12 +1445,25 @@ async function migrateScope(
               // Step 4: INSERT using the already-attached alias — no per-table ATTACH/DETACH.
               // FK enforcement is OFF (set at scope start), so copy order does not matter.
               // Pass src.name so copyTableFromAttached can resolve the consolidated target name.
+              //
+              // Cross-scope routing (ADR-090 · T11539): if this table's effective
+              // scope differs from the loop scope (the four nexus graph tables),
+              // direct the INSERT at the cross-scope target DB attached above.
+              const effectiveScope = resolveTableTargetScope(src.name, tableName, scope);
+              const targetSchema = effectiveScope !== scope && crossAlias ? crossAlias : 'main';
+              if (effectiveScope !== scope && !crossAlias) {
+                throw new Error(
+                  `Table '${tableName}' from '${src.name}' routes to ${effectiveScope} scope ` +
+                    `but no cross-scope target was attached for the ${scope} pass (ADR-090 T11539)`,
+                );
+              }
               const copyResult = copyTableFromAttached(
                 targetNativeDb,
                 snap.db,
                 attachAlias,
                 tableName,
                 src.name,
+                targetSchema,
               );
               rowsCopied = copyResult.rowsCopied;
               if (copyResult.skipped) {
@@ -1482,6 +1546,19 @@ async function migrateScope(
             { attachAlias, sourceDb: src.name, err: detachErr },
             'DETACH failed — alias will be released on DB close',
           );
+        }
+
+        // Detach the cross-scope target alias (ADR-090 · T11539), if attached.
+        if (crossAlias) {
+          try {
+            targetNativeDb.exec(`DETACH DATABASE "${crossAlias}"`);
+            onProgress?.(`  [${src.name}] Cross-scope target detached "${crossAlias}"`);
+          } catch (detachErr) {
+            log.warn(
+              { crossAlias, sourceDb: src.name, err: detachErr },
+              'Cross-scope DETACH failed — alias will be released on DB close',
+            );
+          }
         }
       }
     } // end for loop over sources

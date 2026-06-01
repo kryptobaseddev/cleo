@@ -48,7 +48,7 @@ import type {
 import { MIGRATION_ENUM_DRIFT_SAMPLE_LIMIT } from '@cleocode/contracts';
 import { getLogger } from '../../logger.js';
 import { openCleoDbSnapshot } from '../open-cleo-db.js';
-import { resolveConsolidatedTableName } from './table-name-map.js';
+import { resolveConsolidatedTableName, resolveTableTargetScope } from './table-name-map.js';
 import type { ExodusScope, LegacyDbDescriptor } from './types.js';
 
 const log = getLogger('verify-migration');
@@ -428,12 +428,14 @@ export function verifyMigration(
       }
 
       const srcSnap = openCleoDbSnapshot(src.path, { readOnly: true });
-      const targetSnap = src.targetScope === 'project' ? projectSnap : globalSnap;
-      const scope: ExodusScope = src.targetScope;
 
       try {
         const sourceTables = listTables(srcSnap.db);
-        const targetTables = new Set(listTables(targetSnap.db));
+        // Pre-compute the table set for each consolidated scope once; the
+        // per-table scope override (ADR-090 nexus graph residency, T11539) means
+        // a single source can verify against BOTH scope DBs.
+        const projectTables = new Set(listTables(projectSnap.db));
+        const globalTables = new Set(listTables(globalSnap.db));
 
         for (const legacyTableName of sourceTables) {
           onProgress?.(`Verifying ${src.name}.${legacyTableName}…`);
@@ -444,6 +446,17 @@ export function verifyMigration(
             continue;
           }
           const targetTableName = resolution.targetName;
+
+          // Per-table scope override (ADR-090 · T11539): the four nexus graph
+          // tables come from the GLOBAL `nexus.db` source but land in PROJECT
+          // scope. Pick the verify target DB by the effective per-table scope.
+          const scope: ExodusScope = resolveTableTargetScope(
+            src.name,
+            legacyTableName,
+            src.targetScope,
+          );
+          const targetSnap = scope === 'project' ? projectSnap : globalSnap;
+          const targetTables = scope === 'project' ? projectTables : globalTables;
 
           // --- Enum/type-drift report (diagnostic, only when target exists) ---
           if (targetTables.has(targetTableName)) {
