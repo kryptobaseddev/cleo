@@ -114,7 +114,7 @@ describe('Test 1: fresh init — all 5 DBs migrate clean', () => {
     }
   });
 
-  it('brain.db (drizzle-brain) — fresh init succeeds, brain_decisions table exists', async () => {
+  it('brain (drizzle-brain) — fresh init succeeds, brain_decisions table exists', async () => {
     const { getBrainDb, resetBrainDbState } = await import('../memory-sqlite.js');
     resetBrainDbState();
 
@@ -125,8 +125,10 @@ describe('Test 1: fresh init — all 5 DBs migrate clean', () => {
       const db = await getBrainDb(projectDir);
       expect(db).toBeTruthy();
 
+      // E6-L2 (T11522): the brain domain consolidated into `cleo.db` via
+      // openDualScopeDb('project') — not a standalone `brain.db`.
       const { openNativeDatabase } = await import('../sqlite.js');
-      const nativeDb = openNativeDatabase(join(projectDir, '.cleo', 'brain.db'));
+      const nativeDb = openNativeDatabase(join(projectDir, '.cleo', 'cleo.db'));
       const row = nativeDb
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='brain_decisions'")
         .get() as { name: string } | undefined;
