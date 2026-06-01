@@ -150,7 +150,7 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
     await import('@cleocode/core/internal');
   _resetGlobalSignaldockDb_TESTING_ONLY();
   await ensureGlobalSignaldockDb();
-  ensureConduitDb(projectRoot);
+  await ensureConduitDb(projectRoot);
 
   const dbPath = join(cleoHome, 'signaldock.db');
 

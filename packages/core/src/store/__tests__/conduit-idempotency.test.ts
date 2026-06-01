@@ -7,7 +7,7 @@
  * ({@link ensureConduitDb}) is idempotent across both open cycles and
  * write replays. The contract:
  *
- *   1. The first call to `ensureConduitDb(projectRoot)` returns
+ *   1. The first call to `await ensureConduitDb(projectRoot)` returns
  *      `action: 'created'`. The second call (after the singleton is
  *      closed to simulate a separate process) returns
  *      `action: 'exists'` — confirming the schema-version sentinel
@@ -34,7 +34,7 @@
  * @adr ADR-013
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -50,6 +50,10 @@ describe('conduit.db idempotency contract (T10314)', () => {
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'cleo-conduit-idempotency-'));
+    // E6-L3: getConduitDbPath now resolves via resolveCleoDir(tempDir), which
+    // needs a `.cleo/` directory present. Create it (cleo.db itself is created by
+    // ensureConduitDb).
+    mkdirSync(join(tempDir, '.cleo'), { recursive: true });
     closeConduitDb();
   });
 
@@ -58,21 +62,21 @@ describe('conduit.db idempotency contract (T10314)', () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('ensureConduitDb returns created on first call and exists on second', () => {
-    const first = ensureConduitDb(tempDir);
+  it('ensureConduitDb returns created on first call and exists on second', async () => {
+    const first = await ensureConduitDb(tempDir);
     expect(first.action).toBe('created');
     expect(first.path).toBe(getConduitDbPath(tempDir));
 
     // Close singleton — simulates a second CLI process.
     closeConduitDb();
 
-    const second = ensureConduitDb(tempDir);
+    const second = await ensureConduitDb(tempDir);
     expect(second.action).toBe('exists');
     expect(second.path).toBe(first.path);
   });
 
-  it('identical agent attach writes do not duplicate rows', () => {
-    ensureConduitDb(tempDir);
+  it('identical agent attach writes do not duplicate rows', async () => {
+    await ensureConduitDb(tempDir);
     const dbFirst = getConduitNativeDb();
     expect(dbFirst).not.toBeNull();
 
@@ -93,7 +97,7 @@ describe('conduit.db idempotency contract (T10314)', () => {
 
     // Simulate a second process — close singleton, reopen.
     closeConduitDb();
-    const reopen = ensureConduitDb(tempDir);
+    const reopen = await ensureConduitDb(tempDir);
     expect(reopen.action).toBe('exists');
 
     const dbSecond = getConduitNativeDb();
@@ -116,8 +120,8 @@ describe('conduit.db idempotency contract (T10314)', () => {
     expect(row.enabled).toBe(1);
   });
 
-  it('schema version sentinel does not double-write on second open', () => {
-    ensureConduitDb(tempDir);
+  it('schema version sentinel does not double-write on second open', async () => {
+    await ensureConduitDb(tempDir);
     const dbFirst = getConduitNativeDb();
     expect(dbFirst).not.toBeNull();
 
@@ -126,7 +130,7 @@ describe('conduit.db idempotency contract (T10314)', () => {
     };
 
     closeConduitDb();
-    ensureConduitDb(tempDir);
+    await ensureConduitDb(tempDir);
 
     const dbSecond = getConduitNativeDb();
     expect(dbSecond).not.toBeNull();
@@ -140,8 +144,8 @@ describe('conduit.db idempotency contract (T10314)', () => {
     expect(metaCountSecond.n).toBe(metaCountFirst.n);
   });
 
-  it('PRAGMAs are stable across opens (WAL + foreign_keys)', () => {
-    ensureConduitDb(tempDir);
+  it('PRAGMAs are stable across opens (WAL + foreign_keys)', async () => {
+    await ensureConduitDb(tempDir);
     const dbFirst = getConduitNativeDb();
     expect(dbFirst).not.toBeNull();
 
@@ -153,7 +157,7 @@ describe('conduit.db idempotency contract (T10314)', () => {
     expect(fkFirst.foreign_keys).toBe(1);
 
     closeConduitDb();
-    ensureConduitDb(tempDir);
+    await ensureConduitDb(tempDir);
     const dbSecond = getConduitNativeDb();
     expect(dbSecond).not.toBeNull();
 

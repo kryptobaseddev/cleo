@@ -33,7 +33,6 @@ import type { BackupManifest, BackupScope } from '@cleocode/contracts';
 import { create as tarCreate } from 'tar';
 import { getCleoHome, getProjectRoot } from '../paths.js';
 import { encryptBundle } from './backup-crypto.js';
-import { getConduitDbPath } from './conduit-sqlite.js';
 import { getGlobalSaltPath } from './global-salt.js';
 import { getNexusDbPath } from './nexus-sqlite.js';
 import { getGlobalSignaldockDbPath } from './signaldock-sqlite.js';
@@ -457,7 +456,14 @@ export async function packBundle(input: PackBundleInput): Promise<PackBundleResu
         }
       }
       // conduit.db
-      const conduitSrc = getConduitDbPath(resolvedProjectRoot);
+      // E6-L3 (T11523): backup-pack reads the legacy on-disk filenames uniformly
+      // (tasks.db / brain.db above use the literal name, NOT the dual-scope
+      // resolver). Keep conduit consistent — read the literal legacy `conduit.db`
+      // rather than `getConduitDbPath()` (which now resolves to the consolidated
+      // `cleo.db` and would duplicate the tasks/brain snapshot + diverge from the
+      // bundle's `databases/conduit.db` staging name). The exodus (T11248) is what
+      // reconciles these on-disk files into `cleo.db`.
+      const conduitSrc = path.join(cleoDir, 'conduit.db');
       const conduitDest = path.join(stagingDir, 'databases', 'conduit.db');
       const conduitSnapped = vacuumIntoStaging(conduitSrc, conduitDest);
       if (conduitSnapped) {

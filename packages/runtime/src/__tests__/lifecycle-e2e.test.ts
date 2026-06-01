@@ -9,7 +9,7 @@
  *
  * @task T249
  * @task T344 — migrated from ensureSignaldockDb(cwd) (project-tier) to
- *               ensureConduitDb(cwd) after T310 moved messaging to conduit.db.
+ *               await ensureConduitDb(cwd) after T310 moved messaging to conduit.db.
  */
 
 import { mkdir, rm } from 'node:fs/promises';
@@ -34,11 +34,12 @@ describe('Agent Lifecycle E2E', () => {
     await rm(tempDir, { recursive: true, force: true }).catch(() => {});
   });
 
-  it('should create conduit.db via ensureConduitDb', async () => {
+  it('should create the conduit domain (consolidated cleo.db) via ensureConduitDb', async () => {
     const { ensureConduitDb } = await import('@cleocode/core/internal');
-    const result = ensureConduitDb(tempDir);
+    const result = await ensureConduitDb(tempDir);
     expect(result.action).toBe('created');
-    expect(result.path).toContain('conduit.db');
+    // E6-L3 (T11523): the conduit domain consolidated into the project cleo.db.
+    expect(result.path).toContain('cleo.db');
 
     // Verify file was written to disk
     const { existsSync } = await import('node:fs');
@@ -49,7 +50,7 @@ describe('Agent Lifecycle E2E', () => {
     const { ensureConduitDb, checkConduitDbHealth, CONDUIT_SCHEMA_VERSION } = await import(
       '@cleocode/core/internal'
     );
-    ensureConduitDb(tempDir);
+    await ensureConduitDb(tempDir);
 
     const health = checkConduitDbHealth(tempDir);
     expect(health.exists).toBe(true);
@@ -66,17 +67,17 @@ describe('Agent Lifecycle E2E', () => {
 
   it('should be idempotent — second call returns exists', async () => {
     const { ensureConduitDb } = await import('@cleocode/core/internal');
-    const first = ensureConduitDb(tempDir);
+    const first = await ensureConduitDb(tempDir);
     expect(first.action).toBe('created');
 
-    const second = ensureConduitDb(tempDir);
+    const second = await ensureConduitDb(tempDir);
     expect(second.action).toBe('exists');
     expect(second.path).toBe(first.path);
   });
 
   it('should register project_agent_refs and query them back', async () => {
     const { ensureConduitDb, getConduitDbPath } = await import('@cleocode/core/internal');
-    ensureConduitDb(tempDir);
+    await ensureConduitDb(tempDir);
 
     // Insert agent refs directly into conduit.db. The `agents` table lives in
     // global-tier signaldock.db (T346); project-tier only stores soft FKs.
@@ -110,7 +111,7 @@ describe('Agent Lifecycle E2E', () => {
 
   it('should store and retrieve messages through conduit.db', async () => {
     const { ensureConduitDb, getConduitDbPath } = await import('@cleocode/core/internal');
-    ensureConduitDb(tempDir);
+    await ensureConduitDb(tempDir);
 
     const { createRequire } = await import('node:module');
     const _require = createRequire(import.meta.url);
@@ -168,7 +169,7 @@ describe('Agent Lifecycle E2E', () => {
     );
 
     // 1. Create DB.
-    const { action, path } = ensureConduitDb(tempDir);
+    const { action, path } = await ensureConduitDb(tempDir);
     expect(action).toBe('created');
     expect(path).toBe(getConduitDbPath(tempDir));
 

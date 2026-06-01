@@ -126,7 +126,7 @@ async function openSignaldockDb(_cwd?: string): Promise<unknown> {
 /** Open the conduit.db for the given project (or current process). */
 async function openConduitDb(cwd?: string): Promise<unknown> {
   const { ensureConduitDb } = await import('./conduit-sqlite.js');
-  ensureConduitDb(resolveOrCwd(cwd));
+  await ensureConduitDb(resolveOrCwd(cwd));
   return getConduitNativeDb();
 }
 

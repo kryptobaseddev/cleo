@@ -389,7 +389,7 @@ async function runMigration(
     getGlobalSignaldockDbPath: () => join(cleoHome, 'signaldock.db'),
   }));
   const { migrateSignaldockToConduit } = await import('../migrate-signaldock-to-conduit.js');
-  return migrateSignaldockToConduit(projectRoot);
+  return await migrateSignaldockToConduit(projectRoot);
 }
 
 // ---------------------------------------------------------------------------
@@ -427,7 +427,7 @@ describe('T310: conduit + signaldock integration', () => {
     const { ensureConduitDb } = await import('../conduit-sqlite.js');
     const { ensureGlobalSignaldockDb } = await import('../signaldock-sqlite.js');
 
-    const conduitResult = ensureConduitDb(projectRoot);
+    const conduitResult = await ensureConduitDb(projectRoot);
     expect(conduitResult.action).toBe('created');
     expect(existsSync(conduitResult.path)).toBe(true);
 
@@ -474,7 +474,7 @@ describe('T310: conduit + signaldock integration', () => {
     const { deriveApiKey } = await import('../api-key-kdf.js');
 
     await ensureGlobalSignaldockDb();
-    ensureConduitDb(projectRoot);
+    await ensureConduitDb(projectRoot);
     closeConduitDb();
 
     const spec = {
@@ -490,7 +490,7 @@ describe('T310: conduit + signaldock integration', () => {
       isActive: true,
     };
 
-    const result = createProjectAgent(projectRoot, spec);
+    const result = await createProjectAgent(projectRoot, spec);
     expect(result.agentId).toBe(spec.agentId);
     expect(result.projectRef).not.toBeNull();
     expect(result.projectRef?.enabled).toBe(1);
@@ -544,7 +544,7 @@ describe('T310: conduit + signaldock integration', () => {
     const { lookupAgent } = await import('../agent-registry-accessor.js');
 
     await ensureGlobalSignaldockDb();
-    ensureConduitDb(projectRoot);
+    await ensureConduitDb(projectRoot);
     closeConduitDb();
 
     // Seed agent X into global only (no project ref)
@@ -583,7 +583,7 @@ describe('T310: conduit + signaldock integration', () => {
     const { listAgentsForProject } = await import('../agent-registry-accessor.js');
 
     await ensureGlobalSignaldockDb();
-    ensureConduitDb(projectRoot);
+    await ensureConduitDb(projectRoot);
     closeConduitDb();
 
     // Seed 3 global agents
@@ -649,13 +649,13 @@ describe('T310: conduit + signaldock integration', () => {
     );
 
     await ensureGlobalSignaldockDb();
-    ensureConduitDb(projectA);
+    await ensureConduitDb(projectA);
     closeConduitDb();
-    ensureConduitDb(projectB);
+    await ensureConduitDb(projectB);
     closeConduitDb();
 
     // Create agent in A
-    createProjectAgent(projectA, {
+    await createProjectAgent(projectA, {
       agentId: 'cross-project-agent',
       displayName: 'Cross Project Agent',
       apiKey: 'sk_test_cross',
@@ -711,13 +711,13 @@ describe('T310: conduit + signaldock integration', () => {
     } = await import('../agent-registry-accessor.js');
 
     await ensureGlobalSignaldockDb();
-    ensureConduitDb(projectA);
+    await ensureConduitDb(projectA);
     closeConduitDb();
-    ensureConduitDb(projectB);
+    await ensureConduitDb(projectB);
     closeConduitDb();
 
     // Create agent in A
-    createProjectAgent(projectA, {
+    await createProjectAgent(projectA, {
       agentId: 'attach-detach-agent',
       displayName: 'Attach Detach Agent',
       apiKey: 'sk_test_ad',

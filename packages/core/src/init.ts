@@ -819,7 +819,7 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
   // signaldock.db, which the CLI startup sequence ensures separately.
   try {
     const { ensureConduitDb } = await import('./store/conduit-sqlite.js');
-    const cdResult = ensureConduitDb(projRoot);
+    const cdResult = await ensureConduitDb(projRoot);
     if (cdResult.action === 'created') {
       created.push('conduit.db');
     }

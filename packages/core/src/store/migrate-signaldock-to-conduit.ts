@@ -27,7 +27,7 @@ import { join } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType, SQLInputValue } from 'node:sqlite';
 import { getLogger } from '../logger.js';
 import { getCleoHome } from '../paths.js';
-import { ensureConduitDb } from './conduit-sqlite.js';
+import { ensureConduitDb, getConduitDbPath } from './conduit-sqlite.js';
 import { getGlobalSalt } from './global-salt.js';
 import { ensureGlobalSignaldockDb } from './signaldock-sqlite.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
@@ -119,7 +119,12 @@ const GLOBAL_IDENTITY_TABLES = [
  */
 export function needsSignaldockToConduitMigration(projectRoot: string): boolean {
   const legacyPath = join(projectRoot, '.cleo', 'signaldock.db');
-  const conduitPath = join(projectRoot, '.cleo', 'conduit.db');
+  // E6-L3 (T11523): the conduit domain consolidated into the project `cleo.db`.
+  // Probe the consolidated DB path (via getConduitDbPath) rather than the literal
+  // legacy `conduit.db` — otherwise this one-shot legacy migration would believe
+  // it is perpetually un-run on any post-consolidation project (`conduit.db` is
+  // never created) and re-fire on every CLI startup.
+  const conduitPath = getConduitDbPath(projectRoot);
   return existsSync(legacyPath) && !existsSync(conduitPath);
 }
 
@@ -251,10 +256,12 @@ function brokenTimestamp(): string {
  * @task T358
  * @epic T310
  */
-export function migrateSignaldockToConduit(projectRoot: string): MigrationResult {
+export async function migrateSignaldockToConduit(projectRoot: string): Promise<MigrationResult> {
   const log = getLogger('migrate-signaldock-to-conduit');
   const legacyPath = join(projectRoot, '.cleo', 'signaldock.db');
-  const conduitPath = join(projectRoot, '.cleo', 'conduit.db');
+  // E6-L3 (T11523): the conduit domain now lives in the consolidated project
+  // `cleo.db`. Report that path as the migration target.
+  const conduitPath = getConduitDbPath(projectRoot);
   const globalSignaldockPath = join(getCleoHome(), 'signaldock.db');
   const bakPath = `${legacyPath}.pre-t310.bak`;
 
@@ -354,7 +361,7 @@ export function migrateSignaldockToConduit(projectRoot: string): MigrationResult
   // -----------------------------------------------------------------------
   let conduit: DatabaseSync | null = null;
   try {
-    const ensureResult = ensureConduitDb(projectRoot);
+    const ensureResult = await ensureConduitDb(projectRoot);
     // Open a direct handle for migration writes (ensureConduitDb returns singleton;
     // we open a fresh handle to avoid interfering with any singleton state).
     conduit = new DatabaseSync(ensureResult.path);

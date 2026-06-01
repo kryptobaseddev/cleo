@@ -516,7 +516,7 @@ export async function runStartupMaintenance(): Promise<void> {
     try {
       const _projectRootForMigration = getProjectRoot();
       if (needsSignaldockToConduitMigration(_projectRootForMigration)) {
-        const migrationResult = migrateSignaldockToConduit(_projectRootForMigration);
+        const migrationResult = await migrateSignaldockToConduit(_projectRootForMigration);
         if (migrationResult.status === 'failed') {
           _startupLog.error(
             { errors: migrationResult.errors, projectRoot: _projectRootForMigration },

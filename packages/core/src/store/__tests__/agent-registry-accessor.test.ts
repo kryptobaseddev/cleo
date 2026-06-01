@@ -86,7 +86,8 @@ function makeTmpEnv(suffix: string): {
   };
 
   const openConduit = (): DatabaseSync => {
-    const db = new DatabaseSync(join(projectRoot, '.cleo', 'conduit.db'));
+    // E6-L3 (T11523): the conduit domain consolidated into the project cleo.db.
+    const db = new DatabaseSync(join(projectRoot, '.cleo', 'cleo.db'));
     db.exec('PRAGMA foreign_keys = ON');
     db.exec('PRAGMA journal_mode = WAL');
     return db;
@@ -110,7 +111,10 @@ async function bootstrapDbs(
   ensureGlobal: () => Promise<void>;
   ensureConduit: () => void;
 }> {
-  vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+  vi.doMock('../../paths.js', () => ({
+    getCleoHome: () => cleoHome,
+    resolveCleoDir: (cwd) => join(cwd ?? projectRoot, '.cleo'),
+  }));
   // Write a deterministic machine-key and global-salt so KDF is testable
   const machineKey = Buffer.alloc(32, 0xab);
   const globalSalt = Buffer.alloc(32, 0xcd);
@@ -124,8 +128,8 @@ async function bootstrapDbs(
     ensureGlobal: async () => {
       await ensureGlobalSignaldockDb();
     },
-    ensureConduit: () => {
-      ensureConduitDb(projectRoot);
+    ensureConduit: async () => {
+      await ensureConduitDb(projectRoot);
       closeConduitDb();
     },
   };
@@ -153,7 +157,10 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('TC-050: lookupAgent returns null for unknown agentId', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => env.cleoHome }));
+    vi.doMock('../../paths.js', () => ({
+      getCleoHome: () => env.cleoHome,
+      resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
+    }));
     const machineKey = Buffer.alloc(32, 0xab);
     const globalSalt = Buffer.alloc(32, 0xcd);
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
@@ -164,7 +171,7 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     const { lookupAgent } = await import('../agent-registry-accessor.js');
 
     await ensureGlobalSignaldockDb();
-    ensureConduitDb(env.projectRoot);
+    await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
     const result = lookupAgent(env.projectRoot, 'nonexistent-agent');
@@ -176,7 +183,10 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('TC-051: lookupAgent returns merged agent when ref exists with enabled=1', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => env.cleoHome }));
+    vi.doMock('../../paths.js', () => ({
+      getCleoHome: () => env.cleoHome,
+      resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
+    }));
     const machineKey = Buffer.alloc(32, 0xab);
     const globalSalt = Buffer.alloc(32, 0xcd);
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
@@ -187,11 +197,11 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     const { createProjectAgent, lookupAgent } = await import('../agent-registry-accessor.js');
 
     await ensureGlobalSignaldockDb();
-    ensureConduitDb(env.projectRoot);
+    await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
     // Create agent (writes global + conduit ref)
-    const created = createProjectAgent(env.projectRoot, BASE_SPEC);
+    const created = await createProjectAgent(env.projectRoot, BASE_SPEC);
     expect(created.agentId).toBe(BASE_SPEC.agentId);
     expect(created.projectRef).not.toBeNull();
     expect(created.projectRef?.enabled).toBe(1);
@@ -210,7 +220,10 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('TC-052: lookupAgent returns null when project_agent_refs row has enabled=0', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => env.cleoHome }));
+    vi.doMock('../../paths.js', () => ({
+      getCleoHome: () => env.cleoHome,
+      resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
+    }));
     const machineKey = Buffer.alloc(32, 0xab);
     const globalSalt = Buffer.alloc(32, 0xcd);
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
@@ -221,10 +234,10 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     const { createProjectAgent, lookupAgent } = await import('../agent-registry-accessor.js');
 
     await ensureGlobalSignaldockDb();
-    ensureConduitDb(env.projectRoot);
+    await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
-    createProjectAgent(env.projectRoot, BASE_SPEC);
+    await createProjectAgent(env.projectRoot, BASE_SPEC);
 
     // Manually set enabled=0 in conduit.db
     const conduitDb = env.openConduit();
@@ -242,7 +255,10 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('TC-053: lookupAgent with includeGlobal=true returns global agent even without project ref', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => env.cleoHome }));
+    vi.doMock('../../paths.js', () => ({
+      getCleoHome: () => env.cleoHome,
+      resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
+    }));
     const machineKey = Buffer.alloc(32, 0xab);
     const globalSalt = Buffer.alloc(32, 0xcd);
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
@@ -253,7 +269,7 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     const { lookupAgent } = await import('../agent-registry-accessor.js');
 
     await ensureGlobalSignaldockDb();
-    ensureConduitDb(env.projectRoot);
+    await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
     // Insert directly into global signaldock.db without touching conduit.db
@@ -288,7 +304,10 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('TC-054: listAgentsForProject returns only project-attached agents by default', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => env.cleoHome }));
+    vi.doMock('../../paths.js', () => ({
+      getCleoHome: () => env.cleoHome,
+      resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
+    }));
     const machineKey = Buffer.alloc(32, 0xab);
     const globalSalt = Buffer.alloc(32, 0xcd);
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
@@ -301,7 +320,7 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     );
 
     await ensureGlobalSignaldockDb();
-    ensureConduitDb(env.projectRoot);
+    await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
     // Insert a global-only agent (no project ref)
@@ -319,7 +338,7 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     globalDb.close();
 
     // Create one project-attached agent
-    createProjectAgent(env.projectRoot, BASE_SPEC);
+    await createProjectAgent(env.projectRoot, BASE_SPEC);
 
     const list = listAgentsForProject(env.projectRoot);
     expect(list).toHaveLength(1);
@@ -332,7 +351,10 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('TC-055: listAgentsForProject with includeGlobal=true returns all global agents', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => env.cleoHome }));
+    vi.doMock('../../paths.js', () => ({
+      getCleoHome: () => env.cleoHome,
+      resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
+    }));
     const machineKey = Buffer.alloc(32, 0xab);
     const globalSalt = Buffer.alloc(32, 0xcd);
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
@@ -345,7 +367,7 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     );
 
     await ensureGlobalSignaldockDb();
-    ensureConduitDb(env.projectRoot);
+    await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
     // Insert a global-only agent
@@ -363,7 +385,7 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     globalDb.close();
 
     // Create one project-attached agent
-    createProjectAgent(env.projectRoot, BASE_SPEC);
+    await createProjectAgent(env.projectRoot, BASE_SPEC);
 
     const list = listAgentsForProject(env.projectRoot, { includeGlobal: true });
 
@@ -386,7 +408,10 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('TC-056: createProjectAgent writes to global signaldock.db AND project_agent_refs', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => env.cleoHome }));
+    vi.doMock('../../paths.js', () => ({
+      getCleoHome: () => env.cleoHome,
+      resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
+    }));
     const machineKey = Buffer.alloc(32, 0xab);
     const globalSalt = Buffer.alloc(32, 0xcd);
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
@@ -397,10 +422,10 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     const { createProjectAgent } = await import('../agent-registry-accessor.js');
 
     await ensureGlobalSignaldockDb();
-    ensureConduitDb(env.projectRoot);
+    await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
-    const result = createProjectAgent(env.projectRoot, BASE_SPEC);
+    const result = await createProjectAgent(env.projectRoot, BASE_SPEC);
 
     // Verify return type
     expect(result.agentId).toBe(BASE_SPEC.agentId);
@@ -434,7 +459,10 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('TC-057: AgentRegistryAccessor.remove() sets project_agent_refs.enabled=0; global row intact', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => env.cleoHome }));
+    vi.doMock('../../paths.js', () => ({
+      getCleoHome: () => env.cleoHome,
+      resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
+    }));
     const machineKey = Buffer.alloc(32, 0xab);
     const globalSalt = Buffer.alloc(32, 0xcd);
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
@@ -447,10 +475,10 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     );
 
     await ensureGlobalSignaldockDb();
-    ensureConduitDb(env.projectRoot);
+    await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
-    createProjectAgent(env.projectRoot, BASE_SPEC);
+    await createProjectAgent(env.projectRoot, BASE_SPEC);
 
     const accessor = new AgentRegistryAccessor(env.projectRoot);
     await accessor.remove(BASE_SPEC.agentId);
@@ -478,7 +506,10 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('TC-058: AgentRegistryAccessor.removeGlobal() deletes row from global signaldock.db', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => env.cleoHome }));
+    vi.doMock('../../paths.js', () => ({
+      getCleoHome: () => env.cleoHome,
+      resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
+    }));
     const machineKey = Buffer.alloc(32, 0xab);
     const globalSalt = Buffer.alloc(32, 0xcd);
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
@@ -491,10 +522,10 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     );
 
     await ensureGlobalSignaldockDb();
-    ensureConduitDb(env.projectRoot);
+    await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
-    createProjectAgent(env.projectRoot, BASE_SPEC);
+    await createProjectAgent(env.projectRoot, BASE_SPEC);
 
     // First detach from project so removeGlobal succeeds without force
     const accessor = new AgentRegistryAccessor(env.projectRoot);
@@ -517,7 +548,10 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('TC-059: AgentRegistryAccessor.markUsed() updates last_used_at in both DBs', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => env.cleoHome }));
+    vi.doMock('../../paths.js', () => ({
+      getCleoHome: () => env.cleoHome,
+      resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
+    }));
     const machineKey = Buffer.alloc(32, 0xab);
     const globalSalt = Buffer.alloc(32, 0xcd);
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
@@ -530,10 +564,10 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     );
 
     await ensureGlobalSignaldockDb();
-    ensureConduitDb(env.projectRoot);
+    await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
-    createProjectAgent(env.projectRoot, BASE_SPEC);
+    await createProjectAgent(env.projectRoot, BASE_SPEC);
 
     const before = Date.now();
 
@@ -570,7 +604,10 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('lookupAgent logs warn and returns null for dangling soft-FK', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => env.cleoHome }));
+    vi.doMock('../../paths.js', () => ({
+      getCleoHome: () => env.cleoHome,
+      resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
+    }));
     const machineKey = Buffer.alloc(32, 0xab);
     const globalSalt = Buffer.alloc(32, 0xcd);
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
@@ -581,7 +618,7 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     const { lookupAgent } = await import('../agent-registry-accessor.js');
 
     await ensureGlobalSignaldockDb();
-    ensureConduitDb(env.projectRoot);
+    await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
     // Insert a project_agent_refs row without a corresponding global agent
@@ -608,7 +645,10 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('createProjectAgent re-enables a previously detached (enabled=0) project ref', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => env.cleoHome }));
+    vi.doMock('../../paths.js', () => ({
+      getCleoHome: () => env.cleoHome,
+      resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
+    }));
     const machineKey = Buffer.alloc(32, 0xab);
     const globalSalt = Buffer.alloc(32, 0xcd);
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
@@ -621,11 +661,11 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     );
 
     await ensureGlobalSignaldockDb();
-    ensureConduitDb(env.projectRoot);
+    await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
     // Create and then detach
-    createProjectAgent(env.projectRoot, BASE_SPEC);
+    await createProjectAgent(env.projectRoot, BASE_SPEC);
     const accessor = new AgentRegistryAccessor(env.projectRoot);
     await accessor.remove(BASE_SPEC.agentId);
 
@@ -634,7 +674,7 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     expect(afterRemove).toBeNull();
 
     // Re-create should re-enable
-    createProjectAgent(env.projectRoot, BASE_SPEC);
+    await createProjectAgent(env.projectRoot, BASE_SPEC);
 
     const afterReCreate = lookupAgent(env.projectRoot, BASE_SPEC.agentId);
     expect(afterReCreate).not.toBeNull();
@@ -654,7 +694,10 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('listAgentsForProject with includeDisabled=true includes enabled=0 rows', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => env.cleoHome }));
+    vi.doMock('../../paths.js', () => ({
+      getCleoHome: () => env.cleoHome,
+      resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
+    }));
     const machineKey = Buffer.alloc(32, 0xab);
     const globalSalt = Buffer.alloc(32, 0xcd);
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
@@ -667,10 +710,10 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     );
 
     await ensureGlobalSignaldockDb();
-    ensureConduitDb(env.projectRoot);
+    await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
-    createProjectAgent(env.projectRoot, BASE_SPEC);
+    await createProjectAgent(env.projectRoot, BASE_SPEC);
 
     // Detach the agent
     const accessor = new AgentRegistryAccessor(env.projectRoot);
@@ -692,7 +735,10 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('AgentRegistryAccessor.list() returns only project-attached agents', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => env.cleoHome }));
+    vi.doMock('../../paths.js', () => ({
+      getCleoHome: () => env.cleoHome,
+      resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
+    }));
     const machineKey = Buffer.alloc(32, 0xab);
     const globalSalt = Buffer.alloc(32, 0xcd);
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
@@ -705,7 +751,7 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     );
 
     await ensureGlobalSignaldockDb();
-    ensureConduitDb(env.projectRoot);
+    await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
     // Add global-only agent
@@ -722,7 +768,7 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
       .run(crypto.randomUUID(), 'global-only-list', 'Global Only List', nowTs, nowTs);
     globalDb.close();
 
-    createProjectAgent(env.projectRoot, BASE_SPEC);
+    await createProjectAgent(env.projectRoot, BASE_SPEC);
 
     const accessor = new AgentRegistryAccessor(env.projectRoot);
     const list = await accessor.list();
@@ -735,7 +781,10 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('AgentRegistryAccessor.listGlobal() returns all global agents', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => env.cleoHome }));
+    vi.doMock('../../paths.js', () => ({
+      getCleoHome: () => env.cleoHome,
+      resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
+    }));
     const machineKey = Buffer.alloc(32, 0xab);
     const globalSalt = Buffer.alloc(32, 0xcd);
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
@@ -748,7 +797,7 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     );
 
     await ensureGlobalSignaldockDb();
-    ensureConduitDb(env.projectRoot);
+    await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
     // Add global-only agent
@@ -765,7 +814,7 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
       .run(crypto.randomUUID(), 'global-only-listg', 'Global Only ListG', nowTs, nowTs);
     globalDb.close();
 
-    createProjectAgent(env.projectRoot, BASE_SPEC);
+    await createProjectAgent(env.projectRoot, BASE_SPEC);
 
     const accessor = new AgentRegistryAccessor(env.projectRoot);
     const list = await accessor.listGlobal();
@@ -779,7 +828,10 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // -------------------------------------------------------------------------
 
   it('AgentRegistryAccessor.removeGlobal() throws when active project ref exists without force', async () => {
-    vi.doMock('../../paths.js', () => ({ getCleoHome: () => env.cleoHome }));
+    vi.doMock('../../paths.js', () => ({
+      getCleoHome: () => env.cleoHome,
+      resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
+    }));
     const machineKey = Buffer.alloc(32, 0xab);
     const globalSalt = Buffer.alloc(32, 0xcd);
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
@@ -792,10 +844,10 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     );
 
     await ensureGlobalSignaldockDb();
-    ensureConduitDb(env.projectRoot);
+    await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
-    createProjectAgent(env.projectRoot, BASE_SPEC);
+    await createProjectAgent(env.projectRoot, BASE_SPEC);
 
     const accessor = new AgentRegistryAccessor(env.projectRoot);
     await expect(accessor.removeGlobal(BASE_SPEC.agentId)).rejects.toThrow(

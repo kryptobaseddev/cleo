@@ -26,13 +26,13 @@ let testDir: string;
 let originalCwd: string;
 
 /** Create a temporary directory with a valid conduit.db for testing. */
-function setupTestDb(): string {
+async function setupTestDb(): Promise<string> {
   const dir = join(
     tmpdir(),
     `local-transport-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   mkdirSync(join(dir, '.cleo'), { recursive: true });
-  ensureConduitDb(dir);
+  await ensureConduitDb(dir);
   return dir;
 }
 
@@ -50,9 +50,9 @@ function testConfig(agentId = 'test-agent') {
 // ============================================================================
 
 describe('LocalTransport', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     originalCwd = process.cwd();
-    testDir = setupTestDb();
+    testDir = await setupTestDb();
     process.chdir(testDir);
   });
 

@@ -36,10 +36,10 @@ let testDir: string;
 let originalCwd: string;
 
 /** Create a temp directory with an initialised conduit.db. */
-function setupTestDb(): string {
+async function setupTestDb(): Promise<string> {
   const dir = join(tmpdir(), `messaging-e2e-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   mkdirSync(join(dir, '.cleo'), { recursive: true });
-  ensureConduitDb(dir);
+  await ensureConduitDb(dir);
   return dir;
 }
 
@@ -70,9 +70,9 @@ function makeCred(agentId: string): AgentCredential {
 // Setup / teardown
 // ============================================================================
 
-beforeEach(() => {
+beforeEach(async () => {
   originalCwd = process.cwd();
-  testDir = setupTestDb();
+  testDir = await setupTestDb();
   process.chdir(testDir);
 });
 
