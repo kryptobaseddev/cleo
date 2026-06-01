@@ -166,7 +166,10 @@ function getDrizzle(): DrizzleFn {
 }
 
 // Also lazy-load DatabaseSync to avoid eager node:sqlite pull.
-type DatabaseSyncCtor = new (path: string, options?: { readOnly?: boolean }) => DatabaseSync;
+type DatabaseSyncCtor = new (
+  path: string,
+  options?: { readOnly?: boolean; allowExtension?: boolean },
+) => DatabaseSync;
 
 let _DatabaseSyncCtor: DatabaseSyncCtor | null = null;
 
@@ -272,8 +275,16 @@ export async function openDualScopeDb(scope: DualScope, cwd?: string): Promise<D
     }
 
     // Open the native SQLite handle.
+    //
+    // `allowExtension: true` permits — but does NOT load — SQLite loadable
+    // extensions. The brain domain (E6-L2 · T11522) loads the `sqlite-vec`
+    // extension on this shared handle for vector similarity search; node:sqlite
+    // requires the flag at construction time (it cannot be toggled afterwards
+    // via `enableLoadExtension`). Enabling the flag is harmless for every other
+    // domain — no extension is loaded automatically, and the cache stays
+    // single-keyed regardless of which domain opens the handle first.
     const DatabaseSyncCtor = getDatabaseSyncCtor();
-    const nativeDb = new DatabaseSyncCtor(dbPath);
+    const nativeDb = new DatabaseSyncCtor(dbPath, { allowExtension: true });
 
     // Apply canonical pragma set (specs/sqlite-pragmas.json SSoT).
     applyPerfPragmas(nativeDb);

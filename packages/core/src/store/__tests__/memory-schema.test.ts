@@ -152,7 +152,7 @@ describe('brain.db schema', () => {
     expect(existsSync(dbPath)).toBe(true);
   });
 
-  it('resetBrainDbState clears singleton and allows reinitialization', async () => {
+  it('resetBrainDbState clears the brain singleton and allows reinitialization', async () => {
     const {
       getBrainDb,
       getBrainNativeDb,
@@ -163,18 +163,25 @@ describe('brain.db schema', () => {
 
     const db1 = await getBrainDb();
     expect(db1).toBeDefined();
-    // Capture the underlying native handle before reset
     const nativeDb1 = getBrainNativeDb();
     expect(nativeDb1).not.toBeNull();
 
+    // E6-L2 (T11522): resetBrainDbState drops the brain singleton refs but does
+    // NOT close the shared dual-scope `cleo.db` handle (co-owned by the tasks
+    // domain). After reset, getBrainDb re-derives a fresh brain drizzle wrapper
+    // bound to the SAME live shared handle — proving the singleton was cleared
+    // (re-init ran) while the shared connection stayed alive.
     resetBrainDbState();
 
     const db2 = await getBrainDb();
     expect(db2).toBeDefined();
+    // A new drizzle wrapper instance was produced (the singleton was cleared).
+    expect(Object.is(db2, db1)).toBe(false);
     const nativeDb2 = getBrainNativeDb();
-    // Use Object.is() to compare — avoids Vitest serializing closed DatabaseSync objects
-    // which throws "database is not open" during pretty-print of assertion diffs.
-    expect(Object.is(nativeDb2, nativeDb1)).toBe(false);
+    expect(nativeDb2).not.toBeNull();
+    // The underlying shared dual-scope handle is the SAME and still open.
+    expect(Object.is(nativeDb2, nativeDb1)).toBe(true);
+    expect(nativeDb2?.isOpen).toBe(true);
   });
 
   it('resetBrainDbState is safe to call multiple times', async () => {

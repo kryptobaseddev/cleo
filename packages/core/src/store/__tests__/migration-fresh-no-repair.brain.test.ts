@@ -147,10 +147,10 @@ describe('brain.db fresh init — zero "Adding missing column" warnings', () => 
 
       // ------------------------------------------------------------------
       // 7. SECONDARY: verify required columns exist via PRAGMA table_info.
-      //    The brain.db lives inside cleoHome/.cleo/ because getCleoDirAbsolute
-      //    with the tempDir cwd returns join(tempDir, '.cleo').
+      //    E6-L2 (T11522): the brain domain now lives inside the consolidated
+      //    `cleo.db` (openDualScopeDb), not a standalone `brain.db`.
       // ------------------------------------------------------------------
-      const dbPath = join(tempDir, '.cleo', 'brain.db');
+      const dbPath = join(tempDir, '.cleo', 'cleo.db');
       const nativeDb = new DatabaseSync(dbPath, { readonly: true });
 
       try {

@@ -206,19 +206,27 @@ export async function ensureSqliteDb(projectRoot: string): Promise<ScaffoldResul
 }
 
 /**
- * Create brain.db if missing.
- * Idempotent: skips if brain.db already exists.
+ * Initialize the brain domain if missing.
+ *
+ * ## E6-L2 (T11522)
+ *
+ * The brain domain now lives inside the consolidated project `cleo.db`
+ * (`getBrainDb` → `openDualScopeDb('project')`), not a standalone `brain.db`.
+ * The idempotency probe therefore targets the consolidated `cleo.db` path so a
+ * second scaffold run correctly reports `skipped` rather than always `created`.
  *
  * @param projectRoot - Absolute path to the project root directory
  * @returns Scaffold result indicating the action taken
  */
 export async function ensureBrainDb(projectRoot: string): Promise<ScaffoldResult> {
-  const cleoDir = resolveScaffoldCleoDir(projectRoot);
-  const dbPath = join(cleoDir, 'brain.db');
+  const { getBrainDbPath, getBrainDb, getBrainNativeDb } = await import(
+    '../store/memory-sqlite.js'
+  );
+  // E6-L2: getBrainDbPath resolves to the consolidated `cleo.db`.
+  const dbPath = getBrainDbPath(projectRoot);
 
   if (existsSync(dbPath)) {
     try {
-      const { getBrainNativeDb } = await import('../store/memory-sqlite.js');
       const nativeDb = getBrainNativeDb();
       if (nativeDb) {
         const { ensureFts5Tables } = await import('../memory/brain-search.js');
@@ -227,11 +235,10 @@ export async function ensureBrainDb(projectRoot: string): Promise<ScaffoldResult
     } catch {
       // Non-fatal
     }
-    return { action: 'skipped', path: dbPath, details: 'brain.db already exists' };
+    return { action: 'skipped', path: dbPath, details: 'brain domain (cleo.db) already exists' };
   }
 
   try {
-    const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
     await getBrainDb(projectRoot);
 
     try {
@@ -244,12 +251,16 @@ export async function ensureBrainDb(projectRoot: string): Promise<ScaffoldResult
       // FTS5 may not be available — non-fatal
     }
 
-    return { action: 'created', path: dbPath, details: 'Brain database initialized with FTS5' };
+    return {
+      action: 'created',
+      path: dbPath,
+      details: 'Brain domain initialized in cleo.db with FTS5',
+    };
   } catch (err) {
     return {
       action: 'skipped',
       path: dbPath,
-      details: `Failed to initialize brain.db: ${err instanceof Error ? err.message : String(err)}`,
+      details: `Failed to initialize brain domain: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
 }

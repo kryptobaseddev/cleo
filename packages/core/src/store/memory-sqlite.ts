@@ -1,43 +1,97 @@
 /**
- * SQLite store for brain.db via drizzle-orm/node-sqlite + node:sqlite (DatabaseSync).
+ * SQLite store for the project-scope BRAIN domain via drizzle-orm/node-sqlite +
+ * node:sqlite (DatabaseSync).
  *
- * Separate database from tasks.db for cognitive infrastructure (decisions,
- * patterns, learnings). Follows the same singleton + WAL + migration pattern
- * as sqlite.ts.
+ * ## E6-L2 — thin-facade migration (T11522)
+ *
+ * `getBrainDb()` is now a thin facade that delegates the database open to
+ * {@link openDualScopeDb}('project', cwd) — the canonical dual-scope chokepoint
+ * introduced by E3/E4 (T11512/T11517) and already adopted by the tasks domain
+ * (E6-L1, T11521). This ensures:
+ *
+ * - Every brain-domain open flows through the single pragma SSoT (ADR-068/069).
+ * - The brain tables now live inside the consolidated project `cleo.db` — NOT a
+ *   separate `brain.db` file — co-existing with `tasks_*` / `conduit_*` / etc.
+ * - DB Open Guard Gate 3 (`scripts/lint-no-direct-db-open.mjs`) stays green: the
+ *   only native open is inside `dual-scope-db.ts`.
+ *
+ * The legacy `drizzle-brain` migrations are still applied to this handle during
+ * the E3→E6 transition (every brain migration is `CREATE TABLE IF NOT EXISTS` /
+ * additive `ALTER TABLE`, so re-applying onto the consolidated `cleo.db` is
+ * idempotent). This creates the legacy runtime-queried physical tables — most
+ * notably `deriver_queue` (unprefixed; the consolidated schema carries the
+ * prefixed `brain_deriver_queue`) — alongside the consolidated `brain_*` tables.
+ * The exodus migration (T11248) renames them; E6-L7/L8 remove the legacy ones.
+ *
+ * ## Post-hoc DDL removal (T11522 acceptance criteria)
+ *
+ * Every `ensureColumns` band-aid (~15) and raw `CREATE TABLE IF NOT EXISTS`
+ * (~8) that previously lived in {@link runBrainMigrations} has been removed. All
+ * of them were redundant safety-nets fully covered by the `drizzle-brain`
+ * migration files (the journal reconciler `probeAndMarkApplied` is robust enough
+ * to detect already-applied DDL — see migration-manager.ts, T632). The ONE table
+ * with no migration anywhere — `brain_task_observations` (T1615, a runtime-only
+ * join cache mapped to `null` by exodus) — was converted to a forward Drizzle
+ * migration under `migrations/drizzle-cleo-project/20260601000002_t11522-brain-task-observations`,
+ * matching the T9179 precedent (ensureColumns → forward migration).
  *
  * @epic T5149
  * @task T5128
+ * @task T11522 - E6-L2: route getBrainDb through openDualScopeDb (SG-DB-SUBSTRATE-V2)
  */
 
-import { mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
 // Type-only import for annotations. The runtime node:sqlite loading is handled
-// by openNativeDatabase() in sqlite-native.ts.
+// by openDualScopeDb() / openNativeDatabase() in their respective leaf modules.
 import type { DatabaseSync } from 'node:sqlite';
-import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
-import { drizzle } from 'drizzle-orm/node-sqlite';
+// Lazy-loaded drizzle factory (see _getDrizzle). drizzle-orm/node-sqlite
+// statically imports node:sqlite, so a top-level value import would pull the
+// native binding at module-load — defeating the lazy-init invariant. The type
+// import is erased at runtime and is safe.
+import type { drizzle as drizzleFn, NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
+// E6-L2 (T11522): dual-scope chokepoint — the brain domain now opens the
+// consolidated project `cleo.db` through here. openDualScopeDb manages the
+// DatabaseSync lifecycle, pragmas, and consolidated migrations. We extract the
+// native handle and re-wrap it with the legacy brain-schema drizzle instance so
+// existing callers (brainSchema.* queries) compile and run without change.
 import { getLogger } from '../logger.js';
-import { resolveCleoDir } from '../paths.js';
+import { openDualScopeDb, resolveDualScopeDbPath } from './dual-scope-db.js';
 import {
   createSafetyBackup,
-  ensureColumns,
   migrateWithRetry,
   reconcileJournal,
   tableExists,
 } from './migration-manager.js';
-import { recoverMalformedBrainDb } from './recover-brain-db.js';
 import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
 import * as brainSchema from './schema/memory-schema.js';
-// Import openNativeDatabase directly from the leaf module (sqlite-native.ts) to
-// avoid any static import from sqlite.ts that could re-enter the circular chain
-// agent-resolver → ... → memory-sqlite → sqlite.ts (T1325/T1331 v3).
-import { openNativeDatabase } from './sqlite-native.js';
 
 const _require = createRequire(import.meta.url);
 
-/** Database file name within .cleo/ directory. */
-const DB_FILENAME = 'brain.db';
+/**
+ * Cached `drizzle` factory from `drizzle-orm/node-sqlite`, loaded on first use.
+ *
+ * Loaded via `createRequire` rather than a top-level import so that importing
+ * `memory-sqlite.ts` does not eagerly pull in `node:sqlite` (which the drizzle
+ * driver statically imports). Memoized after the first call. Mirrors the
+ * `_getDrizzle` lazy pattern in sqlite.ts (T11280/T11521).
+ *
+ * @internal
+ */
+let _drizzle: typeof drizzleFn | null = null;
+
+/**
+ * Returns the `drizzle` factory, loading `drizzle-orm/node-sqlite` on first call.
+ *
+ * @internal
+ * @task T11522
+ */
+function _getDrizzle(): typeof drizzleFn {
+  if (_drizzle === null) {
+    const mod = _require('drizzle-orm/node-sqlite') as { drizzle: typeof drizzleFn };
+    _drizzle = mod.drizzle;
+  }
+  return _drizzle;
+}
 
 /** Schema version for newly created brain databases. Single source of truth. */
 export const BRAIN_SCHEMA_VERSION = '1.0.0';
@@ -52,10 +106,18 @@ let _initPromise: Promise<NodeSQLiteDatabase<typeof brainSchema>> | null = null;
 let _vecLoaded = false;
 
 /**
- * Get the path to the brain.db SQLite database file.
+ * Get the path to the brain-domain SQLite database file.
+ *
+ * ## E6-L2 (T11522)
+ *
+ * After the dual-scope migration, `getBrainDb()` opens the consolidated project
+ * `cleo.db` via {@link openDualScopeDb} — not the legacy standalone `brain.db`.
+ * This function therefore returns the dual-scope `cleo.db` path so that callers
+ * checking for the file `getBrainDb()` created (existence / backup / health
+ * probes) point at the correct file.
  */
 export function getBrainDbPath(cwd?: string): string {
-  return join(resolveCleoDir(cwd), DB_FILENAME);
+  return resolveDualScopeDbPath('project', cwd);
 }
 
 /**
@@ -71,513 +133,162 @@ export function resolveBrainMigrationsFolder(): string {
 }
 
 // tableExists — delegated to migration-manager.ts (T132)
+//
+// E6-L2 (T11522): the legacy `runBrainMigrations` helper that ran the
+// `drizzle-brain` migration folder (with ~15 ensureColumns + ~8 raw CREATE TABLE
+// band-aids). After getBrainDb() routes through openDualScopeDb('project'), the
+// brain domain is served from the consolidated `cleo.db`. See
+// `establishLegacyBrainSchema` below for why the runtime keeps the LEGACY brain
+// table shape during the E3→E6 transition.
 
 /**
- * Run drizzle migrations to create/update brain.db tables.
+ * The set of brain-domain physical tables the T11363 consolidation migration
+ * creates in the project `cleo.db`. Each is dropped + recreated in its LEGACY
+ * runtime shape by {@link establishLegacyBrainSchema} (see that function for the
+ * rationale). `deriver_queue` is included because the legacy `t1145` migration
+ * creates it (unprefixed) and we must clear any prior shape first.
  *
- * Delegates to shared migration-manager.ts for journal reconciliation,
- * retry logic, and safety backups. See T132 for consolidation rationale.
- *
- * @task T5128
- * @task T132 - Unified migration system
+ * @internal
+ * @task T11522
  */
-function runBrainMigrations(
+const CONSOLIDATED_BRAIN_TABLES = [
+  'brain_attention',
+  'brain_backfill_runs',
+  'brain_consolidation_events',
+  'brain_decisions',
+  'brain_deriver_queue',
+  'brain_embeddings',
+  'brain_learnings',
+  'brain_memory_links',
+  'brain_memory_trees',
+  'brain_modulators',
+  'brain_observations',
+  'brain_observations_staging',
+  'brain_page_edges',
+  'brain_page_nodes',
+  'brain_patterns',
+  'brain_plasticity_events',
+  'brain_promotion_log',
+  'brain_retrieval_log',
+  'brain_schema_meta',
+  'brain_session_narrative',
+  'brain_sticky_notes',
+  'brain_sticky_tags',
+  'brain_transcript_events',
+  'brain_usage_log',
+  'brain_weight_history',
+] as const;
+
+/**
+ * Detect whether the brain tables in the open handle carry the CONSOLIDATED
+ * (exodus-target) shape rather than the LEGACY runtime shape.
+ *
+ * The consolidation migration (T11363) types `brain_attention.created_at` as
+ * `text` (ISO-8601, with a GLOB CHECK constraint); the legacy runtime schema
+ * (`memory-schema.ts`) types it as `integer` (epoch-ms, `unixepoch() * 1000`).
+ * The column affinity is therefore a reliable, cheap discriminator.
+ *
+ * @internal
+ * @task T11522
+ */
+function brainTablesAreConsolidatedShape(nativeDb: DatabaseSync): boolean {
+  if (!tableExists(nativeDb, 'brain_attention')) return false;
+  const cols = nativeDb.prepare('PRAGMA table_info(brain_attention)').all() as Array<{
+    name: string;
+    type: string;
+  }>;
+  const createdAt = cols.find((c) => c.name === 'created_at');
+  // Legacy = INTEGER; consolidated target = TEXT. Anything non-INTEGER means we
+  // are looking at the consolidated target shape and must rebuild to legacy.
+  return createdAt !== undefined && createdAt.type.toUpperCase() !== 'INTEGER';
+}
+
+/**
+ * Establish the LEGACY brain-domain schema inside the consolidated project
+ * `cleo.db`, replacing the consolidated (exodus-target) brain tables.
+ *
+ * ## Why (T11522 · E6-L2)
+ *
+ * Routing `getBrainDb()` through {@link openDualScopeDb} runs the T11363
+ * consolidation migration, which creates every `brain_*` table in its
+ * **exodus-target** shape: ISO-8601 `text` timestamps and enum/format `CHECK`
+ * constraints (e.g. `brain_attention.created_at GLOB '[0-9][0-9][0-9][0-9]-…'`,
+ * `brain_page_nodes.node_type IN (…)`). The runtime brain writers and the
+ * `brainSchema` (`memory-schema.ts`) still use the **legacy** shape — epoch-ms
+ * `integer` timestamps and no enum CHECKs — exactly as the tasks domain keeps
+ * using the legacy `tasks` table after E6-L1.
+ *
+ * Unlike tasks (legacy `tasks` ≠ consolidated `tasks_tasks`, so both co-exist),
+ * the brain tables were already domain-prefixed, so legacy and consolidated
+ * share the SAME physical names — they cannot co-exist. The runtime must win, so
+ * on first open we drop the consolidated brain tables and run the legacy
+ * `drizzle-brain` migrations to recreate them in the runtime shape. The
+ * consolidated-target cutover (epoch→ISO conversion, CHECK constraints) is the
+ * exodus's job — see T11248 / exodus-on-open T11553, which migrate the standalone
+ * legacy `brain.db` into `cleo.db`.
+ *
+ * Idempotent: after the first rebuild the tables are already legacy-shaped, so
+ * {@link brainTablesAreConsolidatedShape} returns `false` and this is a no-op
+ * (the `drizzle-brain` journal is reconciled, nothing is dropped).
+ *
+ * @internal
+ * @task T11522
+ */
+function establishLegacyBrainSchema(
   nativeDb: DatabaseSync,
   db: NodeSQLiteDatabase<typeof brainSchema>,
 ): void {
-  const migrationsFolder = resolveBrainMigrationsFolder();
+  const log = getLogger('brain-schema');
 
-  // Safety backup before any migration work
+  if (brainTablesAreConsolidatedShape(nativeDb)) {
+    // Drop the consolidated (exodus-target) brain tables so the legacy
+    // `drizzle-brain` migrations can recreate them in the runtime shape.
+    // `brain_embeddings` is a vec0 virtual table once the extension is loaded;
+    // DROP TABLE handles both regular and virtual tables when sqlite-vec is
+    // present. Disable FKs during the drop so cross-table references do not
+    // block the teardown — then RESTORE the prior pragma state (the dual-scope
+    // pragma SSoT enables foreign_keys; leaving it OFF would break the
+    // idempotent-pragma contract, T10314).
+    const fkRow = nativeDb.prepare('PRAGMA foreign_keys').get() as
+      | { foreign_keys?: number }
+      | undefined;
+    const fkWasOn = fkRow?.foreign_keys === 1;
+    nativeDb.exec('PRAGMA foreign_keys=OFF');
+    try {
+      for (const table of CONSOLIDATED_BRAIN_TABLES) {
+        try {
+          nativeDb.exec(`DROP TABLE IF EXISTS \`${table}\``);
+        } catch (err) {
+          log.warn(
+            { table, err },
+            'Failed to drop consolidated brain table during legacy rebuild.',
+          );
+        }
+      }
+    } finally {
+      // Restore the pragma to its pre-drop state (ON under the dual-scope SSoT).
+      nativeDb.exec(`PRAGMA foreign_keys=${fkWasOn ? 'ON' : 'OFF'}`);
+    }
+    log.debug(
+      { count: CONSOLIDATED_BRAIN_TABLES.length },
+      'Dropped consolidated (exodus-target) brain tables — rebuilding in legacy runtime shape.',
+    );
+  }
+
+  // Run the legacy `drizzle-brain` migrations to (re)create the runtime-shaped
+  // brain tables. Their `__drizzle_migrations` journal is shared with the
+  // cleo-project journal in the same `cleo.db`; the hashes are disjoint so the
+  // brain migrations are reconciled/applied independently.
+  const migrationsFolder = resolveBrainMigrationsFolder();
   if (tableExists(nativeDb, 'brain_decisions') && _dbPath) {
     createSafetyBackup(_dbPath);
   }
-
-  // Bootstrap baseline + reconcile stale journal entries
   reconcileJournal(nativeDb, migrationsFolder, 'brain_decisions', 'brain');
-
-  // Run pending migrations with SQLITE_BUSY retry.
-  // Pass nativeDb + existenceTable so migrateWithRetry can auto-reconcile any
-  // partial migration (Scenario 3) that slips through the proactive check above.
   migrateWithRetry(db, migrationsFolder, nativeDb, 'brain_decisions', 'brain');
-
-  // T632 root-cause fix (complete): the migration journal reconciler (Sub-case B)
-  // uses a per-migration DDL probe (probeAndMarkApplied in migration-manager.ts)
-  // instead of wholesale-marking-all-applied. ALTER TABLE ADD COLUMN migrations
-  // (T417 agent, T528 graph schema, T531 quality-score, T549 tiered-memory, etc.)
-  // now run correctly when their columns are missing — the reconciler leaves them
-  // unjournaled so Drizzle's migrate() runs the DDL.
-  //
-  // The ensureColumns band-aids for T528/T531/T549 were removed here as part of
-  // T632 because all their columns are covered by Drizzle migration files. If a
-  // schema regression recurs, debug probeAndMarkApplied in migration-manager.ts —
-  // do NOT add new band-aids here.
-  //
-  // ensureColumns below are retained ONLY for columns that have NO corresponding
-  // Drizzle migration file (self-healing DDL only — see each comment).
-
-  // T626-M1: Normalize co_retrieved edge type — idempotent safety-net UPDATE.
-  // The shipped Hebbian strengthener emitted edge_type = 'relates_to' instead of
-  // 'co_retrieved'. Relabel only rows from the consolidation provenance so no
-  // semantic edges are affected. The Drizzle migration file does the same UPDATE;
-  // this guard handles installs where the journal reconciler already marked
-  // the migration applied before the SQL ran.
-  //
-  // T759: Guard provenance column existence before UPDATE. If T528 migration has
-  // not yet run (e.g. on a fresh install where only the initial migration is
-  // present), brain_page_edges will not have a provenance column and the UPDATE
-  // will throw "no such column: provenance". ensureColumns adds the column if
-  // missing so the UPDATE is always safe to execute.
-  if (tableExists(nativeDb, 'brain_page_edges')) {
-    ensureColumns(nativeDb, 'brain_page_edges', [{ name: 'provenance', ddl: 'text' }], 'brain');
-    nativeDb
-      .prepare(
-        `UPDATE brain_page_edges
-         SET edge_type = 'co_retrieved'
-         WHERE edge_type = 'relates_to'
-           AND provenance LIKE 'consolidation:%'`,
-      )
-      .run();
-  }
-
-  // T673-M1: STDP plasticity columns on brain_retrieval_log.
-  // session_id was declared in the Drizzle schema but never applied to the live table.
-  // reward_signal, retrieval_order, delta_ms are new additions per spec §2.1.1.
-  if (tableExists(nativeDb, 'brain_retrieval_log')) {
-    ensureColumns(
-      nativeDb,
-      'brain_retrieval_log',
-      [
-        { name: 'session_id', ddl: 'text' },
-        { name: 'reward_signal', ddl: 'real' },
-        { name: 'retrieval_order', ddl: 'integer' },
-        { name: 'delta_ms', ddl: 'integer' },
-      ],
-      'brain',
-    );
-  }
-
-  // T673-M2: observability columns on brain_plasticity_events
-  // session_id is declared in Drizzle schema and included in M2 CREATE TABLE IF NOT EXISTS,
-  // but may be missing from installs where the table was created before M2.
-  if (tableExists(nativeDb, 'brain_plasticity_events')) {
-    ensureColumns(
-      nativeDb,
-      'brain_plasticity_events',
-      [
-        { name: 'session_id', ddl: 'text' },
-        { name: 'weight_before', ddl: 'real' },
-        { name: 'weight_after', ddl: 'real' },
-        { name: 'retrieval_log_id', ddl: 'integer' },
-        { name: 'reward_signal', ddl: 'real' },
-        { name: 'delta_t_ms', ddl: 'integer' },
-      ],
-      'brain',
-    );
-  }
-
-  // T673-M3: plasticity tracking columns on brain_page_edges
-  ensureColumns(
-    nativeDb,
-    'brain_page_edges',
-    [
-      { name: 'last_reinforced_at', ddl: 'text' },
-      { name: 'reinforcement_count', ddl: 'integer NOT NULL DEFAULT 0' },
-      { name: 'plasticity_class', ddl: "text NOT NULL DEFAULT 'static'" },
-      { name: 'last_depressed_at', ddl: 'text' },
-      { name: 'depression_count', ddl: 'integer NOT NULL DEFAULT 0' },
-      { name: 'stability_score', ddl: 'real' },
-    ],
-    'brain',
-  );
-
-  // T673-M3: seed co_retrieved edges as hebbian (idempotent)
-  if (tableExists(nativeDb, 'brain_page_edges')) {
-    nativeDb
-      .prepare(
-        `UPDATE brain_page_edges SET plasticity_class = 'hebbian'
-         WHERE edge_type = 'co_retrieved' AND plasticity_class = 'static'`,
-      )
-      .run();
-  }
-
-  // T673-M4: new plasticity infrastructure tables — self-healing CREATE IF NOT EXISTS.
-  // These guards ensure the tables exist even on installs where the Drizzle migration
-  // journal was already partially applied. All three tables are CREATE IF NOT EXISTS
-  // so re-running is safe.
-  nativeDb.exec(
-    `CREATE TABLE IF NOT EXISTS brain_weight_history (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      edge_from_id TEXT NOT NULL,
-      edge_to_id TEXT NOT NULL,
-      edge_type TEXT NOT NULL,
-      weight_before REAL,
-      weight_after REAL NOT NULL,
-      delta_weight REAL NOT NULL,
-      event_kind TEXT NOT NULL,
-      source_plasticity_event_id INTEGER,
-      retrieval_log_id INTEGER,
-      reward_signal REAL,
-      changed_at TEXT NOT NULL DEFAULT (datetime('now'))
-    )`,
-  );
-  nativeDb.exec(
-    `CREATE INDEX IF NOT EXISTS idx_weight_history_edge
-      ON brain_weight_history (edge_from_id, edge_to_id, edge_type)`,
-  );
-  nativeDb.exec(
-    `CREATE INDEX IF NOT EXISTS idx_weight_history_changed_at
-      ON brain_weight_history (changed_at)`,
-  );
-
-  nativeDb.exec(
-    `CREATE TABLE IF NOT EXISTS brain_modulators (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      modulator_type TEXT NOT NULL,
-      valence REAL NOT NULL,
-      magnitude REAL NOT NULL DEFAULT 1.0,
-      source_event_id TEXT,
-      session_id TEXT,
-      description TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    )`,
-  );
-  nativeDb.exec(
-    `CREATE INDEX IF NOT EXISTS idx_modulators_session
-      ON brain_modulators (session_id)`,
-  );
-
-  nativeDb.exec(
-    `CREATE TABLE IF NOT EXISTS brain_consolidation_events (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      trigger TEXT NOT NULL,
-      session_id TEXT,
-      step_results_json TEXT NOT NULL,
-      duration_ms INTEGER,
-      succeeded INTEGER NOT NULL DEFAULT 1,
-      started_at TEXT NOT NULL DEFAULT (datetime('now'))
-    )`,
-  );
-  nativeDb.exec(
-    `CREATE INDEX IF NOT EXISTS idx_consolidation_events_started_at
-      ON brain_consolidation_events (started_at)`,
-  );
-
-  // T1002: brain_transcript_events — full-fidelity Claude session block store.
-  // CREATE IF NOT EXISTS so re-runs on existing databases are safe.
-  nativeDb.exec(
-    `CREATE TABLE IF NOT EXISTS brain_transcript_events (
-      id TEXT PRIMARY KEY,
-      session_id TEXT NOT NULL,
-      seq INTEGER NOT NULL,
-      role TEXT NOT NULL,
-      block_type TEXT NOT NULL,
-      content TEXT NOT NULL,
-      tokens INTEGER,
-      redacted_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    )`,
-  );
-  nativeDb.exec(
-    `CREATE UNIQUE INDEX IF NOT EXISTS idx_transcript_events_session_seq
-      ON brain_transcript_events (session_id, seq)`,
-  );
-  nativeDb.exec(
-    `CREATE INDEX IF NOT EXISTS idx_transcript_events_session
-      ON brain_transcript_events (session_id)`,
-  );
-  nativeDb.exec(
-    `CREATE INDEX IF NOT EXISTS idx_transcript_events_role
-      ON brain_transcript_events (role)`,
-  );
-  nativeDb.exec(
-    `CREATE INDEX IF NOT EXISTS idx_transcript_events_block_type
-      ON brain_transcript_events (block_type)`,
-  );
-
-  // T1001: stability_score column on brain_observations (distinct from brain_page_edges.stability_score).
-  // Added via ensureColumns — idempotent, safe on existing databases.
-  ensureColumns(
-    nativeDb,
-    'brain_observations',
-    [{ name: 'stability_score', ddl: 'real DEFAULT 0.5' }],
-    'brain',
-  );
-
-  // T1084: PSYCHE Wave 2 — peer_id + peer_scope on all four brain memory tables.
-  // Drizzle migration 20260423000001_t1084-peer-id-memory-isolation handles fresh installs.
-  // ensureColumns here is the safety-net for installs where the migration journal was
-  // already partially applied or the journal reconciler skips DDL-only migrations.
-  // Both columns are NOT NULL with a DEFAULT so the ALTER is safe on non-empty tables.
-  const peerColumns = [
-    { name: 'peer_id', ddl: "text NOT NULL DEFAULT 'global'" },
-    { name: 'peer_scope', ddl: "text NOT NULL DEFAULT 'project'" },
-  ];
-  ensureColumns(nativeDb, 'brain_decisions', peerColumns, 'brain');
-  ensureColumns(nativeDb, 'brain_patterns', peerColumns, 'brain');
-  ensureColumns(nativeDb, 'brain_learnings', peerColumns, 'brain');
-  ensureColumns(nativeDb, 'brain_observations', peerColumns, 'brain');
-  // Companion indexes — idempotent CREATE INDEX IF NOT EXISTS.
-  for (const [table, idxName] of [
-    ['brain_decisions', 'idx_brain_decisions_peer_scope'],
-    ['brain_patterns', 'idx_brain_patterns_peer_scope'],
-    ['brain_learnings', 'idx_brain_learnings_peer_scope'],
-    ['brain_observations', 'idx_brain_observations_peer_scope'],
-  ] as const) {
-    nativeDb.exec(`CREATE INDEX IF NOT EXISTS ${idxName} ON ${table} (peer_id, peer_scope)`);
-  }
-
-  // T1260: PSYCHE E3 — provenance_class on all four brain memory tables (M6 refusal gate).
-  // Drizzle migration 20260424000001_t1260-provenance-class handles fresh installs.
-  // ensureColumns here is the safety-net for installs where the journal reconciler
-  // already marked prior migrations applied before this column was added, or where
-  // the test runner uses a module-cached DB from before the migration ran.
-  const provenanceColumn = [{ name: 'provenance_class', ddl: "text DEFAULT 'swept-clean'" }];
-  ensureColumns(nativeDb, 'brain_decisions', provenanceColumn, 'brain');
-  ensureColumns(nativeDb, 'brain_patterns', provenanceColumn, 'brain');
-  ensureColumns(nativeDb, 'brain_learnings', provenanceColumn, 'brain');
-  ensureColumns(nativeDb, 'brain_observations', provenanceColumn, 'brain');
-
-  // T1826: Decision Storage Consolidation — ADR tracking + governance columns.
-  // Drizzle migration 20260504000001_t1826-decisions-v2 handles fresh installs, BUT
-  // node:sqlite's prepare() only executes the first SQL statement when multiple
-  // statements are joined without "--> statement-breakpoint" separators. The migration
-  // file has 7+ ALTER TABLE statements with no breakpoints, so only adr_number gets
-  // applied by Drizzle. ensureColumns here is the safety-net that guarantees all 7
-  // new columns exist, matching the pattern used by T1084, T1260, T1145, etc.
-  ensureColumns(
-    nativeDb,
-    'brain_decisions',
-    [
-      { name: 'adr_number', ddl: 'integer' },
-      { name: 'adr_path', ddl: 'text' },
-      { name: 'supersedes', ddl: 'text' },
-      { name: 'superseded_by', ddl: 'text' },
-      { name: 'confirmation_state', ddl: "text NOT NULL DEFAULT 'proposed'" },
-      { name: 'decided_by', ddl: "text NOT NULL DEFAULT 'agent'" },
-      { name: 'validator_run_at', ddl: 'integer' },
-    ],
-    'brain',
-  );
-  // T1826: Idempotent companion indexes for the new columns.
-  nativeDb.exec(
-    `CREATE UNIQUE INDEX IF NOT EXISTS idx_brain_decisions_adr_number
-      ON brain_decisions(adr_number)
-      WHERE adr_number IS NOT NULL`,
-  );
-  nativeDb.exec(
-    `CREATE INDEX IF NOT EXISTS idx_brain_decisions_confirmation_state
-      ON brain_decisions(confirmation_state)`,
-  );
-  nativeDb.exec(
-    `CREATE INDEX IF NOT EXISTS idx_brain_decisions_decided_by
-      ON brain_decisions(decided_by)`,
-  );
-
-  // T1001: brain_promotion_log — typed promotion audit trail.
-  // One row per observation evaluated (and promoted) by promoteObservationsToTyped().
-  nativeDb.exec(
-    `CREATE TABLE IF NOT EXISTS brain_promotion_log (
-      id TEXT PRIMARY KEY,
-      observation_id TEXT NOT NULL,
-      from_tier TEXT NOT NULL,
-      to_tier TEXT NOT NULL,
-      score REAL NOT NULL,
-      decided_at TEXT NOT NULL DEFAULT (datetime('now')),
-      decided_by TEXT NOT NULL DEFAULT 'composite-scorer',
-      rationale_json TEXT,
-      fulfilled_at TEXT,
-      fulfillment_note TEXT
-    )`,
-  );
-  // T1903: migrate existing brain_promotion_log tables to add fulfillment columns (idempotent).
-  try {
-    nativeDb.exec(`ALTER TABLE brain_promotion_log ADD COLUMN fulfilled_at TEXT`);
-  } catch {
-    /* column already exists */
-  }
-  try {
-    nativeDb.exec(`ALTER TABLE brain_promotion_log ADD COLUMN fulfillment_note TEXT`);
-  } catch {
-    /* column already exists */
-  }
-  nativeDb.exec(
-    `CREATE INDEX IF NOT EXISTS idx_promotion_log_observation
-      ON brain_promotion_log (observation_id)`,
-  );
-  nativeDb.exec(
-    `CREATE INDEX IF NOT EXISTS idx_promotion_log_decided_at
-      ON brain_promotion_log (decided_at)`,
-  );
-  nativeDb.exec(
-    `CREATE INDEX IF NOT EXISTS idx_promotion_log_to_tier
-      ON brain_promotion_log (to_tier)`,
-  );
-  nativeDb.exec(
-    `CREATE INDEX IF NOT EXISTS idx_promotion_log_score
-      ON brain_promotion_log (score)`,
-  );
-
-  // T1003: brain_backfill_runs — staged backfill audit log.
-  // CREATE IF NOT EXISTS so re-runs on existing databases are safe.
-  // Staged rows are held in rollback_snapshot_json until approved/rolled-back.
-  nativeDb.exec(
-    `CREATE TABLE IF NOT EXISTS brain_backfill_runs (
-      id TEXT PRIMARY KEY,
-      kind TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'staged',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      approved_at TEXT,
-      rows_affected INTEGER NOT NULL DEFAULT 0,
-      rollback_snapshot_json TEXT,
-      source TEXT NOT NULL DEFAULT 'unknown',
-      target_table TEXT NOT NULL DEFAULT 'brain_observations',
-      approved_by TEXT
-    )`,
-  );
-  nativeDb.exec(
-    `CREATE INDEX IF NOT EXISTS idx_backfill_runs_status
-      ON brain_backfill_runs (status)`,
-  );
-  nativeDb.exec(
-    `CREATE INDEX IF NOT EXISTS idx_backfill_runs_kind
-      ON brain_backfill_runs (kind)`,
-  );
-  nativeDb.exec(
-    `CREATE INDEX IF NOT EXISTS idx_backfill_runs_created_at
-      ON brain_backfill_runs (created_at)`,
-  );
-
-  // T1145: Wave 5 Deriver Queue — deriver lineage + level columns on brain_observations.
-  // Drizzle migration 20260424000003_t1145-extend-brain-observations handles fresh installs.
-  // ensureColumns here is the safety-net for test DBs and existing installs where the
-  // journal reconciler may skip the ALTER TABLE migration.
-  ensureColumns(
-    nativeDb,
-    'brain_observations',
-    [
-      { name: 'source_ids', ddl: 'text' },
-      { name: 'times_derived', ddl: 'integer DEFAULT 1' },
-      { name: 'level', ddl: "text DEFAULT 'explicit'" },
-      { name: 'tree_id', ddl: 'integer' },
-    ],
-    'brain',
-  );
-  nativeDb.exec(
-    `CREATE INDEX IF NOT EXISTS idx_brain_observations_level ON brain_observations (level)`,
-  );
-  nativeDb.exec(
-    `CREATE INDEX IF NOT EXISTS idx_brain_observations_tree_id ON brain_observations (tree_id)`,
-  );
-
-  // T1145: deriver_queue — durable background derivation work queue.
-  // CREATE IF NOT EXISTS so re-runs on existing databases are safe.
-  nativeDb.exec(
-    `CREATE TABLE IF NOT EXISTS deriver_queue (
-      id            TEXT PRIMARY KEY,
-      item_type     TEXT NOT NULL,
-      item_id       TEXT NOT NULL,
-      priority      INTEGER NOT NULL DEFAULT 0,
-      status        TEXT NOT NULL DEFAULT 'pending',
-      claimed_at    TEXT,
-      claimed_by    TEXT,
-      error_msg     TEXT,
-      retry_count   INTEGER NOT NULL DEFAULT 0,
-      created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-      completed_at  TEXT
-    )`,
-  );
-  nativeDb.exec(
-    `CREATE INDEX IF NOT EXISTS idx_deriver_queue_status_priority
-      ON deriver_queue (status, priority DESC, created_at ASC)`,
-  );
-  nativeDb.exec(
-    `CREATE INDEX IF NOT EXISTS idx_deriver_queue_item
-      ON deriver_queue (item_type, item_id)`,
-  );
-  nativeDb.exec(
-    `CREATE INDEX IF NOT EXISTS idx_deriver_queue_claimed_at
-      ON deriver_queue (claimed_at)`,
-  );
-
-  // T1146: brain_memory_trees — hierarchical RPTree clustering (W6 Dreamer Upgrade).
-  // CREATE IF NOT EXISTS so re-runs on existing databases are safe.
-  nativeDb.exec(
-    `CREATE TABLE IF NOT EXISTS brain_memory_trees (
-      id          INTEGER PRIMARY KEY AUTOINCREMENT,
-      depth       INTEGER NOT NULL DEFAULT 0,
-      leaf_ids    TEXT NOT NULL DEFAULT '[]',
-      centroid    TEXT,
-      parent_id   INTEGER REFERENCES brain_memory_trees(id) ON DELETE CASCADE,
-      created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at  TEXT
-    )`,
-  );
-  nativeDb.exec(
-    `CREATE INDEX IF NOT EXISTS idx_brain_trees_parent ON brain_memory_trees (parent_id)`,
-  );
-  nativeDb.exec(`CREATE INDEX IF NOT EXISTS idx_brain_trees_depth ON brain_memory_trees (depth)`);
-
-  // T1615: brain_task_observations — join table linking brain_observations to task IDs.
-  // Enables cleo memory find queries to surface session context for a given task.
-  // CREATE IF NOT EXISTS so re-runs on existing databases are safe.
-  nativeDb.exec(
-    `CREATE TABLE IF NOT EXISTS brain_task_observations (
-      id              INTEGER PRIMARY KEY AUTOINCREMENT,
-      observation_id  TEXT NOT NULL,
-      task_id         TEXT NOT NULL,
-      link_type       TEXT NOT NULL DEFAULT 'session-completed',
-      created_at      TEXT NOT NULL DEFAULT (datetime('now'))
-    )`,
-  );
-  nativeDb.exec(
-    `CREATE UNIQUE INDEX IF NOT EXISTS idx_brain_task_obs_unique
-      ON brain_task_observations (observation_id, task_id)`,
-  );
-  nativeDb.exec(
-    `CREATE INDEX IF NOT EXISTS idx_brain_task_obs_observation
-      ON brain_task_observations (observation_id)`,
-  );
-  nativeDb.exec(
-    `CREATE INDEX IF NOT EXISTS idx_brain_task_obs_task
-      ON brain_task_observations (task_id)`,
-  );
-
-  // T11371: brain_attention — Tier-2 scope-keyed, decaying working-memory buffer
-  // (Epic T11288 · Saga T11283). The Drizzle migration
-  // 20260530000001_t11371-add-attention-table handles fresh installs; this
-  // self-healing CREATE IF NOT EXISTS is the safety-net for installs where the
-  // journal reconciler marked prior migrations applied before this table was
-  // added, or where the test runner uses a module-cached DB from before the
-  // migration ran (mirrors the brain_task_observations / deriver_queue pattern).
-  // `tags` is a JSONB BLOB (E4 jsonb<string[]>() helper) — read in-SQL via
-  // json_each(tags) / json(tags), NEVER JSON.parse off the raw BLOB.
-  nativeDb.exec(
-    `CREATE TABLE IF NOT EXISTS brain_attention (
-      id          TEXT PRIMARY KEY,
-      content     TEXT NOT NULL,
-      session_id  TEXT,
-      agent_id    TEXT,
-      scope_kind  TEXT NOT NULL,
-      scope_id    TEXT NOT NULL,
-      tags        BLOB DEFAULT (jsonb('[]')),
-      created_at  INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
-      expires_at  INTEGER,
-      decay_score REAL,
-      status      TEXT NOT NULL DEFAULT 'open'
-    )`,
-  );
-  nativeDb.exec(
-    `CREATE INDEX IF NOT EXISTS idx_brain_attention_scope
-      ON brain_attention (scope_kind, scope_id)`,
-  );
-  nativeDb.exec(
-    `CREATE INDEX IF NOT EXISTS idx_brain_attention_session
-      ON brain_attention (session_id)`,
-  );
-  nativeDb.exec(
-    `CREATE INDEX IF NOT EXISTS idx_brain_attention_status_expires
-      ON brain_attention (status, expires_at)`,
-  );
+  // The `drizzle-brain` set now includes `brain_task_observations` (T1615) via
+  // the forward migration `20260601000001_t11522-brain-task-observations`, so the
+  // previous post-hoc `CREATE TABLE IF NOT EXISTS` band-aid for it is no longer
+  // needed here (T11522 AC: post-hoc DDL → forward Drizzle migration).
 }
 
 /**
@@ -649,178 +360,119 @@ async function initEmbeddingProvider(cwd?: string): Promise<void> {
 }
 
 /**
- * Run a fast malformation probe against an open native handle.
+ * Initialize the project-scope BRAIN domain SQLite database (lazy, singleton).
  *
- * Uses `PRAGMA quick_check` rather than `integrity_check` — quick_check
- * skips index-sort and out-of-order rowid scans, returning in milliseconds
- * on a healthy DB. A live malformed schema (the T10260/T10265 incident
- * pattern) surfaces here as either a throw from `prepare()` or a non-`ok`
- * return value.
+ * ## E6-L2 façade (T11522)
  *
- * @returns `true` when the DB passes quick_check, `false` otherwise.
- * @task T10303
- * @internal
- */
-function probeBrainDbIntegrity(db: DatabaseSync): boolean {
-  try {
-    const row = db.prepare('PRAGMA quick_check').get() as { quick_check?: string } | undefined;
-    return row?.quick_check === 'ok';
-  } catch {
-    // prepare() threw — schema is malformed (the T10260/T10265 signature).
-    return false;
-  }
-}
-
-/**
- * Detect whether an open-time exception matches the brain.db malformation
- * signature `ERR_SQLITE_ERROR errcode=11` (SQLITE_CORRUPT) — the live
- * failure pattern that triggered Saga T10281.
+ * Delegates the physical DB open to {@link openDualScopeDb}('project', cwd) —
+ * the canonical dual-scope chokepoint. The returned `NodeSQLiteDatabase` wraps
+ * the same `DatabaseSync` handle as the consolidated project `cleo.db` but is
+ * typed against the legacy brain schema (`brainSchema`, physical tables
+ * `brain_decisions`, …) so all existing brain callers compile and run without
+ * change. The legacy `drizzle-brain` migrations are still applied to this handle
+ * during the E3→E6 transition (additive / `IF NOT EXISTS` — idempotent on the
+ * consolidated DB) so the runtime-queried legacy physical tables (notably
+ * `deriver_queue`) co-exist with the consolidated `brain_*` tables.
  *
- * @internal
- */
-function isMalformationError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const code = (err as Error & { code?: string; errcode?: number }).code;
-  const errcode = (err as Error & { errcode?: number }).errcode;
-  if (code === 'ERR_SQLITE_ERROR' && errcode === 11) return true;
-  const msg = err.message ?? '';
-  // Belt-and-suspenders: some node:sqlite versions stringify "malformed
-  // database schema" into the message even when errcode is unset.
-  return /malformed/i.test(msg);
-}
-
-/**
- * Open the brain.db with auto-recovery on malformation.
+ * Brain-specific malformation auto-recovery (T10303 / Saga T10281) previously
+ * ran here against the standalone `brain.db` file. That file no longer backs the
+ * brain domain after this leaf — the brain tables live inside `cleo.db`, whose
+ * malformation recovery is a dual-scope-level concern (the brain-only
+ * quarantine/snapshot-restore pipeline would corrupt the co-resident `tasks_*` /
+ * `conduit_*` domains). The recovery primitive itself (`recoverMalformedBrainDb`)
+ * is retained for `doctor` use; only its wiring into this chokepoint is removed.
  *
- * Synchronous by design — recovery runs on the open-blocking critical path.
- * The alternative is silent broken cognition (T10260, T10265).
- *
- * Recovery flow:
- *  1. Try `openNativeDatabase()`. If it throws with the malformation
- *     signature, run recovery and re-attempt once.
- *  2. If the open succeeded, run `PRAGMA quick_check`. If it fails (schema
- *     malformation that survives the open), close the handle, run recovery,
- *     and re-attempt.
- *
- * @internal
- * @task T10303
- */
-function openBrainDbWithRecovery(dbPath: string, cwd: string | undefined): DatabaseSync {
-  const tryOpen = (): DatabaseSync => openNativeDatabase(dbPath, { allowExtension: true });
-
-  const runRecovery = (): void => {
-    const cleoDir = resolveCleoDir(cwd);
-    recoverMalformedBrainDb({
-      corruptPath: dbPath,
-      snapshotDir: join(cleoDir, 'backups', 'snapshot'),
-      vacuumSnapshotDir: join(cleoDir, 'backups', 'sqlite'),
-      legacyArtifactDir: cleoDir,
-      quarantineRoot: join(cleoDir, 'quarantine'),
-      logger: getLogger('brain-recover'),
-    });
-  };
-
-  let nativeDb: DatabaseSync;
-  try {
-    nativeDb = tryOpen();
-  } catch (err) {
-    if (!isMalformationError(err)) throw err;
-    runRecovery();
-    nativeDb = tryOpen();
-  }
-
-  if (!probeBrainDbIntegrity(nativeDb)) {
-    try {
-      nativeDb.close();
-    } catch {
-      // close errors are non-fatal — handle terminal anyway
-    }
-    runRecovery();
-    nativeDb = tryOpen();
-    // One final check — if recovery couldn't produce a clean DB, we still
-    // return the handle. The downstream migration path will surface the
-    // failure with full context rather than silently degrading.
-  }
-
-  return nativeDb;
-}
-
-/**
- * Initialize the brain.db SQLite database (lazy, singleton).
- * Creates the database file and tables if they don't exist.
- * Returns the drizzle ORM instance (async via sqlite-proxy).
- *
- * Uses a promise guard so concurrent callers wait for the same
- * initialization to complete (migrations are async).
+ * Uses a promise guard so concurrent callers wait for the same initialization to
+ * complete (migrations are async).
  */
 export async function getBrainDb(cwd?: string): Promise<NodeSQLiteDatabase<typeof brainSchema>> {
   const requestedPath = getBrainDbPath(cwd);
 
-  // T1906: guard against prod-DB writes in test mode
+  // T1906: guard against prod-DB writes in test mode.
   const { assertTestEnv } = await import('./data-accessor.js');
   assertTestEnv(requestedPath);
 
-  // If singleton exists but points to different path, reset it
+  // If singleton exists but points to different path, reset it.
   if (_db && _dbPath !== requestedPath) {
+    resetBrainDbState();
+  }
+
+  // Liveness guard (T11522): the brain domain shares the consolidated cleo.db
+  // handle with the tasks domain. The tasks side may have closed + re-opened the
+  // shared `DatabaseSync` (e.g. its `resetDbState()` / auto-recovery path) while
+  // our brain singleton still references the now-closed handle. Detect a stale
+  // (closed) handle and drop the singleton so we re-derive from the live
+  // openDualScopeDb cache below.
+  if (_db && (_nativeDb === null || !_nativeDb.isOpen)) {
     resetBrainDbState();
   }
 
   if (_db) return _db;
 
-  // If already initializing, wait for the in-flight init
+  // If already initializing, wait for the in-flight init.
   if (_initPromise) return _initPromise;
 
   _initPromise = (async () => {
-    const dbPath = requestedPath;
-    _dbPath = dbPath;
+    // ── Dual-scope chokepoint delegation (T11522 · E6-L2) ─────────────────
+    // openDualScopeDb applies the pragma SSoT, creates the directory, runs the
+    // consolidated cleo-project migrations (which create the `brain_*` tables),
+    // and manages the singleton cache. We extract its native handle so we can
+    // re-wrap it with the legacy brain-schema for caller compatibility.
+    const dualHandle = await openDualScopeDb('project', cwd);
 
-    // Ensure directory exists
-    mkdirSync(dirname(dbPath), { recursive: true });
+    // Extract the underlying DatabaseSync. Drizzle exposes it via `$client`.
+    const nativeDb = (dualHandle.db as { $client?: DatabaseSync }).$client ?? null;
+    if (!nativeDb) {
+      throw new Error(
+        'E6-L2: openDualScopeDb returned a handle without $client — ' +
+          'cannot extract DatabaseSync for legacy brain-schema wrapping.',
+      );
+    }
 
-    // Open file-backed SQLite via node:sqlite with WAL mode.
-    // allowExtension: true enables sqlite-vec extension loading.
-    //
-    // T10303 (Saga T10281 / Epic T10286): wrap the open in malformation
-    // detection + auto-recovery. Catches both `ERR_SQLITE_ERROR errcode=11`
-    // (raised by the open itself or by the post-open quick_check probe)
-    // and silent schema corruption that surfaces during the first prepare()
-    // call. On detection, the corrupt DB is quarantined and the freshest
-    // validated snapshot is restored; we then re-attempt the open ONCE.
-    const nativeDb = openBrainDbWithRecovery(dbPath, cwd);
     _nativeDb = nativeDb;
+    _dbPath = requestedPath;
 
-    // Load sqlite-vec extension for vector similarity search (T5157).
-    // Non-fatal if unavailable — vec0 tables simply won't be created.
+    // Load the sqlite-vec extension for vector similarity search (T5157). The
+    // dual-scope handle is opened with `allowExtension: true`, so loading is
+    // permitted. Non-fatal if unavailable — vec0 tables simply won't be created.
     _vecLoaded = loadBrainVecExtension(nativeDb);
 
-    // Create drizzle ORM wrapper via node-sqlite
-    const db = drizzle({ client: nativeDb, schema: brainSchema });
+    // Wrap the native handle with the legacy brain-schema drizzle instance so
+    // existing callers (brainSchema.* queries) continue to work unchanged.
+    const db = _getDrizzle()({ client: nativeDb, schema: brainSchema });
 
-    // Run drizzle migrations (creates/updates tables)
-    runBrainMigrations(nativeDb, db);
+    // Establish the LEGACY brain-domain schema inside the consolidated cleo.db.
+    // openDualScopeDb created the brain tables in their exodus-TARGET shape
+    // (ISO-8601 timestamps + enum/format CHECK constraints), which the runtime
+    // brain writers (epoch-ms integers, no CHECKs) cannot use. This drops those
+    // and runs the legacy `drizzle-brain` migrations to recreate them in the
+    // runtime shape — plus `brain_task_observations` (no drizzle-brain migration).
+    // Idempotent: a no-op once the tables are already legacy-shaped. The
+    // consolidated-target cutover is the exodus's job (T11248 / T11553). (T11522)
+    establishLegacyBrainSchema(nativeDb, db);
 
-    // Create vec0 virtual table for embeddings if extension is loaded (T5157).
-    // Must run after migrations so the schema is consistent.
+    // Create the vec0 virtual table for embeddings if the extension is loaded
+    // (T5157). Must run after migrations so the schema is consistent.
     if (_vecLoaded) {
       initializeBrainVec(nativeDb);
     }
 
-    // Seed schema version for new databases (no-op if already set)
+    // Seed schema version for new databases (no-op if already set).
     nativeDb
       .prepare(
         `INSERT OR IGNORE INTO brain_schema_meta (key, value) VALUES ('schemaVersion', '${BRAIN_SCHEMA_VERSION}')`,
       )
       .run();
 
-    // Set singleton only after migrations complete
+    // Set singleton only after migrations complete.
     _db = db;
 
-    // Wire the default embedding provider when vec is loaded and embedding is enabled.
-    // Best-effort, async, never blocks DB access. (T539)
+    // Wire the default embedding provider when vec is loaded and embedding is
+    // enabled. Best-effort, async, never blocks DB access. (T539)
     if (_vecLoaded) {
       setImmediate(() => {
         initEmbeddingProvider(cwd).catch(() => {
-          // Non-fatal — embedding will be unavailable until next startup
+          // Non-fatal — embedding will be unavailable until next startup.
         });
       });
     }
@@ -836,40 +488,41 @@ export async function getBrainDb(cwd?: string): Promise<NodeSQLiteDatabase<typeo
 }
 
 /**
- * Close the brain.db database connection and release resources.
+ * Close the brain-domain database connection and release resources.
+ *
+ * ## E6-L2 (T11522)
+ *
+ * The brain domain now SHARES the consolidated project `cleo.db` handle with the
+ * tasks domain (both open it via {@link openDualScopeDb}, same cache key). This
+ * function therefore must NOT close the underlying `DatabaseSync` nor evict the
+ * dual-scope cache — doing so would break in-flight tasks-domain queries with
+ * "database is not open". It only drops the brain-domain singleton references;
+ * the shared handle's lifecycle is owned by `openDualScopeDb` and torn down by a
+ * coordinated reset (`closeAllDatabases` → `closeDb` → `_resetDualScopeDbCache`).
  */
 export function closeBrainDb(): void {
-  if (_nativeDb) {
-    try {
-      if (_nativeDb.isOpen) {
-        _nativeDb.close();
-      }
-    } catch {
-      // Ignore close errors
-    }
-    _nativeDb = null;
-  }
+  // Drop only the brain singleton references. Do NOT close `_nativeDb` — it is
+  // the shared dual-scope handle, possibly still in use by the tasks domain.
+  _nativeDb = null;
   _db = null;
   _dbPath = null;
+  _initPromise = null;
   _vecLoaded = false;
 }
 
 /**
- * Reset brain.db singleton state without saving.
- * Used during tests or when database file is recreated.
+ * Reset brain-domain singleton state without saving.
+ * Used during tests or when the database file is recreated.
  * Safe to call multiple times.
+ *
+ * ## E6-L2 (T11522)
+ *
+ * Drops only the brain-domain singleton references — does NOT close the shared
+ * dual-scope `cleo.db` handle nor evict the dual-scope cache (that handle is
+ * shared with the tasks domain). Mirrors {@link closeBrainDb}.
  */
 export function resetBrainDbState(): void {
-  if (_nativeDb) {
-    try {
-      if (_nativeDb.isOpen) {
-        _nativeDb.close();
-      }
-    } catch {
-      // Ignore close errors
-    }
-    _nativeDb = null;
-  }
+  _nativeDb = null;
   _db = null;
   _dbPath = null;
   _initPromise = null;
