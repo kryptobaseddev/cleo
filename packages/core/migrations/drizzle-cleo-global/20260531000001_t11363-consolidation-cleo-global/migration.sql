@@ -939,6 +939,24 @@ CREATE TABLE `skills_skills` (
 	CHECK ("archived_at" IS NULL OR "archived_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')
 );
 --> statement-breakpoint
+CREATE TABLE `telemetry_events` (
+	`id` text PRIMARY KEY,
+	`anonymous_id` text NOT NULL,
+	`domain` text NOT NULL,
+	`gateway` text NOT NULL,
+	`operation` text NOT NULL,
+	`command` text NOT NULL,
+	`exit_code` integer DEFAULT 0 NOT NULL,
+	`duration_ms` integer NOT NULL,
+	`error_code` text,
+	`timestamp` text DEFAULT (datetime('now')) NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE `telemetry_schema_meta` (
+	`key` text PRIMARY KEY,
+	`value` text NOT NULL
+);
+--> statement-breakpoint
 CREATE INDEX `idx_brain_attention_scope` ON `brain_attention` (`scope_kind`,`scope_id`);--> statement-breakpoint
 CREATE INDEX `idx_brain_attention_session` ON `brain_attention` (`session_id`);--> statement-breakpoint
 CREATE INDEX `idx_brain_attention_status_expires` ON `brain_attention` (`status`,`expires_at`);--> statement-breakpoint
@@ -1142,4 +1160,9 @@ CREATE INDEX `idx_skills_skill_reviews_outcome` ON `skills_skill_reviews` (`outc
 CREATE INDEX `idx_skills_skill_usage_name_observed` ON `skills_skill_usage` (`skill_name`,`observed_at`);--> statement-breakpoint
 CREATE INDEX `idx_skills_skill_usage_kind` ON `skills_skill_usage` (`event_kind`);--> statement-breakpoint
 CREATE INDEX `idx_skills_skills_state` ON `skills_skills` (`lifecycle_state`);--> statement-breakpoint
-CREATE INDEX `idx_skills_skills_source` ON `skills_skills` (`source_type`);
+CREATE INDEX `idx_skills_skills_source` ON `skills_skills` (`source_type`);--> statement-breakpoint
+CREATE INDEX `idx_telemetry_command` ON `telemetry_events` (`command`);--> statement-breakpoint
+CREATE INDEX `idx_telemetry_domain` ON `telemetry_events` (`domain`);--> statement-breakpoint
+CREATE INDEX `idx_telemetry_exit_code` ON `telemetry_events` (`exit_code`);--> statement-breakpoint
+CREATE INDEX `idx_telemetry_timestamp` ON `telemetry_events` (`timestamp`);--> statement-breakpoint
+CREATE INDEX `idx_telemetry_duration` ON `telemetry_events` (`duration_ms`);

@@ -8,8 +8,8 @@
  *
  * The consolidated D1″ lifecycle split collapses the CLEO SQLite fleet into two
  * `cleo.db` files: a PROJECT-scope DB (`tasks_*` / `conduit_*` / `docs_*` /
- * `telemetry_*` / `brain_*`) and a GLOBAL-scope DB (`nexus_*` / `skills_*` /
- * `signaldock_*` / `brain_*`). Two parallel artifacts describe that target shape:
+ * `brain_*`) and a GLOBAL-scope DB (`nexus_*` / `skills_*` / `signaldock_*` /
+ * `telemetry_*` / `brain_*`). Two parallel artifacts describe that target shape:
  *
  *   1. the Drizzle **schema families** under
  *      `packages/core/src/store/schema/cleo-{project,global,shared}/`, and
@@ -37,9 +37,9 @@
  *     `enumValues`, `_at` TEXT → ISO-8601 GLOB) so any drift between schema and
  *     migration fails here.
  *   - **AC3 — typed round-trip.** Inserts representative rows through the typed
- *     Drizzle writers for each domain (project: tasks/conduit/docs/telemetry/
- *     brain; global: nexus/skills/signaldock/brain), reads them back typed, and
- *     asserts equality — proving the migrated physical schema accepts and
+ *     Drizzle writers for each domain (project: tasks/conduit/docs/brain;
+ *     global: nexus/skills/signaldock/telemetry/brain), reads them back typed,
+ *     and asserts equality — proving the migrated physical schema accepts and
  *     returns exactly what the typed schema models.
  *   - **AC4 — ATTACH rejection re-asserted.** Re-proves, consistent with the
  *     spike, that a cross-FILE FK across the two scopes is unenforceable (no
@@ -572,7 +572,7 @@ describe('T11364 AC3 — typed round-trip through the consolidated schema', () =
     globalDb.close();
   });
 
-  it('project: tasks/conduit/docs/telemetry/brain round-trip equal', async () => {
+  it('project: tasks/conduit/docs/brain round-trip equal', async () => {
     const db = drizzle({ client: projectDb });
 
     // tasks domain — root row referenced by intra-domain FKs.
@@ -617,25 +617,6 @@ describe('T11364 AC3 — typed round-trip through the consolidated schema', () =
     expect(att.sha256).toBe('a'.repeat(64));
     expect(att.refCount).toBe(0); // default
 
-    // telemetry domain
-    await db.insert(projectSchema.telemetryEvents).values({
-      id: 'E-rt-1',
-      anonymousId: 'anon-1',
-      domain: 'tasks',
-      gateway: 'query',
-      operation: 'show',
-      command: 'tasks.show',
-      durationMs: 42,
-      timestamp: '2026-05-31T00:00:00Z',
-    });
-    const [evt] = await db
-      .select()
-      .from(projectSchema.telemetryEvents)
-      .where(eq(projectSchema.telemetryEvents.id, 'E-rt-1'));
-    expect(evt.id).toBe('E-rt-1');
-    expect(evt.durationMs).toBe(42);
-    expect(evt.exitCode).toBe(0); // default
-
     // brain domain (mirrored) — enum value 'discovery' satisfies the CHECK.
     await db.insert(projectSchema.brainObservations).values({
       id: 'O-rt-1',
@@ -652,7 +633,7 @@ describe('T11364 AC3 — typed round-trip through the consolidated schema', () =
     expect(obs.verified).toBe(false); // boolean default — proves mode:'boolean' round-trip
   });
 
-  it('global: nexus/skills/signaldock/brain round-trip equal', async () => {
+  it('global: nexus/skills/signaldock/telemetry/brain round-trip equal', async () => {
     const db = drizzle({ client: globalDb });
 
     // nexus domain
@@ -696,6 +677,36 @@ describe('T11364 AC3 — typed round-trip through the consolidated schema', () =
     expect(cap.slug).toBe('code-review');
     expect(cap.name).toBe('Code Review');
     expect(cap.category).toBe('engineering');
+
+    // telemetry domain — machine-wide command telemetry, relocated to GLOBAL
+    // scope by T11540 per ADR-090 §2.3.
+    await db.insert(globalSchema.telemetryEvents).values({
+      id: 'E-rt-1',
+      anonymousId: 'anon-1',
+      domain: 'tasks',
+      gateway: 'query',
+      operation: 'show',
+      command: 'tasks.show',
+      durationMs: 42,
+      timestamp: '2026-05-31T00:00:00Z',
+    });
+    const [evt] = await db
+      .select()
+      .from(globalSchema.telemetryEvents)
+      .where(eq(globalSchema.telemetryEvents.id, 'E-rt-1'));
+    expect(evt.id).toBe('E-rt-1');
+    expect(evt.durationMs).toBe(42);
+    expect(evt.exitCode).toBe(0); // default
+    // telemetry_schema_meta — KV table built from the makeSchemaMetaTable factory.
+    await db
+      .insert(globalSchema.telemetrySchemaMeta)
+      .values({ key: 'schema_version', value: '1.0.0' });
+    const [tMeta] = await db
+      .select()
+      .from(globalSchema.telemetrySchemaMeta)
+      .where(eq(globalSchema.telemetrySchemaMeta.key, 'schema_version'));
+    expect(tMeta.key).toBe('schema_version');
+    expect(tMeta.value).toBe('1.0.0');
 
     // brain domain (mirrored — same module as project scope)
     await db
