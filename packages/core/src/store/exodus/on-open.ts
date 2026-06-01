@@ -32,12 +32,16 @@
  * ## Parity gate + clean abort (AC2)
  *
  * After the copy, `verifyMigration` (T11551) compares row counts + canonical
- * digests + FK integrity + enum drift legacy↔consolidated. If parity FAILS the
- * hook **aborts the cutover**:
- * it deletes the partially-populated consolidated `cleo.db` (and its WAL/SHM
- * sidecars) so the legacy DBs remain the source of truth and the next open
- * re-creates a pristine empty schema. There is no half-migrated `cleo.db` left
- * behind and no silent `INSERT OR IGNORE` row drops.
+ * digests + FK integrity + enum drift legacy↔consolidated. The data-continuity
+ * gate is **row-count parity + zero FK orphans** (hash/enum drift are the
+ * expected normalisation diagnostics — see {@link isDataContinuityOk}). If a
+ * genuine deficit/orphan is detected the hook **aborts the cutover**: it rolls
+ * the half-migrated consolidated tables back to EMPTY (`DELETE FROM` every user
+ * table — see {@link rollbackConsolidatedToEmpty}) so the legacy DBs remain the
+ * source of truth, no half-migrated `cleo.db` is exposed, and there are no silent
+ * `INSERT OR IGNORE` row drops. The file is never unlinked; the chokepoint
+ * re-opens a fresh handle afterwards (the migrate engine closes the handles it
+ * opened, so the rollback re-opens the scope before truncating it).
  *
  * ## Concurrency safety (AC6 · reconcile with T11554 / R13-T11278)
  *
@@ -57,7 +61,7 @@
  * @see packages/core/src/store/dual-scope-db.ts — the open chokepoint that calls this
  */
 
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
 import type { VerifyMigrationResult } from '@cleocode/contracts';
 import { getLogger } from '../../logger.js';
@@ -122,20 +126,99 @@ function consolidatedIsEmpty(nativeDb: DatabaseSync, scope: DualScope): boolean 
 }
 
 /**
- * Delete the consolidated `cleo.db` for the given path together with its WAL and
- * SHM sidecars. Called on parity-failure abort so no half-migrated DB survives.
+ * Roll a half-migrated consolidated `cleo.db` back to EMPTY **in place**, on the
+ * caller's live handle — without closing the handle or deleting the file.
  *
- * The caller MUST have closed/evicted any open handle to `dbPath` first — on
- * POSIX an unlink of an open file is allowed but leaves the inode live; the
- * chokepoint evicts the cache entry before calling this.
+ * Called on a parity-failure abort. `runExodusMigrate` writes into the SAME
+ * cached native handle the chokepoint caller is using (the cache is keyed by
+ * path), so we must NOT close it or unlink the file out from under the caller
+ * (`getBrainDb`/`ensureConduitDb` would then hit "database is not open"). Instead
+ * we `DELETE FROM` every user table inside a single transaction with foreign
+ * keys OFF, restoring the post-migration *empty* schema. The caller then
+ * proceeds with an empty `cleo.db` and the legacy DBs remain the source of
+ * truth — exactly the AC2 "no half-migrated cleo.db" contract, achieved without
+ * destroying the open handle.
+ *
+ * The schema (tables, indexes, drizzle journal) is preserved; only data rows are
+ * removed. Idempotent and best-effort: a failure to clear one table is logged
+ * but does not throw (the next open's emptiness check still sees a populated
+ * base table and could re-attempt, which is acceptable — it will re-abort).
+ *
+ * @param nativeDb - The live consolidated handle to truncate.
+ * @param scope    - Scope label for logging.
  */
-function nukeConsolidatedDb(dbPath: string): void {
-  for (const suffix of ['', '-wal', '-shm']) {
-    const p = `${dbPath}${suffix}`;
+function rollbackConsolidatedToEmpty(nativeDb: DatabaseSync, scope: DualScope): void {
+  let userTables: string[] = [];
+  try {
+    userTables = (
+      nativeDb
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '__drizzle_%'",
+        )
+        .all() as Array<{ name: string }>
+    ).map((r) => r.name);
+  } catch (err) {
+    log.error({ err, scope }, 'exodus-on-open: failed to enumerate tables for rollback');
+    return;
+  }
+
+  try {
+    nativeDb.exec('PRAGMA foreign_keys = OFF');
+    nativeDb.exec('BEGIN');
+    for (const table of userTables) {
+      try {
+        nativeDb.exec(`DELETE FROM "${table}"`);
+      } catch (err) {
+        log.warn({ err, table, scope }, 'exodus-on-open: failed to clear table during rollback');
+      }
+    }
+    nativeDb.exec('COMMIT');
+  } catch (err) {
     try {
-      if (existsSync(p)) rmSync(p, { force: true });
+      nativeDb.exec('ROLLBACK');
+    } catch {
+      // ignore — nothing to roll back
+    }
+    log.error({ err, scope }, 'exodus-on-open: rollback transaction failed');
+  } finally {
+    try {
+      nativeDb.exec('PRAGMA foreign_keys = ON');
+    } catch {
+      // ignore
+    }
+  }
+}
+
+/**
+ * Roll BOTH consolidated scopes back to empty after a failed auto-migration.
+ *
+ * IMPORTANT: `runExodusMigrate` closes the dual-scope handles it opened (and
+ * evicts them from the chokepoint cache) when it finishes — including on
+ * failure. Any `nativeDb` reference captured before the migrate ran is therefore
+ * already CLOSED, so we must NOT operate on it. Instead we re-open each scope
+ * fresh from the chokepoint (a cache-miss → a new live handle on the same
+ * on-disk file, which still holds the half-migrated rows) and truncate THAT.
+ * `_exodusInProgress` is still `true`, so the re-opens do not recurse into the
+ * hook.
+ *
+ * @param scope - The scope being opened (logging context only; both scopes are
+ *   cleared because `runExodusMigrate` populates both).
+ */
+async function rollbackBothScopes(scope: DualScope): Promise<void> {
+  const { openDualScopeDb } = await import('../dual-scope-db.js');
+  for (const s of ['project', 'global'] as const) {
+    try {
+      const handle =
+        s === 'project' ? await openDualScopeDb('project') : await openDualScopeDb('global');
+      const native = (handle.db as { $client?: DatabaseSync }).$client;
+      if (native) {
+        rollbackConsolidatedToEmpty(native, s);
+      }
     } catch (err) {
-      log.warn({ err, path: p }, 'exodus-on-open: failed to remove consolidated DB sidecar');
+      log.warn(
+        { err, scope: s, openingScope: scope },
+        'exodus-on-open: could not roll back scope (best-effort)',
+      );
     }
   }
 }
@@ -199,12 +282,18 @@ export interface ExodusOnOpenResult {
  * function adds only the *when* (lazy trigger) and the *safety envelope*
  * (single-flight + verify-or-rollback).
  *
+ * On a parity-failure abort the migration's writes are rolled back IN PLACE on
+ * the caller's live handle (see {@link rollbackConsolidatedToEmpty}) — the
+ * handle is never closed and the file is never deleted, so the chokepoint caller
+ * (`getBrainDb`/`ensureConduitDb`/…) keeps a valid, empty `cleo.db` and the
+ * legacy DBs remain the source of truth.
+ *
  * @param scope       - The scope being opened (`'project'` | `'global'`).
  * @param dbPath      - Absolute path to the consolidated `cleo.db` for `scope`.
- * @param nativeDb    - The freshly-opened native handle (post-migration).
+ * @param nativeDb    - The freshly-opened native handle (post-migration). This is
+ *                      the SAME cached handle `runExodusMigrate` writes through,
+ *                      so the rollback truncates it in place rather than deleting.
  * @param cwd         - Working directory used to resolve the project root.
- * @param evict       - Callback that closes + evicts the consolidated handle(s)
- *                      from the chokepoint cache before an abort deletes the DB.
  * @returns The {@link ExodusOnOpenResult} describing what happened.
  *
  * @task T11553 (AC1, AC2, AC6)
@@ -216,7 +305,6 @@ export async function maybeRunExodusOnOpen(
   dbPath: string,
   nativeDb: DatabaseSync,
   cwd: string | undefined,
-  evict: () => void,
 ): Promise<ExodusOnOpenResult> {
   // Re-entrancy: the nested opens from runExodusMigrate must never recurse.
   if (_exodusInProgress) {
@@ -234,15 +322,23 @@ export async function maybeRunExodusOnOpen(
 
   // Lazy-load the exodus engine via dynamic import to break the import cycle
   // (exodus/migrate.ts imports openDualScopeDb from dual-scope-db.ts).
-  const { buildExodusPlan, runExodusMigrate, verifyMigration, sourcesPresent } = await import(
-    './index.js'
-  );
+  const { buildExodusPlan, runExodusMigrate, verifyMigration } = await import('./index.js');
 
   const plan = buildExodusPlan(cwd);
 
-  // No legacy sources at all → genuinely fresh install, nothing to migrate.
-  if (!sourcesPresent(plan.sources)) {
-    return { outcome: 'skipped', reason: 'no legacy source DBs present (fresh install)' };
+  // Trigger ONLY on sources that belong to the SCOPE being opened. A
+  // project-scope open must not fire because a GLOBAL legacy DB (e.g.
+  // signaldock.db) happens to exist — that would (a) wrongly migrate global
+  // data on a project read and (b) collide with the legacy signaldock→conduit
+  // migration, which legitimately opens an empty project `cleo.db` while a
+  // global signaldock.db is present. The migration engine still consolidates
+  // BOTH scopes once triggered; this gate only decides WHEN to fire.
+  const scopeSources = plan.sources.filter((s) => s.targetScope === scope);
+  if (!scopeSources.some((s) => existsSync(s.path))) {
+    return {
+      outcome: 'skipped',
+      reason: `no legacy ${scope}-scope source DBs present (fresh install or cross-scope-only)`,
+    };
   }
 
   // Single-flight: serialise the first-open migration across processes so two
@@ -275,10 +371,10 @@ export async function maybeRunExodusOnOpen(
         );
 
         if (!migrateResult.ok) {
-          // Migration itself failed mid-copy — abort the cutover cleanly.
-          evict();
-          nukeConsolidatedDb(plan.projectDbPath);
-          nukeConsolidatedDb(plan.globalDbPath);
+          // Migration itself failed mid-copy — abort the cutover cleanly by
+          // rolling the consolidated tables back to empty IN PLACE (handle stays
+          // open; legacy DBs remain the source of truth).
+          await rollbackBothScopes(scope);
           const reason = `migration failed: ${migrateResult.error ?? 'unknown error'} — legacy DBs kept as source`;
           log.error({ scope, error: migrateResult.error }, `exodus-on-open: ${reason}`);
           return { outcome: 'aborted', reason };
@@ -309,12 +405,11 @@ export async function maybeRunExodusOnOpen(
         }
 
         if (!isDataContinuityOk(verifyResult)) {
-          // DATA LOSS (count deficit or FK orphan) → abort. Delete the
-          // half-migrated cleo.db so legacy remains the source of truth. Never
-          // expose a lossy consolidated DB.
-          evict();
-          nukeConsolidatedDb(plan.projectDbPath);
-          nukeConsolidatedDb(plan.globalDbPath);
+          // DATA LOSS (count deficit or FK orphan) → abort. Roll the half-migrated
+          // consolidated tables back to EMPTY in place so legacy remains the
+          // source of truth. Never expose a lossy consolidated DB; never close the
+          // caller's handle.
+          await rollbackBothScopes(scope);
           const deficits = verifyResult.tables
             .filter((t) => !t.countMatch)
             .map((t) => `${t.targetTable}(${t.sourceCount}→${t.targetCount})`);
@@ -328,7 +423,7 @@ export async function maybeRunExodusOnOpen(
               countDeficits: deficits,
               fkViolations: verifyResult.foreignKeyViolations.length,
             },
-            'exodus-on-open: data-continuity FAILED — consolidated cleo.db removed, legacy kept',
+            'exodus-on-open: data-continuity FAILED — consolidated cleo.db rolled back to empty, legacy kept',
           );
           return { outcome: 'aborted', reason };
         }

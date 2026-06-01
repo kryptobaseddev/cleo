@@ -12,9 +12,11 @@
  * Coverage (maps to T11553 ACs):
  *   - AC1/AC3/AC5: empty cleo.db + populated legacy → auto-exodus → exact row
  *     parity; second open is a no-op (idempotent).
- *   - AC2: a forced parity failure ABORTS cleanly — the half-migrated cleo.db is
- *     removed and legacy DBs are kept intact as the source of truth.
- *   - AC6: re-entrancy guard prevents the nested opens from recursing.
+ *   - AC2: a forced parity failure ABORTS cleanly — the half-migrated tables are
+ *     rolled back to empty IN PLACE (handle stays open) and legacy DBs are kept
+ *     intact as the source of truth.
+ *   - AC6: single-flight lock + re-entrancy guard prevent double / recursive
+ *     migration; a project open never fires on a global-only legacy source.
  *
  * @task T11553 (E6 · exodus-on-open · AC1, AC2, AC3, AC5, AC6)
  * @epic T11249 (E6)
@@ -179,15 +181,7 @@ describe('exodus-on-open data-continuity (T11553)', () => {
     const { maybeRunExodusOnOpen } = await import('../exodus/on-open.js');
 
     // The native handle the hook inspects for emptiness is the open project DB.
-    const result = await maybeRunExodusOnOpen(
-      'project',
-      fx.projectDbPath,
-      projectDb,
-      tmpDir,
-      () => {
-        throw new Error('evict() must NOT be called on a successful migration');
-      },
-    );
+    const result = await maybeRunExodusOnOpen('project', fx.projectDbPath, projectDb, tmpDir);
 
     expect(result.outcome, `unexpected outcome: ${result.reason}`).toBe('migrated');
 
@@ -208,21 +202,11 @@ describe('exodus-on-open data-continuity (T11553)', () => {
 
     const { maybeRunExodusOnOpen } = await import('../exodus/on-open.js');
 
-    const first = await maybeRunExodusOnOpen('project', fx.projectDbPath, projectDb, tmpDir, () => {
-      throw new Error('evict() must not be called on success');
-    });
+    const first = await maybeRunExodusOnOpen('project', fx.projectDbPath, projectDb, tmpDir);
     expect(first.outcome).toBe('migrated');
 
     // Second open: target now populated → fast-path skip, no migration.
-    const second = await maybeRunExodusOnOpen(
-      'project',
-      fx.projectDbPath,
-      projectDb,
-      tmpDir,
-      () => {
-        throw new Error('evict() must not be called on idempotent no-op');
-      },
-    );
+    const second = await maybeRunExodusOnOpen('project', fx.projectDbPath, projectDb, tmpDir);
     expect(second.outcome).toBe('skipped');
     expect(second.reason).toMatch(/already populated/i);
 
@@ -230,7 +214,7 @@ describe('exodus-on-open data-continuity (T11553)', () => {
     expect(countRows(fx.projectDbPath, 'tasks_tasks')).toBe(FIXTURE_EXPECTED_ROWS.tasks_tasks);
   });
 
-  it('AC2: forced parity failure ABORTS cleanly — half-migrated cleo.db removed, legacy intact', async () => {
+  it('AC2: forced parity failure ABORTS cleanly — consolidated rolled back to empty in place, legacy intact, handle still open', async () => {
     const { fx, projectDb, globalDb } = await armFixture(tmpDir);
     openProjectDb = projectDb;
     openGlobalDb = globalDb;
@@ -259,37 +243,23 @@ describe('exodus-on-open data-continuity (T11553)', () => {
       error: 'FORCED count deficit for abort test',
     });
 
-    let evicted = false;
     const { maybeRunExodusOnOpen } = await import('../exodus/on-open.js');
-    const result = await maybeRunExodusOnOpen(
-      'project',
-      fx.projectDbPath,
-      projectDb,
-      tmpDir,
-      () => {
-        evicted = true;
-        // Mirror production: close the open handle so the file can be removed.
-        try {
-          projectDb.close();
-        } catch {
-          /* ignore */
-        }
-        try {
-          globalDb.close();
-        } catch {
-          /* ignore */
-        }
-      },
-    );
+    const result = await maybeRunExodusOnOpen('project', fx.projectDbPath, projectDb, tmpDir);
 
     expect(result.outcome).toBe('aborted');
     expect(result.reason).toMatch(/parity/i);
-    expect(evicted, 'evict() must be invoked on parity-failure abort').toBe(true);
 
-    // The half-migrated consolidated DB must be GONE (clean abort, no partial state).
-    expect(existsSync(fx.projectDbPath), 'consolidated project cleo.db must be removed').toBe(
-      false,
+    // The consolidated DB file is NOT deleted — the handle stays open and valid.
+    // The migration's writes were rolled back IN PLACE so the base table is empty
+    // (no half-migrated rows exposed). The caller's handle must still be usable.
+    expect(existsSync(fx.projectDbPath), 'consolidated project cleo.db file must remain').toBe(
+      true,
     );
+    expect(projectDb.isOpen, 'caller handle must remain OPEN after abort').toBe(true);
+    expect(
+      countRows(fx.projectDbPath, 'tasks_tasks'),
+      'consolidated base table must be empty after rollback',
+    ).toBe(0);
 
     // Legacy DBs remain INTACT as the source of truth.
     expect(existsSync(fx.tasksDbPath), 'legacy tasks.db must be kept').toBe(true);
@@ -306,15 +276,7 @@ describe('exodus-on-open data-continuity (T11553)', () => {
     process.env.CLEO_DISABLE_EXODUS_ON_OPEN = '1';
 
     const { maybeRunExodusOnOpen } = await import('../exodus/on-open.js');
-    const result = await maybeRunExodusOnOpen(
-      'project',
-      fx.projectDbPath,
-      projectDb,
-      tmpDir,
-      () => {
-        throw new Error('evict() must not be called when disabled');
-      },
-    );
+    const result = await maybeRunExodusOnOpen('project', fx.projectDbPath, projectDb, tmpDir);
 
     expect(result.outcome).toBe('skipped');
     expect(result.reason).toMatch(/CLEO_DISABLE_EXODUS_ON_OPEN/);
@@ -337,18 +299,37 @@ describe('exodus-on-open data-continuity (T11553)', () => {
     });
 
     const { maybeRunExodusOnOpen } = await import('../exodus/on-open.js');
-    const result = await maybeRunExodusOnOpen(
-      'project',
-      fx.projectDbPath,
-      projectDb,
-      tmpDir,
-      () => {
-        throw new Error('evict() must not be called on fresh install');
-      },
-    );
+    const result = await maybeRunExodusOnOpen('project', fx.projectDbPath, projectDb, tmpDir);
 
     expect(result.outcome).toBe('skipped');
-    expect(result.reason).toMatch(/no legacy source/i);
+    expect(result.reason).toMatch(/no legacy project-scope source/i);
+  });
+
+  it('skips a PROJECT open when only a GLOBAL legacy DB exists (no cross-scope trigger)', async () => {
+    const { fx, projectDb, globalDb, plan } = await armFixture(tmpDir);
+    openProjectDb = projectDb;
+    openGlobalDb = globalDb;
+
+    // Simulate the signaldock→conduit migration scenario: a GLOBAL-scope legacy
+    // source exists, but NO project-scope source. A project open must NOT fire.
+    const exodusIndex = await import('../exodus/index.js');
+    vi.mocked(exodusIndex.buildExodusPlan).mockReturnValue({
+      ...plan,
+      sources: [
+        // global source present (e.g. signaldock.db) — points at a real file
+        { name: 'signaldock', path: fx.brainDbPath, targetScope: 'global' },
+        // project source ABSENT
+        { name: 'tasks', path: join(tmpDir, 'no-tasks.db'), targetScope: 'project' },
+      ],
+    });
+
+    const { maybeRunExodusOnOpen } = await import('../exodus/on-open.js');
+    const result = await maybeRunExodusOnOpen('project', fx.projectDbPath, projectDb, tmpDir);
+
+    expect(result.outcome).toBe('skipped');
+    expect(result.reason).toMatch(/cross-scope-only/i);
+    // Project consolidated DB untouched.
+    expect(countRows(fx.projectDbPath, 'tasks_tasks')).toBe(0);
   });
 
   it('AC6: single-flight — a held lock makes the loser skip without re-migrating', async () => {
@@ -359,15 +340,7 @@ describe('exodus-on-open data-continuity (T11553)', () => {
     const { maybeRunExodusOnOpen } = await import('../exodus/on-open.js');
 
     // Winner: a normal first-open migrates and populates the consolidated DB.
-    const winner = await maybeRunExodusOnOpen(
-      'project',
-      fx.projectDbPath,
-      projectDb,
-      tmpDir,
-      () => {
-        throw new Error('evict() must not be called on winner success');
-      },
-    );
+    const winner = await maybeRunExodusOnOpen('project', fx.projectDbPath, projectDb, tmpDir);
     expect(winner.outcome).toBe('migrated');
 
     // Loser: a SUBSEQUENT first-open — even if it had raced the winner — observes
@@ -381,15 +354,7 @@ describe('exodus-on-open data-continuity (T11553)', () => {
     // must wait for the lock, re-check emptiness, and skip.
     let loserOutcome = '';
     await withLock(lockPath, async () => {
-      const loser = await maybeRunExodusOnOpen(
-        'project',
-        fx.projectDbPath,
-        projectDb,
-        tmpDir,
-        () => {
-          throw new Error('evict() must not be called on loser skip');
-        },
-      );
+      const loser = await maybeRunExodusOnOpen('project', fx.projectDbPath, projectDb, tmpDir);
       loserOutcome = loser.outcome;
     });
     // The loser hit the fast-path (DB already populated) and skipped before ever
@@ -420,9 +385,6 @@ describe('exodus-on-open data-continuity (T11553)', () => {
       fx.projectDbPath,
       projectDb,
       tmpDir,
-      () => {
-        throw new Error('evict() must not be called on success');
-      },
     );
     expect(result.outcome).toBe('migrated');
     // Flag is always cleared in the finally block, even across the nested opens.

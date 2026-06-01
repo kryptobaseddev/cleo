@@ -399,11 +399,19 @@ export async function openDualScopeDbAtPath(
 
     // ── Exodus-on-open (E6 · T11553) ────────────────────────────────────────
     // Data-continuity safety net: on a canonical open where the consolidated
-    // cleo.db is empty but the legacy fleet (tasks.db/brain.db/…) has rows,
-    // lazily auto-migrate ONCE — gated by a parity verify, serialised by a
-    // single-flight lock, and aborting cleanly (legacy kept) on parity failure.
-    // Re-entrancy/concurrency/abort are handled inside the hook. Lazy `import()`
+    // cleo.db is empty but the legacy fleet (tasks.db/brain.db/…) has rows for
+    // THIS scope, lazily auto-migrate ONCE — gated by a parity verify, serialised
+    // by a single-flight lock, rolled back to empty on parity failure (legacy
+    // kept). Re-entrancy/concurrency are handled inside the hook. Lazy `import()`
     // breaks the cycle (exodus/migrate.ts imports openDualScopeDb from here).
+    //
+    // NOTE: `runExodusMigrate` CLOSES + evicts the dual-scope handles it opened
+    // when it finishes, so after a `migrated`/`aborted` outcome the `handle`
+    // built above (and its `nativeDb`) is CLOSED. We therefore re-open this scope
+    // fresh (cache-miss, NOT armed — no `exodusCwd`) and return the new live
+    // handle. The re-open is a no-op trigger because the DB is now populated
+    // (migrated) or empty-with-legacy-already-attempted (aborted leaves it empty
+    // but the un-armed re-open never fires the hook).
     //
     // Armed ONLY when `exodusCwd` was threaded through the canonical
     // `openDualScopeDb` AND `dbPath` is the canonical path for that scope+cwd —
@@ -411,31 +419,31 @@ export async function openDualScopeDbAtPath(
     if (exodusCwd !== undefined && dbPath === resolveDualScopeDbPath(scope, exodusCwd)) {
       try {
         const { maybeRunExodusOnOpen } = await import('./exodus/on-open.js');
-        const result = await maybeRunExodusOnOpen(scope, dbPath, nativeDb, exodusCwd, () => {
-          // On abort, evict + close ALL consolidated handles so the on-disk
-          // cleo.db files can be removed and re-created pristine.
-          _resetDualScopeDbCache();
-        });
-        if (result.outcome === 'aborted') {
-          // The consolidated DBs were removed; re-open this scope freshly so the
-          // caller receives a valid (empty) handle. Legacy DBs remain the live
-          // source of truth until the parity issue is resolved.
-          log.warn(
-            { scope, reason: result.reason },
-            'exodus-on-open aborted; re-opening empty cleo.db',
-          );
+        const result = await maybeRunExodusOnOpen(scope, dbPath, nativeDb, exodusCwd);
+        if (result.outcome === 'migrated' || result.outcome === 'aborted') {
+          if (result.outcome === 'aborted') {
+            log.warn(
+              { scope, reason: result.reason },
+              'exodus-on-open aborted; consolidated cleo.db left empty, legacy kept as source',
+            );
+          }
+          // The migrate engine closed our handle — re-open fresh (un-armed) so the
+          // caller receives a valid, live handle bound to the now-(de)populated DB.
           return scope === 'project'
             ? openDualScopeDbAtPath('project', dbPath)
             : openDualScopeDbAtPath('global', dbPath);
         }
       } catch (err) {
         // Best-effort safety net: a hook failure must not make the DB
-        // unopenable. Warn and return the (empty) handle; `cleo exodus migrate`
-        // remains available as the manual path.
+        // unopenable. Warn and re-open fresh; `cleo exodus migrate` remains the
+        // manual path. (The handle may have been closed mid-migrate.)
         log.warn(
           { err, scope },
-          'exodus-on-open hook failed (non-fatal); returning consolidated handle',
+          'exodus-on-open hook failed (non-fatal); re-opening consolidated handle',
         );
+        return scope === 'project'
+          ? openDualScopeDbAtPath('project', dbPath)
+          : openDualScopeDbAtPath('global', dbPath);
       }
     }
 
