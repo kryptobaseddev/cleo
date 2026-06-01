@@ -172,6 +172,17 @@ export const skillsSkillUsage = sqliteTable(
      * accessor (AC4 — no ATTACH).
      */
     taskId: text('task_id'),
+    /**
+     * Owning project context; NULL if not running inside a resolvable CLEO
+     * project (global usage outside any repo).
+     *
+     * Cross-domain soft FK → the project registry's canonical `project_id`. Like
+     * {@link taskId} this is a plain `text` soft FK (no native cross-scope FK);
+     * resolved by the skill-telemetry recorder from the active ProjectContext.
+     * Nullable so existing rows + project-less usage stay valid (T11544 — the
+     * cross-project skill-usage attribution column).
+     */
+    projectId: text('project_id'),
     /** Model identifier the calling agent was running under. */
     modelId: text('model_id'),
     /** Free-form JSON blob for forward-compatible event metadata (serialized TEXT). */
