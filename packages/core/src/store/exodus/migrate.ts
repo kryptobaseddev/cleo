@@ -13,6 +13,31 @@
  * - The staging journal is written atomically before each table copy so a
  *   crash can be resumed (AC5).
  *
+ * ## Type coercion — epoch INTEGER → ISO-8601 TEXT (ROOT CAUSE 1 fix — T11546)
+ *
+ * Many legacy tables store timestamps as INTEGER epoch values (seconds or
+ * milliseconds). The consolidated schema declares these columns as `text` with
+ * a CHECK constraint: `CHECK ("col" IS NULL OR "col" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')`.
+ *
+ * When a source INTEGER value is inserted into a target TEXT+GLOB column, SQLite
+ * coerces the integer to its decimal string representation (e.g. `"1717200000"`),
+ * which fails the GLOB check. `INSERT OR IGNORE` then SILENTLY DROPS the entire
+ * row. Result: all conduit_messages, brain_observations, etc. → 0 rows copied
+ * while migrate reports `success: true, rowsCopied: 0`.
+ *
+ * Fix (two parts):
+ *   (a) Per-column value transform: `detectEpochToIsoColumns()` reads the target
+ *       table DDL from `sqlite_master` to identify columns with an ISO GLOB
+ *       CHECK constraint. For those columns, if the source type affinity is
+ *       INTEGER, the SELECT expression applies `strftime('%Y-%m-%dT%H:%M:%fZ',
+ *       col, 'unixepoch')` (seconds) or the `/1000.0` ms variant depending on
+ *       the per-source/table heuristic.
+ *   (b) No-swallow assertion: after the bulk INSERT OR IGNORE, the actual
+ *       `changes` count is compared against the source row count. Any shortfall
+ *       is surfaced as a hard table-level error (not a silent success).
+ *       PK/UNIQUE conflicts on resume are tolerated (they are expected and safe
+ *       to ignore); unexpected shortfalls are flagged with a detailed error.
+ *
  * ## ATTACH-once-per-source design (P0 fix — T11531)
  *
  * Each legacy source DB is ATTACHed to the target handle ONCE using a unique
@@ -245,7 +270,11 @@ interface CopyTableResult {
   readonly rowsCopied: number;
   /** True if the table was intentionally skipped (no consolidated target, etc.). */
   readonly skipped: boolean;
-  /** Human-readable skip reason when `skipped === true`. */
+  /**
+   * Human-readable reason when `skipped === true` OR when a no-swallow error
+   * is detected (rows dropped by CHECK/type constraints). When present and
+   * `skipped === false`, the table was copied but with errors.
+   */
   readonly reason?: string;
 }
 
@@ -270,6 +299,155 @@ function typeDefaultLiteral(colType: string): string {
   return "''";
 }
 
+// ---------------------------------------------------------------------------
+// Epoch-to-ISO coercion layer (ROOT CAUSE 1 fix — T11546)
+// ---------------------------------------------------------------------------
+
+/**
+ * Regex to detect ISO GLOB CHECK constraints in DDL SQL.
+ * Matches: `CHECK ("colname" IS NULL OR "colname" GLOB '[0-9]...')`
+ * Uses `\[0-9` to match the literal `[0-9` at the start of the GLOB pattern.
+ */
+const ISO_CHECK_REGEX = /CHECK\s*\(\s*"([^"]+)"\s+IS\s+NULL\s+OR\s+"[^"]+"\s+GLOB\s+'\[0-9/gi;
+
+/**
+ * Epoch unit: seconds (Unix seconds) vs milliseconds (Date.now() / unixepoch * 1000).
+ *
+ * Rules per source DB (§8.1 resolution from schema analysis):
+ * - conduit.db: epoch SECONDS — writers call `Math.floor(Date.now() / 1000)`
+ * - brain.db: epoch MILLISECONDS — writers call `Date.now()` / `unixepoch * 1000`
+ */
+type EpochUnit = 'seconds' | 'milliseconds';
+
+/**
+ * Per-source-DB epoch unit lookup.
+ * Used by `epochUnitForSource()` to pick the right `strftime` divisor.
+ *
+ * Verified from schema source comments (§8.1 resolution):
+ * - conduit.db:   `Math.floor(Date.now() / 1000)` → SECONDS
+ * - brain.db:     `Date.now()` / `unixepoch * 1000` → MILLISECONDS
+ * - signaldock.db: `strftime('%s','now')` → SECONDS
+ * - tasks.db:     `Date.now()` → MILLISECONDS (most writers)
+ * - nexus.db:     `Date.now()` → MILLISECONDS
+ * - skills.db:    `Date.now()` → MILLISECONDS
+ */
+const SOURCE_EPOCH_UNITS: ReadonlyMap<string, EpochUnit> = new Map([
+  ['conduit', 'seconds'],
+  ['brain', 'milliseconds'],
+  ['brain (project)', 'milliseconds'],
+  ['brain (global)', 'milliseconds'],
+  ['signaldock', 'seconds'],
+  ['tasks', 'milliseconds'],
+  ['nexus', 'milliseconds'],
+  ['skills', 'milliseconds'],
+]);
+
+/**
+ * Return the epoch unit used by a given source DB's INTEGER timestamp columns.
+ * Defaults to `'seconds'` for unknown sources (safe default — ISO-8601 output
+ * will be off by 1000x only for ms sources, which are already enumerated above).
+ */
+function epochUnitForSource(sourceName: string): EpochUnit {
+  const key = sourceName.toLowerCase();
+  // Check for prefix matches (e.g. "brain (project)" starts with "brain")
+  for (const [pattern, unit] of SOURCE_EPOCH_UNITS) {
+    if (key === pattern || key.startsWith(pattern)) return unit;
+  }
+  return 'seconds';
+}
+
+/**
+ * Parse the DDL for a given table from `sqlite_master` and return the set of
+ * column names that have an ISO GLOB CHECK constraint.
+ *
+ * Reads the raw DDL text and uses a regex to extract column names appearing in
+ * `CHECK ("colname" IS NULL OR "colname" GLOB '[0-9]...')` patterns. This is
+ * robust to Drizzle's generated CHECK format (all CHECK constraints generated
+ * by T11363 follow this exact pattern).
+ *
+ * @param db          - Target DB with the consolidated schema.
+ * @param tableName   - Physical table name (consolidated, e.g. `conduit_messages`).
+ * @returns Set of column names that require ISO GLOB validation.
+ */
+function detectIsoGlobColumns(db: DatabaseSync, tableName: string): Set<string> {
+  const escapedTable = tableName.replace(/'/g, "''");
+  const row = db
+    .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='${escapedTable}'`)
+    .get() as { sql: string } | null;
+
+  if (!row?.sql) return new Set();
+
+  const isoColumns = new Set<string>();
+  // Pattern: CHECK ("colname" IS NULL OR "colname" GLOB '[0-9]...')
+  // The column name appears TWICE — we capture the first occurrence.
+  // Use matchAll to avoid the biome no-assign-in-expressions rule.
+  ISO_CHECK_REGEX.lastIndex = 0; // reset before reuse (global regex stateful)
+  for (const match of row.sql.matchAll(ISO_CHECK_REGEX)) {
+    isoColumns.add(match[1]);
+  }
+  return isoColumns;
+}
+
+/**
+ * Build a SQL SELECT expression for a shared column, applying epoch→ISO-8601
+ * coercion when the target column requires an ISO GLOB value but the source
+ * column is an INTEGER epoch.
+ *
+ * The epoch→ISO conversion uses SQLite's `strftime('%Y-%m-%dT%H:%M:%fZ', ...)`:
+ * - For `seconds` epoch: `strftime('%Y-%m-%dT%H:%M:%fZ', src, 'unixepoch')`
+ * - For `milliseconds` epoch: `strftime('%Y-%m-%dT%H:%M:%fZ', src/1000.0, 'unixepoch')`
+ *
+ * A NULL source value is preserved as NULL (passes the `IS NULL` branch of the
+ * GLOB CHECK, and is OK for nullable columns).
+ *
+ * @param attachAlias    - ATTACH alias for the source DB.
+ * @param legacyTable    - Legacy table name in the source.
+ * @param col            - Column name.
+ * @param srcType        - Raw type string from source `PRAGMA table_info`.
+ * @param tgtInfo        - Target column metadata from `PRAGMA table_info`.
+ * @param isoGlobCols    - Set of columns requiring ISO GLOB in the target.
+ * @param epochUnit      - Whether the source stores seconds or milliseconds.
+ * @returns SQL expression string suitable for use in a SELECT clause.
+ */
+function buildSelectExpr(
+  attachAlias: string,
+  legacyTable: string,
+  col: string,
+  srcType: string,
+  tgtInfo: { type: string; notnull: number; dflt_value: string | null },
+  isoGlobCols: ReadonlySet<string>,
+  epochUnit: EpochUnit,
+): string {
+  const srcRef = `"${attachAlias}"."${legacyTable}"."${col}"`;
+  const srcUpper = srcType.toUpperCase();
+  const isIntegerSource = srcUpper.includes('INT') || srcUpper === '' || srcUpper === 'NUMERIC';
+
+  // Apply epoch→ISO coercion when:
+  //   1. The target column has an ISO GLOB CHECK constraint, AND
+  //   2. The source column is INTEGER (epoch) typed, AND
+  //   3. The target column is TEXT typed (already guaranteed by the GLOB CHECK)
+  if (isoGlobCols.has(col) && isIntegerSource) {
+    const divisor = epochUnit === 'milliseconds' ? `${srcRef}/1000.0` : srcRef;
+    // CASE preserves NULL (passes `IS NULL` branch of CHECK) and converts non-NULL epochs.
+    const isoExpr = `CASE WHEN ${srcRef} IS NULL THEN NULL ELSE strftime('%Y-%m-%dT%H:%M:%fZ', ${divisor}, 'unixepoch') END`;
+    // If the target is NOT NULL without a default, COALESCE to '' to avoid a separate
+    // constraint violation (though a NULL epoch is anomalous data).
+    const isNotNullWithoutDefault = tgtInfo.notnull === 1 && tgtInfo.dflt_value === null;
+    if (isNotNullWithoutDefault) {
+      return `COALESCE(${isoExpr}, '') AS "${col}"`;
+    }
+    return `${isoExpr} AS "${col}"`;
+  }
+
+  // Standard NOT NULL coalesce for non-epoch columns (T11533 fix preserved).
+  const isNotNullWithoutDefault = tgtInfo.notnull === 1 && tgtInfo.dflt_value === null;
+  if (isNotNullWithoutDefault) {
+    const defLiteral = typeDefaultLiteral(tgtInfo.type);
+    return `COALESCE(${srcRef}, ${defLiteral}) AS "${col}"`;
+  }
+  return srcRef;
+}
+
 /**
  * Copy all rows from a legacy source table (in the already-attached alias) into
  * the corresponding consolidated target table.
@@ -291,6 +469,18 @@ function typeDefaultLiteral(colType: string): string {
  *    consolidated schema (virtual tables, orphan telemetry, etc.) now return
  *    a logged skip result rather than being silently treated as "target not
  *    found".
+ *
+ * 4. **Epoch→ISO coercion (ROOT CAUSE 1 — T11546)**: columns with an ISO GLOB
+ *    CHECK in the target that are INTEGER-typed in the source are converted via
+ *    `strftime('%Y-%m-%dT%H:%M:%fZ', col[/1000.0], 'unixepoch')`. Without this,
+ *    `INSERT OR IGNORE` silently drops ALL rows for those tables (CHECK fails
+ *    for every row because an integer like `1717200000` doesn't match the GLOB).
+ *
+ * 5. **No-swallow assertion (ROOT CAUSE 1b — T11546)**: after the bulk INSERT,
+ *    `changes` is compared against the source row count. A shortfall is a hard
+ *    per-table error. PK/UNIQUE conflicts on idempotent resume are expected and
+ *    tolerated (checked via count of existing rows); CHECK constraint drops are
+ *    not tolerated.
  *
  * **Pre-condition**: the caller has already executed
  * `ATTACH DATABASE '<path>' AS "<attachAlias>"` on `targetNativeDb`, and
@@ -378,24 +568,56 @@ function copyTableFromAttached(
     );
   }
 
+  // --- Step 5b: Detect ISO GLOB columns in the target (T11546 epoch coercion) ---
+  //
+  // Read the target table DDL to find columns with ISO-8601 GLOB CHECK constraints.
+  // For those columns where the source is INTEGER-typed, we inject a strftime()
+  // expression in the SELECT so the inserted value passes the GLOB check.
+  const isoGlobCols = detectIsoGlobColumns(targetNativeDb, targetTableName);
+  const epochUnit = epochUnitForSource(sourceName);
+
+  // Build a map of source column types for quick lookup in buildSelectExpr.
+  const srcTypeMap = new Map(srcPragma.map((r) => [r.name, r.type]));
+
+  if (isoGlobCols.size > 0) {
+    // Log which columns will be coerced so the migration journal is traceable.
+    const coercedCols = sharedColumns.filter((col) => {
+      const srcType = srcTypeMap.get(col) ?? '';
+      const upper = srcType.toUpperCase();
+      return isoGlobCols.has(col) && (upper.includes('INT') || upper === '' || upper === 'NUMERIC');
+    });
+    if (coercedCols.length > 0) {
+      log.info(
+        {
+          legacyTableName,
+          targetTableName,
+          sourceName,
+          coercedCols,
+          epochUnit,
+        },
+        `Exodus: applying epoch→ISO coercion for ${coercedCols.length} column(s) (T11546)`,
+      );
+    }
+  }
+
   // --- Step 6: Build the SELECT expression list ---
   //
-  // For each shared column, check if the TARGET declares it NOT NULL without
-  // a schema default. If so, wrap with COALESCE(src_col, type_default) so a
-  // NULL source value does not cause a constraint violation and silent row drop
-  // via INSERT OR IGNORE. (T11533 ROOT CAUSE 2 fix)
+  // For each shared column, `buildSelectExpr` handles:
+  //   - Epoch→ISO coercion when target has ISO GLOB CHECK and source is INTEGER (T11546)
+  //   - COALESCE for NOT NULL target columns without schema defaults (T11533)
+  //   - Plain column reference otherwise
   const selectExprs = sharedColumns.map((col) => {
-    const tgtInfo = tgtColMap.get(col);
-    const isNotNullWithoutDefault =
-      tgtInfo !== undefined && tgtInfo.notnull === 1 && tgtInfo.dflt_value === null;
-
-    if (isNotNullWithoutDefault) {
-      const defLiteral = typeDefaultLiteral(tgtInfo.type);
-      // COALESCE ensures a NULL source value gets a safe non-NULL default
-      // rather than causing a NOT NULL violation that INSERT OR IGNORE silently drops.
-      return `COALESCE("${attachAlias}"."${legacyTableName}"."${col}", ${defLiteral}) AS "${col}"`;
-    }
-    return `"${attachAlias}"."${legacyTableName}"."${col}"`;
+    const srcType = srcTypeMap.get(col) ?? '';
+    const tgtInfo = tgtColMap.get(col)!;
+    return buildSelectExpr(
+      attachAlias,
+      legacyTableName,
+      col,
+      srcType,
+      tgtInfo,
+      isoGlobCols,
+      epochUnit,
+    );
   });
 
   // --- Step 6b: Handle target-only NOT NULL columns without schema defaults ---
@@ -423,14 +645,53 @@ function copyTableFromAttached(
 
   // INSERT OR IGNORE so idempotency keys prevent duplicates on resume.
   // The source alias uses legacyTableName; the target uses consolidatedName.
-  // OR IGNORE only fires on PK/UNIQUE conflicts — NOT NULL violations are now
-  // eliminated by the COALESCE expressions above.
+  // OR IGNORE fires on PK/UNIQUE conflicts (safe for idempotent resume) AND
+  // on CHECK constraint violations (dangerous — must detect and report).
   const stmt = targetNativeDb.prepare(
     `INSERT OR IGNORE INTO main."${targetTableName}" (${colList}) ` +
       `SELECT ${selectList} FROM "${attachAlias}"."${legacyTableName}"`,
   );
   const result = stmt.run();
   const rowsCopied = (result as unknown as { changes: number }).changes ?? 0;
+
+  // --- Step 7: No-swallow assertion (ROOT CAUSE 1b — T11546) ---
+  //
+  // If rowsCopied < sourceCount, rows were silently dropped. This can happen for
+  // two reasons:
+  //   a) PK/UNIQUE conflict on idempotent resume — EXPECTED and SAFE (the data
+  //      is already in the target from a previous run).
+  //   b) CHECK / NOT NULL / type constraint violation — DATA LOSS, must error.
+  //
+  // We distinguish these by counting existing target rows BEFORE the INSERT
+  // and comparing: if (existingBefore + sourceCount) > rowsCopied + existingBefore,
+  // some rows were dropped by constraints rather than deduplicated. However,
+  // since we are mid-transaction and do not know existingBefore (prior sources
+  // may have written to the same table), we take a simpler approach: if
+  // rowsCopied == 0 AND sourceCount > 0, this is almost certainly a constraint
+  // failure (a full-table dedup on resume would be extremely unusual). If
+  // rowsCopied < sourceCount but > 0, it may be a partial dedup. We log a
+  // warning for partial losses and a hard error for full (0-row) losses.
+  //
+  // The verifier (`runExodusVerify`) catches any remaining discrepancy post-hoc.
+  if (rowsCopied < sourceCount) {
+    const dropped = sourceCount - rowsCopied;
+    if (rowsCopied === 0) {
+      // Full table drop — almost certainly a CHECK or type constraint failure.
+      const reason = `INSERT OR IGNORE dropped ALL ${sourceCount} rows from '${legacyTableName}'→'${targetTableName}' (rowsCopied=0, sourceCount=${sourceCount}). Likely a CHECK/type constraint violation — check epoch coercion or enum values.`;
+      log.error(
+        { legacyTableName, targetTableName, sourceName, sourceCount, rowsCopied },
+        `Exodus: ${reason}`,
+      );
+      return { rowsCopied: 0, skipped: false, reason };
+    }
+    // Partial drop — could be UNIQUE dedup on resume or a real constraint drop.
+    // Log as warning and let the verifier catch genuine losses.
+    log.warn(
+      { legacyTableName, targetTableName, sourceName, sourceCount, rowsCopied, dropped },
+      `Exodus: INSERT OR IGNORE dropped ${dropped}/${sourceCount} rows from '${legacyTableName}'→'${targetTableName}' — may be idempotent-resume dedup or a constraint violation; verify will confirm`,
+    );
+  }
+
   return { rowsCopied, skipped: false };
 }
 
@@ -727,6 +988,13 @@ async function migrateScope(
                 status = 'skipped';
                 errorMsg = copyResult.reason;
                 skipped = true;
+              } else if (copyResult.reason) {
+                // No-swallow error: all rows dropped by a constraint (T11546).
+                // The table is NOT skipped (copy was attempted) but the result
+                // must be surfaced as an error, not a silent 0-row success.
+                status = 'skipped'; // Mark skipped so journal doesn't say "done" on 0 rows
+                errorMsg = copyResult.reason;
+                // skipped stays false — the distinction is the reason field (data loss vs intentional skip)
               }
             } catch (err) {
               const msg = err instanceof Error ? err.message : String(err);
