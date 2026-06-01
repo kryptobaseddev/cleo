@@ -32,3 +32,4 @@ export {
   type VerifyTableResult,
 } from './types.js';
 export { runExodusVerify } from './verify.js';
+export { verifyMigration } from './verify-migration.js';

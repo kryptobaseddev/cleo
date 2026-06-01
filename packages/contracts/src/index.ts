@@ -829,6 +829,14 @@ export type {
   PatternRecord,
   SessionSummary,
 } from './memory.js';
+export type {
+  MigrationEnumDrift,
+  MigrationForeignKeyViolation,
+  MigrationTableParity,
+  VerifyMigrationResult,
+} from './migration-parity.js';
+// === Migration Parity (T11551 — DHQ-045 exodus zero-loss durable guard) ===
+export { MIGRATION_ENUM_DRIFT_SAMPLE_LIMIT } from './migration-parity.js';
 // === MVI progressive-disclosure primitive (T11349 · Epic T11285 · Saga T11283) ===
 export type {
   ExpansionHint,
