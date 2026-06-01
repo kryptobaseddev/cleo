@@ -1654,3 +1654,301 @@ describe('T11546 regression — name-map: no-home table mappings', () => {
     expect(r.kind).toBe('skip');
   });
 });
+
+// ---------------------------------------------------------------------------
+// T11547 REGRESSION — enum-value normalization in the migrate layer
+//
+// Verifies that rows with legacy enum values that fail the consolidated CHECK
+// constraints are NORMALIZED (not silently dropped) during `copyTableFromAttached`.
+//
+// Test strategy: build a source DB whose table has a CHECK-constrained column
+// containing legacy values that would fail the CHECK. The target DB uses the
+// same schema with the strict CHECK. The migration must produce the correct
+// canonical value in each row — confirmed by reading back the target after
+// the migrate call.
+//
+// We use the same mock-openDualScopeDb pattern as T11531.
+// ---------------------------------------------------------------------------
+
+describe('T11547 regression — enum normalization in migrate layer', () => {
+  let tmpDir: string;
+  let sourcePath: string;
+  let targetProjectPath: string;
+  let targetGlobalPath: string;
+  let stagingDir: string;
+
+  beforeEach(() => {
+    tmpDir = makeTempDir();
+    sourcePath = join(tmpDir, 'source.db');
+    targetProjectPath = join(tmpDir, 'target-project.db');
+    targetGlobalPath = join(tmpDir, 'target-global.db');
+    stagingDir = join(tmpDir, 'staging');
+    mkdirSync(stagingDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  /**
+   * Helper: run a migration with an injected source + pre-built target DB.
+   * Returns the consolidated target DB path for post-migration assertions.
+   */
+  async function runMigrateWithFixture(
+    sourceName: string,
+    targetScope: 'project' | 'global',
+  ): Promise<string> {
+    const targetPath = targetScope === 'project' ? targetProjectPath : targetGlobalPath;
+    const targetProjectDb = new DatabaseSync(targetProjectPath);
+    const targetGlobalDb = new DatabaseSync(targetGlobalPath);
+
+    const makeFakeHandle = (native: DatabaseSyncType) => ({
+      db: { $client: native },
+      close: () => {
+        /* test owns lifetime */
+      },
+    });
+
+    vi.mock('../dual-scope-db.js', () => ({
+      openDualScopeDb: vi.fn(),
+      resolveDualScopeDbPath: vi.fn(),
+    }));
+
+    const dualScopeModule = await import('../dual-scope-db.js');
+    vi.mocked(dualScopeModule.openDualScopeDb).mockImplementation((scope: string) => {
+      if (scope === 'project') return Promise.resolve(makeFakeHandle(targetProjectDb) as never);
+      return Promise.resolve(makeFakeHandle(targetGlobalDb) as never);
+    });
+    vi.mocked(dualScopeModule.resolveDualScopeDbPath).mockImplementation((scope: string) =>
+      scope === 'project' ? targetProjectPath : targetGlobalPath,
+    );
+
+    const { runExodusMigrate: migrate } = await import('../exodus/migrate.js');
+
+    const plan: ExodusPlan = {
+      sources: [{ name: sourceName, path: sourcePath, targetScope }],
+      totalSourceBytes: 0,
+      availableBytes: 100_000_000,
+      diskPreflight: true,
+      stagingDir,
+      resumeFromStaging: false,
+      projectDbPath: targetProjectPath,
+      globalDbPath: targetGlobalPath,
+    };
+
+    const result = await migrate(plan, false, undefined);
+    expect(result.ok, `migrate failed: ${result.error ?? 'unknown'}`).toBe(true);
+
+    targetProjectDb.close();
+    targetGlobalDb.close();
+
+    return targetPath;
+  }
+
+  it('normalizes task_commits.link_source commit-message → commit-subject', async () => {
+    // Source table: legacy table name 'task_commits' (maps to 'tasks_task_commits')
+    // with link_source = 'commit-message' which is NOT in COMMIT_LINK_SOURCES.
+    const srcDb = new DatabaseSync(sourcePath);
+    try {
+      srcDb.exec(
+        `CREATE TABLE task_commits (task_id TEXT, commit_sha TEXT, link_kind TEXT, link_source TEXT NOT NULL, created_at TEXT)`,
+      );
+      srcDb.exec(
+        `INSERT INTO task_commits VALUES ('T1', 'abc123', 'task-commit', 'commit-message', '2026-01-01T00:00:00.000Z')`,
+      );
+      srcDb.exec(
+        `INSERT INTO task_commits VALUES ('T2', 'def456', 'task-commit', 'commit-trailer', '2026-01-01T00:00:00.000Z')`,
+      );
+    } finally {
+      srcDb.close();
+    }
+
+    // Target: tasks_task_commits with CHECK on link_source
+    const tgtDb = new DatabaseSync(targetProjectPath);
+    try {
+      tgtDb.exec(
+        `CREATE TABLE tasks_task_commits (task_id TEXT, commit_sha TEXT, link_kind TEXT NOT NULL, ` +
+          `link_source TEXT NOT NULL CHECK (link_source IN ('commit-trailer','commit-subject','pr-title','pr-body','branch-name','manual')), ` +
+          `created_at TEXT NOT NULL, PRIMARY KEY (task_id, commit_sha, link_kind))`,
+      );
+    } finally {
+      tgtDb.close();
+    }
+    const emptyTgt = new DatabaseSync(targetGlobalPath);
+    emptyTgt.close();
+
+    await runMigrateWithFixture('tasks', 'project');
+
+    // Verify: both rows present, commit-message → commit-subject
+    const tgt = new DatabaseSync(targetProjectPath, { readOnly: true });
+    try {
+      const rows = tgt
+        .prepare('SELECT task_id, link_source FROM tasks_task_commits ORDER BY task_id')
+        .all() as Array<{ task_id: string; link_source: string }>;
+      expect(rows).toHaveLength(2);
+      expect(rows[0]?.link_source, 'commit-message must be normalized to commit-subject').toBe(
+        'commit-subject',
+      );
+      expect(rows[1]?.link_source, 'commit-trailer must pass through unchanged').toBe(
+        'commit-trailer',
+      );
+    } finally {
+      tgt.close();
+    }
+  });
+
+  it('normalizes tasks_architecture_decisions.status case variants', async () => {
+    const srcDb = new DatabaseSync(sourcePath);
+    try {
+      srcDb.exec(
+        `CREATE TABLE architecture_decisions (id TEXT PRIMARY KEY, title TEXT NOT NULL, status TEXT NOT NULL, content TEXT NOT NULL, date TEXT NOT NULL, file_path TEXT NOT NULL)`,
+      );
+      srcDb.exec(
+        `INSERT INTO architecture_decisions VALUES ('ADR-001', 'T1', 'Accepted', 'body', '2026-01-01', 'foo.md')`,
+      );
+      srcDb.exec(
+        `INSERT INTO architecture_decisions VALUES ('ADR-002', 'T2', 'ACCEPTED', 'body', '2026-01-01', 'foo.md')`,
+      );
+      srcDb.exec(
+        `INSERT INTO architecture_decisions VALUES ('ADR-003', 'T3', 'approved', 'body', '2026-01-01', 'foo.md')`,
+      );
+      srcDb.exec(
+        `INSERT INTO architecture_decisions VALUES ('ADR-004', 'T4', 'Accepted (2026-04-18)', 'body', '2026-01-01', 'foo.md')`,
+      );
+      srcDb.exec(
+        `INSERT INTO architecture_decisions VALUES ('ADR-005', 'T5', 'proposed', 'body', '2026-01-01', 'foo.md')`,
+      );
+    } finally {
+      srcDb.close();
+    }
+
+    const tgtDb = new DatabaseSync(targetProjectPath);
+    try {
+      tgtDb.exec(
+        `CREATE TABLE tasks_architecture_decisions (id TEXT PRIMARY KEY, title TEXT NOT NULL, ` +
+          `status TEXT NOT NULL CHECK (status IN ('proposed','accepted','superseded','deprecated')) DEFAULT 'proposed', ` +
+          `content TEXT NOT NULL, date TEXT NOT NULL, file_path TEXT NOT NULL)`,
+      );
+    } finally {
+      tgtDb.close();
+    }
+    const emptyTgt = new DatabaseSync(targetGlobalPath);
+    emptyTgt.close();
+
+    await runMigrateWithFixture('tasks', 'project');
+
+    const tgt = new DatabaseSync(targetProjectPath, { readOnly: true });
+    try {
+      const rows = tgt
+        .prepare('SELECT id, status FROM tasks_architecture_decisions ORDER BY id')
+        .all() as Array<{ id: string; status: string }>;
+      expect(rows).toHaveLength(5);
+      for (const row of rows) {
+        if (row.id === 'ADR-005') {
+          expect(row.status, `${row.id}: proposed must pass through`).toBe('proposed');
+        } else {
+          expect(row.status, `${row.id}: must normalize to 'accepted'`).toBe('accepted');
+        }
+      }
+    } finally {
+      tgt.close();
+    }
+  });
+
+  it('normalizes brain_observations.source_type legacy values → agent', async () => {
+    const srcDb = new DatabaseSync(sourcePath);
+    try {
+      srcDb.exec(
+        `CREATE TABLE brain_observations (id TEXT PRIMARY KEY, type TEXT NOT NULL, source_type TEXT, narrative TEXT NOT NULL)`,
+      );
+      srcDb.exec(
+        `INSERT INTO brain_observations VALUES ('O-1', 'discovery', 'observer-compressed', 'obs 1')`,
+      );
+      srcDb.exec(
+        `INSERT INTO brain_observations VALUES ('O-2', 'discovery', 'sleep-consolidation', 'obs 2')`,
+      );
+      srcDb.exec(`INSERT INTO brain_observations VALUES ('O-3', 'discovery', 'agent', 'obs 3')`);
+      srcDb.exec(`INSERT INTO brain_observations VALUES ('O-4', 'discovery', 'manual', 'obs 4')`);
+    } finally {
+      srcDb.close();
+    }
+
+    const tgtDb = new DatabaseSync(targetProjectPath);
+    try {
+      tgtDb.exec(
+        `CREATE TABLE brain_observations (id TEXT PRIMARY KEY, type TEXT NOT NULL, ` +
+          `source_type TEXT CHECK (source_type IS NULL OR source_type IN ('agent','session-debrief','claude-mem','manual')), ` +
+          `narrative TEXT NOT NULL)`,
+      );
+    } finally {
+      tgtDb.close();
+    }
+    const emptyTgt = new DatabaseSync(targetGlobalPath);
+    emptyTgt.close();
+
+    await runMigrateWithFixture('brain (project)', 'project');
+
+    const tgt = new DatabaseSync(targetProjectPath, { readOnly: true });
+    try {
+      const rows = tgt
+        .prepare('SELECT id, source_type FROM brain_observations ORDER BY id')
+        .all() as Array<{ id: string; source_type: string }>;
+      expect(rows).toHaveLength(4);
+      expect(rows.find((r) => r.id === 'O-1')?.source_type, 'observer-compressed → agent').toBe(
+        'agent',
+      );
+      expect(rows.find((r) => r.id === 'O-2')?.source_type, 'sleep-consolidation → agent').toBe(
+        'agent',
+      );
+      expect(rows.find((r) => r.id === 'O-3')?.source_type, 'agent passthrough').toBe('agent');
+      expect(rows.find((r) => r.id === 'O-4')?.source_type, 'manual passthrough').toBe('manual');
+    } finally {
+      tgt.close();
+    }
+  });
+
+  it('normalizes brain_observations.type legacy values to canonical types', async () => {
+    const srcDb = new DatabaseSync(sourcePath);
+    try {
+      srcDb.exec(
+        `CREATE TABLE brain_observations (id TEXT PRIMARY KEY, type TEXT NOT NULL, narrative TEXT NOT NULL)`,
+      );
+      srcDb.exec(`INSERT INTO brain_observations VALUES ('O-1', 'observation', 'obs 1')`);
+      srcDb.exec(`INSERT INTO brain_observations VALUES ('O-2', 'proposal', 'obs 2')`);
+      srcDb.exec(`INSERT INTO brain_observations VALUES ('O-3', 'pattern', 'obs 3')`);
+      srcDb.exec(`INSERT INTO brain_observations VALUES ('O-4', 'discovery', 'obs 4')`);
+    } finally {
+      srcDb.close();
+    }
+
+    const tgtDb = new DatabaseSync(targetProjectPath);
+    try {
+      tgtDb.exec(
+        `CREATE TABLE brain_observations (id TEXT PRIMARY KEY, ` +
+          `type TEXT NOT NULL CHECK (type IN ('discovery','change','feature','bugfix','decision','refactor','diary','session-summary')), ` +
+          `narrative TEXT NOT NULL)`,
+      );
+    } finally {
+      tgtDb.close();
+    }
+    const emptyTgt = new DatabaseSync(targetGlobalPath);
+    emptyTgt.close();
+
+    await runMigrateWithFixture('brain (project)', 'project');
+
+    const tgt = new DatabaseSync(targetProjectPath, { readOnly: true });
+    try {
+      const rows = tgt
+        .prepare('SELECT id, type FROM brain_observations ORDER BY id')
+        .all() as Array<{ id: string; type: string }>;
+      expect(rows).toHaveLength(4);
+      expect(rows.find((r) => r.id === 'O-1')?.type, 'observation → discovery').toBe('discovery');
+      expect(rows.find((r) => r.id === 'O-2')?.type, 'proposal → decision').toBe('decision');
+      expect(rows.find((r) => r.id === 'O-3')?.type, 'pattern → refactor').toBe('refactor');
+      expect(rows.find((r) => r.id === 'O-4')?.type, 'discovery passthrough').toBe('discovery');
+    } finally {
+      tgt.close();
+    }
+  });
+});
