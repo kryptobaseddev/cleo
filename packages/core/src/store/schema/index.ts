@@ -32,5 +32,6 @@ export * from './jsonb.js';
 export * from './lifecycle.js';
 export * from './manifest.js';
 export * from './provenance/index.js';
+export * from './schema-utils.js';
 export * from './sqlite-feature-expressiveness.js';
 export * from './tasks.js';
