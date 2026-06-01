@@ -65,7 +65,7 @@ CI job: `Architectural Boundary Check (SG-ARCH-SOLID T9837)` (baseline mode by d
 |---|---------------------------------------|-------------------------------------------------|---------------------------------------------------|---------------------------------------------------------------------------------------|
 | 1 | `defineCommand` factory SSoT (T10072) | `scripts/lint-no-raw-define-command.mjs`        | `.cleo/define-command-ssot-baseline.json`         | Only `packages/cleo/src/cli/lib/define-cli-command.ts` may import from `'citty'`.    |
 | 2 | Paths SSoT (T9802 · D009)             | `scripts/lint-paths-ssot.mjs`                   | inline                                            | `env-paths`, `XDG_DATA_HOME` reads, `'/cleo/worktrees'` strings live in `packages/paths/` only. |
-| 3 | DB Open Guard (T10073 · ADR-068)      | `scripts/lint-no-direct-db-open.mjs`            | inline                                            | `new DatabaseSync(`/`new Database(` only inside `packages/core/src/store/` — others use `openCleoDb(role, cwd)`. |
+| 3 | DB Open Guard (T10073 · ADR-068 · T11529) | `scripts/lint-no-direct-db-open.mjs --strict` | inline (3-entry allowlist)                        | **STRICT (zero tolerance).** `new DatabaseSync(`/`new Database(` only inside the 3 canonical allowlist entries (store/, migration/, studio connections.ts) — everything else uses `openDualScopeDb`/`openCleoDb` or an inline `// db-open-allowed` marker. |
 | 4 | Contracts Fan-Out (T10074)            | `scripts/lint-contracts-fan-out.mjs`            | `scripts/.lint-contracts-fan-out-baseline.json`   | `export interface`/`type` in `cleo/` or `core/` imported by >2 packages must move to `packages/contracts/`. |
 | 5 | `SSoT-EXEMPT` linkage (T10075)        | `scripts/lint-no-ssot-exempt.mjs`               | inline                                            | Every `// SSoT-EXEMPT` comment must reference an open `T####` task.                  |
 | 6 | CLI package boundary (T9837e)         | `scripts/lint-cli-package-boundary.mjs`         | `scripts/.lint-cli-boundary-baseline.json`        | No standalone named function >30 LOC in `packages/cleo/src/cli/commands/**/*.ts` — move helpers to `core/`. |
@@ -84,20 +84,15 @@ CI job: `Architectural Boundary Check (SG-ARCH-SOLID T9837)` (baseline mode by d
 
 ### DB Open Guard — canonical allowlist (Gate 3)
 
+Reduced to **3 path entries** after the E6 store-rewrite cascade (T11521–T11528) routed every per-domain accessor through `openDualScopeDb` (T11529 · E6-L9). The gate now runs in `--strict` mode (zero tolerance).
+
 | Location                                              | Reason                                          |
 |-------------------------------------------------------|-------------------------------------------------|
-| `packages/core/src/store/**`                          | The chokepoint                                  |
-| `packages/core/src/migration/**`                      | Schema bootstrapping                            |
-| `packages/core/src/memory/claude-mem-migration.ts`    | One-shot memory migration                       |
-| `packages/core/src/memory/graph-memory-bridge.ts`     | Hot-path conduit open                           |
-| `packages/core/src/conduit/**`                        | Core-owned conduit infrastructure               |
-| `packages/core/src/upgrade.ts`                        | One-shot historical migration                   |
-| `packages/core/src/init.ts`                           | Bootstrap before chokepoint exists              |
-| `packages/core/src/agents/seed-install.ts`            | One-shot global install                         |
-| `packages/core/src/orchestration/classify.ts`         | JSDoc `@example` blocks only                    |
-| `packages/core/src/nexus/**`                          | Per-project graph DBs (non-CLEO metadata)       |
-| `packages/studio/src/lib/server/db/connections.ts`    | Per-project ProjectContext opens                |
-| Test files (`__tests__/`, `.test.ts`, `.spec.ts`)     | May open raw for seeding                        |
+| `packages/core/src/store/**`                          | The chokepoint (incl. `dual-scope-db.ts`)       |
+| `packages/core/src/migration/**`                      | Schema bootstrapping (pre-chokepoint)           |
+| `packages/studio/src/lib/server/db/connections.ts`    | Per-project ProjectContext opens (pre-port)     |
+
+Test files (`__tests__/`, `.test.ts`, `.spec.ts`) may open raw for seeding and are matched by a regex, not the canonical allowlist. Every other legitimate raw open (external claude-mem migration source, hot-path conduit, per-project nexus graph DBs) now carries an inline `// db-open-allowed: <reason>` marker at the call site instead of a directory-wide entry.
 
 Bypassing the chokepoint causes pragma drift (vs `specs/sqlite-pragmas.json`), WAL/lock contention, and topology opacity (`cleo health` cannot enumerate the handle).
 
