@@ -61,6 +61,7 @@
 
 import { sql } from 'drizzle-orm';
 import { index, integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { makeSchemaMetaTable } from '../schema-utils.js';
 
 // ---------------------------------------------------------------------------
 // E10 §5b — enum const arrays minted in-module (no cross-package contracts SSoT)
@@ -261,12 +262,7 @@ export const nexusAuditLog = sqliteTable(
  *
  * @task T11361 (target shape) · T5365 (original)
  */
-export const nexusSchemaMeta = sqliteTable('nexus_schema_meta', {
-  /** Config key. */
-  key: text('key').primaryKey(),
-  /** Config value. */
-  value: text('value').notNull(),
-});
+export const nexusSchemaMeta = makeSchemaMetaTable('nexus_schema_meta');
 
 // ---------------------------------------------------------------------------
 // Code-intelligence graph

@@ -118,6 +118,7 @@ import {
   DERIVER_QUEUE_ITEM_TYPES,
   DERIVER_QUEUE_STATUSES,
 } from '../memory-schema.js';
+import { makeSchemaMetaTable } from '../schema-utils.js';
 
 // ---------------------------------------------------------------------------
 // §5b enum const arrays minted here (CHECK derivation references identifiers)
@@ -751,12 +752,7 @@ export const brainMemoryLinks = sqliteTable(
  *
  * @task T11360 (target shape)
  */
-export const brainSchemaMeta = sqliteTable('brain_schema_meta', {
-  /** Config key. */
-  key: text('key').primaryKey(),
-  /** Config value. */
-  value: text('value').notNull(),
-});
+export const brainSchemaMeta = makeSchemaMetaTable('brain_schema_meta');
 
 // ---------------------------------------------------------------------------
 // Quality-feedback telemetry (T11546 — no-home table migration)

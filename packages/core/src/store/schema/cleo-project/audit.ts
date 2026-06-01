@@ -53,6 +53,7 @@ import {
 } from 'drizzle-orm/sqlite-core';
 import { ADR_STATUSES, GATE_STATUSES } from '../../status-registry.js';
 import { TOKEN_USAGE_CONFIDENCE, TOKEN_USAGE_METHODS, TOKEN_USAGE_TRANSPORTS } from '../audit.js';
+import { makeSchemaMetaTable } from '../schema-utils.js';
 
 /** ADR governance-gate kinds — promoted from inline literal (§5a). */
 export const ADR_GATE_KINDS = ['HITL', 'automated'] as const;
@@ -82,12 +83,7 @@ export const STATUS_REGISTRY_NAMESPACES = ['workflow', 'governance', 'manifest']
  *
  * @task T11360 (target shape)
  */
-export const tasksSchemaMeta = sqliteTable('tasks_schema_meta', {
-  /** Config key. */
-  key: text('key').primaryKey(),
-  /** Config value. */
-  value: text('value').notNull(),
-});
+export const tasksSchemaMeta = makeSchemaMetaTable('tasks_schema_meta');
 
 /**
  * `tasks_audit_log` — task-change audit log. No FK on task_id (entries outlive
