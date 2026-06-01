@@ -274,32 +274,34 @@ export async function installTemplatesAtProjectTier(
   const installed: TemplateInstallEntry[] = [];
   const failed: Array<{ cantPath: string; error: string }> = [];
 
-  try {
-    const { installAgentFromCant } = await import('./store/agent-install.js');
-    for (const filename of cantFiles) {
-      const cantPath = join(templatesDir, filename);
-      try {
-        const result = installAgentFromCant(db, {
-          cantSource: cantPath,
-          targetTier: 'project',
-          installedFrom: 'seed',
-          projectRoot,
-          force: true,
-        });
-        installed.push({
-          agentId: result.agentId,
-          cantPath: result.cantPath,
-          inserted: result.inserted,
-        });
-      } catch (err) {
-        failed.push({
-          cantPath,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
+  // NOTE: `db` is the SHARED dual-scope GLOBAL `cleo.db` handle owned by
+  // openDualScopeDb('global') and co-owned by the nexus / skills domains
+  // (E6-L5 · T11525). We MUST NOT `.close()` it here — doing so tears the
+  // handle out from under sibling domains AND breaks the subsequent
+  // forceInstallProjectTierAgents() call in `cleo init`, which re-uses the
+  // same singleton and would otherwise hit "database is not open".
+  const { installAgentFromCant } = await import('./store/agent-install.js');
+  for (const filename of cantFiles) {
+    const cantPath = join(templatesDir, filename);
+    try {
+      const result = installAgentFromCant(db, {
+        cantSource: cantPath,
+        targetTier: 'project',
+        installedFrom: 'seed',
+        projectRoot,
+        force: true,
+      });
+      installed.push({
+        agentId: result.agentId,
+        cantPath: result.cantPath,
+        inserted: result.inserted,
+      });
+    } catch (err) {
+      failed.push({
+        cantPath,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
-  } finally {
-    db.close();
   }
 
   return { installed, failed, templatesDir };

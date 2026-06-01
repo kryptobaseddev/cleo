@@ -140,10 +140,14 @@ describe('cleo agent list', () => {
       includeDisabled: false,
     });
 
+    // T11572 (#5): `agent list` now passes the bare agent array to cliOutput —
+    // the renderer wraps it into the single-level LAFS envelope. The payload is
+    // therefore the array itself, NOT a `{ success, data }` object (which would
+    // have produced a double-nested envelope).
     const [outputCall] = mockCliOutput.mock.calls;
-    expect(outputCall[0].success).toBe(true);
-    expect(outputCall[0].data).toHaveLength(1);
-    expect(outputCall[0].data[0].agentId).toBe('agent-alpha');
+    expect(Array.isArray(outputCall[0])).toBe(true);
+    expect(outputCall[0]).toHaveLength(1);
+    expect(outputCall[0][0].agentId).toBe('agent-alpha');
   });
 
   it('TC-082: project with no project_agent_refs returns empty array', async () => {
@@ -153,8 +157,8 @@ describe('cleo agent list', () => {
     await run({ args: {}, rawArgs: [] });
 
     const [outputCall] = mockCliOutput.mock.calls;
-    expect(outputCall[0].success).toBe(true);
-    expect(outputCall[0].data).toHaveLength(0);
+    expect(Array.isArray(outputCall[0])).toBe(true);
+    expect(outputCall[0]).toHaveLength(0);
   });
 
   it('TC-084: --global returns all global agents regardless of project refs', async () => {
@@ -171,8 +175,8 @@ describe('cleo agent list', () => {
     });
 
     const [outputCall] = mockCliOutput.mock.calls;
-    expect(outputCall[0].success).toBe(true);
-    expect(outputCall[0].data).toHaveLength(2);
+    expect(Array.isArray(outputCall[0])).toBe(true);
+    expect(outputCall[0]).toHaveLength(2);
   });
 
   it('TC-085: --include-disabled includes detached (enabled=0) rows', async () => {
@@ -188,8 +192,8 @@ describe('cleo agent list', () => {
     });
 
     const [outputCall] = mockCliOutput.mock.calls;
-    expect(outputCall[0].success).toBe(true);
-    expect(outputCall[0].data).toHaveLength(1);
+    expect(Array.isArray(outputCall[0])).toBe(true);
+    expect(outputCall[0]).toHaveLength(1);
   });
 
   it('TC-086: --global --include-disabled passes both opts to listAgentsForProject', async () => {
@@ -206,7 +210,8 @@ describe('cleo agent list', () => {
     });
 
     const [outputCall] = mockCliOutput.mock.calls;
-    expect(outputCall[0].data).toHaveLength(2);
+    expect(Array.isArray(outputCall[0])).toBe(true);
+    expect(outputCall[0]).toHaveLength(2);
   });
 
   it('TC-087: attachment annotation is [attached] for attached agents', async () => {
@@ -217,7 +222,7 @@ describe('cleo agent list', () => {
     await run({ args: {}, rawArgs: [] });
 
     const [outputCall] = mockCliOutput.mock.calls;
-    expect(outputCall[0].data[0].attachment).toBe('[attached]');
+    expect(outputCall[0][0].attachment).toBe('[attached]');
   });
 
   it('TC-087: attachment annotation is [global] for agents without a projectRef', async () => {
@@ -228,7 +233,7 @@ describe('cleo agent list', () => {
     await run({ args: { global: true }, rawArgs: [] });
 
     const [outputCall] = mockCliOutput.mock.calls;
-    expect(outputCall[0].data[0].attachment).toBe('[global]');
+    expect(outputCall[0][0].attachment).toBe('[global]');
   });
 
   it('TC-087: attachment annotation is [disabled] for detached (enabled=0) agents', async () => {
@@ -239,7 +244,7 @@ describe('cleo agent list', () => {
     await run({ args: { 'include-disabled': true }, rawArgs: [] });
 
     const [outputCall] = mockCliOutput.mock.calls;
-    expect(outputCall[0].data[0].attachment).toBe('[disabled]');
+    expect(outputCall[0][0].attachment).toBe('[disabled]');
   });
 
   it('output columns match spec §5.2: agentId, name, classification, transportType, isActive, lastUsedAt, attachment', async () => {
@@ -250,7 +255,7 @@ describe('cleo agent list', () => {
     await run({ args: {}, rawArgs: [] });
 
     const [outputCall] = mockCliOutput.mock.calls;
-    const row = outputCall[0].data[0] as Record<string, unknown>;
+    const row = outputCall[0][0] as Record<string, unknown>;
     expect(row).toHaveProperty('agentId');
     expect(row).toHaveProperty('name');
     expect(row).toHaveProperty('classification');
@@ -258,6 +263,27 @@ describe('cleo agent list', () => {
     expect(row).toHaveProperty('isActive');
     expect(row).toHaveProperty('lastUsedAt');
     expect(row).toHaveProperty('attachment');
+  });
+
+  it('T11572 (#5): passes a bare array to cliOutput — no double-nested {success,data} envelope', async () => {
+    // Regression guard for the post-E6 smoke #5: the handler previously passed
+    // `{ success: true, data: [...] }` to cliOutput, which is the envelope
+    // boundary and re-wraps its payload → emitted `{ data: { success, data } }`.
+    // The payload MUST be the agent array itself so the final LAFS envelope is
+    // single-level (`{ success, data: [...] }`).
+    const agent = makeAgent('agent-envelope', { projectRef: makeRef(1) });
+    mockListAgentsForProject.mockReturnValue([agent]);
+
+    const run = getAgentSubRun('list');
+    await run({ args: {}, rawArgs: [] });
+
+    const [outputCall] = mockCliOutput.mock.calls;
+    const payload = outputCall[0];
+    expect(Array.isArray(payload)).toBe(true);
+    // The bare array must NOT carry an inner `success`/`data` wrapper.
+    expect(payload).not.toHaveProperty('success');
+    expect(payload).not.toHaveProperty('data');
+    expect(payload[0].agentId).toBe('agent-envelope');
   });
 
   it('outputs success=false with E_LIST on listAgentsForProject error', async () => {
