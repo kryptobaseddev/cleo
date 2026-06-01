@@ -253,6 +253,13 @@ export type {
   ProposeCanonicalPatchResult,
 } from './propose-patch.js';
 export { proposeCanonicalPatch } from './propose-patch.js';
+// Skill executor — concrete in-process impl of the SkillExecutor DIP seam
+// (T11477 · epic T11391 · @cleocode/contracts/tools/skill-executor).
+export type {
+  SkillExecutorAdapterOptions,
+  SkillRunner,
+} from './skill-executor-adapter.js';
+export { defaultSkillRunner, SkillExecutorAdapter } from './skill-executor-adapter.js';
 export type {
   SkillSearchPath as MultiSourceSkillSearchPath,
   SkillSourceMode,

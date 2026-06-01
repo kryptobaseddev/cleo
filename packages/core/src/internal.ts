@@ -990,6 +990,9 @@ export {
 export { listPhases, showPhase } from './pipeline/index.js';
 // Platform (additional)
 export { getNodeUpgradeInstructions, getNodeVersionInfo } from './platform.js';
+// Skill-node routing — in-process skill execution + retained subprocess spawn (T11477).
+export type { SkillNodeDispatchInput } from './playbooks/skill-node-executor.js';
+export { ISOLATION_CONTEXT_KEY, runSkillNodeOrSpawn } from './playbooks/skill-node-executor.js';
 // Reconciliation (additional)
 export {
   createLink,
@@ -1219,6 +1222,8 @@ export {
 } from './sessions/session-id.js';
 export type { DecisionRecord } from './sessions/types.js';
 export { readRegistry } from './skills/agents/registry.js';
+// Skills
+export { findSkill } from './skills/discovery.js';
 // Skill-store doctor (T9652 — read-only health report)
 export type {
   BridgeStatus,
@@ -1249,8 +1254,10 @@ export {
 } from './skills/federation-store.js';
 export { validateContributionTask } from './skills/manifests/contribution.js';
 export { filterEntries } from './skills/manifests/research.js';
-// Skills
 export { analyzeDependencies, getNextTask, getReadyTasks } from './skills/orchestrator/startup.js';
+// Skill executor — concrete in-process impl of the SkillExecutor DIP seam (T11477).
+export type { SkillExecutorAdapterOptions, SkillRunner } from './skills/skill-executor-adapter.js';
+export { defaultSkillRunner, SkillExecutorAdapter } from './skills/skill-executor-adapter.js';
 export type { ManifestEntry } from './skills/types.js';
 // Snapshot
 export {
@@ -1661,6 +1668,17 @@ export {
   getTemplateForSubcommand,
   parseIssueTemplates,
 } from './templates/parser.js';
+// Tool guard — deny-first guarded primitive surface (T11407) consumed by the
+// in-process skill executor (T11477). The date-gated default-mode mechanism
+// (T11474 · AC4) is also surfaced so consumers can read/observe the flip state.
+export type { GuardMode, ToolGuard, ToolGuardPolicy } from './tools/guard.js';
+export {
+  createToolGuard,
+  GUARD_ENFORCE_DEADLINE,
+  GUARD_ENFORCE_FLIP_ENABLED,
+  GuardDeniedError,
+  resolveDefaultGuardMode,
+} from './tools/guard.js';
 export type { DiagnoseFinding, DiagnoseResult, UpgradeSummary } from './upgrade.js';
 // Upgrade
 export { diagnoseUpgrade, runUpgrade } from './upgrade.js';
