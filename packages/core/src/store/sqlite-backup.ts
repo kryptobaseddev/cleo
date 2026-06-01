@@ -680,7 +680,7 @@ async function snapshotOne(
  *
  * Debounced by default (30s). Pass `force: true` to bypass debounce. This
  * function is retained for backward compatibility with existing call sites
- * in `data-safety.ts` / `data-safety-central.ts` that only snapshot tasks.db.
+ * in `data-safety-central.ts` that only snapshot tasks.db.
  *
  * Prefer {@link vacuumIntoBackupAll} for new code — it snapshots every
  * inventory-registered database and shares the same debounce + rotation

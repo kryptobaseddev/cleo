@@ -8,12 +8,12 @@
 
 export { atomicWrite, atomicWriteJson, safeReadFile } from './atomic.js';
 export { createBackup, listBackups, restoreFromBackup } from './backup.js';
-export { forceCheckpointBeforeOperation } from './data-safety.js';
 export type { SafetyOptions } from './data-safety-central.js';
 export {
   DataSafetyError,
   disableSafety,
   enableSafety,
+  forceCheckpointBeforeOperation,
   forceSafetyCheckpoint,
   getSafetyStats,
   resetSafetyStats,

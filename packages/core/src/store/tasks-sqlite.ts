@@ -24,7 +24,7 @@ import {
   safeCreateTask,
   safeDeleteTask,
   safeUpdateTask,
-} from './data-safety.js';
+} from './data-safety-central.js';
 import { parseLabels, updateTaskLabels } from './db-helpers.js';
 import { getDb, getNativeDb } from './sqlite.js';
 import type { TaskRow } from './tasks-schema.js';
@@ -481,7 +481,7 @@ export async function countTasks(cwd?: string): Promise<number> {
 // === SAFE WRAPPER FUNCTIONS (with collision detection, write verification, auto-checkpoint) ===
 
 /** Configuration for safe operations. */
-export type { SafetyConfig } from './data-safety.js';
+export type { SafetyConfig } from './data-safety-central.js';
 
 /**
  * Create a task with full safety protections.

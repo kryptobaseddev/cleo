@@ -1,7 +1,7 @@
 /**
  * Write Verification Tests
  *
- * Tests the write verification layer in data-safety.ts that reads back
+ * Tests the write verification layer in data-safety-central.ts that reads back
  * data after writes to confirm persistence.
  *
  * @task T4741
@@ -54,7 +54,7 @@ describe('Write Verification', () => {
   describe('verifyTaskWrite', () => {
     it('should verify a successfully written task', async () => {
       const { createTask } = await import('../tasks-sqlite.js');
-      const { verifyTaskWrite } = await import('../data-safety.js');
+      const { verifyTaskWrite } = await import('../data-safety-central.js');
 
       await createTask({
         id: 'T001',
@@ -70,7 +70,7 @@ describe('Write Verification', () => {
     });
 
     it('should fail verification for non-existent task', async () => {
-      const { verifyTaskWrite, SafetyError } = await import('../data-safety.js');
+      const { verifyTaskWrite, SafetyError } = await import('../data-safety-central.js');
 
       await expect(
         verifyTaskWrite('T999', undefined, tempDir, { strictMode: true }),
@@ -78,7 +78,7 @@ describe('Write Verification', () => {
     });
 
     it('should return false for non-existent task in non-strict mode', async () => {
-      const { verifyTaskWrite } = await import('../data-safety.js');
+      const { verifyTaskWrite } = await import('../data-safety-central.js');
 
       const verified = await verifyTaskWrite('T999', undefined, tempDir, { strictMode: false });
       expect(verified).toBe(false);
@@ -86,7 +86,7 @@ describe('Write Verification', () => {
 
     it('should verify expected data fields match', async () => {
       const { createTask } = await import('../tasks-sqlite.js');
-      const { verifyTaskWrite } = await import('../data-safety.js');
+      const { verifyTaskWrite } = await import('../data-safety-central.js');
 
       await createTask({
         id: 'T001',
@@ -102,7 +102,7 @@ describe('Write Verification', () => {
     });
 
     it('should skip verification when verifyWrites is disabled', async () => {
-      const { verifyTaskWrite } = await import('../data-safety.js');
+      const { verifyTaskWrite } = await import('../data-safety-central.js');
 
       // Even for non-existent task, should return true when disabled
       const verified = await verifyTaskWrite('T999', undefined, tempDir, {
@@ -115,7 +115,7 @@ describe('Write Verification', () => {
   describe('verifySessionWrite', () => {
     it('should verify a successfully written session', async () => {
       const { createSession } = await import('../session-store.js');
-      const { verifySessionWrite } = await import('../data-safety.js');
+      const { verifySessionWrite } = await import('../data-safety-central.js');
 
       await createSession({
         id: 'sess-001',
@@ -135,7 +135,7 @@ describe('Write Verification', () => {
     });
 
     it('should fail verification for non-existent session', async () => {
-      const { verifySessionWrite } = await import('../data-safety.js');
+      const { verifySessionWrite } = await import('../data-safety-central.js');
 
       await expect(
         verifySessionWrite('sess-nonexistent', tempDir, { strictMode: true }),
@@ -146,7 +146,7 @@ describe('Write Verification', () => {
   describe('safeCreateTask', () => {
     it('should create task with full safety pipeline', async () => {
       const { createTask, getTask } = await import('../tasks-sqlite.js');
-      const { safeCreateTask } = await import('../data-safety.js');
+      const { safeCreateTask } = await import('../data-safety-central.js');
 
       const taskData = {
         id: 'T001',
@@ -172,7 +172,7 @@ describe('Write Verification', () => {
 
     it('should detect collision during safe create', async () => {
       const { createTask } = await import('../tasks-sqlite.js');
-      const { safeCreateTask } = await import('../data-safety.js');
+      const { safeCreateTask } = await import('../data-safety-central.js');
 
       const taskData = {
         id: 'T001',
@@ -201,7 +201,7 @@ describe('Write Verification', () => {
   describe('safeUpdateTask', () => {
     it('should update task with write verification', async () => {
       const { createTask, getTask, updateTask } = await import('../tasks-sqlite.js');
-      const { safeUpdateTask } = await import('../data-safety.js');
+      const { safeUpdateTask } = await import('../data-safety-central.js');
 
       await createTask({
         id: 'T001',
@@ -229,7 +229,7 @@ describe('Write Verification', () => {
   describe('safeDeleteTask', () => {
     it('should delete task with verification', async () => {
       const { createTask, deleteTask, getTask } = await import('../tasks-sqlite.js');
-      const { safeDeleteTask } = await import('../data-safety.js');
+      const { safeDeleteTask } = await import('../data-safety-central.js');
 
       await createTask({
         id: 'T001',
