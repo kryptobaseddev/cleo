@@ -1,0 +1,8 @@
+# Override-cap waiver — T11535 design/research wave (T11536, T11537)
+# These are NO-CODE research/design tasks (both ACs include "No code changes made").
+# Required gates testsPassed/qaPassed mandate tool:/test-run: evidence which is
+# inapplicable when nothing executable changed. Deliverables are the query-site
+# inventory note (T11536) and ADR-090 (T11537), both committed at 234d1f49 and
+# verified via the documented + implemented (commit+files) gates.
+cap-waiver: true
+reason: "T11536/T11537 are no-code design/research; code-oriented test/qa gates N/A. Deliverables committed + documented-gate verified."
