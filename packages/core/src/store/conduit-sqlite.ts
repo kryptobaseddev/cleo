@@ -1,46 +1,85 @@
 /**
- * SQLite store for conduit.db — project-tier messaging and agent-ref database.
+ * SQLite store for the project-scope CONDUIT domain — agent-to-agent messaging,
+ * delivery queue, attachments, A2A topics, and per-project agent refs.
  *
- * Creates and manages .cleo/conduit.db using node:sqlite directly.
+ * ## E6-L3 — thin-facade migration (T11523)
  *
- * Schema definitions live in `conduit-schema.ts` (Drizzle ORM table objects).
- * On open, the legacy DDL bootstrap (`applyConduitSchema`, retained as a
- * `CREATE TABLE IF NOT EXISTS` fallback that also handles the FTS5 virtual
- * table + triggers which Drizzle cannot model) creates any missing tables,
- * then the canonical `migration-manager.ts` runner reconciles the Drizzle
- * journal and applies any pending migrations from
- * `packages/core/migrations/drizzle-conduit/`. This brings conduit.db into
- * the same SSoT pattern as tasks/brain/nexus/signaldock/telemetry.
+ * `ensureConduitDb()` is now a thin facade that delegates the database open to
+ * {@link openDualScopeDb}('project', cwd) — the canonical dual-scope chokepoint
+ * introduced by E3/E4 (T11512/T11517) and already adopted by the tasks domain
+ * (E6-L1, T11521) and brain domain (E6-L2, T11522). This ensures:
+ *
+ * - Every conduit-domain open flows through the single pragma SSoT (ADR-068/069).
+ * - The conduit tables now live inside the consolidated project `cleo.db` — NOT a
+ *   separate `conduit.db` file — co-existing with `tasks_*` / `brain_*` / etc.
+ * - DB Open Guard Gate 3 (`scripts/lint-no-direct-db-open.mjs`) stays green: the
+ *   only native open is inside `dual-scope-db.ts`.
+ *
+ * ## Inline DDL → forward migration (T11523 acceptance criteria)
+ *
+ * The 16-table inline `CONDUIT_SCHEMA_SQL` blob (formerly applied by
+ * `applyConduitSchema()`) has been removed and converted to a forward Drizzle
+ * migration under
+ * `migrations/drizzle-conduit/20260601000003_t11523-conduit-inline-schema`,
+ * matching the T1407 baseline marker and the L1/L2 precedent. The migration is
+ * reproduced VERBATIM (legacy runtime shape) — 16 tables + indexes + the
+ * `messages_fts` FTS5 virtual table + its 3 triggers — so the LocalTransport and
+ * accessor writers keep working unchanged.
+ *
+ * ## Disjoint physical names (no DROP/rebuild)
+ *
+ * The conduit legacy physical tables are BARE (`conversations`, `messages`,
+ * `delivery_jobs`, …) while the consolidated schema (`cleo-project/conduit.ts`)
+ * carries the `conduit_` domain prefix (`conduit_conversations`, …). They are
+ * therefore DISJOINT names — the legacy runtime-shape tables co-exist harmlessly
+ * with the consolidated `conduit_*` tables in the same `cleo.db`, exactly like the
+ * tasks domain (legacy `tasks` ≠ consolidated `tasks_tasks`). Unlike the brain
+ * domain (E6-L2, same prefixed names → drop + rebuild), the conduit facade needs
+ * no teardown. The exodus migration (T11248 / T11553) renames the legacy tables to
+ * `conduit_*`.
  *
  * Architecture (ADR-037):
- *   conduit.db   — project-scoped (this module) — messaging, delivery, attachments,
+ *   conduit (this module) — project-scoped — messaging, delivery, attachments,
  *                  project_agent_refs
  *   signaldock.db — global-scoped (T346) — agents, capabilities, cloud-sync tables
  *
  * @task T344
  * @task T1407
+ * @task T11523 - E6-L3: route ensureConduitDb through openDualScopeDb (SG-DB-SUBSTRATE-V2)
  * @epic T310
- * @why ADR-037 splits single signaldock.db into project-tier conduit.db
+ * @epic T11249
+ * @why ADR-037 splits single signaldock.db into project-tier conduit
  *      (this module) and global-tier signaldock.db (T346). T1407 unifies
- *      conduit.db under the canonical Drizzle migration runner.
- * @what Path helper, database initializer, Drizzle migration runner wiring,
- *       legacy schema applier (bootstrap + FTS5 fallback), health check,
- *       and native DB accessor.
+ *      conduit under the canonical Drizzle migration runner; T11523 routes it
+ *      through the consolidated `cleo.db` dual-scope chokepoint.
+ * @what Path helper, database initializer (dual-scope facade), Drizzle migration
+ *       runner wiring, health check, native DB accessor, and project_agent_refs
+ *       CRUD accessors.
  */
 
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
 // underscore-import: node:sqlite type alias required for createRequire interop.
-// Vitest/Vite cannot resolve `node:sqlite` as an ESM import (strips `node:` prefix).
-// Use createRequire as the runtime loader; keep type-only import for annotations.
+// The runtime node:sqlite loading is handled by openDualScopeDb() /
+// openNativeDatabase() in their respective leaf modules. The type import is
+// erased at runtime and is safe.
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import type { ProjectAgentRef } from '@cleocode/contracts';
-import { drizzle } from 'drizzle-orm/node-sqlite';
+// Lazy-loaded drizzle factory (see _getDrizzle). drizzle-orm/node-sqlite
+// statically imports node:sqlite, so a top-level value import would pull the
+// native binding at module-load — defeating the lazy-init invariant. The type
+// import is erased at runtime and is safe.
+import type { drizzle as drizzleFn } from 'drizzle-orm/node-sqlite';
+// E6-L3 (T11523): dual-scope chokepoint — the conduit domain now opens the
+// consolidated project `cleo.db` through here. openDualScopeDb manages the
+// DatabaseSync lifecycle, pragmas, and consolidated migrations. We extract the
+// native handle and re-wrap it with the legacy conduit-schema drizzle instance so
+// existing callers compile and run without change.
+import { openDualScopeDb, resolveDualScopeDbPath } from './dual-scope-db.js';
 import { migrateSanitized, reconcileJournal } from './migration-manager.js';
 import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
 import * as conduitSchema from './schema/conduit-schema.js';
-import { applyPerfPragmas, optimizeBeforeClose } from './sqlite-pragmas.js';
+import { applyPerfPragmas } from './sqlite-pragmas.js';
 
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
@@ -48,15 +87,49 @@ const { DatabaseSync } = _require('node:sqlite') as {
   DatabaseSync: new (...args: ConstructorParameters<typeof _DatabaseSyncType>) => DatabaseSync;
 };
 
-/** Database file name within .cleo/ directory. */
+/**
+ * Cached `drizzle` factory from `drizzle-orm/node-sqlite`, loaded on first use.
+ *
+ * Loaded via `createRequire` rather than a top-level import so that importing
+ * `conduit-sqlite.ts` does not eagerly pull in `node:sqlite` (which the drizzle
+ * driver statically imports). Memoized after the first call. Mirrors the
+ * `_getDrizzle` lazy pattern in sqlite.ts / memory-sqlite.ts (T11280/T11521/T11522).
+ *
+ * @internal
+ * @task T11523
+ */
+let _drizzle: typeof drizzleFn | null = null;
+
+/**
+ * Returns the `drizzle` factory, loading `drizzle-orm/node-sqlite` on first call.
+ *
+ * @internal
+ * @task T11523
+ */
+function _getDrizzle(): typeof drizzleFn {
+  if (_drizzle === null) {
+    const mod = _require('drizzle-orm/node-sqlite') as { drizzle: typeof drizzleFn };
+    _drizzle = mod.drizzle;
+  }
+  return _drizzle;
+}
+
+/**
+ * Legacy database file name. Retained as an export for backwards compatibility
+ * with callers that still reference the constant; the conduit domain now lives
+ * inside the consolidated project `cleo.db` (E6-L3, T11523).
+ *
+ * @deprecated The conduit domain no longer has a standalone `conduit.db` file —
+ *   it is served from the project `cleo.db`. Use {@link getConduitDbPath}.
+ */
 export const CONDUIT_DB_FILENAME = 'conduit.db';
 
 /**
- * Schema version for conduit.db.
+ * Schema version for the conduit domain.
  *
- * Bumped only when the Drizzle schema changes. T1407 refactor preserved the
- * 2026.4.23 schema verbatim (DDL representation only — no semantic changes),
- * so the version remains pinned at the post-T1252 A2A topics value.
+ * Bumped only when the conduit Drizzle schema changes. Pinned at the post-T1252
+ * A2A topics value; retained for backwards compatibility with pre-T1407 health
+ * checks that read `_conduit_meta.schema_version`.
  */
 export const CONDUIT_SCHEMA_VERSION = '2026.4.23';
 
@@ -66,359 +139,35 @@ export const CONDUIT_SCHEMA_VERSION = '2026.4.23';
 
 let _conduitNativeDb: DatabaseSync | null = null;
 let _conduitDbPath: string | null = null;
-
-// ---------------------------------------------------------------------------
-// DDL
-// ---------------------------------------------------------------------------
-
-/**
- * Full conduit.db schema SQL.
- *
- * All tables use CREATE TABLE IF NOT EXISTS / CREATE INDEX IF NOT EXISTS /
- * CREATE TRIGGER IF NOT EXISTS for idempotency. Carried over verbatim from
- * the project-local tables in signaldock-sqlite.ts (migration
- * `2026-03-28-000000_initial` + subsequent migrations), minus the global-
- * identity tables (agents, capabilities, skills, agent_capabilities,
- * agent_skills, agent_connections, users, organization, accounts, sessions,
- * verifications, claim_codes, org_agent_keys) which move to global-tier
- * signaldock.db (T346).
- *
- * Additional new table: project_agent_refs (ADR-037 §3, Q6=A).
- *
- * NOTE: The `connections` table from the original migration is a cross-agent
- * social graph that references `agents(id)` — it is a global-identity
- * concern and stays with signaldock.db (T346). It is NOT included here.
- */
-const CONDUIT_SCHEMA_SQL = `
--- -------------------------------------------------------------------------
--- Project-scoped conversations (LocalTransport DM threads).
--- -------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS conversations (
-    id TEXT PRIMARY KEY,
-    participants TEXT NOT NULL,
-    visibility TEXT NOT NULL DEFAULT 'private',
-    message_count INTEGER NOT NULL DEFAULT 0,
-    last_message_at INTEGER,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
-);
-
--- -------------------------------------------------------------------------
--- Project-scoped agent-to-agent messages (LocalTransport content).
--- -------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS messages (
-    id TEXT PRIMARY KEY,
-    conversation_id TEXT NOT NULL REFERENCES conversations(id),
-    from_agent_id TEXT NOT NULL,
-    to_agent_id TEXT NOT NULL,
-    content TEXT NOT NULL,
-    content_type TEXT NOT NULL DEFAULT 'text',
-    status TEXT NOT NULL DEFAULT 'pending',
-    attachments TEXT NOT NULL DEFAULT '[]',
-    group_id TEXT,
-    metadata TEXT DEFAULT '{}',
-    reply_to TEXT,
-    created_at INTEGER NOT NULL,
-    delivered_at INTEGER,
-    read_at INTEGER
-);
-CREATE INDEX IF NOT EXISTS messages_conversation_idx ON messages(conversation_id);
-CREATE INDEX IF NOT EXISTS messages_from_agent_idx ON messages(from_agent_id);
-CREATE INDEX IF NOT EXISTS messages_to_agent_idx ON messages(to_agent_id);
-CREATE INDEX IF NOT EXISTS messages_created_at_idx ON messages(created_at);
-CREATE INDEX IF NOT EXISTS idx_messages_group_id ON messages(group_id) WHERE group_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_messages_reply_to ON messages(reply_to) WHERE reply_to IS NOT NULL;
-
--- -------------------------------------------------------------------------
--- FTS5 virtual table for full-text search on message content.
--- NOTE: Must be migrated using VACUUM INTO, not DDL-only copy, to preserve
--- triggers. The INSERT INTO messages_fts(messages_fts) VALUES('rebuild')
--- is idempotent — safe to run on every open.
--- -------------------------------------------------------------------------
-CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts
-    USING fts5(content, from_agent_id, content='messages', content_rowid='rowid');
-INSERT INTO messages_fts(messages_fts) VALUES('rebuild');
-CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
-    INSERT INTO messages_fts(rowid, content, from_agent_id)
-        VALUES (new.rowid, new.content, new.from_agent_id);
-END;
-CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
-    INSERT INTO messages_fts(messages_fts, rowid, content, from_agent_id)
-        VALUES('delete', old.rowid, old.content, old.from_agent_id);
-END;
-CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
-    INSERT INTO messages_fts(messages_fts, rowid, content, from_agent_id)
-        VALUES('delete', old.rowid, old.content, old.from_agent_id);
-    INSERT INTO messages_fts(rowid, content, from_agent_id)
-        VALUES (new.rowid, new.content, new.from_agent_id);
-END;
-
--- -------------------------------------------------------------------------
--- Async delivery queue for deferred message dispatch.
--- -------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS delivery_jobs (
-    id TEXT PRIMARY KEY,
-    message_id TEXT NOT NULL,
-    payload TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending',
-    attempts INTEGER NOT NULL DEFAULT 0,
-    max_attempts INTEGER NOT NULL DEFAULT 6,
-    next_attempt_at INTEGER NOT NULL,
-    last_error TEXT,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_delivery_jobs_status ON delivery_jobs(status, next_attempt_at);
-
--- -------------------------------------------------------------------------
--- Dead-letter queue for messages that exceeded max delivery attempts.
--- -------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS dead_letters (
-    id TEXT PRIMARY KEY,
-    message_id TEXT NOT NULL,
-    job_id TEXT NOT NULL,
-    reason TEXT NOT NULL,
-    attempts INTEGER NOT NULL,
-    created_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_dead_letters_message ON dead_letters(message_id);
-
--- -------------------------------------------------------------------------
--- Pinned messages within a conversation.
--- -------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS message_pins (
-    id TEXT PRIMARY KEY,
-    message_id TEXT NOT NULL,
-    conversation_id TEXT NOT NULL,
-    pinned_by TEXT NOT NULL,
-    note TEXT,
-    created_at INTEGER NOT NULL,
-    UNIQUE(message_id, pinned_by)
-);
-CREATE INDEX IF NOT EXISTS idx_pins_conversation ON message_pins(conversation_id);
-CREATE INDEX IF NOT EXISTS idx_pins_agent ON message_pins(pinned_by);
-
--- -------------------------------------------------------------------------
--- File/blob attachments associated with messages.
--- -------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS attachments (
-    slug TEXT PRIMARY KEY,
-    conversation_id TEXT NOT NULL,
-    from_agent_id TEXT NOT NULL,
-    content BLOB NOT NULL,
-    original_size INTEGER NOT NULL,
-    compressed_size INTEGER NOT NULL,
-    content_hash TEXT NOT NULL,
-    format TEXT NOT NULL DEFAULT 'text',
-    title TEXT,
-    tokens INTEGER NOT NULL DEFAULT 0,
-    expires_at INTEGER NOT NULL DEFAULT 0,
-    storage_key TEXT,
-    mode TEXT NOT NULL DEFAULT 'draft',
-    version_count INTEGER NOT NULL DEFAULT 1,
-    current_version INTEGER NOT NULL DEFAULT 1,
-    created_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS attachments_conversation_idx ON attachments(conversation_id);
-CREATE INDEX IF NOT EXISTS attachments_agent_idx ON attachments(from_agent_id);
-
--- -------------------------------------------------------------------------
--- Version history for attachments (collaborative editing).
--- -------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS attachment_versions (
-    id TEXT PRIMARY KEY,
-    slug TEXT NOT NULL REFERENCES attachments(slug) ON DELETE CASCADE,
-    version_number INTEGER NOT NULL,
-    author_agent_id TEXT NOT NULL,
-    change_type TEXT NOT NULL DEFAULT 'patch',
-    patch_text TEXT,
-    storage_key TEXT NOT NULL,
-    content_hash TEXT NOT NULL,
-    original_size INTEGER NOT NULL,
-    compressed_size INTEGER NOT NULL,
-    tokens INTEGER NOT NULL,
-    change_summary TEXT,
-    sections_modified TEXT NOT NULL DEFAULT '[]',
-    tokens_added INTEGER NOT NULL DEFAULT 0,
-    tokens_removed INTEGER NOT NULL DEFAULT 0,
-    created_at INTEGER NOT NULL,
-    UNIQUE(slug, version_number)
-);
-CREATE INDEX IF NOT EXISTS idx_attachment_versions_slug ON attachment_versions(slug);
-CREATE INDEX IF NOT EXISTS idx_attachment_versions_author ON attachment_versions(author_agent_id);
-
--- -------------------------------------------------------------------------
--- Approval records for attachment content review.
--- -------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS attachment_approvals (
-    id TEXT PRIMARY KEY,
-    slug TEXT NOT NULL REFERENCES attachments(slug) ON DELETE CASCADE,
-    reviewer_agent_id TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending',
-    comment TEXT,
-    version_reviewed INTEGER NOT NULL,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    UNIQUE(slug, reviewer_agent_id)
-);
-CREATE INDEX IF NOT EXISTS idx_attachment_approvals_slug ON attachment_approvals(slug);
-
--- -------------------------------------------------------------------------
--- Contributor statistics per attachment (who edited, how much).
--- -------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS attachment_contributors (
-    slug TEXT NOT NULL REFERENCES attachments(slug) ON DELETE CASCADE,
-    agent_id TEXT NOT NULL,
-    version_count INTEGER NOT NULL DEFAULT 0,
-    total_tokens_added INTEGER NOT NULL DEFAULT 0,
-    total_tokens_removed INTEGER NOT NULL DEFAULT 0,
-    first_contribution_at INTEGER NOT NULL,
-    last_contribution_at INTEGER NOT NULL,
-    PRIMARY KEY (slug, agent_id)
-);
-
--- -------------------------------------------------------------------------
--- NEW: Per-project agent reference overrides (ADR-037 §3, Q6=A).
--- agent_id is a SOFT FK to global signaldock.db:agents.agent_id.
--- Cross-DB FK enforcement is not possible in SQLite; the accessor layer
--- (T355) validates on every cross-DB join.
--- -------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS project_agent_refs (
-    agent_id TEXT PRIMARY KEY,
-    attached_at TEXT NOT NULL,
-    role TEXT,
-    capabilities_override TEXT,
-    last_used_at TEXT,
-    enabled INTEGER NOT NULL DEFAULT 1
-);
--- Partial index: covers the dominant query path (list enabled agents).
-CREATE INDEX IF NOT EXISTS idx_project_agent_refs_enabled
-    ON project_agent_refs(enabled) WHERE enabled = 1;
-
--- -------------------------------------------------------------------------
--- A2A Topics (T1252 — Wave 9 Agent-to-Agent coordination pub-sub).
--- Topics are named channels that agents can publish to / subscribe from.
--- Topic names follow "<epicId>.<waveId>" or "<epicId>.coordination".
--- -------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS topics (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
-    epic_id TEXT NOT NULL,
-    wave_id INTEGER,
-    created_by TEXT NOT NULL,
-    created_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_topics_epic ON topics(epic_id);
-
--- -------------------------------------------------------------------------
--- A2A Topic subscriptions — links an agent_id to a topic_id.
--- Created by subscribeTopic(); removed by unsubscribeTopic().
--- -------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS topic_subscriptions (
-    topic_id TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
-    agent_id TEXT NOT NULL,
-    subscribed_at INTEGER NOT NULL,
-    PRIMARY KEY (topic_id, agent_id)
-);
-CREATE INDEX IF NOT EXISTS idx_topic_subscriptions_agent ON topic_subscriptions(agent_id);
-
--- -------------------------------------------------------------------------
--- A2A Topic messages — broadcast messages published to a topic.
--- payload is stored as JSON text.
--- -------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS topic_messages (
-    id TEXT PRIMARY KEY,
-    topic_id TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
-    from_agent_id TEXT NOT NULL,
-    kind TEXT NOT NULL DEFAULT 'message',
-    content TEXT NOT NULL,
-    payload TEXT,
-    created_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_topic_messages_topic_created ON topic_messages(topic_id, created_at);
-
--- -------------------------------------------------------------------------
--- A2A Topic message ACKs — per-subscriber delivery tracking.
--- -------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS topic_message_acks (
-    message_id TEXT NOT NULL REFERENCES topic_messages(id) ON DELETE CASCADE,
-    subscriber_agent_id TEXT NOT NULL,
-    delivered_at INTEGER,
-    read_at INTEGER,
-    PRIMARY KEY (message_id, subscriber_agent_id)
-);
-
--- -------------------------------------------------------------------------
--- Schema tracking tables (mirrors _signaldock_meta / _signaldock_migrations).
--- -------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS _conduit_meta (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL,
-    updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
-);
-CREATE TABLE IF NOT EXISTS _conduit_migrations (
-    name TEXT PRIMARY KEY,
-    applied_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
-);
-`;
+/** Guard against concurrent initialization (async dual-scope open). */
+let _initPromise: Promise<{ action: 'created' | 'exists'; path: string }> | null = null;
 
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
 /**
- * Returns the project-tier conduit.db path.
+ * Returns the project-scope conduit database path.
  *
- * Always resolves to `<projectRoot>/.cleo/conduit.db`. The caller is
- * responsible for supplying the absolute project root (e.g. via
- * `getProjectRoot()` from `../paths.js`).
+ * ## E6-L3 (T11523)
+ *
+ * After the dual-scope migration, `ensureConduitDb()` opens the consolidated
+ * project `cleo.db` via {@link openDualScopeDb} — not the legacy standalone
+ * `conduit.db`. This function therefore returns the dual-scope `cleo.db` path so
+ * that callers checking for the file `ensureConduitDb()` created (existence /
+ * backup / health probes) point at the correct file.
+ *
+ * The supplied `projectRoot` is passed through as the `cwd` for the SSoT
+ * resolver, which walks up to find the `.cleo/` directory.
  *
  * @task T344
+ * @task T11523
  * @epic T310
  * @param projectRoot - Absolute path to the project root directory.
- * @returns Absolute path to `<projectRoot>/.cleo/conduit.db`.
+ * @returns Absolute path to the project `cleo.db`.
  */
 export function getConduitDbPath(projectRoot: string): string {
-  return join(projectRoot, '.cleo', CONDUIT_DB_FILENAME);
-}
-
-/**
- * Applies the conduit.db schema idempotently using CREATE TABLE IF NOT EXISTS.
- *
- * Used as a bootstrap path for fresh conduit.db files BEFORE the Drizzle
- * migration runner takes over. The DDL is `CREATE TABLE IF NOT EXISTS` /
- * `CREATE INDEX IF NOT EXISTS` / `CREATE TRIGGER IF NOT EXISTS` /
- * `CREATE VIRTUAL TABLE IF NOT EXISTS` for full idempotency, so calling this
- * on an already-populated DB is a no-op.
- *
- * Two reasons this raw-SQL applier is retained alongside the Drizzle
- * runner (T1407):
- *
- * 1. **FTS5 + triggers** — drizzle-orm sqlite-core does not model FTS5
- *    virtual tables or AFTER INSERT/DELETE/UPDATE triggers. The
- *    `messages_fts` virtual table and its 3 triggers can only live in
- *    raw SQL. They MUST be present after init for full-text message
- *    search to work.
- *
- * 2. **Comment-only baseline migration** — the Drizzle baseline marker at
- *    `packages/core/migrations/drizzle-conduit/20260425000000_initial-conduit/migration.sql`
- *    is intentionally comment-only (T1165 Hybrid Path A+ pattern) so that
- *    existing conduit.db files in the wild detect the schema via
- *    `reconcileJournal()` and mark the baseline applied without re-running
- *    DDL. Fresh DBs therefore need a separate bootstrap path — that is
- *    this function.
- *
- * Exposed for the migration executor (T358) which needs to apply the schema
- * to a newly created conduit.db during the signaldock.db → conduit.db
- * migration. Also called internally by `ensureConduitDb` on every open.
- *
- * @task T344
- * @task T1407
- * @epic T310
- * @param db - An open node:sqlite DatabaseSync instance.
- */
-export function applyConduitSchema(db: DatabaseSync): void {
-  db.exec(CONDUIT_SCHEMA_SQL);
+  return resolveDualScopeDbPath('project', projectRoot);
 }
 
 /**
@@ -433,189 +182,167 @@ export function resolveConduitMigrationsFolder(): string {
 }
 
 /**
- * Run Drizzle migrations to reconcile and update conduit.db.
+ * Apply the conduit-domain schema to an arbitrary open `DatabaseSync` handle by
+ * running the `drizzle-conduit` migration set against it.
+ *
+ * ## E6-L3 (T11523)
+ *
+ * Previously this executed the inline `CONDUIT_SCHEMA_SQL` blob directly. That
+ * blob has been moved into the forward migration
+ * `20260601000003_t11523-conduit-inline-schema`, so this helper now reconciles
+ * the journal and runs the conduit migrations — the same path `ensureConduitDb`
+ * uses internally. It remains exported for the signaldock→conduit migration
+ * executor (T358) and characterization tests that need to seed the conduit schema
+ * onto a caller-owned handle.
+ *
+ * Idempotent: every migration statement uses `IF NOT EXISTS`, so applying it onto
+ * an already-populated DB is a no-op (the journal reconciler marks it applied).
+ *
+ * @task T344
+ * @task T1407
+ * @task T11523
+ * @epic T310
+ * @param db - An open node:sqlite DatabaseSync instance.
+ */
+export function applyConduitSchema(db: DatabaseSync): void {
+  runConduitMigrations(db);
+}
+
+/**
+ * Run Drizzle migrations to reconcile and update the conduit schema on the given
+ * native handle.
  *
  * Uses `reconcileJournal()` + `migrateSanitized()` from migration-manager.ts —
  * the canonical SSoT for SQLite migration semantics shared with tasks/brain/
- * nexus/signaldock/telemetry.
+ * nexus/signaldock/telemetry. The conduit `__drizzle_migrations` journal lives in
+ * the same `cleo.db` as the consolidated cleo-project journal; the hashes are
+ * disjoint, so the conduit migrations reconcile/apply independently.
  *
- * Reconciliation handles:
- *   - Scenario 1: existing DB with schema present but no `__drizzle_migrations`
- *     table → bootstrap baseline as applied.
- *   - Scenario 3: comment-only baseline marker on a populated DB → marked
- *     applied immediately without running DDL.
- *   - Scenario 4: backfill `name` on null journal entries (Drizzle v1 beta).
- *
- * The existence sentinel is `conversations` — the first table created by
- * `applyConduitSchema()` (always present on any conduit.db that has been
- * through a successful init).
+ * The existence sentinel is `conversations` — the first table created by the
+ * conduit schema migration (always present on any conduit-initialized DB).
  *
  * @task T1407
+ * @task T11523
  * @epic T310
  */
 function runConduitMigrations(nativeDb: DatabaseSync): void {
   const migrationsFolder = resolveConduitMigrationsFolder();
 
-  // Reconcile the Drizzle journal first so existing DBs don't try to re-run
-  // the comment-only baseline marker (Scenario 3 marks it applied immediately
-  // when the schema already matches).
+  // Reconcile the Drizzle journal first so existing DBs don't try to re-run the
+  // comment-only baseline marker (Scenario 3 marks it applied immediately when
+  // the schema already matches).
   reconcileJournal(nativeDb, migrationsFolder, 'conversations', 'conduit');
 
-  const db = drizzle({ client: nativeDb, schema: conduitSchema });
+  const db = _getDrizzle()({ client: nativeDb, schema: conduitSchema });
   migrateSanitized(db, { migrationsFolder });
 }
 
 /**
- * Opens or creates conduit.db for the given project root.
+ * Initialize the project-scope CONDUIT domain SQLite database (lazy, singleton).
  *
- * On first call for a given projectRoot:
- *   1. Creates `<projectRoot>/.cleo/` directory if missing.
- *   2. Opens (or creates) the SQLite file.
- *   3. Sets WAL mode and enables foreign keys.
- *   4. Bootstraps schema via `applyConduitSchema` (idempotent CREATE
- *      TABLE/INDEX/TRIGGER/VIRTUAL TABLE IF NOT EXISTS — the only path
- *      that creates the FTS5 virtual table + triggers Drizzle cannot
- *      model).
- *   5. Runs Drizzle migration reconciliation + apply pending migrations
- *      via `runConduitMigrations()` (canonical migration-manager.ts SSoT).
- *   6. Records `schema_version` in `_conduit_meta` (legacy, retained for
- *      backwards compatibility with pre-T1407 health checks).
- *   7. Stores the open handle in the module singleton.
+ * ## E6-L3 façade (T11523)
+ *
+ * Delegates the physical DB open to {@link openDualScopeDb}('project', cwd) — the
+ * canonical dual-scope chokepoint. openDualScopeDb applies the pragma SSoT,
+ * creates the directory, runs the consolidated cleo-project migrations (which
+ * create the `conduit_*` tables), and manages the singleton cache. We extract its
+ * native handle (`$client`) and run the legacy `drizzle-conduit` migrations on it
+ * to (idempotently) create the BARE legacy runtime-shape tables (`conversations`,
+ * `messages`, FTS5, …) that the LocalTransport + accessor writers query. The
+ * legacy and consolidated `conduit_*` tables co-exist (disjoint names) — the
+ * exodus migration (T11248 / T11553) renames the legacy ones.
  *
  * On subsequent calls the existing singleton is returned immediately if the
- * resolved path matches; otherwise the previous handle is closed and a new
- * one is opened (test-isolation safety).
+ * resolved path matches AND the shared handle is still live (liveness guard);
+ * otherwise it re-derives from the live dual-scope cache.
  *
- * Caller MUST call `closeConduitDb()` when done to release the handle.
+ * Uses a promise guard so concurrent callers wait for the same initialization to
+ * complete (the dual-scope open is async).
  *
  * @task T344
  * @task T1407
+ * @task T11523
  * @epic T310
  * @param projectRoot - Absolute path to the project root directory.
  * @returns Object with `action` (`'created'` | `'exists'`) and `path`.
  */
-/**
- * Read the `schema_version` row from `_conduit_meta` if it exists.
- *
- * Used by {@link ensureConduitDb} as a fast-path sentinel: when the value
- * matches {@link CONDUIT_SCHEMA_VERSION} we know the DB is fully bootstrapped
- * and migrated to the in-process code version, so we can skip the full
- * `applyConduitSchema()` + `runConduitMigrations()` pipeline on every CLI
- * invocation (T9027 — epic T9026, CLI startup tax reduction).
- *
- * Defensive: returns `null` if the meta table is missing (pre-T1407 layout)
- * or the row is absent. Any throw is swallowed — a sentinel miss simply
- * forces the fall-through full-init path which is always safe.
- *
- * @param db - An open conduit.db handle (post-pragmas).
- * @returns The schema_version string, or `null` if absent / unreadable.
- * @task T9027
- * @epic T9026
- */
-function readSchemaVersionSentinel(db: DatabaseSync): string | null {
-  try {
-    const row = db.prepare("SELECT value FROM _conduit_meta WHERE key = 'schema_version'").get() as
-      | { value: string }
-      | undefined;
-    return row?.value ?? null;
-  } catch {
-    return null;
-  }
-}
-
-export function ensureConduitDb(projectRoot: string): {
-  action: 'created' | 'exists';
-  path: string;
-} {
+export async function ensureConduitDb(
+  projectRoot: string,
+): Promise<{ action: 'created' | 'exists'; path: string }> {
   const dbPath = getConduitDbPath(projectRoot);
 
-  // If singleton already open at the same path, skip re-initialization.
+  // Liveness guard (T11523): the conduit domain SHARES the consolidated cleo.db
+  // handle with the tasks + brain domains. Another domain may have closed +
+  // re-opened the shared `DatabaseSync` (e.g. its reset / auto-recovery path)
+  // while our conduit singleton still references the now-closed handle. Detect a
+  // stale (closed) handle, or a singleton bound to a different path, and drop it
+  // so we re-derive from the live openDualScopeDb cache below.
+  if (_conduitNativeDb && (!_conduitNativeDb.isOpen || _conduitDbPath !== dbPath)) {
+    resetConduitDbState();
+  }
+
+  // If singleton already open at the same path and live, skip re-initialization.
   if (_conduitNativeDb && _conduitDbPath === dbPath) {
     return { action: 'exists', path: dbPath };
   }
 
-  // Close any stale singleton pointing at a different path (e.g. between tests).
-  if (_conduitNativeDb) {
-    closeConduitDb();
-  }
+  // If already initializing, wait for the in-flight init.
+  if (_initPromise) return _initPromise;
 
-  const alreadyExists = existsSync(dbPath);
+  _initPromise = (async (): Promise<{ action: 'created' | 'exists'; path: string }> => {
+    const alreadyExists = existsSync(dbPath);
 
-  // Ensure parent .cleo/ directory exists.
-  mkdirSync(dirname(dbPath), { recursive: true });
+    // ── Dual-scope chokepoint delegation (T11523 · E6-L3) ──────────────────
+    // openDualScopeDb applies the pragma SSoT, creates the directory, runs the
+    // consolidated cleo-project migrations (which create the `conduit_*` tables),
+    // and manages the singleton cache. We extract its native handle so we can run
+    // the legacy `drizzle-conduit` migrations for caller compatibility.
+    const dualHandle = await openDualScopeDb('project', projectRoot);
 
-  const db = new DatabaseSync(dbPath);
-
-  // Canonical CLEO pragma set (WAL, busy_timeout, synchronous=NORMAL, FK on,
-  // 64MB cache, 256MB mmap, MEMORY temp store, wal_autocheckpoint).
-  applyPerfPragmas(db);
-
-  // Check whether the schema sentinel table already exists before applying DDL.
-  const hasSchema = (() => {
-    try {
-      const result = db
-        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='conversations'")
-        .get() as { name: string } | undefined;
-      return !!result;
-    } catch {
-      return false;
+    // Extract the underlying DatabaseSync. Drizzle exposes it via `$client`.
+    const nativeDb = (dualHandle.db as { $client?: DatabaseSync }).$client ?? null;
+    if (!nativeDb) {
+      throw new Error(
+        'E6-L3: openDualScopeDb returned a handle without $client — ' +
+          'cannot extract DatabaseSync for legacy conduit-schema wrapping.',
+      );
     }
+
+    // Establish the LEGACY conduit-domain schema inside the consolidated cleo.db.
+    // The consolidated migrations created the prefixed `conduit_*` tables; the
+    // runtime writers query the BARE legacy tables (`conversations`, `messages`,
+    // FTS5, …). Running the `drizzle-conduit` set creates those bare tables. They
+    // are disjoint from the consolidated names, so no drop is needed (unlike the
+    // brain domain, E6-L2). Idempotent: a no-op once the tables already exist.
+    runConduitMigrations(nativeDb);
+
+    // Record schema version in the legacy `_conduit_meta` table for backwards-
+    // compatible health-check consumers (checkConduitDbHealth and any external
+    // tooling that grepped the meta table prior to T1407). The Drizzle journal
+    // (`__drizzle_migrations`) is the canonical migration source-of-truth.
+    nativeDb.exec(
+      `INSERT OR REPLACE INTO _conduit_meta (key, value, updated_at)
+       VALUES ('schema_version', '${CONDUIT_SCHEMA_VERSION}', strftime('%s', 'now'))`,
+    );
+
+    _conduitNativeDb = nativeDb;
+    _conduitDbPath = dbPath;
+
+    return { action: alreadyExists ? 'exists' : 'created', path: dbPath };
   })();
 
-  // T9027 — Schema-version sentinel fast path (epic T9026, CLI startup tax).
-  //
-  // If the DB already has the conduit schema applied AND its
-  // `_conduit_meta.schema_version` row exactly equals the in-process
-  // `CONDUIT_SCHEMA_VERSION` constant, we know:
-  //   1. All DDL is already in place (CREATE TABLE IF NOT EXISTS would no-op).
-  //   2. All Drizzle migrations up to this version have already been replayed
-  //      (the meta row is only written at the tail of a successful ensure()).
-  //
-  // In that case skip applyConduitSchema() and runConduitMigrations() entirely
-  // — both perform non-trivial work (DDL string parse for the former, journal
-  // SELECT + reconciler for the latter) on every CLI invocation. Pragmas are
-  // already applied above.
-  //
-  // Fall-through (sentinel missing, stale, or mismatched) preserves the full
-  // bootstrap + migration replay path so fresh DBs and version bumps work.
-  if (alreadyExists && hasSchema && readSchemaVersionSentinel(db) === CONDUIT_SCHEMA_VERSION) {
-    _conduitNativeDb = db;
-    _conduitDbPath = dbPath;
-    return { action: 'exists', path: dbPath };
+  try {
+    return await _initPromise;
+  } finally {
+    _initPromise = null;
   }
-
-  // Bootstrap schema (idempotent — all statements use IF NOT EXISTS). For fresh
-  // DBs this creates every conduit table, the FTS5 virtual table, and its 3
-  // triggers. For populated DBs this is a no-op.
-  applyConduitSchema(db);
-
-  // Run Drizzle migration reconciliation + apply any pending migrations
-  // (T1407 unification — canonical migration-manager.ts runner).
-  runConduitMigrations(db);
-
-  // Record schema version in the legacy `_conduit_meta` table for backwards-
-  // compatible health-check consumers (checkConduitDbHealth and any external
-  // tooling that grepped the meta table prior to T1407). The Drizzle journal
-  // (`__drizzle_migrations`) is now the canonical migration source-of-truth.
-  db.exec(
-    `INSERT OR REPLACE INTO _conduit_meta (key, value, updated_at)
-     VALUES ('schema_version', '${CONDUIT_SCHEMA_VERSION}', strftime('%s', 'now'))`,
-  );
-
-  _conduitNativeDb = db;
-  _conduitDbPath = dbPath;
-
-  return {
-    action: alreadyExists && hasSchema ? 'exists' : 'created',
-    path: dbPath,
-  };
 }
 
 /**
- * Returns the live node:sqlite DatabaseSync handle for conduit.db.
+ * Returns the live node:sqlite DatabaseSync handle for the conduit domain.
  *
- * Returns `null` if `ensureConduitDb` has not been called yet for this
- * process, or if `closeConduitDb` has been called since the last open.
+ * Returns `null` if `ensureConduitDb` has not been called yet for this process,
+ * or if the shared handle has been closed since the last open.
  *
  * @task T344
  * @epic T310
@@ -626,28 +353,48 @@ export function getConduitNativeDb(): DatabaseSync | null {
 }
 
 /**
- * Closes the conduit.db connection and resets the module singleton.
+ * Close the conduit-domain database connection and reset the module singleton.
  *
- * Safe to call multiple times. No-op if the database is already closed.
+ * ## E6-L3 (T11523)
+ *
+ * The conduit domain now SHARES the consolidated project `cleo.db` handle with
+ * the tasks + brain domains (all open it via {@link openDualScopeDb}, same cache
+ * key). This function therefore must NOT close the underlying `DatabaseSync` nor
+ * evict the dual-scope cache — doing so would break in-flight tasks/brain-domain
+ * queries with "database is not open". It only drops the conduit-domain singleton
+ * references; the shared handle's lifecycle is owned by `openDualScopeDb` and torn
+ * down by a coordinated reset (`closeAllDatabases` → `_resetDualScopeDbCache`).
+ *
+ * Safe to call multiple times.
  *
  * @task T344
+ * @task T11523
  * @epic T310
  */
 export function closeConduitDb(): void {
-  if (_conduitNativeDb) {
-    try {
-      if (_conduitNativeDb.isOpen) {
-        // PRAGMA optimize before close so the next process inherits up-to-date
-        // table statistics for query planning (SQLite-recommended pattern).
-        optimizeBeforeClose(_conduitNativeDb);
-        _conduitNativeDb.close();
-      }
-    } catch {
-      // Ignore close errors — the handle is being discarded regardless.
-    }
-    _conduitNativeDb = null;
-  }
+  // Drop only the conduit singleton references. Do NOT close `_conduitNativeDb`
+  // — it is the shared dual-scope handle, possibly still in use by tasks/brain.
+  _conduitNativeDb = null;
   _conduitDbPath = null;
+  _initPromise = null;
+}
+
+/**
+ * Reset conduit-domain singleton state without saving.
+ *
+ * Used during tests or when the shared database handle is recreated. Drops only
+ * the conduit-domain singleton references — does NOT close the shared dual-scope
+ * `cleo.db` handle nor evict the dual-scope cache (that handle is shared with the
+ * tasks + brain domains). Mirrors {@link closeConduitDb}. Safe to call multiple
+ * times.
+ *
+ * @task T11523
+ * @epic T310
+ */
+export function resetConduitDbState(): void {
+  _conduitNativeDb = null;
+  _conduitDbPath = null;
+  _initPromise = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -659,7 +406,7 @@ export function closeConduitDb(): void {
  * re-enables it (update attached_at timestamp). If a row exists with enabled=1,
  * no-op. Inserts a new row otherwise.
  *
- * @param db - conduit.db handle (from ensureConduitDb).
+ * @param db - conduit handle (from ensureConduitDb).
  * @param agentId - Global signaldock.db:agents.id (soft FK, not validated here).
  * @param opts - Optional role and capabilities override.
  * @task T353
@@ -686,7 +433,7 @@ export function attachAgentToProject(
  * Detaches an agent from the current project by setting enabled=0.
  * Does NOT delete the row (preserves attachment history for audit).
  *
- * @param db - conduit.db handle (from ensureConduitDb).
+ * @param db - conduit handle (from ensureConduitDb).
  * @param agentId - Agent ID to detach.
  * @task T353
  * @epic T310
@@ -699,7 +446,7 @@ export function detachAgentFromProject(db: DatabaseSync, agentId: string): void 
  * Lists project_agent_refs rows. By default returns only enabled=1 rows.
  * Pass enabledOnly=false to return all rows regardless of enabled state.
  *
- * @param db - conduit.db handle (from ensureConduitDb).
+ * @param db - conduit handle (from ensureConduitDb).
  * @param opts - Filter options. Defaults to `{ enabledOnly: true }`.
  * @returns Array of ProjectAgentRef rows ordered by attached_at DESC.
  * @task T353
@@ -738,7 +485,7 @@ export function listProjectAgentRefs(
 /**
  * Returns a single project_agent_refs row by agentId, or null if not found.
  *
- * @param db - conduit.db handle (from ensureConduitDb).
+ * @param db - conduit handle (from ensureConduitDb).
  * @param agentId - Agent ID to look up.
  * @returns The ProjectAgentRef row, or null if the agent is not attached.
  * @task T353
@@ -775,7 +522,7 @@ export function getProjectAgentRef(db: DatabaseSync, agentId: string): ProjectAg
  * Updates the last_used_at timestamp for an agent to now.
  * No-op if the agent_id does not exist in project_agent_refs.
  *
- * @param db - conduit.db handle (from ensureConduitDb).
+ * @param db - conduit handle (from ensureConduitDb).
  * @param agentId - Agent ID to update.
  * @task T353
  * @epic T310
@@ -788,16 +535,21 @@ export function updateProjectAgentLastUsed(db: DatabaseSync, agentId: string): v
 }
 
 /**
- * Checks conduit.db health — table count, WAL mode, schema version, and
+ * Checks conduit-domain health — table count, WAL mode, schema version, and
  * foreign keys status.
  *
- * Used by `cleo doctor` to verify conduit.db integrity. Does NOT require
- * `ensureConduitDb` to have been called; opens and closes the DB internally.
+ * ## E6-L3 (T11523)
+ *
+ * The conduit domain now lives in the consolidated project `cleo.db`. This probe
+ * opens that file (read-only inspection of pragma + sqlite_master state) — it does
+ * NOT require `ensureConduitDb` to have been called and opens/closes its own
+ * short-lived connection. Used by `cleo doctor` to verify conduit integrity.
  *
  * @task T344
+ * @task T11523
  * @epic T310
  * @param projectRoot - Absolute path to the project root directory.
- * @returns Health report object. `exists: false` when conduit.db is absent.
+ * @returns Health report object. `exists: false` when the DB is absent.
  */
 export function checkConduitDbHealth(projectRoot: string): {
   exists: boolean;
@@ -860,17 +612,24 @@ export function checkConduitDbHealth(projectRoot: string): {
 }
 
 /**
- * Open a fresh (non-singleton) conduit.db connection with pragmas applied.
+ * Open a fresh (non-singleton) connection to the conduit-domain DB with pragmas
+ * applied.
  *
- * Unlike `ensureConduitDb`, this creates an independent connection that the
- * caller owns and must close. Intended for callers that manage connection
- * lifecycle explicitly (e.g. LocalTransport connect/disconnect cycle).
+ * ## E6-L3 (T11523)
+ *
+ * The conduit domain now lives in the consolidated project `cleo.db`. This opens
+ * an independent connection to that file (WAL mode permits concurrent
+ * connections) that the caller owns and must close. Intended for callers that
+ * manage connection lifecycle explicitly (e.g. LocalTransport connect/disconnect
+ * cycle). The caller is responsible for ensuring `ensureConduitDb` has run first
+ * so the bare conduit tables exist.
  *
  * Applies the pragma SSoT from `specs/sqlite-pragmas.json` (T9047, T9189).
  *
- * @param projectRoot - Project root for resolving conduit.db path.
+ * @param projectRoot - Project root for resolving the conduit DB path.
  * @returns An open DatabaseSync connection (caller must close).
  * @task T9189
+ * @task T11523
  */
 export function openFreshConduitDb(projectRoot: string): DatabaseSync {
   const dbPath = getConduitDbPath(projectRoot);

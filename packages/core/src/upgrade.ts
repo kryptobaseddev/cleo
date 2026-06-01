@@ -879,7 +879,7 @@ export async function runUpgrade(
     // Initialize conduit.db for project-tier agent messaging (T310)
     try {
       const { ensureConduitDb } = await import('./store/conduit-sqlite.js');
-      const cdResult = ensureConduitDb(projectRootForMaint);
+      const cdResult = await ensureConduitDb(projectRootForMaint);
       if (cdResult.action === 'created') {
         actions.push({
           action: 'ensure_conduit_db',

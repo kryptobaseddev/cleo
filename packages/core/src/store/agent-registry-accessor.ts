@@ -555,12 +555,15 @@ export function listAgentsForProject(
  * @task T355
  * @epic T310
  */
-export function createProjectAgent(
+export async function createProjectAgent(
   projectRoot: string,
   spec: Omit<AgentCredential, 'createdAt' | 'updatedAt'>,
-): AgentWithProjectOverride {
-  ensureGlobalSignaldockDb();
-  ensureConduitDb(projectRoot);
+): Promise<AgentWithProjectOverride> {
+  // E6-L3 (T11523): ensureConduitDb is now async (routes through the dual-scope
+  // cleo.db chokepoint). ensureGlobalSignaldockDb is already async. Await both so
+  // the bare schema exists before the short-lived raw handles below read/write it.
+  await ensureGlobalSignaldockDb();
+  await ensureConduitDb(projectRoot);
 
   const nowTs = Math.floor(Date.now() / 1000);
   const nowIso = new Date(nowTs * 1000).toISOString();
@@ -816,9 +819,11 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
    * @task T355
    * @epic T310
    */
-  private ensureDbs(): void {
-    ensureGlobalSignaldockDb();
-    ensureConduitDb(this.projectPath);
+  private async ensureDbs(): Promise<void> {
+    // E6-L3 (T11523): ensureConduitDb is now async (dual-scope cleo.db
+    // chokepoint); ensureGlobalSignaldockDb is already async. Await both.
+    await ensureGlobalSignaldockDb();
+    await ensureConduitDb(this.projectPath);
   }
 
   /**
@@ -833,7 +838,7 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
   async register(
     credential: Omit<AgentCredential, 'createdAt' | 'updatedAt'>,
   ): Promise<AgentCredential> {
-    this.ensureDbs();
+    await this.ensureDbs();
     return createProjectAgent(this.projectPath, credential);
   }
 
@@ -847,7 +852,7 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
    * @epic T310
    */
   async get(agentId: string, opts?: { includeGlobal?: boolean }): Promise<AgentCredential | null> {
-    this.ensureDbs();
+    await this.ensureDbs();
     return lookupAgent(this.projectPath, agentId, opts);
   }
 
@@ -860,7 +865,7 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
    * @epic T310
    */
   async list(filter?: AgentListFilter): Promise<AgentCredential[]> {
-    this.ensureDbs();
+    await this.ensureDbs();
     const results = listAgentsForProject(this.projectPath, { includeGlobal: false });
     if (filter?.active !== undefined) {
       return results.filter((a) => a.isActive === filter.active);
@@ -877,7 +882,7 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
    * @epic T310
    */
   async listGlobal(filter?: AgentListFilter): Promise<AgentCredential[]> {
-    this.ensureDbs();
+    await this.ensureDbs();
     const globalDb = openGlobalDb();
     try {
       const rows =
@@ -909,7 +914,7 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
     agentId: string,
     updates: Partial<Omit<AgentCredential, 'agentId' | 'createdAt'>>,
   ): Promise<AgentCredential> {
-    this.ensureDbs();
+    await this.ensureDbs();
     const existing = await this.get(agentId, { includeGlobal: true });
     if (!existing) throw new Error(`Agent not found: ${agentId}`);
 
@@ -1001,7 +1006,7 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
    * @epic T310
    */
   async remove(agentId: string): Promise<void> {
-    this.ensureDbs();
+    await this.ensureDbs();
 
     const conduitDb = openConduitDb(this.projectPath);
     try {
@@ -1029,7 +1034,7 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
    * @epic T310
    */
   async removeGlobal(agentId: string, opts?: { force?: boolean }): Promise<void> {
-    this.ensureDbs();
+    await this.ensureDbs();
     const globalDb = openGlobalDb();
     try {
       const existing = globalDb.prepare('SELECT id FROM agents WHERE agent_id = ?').get(agentId) as
@@ -1073,7 +1078,7 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
    * @epic T310
    */
   async rotateKey(agentId: string): Promise<{ agentId: string; newApiKey: string }> {
-    this.ensureDbs();
+    await this.ensureDbs();
     const credential = await this.get(agentId, { includeGlobal: true });
     if (!credential) throw new Error(`Agent not found: ${agentId}`);
 
@@ -1121,7 +1126,7 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
    * @epic T310
    */
   async getActive(): Promise<AgentCredential | null> {
-    this.ensureDbs();
+    await this.ensureDbs();
 
     const globalDb = openGlobalDb();
     const conduitDb = openConduitDb(this.projectPath);
@@ -1163,7 +1168,7 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
    * @epic T310
    */
   async markUsed(agentId: string): Promise<void> {
-    this.ensureDbs();
+    await this.ensureDbs();
     const nowTs = Math.floor(Date.now() / 1000);
     const nowIso = new Date(nowTs * 1000).toISOString();
 
