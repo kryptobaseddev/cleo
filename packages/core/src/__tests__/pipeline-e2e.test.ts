@@ -142,7 +142,7 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
   signaldockMod._resetGlobalSignaldockDb_TESTING_ONLY();
   await signaldockMod.ensureGlobalSignaldockDb();
 
-  const dbPath = join(cleoHome, 'signaldock.db');
+  const dbPath = join(cleoHome, 'cleo.db'); // E6-L5 (T11525): signaldock consolidated into GLOBAL cleo.db
 
   const openDb = (): DatabaseSync => {
     const d = new DatabaseSync(dbPath);
@@ -413,7 +413,7 @@ describe('Pipeline E2E — classifier emits canonical project-<role> IDs', () =>
         return;
       }
 
-      const dbPath = join(cleoHome, 'signaldock.db');
+      const dbPath = join(cleoHome, 'cleo.db'); // E6-L5 (T11525): signaldock consolidated into GLOBAL cleo.db
       const db = new DatabaseSync(dbPath);
       db.exec('PRAGMA foreign_keys = ON');
 

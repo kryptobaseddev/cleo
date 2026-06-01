@@ -41,7 +41,14 @@ import { skillPatches, skillReviews, skills, skillUsage } from '../schema/skills
  * excluding drizzle journal + meta sentinel tables (which we assert exist
  * separately in a dedicated test).
  */
-const EXPECTED_SKILL_TABLES = ['skill_patches', 'skill_reviews', 'skill_usage', 'skills'];
+// E6-L5 (T11525): the skills registry consolidated into the shared GLOBAL
+// `cleo.db`; its physical tables now carry the `skills_` domain prefix.
+const EXPECTED_SKILL_TABLES = [
+  'skills_skill_patches',
+  'skills_skill_reviews',
+  'skills_skill_usage',
+  'skills_skills',
+];
 
 /** Helper: enumerate non-internal user tables (i.e. excluding sqlite_*). */
 function listUserTables(db: DatabaseSync): string[] {
@@ -113,7 +120,12 @@ describe('skills-schema + skills-db', () => {
     }
   });
 
-  it('openSkillsDb creates the drizzle journal + meta sentinel', async () => {
+  it('openSkillsDb creates the drizzle journal', async () => {
+    // E6-L5 (T11525): the registry now consolidates into the shared GLOBAL
+    // `cleo.db` via the `drizzle-cleo-global` migration. The legacy
+    // `drizzle-skills` migration (and its `_skills_meta` sentinel) is no longer
+    // run on the shared handle; the consolidated `__drizzle_migrations` journal
+    // tracks the applied migrations.
     const { openSkillsDb } = await import('../skills-db.js');
     await openSkillsDb({ path: dbPath });
 
@@ -122,21 +134,29 @@ describe('skills-schema + skills-db', () => {
     raw.close();
 
     expect(tables).toContain('__drizzle_migrations');
-    expect(tables).toContain('_skills_meta');
   });
 
-  it('expected indexes exist on the skills table', async () => {
+  it('expected indexes exist on the skills_skills table', async () => {
     const { openSkillsDb } = await import('../skills-db.js');
     await openSkillsDb({ path: dbPath });
 
     const raw = new DatabaseSync(dbPath); // db-open-allowed
-    const indexes = listIndexes(raw, 'skills');
+    const indexes = listIndexes(raw, 'skills_skills');
     raw.close();
 
-    expect(indexes).toContain('idx_skills_state');
-    expect(indexes).toContain('idx_skills_source');
-    // Unique on `name` is required by the architecture.
-    expect(indexes.some((n) => n.toLowerCase().includes('name'))).toBe(true);
+    expect(indexes).toContain('idx_skills_skills_state');
+    expect(indexes).toContain('idx_skills_skills_source');
+    // Unique on `name` is required by the architecture. The consolidated
+    // `drizzle-cleo-global` schema declares it inline (`.unique()`), which SQLite
+    // implements as an auto-index (`sqlite_autoindex_skills_skills_*`) rather than
+    // a named `*_name_unique` index. Assert via PRAGMA index_list unique flag.
+    const rawForUnique = new DatabaseSync(dbPath); // db-open-allowed
+    const indexMeta = rawForUnique.prepare('PRAGMA index_list(skills_skills)').all() as Array<{
+      name: string;
+      unique: number;
+    }>;
+    rawForUnique.close();
+    expect(indexMeta.some((idx) => idx.unique === 1)).toBe(true);
   });
 
   it('openSkillsDb is idempotent (second call returns same handle, no error)', async () => {
@@ -249,7 +269,7 @@ describe('skills-schema + skills-db', () => {
     expect(() =>
       raw
         .prepare(
-          `INSERT INTO skills (name, source_type, install_path, installed_at)
+          `INSERT INTO skills_skills (name, source_type, install_path, installed_at)
            VALUES ('bogus-skill', 'not-a-real-source', '/tmp/x', '2026-05-19T00:00:00.000Z')`,
         )
         .run(),
@@ -265,7 +285,7 @@ describe('skills-schema + skills-db', () => {
     expect(() =>
       raw
         .prepare(
-          `INSERT INTO skills (name, source_type, install_path, installed_at, lifecycle_state)
+          `INSERT INTO skills_skills (name, source_type, install_path, installed_at, lifecycle_state)
            VALUES ('x', 'user', '/tmp/x', '2026-05-19T00:00:00.000Z', 'not-a-state')`,
         )
         .run(),

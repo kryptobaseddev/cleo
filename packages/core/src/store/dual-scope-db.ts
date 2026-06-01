@@ -251,6 +251,53 @@ export async function openDualScopeDb(
 ): Promise<DualScopeDbHandle<'global'>>;
 export async function openDualScopeDb(scope: DualScope, cwd?: string): Promise<DualScopeDbHandle> {
   const dbPath = resolveDualScopeDbPath(scope, cwd);
+  // Dispatch on the scope literal so the overloaded path-aware opener resolves to
+  // the correct typed return; the union `scope` cannot satisfy either literal
+  // overload directly.
+  return scope === 'project'
+    ? openDualScopeDbAtPath('project', dbPath)
+    : openDualScopeDbAtPath('global', dbPath);
+}
+
+/**
+ * Open (or re-use) a consolidated dual-scope `cleo.db` at an EXPLICIT path,
+ * bypassing the scope→path resolver.
+ *
+ * This is the path-aware sibling of {@link openDualScopeDb}. Production callers
+ * MUST prefer {@link openDualScopeDb}, which resolves the canonical path from
+ * `cwd` / `getCleoHome()`. The explicit-path form exists for two cases:
+ *
+ *   1. Tests that materialise an isolated consolidated `cleo.db` under a
+ *      `mkdtemp` directory (e.g. the skills-db `{ path }` override, E6-L5),
+ *      without having to monkey-patch `getCleoHome()`.
+ *   2. Domain modules whose legacy lifecycle API accepted an explicit on-disk
+ *      path and must keep that contract while still flowing every open through
+ *      the single dual-scope chokepoint (so DB Open Guard Gate 3 stays green).
+ *
+ * The handle is cached per (scope, dbPath) exactly like {@link openDualScopeDb};
+ * a test path and the canonical path are distinct cache keys and never collide.
+ *
+ * @param scope - The consolidated schema scope (`'project'` | `'global'`).
+ * @param dbPath - The absolute path to the consolidated `cleo.db` file. The
+ *   parent directory is created if absent.
+ * @returns A typed {@link DualScopeDbHandle} bound to the scope's schema.
+ *
+ * @task T11525 (E6-L5)
+ * @epic T11249 (E6)
+ * @saga T11242
+ */
+export async function openDualScopeDbAtPath(
+  scope: 'project',
+  dbPath: string,
+): Promise<DualScopeDbHandle<'project'>>;
+export async function openDualScopeDbAtPath(
+  scope: 'global',
+  dbPath: string,
+): Promise<DualScopeDbHandle<'global'>>;
+export async function openDualScopeDbAtPath(
+  scope: DualScope,
+  dbPath: string,
+): Promise<DualScopeDbHandle> {
   const key = cacheKey(scope, dbPath);
 
   // Return cached handle if available and not mid-init.

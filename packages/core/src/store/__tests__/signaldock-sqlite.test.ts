@@ -67,17 +67,19 @@ describe('getGlobalSignaldockDbPath', () => {
     const result = getGlobalSignaldockDbPath();
 
     expect(result.startsWith(cleoHome)).toBe(true);
-    expect(result).toBe(join(cleoHome, 'signaldock.db'));
+    // E6-L5 (T11525): signaldock now consolidates into the GLOBAL cleo.db.
+    expect(result).toBe(join(cleoHome, 'cleo.db'));
   });
 
-  it('returns path ending with signaldock.db', async () => {
+  it('returns path ending with cleo.db (E6-L5 consolidation)', async () => {
     const cleoHome = makeTmpDir('path-filename');
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
     const { getGlobalSignaldockDbPath } = await import('../signaldock-sqlite.js');
     const result = getGlobalSignaldockDbPath();
 
-    expect(result.endsWith('signaldock.db')).toBe(true);
+    // E6-L5 (T11525): signaldock now consolidates into the GLOBAL cleo.db.
+    expect(result.endsWith('cleo.db')).toBe(true);
   });
 });
 
@@ -178,7 +180,8 @@ describe('ensureGlobalSignaldockDb', () => {
     _resetGlobalSignaldockDb_TESTING_ONLY();
 
     expect(existsSync(nestedHome)).toBe(true);
-    expect(existsSync(join(nestedHome, 'signaldock.db'))).toBe(true);
+    // E6-L5 (T11525): signaldock now consolidates into the GLOBAL cleo.db.
+    expect(existsSync(join(nestedHome, 'cleo.db'))).toBe(true);
   });
 });
 
@@ -564,7 +567,8 @@ describe('ensureSignaldockDb (deprecated alias)', () => {
     _resetGlobalSignaldockDb_TESTING_ONLY();
 
     expect(result.action).toBe('created');
-    expect(result.path).toContain('signaldock.db');
+    // E6-L5 (T11525): signaldock now consolidates into the GLOBAL cleo.db.
+    expect(result.path).toContain('cleo.db');
     expect(existsSync(result.path)).toBe(true);
   });
 });

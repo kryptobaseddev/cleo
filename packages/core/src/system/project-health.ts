@@ -74,11 +74,16 @@ function getDatabaseSyncCtor(): DatabaseSyncModule['DatabaseSync'] | null {
 // filename. Its expected migration floor is the global cleo-global set, NOT the
 // project floor of 3, so it uses NEXUS_GLOBAL_DB_FLOOR (passed inline at the
 // probe site) instead of a `[NEXUS_DB]` map entry that would clobber `[TASKS_DB]`.
+// E6-L5 (T11525): the signaldock domain consolidated into the GLOBAL `cleo.db`
+// under getCleoHome() (ensureGlobalSignaldockDb → openDualScopeDb('global')), the
+// SAME physical file as the nexus global probe above. Like NEXUS_DB it uses
+// NEXUS_GLOBAL_DB_FLOOR inline at its probe site instead of a `[SIGNALDOCK_DB]`
+// map entry that would clobber `[TASKS_DB]` (both keys are now 'cleo.db').
 const TASKS_DB = 'cleo.db' as const;
 const BRAIN_DB = 'cleo.db' as const;
 const CONDUIT_DB = 'cleo.db' as const;
 const NEXUS_DB = 'cleo.db' as const;
-const SIGNALDOCK_DB = 'signaldock.db' as const;
+const SIGNALDOCK_DB = 'cleo.db' as const;
 
 /**
  * Expected applied-migration floor for the GLOBAL consolidated `cleo.db`
@@ -286,8 +291,11 @@ export const DB_EXPECTED_VERSIONS: Readonly<Record<string, number>> = {
   // E6-L4 (T11524): NEXUS_DB is also `'cleo.db'` now (the GLOBAL file), so it
   // would clobber `[TASKS_DB]` here too — the nexus probe therefore passes
   // NEXUS_GLOBAL_DB_FLOOR inline at its probe site instead of via this map.
+  // E6-L5 (T11525): SIGNALDOCK_DB is ALSO `'cleo.db'` now (same GLOBAL file as
+  // nexus), so its former `[SIGNALDOCK_DB]: 1` map entry is removed — it aliased
+  // `[TASKS_DB]` and would clobber the floor of 3. The signaldock probe passes
+  // NEXUS_GLOBAL_DB_FLOOR inline at its probe site, like the nexus probe.
   [TASKS_DB]: 3,
-  [SIGNALDOCK_DB]: 1,
 };
 
 /**
@@ -777,7 +785,9 @@ export async function checkGlobalHealth(): Promise<GlobalHealthReport> {
     // E6-L4 (T11524): the GLOBAL `cleo.db` floor comes from NEXUS_GLOBAL_DB_FLOOR,
     // not DB_EXPECTED_VERSIONS[NEXUS_DB] (which would alias the project-tier key).
     probeDb(join(cleoHome, NEXUS_DB), NEXUS_GLOBAL_DB_FLOOR),
-    probeDb(join(cleoHome, SIGNALDOCK_DB), DB_EXPECTED_VERSIONS[SIGNALDOCK_DB]),
+    // E6-L5 (T11525): signaldock shares the SAME GLOBAL `cleo.db` file as nexus,
+    // so it uses NEXUS_GLOBAL_DB_FLOOR inline too (not a clobbering map entry).
+    probeDb(join(cleoHome, SIGNALDOCK_DB), NEXUS_GLOBAL_DB_FLOOR),
   ]);
   const dbs = { nexus, signaldock };
   return {

@@ -79,7 +79,8 @@ function makeTmpEnv(suffix: string): {
   mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
 
   const openGlobal = (): DatabaseSync => {
-    const db = new DatabaseSync(join(cleoHome, 'signaldock.db'));
+    // E6-L5 (T11525): the signaldock domain consolidated into the GLOBAL cleo.db.
+    const db = new DatabaseSync(join(cleoHome, 'cleo.db'));
     db.exec('PRAGMA foreign_keys = ON');
     db.exec('PRAGMA journal_mode = WAL');
     return db;

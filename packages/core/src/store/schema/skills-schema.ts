@@ -25,8 +25,26 @@
  *   auto-improve in later epics). The tables here MUST exist so subsequent
  *   tasks can INSERT/SELECT without re-architecting the storage layer.
  *
+ * ## E6-L5 physical-name consolidation (T11525)
+ *
+ * The four physical table names below carry the `skills_` domain prefix
+ * (`skills_skills`, `skills_skill_usage`, `skills_skill_reviews`,
+ * `skills_skill_patches`) — NOT the former bare names (`skills`, `skill_usage`,
+ * …). This is required because skills.db now consolidates into the shared GLOBAL
+ * `cleo.db` (E6-L5) alongside the signaldock domain, whose own legacy `skills`
+ * catalog table would otherwise COLLIDE with this registry's bare `skills` table.
+ * The consolidated `drizzle-cleo-global` migration creates these prefixed tables
+ * (column-identical to the legacy shape, plus additive enum/timestamp/boolean
+ * CHECK constraints that ACCEPT every value these writers produce), so
+ * `skills-db.ts` (E6-L5) does NOT run the legacy `drizzle-skills` migration on the
+ * shared handle — it simply binds this schema's drizzle queries to the
+ * already-created consolidated tables. The TS export NAMES (`skills`, `skillUsage`,
+ * …) are unchanged so the 18 importing modules compile without edits.
+ *
  * @task T9651
+ * @task T11525 - E6-L5 physical-name prefix to share the global cleo.db
  * @epic T9571
+ * @epic T11249
  * @saga T9560
  * @adr ADR-068 (DB-open chokepoint)
  * @architecture docs/architecture/SG-CLEO-SKILLS-architecture-v3.md §4
@@ -101,7 +119,7 @@ export type SkillPatchStatus = 'proposed' | 'applied' | 'reverted' | 'rejected';
  * @task T9651
  */
 export const skills = sqliteTable(
-  'skills',
+  'skills_skills',
   {
     /** Surrogate primary key — autoincrement integer. */
     id: integer('id').primaryKey({ autoIncrement: true }),
@@ -139,8 +157,8 @@ export const skills = sqliteTable(
     archivedFromPath: text('archived_from_path'),
   },
   (table) => [
-    index('idx_skills_state').on(table.lifecycleState),
-    index('idx_skills_source').on(table.sourceType),
+    index('idx_skills_skills_state').on(table.lifecycleState),
+    index('idx_skills_skills_source').on(table.sourceType),
   ],
 );
 
@@ -157,7 +175,7 @@ export const skills = sqliteTable(
  * @task T9651
  */
 export const skillUsage = sqliteTable(
-  'skill_usage',
+  'skills_skill_usage',
   {
     /** Surrogate primary key — autoincrement integer. */
     id: integer('id').primaryKey({ autoIncrement: true }),
@@ -181,8 +199,8 @@ export const skillUsage = sqliteTable(
     metadata: text('metadata').notNull().default('{}'),
   },
   (table) => [
-    index('idx_skill_usage_name_observed').on(table.skillName, table.observedAt),
-    index('idx_skill_usage_kind').on(table.eventKind),
+    index('idx_skills_skill_usage_name_observed').on(table.skillName, table.observedAt),
+    index('idx_skills_skill_usage_kind').on(table.eventKind),
   ],
 );
 
@@ -197,7 +215,7 @@ export const skillUsage = sqliteTable(
  * @task T9651
  */
 export const skillReviews = sqliteTable(
-  'skill_reviews',
+  'skills_skill_reviews',
   {
     /** Surrogate primary key — autoincrement integer. */
     id: integer('id').primaryKey({ autoIncrement: true }),
@@ -217,8 +235,8 @@ export const skillReviews = sqliteTable(
     summary: text('summary'),
   },
   (table) => [
-    index('idx_skill_reviews_name_reviewed').on(table.skillName, table.reviewedAt),
-    index('idx_skill_reviews_outcome').on(table.outcome),
+    index('idx_skills_skill_reviews_name_reviewed').on(table.skillName, table.reviewedAt),
+    index('idx_skills_skill_reviews_outcome').on(table.outcome),
   ],
 );
 
@@ -232,7 +250,7 @@ export const skillReviews = sqliteTable(
  * @task T9651
  */
 export const skillPatches = sqliteTable(
-  'skill_patches',
+  'skills_skill_patches',
   {
     /** Surrogate primary key — autoincrement integer. */
     id: integer('id').primaryKey({ autoIncrement: true }),
@@ -256,8 +274,8 @@ export const skillPatches = sqliteTable(
     revertedByPatchId: integer('reverted_by_patch_id'),
   },
   (table) => [
-    index('idx_skill_patches_name_proposed').on(table.skillName, table.proposedAt),
-    index('idx_skill_patches_status').on(table.status),
+    index('idx_skills_skill_patches_name_proposed').on(table.skillName, table.proposedAt),
+    index('idx_skills_skill_patches_status').on(table.status),
   ],
 );
 

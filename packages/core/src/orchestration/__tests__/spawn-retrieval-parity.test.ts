@@ -80,7 +80,7 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
   _resetGlobalSignaldockDb_TESTING_ONLY();
   await ensureGlobalSignaldockDb();
 
-  const dbPath = join(cleoHome, 'signaldock.db');
+  const dbPath = join(cleoHome, 'cleo.db'); // E6-L5 (T11525): signaldock consolidated into GLOBAL cleo.db
 
   // Seed the skills catalog so junction writes succeed.
   const seedDb = new DatabaseSync(dbPath);
