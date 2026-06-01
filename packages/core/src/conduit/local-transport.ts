@@ -530,7 +530,16 @@ export class LocalTransport implements Transport {
    * @returns `true` if conduit.db exists at the expected path.
    */
   static isAvailable(cwd?: string): boolean {
-    const dbPath = getConduitDbPath(resolveOrCwd(cwd));
+    // E6-L3 (T11523): getConduitDbPath now resolves via resolveCleoDir(), which
+    // THROWS E_NO_PROJECT when the cwd is not under a `.cleo/` tree. The legacy
+    // contract is "false when the conduit DB is missing", so treat an
+    // unresolvable project as unavailable rather than propagating the throw.
+    let dbPath: string;
+    try {
+      dbPath = getConduitDbPath(resolveOrCwd(cwd));
+    } catch {
+      return false;
+    }
     return existsSync(dbPath);
   }
 

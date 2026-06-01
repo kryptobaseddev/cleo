@@ -330,6 +330,9 @@ async function runMigration(
   vi.doMock('../../paths.js', () => ({
     getCleoHome: () => home,
     getProjectRoot: () => projectRoot,
+    // E6-L3 (T11523): conduit consolidated into the project cleo.db; the path now
+    // resolves via resolveCleoDir(cwd). Pin it to <projectRoot>/.cleo for tests.
+    resolveCleoDir: (cwd?: string) => join(cwd ?? projectRoot, '.cleo'),
   }));
   vi.doMock('../global-salt.js', () => ({
     getGlobalSalt: () => Buffer.alloc(32, 0xab),
@@ -343,7 +346,7 @@ async function runMigration(
     getGlobalSignaldockDbPath: () => join(home, 'signaldock.db'),
   }));
   const { migrateSignaldockToConduit } = await import('../migrate-signaldock-to-conduit.js');
-  return migrateSignaldockToConduit(projectRoot);
+  return await migrateSignaldockToConduit(projectRoot);
 }
 
 async function getNeedsMigration(projectRoot: string, home: string): Promise<boolean> {
@@ -351,6 +354,8 @@ async function getNeedsMigration(projectRoot: string, home: string): Promise<boo
   vi.doMock('../../paths.js', () => ({
     getCleoHome: () => home,
     getProjectRoot: () => projectRoot,
+    // E6-L3 (T11523): see runMigration mock — resolveCleoDir pins the project DB.
+    resolveCleoDir: (cwd?: string) => join(cwd ?? projectRoot, '.cleo'),
   }));
   const { needsSignaldockToConduitMigration } = await import('../migrate-signaldock-to-conduit.js');
   return needsSignaldockToConduitMigration(projectRoot);
@@ -382,7 +387,7 @@ describe('migrate-signaldock-to-conduit', () => {
     });
 
     it('TC-060: returns false when conduit.db exists (migration already done)', async () => {
-      writeFileSync(join(dirs.projectRoot, '.cleo', 'conduit.db'), '');
+      writeFileSync(join(dirs.projectRoot, '.cleo', 'cleo.db'), '');
       const result = await getNeedsMigration(dirs.projectRoot, dirs.home);
       expect(result).toBe(false);
     });
@@ -403,7 +408,7 @@ describe('migrate-signaldock-to-conduit', () => {
     expect(result.agentsCopied).toBe(0);
     expect(result.bakPath).toBeNull();
     expect(result.errors).toHaveLength(0);
-    expect(existsSync(join(dirs.projectRoot, '.cleo', 'conduit.db'))).toBe(false);
+    expect(existsSync(join(dirs.projectRoot, '.cleo', 'cleo.db'))).toBe(false);
   });
 
   // -------------------------------------------------------------------------
@@ -419,7 +424,7 @@ describe('migrate-signaldock-to-conduit', () => {
     expect(result.agentsCopied).toBe(0);
     expect(result.bakPath).not.toBeNull();
     expect(result.errors).toHaveLength(0);
-    expect(existsSync(join(dirs.projectRoot, '.cleo', 'conduit.db'))).toBe(true);
+    expect(existsSync(join(dirs.projectRoot, '.cleo', 'cleo.db'))).toBe(true);
     expect(existsSync(join(dirs.projectRoot, '.cleo', 'signaldock.db.pre-t310.bak'))).toBe(true);
     expect(existsSync(join(dirs.projectRoot, '.cleo', 'signaldock.db'))).toBe(false);
   });
@@ -443,7 +448,7 @@ describe('migrate-signaldock-to-conduit', () => {
     expect(result.errors).toHaveLength(0);
 
     // Verify project_agent_refs in conduit.db
-    const conduitDb = new DatabaseSync(join(dirs.projectRoot, '.cleo', 'conduit.db'));
+    const conduitDb = new DatabaseSync(join(dirs.projectRoot, '.cleo', 'cleo.db'));
     const refs = conduitDb
       .prepare('SELECT agent_id FROM project_agent_refs ORDER BY agent_id')
       .all() as Array<{ agent_id: string }>;
@@ -506,7 +511,7 @@ describe('migrate-signaldock-to-conduit', () => {
     globalDb.close();
 
     // conduit.db should have a project_agent_refs row for agent-x
-    const conduitDb = new DatabaseSync(join(dirs.projectRoot, '.cleo', 'conduit.db'));
+    const conduitDb = new DatabaseSync(join(dirs.projectRoot, '.cleo', 'cleo.db'));
     const refs = conduitDb
       .prepare("SELECT agent_id FROM project_agent_refs WHERE agent_id = 'agent-x'")
       .all() as Array<{ agent_id: string }>;
@@ -574,7 +579,7 @@ describe('migrate-signaldock-to-conduit', () => {
     expect(result.status).toBe('migrated');
     expect(result.errors).toHaveLength(0);
 
-    const conduitDb = new DatabaseSync(join(dirs.projectRoot, '.cleo', 'conduit.db'));
+    const conduitDb = new DatabaseSync(join(dirs.projectRoot, '.cleo', 'cleo.db'));
 
     const convRows = conduitDb.prepare('SELECT id FROM conversations ORDER BY id').all() as Array<{
       id: string;
@@ -614,7 +619,7 @@ describe('migrate-signaldock-to-conduit', () => {
     const result = await runMigration(dirs.projectRoot, dirs.home);
     expect(result.status).toBe('migrated');
 
-    const conduitDb = new DatabaseSync(join(dirs.projectRoot, '.cleo', 'conduit.db'));
+    const conduitDb = new DatabaseSync(join(dirs.projectRoot, '.cleo', 'cleo.db'));
     const ftsResults = conduitDb
       .prepare("SELECT rowid FROM messages_fts WHERE messages_fts MATCH 'migration'")
       .all() as Array<{ rowid: number }>;
@@ -636,7 +641,7 @@ describe('migrate-signaldock-to-conduit', () => {
     expect(result.status).toBe('failed');
     expect(result.errors.length).toBeGreaterThan(0);
     // No conduit.db created
-    expect(existsSync(join(dirs.projectRoot, '.cleo', 'conduit.db'))).toBe(false);
+    expect(existsSync(join(dirs.projectRoot, '.cleo', 'cleo.db'))).toBe(false);
     // No .pre-t310.bak created
     expect(existsSync(legacyPath + '.pre-t310.bak')).toBe(false);
   });
@@ -662,7 +667,7 @@ describe('migrate-signaldock-to-conduit', () => {
   // Scenario 9: .pre-t310.bak alongside conduit.db
   // -------------------------------------------------------------------------
   it('needsMigration returns false when conduit.db exists alongside .pre-t310.bak', async () => {
-    writeFileSync(join(dirs.projectRoot, '.cleo', 'conduit.db'), '');
+    writeFileSync(join(dirs.projectRoot, '.cleo', 'cleo.db'), '');
     writeFileSync(join(dirs.projectRoot, '.cleo', 'signaldock.db.pre-t310.bak'), '');
 
     const result = await getNeedsMigration(dirs.projectRoot, dirs.home);

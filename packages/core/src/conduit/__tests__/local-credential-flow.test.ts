@@ -61,22 +61,22 @@ describe('Local Credential Flow E2E', () => {
   // --------------------------------------------------------------------------
 
   describe('Step 1: conduit.db creation', () => {
-    it('ensureConduitDb creates the database file', () => {
-      const result = ensureConduitDb(testDir);
+    it('ensureConduitDb creates the database file', async () => {
+      const result = await ensureConduitDb(testDir);
       expect(result.action).toBe('created');
       expect(existsSync(result.path)).toBe(true);
     });
 
-    it('ensureConduitDb is idempotent', () => {
-      const first = ensureConduitDb(testDir);
-      const second = ensureConduitDb(testDir);
+    it('ensureConduitDb is idempotent', async () => {
+      const first = await ensureConduitDb(testDir);
+      const second = await ensureConduitDb(testDir);
       expect(first.action).toBe('created');
       expect(second.action).toBe('exists');
       expect(first.path).toBe(second.path);
     });
 
     it('conduit.db has the messages table', async () => {
-      ensureConduitDb(testDir);
+      await ensureConduitDb(testDir);
       const dbPath = getConduitDbPath(testDir);
       expect(existsSync(dbPath)).toBe(true);
 
@@ -96,15 +96,15 @@ describe('Local Credential Flow E2E', () => {
   // --------------------------------------------------------------------------
 
   describe('Step 2: LocalTransport availability', () => {
-    it('isAvailable returns false before init', () => {
+    it('isAvailable returns false before init', async () => {
       const emptyDir = join(tmpdir(), `no-init-${Date.now()}`);
       mkdirSync(join(emptyDir, '.cleo'), { recursive: true });
       expect(LocalTransport.isAvailable(emptyDir)).toBe(false);
       rmSync(emptyDir, { recursive: true, force: true });
     });
 
-    it('isAvailable returns true after init', () => {
-      ensureConduitDb(testDir);
+    it('isAvailable returns true after init', async () => {
+      await ensureConduitDb(testDir);
       expect(LocalTransport.isAvailable(testDir)).toBe(true);
     });
   });
@@ -116,7 +116,7 @@ describe('Local Credential Flow E2E', () => {
   describe('Step 3: messaging lifecycle', () => {
     it('complete flow: init → connect → push → poll → ack', async () => {
       // 1. Init conduit.db
-      ensureConduitDb(testDir);
+      await ensureConduitDb(testDir);
 
       // 2. Connect two agents
       const agent1 = new LocalTransport();
@@ -169,7 +169,7 @@ describe('Local Credential Flow E2E', () => {
     });
 
     it('messages persist across transport reconnections', async () => {
-      ensureConduitDb(testDir);
+      await ensureConduitDb(testDir);
 
       // Send a message
       const sender = new LocalTransport();
@@ -196,7 +196,7 @@ describe('Local Credential Flow E2E', () => {
     });
 
     it('multiple agents can communicate in the same conversation', async () => {
-      ensureConduitDb(testDir);
+      await ensureConduitDb(testDir);
 
       const prime = new LocalTransport();
       const rustLead = new LocalTransport();

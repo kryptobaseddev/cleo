@@ -31,10 +31,10 @@ let testDir: string;
 let originalCwd: string;
 
 /** Create a temporary directory with a valid conduit.db for testing. */
-function setupTestDb(): string {
+async function setupTestDb(): Promise<string> {
   const dir = join(tmpdir(), `a2a-topic-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   mkdirSync(join(dir, '.cleo'), { recursive: true });
-  ensureConduitDb(dir);
+  await ensureConduitDb(dir);
   return dir;
 }
 
@@ -70,9 +70,9 @@ function makeCredential(agentId: string): AgentCredential {
 // ============================================================================
 
 describe('LocalTransport — A2A Topic Operations (T1252)', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     originalCwd = process.cwd();
-    testDir = setupTestDb();
+    testDir = await setupTestDb();
     process.chdir(testDir);
   });
 
@@ -308,9 +308,9 @@ describe('LocalTransport — A2A Topic Operations (T1252)', () => {
 // ============================================================================
 
 describe('ConduitClient — A2A Topic Delegation (T1252)', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     originalCwd = process.cwd();
-    testDir = setupTestDb();
+    testDir = await setupTestDb();
     process.chdir(testDir);
   });
 
@@ -412,9 +412,9 @@ describe('ConduitClient — A2A Topic Delegation (T1252)', () => {
 // ============================================================================
 
 describe('E2E — Two subagents coordinate via CONDUIT topics (T1149 atom 5)', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     originalCwd = process.cwd();
-    testDir = setupTestDb();
+    testDir = await setupTestDb();
     process.chdir(testDir);
   });
 

@@ -397,7 +397,7 @@ describe('graph-memory-bridge', () => {
       );
 
       // Initialize conduit.db
-      ensureConduitDb(tempDir);
+      await ensureConduitDb(tempDir);
 
       // Seed a nexus symbol
       await seedNexusNode('src/main.ts::initApp', 'initApp', 'initApp', 'src/main.ts', 'function');
@@ -419,7 +419,7 @@ describe('graph-memory-bridge', () => {
       const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
 
       // Initialize conduit.db and insert a test message
-      ensureConduitDb(tempDir);
+      await ensureConduitDb(tempDir);
       const conduitDb = getConduitNativeDb();
 
       const convId = 'conv-001';
@@ -478,7 +478,7 @@ describe('graph-memory-bridge', () => {
       );
       const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
 
-      ensureConduitDb(tempDir);
+      await ensureConduitDb(tempDir);
       const conduitDb = getConduitNativeDb();
 
       const convId = 'conv-002';
