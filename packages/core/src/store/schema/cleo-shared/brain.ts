@@ -701,6 +701,49 @@ export const brainSchemaMeta = sqliteTable('brain_schema_meta', {
 });
 
 // ---------------------------------------------------------------------------
+// Quality-feedback telemetry (T11546 — no-home table migration)
+// ---------------------------------------------------------------------------
+
+/**
+ * `brain_usage_log` — quality-feedback telemetry.
+ *
+ * Tracks which memory entries are retrieved and whether the outcome was
+ * positive. Used by `brain-lifecycle.ts` to adjust quality scores.
+ *
+ * Previously created at runtime via `CREATE TABLE IF NOT EXISTS` in
+ * `quality-feedback.ts`. Added to the consolidated Drizzle schema in T11546
+ * so exodus migration can populate the 8 471 live rows from legacy brain.db.
+ *
+ * Schema matches `quality-feedback.ts` `ensureUsageLogTable()` exactly — the
+ * runtime writer uses raw SQL and does not go through Drizzle ORM.
+ *
+ * @task T11546
+ * @epic T11248
+ * @saga T11242
+ */
+export const brainUsageLog = sqliteTable(
+  'brain_usage_log',
+  {
+    /** Auto-increment PK — matches legacy brain.db schema. */
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    /** Memory entry ID that was retrieved. */
+    entryId: text('entry_id').notNull(),
+    /** Task context in which the entry was retrieved (nullable). */
+    taskId: text('task_id'),
+    /** Whether the entry was actively used (0/1 boolean). */
+    used: integer('used').notNull().default(0),
+    /** Outcome of the interaction: 'positive' | 'negative' | 'unknown'. */
+    outcome: text('outcome').notNull().default('unknown'),
+    /** ISO-8601 UTC creation instant. */
+    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  },
+  (table) => [
+    index('idx_brain_usage_log_entry_id').on(table.entryId),
+    index('idx_brain_usage_log_task_id').on(table.taskId),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // PageIndex graph (nodes + edges)
 // ---------------------------------------------------------------------------
 
@@ -1324,3 +1367,7 @@ export type NewBrainMemoryTreeRow = typeof brainMemoryTrees.$inferInsert;
 export type BrainObservationsStagingRow = typeof brainObservationsStaging.$inferSelect;
 /** Row type for `brain_observations_staging` INSERT operations (target shape). */
 export type NewBrainObservationsStagingRow = typeof brainObservationsStaging.$inferInsert;
+/** Row type for `brain_usage_log` SELECT queries (target shape). */
+export type BrainUsageLogRow = typeof brainUsageLog.$inferSelect;
+/** Row type for `brain_usage_log` INSERT operations (target shape). */
+export type NewBrainUsageLogRow = typeof brainUsageLog.$inferInsert;

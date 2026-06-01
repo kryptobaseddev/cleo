@@ -114,28 +114,31 @@ const SCOPES: readonly ScopeDescriptor[] = [
 // ---------------------------------------------------------------------------
 
 /**
- * Locate the single `migration.sql` inside a scope's folder-per-migration
- * directory (`<dir>/<timestamp_name>/migration.sql`).
+ * Read all migration SQL bodies from a scope's folder-per-migration directory
+ * (`<dir>/<timestamp_name>/migration.sql`), sorted by folder name (timestamp prefix).
+ *
+ * Supports multiple migration folders — migrations are applied in chronological
+ * order so each successive migration layer is applied on top of the previous.
  *
  * @param migrationsDir - The scope's `drizzle-cleo-<scope>` directory.
- * @returns Absolute path to the one `migration.sql`.
+ * @returns Array of migration SQL strings in ascending folder-name order.
  */
-function resolveMigrationSql(migrationsDir: string): string {
+function readAllMigrationSql(migrationsDir: string): string[] {
   const folders = readdirSync(migrationsDir, { withFileTypes: true })
     .filter((d) => d.isDirectory())
     .map((d) => d.name)
     .sort();
-  if (folders.length !== 1) {
-    throw new Error(
-      `expected exactly one migration folder in ${migrationsDir}, found ${folders.length}: ${folders.join(', ')}`,
-    );
+  if (folders.length === 0) {
+    throw new Error(`expected at least one migration folder in ${migrationsDir}, found none`);
   }
-  return join(migrationsDir, folders[0], 'migration.sql');
+  return folders.map((folder) =>
+    readFileSync(join(migrationsDir, folder, 'migration.sql'), 'utf8'),
+  );
 }
 
-/** Read a scope's generated migration body. */
+/** Read a scope's generated migration body (all migrations concatenated in order). */
 function readMigrationSql(migrationsDir: string): string {
-  return readFileSync(resolveMigrationSql(migrationsDir), 'utf8');
+  return readAllMigrationSql(migrationsDir).join('\n');
 }
 
 /**

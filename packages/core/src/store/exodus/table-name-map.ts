@@ -33,6 +33,8 @@
  * @task T11532 (ROOT CAUSE 1 — name-mapping gap)
  * @task T11533 (ROOT CAUSE 3 — signaldock skills mapping + brain_release_links skip +
  *               brain_session_narrative mapping)
+ * @task T11546 (no-home-table fixes — schema_meta→tasks_schema_meta, brain_usage_log mapping,
+ *               brain_schema_meta mapping)
  * @epic T11248
  * @saga T11242
  */
@@ -113,6 +115,10 @@ const TASKS_DB_MAP: ReadonlyMap<string, string> = new Map([
   ['playbook_approvals', 'tasks_playbook_approvals'],
   // goal.ts — already prefixed in legacy
   ['tasks_goal', 'tasks_goal'],
+  // audit.ts — schema_meta is unprefixed in legacy tasks.db; gains tasks_ prefix in consolidated.
+  // (T11546 no-home-table fix — was missing from map, falling through to identity lookup for
+  //  'schema_meta' which is absent in consolidated; now correctly mapped to tasks_schema_meta.)
+  ['schema_meta', 'tasks_schema_meta'],
 ]);
 
 /**
@@ -165,17 +171,19 @@ const BRAIN_DB_MAP: ReadonlyMap<string, string | null> = new Map([
   // but the table doesn't exist in cleo-project; explicit skip with journal note).
   // Post-exodus: rebuilt from tasks_releases + tasks_commits by release reconcile.
   ['brain_release_links', null],
+  // brain_schema_meta: key-value schema-version store (T11546 no-home-table fix —
+  //   was missing from map, falling through to identity lookup; now correctly mapped).
+  ['brain_schema_meta', 'brain_schema_meta'],
   // Unprefixed legacy names (gain brain_ prefix in consolidated)
   ['sticky_tags', 'brain_sticky_tags'],
   ['deriver_queue', 'brain_deriver_queue'],
   // session_narrative → brain_session_narrative (T11533 fix — was missing from map,
   // causing identity fallback to 'session_narrative' which doesn't exist in consolidated).
   ['session_narrative', 'brain_session_narrative'],
-  // Tables present in live DB but NOT in consolidated schema — explicit logged skip
-  // brain_usage_log: runtime-only quality-feedback telemetry (8471 rows). Not Drizzle-managed.
-  //   Created by quality-feedback.ts via CREATE TABLE IF NOT EXISTS; excluded from the
-  //   consolidated Drizzle schema. Post-exodus, the subsystem recreates it on first write.
-  ['brain_usage_log', null],
+  // brain_usage_log: quality-feedback telemetry (8471 rows). Added to the consolidated
+  //   Drizzle schema in T11546 migration 20260531000002 so exodus can copy these rows.
+  //   Identity mapping (already has brain_ prefix).
+  ['brain_usage_log', 'brain_usage_log'],
   // brain_task_observations: runtime-only observation cache. Not in Drizzle schema.
   ['brain_task_observations', null],
   // brain_embeddings: vec0 VIRTUAL TABLE — cannot be migrated via INSERT/SELECT.
@@ -387,9 +395,6 @@ export function resolveConsolidatedTableName(
  */
 function getSkipReason(sourceKind: SourceKind, legacyTable: string): string {
   const reasons: Partial<Record<string, string>> = {
-    brain_usage_log:
-      'runtime-only quality-feedback telemetry (not Drizzle-managed, 8471 rows); ' +
-      'excluded from consolidated Drizzle schema; recreated lazily on first write after exodus cutover',
     brain_task_observations:
       'runtime-only observation cache (not Drizzle-managed); ' +
       'recreated lazily after exodus cutover',

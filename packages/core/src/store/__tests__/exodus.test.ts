@@ -664,9 +664,14 @@ describe('T11532 regression — resolveConsolidatedTableName (name-mapping unit 
     });
   });
 
-  it('returns skip for brain_usage_log (orphan telemetry)', () => {
+  it('maps brain_usage_log → brain_usage_log (T11546: now in consolidated schema, no longer orphan)', () => {
+    // T11546: brain_usage_log was previously null (skip) because it wasn't Drizzle-managed.
+    // Added to cleo-shared/brain.ts + migration 20260531000002 so 8471 rows can be migrated.
     const r = resolveConsolidatedTableName('brain (project)', 'brain_usage_log');
-    expect(r.kind).toBe('skip');
+    expect(r.kind).toBe('mapped');
+    if (r.kind === 'mapped') {
+      expect(r.targetName).toBe('brain_usage_log');
+    }
   });
 
   it('returns skip for brain_embeddings (vec0 virtual table)', () => {
@@ -1360,5 +1365,292 @@ describe('T11533 regression — runExodusVerify: column-intersection digest (has
       entry?.hashMatch,
       'hashMatch must be true when data is same but target has extra column (T11533 column-intersection fix)',
     ).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T11546 REGRESSION — epoch→ISO coercion + no-swallow
+//
+// ROOT CAUSE: conduit_messages.created_at is INTEGER epoch in source but
+// text with CHECK(GLOB ISO-8601) in target. INSERT OR IGNORE silently drops
+// ALL rows when the integer doesn't match the GLOB. migrate reports success
+// with rowsCopied=0 — false success, data loss.
+//
+// Fix (a): epoch→ISO coercion via strftime() in SELECT expression.
+// Fix (b): no-swallow detection: rowsCopied=0 AND sourceCount>0 → hard error.
+//
+// Tests:
+//   1. Full-table coercion: all rows from an epoch-INTEGER source column survive
+//      into a target with ISO GLOB CHECK — rowsCopied == sourceCount.
+//   2. No-swallow: migrate FAILS (not silent success) when any row is dropped by
+//      an unresolvable constraint (e.g. a genuinely bad value that can't be coerced).
+//   3. name-map regression: schema_meta → tasks_schema_meta, brain_usage_log → brain_usage_log.
+// ---------------------------------------------------------------------------
+
+describe('T11546 regression — epoch→ISO coercion: INTEGER epoch source → text GLOB CHECK target', () => {
+  let tmpDir: string;
+  let sourcePath: string;
+  let targetProjectPath: string;
+  let targetGlobalPath: string;
+  let stagingDir: string;
+
+  beforeEach(() => {
+    tmpDir = makeTempDir();
+    sourcePath = join(tmpDir, 'conduit.db');
+    targetProjectPath = join(tmpDir, 'target-project.db');
+    targetGlobalPath = join(tmpDir, 'target-global.db');
+    stagingDir = join(tmpDir, 'staging');
+    mkdirSync(stagingDir, { recursive: true });
+    createTargetDb(targetGlobalPath, []);
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  it('migrates ALL rows when source has INTEGER epoch and target has ISO GLOB CHECK (coercion fix)', async () => {
+    // Source: conduit.db table 'messages' with INTEGER created_at (Unix epoch seconds)
+    const ROW_COUNT = 25;
+    const NOW_EPOCH = Math.floor(Date.now() / 1000); // seconds epoch
+
+    const src = new DatabaseSync(sourcePath);
+    try {
+      src.exec(
+        `CREATE TABLE "messages" (
+          id TEXT PRIMARY KEY,
+          conversation_id TEXT NOT NULL,
+          from_agent_id TEXT NOT NULL,
+          to_agent_id TEXT NOT NULL,
+          content TEXT NOT NULL,
+          created_at INTEGER NOT NULL
+        )`,
+      );
+      for (let i = 1; i <= ROW_COUNT; i++) {
+        src.exec(
+          `INSERT INTO "messages" (id, conversation_id, from_agent_id, to_agent_id, content, created_at)
+           VALUES ('msg-${i}', 'conv-1', 'agent-a', 'agent-b', 'hello ${i}', ${NOW_EPOCH + i})`,
+        );
+      }
+    } finally {
+      src.close();
+    }
+
+    // Target: conduit_messages with text created_at + ISO GLOB CHECK (mirrors real consolidated schema)
+    const tgt = new DatabaseSync(targetProjectPath);
+    try {
+      tgt.exec(
+        `CREATE TABLE "conduit_messages" (
+          id TEXT PRIMARY KEY,
+          conversation_id TEXT NOT NULL,
+          from_agent_id TEXT NOT NULL,
+          to_agent_id TEXT NOT NULL,
+          content TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          -- consolidation CHECK constraints (T11363)
+          CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')
+        )`,
+      );
+    } finally {
+      tgt.close();
+    }
+
+    const targetProjectDb = new DatabaseSync(targetProjectPath);
+    const targetGlobalDb = new DatabaseSync(targetGlobalPath);
+
+    const makeFakeHandle = (native: DatabaseSyncType) => ({
+      db: { $client: native },
+      close: () => {
+        /* keep open for assertions */
+      },
+    });
+
+    vi.mock('../dual-scope-db.js', () => ({
+      openDualScopeDb: vi.fn(),
+      resolveDualScopeDbPath: vi.fn(),
+    }));
+
+    const dualScopeModule = await import('../dual-scope-db.js');
+    vi.mocked(dualScopeModule.openDualScopeDb).mockImplementation((scope: string) => {
+      if (scope === 'project') return Promise.resolve(makeFakeHandle(targetProjectDb) as never);
+      return Promise.resolve(makeFakeHandle(targetGlobalDb) as never);
+    });
+    vi.mocked(dualScopeModule.resolveDualScopeDbPath).mockImplementation((scope: string) =>
+      scope === 'project' ? targetProjectPath : targetGlobalPath,
+    );
+
+    const { runExodusMigrate: migrate } = await import('../exodus/migrate.js');
+
+    const sources: LegacyDbDescriptor[] = [
+      { name: 'conduit', path: sourcePath, targetScope: 'project' },
+    ];
+
+    const plan: ExodusPlan = {
+      sources,
+      totalSourceBytes: 0,
+      availableBytes: 100_000_000,
+      diskPreflight: true,
+      stagingDir,
+      resumeFromStaging: false,
+      projectDbPath: targetProjectPath,
+      globalDbPath: targetGlobalPath,
+    };
+
+    const result = await migrate(plan, false, undefined);
+
+    expect(result.ok, `migrate must succeed: ${result.error ?? ''}`).toBe(true);
+
+    // PRIMARY ASSERTION: ALL rows must be present — not 0 (the pre-fix failure mode).
+    const targetCount = countRows(targetProjectPath, 'conduit_messages');
+    expect(
+      targetCount,
+      `T11546 epoch coercion regression: expected ${ROW_COUNT} rows in conduit_messages, got ${targetCount}` +
+        ' — INTEGER epoch was not converted to ISO-8601 before INSERT, all rows dropped by GLOB CHECK',
+    ).toBe(ROW_COUNT);
+
+    // SECONDARY ASSERTION: created_at values must be ISO-8601 formatted (not raw integers)
+    const db = new DatabaseSync(targetProjectPath, { readOnly: true });
+    try {
+      const row = db.prepare(`SELECT created_at FROM conduit_messages LIMIT 1`).get() as {
+        created_at: string;
+      } | null;
+      expect(row?.created_at, 'created_at must be ISO-8601 string after epoch coercion').toMatch(
+        /^\d{4}-\d{2}-\d{2}T/,
+      );
+    } finally {
+      db.close();
+    }
+
+    targetProjectDb.close();
+    targetGlobalDb.close();
+  });
+
+  it('no-swallow: migrate reports error (not silent success) when rows dropped by unresolvable constraint', async () => {
+    // Source: table where the target has a STRICT enum CHECK that source values violate.
+    // This simulates a scenario where coercion cannot help (bad enum value, not epoch).
+    // The no-swallow detection must surface this as a non-silent error.
+    const src = new DatabaseSync(sourcePath);
+    try {
+      src.exec(`CREATE TABLE "messages" (id TEXT PRIMARY KEY, status TEXT NOT NULL)`);
+      // Insert rows with an invalid status value that will fail the CHECK
+      for (let i = 1; i <= 10; i++) {
+        src.exec(`INSERT INTO "messages" (id, status) VALUES ('m-${i}', 'invalid_status')`);
+      }
+    } finally {
+      src.close();
+    }
+
+    // Target: conduit_messages with a strict enum CHECK on status
+    const tgt = new DatabaseSync(targetProjectPath);
+    try {
+      tgt.exec(
+        `CREATE TABLE "conduit_messages" (
+          id TEXT PRIMARY KEY,
+          status TEXT NOT NULL DEFAULT 'pending',
+          CHECK ("status" IN ('pending', 'delivered', 'read', 'failed'))
+        )`,
+      );
+    } finally {
+      tgt.close();
+    }
+
+    const targetProjectDb = new DatabaseSync(targetProjectPath);
+    const targetGlobalDb = new DatabaseSync(targetGlobalPath);
+
+    const makeFakeHandle = (native: DatabaseSyncType) => ({
+      db: { $client: native },
+      close: () => {
+        /* keep open */
+      },
+    });
+
+    vi.mock('../dual-scope-db.js', () => ({
+      openDualScopeDb: vi.fn(),
+      resolveDualScopeDbPath: vi.fn(),
+    }));
+
+    const dualScopeModule = await import('../dual-scope-db.js');
+    vi.mocked(dualScopeModule.openDualScopeDb).mockImplementation((scope: string) => {
+      if (scope === 'project') return Promise.resolve(makeFakeHandle(targetProjectDb) as never);
+      return Promise.resolve(makeFakeHandle(targetGlobalDb) as never);
+    });
+    vi.mocked(dualScopeModule.resolveDualScopeDbPath).mockImplementation((scope: string) =>
+      scope === 'project' ? targetProjectPath : targetGlobalPath,
+    );
+
+    const { runExodusMigrate: migrate } = await import('../exodus/migrate.js');
+
+    const sources: LegacyDbDescriptor[] = [
+      { name: 'conduit', path: sourcePath, targetScope: 'project' },
+    ];
+
+    const plan: ExodusPlan = {
+      sources,
+      totalSourceBytes: 0,
+      availableBytes: 100_000_000,
+      diskPreflight: true,
+      stagingDir,
+      resumeFromStaging: false,
+      projectDbPath: targetProjectPath,
+      globalDbPath: targetGlobalPath,
+    };
+
+    const result = await migrate(plan, false, undefined);
+
+    // PRIMARY ASSERTION: migrate must NOT report ok:true + rowsCopied=0 silently.
+    // The no-swallow detection converts a 0-row full-table drop into a reported error.
+    // The table result must show a reason/error (non-empty reason field).
+    // Note: result.tables stores LEGACY table names (the source physical names), not consolidated names.
+    // 'messages' is the legacy name in conduit.db (maps to consolidated 'conduit_messages').
+    const msgTableResult = result.tables.find((t) => t.tableName === 'messages');
+    expect(
+      msgTableResult,
+      'migrate must emit a result entry for messages (conduit_messages)',
+    ).toBeDefined();
+    expect(
+      msgTableResult?.reason,
+      'no-swallow: migrate must report a reason when ALL rows are dropped by a constraint — ' +
+        'pre-fix: result.ok=true, rowsCopied=0, reason=undefined (silent data loss)',
+    ).toBeTruthy();
+    expect(
+      msgTableResult?.rowsCopied,
+      'no-swallow: rowsCopied must be 0 when all rows fail CHECK constraint',
+    ).toBe(0);
+
+    targetProjectDb.close();
+    targetGlobalDb.close();
+  });
+});
+
+describe('T11546 regression — name-map: no-home table mappings', () => {
+  it('maps tasks.db schema_meta → tasks_schema_meta', () => {
+    expect(resolveConsolidatedTableName('tasks', 'schema_meta')).toEqual({
+      kind: 'mapped',
+      targetName: 'tasks_schema_meta',
+    });
+  });
+
+  it('maps brain.db brain_usage_log → brain_usage_log (identity — now in consolidated schema)', () => {
+    expect(resolveConsolidatedTableName('brain', 'brain_usage_log')).toEqual({
+      kind: 'mapped',
+      targetName: 'brain_usage_log',
+    });
+  });
+
+  it('maps brain.db brain_schema_meta → brain_schema_meta (identity — now mapped)', () => {
+    expect(resolveConsolidatedTableName('brain (project)', 'brain_schema_meta')).toEqual({
+      kind: 'mapped',
+      targetName: 'brain_schema_meta',
+    });
+  });
+
+  it('returns skip for brain.db brain_task_observations (not in consolidated schema)', () => {
+    const r = resolveConsolidatedTableName('brain', 'brain_task_observations');
+    expect(r.kind).toBe('skip');
+  });
+
+  it('returns skip for brain.db brain_embeddings (vec0 virtual table)', () => {
+    const r = resolveConsolidatedTableName('brain', 'brain_embeddings');
+    expect(r.kind).toBe('skip');
   });
 });
