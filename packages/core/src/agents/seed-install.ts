@@ -679,10 +679,19 @@ export async function forceInstallProjectTierAgents(
     return { installed, failed, scannedDir };
   }
 
-  // Open via chokepoint — applies pragma SSoT (T9047, T9189)
-  const { openCleoDb } = await import('../store/open-cleo-db.js');
-  const { db: _sdRaw } = await openCleoDb('global');
-  const db = _sdRaw as import('node:sqlite').DatabaseSync;
+  // E6-L6 (T11526): the `agents` family is the legacy signaldock schema inside
+  // the global cleo.db — ensureGlobalSignaldockDb() guarantees those tables exist
+  // (openCleoDb('global') alone only runs the consolidated schema).
+  const { ensureGlobalSignaldockDb, getGlobalSignaldockNativeDb } = await import(
+    '../store/signaldock-sqlite.js'
+  );
+  await ensureGlobalSignaldockDb();
+  const db = getGlobalSignaldockNativeDb();
+  if (!db) {
+    throw new Error(
+      'seed-install: global signaldock cleo.db could not be opened (no native handle)',
+    );
+  }
 
   try {
     for (const filename of cantFiles) {

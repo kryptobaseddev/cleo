@@ -34,7 +34,6 @@ import type {
 } from '@cleocode/contracts';
 import { resolveOrCwd } from '../paths.js';
 import { createBrainAccessor } from './brain-accessor-impl.js';
-import { openCleoDb } from './open-cleo-db.js';
 import {
   createConduitAccessor,
   createNexusAccessor,
@@ -133,8 +132,9 @@ export class UmbrellaDataAccessor implements DataAccessor {
         break;
       }
       case 'nexus': {
-        // NexusAccessor — code intelligence graph
-        await openCleoDb('global', this.cwd); // ensure DB is open
+        // NexusAccessor — code intelligence graph. E6-L6 (T11526): the accessor
+        // self-opens the global cleo.db via getNexusDb() (which runs the legacy
+        // nexus migrations), so no separate ensure-open is required here.
         accessor = createNexusAccessor(this.cwd);
         break;
       }

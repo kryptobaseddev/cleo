@@ -258,10 +258,18 @@ export async function installTemplatesAtProjectTier(
     return { installed: [], failed: [], templatesDir };
   }
 
-  const { openCleoDb } = await import('./store/open-cleo-db.js');
-  // Open via chokepoint — applies pragma SSoT (T9047, T9189)
-  const { db: _sdRaw } = await openCleoDb('global');
-  const db = _sdRaw as import('node:sqlite').DatabaseSync;
+  // E6-L6 (T11526): the `agents` family is the legacy signaldock schema, created
+  // inside the global `cleo.db` by ensureGlobalSignaldockDb() (which routes
+  // through openDualScopeDb('global') AND runs the legacy signaldock migrations).
+  // openCleoDb('global') alone would only create the consolidated schema.
+  const { ensureGlobalSignaldockDb, getGlobalSignaldockNativeDb } = await import(
+    './store/signaldock-sqlite.js'
+  );
+  await ensureGlobalSignaldockDb();
+  const db = getGlobalSignaldockNativeDb();
+  if (!db) {
+    throw new Error('init: global signaldock cleo.db could not be opened (no native handle)');
+  }
 
   const installed: TemplateInstallEntry[] = [];
   const failed: Array<{ cantPath: string; error: string }> = [];
