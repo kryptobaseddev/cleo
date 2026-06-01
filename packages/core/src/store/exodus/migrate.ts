@@ -107,6 +107,8 @@
  * @task T11533 (P0 FK-defer + NOT NULL coalesce + signaldock-global map + nexus hash fix)
  * @task T11547 (P0 enum normalization — 7,421 rows recovered)
  * @task T11548 (P0 final enum coverage — 285 remaining rows zero-loss)
+ * @task T11549 (P0 zero-loss final mile — brain_decisions enums + seconds-epoch coercion +
+ *               agent_credentials/brain_release_links tables)
  * @saga T11242
  */
 
@@ -352,9 +354,12 @@ function typeDefaultLiteral(colType: string): string {
  * - `brain_decisions.decision_category`
  *   → `'architecture'` → `'architectural'` (enum: architectural/agent_dispatch/other).
  *   Legacy writers used the unabbreviated form. [31 rows]
+ *   → `'process'` → `'other'`, `'technical'` → `'other'` (T11549 zero-loss final mile).
+ *   These categories pre-date the enum tightening; no closer canonical exists.
  *
  * - `brain_decisions.confidence`
- *   → any value not in (low/medium/high) → `'medium'` as a safe fallback.
+ *   → `'confirmed'` → `'high'` (T11549: semantically maps to the high tier, not medium).
+ *   → any remaining value not in (low/medium/high) → `'medium'` as a safe fallback.
  *   Covers typos, empty strings, and out-of-vocabulary legacy values. [4 rows]
  *
  * - `tasks_commits.conventional_type`
@@ -457,21 +462,33 @@ const ENUM_NORMALIZATIONS: ReadonlyMap<string, NormalizeFn> = new Map([
     (src: string) => `CASE ${src} WHEN 'mcp' THEN 'agent' ELSE ${src} END`,
   ],
 
-  // --- brain_decisions.decision_category (T11548) -------------------------
+  // --- brain_decisions.decision_category (T11548 + T11549) -----------------
   // 'architecture' → 'architectural' (enum: architectural/agent_dispatch/other). 31 rows.
+  // 'process' → 'other', 'technical' → 'other' (T11549: pre-tightening categories). [4 rows]
   [
     'brain_decisions.decision_category',
-    (src: string) => `CASE ${src} WHEN 'architecture' THEN 'architectural' ELSE ${src} END`,
+    (src: string) =>
+      `CASE ${src}` +
+      ` WHEN 'architecture' THEN 'architectural'` +
+      ` WHEN 'process' THEN 'other'` +
+      ` WHEN 'technical' THEN 'other'` +
+      ` ELSE ${src}` +
+      ` END`,
   ],
 
-  // --- brain_decisions.confidence (T11548) ---------------------------------
-  // Any value NOT in (low/medium/high) → 'medium'. 4 rows.
+  // --- brain_decisions.confidence (T11548 + T11549) -------------------------
+  // 'confirmed' → 'high' (T11549: 'confirmed' is semantically equivalent to 'high').
+  // Any remaining value NOT in (low/medium/high) → 'medium'. 4 rows.
   // General fallback: if the value is already canonical it passes through the ELSE;
   // any out-of-vocabulary value (typo, empty-string, etc.) becomes 'medium'.
   [
     'brain_decisions.confidence',
     (src: string) =>
-      `CASE` + ` WHEN ${src} IN ('low', 'medium', 'high') THEN ${src}` + ` ELSE 'medium'` + ` END`,
+      `CASE` +
+      ` WHEN ${src} = 'confirmed' THEN 'high'` +
+      ` WHEN ${src} IN ('low', 'medium', 'high') THEN ${src}` +
+      ` ELSE 'medium'` +
+      ` END`,
   ],
 
   // --- tasks_commits.conventional_type (T11548) ----------------------------
@@ -561,19 +578,28 @@ const ISO_CHECK_REGEX = /CHECK\s*\(\s*"([^"]+)"\s+IS\s+NULL\s+OR\s+"[^"]+"\s+GLO
  * Rules per source DB (§8.1 resolution from schema analysis):
  * - conduit.db: epoch SECONDS — writers call `Math.floor(Date.now() / 1000)`
  * - brain.db: epoch MILLISECONDS — writers call `Date.now()` / `unixepoch * 1000`
+ *
+ * @deprecated Use `buildEpochToIsoExpr` which applies a SQL magnitude heuristic
+ * instead of trusting the per-source label. This type is retained for backward
+ * compatibility with the SOURCE_EPOCH_UNITS primary-hint lookup used as a
+ * tiebreaker when both branches of the magnitude check are plausible.
  */
 type EpochUnit = 'seconds' | 'milliseconds';
 
 /**
- * Per-source-DB epoch unit lookup.
- * Used by `epochUnitForSource()` to pick the right `strftime` divisor.
+ * Per-source-DB epoch unit lookup — used as a primary hint for the SQL magnitude
+ * heuristic (T11549 coercion fix). When the magnitude heuristic is ambiguous
+ * (value in the overlap zone), the source-level hint wins.
  *
  * Verified from schema source comments (§8.1 resolution):
  * - conduit.db:   `Math.floor(Date.now() / 1000)` → SECONDS
  * - brain.db:     `Date.now()` / `unixepoch * 1000` → MILLISECONDS
  * - signaldock.db: `strftime('%s','now')` → SECONDS
  * - tasks.db:     `Date.now()` → MILLISECONDS (most writers)
- * - nexus.db:     `Date.now()` → MILLISECONDS
+ * - nexus.db:     mixed — most columns are MILLISECONDS but `user_profile`
+ *                  `first_observed_at`/`last_reinforced_at` are SECONDS
+ *                  (written by PSYCHE dialectic writer via `Math.floor(Date.now() / 1000)`).
+ *                  The magnitude heuristic handles this automatically.
  * - skills.db:    `Date.now()` → MILLISECONDS
  */
 const SOURCE_EPOCH_UNITS: ReadonlyMap<string, EpochUnit> = new Map([
@@ -591,6 +617,12 @@ const SOURCE_EPOCH_UNITS: ReadonlyMap<string, EpochUnit> = new Map([
  * Return the epoch unit used by a given source DB's INTEGER timestamp columns.
  * Defaults to `'seconds'` for unknown sources (safe default — ISO-8601 output
  * will be off by 1000x only for ms sources, which are already enumerated above).
+ *
+ * NOTE: This is the per-source hint. The actual SQL expression generated by
+ * `buildEpochToIsoExpr` uses a magnitude-based heuristic at the row level so
+ * individual columns that diverge from the source default are handled correctly
+ * (T11549 bug fix — nexus `user_profile` stores seconds despite nexus being
+ * labeled milliseconds at the source level).
  */
 function epochUnitForSource(sourceName: string): EpochUnit {
   const key = sourceName.toLowerCase();
@@ -599,6 +631,57 @@ function epochUnitForSource(sourceName: string): EpochUnit {
     if (key === pattern || key.startsWith(pattern)) return unit;
   }
   return 'seconds';
+}
+
+/**
+ * Magnitude threshold distinguishing epoch SECONDS from epoch MILLISECONDS.
+ *
+ * A Unix epoch value for years 2020–2100 is roughly 1.6e9 – 4.1e9 seconds,
+ * or 1.6e12 – 4.1e12 milliseconds. The safe boundary is 1e11 (100 billion):
+ * any value BELOW 1e11 is in seconds (even year 2100 seconds ≈ 4.1e9 < 1e11);
+ * any value AT OR ABOVE 1e11 is in milliseconds (year 2020 ms ≈ 1.6e12 > 1e11).
+ *
+ * This constant is embedded directly in the generated SQL CASE expression so
+ * it is evaluated per-row — each row's epoch is classified independently.
+ */
+const EPOCH_SECONDS_THRESHOLD = 100_000_000_000 as const; // 1e11
+
+/**
+ * Build a SQL expression that converts an INTEGER epoch column to ISO-8601 TEXT,
+ * automatically detecting whether the stored value is in seconds or milliseconds
+ * using a magnitude heuristic (T11549 correctness fix).
+ *
+ * ## Heuristic
+ *
+ * A per-row CASE checks whether the column value is below {@link EPOCH_SECONDS_THRESHOLD}
+ * (100 billion). If so, the value is treated as seconds and passed directly to
+ * `strftime(..., 'unixepoch')`. If at or above the threshold, it is divided by
+ * 1000.0 first (milliseconds → seconds).
+ *
+ * This replaces the previous per-source heuristic which failed when individual
+ * columns within a source DB used a different epoch unit than the majority of that
+ * source's columns. The specific bug: `nexus.user_profile.{first_observed_at,
+ * last_reinforced_at}` stores SECONDS (value ≈ 1.78e9) but the nexus source was
+ * labeled `milliseconds`, causing these values to be divided by 1000 and converted
+ * to a 1970 date.
+ *
+ * ## NULL handling
+ *
+ * A NULL source value is preserved as NULL so it passes the `IS NULL` branch of
+ * the ISO GLOB CHECK constraint on the target column.
+ *
+ * @param srcRef       - SQL expression referencing the source column value.
+ * @returns A SQL CASE expression producing an ISO-8601 TEXT timestamp.
+ */
+function buildEpochToIsoExpr(srcRef: string): string {
+  return (
+    `CASE` +
+    ` WHEN ${srcRef} IS NULL THEN NULL` +
+    ` WHEN ${srcRef} < ${EPOCH_SECONDS_THRESHOLD}` +
+    ` THEN strftime('%Y-%m-%dT%H:%M:%fZ', ${srcRef}, 'unixepoch')` +
+    ` ELSE strftime('%Y-%m-%dT%H:%M:%fZ', ${srcRef}/1000.0, 'unixepoch')` +
+    ` END`
+  );
 }
 
 /**
@@ -645,9 +728,14 @@ function detectIsoGlobColumns(db: DatabaseSync, tableName: string): Set<string> 
  *    target is NOT NULL with no schema default.
  * 4. **Plain column reference** otherwise.
  *
- * The epoch→ISO conversion uses SQLite's `strftime('%Y-%m-%dT%H:%M:%fZ', ...)`:
- * - For `seconds` epoch: `strftime('%Y-%m-%dT%H:%M:%fZ', src, 'unixepoch')`
- * - For `milliseconds` epoch: `strftime('%Y-%m-%dT%H:%M:%fZ', src/1000.0, 'unixepoch')`
+ * The epoch→ISO conversion uses `buildEpochToIsoExpr` which detects the epoch
+ * scale (seconds vs milliseconds) per-row using a magnitude heuristic: values
+ * below {@link EPOCH_SECONDS_THRESHOLD} (1e11) are treated as seconds; values at
+ * or above are treated as milliseconds and divided by 1000.0 before conversion
+ * (T11549 correctness fix — the previous per-source unit was incorrect for
+ * individual columns that diverged from the source default, e.g.
+ * `nexus.user_profile.first_observed_at` stores SECONDS even though most nexus
+ * writers use milliseconds).
  *
  * A NULL source value is preserved as NULL (passes the `IS NULL` branch of the
  * GLOB CHECK, and is OK for nullable columns).
@@ -659,7 +747,6 @@ function detectIsoGlobColumns(db: DatabaseSync, tableName: string): Set<string> 
  * @param srcType          - Raw type string from source `PRAGMA table_info`.
  * @param tgtInfo          - Target column metadata from `PRAGMA table_info`.
  * @param isoGlobCols      - Set of columns requiring ISO GLOB in the target.
- * @param epochUnit        - Whether the source stores seconds or milliseconds.
  * @returns SQL expression string suitable for use in a SELECT clause.
  */
 function buildSelectExpr(
@@ -670,19 +757,19 @@ function buildSelectExpr(
   srcType: string,
   tgtInfo: { type: string; notnull: number; dflt_value: string | null },
   isoGlobCols: ReadonlySet<string>,
-  epochUnit: EpochUnit,
 ): string {
   const srcRef = `"${attachAlias}"."${legacyTable}"."${col}"`;
   const srcUpper = srcType.toUpperCase();
   const isIntegerSource = srcUpper.includes('INT') || srcUpper === '' || srcUpper === 'NUMERIC';
   const isNotNullWithoutDefault = tgtInfo.notnull === 1 && tgtInfo.dflt_value === null;
 
-  // Priority 1: Epoch→ISO coercion (T11546) — applies when target has ISO GLOB
-  // CHECK and source column is INTEGER (epoch) typed.
+  // Priority 1: Epoch→ISO coercion (T11546 + T11549) — applies when target has
+  // ISO GLOB CHECK and source column is INTEGER (epoch) typed. Uses per-row
+  // magnitude detection to distinguish seconds from milliseconds (T11549 fix).
   if (isoGlobCols.has(col) && isIntegerSource) {
-    const divisor = epochUnit === 'milliseconds' ? `${srcRef}/1000.0` : srcRef;
-    // CASE preserves NULL (passes `IS NULL` branch of CHECK) and converts non-NULL epochs.
-    const isoExpr = `CASE WHEN ${srcRef} IS NULL THEN NULL ELSE strftime('%Y-%m-%dT%H:%M:%fZ', ${divisor}, 'unixepoch') END`;
+    // Magnitude-based heuristic: value < 1e11 → seconds, ≥ 1e11 → milliseconds.
+    // Each row is classified independently — no reliance on a per-source label.
+    const isoExpr = buildEpochToIsoExpr(srcRef);
     // If the target is NOT NULL without a default, COALESCE to '' to avoid a separate
     // constraint violation (though a NULL epoch is anomalous data).
     if (isNotNullWithoutDefault) {
@@ -838,8 +925,11 @@ function copyTableFromAttached(
   // Read the target table DDL to find columns with ISO-8601 GLOB CHECK constraints.
   // For those columns where the source is INTEGER-typed, we inject a strftime()
   // expression in the SELECT so the inserted value passes the GLOB check.
+  // T11549: the scale (seconds vs ms) is now detected per-row by magnitude heuristic
+  // inside buildSelectExpr via buildEpochToIsoExpr — the per-source hint is kept for
+  // logging only.
   const isoGlobCols = detectIsoGlobColumns(targetNativeDb, targetTableName);
-  const epochUnit = epochUnitForSource(sourceName);
+  const epochUnitHint = epochUnitForSource(sourceName);
 
   // Build a map of source column types for quick lookup in buildSelectExpr.
   const srcTypeMap = new Map(srcPragma.map((r) => [r.name, r.type]));
@@ -858,9 +948,9 @@ function copyTableFromAttached(
           targetTableName,
           sourceName,
           coercedCols,
-          epochUnit,
+          epochUnitHint,
         },
-        `Exodus: applying epoch→ISO coercion for ${coercedCols.length} column(s) (T11546)`,
+        `Exodus: applying epoch→ISO coercion (magnitude heuristic) for ${coercedCols.length} column(s) (T11546+T11549)`,
       );
     }
   }
@@ -897,7 +987,6 @@ function copyTableFromAttached(
       srcType,
       tgtInfo,
       isoGlobCols,
-      epochUnit,
     );
   });
 

@@ -1287,16 +1287,22 @@ describe('T11533 regression — resolveConsolidatedTableName: signaldock skills 
     });
   });
 
-  it('returns skip for brain.db brain_release_links (T11533 fix — not in consolidated)', () => {
-    // Before T11533: identity mapping → 'brain_release_links' absent → silent skip.
-    // After T11533: explicit null → logged skip with documented reason.
+  it('maps brain.db brain_release_links → tasks_brain_release_links (T11549 zero-loss — was skip in T11533)', () => {
+    // T11533 mapped this to null (skip) because no consolidated target existed.
+    // T11549 adds tasks_brain_release_links to the cleo-project schema so all 8 rows migrate.
     const r = resolveConsolidatedTableName('brain (project)', 'brain_release_links');
-    expect(r.kind).toBe('skip');
+    expect(r.kind).toBe('mapped');
+    if (r.kind === 'mapped') {
+      expect(r.targetName).toBe('tasks_brain_release_links');
+    }
   });
 
-  it('returns skip for brain.db agent_credentials (not in consolidated)', () => {
+  it('maps brain.db agent_credentials → tasks_agent_credentials (T11549 zero-loss fix)', () => {
     const r = resolveConsolidatedTableName('brain (project)', 'agent_credentials');
-    expect(r.kind).toBe('skip');
+    expect(r.kind).toBe('mapped');
+    if (r.kind === 'mapped') {
+      expect(r.targetName).toBe('tasks_agent_credentials');
+    }
   });
 });
 
@@ -2438,6 +2444,308 @@ describe('T11548 regression — final enum coverage: transport/conventional_type
       );
       expect(rows.find((r) => r.id === 'B-5')?.binding_type, 'coverage passthrough').toBe(
         'coverage',
+      );
+    } finally {
+      tgt.close();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T11549 REGRESSION — zero-loss final mile
+//
+// Verifies three precise fixes:
+//   1. brain_decisions.confidence: 'confirmed' → 'high' (not 'medium')
+//   2. brain_decisions.decision_category: 'process' → 'other', 'technical' → 'other'
+//   3. Epoch seconds-vs-ms: a seconds-epoch value (< 1e11) converts to a 2020s
+//      year, not 1970 (magnitude heuristic — T11549 coercion fix)
+//
+// @task T11549
+// ---------------------------------------------------------------------------
+
+describe('T11549 regression — zero-loss final mile: confidence/decision_category enums + seconds-epoch coercion', () => {
+  let tmpDir: string;
+  let sourcePath: string;
+  let targetProjectPath: string;
+  let targetGlobalPath: string;
+  let stagingDir: string;
+
+  beforeEach(() => {
+    tmpDir = makeTempDir();
+    sourcePath = join(tmpDir, 'source.db');
+    targetProjectPath = join(tmpDir, 'target-project.db');
+    targetGlobalPath = join(tmpDir, 'target-global.db');
+    stagingDir = join(tmpDir, 'staging');
+    mkdirSync(stagingDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  /** Shared migrate helper — mirrors T11548 helper exactly. */
+  async function runMigrateT11549(
+    sourceName: string,
+    targetScope: 'project' | 'global',
+  ): Promise<string> {
+    const targetPath = targetScope === 'project' ? targetProjectPath : targetGlobalPath;
+    const targetProjectDb = new DatabaseSync(targetProjectPath);
+    const targetGlobalDb = new DatabaseSync(targetGlobalPath);
+
+    const makeFakeHandle = (native: DatabaseSyncType) => ({
+      db: { $client: native },
+      close: () => {
+        /* test owns lifetime */
+      },
+    });
+
+    vi.mock('../dual-scope-db.js', () => ({
+      openDualScopeDb: vi.fn(),
+      resolveDualScopeDbPath: vi.fn(),
+    }));
+
+    const dualScopeModule = await import('../dual-scope-db.js');
+    vi.mocked(dualScopeModule.openDualScopeDb).mockImplementation((scope: string) => {
+      if (scope === 'project') return Promise.resolve(makeFakeHandle(targetProjectDb) as never);
+      return Promise.resolve(makeFakeHandle(targetGlobalDb) as never);
+    });
+    vi.mocked(dualScopeModule.resolveDualScopeDbPath).mockImplementation((scope: string) =>
+      scope === 'project' ? targetProjectPath : targetGlobalPath,
+    );
+
+    const { runExodusMigrate: migrate } = await import('../exodus/migrate.js');
+
+    const plan: ExodusPlan = {
+      sources: [{ name: sourceName, path: sourcePath, targetScope }],
+      totalSourceBytes: 0,
+      availableBytes: 100_000_000,
+      diskPreflight: true,
+      stagingDir,
+      resumeFromStaging: false,
+      projectDbPath: targetProjectPath,
+      globalDbPath: targetGlobalPath,
+    };
+
+    const result = await migrate(plan, false, undefined);
+    expect(result.ok, `migrate failed: ${result.error ?? 'unknown'}`).toBe(true);
+
+    targetProjectDb.close();
+    targetGlobalDb.close();
+
+    return targetPath;
+  }
+
+  it('normalizes brain_decisions.confidence: confirmed → high (not medium)', async () => {
+    const srcDb = new DatabaseSync(sourcePath);
+    try {
+      srcDb.exec(
+        `CREATE TABLE brain_decisions (id TEXT PRIMARY KEY, decision TEXT NOT NULL, ` +
+          `rationale TEXT NOT NULL, confidence TEXT NOT NULL, type TEXT NOT NULL DEFAULT 'architecture')`,
+      );
+      srcDb.exec(
+        `INSERT INTO brain_decisions VALUES ('D-1', 'dec1', 'rat1', 'confirmed', 'architecture')`,
+      );
+      srcDb.exec(
+        `INSERT INTO brain_decisions VALUES ('D-2', 'dec2', 'rat2', 'high', 'architecture')`,
+      );
+      srcDb.exec(
+        `INSERT INTO brain_decisions VALUES ('D-3', 'dec3', 'rat3', 'medium', 'architecture')`,
+      );
+      srcDb.exec(
+        `INSERT INTO brain_decisions VALUES ('D-4', 'dec4', 'rat4', 'low', 'architecture')`,
+      );
+      srcDb.exec(
+        `INSERT INTO brain_decisions VALUES ('D-5', 'dec5', 'rat5', 'unknown-val', 'architecture')`,
+      );
+    } finally {
+      srcDb.close();
+    }
+
+    const tgtDb = new DatabaseSync(targetProjectPath);
+    try {
+      tgtDb.exec(
+        `CREATE TABLE brain_decisions (id TEXT PRIMARY KEY, decision TEXT NOT NULL, ` +
+          `rationale TEXT NOT NULL, ` +
+          `confidence TEXT NOT NULL CHECK (confidence IN ('low','medium','high')), ` +
+          `type TEXT NOT NULL DEFAULT 'architecture')`,
+      );
+    } finally {
+      tgtDb.close();
+    }
+    new DatabaseSync(targetGlobalPath).close();
+
+    await runMigrateT11549('brain', 'project');
+
+    const tgt = new DatabaseSync(targetProjectPath, { readOnly: true });
+    try {
+      const rows = tgt
+        .prepare('SELECT id, confidence FROM brain_decisions ORDER BY id')
+        .all() as Array<{ id: string; confidence: string }>;
+      expect(rows).toHaveLength(5);
+      expect(rows.find((r) => r.id === 'D-1')?.confidence, 'confirmed → high').toBe('high');
+      expect(rows.find((r) => r.id === 'D-2')?.confidence, 'high passthrough').toBe('high');
+      expect(rows.find((r) => r.id === 'D-3')?.confidence, 'medium passthrough').toBe('medium');
+      expect(rows.find((r) => r.id === 'D-4')?.confidence, 'low passthrough').toBe('low');
+      expect(rows.find((r) => r.id === 'D-5')?.confidence, 'unknown-val → medium fallback').toBe(
+        'medium',
+      );
+    } finally {
+      tgt.close();
+    }
+  });
+
+  it('normalizes brain_decisions.decision_category: process/technical → other', async () => {
+    const srcDb = new DatabaseSync(sourcePath);
+    try {
+      srcDb.exec(
+        `CREATE TABLE brain_decisions (id TEXT PRIMARY KEY, decision TEXT NOT NULL, ` +
+          `rationale TEXT NOT NULL, confidence TEXT NOT NULL DEFAULT 'medium', ` +
+          `type TEXT NOT NULL DEFAULT 'architecture', decision_category TEXT NOT NULL DEFAULT 'architectural')`,
+      );
+      srcDb.exec(`INSERT INTO brain_decisions VALUES ('D-1', 'd', 'r', 'high', 'arch', 'process')`);
+      srcDb.exec(
+        `INSERT INTO brain_decisions VALUES ('D-2', 'd', 'r', 'high', 'arch', 'technical')`,
+      );
+      srcDb.exec(
+        `INSERT INTO brain_decisions VALUES ('D-3', 'd', 'r', 'high', 'arch', 'architecture')`,
+      );
+      srcDb.exec(
+        `INSERT INTO brain_decisions VALUES ('D-4', 'd', 'r', 'high', 'arch', 'architectural')`,
+      );
+      srcDb.exec(
+        `INSERT INTO brain_decisions VALUES ('D-5', 'd', 'r', 'high', 'arch', 'agent_dispatch')`,
+      );
+      srcDb.exec(`INSERT INTO brain_decisions VALUES ('D-6', 'd', 'r', 'high', 'arch', 'other')`);
+    } finally {
+      srcDb.close();
+    }
+
+    const tgtDb = new DatabaseSync(targetProjectPath);
+    try {
+      tgtDb.exec(
+        `CREATE TABLE brain_decisions (id TEXT PRIMARY KEY, decision TEXT NOT NULL, ` +
+          `rationale TEXT NOT NULL, ` +
+          `confidence TEXT NOT NULL CHECK (confidence IN ('low','medium','high')) DEFAULT 'medium', ` +
+          `type TEXT NOT NULL DEFAULT 'architecture', ` +
+          `decision_category TEXT NOT NULL ` +
+          `CHECK (decision_category IN ('architectural','agent_dispatch','other')) DEFAULT 'architectural')`,
+      );
+    } finally {
+      tgtDb.close();
+    }
+    new DatabaseSync(targetGlobalPath).close();
+
+    await runMigrateT11549('brain', 'project');
+
+    const tgt = new DatabaseSync(targetProjectPath, { readOnly: true });
+    try {
+      const rows = tgt
+        .prepare('SELECT id, decision_category FROM brain_decisions ORDER BY id')
+        .all() as Array<{ id: string; decision_category: string }>;
+      expect(rows).toHaveLength(6);
+      expect(rows.find((r) => r.id === 'D-1')?.decision_category, 'process → other').toBe('other');
+      expect(rows.find((r) => r.id === 'D-2')?.decision_category, 'technical → other').toBe(
+        'other',
+      );
+      expect(
+        rows.find((r) => r.id === 'D-3')?.decision_category,
+        'architecture → architectural',
+      ).toBe('architectural');
+      expect(rows.find((r) => r.id === 'D-4')?.decision_category, 'architectural passthrough').toBe(
+        'architectural',
+      );
+      expect(
+        rows.find((r) => r.id === 'D-5')?.decision_category,
+        'agent_dispatch passthrough',
+      ).toBe('agent_dispatch');
+      expect(rows.find((r) => r.id === 'D-6')?.decision_category, 'other passthrough').toBe(
+        'other',
+      );
+    } finally {
+      tgt.close();
+    }
+  });
+
+  it('seconds-epoch value (< 1e11) coerces to a 2020s year, NOT 1970 (magnitude heuristic fix)', async () => {
+    // Seconds epoch for 2026-06-01 ≈ 1_777_660_000 (< 1e11 → should be treated as seconds).
+    // If treated as milliseconds (old bug): 1_777_660 seconds from epoch ≈ 1970-01-21.
+    const secondsEpoch = 1_777_660_429; // 2026-06-01T... in seconds
+    const msEpoch = 1_717_200_000_000; // 2024-06-01 in milliseconds (≥ 1e11 → ms branch)
+
+    const srcDb = new DatabaseSync(sourcePath);
+    try {
+      srcDb.exec(
+        `CREATE TABLE user_profile (trait_key TEXT PRIMARY KEY, trait_value TEXT NOT NULL, ` +
+          `confidence REAL NOT NULL, source TEXT NOT NULL, ` +
+          `first_observed_at INTEGER NOT NULL, last_reinforced_at INTEGER NOT NULL, ` +
+          `reinforcement_count INTEGER NOT NULL DEFAULT 1)`,
+      );
+      // Row 1: seconds epoch (should → 2026; bug was → 1970)
+      srcDb.exec(
+        `INSERT INTO user_profile VALUES ('trait-sec', 'v', 0.9, 'manual', ${secondsEpoch}, ${secondsEpoch}, 1)`,
+      );
+      // Row 2: milliseconds epoch (should → 2024; was already correct before fix)
+      srcDb.exec(
+        `INSERT INTO user_profile VALUES ('trait-ms', 'v', 0.8, 'manual', ${msEpoch}, ${msEpoch}, 1)`,
+      );
+    } finally {
+      srcDb.close();
+    }
+
+    const tgtDb = new DatabaseSync(targetProjectPath);
+    try {
+      // Target uses TEXT ISO8601 columns with ISO GLOB CHECK (E10 §4 re-typing for nexus).
+      tgtDb.exec(
+        `CREATE TABLE nexus_user_profile (` +
+          `trait_key TEXT PRIMARY KEY, ` +
+          `trait_value TEXT NOT NULL, ` +
+          `confidence REAL NOT NULL, ` +
+          `source TEXT NOT NULL, ` +
+          `first_observed_at TEXT NOT NULL ` +
+          `CHECK ("first_observed_at" IS NULL OR "first_observed_at" GLOB '[0-9][0-9][0-9][0-9]-*'), ` +
+          `last_reinforced_at TEXT NOT NULL ` +
+          `CHECK ("last_reinforced_at" IS NULL OR "last_reinforced_at" GLOB '[0-9][0-9][0-9][0-9]-*'), ` +
+          `reinforcement_count INTEGER NOT NULL DEFAULT 1)`,
+      );
+    } finally {
+      tgtDb.close();
+    }
+    new DatabaseSync(targetGlobalPath).close();
+
+    await runMigrateT11549('nexus', 'project');
+
+    const tgt = new DatabaseSync(targetProjectPath, { readOnly: true });
+    try {
+      const rows = tgt
+        .prepare(
+          'SELECT trait_key, first_observed_at, last_reinforced_at FROM nexus_user_profile ORDER BY trait_key',
+        )
+        .all() as Array<{
+        trait_key: string;
+        first_observed_at: string;
+        last_reinforced_at: string;
+      }>;
+
+      // Both rows must have migrated (neither dropped)
+      expect(rows).toHaveLength(2);
+
+      const secRow = rows.find((r) => r.trait_key === 'trait-sec');
+      const msRow = rows.find((r) => r.trait_key === 'trait-ms');
+
+      // Seconds-epoch row: first 4 chars must be '2026' (not '1970')
+      expect(secRow?.first_observed_at.startsWith('2026'), 'seconds-epoch → 2026, not 1970').toBe(
+        true,
+      );
+      expect(
+        secRow?.last_reinforced_at.startsWith('2026'),
+        'seconds-epoch last_reinforced → 2026',
+      ).toBe(true);
+
+      // Milliseconds-epoch row: first 4 chars must be '2024'
+      expect(msRow?.first_observed_at.startsWith('2024'), 'ms-epoch → 2024').toBe(true);
+      expect(msRow?.last_reinforced_at.startsWith('2024'), 'ms-epoch last_reinforced → 2024').toBe(
+        true,
       );
     } finally {
       tgt.close();

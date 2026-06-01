@@ -135,16 +135,22 @@ const TASKS_DB_MAP: ReadonlyMap<string, string> = new Map([
  * (virtual tables, orphan telemetry, etc.) map to `null` — they will be
  * logged as explicit skips rather than silently discarded.
  *
- * ## brain_release_links (T11533 fix)
+ * ## brain_release_links (T11533 → T11549 fix)
  *
  * The legacy brain.db contains a `brain_release_links` table (8 rows) used by
- * `cleo release reconcile` to track release provenance. The consolidated
- * cleo-project schema does NOT include this table (it lives in tasks-domain
- * provenance tables instead). The prior mapping pointed to itself (identity),
- * which caused the copy to fail silently with "target not found" and skip the
- * rows. Corrected to `null` (explicit documented skip) so the journal records
- * the intentional exclusion and post-exodus the release reconcile subsystem
- * will rebuild this data from tasks_releases + tasks_commits.
+ * `cleo release reconcile` to track release provenance. T11533 incorrectly marked
+ * this as `null` (skip) because the consolidated cleo-project schema did not yet
+ * include the table. T11549 adds `tasks_brain_release_links` to the consolidated
+ * project schema (`cleo-project/provenance-orphans.ts`) so all 8 rows can be
+ * migrated. The table is now mapped to `'tasks_brain_release_links'`.
+ *
+ * ## agent_credentials (T11549 fix)
+ *
+ * The legacy brain.db contains an `agent_credentials` table (3 rows) with
+ * encrypted API keys. T11533 marked this as `null` (skip) because it was not in
+ * the consolidated schema. T11549 adds `tasks_agent_credentials` to the project
+ * schema so all 3 rows (including `api_key_encrypted`) are preserved through
+ * exodus. The table is now mapped to `'tasks_agent_credentials'`.
  */
 const BRAIN_DB_MAP: ReadonlyMap<string, string | null> = new Map([
   // Already-prefixed brain_* tables (identity mapping)
@@ -167,10 +173,9 @@ const BRAIN_DB_MAP: ReadonlyMap<string, string | null> = new Map([
   ['brain_backfill_runs', 'brain_backfill_runs'],
   ['brain_memory_trees', 'brain_memory_trees'],
   ['brain_observations_staging', 'brain_observations_staging'],
-  // brain_release_links: NOT in consolidated schema (T11533 fix — was pointing to identity
-  // but the table doesn't exist in cleo-project; explicit skip with journal note).
-  // Post-exodus: rebuilt from tasks_releases + tasks_commits by release reconcile.
-  ['brain_release_links', null],
+  // brain_release_links: T11549 fix — consolidated target added in cleo-project/provenance-orphans.ts.
+  // Was `null` (skip) in T11533; now maps to tasks_brain_release_links (8 rows preserved).
+  ['brain_release_links', 'tasks_brain_release_links'],
   // brain_schema_meta: key-value schema-version store (T11546 no-home-table fix —
   //   was missing from map, falling through to identity lookup; now correctly mapped).
   ['brain_schema_meta', 'brain_schema_meta'],
@@ -192,9 +197,9 @@ const BRAIN_DB_MAP: ReadonlyMap<string, string | null> = new Map([
   ['brain_embeddings', null],
   // brain_embeddings_info: metadata companion to brain_embeddings vec0 virtual table.
   ['brain_embeddings_info', null],
-  // agent_credentials: runtime credential cache (not Drizzle-managed). Zero or minimal rows.
-  //   Excluded from consolidated schema; the credential provider recreates on first auth.
-  ['agent_credentials', null],
+  // agent_credentials: T11549 fix — consolidated target added in cleo-project/provenance-orphans.ts.
+  // Was `null` (skip); now maps to tasks_agent_credentials (3 rows incl. api_key_encrypted).
+  ['agent_credentials', 'tasks_agent_credentials'],
 ]);
 
 /**
@@ -404,12 +409,8 @@ function getSkipReason(sourceKind: SourceKind, legacyTable: string): string {
     brain_embeddings_info:
       'metadata companion to brain_embeddings vec0 virtual table; ' +
       'excluded from consolidated schema (derived/recreatable)',
-    brain_release_links:
-      'not in consolidated cleo-project schema (T11533 fix); ' +
-      'release provenance rebuilt from tasks_releases + tasks_commits after exodus cutover',
-    agent_credentials:
-      'runtime credential cache (not Drizzle-managed); ' +
-      'intentionally excluded from consolidated schema; recreated on first auth',
+    // brain_release_links and agent_credentials are no longer skipped (T11549):
+    // they now map to tasks_brain_release_links and tasks_agent_credentials respectively.
   };
   return (
     reasons[legacyTable] ?? `table '${legacyTable}' from ${sourceKind} has no consolidated target`

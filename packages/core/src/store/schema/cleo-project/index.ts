@@ -89,8 +89,10 @@
  * canonical 87 (tasks-core 45 + conduit 14 + docs 4 + telemetry 2 + brain 22)
  * plus the 2 E4 junctions added on main since the audit (`tasks_task_labels`,
  * `brain_sticky_tags`) = 89 prefixed `sqliteTable`s across `cleo-project/` +
- * `cleo-shared/`. (`brain_release_links` lives with `tasks_releases` provenance
- * and the two `_conduit_*` legacy meta tables are dropped at exodus per §6b.)
+ * `cleo-shared/`. The two `_conduit_*` legacy meta tables are dropped at exodus
+ * per §6b. **T11549 (zero-loss final mile)**: `tasks_agent_credentials` and
+ * `tasks_brain_release_links` added in `provenance-orphans.ts` (2 tables, 11
+ * rows recovered from legacy brain.db). Total = 91 prefixed tables.
  * What remains for the saga is the GLOBAL scope (T11361: nexus_* / skills_* /
  * signaldock_* + this same mirrored brain_*) and the exodus cutover (T11248).
  *
@@ -108,6 +110,7 @@ export * from './conduit.js';
 export * from './docs.js';
 export * from './lifecycle.js';
 export * from './provenance-commits.js';
+export * from './provenance-orphans.js';
 export * from './provenance-rest.js';
 export * from './runtime.js';
 export * from './tasks-core.js';
