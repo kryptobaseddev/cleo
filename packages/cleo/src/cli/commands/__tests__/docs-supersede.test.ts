@@ -81,7 +81,7 @@ async function seedTwoDocs(
  */
 async function readBySlug(slug: string): Promise<AttachmentSupersedeRow | undefined> {
   const { openCleoDb } = await import('@cleocode/core/internal');
-  const handle = await openCleoDb('tasks');
+  const handle = await openCleoDb('project');
   try {
     const db = handle.db as DatabaseSync;
     return db

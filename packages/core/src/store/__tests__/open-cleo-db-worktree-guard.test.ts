@@ -65,34 +65,17 @@ describe('openCleoDb — worktree-isolation guard (T9806 / D009)', () => {
     }
   });
 
-  describe('AC-1: refuses open when .cleo/ parent is a worktree gitlink', () => {
-    it('throws E_WT_DB_ISOLATION_VIOLATION for role=tasks inside worktree', async () => {
-      tempDir = makeWorktreeFixture('tasks-refuse', 'gitdir: /tmp/some-main/.git/worktrees/foo\n');
-      await expect(openCleoDb('tasks', tempDir)).rejects.toThrowError(
-        /E_WT_DB_ISOLATION_VIOLATION/,
-      );
-    });
-
-    it('throws E_WT_DB_ISOLATION_VIOLATION for role=brain inside worktree', async () => {
-      tempDir = makeWorktreeFixture('brain-refuse', 'gitdir: /tmp/some-main/.git/worktrees/bar\n');
-      await expect(openCleoDb('brain', tempDir)).rejects.toThrowError(
-        /E_WT_DB_ISOLATION_VIOLATION/,
-      );
-    });
-
-    it('throws E_WT_DB_ISOLATION_VIOLATION for role=conduit inside worktree', async () => {
+  // E6-L6 (T11526): the legacy 8-role API was removed. The project-scope
+  // consolidated `cleo.db` (formerly tasks/brain/conduit/sessions) is guarded
+  // by cwd; the global-scope `cleo.db` (formerly nexus/signaldock/skills)
+  // resolves from getCleoHome() and is intentionally NOT cwd-guarded.
+  describe('AC-1: refuses open when .cleo/ parent is a worktree gitlink (project scope)', () => {
+    it('throws E_WT_DB_ISOLATION_VIOLATION for role=project inside worktree', async () => {
       tempDir = makeWorktreeFixture(
-        'conduit-refuse',
-        'gitdir: /tmp/some-main/.git/worktrees/baz\n',
+        'project-refuse',
+        'gitdir: /tmp/some-main/.git/worktrees/foo\n',
       );
-      await expect(openCleoDb('conduit', tempDir)).rejects.toThrowError(
-        /E_WT_DB_ISOLATION_VIOLATION/,
-      );
-    });
-
-    it('throws E_WT_DB_ISOLATION_VIOLATION for role=nexus inside worktree', async () => {
-      tempDir = makeWorktreeFixture('nexus-refuse', 'gitdir: /tmp/some-main/.git/worktrees/qux\n');
-      await expect(openCleoDb('nexus', tempDir)).rejects.toThrowError(
+      await expect(openCleoDb('project', tempDir)).rejects.toThrowError(
         /E_WT_DB_ISOLATION_VIOLATION/,
       );
     });
@@ -105,7 +88,7 @@ describe('openCleoDb — worktree-isolation guard (T9806 / D009)', () => {
       // Open may still fail for other reasons (DB modules not initialised in
       // a temp dir without migrations), but it must NOT fail with the
       // T9806-specific isolation-violation error.
-      const errorPromise = openCleoDb('tasks', tempDir)
+      const errorPromise = openCleoDb('project', tempDir)
         .then(() => null as Error | null)
         .catch((err: unknown) => (err instanceof Error ? err : new Error(String(err))));
       const err = await errorPromise;
@@ -117,21 +100,18 @@ describe('openCleoDb — worktree-isolation guard (T9806 / D009)', () => {
     it('non-"1" values do NOT bypass the guard', async () => {
       tempDir = makeWorktreeFixture('override-bad', 'gitdir: /tmp/some-main/.git/worktrees/bad\n');
       process.env['CLEO_ALLOW_WORKTREE_DB_CREATE'] = 'true'; // not literally '1'
-      await expect(openCleoDb('tasks', tempDir)).rejects.toThrowError(
+      await expect(openCleoDb('project', tempDir)).rejects.toThrowError(
         /E_WT_DB_ISOLATION_VIOLATION/,
       );
     });
   });
 
-  describe('AC-3: signaldock + skills (global-tier roles) NOT guarded', () => {
-    it('signaldock open is allowed inside a worktree (global path)', async () => {
-      tempDir = makeWorktreeFixture(
-        'signaldock-allow',
-        'gitdir: /tmp/some-main/.git/worktrees/sd\n',
-      );
-      // signaldock opens against ~/.local/share/cleo/signaldock.db regardless
+  describe('AC-3: global scope (formerly nexus/signaldock/skills) NOT cwd-guarded', () => {
+    it('global open is allowed inside a worktree (global home path)', async () => {
+      tempDir = makeWorktreeFixture('global-allow', 'gitdir: /tmp/some-main/.git/worktrees/sd\n');
+      // The global cleo.db opens against ~/.local/share/cleo/cleo.db regardless
       // of cwd; the worktree guard intentionally skips it.
-      const errorPromise = openCleoDb('signaldock', tempDir)
+      const errorPromise = openCleoDb('global', tempDir)
         .then(() => null as Error | null)
         .catch((err: unknown) => (err instanceof Error ? err : new Error(String(err))));
       const err = await errorPromise;

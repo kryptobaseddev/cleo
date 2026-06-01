@@ -681,7 +681,7 @@ export async function forceInstallProjectTierAgents(
 
   // Open via chokepoint — applies pragma SSoT (T9047, T9189)
   const { openCleoDb } = await import('../store/open-cleo-db.js');
-  const { db: _sdRaw } = await openCleoDb('signaldock');
+  const { db: _sdRaw } = await openCleoDb('global');
   const db = _sdRaw as import('node:sqlite').DatabaseSync;
 
   try {

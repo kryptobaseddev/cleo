@@ -269,7 +269,7 @@ async function autoRecoverFromBackup(
  */
 export async function getDb(cwd?: string): Promise<NodeSQLiteDatabase<typeof schema>> {
   // T9961 / T9806: worktree-isolation guard — defense-in-depth for direct
-  // getDb() callers that bypass openCleoDb('tasks', cwd).
+  // getDb() callers that bypass openCleoDb('project', cwd).
   // Fires before any DB file is touched, matching the openCleoDb chokepoint.
   assertDbPathIsNotWorktreeResident('tasks', cwd);
 

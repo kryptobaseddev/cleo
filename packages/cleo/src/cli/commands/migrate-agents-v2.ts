@@ -303,7 +303,7 @@ export async function runMigrateAgentsV2(
   const summary: MigrationSummary = { registered: 0, skipped: 0, conflicts: 0, errors: 0 };
 
   // Open via chokepoint — applies pragma SSoT (T9047, T9189)
-  const { db: _sdDb } = await openCleoDb('signaldock');
+  const { db: _sdDb } = await openCleoDb('global');
   const db = _sdDb as DatabaseSync;
 
   try {

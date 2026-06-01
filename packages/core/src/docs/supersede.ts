@@ -135,7 +135,7 @@ export async function supersedeDoc(
     );
   }
 
-  const handle = await openCleoDb('tasks', cwd);
+  const handle = await openCleoDb('project', cwd);
   try {
     const db = handle.db as DatabaseSync;
     const now = new Date().toISOString();

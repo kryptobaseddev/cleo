@@ -24,20 +24,23 @@
  * // Dual-scope consolidated cleo.db (D1″ lifecycle — E3/E4 exodus):
  * const projHandle = await openCleoDb('project', cwd);
  * const globHandle = await openCleoDb('global');
- *
- * // Legacy 8-role API (deprecated — use 'project'|'global' for new code):
- * const handle = await openCleoDb('tasks', cwd);
- * // use handle.db (DatabaseSync) ...
+ * // use handle.db (native DatabaseSync) ...
  * await handle.close();
  * ```
  *
- * ## Dual-scope delegation (T11517 · E3)
+ * ## Dual-scope delegation (T11517 · E3 · T11526 · E6-L6)
  *
- * When called with `'project'` or `'global'` as the role, `openCleoDb` delegates
- * directly to {@link openDualScopeDb} from `./dual-scope-db.ts`, returning a
- * `CleoDbHandle`-shaped wrapper. This is the preferred API for all new code
- * after the E3 exodus. The legacy 8-role CleoDbRole API is retained as a
- * deprecated shim for one migration cycle (E6 removes it).
+ * `openCleoDb` accepts ONLY `'project'` | `'global'` and delegates directly to
+ * {@link openDualScopeDb} from `./dual-scope-db.ts`. The legacy 8-role API
+ * (`tasks` / `brain` / `sessions` / `signaldock` / `conduit` / `nexus` /
+ * `skills` / `llmtxt`) was removed in E6-L6 (T11526) — the per-domain leaf
+ * modules (L1–L5) now open the consolidated `cleo.db` through `openDualScopeDb`
+ * directly, so the chokepoint no longer needs the per-role dispatch table.
+ *
+ * The returned `CleoDbHandle.db` is the **native** `DatabaseSync` handle
+ * (extracted from the Drizzle wrapper's `$client`), preserving the contract
+ * the legacy roles exposed so callers that issue raw `prepare`/`exec` SQL keep
+ * working with only a role-string swap.
  *
  * ## Snapshot opener (read-only, no migrations)
  *
@@ -47,7 +50,7 @@
  * migrations and singleton management, so the caller owns the handle's
  * lifecycle directly.
  *
- * @task T9047, T9685, T11517
+ * @task T9047, T9685, T11517, T11526
  * @adr ADR-068, ADR-069
  */
 
@@ -57,48 +60,25 @@ import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { resolveOrCwd } from '../paths.js';
 import { getProjectInfoSync } from '../project-info.js';
-import { getConduitNativeDb } from './conduit-sqlite.js';
 import type { DualScope } from './dual-scope-db.js';
 import { openDualScopeDb } from './dual-scope-db.js';
-import { getBrainDb } from './memory-sqlite.js';
-import { getNexusDb } from './nexus-sqlite.js';
-import { ensureGlobalSignaldockDb, getGlobalSignaldockNativeDb } from './signaldock-sqlite.js';
-import { openSkillsDb } from './skills-db.js';
-import { getDb as getTasksDb } from './sqlite.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
 import { assertDbPathIsNotWorktreeResident } from './worktree-isolation-guard.js';
 
 /**
- * Canonical roles for the CLEO SQLite databases (ADR-068).
+ * Canonical scopes for the consolidated CLEO `cleo.db` databases (ADR-068).
  *
- * ### Preferred (dual-scope, D1″ — E3 exodus)
  * - `'project'` — consolidated per-project `cleo.db` (delegates to {@link openDualScopeDb})
  * - `'global'`  — consolidated per-user `cleo.db`  (delegates to {@link openDualScopeDb})
  *
- * ### Legacy 8-role API (deprecated — kept for one migration cycle until E6)
- * The legacy roles below are retained as shims during the E3→E6 transition.
- * New code MUST use `'project'` or `'global'` instead.
+ * The legacy 8-role API (`tasks` / `brain` / `sessions` / `signaldock` /
+ * `conduit` / `nexus` / `skills` / `llmtxt`) was removed in E6-L6 (T11526).
+ * `tasks` / `brain` / `sessions` / `conduit` map to `'project'`; `nexus` /
+ * `signaldock` / `skills` map to `'global'`.
  *
- * @task T11517 (E3-T1 · SG-DB-SUBSTRATE-V2)
+ * @task T11517 (E3-T1 · SG-DB-SUBSTRATE-V2), T11526 (E6-L6)
  */
-export type CleoDbRole =
-  // ── Dual-scope (preferred) ───────────────────────────────────────────────
-  | DualScope // 'project' | 'global'
-  // ── Legacy 8-role shims (deprecated — remove in E6) ────────────────────
-  | 'tasks'
-  | 'brain'
-  | 'sessions'
-  | 'signaldock'
-  | 'conduit'
-  | 'nexus'
-  | 'skills'
-  | 'llmtxt';
-
-/** Legacy 8-role union (deprecated — E6 removes these). */
-type LegacyCleoDbRole = Exclude<CleoDbRole, DualScope>;
-
-/** Legacy implemented roles (excludes the not-yet-implemented 'llmtxt'). */
-type ImplementedLegacyRole = Exclude<LegacyCleoDbRole, 'llmtxt'>;
+export type CleoDbRole = DualScope; // 'project' | 'global'
 
 interface DrizzleWithClient {
   $client?: unknown;
@@ -114,66 +94,6 @@ export interface CleoDbHandle {
 /** @deprecated Use {@link CleoDbHandle}. */
 export type DBHandle = CleoDbHandle;
 
-/** Internal opener for a given role. */
-type DbOpener = (cwd?: string) => Promise<unknown>;
-
-/** Open the global signaldock.db via its canonical module. */
-async function openSignaldockDb(_cwd?: string): Promise<unknown> {
-  await ensureGlobalSignaldockDb();
-  return getGlobalSignaldockNativeDb();
-}
-
-/** Open the conduit.db for the given project (or current process). */
-async function openConduitDb(cwd?: string): Promise<unknown> {
-  const { ensureConduitDb } = await import('./conduit-sqlite.js');
-  await ensureConduitDb(resolveOrCwd(cwd));
-  return getConduitNativeDb();
-}
-
-/**
- * Open the per-user skills.db registry (global-tier, `getCleoHome()`).
- *
- * Delegates to `openSkillsDb()` in `./skills-db.ts` — the canonical lifecycle
- * module for skills.db (mirrors signaldock/conduit/nexus modules).
- *
- * @task T9651
- */
-async function openSkillsDbHandle(_cwd?: string): Promise<unknown> {
-  // The drizzle handle wraps the native DatabaseSync via `$client`; the
-  // caller of openCleoDb() unwraps it through `unwrapNativeSqliteDb()` below.
-  return openSkillsDb();
-}
-
-/**
- * Open brain.db via its canonical lifecycle module (memory-sqlite.ts).
- *
- * T10397 fix: prior to this task, the `brain` role was silently aliased to
- * `getTasksDb`, so every consumer that called `openCleoDb('brain')` was
- * handed a `tasks.db` handle. Writes to brain tables either no-op'd against
- * tasks.db or surfaced as schema errors at prepare()-time.
- *
- * @task T10397
- */
-async function openBrainDbHandle(cwd?: string): Promise<unknown> {
-  return getBrainDb(cwd);
-}
-
-/** Openers for the legacy 8-role API (deprecated shim — E6 removes these). */
-const ROLE_OPENERS: Record<ImplementedLegacyRole, DbOpener> = {
-  tasks: getTasksDb as unknown as DbOpener,
-  // T10397: brain role MUST resolve to brain.db, NOT tasks.db. Prior to
-  // this fix the entry was `getTasksDb`, silently corrupting every
-  // brain-table write that flowed through the chokepoint.
-  brain: openBrainDbHandle,
-  // sessions table lives inside tasks.db — there is no separate sessions.db
-  // file. The alias is intentional.
-  sessions: getTasksDb as unknown as DbOpener,
-  signaldock: openSignaldockDb,
-  conduit: openConduitDb,
-  nexus: getNexusDb as unknown as DbOpener,
-  skills: openSkillsDbHandle,
-};
-
 function unwrapNativeSqliteDb(db: unknown): unknown {
   if (db && typeof db === 'object' && '$client' in db) {
     return (db as DrizzleWithClient).$client ?? db;
@@ -186,27 +106,28 @@ function isDatabaseSync(db: unknown): db is DatabaseSync {
 }
 
 /**
- * Roles whose DBs track per-project `project_id` and therefore need to be
- * cross-checked against `.cleo/project-info.json` on every open.
+ * Scopes whose `cleo.db` tracks a per-project `project_id` and therefore need
+ * a cross-check against `.cleo/project-info.json` on every open.
  *
- * Today this is just `nexus` — its `project_registry` table records one row
- * per known project with `(project_id PRIMARY KEY, project_path UNIQUE)`.
- * The drift check verifies that a row whose `project_path` matches the
- * caller's project root has the same `project_id` as the caller's
- * `.cleo/project-info.json`. Mismatch → `E_PROJECT_ID_DRIFT`.
+ * After the E6 consolidation the cross-project registry (`project_registry`,
+ * formerly nexus.db) lives inside the **global** `cleo.db`. Its
+ * `project_registry` table records one row per known project with
+ * `(project_id PRIMARY KEY, project_path UNIQUE)`. The drift check verifies
+ * that a row whose `project_path` matches the caller's project root has the
+ * same `project_id` as the caller's `.cleo/project-info.json`. Mismatch →
+ * `E_PROJECT_ID_DRIFT`.
  *
- * Project-tier DBs (`tasks`, `brain`, `conduit`, `sessions`) do NOT carry a
- * `project_id` column — they live under per-project `.cleo/` and inherit
- * project identity from their parent directory. The path-layer (T9803) and
- * worktree-isolation guard (T9806) already prevent cross-project misroutes
- * for those roles. Global-tier DBs (`signaldock`, `skills`) carry no
- * project identity at all.
+ * The project-tier `cleo.db` (tasks, brain, conduit, sessions data) does NOT
+ * carry a `project_id` column — it lives under per-project `.cleo/` and
+ * inherits project identity from its parent directory. The path-layer (T9803)
+ * and worktree-isolation guard (T9806) already prevent cross-project misroutes
+ * for the project scope.
  *
- * @task T10322
+ * @task T10322, T11526
  * @saga T10281
  * @adr ADR-068
  */
-const PROJECT_ID_TRACKING_ROLES: ReadonlySet<CleoDbRole> = new Set<CleoDbRole>(['nexus']);
+const PROJECT_ID_TRACKING_ROLES: ReadonlySet<CleoDbRole> = new Set<CleoDbRole>(['global']);
 
 interface ProjectRegistryRow {
   project_id: string;
@@ -294,101 +215,73 @@ export function validateProjectIdConsistency(role: CleoDbRole, db: unknown, cwd?
 }
 
 /**
- * Open (or create) a CLEO database by canonical role or dual-scope selector.
+ * Open (or create) a CLEO database by dual-scope selector.
  *
- * ## Dual-scope delegation (preferred — T11517 · E3)
+ * ## Dual-scope delegation (T11517 · E3 · T11526 · E6-L6)
  *
- * When called with `'project'` or `'global'`, this function delegates to
- * {@link openDualScopeDb} from `./dual-scope-db.ts`. The returned handle
- * wraps the typed Drizzle client as `CleoDbHandle.db` for backward compat
- * with legacy callers that treat `db` as an opaque `unknown`.
+ * Accepts ONLY `'project'` | `'global'` and delegates to {@link openDualScopeDb}
+ * from `./dual-scope-db.ts`, which applies the pragma SSoT, runs migrations,
+ * and manages the singleton cache for the consolidated `cleo.db`.
  *
  * ```ts
- * // Preferred for new code after E3 exodus:
  * const handle = await openCleoDb('project', cwd);
  * const handle = await openCleoDb('global');
  * ```
  *
- * ## Legacy 8-role API (deprecated)
+ * `CleoDbHandle.db` is the **native** `DatabaseSync` handle (extracted from the
+ * Drizzle wrapper's `$client`). This preserves the contract the legacy 8-role
+ * API exposed, so callers issuing raw `prepare`/`exec` SQL keep working after
+ * swapping their role string (`tasks`/`brain`/`sessions`/`conduit` → `project`;
+ * `nexus`/`signaldock`/`skills` → `global`).
  *
- * The legacy role strings (`'tasks'`, `'brain'`, `'signaldock'`, …) remain
- * functional as deprecated shims for existing callers. E6 will remove them.
+ * Single chokepoint for all DB opens. Enforces the worktree-isolation guard
+ * (T9806) for the project scope on top of T9803's path-layer THROWS-on-orphan
+ * fix.
  *
- * Single chokepoint for all DB opens. Applies pragma SSoT at open time.
- * Enforces the worktree-isolation guard (T9806) on top of T9803's path-layer
- * THROWS-on-orphan fix.
- *
- * @task T9047, T9685, T11517
+ * @task T9047, T9685, T11517, T11526
  * @adr ADR-068, ADR-069
  */
 export async function openCleoDb(role: CleoDbRole, cwd?: string): Promise<CleoDbHandle> {
-  // ── Dual-scope delegation (preferred API — E3 onwards) ──────────────────
-  if (role === 'project' || role === 'global') {
-    // Delegate to the E4 chokepoint which applies pragma SSoT, runs migrations,
-    // and manages the singleton cache. Explicit conditional narrows the overload.
-    const dualHandle =
-      role === 'project'
-        ? await openDualScopeDb('project', cwd)
-        : await openDualScopeDb('global', cwd);
-    return {
-      // The Drizzle handle is compatible with `unknown` — callers that need
-      // the native DatabaseSync should use `@cleocode/core/db` directly.
-      db: dualHandle.db,
-      role,
-      async close() {
-        dualHandle.close();
-      },
-    };
+  // T9806/D009: defense-in-depth — refuse project-scope opens whose resolved
+  // `.cleo/` resides inside a git worktree (gitlink-file parent). The global
+  // scope reads from `getCleoHome()` and does not depend on cwd-resolved
+  // project root, so it MAY legitimately open from anywhere.
+  if (role === 'project') {
+    assertDbPathIsNotWorktreeResident('tasks', cwd);
   }
 
-  // ── Legacy 8-role API (deprecated shim — E6 removes) ───────────────────
+  // Delegate to the E4 chokepoint which applies pragma SSoT, runs migrations,
+  // and manages the singleton cache. Explicit conditional narrows the overload.
+  const dualHandle =
+    role === 'project'
+      ? await openDualScopeDb('project', cwd)
+      : await openDualScopeDb('global', cwd);
 
-  if (role === 'llmtxt') {
-    throw new Error('CLEO DB role llmtxt is not yet implemented');
-  }
+  // Extract the native DatabaseSync from the Drizzle wrapper. Callers that
+  // issue raw `prepare`/`exec` SQL (supersede.ts, worktree/list.ts, the agent
+  // registry, etc.) depend on `handle.db` being the native handle — the same
+  // contract the legacy 8-role shims exposed via `unwrapNativeSqliteDb`.
+  const db = unwrapNativeSqliteDb(dualHandle.db);
 
-  const opener = ROLE_OPENERS[role as ImplementedLegacyRole];
-  if (!opener) {
-    throw new Error(`Unknown CLEO DB role: ${role}`);
-  }
-
-  // T9806/D009: defense-in-depth — refuse opens whose resolved `.cleo/`
-  // resides inside a git worktree (gitlink-file parent). Roles that read
-  // from a global path (signaldock, skills) MAY legitimately open from
-  // anywhere — they don't depend on cwd-resolved project root.
-  if (role !== 'signaldock' && role !== 'skills') {
-    assertDbPathIsNotWorktreeResident(role, cwd);
-  }
-
-  const openedDb = await opener(cwd);
-  const db = unwrapNativeSqliteDb(openedDb);
-
-  // Apply pragma SSoT (T9053) — applyPerfPragmas expects DatabaseSync
+  // Pragma SSoT (T9053) is already applied by openDualScopeDb, but re-assert it
+  // here as defense-in-depth for the native handle.
   if (isDatabaseSync(db)) {
     applyPerfPragmas(db);
   }
 
-  // T10322: runtime gate — every project-id-tracking DB open is
-  // cross-checked against .cleo/project-info.json::projectId. Mismatch
-  // throws E_PROJECT_ID_DRIFT. No-ops for project-tier and global-tier
-  // roles that don't carry a project_id column.
+  // T10322: runtime gate — every project-id-tracking open is cross-checked
+  // against .cleo/project-info.json::projectId. Mismatch throws
+  // E_PROJECT_ID_DRIFT. Active for the global scope (which owns the
+  // project_registry table); no-ops for the project scope.
   validateProjectIdConsistency(role, db, cwd);
 
   return {
     db,
     role,
     async close() {
-      // Idempotent — individual modules manage their own singletons
+      dualHandle.close();
     },
   };
-}
-
-/**
- * Legacy alias for `openCleoDb('tasks')`.
- * @deprecated Use {@link openCleoDb} with explicit role.
- */
-export async function openTasksDb(cwd?: string): Promise<CleoDbHandle> {
-  return openCleoDb('tasks', cwd);
 }
 
 // ============================================================================

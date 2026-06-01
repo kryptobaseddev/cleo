@@ -975,7 +975,7 @@ export async function runUpgrade(
         import('./store/open-cleo-db.js'),
       ]);
       // Open via chokepoint — applies pragma SSoT (T9047, T9189)
-      const { db: _sdRaw } = await openCleoDb('signaldock');
+      const { db: _sdRaw } = await openCleoDb('global');
       const sdDb = _sdRaw as import('node:sqlite').DatabaseSync;
       try {
         const report = await buildDoctorReport(sdDb, { projectRoot: projectRootForMaint });
@@ -1204,7 +1204,7 @@ export async function runUpgrade(
         import('./store/open-cleo-db.js'),
       ]);
       // Open via chokepoint — applies pragma SSoT (T9047, T9189)
-      const { db: _sdRaw2 } = await openCleoDb('signaldock');
+      const { db: _sdRaw2 } = await openCleoDb('global');
       const sdDb = _sdRaw2 as import('node:sqlite').DatabaseSync;
       try {
         const report = await buildDoctorReport(sdDb, { projectRoot: getProjectRoot(options.cwd) });

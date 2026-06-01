@@ -1,7 +1,7 @@
 /**
  * Regression suite for T9961 — `getDb()` direct-caller worktree-isolation guard.
  *
- * T9806 added the worktree-isolation guard inside `openCleoDb('tasks', cwd)`,
+ * T9806 added the worktree-isolation guard inside `openCleoDb('project', cwd)`,
  * but only ~28 callers route through it. T9961 extracts the guard into
  * `worktree-isolation-guard.ts` and calls it from `getDb()` directly, so all
  * ~61 direct callers (tasks.find / tasks.show / tasks.list domain handlers)

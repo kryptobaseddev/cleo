@@ -477,7 +477,7 @@ export async function loadOwningTaskStatuses(
     // here to the node:sqlite DatabaseSync surface we actually use. The cast is
     // localised and the alternative (changing the chokepoint signature) would
     // ripple across every store-using package.
-    handle = await openCleoDb('tasks', projectRoot);
+    handle = await openCleoDb('project', projectRoot);
   } catch {
     return out;
   }

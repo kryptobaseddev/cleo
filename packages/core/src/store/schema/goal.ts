@@ -3,8 +3,9 @@
  * goal store (Layer 4 of SG-COGNITIVE-SUBSTRATE).
  *
  * Pattern A (ADR-068 / the SQLite-consolidation decision): one file per scope
- * (this table lives INSIDE `tasks.db`, opened via `openCleoDb('tasks', cwd)` /
- * `getTasksDb`), domain-prefixed table name (`tasks_goal`), and an idempotency
+ * (this table lives INSIDE the project `cleo.db`, opened via
+ * `openCleoDb('project', cwd)` / `getTasksDb`), domain-prefixed table name
+ * (`tasks_goal`), and an idempotency
  * key as the natural primary key so a re-issued `create` coalesces via
  * `onConflictDoNothing` rather than duplicating a row.
  *
