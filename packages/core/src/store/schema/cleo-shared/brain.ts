@@ -148,6 +148,153 @@ export const BRAIN_DECISION_CONFIRMATION_STATES = ['proposed', 'accepted', 'supe
 export const BRAIN_DECISION_DECIDED_BY = ['owner', 'council', 'agent'] as const;
 
 // ---------------------------------------------------------------------------
+// `brainMemoryColumns()` — DRY column-group mixin (ADR-090 · T11542)
+//
+// The 14-column "quality / tier / provenance / peer" memory block is identical
+// across `brain_decisions`, `brain_patterns`, `brain_learnings`, and
+// `brain_observations` — only the `memory_tier` and `memory_type` DEFAULTS vary
+// per table (decisions/patterns retain longer; learnings/observations are
+// short-lived; each carries its own cognitive-memory class). To eliminate the
+// ×4 literal duplication (SOLID single-source / DRY) while emitting BYTE-IDENTICAL
+// DDL, the block is authored ONCE here as composable column-group factories and
+// spread into each table at its natural position.
+//
+// **Zero-drift contract.** JS object spread preserves key-insertion order, which
+// is exactly the order drizzle-kit emits `CREATE TABLE` columns. In
+// `brain_decisions` / `brain_patterns` / `brain_learnings` the full 14-column
+// block is physically contiguous, so each spreads `...brainMemoryColumns(...)`.
+// In `brain_observations` the block is INTERLEAVED — `content_hash` sits earlier
+// and `attachments_json` / `stability_score` split the tail — so that table
+// composes the SAME underlying factories (`brainQualityTierColumns()` +
+// `brainPeerColumns()` + the shared `brainContentHashColumn`) in its own order,
+// reusing the one source of truth without re-spreading the wrong sequence.
+// ---------------------------------------------------------------------------
+
+/**
+ * Options for {@link brainMemoryColumns} / {@link brainQualityTierColumns}.
+ *
+ * Only the two columns whose DEFAULT legitimately varies across the four brain
+ * tables are parameterized; every other column in the block is fixed.
+ */
+export interface BrainMemoryColumnsOptions {
+  /**
+   * Default retention tier — `'medium'` for decisions/patterns, `'short'` for
+   * learnings/observations. CHECK-backed via {@link BRAIN_MEMORY_TIERS}.
+   */
+  readonly memoryTier: (typeof BRAIN_MEMORY_TIERS)[number];
+  /**
+   * Default cognitive class — `'semantic'` (decisions, learnings),
+   * `'procedural'` (patterns), or `'episodic'` (observations). CHECK-backed via
+   * {@link BRAIN_COGNITIVE_TYPES}.
+   */
+  readonly memoryType: (typeof BRAIN_COGNITIVE_TYPES)[number];
+}
+
+/**
+ * Shared `quality_score` column. Standalone because its physical POSITION
+ * varies — `brain_decisions` emits it before `created_at`/`updated_at`,
+ * `brain_patterns`/`brain_learnings` emit it after, and `brain_observations`
+ * separates it from the tier run by `discovery_tokens`.
+ */
+const brainQualityScoreColumn = () => ({
+  /** Quality score 0.0–1.0. */
+  qualityScore: real('quality_score'),
+});
+
+/**
+ * Shared `content_hash` dedup column. Standalone because its physical POSITION
+ * differs — `brain_observations` places it before the quality/tier run, the
+ * other three place it after `tier_promotion_reason`.
+ */
+const brainContentHashColumn = () => ({
+  /** Dedup content hash. */
+  contentHash: text('content_hash'),
+});
+
+/**
+ * The tier/bitemporal/source run — `memory_tier` through `tier_promotion_reason`
+ * (9 columns), physically CONTIGUOUS and identical (modulo the two parameterized
+ * defaults) in ALL FOUR brain tables. Excludes `quality_score`, which is
+ * variably positioned (see {@link brainQualityScoreColumn}).
+ */
+const brainTierRunColumns = ({ memoryTier, memoryType }: BrainMemoryColumnsOptions) => ({
+  /** Memory retention tier — CHECK-backed via {@link BRAIN_MEMORY_TIERS}. */
+  memoryTier: text('memory_tier', { enum: BRAIN_MEMORY_TIERS }).default(memoryTier),
+  /** Cognitive type — CHECK-backed via {@link BRAIN_COGNITIVE_TYPES}. */
+  memoryType: text('memory_type', { enum: BRAIN_COGNITIVE_TYPES }).default(memoryType),
+  /** Ground-truth verified flag. §3 boolean — already typed, preserved. */
+  verified: integer('verified', { mode: 'boolean' }).notNull().default(false),
+  /** Bitemporal valid-from (canonical TEXT, §4). */
+  validAt: text('valid_at').notNull().default(sql`(datetime('now'))`),
+  /** Bitemporal valid-until (canonical TEXT, §4). */
+  invalidAt: text('invalid_at'),
+  /** Source reliability — CHECK-backed via {@link BRAIN_SOURCE_CONFIDENCE}. */
+  sourceConfidence: text('source_confidence', { enum: BRAIN_SOURCE_CONFIDENCE }).default('agent'),
+  /** Citation count. */
+  citationCount: integer('citation_count').notNull().default(0),
+  /** ISO-8601 UTC tier-promotion instant (canonical TEXT, §4). */
+  tierPromotedAt: text('tier_promoted_at'),
+  /** Tier-promotion reason. */
+  tierPromotionReason: text('tier_promotion_reason'),
+});
+
+/**
+ * The provenance/peer trio — `provenance_class`, `peer_id`, `peer_scope` (the
+ * 3-column tail of the shared block), physically CONTIGUOUS and identical in ALL
+ * FOUR brain tables.
+ */
+const brainPeerColumns = () => ({
+  /** Provenance sweep class. */
+  provenanceClass: text('provenance_class').default('swept-clean'),
+  /** Peer identity (memory isolation). */
+  peerId: text('peer_id').notNull().default('global'),
+  /** Peer scope (memory isolation). */
+  peerScope: text('peer_scope').notNull().default('project'),
+});
+
+/**
+ * `brainMemoryColumns()` — the full 14-column quality/tier/provenance/peer
+ * memory block as ONE spreadable Drizzle column map, in the canonical contiguous
+ * order used by `brain_patterns` and `brain_learnings`.
+ *
+ * Spread into a table body to apply the block in one statement:
+ * ```ts
+ * sqliteTable('brain_patterns', {
+ *   // …table-specific columns…
+ *   ...brainMemoryColumns({ memoryTier: 'medium', memoryType: 'procedural' }),
+ *   // …more table-specific columns…
+ * })
+ * ```
+ *
+ * `brain_decisions` and `brain_observations` INTERLEAVE table-specific columns
+ * (`created_at`/`updated_at`, `discovery_tokens`, `attachments_json`,
+ * `stability_score`) inside this block, so they compose the underlying factories
+ * ({@link brainTierRunColumns}, {@link brainPeerColumns}, the shared
+ * `quality_score`/`content_hash` columns) directly rather than spreading this
+ * aggregate. Every emitted column is identical; only the physical order in those
+ * two tables differs.
+ *
+ * @param opts per-table `memory_tier` / `memory_type` defaults (the only
+ *   legitimately varying columns in the block).
+ * @returns the 14-column map in `brain_patterns`/`brain_learnings` order:
+ *   `quality_score`, `memory_tier`, `memory_type`, `verified`, `valid_at`,
+ *   `invalid_at`, `source_confidence`, `citation_count`, `tier_promoted_at`,
+ *   `tier_promotion_reason`, `content_hash`, `provenance_class`, `peer_id`,
+ *   `peer_scope`.
+ * @task T11542
+ * @epic T11535
+ * @see docs/migration/sqlite-schema-canonical.md §3
+ */
+export function brainMemoryColumns(opts: BrainMemoryColumnsOptions) {
+  return {
+    ...brainQualityScoreColumn(),
+    ...brainTierRunColumns(opts),
+    ...brainContentHashColumn(),
+    ...brainPeerColumns(),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Decisions / patterns / learnings / observations
 // ---------------------------------------------------------------------------
 
@@ -179,38 +326,18 @@ export const brainDecisions = sqliteTable(
     contextTaskId: text('context_task_id'),
     /** Context phase. */
     contextPhase: text('context_phase'),
-    /** Quality score 0.0–1.0. */
-    qualityScore: real('quality_score'),
+    // Shared memory block (T11542 · ADR-090). `brain_decisions` interleaves
+    // `created_at`/`updated_at` between `quality_score` and the tier run, so it
+    // composes the shared factories around those two table-specific timestamps
+    // — same column definitions, this table's exact physical order.
+    ...brainQualityScoreColumn(),
     /** ISO-8601 UTC creation instant (canonical TEXT, §4). */
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
     /** ISO-8601 UTC last-update instant (canonical TEXT, §4). */
     updatedAt: text('updated_at'),
-    /** Memory retention tier — CHECK-backed via {@link BRAIN_MEMORY_TIERS}. */
-    memoryTier: text('memory_tier', { enum: BRAIN_MEMORY_TIERS }).default('medium'),
-    /** Cognitive type — CHECK-backed via {@link BRAIN_COGNITIVE_TYPES}. */
-    memoryType: text('memory_type', { enum: BRAIN_COGNITIVE_TYPES }).default('semantic'),
-    /** Ground-truth verified flag. §3 boolean — already typed, preserved. */
-    verified: integer('verified', { mode: 'boolean' }).notNull().default(false),
-    /** Bitemporal valid-from (canonical TEXT, §4). */
-    validAt: text('valid_at').notNull().default(sql`(datetime('now'))`),
-    /** Bitemporal valid-until (canonical TEXT, §4). */
-    invalidAt: text('invalid_at'),
-    /** Source reliability — CHECK-backed via {@link BRAIN_SOURCE_CONFIDENCE}. */
-    sourceConfidence: text('source_confidence', { enum: BRAIN_SOURCE_CONFIDENCE }).default('agent'),
-    /** Citation count. */
-    citationCount: integer('citation_count').notNull().default(0),
-    /** ISO-8601 UTC tier-promotion instant (canonical TEXT, §4). */
-    tierPromotedAt: text('tier_promoted_at'),
-    /** Tier-promotion reason. */
-    tierPromotionReason: text('tier_promotion_reason'),
-    /** Dedup content hash. */
-    contentHash: text('content_hash'),
-    /** Provenance sweep class. */
-    provenanceClass: text('provenance_class').default('swept-clean'),
-    /** Peer identity (memory isolation). */
-    peerId: text('peer_id').notNull().default('global'),
-    /** Peer scope (memory isolation). */
-    peerScope: text('peer_scope').notNull().default('project'),
+    ...brainTierRunColumns({ memoryTier: 'medium', memoryType: 'semantic' }),
+    ...brainContentHashColumn(),
+    ...brainPeerColumns(),
     /** Monotonic ADR sequence number (UNIQUE). */
     adrNumber: integer('adr_number').unique(),
     /** ADR document path. */
@@ -288,34 +415,9 @@ export const brainPatterns = sqliteTable(
     extractedAt: text('extracted_at').notNull().default(sql`(datetime('now'))`),
     /** ISO-8601 UTC last-update instant (canonical TEXT, §4). */
     updatedAt: text('updated_at'),
-    /** Quality score 0.0–1.0. */
-    qualityScore: real('quality_score'),
-    /** Memory tier — CHECK-backed via {@link BRAIN_MEMORY_TIERS}. */
-    memoryTier: text('memory_tier', { enum: BRAIN_MEMORY_TIERS }).default('medium'),
-    /** Cognitive type — CHECK-backed via {@link BRAIN_COGNITIVE_TYPES}. */
-    memoryType: text('memory_type', { enum: BRAIN_COGNITIVE_TYPES }).default('procedural'),
-    /** Verified flag. §3 boolean — already typed, preserved. */
-    verified: integer('verified', { mode: 'boolean' }).notNull().default(false),
-    /** Bitemporal valid-from (canonical TEXT, §4). */
-    validAt: text('valid_at').notNull().default(sql`(datetime('now'))`),
-    /** Bitemporal valid-until (canonical TEXT, §4). */
-    invalidAt: text('invalid_at'),
-    /** Source reliability — CHECK-backed via {@link BRAIN_SOURCE_CONFIDENCE}. */
-    sourceConfidence: text('source_confidence', { enum: BRAIN_SOURCE_CONFIDENCE }).default('agent'),
-    /** Citation count. */
-    citationCount: integer('citation_count').notNull().default(0),
-    /** ISO-8601 UTC tier-promotion instant (canonical TEXT, §4). */
-    tierPromotedAt: text('tier_promoted_at'),
-    /** Tier-promotion reason. */
-    tierPromotionReason: text('tier_promotion_reason'),
-    /** Dedup content hash. */
-    contentHash: text('content_hash'),
-    /** Provenance sweep class. */
-    provenanceClass: text('provenance_class').default('swept-clean'),
-    /** Peer identity. */
-    peerId: text('peer_id').notNull().default('global'),
-    /** Peer scope. */
-    peerScope: text('peer_scope').notNull().default('project'),
+    // Shared 14-column memory block (T11542 · ADR-090) — contiguous in this
+    // table, so the full aggregate spreads in one statement.
+    ...brainMemoryColumns({ memoryTier: 'medium', memoryType: 'procedural' }),
     /** Dedup occurrence count. */
     occurrenceCount: integer('occurrence_count').notNull().default(1),
     /** ISO-8601 UTC last-seen instant (canonical TEXT, §4). */
@@ -365,34 +467,9 @@ export const brainLearnings = sqliteTable(
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
     /** ISO-8601 UTC last-update instant (canonical TEXT, §4). */
     updatedAt: text('updated_at'),
-    /** Quality score 0.0–1.0. */
-    qualityScore: real('quality_score'),
-    /** Memory tier — CHECK-backed via {@link BRAIN_MEMORY_TIERS}. */
-    memoryTier: text('memory_tier', { enum: BRAIN_MEMORY_TIERS }).default('short'),
-    /** Cognitive type — CHECK-backed via {@link BRAIN_COGNITIVE_TYPES}. */
-    memoryType: text('memory_type', { enum: BRAIN_COGNITIVE_TYPES }).default('semantic'),
-    /** Verified flag. §3 boolean — already typed, preserved. */
-    verified: integer('verified', { mode: 'boolean' }).notNull().default(false),
-    /** Bitemporal valid-from (canonical TEXT, §4). */
-    validAt: text('valid_at').notNull().default(sql`(datetime('now'))`),
-    /** Bitemporal valid-until (canonical TEXT, §4). */
-    invalidAt: text('invalid_at'),
-    /** Source reliability — CHECK-backed via {@link BRAIN_SOURCE_CONFIDENCE}. */
-    sourceConfidence: text('source_confidence', { enum: BRAIN_SOURCE_CONFIDENCE }).default('agent'),
-    /** Citation count. */
-    citationCount: integer('citation_count').notNull().default(0),
-    /** ISO-8601 UTC tier-promotion instant (canonical TEXT, §4). */
-    tierPromotedAt: text('tier_promoted_at'),
-    /** Tier-promotion reason. */
-    tierPromotionReason: text('tier_promotion_reason'),
-    /** Dedup content hash. */
-    contentHash: text('content_hash'),
-    /** Provenance sweep class. */
-    provenanceClass: text('provenance_class').default('swept-clean'),
-    /** Peer identity. */
-    peerId: text('peer_id').notNull().default('global'),
-    /** Peer scope. */
-    peerScope: text('peer_scope').notNull().default('project'),
+    // Shared 14-column memory block (T11542 · ADR-090) — contiguous in this
+    // table, so the full aggregate spreads in one statement.
+    ...brainMemoryColumns({ memoryTier: 'short', memoryType: 'semantic' }),
   },
   (table) => [
     index('idx_brain_learnings_confidence').on(table.confidence),
@@ -446,44 +523,25 @@ export const brainObservations = sqliteTable(
       .default('agent'),
     /** Producing agent. */
     agent: text('agent'),
-    /** Dedup content hash. */
-    contentHash: text('content_hash'),
+    // Shared memory block (T11542 · ADR-090). `brain_observations` INTERLEAVES
+    // table-specific columns inside the block — `content_hash` leads (before the
+    // quality/tier run), `discovery_tokens` splits it from `quality_score`, and
+    // `attachments_json`/`stability_score` split the tier run from the peer trio.
+    // It therefore composes the shared factories in this table's exact order.
+    ...brainContentHashColumn(),
     /** Discovery token cost. */
     discoveryTokens: integer('discovery_tokens'),
-    /** Quality score 0.0–1.0. */
-    qualityScore: real('quality_score'),
+    ...brainQualityScoreColumn(),
     /** ISO-8601 UTC creation instant (canonical TEXT, §4). */
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
     /** ISO-8601 UTC last-update instant (canonical TEXT, §4). */
     updatedAt: text('updated_at'),
-    /** Memory tier — CHECK-backed via {@link BRAIN_MEMORY_TIERS}. */
-    memoryTier: text('memory_tier', { enum: BRAIN_MEMORY_TIERS }).default('short'),
-    /** Cognitive type — CHECK-backed via {@link BRAIN_COGNITIVE_TYPES}. */
-    memoryType: text('memory_type', { enum: BRAIN_COGNITIVE_TYPES }).default('episodic'),
-    /** Verified flag. §3 boolean — already typed, preserved. */
-    verified: integer('verified', { mode: 'boolean' }).notNull().default(false),
-    /** Bitemporal valid-from (canonical TEXT, §4). */
-    validAt: text('valid_at').notNull().default(sql`(datetime('now'))`),
-    /** Bitemporal valid-until (canonical TEXT, §4). */
-    invalidAt: text('invalid_at'),
-    /** Source reliability — CHECK-backed via {@link BRAIN_SOURCE_CONFIDENCE}. */
-    sourceConfidence: text('source_confidence', { enum: BRAIN_SOURCE_CONFIDENCE }).default('agent'),
-    /** Citation count. */
-    citationCount: integer('citation_count').notNull().default(0),
-    /** ISO-8601 UTC tier-promotion instant (canonical TEXT, §4). */
-    tierPromotedAt: text('tier_promoted_at'),
-    /** Tier-promotion reason. */
-    tierPromotionReason: text('tier_promotion_reason'),
+    ...brainTierRunColumns({ memoryTier: 'short', memoryType: 'episodic' }),
     /** JSON attachment-refs array (TEXT per JSON audit). */
     attachmentsJson: text('attachments_json'),
     /** Stability score 0.0–1.0. */
     stabilityScore: real('stability_score').default(0.5),
-    /** Provenance sweep class. */
-    provenanceClass: text('provenance_class').default('swept-clean'),
-    /** Peer identity. */
-    peerId: text('peer_id').notNull().default('global'),
-    /** Peer scope. */
-    peerScope: text('peer_scope').notNull().default('project'),
+    ...brainPeerColumns(),
     /** JSON ancestor-ids (TEXT per JSON audit). */
     sourceIds: text('source_ids'),
     /** Times derived counter. */
