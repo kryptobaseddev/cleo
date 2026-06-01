@@ -300,7 +300,7 @@ export function reconcileJournal(
 
   // Scenario 2: Journal has orphaned entries from a previous CLEO version
   //
-  // Three distinct sub-cases require different handling:
+  // Two distinct sub-cases require different handling:
   //
   // A) DB is AHEAD of this install (forward-compatibility): all local hashes
   //    are present in the DB, but the DB also has additional entries for
@@ -312,40 +312,25 @@ export function reconcileJournal(
   //    them back — only for this install to delete them again on the next run.
   //    ACTION: skip reconciliation, log at debug only.
   //
-  // B) HASH DRIFT — orphan entries have a NAME that matches a local migration
-  //    but a different hash. This happens when a migration file's SQL is
-  //    modified in a release (e.g. v2026.5.128's t033 idempotency fix). The
-  //    migration was applied with the old SQL; the new SQL is logically the
-  //    same migration. Wiping the journal would force every migration to be
-  //    re-probed, which fails for data-only migrations whose DDL can't be
-  //    probed. ACTION: UPDATE the entry's hash in place. The migration stays
-  //    applied; only the hash is brought forward.
+  // B) TRUE ORPHANS — orphan entries that do not correspond to any local
+  //    migration hash (the migration file was removed from disk, or the journal
+  //    is from a fundamentally different cleo lineage). ACTION: delete the
+  //    orphaned entries and re-probe local migrations via DDL.
   //
-  // C) TRUE ORPHANS — entries whose name has no local match (the migration
-  //    file was removed from disk, or the journal is from a fundamentally
-  //    different cleo lineage). ACTION: delete + re-probe via DDL.
+  // NOTE (T11528): the former hash-drift sub-case — which UPDATEd a journal
+  // entry's hash in place when its NAME matched a local migration but its hash
+  // differed — was removed once all DDL became owned by immutable Drizzle
+  // forward migrations (v1.0.0-rc.3 contract, E6 L1-L7). Migrations are no
+  // longer edited post-release, so name-matched hash drift can no longer occur;
+  // any remaining orphan is a true orphan handled by Sub-case B below.
   if (tableExists(nativeDb, '__drizzle_migrations') && tableExists(nativeDb, existenceTable)) {
     const localMigrations = readMigrationFiles({ migrationsFolder });
     const localHashes = new Set(localMigrations.map((m) => m.hash));
-    const localByName = new Map(localMigrations.map((m) => [m.name ?? '', m]));
 
-    // Read full entries with hash, name, id. Older journals may lack `name`;
-    // those entries fall through to true-orphan handling below.
-    const migCols = nativeDb.prepare('PRAGMA table_info("__drizzle_migrations")').all() as Array<{
-      name: string;
-    }>;
-    const hasMigNameCol = migCols.some((c) => c.name === 'name');
-    type JournalRow = { id: number; hash: string; name: string | null };
-    const dbEntries: JournalRow[] = hasMigNameCol
-      ? (nativeDb
-          .prepare('SELECT id, hash, name FROM "__drizzle_migrations"')
-          .all() as JournalRow[])
-      : (
-          nativeDb.prepare('SELECT id, hash FROM "__drizzle_migrations"').all() as Array<{
-            id: number;
-            hash: string;
-          }>
-        ).map((r) => ({ ...r, name: null }));
+    type JournalRow = { id: number; hash: string };
+    const dbEntries = nativeDb
+      .prepare('SELECT id, hash FROM "__drizzle_migrations"')
+      .all() as JournalRow[];
 
     const orphanedEntries = dbEntries.filter((e) => !localHashes.has(e.hash));
     const hasOrphanedEntries = orphanedEntries.length > 0;
@@ -354,73 +339,37 @@ export function reconcileJournal(
       const dbHashes = new Set(dbEntries.map((e) => e.hash));
       const allLocalHashesPresentInDb = localMigrations.every((m) => dbHashes.has(m.hash));
 
+      const log = getLogger(logSubsystem);
+
       if (allLocalHashesPresentInDb) {
         // Sub-case A: DB is ahead — this install is older than the DB.
         // Do NOT modify the journal; log at debug so we can trace if needed.
-        const log = getLogger(logSubsystem);
         log.debug(
           { extra: orphanedEntries.length },
           `Migration journal has ${orphanedEntries.length} entries for migrations not known to this install (DB is ahead). Skipping reconciliation.`,
         );
       } else {
-        // Partition orphans into hash-drift (name-matched) vs true orphans.
-        const driftEntries: Array<{ row: JournalRow; newHash: string }> = [];
-        const trueOrphanEntries: JournalRow[] = [];
-        for (const orphan of orphanedEntries) {
-          const localMatch = orphan.name ? localByName.get(orphan.name) : undefined;
-          if (localMatch && localMatch.hash !== orphan.hash) {
-            driftEntries.push({ row: orphan, newHash: localMatch.hash });
-          } else {
-            trueOrphanEntries.push(orphan);
-          }
-        }
-
-        const log = getLogger(logSubsystem);
-
-        // Sub-case B: HASH DRIFT — UPDATE hash in place. The migration was
-        // applied; the SQL has been edited in a release; the journal entry
-        // is logically correct, only its hash is stale.
-        if (driftEntries.length > 0) {
-          log.warn(
-            {
-              drifted: driftEntries.length,
-              names: driftEntries.map((d) => d.row.name),
-            },
-            `Detected ${driftEntries.length} hash-drift journal entries (migration SQL edited in a release). Updating hashes in place.`,
-          );
-          const updateStmt = nativeDb.prepare(
-            'UPDATE "__drizzle_migrations" SET hash = ? WHERE id = ?',
-          );
-          for (const { row, newHash } of driftEntries) {
-            updateStmt.run(newHash, row.id);
-          }
-        }
-
-        // Sub-case C: TRUE ORPHANS — entries whose name has no local match.
-        // Only NOW do we fall back to the legacy delete+re-probe path, and
-        // only for the truly-orphaned entries.
-        if (trueOrphanEntries.length > 0) {
-          log.warn(
-            { orphaned: trueOrphanEntries.length },
-            `Detected ${trueOrphanEntries.length} true-orphan journal entries from a previous CLEO lineage. Reconciling via DDL probe.`,
-          );
-          const deleteStmt = nativeDb.prepare('DELETE FROM "__drizzle_migrations" WHERE id = ?');
-          for (const e of trueOrphanEntries) deleteStmt.run(e.id);
-          // Re-probe local migrations that may now have no journal entry.
-          // The previous implementation cleared the WHOLE journal here; the
-          // selective delete above keeps every applied migration journaled,
-          // so the probe only inserts entries for genuinely missing ones.
-          const journaledHashesAfter = new Set(
-            (
-              nativeDb.prepare('SELECT hash FROM "__drizzle_migrations"').all() as Array<{
-                hash: string;
-              }>
-            ).map((r) => r.hash),
-          );
-          for (const m of localMigrations) {
-            if (journaledHashesAfter.has(m.hash)) continue;
-            probeAndMarkApplied(nativeDb, m, logSubsystem);
-          }
+        // Sub-case B: TRUE ORPHANS — entries whose hash has no local match.
+        // Delete them and re-probe local migrations via DDL.
+        log.warn(
+          { orphaned: orphanedEntries.length },
+          `Detected ${orphanedEntries.length} true-orphan journal entries from a previous CLEO lineage. Reconciling via DDL probe.`,
+        );
+        const deleteStmt = nativeDb.prepare('DELETE FROM "__drizzle_migrations" WHERE id = ?');
+        for (const e of orphanedEntries) deleteStmt.run(e.id);
+        // Re-probe local migrations that may now have no journal entry.
+        // The selective delete above keeps every applied migration journaled,
+        // so the probe only inserts entries for genuinely missing ones.
+        const journaledHashesAfter = new Set(
+          (
+            nativeDb.prepare('SELECT hash FROM "__drizzle_migrations"').all() as Array<{
+              hash: string;
+            }>
+          ).map((r) => r.hash),
+        );
+        for (const m of localMigrations) {
+          if (journaledHashesAfter.has(m.hash)) continue;
+          probeAndMarkApplied(nativeDb, m, logSubsystem);
         }
       }
     }
