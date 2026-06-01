@@ -26,10 +26,8 @@
  * @adr ADR-078 — Docs Provenance Graph
  */
 
-import type { DatabaseSync } from 'node:sqlite';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
-import { openCleoDb } from '../store/open-cleo-db.js';
 
 /** Row shape projected from `attachments` during the supersede transaction. */
 interface AttachmentSupersedeRow {
@@ -135,9 +133,21 @@ export async function supersedeDoc(
     );
   }
 
-  const handle = await openCleoDb('tasks', cwd);
-  try {
-    const db = handle.db as DatabaseSync;
+  // E6-L6 (T11526): the `attachments` table is part of the legacy drizzle-tasks
+  // family, created inside the project `cleo.db` by getDb()'s migrations. Route
+  // through getDb()/getNativeTasksDb() (rather than openCleoDb('project'), which
+  // only runs the consolidated schema) so the table is guaranteed present. The
+  // native handle is a shared singleton — do NOT close it here.
+  const { getDb, getNativeTasksDb } = await import('../store/sqlite.js');
+  await getDb(cwd);
+  const db = getNativeTasksDb();
+  if (!db) {
+    throw new CleoError(
+      ExitCode.GENERAL_ERROR,
+      'docs supersede: project cleo.db could not be opened (no native handle)',
+    );
+  }
+  {
     const now = new Date().toISOString();
 
     // BEGIN IMMEDIATE — acquire the write lock up front so two concurrent
@@ -196,7 +206,5 @@ export async function supersedeDoc(
     };
     if (reason !== undefined) result.reason = reason;
     return result;
-  } finally {
-    await handle.close();
   }
 }

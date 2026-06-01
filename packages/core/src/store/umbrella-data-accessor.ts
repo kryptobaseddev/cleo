@@ -34,8 +34,6 @@ import type {
 } from '@cleocode/contracts';
 import { resolveOrCwd } from '../paths.js';
 import { createBrainAccessor } from './brain-accessor-impl.js';
-import type { CleoDbRole } from './open-cleo-db.js';
-import { openCleoDb } from './open-cleo-db.js';
 import {
   createConduitAccessor,
   createNexusAccessor,
@@ -43,6 +41,27 @@ import {
   createTelemetryAccessor,
 } from './role-accessors-impl.js';
 import { createSqliteDataAccessor } from './sqlite-data-accessor.js';
+
+/**
+ * Logical sub-accessor selector for {@link UmbrellaDataAccessor.getSubAccessor}.
+ *
+ * These are **domain-level accessor roles** — distinct from the physical
+ * DB-open scope (`'project'` | `'global'`, the post-E6 {@link CleoDbRole}).
+ * One physical `cleo.db` per scope now backs many of these logical roles
+ * (e.g. `tasks` / `brain` / `conduit` / `sessions` all live in the project
+ * `cleo.db`; `nexus` / `signaldock` live in the global `cleo.db`).
+ *
+ * @task T9188, T11526 (E6-L6 — decoupled from CleoDbRole)
+ */
+export type SubAccessorRole =
+  | 'tasks'
+  | 'sessions'
+  | 'brain'
+  | 'conduit'
+  | 'nexus'
+  | 'signaldock'
+  | 'telemetry'
+  | 'docs';
 
 /** Union of all typed sub-accessor types (T9188). */
 export type TypedSubAccessor =
@@ -57,11 +76,11 @@ export type TypedSubAccessor =
 export class UmbrellaDataAccessor implements DataAccessor {
   readonly engine = 'sqlite' as const;
 
-  /** Lazy-initialized sub-accessors keyed by role. */
-  private accessors = new Map<CleoDbRole, DataAccessor>();
+  /** Lazy-initialized sub-accessors keyed by logical role. */
+  private accessors = new Map<SubAccessorRole, DataAccessor>();
 
   /** Lazy-initialized role-specific typed sub-accessors (T9188). */
-  private typedAccessors = new Map<CleoDbRole, TypedSubAccessor>();
+  private typedAccessors = new Map<SubAccessorRole, TypedSubAccessor>();
 
   /** cwd used for project-tier sub-accessor creation. */
   private cwd: string | undefined;
@@ -87,9 +106,9 @@ export class UmbrellaDataAccessor implements DataAccessor {
    * @returns A typed accessor for that role.
    * @task T9188
    */
-  async getSubAccessor(role: CleoDbRole | 'docs' | 'telemetry'): Promise<TypedSubAccessor> {
+  async getSubAccessor(role: SubAccessorRole): Promise<TypedSubAccessor> {
     // Check typed cache first
-    const cached = this.typedAccessors.get(role as CleoDbRole);
+    const cached = this.typedAccessors.get(role);
     if (cached) return cached;
 
     let accessor: TypedSubAccessor;
@@ -99,7 +118,7 @@ export class UmbrellaDataAccessor implements DataAccessor {
       case 'sessions': {
         // DataAccessor — full task/session CRUD
         accessor = await createSqliteDataAccessor(this.cwd);
-        this.accessors.set(role as CleoDbRole, accessor as DataAccessor);
+        this.accessors.set(role, accessor as DataAccessor);
         break;
       }
       case 'brain': {
@@ -113,8 +132,9 @@ export class UmbrellaDataAccessor implements DataAccessor {
         break;
       }
       case 'nexus': {
-        // NexusAccessor — code intelligence graph
-        await openCleoDb('nexus', this.cwd); // ensure DB is open
+        // NexusAccessor — code intelligence graph. E6-L6 (T11526): the accessor
+        // self-opens the global cleo.db via getNexusDb() (which runs the legacy
+        // nexus migrations), so no separate ensure-open is required here.
         accessor = createNexusAccessor(this.cwd);
         break;
       }
@@ -142,7 +162,7 @@ export class UmbrellaDataAccessor implements DataAccessor {
       }
     }
 
-    this.typedAccessors.set(role as CleoDbRole, accessor);
+    this.typedAccessors.set(role, accessor);
     return accessor;
   }
 

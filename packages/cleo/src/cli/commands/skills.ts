@@ -463,7 +463,8 @@ const doctorBridgeCommand = defineCommand({
 
 /**
  * Build the cleo-side `DoctorAdoptCliAdapters` that route every skills.db
- * access through the canonical `openCleoDb('skills')` chokepoint (ADR-068).
+ * access through the canonical global `cleo.db` chokepoint (ADR-068) via
+ * core's `skills-db` module (which opens `openDualScopeDb('global')`).
  *
  * @remarks
  * caamp cannot import `@cleocode/core` (dep direction is core → caamp), so
@@ -506,7 +507,7 @@ function buildSkillsDoctorAdoptAdapters(): DoctorAdoptCliAdapters {
 /**
  * cleo skills doctor adopt-orphans — interactive orphan audit + adoption (T9657).
  *
- * Routes skills.db reads + writes through `openCleoDb('skills')` from
+ * Routes skills.db reads + writes through the global `cleo.db` via
  * `@cleocode/core/store/skills-db` to satisfy the ADR-068 chokepoint guard.
  */
 const doctorAdoptOrphansCommand = defineCommand({

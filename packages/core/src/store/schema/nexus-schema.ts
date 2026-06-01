@@ -54,14 +54,16 @@ export const projectRegistry = sqliteTable(
      * Absolute path to the project's brain.db file.
      *
      * @cross-db filesystem:brain.db — nexus→filesystem path pointer. The file at
-     * this path is the project-tier `brain.db` opened via `openCleoDb('brain', cwd)`.
+     * this path is the project-tier consolidated `cleo.db` opened via
+     * `openCleoDb('project', cwd)`.
      */
     brainDbPath: text('brain_db_path'),
     /**
      * Absolute path to the project's tasks.db file.
      *
      * @cross-db filesystem:tasks.db — nexus→filesystem path pointer. The file at
-     * this path is the project-tier `tasks.db` opened via `openCleoDb('tasks', cwd)`.
+     * this path is the project-tier consolidated `cleo.db` opened via
+     * `openCleoDb('project', cwd)`.
      */
     tasksDbPath: text('tasks_db_path'),
     /** ISO 8601 timestamp of the last successful code intelligence index run. */

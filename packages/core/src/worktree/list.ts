@@ -7,7 +7,7 @@
  * For each worktree returned by `git worktree list --porcelain`, the function
  * resolves:
  *  - `taskId` (regex match against the branch name `task/T####`).
- *  - `owningTaskStatus` (read from the tasks SSoT via {@link openCleoDb}).
+ *  - `owningTaskStatus` (read from the project cleo.db tasks SSoT via `getDb`).
  *  - `lastActivity` (newest commit on the branch, falling back to dir mtime).
  *  - `isLocked` (porcelain `locked` line).
  *  - `isMerged` (`git merge-base --is-ancestor <branch> main`, exit-0 ⇒ merged).
@@ -53,7 +53,6 @@ import {
   type WorktreeStatusCategory,
 } from '@cleocode/contracts';
 import { resolveOrCwd } from '../paths.js';
-import { openCleoDb } from '../store/open-cleo-db.js';
 import { readSentinelIndex } from './sentinel-index.js';
 
 /** Default staleness threshold — branches/worktrees idle longer than this are stale candidates. */
@@ -123,8 +122,8 @@ export async function listWorktrees(
   const porcelainPaths = new Set(porcelainEntries.map((e) => e.path));
 
   // Resolve unique task IDs once, then batch-load their statuses through the
-  // ADR-068 chokepoint. We open the tasks DB read-only via openCleoDb so the
-  // command picks up the SSoT pragma set (T9189) — never via raw DatabaseSync.
+  // ADR-068 chokepoint. We open the project cleo.db via getDb() so the command
+  // picks up the SSoT pragma set (T9189) — never via raw DatabaseSync.
   const branchToTaskId = new Map<string, string | null>();
   for (const entry of porcelainEntries) {
     branchToTaskId.set(entry.branch, taskIdFromBranch(entry.branch));
@@ -471,26 +470,26 @@ export async function loadOwningTaskStatuses(
   // (no `.cleo/` project resolvable from `projectRoot`, fresh checkout, or a
   // transient open failure). Degrade to no status rather than failing the whole
   // listing — callers treat a missing entry as `owningTaskStatus: null`.
-  let handle: Awaited<ReturnType<typeof openCleoDb>>;
+  //
+  // E6-L6 (T11526): query the legacy `tasks` table via getDb(), which runs the
+  // drizzle-tasks migrations against the consolidated project `cleo.db` and
+  // therefore guarantees the `tasks` family exists. The dual-scope consolidated
+  // schema alone (openDualScopeDb) creates only `tasks_tasks`, not bare `tasks`.
+  let db: DatabaseSync | null;
   try {
-    // openCleoDb returns CleoDbHandle whose `.db` field is `unknown` — we narrow
-    // here to the node:sqlite DatabaseSync surface we actually use. The cast is
-    // localised and the alternative (changing the chokepoint signature) would
-    // ripple across every store-using package.
-    handle = await openCleoDb('tasks', projectRoot);
+    const { getDb, getNativeTasksDb } = await import('../store/sqlite.js');
+    await getDb(projectRoot);
+    db = getNativeTasksDb();
   } catch {
     return out;
   }
-  try {
-    const db = handle.db as DatabaseSync;
-    const placeholders = taskIds.map(() => '?').join(', ');
-    const sql = `SELECT id, status FROM tasks WHERE id IN (${placeholders})`;
-    const rows = db.prepare(sql).all(...taskIds) as Array<{ id: string; status: string }>;
-    for (const row of rows) {
-      out.set(row.id, row.status);
-    }
-  } finally {
-    await handle.close();
+  if (!db) return out;
+
+  const placeholders = taskIds.map(() => '?').join(', ');
+  const sql = `SELECT id, status FROM tasks WHERE id IN (${placeholders})`;
+  const rows = db.prepare(sql).all(...taskIds) as Array<{ id: string; status: string }>;
+  for (const row of rows) {
+    out.set(row.id, row.status);
   }
   return out;
 }

@@ -109,7 +109,7 @@ export async function getTaskAccessor(
 
 /**
  * @deprecated Renamed to {@link getTaskAccessor} (T9054). Will be removed in a future minor version.
- * Use `getTaskAccessor` or `openCleoDb('tasks', cwd)` instead.
+ * Use `getTaskAccessor` or `openCleoDb('project', cwd)` instead.
  */
 export async function getAccessor(
   cwd?: string,
@@ -122,16 +122,16 @@ export async function getAccessor(
 // ---------------------------------------------------------------------------
 
 /**
- * Alias: get a DBHandle for the tasks database.
+ * Alias: get a DBHandle for the project-scope (tasks) database.
  *
  * This is the canonical replacement for getAccessor() when callers
  * need the native DB handle rather than the full DataAccessor interface.
- * Delegates to openCleoDb('tasks', cwd).
+ * Delegates to openCleoDb('project', cwd).
  *
  * @param cwd - Optional working directory.
- * @returns DBHandle for tasks.db.
+ * @returns DBHandle for the project-scope `cleo.db`.
  */
 export async function getAccessorDb(cwd?: string): Promise<import('./open-cleo-db.js').DBHandle> {
   const { openCleoDb } = await import('./open-cleo-db.js');
-  return openCleoDb('tasks', cwd);
+  return openCleoDb('project', cwd);
 }

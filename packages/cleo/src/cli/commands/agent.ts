@@ -101,7 +101,7 @@ const registerCommand = defineCommand({
   async run({ args }) {
     try {
       const { AgentRegistryAccessor } = await import('@cleocode/core/agents');
-      await openCleoDb('tasks');
+      await openCleoDb('project');
       const registry = new AgentRegistryAccessor(getProjectRoot());
 
       const agentId = args.id;
@@ -226,7 +226,7 @@ const signinCommand = defineCommand({
   async run({ args }) {
     try {
       const { AgentRegistryAccessor } = await import('@cleocode/core/agents');
-      await openCleoDb('tasks');
+      await openCleoDb('project');
       const registry = new AgentRegistryAccessor(getProjectRoot());
 
       // Look up the credential
@@ -345,7 +345,7 @@ const startCommand = defineCommand({
       const { existsSync, readFileSync } = await import('node:fs');
       const { join } = await import('node:path');
 
-      await openCleoDb('tasks');
+      await openCleoDb('project');
       const registry = new AgentRegistryAccessor(getProjectRoot());
 
       // 1. Look up credential
@@ -498,7 +498,7 @@ const stopCommand = defineCommand({
   async run({ args }) {
     try {
       const { AgentRegistryAccessor } = await import('@cleocode/core/agents');
-      await openCleoDb('tasks');
+      await openCleoDb('project');
       const registry = new AgentRegistryAccessor(getProjectRoot());
 
       const credential = await registry.get(args.agentId);
@@ -563,7 +563,7 @@ const statusCommand = defineCommand({
   async run({ args }) {
     try {
       const { AgentRegistryAccessor } = await import('@cleocode/core/agents');
-      await openCleoDb('tasks');
+      await openCleoDb('project');
       const registry = new AgentRegistryAccessor(getProjectRoot());
 
       if (args.agentId) {
@@ -641,7 +641,7 @@ const assignCommand = defineCommand({
   async run({ args }) {
     try {
       const { AgentRegistryAccessor, createConduit } = await import('@cleocode/core/agents');
-      await openCleoDb('tasks');
+      await openCleoDb('project');
       const registry = new AgentRegistryAccessor(getProjectRoot());
 
       const active = await registry.getActive();
@@ -700,7 +700,7 @@ const wakeCommand = defineCommand({
   async run({ args }) {
     try {
       const { AgentRegistryAccessor, createConduit } = await import('@cleocode/core/agents');
-      await openCleoDb('tasks');
+      await openCleoDb('project');
       const registry = new AgentRegistryAccessor(getProjectRoot());
 
       const active = await registry.getActive();
@@ -768,7 +768,7 @@ const spawnCommand = defineCommand({
   async run({ args }) {
     try {
       const { AgentRegistryAccessor } = await import('@cleocode/core/agents');
-      await openCleoDb('tasks');
+      await openCleoDb('project');
       const registry = new AgentRegistryAccessor(getProjectRoot());
 
       const role = args.role;
@@ -838,7 +838,7 @@ const reassignCommand = defineCommand({
   async run({ args }) {
     try {
       const { AgentRegistryAccessor, createConduit } = await import('@cleocode/core/agents');
-      await openCleoDb('tasks');
+      await openCleoDb('project');
       const registry = new AgentRegistryAccessor(getProjectRoot());
       const active = await registry.getActive();
       if (!active) {
@@ -881,7 +881,7 @@ const stopAllCommand = defineCommand({
   async run() {
     try {
       const { AgentRegistryAccessor } = await import('@cleocode/core/agents');
-      await openCleoDb('tasks');
+      await openCleoDb('project');
       const registry = new AgentRegistryAccessor(getProjectRoot());
       const agents = await registry.list({ active: true });
       let stopped = 0;
@@ -960,7 +960,7 @@ const workCommand = defineCommand({
       const { createRuntime } = await import('@cleocode/runtime');
       const { existsSync } = await import('node:fs');
       const { join } = await import('node:path');
-      await openCleoDb('tasks');
+      await openCleoDb('project');
       const registry = new AgentRegistryAccessor(getProjectRoot());
       const credential = await registry.get(args.agentId);
       if (!credential) {
@@ -1071,7 +1071,7 @@ const listCommand = defineCommand({
   async run({ args }) {
     try {
       const { listAgentsForProject } = await import('@cleocode/core/agents');
-      await openCleoDb('tasks');
+      await openCleoDb('project');
 
       const includeGlobal = args.global === true;
       const includeDisabled = args['include-disabled'] === true;
@@ -1141,7 +1141,7 @@ const getCommand = defineCommand({
   async run({ args }) {
     try {
       const { lookupAgent } = await import('@cleocode/core/agents');
-      await openCleoDb('tasks');
+      await openCleoDb('project');
 
       const includeGlobal = args.global === true;
       const agent = lookupAgent(getProjectRoot(), args.agentId, { includeGlobal });
@@ -1225,7 +1225,7 @@ const attachCommand = defineCommand({
       const { AgentRegistryAccessor, attachAgentToProject, lookupAgent } = await import(
         '@cleocode/core/agents'
       );
-      await openCleoDb('tasks');
+      await openCleoDb('project');
       const projectRoot = getProjectRoot();
 
       // Ensure both DBs initialised before any cross-DB operation
@@ -1297,7 +1297,7 @@ const detachCommand = defineCommand({
       const { AgentRegistryAccessor, detachAgentFromProject, getProjectAgentRef } = await import(
         '@cleocode/core/agents'
       );
-      await openCleoDb('tasks');
+      await openCleoDb('project');
       const projectRoot = getProjectRoot();
 
       // Ensure both DBs initialised
@@ -1375,7 +1375,7 @@ const removeCommand = defineCommand({
       const { AgentRegistryAccessor, detachAgentFromProject, getProjectAgentRef } = await import(
         '@cleocode/core/agents'
       );
-      await openCleoDb('tasks');
+      await openCleoDb('project');
       const projectRoot = getProjectRoot();
 
       if (!args.global) {
@@ -1478,7 +1478,7 @@ const rotateKeyCommand = defineCommand({
   async run({ args }) {
     try {
       const { AgentRegistryAccessor } = await import('@cleocode/core/agents');
-      await openCleoDb('tasks');
+      await openCleoDb('project');
       const registry = new AgentRegistryAccessor(getProjectRoot());
 
       const result = await registry.rotateKey(args.agentId);
@@ -1519,7 +1519,7 @@ const claimCodeCommand = defineCommand({
   async run({ args }) {
     try {
       const { AgentRegistryAccessor } = await import('@cleocode/core/agents');
-      await openCleoDb('tasks');
+      await openCleoDb('project');
       const registry = new AgentRegistryAccessor(getProjectRoot());
 
       const credential = await registry.get(args.agentId);
@@ -1602,7 +1602,7 @@ const watchCommand = defineCommand({
     try {
       const { AgentRegistryAccessor } = await import('@cleocode/core/agents');
       const { createRuntime } = await import('@cleocode/runtime');
-      await openCleoDb('tasks');
+      await openCleoDb('project');
       const registry = new AgentRegistryAccessor(getProjectRoot());
 
       const groupIds = args.group ? args.group.split(',').map((s) => s.trim()) : undefined;
@@ -1693,7 +1693,7 @@ const pollCommand = defineCommand({
   async run({ args }) {
     try {
       const { AgentRegistryAccessor, createConduit } = await import('@cleocode/core/agents');
-      await openCleoDb('tasks');
+      await openCleoDb('project');
       const registry = new AgentRegistryAccessor(getProjectRoot());
 
       const agentId = args.agent as string | undefined;
@@ -1749,7 +1749,7 @@ const sendCommand = defineCommand({
   async run({ args }) {
     try {
       const { AgentRegistryAccessor, createConduit } = await import('@cleocode/core/agents');
-      await openCleoDb('tasks');
+      await openCleoDb('project');
       const registry = new AgentRegistryAccessor(getProjectRoot());
 
       const agentId = args.agent as string | undefined;
@@ -1984,9 +1984,14 @@ const installCommand = defineCommand({
       tempDir = resolvedTempDir;
 
       const { installAgentFromCant, attachAgentToProject } = await import('@cleocode/core/agents');
-      const { openCleoDb } = await import('@cleocode/core/store/open-cleo-db');
-      const { db: _sdDb } = await openCleoDb('signaldock');
-      const db = _sdDb as import('node:sqlite').DatabaseSync;
+      // E6-L6 (T11526): the `agents`/`agent_skills` family is the legacy signaldock
+      // schema inside the global cleo.db — ensureGlobalSignaldockDb() guarantees
+      // those tables exist (openCleoDb('global') alone only runs the consolidated schema).
+      const { ensureGlobalSignaldockDb, getGlobalSignaldockNativeDb } = await import(
+        '@cleocode/core/internal'
+      );
+      await ensureGlobalSignaldockDb();
+      const db = getGlobalSignaldockNativeDb() as import('node:sqlite').DatabaseSync;
 
       const isGlobal = args.global === true;
       const targetTier: 'global' | 'project' = isGlobal ? 'global' : 'project';
@@ -2386,7 +2391,7 @@ const createCommand = defineCommand({
       let registered = false;
       try {
         const { AgentRegistryAccessor } = await import('@cleocode/core/agents');
-        await openCleoDb('tasks');
+        await openCleoDb('project');
         const registry = new AgentRegistryAccessor(getProjectRoot());
         const existing = await registry.get(name);
 
@@ -2561,10 +2566,13 @@ const pruneOrphansCommand = defineCommand({
   async run({ args }) {
     try {
       const { buildDoctorReport, reconcileDoctor } = await import('@cleocode/core/agents');
-      const { openCleoDb } = await import('@cleocode/core/store/open-cleo-db');
-      // Open via chokepoint — applies pragma SSoT (T9047, T9189)
-      const { db: _sdDb2 } = await openCleoDb('signaldock');
-      const db = _sdDb2 as import('node:sqlite').DatabaseSync;
+      // E6-L6 (T11526): the agent registry is the legacy signaldock schema inside
+      // the global cleo.db — ensureGlobalSignaldockDb() guarantees those tables exist.
+      const { ensureGlobalSignaldockDb, getGlobalSignaldockNativeDb } = await import(
+        '@cleocode/core/internal'
+      );
+      await ensureGlobalSignaldockDb();
+      const db = getGlobalSignaldockNativeDb() as import('node:sqlite').DatabaseSync;
       try {
         const report = await buildDoctorReport(db, {});
         const d002 = report.findings.filter((f: AgentDoctorFinding) => f.code === 'D-002');
@@ -2634,10 +2642,13 @@ const doctorCommand = defineCommand({
   async run({ args }) {
     try {
       const { buildDoctorReport, reconcileDoctor } = await import('@cleocode/core/agents');
-      const { openCleoDb } = await import('@cleocode/core/store/open-cleo-db');
-      // Open via chokepoint — applies pragma SSoT (T9047, T9189)
-      const { db: _sdDb3 } = await openCleoDb('signaldock');
-      const db = _sdDb3 as import('node:sqlite').DatabaseSync;
+      // E6-L6 (T11526): the agent registry is the legacy signaldock schema inside
+      // the global cleo.db — ensureGlobalSignaldockDb() guarantees those tables exist.
+      const { ensureGlobalSignaldockDb, getGlobalSignaldockNativeDb } = await import(
+        '@cleocode/core/internal'
+      );
+      await ensureGlobalSignaldockDb();
+      const db = getGlobalSignaldockNativeDb() as import('node:sqlite').DatabaseSync;
 
       try {
         const report = await buildDoctorReport(db, { projectRoot: getProjectRoot() });

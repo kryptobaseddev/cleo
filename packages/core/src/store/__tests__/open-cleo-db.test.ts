@@ -38,6 +38,18 @@ function cleanupTempDir(dir: string): void {
 // Suite
 // ---------------------------------------------------------------------------
 
+/**
+ * Narrow the opaque `CleoDbHandle.db` to the native node:sqlite surface.
+ *
+ * After E6-L6 (T11526) `openCleoDb('project'|'global')` returns the native
+ * `DatabaseSync` handle (extracted from the Drizzle wrapper's `$client`), so
+ * callers may issue raw `prepare`/`exec` SQL — the same contract the legacy
+ * 8-role API exposed.
+ */
+function nativeOf(handle: { db: unknown }): DatabaseSync {
+  return handle.db as DatabaseSync;
+}
+
 describe('openCleoDb', () => {
   let tempDir: string;
 
@@ -49,94 +61,61 @@ describe('openCleoDb', () => {
     cleanupTempDir(tempDir);
   });
 
-  it('opens tasks.db and returns a DBHandle with correct role', async () => {
-    const handle = await openCleoDb('tasks', tempDir);
-    expect(handle.role).toBe('tasks');
-    expect(handle.db).toBeDefined();
-    // Verify the database file was created
-    expect(handle.db.prepare('SELECT 1').get()).toEqual({ '1': 1 });
-    handle.close();
-  });
-
-  it('opens brain.db and returns a DBHandle with correct role', async () => {
-    // Reset the brain singleton — earlier tests in the same vitest worker
-    // may have opened brain.db against a different cwd.
-    const { resetBrainDbState } = await import('../memory-sqlite.js');
-    resetBrainDbState();
-
-    const handle = await openCleoDb('brain', tempDir);
+  it('opens the project cleo.db and returns a DBHandle with correct role', async () => {
+    const handle = await openCleoDb('project', tempDir);
     try {
-      expect(handle.role).toBe('brain');
+      expect(handle.role).toBe('project');
       expect(handle.db).toBeDefined();
-      expect(handle.db.prepare('SELECT 1').get()).toEqual({ '1': 1 });
+      // The handle exposes the native DatabaseSync — raw SQL works.
+      expect(nativeOf(handle).prepare('SELECT 1').get()).toEqual({ '1': 1 });
     } finally {
-      handle.close();
-      resetBrainDbState();
+      await handle.close();
     }
   });
 
-  // T10397 regression: prior to this fix, ROLE_OPENERS.brain pointed at
-  // getTasksDb, so callers got tasks.db schema and every brain-table
-  // write silently corrupted data. This test asserts the handle exposes
-  // brain.db's canonical schema (brain_observations) and NOT tasks.db's
-  // canonical schema (tasks).
-  it('openCleoDb(brain) exposes brain.db schema (brain_observations table) — T10397 regression', async () => {
-    const { resetBrainDbState } = await import('../memory-sqlite.js');
-    resetBrainDbState();
-
-    const handle = await openCleoDb('brain', tempDir);
+  it('opens the global cleo.db and returns a DBHandle with correct role', async () => {
+    const handle = await openCleoDb('global', tempDir);
     try {
-      // Brain schema MUST contain brain_observations after migrations run.
-      const brainRow = handle.db
+      expect(handle.role).toBe('global');
+      expect(handle.db).toBeDefined();
+      expect(nativeOf(handle).prepare('SELECT 1').get()).toEqual({ '1': 1 });
+    } finally {
+      await handle.close();
+    }
+  });
+
+  // T10397 regression (re-homed for E6-L6): the consolidated project cleo.db
+  // carries the brain family's `brain_observations` table — the brain domain
+  // (formerly the `brain` role) now lives inside the project-scope cleo.db.
+  it('project cleo.db exposes the brain schema (brain_observations table) — T10397 regression', async () => {
+    const handle = await openCleoDb('project', tempDir);
+    try {
+      const brainRow = nativeOf(handle)
         .prepare('SELECT name FROM sqlite_schema WHERE type = ? AND name = ?')
         .get('table', 'brain_observations') as { name?: string } | undefined;
       expect(brainRow?.name).toBe('brain_observations');
-
-      // Tasks schema MUST NOT be present on brain.db — if this passes,
-      // it means the handle is still pointed at tasks.db (the T10397 bug).
-      const tasksRow = handle.db
-        .prepare('SELECT name FROM sqlite_schema WHERE type = ? AND name = ?')
-        .get('table', 'tasks') as { name?: string } | undefined;
-      expect(tasksRow?.name).toBeUndefined();
     } finally {
-      handle.close();
-      resetBrainDbState();
+      await handle.close();
     }
   });
 
-  it('opens sessions.db (alias to tasks.db) and returns a DBHandle with correct role', async () => {
-    const handle = await openCleoDb('sessions', tempDir);
-    expect(handle.role).toBe('sessions');
-    expect(handle.db).toBeDefined();
-    expect(handle.db.prepare('SELECT 1').get()).toEqual({ '1': 1 });
-    handle.close();
-  });
-
-  it('opens conduit.db and returns a DBHandle with correct role', async () => {
-    const handle = await openCleoDb('conduit', tempDir);
-    expect(handle.role).toBe('conduit');
-    expect(handle.db).toBeDefined();
-    expect(handle.db.prepare('SELECT 1').get()).toEqual({ '1': 1 });
-    handle.close();
-  });
-
-  it('throws for unimplemented llmtxt role', async () => {
-    await expect(openCleoDb('llmtxt', tempDir)).rejects.toThrow('not yet implemented');
-  });
-
   it('applies canonical pragmas at open time', async () => {
-    const handle = await openCleoDb('tasks', tempDir);
-    const journalMode = handle.db.prepare('PRAGMA journal_mode').get() as { journal_mode: string };
-    expect(journalMode.journal_mode.toLowerCase()).toBe('wal');
+    const handle = await openCleoDb('project', tempDir);
+    try {
+      const journalMode = nativeOf(handle).prepare('PRAGMA journal_mode').get() as {
+        journal_mode: string;
+      };
+      expect(journalMode.journal_mode.toLowerCase()).toBe('wal');
 
-    const busyTimeout = handle.db.prepare('PRAGMA busy_timeout').get() as {
-      busy_timeout?: number;
-      timeout?: number;
-    };
-    // SSoT busy_timeout (specs/sqlite-pragmas.json) — raised 5000 → 30000 (T11363).
-    expect(busyTimeout.busy_timeout ?? busyTimeout.timeout).toBe(30000);
-
-    handle.close();
+      const busyTimeout = nativeOf(handle).prepare('PRAGMA busy_timeout').get() as {
+        busy_timeout?: number;
+        timeout?: number;
+      };
+      // SSoT busy_timeout (specs/sqlite-pragmas.json) — raised 5000 → 30000 (T11363).
+      expect(busyTimeout.busy_timeout ?? busyTimeout.timeout).toBe(30000);
+    } finally {
+      await handle.close();
+    }
   });
 });
 
@@ -273,17 +252,15 @@ describe('validateProjectIdConsistency (T10322)', () => {
     cleanupTempDir(tempDir);
   });
 
-  it('no-ops when role does not track project_id (tasks, brain, conduit, sessions)', () => {
+  // E6-L6 (T11526): the project_registry drift check is now keyed on the
+  // 'global' scope (which owns the project_registry table, formerly nexus.db).
+  // The 'project' scope carries no project_id column → the gate no-ops.
+  it("no-ops for the 'project' scope (no project_id column)", () => {
     seedProjectInfo(tempDir, 'pid-canonical');
     const db = makeFakeNexusDb([{ id: 'pid-drift', path: tempDir }]);
     try {
-      // Even though the registry would drift, non-tracking roles skip the gate.
-      expect(() => validateProjectIdConsistency('tasks', db, tempDir)).not.toThrow();
-      expect(() => validateProjectIdConsistency('brain', db, tempDir)).not.toThrow();
-      expect(() => validateProjectIdConsistency('conduit', db, tempDir)).not.toThrow();
-      expect(() => validateProjectIdConsistency('sessions', db, tempDir)).not.toThrow();
-      expect(() => validateProjectIdConsistency('signaldock', db, tempDir)).not.toThrow();
-      expect(() => validateProjectIdConsistency('skills', db, tempDir)).not.toThrow();
+      // Even though the registry would drift, the project scope skips the gate.
+      expect(() => validateProjectIdConsistency('project', db, tempDir)).not.toThrow();
     } finally {
       db.close();
     }
@@ -293,7 +270,7 @@ describe('validateProjectIdConsistency (T10322)', () => {
     // No project-info.json seeded.
     const db = makeFakeNexusDb([{ id: 'pid-anything', path: tempDir }]);
     try {
-      expect(() => validateProjectIdConsistency('nexus', db, tempDir)).not.toThrow();
+      expect(() => validateProjectIdConsistency('global', db, tempDir)).not.toThrow();
     } finally {
       db.close();
     }
@@ -303,13 +280,13 @@ describe('validateProjectIdConsistency (T10322)', () => {
     seedProjectInfo(tempDir, '');
     const db = makeFakeNexusDb([{ id: 'pid-anything', path: tempDir }]);
     try {
-      expect(() => validateProjectIdConsistency('nexus', db, tempDir)).not.toThrow();
+      expect(() => validateProjectIdConsistency('global', db, tempDir)).not.toThrow();
     } finally {
       db.close();
     }
   });
 
-  it('no-ops when project_registry table does not exist (pre-bootstrap nexus.db)', () => {
+  it('no-ops when project_registry table does not exist (pre-bootstrap global cleo.db)', () => {
     seedProjectInfo(tempDir, 'pid-canonical');
     const _require = createRequire(import.meta.url);
     const { DatabaseSync: DatabaseSyncCtor } = _require('node:sqlite') as {
@@ -317,17 +294,17 @@ describe('validateProjectIdConsistency (T10322)', () => {
     };
     const db = new DatabaseSyncCtor(':memory:');
     try {
-      expect(() => validateProjectIdConsistency('nexus', db, tempDir)).not.toThrow();
+      expect(() => validateProjectIdConsistency('global', db, tempDir)).not.toThrow();
     } finally {
       db.close();
     }
   });
 
-  it('no-ops when project not yet registered with nexus (no row for this path)', () => {
+  it('no-ops when project not yet registered (no registry row for this path)', () => {
     seedProjectInfo(tempDir, 'pid-canonical');
     const db = makeFakeNexusDb([{ id: 'pid-someone-else', path: '/some/other/project' }]);
     try {
-      expect(() => validateProjectIdConsistency('nexus', db, tempDir)).not.toThrow();
+      expect(() => validateProjectIdConsistency('global', db, tempDir)).not.toThrow();
     } finally {
       db.close();
     }
@@ -337,7 +314,7 @@ describe('validateProjectIdConsistency (T10322)', () => {
     seedProjectInfo(tempDir, 'pid-canonical');
     const db = makeFakeNexusDb([{ id: 'pid-canonical', path: tempDir }]);
     try {
-      expect(() => validateProjectIdConsistency('nexus', db, tempDir)).not.toThrow();
+      expect(() => validateProjectIdConsistency('global', db, tempDir)).not.toThrow();
     } finally {
       db.close();
     }
@@ -347,7 +324,7 @@ describe('validateProjectIdConsistency (T10322)', () => {
     seedProjectInfo(tempDir, 'pid-canonical');
     const db = makeFakeNexusDb([{ id: 'pid-drift', path: tempDir }]);
     try {
-      expect(() => validateProjectIdConsistency('nexus', db, tempDir)).toThrow(
+      expect(() => validateProjectIdConsistency('global', db, tempDir)).toThrow(
         /E_PROJECT_ID_DRIFT/,
       );
     } finally {
@@ -361,7 +338,7 @@ describe('validateProjectIdConsistency (T10322)', () => {
     try {
       let caught: Error | null = null;
       try {
-        validateProjectIdConsistency('nexus', db, tempDir);
+        validateProjectIdConsistency('global', db, tempDir);
       } catch (err: unknown) {
         caught = err instanceof Error ? err : new Error(String(err));
       }

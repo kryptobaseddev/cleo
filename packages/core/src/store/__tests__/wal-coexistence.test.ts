@@ -61,13 +61,15 @@ afterEach(() => {
 // ── Helper ────────────────────────────────────────────────────────────────────
 
 /**
- * Extract the native DatabaseSync handle from a Drizzle ORM handle via `$client`.
- * Uses `as unknown as { $client: DatabaseSync }` to avoid the `any` lint rule —
- * the `$client` field is typed `unknown` on the generic Drizzle handle.
+ * Extract the native DatabaseSync handle from a handle that may be either a
+ * Drizzle ORM wrapper (`openDualScopeDb`, exposes `$client`) or an already-
+ * native `DatabaseSync` (`openCleoDb` after E6-L6 / T11526, which unwraps
+ * `$client` for callers issuing raw SQL).
  */
-function getNativeDb(drizzleDb: unknown): DatabaseSync {
+function getNativeDb(handle: unknown): DatabaseSync {
   // db-open-allowed: test-only $client introspection
-  return (drizzleDb as { $client: DatabaseSync }).$client;
+  const client = (handle as { $client?: DatabaseSync }).$client;
+  return client ?? (handle as DatabaseSync);
 }
 
 /**

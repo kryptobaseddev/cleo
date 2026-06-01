@@ -375,17 +375,18 @@ describe('skills-schema + skills-db', () => {
   // openCleoDb chokepoint wiring
   // -------------------------------------------------------------------------
 
-  it('openCleoDb("skills") returns a handle (chokepoint compliance, ADR-068)', async () => {
-    // The chokepoint resolves the path via `getDefaultSkillsDbPath()` which
-    // calls `getCleoHome()`. For this test we exercise the in-memory wiring
-    // by first opening explicitly at a tmpdir path so the singleton is set;
-    // then openCleoDb('skills') returns the cached handle.
+  it('openCleoDb("global") returns a handle (chokepoint compliance, ADR-068)', async () => {
+    // E6-L6 (T11526): the legacy 'skills' role was removed — skills.db is now
+    // the global-scope consolidated `cleo.db`, opened via openCleoDb('global').
+    // We first open the skills lifecycle module explicitly at a tmpdir path so
+    // the singleton is set, then assert the global chokepoint returns a handle.
     const { openSkillsDb } = await import('../skills-db.js');
     await openSkillsDb({ path: dbPath });
 
     const { openCleoDb } = await import('../open-cleo-db.js');
-    const handle = await openCleoDb('skills');
-    expect(handle.role).toBe('skills');
+    const handle = await openCleoDb('global');
+    expect(handle.role).toBe('global');
     expect(handle.db).toBeDefined();
+    await handle.close();
   });
 });

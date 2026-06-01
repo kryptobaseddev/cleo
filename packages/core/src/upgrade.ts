@@ -970,13 +970,23 @@ export async function runUpgrade(
     // Path migration (D-008) is opt-in and not enabled here to avoid mutating
     // user paths during routine upgrade.
     try {
-      const [{ buildDoctorReport, reconcileDoctor }, { openCleoDb }] = await Promise.all([
+      const [
+        { buildDoctorReport, reconcileDoctor },
+        { ensureGlobalSignaldockDb, getGlobalSignaldockNativeDb },
+      ] = await Promise.all([
         import('./store/agent-doctor.js'),
-        import('./store/open-cleo-db.js'),
+        import('./store/signaldock-sqlite.js'),
       ]);
-      // Open via chokepoint — applies pragma SSoT (T9047, T9189)
-      const { db: _sdRaw } = await openCleoDb('signaldock');
-      const sdDb = _sdRaw as import('node:sqlite').DatabaseSync;
+      // E6-L6 (T11526): the agent registry lives in the legacy signaldock schema
+      // inside the global cleo.db — ensureGlobalSignaldockDb() guarantees those
+      // tables exist (openCleoDb('global') alone only runs the consolidated schema).
+      await ensureGlobalSignaldockDb();
+      const sdDb = getGlobalSignaldockNativeDb();
+      if (!sdDb) {
+        throw new Error(
+          'upgrade: global signaldock cleo.db could not be opened (no native handle)',
+        );
+      }
       try {
         const report = await buildDoctorReport(sdDb, { projectRoot: projectRootForMaint });
         if (report.findings.length === 0) {
@@ -1199,13 +1209,20 @@ export async function runUpgrade(
     // Dry-run preview for agent registry sync (T1243).
     // Read-only buildDoctorReport so users see drift before --fix.
     try {
-      const [{ buildDoctorReport }, { openCleoDb }] = await Promise.all([
-        import('./store/agent-doctor.js'),
-        import('./store/open-cleo-db.js'),
-      ]);
-      // Open via chokepoint — applies pragma SSoT (T9047, T9189)
-      const { db: _sdRaw2 } = await openCleoDb('signaldock');
-      const sdDb = _sdRaw2 as import('node:sqlite').DatabaseSync;
+      const [{ buildDoctorReport }, { ensureGlobalSignaldockDb, getGlobalSignaldockNativeDb }] =
+        await Promise.all([
+          import('./store/agent-doctor.js'),
+          import('./store/signaldock-sqlite.js'),
+        ]);
+      // E6-L6 (T11526): agent registry is the legacy signaldock schema inside the
+      // global cleo.db — ensureGlobalSignaldockDb() guarantees those tables exist.
+      await ensureGlobalSignaldockDb();
+      const sdDb = getGlobalSignaldockNativeDb();
+      if (!sdDb) {
+        throw new Error(
+          'upgrade: global signaldock cleo.db could not be opened (no native handle)',
+        );
+      }
       try {
         const report = await buildDoctorReport(sdDb, { projectRoot: getProjectRoot(options.cwd) });
         actions.push({
