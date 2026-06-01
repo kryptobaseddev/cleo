@@ -542,7 +542,9 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         description: undefined,
         labels: undefined,
         createdAt: doc.createdAt,
-        refCount: 0,
+        // Surface the real attachment ref_count (T11572) so `docs list` agrees
+        // with the `docs add` response — both now read the same source of truth.
+        refCount: doc.refCount,
         ...(doc.slug ? { slug: doc.slug } : {}),
         ...(doc.kind ? { type: doc.kind as DocsType } : {}),
         ownerId: doc.ownerId,
@@ -597,7 +599,8 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       description: undefined,
       labels: undefined,
       createdAt: doc.createdAt,
-      refCount: 0,
+      // Surface the real attachment ref_count (T11572) — see project-scope note.
+      refCount: doc.refCount,
       ...(doc.slug ? { slug: doc.slug } : {}),
       ...(doc.kind ? { type: doc.kind as DocsType } : {}),
     }));
