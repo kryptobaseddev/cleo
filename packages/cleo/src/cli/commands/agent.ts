@@ -1076,7 +1076,7 @@ const listCommand = defineCommand({
       const includeGlobal = args.global === true;
       const includeDisabled = args['include-disabled'] === true;
 
-      const agents = listAgentsForProject(getProjectRoot(), {
+      const agents = await listAgentsForProject(getProjectRoot(), {
         includeGlobal,
         includeDisabled,
       });
@@ -1144,7 +1144,7 @@ const getCommand = defineCommand({
       await openCleoDb('project');
 
       const includeGlobal = args.global === true;
-      const agent = lookupAgent(getProjectRoot(), args.agentId, { includeGlobal });
+      const agent = await lookupAgent(getProjectRoot(), args.agentId, { includeGlobal });
 
       if (!agent) {
         cliOutput(
@@ -1233,7 +1233,7 @@ const attachCommand = defineCommand({
       void _registry;
 
       // Verify agent exists globally
-      const globalAgent = lookupAgent(projectRoot, args.agentId, { includeGlobal: true });
+      const globalAgent = await lookupAgent(projectRoot, args.agentId, { includeGlobal: true });
       if (!globalAgent) {
         cliOutput(
           {
