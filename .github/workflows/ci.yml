@@ -1076,6 +1076,50 @@ jobs:
         # reads it to emit ::error / ::warning inline annotations on PR diffs.
         run: node scripts/lint-migrations.mjs --fail-on=error
 
+  exodus-parity-gate:
+    # T11551 (DHQ-045) — exodus zero-loss DURABLE GUARD. Runs the actual
+    # `runExodusMigrate` engine + the reusable CORE `verifyMigration()` primitive
+    # against a SCHEMA-REAL representative-data fixture (real CHECK enums, ISO-GLOB
+    # epoch columns, legacy enum aliases, a self-referential FK copied
+    # child-before-parent) — NOT name-matched toy tables. It FAILS on any genuine
+    # base-table row deficit, content mismatch, FK orphan, or un-normalised enum
+    # drift. This is the gate that must stay green BEFORE the exodus cutover
+    # (E8 / T11251). The whole zero-loss campaign (~805K rows recovered) happened
+    # because the original fixtures used matching names + canonical enums and
+    # missed every real-schema failure; this job is the regression wall.
+    # Pure test invocation — no untrusted input flows into run:.
+    name: Exodus Real-Data Parity Gate (T11551)
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.30.0'
+          run_install: false
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      - run: pnpm install --frozen-lockfile
+      - name: Build contracts (the parity primitive imports @cleocode/contracts)
+        run: pnpm --filter @cleocode/contracts run build:ts
+      - name: Run exodus real-data parity + verifyMigration gate
+        # Drives runExodusMigrate over a schema-real fixture and asserts ZERO
+        # base-table deficit via verifyMigration (count + checksum + FK + enum).
+        run: |
+          pnpm --filter @cleocode/core exec vitest run --reporter=verbose \
+            src/store/__tests__/exodus-representative-data.test.ts \
+            src/store/__tests__/verify-migration.test.ts
+
   drizzle-kit-check:
     # T1169: Schema consistency gate — uses drizzle-kit check to verify that
     # schema files match their corresponding migration snapshots. Catches schema
@@ -1650,6 +1694,7 @@ jobs:
       - docs-drift
       - migration-integrity
       - migration-lint
+      - exodus-parity-gate
       - drizzle-kit-check
       - typecheck
       - unit-tests
