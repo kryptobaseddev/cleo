@@ -18,8 +18,35 @@
  * @architecture docs/architecture/SG-CLEO-SKILLS-architecture-v3.md §5
  */
 
+import { resolveProjectByCwd } from '@cleocode/paths';
 import type { NewSkillUsageRow } from '../store/skills-store.js';
 import { enqueueSkillUsage } from '../store/skills-usage-queue.js';
+
+/**
+ * Best-effort resolution of the active project's canonical ID from `cwd`.
+ *
+ * Stamped onto every usage row (`project_id`) so cross-project skill-usage
+ * analytics can attribute usage to the project the skill was loaded under
+ * (T11544). Returns `null` whenever there is no resolvable CLEO project
+ * (global usage outside any repo, corrupt `project-info.json`, etc.) — the
+ * column is nullable by design, and telemetry MUST NOT throw on the hot path.
+ *
+ * The paths-package resolver is itself non-throwing (returns `null`), but the
+ * `try/catch` guards against any unexpected fs/parse error so the recorder
+ * contract (never break skill loading) holds unconditionally.
+ *
+ * @returns The canonical projectId, or `null` when no project context exists.
+ *
+ * @task T11544
+ */
+function resolveActiveProjectId(): string | null {
+  try {
+    return resolveProjectByCwd()?.projectId ?? null;
+  } catch {
+    /* swallowed — telemetry MUST NOT block skill loading (architecture v3 §5) */
+    return null;
+  }
+}
 
 /**
  * Discriminated-union of actions the recorder accepts.
@@ -116,6 +143,9 @@ export function recordSkillUsage(
     skillName: name,
     eventKind: action,
     taskId: context?.taskId ?? null,
+    // T11544: attribute the usage event to the active project (null when
+    // running outside any resolvable CLEO project — global usage stays valid).
+    projectId: resolveActiveProjectId(),
     modelId: context?.modelId ?? null,
     metadata: JSON.stringify(metadataObj),
   };
