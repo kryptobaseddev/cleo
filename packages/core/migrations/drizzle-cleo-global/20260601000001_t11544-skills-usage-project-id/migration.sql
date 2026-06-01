@@ -1,0 +1,12 @@
+-- T11544: Add nullable `project_id` to `skills_skill_usage` (consolidated
+-- GLOBAL cleo.db, drizzle-cleo-global scope).
+--
+-- Cross-project skill-usage attribution: the active ProjectContext's canonical
+-- project_id is stamped onto each telemetry row so analytics can group skill
+-- usage by project. Nullable so existing rows and project-less global usage
+-- (skill loaded outside any resolvable CLEO repo) stay valid.
+--
+-- No CHECK constraint: `project_id` is a plain free-text soft FK (not a
+-- timestamp `_at`, boolean, or enum), so the T11363 consolidation-check
+-- injector contributes nothing for it.
+ALTER TABLE `skills_skill_usage` ADD COLUMN `project_id` text;

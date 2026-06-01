@@ -14,10 +14,13 @@
  *   - `skill_patches`   — diff payload for auto-improve dry-runs/applied
  *
  * Database lifecycle:
- *   - Path: `<getCleoHome()>/skills.db` (per-user global, NOT per-project)
- *   - Opened via the `openCleoDb('skills')` chokepoint (ADR-068 + D003)
- *   - Migrations live in `packages/core/migrations/drizzle-skills/`
- *   - First-read materialization: see `skills-sqlite.ts#ensureSkillsDb`
+ *   - Path: consolidated GLOBAL `<getCleoHome()>/cleo.db` (per-user global, NOT
+ *     per-project) — shared with the nexus / signaldock domains since E6-L5.
+ *   - Opened via the `openDualScopeDb('global')` chokepoint (ADR-068 + D003)
+ *   - Migrations live in `packages/core/migrations/drizzle-cleo-global/` (the
+ *     legacy `drizzle-skills/` set is dead weight post-E6-L5 — NOT run on the
+ *     shared handle; see `skills-db.ts`).
+ *   - First-read materialization: see `skills-db.ts#openSkillsDb`
  *
  * Scope note for T9651:
  *   This module is schema-only — the runtime (CLI surface) is wired in
@@ -193,6 +196,18 @@ export const skillUsage = sqliteTable(
      * accessor; no DB-level FK (skills.db is global; tasks.db is project-tier).
      */
     taskId: text('task_id'),
+    /**
+     * Optional canonical project ID context (null if not running inside a
+     * resolvable CLEO project — e.g. global usage outside any repo).
+     *
+     * @cross-db nexus.project_registry.project_id — skills→project soft FK
+     * (the cross-project attribution key so skill-usage analytics can group by
+     * the project the skill was loaded under). Populated by the skill telemetry
+     * recorder from the active {@link ProjectContext}; no DB-level FK
+     * (skills.db is global; the project registry is its own scope). Nullable so
+     * existing rows and project-less global usage stay valid (T11544).
+     */
+    projectId: text('project_id'),
     /** Optional model identifier the calling agent was running under. */
     modelId: text('model_id'),
     /** Free-form JSON blob for forward-compatible event metadata. */
