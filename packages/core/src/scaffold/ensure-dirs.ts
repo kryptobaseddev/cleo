@@ -182,10 +182,14 @@ export async function ensureProjectGitInitialCommit(projectRoot: string): Promis
  */
 export async function ensureSqliteDb(projectRoot: string): Promise<ScaffoldResult> {
   const cleoDir = resolveScaffoldCleoDir(projectRoot);
-  const dbPath = join(cleoDir, 'tasks.db');
+  // E6-L1 (T11521): getDb() now opens the consolidated project `cleo.db` via
+  // openDualScopeDb('project'), not the legacy `tasks.db`. The idempotency probe
+  // must check the file getDb actually creates, otherwise a second scaffold pass
+  // re-reports the DB as freshly `created`.
+  const dbPath = join(cleoDir, 'cleo.db');
 
   if (existsSync(dbPath)) {
-    return { action: 'skipped', path: dbPath, details: 'tasks.db already exists' };
+    return { action: 'skipped', path: dbPath, details: 'cleo.db already exists' };
   }
 
   try {
