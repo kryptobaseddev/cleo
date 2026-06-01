@@ -11,12 +11,13 @@
  * GLOBAL-scope DB (`$XDG_DATA_HOME/cleo/cleo.db`). The GLOBAL-scope DB holds
  * every CROSS-PROJECT domain — `nexus_*` (code-intelligence index) / `skills_*`
  * (installed-skills registry) / `signaldock_*` (global agent identity — folded
- * here per D1, no standalone `signaldock.db`) / `brain_*` (cross-project
- * memory) — as domain-prefixed Pattern-A tables.
+ * here per D1, no standalone `signaldock.db`) / `telemetry_*` (machine-wide
+ * command telemetry — relocated here from PROJECT scope by T11540 per ADR-090
+ * §2.3) / `brain_*` (cross-project memory) — as domain-prefixed Pattern-A tables.
  *
  * Per the canonical typing report §1 (D1″), the GLOBAL `cleo.db` is
- * **49 tables / 555 columns** = nexus 10 + skills 4 + signaldock 13 + brain 22
- * (MIRRORED). This barrel composes exactly that set.
+ * **51 tables / 567 columns** = nexus 10 + skills 4 + signaldock 13 +
+ * telemetry 2 + brain 22 (MIRRORED). This barrel composes exactly that set.
  *
  * Modules under this directory author the **target shape**: domain-prefixed
  * `sqliteTable` definitions with the E10 strict typing applied per
@@ -46,9 +47,9 @@
  * `nexus_project_registry`, `code_index` → `nexus_code_index`, `skills` →
  * `skills_skills`, `agents` → `signaldock_agents`, …).
  *
- * ## Coverage (T11361 — global-exclusive authoring COMPLETE · 27 tables + 22 mirrored brain)
+ * ## Coverage (T11361 — global-exclusive authoring COMPLETE · 29 tables + 22 mirrored brain)
  *
- * **Global-exclusive (authored here · 27 tables):**
+ * **Global-exclusive (authored here · 29 tables):**
  *   - **nexus** (10 tables · `./nexus.ts`): nexus_project_registry ·
  *     nexus_project_id_aliases · nexus_audit_log · nexus_schema_meta ·
  *     nexus_nodes · nexus_relations · nexus_contracts · nexus_code_index ·
@@ -68,14 +69,19 @@
  *     `users.role` (`SIGNALDOCK_USER_ROLES`) and `agents.status`
  *     (`SIGNALDOCK_AGENT_STATUSES`). All FKs are intra-domain (single global
  *     file) → kept native `.references()` (AC4).
+ *   - **telemetry** (2 tables · `./telemetry.ts`): telemetry_events ·
+ *     telemetry_schema_meta. Relocated from PROJECT scope by T11540 per ADR-090
+ *     §2.3 (machine-wide command telemetry is a cross-project signal). No
+ *     boolean/enum/JSON columns; `telemetry_schema_meta` built from the shared
+ *     `makeSchemaMetaTable` factory (T11543) for zero KV-shape drift.
  *
  * **Mirrored (re-exported · 22 tables):** the `brain_*` family from
  * `../cleo-shared/index.ts` (same module the project barrel uses).
  *
- * **GLOBAL SCHEMA NOW COMPLETE.** 27 global-exclusive prefixed `sqliteTable`s +
- * 22 mirrored brain tables = the canonical 49 (nexus 10 + skills 4 +
- * signaldock 13 + brain 22). What remains for the saga is the exodus cutover
- * (T11248).
+ * **GLOBAL SCHEMA NOW COMPLETE.** 29 global-exclusive prefixed `sqliteTable`s +
+ * 22 mirrored brain tables = the canonical 51 (nexus 10 + skills 4 +
+ * signaldock 13 + telemetry 2 + brain 22). What remains for the saga is the
+ * exodus cutover (T11248).
  *
  * @task T11361
  * @epic T11245
@@ -90,3 +96,4 @@ export * from '../cleo-shared/index.js';
 export * from './nexus.js';
 export * from './signaldock.js';
 export * from './skills.js';
+export * from './telemetry.js';

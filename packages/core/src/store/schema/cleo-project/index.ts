@@ -10,8 +10,10 @@
  * (`<projectRoot>/.cleo/cleo.db`) and a GLOBAL-scope DB
  * (`$XDG_DATA_HOME/cleo/cleo.db`). The PROJECT-scope DB holds every project-tier
  * domain — `tasks_*` / `brain_*` (this project's memory) / `conduit_*` /
- * `docs_*` / `telemetry_*` — as domain-prefixed Pattern-A tables (87 tables /
- * 903 columns per the canonical typing report §1).
+ * `docs_*` — as domain-prefixed Pattern-A tables (85 tables / 891 columns
+ * per the canonical typing report §1, after the telemetry residency move). The
+ * `telemetry_*` family — machine-wide command telemetry, a cross-project signal —
+ * was relocated to GLOBAL scope by T11540 per ADR-090 §2.3.
  *
  * Modules under this directory author that **target shape**: domain-prefixed
  * `sqliteTable` definitions with the E10 strict typing applied per
@@ -86,15 +88,16 @@
  * E4 jsonb BLOB.
  *
  * **PROJECT SCHEMA NOW COMPLETE.** Every project-tier table is authored: the
- * canonical 87 (tasks-core 45 + conduit 14 + docs 4 + telemetry 2 + brain 22)
- * plus the 2 E4 junctions added on main since the audit (`tasks_task_labels`,
- * `brain_sticky_tags`) = 89 prefixed `sqliteTable`s across `cleo-project/` +
- * `cleo-shared/`. The two `_conduit_*` legacy meta tables are dropped at exodus
- * per §6b. **T11549 (zero-loss final mile)**: `tasks_agent_credentials` and
+ * canonical 85 (tasks-core 45 + conduit 14 + docs 4 + brain 22; the `telemetry_*`
+ * pair relocated to GLOBAL by T11540 per ADR-090 §2.3) plus the 2 E4 junctions
+ * added on main since the audit (`tasks_task_labels`, `brain_sticky_tags`) = 87
+ * prefixed `sqliteTable`s across `cleo-project/` + `cleo-shared/`. The two
+ * `_conduit_*` legacy meta tables are dropped at exodus per §6b. **T11549
+ * (zero-loss final mile)**: `tasks_agent_credentials` and
  * `tasks_brain_release_links` added in `provenance-orphans.ts` (2 tables, 11
- * rows recovered from legacy brain.db). Total = 91 prefixed tables.
- * What remains for the saga is the GLOBAL scope (T11361: nexus_* / skills_* /
- * signaldock_* + this same mirrored brain_*) and the exodus cutover (T11248).
+ * rows recovered from legacy brain.db). Total = 89 prefixed tables (before the
+ * T11538 nexus code-graph additions noted below).
+ * What remains for the saga is the exodus cutover (T11248).
  *
  * ## Nexus code-graph residency move (ADR-090 · T11538 — additive)
  *
@@ -127,4 +130,3 @@ export * from './provenance-rest.js';
 export * from './runtime.js';
 export * from './tasks-core.js';
 export * from './tasks-core-batch2.js';
-export * from './telemetry.js';

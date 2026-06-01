@@ -1594,24 +1594,6 @@ CREATE TABLE `tasks_task_labels` (
 	CONSTRAINT `tasks_task_labels_pk` PRIMARY KEY(`task_id`, `label`)
 );
 --> statement-breakpoint
-CREATE TABLE `telemetry_events` (
-	`id` text PRIMARY KEY,
-	`anonymous_id` text NOT NULL,
-	`domain` text NOT NULL,
-	`gateway` text NOT NULL,
-	`operation` text NOT NULL,
-	`command` text NOT NULL,
-	`exit_code` integer DEFAULT 0 NOT NULL,
-	`duration_ms` integer NOT NULL,
-	`error_code` text,
-	`timestamp` text DEFAULT (datetime('now')) NOT NULL
-);
---> statement-breakpoint
-CREATE TABLE `telemetry_schema_meta` (
-	`key` text PRIMARY KEY,
-	`value` text NOT NULL
-);
---> statement-breakpoint
 CREATE INDEX `idx_brain_attention_scope` ON `brain_attention` (`scope_kind`,`scope_id`);--> statement-breakpoint
 CREATE INDEX `idx_brain_attention_session` ON `brain_attention` (`session_id`);--> statement-breakpoint
 CREATE INDEX `idx_brain_attention_status_expires` ON `brain_attention` (`status`,`expires_at`);--> statement-breakpoint
@@ -1908,9 +1890,4 @@ CREATE UNIQUE INDEX `uq_tasks_evidence_ac_bindings_atom_ac_type` ON `tasks_evide
 CREATE INDEX `idx_tasks_evidence_ac_bindings_ac_id` ON `tasks_evidence_ac_bindings` (`ac_id`);--> statement-breakpoint
 CREATE INDEX `idx_tasks_evidence_ac_bindings_evidence_atom_id` ON `tasks_evidence_ac_bindings` (`evidence_atom_id`);--> statement-breakpoint
 CREATE INDEX `idx_tasks_experiments_merged` ON `tasks_experiments` (`merged_at`);--> statement-breakpoint
-CREATE INDEX `idx_tasks_task_labels_label` ON `tasks_task_labels` (`label`);--> statement-breakpoint
-CREATE INDEX `idx_telemetry_command` ON `telemetry_events` (`command`);--> statement-breakpoint
-CREATE INDEX `idx_telemetry_domain` ON `telemetry_events` (`domain`);--> statement-breakpoint
-CREATE INDEX `idx_telemetry_exit_code` ON `telemetry_events` (`exit_code`);--> statement-breakpoint
-CREATE INDEX `idx_telemetry_timestamp` ON `telemetry_events` (`timestamp`);--> statement-breakpoint
-CREATE INDEX `idx_telemetry_duration` ON `telemetry_events` (`duration_ms`);
+CREATE INDEX `idx_tasks_task_labels_label` ON `tasks_task_labels` (`label`);

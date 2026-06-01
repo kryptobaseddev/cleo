@@ -11,11 +11,14 @@
  * single-file-per-scope, domain-prefixed tables):
  *   `nexus_*` (cross-project code index) / `skills_*` / `signaldock_*`
  *   (global agent identity — folded here per D1, no standalone `signaldock.db`
- *   survives) / `brain_*` (the global cross-project memory store).
+ *   survives) / `telemetry_*` (machine-wide command telemetry — relocated here
+ *   from PROJECT scope by T11540 per ADR-090 §2.3) / `brain_*` (the global
+ *   cross-project memory store).
  *
  * Re-derived count (against the lifecycle split, superseding the prior 48/550
- * domain-split figure): **49 tables / 555 columns** — nexus 10t/109c +
- * skills 4t/36c + signaldock 13t/133c + brain (memory) 22t/277c. The `brain_*`
+ * domain-split figure): **51 tables / 567 columns** — nexus 10t/109c +
+ * skills 4t/36c + signaldock 13t/133c + telemetry 2t/12c + brain (memory)
+ * 22t/277c. The `brain_*`
  * schema modules are SHARED with the project config — same DDL, two DB files,
  * data partitioned by scope (global = cross-project memory). Project-tier
  * `tasks_*` (releases, provenance, lifecycle, playbooks) are intentionally NOT

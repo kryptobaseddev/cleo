@@ -9,12 +9,15 @@
  *
  * Project `cleo.db` holds every **project-tier** domain (Pattern A —
  * single-file-per-scope, domain-prefixed tables):
- *   `tasks_*` / `brain_*` (this project's memory) / `conduit_*` / `docs_*` /
- *   `telemetry_*` (+ lifecycle / provenance / chain / playbooks / agents).
+ *   `tasks_*` / `brain_*` (this project's memory) / `conduit_*` / `docs_*`
+ *   (+ lifecycle / provenance / chain / playbooks / agents). The `telemetry_*`
+ *   pair was relocated to GLOBAL scope by T11540 per ADR-090 §2.3 (machine-wide
+ *   command telemetry is a cross-project signal).
  *
  * Re-derived count (against the lifecycle split, superseding the prior 66/631
- * domain-split figure): **87 tables / 903 columns** — tasks-core 45t/450c +
- * conduit 14t/116c + docs 4t/48c + telemetry 2t/12c + brain (memory) 22t/277c.
+ * domain-split figure): **85 tables / 891 columns** — tasks-core 45t/450c +
+ * conduit 14t/116c + docs 4t/48c + brain (memory) 22t/277c (telemetry 2t/12c
+ * moved to GLOBAL per T11540).
  * The `brain_*` schema modules are SHARED with the global config (the global
  * brain holds cross-project memory; this project brain holds project-local
  * memory) — same DDL, two DB files, data partitioned by scope.

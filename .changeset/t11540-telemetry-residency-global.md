@@ -1,0 +1,8 @@
+---
+id: t11540-telemetry-residency-global
+tasks: [T11540]
+kind: feat
+summary: Move telemetry_events + telemetry_schema_meta from PROJECT to GLOBAL cleo.db scope — telemetry residency correction (ADR-090 §2.3)
+---
+
+Relocates the consolidated `telemetry_*` target-shape family (`telemetry_events`, `telemetry_schema_meta`) from the PROJECT-scope `cleo.db` schema (`cleo-project/telemetry.ts`) to the GLOBAL-scope `cleo.db` schema (`cleo-global/telemetry.ts`), completing the deferred residency move recorded in ADR-090 §2.3. Machine-wide command telemetry is a cross-project signal and belongs in the global `$XDG_DATA_HOME/cleo/cleo.db`, not the per-project file. The physical DDL is preserved byte-for-byte so the exodus cutover (T11248) emits zero drift versus the prior project-scope shape; the two telemetry CREATE TABLE blocks plus their five indexes are moved from the `drizzle-cleo-project` consolidation migration to the `drizzle-cleo-global` one accordingly. `telemetry_schema_meta` now uses the shared `makeSchemaMetaTable()` factory (T11543) for the canonical `{ key TEXT PRIMARY KEY, value TEXT NOT NULL }` KV shape, eliminating its last inline duplicate. The project/global schema barrels, drizzle scope configs, and the consolidated-schema-parity round-trip suite are updated to reflect the new residency (project 87→85 tables, global 49→51 tables). The standalone runtime `telemetry.db` (`telemetry/sqlite.ts`, already global via `getCleoHome()`) and its runtime schema module (`store/schema/telemetry-schema.ts`) are unchanged — the consolidated modules are target-shape authoring, not the live substrate until exodus.
