@@ -86,6 +86,10 @@ export default defineConfig({
       // @cleocode/paths — workspace-local canonical path utilities (env-paths wrapper).
       // Must be aliased so vitest resolves packages/core/src/paths.ts without a build step.
       '@cleocode/paths': new URL('../../packages/paths/src/index.ts', import.meta.url).pathname,
+      // @cleocode/utils — pure zero-dependency leaf (formatBytes, redact, …).
+      // Aliased to source so vitest resolves redaction.ts / plugin-facade.ts
+      // imports without first building utils' dist/ (T11414 · E5).
+      '@cleocode/utils': new URL('../../packages/utils/src/index.ts', import.meta.url).pathname,
       // caamp and cant — required to resolve @cleocode/core/internal transitive deps
       '@cleocode/caamp': new URL('../../packages/caamp/src/index.ts', import.meta.url).pathname,
       '@cleocode/cant': new URL('../../packages/cant/src/index.ts', import.meta.url).pathname,
