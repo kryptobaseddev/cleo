@@ -253,10 +253,13 @@ export async function openDualScopeDb(scope: DualScope, cwd?: string): Promise<D
   const dbPath = resolveDualScopeDbPath(scope, cwd);
   // Dispatch on the scope literal so the overloaded path-aware opener resolves to
   // the correct typed return; the union `scope` cannot satisfy either literal
-  // overload directly.
+  // overload directly. The `cwd` is forwarded so the exodus-on-open hook
+  // (E6 · T11553) can build a correct legacy-source plan for THIS canonical
+  // open. The explicit-path form (test fixtures / legacy-path domains) never
+  // receives a `cwd` and therefore never auto-migrates.
   return scope === 'project'
-    ? openDualScopeDbAtPath('project', dbPath)
-    : openDualScopeDbAtPath('global', dbPath);
+    ? openDualScopeDbAtPath('project', dbPath, cwd)
+    : openDualScopeDbAtPath('global', dbPath, cwd);
 }
 
 /**
@@ -289,14 +292,24 @@ export async function openDualScopeDb(scope: DualScope, cwd?: string): Promise<D
 export async function openDualScopeDbAtPath(
   scope: 'project',
   dbPath: string,
+  exodusCwd?: string,
 ): Promise<DualScopeDbHandle<'project'>>;
 export async function openDualScopeDbAtPath(
   scope: 'global',
   dbPath: string,
+  exodusCwd?: string,
 ): Promise<DualScopeDbHandle<'global'>>;
 export async function openDualScopeDbAtPath(
   scope: DualScope,
   dbPath: string,
+  /**
+   * Internal: the resolved `cwd` from the canonical {@link openDualScopeDb}
+   * call. When present (and `dbPath` is the canonical path for that scope+cwd)
+   * the exodus-on-open data-continuity hook (E6 · T11553) is armed. Omitted by
+   * the public explicit-path callers (tests / legacy-path domains), which must
+   * never auto-migrate an isolated fixture DB.
+   */
+  exodusCwd?: string,
 ): Promise<DualScopeDbHandle> {
   const key = cacheKey(scope, dbPath);
 
@@ -382,6 +395,48 @@ export async function openDualScopeDbAtPath(
     if (entry) {
       entry.initPromise = null;
       entry.handle = handle;
+    }
+
+    // ── Exodus-on-open (E6 · T11553) ────────────────────────────────────────
+    // Data-continuity safety net: on a canonical open where the consolidated
+    // cleo.db is empty but the legacy fleet (tasks.db/brain.db/…) has rows,
+    // lazily auto-migrate ONCE — gated by a parity verify, serialised by a
+    // single-flight lock, and aborting cleanly (legacy kept) on parity failure.
+    // Re-entrancy/concurrency/abort are handled inside the hook. Lazy `import()`
+    // breaks the cycle (exodus/migrate.ts imports openDualScopeDb from here).
+    //
+    // Armed ONLY when `exodusCwd` was threaded through the canonical
+    // `openDualScopeDb` AND `dbPath` is the canonical path for that scope+cwd —
+    // never for explicit-path opens (test fixtures / legacy-path domains).
+    if (exodusCwd !== undefined && dbPath === resolveDualScopeDbPath(scope, exodusCwd)) {
+      try {
+        const { maybeRunExodusOnOpen } = await import('./exodus/on-open.js');
+        const result = await maybeRunExodusOnOpen(scope, dbPath, nativeDb, exodusCwd, () => {
+          // On abort, evict + close ALL consolidated handles so the on-disk
+          // cleo.db files can be removed and re-created pristine.
+          _resetDualScopeDbCache();
+        });
+        if (result.outcome === 'aborted') {
+          // The consolidated DBs were removed; re-open this scope freshly so the
+          // caller receives a valid (empty) handle. Legacy DBs remain the live
+          // source of truth until the parity issue is resolved.
+          log.warn(
+            { scope, reason: result.reason },
+            'exodus-on-open aborted; re-opening empty cleo.db',
+          );
+          return scope === 'project'
+            ? openDualScopeDbAtPath('project', dbPath)
+            : openDualScopeDbAtPath('global', dbPath);
+        }
+      } catch (err) {
+        // Best-effort safety net: a hook failure must not make the DB
+        // unopenable. Warn and return the (empty) handle; `cleo exodus migrate`
+        // remains available as the manual path.
+        log.warn(
+          { err, scope },
+          'exodus-on-open hook failed (non-fatal); returning consolidated handle',
+        );
+      }
     }
 
     return handle;
