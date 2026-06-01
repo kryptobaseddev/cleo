@@ -555,11 +555,11 @@ describe('T310: conduit + signaldock integration', () => {
     globalDb.close();
 
     // Default (INNER JOIN): must return null because no project_agent_refs row
-    const defaultResult = lookupAgent(projectRoot, 'global-agent-x');
+    const defaultResult = await lookupAgent(projectRoot, 'global-agent-x');
     expect(defaultResult).toBeNull();
 
     // includeGlobal=true: must return the agent with projectRef: null
-    const globalResult = lookupAgent(projectRoot, 'global-agent-x', { includeGlobal: true });
+    const globalResult = await lookupAgent(projectRoot, 'global-agent-x', { includeGlobal: true });
     expect(globalResult).not.toBeNull();
     expect(globalResult?.agentId).toBe('global-agent-x');
     expect(globalResult?.projectRef).toBeNull();
@@ -602,7 +602,7 @@ describe('T310: conduit + signaldock integration', () => {
     conduitDb.close();
 
     // Default INNER join: should return only Y and Z
-    const innerResult = listAgentsForProject(projectRoot);
+    const innerResult = await listAgentsForProject(projectRoot);
     expect(innerResult).toHaveLength(2);
     const innerIds = innerResult.map((a) => a.agentId).sort();
     expect(innerIds).toEqual(['agent-y', 'agent-z']);
@@ -612,7 +612,7 @@ describe('T310: conduit + signaldock integration', () => {
     }
 
     // includeGlobal=true: should return all 3 agents
-    const globalResult = listAgentsForProject(projectRoot, { includeGlobal: true });
+    const globalResult = await listAgentsForProject(projectRoot, { includeGlobal: true });
     expect(globalResult).toHaveLength(3);
     const globalIds = globalResult.map((a) => a.agentId).sort();
     expect(globalIds).toEqual(['agent-x', 'agent-y', 'agent-z']);
@@ -671,17 +671,17 @@ describe('T310: conduit + signaldock integration', () => {
     });
 
     // A must see the agent
-    const inA = listAgentsForProject(projectA);
+    const inA = await listAgentsForProject(projectA);
     const agentInA = inA.find((a) => a.agentId === 'cross-project-agent');
     expect(agentInA).toBeDefined();
 
     // B must NOT see the agent by default (INNER JOIN — no project_agent_refs row in B)
-    const inB = listAgentsForProject(projectB);
+    const inB = await listAgentsForProject(projectB);
     const agentInB = inB.find((a) => a.agentId === 'cross-project-agent');
     expect(agentInB).toBeUndefined();
 
     // B with includeGlobal=true should see the agent but with projectRef: null
-    const inBGlobal = listAgentsForProject(projectB, { includeGlobal: true });
+    const inBGlobal = await listAgentsForProject(projectB, { includeGlobal: true });
     const agentInBGlobal = inBGlobal.find((a) => a.agentId === 'cross-project-agent');
     expect(agentInBGlobal).toBeDefined();
     expect(agentInBGlobal?.projectRef).toBeNull();
@@ -736,20 +736,20 @@ describe('T310: conduit + signaldock integration', () => {
     attachAgentToProject(projectB, 'attach-detach-agent');
 
     // Now both A and B should see the agent
-    const inA = listAgentsForProject(projectA);
+    const inA = await listAgentsForProject(projectA);
     expect(inA.find((a) => a.agentId === 'attach-detach-agent')).toBeDefined();
-    const inB = listAgentsForProject(projectB);
+    const inB = await listAgentsForProject(projectB);
     expect(inB.find((a) => a.agentId === 'attach-detach-agent')).toBeDefined();
 
     // Detach from A
     detachAgentFromProject(projectA, 'attach-detach-agent');
 
     // A must no longer see it
-    const inAAfter = listAgentsForProject(projectA);
+    const inAAfter = await listAgentsForProject(projectA);
     expect(inAAfter.find((a) => a.agentId === 'attach-detach-agent')).toBeUndefined();
 
     // B must still see it
-    const inBAfter = listAgentsForProject(projectB);
+    const inBAfter = await listAgentsForProject(projectB);
     expect(inBAfter.find((a) => a.agentId === 'attach-detach-agent')).toBeDefined();
 
     // Global identity must still exist

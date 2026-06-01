@@ -175,7 +175,7 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
-    const result = lookupAgent(env.projectRoot, 'nonexistent-agent');
+    const result = await lookupAgent(env.projectRoot, 'nonexistent-agent');
     expect(result).toBeNull();
   });
 
@@ -208,7 +208,7 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     expect(created.projectRef?.enabled).toBe(1);
 
     // Lookup should return the merged record
-    const found = lookupAgent(env.projectRoot, BASE_SPEC.agentId);
+    const found = await lookupAgent(env.projectRoot, BASE_SPEC.agentId);
     expect(found).not.toBeNull();
     expect(found?.agentId).toBe(BASE_SPEC.agentId);
     expect(found?.displayName).toBe(BASE_SPEC.displayName);
@@ -247,7 +247,7 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
       .run(BASE_SPEC.agentId);
     conduitDb.close();
 
-    const result = lookupAgent(env.projectRoot, BASE_SPEC.agentId);
+    const result = await lookupAgent(env.projectRoot, BASE_SPEC.agentId);
     expect(result).toBeNull();
   });
 
@@ -288,11 +288,11 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     globalDb.close();
 
     // Default (includeGlobal=false): should return null because no project ref
-    const defaultResult = lookupAgent(env.projectRoot, 'global-only-agent');
+    const defaultResult = await lookupAgent(env.projectRoot, 'global-only-agent');
     expect(defaultResult).toBeNull();
 
     // includeGlobal=true: should return the global agent with projectRef=null
-    const globalResult = lookupAgent(env.projectRoot, 'global-only-agent', {
+    const globalResult = await lookupAgent(env.projectRoot, 'global-only-agent', {
       includeGlobal: true,
     });
     expect(globalResult).not.toBeNull();
@@ -341,7 +341,7 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     // Create one project-attached agent
     await createProjectAgent(env.projectRoot, BASE_SPEC);
 
-    const list = listAgentsForProject(env.projectRoot);
+    const list = await listAgentsForProject(env.projectRoot);
     expect(list).toHaveLength(1);
     expect(list[0]?.agentId).toBe(BASE_SPEC.agentId);
     expect(list[0]?.projectRef).not.toBeNull();
@@ -388,7 +388,7 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     // Create one project-attached agent
     await createProjectAgent(env.projectRoot, BASE_SPEC);
 
-    const list = listAgentsForProject(env.projectRoot, { includeGlobal: true });
+    const list = await listAgentsForProject(env.projectRoot, { includeGlobal: true });
 
     // Should return both agents
     expect(list.length).toBeGreaterThanOrEqual(2);
@@ -633,7 +633,7 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     conduitDb.close();
 
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const result = lookupAgent(env.projectRoot, 'dangling-agent');
+    const result = await lookupAgent(env.projectRoot, 'dangling-agent');
     expect(result).toBeNull();
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('dangling project_agent_refs row'),
@@ -671,13 +671,13 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     await accessor.remove(BASE_SPEC.agentId);
 
     // Confirm detached
-    const afterRemove = lookupAgent(env.projectRoot, BASE_SPEC.agentId);
+    const afterRemove = await lookupAgent(env.projectRoot, BASE_SPEC.agentId);
     expect(afterRemove).toBeNull();
 
     // Re-create should re-enable
     await createProjectAgent(env.projectRoot, BASE_SPEC);
 
-    const afterReCreate = lookupAgent(env.projectRoot, BASE_SPEC.agentId);
+    const afterReCreate = await lookupAgent(env.projectRoot, BASE_SPEC.agentId);
     expect(afterReCreate).not.toBeNull();
     expect(afterReCreate?.projectRef?.enabled).toBe(1);
 
@@ -721,11 +721,11 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     await accessor.remove(BASE_SPEC.agentId);
 
     // Default: should not include disabled
-    const defaultList = listAgentsForProject(env.projectRoot);
+    const defaultList = await listAgentsForProject(env.projectRoot);
     expect(defaultList).toHaveLength(0);
 
     // includeDisabled=true: should include disabled
-    const disabledList = listAgentsForProject(env.projectRoot, { includeDisabled: true });
+    const disabledList = await listAgentsForProject(env.projectRoot, { includeDisabled: true });
     expect(disabledList).toHaveLength(1);
     expect(disabledList[0]?.agentId).toBe(BASE_SPEC.agentId);
     expect(disabledList[0]?.projectRef?.enabled).toBe(0);
@@ -857,5 +857,120 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
 
     // With force=true: should succeed
     await expect(accessor.removeGlobal(BASE_SPEC.agentId, { force: true })).resolves.not.toThrow();
+  });
+
+  // -------------------------------------------------------------------------
+  // T11562 regression: agents read/write path alignment to the consolidated
+  // global cleo.db.
+  //
+  // Before the fix, openGlobalDb() raw-opened the legacy signaldock path WITHOUT
+  // running ensureGlobalSignaldockDb() first, so the BARE `agents` runtime table
+  // (materialized only by the legacy drizzle-signaldock migrations) did not exist
+  // in cleo.db on a clean build whose read path was hit first — the standalone
+  // read functions threw `no such table: agents`, diverging from the write path
+  // (E6-L5 routes writes to cleo.db). This test asserts that a write through the
+  // consolidated cleo.db is read back through the SAME consolidated cleo.db.
+  // -------------------------------------------------------------------------
+
+  it('T11562: write-then-read round-trips through the consolidated global cleo.db (read/write aligned)', async () => {
+    vi.doMock('../../paths.js', () => ({
+      getCleoHome: () => env.cleoHome,
+      resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
+    }));
+    const machineKey = Buffer.alloc(32, 0xab);
+    const globalSalt = Buffer.alloc(32, 0xcd);
+    writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
+    writeFileSync(join(env.cleoHome, 'global-salt'), globalSalt, { mode: 0o600 });
+
+    const { ensureGlobalSignaldockDb } = await import('../signaldock-sqlite.js');
+    const { ensureConduitDb, closeConduitDb } = await import('../conduit-sqlite.js');
+    const { AgentRegistryAccessor, createProjectAgent, listAgentsForProject, lookupAgent } =
+      await import('../agent-registry-accessor.js');
+
+    await ensureGlobalSignaldockDb();
+    await ensureConduitDb(env.projectRoot);
+    closeConduitDb();
+
+    // WRITE path: createProjectAgent writes the identity row into the global cleo.db.
+    await createProjectAgent(env.projectRoot, BASE_SPEC);
+
+    // The write must land in the consolidated global `cleo.db` (NOT a legacy
+    // `signaldock.db`), in the BARE `agents` table.
+    const globalDb = env.openGlobal();
+    const writtenRow = globalDb
+      .prepare('SELECT agent_id FROM agents WHERE agent_id = ?')
+      .get(BASE_SPEC.agentId) as { agent_id: string } | undefined;
+    globalDb.close();
+    expect(writtenRow?.agent_id).toBe(BASE_SPEC.agentId);
+
+    // READ path through the registry accessor — must hit the SAME cleo.db.
+    const accessor = new AgentRegistryAccessor(env.projectRoot);
+    const globalList = await accessor.listGlobal();
+    expect(globalList.map((a) => a.agentId)).toContain(BASE_SPEC.agentId);
+
+    // Standalone read functions (the ones that previously raw-opened without
+    // ensure) must also resolve the agent.
+    const looked = await lookupAgent(env.projectRoot, BASE_SPEC.agentId, { includeGlobal: true });
+    expect(looked?.agentId).toBe(BASE_SPEC.agentId);
+
+    const listed = await listAgentsForProject(env.projectRoot, { includeGlobal: true });
+    expect(listed.map((a) => a.agentId)).toContain(BASE_SPEC.agentId);
+  });
+
+  it('T11562: read-first standalone read materializes the bare `agents` table (no "no such table: agents")', async () => {
+    vi.doMock('../../paths.js', () => ({
+      getCleoHome: () => env.cleoHome,
+      resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
+    }));
+    const machineKey = Buffer.alloc(32, 0xab);
+    const globalSalt = Buffer.alloc(32, 0xcd);
+    writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
+    writeFileSync(join(env.cleoHome, 'global-salt'), globalSalt, { mode: 0o600 });
+
+    const { openDualScopeDb, _resetDualScopeDbCache } = await import('../dual-scope-db.js');
+    const { _resetGlobalSignaldockDb_TESTING_ONLY } = await import('../signaldock-sqlite.js');
+    const { ensureConduitDb, closeConduitDb } = await import('../conduit-sqlite.js');
+    const { listAgentsForProject } = await import('../agent-registry-accessor.js');
+
+    // Simulate the clean-build / read-first state: the consolidated global
+    // cleo.db has been opened by the dual-scope chokepoint (creating ONLY the
+    // prefixed `signaldock_*` tables) but the legacy signaldock migrations that
+    // create the BARE `agents` table have NOT run yet.
+    await openDualScopeDb('global');
+    await ensureConduitDb(env.projectRoot);
+    closeConduitDb();
+
+    // Confirm the bare `agents` table does NOT exist yet — this is the exact
+    // precondition that produced `no such table: agents` before the fix.
+    const probe = env.openGlobal();
+    const bareAgents = probe
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agents'")
+      .get() as { name: string } | undefined;
+    const prefixedAgents = probe
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='signaldock_agents'")
+      .get() as { name: string } | undefined;
+    probe.close();
+    expect(bareAgents).toBeUndefined();
+    expect(prefixedAgents).toBeDefined();
+
+    // Reset the in-process signaldock singleton so the read path must re-ensure
+    // (the read-first scenario in a fresh process).
+    _resetGlobalSignaldockDb_TESTING_ONLY();
+    _resetDualScopeDbCache();
+
+    // The standalone read used to throw `no such table: agents`; post-fix it
+    // routes through ensureGlobalSignaldockDb() (materializing the bare table)
+    // and returns an empty list without throwing.
+    await expect(listAgentsForProject(env.projectRoot, { includeGlobal: true })).resolves.toEqual(
+      [],
+    );
+
+    // And the bare `agents` table now exists in the consolidated cleo.db.
+    const after = env.openGlobal();
+    const bareAgentsAfter = after
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agents'")
+      .get() as { name: string } | undefined;
+    after.close();
+    expect(bareAgentsAfter).toBeDefined();
   });
 });

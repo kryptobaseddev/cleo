@@ -1,24 +1,35 @@
 /**
  * Agent Registry Accessor — cross-DB CRUD for agent data.
  *
- * Post-T310 (ADR-037), agent identity lives in the GLOBAL
- * `$XDG_DATA_HOME/cleo/signaldock.db:agents` table; per-project
- * visibility and overrides live in the PROJECT
- * `.cleo/conduit.db:project_agent_refs` table.
+ * Post-T310 (ADR-037), agent identity lives in the GLOBAL `agents` table;
+ * per-project visibility and overrides live in the PROJECT
+ * `project_agent_refs` table.
+ *
+ * Post-E6-L5 (T11525) / E6-L6 (T11526), both tables are hosted inside the
+ * CONSOLIDATED dual-scope `cleo.db` files (global `$XDG_DATA_HOME/cleo/cleo.db`
+ * and project `.cleo/cleo.db`) — the standalone `signaldock.db` / `conduit.db`
+ * files are gone. The bare `agents` / `project_agent_refs` runtime tables are
+ * materialized into `cleo.db` by `ensureGlobalSignaldockDb()` /
+ * `ensureConduitDb()` (legacy drizzle migrations), which co-exist with the
+ * prefixed `signaldock_*` / `conduit_*` consolidated tables. The read path MUST
+ * therefore go through those `ensure*` calls so it shares the same handle as the
+ * write path (T11562 — agents read/write path divergence regression).
  *
  * This module provides three module-level functions that perform the
  * in-memory cross-DB join, plus the backward-compatible
  * `AgentRegistryAccessor` class that wraps them.
  *
  * Architecture:
- *   global  signaldock.db — canonical identity (openGlobalDb)
- *   project conduit.db    — project_agent_refs  (openConduitDb)
+ *   global  cleo.db — canonical identity `agents` (openGlobalDb → ensureGlobalSignaldockDb)
+ *   project cleo.db — `project_agent_refs`        (openConduitDb)
  *   Join performed in Node (SQLite cannot cross-file-handle JOIN).
  *
  * @see .cleo/rcasd/T310/specification/T310-specification.md §3.5
  * @see .cleo/adrs/ADR-037-conduit-signaldock-separation.md
  * @task T355
+ * @task T11562
  * @epic T310
+ * @epic T11249
  */
 
 import { randomBytes } from 'node:crypto';
@@ -41,7 +52,7 @@ import { getCleoHome } from '../paths.js';
 import { deriveApiKey } from './api-key-kdf.js';
 import { ensureConduitDb, getConduitDbPath } from './conduit-sqlite.js';
 import { getGlobalSalt } from './global-salt.js';
-import { ensureGlobalSignaldockDb, getGlobalSignaldockDbPath } from './signaldock-sqlite.js';
+import { ensureGlobalSignaldockDb, getGlobalSignaldockNativeDb } from './signaldock-sqlite.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
 
 // ---------------------------------------------------------------------------
@@ -323,16 +334,47 @@ function mergeToAgentWithOverride(
 // ---------------------------------------------------------------------------
 
 /**
- * Open a short-lived read/write handle to the GLOBAL signaldock.db.
- * Caller MUST call `db.close()` when done.
+ * Acquire the SHARED, fully-migrated handle to the GLOBAL agent identity DB —
+ * the consolidated dual-scope global `cleo.db` (post-E6-L5 / T11525).
  *
+ * Routes through {@link ensureGlobalSignaldockDb}, which opens the consolidated
+ * `cleo.db` via `openDualScopeDb('global')`, runs the legacy `drizzle-signaldock`
+ * migrations that materialize the BARE `agents` runtime table (the table this
+ * accessor's raw SQL queries), and stores the native handle for reuse. The
+ * returned handle is the SAME one the write path uses — reads and writes are now
+ * aligned to `cleo.db` (T11562).
+ *
+ * Replaces the previous `new DatabaseSync(getGlobalSignaldockDbPath())` raw-open,
+ * which diverged from the write path: it opened `cleo.db` WITHOUT first running
+ * the legacy migrations, so the bare `agents` table did not exist on a clean
+ * build (`no such table: agents`).
+ *
+ * The handle is SHARED and co-owned by the nexus / skills global domains — its
+ * lifecycle is owned by `openDualScopeDb`. Callers MUST NOT call `db.close()` on
+ * it (doing so would break in-flight sibling queries). This is why every former
+ * `globalDb.close()` in this module was removed (T11562).
+ *
+ * @returns The shared consolidated global `cleo.db` native handle.
+ * @throws {Error} If the shared handle is unexpectedly absent after ensure.
  * @task T355
+ * @task T11562
  * @epic T310
+ * @epic T11249
  */
-function openGlobalDb(): DatabaseSync {
-  const dbPath = getGlobalSignaldockDbPath();
-  const db = new DatabaseSync(dbPath);
-  applyPerfPragmas(db); // replaces inline PRAGMA calls with SSoT set (T9023)
+async function openGlobalDb(): Promise<DatabaseSync> {
+  // Idempotent: opens the consolidated global cleo.db, runs the legacy
+  // signaldock migrations (creates the bare `agents` table), and caches the
+  // shared native handle in _globalSignaldockNativeDb.
+  await ensureGlobalSignaldockDb();
+  const db = getGlobalSignaldockNativeDb();
+  if (!db) {
+    throw new Error(
+      'openGlobalDb: ensureGlobalSignaldockDb() did not yield a shared global ' +
+        'cleo.db handle (getGlobalSignaldockNativeDb() returned null). This indicates ' +
+        'the dual-scope global chokepoint failed to initialize — fix the caller, do ' +
+        'not suppress.',
+    );
+  }
   return db;
 }
 
@@ -416,22 +458,36 @@ function syncJunctionTables(
  * Dangling soft-FK detection: if a project_agent_refs row exists but the
  * referenced global agent does not, logs a WARN and returns null.
  *
+ * Both `agents` (global) and `project_agent_refs` (project) tables are
+ * materialized into their consolidated `cleo.db` files lazily, so this function
+ * ensures both DBs (via the shared `openGlobalDb` / `ensureConduitDb`
+ * chokepoints) before reading — keeping the read path aligned with the write
+ * path (T11562). It is therefore async.
+ *
  * @param projectRoot     - Absolute path to the project root directory.
  * @param agentId         - Agent business identifier.
  * @param opts.includeGlobal - When true, returns global identity even without project ref.
  * @returns Merged agent record or null if not found.
  *
  * @task T355
+ * @task T11562
  * @epic T310
+ * @epic T11249
  */
-export function lookupAgent(
+export async function lookupAgent(
   projectRoot: string,
   agentId: string,
   opts?: { includeGlobal?: boolean },
-): AgentWithProjectOverride | null {
+): Promise<AgentWithProjectOverride | null> {
   const includeGlobal = opts?.includeGlobal ?? false;
 
-  const globalDb = openGlobalDb();
+  // Ensure the consolidated project cleo.db has the bare `project_agent_refs`
+  // table before the raw-open read below (mirrors the global side, which is
+  // ensured inside openGlobalDb).
+  await ensureConduitDb(projectRoot);
+
+  // SHARED global cleo.db handle — do NOT close (lifecycle owned by openDualScopeDb).
+  const globalDb = await openGlobalDb();
   const conduitDb = openConduitDb(projectRoot);
 
   try {
@@ -447,7 +503,7 @@ export function lookupAgent(
     if (refRow && !agentRow) {
       console.warn(
         `[agent-registry-accessor] WARN: dangling project_agent_refs row for agent_id="${agentId}". ` +
-          `No matching row in global signaldock.db:agents. Row will be ignored.`,
+          `No matching row in global cleo.db:agents. Row will be ignored.`,
       );
       return null;
     }
@@ -465,7 +521,7 @@ export function lookupAgent(
     const effectiveRef = refRow && refRow.enabled === 1 ? refRow : null;
     return mergeToAgentWithOverride(agentRow, effectiveRef);
   } finally {
-    globalDb.close();
+    // NOTE: globalDb is the SHARED dual-scope handle — never close it (T11562).
     conduitDb.close();
   }
 }
@@ -482,22 +538,36 @@ export function lookupAgent(
  * includeDisabled=true: also returns agents with enabled=0 in project_agent_refs.
  * Ignored when includeGlobal=true (all global agents are returned regardless).
  *
+ * Both `agents` (global) and `project_agent_refs` (project) tables are
+ * materialized into their consolidated `cleo.db` files lazily, so this function
+ * ensures both DBs (via the shared `openGlobalDb` / `ensureConduitDb`
+ * chokepoints) before reading — keeping the read path aligned with the write
+ * path (T11562). It is therefore async.
+ *
  * @param projectRoot            - Absolute path to the project root directory.
  * @param opts.includeGlobal     - Include all global agents (bypasses project filter).
  * @param opts.includeDisabled   - Include agents with enabled=0 in project_agent_refs.
  * @returns Array of merged agent records.
  *
  * @task T355
+ * @task T11562
  * @epic T310
+ * @epic T11249
  */
-export function listAgentsForProject(
+export async function listAgentsForProject(
   projectRoot: string,
   opts?: { includeGlobal?: boolean; includeDisabled?: boolean },
-): AgentWithProjectOverride[] {
+): Promise<AgentWithProjectOverride[]> {
   const includeGlobal = opts?.includeGlobal ?? false;
   const includeDisabled = opts?.includeDisabled ?? false;
 
-  const globalDb = openGlobalDb();
+  // Ensure the consolidated project cleo.db has the bare `project_agent_refs`
+  // table before the raw-open read below (mirrors the global side, which is
+  // ensured inside openGlobalDb).
+  await ensureConduitDb(projectRoot);
+
+  // SHARED global cleo.db handle — do NOT close (lifecycle owned by openDualScopeDb).
+  const globalDb = await openGlobalDb();
   const conduitDb = openConduitDb(projectRoot);
 
   try {
@@ -534,7 +604,7 @@ export function listAgentsForProject(
 
     return result;
   } finally {
-    globalDb.close();
+    // NOTE: globalDb is the SHARED dual-scope handle — never close it (T11562).
     conduitDb.close();
   }
 }
@@ -579,8 +649,9 @@ export async function createProjectAgent(
   // Store as hex string in the encrypted column
   const apiKeyEncrypted = derivedKey.toString('hex');
 
-  const globalDb = openGlobalDb();
-  try {
+  // SHARED global cleo.db handle — do NOT close (lifecycle owned by openDualScopeDb).
+  const globalDb = await openGlobalDb();
+  {
     const existing = globalDb
       .prepare('SELECT id FROM agents WHERE agent_id = ?')
       .get(spec.agentId) as { id: string } | undefined;
@@ -641,9 +712,8 @@ export async function createProjectAgent(
         );
       syncJunctionTables(globalDb, agentUuid, spec.capabilities, spec.skills);
     }
-  } finally {
-    globalDb.close();
   }
+  // NOTE: globalDb is the SHARED dual-scope handle — never close it (T11562).
 
   // Attach to project via conduit.db:project_agent_refs
   const conduitDb = openConduitDb(projectRoot);
@@ -670,7 +740,7 @@ export async function createProjectAgent(
     conduitDb.close();
   }
 
-  const result = lookupAgent(projectRoot, spec.agentId, { includeGlobal: false });
+  const result = await lookupAgent(projectRoot, spec.agentId, { includeGlobal: false });
   if (!result) {
     throw new Error(`createProjectAgent: failed to retrieve agent after creation: ${spec.agentId}`);
   }
@@ -866,7 +936,7 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
    */
   async list(filter?: AgentListFilter): Promise<AgentCredential[]> {
     await this.ensureDbs();
-    const results = listAgentsForProject(this.projectPath, { includeGlobal: false });
+    const results = await listAgentsForProject(this.projectPath, { includeGlobal: false });
     if (filter?.active !== undefined) {
       return results.filter((a) => a.isActive === filter.active);
     }
@@ -883,20 +953,17 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
    */
   async listGlobal(filter?: AgentListFilter): Promise<AgentCredential[]> {
     await this.ensureDbs();
-    const globalDb = openGlobalDb();
-    try {
-      const rows =
-        filter?.active !== undefined
-          ? (globalDb
-              .prepare('SELECT * FROM agents WHERE is_active = ? ORDER BY name ASC')
-              .all(filter.active ? 1 : 0) as unknown as AgentDbRow[])
-          : (globalDb
-              .prepare('SELECT * FROM agents ORDER BY name ASC')
-              .all() as unknown as AgentDbRow[]);
-      return rows.map(rowToCredential);
-    } finally {
-      globalDb.close();
-    }
+    // SHARED global cleo.db handle — do NOT close (lifecycle owned by openDualScopeDb).
+    const globalDb = await openGlobalDb();
+    const rows =
+      filter?.active !== undefined
+        ? (globalDb
+            .prepare('SELECT * FROM agents WHERE is_active = ? ORDER BY name ASC')
+            .all(filter.active ? 1 : 0) as unknown as AgentDbRow[])
+        : (globalDb
+            .prepare('SELECT * FROM agents ORDER BY name ASC')
+            .all() as unknown as AgentDbRow[]);
+    return rows.map(rowToCredential);
   }
 
   /**
@@ -919,8 +986,9 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
     if (!existing) throw new Error(`Agent not found: ${agentId}`);
 
     const nowTs = Math.floor(Date.now() / 1000);
-    const globalDb = openGlobalDb();
-    try {
+    // SHARED global cleo.db handle — do NOT close (lifecycle owned by openDualScopeDb).
+    const globalDb = await openGlobalDb();
+    {
       const sets: string[] = ['updated_at = ?'];
       const params: unknown[] = [nowTs];
 
@@ -988,9 +1056,8 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
           );
         }
       }
-    } finally {
-      globalDb.close();
     }
+    // NOTE: globalDb is the SHARED dual-scope handle — never close it (T11562).
 
     const result = await this.get(agentId, { includeGlobal: true });
     if (!result) throw new Error(`Agent not found after update: ${agentId}`);
@@ -1035,37 +1102,35 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
    */
   async removeGlobal(agentId: string, opts?: { force?: boolean }): Promise<void> {
     await this.ensureDbs();
-    const globalDb = openGlobalDb();
-    try {
-      const existing = globalDb.prepare('SELECT id FROM agents WHERE agent_id = ?').get(agentId) as
-        | { id: string }
-        | undefined;
-      if (!existing) {
-        throw new Error(`Agent not found globally: ${agentId}`);
-      }
-
-      if (!opts?.force) {
-        // Best-effort cross-project scan: check the current project's conduit.db
-        const conduitDb = openConduitDb(this.projectPath);
-        try {
-          const ref = conduitDb
-            .prepare('SELECT agent_id FROM project_agent_refs WHERE agent_id = ? AND enabled = 1')
-            .get(agentId) as { agent_id: string } | undefined;
-          if (ref) {
-            throw new Error(
-              `Agent "${agentId}" still has project references in the current project. ` +
-                `Use removeGlobal(id, { force: true }) to skip this check.`,
-            );
-          }
-        } finally {
-          conduitDb.close();
-        }
-      }
-
-      globalDb.prepare('DELETE FROM agents WHERE agent_id = ?').run(agentId);
-    } finally {
-      globalDb.close();
+    // SHARED global cleo.db handle — do NOT close (lifecycle owned by openDualScopeDb).
+    const globalDb = await openGlobalDb();
+    const existing = globalDb.prepare('SELECT id FROM agents WHERE agent_id = ?').get(agentId) as
+      | { id: string }
+      | undefined;
+    if (!existing) {
+      throw new Error(`Agent not found globally: ${agentId}`);
     }
+
+    if (!opts?.force) {
+      // Best-effort cross-project scan: check the current project's conduit.db
+      const conduitDb = openConduitDb(this.projectPath);
+      try {
+        const ref = conduitDb
+          .prepare('SELECT agent_id FROM project_agent_refs WHERE agent_id = ? AND enabled = 1')
+          .get(agentId) as { agent_id: string } | undefined;
+        if (ref) {
+          throw new Error(
+            `Agent "${agentId}" still has project references in the current project. ` +
+              `Use removeGlobal(id, { force: true }) to skip this check.`,
+          );
+        }
+      } finally {
+        conduitDb.close();
+      }
+    }
+
+    globalDb.prepare('DELETE FROM agents WHERE agent_id = ?').run(agentId);
+    // NOTE: globalDb is the SHARED dual-scope handle — never close it (T11562).
   }
 
   /**
@@ -1104,16 +1169,14 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
     const derivedKey = deriveApiKey({ machineKey, globalSalt, agentId });
     const nowTs = Math.floor(Date.now() / 1000);
 
-    const globalDb = openGlobalDb();
-    try {
-      globalDb
-        .prepare(
-          'UPDATE agents SET api_key_encrypted = ?, updated_at = ?, requires_reauth = 0 WHERE agent_id = ?',
-        )
-        .run(derivedKey.toString('hex'), nowTs, agentId);
-    } finally {
-      globalDb.close();
-    }
+    // SHARED global cleo.db handle — do NOT close (lifecycle owned by openDualScopeDb).
+    const globalDb = await openGlobalDb();
+    globalDb
+      .prepare(
+        'UPDATE agents SET api_key_encrypted = ?, updated_at = ?, requires_reauth = 0 WHERE agent_id = ?',
+      )
+      .run(derivedKey.toString('hex'), nowTs, agentId);
+    // NOTE: globalDb is the SHARED dual-scope handle — never close it (T11562).
 
     return { agentId, newApiKey: `${newApiKey.substring(0, 8)}...rotated` };
   }
@@ -1128,7 +1191,8 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
   async getActive(): Promise<AgentCredential | null> {
     await this.ensureDbs();
 
-    const globalDb = openGlobalDb();
+    // SHARED global cleo.db handle — do NOT close (lifecycle owned by openDualScopeDb).
+    const globalDb = await openGlobalDb();
     const conduitDb = openConduitDb(this.projectPath);
     try {
       // Get all project-attached, enabled agent IDs ordered by project last_used_at
@@ -1154,7 +1218,7 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
       if (!row) return null;
       return rowToCredential(row);
     } finally {
-      globalDb.close();
+      // NOTE: globalDb is the SHARED dual-scope handle — never close it (T11562).
       conduitDb.close();
     }
   }
@@ -1172,14 +1236,12 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
     const nowTs = Math.floor(Date.now() / 1000);
     const nowIso = new Date(nowTs * 1000).toISOString();
 
-    const globalDb = openGlobalDb();
-    try {
-      globalDb
-        .prepare('UPDATE agents SET last_used_at = ?, updated_at = ? WHERE agent_id = ?')
-        .run(nowTs, nowTs, agentId);
-    } finally {
-      globalDb.close();
-    }
+    // SHARED global cleo.db handle — do NOT close (lifecycle owned by openDualScopeDb).
+    const globalDb = await openGlobalDb();
+    globalDb
+      .prepare('UPDATE agents SET last_used_at = ?, updated_at = ? WHERE agent_id = ?')
+      .run(nowTs, nowTs, agentId);
+    // NOTE: globalDb is the SHARED dual-scope handle — never close it (T11562).
 
     const conduitDb = openConduitDb(this.projectPath);
     try {
