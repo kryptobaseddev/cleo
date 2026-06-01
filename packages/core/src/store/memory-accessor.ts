@@ -57,6 +57,45 @@ export class BrainDataAccessor {
     return result[0]!;
   }
 
+  /**
+   * Insert a decision while allocating the next sequential `Dnnn` id
+   * **atomically inside the INSERT statement** (T11552).
+   *
+   * The `id` value is computed by an in-SQL subquery
+   * (`MAX(numeric suffix) + 1`) evaluated as part of the same INSERT, so the
+   * id read and the row write are a single indivisible operation. Two
+   * concurrent callers therefore can never read the same `MAX(id)` and collide
+   * on the primary key — unlike a read-then-write in application code, which
+   * yields the event loop between the `SELECT MAX(id)` and the `INSERT` and so
+   * races (the original defect).
+   *
+   * Properties:
+   * - **Race-free under concurrency** — node:sqlite executes the statement
+   *   synchronously and atomically; no JS `await` boundary splits read from write.
+   * - **Numeric ordering** — `CAST(substr(id,2) AS INTEGER)` so the sequence
+   *   advances correctly past `D999 → D1000` (lexical ordering would regress).
+   * - **Legacy-id tolerant** — `GLOB 'D[0-9]*'` restricts the max scan to
+   *   canonical `Dnnn` ids, ignoring foreign shapes like `D-abcd`.
+   * - **Never silently drops** — uses a real INSERT (not `INSERT OR IGNORE`)
+   *   and returns the persisted row.
+   *
+   * The caller MUST NOT pre-set a meaningful `row.id`; any value present is
+   * overridden by the computed id.
+   *
+   * @param row - The decision row to insert (its `id` field is ignored).
+   * @returns The persisted decision row, including the allocated `id`.
+   *
+   * @task T11552
+   */
+  async addDecisionWithSequentialId(row: NewBrainDecisionRow): Promise<BrainDecisionRow> {
+    const nextId = sql`'D' || printf('%03d', COALESCE((SELECT MAX(CAST(substr(${brainSchema.brainDecisions.id}, 2) AS INTEGER)) FROM ${brainSchema.brainDecisions} WHERE ${brainSchema.brainDecisions.id} GLOB 'D[0-9]*'), 0) + 1)`;
+    const inserted = await this.db
+      .insert(brainSchema.brainDecisions)
+      .values({ ...row, id: nextId })
+      .returning();
+    return inserted[0]!;
+  }
+
   async getDecision(id: string): Promise<BrainDecisionRow | null> {
     const result = await this.db
       .select()

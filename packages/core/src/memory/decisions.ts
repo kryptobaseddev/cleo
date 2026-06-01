@@ -304,30 +304,42 @@ export async function validateDecisionConflicts(
 }
 
 /**
- * Generate the next sequential decision ID (D001, D002, ...).
- * Reads the highest existing ID from brain_decisions to determine next.
+ * Maximum number of `INSERT` re-attempts when a sequential decision ID
+ * collides with a row written by a concurrent agent (T11552).
+ *
+ * The bound is deliberately generous: a real collision is resolved on the
+ * first retry (the loser re-reads the now-higher `MAX(id)` and advances), and
+ * the only way to exhaust this budget is dozens of agents racing the same
+ * insert in the same instant — at which point surfacing the error is correct
+ * (we never silently drop the decision).
  */
-async function nextDecisionId(projectRoot: string): Promise<string> {
-  const { getBrainDb } = await import('../store/memory-sqlite.js');
-  const { brainDecisions } = await import('../store/schema/memory-schema.js');
-  const { desc } = await import('drizzle-orm');
-  const db = await getBrainDb(projectRoot);
-  const rows = await db
-    .select({ id: brainDecisions.id })
-    .from(brainDecisions)
-    .orderBy(desc(brainDecisions.id))
-    .limit(1);
+const DECISION_ID_INSERT_MAX_RETRIES = 16;
 
-  if (rows.length === 0) {
-    return 'D001';
+/**
+ * Detect whether an error is a SQLite UNIQUE / PRIMARY-KEY constraint failure
+ * on `brain_decisions.id` (T11552).
+ *
+ * node:sqlite raises a generic `Error` (`code: 'ERR_SQLITE_ERROR'`,
+ * `errcode: 1555` = `SQLITE_CONSTRAINT_PRIMARYKEY`) whose message is
+ * `"UNIQUE constraint failed: brain_decisions.id"`. We match on both the
+ * numeric errcode and the message so the detector survives driver phrasing
+ * changes.
+ *
+ * @param err - The thrown error to classify.
+ * @returns `true` when the error is an id-uniqueness collision.
+ *
+ * @task T11552
+ */
+function isDecisionIdCollision(err: unknown): boolean {
+  if (!(err instanceof Error)) {
+    return false;
   }
-
-  const lastId = rows[0].id;
-  const num = parseInt(lastId.slice(1), 10);
-  if (Number.isNaN(num)) {
-    return 'D001';
+  const errcode = (err as { errcode?: number }).errcode;
+  // 1555 = SQLITE_CONSTRAINT_PRIMARYKEY, 2067 = SQLITE_CONSTRAINT_UNIQUE.
+  if (errcode === 1555 || errcode === 2067) {
+    return /brain_decisions\.id/.test(err.message);
   }
-  return `D${String(num + 1).padStart(3, '0')}`;
+  return /UNIQUE constraint failed/i.test(err.message) && /brain_decisions\.id/.test(err.message);
 }
 
 /**
@@ -478,9 +490,6 @@ export async function storeDecision(
     return updated!;
   }
 
-  // Create new decision with sequential ID
-  const id = await nextDecisionId(projectRoot);
-
   // Write-guard: validate cross-db task references before inserting
   let validEpicId = params.contextEpicId;
   let validTaskId = params.contextTaskId;
@@ -522,8 +531,11 @@ export async function storeDecision(
     .digest('hex')
     .slice(0, 16);
 
+  // The sequential `id` is allocated atomically inside the INSERT by
+  // addDecisionWithSequentialId (T11552); this placeholder is always
+  // overridden and never reaches the database.
   const row: NewBrainDecisionRow = {
-    id,
+    id: 'D000', // placeholder — overridden by the atomic in-SQL id allocation
     type: params.type,
     decision: params.decision.trim(),
     rationale: params.rationale.trim(),
@@ -548,7 +560,48 @@ export async function storeDecision(
     decidedBy: params.decidedBy,
   };
 
-  const saved = await accessor.addDecision(row);
+  // T11552: Insert with the sequential id allocated ATOMICALLY inside the
+  // INSERT statement (see BrainDataAccessor.addDecisionWithSequentialId).
+  //
+  // The original defect: storeDecision read `MAX(id)+1` in application code
+  // (an async fn with `await` boundaries) and only later INSERTed. Two
+  // concurrent agents both read e.g. `D042`, both proposed `D043`, and the
+  // second INSERT hit the `id` PRIMARY KEY → `UNIQUE constraint failed:
+  // brain_decisions.id`, dropping the decision and forcing CLEO_OWNER_OVERRIDE.
+  //
+  // Computing the id with a `MAX(...)+1` subquery *inside* the INSERT collapses
+  // the read and write into one indivisible node:sqlite statement, so no two
+  // callers can interleave between them. This is data-preserving (a real
+  // INSERT, never `INSERT OR IGNORE`) and correct past `D999 → D1000`.
+  //
+  // The bounded retry below is defense-in-depth for the genuine cross-PROCESS
+  // case (a separate OS process on its own DB connection committing between our
+  // statement's plan and execution), which surfaces as the same collision; on
+  // a single connection the first attempt always succeeds.
+  let saved: BrainDecisionRow | undefined;
+  let lastCollision: unknown;
+  for (let attempt = 0; attempt < DECISION_ID_INSERT_MAX_RETRIES; attempt++) {
+    try {
+      saved = await accessor.addDecisionWithSequentialId(row);
+      break;
+    } catch (err) {
+      if (isDecisionIdCollision(err)) {
+        // A concurrent writer in another process committed between our read
+        // and write — re-run the atomic allocation, which now sees the higher
+        // committed MAX(id).
+        lastCollision = err;
+        continue;
+      }
+      throw err;
+    }
+  }
+  if (!saved) {
+    throw new Error(
+      `Failed to allocate a unique brain_decisions.id after ` +
+        `${DECISION_ID_INSERT_MAX_RETRIES} attempts under concurrent writes` +
+        (lastCollision instanceof Error ? `: ${lastCollision.message}` : ''),
+    );
+  }
 
   // Auto-populate graph node + edges for the new decision (best-effort, T537).
   // All graph writes run fire-and-forget so they never block the return.
