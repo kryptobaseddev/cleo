@@ -34,7 +34,6 @@ import { create as tarCreate } from 'tar';
 import { getCleoHome, getProjectRoot } from '../paths.js';
 import { encryptBundle } from './backup-crypto.js';
 import { getGlobalSaltPath } from './global-salt.js';
-import { getGlobalSignaldockDbPath } from './signaldock-sqlite.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
 import { assertT310Ready } from './t310-readiness.js';
 
@@ -493,8 +492,14 @@ export async function packBundle(input: PackBundleInput): Promise<PackBundleResu
         );
       }
 
-      // signaldock.db
-      const sdSrc = getGlobalSignaldockDbPath();
+      // signaldock.db — E6-L5 (T11525): the live signaldock domain now
+      // consolidates into the shared GLOBAL `cleo.db`, but the backup snapshot
+      // intentionally keeps reading the LEGACY standalone `<cleoHome>/signaldock.db`
+      // literal during the E6 cutover (matching the nexus L4 treatment). Rerouting
+      // the backup read to the consolidated resolver mid-cutover would
+      // double-snapshot the shared cleo.db and skip any un-migrated legacy
+      // signaldock.db that still holds the only copy of agent identity.
+      const sdSrc = path.join(getCleoHome(), 'signaldock.db');
       const sdDest = path.join(stagingDir, 'databases', 'signaldock.db');
       const sdSnapped = vacuumIntoStaging(sdSrc, sdDest);
       if (sdSnapped) {

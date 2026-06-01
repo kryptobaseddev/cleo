@@ -6,9 +6,34 @@
  * catalog, and cloud-sync tables. Project-local messaging state has moved to
  * conduit.db (managed by conduit-sqlite.ts, T344).
  *
- * Migration runner: standard drizzle pipeline via migrateSanitized + reconcileJournal
- * (migration-manager.ts). Replaces the bare-SQL GLOBAL_EMBEDDED_MIGRATIONS runner
- * that was previously embedded here (T1166 / T1150 Wave 2A-04).
+ * ## E6-L5 — thin-facade migration (T11525)
+ *
+ * `ensureGlobalSignaldockDb()` is now a thin facade that delegates the database
+ * open to {@link openDualScopeDb}('global') — the canonical dual-scope chokepoint
+ * (E3/E4 · T11512/T11517) already adopted by the tasks domain (E6-L1, T11521),
+ * the brain domain (E6-L2, T11522), the conduit domain (E6-L3, T11523), and the
+ * nexus domain (E6-L4, T11524). The signaldock tables now live inside the
+ * consolidated GLOBAL `cleo.db` under {@link getCleoHome}, sharing the SAME native
+ * handle the nexus / skills global domains use.
+ *
+ * The legacy `drizzle-signaldock` migrations are still applied to this handle.
+ * They create the runtime-queried physical tables under BARE names (`agents`,
+ * `capabilities`, `skills`, `agent_capabilities`, …). The consolidated GLOBAL
+ * schema (`drizzle-cleo-global`) carries the `signaldock_` domain prefix
+ * (`signaldock_agents`, `signaldock_skills`, …). These are DIFFERENT physical
+ * names, so the legacy and consolidated tables CO-EXIST harmlessly in the same
+ * `cleo.db` — exactly like the conduit domain (`conversations` ≠
+ * `conduit_conversations`) and the tasks domain (`tasks` ≠ `tasks_tasks`).
+ *
+ * NB: signaldock's legacy `skills` catalog (slug → id, queried via raw SQL in
+ * agent-registry-accessor / agent-install / agent-doctor) keeps its BARE name,
+ * while the skills-db registry domain (E6-L5 sibling) lands on the prefixed
+ * `skills_skills` consolidated table — so the two former-separate-file domains no
+ * longer collide on a bare `skills` name now that they share one `cleo.db`.
+ *
+ * The residency MOVE of signaldock global→project and the exodus data copy are
+ * SEPARATE later tasks (T11553 / T11538). This task keeps the ADR-037 global-only
+ * invariant intact.
  *
  * Migration folder: packages/core/migrations/drizzle-signaldock/
  *
@@ -17,23 +42,27 @@
  *
  * @task T346
  * @task T1166
+ * @task T11525 - E6-L5: route ensureGlobalSignaldockDb through openDualScopeDb('global') (SG-DB-SUBSTRATE-V2)
  * @epic T310
  * @epic T1150
+ * @epic T11249
  * @related ADR-037
  */
 
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { getCleoHome } from '../paths.js';
+// E6-L5 (T11525): dual-scope chokepoint — the signaldock domain now opens the
+// consolidated GLOBAL `cleo.db` through here. openDualScopeDb manages the
+// DatabaseSync lifecycle, pragmas, and consolidated migrations. We extract the
+// native handle and run the legacy drizzle-signaldock migrations on it so
+// existing callers (raw-SQL agent registry access) compile and run unchanged.
+import { _resetDualScopeDbCache, openDualScopeDb } from './dual-scope-db.js';
 import { migrateSanitized, reconcileJournal } from './migration-manager.js';
 import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
 import * as signaldockSchema from './schema/signaldock-schema.js';
-// Import openNativeDatabase directly from the leaf module (sqlite-native.ts) to
-// avoid any static import from sqlite.ts that could re-enter the circular chain
-// agent-resolver → ... → memory-sqlite → sqlite.ts (T1325/T1331 v3).
-import { openNativeDatabase } from './sqlite-native.js';
 
 /**
  * Database file name within the global cleo home directory.
@@ -64,27 +93,39 @@ export const SIGNALDOCK_SCHEMA_VERSION = GLOBAL_SIGNALDOCK_SCHEMA_VERSION;
 // ---------------------------------------------------------------------------
 
 /**
- * Returns the GLOBAL-tier signaldock.db path. Post-T310, signaldock.db
- * holds canonical agent identity + cloud-sync tables. Project-local
+ * Returns the GLOBAL-tier signaldock DB path — the consolidated GLOBAL `cleo.db`.
+ *
+ * E6-L5 (T11525): resolves `getCleoHome()` + `cleo.db` (the same path
+ * {@link openDualScopeDb}('global') opens). signaldock holds canonical agent
+ * identity + cloud-sync tables and stays GLOBAL — its tables live inside the
+ * consolidated GLOBAL `cleo.db`, NOT a separate `signaldock.db` file. Project-local
  * messaging state lives in conduit.db (T344).
  *
- * Resolves to `getCleoHome() + '/signaldock.db'`.
  * Guard: asserts the resolved path starts with getCleoHome() (defense in depth,
- * mirrors the ADR-036 pattern used by getNexusDbPath in nexus-sqlite.ts).
+ * mirrors the ADR-036/037 pattern used by getNexusDbPath in nexus-sqlite.ts).
  *
  * @task T346
+ * @task T11525
  * @epic T310
+ * @epic T11249
  * @why ADR-037 split single signaldock.db into project conduit + global signaldock
  * @throws {Error} If resolved path is not under getCleoHome() — indicates a code
  *   path that bypasses canonical path resolution. Fix the caller, do not suppress.
  */
 export function getGlobalSignaldockDbPath(): string {
+  // Resolve via THIS module's getCleoHome binding so the path and the guard are
+  // self-consistent. (The dual-scope resolver builds the identical path —
+  // join(getCleoHome(), 'cleo.db') — but binds getCleoHome through its own module
+  // graph, which can diverge under per-test vi.doMock timing. Building locally and
+  // asserting against the SAME binding keeps the defense-in-depth guard correct
+  // without spuriously firing when a test mocks getCleoHome. T11525.)
   const cleoHome = getCleoHome();
-  const dbPath = join(cleoHome, GLOBAL_SIGNALDOCK_DB_FILENAME);
+  const dbPath = join(cleoHome, 'cleo.db');
   if (!dbPath.startsWith(cleoHome)) {
+    /* c8 ignore next 7 — unreachable: dbPath is built FROM cleoHome above. */
     throw new Error(
       `BUG: getGlobalSignaldockDbPath() resolved to "${dbPath}" which is NOT under ` +
-        `getCleoHome() ("${cleoHome}"). signaldock.db is global-only per ADR-037. ` +
+        `getCleoHome() ("${cleoHome}"). signaldock is global-only per ADR-037. ` +
         `This indicates a code path that bypasses path resolution — ` +
         `fix the caller, do not suppress this error.`,
     );
@@ -183,7 +224,14 @@ function runSignaldockMigrations(nativeDb: DatabaseSync): void {
 // Database lifecycle
 // ---------------------------------------------------------------------------
 
-/** Singleton native DatabaseSync handle for the current process. */
+/**
+ * Singleton native DatabaseSync handle for the current process.
+ *
+ * E6-L5 (T11525): this is the SHARED consolidated GLOBAL `cleo.db` handle owned
+ * by {@link openDualScopeDb}('global') and co-owned by the nexus / skills global
+ * domains. signaldock MUST NOT close it directly (see
+ * {@link _resetGlobalSignaldockDb_TESTING_ONLY}).
+ */
 let _globalSignaldockNativeDb: DatabaseSync | null = null;
 
 /**
@@ -261,72 +309,83 @@ export async function ensureGlobalSignaldockDb(): Promise<{
   const dbPath = getGlobalSignaldockDbPath();
   const alreadyExists = existsSync(dbPath);
 
-  // Ensure global cleo home directory exists
-  const cleoHome = getCleoHome();
-  if (!existsSync(cleoHome)) {
-    mkdirSync(cleoHome, { recursive: true });
+  // ── Dual-scope chokepoint delegation (T11525 · E6-L5) ────────────────────
+  // openDualScopeDb('global') applies the pragma SSoT, creates the directory,
+  // runs the consolidated cleo-global migrations (which create the prefixed
+  // `signaldock_*` tables), and manages the singleton cache. We extract its
+  // native handle so we can run the legacy `drizzle-signaldock` migrations,
+  // which create the BARE-named runtime tables (`agents`, `capabilities`,
+  // `skills`, …) the raw-SQL agent-registry callers query. The bare and
+  // prefixed tables DIFFER, so they co-exist in the same `cleo.db`.
+  const dualHandle = await openDualScopeDb('global');
+
+  // Extract the underlying DatabaseSync. Drizzle exposes it via `$client`.
+  const nativeDb = (dualHandle.db as { $client?: DatabaseSync }).$client ?? null;
+  if (!nativeDb) {
+    throw new Error(
+      'E6-L5: openDualScopeDb returned a handle without $client — ' +
+        'cannot extract DatabaseSync for legacy signaldock-schema migration.',
+    );
   }
 
-  const nativeDb = openNativeDatabase(dbPath);
-  try {
-    // Check if schema already applied (agents table as sentinel)
-    const hasSchema = (() => {
-      try {
-        const result = nativeDb
-          .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agents'")
-          .get() as { name: string } | undefined;
-        return !!result;
-      } catch {
-        return false;
-      }
-    })();
-
-    // T9027 — Schema-version sentinel fast path (epic T9026, CLI startup tax).
-    //
-    // If the DB already has the global signaldock schema applied AND its
-    // `_signaldock_meta.schema_version` row exactly equals the in-process
-    // `GLOBAL_SIGNALDOCK_SCHEMA_VERSION` constant, we can skip
-    // `runSignaldockMigrations()` entirely. That function performs a
-    // reconcileJournal() + migrateSanitized() pass that, while a no-op for an
-    // up-to-date DB, still pays a non-trivial cost on every CLI invocation
-    // (journal SELECT, regex sanitization, drizzle migrator probe).
-    //
-    // Fall-through (sentinel missing, stale, or mismatched) preserves the
-    // full migration replay path so fresh DBs and version bumps still work.
-    if (
-      alreadyExists &&
-      hasSchema &&
-      readSignaldockSchemaVersionSentinel(nativeDb) === GLOBAL_SIGNALDOCK_SCHEMA_VERSION
-    ) {
-      _globalSignaldockNativeDb = nativeDb;
-      return { action: 'exists', path: dbPath };
+  // Check if the legacy signaldock schema is already applied (agents table
+  // as sentinel — the bare runtime table, NOT the prefixed `signaldock_agents`).
+  const hasSchema = (() => {
+    try {
+      const result = nativeDb
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agents'")
+        .get() as { name: string } | undefined;
+      return !!result;
+    } catch {
+      return false;
     }
+  })();
 
-    // Run drizzle migrations (reconcileJournal + migrateSanitized).
-    // For existing DBs that used the old bare-SQL runner, reconcileJournal
-    // Scenario 1 bootstraps the __drizzle_migrations journal from the existing
-    // agents table, and Scenario 3 marks T897 ALTER columns as applied without
-    // re-running the DDL.
-    runSignaldockMigrations(nativeDb);
-
-    // Stamp schema_version sentinel so the next process can take the fast path.
-    writeSignaldockSchemaVersionSentinel(nativeDb);
-
-    // Store native handle for backup integration (getGlobalSignaldockNativeDb)
+  // T9027 — Schema-version sentinel fast path (epic T9026, CLI startup tax).
+  //
+  // If the legacy signaldock schema is already applied AND its
+  // `_signaldock_meta.schema_version` row exactly equals the in-process
+  // `GLOBAL_SIGNALDOCK_SCHEMA_VERSION` constant, we can skip
+  // `runSignaldockMigrations()` entirely. That function performs a
+  // reconcileJournal() + migrateSanitized() pass that, while a no-op for an
+  // up-to-date DB, still pays a non-trivial cost on every CLI invocation
+  // (journal SELECT, regex sanitization, drizzle migrator probe).
+  //
+  // Fall-through (sentinel missing, stale, or mismatched) preserves the
+  // full migration replay path so fresh DBs and version bumps still work.
+  if (
+    hasSchema &&
+    readSignaldockSchemaVersionSentinel(nativeDb) === GLOBAL_SIGNALDOCK_SCHEMA_VERSION
+  ) {
     _globalSignaldockNativeDb = nativeDb;
-
-    return {
-      action: alreadyExists && hasSchema ? 'exists' : 'created',
-      path: dbPath,
-    };
-  } catch (err) {
-    nativeDb.close();
-    _globalSignaldockNativeDb = null;
-    throw err;
+    return { action: 'exists', path: dbPath };
   }
-  // NOTE: We intentionally do NOT close `nativeDb` here — the native handle is
-  // retained as _globalSignaldockNativeDb for backup integration. Callers
-  // that need a short-lived open/close pattern should open the DB themselves.
+
+  // Run the legacy `drizzle-signaldock` migrations (reconcileJournal +
+  // migrateSanitized) on the shared handle. Their `__drizzle_migrations`
+  // journal is shared with the cleo-global journal in the same `cleo.db`; the
+  // hashes are disjoint so the signaldock migrations are reconciled/applied
+  // independently. For existing DBs that used the old bare-SQL runner,
+  // reconcileJournal Scenario 1 bootstraps the journal from the existing
+  // `agents` table, and Scenario 3 marks T897 ALTER columns as applied.
+  runSignaldockMigrations(nativeDb);
+
+  // Stamp schema_version sentinel so the next process can take the fast path.
+  writeSignaldockSchemaVersionSentinel(nativeDb);
+
+  // Store native handle for backup integration (getGlobalSignaldockNativeDb).
+  _globalSignaldockNativeDb = nativeDb;
+
+  return {
+    action: alreadyExists && hasSchema ? 'exists' : 'created',
+    path: dbPath,
+  };
+  // NOTE: We intentionally do NOT close the native handle — it is the SHARED
+  // dual-scope GLOBAL `cleo.db` handle (E6-L5), co-owned by the nexus / skills
+  // global domains. Its lifecycle is owned by `openDualScopeDb`; tearing it down
+  // here would break in-flight sibling queries. On error we also do NOT close it
+  // for the same reason — `openDualScopeDb`'s own init guard handles open
+  // failures.
 }
 
 /**
@@ -359,12 +418,20 @@ export async function ensureSignaldockDb(
 }
 
 /**
- * Check global signaldock.db health: table count, WAL mode, schema version.
- * Used by `cleo doctor` to verify global signaldock.db integrity.
+ * Check global signaldock health: table count, WAL mode, schema version.
+ * Used by `cleo doctor` to verify global signaldock integrity.
+ *
+ * E6-L5 (T11525): reads against the SHARED consolidated GLOBAL `cleo.db` handle
+ * (via {@link ensureGlobalSignaldockDb}, which routes through
+ * {@link openDualScopeDb}('global')) rather than opening a separate read-only
+ * `signaldock.db` handle. The metrics describe the consolidated `cleo.db` that
+ * now hosts the legacy signaldock tables.
  *
  * @returns Health report object, or object with exists=false if the DB does not exist.
  * @task T346
+ * @task T11525
  * @epic T310
+ * @epic T11249
  */
 export async function checkGlobalSignaldockDbHealth(): Promise<{
   exists: boolean;
@@ -386,55 +453,67 @@ export async function checkGlobalSignaldockDbHealth(): Promise<{
     };
   }
 
-  const nativeDb = openNativeDatabase(dbPath, { readonly: true });
-  try {
-    const tables = nativeDb
-      .prepare(
-        "SELECT COUNT(*) as count FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
-      )
-      .get() as { count: number };
-
-    const journalMode = nativeDb.prepare('PRAGMA journal_mode').get() as { journal_mode: string };
-    const fkEnabled = nativeDb.prepare('PRAGMA foreign_keys').get() as { foreign_keys: number };
-
-    // Schema version: check the __drizzle_migrations journal for evidence of
-    // migrations applied. Fallback to _signaldock_meta for pre-T1166 DBs.
-    let schemaVersion: string | null = null;
-    try {
-      // Post-T1166 path: check if drizzle journal has entries
-      const journalRow = nativeDb
-        .prepare('SELECT COUNT(*) as cnt FROM "__drizzle_migrations"')
-        .get() as { cnt: number } | undefined;
-      if (journalRow && journalRow.cnt > 0) {
-        schemaVersion = GLOBAL_SIGNALDOCK_SCHEMA_VERSION;
-      }
-    } catch {
-      // __drizzle_migrations does not exist yet — fall through to _signaldock_meta
-    }
-
-    if (!schemaVersion) {
-      try {
-        // Pre-T1166 path: _signaldock_meta table (old bare-SQL runner)
-        const meta = nativeDb
-          .prepare("SELECT value FROM _signaldock_meta WHERE key = 'schema_version'")
-          .get() as { value: string } | undefined;
-        schemaVersion = meta?.value ?? null;
-      } catch {
-        // _signaldock_meta may not exist on very old or partially-initialized DBs
-      }
-    }
-
+  // Route through the dual-scope chokepoint to obtain the shared, fully-migrated
+  // consolidated `cleo.db` handle. ensureGlobalSignaldockDb() is idempotent and
+  // stores the handle in _globalSignaldockNativeDb.
+  await ensureGlobalSignaldockDb();
+  const nativeDb = _globalSignaldockNativeDb;
+  if (!nativeDb) {
+    /* c8 ignore next */
     return {
-      exists: true,
+      exists: false,
       path: dbPath,
-      tableCount: tables.count,
-      walMode: journalMode.journal_mode === 'wal',
-      schemaVersion,
-      foreignKeysEnabled: fkEnabled.foreign_keys === 1,
+      tableCount: 0,
+      walMode: false,
+      schemaVersion: null,
+      foreignKeysEnabled: false,
     };
-  } finally {
-    nativeDb.close();
   }
+
+  const tables = nativeDb
+    .prepare(
+      "SELECT COUNT(*) as count FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+    )
+    .get() as { count: number };
+
+  const journalMode = nativeDb.prepare('PRAGMA journal_mode').get() as { journal_mode: string };
+  const fkEnabled = nativeDb.prepare('PRAGMA foreign_keys').get() as { foreign_keys: number };
+
+  // Schema version: check the __drizzle_migrations journal for evidence of
+  // migrations applied. Fallback to _signaldock_meta for pre-T1166 DBs.
+  let schemaVersion: string | null = null;
+  try {
+    // Post-T1166 path: check if drizzle journal has entries
+    const journalRow = nativeDb
+      .prepare('SELECT COUNT(*) as cnt FROM "__drizzle_migrations"')
+      .get() as { cnt: number } | undefined;
+    if (journalRow && journalRow.cnt > 0) {
+      schemaVersion = GLOBAL_SIGNALDOCK_SCHEMA_VERSION;
+    }
+  } catch {
+    // __drizzle_migrations does not exist yet — fall through to _signaldock_meta
+  }
+
+  if (!schemaVersion) {
+    try {
+      // Pre-T1166 path: _signaldock_meta table (old bare-SQL runner)
+      const meta = nativeDb
+        .prepare("SELECT value FROM _signaldock_meta WHERE key = 'schema_version'")
+        .get() as { value: string } | undefined;
+      schemaVersion = meta?.value ?? null;
+    } catch {
+      // _signaldock_meta may not exist on very old or partially-initialized DBs
+    }
+  }
+
+  return {
+    exists: true,
+    path: dbPath,
+    tableCount: tables.count,
+    walMode: journalMode.journal_mode === 'wal',
+    schemaVersion,
+    foreignKeysEnabled: fkEnabled.foreign_keys === 1,
+  };
 }
 
 /**
@@ -485,21 +564,28 @@ export function getGlobalSignaldockNativeDb(): DatabaseSync | null {
 }
 
 /**
- * Reset the in-process global signaldock.db singleton.
+ * Reset the in-process global signaldock singleton.
  * ONLY for use in test isolation — never call in production code.
  *
+ * ## E6-L5 (T11525) — shared-handle close rule
+ *
+ * `_globalSignaldockNativeDb` is the SHARED consolidated GLOBAL `cleo.db` handle
+ * owned by {@link openDualScopeDb}('global') and co-owned by the nexus / skills
+ * global domains. This reset MUST NOT call `.close()` on it directly — doing so
+ * would tear the handle out from under nexus / skills (the exact bug class L4
+ * fixed at `dual-scope-db.ts`). Instead it evicts the GLOBAL-scope entry from the
+ * dual-scope cache (which closes the underlying handle exactly once and only when
+ * no scope filter excludes it) and drops the local reference. The next
+ * `ensureGlobalSignaldockDb()` re-opens a fresh consolidated handle.
+ *
  * @task T346
+ * @task T11525
  * @epic T310
+ * @epic T11249
  */
 export function _resetGlobalSignaldockDb_TESTING_ONLY(): void {
-  if (_globalSignaldockNativeDb) {
-    try {
-      if (_globalSignaldockNativeDb.isOpen) {
-        _globalSignaldockNativeDb.close();
-      }
-    } catch {
-      // Ignore close errors
-    }
-    _globalSignaldockNativeDb = null;
-  }
+  // Drop only the local reference. The scope-filtered cache reset performs the
+  // single coordinated close of the shared GLOBAL handle.
+  _globalSignaldockNativeDb = null;
+  _resetDualScopeDbCache('global');
 }

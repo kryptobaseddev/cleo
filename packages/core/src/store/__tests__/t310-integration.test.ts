@@ -260,7 +260,8 @@ function createGlobalSignaldockDbFile(
   cleoHome: string,
   agents: Array<{ id: string; agentId: string; name: string; requiresReauth?: number }> = [],
 ): string {
-  const dbPath = join(cleoHome, 'signaldock.db');
+  // E6-L5 (T11525): the global signaldock domain consolidated into cleo.db.
+  const dbPath = join(cleoHome, 'cleo.db');
   const db = new DatabaseSync(dbPath);
   const now = Math.floor(Date.now() / 1000);
 
@@ -382,11 +383,12 @@ async function runMigration(
     __clearGlobalSaltCache: vi.fn(),
   }));
   vi.doMock('../signaldock-sqlite.js', () => ({
+    // E6-L5 (T11525): the global signaldock domain consolidated into cleo.db.
     ensureGlobalSignaldockDb: vi.fn(async () => ({
       action: 'exists',
-      path: join(cleoHome, 'signaldock.db'),
+      path: join(cleoHome, 'cleo.db'),
     })),
-    getGlobalSignaldockDbPath: () => join(cleoHome, 'signaldock.db'),
+    getGlobalSignaldockDbPath: () => join(cleoHome, 'cleo.db'),
   }));
   const { migrateSignaldockToConduit } = await import('../migrate-signaldock-to-conduit.js');
   return await migrateSignaldockToConduit(projectRoot);
@@ -496,7 +498,7 @@ describe('T310: conduit + signaldock integration', () => {
     expect(result.projectRef?.enabled).toBe(1);
 
     // Verify global signaldock.db has the agent row
-    const globalDb = new DatabaseSync(join(cleoHome, 'signaldock.db'), { readonly: true });
+    const globalDb = new DatabaseSync(join(cleoHome, 'cleo.db'), { readonly: true });
     const agentRow = globalDb
       .prepare('SELECT agent_id FROM agents WHERE agent_id = ?')
       .get(spec.agentId) as { agent_id: string } | undefined;
@@ -548,7 +550,7 @@ describe('T310: conduit + signaldock integration', () => {
     closeConduitDb();
 
     // Seed agent X into global only (no project ref)
-    const globalDb = new DatabaseSync(join(cleoHome, 'signaldock.db'));
+    const globalDb = new DatabaseSync(join(cleoHome, 'cleo.db'));
     insertGlobalAgent(globalDb, 'global-agent-x', 'Agent X');
     globalDb.close();
 
@@ -587,7 +589,7 @@ describe('T310: conduit + signaldock integration', () => {
     closeConduitDb();
 
     // Seed 3 global agents
-    const globalDb = new DatabaseSync(join(cleoHome, 'signaldock.db'));
+    const globalDb = new DatabaseSync(join(cleoHome, 'cleo.db'));
     insertGlobalAgent(globalDb, 'agent-x', 'Agent X');
     insertGlobalAgent(globalDb, 'agent-y', 'Agent Y');
     insertGlobalAgent(globalDb, 'agent-z', 'Agent Z');
@@ -751,7 +753,7 @@ describe('T310: conduit + signaldock integration', () => {
     expect(inBAfter.find((a) => a.agentId === 'attach-detach-agent')).toBeDefined();
 
     // Global identity must still exist
-    const globalDb = new DatabaseSync(join(cleoHome, 'signaldock.db'), { readonly: true });
+    const globalDb = new DatabaseSync(join(cleoHome, 'cleo.db'), { readonly: true });
     const globalRow = globalDb
       .prepare("SELECT agent_id FROM agents WHERE agent_id = 'attach-detach-agent'")
       .get() as { agent_id: string } | undefined;
@@ -856,7 +858,7 @@ describe('T310: conduit + signaldock integration', () => {
     conduitDb.close();
 
     // global signaldock.db has 3 agents with requires_reauth=1
-    const globalDb = new DatabaseSync(join(cleoHome, 'signaldock.db'), { readonly: true });
+    const globalDb = new DatabaseSync(join(cleoHome, 'cleo.db'), { readonly: true });
     const globalAgents = globalDb
       .prepare('SELECT agent_id, requires_reauth FROM agents ORDER BY agent_id')
       .all() as Array<{ agent_id: string; requires_reauth: number }>;
@@ -904,7 +906,7 @@ describe('T310: conduit + signaldock integration', () => {
     expect(resultB.status).toBe('migrated');
 
     // Global must have exactly 2 agents (X + Y), not 3 (INSERT OR IGNORE deduplicates X)
-    const globalDb = new DatabaseSync(join(cleoHome, 'signaldock.db'), { readonly: true });
+    const globalDb = new DatabaseSync(join(cleoHome, 'cleo.db'), { readonly: true });
     const allAgents = globalDb
       .prepare('SELECT agent_id FROM agents ORDER BY agent_id')
       .all() as Array<{ agent_id: string }>;
@@ -966,7 +968,7 @@ describe('T310: conduit + signaldock integration', () => {
     conduitDb.close();
 
     // Verify no duplicate rows in global signaldock.db
-    const globalDb = new DatabaseSync(join(cleoHome, 'signaldock.db'), { readonly: true });
+    const globalDb = new DatabaseSync(join(cleoHome, 'cleo.db'), { readonly: true });
     const globalRows = globalDb
       .prepare("SELECT COUNT(*) as n FROM agents WHERE agent_id = 'idempotent-agent'")
       .get() as { n: number };
@@ -1025,7 +1027,7 @@ describe('T310: conduit + signaldock integration', () => {
     const conduitPath = join(cleoDir, 'conduit.db');
     const tasksPath = join(cleoDir, 'tasks.db');
     const brainPath = join(cleoDir, 'brain.db');
-    const sdPath = join(cleoHome, 'signaldock.db');
+    const sdPath = join(cleoHome, 'cleo.db');
     const saltPath = join(cleoHome, 'global-salt');
 
     for (const dbPath of [conduitPath, tasksPath, brainPath, sdPath]) {

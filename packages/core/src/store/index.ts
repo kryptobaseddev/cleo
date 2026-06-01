@@ -76,7 +76,6 @@ export {
   listSkillsBySource,
   openSkillsDb,
   resetSkillsDbState,
-  resolveSkillsMigrationsFolder,
   SKILLS_DB_FILENAME,
   SKILLS_SCHEMA_VERSION,
   upsertSkillRow,

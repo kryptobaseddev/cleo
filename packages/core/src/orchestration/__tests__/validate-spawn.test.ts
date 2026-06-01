@@ -325,7 +325,7 @@ describe('validateSpawnReadiness — T1933 agent-existence pre-flight (ADR-068 D
       _resetGlobalSignaldockDb_TESTING_ONLY();
       await ensureGlobalSignaldockDb();
 
-      const dbPath = join(cleoHome, 'signaldock.db');
+      const dbPath = join(cleoHome, 'cleo.db'); // E6-L5 (T11525): signaldock consolidated into GLOBAL cleo.db
       const db = new DatabaseSync(dbPath);
       db.exec('PRAGMA foreign_keys = ON');
       db.close();
@@ -402,7 +402,7 @@ agent project-docs-worker:
       resetDb();
       await ensureGlobalSignaldockDb();
 
-      const dbPath = join(cleoHome, 'signaldock.db');
+      const dbPath = join(cleoHome, 'cleo.db'); // E6-L5 (T11525): signaldock consolidated into GLOBAL cleo.db
       const db = new DatabaseSync(dbPath);
       db.exec('PRAGMA foreign_keys = ON');
       db.close();
