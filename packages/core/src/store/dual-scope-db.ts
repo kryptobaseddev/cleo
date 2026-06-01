@@ -353,13 +353,30 @@ export async function openDualScopeDb(scope: DualScope, cwd?: string): Promise<D
 }
 
 /**
- * Reset all cached handles. Primarily for use in tests between test cases.
- * Closes all open handles before evicting from the cache.
+ * Reset cached dual-scope handles. Primarily for use in tests between test
+ * cases and by domain `closeDb()`/`resetDbState()` paths. Closes the targeted
+ * open handles before evicting them from the cache.
  *
+ * ## Scope filter (E6-L4 · T11524)
+ *
+ * Pass `scope` to evict ONLY that scope's entries. This matters because the
+ * `'project'` and `'global'` scopes now share this cache: the tasks/brain/conduit
+ * domains hold the project-scope `cleo.db`, while nexus/signaldock/skills hold the
+ * global-scope `cleo.db`. A project-domain reset (`closeDb`/`resetDbState` in
+ * sqlite.ts) must NOT close the global handle out from under an in-flight nexus
+ * query — and vice-versa. When `scope` is omitted, ALL entries are evicted (the
+ * coordinated full teardown used by `closeAllDatabases` and test global resets).
+ *
+ * @param scope - When provided, only entries opened against this scope are
+ *   closed + evicted. When omitted, every cached handle is reset.
  * @internal
  */
-export function _resetDualScopeDbCache(): void {
-  for (const entry of _cache.values()) {
+export function _resetDualScopeDbCache(scope?: DualScope): void {
+  for (const [key, entry] of _cache) {
+    // Skip entries that belong to a different scope when a scope filter is set.
+    // A mid-init placeholder (handle === null) cannot be scope-matched, so it is
+    // only evicted on a full (unscoped) reset.
+    if (scope !== undefined && entry.handle?.scope !== scope) continue;
     if (entry.handle) {
       try {
         entry.handle.close();
@@ -367,11 +384,16 @@ export function _resetDualScopeDbCache(): void {
         // ignore
       }
     }
+    // handle.close() already deletes the key for the targeted entry; delete
+    // defensively in case the handle was a mid-init placeholder.
+    _cache.delete(key);
   }
-  _cache.clear();
-  // Also reset schema caches so tests can reload fresh schemas.
-  _projectSchema = null;
-  _globalSchema = null;
+  // Only reset the schema caches on a full (unscoped) reset — a scoped reset must
+  // not force the OTHER scope to reload its schema barrel mid-flight.
+  if (scope === undefined) {
+    _projectSchema = null;
+    _globalSchema = null;
+  }
 }
 
 // ── Idempotent write helpers (E4-T2 · T11513) ───────────────────────────────

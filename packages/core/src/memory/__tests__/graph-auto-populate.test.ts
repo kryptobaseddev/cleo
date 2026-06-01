@@ -37,7 +37,16 @@ beforeEach(async () => {
   cleoDir = join(tempDir, '.cleo');
   await mkdir(cleoDir, { recursive: true });
   process.env['CLEO_DIR'] = cleoDir;
-  process.env['CLEO_HOME'] = cleoDir;
+  // E6-L4 (T11524): point CLEO_HOME at a SEPARATE global dir, not the project
+  // `.cleo`. The global nexus domain now consolidates into `<CLEO_HOME>/cleo.db`
+  // (openDualScopeDb('global')) while the project brain/tasks domains use
+  // `<CLEO_DIR>/cleo.db` (openDualScopeDb('project')). Pointing both at the same
+  // dir collapses them onto ONE physical `cleo.db`, where the global consolidation
+  // migration would re-create `brain_attention` (present in both scope schemas)
+  // and throw "table already exists". Production always separates these dirs.
+  const homeDir = join(tempDir, 'cleo-home');
+  await mkdir(homeDir, { recursive: true });
+  process.env['CLEO_HOME'] = homeDir;
   // Create project-info.json and register in nexus so resolveProjectByCwd validates.
   const { canonicalProjectId } = await import('../../nexus/identity.js');
   const { id: projectId } = await canonicalProjectId(tempDir);

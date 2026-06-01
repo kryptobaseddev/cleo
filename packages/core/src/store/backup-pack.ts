@@ -34,7 +34,6 @@ import { create as tarCreate } from 'tar';
 import { getCleoHome, getProjectRoot } from '../paths.js';
 import { encryptBundle } from './backup-crypto.js';
 import { getGlobalSaltPath } from './global-salt.js';
-import { getNexusDbPath } from './nexus-sqlite.js';
 import { getGlobalSignaldockDbPath } from './signaldock-sqlite.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
 import { assertT310Ready } from './t310-readiness.js';
@@ -476,8 +475,14 @@ export async function packBundle(input: PackBundleInput): Promise<PackBundleResu
     }
 
     if (includesGlobal) {
-      // nexus.db
-      const nexusSrc = getNexusDbPath();
+      // nexus.db — E6-L4 (T11524): the live nexus domain now consolidates into
+      // the GLOBAL `cleo.db` (getNexusDbPath() → <cleoHome>/cleo.db), but the
+      // backup snapshot intentionally keeps reading the LEGACY standalone
+      // `<cleoHome>/nexus.db` literal during the E6 cutover. Rerouting the backup
+      // read to the consolidated resolver mid-cutover would double-snapshot the
+      // shared cleo.db (also taken by the project-tier path) and skip any
+      // un-migrated legacy nexus.db that still holds the only copy of the graph.
+      const nexusSrc = path.join(getCleoHome(), 'nexus.db');
       const nexusDest = path.join(stagingDir, 'databases', 'nexus.db');
       const nexusSnapped = vacuumIntoStaging(nexusSrc, nexusDest);
       if (nexusSnapped) {

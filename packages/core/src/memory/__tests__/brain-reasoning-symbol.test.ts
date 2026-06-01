@@ -32,8 +32,14 @@ describe('brain-reasoning-symbol', () => {
     tempDir = await mkdtemp(join(tmpdir(), 'cleo-brs-'));
     await mkdir(join(tempDir, '.cleo'), { recursive: true });
     process.env['CLEO_DIR'] = join(tempDir, '.cleo');
-    // nexus.db is global (ADR-036) — redirect to temp dir
-    process.env['CLEO_HOME'] = join(tempDir, '.cleo');
+    // E6-L4 (T11524): nexus is global (ADR-036) and now consolidates into
+    // `<CLEO_HOME>/cleo.db`. Point CLEO_HOME at a SEPARATE global dir, not the
+    // project `.cleo` — sharing one dir collapses the project (brain/tasks) and
+    // global (nexus) `cleo.db` onto a single file and the global consolidation
+    // migration would re-create `brain_attention` (present in both scope schemas)
+    // → "table already exists". Production always separates these dirs.
+    await mkdir(join(tempDir, 'cleo-home'), { recursive: true });
+    process.env['CLEO_HOME'] = join(tempDir, 'cleo-home');
   });
 
   afterEach(async () => {

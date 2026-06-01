@@ -67,11 +67,28 @@ function getDatabaseSyncCtor(): DatabaseSyncModule['DatabaseSync'] | null {
 // E6-L3 (T11523): the conduit domain consolidated into the SAME `cleo.db`
 // (ensureConduitDb → openDualScopeDb('project')), so the `dbs.conduit` probe now
 // targets `cleo.db` too. All three project-tier domains share one physical file.
+// E6-L4 (T11524): the nexus domain consolidated into the GLOBAL `cleo.db` under
+// getCleoHome() (getNexusDb → openDualScopeDb('global')), so the global-tier
+// `dbs.nexus` probe now targets that file. This is a DIFFERENT physical file
+// than the project `cleo.db` above (different directory) — it just shares the
+// filename. Its expected migration floor is the global cleo-global set, NOT the
+// project floor of 3, so it uses NEXUS_GLOBAL_DB_FLOOR (passed inline at the
+// probe site) instead of a `[NEXUS_DB]` map entry that would clobber `[TASKS_DB]`.
 const TASKS_DB = 'cleo.db' as const;
 const BRAIN_DB = 'cleo.db' as const;
 const CONDUIT_DB = 'cleo.db' as const;
-const NEXUS_DB = 'nexus.db' as const;
+const NEXUS_DB = 'cleo.db' as const;
 const SIGNALDOCK_DB = 'signaldock.db' as const;
+
+/**
+ * Expected applied-migration floor for the GLOBAL consolidated `cleo.db`
+ * (`drizzle-cleo-global`). E6-L4 (T11524): the nexus domain shares this file
+ * with the other global-tier domains and adds its own `drizzle-nexus` journal
+ * entries to the SAME `__drizzle_migrations` table, so the live count is
+ * strictly ≥ this conservative floor. Kept separate from the project floor (3)
+ * because the global file uses a distinct migration set.
+ */
+const NEXUS_GLOBAL_DB_FLOOR = 2 as const;
 const CONFIG_JSON = 'config.json' as const;
 const PROJECT_INFO_JSON = 'project-info.json' as const;
 
@@ -266,8 +283,10 @@ export const DB_EXPECTED_VERSIONS: Readonly<Record<string, number>> = {
   // fires only when the count drops BELOW it, which the merged journal never
   // does. NOTE: do NOT add a separate `[CONDUIT_DB]` entry — it is the same key
   // as `[TASKS_DB]` ('cleo.db') and would clobber the floor of 3.
+  // E6-L4 (T11524): NEXUS_DB is also `'cleo.db'` now (the GLOBAL file), so it
+  // would clobber `[TASKS_DB]` here too — the nexus probe therefore passes
+  // NEXUS_GLOBAL_DB_FLOOR inline at its probe site instead of via this map.
   [TASKS_DB]: 3,
-  [NEXUS_DB]: 3,
   [SIGNALDOCK_DB]: 1,
 };
 
@@ -755,7 +774,9 @@ export async function checkProjectHealth(
 export async function checkGlobalHealth(): Promise<GlobalHealthReport> {
   const cleoHome = getCleoHome();
   const [nexus, signaldock] = await Promise.all([
-    probeDb(join(cleoHome, NEXUS_DB), DB_EXPECTED_VERSIONS[NEXUS_DB]),
+    // E6-L4 (T11524): the GLOBAL `cleo.db` floor comes from NEXUS_GLOBAL_DB_FLOOR,
+    // not DB_EXPECTED_VERSIONS[NEXUS_DB] (which would alias the project-tier key).
+    probeDb(join(cleoHome, NEXUS_DB), NEXUS_GLOBAL_DB_FLOOR),
     probeDb(join(cleoHome, SIGNALDOCK_DB), DB_EXPECTED_VERSIONS[SIGNALDOCK_DB]),
   ]);
   const dbs = { nexus, signaldock };

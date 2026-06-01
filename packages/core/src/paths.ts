@@ -2230,11 +2230,15 @@ export interface ProjectRegistryEntry {
 
 /** Look up a project by canonical or legacy projectId (AC1, AC4). */
 export async function resolveProjectById(projectId: string): Promise<ProjectRegistryEntry | null> {
-  const cleoHome = getCleoHome();
-  const nexusDbPath = join(cleoHome, 'nexus.db');
-  if (!existsSync(nexusDbPath)) return null;
   try {
-    const { getNexusDb } = await import('./store/nexus-sqlite.js');
+    // E6-L4 (T11524): the nexus domain now lives in the GLOBAL consolidated
+    // `cleo.db` (getNexusDbPath() → <cleoHome>/cleo.db). Gate on that file's
+    // existence — NOT the legacy standalone `nexus.db` — so the lookup keeps
+    // working post-cutover when only `cleo.db` is present. We avoid creating the
+    // DB here: if the consolidated file does not exist yet there is nothing to
+    // resolve, so return null rather than letting getNexusDb() bootstrap it.
+    const { getNexusDb, getNexusDbPath } = await import('./store/nexus-sqlite.js');
+    if (!existsSync(getNexusDbPath())) return null;
     const { eq } = await import('drizzle-orm');
     const { projectRegistry, projectIdAliases } = await import('./store/schema/nexus-schema.js');
     const db = await getNexusDb();
