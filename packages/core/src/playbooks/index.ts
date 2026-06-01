@@ -32,3 +32,15 @@ export {
   type ResolvePlaybookOptions,
   resolvePlaybook,
 } from './playbook-resolver.js';
+
+// Skill-node executor — injects the in-process SkillExecutorAdapter as the
+// dispatcher's executor while retaining subprocess-spawn for isolation nodes
+// (T11477 · epic T11391).
+export {
+  createSkillNodeExecutor,
+  ISOLATION_CONTEXT_KEY,
+  runSkillNodeOrSpawn,
+  type SkillNodeDispatchInput,
+  type SkillNodeExecutorOptions,
+  type SubprocessSpawnExecutor,
+} from './skill-node-executor.js';

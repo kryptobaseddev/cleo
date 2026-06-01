@@ -331,34 +331,50 @@ async function acquireDb(): Promise<_DatabaseSyncType> {
 async function buildDefaultDispatcher(): Promise<AgentDispatcher> {
   if (__playbookRuntimeOverrides.dispatcher) return __playbookRuntimeOverrides.dispatcher;
   const { orchestrateSpawnExecute } = await import('@cleocode/runtime/gateway');
-  const { getProjectRoot } = await import('@cleocode/core/internal');
+  const { getProjectRoot, createToolGuard, runSkillNodeOrSpawn } = await import(
+    '@cleocode/core/internal'
+  );
   const projectRoot = getProjectRoot();
+  // In-process skill nodes execute over a deny-first guarded tool surface scoped
+  // to the project root (T11477 · AC4). Isolation/agent nodes keep spawning.
+  const tools = createToolGuard({ allowedRoots: [projectRoot] });
+
+  /** Subprocess-spawn fallback — retained for isolation/agent nodes (AC3). */
+  const spawn = async (input: AgentDispatchInput): Promise<AgentDispatchResult> => {
+    const result = await orchestrateSpawnExecute(
+      input.taskId,
+      /* adapterId */ undefined,
+      /* protocolType */ undefined,
+      projectRoot,
+      /* tier */ undefined,
+    );
+    if (result.success) {
+      return {
+        status: 'success',
+        output: {
+          [`${input.nodeId}_spawn`]: true,
+          nodeId: input.nodeId,
+          agentId: input.agentId,
+          dispatchData: result.data ?? null,
+        },
+      };
+    }
+    return {
+      status: 'failure',
+      output: {},
+      error: result.error?.message ?? `spawn failed for ${input.agentId}`,
+    };
+  };
+
   return {
     async dispatch(input: AgentDispatchInput): Promise<AgentDispatchResult> {
       try {
-        const result = await orchestrateSpawnExecute(
-          input.taskId,
-          /* adapterId */ undefined,
-          /* protocolType */ undefined,
-          projectRoot,
-          /* tier */ undefined,
+        // In-process ct-* skill node → SkillExecutorAdapter (replaces spawn for
+        // those nodes, AC2); everything else → subprocess spawn (AC3).
+        return await runSkillNodeOrSpawn(
+          { nodeId: input.nodeId, agentId: input.agentId, context: input.context },
+          { tools, cwd: projectRoot, subprocessSpawn: () => spawn(input) },
         );
-        if (result.success) {
-          return {
-            status: 'success',
-            output: {
-              [`${input.nodeId}_spawn`]: true,
-              nodeId: input.nodeId,
-              agentId: input.agentId,
-              dispatchData: result.data ?? null,
-            },
-          };
-        }
-        return {
-          status: 'failure',
-          output: {},
-          error: result.error?.message ?? `spawn failed for ${input.agentId}`,
-        };
       } catch (err) {
         return {
           status: 'failure',
