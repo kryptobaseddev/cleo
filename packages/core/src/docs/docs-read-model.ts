@@ -82,6 +82,13 @@ export interface ResolvedDoc {
   readonly blobName: string;
   /** Byte size of the stored content. */
   readonly sizeBytes: number;
+  /**
+   * Number of owners referencing this doc, sourced from `attachments.ref_count`
+   * in tasks.db. Zero for manifest-only blobs (which have no ref-count concept)
+   * and for freshly-added docs not yet attached to an owner. Surfacing the real
+   * value keeps `docs list` consistent with the `docs add` response (T11572).
+   */
+  readonly refCount: number;
   /** IANA MIME type, when known. */
   readonly mimeType: string | null;
   /** Human-readable summary from attachments.summary. */
@@ -578,6 +585,7 @@ export class DocsReadModel {
         ownerType: row.ownerType,
         blobName: name ?? row.slug ?? row.metadata.id,
         sizeBytes: size,
+        refCount: row.metadata.refCount,
         mimeType: mime,
         summary: row.summary,
         lifecycleStatus: row.lifecycleStatus,
@@ -666,6 +674,9 @@ export class DocsReadModel {
       ownerType: detectOwnerType(ownerId),
       blobName: entry.name,
       sizeBytes: entry.sizeBytes,
+      // manifest.db blobs are the content SSoT, not the ref-counted attachment
+      // store — there is no per-owner ref_count to surface here.
+      refCount: 0,
       mimeType: entry.mimeType ?? null,
       summary: null,
       lifecycleStatus: 'active',
@@ -723,6 +734,7 @@ export class DocsReadModel {
       ownerType: detectOwnerType(ownerId),
       blobName: blobName ?? extras.slug ?? meta.id,
       sizeBytes: size,
+      refCount: meta.refCount,
       mimeType: mime,
       summary: extras.summary,
       lifecycleStatus: extras.lifecycleStatus ?? 'active',

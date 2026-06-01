@@ -1084,23 +1084,25 @@ const listCommand = defineCommand({
       // Apply legacy --active filter only when NOT in global mode
       const filtered = !includeGlobal && args.active ? agents.filter((a) => a.isActive) : agents;
 
+      // `cliOutput` is the envelope boundary — it wraps the payload it is given
+      // in `{ success, data, meta }` (formatSuccess). Passing an already-wrapped
+      // `{ success, data }` here produced a DOUBLE-NESTED envelope
+      // (`{ data: { success, data: [...] } }`). Pass the agent array directly as
+      // the payload so the emitted LAFS envelope is single-level.
       cliOutput(
-        {
-          success: true,
-          data: filtered.map((a) => ({
-            agentId: a.agentId,
-            name: a.displayName,
-            classification: a.classification ?? null,
-            transportType: a.transportType,
-            isActive: a.isActive,
-            lastUsedAt: a.lastUsedAt ?? null,
-            attachment: a.projectRef
-              ? a.projectRef.enabled === 1
-                ? '[attached]'
-                : '[disabled]'
-              : '[global]',
-          })),
-        },
+        filtered.map((a) => ({
+          agentId: a.agentId,
+          name: a.displayName,
+          classification: a.classification ?? null,
+          transportType: a.transportType,
+          isActive: a.isActive,
+          lastUsedAt: a.lastUsedAt ?? null,
+          attachment: a.projectRef
+            ? a.projectRef.enabled === 1
+              ? '[attached]'
+              : '[disabled]'
+            : '[global]',
+        })),
         { command: 'agent list' },
       );
     } catch (err) {

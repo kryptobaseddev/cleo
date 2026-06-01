@@ -693,33 +693,35 @@ export async function forceInstallProjectTierAgents(
     );
   }
 
-  try {
-    for (const filename of cantFiles) {
-      const cantPath = join(scannedDir, filename);
-      try {
-        const result = installAgentFromCant(db, {
-          cantSource: cantPath,
-          targetTier: 'project',
-          installedFrom: 'seed',
-          projectRoot,
-          force: true,
-        });
-        installed.push({
-          agentId: result.agentId,
-          cantPath: result.cantPath,
-          inserted: result.inserted,
-          skillsAttached: result.skillsAttached,
-          warnings: result.warnings,
-        });
-      } catch (err) {
-        failed.push({
-          cantPath,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
+  // NOTE: `db` is the SHARED dual-scope GLOBAL `cleo.db` handle owned by
+  // openDualScopeDb('global') and co-owned by the nexus / skills domains
+  // (E6-L5 · T11525). We MUST NOT `.close()` it here — its lifecycle belongs
+  // to openDualScopeDb. Closing it would tear the handle out from under
+  // sibling domains and any later in-process consumer (e.g. `cleo init`'s
+  // earlier installTemplatesAtProjectTier() shares the same singleton).
+  for (const filename of cantFiles) {
+    const cantPath = join(scannedDir, filename);
+    try {
+      const result = installAgentFromCant(db, {
+        cantSource: cantPath,
+        targetTier: 'project',
+        installedFrom: 'seed',
+        projectRoot,
+        force: true,
+      });
+      installed.push({
+        agentId: result.agentId,
+        cantPath: result.cantPath,
+        inserted: result.inserted,
+        skillsAttached: result.skillsAttached,
+        warnings: result.warnings,
+      });
+    } catch (err) {
+      failed.push({
+        cantPath,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
-  } finally {
-    db.close();
   }
 
   return { installed, failed, scannedDir };
