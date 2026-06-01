@@ -406,21 +406,25 @@ export function checkSqliteDb(projectRoot: string): CheckResult {
 }
 
 /**
- * Verify .cleo/brain.db exists and is non-empty.
+ * Verify the brain domain database exists and is non-empty.
+ *
+ * E6-L2 (T11522): the brain domain consolidated into the project `cleo.db`
+ * (`getBrainDb` → `openDualScopeDb('project')`), so this probe targets `cleo.db`
+ * rather than a standalone `brain.db`.
  *
  * @param projectRoot - Absolute path to the project root directory
  * @returns Check result with database existence and size information
  */
 export function checkBrainDb(projectRoot: string): CheckResult {
   const cleoDir = join(projectRoot, '.cleo');
-  const dbPath = join(cleoDir, 'brain.db');
+  const dbPath = join(cleoDir, 'cleo.db');
 
   if (!existsSync(dbPath)) {
     return {
       id: 'brain_db',
       category: 'scaffold',
       status: 'failed',
-      message: 'brain.db not found',
+      message: 'brain domain (cleo.db) not found',
       details: { path: dbPath, exists: false },
       fix: 'cleo init',
     };
@@ -432,7 +436,7 @@ export function checkBrainDb(projectRoot: string): CheckResult {
       id: 'brain_db',
       category: 'scaffold',
       status: 'warning',
-      message: 'brain.db exists but is empty (0 bytes)',
+      message: 'brain domain (cleo.db) exists but is empty (0 bytes)',
       details: { path: dbPath, exists: true, size: 0 },
       fix: 'cleo upgrade',
     };
@@ -442,7 +446,7 @@ export function checkBrainDb(projectRoot: string): CheckResult {
     id: 'brain_db',
     category: 'scaffold',
     status: 'passed',
-    message: `brain.db exists (${stat.size} bytes)`,
+    message: `brain domain (cleo.db) exists (${stat.size} bytes)`,
     details: { path: dbPath, exists: true, size: stat.size },
     fix: null,
   };

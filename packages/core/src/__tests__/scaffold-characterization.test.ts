@@ -409,16 +409,18 @@ describe('characterization: ensureBrainDb', () => {
     else delete process.env['CLEO_DIR'];
   });
 
-  it('returns action=skipped when brain.db already exists', async () => {
-    writeFileSync(join(tmpDir, '.cleo', 'brain.db'), 'SQLite format 3');
+  // E6-L2 (T11522): ensureBrainDb now probes the consolidated `cleo.db`
+  // (getBrainDb → openDualScopeDb('project')), not a standalone `brain.db`.
+  it('returns action=skipped when cleo.db already exists', async () => {
+    writeFileSync(join(tmpDir, '.cleo', 'cleo.db'), 'SQLite format 3');
     const result = await ensureBrainDb(tmpDir);
     expect(result.action).toBe('skipped');
   });
 
-  it('result path points to brain.db', async () => {
-    writeFileSync(join(tmpDir, '.cleo', 'brain.db'), 'SQLite format 3');
+  it('result path points to cleo.db', async () => {
+    writeFileSync(join(tmpDir, '.cleo', 'cleo.db'), 'SQLite format 3');
     const result = await ensureBrainDb(tmpDir);
-    expect(result.path).toContain('brain.db');
+    expect(result.path).toContain('cleo.db');
   });
 });
 

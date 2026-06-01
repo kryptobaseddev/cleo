@@ -61,10 +61,12 @@ function getDatabaseSyncCtor(): DatabaseSyncModule['DatabaseSync'] | null {
 //
 // E6-L1 (T11521): the tasks domain now lives in the consolidated project
 // `cleo.db` (opened via openDualScopeDb('project')), not the legacy `tasks.db`.
-// The `dbs.tasks` probe therefore targets `cleo.db`. The brain/conduit probes
-// still target their per-domain files until E6-L2/L3 consolidate them.
+// E6-L2 (T11522): the brain domain ALSO consolidated into the same `cleo.db`
+// (getBrainDb → openDualScopeDb('project')), so the `dbs.brain` probe now
+// targets `cleo.db` too — the brain tables live in the shared project DB. The
+// conduit probe still targets its per-domain file until E6-L3 consolidates it.
 const TASKS_DB = 'cleo.db' as const;
-const BRAIN_DB = 'brain.db' as const;
+const BRAIN_DB = 'cleo.db' as const;
 const CONDUIT_DB = 'conduit.db' as const;
 const NEXUS_DB = 'nexus.db' as const;
 const SIGNALDOCK_DB = 'signaldock.db' as const;
@@ -253,10 +255,14 @@ export interface CheckAllOptions {
  * surfaces the affected project as `degraded`.
  */
 export const DB_EXPECTED_VERSIONS: Readonly<Record<string, number>> = {
-  // E6-L1 (T11521): TASKS_DB now resolves to `cleo.db`; the consolidated
-  // project schema is tracked by the `drizzle-cleo-project` migration set.
+  // E6-L1 (T11521) / E6-L2 (T11522): TASKS_DB and BRAIN_DB both resolve to
+  // `cleo.db`. The consolidated project schema is tracked by the
+  // `drizzle-cleo-project` migration set (3 entries); the brain domain adds its
+  // own `drizzle-brain` entries to the SAME `__drizzle_migrations` journal, so
+  // the live count is strictly ≥ 3. We keep the conservative cleo-project floor
+  // (3) here — drift fires only when the count drops BELOW it, which the merged
+  // journal never does. (TASKS_DB === BRAIN_DB === 'cleo.db'.)
   [TASKS_DB]: 3,
-  [BRAIN_DB]: 14,
   [NEXUS_DB]: 3,
   [SIGNALDOCK_DB]: 1,
   [CONDUIT_DB]: 1,
