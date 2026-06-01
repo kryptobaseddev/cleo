@@ -197,10 +197,22 @@ export const messagePins = sqliteTable(
  *
  * `content` stores the compressed blob bytes inline (BLOB column).
  *
+ * ## T11563 — physical name `conduit_attachments` (collision fix)
+ *
+ * The physical table name carries the `conduit_` prefix so it is DISJOINT from
+ * the docs-domain bare `attachments` table (store/schema/attachments.ts) that
+ * also lives in the consolidated `cleo.db`. Pre-E6-L3 the conduit domain had its
+ * own `conduit.db`, so the bare `attachments` name did not collide; #900 routed
+ * conduit into `cleo.db` and the bare `CREATE TABLE IF NOT EXISTS attachments`
+ * silently no-opped against the docs table, crashing the `conversation_id` index.
+ * The prefixed name matches the consolidated schema (`cleo-project/conduit.ts`)
+ * and the exodus rename-map target (`attachments` → `conduit_attachments`).
+ *
  * @task T344
+ * @task T11563
  */
 export const attachments = sqliteTable(
-  'attachments',
+  'conduit_attachments',
   {
     slug: text('slug').primaryKey(),
     conversationId: text('conversation_id').notNull(),
@@ -221,8 +233,8 @@ export const attachments = sqliteTable(
     createdAt: integer('created_at').notNull(),
   },
   (table) => [
-    index('attachments_conversation_idx').on(table.conversationId),
-    index('attachments_agent_idx').on(table.fromAgentId),
+    index('conduit_attachments_conversation_idx').on(table.conversationId),
+    index('conduit_attachments_agent_idx').on(table.fromAgentId),
   ],
 );
 
@@ -232,7 +244,7 @@ export const attachments = sqliteTable(
  * @task T344
  */
 export const attachmentVersions = sqliteTable(
-  'attachment_versions',
+  'conduit_attachment_versions',
   {
     id: text('id').primaryKey(),
     slug: text('slug')
@@ -255,9 +267,9 @@ export const attachmentVersions = sqliteTable(
     createdAt: integer('created_at').notNull(),
   },
   (table) => [
-    unique('attachment_versions_slug_version_unique').on(table.slug, table.versionNumber),
-    index('idx_attachment_versions_slug').on(table.slug),
-    index('idx_attachment_versions_author').on(table.authorAgentId),
+    unique('conduit_attachment_versions_slug_version_unique').on(table.slug, table.versionNumber),
+    index('idx_conduit_attachment_versions_slug').on(table.slug),
+    index('idx_conduit_attachment_versions_author').on(table.authorAgentId),
   ],
 );
 
@@ -267,7 +279,7 @@ export const attachmentVersions = sqliteTable(
  * @task T344
  */
 export const attachmentApprovals = sqliteTable(
-  'attachment_approvals',
+  'conduit_attachment_approvals',
   {
     id: text('id').primaryKey(),
     slug: text('slug')
@@ -282,8 +294,11 @@ export const attachmentApprovals = sqliteTable(
     updatedAt: integer('updated_at').notNull(),
   },
   (table) => [
-    unique('attachment_approvals_slug_reviewer_unique').on(table.slug, table.reviewerAgentId),
-    index('idx_attachment_approvals_slug').on(table.slug),
+    unique('conduit_attachment_approvals_slug_reviewer_unique').on(
+      table.slug,
+      table.reviewerAgentId,
+    ),
+    index('idx_conduit_attachment_approvals_slug').on(table.slug),
   ],
 );
 
@@ -293,7 +308,7 @@ export const attachmentApprovals = sqliteTable(
  * @task T344
  */
 export const attachmentContributors = sqliteTable(
-  'attachment_contributors',
+  'conduit_attachment_contributors',
   {
     slug: text('slug')
       .notNull()

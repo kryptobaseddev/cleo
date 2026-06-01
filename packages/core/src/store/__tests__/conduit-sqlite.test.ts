@@ -55,19 +55,26 @@ import { _resetDualScopeDbCache, resolveDualScopeDbPath } from '../dual-scope-db
 // ---------------------------------------------------------------------------
 
 /**
- * The legacy BARE conduit tables the forward migration creates. These now live
- * INSIDE the consolidated `cleo.db` alongside the prefixed `conduit_*` tables and
- * the `tasks_*` / `brain_*` domains, so we assert PRESENCE (arrayContaining)
- * rather than equality. `_conduit_meta` / `_conduit_migrations` are the two legacy
- * meta tables.
+ * The legacy conduit tables the forward migration creates. These now live INSIDE
+ * the consolidated `cleo.db` alongside the prefixed `conduit_*` tables and the
+ * `tasks_*` / `brain_*` domains, so we assert PRESENCE (arrayContaining) rather
+ * than equality. `_conduit_meta` / `_conduit_migrations` are the two legacy meta
+ * tables.
+ *
+ * T11563: the attachment-family tables carry the `conduit_` prefix
+ * (`conduit_attachments`, `conduit_attachment_versions`,
+ * `conduit_attachment_approvals`, `conduit_attachment_contributors`) so they are
+ * PHYSICALLY DISJOINT from the docs-domain bare `attachments` table that also
+ * lives in the consolidated `cleo.db` — the bare names collided once conduit was
+ * routed into `cleo.db` (#900), crashing the `conversation_id` index.
  */
 const EXPECTED_LEGACY_TABLES = [
   '_conduit_meta',
   '_conduit_migrations',
-  'attachment_approvals',
-  'attachment_contributors',
-  'attachment_versions',
-  'attachments',
+  'conduit_attachment_approvals',
+  'conduit_attachment_contributors',
+  'conduit_attachment_versions',
+  'conduit_attachments',
   'conversations',
   'dead_letters',
   'delivery_jobs',

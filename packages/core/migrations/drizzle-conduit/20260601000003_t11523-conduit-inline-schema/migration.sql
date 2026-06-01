@@ -150,8 +150,21 @@ CREATE INDEX IF NOT EXISTS idx_pins_agent ON message_pins(pinned_by);
 
 -- -------------------------------------------------------------------------
 -- File/blob attachments associated with messages.
+--
+-- T11563: the conduit attachment-family tables carry the `conduit_` prefix so
+-- they are PHYSICALLY DISJOINT from the docs-domain bare `attachments` table
+-- (store/schema/attachments.ts) that ALSO lives in the consolidated `cleo.db`.
+-- Before E6-L3 (#900) the conduit domain had its own `conduit.db` file, so the
+-- bare names `attachments` / `attachment_versions` / `attachment_approvals` /
+-- `attachment_contributors` did not collide. Routing conduit into `cleo.db`
+-- (#900) put them in the same physical DB as the docs `attachments` table; the
+-- bare `CREATE TABLE IF NOT EXISTS attachments` then silently no-opped against
+-- the docs table and the `conversation_id` index crashed (no such column). The
+-- `conduit_`-prefixed names match the consolidated schema (cleo-project/conduit.ts)
+-- and the exodus rename map target (table-name-map.ts: `attachments` →
+-- `conduit_attachments`), restoring the intended "disjoint physical names".
 -- -------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS attachments (
+CREATE TABLE IF NOT EXISTS conduit_attachments (
     slug TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL,
     from_agent_id TEXT NOT NULL,
@@ -170,17 +183,17 @@ CREATE TABLE IF NOT EXISTS attachments (
     created_at INTEGER NOT NULL
 );
 --> statement-breakpoint
-CREATE INDEX IF NOT EXISTS attachments_conversation_idx ON attachments(conversation_id);
+CREATE INDEX IF NOT EXISTS conduit_attachments_conversation_idx ON conduit_attachments(conversation_id);
 --> statement-breakpoint
-CREATE INDEX IF NOT EXISTS attachments_agent_idx ON attachments(from_agent_id);
+CREATE INDEX IF NOT EXISTS conduit_attachments_agent_idx ON conduit_attachments(from_agent_id);
 --> statement-breakpoint
 
 -- -------------------------------------------------------------------------
 -- Version history for attachments (collaborative editing).
 -- -------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS attachment_versions (
+CREATE TABLE IF NOT EXISTS conduit_attachment_versions (
     id TEXT PRIMARY KEY,
-    slug TEXT NOT NULL REFERENCES attachments(slug) ON DELETE CASCADE,
+    slug TEXT NOT NULL REFERENCES conduit_attachments(slug) ON DELETE CASCADE,
     version_number INTEGER NOT NULL,
     author_agent_id TEXT NOT NULL,
     change_type TEXT NOT NULL DEFAULT 'patch',
@@ -198,17 +211,17 @@ CREATE TABLE IF NOT EXISTS attachment_versions (
     UNIQUE(slug, version_number)
 );
 --> statement-breakpoint
-CREATE INDEX IF NOT EXISTS idx_attachment_versions_slug ON attachment_versions(slug);
+CREATE INDEX IF NOT EXISTS idx_conduit_attachment_versions_slug ON conduit_attachment_versions(slug);
 --> statement-breakpoint
-CREATE INDEX IF NOT EXISTS idx_attachment_versions_author ON attachment_versions(author_agent_id);
+CREATE INDEX IF NOT EXISTS idx_conduit_attachment_versions_author ON conduit_attachment_versions(author_agent_id);
 --> statement-breakpoint
 
 -- -------------------------------------------------------------------------
 -- Approval records for attachment content review.
 -- -------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS attachment_approvals (
+CREATE TABLE IF NOT EXISTS conduit_attachment_approvals (
     id TEXT PRIMARY KEY,
-    slug TEXT NOT NULL REFERENCES attachments(slug) ON DELETE CASCADE,
+    slug TEXT NOT NULL REFERENCES conduit_attachments(slug) ON DELETE CASCADE,
     reviewer_agent_id TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',
     comment TEXT,
@@ -218,14 +231,14 @@ CREATE TABLE IF NOT EXISTS attachment_approvals (
     UNIQUE(slug, reviewer_agent_id)
 );
 --> statement-breakpoint
-CREATE INDEX IF NOT EXISTS idx_attachment_approvals_slug ON attachment_approvals(slug);
+CREATE INDEX IF NOT EXISTS idx_conduit_attachment_approvals_slug ON conduit_attachment_approvals(slug);
 --> statement-breakpoint
 
 -- -------------------------------------------------------------------------
 -- Contributor statistics per attachment (who edited, how much).
 -- -------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS attachment_contributors (
-    slug TEXT NOT NULL REFERENCES attachments(slug) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS conduit_attachment_contributors (
+    slug TEXT NOT NULL REFERENCES conduit_attachments(slug) ON DELETE CASCADE,
     agent_id TEXT NOT NULL,
     version_count INTEGER NOT NULL DEFAULT 0,
     total_tokens_added INTEGER NOT NULL DEFAULT 0,
