@@ -13,6 +13,11 @@ export { runExodusMigrate } from './migrate.js';
 export { buildExodusPlan, deriveStagingDirName, sourcesPresent } from './plan.js';
 export { runExodusStatus } from './status.js';
 export {
+  resolveConsolidatedTableName,
+  reverseLookup,
+  type TableNameResolution,
+} from './table-name-map.js';
+export {
   EXODUS_TARGET_SCHEMA_VERSION,
   type ExodusJournal,
   type ExodusMigrateResult,
