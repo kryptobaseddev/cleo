@@ -52,7 +52,7 @@ describe('Safety Performance', { retry: 2 }, () => {
   describe('Single Task Operations', () => {
     it('should create task within <200ms including safety', async () => {
       const { createTask } = await import('../tasks-sqlite.js');
-      const { safeCreateTask } = await import('../data-safety.js');
+      const { safeCreateTask } = await import('../data-safety-central.js');
 
       // Warmup: initialize DB
       await createTask({
@@ -86,7 +86,7 @@ describe('Safety Performance', { retry: 2 }, () => {
 
     it('should verify task write within <100ms', async () => {
       const { createTask } = await import('../tasks-sqlite.js');
-      const { verifyTaskWrite } = await import('../data-safety.js');
+      const { verifyTaskWrite } = await import('../data-safety-central.js');
 
       await createTask({
         id: 'T001',
@@ -107,7 +107,7 @@ describe('Safety Performance', { retry: 2 }, () => {
 
     it('should check collision within <50ms', async () => {
       const { createTask } = await import('../tasks-sqlite.js');
-      const { checkTaskExists } = await import('../data-safety.js');
+      const { checkTaskExists } = await import('../data-safety-central.js');
 
       await createTask({
         id: 'T001',
@@ -154,7 +154,7 @@ describe('Safety Performance', { retry: 2 }, () => {
 
     it('should verify 50 tasks within <3000ms', async () => {
       const { createTask } = await import('../tasks-sqlite.js');
-      const { verifyTaskWrite } = await import('../data-safety.js');
+      const { verifyTaskWrite } = await import('../data-safety-central.js');
 
       // Create 50 tasks first
       for (let i = 0; i < 50; i++) {
@@ -183,7 +183,7 @@ describe('Safety Performance', { retry: 2 }, () => {
 
   describe('Sequence Validation Performance', () => {
     it('should validate sequence within <500ms', async () => {
-      const { validateAndRepairSequence } = await import('../data-safety.js');
+      const { validateAndRepairSequence } = await import('../data-safety-central.js');
 
       // Write a sequence file
       await writeFile(join(cleoDir, '.sequence.json'), JSON.stringify({ counter: 100 }));

@@ -1,7 +1,7 @@
 /**
  * Collision Detection Tests
  *
- * Tests the SQLite-level collision detection in data-safety.ts.
+ * Tests the SQLite-level collision detection in data-safety-central.ts.
  * Verifies that duplicate task IDs are caught before database write.
  *
  * @task T4741
@@ -42,7 +42,7 @@ describe('Collision Detection', () => {
 
   describe('checkTaskExists', () => {
     it('should return false for non-existent task', async () => {
-      const { checkTaskExists } = await import('../data-safety.js');
+      const { checkTaskExists } = await import('../data-safety-central.js');
 
       const exists = await checkTaskExists('T9999', tempDir, { strictMode: false });
       expect(exists).toBe(false);
@@ -50,7 +50,7 @@ describe('Collision Detection', () => {
 
     it('should detect existing task ID in strict mode', async () => {
       const { createTask } = await import('../tasks-sqlite.js');
-      const { checkTaskExists } = await import('../data-safety.js');
+      const { checkTaskExists } = await import('../data-safety-central.js');
 
       // Create a task first
       await createTask({
@@ -70,7 +70,7 @@ describe('Collision Detection', () => {
 
     it('should return true for existing task in non-strict mode', async () => {
       const { createTask } = await import('../tasks-sqlite.js');
-      const { checkTaskExists } = await import('../data-safety.js');
+      const { checkTaskExists } = await import('../data-safety-central.js');
 
       await createTask({
         id: 'T001',
@@ -87,7 +87,7 @@ describe('Collision Detection', () => {
 
     it('should not detect collision when detection is disabled', async () => {
       const { createTask } = await import('../tasks-sqlite.js');
-      const { checkTaskExists } = await import('../data-safety.js');
+      const { checkTaskExists } = await import('../data-safety-central.js');
 
       await createTask({
         id: 'T001',
@@ -105,7 +105,7 @@ describe('Collision Detection', () => {
 
     it('should include existing task details in error context', async () => {
       const { createTask } = await import('../tasks-sqlite.js');
-      const { checkTaskExists, SafetyError } = await import('../data-safety.js');
+      const { checkTaskExists, SafetyError } = await import('../data-safety-central.js');
 
       await createTask({
         id: 'T001',
@@ -130,7 +130,7 @@ describe('Collision Detection', () => {
 
   describe('Race Condition Simulation', () => {
     it('should handle rapid successive ID checks without false positives', async () => {
-      const { checkTaskExists } = await import('../data-safety.js');
+      const { checkTaskExists } = await import('../data-safety-central.js');
 
       // Run multiple checks in parallel for non-existent IDs
       const results = await Promise.all(
@@ -145,7 +145,7 @@ describe('Collision Detection', () => {
 
     it('should detect collision from rapid create-then-check', async () => {
       const { createTask } = await import('../tasks-sqlite.js');
-      const { checkTaskExists } = await import('../data-safety.js');
+      const { checkTaskExists } = await import('../data-safety-central.js');
 
       // Create task, then immediately check
       await createTask({
@@ -166,7 +166,7 @@ describe('Collision Detection', () => {
   describe('Namespace Isolation', () => {
     it('should detect collision in active tasks', async () => {
       const { createTask } = await import('../tasks-sqlite.js');
-      const { checkTaskExists } = await import('../data-safety.js');
+      const { checkTaskExists } = await import('../data-safety-central.js');
 
       await createTask({
         id: 'T001',
@@ -183,7 +183,7 @@ describe('Collision Detection', () => {
 
     it('should detect collision in done tasks', async () => {
       const { createTask } = await import('../tasks-sqlite.js');
-      const { checkTaskExists } = await import('../data-safety.js');
+      const { checkTaskExists } = await import('../data-safety-central.js');
 
       await createTask({
         id: 'T001',

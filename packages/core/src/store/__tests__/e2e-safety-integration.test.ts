@@ -167,7 +167,7 @@ describe('E2E Safety Integration', () => {
   describe('Collision Prevention E2E', () => {
     it('should prevent duplicate task creation through safeCreateTask', async () => {
       const { createTask } = await import('../tasks-sqlite.js');
-      const { safeCreateTask } = await import('../data-safety.js');
+      const { safeCreateTask } = await import('../data-safety-central.js');
 
       // Create first task
       await createTask({
@@ -206,7 +206,7 @@ describe('E2E Safety Integration', () => {
   describe('Write Verification E2E', () => {
     it('should verify data persists after write through safety layer', async () => {
       const { createTask } = await import('../tasks-sqlite.js');
-      const { verifyTaskWrite, safeCreateTask } = await import('../data-safety.js');
+      const { verifyTaskWrite, safeCreateTask } = await import('../data-safety-central.js');
 
       const taskData = {
         id: 'T001',

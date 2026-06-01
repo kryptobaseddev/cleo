@@ -2,7 +2,7 @@
  * Sequence Validation Tests
  *
  * Tests the sequence counter validation and auto-repair mechanisms
- * in data-safety.ts and data-safety-central.ts.
+ * in data-safety-central.ts.
  *
  * @task T4741
  * @epic T4732
@@ -41,7 +41,7 @@ describe('Sequence Validation', () => {
 
   describe('validateAndRepairSequence', () => {
     it('should pass when no tasks exist (clean state)', async () => {
-      const { validateAndRepairSequence } = await import('../data-safety.js');
+      const { validateAndRepairSequence } = await import('../data-safety-central.js');
 
       // Write a valid sequence file
       await writeFile(join(cleoDir, '.sequence.json'), JSON.stringify({ counter: 1 }));
@@ -52,7 +52,7 @@ describe('Sequence Validation', () => {
     });
 
     it('should skip validation when validateSequence is disabled', async () => {
-      const { validateAndRepairSequence } = await import('../data-safety.js');
+      const { validateAndRepairSequence } = await import('../data-safety-central.js');
 
       const result = await validateAndRepairSequence(tempDir, {
         validateSequence: false,
@@ -63,7 +63,7 @@ describe('Sequence Validation', () => {
     });
 
     it('should auto-repair when sequence file is missing (not throw)', async () => {
-      const { validateAndRepairSequence } = await import('../data-safety.js');
+      const { validateAndRepairSequence } = await import('../data-safety-central.js');
 
       // No .sequence.json written — simulates deleted file (production bug scenario)
       const result = await validateAndRepairSequence(tempDir);
@@ -73,7 +73,7 @@ describe('Sequence Validation', () => {
     });
 
     it('should repair when sequence is behind task IDs', async () => {
-      const { validateAndRepairSequence } = await import('../data-safety.js');
+      const { validateAndRepairSequence } = await import('../data-safety-central.js');
       const { createTask } = await import('../tasks-sqlite.js');
 
       // Create tasks to advance the database
@@ -103,9 +103,9 @@ describe('Sequence Validation', () => {
 
   describe('Data Integrity Check - Sequence', () => {
     it('should report sequence issues in integrity check', async () => {
-      const { runDataIntegrityCheck } = await import('../data-safety.js');
+      const { runSequenceIntegrityCheck } = await import('../data-safety-central.js');
 
-      const result = await runDataIntegrityCheck(tempDir);
+      const result = await runSequenceIntegrityCheck(tempDir);
 
       // Should have a result even if sequence doesn't exist yet
       expect(result).toBeDefined();
