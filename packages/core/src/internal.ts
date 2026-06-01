@@ -1669,9 +1669,16 @@ export {
   parseIssueTemplates,
 } from './templates/parser.js';
 // Tool guard — deny-first guarded primitive surface (T11407) consumed by the
-// in-process skill executor (T11477).
+// in-process skill executor (T11477). The date-gated default-mode mechanism
+// (T11474 · AC4) is also surfaced so consumers can read/observe the flip state.
 export type { GuardMode, ToolGuard, ToolGuardPolicy } from './tools/guard.js';
-export { createToolGuard, GuardDeniedError } from './tools/guard.js';
+export {
+  createToolGuard,
+  GUARD_ENFORCE_DEADLINE,
+  GUARD_ENFORCE_FLIP_ENABLED,
+  GuardDeniedError,
+  resolveDefaultGuardMode,
+} from './tools/guard.js';
 export type { DiagnoseFinding, DiagnoseResult, UpgradeSummary } from './upgrade.js';
 // Upgrade
 export { diagnoseUpgrade, runUpgrade } from './upgrade.js';

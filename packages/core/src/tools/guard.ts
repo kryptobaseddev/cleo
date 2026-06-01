@@ -15,6 +15,24 @@
  * effect. The boundary lint (T11409) later makes the guarded surface the only
  * public one.
  *
+ * ## Date-gated default flip (T11474 · AC4)
+ *
+ * The default posture is governed by {@link resolveDefaultGuardMode}, a
+ * date-gated mechanism keyed on {@link GUARD_ENFORCE_DEADLINE}. Until that
+ * deadline passes the default stays `warn`; on/after it the date-gate WOULD
+ * yield `enforce`.
+ *
+ * The flip is, however, an **owner-gated decision** and is NOT auto-applied.
+ * Per the owner-ratified self-shaping hard-gate (BRAIN `O-mpt8gjdx-0`,
+ * 2026-05-30), flipping this default to `enforce` is one of THREE gates that
+ * together unblock dynamic tool/skill forging; the other two — an approval-token
+ * CONDUIT gate and a discretion rate-limit (`DiscretionEvaluator`) — are NOT yet
+ * live. So the live default is held at `warn` behind
+ * {@link GUARD_ENFORCE_FLIP_ENABLED} (currently `false`); the mechanism is
+ * encoded but the flip awaits explicit owner confirmation that (a) the deadline
+ * has passed AND (b) the full suite is green with `enforce` on. Flip by setting
+ * `GUARD_ENFORCE_FLIP_ENABLED = true` once those conditions hold.
+ *
  * @epic T11390
  * @task T11407
  * @saga T11387
@@ -41,6 +59,60 @@ const log = getLogger('tool-guard');
 /** Enforcement posture for a {@link ToolGuard}. */
 export type GuardMode = 'warn' | 'enforce';
 
+/**
+ * Owner-set deadline (ISO-8601 date, UTC) after which the guard's DATE-GATE
+ * would yield `enforce` as the default posture.
+ *
+ * This is the date leg of the warn→enforce flip (T11474 · AC4). It is a single
+ * source of truth — change this one const to move the date. The flip is NOT
+ * applied on this date alone: it is additionally held behind
+ * {@link GUARD_ENFORCE_FLIP_ENABLED} (an owner-gated kill-switch), because the
+ * owner-ratified self-shaping hard-gate (BRAIN `O-mpt8gjdx-0`) requires two
+ * sibling systems (approval-token CONDUIT gate + discretion rate-limit) to be
+ * live before `enforce` becomes the default.
+ *
+ * @remarks Placeholder owner-TBD value held one year out — the live default
+ *   stays `warn` regardless via {@link GUARD_ENFORCE_FLIP_ENABLED}. Replace with
+ *   the real ratified date when the owner sets it.
+ */
+export const GUARD_ENFORCE_DEADLINE = '2027-01-01T00:00:00.000Z';
+
+/**
+ * Owner-gated master switch for the warn→enforce default flip.
+ *
+ * When `false` (the current, held state), the live default is ALWAYS `warn`
+ * regardless of {@link GUARD_ENFORCE_DEADLINE} — the date-gate is encoded but
+ * inert. Set to `true` ONLY when the owner confirms (a) the deadline has passed,
+ * (b) the full suite is green with `enforce` on, and (c) the sibling self-shaping
+ * gates are live (BRAIN `O-mpt8gjdx-0`). This indirection keeps the mechanism in
+ * source without a silent, date-triggered behavior change.
+ */
+export const GUARD_ENFORCE_FLIP_ENABLED = false;
+
+/**
+ * Resolve the date-gated default {@link GuardMode}.
+ *
+ * Returns `enforce` only when BOTH the owner master switch
+ * ({@link GUARD_ENFORCE_FLIP_ENABLED}) is on AND `now` is at/after
+ * {@link GUARD_ENFORCE_DEADLINE}; otherwise `warn`. Callers that pass an
+ * explicit `policy.mode` to {@link createToolGuard} bypass this entirely.
+ *
+ * @param now - The instant to evaluate the deadline against; defaults to the
+ *   current time. Injectable so unit tests can assert both sides of the gate
+ *   without clock manipulation.
+ * @returns `'enforce'` once the gate fully opens, else `'warn'`.
+ *
+ * @example
+ * ```ts
+ * // Today (switch off): always 'warn'
+ * resolveDefaultGuardMode(); // 'warn'
+ * ```
+ */
+export function resolveDefaultGuardMode(now: Date = new Date()): GuardMode {
+  if (!GUARD_ENFORCE_FLIP_ENABLED) return 'warn';
+  return now.getTime() >= Date.parse(GUARD_ENFORCE_DEADLINE) ? 'enforce' : 'warn';
+}
+
 /** Deny-first policy for the tool guard. */
 export interface ToolGuardPolicy {
   /**
@@ -55,7 +127,11 @@ export interface ToolGuardPolicy {
    * segment.
    */
   readonly deniedCommands?: readonly string[];
-  /** `'warn'` (default) logs + proceeds; `'enforce'` throws before the effect. */
+  /**
+   * `'warn'` logs + proceeds; `'enforce'` throws before the effect. When
+   * omitted, the default comes from the date-gated {@link resolveDefaultGuardMode}
+   * (held at `'warn'` until the owner-gated flip — see {@link GUARD_ENFORCE_DEADLINE}).
+   */
   readonly mode?: GuardMode;
 }
 
@@ -107,7 +183,9 @@ function deniedCommand(command: string, denied: readonly string[]): string | nul
  * ```
  */
 export function createToolGuard(policy: ToolGuardPolicy = {}): ToolGuard {
-  const mode: GuardMode = policy.mode ?? 'warn';
+  // Explicit policy.mode always wins; otherwise the date-gated default applies
+  // (held at 'warn' behind the owner-gated flip — T11474 · AC4).
+  const mode: GuardMode = policy.mode ?? resolveDefaultGuardMode();
 
   const denyFs = (op: string, path: string): boolean => {
     if (!policy.allowedRoots || policy.allowedRoots.length === 0) return false;
