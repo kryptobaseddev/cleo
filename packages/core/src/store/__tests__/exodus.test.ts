@@ -1287,21 +1287,36 @@ describe('T11533 regression — resolveConsolidatedTableName: signaldock skills 
     });
   });
 
-  it('maps brain.db brain_release_links → tasks_brain_release_links (T11549 zero-loss — was skip in T11533)', () => {
-    // T11533 mapped this to null (skip) because no consolidated target existed.
-    // T11549 adds tasks_brain_release_links to the cleo-project schema so all 8 rows migrate.
+  it('maps brain.db brain_release_links → skip (T11550 P0: rows live in tasks.db, not brain.db)', () => {
+    // T11550 discovered these rows physically live in tasks.db. The BRAIN_DB_MAP entry is now
+    // null (skip) to prevent double-migration if brain.db ever contains a phantom table.
+    // The real migration path is tasks.db → TASKS_DB_MAP (tested in T11550 describe block).
     const r = resolveConsolidatedTableName('brain (project)', 'brain_release_links');
-    expect(r.kind).toBe('mapped');
-    if (r.kind === 'mapped') {
-      expect(r.targetName).toBe('tasks_brain_release_links');
-    }
+    expect(r.kind).toBe('skip');
   });
 
-  it('maps brain.db agent_credentials → tasks_agent_credentials (T11549 zero-loss fix)', () => {
+  it('maps brain.db agent_credentials → skip (T11550 P0: rows live in tasks.db, not brain.db)', () => {
+    // Same as brain_release_links: rows physically live in tasks.db (verified via sqlite_master).
+    // BRAIN_DB_MAP → null (skip). Real path: tasks.db → TASKS_DB_MAP.
     const r = resolveConsolidatedTableName('brain (project)', 'agent_credentials');
+    expect(r.kind).toBe('skip');
+  });
+
+  it('maps tasks.db agent_credentials → tasks_agent_credentials (T11550 P0 correct DB)', () => {
+    // The 3 agent_credentials rows live in tasks.db — this is the real migration path.
+    const r = resolveConsolidatedTableName('tasks', 'agent_credentials');
     expect(r.kind).toBe('mapped');
     if (r.kind === 'mapped') {
       expect(r.targetName).toBe('tasks_agent_credentials');
+    }
+  });
+
+  it('maps tasks.db brain_release_links → tasks_brain_release_links (T11550 P0 correct DB)', () => {
+    // The 8 brain_release_links rows live in tasks.db — this is the real migration path.
+    const r = resolveConsolidatedTableName('tasks', 'brain_release_links');
+    expect(r.kind).toBe('mapped');
+    if (r.kind === 'mapped') {
+      expect(r.targetName).toBe('tasks_brain_release_links');
     }
   });
 });
@@ -2746,6 +2761,410 @@ describe('T11549 regression — zero-loss final mile: confidence/decision_catego
       expect(msRow?.first_observed_at.startsWith('2024'), 'ms-epoch → 2024').toBe(true);
       expect(msRow?.last_reinforced_at.startsWith('2024'), 'ms-epoch last_reinforced → 2024').toBe(
         true,
+      );
+    } finally {
+      tgt.close();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T11550 REGRESSION — last 15 rows: wrong-DB-map + brain_decisions enums
+// ---------------------------------------------------------------------------
+//
+// Bug 1: agent_credentials (3 rows) + brain_release_links (8 rows) physically
+//   live in tasks.db. T11549 placed the mappings in BRAIN_DB_MAP. Since the
+//   exodus tasks.db source uses 'tasks' → TASKS_DB_MAP, the rows were skipped.
+//   Fix: move mappings to TASKS_DB_MAP; set BRAIN_DB_MAP entries to null (skip).
+//
+// Bug 2: brain_decisions.outcome legacy value 'accepted' not in consolidated
+//   CHECK enum (success|failure|mixed|pending). Maps → 'success'.
+//   brain_decisions.decided_by legacy value 'prime' not in consolidated CHECK
+//   enum (owner|council|agent). Maps → 'agent'.
+//   Fix: add ENUM_NORMALIZATIONS entries for both columns.
+//
+// @task T11550 (P0 zero-loss final mile — last 15 rows)
+
+describe('T11550 regression — agent_credentials/brain_release_links from tasks.db + brain_decisions outcome/decided_by enums', () => {
+  let tmpDir: string;
+  let sourcePath: string;
+  let targetProjectPath: string;
+  let targetGlobalPath: string;
+  let stagingDir: string;
+
+  beforeEach(() => {
+    tmpDir = makeTempDir();
+    sourcePath = join(tmpDir, 'source.db');
+    targetProjectPath = join(tmpDir, 'target-project.db');
+    targetGlobalPath = join(tmpDir, 'target-global.db');
+    stagingDir = join(tmpDir, 'staging');
+    mkdirSync(stagingDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  /** Shared migrate helper identical to T11549. */
+  async function runMigrateT11550(
+    sourceName: string,
+    targetScope: 'project' | 'global',
+  ): Promise<string> {
+    const targetPath = targetScope === 'project' ? targetProjectPath : targetGlobalPath;
+    const targetProjectDb = new DatabaseSync(targetProjectPath);
+    const targetGlobalDb = new DatabaseSync(targetGlobalPath);
+
+    const makeFakeHandle = (native: DatabaseSyncType) => ({
+      db: { $client: native },
+      close: () => {
+        /* test owns lifetime */
+      },
+    });
+
+    vi.mock('../dual-scope-db.js', () => ({
+      openDualScopeDb: vi.fn(),
+      resolveDualScopeDbPath: vi.fn(),
+    }));
+
+    const dualScopeModule = await import('../dual-scope-db.js');
+    vi.mocked(dualScopeModule.openDualScopeDb).mockImplementation((scope: string) => {
+      if (scope === 'project') return Promise.resolve(makeFakeHandle(targetProjectDb) as never);
+      return Promise.resolve(makeFakeHandle(targetGlobalDb) as never);
+    });
+    vi.mocked(dualScopeModule.resolveDualScopeDbPath).mockImplementation((scope: string) =>
+      scope === 'project' ? targetProjectPath : targetGlobalPath,
+    );
+
+    const { runExodusMigrate: migrate } = await import('../exodus/migrate.js');
+
+    const plan: ExodusPlan = {
+      sources: [{ name: sourceName, path: sourcePath, targetScope }],
+      totalSourceBytes: 0,
+      availableBytes: 100_000_000,
+      diskPreflight: true,
+      stagingDir,
+      resumeFromStaging: false,
+      projectDbPath: targetProjectPath,
+      globalDbPath: targetGlobalPath,
+    };
+
+    const result = await migrate(plan, false, undefined);
+    expect(result.ok, `migrate failed: ${result.error ?? 'unknown'}`).toBe(true);
+
+    targetProjectDb.close();
+    targetGlobalDb.close();
+
+    return targetPath;
+  }
+
+  it('migrates agent_credentials from tasks.db source (3 rows, P0 wrong-DB-map fix)', async () => {
+    // Before T11550: mapping was in BRAIN_DB_MAP; tasks.db → TASKS_DB_MAP had no entry → skip.
+    // After T11550: TASKS_DB_MAP has 'agent_credentials' → 'tasks_agent_credentials'.
+    const srcDb = new DatabaseSync(sourcePath);
+    try {
+      srcDb.exec(
+        `CREATE TABLE agent_credentials (` +
+          `agent_id TEXT PRIMARY KEY, ` +
+          `display_name TEXT NOT NULL, ` +
+          `api_key_encrypted TEXT NOT NULL, ` +
+          `api_base_url TEXT NOT NULL DEFAULT 'https://api.signaldock.io', ` +
+          `is_active INTEGER NOT NULL DEFAULT 1, ` +
+          `created_at INTEGER NOT NULL DEFAULT 0, ` +
+          `updated_at INTEGER NOT NULL DEFAULT 0)`,
+      );
+      srcDb.exec(
+        `INSERT INTO agent_credentials VALUES ('a1', 'Agent One', 'enc-key-1', 'https://api.signaldock.io', 1, 1717000000000, 1717000000000)`,
+      );
+      srcDb.exec(
+        `INSERT INTO agent_credentials VALUES ('a2', 'Agent Two', 'enc-key-2', 'https://api.signaldock.io', 1, 1717000000001, 1717000000001)`,
+      );
+      srcDb.exec(
+        `INSERT INTO agent_credentials VALUES ('a3', 'Agent Three', 'enc-key-3', 'https://api.signaldock.io', 0, 1717000000002, 1717000000002)`,
+      );
+    } finally {
+      srcDb.close();
+    }
+
+    const tgtDb = new DatabaseSync(targetProjectPath);
+    try {
+      tgtDb.exec(
+        `CREATE TABLE tasks_agent_credentials (` +
+          `agent_id TEXT PRIMARY KEY, ` +
+          `display_name TEXT NOT NULL, ` +
+          `api_key_encrypted TEXT NOT NULL, ` +
+          `api_base_url TEXT NOT NULL DEFAULT 'https://api.signaldock.io', ` +
+          `classification TEXT, ` +
+          `privacy_tier TEXT NOT NULL DEFAULT 'public', ` +
+          `capabilities TEXT NOT NULL DEFAULT '[]', ` +
+          `skills TEXT NOT NULL DEFAULT '[]', ` +
+          `transport_config TEXT NOT NULL DEFAULT '{}', ` +
+          `is_active INTEGER NOT NULL DEFAULT 1, ` +
+          `last_used_at INTEGER, ` +
+          `created_at INTEGER NOT NULL DEFAULT 0, ` +
+          `updated_at INTEGER NOT NULL DEFAULT 0)`,
+      );
+    } finally {
+      tgtDb.close();
+    }
+    new DatabaseSync(targetGlobalPath).close();
+
+    await runMigrateT11550('tasks', 'project');
+
+    const tgt = new DatabaseSync(targetProjectPath, { readOnly: true });
+    try {
+      const rows = tgt
+        .prepare(
+          'SELECT agent_id, api_key_encrypted FROM tasks_agent_credentials ORDER BY agent_id',
+        )
+        .all() as Array<{ agent_id: string; api_key_encrypted: string }>;
+      expect(rows, 'all 3 agent_credentials rows must migrate').toHaveLength(3);
+      expect(rows[0]?.agent_id).toBe('a1');
+      expect(rows[0]?.api_key_encrypted).toBe('enc-key-1');
+      expect(rows[2]?.agent_id).toBe('a3');
+    } finally {
+      tgt.close();
+    }
+  });
+
+  it('migrates brain_release_links from tasks.db source (8 rows, P0 wrong-DB-map fix)', async () => {
+    // Before T11550: mapping was in BRAIN_DB_MAP; tasks.db → TASKS_DB_MAP had no entry → skip.
+    // After T11550: TASKS_DB_MAP has 'brain_release_links' → 'tasks_brain_release_links'.
+    const srcDb = new DatabaseSync(sourcePath);
+    try {
+      srcDb.exec(
+        `CREATE TABLE brain_release_links (` +
+          `brain_entry_id TEXT, ` +
+          `release_id TEXT NOT NULL, ` +
+          `link_type TEXT NOT NULL, ` +
+          `created_at TEXT NOT NULL DEFAULT '', ` +
+          `created_by TEXT)`,
+      );
+      for (let i = 1; i <= 8; i++) {
+        srcDb.exec(
+          `INSERT INTO brain_release_links VALUES ('brain-${i}', 'rel-${i}', 'approved-by', '2026-01-0${(i % 9) + 1}T00:00:00Z', 'agent')`,
+        );
+      }
+    } finally {
+      srcDb.close();
+    }
+
+    const tgtDb = new DatabaseSync(targetProjectPath);
+    try {
+      tgtDb.exec(
+        `CREATE TABLE tasks_brain_release_links (` +
+          `brain_entry_id TEXT, ` +
+          `release_id TEXT NOT NULL, ` +
+          `link_type TEXT NOT NULL CHECK (link_type IN ('approved-by','documented-in','derived-from','observed-in')), ` +
+          `created_at TEXT NOT NULL DEFAULT (datetime('now')), ` +
+          `created_by TEXT, ` +
+          `PRIMARY KEY (brain_entry_id, release_id, link_type))`,
+      );
+    } finally {
+      tgtDb.close();
+    }
+    new DatabaseSync(targetGlobalPath).close();
+
+    await runMigrateT11550('tasks', 'project');
+
+    const tgt = new DatabaseSync(targetProjectPath, { readOnly: true });
+    try {
+      const count = (
+        tgt.prepare('SELECT COUNT(*) AS c FROM tasks_brain_release_links').get() as { c: number }
+      ).c;
+      expect(count, 'all 8 brain_release_links rows must migrate').toBe(8);
+    } finally {
+      tgt.close();
+    }
+  });
+
+  it('normalizes brain_decisions.outcome: accepted → success (1 row, P0 enum fix)', async () => {
+    // Legacy 'accepted' not in consolidated CHECK enum (success|failure|mixed|pending).
+    // Maps to 'success' (decision was accepted = successfully ratified).
+    const srcDb = new DatabaseSync(sourcePath);
+    try {
+      srcDb.exec(
+        `CREATE TABLE brain_decisions (id TEXT PRIMARY KEY, title TEXT NOT NULL, outcome TEXT)`,
+      );
+      srcDb.exec(`INSERT INTO brain_decisions VALUES ('D11132', 'Test Decision', 'accepted')`);
+      srcDb.exec(`INSERT INTO brain_decisions VALUES ('D-ok1', 'Success', 'success')`);
+      srcDb.exec(`INSERT INTO brain_decisions VALUES ('D-ok2', 'Pending', 'pending')`);
+      srcDb.exec(`INSERT INTO brain_decisions VALUES ('D-ok3', 'Null outcome', null)`);
+    } finally {
+      srcDb.close();
+    }
+
+    const tgtDb = new DatabaseSync(targetProjectPath);
+    try {
+      tgtDb.exec(
+        `CREATE TABLE brain_decisions (id TEXT PRIMARY KEY, title TEXT NOT NULL, ` +
+          `outcome TEXT CHECK (outcome IS NULL OR outcome IN ('success','failure','mixed','pending')))`,
+      );
+    } finally {
+      tgtDb.close();
+    }
+    new DatabaseSync(targetGlobalPath).close();
+
+    await runMigrateT11550('brain (project)', 'project');
+
+    const tgt = new DatabaseSync(targetProjectPath, { readOnly: true });
+    try {
+      const rows = tgt
+        .prepare('SELECT id, outcome FROM brain_decisions ORDER BY id')
+        .all() as Array<{ id: string; outcome: string | null }>;
+      expect(rows, 'all 4 rows must migrate (none dropped)').toHaveLength(4);
+      expect(rows.find((r) => r.id === 'D11132')?.outcome, 'accepted → success').toBe('success');
+      expect(rows.find((r) => r.id === 'D-ok1')?.outcome, 'success passthrough').toBe('success');
+      expect(rows.find((r) => r.id === 'D-ok2')?.outcome, 'pending passthrough').toBe('pending');
+      expect(rows.find((r) => r.id === 'D-ok3')?.outcome, 'null preserved').toBeNull();
+    } finally {
+      tgt.close();
+    }
+  });
+
+  it('normalizes brain_decisions.decided_by: prime → agent (3 rows, P0 enum fix)', async () => {
+    // Legacy 'prime' not in consolidated CHECK enum (owner|council|agent).
+    // Maps to 'agent' (CLEO Prime is a system agent persona).
+    const srcDb = new DatabaseSync(sourcePath);
+    try {
+      srcDb.exec(
+        `CREATE TABLE brain_decisions (id TEXT PRIMARY KEY, title TEXT NOT NULL, decided_by TEXT NOT NULL DEFAULT 'agent')`,
+      );
+      srcDb.exec(
+        `INSERT INTO brain_decisions VALUES ('T11025-alias-registration', 'Alias Reg', 'prime')`,
+      );
+      srcDb.exec(
+        `INSERT INTO brain_decisions VALUES ('T11027-envelope-compliance', 'Envelope', 'prime')`,
+      );
+      srcDb.exec(
+        `INSERT INTO brain_decisions VALUES ('T11030-integration-test', 'Integration', 'prime')`,
+      );
+      srcDb.exec(`INSERT INTO brain_decisions VALUES ('D-owner', 'Owner Dec', 'owner')`);
+      srcDb.exec(`INSERT INTO brain_decisions VALUES ('D-council', 'Council Dec', 'council')`);
+      srcDb.exec(`INSERT INTO brain_decisions VALUES ('D-agent', 'Agent Dec', 'agent')`);
+    } finally {
+      srcDb.close();
+    }
+
+    const tgtDb = new DatabaseSync(targetProjectPath);
+    try {
+      tgtDb.exec(
+        `CREATE TABLE brain_decisions (id TEXT PRIMARY KEY, title TEXT NOT NULL, ` +
+          `decided_by TEXT NOT NULL DEFAULT 'agent' CHECK (decided_by IN ('owner','council','agent')))`,
+      );
+    } finally {
+      tgtDb.close();
+    }
+    new DatabaseSync(targetGlobalPath).close();
+
+    await runMigrateT11550('brain (project)', 'project');
+
+    const tgt = new DatabaseSync(targetProjectPath, { readOnly: true });
+    try {
+      const rows = tgt
+        .prepare('SELECT id, decided_by FROM brain_decisions ORDER BY id')
+        .all() as Array<{ id: string; decided_by: string }>;
+      expect(rows, 'all 6 rows must migrate (none dropped by CHECK)').toHaveLength(6);
+      expect(
+        rows.find((r) => r.id === 'T11025-alias-registration')?.decided_by,
+        'prime → agent',
+      ).toBe('agent');
+      expect(
+        rows.find((r) => r.id === 'T11027-envelope-compliance')?.decided_by,
+        'prime → agent',
+      ).toBe('agent');
+      expect(
+        rows.find((r) => r.id === 'T11030-integration-test')?.decided_by,
+        'prime → agent',
+      ).toBe('agent');
+      expect(rows.find((r) => r.id === 'D-owner')?.decided_by, 'owner passthrough').toBe('owner');
+      expect(rows.find((r) => r.id === 'D-council')?.decided_by, 'council passthrough').toBe(
+        'council',
+      );
+      expect(rows.find((r) => r.id === 'D-agent')?.decided_by, 'agent passthrough').toBe('agent');
+    } finally {
+      tgt.close();
+    }
+  });
+
+  it('brain_decisions 118→118: all 4 real-project rows survive with combined outcome+decided_by normalization', async () => {
+    // Simulate the exact 4 rows from the real-project brain.db that were dropping.
+    // D11132: outcome='accepted' (→ success), decided_by='agent' (ok), confidence='confirmed' (→ high via T11549 rule), decision_category='process' (→ other via T11549 rule)
+    // T11025/T11027/T11030: outcome=null (ok), decided_by='prime' (→ agent), confidence='confirmed' (→ high), decision_category='technical' (→ other)
+    const srcDb = new DatabaseSync(sourcePath);
+    try {
+      srcDb.exec(
+        `CREATE TABLE brain_decisions (` +
+          `id TEXT PRIMARY KEY, ` +
+          `title TEXT NOT NULL, ` +
+          `outcome TEXT, ` +
+          `decided_by TEXT NOT NULL DEFAULT 'agent', ` +
+          `confidence TEXT NOT NULL DEFAULT 'medium', ` +
+          `decision_category TEXT NOT NULL DEFAULT 'architectural')`,
+      );
+      // D11132: outcome='accepted', decided_by='agent' (already canonical)
+      srcDb.exec(
+        `INSERT INTO brain_decisions VALUES ('D11132', 'D11132', 'accepted', 'agent', 'confirmed', 'process')`,
+      );
+      // Three 'prime' rows with null outcome
+      srcDb.exec(
+        `INSERT INTO brain_decisions VALUES ('T11025-alias-registration', 'T11025', null, 'prime', 'confirmed', 'technical')`,
+      );
+      srcDb.exec(
+        `INSERT INTO brain_decisions VALUES ('T11027-envelope-compliance', 'T11027', null, 'prime', 'confirmed', 'technical')`,
+      );
+      srcDb.exec(
+        `INSERT INTO brain_decisions VALUES ('T11030-integration-test', 'T11030', null, 'prime', 'confirmed', 'technical')`,
+      );
+    } finally {
+      srcDb.close();
+    }
+
+    const tgtDb = new DatabaseSync(targetProjectPath);
+    try {
+      tgtDb.exec(
+        `CREATE TABLE brain_decisions (` +
+          `id TEXT PRIMARY KEY, ` +
+          `title TEXT NOT NULL, ` +
+          `outcome TEXT CHECK (outcome IS NULL OR outcome IN ('success','failure','mixed','pending')), ` +
+          `decided_by TEXT NOT NULL DEFAULT 'agent' CHECK (decided_by IN ('owner','council','agent')), ` +
+          `confidence TEXT NOT NULL DEFAULT 'medium' CHECK (confidence IN ('low','medium','high')), ` +
+          `decision_category TEXT NOT NULL DEFAULT 'architectural' CHECK (decision_category IN ('architectural','agent_dispatch','other')))`,
+      );
+    } finally {
+      tgtDb.close();
+    }
+    new DatabaseSync(targetGlobalPath).close();
+
+    await runMigrateT11550('brain (project)', 'project');
+
+    const tgt = new DatabaseSync(targetProjectPath, { readOnly: true });
+    try {
+      const rows = tgt
+        .prepare(
+          'SELECT id, outcome, decided_by, confidence, decision_category FROM brain_decisions ORDER BY id',
+        )
+        .all() as Array<{
+        id: string;
+        outcome: string | null;
+        decided_by: string;
+        confidence: string;
+        decision_category: string;
+      }>;
+      expect(rows, 'all 4 rows must survive — brain_decisions 118→118').toHaveLength(4);
+
+      const d11132 = rows.find((r) => r.id === 'D11132');
+      expect(d11132?.outcome, 'D11132 outcome: accepted → success').toBe('success');
+      expect(d11132?.decided_by, 'D11132 decided_by: agent passthrough').toBe('agent');
+      expect(d11132?.confidence, 'D11132 confidence: confirmed → high').toBe('high');
+      expect(d11132?.decision_category, 'D11132 decision_category: process → other').toBe('other');
+
+      const t11025 = rows.find((r) => r.id === 'T11025-alias-registration');
+      expect(t11025?.outcome, 'T11025 outcome: null preserved').toBeNull();
+      expect(t11025?.decided_by, 'T11025 decided_by: prime → agent').toBe('agent');
+      expect(t11025?.confidence, 'T11025 confidence: confirmed → high').toBe('high');
+      expect(t11025?.decision_category, 'T11025 decision_category: technical → other').toBe(
+        'other',
       );
     } finally {
       tgt.close();

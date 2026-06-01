@@ -385,10 +385,24 @@ function typeDefaultLiteral(colType: string): string {
  *   (enum: direct/satisfies/coverage). Strip the namespace prefix introduced
  *   before the enum was tightened. [3 rows]
  *
+ * ## Additional entries (T11550 — last 4 rows, P0 zero-loss final mile)
+ *
+ * - `brain_decisions.outcome`
+ *   → `'accepted'` → `'success'` (enum: success/failure/mixed/pending). A decision
+ *   that was accepted/adopted = successful outcome. `'rejected'` → `'failure'`.
+ *   [1 row: D11132]
+ *
+ * - `brain_decisions.decided_by`
+ *   → `'prime'` → `'agent'` (enum: owner/council/agent). 'prime' is the CLEO Prime
+ *   agent persona; maps to 'agent'. Any other out-of-vocab value also becomes 'agent'
+ *   (the NOT NULL default). [3 rows: T11025-alias-registration, T11027-envelope-compliance,
+ *   T11030-integration-test]
+ *
  * Lookup key: `${targetTable}.${column}` (lowercase, dotted).
  *
  * @since T11547 (P0 data-loss fix)
  * @since T11548 (P0 final enum coverage)
+ * @since T11550 (P0 zero-loss final mile — last 4 rows)
  */
 type NormalizeFn = (srcRef: string) => string;
 
@@ -542,6 +556,40 @@ const ENUM_NORMALIZATIONS: ReadonlyMap<string, NormalizeFn> = new Map([
     'tasks_evidence_ac_bindings.binding_type',
     (src: string) =>
       `CASE` + ` WHEN ${src} LIKE 'validator:%' THEN 'direct'` + ` ELSE ${src}` + ` END`,
+  ],
+
+  // --- brain_decisions.outcome (T11550 P0 zero-loss fix) -------------------
+  // Legacy value 'accepted' is not in the consolidated CHECK enum
+  // (success|failure|mixed|pending). A decision that was 'accepted' (adopted,
+  // ratified, acted upon) maps to 'success' — the decision achieved its intended
+  // outcome. Legacy value 'rejected' maps to 'failure'.
+  // Covers 1 row (D11132) in the real-project brain.db.
+  [
+    'brain_decisions.outcome',
+    (src: string) =>
+      `CASE` +
+      ` WHEN ${src} = 'accepted' THEN 'success'` +
+      ` WHEN ${src} = 'rejected' THEN 'failure'` +
+      ` WHEN ${src} IN ('success', 'failure', 'mixed', 'pending') THEN ${src}` +
+      ` ELSE ${src}` +
+      ` END`,
+  ],
+
+  // --- brain_decisions.decided_by (T11550 P0 zero-loss fix) ----------------
+  // Legacy value 'prime' is not in the consolidated CHECK enum (owner|council|agent).
+  // 'prime' refers to the CLEO Prime agent persona (a system agent); maps to 'agent'.
+  // Covers 3 rows (T11025-alias-registration, T11027-envelope-compliance,
+  // T11030-integration-test) in the real-project brain.db.
+  // The column is NOT NULL with default 'agent' — any out-of-vocab value also
+  // falls back to 'agent' (the safe system default).
+  [
+    'brain_decisions.decided_by',
+    (src: string) =>
+      `CASE` +
+      ` WHEN ${src} = 'prime' THEN 'agent'` +
+      ` WHEN ${src} IN ('owner', 'council', 'agent') THEN ${src}` +
+      ` ELSE 'agent'` +
+      ` END`,
   ],
 ]);
 
