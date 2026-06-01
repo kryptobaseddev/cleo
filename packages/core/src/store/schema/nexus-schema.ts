@@ -390,14 +390,10 @@ export const nexusRelations = sqliteTable(
     /** ISO 8601 timestamp when this relation was last indexed. */
     indexedAt: text('indexed_at').notNull().default(sql`(datetime('now'))`),
 
-    // T998: Plasticity columns for Hebbian co-access strengthening.
-    // Edges strengthen over time as nodes are accessed together during retrieval.
-    /** Plasticity weight in [0.0, 1.0]. Starts at 0.0; increments 0.05 per co-access; capped at 1.0. */
-    weight: real('weight').default(0.0),
-    /** ISO 8601 timestamp of the last co-access strengthening event. NULL until first strengthen. */
-    lastAccessedAt: text('last_accessed_at'),
-    /** Number of times this edge has been co-access strengthened. */
-    coAccessedCount: integer('co_accessed_count').default(0),
+    // T998 plasticity columns (`weight`, `last_accessed_at`, `co_accessed_count`)
+    // were PARTITIONED out into the sibling `nexus_relation_weights` table by
+    // T11545 (ADR-090 §5.3) to keep the read-mostly structural graph row narrow
+    // and isolate the write-heavy Hebbian hot path. See {@link nexusRelationWeights}.
   },
   (table) => [
     index('idx_nexus_relations_project').on(table.projectId),
@@ -408,8 +404,46 @@ export const nexusRelations = sqliteTable(
     index('idx_nexus_relations_source_type').on(table.sourceId, table.type),
     index('idx_nexus_relations_target_type').on(table.targetId, table.type),
     index('idx_nexus_relations_confidence').on(table.confidence),
-    // T998: index for plasticity decay queries and temporal access tracking
-    index('idx_nexus_relations_last_accessed').on(table.lastAccessedAt),
+  ],
+);
+
+// === NEXUS_RELATION_WEIGHTS TABLE (T11545 · ADR-090 §5.3) ===
+
+/**
+ * Plasticity weights for `nexus_relations` edges — Hebbian co-access (T998).
+ *
+ * Partitioned out of `nexus_relations` by T11545 (ADR-090 §5.3): the
+ * write-heavy plasticity columns (`weight`, `last_accessed_at`,
+ * `co_accessed_count`) live in this sibling 1:1 table keyed by `relation_id`,
+ * keeping the read-mostly structural graph row narrow. A relation has at most
+ * one weights row; rows are created lazily on the first co-access strengthening
+ * event (UPSERT in `nexus-plasticity.ts`), so absence means "never strengthened"
+ * (treat as weight 0.0).
+ *
+ * `relation_id` is an intra-scope soft FK to `nexus_relations.id` (no DB-level
+ * FK — symmetric with the rest of the graph's soft-FK convention).
+ *
+ * @task T11545
+ * @task T998
+ * @epic T11535
+ */
+export const nexusRelationWeights = sqliteTable(
+  'nexus_relation_weights',
+  {
+    /** Soft FK → `nexus_relations.id` (intra-scope). Primary key (1:1). */
+    relationId: text('relation_id').primaryKey(),
+    /** Plasticity weight in [0.0, 1.0]. Starts at 0.0; increments 0.05 per co-access; capped at 1.0. */
+    weight: real('weight').notNull().default(0.0),
+    /** ISO 8601 timestamp of the last co-access strengthening event. NULL until first strengthen. */
+    lastAccessedAt: text('last_accessed_at'),
+    /** Number of times this edge has been co-access strengthened. */
+    coAccessedCount: integer('co_accessed_count').notNull().default(0),
+  },
+  (table) => [
+    // Index for plasticity decay queries and temporal access tracking.
+    index('idx_nexus_relation_weights_last_accessed').on(table.lastAccessedAt),
+    // Index for hot-path queries ordering by weight DESC.
+    index('idx_nexus_relation_weights_weight').on(table.weight),
   ],
 );
 
@@ -654,6 +688,8 @@ export type NexusNodeRow = typeof nexusNodes.$inferSelect;
 export type NewNexusNodeRow = typeof nexusNodes.$inferInsert;
 export type NexusRelationRow = typeof nexusRelations.$inferSelect;
 export type NewNexusRelationRow = typeof nexusRelations.$inferInsert;
+export type NexusRelationWeightRow = typeof nexusRelationWeights.$inferSelect;
+export type NewNexusRelationWeightRow = typeof nexusRelationWeights.$inferInsert;
 export type NexusContractRow = typeof nexusContracts.$inferSelect;
 export type NewNexusContractRow = typeof nexusContracts.$inferInsert;
 export type UserProfileRow = typeof userProfile.$inferSelect;

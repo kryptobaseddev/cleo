@@ -378,6 +378,60 @@ function ensureNexusFts5(nativeDb: DatabaseSync): void {
 }
 
 /**
+ * Idempotent safety net for `nexus_relation_weights` (T11545 · ADR-090 §5.3).
+ *
+ * The Hebbian plasticity columns were partitioned out of `nexus_relations` into
+ * this sibling 1:1 table. This safety net mirrors the prior T998 `ensureColumns`
+ * band-aid: it CREATEs the table (+ indexes) on existing nexus instances that
+ * predate the T11545 drizzle migration, and — when the legacy inline columns are
+ * still present on `nexus_relations` (pre-partition DBs whose migration chain has
+ * not yet reached T11545) — backfills any non-default plasticity state so the
+ * accessor never loses weights. Every statement is guarded; safe to re-run.
+ *
+ * @task T11545
+ */
+function ensureNexusRelationWeights(nativeDb: DatabaseSync): void {
+  // Only meaningful once the parent graph table exists.
+  if (!tableExists(nativeDb, 'nexus_relations')) return;
+
+  const alreadyExists = tableExists(nativeDb, 'nexus_relation_weights');
+
+  nativeDb.exec(`
+    CREATE TABLE IF NOT EXISTS nexus_relation_weights (
+      relation_id       TEXT PRIMARY KEY NOT NULL,
+      weight            REAL DEFAULT 0.0 NOT NULL,
+      last_accessed_at  TEXT,
+      co_accessed_count INTEGER DEFAULT 0 NOT NULL
+    )
+  `);
+  nativeDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_nexus_relation_weights_last_accessed ON nexus_relation_weights (last_accessed_at)`,
+  );
+  nativeDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_nexus_relation_weights_weight ON nexus_relation_weights (weight)`,
+  );
+
+  // Backfill from the legacy inline columns IFF they are still present and this
+  // is the first time the sibling table is created (avoids clobbering rows the
+  // running accessor may have written since the partition migration).
+  if (alreadyExists) return;
+  const relCols = nativeDb.prepare('PRAGMA table_info(nexus_relations)').all() as Array<{
+    name: string;
+  }>;
+  const hasInlinePlasticity = relCols.some((c) => c.name === 'weight');
+  if (!hasInlinePlasticity) return;
+
+  nativeDb.exec(`
+    INSERT OR IGNORE INTO nexus_relation_weights (relation_id, weight, last_accessed_at, co_accessed_count)
+    SELECT id, COALESCE(weight, 0.0), last_accessed_at, COALESCE(co_accessed_count, 0)
+      FROM nexus_relations
+     WHERE COALESCE(weight, 0.0) > 0.0
+        OR last_accessed_at IS NOT NULL
+        OR COALESCE(co_accessed_count, 0) > 0
+  `);
+}
+
+/**
  * Run drizzle migrations to create/update the legacy nexus tables inside the
  * consolidated GLOBAL `cleo.db`.
  *
@@ -424,19 +478,11 @@ function runNexusMigrations(
     }
   }
 
-  // T998: idempotent safety net for plasticity columns — covers pre-migration
-  // nexus instances that were created before the drizzle migration runs.
-  // ensureColumns is a no-op when the columns already exist.
-  ensureColumns(
-    nativeDb,
-    'nexus_relations',
-    [
-      { name: 'weight', ddl: 'real DEFAULT 0.0' },
-      { name: 'last_accessed_at', ddl: 'text' },
-      { name: 'co_accessed_count', ddl: 'integer DEFAULT 0' },
-    ],
-    'nexus',
-  );
+  // T11545: idempotent safety net for the partitioned plasticity table —
+  // covers pre-migration nexus instances created before the T11545 migration
+  // runs (it CREATEs the sibling table + backfills any legacy inline columns).
+  // No-op when the table already exists.
+  ensureNexusRelationWeights(nativeDb);
 
   // T1062: idempotent safety net for external module nodes — covers pre-migration
   // nexus instances that were created before the drizzle migration runs.

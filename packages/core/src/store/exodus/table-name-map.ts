@@ -254,6 +254,8 @@ const NEXUS_DB_MAP: ReadonlyMap<string, string> = new Map([
   ['nexus_audit_log', 'nexus_audit_log'],
   ['nexus_nodes', 'nexus_nodes'],
   ['nexus_relations', 'nexus_relations'],
+  // T11545: partitioned Hebbian plasticity weights (1:1 with nexus_relations).
+  ['nexus_relation_weights', 'nexus_relation_weights'],
   ['nexus_contracts', 'nexus_contracts'],
   // schema_meta tables created by consolidated schema bootstrap
   ['nexus_schema_meta', 'nexus_schema_meta'],

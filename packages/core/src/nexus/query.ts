@@ -371,26 +371,30 @@ export async function nexusTopEntries(params?: {
 
     try {
       const kind = params?.kind ? String(params.kind) : null;
+      // T11545: plasticity `weight` lives in the sibling `nexus_relation_weights`
+      // table — LEFT JOIN it (edges with no weights row contribute weight 0).
       const sql =
         kind === null
           ? `SELECT r.source_id,
-                    SUM(COALESCE(r.weight, 0)) AS totalWeight,
+                    SUM(COALESCE(w.weight, 0)) AS totalWeight,
                     COUNT(*)                   AS edgeCount,
                     n.label,
                     n.kind,
                     n.file_path
                FROM nexus_relations r
+               LEFT JOIN nexus_relation_weights w ON w.relation_id = r.id
                LEFT JOIN nexus_nodes n ON n.id = r.source_id
               GROUP BY r.source_id
               ORDER BY totalWeight DESC, edgeCount DESC
               LIMIT ?`
           : `SELECT r.source_id,
-                    SUM(COALESCE(r.weight, 0)) AS totalWeight,
+                    SUM(COALESCE(w.weight, 0)) AS totalWeight,
                     COUNT(*)                   AS edgeCount,
                     n.label,
                     n.kind,
                     n.file_path
                FROM nexus_relations r
+               LEFT JOIN nexus_relation_weights w ON w.relation_id = r.id
                LEFT JOIN nexus_nodes n ON n.id = r.source_id
               WHERE n.kind = ?
               GROUP BY r.source_id
