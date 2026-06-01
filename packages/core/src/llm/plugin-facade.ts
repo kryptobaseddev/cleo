@@ -38,6 +38,7 @@ import type {
   NormalizedResponse,
   TransportMessage,
 } from '@cleocode/contracts/llm/normalized-response.js';
+import { redact } from '@cleocode/utils';
 import { getLlmExecutor } from './executor-factory.js';
 
 // ---------------------------------------------------------------------------
@@ -169,32 +170,22 @@ export function clearPluginRegistry(): void {
 // Credential redaction
 // ---------------------------------------------------------------------------
 
-/** Regex patterns that match common credential tokens in error strings. */
-const REDACTION_PATTERNS: readonly RegExp[] = [
-  /sk-ant-[A-Za-z0-9_-]+/g,
-  /sk-[A-Za-z0-9_-]{20,}/g,
-  /Bearer\s+[A-Za-z0-9._~+/-]+=*/g,
-  /xoxb-[A-Za-z0-9_-]+/g,
-];
-
-const REDACTION_REPLACEMENT = '[REDACTED]';
-
 /**
- * Scrub known credential patterns from a string.
- *
- * Applied to both `err.message` and `err.stack` before the sanitised error is
+ * Scrub known credential patterns from a string before the sanitised error is
  * surfaced to plugin callers.
  *
+ * Applied to both `err.message` and `err.stack`. As of E5 (T11414) the
+ * credential-pattern set lives once in the pure `@cleocode/utils` leaf; this is
+ * a domain-named alias over {@link redact} for readability at the call site.
+ * The shared superset additionally covers OpenAI/JWT/env/path/hex/JSON secret
+ * forms beyond this path's original four patterns — strictly more scrubbing,
+ * never less.
+ *
  * @param value - String to scrub (may be undefined).
- * @returns Scrubbed string, or the original value if undefined.
+ * @returns Scrubbed string, or `undefined` when the input was `undefined`.
  */
 function redactCredentials(value: string | undefined): string | undefined {
-  if (value === undefined) return undefined;
-  let result = value;
-  for (const pattern of REDACTION_PATTERNS) {
-    result = result.replace(pattern, REDACTION_REPLACEMENT);
-  }
-  return result;
+  return redact(value);
 }
 
 // ---------------------------------------------------------------------------
