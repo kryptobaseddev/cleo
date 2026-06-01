@@ -106,6 +106,7 @@
  * @task T11532 (P0 name-mapping + column-drift + verify-rowid fix)
  * @task T11533 (P0 FK-defer + NOT NULL coalesce + signaldock-global map + nexus hash fix)
  * @task T11547 (P0 enum normalization — 7,421 rows recovered)
+ * @task T11548 (P0 final enum coverage — 285 remaining rows zero-loss)
  * @saga T11242
  */
 
@@ -341,9 +342,48 @@ function typeDefaultLiteral(colType: string): string {
  *   normalization as architecture_decisions.status; brain_decisions uses
  *   a separate CHECK with the same three canonical values).
  *
+ * ## Additional entries (T11548 — final 285 rows)
+ *
+ * - `tasks_token_usage.transport`
+ *   → `'mcp'` → `'agent'` (CHECK enum: cli/api/agent/unknown). Legacy writers
+ *   emitted 'mcp' before the transport taxonomy was consolidated; 'agent' is
+ *   the nearest canonical for MCP-originated requests. [194 rows]
+ *
+ * - `brain_decisions.decision_category`
+ *   → `'architecture'` → `'architectural'` (enum: architectural/agent_dispatch/other).
+ *   Legacy writers used the unabbreviated form. [31 rows]
+ *
+ * - `brain_decisions.confidence`
+ *   → any value not in (low/medium/high) → `'medium'` as a safe fallback.
+ *   Covers typos, empty strings, and out-of-vocabulary legacy values. [4 rows]
+ *
+ * - `tasks_commits.conventional_type`
+ *   → `'style'` → `'chore'` (enum includes feat/fix/chore/docs/refactor/test/
+ *   build/ci/perf/revert/breaking but NOT style; nearest canonical). [33 rows]
+ *
+ * - `tasks_task_relations.relation_type`
+ *   → `'grouped-by'` → `'groups'` (enum: related/blocks/duplicates/absorbs/
+ *   fixes/extends/supersedes/groups). [4 rows]
+ *
+ * - `tasks_lifecycle_stages.stage_name`
+ *   → `'implemented'`→`'implementation'`, `'qaPassed'`→`'validation'`,
+ *   `'testsPassed'`→`'testing'` (enum: research/consensus/architecture_decision/
+ *   specification/decomposition/implementation/validation/testing/release/
+ *   contribution). [3 rows]
+ *
+ * - `tasks_architecture_decisions.gate_status`
+ *   → `'passed (T5313 consensus)'`→`'passed'`, `'approved'`→`'passed'`
+ *   (enum: pending/passed/failed/waived). [2 rows]
+ *
+ * - `tasks_evidence_ac_bindings.binding_type`
+ *   → values with a `'validator:...'` prefix → `'direct'`
+ *   (enum: direct/satisfies/coverage). Strip the namespace prefix introduced
+ *   before the enum was tightened. [3 rows]
+ *
  * Lookup key: `${targetTable}.${column}` (lowercase, dotted).
  *
  * @since T11547 (P0 data-loss fix)
+ * @since T11548 (P0 final enum coverage)
  */
 type NormalizeFn = (srcRef: string) => string;
 
@@ -407,6 +447,84 @@ const ENUM_NORMALIZATIONS: ReadonlyMap<string, NormalizeFn> = new Map([
       ` WHEN lower(${src}) = 'superseded' THEN 'superseded'` +
       ` ELSE ${src}` +
       ` END`,
+  ],
+
+  // --- tasks_token_usage.transport (T11548) --------------------------------
+  // 'mcp' → 'agent' (CHECK enum: cli/api/agent/unknown). 194 rows.
+  // Legacy writers emitted 'mcp' before transport taxonomy was consolidated.
+  [
+    'tasks_token_usage.transport',
+    (src: string) => `CASE ${src} WHEN 'mcp' THEN 'agent' ELSE ${src} END`,
+  ],
+
+  // --- brain_decisions.decision_category (T11548) -------------------------
+  // 'architecture' → 'architectural' (enum: architectural/agent_dispatch/other). 31 rows.
+  [
+    'brain_decisions.decision_category',
+    (src: string) => `CASE ${src} WHEN 'architecture' THEN 'architectural' ELSE ${src} END`,
+  ],
+
+  // --- brain_decisions.confidence (T11548) ---------------------------------
+  // Any value NOT in (low/medium/high) → 'medium'. 4 rows.
+  // General fallback: if the value is already canonical it passes through the ELSE;
+  // any out-of-vocabulary value (typo, empty-string, etc.) becomes 'medium'.
+  [
+    'brain_decisions.confidence',
+    (src: string) =>
+      `CASE` + ` WHEN ${src} IN ('low', 'medium', 'high') THEN ${src}` + ` ELSE 'medium'` + ` END`,
+  ],
+
+  // --- tasks_commits.conventional_type (T11548) ----------------------------
+  // 'style' → 'chore' (enum does not include 'style'; chore is the nearest). 33 rows.
+  [
+    'tasks_commits.conventional_type',
+    (src: string) => `CASE ${src} WHEN 'style' THEN 'chore' ELSE ${src} END`,
+  ],
+
+  // --- tasks_task_relations.relation_type (T11548) -------------------------
+  // 'grouped-by' → 'groups' (enum: related/blocks/duplicates/absorbs/fixes/extends/
+  // supersedes/groups). 4 rows.
+  [
+    'tasks_task_relations.relation_type',
+    (src: string) => `CASE ${src} WHEN 'grouped-by' THEN 'groups' ELSE ${src} END`,
+  ],
+
+  // --- tasks_lifecycle_stages.stage_name (T11548) --------------------------
+  // Legacy camelCase / past-tense values → canonical snake_case stage names.
+  // 'implemented' → 'implementation', 'qaPassed' → 'validation',
+  // 'testsPassed' → 'testing'. 3 rows.
+  [
+    'tasks_lifecycle_stages.stage_name',
+    (src: string) =>
+      `CASE ${src}` +
+      ` WHEN 'implemented' THEN 'implementation'` +
+      ` WHEN 'qaPassed' THEN 'validation'` +
+      ` WHEN 'testsPassed' THEN 'testing'` +
+      ` ELSE ${src}` +
+      ` END`,
+  ],
+
+  // --- tasks_architecture_decisions.gate_status (T11548) ------------------
+  // 'passed (T5313 consensus)' → 'passed', 'approved' → 'passed'
+  // (enum: pending/passed/failed/waived). 2 rows.
+  [
+    'tasks_architecture_decisions.gate_status',
+    (src: string) =>
+      `CASE` +
+      ` WHEN ${src} LIKE 'passed%' THEN 'passed'` +
+      ` WHEN ${src} = 'approved' THEN 'passed'` +
+      ` ELSE ${src}` +
+      ` END`,
+  ],
+
+  // --- tasks_evidence_ac_bindings.binding_type (T11548) -------------------
+  // Values with a 'validator:...' prefix → 'direct'
+  // (enum: direct/satisfies/coverage). 3 rows.
+  // Strip the namespace prefix introduced before the enum was tightened.
+  [
+    'tasks_evidence_ac_bindings.binding_type',
+    (src: string) =>
+      `CASE` + ` WHEN ${src} LIKE 'validator:%' THEN 'direct'` + ` ELSE ${src}` + ` END`,
   ],
 ]);
 

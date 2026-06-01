@@ -1952,3 +1952,495 @@ describe('T11547 regression — enum normalization in migrate layer', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// T11548 REGRESSION — final enum coverage (285 rows, zero genuine loss)
+//
+// Verifies the 8 new ENUM_NORMALIZATIONS entries added in T11548:
+//   - tasks_token_usage.transport: 'mcp' → 'agent'
+//   - brain_decisions.decision_category: 'architecture' → 'architectural'
+//   - brain_decisions.confidence: out-of-vocab → 'medium'
+//   - tasks_commits.conventional_type: 'style' → 'chore'
+//   - tasks_task_relations.relation_type: 'grouped-by' → 'groups'
+//   - tasks_lifecycle_stages.stage_name: 'implemented'/'qaPassed'/'testsPassed' normalization
+//   - tasks_architecture_decisions.gate_status: 'passed (T5313 consensus)'/'approved' → 'passed'
+//   - tasks_evidence_ac_bindings.binding_type: 'validator:...' prefix → 'direct'
+//
+// Strategy mirrors T11547: build a source DB with legacy values, a target DB
+// with the strict CHECK constraint, run migration, read back and assert.
+//
+// @task T11548
+// ---------------------------------------------------------------------------
+
+describe('T11548 regression — final enum coverage: transport/conventional_type/relation_type/lifecycle/gate_status/binding_type', () => {
+  let tmpDir: string;
+  let sourcePath: string;
+  let targetProjectPath: string;
+  let targetGlobalPath: string;
+  let stagingDir: string;
+
+  beforeEach(() => {
+    tmpDir = makeTempDir();
+    sourcePath = join(tmpDir, 'source.db');
+    targetProjectPath = join(tmpDir, 'target-project.db');
+    targetGlobalPath = join(tmpDir, 'target-global.db');
+    stagingDir = join(tmpDir, 'staging');
+    mkdirSync(stagingDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  /**
+   * Helper: run a migration with an injected source + pre-built target DB.
+   * Mirrors the same helper used in the T11547 describe block above.
+   */
+  async function runMigrateT11548(
+    sourceName: string,
+    targetScope: 'project' | 'global',
+  ): Promise<string> {
+    const targetPath = targetScope === 'project' ? targetProjectPath : targetGlobalPath;
+    const targetProjectDb = new DatabaseSync(targetProjectPath);
+    const targetGlobalDb = new DatabaseSync(targetGlobalPath);
+
+    const makeFakeHandle = (native: DatabaseSyncType) => ({
+      db: { $client: native },
+      close: () => {
+        /* test owns lifetime */
+      },
+    });
+
+    vi.mock('../dual-scope-db.js', () => ({
+      openDualScopeDb: vi.fn(),
+      resolveDualScopeDbPath: vi.fn(),
+    }));
+
+    const dualScopeModule = await import('../dual-scope-db.js');
+    vi.mocked(dualScopeModule.openDualScopeDb).mockImplementation((scope: string) => {
+      if (scope === 'project') return Promise.resolve(makeFakeHandle(targetProjectDb) as never);
+      return Promise.resolve(makeFakeHandle(targetGlobalDb) as never);
+    });
+    vi.mocked(dualScopeModule.resolveDualScopeDbPath).mockImplementation((scope: string) =>
+      scope === 'project' ? targetProjectPath : targetGlobalPath,
+    );
+
+    const { runExodusMigrate: migrate } = await import('../exodus/migrate.js');
+
+    const plan: ExodusPlan = {
+      sources: [{ name: sourceName, path: sourcePath, targetScope }],
+      totalSourceBytes: 0,
+      availableBytes: 100_000_000,
+      diskPreflight: true,
+      stagingDir,
+      resumeFromStaging: false,
+      projectDbPath: targetProjectPath,
+      globalDbPath: targetGlobalPath,
+    };
+
+    const result = await migrate(plan, false, undefined);
+    expect(result.ok, `migrate failed: ${result.error ?? 'unknown'}`).toBe(true);
+
+    targetProjectDb.close();
+    targetGlobalDb.close();
+
+    return targetPath;
+  }
+
+  it('normalizes tasks_token_usage.transport: mcp → agent', async () => {
+    const srcDb = new DatabaseSync(sourcePath);
+    try {
+      srcDb.exec(
+        `CREATE TABLE token_usage (id INTEGER PRIMARY KEY, transport TEXT NOT NULL, tokens INTEGER)`,
+      );
+      srcDb.exec(`INSERT INTO token_usage VALUES (1, 'mcp', 100)`);
+      srcDb.exec(`INSERT INTO token_usage VALUES (2, 'cli', 200)`);
+      srcDb.exec(`INSERT INTO token_usage VALUES (3, 'agent', 150)`);
+      srcDb.exec(`INSERT INTO token_usage VALUES (4, 'mcp', 75)`);
+    } finally {
+      srcDb.close();
+    }
+
+    const tgtDb = new DatabaseSync(targetProjectPath);
+    try {
+      tgtDb.exec(
+        `CREATE TABLE tasks_token_usage (id INTEGER PRIMARY KEY, ` +
+          `transport TEXT NOT NULL CHECK (transport IN ('cli','api','agent','unknown')) DEFAULT 'unknown', ` +
+          `tokens INTEGER)`,
+      );
+    } finally {
+      tgtDb.close();
+    }
+    new DatabaseSync(targetGlobalPath).close();
+
+    await runMigrateT11548('tasks', 'project');
+
+    const tgt = new DatabaseSync(targetProjectPath, { readOnly: true });
+    try {
+      const rows = tgt
+        .prepare('SELECT id, transport FROM tasks_token_usage ORDER BY id')
+        .all() as Array<{ id: number; transport: string }>;
+      expect(rows).toHaveLength(4);
+      expect(rows.find((r) => r.id === 1)?.transport, 'mcp → agent').toBe('agent');
+      expect(rows.find((r) => r.id === 2)?.transport, 'cli passthrough').toBe('cli');
+      expect(rows.find((r) => r.id === 3)?.transport, 'agent passthrough').toBe('agent');
+      expect(rows.find((r) => r.id === 4)?.transport, 'mcp → agent').toBe('agent');
+    } finally {
+      tgt.close();
+    }
+  });
+
+  it('normalizes brain_decisions.decision_category: architecture → architectural', async () => {
+    const srcDb = new DatabaseSync(sourcePath);
+    try {
+      srcDb.exec(
+        `CREATE TABLE brain_decisions (id TEXT PRIMARY KEY, decision_category TEXT, title TEXT NOT NULL)`,
+      );
+      srcDb.exec(`INSERT INTO brain_decisions VALUES ('D-1', 'architecture', 'Decision A')`);
+      srcDb.exec(`INSERT INTO brain_decisions VALUES ('D-2', 'architectural', 'Decision B')`);
+      srcDb.exec(`INSERT INTO brain_decisions VALUES ('D-3', 'other', 'Decision C')`);
+    } finally {
+      srcDb.close();
+    }
+
+    const tgtDb = new DatabaseSync(targetProjectPath);
+    try {
+      tgtDb.exec(
+        `CREATE TABLE brain_decisions (id TEXT PRIMARY KEY, title TEXT NOT NULL, ` +
+          `decision_category TEXT CHECK (decision_category IS NULL OR decision_category IN ('architectural','agent_dispatch','other')))`,
+      );
+    } finally {
+      tgtDb.close();
+    }
+    new DatabaseSync(targetGlobalPath).close();
+
+    await runMigrateT11548('brain (project)', 'project');
+
+    const tgt = new DatabaseSync(targetProjectPath, { readOnly: true });
+    try {
+      const rows = tgt
+        .prepare('SELECT id, decision_category FROM brain_decisions ORDER BY id')
+        .all() as Array<{ id: string; decision_category: string }>;
+      expect(rows).toHaveLength(3);
+      expect(
+        rows.find((r) => r.id === 'D-1')?.decision_category,
+        'architecture → architectural',
+      ).toBe('architectural');
+      expect(rows.find((r) => r.id === 'D-2')?.decision_category, 'architectural passthrough').toBe(
+        'architectural',
+      );
+      expect(rows.find((r) => r.id === 'D-3')?.decision_category, 'other passthrough').toBe(
+        'other',
+      );
+    } finally {
+      tgt.close();
+    }
+  });
+
+  it('normalizes brain_decisions.confidence: out-of-vocab → medium', async () => {
+    const srcDb = new DatabaseSync(sourcePath);
+    try {
+      srcDb.exec(
+        `CREATE TABLE brain_decisions (id TEXT PRIMARY KEY, title TEXT NOT NULL, confidence TEXT)`,
+      );
+      srcDb.exec(`INSERT INTO brain_decisions VALUES ('D-1', 'A', 'high')`);
+      srcDb.exec(`INSERT INTO brain_decisions VALUES ('D-2', 'B', 'medium')`);
+      srcDb.exec(`INSERT INTO brain_decisions VALUES ('D-3', 'C', 'low')`);
+      srcDb.exec(`INSERT INTO brain_decisions VALUES ('D-4', 'D', 'very-high')`);
+      srcDb.exec(`INSERT INTO brain_decisions VALUES ('D-5', 'E', 'uncertain')`);
+    } finally {
+      srcDb.close();
+    }
+
+    const tgtDb = new DatabaseSync(targetProjectPath);
+    try {
+      tgtDb.exec(
+        `CREATE TABLE brain_decisions (id TEXT PRIMARY KEY, title TEXT NOT NULL, ` +
+          `confidence TEXT CHECK (confidence IS NULL OR confidence IN ('low','medium','high')))`,
+      );
+    } finally {
+      tgtDb.close();
+    }
+    new DatabaseSync(targetGlobalPath).close();
+
+    await runMigrateT11548('brain (project)', 'project');
+
+    const tgt = new DatabaseSync(targetProjectPath, { readOnly: true });
+    try {
+      const rows = tgt
+        .prepare('SELECT id, confidence FROM brain_decisions ORDER BY id')
+        .all() as Array<{ id: string; confidence: string }>;
+      expect(rows).toHaveLength(5);
+      expect(rows.find((r) => r.id === 'D-1')?.confidence, 'high passthrough').toBe('high');
+      expect(rows.find((r) => r.id === 'D-2')?.confidence, 'medium passthrough').toBe('medium');
+      expect(rows.find((r) => r.id === 'D-3')?.confidence, 'low passthrough').toBe('low');
+      expect(rows.find((r) => r.id === 'D-4')?.confidence, 'very-high → medium').toBe('medium');
+      expect(rows.find((r) => r.id === 'D-5')?.confidence, 'uncertain → medium').toBe('medium');
+    } finally {
+      tgt.close();
+    }
+  });
+
+  it('normalizes tasks_commits.conventional_type: style → chore', async () => {
+    const srcDb = new DatabaseSync(sourcePath);
+    try {
+      srcDb.exec(
+        `CREATE TABLE commits (sha TEXT PRIMARY KEY, conventional_type TEXT NOT NULL, message TEXT)`,
+      );
+      srcDb.exec(`INSERT INTO commits VALUES ('abc1', 'style', 'format code')`);
+      srcDb.exec(`INSERT INTO commits VALUES ('abc2', 'chore', 'update deps')`);
+      srcDb.exec(`INSERT INTO commits VALUES ('abc3', 'feat', 'add feature')`);
+      srcDb.exec(`INSERT INTO commits VALUES ('abc4', 'style', 'fix lint')`);
+    } finally {
+      srcDb.close();
+    }
+
+    const tgtDb = new DatabaseSync(targetProjectPath);
+    try {
+      tgtDb.exec(
+        `CREATE TABLE tasks_commits (sha TEXT PRIMARY KEY, message TEXT, ` +
+          `conventional_type TEXT NOT NULL DEFAULT 'chore' ` +
+          `CHECK (conventional_type IN ('feat','fix','chore','docs','refactor','test','build','ci','perf','revert','breaking')))`,
+      );
+    } finally {
+      tgtDb.close();
+    }
+    new DatabaseSync(targetGlobalPath).close();
+
+    await runMigrateT11548('tasks', 'project');
+
+    const tgt = new DatabaseSync(targetProjectPath, { readOnly: true });
+    try {
+      const rows = tgt
+        .prepare('SELECT sha, conventional_type FROM tasks_commits ORDER BY sha')
+        .all() as Array<{ sha: string; conventional_type: string }>;
+      expect(rows).toHaveLength(4);
+      expect(rows.find((r) => r.sha === 'abc1')?.conventional_type, 'style → chore').toBe('chore');
+      expect(rows.find((r) => r.sha === 'abc2')?.conventional_type, 'chore passthrough').toBe(
+        'chore',
+      );
+      expect(rows.find((r) => r.sha === 'abc3')?.conventional_type, 'feat passthrough').toBe(
+        'feat',
+      );
+      expect(rows.find((r) => r.sha === 'abc4')?.conventional_type, 'style → chore').toBe('chore');
+    } finally {
+      tgt.close();
+    }
+  });
+
+  it('normalizes tasks_task_relations.relation_type: grouped-by → groups', async () => {
+    const srcDb = new DatabaseSync(sourcePath);
+    try {
+      srcDb.exec(
+        `CREATE TABLE task_relations (from_task_id TEXT NOT NULL, to_task_id TEXT NOT NULL, relation_type TEXT NOT NULL, PRIMARY KEY (from_task_id, to_task_id, relation_type))`,
+      );
+      srcDb.exec(`INSERT INTO task_relations VALUES ('T1', 'T2', 'grouped-by')`);
+      srcDb.exec(`INSERT INTO task_relations VALUES ('T1', 'T3', 'groups')`);
+      srcDb.exec(`INSERT INTO task_relations VALUES ('T2', 'T4', 'related')`);
+    } finally {
+      srcDb.close();
+    }
+
+    const tgtDb = new DatabaseSync(targetProjectPath);
+    try {
+      tgtDb.exec(
+        `CREATE TABLE tasks_task_relations (from_task_id TEXT NOT NULL, to_task_id TEXT NOT NULL, ` +
+          `relation_type TEXT NOT NULL ` +
+          `CHECK (relation_type IN ('related','blocks','duplicates','absorbs','fixes','extends','supersedes','groups')), ` +
+          `PRIMARY KEY (from_task_id, to_task_id, relation_type))`,
+      );
+    } finally {
+      tgtDb.close();
+    }
+    new DatabaseSync(targetGlobalPath).close();
+
+    await runMigrateT11548('tasks', 'project');
+
+    const tgt = new DatabaseSync(targetProjectPath, { readOnly: true });
+    try {
+      const rows = tgt
+        .prepare(
+          'SELECT from_task_id, to_task_id, relation_type FROM tasks_task_relations ORDER BY from_task_id, to_task_id',
+        )
+        .all() as Array<{ from_task_id: string; to_task_id: string; relation_type: string }>;
+      expect(rows).toHaveLength(3);
+      expect(
+        rows.find((r) => r.from_task_id === 'T1' && r.to_task_id === 'T2')?.relation_type,
+        'grouped-by → groups',
+      ).toBe('groups');
+      expect(
+        rows.find((r) => r.from_task_id === 'T1' && r.to_task_id === 'T3')?.relation_type,
+        'groups passthrough',
+      ).toBe('groups');
+      expect(
+        rows.find((r) => r.from_task_id === 'T2' && r.to_task_id === 'T4')?.relation_type,
+        'related passthrough',
+      ).toBe('related');
+    } finally {
+      tgt.close();
+    }
+  });
+
+  it('normalizes tasks_lifecycle_stages.stage_name: implemented/qaPassed/testsPassed', async () => {
+    const srcDb = new DatabaseSync(sourcePath);
+    try {
+      srcDb.exec(`CREATE TABLE lifecycle_stages (id TEXT PRIMARY KEY, stage_name TEXT NOT NULL)`);
+      srcDb.exec(`INSERT INTO lifecycle_stages VALUES ('LS-1', 'implemented')`);
+      srcDb.exec(`INSERT INTO lifecycle_stages VALUES ('LS-2', 'qaPassed')`);
+      srcDb.exec(`INSERT INTO lifecycle_stages VALUES ('LS-3', 'testsPassed')`);
+      srcDb.exec(`INSERT INTO lifecycle_stages VALUES ('LS-4', 'implementation')`);
+      srcDb.exec(`INSERT INTO lifecycle_stages VALUES ('LS-5', 'validation')`);
+    } finally {
+      srcDb.close();
+    }
+
+    const tgtDb = new DatabaseSync(targetProjectPath);
+    try {
+      tgtDb.exec(
+        `CREATE TABLE tasks_lifecycle_stages (id TEXT PRIMARY KEY, ` +
+          `stage_name TEXT NOT NULL ` +
+          `CHECK (stage_name IN ('research','consensus','architecture_decision','specification','decomposition','implementation','validation','testing','release','contribution')))`,
+      );
+    } finally {
+      tgtDb.close();
+    }
+    new DatabaseSync(targetGlobalPath).close();
+
+    await runMigrateT11548('tasks', 'project');
+
+    const tgt = new DatabaseSync(targetProjectPath, { readOnly: true });
+    try {
+      const rows = tgt
+        .prepare('SELECT id, stage_name FROM tasks_lifecycle_stages ORDER BY id')
+        .all() as Array<{ id: string; stage_name: string }>;
+      expect(rows).toHaveLength(5);
+      expect(rows.find((r) => r.id === 'LS-1')?.stage_name, 'implemented → implementation').toBe(
+        'implementation',
+      );
+      expect(rows.find((r) => r.id === 'LS-2')?.stage_name, 'qaPassed → validation').toBe(
+        'validation',
+      );
+      expect(rows.find((r) => r.id === 'LS-3')?.stage_name, 'testsPassed → testing').toBe(
+        'testing',
+      );
+      expect(rows.find((r) => r.id === 'LS-4')?.stage_name, 'implementation passthrough').toBe(
+        'implementation',
+      );
+      expect(rows.find((r) => r.id === 'LS-5')?.stage_name, 'validation passthrough').toBe(
+        'validation',
+      );
+    } finally {
+      tgt.close();
+    }
+  });
+
+  it('normalizes tasks_architecture_decisions.gate_status: passed-variant/approved → passed', async () => {
+    const srcDb = new DatabaseSync(sourcePath);
+    try {
+      srcDb.exec(
+        `CREATE TABLE architecture_decisions (id TEXT PRIMARY KEY, title TEXT NOT NULL, status TEXT NOT NULL, content TEXT NOT NULL, date TEXT NOT NULL, file_path TEXT NOT NULL, gate_status TEXT)`,
+      );
+      srcDb.exec(
+        `INSERT INTO architecture_decisions VALUES ('ADR-1', 'A', 'accepted', 'c', '2026-01-01', 'f.md', 'passed (T5313 consensus)')`,
+      );
+      srcDb.exec(
+        `INSERT INTO architecture_decisions VALUES ('ADR-2', 'B', 'accepted', 'c', '2026-01-01', 'f.md', 'approved')`,
+      );
+      srcDb.exec(
+        `INSERT INTO architecture_decisions VALUES ('ADR-3', 'C', 'accepted', 'c', '2026-01-01', 'f.md', 'passed')`,
+      );
+      srcDb.exec(
+        `INSERT INTO architecture_decisions VALUES ('ADR-4', 'D', 'accepted', 'c', '2026-01-01', 'f.md', 'pending')`,
+      );
+    } finally {
+      srcDb.close();
+    }
+
+    const tgtDb = new DatabaseSync(targetProjectPath);
+    try {
+      tgtDb.exec(
+        `CREATE TABLE tasks_architecture_decisions (id TEXT PRIMARY KEY, title TEXT NOT NULL, ` +
+          `status TEXT NOT NULL CHECK (status IN ('proposed','accepted','superseded','deprecated')) DEFAULT 'proposed', ` +
+          `content TEXT NOT NULL, date TEXT NOT NULL, file_path TEXT NOT NULL, ` +
+          `gate_status TEXT CHECK (gate_status IS NULL OR gate_status IN ('pending','passed','failed','waived')))`,
+      );
+    } finally {
+      tgtDb.close();
+    }
+    new DatabaseSync(targetGlobalPath).close();
+
+    await runMigrateT11548('tasks', 'project');
+
+    const tgt = new DatabaseSync(targetProjectPath, { readOnly: true });
+    try {
+      const rows = tgt
+        .prepare('SELECT id, gate_status FROM tasks_architecture_decisions ORDER BY id')
+        .all() as Array<{ id: string; gate_status: string | null }>;
+      expect(rows).toHaveLength(4);
+      expect(
+        rows.find((r) => r.id === 'ADR-1')?.gate_status,
+        'passed (T5313 consensus) → passed',
+      ).toBe('passed');
+      expect(rows.find((r) => r.id === 'ADR-2')?.gate_status, 'approved → passed').toBe('passed');
+      expect(rows.find((r) => r.id === 'ADR-3')?.gate_status, 'passed passthrough').toBe('passed');
+      expect(rows.find((r) => r.id === 'ADR-4')?.gate_status, 'pending passthrough').toBe(
+        'pending',
+      );
+    } finally {
+      tgt.close();
+    }
+  });
+
+  it('normalizes tasks_evidence_ac_bindings.binding_type: validator:... → direct', async () => {
+    const srcDb = new DatabaseSync(sourcePath);
+    try {
+      srcDb.exec(
+        `CREATE TABLE evidence_ac_bindings (id TEXT PRIMARY KEY, binding_type TEXT NOT NULL)`,
+      );
+      srcDb.exec(`INSERT INTO evidence_ac_bindings VALUES ('B-1', 'validator:schema')`);
+      srcDb.exec(`INSERT INTO evidence_ac_bindings VALUES ('B-2', 'validator:runtime')`);
+      srcDb.exec(`INSERT INTO evidence_ac_bindings VALUES ('B-3', 'direct')`);
+      srcDb.exec(`INSERT INTO evidence_ac_bindings VALUES ('B-4', 'satisfies')`);
+      srcDb.exec(`INSERT INTO evidence_ac_bindings VALUES ('B-5', 'coverage')`);
+    } finally {
+      srcDb.close();
+    }
+
+    const tgtDb = new DatabaseSync(targetProjectPath);
+    try {
+      tgtDb.exec(
+        `CREATE TABLE tasks_evidence_ac_bindings (id TEXT PRIMARY KEY, ` +
+          `binding_type TEXT NOT NULL CHECK (binding_type IN ('direct','satisfies','coverage')))`,
+      );
+    } finally {
+      tgtDb.close();
+    }
+    new DatabaseSync(targetGlobalPath).close();
+
+    await runMigrateT11548('tasks', 'project');
+
+    const tgt = new DatabaseSync(targetProjectPath, { readOnly: true });
+    try {
+      const rows = tgt
+        .prepare('SELECT id, binding_type FROM tasks_evidence_ac_bindings ORDER BY id')
+        .all() as Array<{ id: string; binding_type: string }>;
+      expect(rows).toHaveLength(5);
+      expect(rows.find((r) => r.id === 'B-1')?.binding_type, 'validator:schema → direct').toBe(
+        'direct',
+      );
+      expect(rows.find((r) => r.id === 'B-2')?.binding_type, 'validator:runtime → direct').toBe(
+        'direct',
+      );
+      expect(rows.find((r) => r.id === 'B-3')?.binding_type, 'direct passthrough').toBe('direct');
+      expect(rows.find((r) => r.id === 'B-4')?.binding_type, 'satisfies passthrough').toBe(
+        'satisfies',
+      );
+      expect(rows.find((r) => r.id === 'B-5')?.binding_type, 'coverage passthrough').toBe(
+        'coverage',
+      );
+    } finally {
+      tgt.close();
+    }
+  });
+});
