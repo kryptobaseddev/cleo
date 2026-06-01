@@ -26,6 +26,10 @@
       "types": "./dist/tools/composite.d.ts",
       "import": "./dist/tools/composite.js"
     },
+    "./tools/skill-executor": {
+      "types": "./dist/tools/skill-executor.d.ts",
+      "import": "./dist/tools/skill-executor.js"
+    },
     "./gateway.js": {
       "types": "./dist/gateway.d.ts",
       "import": "./dist/gateway.js"
