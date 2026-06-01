@@ -34,11 +34,12 @@ describe('Agent Lifecycle E2E', () => {
     await rm(tempDir, { recursive: true, force: true }).catch(() => {});
   });
 
-  it('should create conduit.db via ensureConduitDb', async () => {
+  it('should create the conduit domain (consolidated cleo.db) via ensureConduitDb', async () => {
     const { ensureConduitDb } = await import('@cleocode/core/internal');
     const result = await ensureConduitDb(tempDir);
     expect(result.action).toBe('created');
-    expect(result.path).toContain('conduit.db');
+    // E6-L3 (T11523): the conduit domain consolidated into the project cleo.db.
+    expect(result.path).toContain('cleo.db');
 
     // Verify file was written to disk
     const { existsSync } = await import('node:fs');
