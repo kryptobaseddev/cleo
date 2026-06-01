@@ -65,12 +65,17 @@ describe('nexus.db fresh init — zero "Adding missing column" warnings', () => 
     mkdirSync(cleoHome, { recursive: true });
 
     // ------------------------------------------------------------------
-    // 2. Mock paths.js so nexus.db is written to our isolated tmpdir.
+    // 2. Mock paths.js so the consolidated GLOBAL cleo.db is written to our
+    //    isolated tmpdir. E6-L4 (T11524): nexus opens via openDualScopeDb('global'),
+    //    which resolves getCleoHome()+'cleo.db'. resolveCleoDir is included for
+    //    the project-scope resolver path (dual-scope-db.ts imports it), though the
+    //    global scope only consults getCleoHome().
     // ------------------------------------------------------------------
     vi.doMock('../../paths.js', () => ({
       getCleoHome: () => cleoHome,
       getCleoDirAbsolute: (cwd?: string) => (cwd ? join(cwd, '.cleo') : join(tempDir, '.cleo')),
       getProjectRoot: () => tempDir,
+      resolveCleoDir: (cwd?: string) => (cwd ? join(cwd, '.cleo') : join(tempDir, '.cleo')),
     }));
 
     // ------------------------------------------------------------------
@@ -127,8 +132,9 @@ describe('nexus.db fresh init — zero "Adding missing column" warnings', () => 
 
       // ------------------------------------------------------------------
       // 7. SECONDARY: verify required columns exist via PRAGMA table_info.
+      //    E6-L4 (T11524): the nexus tables now live in the GLOBAL `cleo.db`.
       // ------------------------------------------------------------------
-      const dbPath = join(cleoHome, 'nexus.db');
+      const dbPath = join(cleoHome, 'cleo.db');
       const nativeDb = new DatabaseSync(dbPath, { readonly: true });
 
       try {

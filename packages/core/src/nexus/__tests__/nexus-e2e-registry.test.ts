@@ -496,9 +496,11 @@ describe('schema integrity', () => {
     expect(byName).not.toBeNull();
   });
 
-  it('nexus.db file is created on disk', async () => {
+  it('nexus consolidated cleo.db file is created on disk', async () => {
+    // E6-L4 (T11524): nexus consolidated into the GLOBAL `cleo.db` under
+    // getCleoHome() (here CLEO_HOME=registryDir), not a standalone `nexus.db`.
     await nexusInit();
-    const dbPath = join(registryDir, 'nexus.db');
+    const dbPath = join(registryDir, 'cleo.db');
     expect(existsSync(dbPath)).toBe(true);
   });
 

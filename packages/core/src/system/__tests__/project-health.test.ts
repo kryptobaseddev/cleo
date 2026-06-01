@@ -226,7 +226,9 @@ describe('checkGlobalHealth', () => {
 
   it('returns overall=healthy when both global DBs are valid', async () => {
     const cleoHome = process.env['CLEO_HOME'] as string;
-    makeHealthyDb(join(cleoHome, 'nexus.db'), 1);
+    // E6-L4 (T11524): the nexus domain probes the GLOBAL consolidated `cleo.db`
+    // under getCleoHome() (getNexusDb → openDualScopeDb('global')), not `nexus.db`.
+    makeHealthyDb(join(cleoHome, 'cleo.db'), 1);
     makeHealthyDb(join(cleoHome, 'signaldock.db'), 1);
 
     const report = await checkGlobalHealth();

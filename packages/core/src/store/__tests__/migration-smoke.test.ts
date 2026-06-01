@@ -150,14 +150,17 @@ describe('Test 1: fresh init — all 5 DBs migrate clean', () => {
       getProjectRoot: () => tempDir,
     }));
 
-    const { getNexusDb, resetNexusDbState } = await import('../nexus-sqlite.js');
+    const { getNexusDb, getNexusDbPath, resetNexusDbState } = await import('../nexus-sqlite.js');
     resetNexusDbState();
 
     try {
       const db = await getNexusDb();
       expect(db).toBeTruthy();
 
-      const dbPath = join(cleoHome, 'nexus.db');
+      // E6-L4 (T11524): the nexus domain consolidated into the GLOBAL `cleo.db`
+      // under getCleoHome(); getNexusDbPath() resolves to `<cleoHome>/cleo.db`.
+      const dbPath = getNexusDbPath();
+      expect(dbPath).toBe(join(cleoHome, 'cleo.db'));
       expect(existsSync(dbPath)).toBe(true);
 
       // nexus initial migration creates project_registry (not nexus_projects)

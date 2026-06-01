@@ -463,10 +463,16 @@ function runMigrations(nativeDb: DatabaseSync, db: NodeSQLiteDatabase<typeof sch
  * in `runMigrations → tableExists` for the very next `getDb()` caller.
  */
 export function closeDb(): void {
-  // Evict ALL dual-scope cache entries so the next openDualScopeDb() call
-  // opens a fresh DatabaseSync. Without this, the cache would return the
+  // Evict the PROJECT-scope dual-scope cache entries so the next openDualScopeDb()
+  // call opens a fresh DatabaseSync. Without this, the cache would return the
   // stale handle whose nativeDb we're about to close below.
-  _resetDualScopeDbCache();
+  //
+  // E6-L4 (T11524): scope the eviction to `'project'`. The GLOBAL `cleo.db`
+  // handle (nexus/signaldock/skills) now shares this same cache; an unscoped
+  // reset here would close the global handle out from under an in-flight nexus
+  // query (e.g. nexusSyncAll holding a handle while readProjectMeta opens + closes
+  // a project accessor). Global teardown is the job of closeAllDatabases().
+  _resetDualScopeDbCache('project');
   if (_nativeDb) {
     try {
       if (_nativeDb.isOpen) {
@@ -492,9 +498,12 @@ export function closeDb(): void {
  * Also resets the dual-scope cache via {@link _resetDualScopeDbCache} so the
  * next `getDb()` opens a fresh handle rather than reusing a stale one.
  * Mirrors the cache-eviction logic in {@link closeDb}.
+ *
+ * E6-L4 (T11524): scoped to `'project'` so it does not close the shared GLOBAL
+ * `cleo.db` handle (nexus/signaldock/skills) — see {@link closeDb}.
  */
 export function resetDbState(): void {
-  _resetDualScopeDbCache();
+  _resetDualScopeDbCache('project');
   if (_nativeDb) {
     try {
       if (_nativeDb.isOpen) {
