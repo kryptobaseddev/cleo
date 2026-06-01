@@ -87,8 +87,10 @@ async function createRawTestDb(): Promise<{
   await accessor.close();
   resetDbState();
 
+  // E6-L1 (T11521): tasks domain consolidated into `cleo.db` via
+  // openDualScopeDb('project'); the accessor above seeded the schema there.
   const { DatabaseSync } = await import('node:sqlite');
-  const sqlite = new DatabaseSync(join(cleoDir, 'tasks.db'));
+  const sqlite = new DatabaseSync(join(cleoDir, 'cleo.db'));
 
   // Drop the PM-Core V2 guards that would reject the LEGACY rows these tests
   // seed (a parent-child `task_relations.type='groups'` edge is exactly the

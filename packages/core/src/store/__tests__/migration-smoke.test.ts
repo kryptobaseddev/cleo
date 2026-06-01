@@ -99,9 +99,11 @@ describe('Test 1: fresh init — all 5 DBs migrate clean', () => {
       db = await getDb(projectDir);
       expect(db).toBeTruthy();
 
-      // Verify the tasks table was created by migrations
+      // Verify the tasks table was created by migrations.
+      // E6-L1 (T11521): tasks domain consolidated into `cleo.db` via
+      // openDualScopeDb('project').
       const { openNativeDatabase } = await import('../sqlite.js');
-      const nativeDb = openNativeDatabase(join(projectDir, '.cleo', 'tasks.db'));
+      const nativeDb = openNativeDatabase(join(projectDir, '.cleo', 'cleo.db'));
       const row = nativeDb
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'")
         .get() as { name: string } | undefined;

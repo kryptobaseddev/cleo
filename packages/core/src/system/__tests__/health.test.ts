@@ -46,7 +46,9 @@ describe('system health audit_log checks', () => {
   it('reports audit_log as fail when table is missing', async () => {
     const cleoDir = join(projectRoot, '.cleo');
     await mkdir(cleoDir, { recursive: true });
-    const dbPath = join(cleoDir, 'tasks.db');
+    // E6-L1 (T11521): the tasks domain (and its audit_log check) lives in
+    // the consolidated `cleo.db`, not the legacy `tasks.db`.
+    const dbPath = join(cleoDir, 'cleo.db');
 
     const db = new DatabaseSync(dbPath);
     db.exec('CREATE TABLE tasks(id TEXT PRIMARY KEY)');
@@ -113,7 +115,8 @@ describe('T929 regression: getSystemHealth DB integrity checks', () => {
   it('reports tasks_db as fail when the file contains random bytes (not a valid SQLite DB)', async () => {
     const cleoDir = join(projectRoot, '.cleo');
     await mkdir(cleoDir, { recursive: true });
-    const dbPath = join(cleoDir, 'tasks.db');
+    // E6-L1 (T11521): the tasks-domain integrity probe targets `cleo.db`.
+    const dbPath = join(cleoDir, 'cleo.db');
     // Write 1 KiB of non-SQLite content — simulates the corrupt-DB repro case.
     const junk = Buffer.alloc(1024, 0xde);
     writeFileSync(dbPath, junk);

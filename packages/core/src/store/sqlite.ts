@@ -24,7 +24,6 @@
 
 import { copyFileSync, existsSync, renameSync, unlinkSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 // T11280: `drizzle` is loaded LAZILY (see _getDrizzle) rather than via a
 // top-level value import. drizzle-orm/node-sqlite/driver.js statically imports
@@ -34,7 +33,6 @@ import { eq } from 'drizzle-orm';
 // module-load time", T1331). The type import is erased at runtime and is safe.
 import type { drizzle as drizzleFn, NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { getLogger } from '../logger.js';
-import { resolveCleoDir } from '../paths.js';
 // T11521: dual-scope chokepoint — all tasks.db opens now flow through here.
 // openDualScopeDb manages the DatabaseSync lifecycle, pragmas, and migrations
 // for the consolidated cleo.db. We extract the native handle and re-wrap it
@@ -100,9 +98,6 @@ function _getDrizzle(): typeof drizzleFn {
   return _drizzle;
 }
 
-/** Database file name within .cleo/ directory (legacy — tasks.db is superseded by cleo.db in E6). */
-const DB_FILENAME = 'tasks.db';
-
 /** Schema version for newly created databases. Single source of truth. */
 export const SQLITE_SCHEMA_VERSION = '2.0.0';
 const SCHEMA_VERSION = SQLITE_SCHEMA_VERSION;
@@ -115,14 +110,17 @@ let _dbPath: string | null = null;
 let _initPromise: Promise<NodeSQLiteDatabase<typeof schema>> | null = null;
 
 /**
- * Get the path to the SQLite database file.
+ * Get the path to the SQLite database file that {@link getDb} opens.
  *
- * @deprecated In E6 the tasks domain lives in `cleo.db` (via `openDualScopeDb`).
- * This function remains for callers that check file existence; it continues to
- * return the legacy `tasks.db` path for backward compatibility.
+ * ## E6-L1 (T11521)
+ *
+ * After the dual-scope migration, `getDb()` opens the consolidated project
+ * `cleo.db` via {@link openDualScopeDb}. This function therefore returns the
+ * dual-scope `cleo.db` path so that callers checking for the file `getDb()`
+ * created (existence / backup / health probes) point at the correct file.
  */
 export function getDbPath(cwd?: string): string {
-  return join(resolveCleoDir(cwd), DB_FILENAME);
+  return resolveDualScopeDbPath('project', cwd);
 }
 
 /**

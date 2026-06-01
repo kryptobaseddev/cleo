@@ -169,9 +169,12 @@ export async function getSystemHealth(
     checks.push({ name: 'cleo_dir', status: 'fail', message: '.cleo directory not found' });
   }
 
-  // Check tasks.db via integrity probe (T929 — size-only check misdetected corrupted DBs).
-  // probeDb runs PRAGMA integrity_check and catches non-SQLite files that open() rejects.
-  const dbPath = join(cleoDir, 'tasks.db');
+  // Check the tasks-domain DB via integrity probe (T929 — size-only check
+  // misdetected corrupted DBs). probeDb runs PRAGMA integrity_check and catches
+  // non-SQLite files that open() rejects.
+  // E6-L1 (T11521): the tasks domain now lives in the consolidated `cleo.db`
+  // (opened via openDualScopeDb('project')), not the legacy `tasks.db`.
+  const dbPath = join(cleoDir, 'cleo.db');
   {
     const { probeDb } = await import('./project-health.js');
     const probe = await probeDb(dbPath);
@@ -434,8 +437,9 @@ export async function getSystemDiagnostics(
   }
 
   // Schema version check — read via DataAccessor (per ADR-006)
+  // E6-L1 (T11521): tasks domain consolidated into `cleo.db`.
   const cleoDir = join(projectRoot, '.cleo');
-  const dbPath = join(cleoDir, 'tasks.db');
+  const dbPath = join(cleoDir, 'cleo.db');
   if (existsSync(dbPath)) {
     try {
       const accessor = await getTaskAccessor(projectRoot);
@@ -777,13 +781,14 @@ export async function coreDoctorReport(projectRoot: string): Promise<DoctorRepor
   });
 
   // 3. Check data files — SQLite is the primary store (ADR-006)
-  const dbPath = join(cleoDir, 'tasks.db');
+  // E6-L1 (T11521): tasks domain consolidated into `cleo.db`.
+  const dbPath = join(cleoDir, 'cleo.db');
   const dbExists = existsSync(dbPath);
   const dbSize = await fileSize(dbPath);
   checks.push({
     check: 'tasks_db',
     status: dbExists ? 'ok' : 'error',
-    message: dbExists ? `tasks.db: ${dbSize} bytes` : `tasks.db not found. Run: cleo init`,
+    message: dbExists ? `cleo.db: ${dbSize} bytes` : `cleo.db not found. Run: cleo init`,
   });
 
   if (dbExists) {

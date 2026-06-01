@@ -58,7 +58,12 @@ function getDatabaseSyncCtor(): DatabaseSyncModule['DatabaseSync'] | null {
 // Re-exported names from packages/cleo/src/cli/paths.ts — redeclared locally
 // to preserve the package-boundary contract (core MUST NOT import from cleo).
 // These are the exact same string literals as `TASKS_DB_FILENAME` etc.
-const TASKS_DB = 'tasks.db' as const;
+//
+// E6-L1 (T11521): the tasks domain now lives in the consolidated project
+// `cleo.db` (opened via openDualScopeDb('project')), not the legacy `tasks.db`.
+// The `dbs.tasks` probe therefore targets `cleo.db`. The brain/conduit probes
+// still target their per-domain files until E6-L2/L3 consolidate them.
+const TASKS_DB = 'cleo.db' as const;
 const BRAIN_DB = 'brain.db' as const;
 const CONDUIT_DB = 'conduit.db' as const;
 const NEXUS_DB = 'nexus.db' as const;
@@ -248,7 +253,9 @@ export interface CheckAllOptions {
  * surfaces the affected project as `degraded`.
  */
 export const DB_EXPECTED_VERSIONS: Readonly<Record<string, number>> = {
-  [TASKS_DB]: 11,
+  // E6-L1 (T11521): TASKS_DB now resolves to `cleo.db`; the consolidated
+  // project schema is tracked by the `drizzle-cleo-project` migration set.
+  [TASKS_DB]: 3,
   [BRAIN_DB]: 14,
   [NEXUS_DB]: 3,
   [SIGNALDOCK_DB]: 1,
