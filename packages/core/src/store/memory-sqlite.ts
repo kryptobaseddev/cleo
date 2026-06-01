@@ -59,12 +59,6 @@ import {
   openDualScopeDb,
   resolveDualScopeDbPath,
 } from './dual-scope-db.js';
-import {
-  createSafetyBackup,
-  migrateWithRetry,
-  reconcileJournal,
-  tableExists,
-} from './migration-manager.js';
 import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
 import * as brainSchema from './schema/memory-schema.js';
 
@@ -136,61 +130,16 @@ export function resolveBrainMigrationsFolder(): string {
 }
 
 // tableExists — delegated to migration-manager.ts (T132)
-
-/**
- * Run the legacy `drizzle-brain` migrations against the consolidated project
- * `cleo.db` handle.
- *
- * ## E6-L2 rewrite (T11522)
- *
- * Every post-hoc `ensureColumns` (~15) and raw `CREATE TABLE IF NOT EXISTS`
- * (~8) band-aid that previously lived here has been removed. All of them were
- * redundant safety-nets: the journal reconciler `probeAndMarkApplied`
- * (migration-manager.ts, T632) detects already-applied DDL and leaves genuinely
- * missing DDL un-journaled so `migrate()` runs it. Their columns/tables are all
- * covered by the `drizzle-brain/*` migration files (e.g. T9179 already converted
- * the `brain_retrieval_log` / `brain_observations.stability_score` ensureColumns
- * into forward migrations — the precedent this rewrite follows). The two
- * idempotent UPDATE data-fixes (T626 `co_retrieved` relabel, T673-M3 hebbian
- * seed) are likewise applied by their own UPDATE-only migration files, which the
- * reconciler always runs (zero DDL targets → never marked applied by probe).
- *
- * The ONE genuinely-uncovered table — `brain_task_observations` (T1615, a
- * runtime-only join cache that exodus maps to `null`) — was converted to a
- * forward Drizzle migration under
- * `migrations/drizzle-cleo-project/20260601000002_t11522-brain-task-observations`.
- *
- * These migrations are still run during the E3→E6 transition so the legacy
- * physical tables that the runtime queries by their pre-consolidation names
- * (notably `deriver_queue` — the consolidated schema carries the prefixed
- * `brain_deriver_queue`) exist alongside the consolidated `brain_*` tables.
- * Every brain migration is `CREATE TABLE IF NOT EXISTS` / additive
- * `ALTER TABLE`, so re-applying them onto a `cleo.db` that already has the
- * consolidated `brain_*` tables is idempotent and safe.
- *
- * @task T5128
- * @task T132 - Unified migration system
- * @task T11522 - E6-L2: remove ensureColumns/CREATE band-aids; route via dual-scope
- */
-function runBrainMigrations(
-  nativeDb: DatabaseSync,
-  db: NodeSQLiteDatabase<typeof brainSchema>,
-): void {
-  const migrationsFolder = resolveBrainMigrationsFolder();
-
-  // Safety backup before any migration work.
-  if (tableExists(nativeDb, 'brain_decisions') && _dbPath) {
-    createSafetyBackup(_dbPath);
-  }
-
-  // Bootstrap baseline + reconcile stale journal entries.
-  reconcileJournal(nativeDb, migrationsFolder, 'brain_decisions', 'brain');
-
-  // Run pending migrations with SQLITE_BUSY retry.
-  // Pass nativeDb + existenceTable so migrateWithRetry can auto-reconcile any
-  // partial migration (Scenario 3) that slips through the proactive check above.
-  migrateWithRetry(db, migrationsFolder, nativeDb, 'brain_decisions', 'brain');
-}
+//
+// E6-L2 (T11522): the legacy `runBrainMigrations` helper that ran the
+// `drizzle-brain` migration folder (with ~15 ensureColumns + ~8 raw CREATE TABLE
+// band-aids) has been removed. After getBrainDb() routes through
+// openDualScopeDb('project'), the consolidated cleo-project migrations create
+// every `brain_*` table in its final form, and the forward migration
+// `20260601000002_t11522-brain-runtime-legacy-tables` adds the only two
+// runtime-legacy tables the consolidation skipped (`brain_task_observations`,
+// unprefixed `deriver_queue`). The legacy folder is no longer applied here —
+// its cross-migration rename chain would collide with the consolidated tables.
 
 /**
  * Load the sqlite-vec extension into a native DatabaseSync instance.
@@ -332,11 +281,16 @@ export async function getBrainDb(cwd?: string): Promise<NodeSQLiteDatabase<typeo
     // existing callers (brainSchema.* queries) continue to work unchanged.
     const db = _getDrizzle()({ client: nativeDb, schema: brainSchema });
 
-    // Run the legacy drizzle-brain migrations against the shared cleo.db handle.
-    // During the E3→E6 transition these create the legacy runtime-queried
-    // physical tables (e.g. `deriver_queue`) alongside the consolidated
-    // `brain_*` tables. Every brain migration is additive / IF NOT EXISTS.
-    runBrainMigrations(nativeDb, db);
+    // NOTE: the legacy `drizzle-brain` migration set is intentionally NOT run
+    // here. openDualScopeDb already applied the consolidated cleo-project
+    // migrations, which create every `brain_*` table in its final form — and
+    // the forward migration `20260601000002_t11522-brain-runtime-legacy-tables`
+    // adds the only two runtime-legacy tables the consolidation skipped
+    // (`brain_task_observations`, unprefixed `deriver_queue`). Re-running the
+    // legacy folder would collide: its cross-migration rename chain (t1147
+    // `brain_v2_candidate` → t1402 RENAME TO `brain_observations_staging`) hits
+    // the final table the consolidation already created. The consolidated schema
+    // is the brain SSoT during the E3→E6 transition.
 
     // Create the vec0 virtual table for embeddings if the extension is loaded
     // (T5157). Must run after migrations so the schema is consistent.
