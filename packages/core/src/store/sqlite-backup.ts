@@ -217,8 +217,9 @@ async function openTasksDbForSnapshot(cwd?: string): Promise<SnapshotDbHandle | 
  * (sync) and return its native handle.
  */
 async function openConduitDbForSnapshot(cwd?: string): Promise<SnapshotDbHandle | null> {
-  // ensureConduitDb requires an absolute project root.
-  ensureConduitDb(resolveOrCwd(cwd));
+  // ensureConduitDb requires an absolute project root. E6-L3 (T11523): it is now
+  // async (routes through the dual-scope cleo.db chokepoint).
+  await ensureConduitDb(resolveOrCwd(cwd));
   return getConduitNativeDb();
 }
 

@@ -37,7 +37,7 @@ export function createConduitAccessor(projectRoot?: string): ConduitAccessor {
   return {
     async publish(topic: string, payload: unknown): Promise<void> {
       const { ensureConduitDb, getConduitNativeDb } = await import('./conduit-sqlite.js');
-      ensureConduitDb(cwd);
+      await ensureConduitDb(cwd);
       const db = getConduitNativeDb();
       if (!db) throw new Error('ConduitAccessor: conduit.db not initialized');
 
@@ -67,7 +67,7 @@ export function createConduitAccessor(projectRoot?: string): ConduitAccessor {
     async ping(): Promise<boolean> {
       try {
         const { ensureConduitDb, getConduitNativeDb } = await import('./conduit-sqlite.js');
-        ensureConduitDb(cwd);
+        await ensureConduitDb(cwd);
         const db = getConduitNativeDb();
         if (!db) return false;
         db.prepare('SELECT 1').get();
