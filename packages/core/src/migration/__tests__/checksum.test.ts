@@ -108,7 +108,8 @@ describe('verifyBackup', () => {
   });
 
   it('verifies identical files as valid', async () => {
-    const sourcePath = join(cleoDir, 'tasks.db');
+    // E6-L1 (T11521): getDb() now opens cleo.db via openDualScopeDb, not tasks.db
+    const sourcePath = join(cleoDir, 'cleo.db');
     const backupPath = join(tempDir, 'backup.db');
 
     // Create a real SQLite database using the sqlite module

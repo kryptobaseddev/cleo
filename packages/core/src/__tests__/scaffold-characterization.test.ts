@@ -377,16 +377,18 @@ describe('characterization: ensureSqliteDb', () => {
     else delete process.env['CLEO_DIR'];
   });
 
-  it('returns action=skipped when tasks.db already exists', async () => {
-    writeFileSync(join(tmpDir, '.cleo', 'tasks.db'), 'SQLite format 3');
+  // E6-L1 (T11521): ensureSqliteDb now probes the consolidated `cleo.db`
+  // (the file getDb opens via openDualScopeDb('project')), not legacy `tasks.db`.
+  it('returns action=skipped when cleo.db already exists', async () => {
+    writeFileSync(join(tmpDir, '.cleo', 'cleo.db'), 'SQLite format 3');
     const result = await ensureSqliteDb(tmpDir);
     expect(result.action).toBe('skipped');
   });
 
-  it('path in result points to tasks.db', async () => {
-    writeFileSync(join(tmpDir, '.cleo', 'tasks.db'), 'SQLite format 3');
+  it('path in result points to cleo.db', async () => {
+    writeFileSync(join(tmpDir, '.cleo', 'cleo.db'), 'SQLite format 3');
     const result = await ensureSqliteDb(tmpDir);
-    expect(result.path).toContain('tasks.db');
+    expect(result.path).toContain('cleo.db');
   });
 });
 

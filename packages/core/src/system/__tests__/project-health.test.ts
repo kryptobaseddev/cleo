@@ -155,7 +155,8 @@ describe('checkProjectHealth', () => {
     const projectPath = join(testDir, 'healthy-project');
     const cleoDir = join(projectPath, '.cleo');
     await mkdir(cleoDir, { recursive: true });
-    makeHealthyDb(join(cleoDir, 'tasks.db'), 1);
+    // E6-L1 (T11521): tasks domain consolidated into `cleo.db`.
+    makeHealthyDb(join(cleoDir, 'cleo.db'), 1);
     makeHealthyDb(join(cleoDir, 'brain.db'), 1);
     makeHealthyDb(join(cleoDir, 'conduit.db'), 1);
     await writeFile(join(cleoDir, 'config.json'), JSON.stringify({ a: 1 }));
@@ -177,7 +178,8 @@ describe('checkProjectHealth', () => {
     const projectPath = join(testDir, 'bad-config');
     const cleoDir = join(projectPath, '.cleo');
     await mkdir(cleoDir, { recursive: true });
-    makeHealthyDb(join(cleoDir, 'tasks.db'), 1);
+    // E6-L1 (T11521): tasks domain consolidated into `cleo.db`.
+    makeHealthyDb(join(cleoDir, 'cleo.db'), 1);
     await writeFile(join(cleoDir, 'config.json'), '{ this is not valid json');
 
     const report = await checkProjectHealth(projectPath, 'badcfg000001');
@@ -192,10 +194,11 @@ describe('checkProjectHealth', () => {
     const projectPath = join(testDir, 'corrupt-tasks');
     const cleoDir = join(projectPath, '.cleo');
     await mkdir(cleoDir, { recursive: true });
-    makeHealthyDb(join(cleoDir, 'tasks.db'), 1);
+    // E6-L1 (T11521): tasks domain consolidated into `cleo.db`.
+    makeHealthyDb(join(cleoDir, 'cleo.db'), 1);
     // Corrupt bytes past the header
     const { open } = await import('node:fs/promises');
-    const handle = await open(join(cleoDir, 'tasks.db'), 'r+');
+    const handle = await open(join(cleoDir, 'cleo.db'), 'r+');
     try {
       const garbage = Buffer.alloc(256, 0xff);
       await handle.write(garbage, 0, 256, 4096);
@@ -266,10 +269,11 @@ describe('checkAllRegisteredProjects', () => {
     await nexusRegister(healthyPath, 'alpha');
     await nexusRegister(degradedPath, 'beta');
 
-    // Now corrupt beta's tasks.db so the probe sees an unhealthy DB.
+    // Now corrupt beta's cleo.db (tasks domain) so the probe sees an unhealthy DB.
+    // E6-L1 (T11521): tasks domain consolidated into `cleo.db`.
     {
       const { open } = await import('node:fs/promises');
-      const handle = await open(join(degradedPath, '.cleo', 'tasks.db'), 'r+');
+      const handle = await open(join(degradedPath, '.cleo', 'cleo.db'), 'r+');
       try {
         const garbage = Buffer.alloc(256, 0xff);
         await handle.write(garbage, 0, 256, 4096);

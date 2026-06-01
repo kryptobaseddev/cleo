@@ -147,7 +147,8 @@ describe('Migration Safety Integration Tests', () => {
       expect(result.errors[0]).toContain('parse');
 
       // Assert: Database was not created (or is empty)
-      const dbPath = join(cleoDir, 'tasks.db');
+      // E6-L1 (T11521): getDb() now opens cleo.db via openDualScopeDb, not tasks.db
+      const dbPath = join(cleoDir, 'cleo.db');
       if (existsSync(dbPath)) {
         // If DB exists, it should be empty/invalid
         const { getDb } = await import('../sqlite.js');
@@ -176,7 +177,8 @@ describe('Migration Safety Integration Tests', () => {
       expect(firstResult.tasksImported).toBe(2);
 
       // Verify DB exists
-      const dbPath = join(cleoDir, 'tasks.db');
+      // E6-L1 (T11521): getDb() now opens cleo.db via openDualScopeDb, not tasks.db
+      const dbPath = join(cleoDir, 'cleo.db');
       expect(existsSync(dbPath)).toBe(true);
       closeDb();
 
@@ -332,7 +334,8 @@ describe('Migration Safety Integration Tests', () => {
       const { closeDb } = await import('../sqlite.js');
       closeDb();
 
-      const dbPath = join(cleoDir, 'tasks.db');
+      // E6-L1 (T11521): getDb() now opens cleo.db via openDualScopeDb, not tasks.db
+      const dbPath = join(cleoDir, 'cleo.db');
       expect(existsSync(dbPath)).toBe(true);
 
       // Create backup with checksum verification

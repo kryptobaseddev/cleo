@@ -1,23 +1,29 @@
 /**
  * SQLite store via drizzle-orm/node-sqlite + node:sqlite (DatabaseSync).
  *
- * Zero native npm dependencies, 100% cross-platform (Windows/Linux/macOS).
- * File-backed SQLite with WAL mode for multi-process concurrent access.
- * Database stored at .cleo/tasks.db.
+ * ## E6-L1 — thin-facade migration (T11521)
  *
- * Architecture: node:sqlite provides the synchronous file-backed SQLite engine,
- * wrapped via drizzle-orm/node-sqlite for a fully synchronous interface. All
- * writes go directly to disk through SQLite's native WAL mechanism -- no
- * saveToFile() pattern needed.
+ * `getDb()` and `getNativeTasksDb()` are now thin facades that delegate the
+ * database open to {@link openDualScopeDb}('project', cwd) — the canonical
+ * dual-scope chokepoint introduced by E3/E4 (T11512/T11517). This ensures:
+ *
+ * - Every tasks.db open flows through the single pragma SSoT (ADR-068/069).
+ * - The worktree-isolation guard (T9806) fires consistently on all opens.
+ * - DB Open Guard Gate 3 (`scripts/lint-no-direct-db-open.mjs`) stays green.
+ *
+ * The legacy tables (`tasks`, `sessions`, `schema_meta`, …) are still created
+ * by `runMigrations` (drizzle-tasks folder) inside the shared `cleo.db` file
+ * during the E3→E6 transition period, co-existing with the new `tasks_tasks`
+ * prefix tables from the consolidated schema. E6-L7/L8 will remove them.
  *
  * @epic T4454
  * @task T4817 - node:sqlite engine migration (ADR-006, ADR-010)
  * @task T4810 - Data loss prevention guards
+ * @task T11521 - E6-L1: route getDb through openDualScopeDb (SG-DB-SUBSTRATE-V2)
  */
 
-import { copyFileSync, existsSync, mkdirSync, renameSync, unlinkSync } from 'node:fs';
+import { copyFileSync, existsSync, renameSync, unlinkSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join, resolve, sep } from 'node:path';
 import { eq } from 'drizzle-orm';
 // T11280: `drizzle` is loaded LAZILY (see _getDrizzle) rather than via a
 // top-level value import. drizzle-orm/node-sqlite/driver.js statically imports
@@ -27,7 +33,15 @@ import { eq } from 'drizzle-orm';
 // module-load time", T1331). The type import is erased at runtime and is safe.
 import type { drizzle as drizzleFn, NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { getLogger } from '../logger.js';
-import { resolveCleoDir } from '../paths.js';
+// T11521: dual-scope chokepoint — all tasks.db opens now flow through here.
+// openDualScopeDb manages the DatabaseSync lifecycle, pragmas, and migrations
+// for the consolidated cleo.db. We extract the native handle and re-wrap it
+// with the legacy tasks-schema drizzle instance for E6 caller compatibility.
+import {
+  _resetDualScopeDbCache,
+  openDualScopeDb,
+  resolveDualScopeDbPath,
+} from './dual-scope-db.js';
 import type { RequiredColumn } from './migration-manager.js';
 import {
   createSafetyBackup,
@@ -84,9 +98,6 @@ function _getDrizzle(): typeof drizzleFn {
   return _drizzle;
 }
 
-/** Database file name within .cleo/ directory. */
-const DB_FILENAME = 'tasks.db';
-
 /** Schema version for newly created databases. Single source of truth. */
 export const SQLITE_SCHEMA_VERSION = '2.0.0';
 const SCHEMA_VERSION = SQLITE_SCHEMA_VERSION;
@@ -97,14 +108,19 @@ let _nativeDb: DatabaseSync | null = null;
 let _dbPath: string | null = null;
 /** Guard against concurrent initialization (async migration). */
 let _initPromise: Promise<NodeSQLiteDatabase<typeof schema>> | null = null;
-/** Guard: git-tracking check runs only once per process. */
-let _gitTrackingChecked = false;
 
 /**
- * Get the path to the SQLite database file.
+ * Get the path to the SQLite database file that {@link getDb} opens.
+ *
+ * ## E6-L1 (T11521)
+ *
+ * After the dual-scope migration, `getDb()` opens the consolidated project
+ * `cleo.db` via {@link openDualScopeDb}. This function therefore returns the
+ * dual-scope `cleo.db` path so that callers checking for the file `getDb()`
+ * created (existence / backup / health probes) point at the correct file.
  */
 export function getDbPath(cwd?: string): string {
-  return join(resolveCleoDir(cwd), DB_FILENAME);
+  return resolveDualScopeDbPath('project', cwd);
 }
 
 /**
@@ -214,7 +230,10 @@ async function autoRecoverFromBackup(
       'Database auto-recovered from backup successfully.',
     );
 
-    // Re-open the restored database — update the native singleton
+    // Re-open the restored database — update the native singleton.
+    // The dual-scope cache is now stale (its nativeDb was closed above);
+    // reset it so the singleton is re-established on next getDb().
+    _resetDualScopeDbCache();
     const restoredNativeDb = openNativeDatabase(dbPath);
     _nativeDb = restoredNativeDb;
 
@@ -231,24 +250,32 @@ async function autoRecoverFromBackup(
 }
 
 /**
- * Initialize the SQLite database (lazy, singleton).
- * Creates the database file and tables if they don't exist.
- * Returns the drizzle ORM instance (node-sqlite driver).
+ * Open (or return cached) the drizzle tasks-schema handle for the project scope.
+ *
+ * ## E6-L1 façade (T11521)
+ *
+ * Delegates the physical DB open to {@link openDualScopeDb}('project', cwd) —
+ * the canonical dual-scope chokepoint. The returned `NodeSQLiteDatabase` wraps
+ * the same `DatabaseSync` handle as the consolidated `cleo.db` but is typed
+ * against the legacy `tasks-schema` (table name `tasks`, etc.) so all existing
+ * callers compile without change.
+ *
+ * The legacy drizzle-tasks migrations are still applied to this handle during
+ * the E3→E6 transition, creating the `tasks` table family inside `cleo.db`
+ * alongside the new `tasks_tasks` tables. E6-L7/L8 will remove them.
  *
  * Uses a promise guard so concurrent callers wait for the same
  * initialization to complete (migrations are async).
  */
 export async function getDb(cwd?: string): Promise<NodeSQLiteDatabase<typeof schema>> {
-  const requestedPath = getDbPath(cwd);
-
   // T9961 / T9806: worktree-isolation guard — defense-in-depth for direct
-  // getDb() callers (61 core handlers) that bypass openCleoDb('tasks', cwd).
+  // getDb() callers that bypass openCleoDb('tasks', cwd).
   // Fires before any DB file is touched, matching the openCleoDb chokepoint.
   assertDbPathIsNotWorktreeResident('tasks', cwd);
 
-  // T1906: guard against prod-DB writes in test mode
-  const { assertTestEnv } = await import('./data-accessor.js');
-  assertTestEnv(requestedPath);
+  // Resolve the cleo.db path via the dual-scope helper (same logic as
+  // openDualScopeDb uses internally) to drive the singleton key.
+  const requestedPath = resolveDualScopeDbPath('project', cwd);
 
   // If singleton exists but points to different path, reset it
   if (_db && _dbPath !== requestedPath) {
@@ -261,23 +288,32 @@ export async function getDb(cwd?: string): Promise<NodeSQLiteDatabase<typeof sch
   if (_initPromise) return _initPromise;
 
   _initPromise = (async () => {
-    const dbPath = requestedPath;
-    _dbPath = dbPath;
+    // ── Dual-scope chokepoint delegation (T11521 · E6-L1) ─────────────────
+    // openDualScopeDb applies pragma SSoT, creates the directory, runs cleo-project
+    // migrations, and manages the singleton cache. We extract its native handle
+    // so we can re-wrap it with the legacy tasks-schema for caller compatibility.
+    const dualHandle = await openDualScopeDb('project', cwd);
 
-    // Ensure directory exists
-    mkdirSync(dirname(dbPath), { recursive: true });
+    // Extract the underlying DatabaseSync. Drizzle exposes it via `$client`.
+    const nativeDb = (dualHandle.db as { $client?: DatabaseSync }).$client ?? null;
+    if (!nativeDb) {
+      throw new Error(
+        'E6-L1: openDualScopeDb returned a handle without $client — ' +
+          'cannot extract DatabaseSync for legacy tasks-schema wrapping.',
+      );
+    }
 
-    // Open file-backed SQLite via node:sqlite with WAL mode.
-    // openNativeDatabase is re-exported from sqlite-native.ts — the actual
-    // function lives there (zero CLEO imports) so the cycle cannot TDZ it.
-    const { openNativeDatabase } = await import('./sqlite-native.js');
-    const nativeDb = openNativeDatabase(dbPath);
     _nativeDb = nativeDb;
+    _dbPath = requestedPath;
 
-    // Create drizzle ORM wrapper via node-sqlite
+    // Wrap the native handle with the legacy tasks-schema drizzle instance.
+    // This allows all existing callers (using schema.tasks, schema.sessions, etc.)
+    // to continue querying the same DatabaseSync without change.
     const db = _getDrizzle()({ client: nativeDb, schema });
 
-    // Run drizzle migrations (creates/updates tables)
+    // Run legacy drizzle-tasks migrations against the shared cleo.db handle.
+    // During E3→E6 transition these create the old `tasks` table family alongside
+    // the new `tasks_tasks` tables from the consolidated schema migration.
     runMigrations(nativeDb, db);
 
     // Migration SQL contains PRAGMA foreign_keys=ON statements.
@@ -298,54 +334,7 @@ export async function getDb(cwd?: string): Promise<NodeSQLiteDatabase<typeof sch
     // Auto-recovery: detect empty database with available backups (T5188)
     // Root cause: git-tracked WAL/SHM files get overwritten on branch switch,
     // causing data loss when the WAL contained uncommitted writes.
-    await autoRecoverFromBackup(nativeDb, dbPath, cwd);
-
-    // Check if tasks.db or its WAL/SHM are dangerously tracked by git (ADR-013, T5158, T5188).
-    //
-    // As of ADR-013 §9 (2026-04-07) the canonical resolution is:
-    //   1. `.cleo/tasks.db` + WAL/SHM and `.cleo/brain.db` + WAL/SHM are
-    //      git-ignored at the project root and untracked via `git rm --cached`.
-    //   2. Recovery is provided by VACUUM INTO snapshots in
-    //      `.cleo/backups/sqlite/` (auto-rotated, 10 per DB, refreshed on
-    //      every `cleo session end` via the backup-session-end hook).
-    //   3. Full 4-file snapshots (including config.json + project-info.json)
-    //      are created on demand via `cleo backup add` / listed via
-    //      `cleo backup list` / restored via `cleo restore backup`.
-    //
-    // The warning below is retained as a regression guard: if someone
-    // accidentally re-stages the DB into project git, this warning fires at
-    // every process startup so they fix it before real data loss occurs.
-    if (!_gitTrackingChecked) {
-      _gitTrackingChecked = true;
-      try {
-        const { execFileSync } = await import('node:child_process');
-        const gitCwd = resolve(dbPath, '..', '..');
-        const filesToCheck = [dbPath, dbPath + '-wal', dbPath + '-shm'];
-        const log = getLogger('sqlite');
-
-        for (const fileToCheck of filesToCheck) {
-          try {
-            execFileSync('git', ['ls-files', '--error-unmatch', fileToCheck], {
-              cwd: gitCwd,
-              stdio: 'pipe',
-            });
-            // If we get here, the file IS tracked — that's dangerous.
-            const basename = fileToCheck.split(/[\\/]/).pop();
-            const relPath = fileToCheck.replace(gitCwd + sep, '');
-            log.warn(
-              { path: fileToCheck },
-              `${basename} is tracked by project git — this risks data loss on branch switch. ` +
-                `Resolution (ADR-013 §9): \`git rm --cached ${relPath}\` and rely on ` +
-                `\`.cleo/backups/sqlite/\` snapshots + \`cleo backup add\` for recovery.`,
-            );
-          } catch {
-            // Exit code 1 = not tracked = good
-          }
-        }
-      } catch {
-        // git not available, skip check
-      }
-    }
+    await autoRecoverFromBackup(nativeDb, requestedPath, cwd);
 
     // Set singleton only after migrations complete
     _db = db;
@@ -460,15 +449,31 @@ function runMigrations(nativeDb: DatabaseSync, db: NodeSQLiteDatabase<typeof sch
 
 /**
  * Close the database connection and release resources.
+ *
+ * ## E6-L1 (T11521)
+ *
+ * Resets the dual-scope cache via {@link _resetDualScopeDbCache} so the next
+ * `getDb()` call re-initialises cleanly rather than receiving a stale cached
+ * handle whose `DatabaseSync` is already closed (which would produce
+ * "database is not open" errors in migration-manager).
+ *
+ * Without the cache eviction, `openDualScopeDb` would return the stale entry
+ * for the same (scope, cwd) key — its `DatabaseSync` already closed by
+ * `_nativeDb.close()` below — causing downstream "database is not open" errors
+ * in `runMigrations → tableExists` for the very next `getDb()` caller.
  */
 export function closeDb(): void {
+  // Evict ALL dual-scope cache entries so the next openDualScopeDb() call
+  // opens a fresh DatabaseSync. Without this, the cache would return the
+  // stale handle whose nativeDb we're about to close below.
+  _resetDualScopeDbCache();
   if (_nativeDb) {
     try {
       if (_nativeDb.isOpen) {
         _nativeDb.close();
       }
     } catch {
-      // Ignore close errors
+      // Ignore close errors — _resetDualScopeDbCache already closed it
     }
     _nativeDb = null;
   }
@@ -481,15 +486,22 @@ export function closeDb(): void {
  * Reset database singleton state without saving.
  * Used during migrations when database file is deleted and recreated.
  * Safe to call multiple times.
+ *
+ * ## E6-L1 (T11521)
+ *
+ * Also resets the dual-scope cache via {@link _resetDualScopeDbCache} so the
+ * next `getDb()` opens a fresh handle rather than reusing a stale one.
+ * Mirrors the cache-eviction logic in {@link closeDb}.
  */
 export function resetDbState(): void {
+  _resetDualScopeDbCache();
   if (_nativeDb) {
     try {
       if (_nativeDb.isOpen) {
         _nativeDb.close();
       }
     } catch {
-      // Ignore close errors
+      // Ignore close errors — _resetDualScopeDbCache already closed it
     }
     _nativeDb = null;
   }
@@ -513,9 +525,19 @@ export async function getSchemaVersion(cwd?: string): Promise<string | null> {
 
 /**
  * Check if the database file exists.
+ *
+ * ## E6-L1 (T11521)
+ *
+ * After the dual-scope migration, `getDb()` opens `cleo.db` via
+ * {@link openDualScopeDb} — not the legacy `tasks.db`. This function now
+ * checks for `cleo.db` so that callers (e.g. `migration-sqlite.ts`) correctly
+ * detect the E6 database and skip re-migration.
+ *
+ * {@link getDbPath} still returns the legacy `tasks.db` path for backward-compat
+ * callers that specifically need that file (e.g. backup path construction).
  */
 export function dbExists(cwd?: string): boolean {
-  return existsSync(getDbPath(cwd));
+  return existsSync(resolveDualScopeDbPath('project', cwd));
 }
 
 /**
@@ -529,7 +551,12 @@ export function getNativeDb(): DatabaseSync | null {
 
 /**
  * Get the underlying node:sqlite DatabaseSync instance for tasks.db.
- * Alias for getNativeDb() — mirrors getBrainNativeDb() naming convention.
+ *
+ * ## E6-L1 façade (T11521)
+ *
+ * Thin facade delegating to {@link getNativeDb}. After the chokepoint
+ * migration the native handle originates from {@link openDualScopeDb} —
+ * callers receive the same `DatabaseSync` from `cleo.db`.
  */
 export function getNativeTasksDb(): DatabaseSync | null {
   return _nativeDb;
