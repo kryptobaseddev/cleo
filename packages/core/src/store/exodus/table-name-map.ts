@@ -119,6 +119,14 @@ const TASKS_DB_MAP: ReadonlyMap<string, string> = new Map([
   // (T11546 no-home-table fix — was missing from map, falling through to identity lookup for
   //  'schema_meta' which is absent in consolidated; now correctly mapped to tasks_schema_meta.)
   ['schema_meta', 'tasks_schema_meta'],
+  // T11550 P0 fix: agent_credentials and brain_release_links physically live in tasks.db
+  // (verified via sqlite_master introspection). T11549 erroneously placed these in BRAIN_DB_MAP
+  // because the legacy origin comment said "brain.db due to historical locality" — but the real
+  // project DB has them in tasks.db. The exodus source descriptor for tasks.db is 'tasks', so
+  // only TASKS_DB_MAP is consulted when copying from tasks.db. These entries must be here for
+  // the 3 agent_credentials rows and 8 brain_release_links rows to survive migration.
+  ['agent_credentials', 'tasks_agent_credentials'],
+  ['brain_release_links', 'tasks_brain_release_links'],
 ]);
 
 /**
@@ -135,22 +143,22 @@ const TASKS_DB_MAP: ReadonlyMap<string, string> = new Map([
  * (virtual tables, orphan telemetry, etc.) map to `null` — they will be
  * logged as explicit skips rather than silently discarded.
  *
- * ## brain_release_links (T11533 → T11549 fix)
+ * ## brain_release_links (T11533 → T11549 → T11550 fix)
  *
- * The legacy brain.db contains a `brain_release_links` table (8 rows) used by
- * `cleo release reconcile` to track release provenance. T11533 incorrectly marked
- * this as `null` (skip) because the consolidated cleo-project schema did not yet
- * include the table. T11549 adds `tasks_brain_release_links` to the consolidated
- * project schema (`cleo-project/provenance-orphans.ts`) so all 8 rows can be
- * migrated. The table is now mapped to `'tasks_brain_release_links'`.
+ * T11533 incorrectly marked `brain_release_links` as `null` (skip). T11549 added
+ * the target table `tasks_brain_release_links` to `cleo-project/provenance-orphans.ts`
+ * and mapped the table here in BRAIN_DB_MAP — but T11550 discovered that the 8 rows
+ * physically live in **tasks.db**, not brain.db (verified via sqlite_master). The
+ * correct mapping belongs in TASKS_DB_MAP (added there in T11550). The BRAIN_DB_MAP
+ * entry is now `null` (skip) to guard against double-migration if brain.db ever
+ * contains a phantom table by this name.
  *
- * ## agent_credentials (T11549 fix)
+ * ## agent_credentials (T11549 → T11550 fix)
  *
- * The legacy brain.db contains an `agent_credentials` table (3 rows) with
- * encrypted API keys. T11533 marked this as `null` (skip) because it was not in
- * the consolidated schema. T11549 adds `tasks_agent_credentials` to the project
- * schema so all 3 rows (including `api_key_encrypted`) are preserved through
- * exodus. The table is now mapped to `'tasks_agent_credentials'`.
+ * Same situation as brain_release_links: the 3 rows physically live in **tasks.db**,
+ * not brain.db. T11549 added the target table and mapped it here in BRAIN_DB_MAP,
+ * but the source is tasks.db. T11550 moves the mapping to TASKS_DB_MAP and sets
+ * this entry to `null` (skip) to prevent double-migration.
  */
 const BRAIN_DB_MAP: ReadonlyMap<string, string | null> = new Map([
   // Already-prefixed brain_* tables (identity mapping)
@@ -173,9 +181,10 @@ const BRAIN_DB_MAP: ReadonlyMap<string, string | null> = new Map([
   ['brain_backfill_runs', 'brain_backfill_runs'],
   ['brain_memory_trees', 'brain_memory_trees'],
   ['brain_observations_staging', 'brain_observations_staging'],
-  // brain_release_links: T11549 fix — consolidated target added in cleo-project/provenance-orphans.ts.
-  // Was `null` (skip) in T11533; now maps to tasks_brain_release_links (8 rows preserved).
-  ['brain_release_links', 'tasks_brain_release_links'],
+  // brain_release_links: T11550 P0 fix — table physically lives in tasks.db (not brain.db).
+  // The TASKS_DB_MAP entry (added in T11550) handles the real migration path.
+  // If a legacy brain.db ever contains this table, skip it to avoid double-migration.
+  ['brain_release_links', null],
   // brain_schema_meta: key-value schema-version store (T11546 no-home-table fix —
   //   was missing from map, falling through to identity lookup; now correctly mapped).
   ['brain_schema_meta', 'brain_schema_meta'],
@@ -197,9 +206,10 @@ const BRAIN_DB_MAP: ReadonlyMap<string, string | null> = new Map([
   ['brain_embeddings', null],
   // brain_embeddings_info: metadata companion to brain_embeddings vec0 virtual table.
   ['brain_embeddings_info', null],
-  // agent_credentials: T11549 fix — consolidated target added in cleo-project/provenance-orphans.ts.
-  // Was `null` (skip); now maps to tasks_agent_credentials (3 rows incl. api_key_encrypted).
-  ['agent_credentials', 'tasks_agent_credentials'],
+  // agent_credentials: T11550 P0 fix — table physically lives in tasks.db (not brain.db).
+  // The TASKS_DB_MAP entry (added in T11550) handles the real migration path.
+  // If a legacy brain.db ever contains this table, skip it to avoid double-migration.
+  ['agent_credentials', null],
 ]);
 
 /**
