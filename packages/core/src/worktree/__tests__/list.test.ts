@@ -30,24 +30,28 @@ vi.mock('node:child_process', async (importOriginal) => {
 });
 
 // ---------------------------------------------------------------------------
-// Mock openCleoDb chokepoint — returns a stub DatabaseSync that yields the
-// tasks-by-id rows the current test configured via `MOCK_TASK_ROWS`.
+// Mock the project tasks store (E6-L6 / T11526): loadOwningTaskStatuses now
+// resolves task statuses via getDb()/getNativeTasksDb() against the consolidated
+// project cleo.db (which carries the legacy `tasks` table). We stub the native
+// handle so it yields the rows the current test configured via `MOCK_TASK_ROWS`.
 // ---------------------------------------------------------------------------
 const MOCK_TASK_ROWS = new Map<string, string>();
-vi.mock('../../store/open-cleo-db.js', () => ({
-  openCleoDb: vi.fn(async () => ({
-    db: {
-      prepare: (_sql: string) => ({
-        all: (...ids: string[]) =>
-          ids
-            .filter((id) => MOCK_TASK_ROWS.has(id))
-            .map((id) => ({ id, status: MOCK_TASK_ROWS.get(id) })),
-      }),
-    },
-    role: 'tasks',
-    close: async () => {},
-  })),
-}));
+const stubNativeTasksDb = {
+  prepare: (_sql: string) => ({
+    all: (...ids: string[]) =>
+      ids
+        .filter((id) => MOCK_TASK_ROWS.has(id))
+        .map((id) => ({ id, status: MOCK_TASK_ROWS.get(id) })),
+  }),
+};
+vi.mock('../../store/sqlite.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../store/sqlite.js')>();
+  return {
+    ...actual,
+    getDb: vi.fn(async () => ({}) as never),
+    getNativeTasksDb: vi.fn(() => stubNativeTasksDb as never),
+  };
+});
 
 const mockExec = vi.mocked(execFileSync);
 
