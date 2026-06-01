@@ -58,6 +58,13 @@ const LEGACY_GROUP_RELATION_OWNERS = new Set([
   'packages/cleo/src/cli/commands/orchestrate.ts',
   'packages/cleo/src/cli/commands/release.ts',
   'packages/cleo/src/cli/commands/saga.ts',
+  // T11548: exodus migrate.ts maps the legacy 'grouped-by' relation_type to the
+  // canonical 'groups' enum value during data migration. This is pure value
+  // normalization in a CASE expression — NOT hierarchy traversal. The file also
+  // mentions 'child-before-parent' in FK-defer documentation, which is the
+  // combined trigger for this detector. The enum map key is
+  // 'tasks_task_relations.relation_type' — unrelated to WorkGraph hierarchy.
+  'packages/core/src/store/exodus/migrate.ts',
 ]);
 
 interface SourceFile {
