@@ -105,6 +105,7 @@
  * @task T11531 (P0 attach-leak fix)
  * @task T11532 (P0 name-mapping + column-drift + verify-rowid fix)
  * @task T11533 (P0 FK-defer + NOT NULL coalesce + signaldock-global map + nexus hash fix)
+ * @task T11547 (P0 enum normalization — 7,421 rows recovered)
  * @saga T11242
  */
 
@@ -300,6 +301,132 @@ function typeDefaultLiteral(colType: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Enum-value normalization layer (ROOT CAUSE fix — T11547)
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-(targetTable, column) normalization rules that map legacy enum values to
+ * the canonical enum accepted by the consolidated schema CHECK constraints.
+ *
+ * Each entry is a function that, given the `srcRef` SQL expression for the
+ * column, returns a SQL CASE expression that produces the canonical value.
+ * Rows with already-canonical values pass through unchanged (the ELSE branch).
+ *
+ * ## Design decisions (T11547)
+ *
+ * - `tasks_task_commits.link_source = 'commit-message'`
+ *   → mapped to `'commit-subject'` (nearest canonical; legacy writers used
+ *   'commit-message' as the name for subject-line scanning before the enum
+ *   was tightened in T9506).
+ *
+ * - `tasks_architecture_decisions.status` (case normalization)
+ *   → `'Accepted'`, `'ACCEPTED'`, `'approved'` all → `'accepted'`;
+ *   `'Accepted (2026-04-18)'` and similar date-suffixed variants → `'accepted'`.
+ *   These map cleanly to the existing enum; no schema extension needed.
+ *
+ * - `brain_observations.source_type`
+ *   → `'observer-compressed'` was a legacy compression artefact produced by
+ *   the brain observer pipeline when it batch-compressed session observations;
+ *   semantically equivalent to `'agent'`. `'sleep-consolidation'` was the
+ *   nightly dream-consolidation job; also maps to `'agent'` (closest canonical).
+ *
+ * - `brain_observations.type`
+ *   → `'observation'` was the original catch-all type before the taxonomy was
+ *   expanded; `'discovery'` is the closest canonical.
+ *   `'proposal'` was used before `'decision'` was split out; maps to `'decision'`.
+ *   `'pattern'` was an experimental type; maps to `'refactor'` (structural insight).
+ *
+ * - `brain_decisions.confirmation_state`
+ *   → `'Accepted'`, `'ACCEPTED'`, `'approved'` all → `'accepted'` (same case
+ *   normalization as architecture_decisions.status; brain_decisions uses
+ *   a separate CHECK with the same three canonical values).
+ *
+ * Lookup key: `${targetTable}.${column}` (lowercase, dotted).
+ *
+ * @since T11547 (P0 data-loss fix)
+ */
+type NormalizeFn = (srcRef: string) => string;
+
+const ENUM_NORMALIZATIONS: ReadonlyMap<string, NormalizeFn> = new Map([
+  // --- task_commits.link_source -------------------------------------------
+  // 'commit-message' → 'commit-subject' (pre-T9506 legacy value)
+  [
+    'tasks_task_commits.link_source',
+    (src: string) => `CASE ${src} WHEN 'commit-message' THEN 'commit-subject' ELSE ${src} END`,
+  ],
+
+  // --- architecture_decisions.status (case + date-suffix normalization) ----
+  // 'Accepted', 'ACCEPTED', 'approved', 'Accepted (2026-04-18)', … → 'accepted'
+  // 'Proposed', 'PROPOSED' → 'proposed'
+  // 'Superseded', 'SUPERSEDED' → 'superseded'
+  [
+    'tasks_architecture_decisions.status',
+    (src: string) =>
+      `CASE` +
+      ` WHEN lower(${src}) = 'accepted' OR lower(${src}) LIKE 'accepted %' OR lower(${src}) = 'approved' THEN 'accepted'` +
+      ` WHEN lower(${src}) = 'proposed' THEN 'proposed'` +
+      ` WHEN lower(${src}) = 'superseded' THEN 'superseded'` +
+      ` WHEN lower(${src}) = 'deprecated' THEN 'deprecated'` +
+      ` ELSE ${src}` +
+      ` END`,
+  ],
+
+  // --- brain_observations.source_type -------------------------------------
+  // 'observer-compressed' and 'sleep-consolidation' → 'agent'
+  [
+    'brain_observations.source_type',
+    (src: string) =>
+      `CASE ${src}` +
+      ` WHEN 'observer-compressed' THEN 'agent'` +
+      ` WHEN 'sleep-consolidation' THEN 'agent'` +
+      ` ELSE ${src}` +
+      ` END`,
+  ],
+
+  // --- brain_observations.type --------------------------------------------
+  // 'observation' → 'discovery', 'proposal' → 'decision', 'pattern' → 'refactor'
+  [
+    'brain_observations.type',
+    (src: string) =>
+      `CASE ${src}` +
+      ` WHEN 'observation' THEN 'discovery'` +
+      ` WHEN 'proposal' THEN 'decision'` +
+      ` WHEN 'pattern' THEN 'refactor'` +
+      ` ELSE ${src}` +
+      ` END`,
+  ],
+
+  // --- brain_decisions.confirmation_state ---------------------------------
+  // Same case normalization as architecture_decisions.status
+  [
+    'brain_decisions.confirmation_state',
+    (src: string) =>
+      `CASE` +
+      ` WHEN lower(${src}) = 'accepted' OR lower(${src}) = 'approved' THEN 'accepted'` +
+      ` WHEN lower(${src}) = 'proposed' THEN 'proposed'` +
+      ` WHEN lower(${src}) = 'superseded' THEN 'superseded'` +
+      ` ELSE ${src}` +
+      ` END`,
+  ],
+]);
+
+/**
+ * Return a SQL CASE expression that normalises legacy enum values for `col` in
+ * `targetTableName` to the canonical values accepted by the consolidated CHECK,
+ * or return `null` when no normalization rule exists for this (table, column).
+ *
+ * @param targetTableName - Physical consolidated target table name.
+ * @param col             - Column name.
+ * @param srcRef          - SQL expression referencing the source column.
+ * @returns A SQL CASE expression string, or `null` if no rule applies.
+ */
+function enumNormExpr(targetTableName: string, col: string, srcRef: string): string | null {
+  const key = `${targetTableName}.${col}`;
+  const fn = ENUM_NORMALIZATIONS.get(key);
+  return fn ? fn(srcRef) : null;
+}
+
+// ---------------------------------------------------------------------------
 // Epoch-to-ISO coercion layer (ROOT CAUSE 1 fix — T11546)
 // ---------------------------------------------------------------------------
 
@@ -389,9 +516,16 @@ function detectIsoGlobColumns(db: DatabaseSync, tableName: string): Set<string> 
 }
 
 /**
- * Build a SQL SELECT expression for a shared column, applying epoch→ISO-8601
- * coercion when the target column requires an ISO GLOB value but the source
- * column is an INTEGER epoch.
+ * Build a SQL SELECT expression for a shared column, applying (in priority order):
+ *
+ * 1. **Epoch→ISO-8601 coercion** (T11546): when the target has an ISO GLOB CHECK
+ *    and the source column is INTEGER-typed.
+ * 2. **Enum-value normalization** (T11547): when `ENUM_NORMALIZATIONS` has an
+ *    entry for `(targetTableName, col)`, producing a SQL CASE expression that
+ *    maps legacy values to canonical enum members without losing semantics.
+ * 3. **NOT NULL coalesce** (T11533): for non-epoch, non-normalized columns whose
+ *    target is NOT NULL with no schema default.
+ * 4. **Plain column reference** otherwise.
  *
  * The epoch→ISO conversion uses SQLite's `strftime('%Y-%m-%dT%H:%M:%fZ', ...)`:
  * - For `seconds` epoch: `strftime('%Y-%m-%dT%H:%M:%fZ', src, 'unixepoch')`
@@ -400,18 +534,20 @@ function detectIsoGlobColumns(db: DatabaseSync, tableName: string): Set<string> 
  * A NULL source value is preserved as NULL (passes the `IS NULL` branch of the
  * GLOB CHECK, and is OK for nullable columns).
  *
- * @param attachAlias    - ATTACH alias for the source DB.
- * @param legacyTable    - Legacy table name in the source.
- * @param col            - Column name.
- * @param srcType        - Raw type string from source `PRAGMA table_info`.
- * @param tgtInfo        - Target column metadata from `PRAGMA table_info`.
- * @param isoGlobCols    - Set of columns requiring ISO GLOB in the target.
- * @param epochUnit      - Whether the source stores seconds or milliseconds.
+ * @param attachAlias      - ATTACH alias for the source DB.
+ * @param legacyTable      - Legacy table name in the source.
+ * @param targetTableName  - Physical consolidated target table name (for enum lookup).
+ * @param col              - Column name.
+ * @param srcType          - Raw type string from source `PRAGMA table_info`.
+ * @param tgtInfo          - Target column metadata from `PRAGMA table_info`.
+ * @param isoGlobCols      - Set of columns requiring ISO GLOB in the target.
+ * @param epochUnit        - Whether the source stores seconds or milliseconds.
  * @returns SQL expression string suitable for use in a SELECT clause.
  */
 function buildSelectExpr(
   attachAlias: string,
   legacyTable: string,
+  targetTableName: string,
   col: string,
   srcType: string,
   tgtInfo: { type: string; notnull: number; dflt_value: string | null },
@@ -421,26 +557,37 @@ function buildSelectExpr(
   const srcRef = `"${attachAlias}"."${legacyTable}"."${col}"`;
   const srcUpper = srcType.toUpperCase();
   const isIntegerSource = srcUpper.includes('INT') || srcUpper === '' || srcUpper === 'NUMERIC';
+  const isNotNullWithoutDefault = tgtInfo.notnull === 1 && tgtInfo.dflt_value === null;
 
-  // Apply epoch→ISO coercion when:
-  //   1. The target column has an ISO GLOB CHECK constraint, AND
-  //   2. The source column is INTEGER (epoch) typed, AND
-  //   3. The target column is TEXT typed (already guaranteed by the GLOB CHECK)
+  // Priority 1: Epoch→ISO coercion (T11546) — applies when target has ISO GLOB
+  // CHECK and source column is INTEGER (epoch) typed.
   if (isoGlobCols.has(col) && isIntegerSource) {
     const divisor = epochUnit === 'milliseconds' ? `${srcRef}/1000.0` : srcRef;
     // CASE preserves NULL (passes `IS NULL` branch of CHECK) and converts non-NULL epochs.
     const isoExpr = `CASE WHEN ${srcRef} IS NULL THEN NULL ELSE strftime('%Y-%m-%dT%H:%M:%fZ', ${divisor}, 'unixepoch') END`;
     // If the target is NOT NULL without a default, COALESCE to '' to avoid a separate
     // constraint violation (though a NULL epoch is anomalous data).
-    const isNotNullWithoutDefault = tgtInfo.notnull === 1 && tgtInfo.dflt_value === null;
     if (isNotNullWithoutDefault) {
       return `COALESCE(${isoExpr}, '') AS "${col}"`;
     }
     return `${isoExpr} AS "${col}"`;
   }
 
-  // Standard NOT NULL coalesce for non-epoch columns (T11533 fix preserved).
-  const isNotNullWithoutDefault = tgtInfo.notnull === 1 && tgtInfo.dflt_value === null;
+  // Priority 2: Enum-value normalization (T11547) — maps legacy enum values to
+  // canonical members so CHECK constraints accept them.
+  const normExpr = enumNormExpr(targetTableName, col, srcRef);
+  if (normExpr !== null) {
+    // Wrap in COALESCE if the target is NOT NULL without a default, so NULL
+    // source values get a safe fallback instead of triggering a constraint drop.
+    if (isNotNullWithoutDefault) {
+      const defLiteral = typeDefaultLiteral(tgtInfo.type);
+      return `COALESCE(${normExpr}, ${defLiteral}) AS "${col}"`;
+    }
+    return `${normExpr} AS "${col}"`;
+  }
+
+  // Priority 3: Standard NOT NULL coalesce for non-epoch, non-normalized columns
+  // (T11533 fix preserved).
   if (isNotNullWithoutDefault) {
     const defLiteral = typeDefaultLiteral(tgtInfo.type);
     return `COALESCE(${srcRef}, ${defLiteral}) AS "${col}"`;
@@ -600,18 +747,34 @@ function copyTableFromAttached(
     }
   }
 
+  // --- Step 5c: Detect enum-normalized columns in this target table (T11547) ---
+  //
+  // Log which columns have a normalization rule so the migration journal is
+  // traceable and operators can verify the mapping was applied.
+  const normalizedCols = sharedColumns.filter((col) =>
+    ENUM_NORMALIZATIONS.has(`${targetTableName}.${col}`),
+  );
+  if (normalizedCols.length > 0) {
+    log.info(
+      { legacyTableName, targetTableName, sourceName, normalizedCols },
+      `Exodus: applying enum-value normalization for ${normalizedCols.length} column(s) (T11547)`,
+    );
+  }
+
   // --- Step 6: Build the SELECT expression list ---
   //
-  // For each shared column, `buildSelectExpr` handles:
-  //   - Epoch→ISO coercion when target has ISO GLOB CHECK and source is INTEGER (T11546)
-  //   - COALESCE for NOT NULL target columns without schema defaults (T11533)
-  //   - Plain column reference otherwise
+  // For each shared column, `buildSelectExpr` handles (priority order):
+  //   1. Epoch→ISO coercion when target has ISO GLOB CHECK and source is INTEGER (T11546)
+  //   2. Enum-value normalization for legacy values not in the consolidated CHECK (T11547)
+  //   3. COALESCE for NOT NULL target columns without schema defaults (T11533)
+  //   4. Plain column reference otherwise
   const selectExprs = sharedColumns.map((col) => {
     const srcType = srcTypeMap.get(col) ?? '';
     const tgtInfo = tgtColMap.get(col)!;
     return buildSelectExpr(
       attachAlias,
       legacyTableName,
+      targetTableName,
       col,
       srcType,
       tgtInfo,
