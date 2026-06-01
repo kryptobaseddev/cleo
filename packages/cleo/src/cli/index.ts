@@ -392,6 +392,10 @@ async function runMainWithLafsEnvelope(
     try {
       await runCommand(cmd, { rawArgs });
     } catch (err) {
+      // NOTE: every branch in this catch ends with `process.exit(1)`, which
+      // terminates immediately and bypasses the `finally` below. That is the
+      // intended error contract — a hard exit releases all handles. Only the
+      // SUCCESS path (no exit) needs the coordinated teardown in `finally`.
       const { cliError } = await import('./renderers/index.js');
       // Citty's CLIError extends Error with a string `code` (e.g. 'EARG') and
       // sets `name === 'CLIError'`. Narrow without lying to the type system.
@@ -413,6 +417,19 @@ async function runMainWithLafsEnvelope(
       const message = err instanceof Error ? err.message : String(err);
       cliError(message, 1, { name: 'E_CLI_UNCAUGHT' });
       process.exit(1);
+    } finally {
+      // T11568 — the success path does NOT call process.exit(); it emits the
+      // LAFS envelope and returns, relying on the event loop draining so the
+      // process exits rc:0. Process-lifetime worker threads (the BRAIN
+      // single-writer worker behind `cleo memory observe` / brain.db writes, and
+      // the pino-roll log transport) own a `MessagePort` that keeps the loop
+      // alive forever — so without coordinated teardown the command printed its
+      // success envelope and then HUNG (rc:124). Tear those down here, AFTER the
+      // envelope has been written, so the loop drains and the process exits.
+      // The error branches above already `process.exit(1)` (which bypasses this
+      // finally), so this runs only on the success path.
+      const { shutdownCliRuntime } = await import('@cleocode/core/internal');
+      await shutdownCliRuntime();
     }
   });
 }
