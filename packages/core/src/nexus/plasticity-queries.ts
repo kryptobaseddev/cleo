@@ -1,8 +1,10 @@
 /**
  * NEXUS plasticity queries (T1013 · fills wiring gap from T998 + T1006).
  *
- * Read-only queries over the plasticity columns that T998 added to
- * `nexus_relations` (`weight`, `last_accessed_at`, `co_accessed_count`).
+ * Read-only queries over the plasticity columns (`weight`, `last_accessed_at`,
+ * `co_accessed_count`) — added by T998 and partitioned by T11545 (ADR-090 §5.3)
+ * into the sibling `nexus_relation_weights` table (1:1 on `relation_id`). These
+ * queries JOIN that table back onto `nexus_relations`.
  *
  * - `getHotPaths`   — top-N relations by weight (strongest paths).
  * - `getHotNodes`   — top-N source symbols aggregated by weight (busiest hubs).
@@ -136,16 +138,19 @@ export async function getHotPaths(_projectRoot: string, limit = 20): Promise<Nex
   if (!db) {
     return emptyResult('paths', 'nexus database not initialised');
   }
+  // T11545: weights live in the sibling `nexus_relation_weights` table. INNER
+  // JOIN restricts to edges that have a weights row (i.e. have been strengthened).
   const stmt = sql`
-    SELECT source_id AS sourceId,
-           target_id AS targetId,
-           type AS type,
-           COALESCE(weight, 0.0) AS weight,
-           last_accessed_at AS lastAccessedAt,
-           COALESCE(co_accessed_count, 0) AS coAccessedCount
-      FROM nexus_relations
-     WHERE COALESCE(weight, 0.0) > 0.0
-  ORDER BY weight DESC
+    SELECT r.source_id AS sourceId,
+           r.target_id AS targetId,
+           r.type AS type,
+           COALESCE(w.weight, 0.0) AS weight,
+           w.last_accessed_at AS lastAccessedAt,
+           COALESCE(w.co_accessed_count, 0) AS coAccessedCount
+      FROM nexus_relations r
+      JOIN nexus_relation_weights w ON w.relation_id = r.id
+     WHERE COALESCE(w.weight, 0.0) > 0.0
+  ORDER BY w.weight DESC
      LIMIT ${limit}
   `;
   const rows = (await db.all(stmt)) as RawPathRow[];
@@ -173,16 +178,19 @@ export async function getHotNodes(_projectRoot: string, limit = 20): Promise<Nex
   if (!db) {
     return emptyResult('nodes', 'nexus database not initialised');
   }
+  // T11545: aggregate weights from the sibling `nexus_relation_weights` table.
+  // INNER JOIN restricts to strengthened edges (those with a weights row).
   const stmt = sql`
     SELECT r.source_id AS sourceId,
            COALESCE(n.label, r.source_id) AS label,
            n.file_path AS filePath,
            COALESCE(n.kind, 'unknown') AS kind,
-           SUM(COALESCE(r.weight, 0.0)) AS totalWeight,
+           SUM(COALESCE(w.weight, 0.0)) AS totalWeight,
            COUNT(*) AS pathCount
       FROM nexus_relations r
+      JOIN nexus_relation_weights w ON w.relation_id = r.id
  LEFT JOIN nexus_nodes n ON n.id = r.source_id
-     WHERE COALESCE(r.weight, 0.0) > 0.0
+     WHERE COALESCE(w.weight, 0.0) > 0.0
   GROUP BY r.source_id, n.label, n.file_path, n.kind
   ORDER BY totalWeight DESC
      LIMIT ${limit}
@@ -220,15 +228,19 @@ export async function getColdSymbols(
   // Cold = weak (maxWeight < 0.1) AND (never accessed OR older than cutoff).
   // thresholdDays=0 special-cases "any unaccessed symbol" — the cutoff is now
   // and we keep the NULL-allowed branch.
+  // T11545: cold = weak (maxWeight < 0.1) OR never strengthened (no weights
+  // row). LEFT JOIN the sibling `nexus_relation_weights` so edges without a
+  // weights row contribute weight 0.0 and last_accessed_at NULL.
   const stmt = sql`
     SELECT r.source_id AS sourceId,
            COALESCE(n.label, r.source_id) AS label,
            n.file_path AS filePath,
            COALESCE(n.kind, 'unknown') AS kind,
-           MAX(r.last_accessed_at) AS lastAccessedAt,
+           MAX(w.last_accessed_at) AS lastAccessedAt,
            COUNT(*) AS pathCount,
-           MAX(COALESCE(r.weight, 0.0)) AS maxWeight
+           MAX(COALESCE(w.weight, 0.0)) AS maxWeight
       FROM nexus_relations r
+ LEFT JOIN nexus_relation_weights w ON w.relation_id = r.id
  LEFT JOIN nexus_nodes n ON n.id = r.source_id
   GROUP BY r.source_id, n.label, n.file_path, n.kind
     HAVING maxWeight < 0.1

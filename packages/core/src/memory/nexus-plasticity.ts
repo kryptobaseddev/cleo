@@ -6,11 +6,17 @@
  * nexus_relations gain plasticity weight.  Weight is capped at 1.0 to prevent
  * runaway strengthening.
  *
+ * T11545 (ADR-090 §5.3) partitioned the plasticity columns (`weight`,
+ * `last_accessed_at`, `co_accessed_count`) out of `nexus_relations` into the
+ * sibling 1:1 `nexus_relation_weights` table (keyed by `relation_id`). Writes
+ * here UPSERT that sibling table; rows are created lazily on first strengthen.
+ *
  * Designed as Step 6b in runConsolidation (brain-lifecycle.ts) so every
  * nexus-backed read passively strengthens the code-graph edges that
  * participated in that retrieval.
  *
  * @task T998
+ * @task T11545
  * @epic T991
  */
 
@@ -63,18 +69,24 @@ export interface PlasticityDecayResult {
 /**
  * Strengthen nexus_relations edges for co-accessed node pairs.
  *
- * For each `{sourceId, targetId}` pair, performs:
+ * For each `{sourceId, targetId}` pair, UPSERTs into the partitioned
+ * `nexus_relation_weights` table (T11545 · ADR-090 §5.3) for every matching
+ * `nexus_relations.id`:
  * ```sql
- * UPDATE nexus_relations
- * SET weight          = MIN(1.0, weight + 0.05),
- *     co_accessed_count = co_accessed_count + 1,
- *     last_accessed_at  = datetime('now')
- * WHERE source_id = ? AND target_id = ?
+ * INSERT INTO nexus_relation_weights (relation_id, weight, last_accessed_at, co_accessed_count)
+ * SELECT id, MIN(1.0, 0.05), datetime('now'), 1
+ *   FROM nexus_relations
+ *  WHERE source_id = ? AND target_id = ?
+ * ON CONFLICT(relation_id) DO UPDATE SET
+ *   weight            = MIN(1.0, weight + 0.05),
+ *   co_accessed_count = co_accessed_count + 1,
+ *   last_accessed_at  = excluded.last_accessed_at
  * ```
  *
- * Only updates rows that already exist — never inserts.  This keeps the
- * plasticity pass additive and non-destructive: if a pair does not yet have
- * a code-graph edge, it is silently skipped (recorded in `result.skipped`).
+ * A weights row is created lazily on first strengthen and never for a pair that
+ * has no matching code-graph edge — when the SELECT is empty, zero rows change
+ * and the pair is silently skipped (recorded in `result.skipped`). This keeps
+ * the plasticity pass additive and non-destructive.
  *
  * This function is safe to call from any consolidation context.  It
  * gracefully no-ops when nexus.db has not been initialised (returns zeros).
@@ -100,12 +112,12 @@ export async function strengthenNexusCoAccess(
   const nativeDb = getNexusNativeDb();
   if (!nativeDb) return { strengthened: 0, skipped: 0 };
 
-  // Verify the plasticity columns exist before attempting updates (safety net
-  // for databases that haven't run the T998 migration yet).
+  // Verify the partitioned plasticity table exists before attempting writes
+  // (safety net for databases that haven't run the T11545 migration yet).
   try {
-    nativeDb.prepare('SELECT weight FROM nexus_relations LIMIT 1').get();
+    nativeDb.prepare('SELECT relation_id FROM nexus_relation_weights LIMIT 1').get();
   } catch {
-    // Column not present — migration hasn't run yet.  No-op gracefully.
+    // Table not present — migration hasn't run yet. No-op gracefully.
     return { strengthened: 0, skipped: 0 };
   }
 
@@ -113,12 +125,21 @@ export async function strengthenNexusCoAccess(
   let strengthened = 0;
   let skipped = 0;
 
+  // T11545: weights live in the sibling `nexus_relation_weights` table (1:1 on
+  // relation_id). UPSERT for every relation row matching the pair — rows are
+  // created lazily on first strengthen. INSERT ... SELECT ... ON CONFLICT keeps
+  // the original "never create a phantom edge" semantic: when no relation row
+  // matches the pair, the SELECT is empty, zero rows change, and the pair is
+  // recorded as skipped.
   const stmt = nativeDb.prepare(`
-    UPDATE nexus_relations
-    SET weight            = MIN(1.0, COALESCE(weight, 0.0) + ${WEIGHT_INCREMENT}),
-        co_accessed_count = COALESCE(co_accessed_count, 0) + 1,
-        last_accessed_at  = ?
-    WHERE source_id = ? AND target_id = ?
+    INSERT INTO nexus_relation_weights (relation_id, weight, last_accessed_at, co_accessed_count)
+    SELECT id, MIN(1.0, ${WEIGHT_INCREMENT}), ?, 1
+      FROM nexus_relations
+     WHERE source_id = ? AND target_id = ?
+    ON CONFLICT(relation_id) DO UPDATE SET
+      weight            = MIN(1.0, nexus_relation_weights.weight + ${WEIGHT_INCREMENT}),
+      co_accessed_count = nexus_relation_weights.co_accessed_count + 1,
+      last_accessed_at  = excluded.last_accessed_at
   `);
 
   for (const pair of pairs) {
@@ -200,11 +221,11 @@ export async function applyPlasticityDecay(): Promise<PlasticityDecayResult> {
   // This ensures weight = weight * 0.5 after halfLifeDays of decay.
   const decayPerDay = 1 - 0.5 ** (1 / halfLifeDays);
 
-  // Verify the plasticity columns exist before attempting updates.
+  // Verify the partitioned plasticity table exists before attempting updates.
   try {
-    nativeDb.prepare('SELECT weight, last_accessed_at FROM nexus_relations LIMIT 1').get();
+    nativeDb.prepare('SELECT weight, last_accessed_at FROM nexus_relation_weights LIMIT 1').get();
   } catch {
-    // Columns not present — migration hasn't run yet. No-op gracefully.
+    // Table not present — migration hasn't run yet. No-op gracefully.
     return {
       updated: 0,
       halfLifeDays,
@@ -212,12 +233,13 @@ export async function applyPlasticityDecay(): Promise<PlasticityDecayResult> {
     };
   }
 
+  // T11545: decay operates on the partitioned `nexus_relation_weights` table.
   // Apply decay to all edges with a non-NULL last_accessed_at.
   // SQLite's julianday('now') - julianday(last_accessed_at) gives days since access.
   // decay_factor = 0.5 ^ (days / halfLifeDays) = 2 ^ (-days / halfLifeDays)
   // This is implemented as: weight * EXP(LN(0.5) * julianday(...) / halfLifeDays)
   const stmt = nativeDb.prepare(`
-    UPDATE nexus_relations
+    UPDATE nexus_relation_weights
     SET weight = MAX(0.0, weight * EXP(LN(0.5) * (julianday('now') - julianday(last_accessed_at)) / ?))
     WHERE last_accessed_at IS NOT NULL AND weight > 0.001
   `);

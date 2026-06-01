@@ -67,7 +67,6 @@ interface RawNexusRelation {
   source_id: string;
   target_id: string;
   type: string;
-  weight: number | null;
 }
 
 interface RawBrainEdge {
@@ -203,10 +202,11 @@ export async function getSymbolFullContext(
       if (symbolNode) {
         resolvedSymbolId = symbolNode.id;
 
-        // Callers: relations where target_id = symbolNode.id
+        // Callers: relations where target_id = symbolNode.id.
+        // T11545: `weight` is no longer on nexus_relations and is unused here.
         const callerRelations = typedAll<RawNexusRelation>(
           nexusNative.prepare(
-            `SELECT r.source_id, r.target_id, r.type, r.weight
+            `SELECT r.source_id, r.target_id, r.type
              FROM nexus_relations r
              WHERE r.target_id = ?
                AND r.type IN ('calls', 'imports', 'accesses')
@@ -231,10 +231,11 @@ export async function getSymbolFullContext(
           };
         });
 
-        // Callees: relations where source_id = symbolNode.id
+        // Callees: relations where source_id = symbolNode.id.
+        // T11545: `weight` is no longer on nexus_relations and is unused here.
         const calleeRelations = typedAll<RawNexusRelation>(
           nexusNative.prepare(
-            `SELECT r.source_id, r.target_id, r.type, r.weight
+            `SELECT r.source_id, r.target_id, r.type
              FROM nexus_relations r
              WHERE r.source_id = ?
                AND r.type IN ('calls', 'imports', 'accesses')
@@ -281,14 +282,17 @@ export async function getSymbolFullContext(
           processes,
         };
 
-        // Plasticity: SUM of edge weights in nexus_relations
+        // Plasticity: SUM of edge weights — T11545 moved them to the sibling
+        // `nexus_relation_weights` table (LEFT JOIN; default 1.0 when an edge
+        // has no weights row, preserving the prior COALESCE(weight, 1.0) value).
         const plasticityRow = typedGet<{ total_weight: number | null; edge_count: number }>(
           nexusNative.prepare(
             `SELECT
-               SUM(COALESCE(weight, 1.0)) as total_weight,
+               SUM(COALESCE(w.weight, 1.0)) as total_weight,
                COUNT(*) as edge_count
-             FROM nexus_relations
-             WHERE source_id = ? OR target_id = ?`,
+             FROM nexus_relations r
+             LEFT JOIN nexus_relation_weights w ON w.relation_id = r.id
+             WHERE r.source_id = ? OR r.target_id = ?`,
           ),
           symbolNode.id,
           symbolNode.id,
@@ -617,16 +621,17 @@ export async function getTaskCodeImpact(
           ),
         );
 
+        // T11545: `weight` moved to the sibling nexus_relation_weights table and
+        // is unused by the GraphRelation mapping below — select only structural cols.
         const allRelations = typedAll<{
           id: string;
           source_id: string;
           target_id: string;
           type: string;
           confidence: number | null;
-          weight: number | null;
         }>(
           nexusNative.prepare(
-            `SELECT id, source_id, target_id, type, confidence, weight FROM nexus_relations LIMIT 200000`,
+            `SELECT id, source_id, target_id, type, confidence FROM nexus_relations LIMIT 200000`,
           ),
         );
 
@@ -1023,16 +1028,17 @@ export async function reasonImpactOfChange(
         ),
       );
 
+      // T11545: `weight` moved to the sibling nexus_relation_weights table and is
+      // unused by the GraphRelation mapping below — select only structural cols.
       const allRelations = typedAll<{
         id: string;
         source_id: string;
         target_id: string;
         type: string;
         confidence: number | null;
-        weight: number | null;
       }>(
         nexusNative.prepare(
-          `SELECT id, source_id, target_id, type, confidence, weight FROM nexus_relations LIMIT 200000`,
+          `SELECT id, source_id, target_id, type, confidence FROM nexus_relations LIMIT 200000`,
         ),
       );
 

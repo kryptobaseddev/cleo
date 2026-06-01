@@ -45,8 +45,10 @@ vi.mock('../../store/nexus-sqlite.js', () => ({
 // ===========================================================================
 
 /**
- * Create a minimal in-memory SQLite DB that mimics nexus_relations after the
- * T998 migration (with plasticity columns).
+ * Create a minimal in-memory SQLite DB that mimics the T11545 partitioned shape:
+ * `nexus_relations` (structural, no plasticity columns) plus the sibling 1:1
+ * `nexus_relation_weights` table that carries `weight` / `last_accessed_at` /
+ * `co_accessed_count` (keyed by `relation_id`).
  */
 function createTestNexusDb(): DatabaseSync {
   const db = new DatabaseSync(':memory:');
@@ -60,17 +62,24 @@ function createTestNexusDb(): DatabaseSync {
       confidence   REAL NOT NULL,
       reason       TEXT,
       step         INTEGER,
-      indexed_at   TEXT DEFAULT (datetime('now')) NOT NULL,
-      weight       REAL DEFAULT 0.0,
-      last_accessed_at TEXT,
-      co_accessed_count INTEGER DEFAULT 0
+      indexed_at   TEXT DEFAULT (datetime('now')) NOT NULL
+    );
+  `);
+  db.exec(`
+    CREATE TABLE nexus_relation_weights (
+      relation_id       TEXT PRIMARY KEY NOT NULL,
+      weight            REAL DEFAULT 0.0 NOT NULL,
+      last_accessed_at  TEXT,
+      co_accessed_count INTEGER DEFAULT 0 NOT NULL
     );
   `);
   return db;
 }
 
 /**
- * Create a DB WITHOUT the plasticity columns — simulates a pre-T998 database.
+ * Create a DB WITHOUT the partitioned weights table — simulates a pre-T11545
+ * database. The plasticity path must no-op gracefully when the sibling table is
+ * absent.
  */
 function createPreMigrationDb(): DatabaseSync {
   const db = new DatabaseSync(':memory:');
@@ -90,7 +99,11 @@ function createPreMigrationDb(): DatabaseSync {
   return db;
 }
 
-/** Insert a row and return its id. */
+/**
+ * Insert a relation row. When `weight` or `coAccessedCount` are non-default a
+ * matching `nexus_relation_weights` row is also seeded — mirroring the
+ * lazy-create semantic (a pristine edge has no weights row).
+ */
 function insertEdge(
   db: DatabaseSync,
   id: string,
@@ -100,18 +113,36 @@ function insertEdge(
   coAccessedCount = 0,
 ): void {
   db.prepare(`
-    INSERT INTO nexus_relations (id, project_id, source_id, target_id, type, confidence, weight, co_accessed_count)
-    VALUES (?, 'proj-1', ?, ?, 'calls', 0.9, ?, ?)
-  `).run(id, sourceId, targetId, weight, coAccessedCount);
+    INSERT INTO nexus_relations (id, project_id, source_id, target_id, type, confidence)
+    VALUES (?, 'proj-1', ?, ?, 'calls', 0.9)
+  `).run(id, sourceId, targetId);
+  if (weight !== 0.0 || coAccessedCount !== 0) {
+    db.prepare(`
+      INSERT INTO nexus_relation_weights (relation_id, weight, co_accessed_count)
+      VALUES (?, ?, ?)
+    `).run(id, weight, coAccessedCount);
+  }
 }
 
-/** Read back a single row. */
+/**
+ * Read back the plasticity state for an edge via a LEFT JOIN onto the sibling
+ * weights table. An edge with no weights row reports the defaults (weight 0.0,
+ * co_accessed_count 0, last_accessed_at NULL) — identical to the pre-partition
+ * inline-column contract.
+ */
 function readEdge(
   db: DatabaseSync,
   id: string,
 ): { weight: number; co_accessed_count: number; last_accessed_at: string | null } {
   return db
-    .prepare('SELECT weight, co_accessed_count, last_accessed_at FROM nexus_relations WHERE id=?')
+    .prepare(
+      `SELECT COALESCE(w.weight, 0.0) AS weight,
+              COALESCE(w.co_accessed_count, 0) AS co_accessed_count,
+              w.last_accessed_at AS last_accessed_at
+         FROM nexus_relations r
+    LEFT JOIN nexus_relation_weights w ON w.relation_id = r.id
+        WHERE r.id = ?`,
+    )
     .get(id) as { weight: number; co_accessed_count: number; last_accessed_at: string | null };
 }
 
@@ -131,18 +162,27 @@ import {
 
 describe('T998 — NEXUS plasticity', () => {
   // -----------------------------------------------------------------------
-  // Test 1 — Schema: columns exist after migration
+  // Test 1 — Schema: T11545 plasticity columns are partitioned out of
+  // nexus_relations into the sibling nexus_relation_weights table.
   // -----------------------------------------------------------------------
-  describe('1. nexus_relations plasticity columns exist after migration', () => {
-    it('should have weight, last_accessed_at, co_accessed_count columns', () => {
+  describe('1. plasticity columns live on the partitioned nexus_relation_weights table', () => {
+    it('partitions weight, last_accessed_at, co_accessed_count off nexus_relations', () => {
       const db = createTestNexusDb();
-      const cols = db.prepare('PRAGMA table_info(nexus_relations)').all() as Array<{
-        name: string;
-      }>;
-      const names = cols.map((c) => c.name);
-      expect(names).toContain('weight');
-      expect(names).toContain('last_accessed_at');
-      expect(names).toContain('co_accessed_count');
+      // The structural relations table no longer carries the plasticity columns.
+      const relNames = (
+        db.prepare('PRAGMA table_info(nexus_relations)').all() as Array<{ name: string }>
+      ).map((c) => c.name);
+      expect(relNames).not.toContain('weight');
+      expect(relNames).not.toContain('last_accessed_at');
+      expect(relNames).not.toContain('co_accessed_count');
+      // The sibling weights table carries them, keyed by relation_id.
+      const wNames = (
+        db.prepare('PRAGMA table_info(nexus_relation_weights)').all() as Array<{ name: string }>
+      ).map((c) => c.name);
+      expect(wNames).toContain('relation_id');
+      expect(wNames).toContain('weight');
+      expect(wNames).toContain('last_accessed_at');
+      expect(wNames).toContain('co_accessed_count');
       db.close();
     });
 
@@ -578,9 +618,10 @@ describe('T998 — NEXUS plasticity', () => {
 
     it('applies decay to edges with last_accessed_at set', async () => {
       insertEdge(db, 'e-decay', 'nodeA', 'nodeB', 0.8, 10);
-      // Set last_accessed_at to a past date (simulating unused edge)
+      // Set last_accessed_at to a past date (simulating unused edge) — T11545:
+      // last_accessed_at now lives on the sibling nexus_relation_weights table.
       db.prepare(
-        "UPDATE nexus_relations SET last_accessed_at = datetime('now', '-7 days') WHERE id = ?",
+        "UPDATE nexus_relation_weights SET last_accessed_at = datetime('now', '-7 days') WHERE relation_id = ?",
       ).run('e-decay');
 
       const result = await applyPlasticityDecay();
@@ -595,7 +636,7 @@ describe('T998 — NEXUS plasticity', () => {
     it('respects CLEO_PLASTICITY_HALFLIFE_DAYS environment variable', async () => {
       insertEdge(db, 'e-env', 'nodeA', 'nodeB', 1.0, 5);
       db.prepare(
-        "UPDATE nexus_relations SET last_accessed_at = datetime('now', '-1 day') WHERE id = ?",
+        "UPDATE nexus_relation_weights SET last_accessed_at = datetime('now', '-1 day') WHERE relation_id = ?",
       ).run('e-env');
 
       // Set custom half-life: 2 days
@@ -618,9 +659,9 @@ describe('T998 — NEXUS plasticity', () => {
 
     it('clamps weight to 0.0 minimum (no negative weights)', async () => {
       insertEdge(db, 'e-clamp', 'nodeA', 'nodeB', 0.01, 5);
-      // Set to very old date (90 days)
+      // Set to very old date (90 days) on the sibling weights table (T11545).
       db.prepare(
-        "UPDATE nexus_relations SET last_accessed_at = datetime('now', '-90 days') WHERE id = ?",
+        "UPDATE nexus_relation_weights SET last_accessed_at = datetime('now', '-90 days') WHERE relation_id = ?",
       ).run('e-clamp');
 
       const result = await applyPlasticityDecay();

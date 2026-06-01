@@ -1336,14 +1336,17 @@ export async function linkConduitMessagesToSymbols(
         label: string;
       }
 
+      // T11545: plasticity weight lives in the sibling nexus_relation_weights
+      // table — join it onto nexus_relations before aggregating per source.
       const topSymbols = typedAll<RawNexusSymbol>(
         nexusNative.prepare(`
           SELECT n.id, n.name, n.label
           FROM nexus_nodes n
           LEFT JOIN (
-            SELECT source_id, SUM(weight) AS total_weight
-            FROM nexus_relations
-            GROUP BY source_id
+            SELECT rel.source_id, SUM(w.weight) AS total_weight
+            FROM nexus_relations rel
+            JOIN nexus_relation_weights w ON w.relation_id = rel.id
+            GROUP BY rel.source_id
           ) r ON n.id = r.source_id
           WHERE n.name IS NOT NULL AND n.name != ''
           AND n.kind NOT IN ('community', 'process', 'folder')

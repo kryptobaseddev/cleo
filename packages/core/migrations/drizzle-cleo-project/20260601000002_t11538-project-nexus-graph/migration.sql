@@ -1,4 +1,5 @@
--- T11538: Define the PROJECT-scope nexus code-graph schema (ADR-090 — residency step 1).
+-- T11538 + T11545: Define the PROJECT-scope nexus code-graph schema
+-- (ADR-090 — residency step 1 + plasticity partition §5.3).
 --
 -- The four per-project code/knowledge-graph tables (`nexus_nodes`,
 -- `nexus_relations`, `nexus_contracts`, `nexus_code_index`) move from GLOBAL
@@ -8,9 +9,16 @@
 -- move: it mirrors the global T11363 CREATE blocks for these four tables EXACTLY,
 -- minus the redundant `project_id` column (scope is implicit in the owning
 -- project DB, ADR-090 §2.1) and minus every `idx_*_project*` index that led with
--- `project_id`. The plasticity columns (`weight`, `last_accessed_at`,
--- `co_accessed_count`) stay inline on `nexus_relations` until T11545 partitions
--- them into the sibling `nexus_relation_weights` table.
+-- `project_id`.
+--
+-- T11545 (ADR-090 §5.3): the Hebbian plasticity columns (`weight`,
+-- `last_accessed_at`, `co_accessed_count`) are PARTITIONED into the sibling 1:1
+-- `nexus_relation_weights` table (keyed by `relation_id`) rather than living
+-- inline on `nexus_relations`. The consolidated project schema is authored to
+-- its FINAL shape directly here (no inline-then-drop dance — SQLite cannot DROP
+-- a column referenced by a CHECK without a full table rebuild), so this CREATE
+-- omits the three plasticity columns from `nexus_relations` and adds the weights
+-- table below.
 --
 -- CHECK constraints are derived from the schema enum/boolean/timestamp metadata —
 -- byte-identical to scripts/inject-consolidation-checks.mjs (T11363), never
@@ -53,12 +61,19 @@ CREATE TABLE `nexus_relations` (
 	`reason` text,
 	`step` integer,
 	`indexed_at` text DEFAULT (datetime('now')) NOT NULL,
-	`weight` real DEFAULT 0,
-	`last_accessed_at` text,
-	`co_accessed_count` integer DEFAULT 0,
 	-- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed
 	CHECK ("type" IN ('contains', 'defines', 'imports', 'accesses', 'calls', 'extends', 'implements', 'method_overrides', 'method_implements', 'has_method', 'has_property', 'member_of', 'step_in_process', 'handles_route', 'fetches', 'handles_tool', 'entry_point_of', 'wraps', 'queries', 'documents', 'applies_to', 'co_changed', 'co_cited_in_task')),
-	CHECK ("indexed_at" IS NULL OR "indexed_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
+	CHECK ("indexed_at" IS NULL OR "indexed_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')
+);
+--> statement-breakpoint
+-- T11545 (ADR-090 §5.3): partitioned Hebbian plasticity weights, 1:1 with
+-- nexus_relations.id. relation_id is PK + intra-scope soft FK to nexus_relations.id.
+CREATE TABLE `nexus_relation_weights` (
+	`relation_id` text PRIMARY KEY NOT NULL,
+	`weight` real DEFAULT 0 NOT NULL,
+	`last_accessed_at` text,
+	`co_accessed_count` integer DEFAULT 0 NOT NULL,
+	-- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed
 	CHECK ("last_accessed_at" IS NULL OR "last_accessed_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')
 );
 --> statement-breakpoint
@@ -113,7 +128,8 @@ CREATE INDEX `idx_nexus_relations_type` ON `nexus_relations` (`type`);--> statem
 CREATE INDEX `idx_nexus_relations_source_type` ON `nexus_relations` (`source_id`,`type`);--> statement-breakpoint
 CREATE INDEX `idx_nexus_relations_target_type` ON `nexus_relations` (`target_id`,`type`);--> statement-breakpoint
 CREATE INDEX `idx_nexus_relations_confidence` ON `nexus_relations` (`confidence`);--> statement-breakpoint
-CREATE INDEX `idx_nexus_relations_last_accessed` ON `nexus_relations` (`last_accessed_at`);--> statement-breakpoint
+CREATE INDEX `idx_nexus_relation_weights_last_accessed` ON `nexus_relation_weights` (`last_accessed_at`);--> statement-breakpoint
+CREATE INDEX `idx_nexus_relation_weights_weight` ON `nexus_relation_weights` (`weight`);--> statement-breakpoint
 CREATE INDEX `idx_nexus_contracts_type` ON `nexus_contracts` (`type`);--> statement-breakpoint
 CREATE INDEX `idx_nexus_contracts_path` ON `nexus_contracts` (`path`);--> statement-breakpoint
 CREATE INDEX `idx_nexus_contracts_method` ON `nexus_contracts` (`method`);--> statement-breakpoint

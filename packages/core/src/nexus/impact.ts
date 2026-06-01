@@ -136,13 +136,27 @@ export async function getSymbolImpact(
   }
 
   // Fetch project-scoped relations filtered by projectId and BFS-relevant types.
+  // T11545: plasticity `weight` lives in the sibling `nexus_relation_weights`
+  // table — LEFT JOIN it and flatten so downstream reads `r['weight']` (NULL
+  // when the edge has never been strengthened).
   let allRelations: Array<Record<string, unknown>> = [];
   try {
-    allRelations = db
+    const joined = db
       .select()
       .from(nexusSchema.nexusRelations)
+      .leftJoin(
+        nexusSchema.nexusRelationWeights,
+        eq(nexusSchema.nexusRelationWeights.relationId, nexusSchema.nexusRelations.id),
+      )
       .where(eq(nexusSchema.nexusRelations.projectId, projectId))
-      .all() as Array<Record<string, unknown>>;
+      .all() as Array<{
+      nexus_relations: Record<string, unknown>;
+      nexus_relation_weights: Record<string, unknown> | null;
+    }>;
+    allRelations = joined.map((row) => ({
+      ...row.nexus_relations,
+      weight: row.nexus_relation_weights?.['weight'] ?? null,
+    }));
   } catch {
     allRelations = [];
   }
@@ -337,12 +351,15 @@ export async function nexusImpact(
       });
     }
 
+    // T11545: plasticity weight lives in the sibling `nexus_relation_weights`
+    // table (LEFT JOIN — edges never strengthened have no weights row → NULL).
     const allRelations = db
       .prepare(
-        `SELECT source_id, target_id, type, weight
-           FROM nexus_relations
-          WHERE project_id = ?
-            AND type IN ('calls','imports','accesses')`,
+        `SELECT r.source_id AS source_id, r.target_id AS target_id, r.type AS type, w.weight AS weight
+           FROM nexus_relations r
+      LEFT JOIN nexus_relation_weights w ON w.relation_id = r.id
+          WHERE r.project_id = ?
+            AND r.type IN ('calls','imports','accesses')`,
       )
       .all(projectId || '') as Array<{
       source_id: string;

@@ -68,14 +68,21 @@ async function seedNexusData(nexusNative: ReturnType<typeof getNexusNativeDb>) {
       1,
     );
 
-  // Insert a calls relation: callerFunction -> testFunction
+  // Insert a calls relation: callerFunction -> testFunction.
+  // T11545: plasticity weight lives in the sibling nexus_relation_weights table.
   nexusNative
     .prepare(
       `INSERT OR IGNORE INTO nexus_relations
-       (id, project_id, source_id, target_id, type, confidence, weight)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       (id, project_id, source_id, target_id, type, confidence)
+       VALUES (?, ?, ?, ?, ?, ?)`,
     )
-    .run('rel-001', 'test-project', CALLER_ID, SYMBOL_ID, 'calls', 0.9, 2.0);
+    .run('rel-001', 'test-project', CALLER_ID, SYMBOL_ID, 'calls', 0.9);
+  nexusNative
+    .prepare(
+      `INSERT OR IGNORE INTO nexus_relation_weights (relation_id, weight, co_accessed_count)
+       VALUES (?, ?, ?)`,
+    )
+    .run('rel-001', 2.0, 1);
 }
 
 async function seedBrainData(brainNative: ReturnType<typeof getBrainNativeDb>) {

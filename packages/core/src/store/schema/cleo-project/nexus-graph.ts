@@ -291,11 +291,10 @@ export const nexusNodes = sqliteTable(
 /**
  * `nexus_relations` — one row per directed graph edge. PROJECT-scope:
  * `project_id` dropped (ADR-090 §2.1). The Hebbian plasticity columns
- * (`weight`, `last_accessed_at`, `co_accessed_count`) remain inline here until
- * T11545 partitions them into the sibling `nexus_relation_weights` table
- * (ADR-090 §5.3) — out of scope for T11538.
+ * (`weight`, `last_accessed_at`, `co_accessed_count`) were PARTITIONED out into
+ * the sibling {@link nexusRelationWeights} table by T11545 (ADR-090 §5.3).
  *
- * @task T11538 (project-scope target shape) · T11361 (global source) · T529 (original)
+ * @task T11545 (plasticity partition) · T11538 (project-scope target shape) · T11361 (global source) · T529 (original)
  */
 export const nexusRelations = sqliteTable(
   'nexus_relations',
@@ -316,12 +315,9 @@ export const nexusRelations = sqliteTable(
     step: integer('step'),
     /** ISO-8601 UTC last-indexed instant (canonical TEXT, §4). */
     indexedAt: text('indexed_at').notNull().default(sql`(datetime('now'))`),
-    /** Plasticity weight in [0.0, 1.0] (T998 Hebbian co-access strengthening). */
-    weight: real('weight').default(0.0),
-    /** ISO-8601 UTC last co-access strengthening instant; NULL until first strengthen. */
-    lastAccessedAt: text('last_accessed_at'),
-    /** Number of co-access strengthening events. */
-    coAccessedCount: integer('co_accessed_count').default(0),
+    // T998 plasticity columns (`weight`, `last_accessed_at`, `co_accessed_count`)
+    // PARTITIONED out into the sibling `nexus_relation_weights` table by T11545
+    // (ADR-090 §5.3). See {@link nexusRelationWeights}.
   },
   (table) => [
     index('idx_nexus_relations_source').on(table.sourceId),
@@ -330,7 +326,41 @@ export const nexusRelations = sqliteTable(
     index('idx_nexus_relations_source_type').on(table.sourceId, table.type),
     index('idx_nexus_relations_target_type').on(table.targetId, table.type),
     index('idx_nexus_relations_confidence').on(table.confidence),
-    index('idx_nexus_relations_last_accessed').on(table.lastAccessedAt),
+  ],
+);
+
+/**
+ * `nexus_relation_weights` — plasticity weights for `nexus_relations` edges
+ * (Hebbian co-access, T998). PROJECT-scope sibling 1:1 table keyed by
+ * `relation_id`, partitioned out of `nexus_relations` by T11545 (ADR-090 §5.3)
+ * to keep the read-mostly structural graph row narrow and isolate the
+ * write-heavy plasticity hot path.
+ *
+ * A relation has at most one weights row; rows are created lazily on the first
+ * co-access strengthening event (UPSERT in `nexus-plasticity.ts`), so absence
+ * means "never strengthened" (treat as weight 0.0). `relation_id` is an
+ * intra-scope soft FK to `nexus_relations.id` (symmetric with the graph's
+ * soft-FK convention — no DB-level FK). Move-safe (no absolute paths, no
+ * cross-scope refs) per ADR-090 §4.
+ *
+ * @task T11545 (project-scope target shape) · T998 (original plasticity columns)
+ * @epic T11535
+ */
+export const nexusRelationWeights = sqliteTable(
+  'nexus_relation_weights',
+  {
+    /** Soft FK → `nexus_relations.id` (intra-scope). Primary key (1:1). */
+    relationId: text('relation_id').primaryKey(),
+    /** Plasticity weight in [0.0, 1.0] (T998 Hebbian co-access strengthening). */
+    weight: real('weight').notNull().default(0.0),
+    /** ISO-8601 UTC last co-access strengthening instant; NULL until first strengthen. */
+    lastAccessedAt: text('last_accessed_at'),
+    /** Number of co-access strengthening events. */
+    coAccessedCount: integer('co_accessed_count').notNull().default(0),
+  },
+  (table) => [
+    index('idx_nexus_relation_weights_last_accessed').on(table.lastAccessedAt),
+    index('idx_nexus_relation_weights_weight').on(table.weight),
   ],
 );
 
@@ -429,6 +459,10 @@ export type NewNexusNodeRow = typeof nexusNodes.$inferInsert;
 export type NexusRelationRow = typeof nexusRelations.$inferSelect;
 /** Row type for `nexus_relations` INSERT operations (project-scope target shape). */
 export type NewNexusRelationRow = typeof nexusRelations.$inferInsert;
+/** Row type for `nexus_relation_weights` SELECT queries (project-scope target shape). */
+export type NexusRelationWeightRow = typeof nexusRelationWeights.$inferSelect;
+/** Row type for `nexus_relation_weights` INSERT operations (project-scope target shape). */
+export type NewNexusRelationWeightRow = typeof nexusRelationWeights.$inferInsert;
 /** Row type for `nexus_contracts` SELECT queries (project-scope target shape). */
 export type NexusContractRow = typeof nexusContracts.$inferSelect;
 /** Row type for `nexus_contracts` INSERT operations (project-scope target shape). */

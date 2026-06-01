@@ -10,7 +10,9 @@
  *   3. Asserting that NO captured message contains "Adding missing column".
  *   4. Verifying via PRAGMA table_info that:
  *      - nexus_nodes contains `is_external`
- *      - nexus_relations contains `weight`, `last_accessed_at`, `co_accessed_count`
+ *      - nexus_relations NO LONGER carries the plasticity columns and the sibling
+ *        `nexus_relation_weights` table holds `weight`, `last_accessed_at`,
+ *        `co_accessed_count` (T11545 · ADR-090 §5.3 partition)
  *
  * If the "Adding missing column" warning reappears on a fresh DB it means a new
  * column was added to ensureColumns() without a corresponding forward migration —
@@ -145,14 +147,25 @@ describe('nexus.db fresh init — zero "Adding missing column" warnings', () => 
         const nodesColNames = nodesCols.map((c) => c.name);
         expect(nodesColNames).toContain('is_external');
 
-        // nexus_relations must have the three plasticity columns (T998 migration).
+        // T11545 (ADR-090 §5.3): the three plasticity columns are partitioned
+        // OUT of nexus_relations into the sibling nexus_relation_weights table.
         const relCols = nativeDb.prepare('PRAGMA table_info(nexus_relations)').all() as Array<{
           name: string;
         }>;
         const relColNames = relCols.map((c) => c.name);
-        expect(relColNames).toContain('weight');
-        expect(relColNames).toContain('last_accessed_at');
-        expect(relColNames).toContain('co_accessed_count');
+        expect(relColNames).not.toContain('weight');
+        expect(relColNames).not.toContain('last_accessed_at');
+        expect(relColNames).not.toContain('co_accessed_count');
+
+        // The sibling weights table exists and carries the partitioned columns.
+        const weightCols = nativeDb
+          .prepare('PRAGMA table_info(nexus_relation_weights)')
+          .all() as Array<{ name: string }>;
+        const weightColNames = weightCols.map((c) => c.name);
+        expect(weightColNames).toContain('relation_id');
+        expect(weightColNames).toContain('weight');
+        expect(weightColNames).toContain('last_accessed_at');
+        expect(weightColNames).toContain('co_accessed_count');
       } finally {
         nativeDb.close();
       }
