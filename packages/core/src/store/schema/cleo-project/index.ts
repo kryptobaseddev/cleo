@@ -96,11 +96,22 @@
  * What remains for the saga is the GLOBAL scope (T11361: nexus_* / skills_* /
  * signaldock_* + this same mirrored brain_*) and the exodus cutover (T11248).
  *
- * @task T11360
- * @epic T11245
+ * ## Nexus code-graph residency move (ADR-090 · T11538 — additive)
+ *
+ * `./nexus-graph.ts` adds the four per-project code/knowledge-graph tables
+ * (`nexus_nodes`, `nexus_relations`, `nexus_contracts`, `nexus_code_index`) to
+ * the PROJECT scope (each with `project_id` DROPPED — scope is implicit). They
+ * wrongly lived in GLOBAL scope (`../cleo-global/nexus.ts`); moving them makes
+ * `.cleo/cleo.db` the complete portable living brain. This is STEP 1 (schema
+ * definition only); T11539 removes the global copies + moves the data, and
+ * T11545 partitions `nexus_relation_weights` into this module.
+ *
+ * @task T11360 · T11538 (nexus code-graph)
+ * @epic T11245 · T11535 (nexus residency)
  * @saga T11242
  * @see docs/migration/sqlite-schema-canonical.md §1 (per-scope counts) · §3–§8 (typing rules)
  * @see ../cleo-shared/brain.ts (the mirrored brain_* family — also imported by cleo-global, T11361)
+ * @see ../cleo-global/nexus.ts (the GLOBAL source the four graph tables move OUT of)
  * @see drizzle/cleo-project.config.ts (per-scope domain membership)
  */
 
@@ -109,6 +120,7 @@ export * from './audit.js';
 export * from './conduit.js';
 export * from './docs.js';
 export * from './lifecycle.js';
+export * from './nexus-graph.js';
 export * from './provenance-commits.js';
 export * from './provenance-orphans.js';
 export * from './provenance-rest.js';
