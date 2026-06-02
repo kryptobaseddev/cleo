@@ -114,7 +114,21 @@ const SUBPATH_SUBDIRS = {
  * Root-level flat files in packages/core/src/ that need standalone entries
  * (in addition to index.ts which is always included).
  */
-const ROOT_FLATS = ['cleo.ts', 'contracts.ts', 'internal.ts'];
+const ROOT_FLATS = [
+  'cleo.ts',
+  'contracts.ts',
+  'internal.ts',
+  // R10-L2 (T11581) — thin submodule re-exports of internalized workspace
+  // packages, exposed as @cleocode/core/<pkg> subpaths (batteries-included
+  // prep). Each `export * from '@cleocode/<pkg>'` bundles to a flat dist file;
+  // validateCoreEntryPoints() asserts the matching package.json export entry.
+  'paths-export.ts',
+  'lafs-export.ts',
+  'skills-export.ts',
+  'caamp-export.ts',
+  'worktree-export.ts',
+  'git-shim-export.ts',
+];
 
 /**
  * Collect all @cleocode/core esbuild entry points by scanning the source
