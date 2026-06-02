@@ -60,11 +60,54 @@ export const FIXTURE_EXPECTED_ROWS = {
 } as const;
 
 /**
+ * Options for {@link buildRepresentativeFixture} that inject the derived/internal
+ * + pre-existing-orphan hazards the T11572 parity-gate fixes guard. Default off
+ * so the base zero-loss parity test is unaffected.
+ *
+ * @public
+ */
+export interface RepresentativeFixtureOptions {
+  /**
+   * When `true`, the legacy `brain.db` source also gets a real FTS5 virtual
+   * table (`brain_decisions_fts` + its `_data/_idx/_docsize/_config` shadow
+   * tables) and the `_conduit_meta` / `_conduit_migrations` internal bookkeeping
+   * tables — none of which have a consolidated counterpart. A correct migration
+   * SKIPS them (no N→0 deficit). The consolidated target schema additionally
+   * gains a `brain_decisions` base table so the FTS source has real base data.
+   * (T11572 BLOCKER 1.)
+   */
+  readonly withDerivedAndInternalTables?: boolean;
+  /**
+   * When `true`, the legacy `tasks.db` source gets a `task_relations` table
+   * carrying a PRE-EXISTING FK orphan (a row referencing a `tasks.id` that does
+   * not exist — like the real `tasks_task_relations` rows pointing at deleted
+   * tasks). The same orphan is faithfully copied to the target (zero loss); the
+   * parity gate must TOLERATE it. (T11572 BLOCKER 2.)
+   */
+  readonly withPreExistingSourceOrphan?: boolean;
+}
+
+/**
+ * Base-table rows for the optional hazard tables (only seeded when the matching
+ * {@link RepresentativeFixtureOptions} flag is set). Exposed so a test that
+ * enables the hazards can assert exact parity on them too.
+ *
+ * @public
+ */
+export const FIXTURE_HAZARD_EXPECTED_ROWS = {
+  /** brain_decisions base rows (content table behind the FTS5 index). */
+  brain_decisions: 20,
+  /** task_relations rows: 4 clean + 2 pre-existing orphans = 6. */
+  tasks_task_relations: 6,
+} as const;
+
+/**
  * Build the legacy `tasks.db` source fixture with representative drift.
  *
  * @param path - Absolute path for the legacy tasks source DB.
+ * @param opts - Optional hazard injection (T11572).
  */
-function buildTasksSource(path: string): void {
+function buildTasksSource(path: string, opts: RepresentativeFixtureOptions = {}): void {
   const db = new DatabaseSync(path);
   try {
     // --- tasks (unprefixed → tasks_tasks) with a self-referential FK + epoch ms ---
@@ -102,6 +145,34 @@ function buildTasksSource(path: string): void {
     for (let i = 1; i <= FIXTURE_EXPECTED_ROWS.tasks_token_usage; i++) {
       db.exec(`INSERT INTO "token_usage" VALUES (${i}, '${transports[i % transports.length]}')`);
     }
+
+    // --- task_relations with a PRE-EXISTING source FK orphan (T11572 BLOCKER 2) ---
+    // Mirrors the real `tasks_task_relations` rows that reference deleted tasks.
+    // 4 clean rows (parent + child both real) + 2 orphan rows (to_id is a task id
+    // that was never inserted). FK enforcement is OFF so the orphans can be
+    // seeded; the orphan travels with the row on copy (zero loss).
+    if (opts.withPreExistingSourceOrphan) {
+      db.exec(`PRAGMA foreign_keys = OFF`);
+      db.exec(
+        `CREATE TABLE "task_relations" (
+          id INTEGER PRIMARY KEY,
+          from_id TEXT REFERENCES "tasks"(id),
+          to_id TEXT REFERENCES "tasks"(id),
+          kind TEXT
+        )`,
+      );
+      // 4 clean rows referencing real tasks T1..T5.
+      for (let i = 1; i <= 4; i++) {
+        db.exec(`INSERT INTO "task_relations" VALUES (${i}, 'T${i}', 'T${i + 1}', 'related')`);
+      }
+      // 2 PRE-EXISTING orphans: to_id points at tasks that do NOT exist.
+      db.exec(
+        `INSERT INTO "task_relations" VALUES (5, 'T1', 'T-RECONCILE-FOLLOWUP-v2026.5.38-2', 'related')`,
+      );
+      db.exec(
+        `INSERT INTO "task_relations" VALUES (6, 'T2', 'T-RECONCILE-FOLLOWUP-v2026.5.38-3', 'related')`,
+      );
+    }
   } finally {
     db.close();
   }
@@ -111,8 +182,9 @@ function buildTasksSource(path: string): void {
  * Build the legacy `brain.db` source fixture with representative drift.
  *
  * @param path - Absolute path for the legacy brain source DB.
+ * @param opts - Optional hazard injection (T11572).
  */
-function buildBrainSource(path: string): void {
+function buildBrainSource(path: string, opts: RepresentativeFixtureOptions = {}): void {
   const db = new DatabaseSync(path);
   try {
     // brain_observations already domain-prefixed (identity map) with legacy
@@ -126,6 +198,32 @@ function buildBrainSource(path: string): void {
       db.exec(
         `INSERT INTO "brain_observations" VALUES (${i}, '${types[i % types.length]}', ${ms})`,
       );
+    }
+
+    // --- DERIVED (FTS5) + INTERNAL (conduit meta) tables (T11572 BLOCKER 1) ---
+    // These have NO consolidated counterpart; a correct migration SKIPS them
+    // rather than counting them as an N→0 deficit.
+    if (opts.withDerivedAndInternalTables) {
+      // brain_decisions: the FTS5 content table (real base data).
+      db.exec(
+        `CREATE TABLE "brain_decisions" (id INTEGER PRIMARY KEY, decision TEXT, rationale TEXT)`,
+      );
+      for (let i = 1; i <= FIXTURE_HAZARD_EXPECTED_ROWS.brain_decisions; i++) {
+        db.exec(`INSERT INTO "brain_decisions" VALUES (${i}, 'decision-${i}', 'rationale-${i}')`);
+      }
+      // Real FTS5 index → materialises brain_decisions_fts + _data/_idx/_docsize/
+      // _config shadow tables (rows that do NOT map 1:1 to base rows).
+      db.exec(
+        `CREATE VIRTUAL TABLE "brain_decisions_fts" USING fts5(decision, rationale, content="brain_decisions", content_rowid="id")`,
+      );
+      db.exec(`INSERT INTO "brain_decisions_fts"("brain_decisions_fts") VALUES('rebuild')`);
+      // Internal bookkeeping tables (conduit-sqlite's schema-version + ledger).
+      db.exec(`CREATE TABLE "_conduit_meta" (key TEXT PRIMARY KEY, value TEXT)`);
+      db.exec(`INSERT INTO "_conduit_meta" VALUES ('schema_version', '7')`);
+      db.exec(
+        `CREATE TABLE "_conduit_migrations" (id INTEGER PRIMARY KEY, name TEXT, applied_at TEXT)`,
+      );
+      db.exec(`INSERT INTO "_conduit_migrations" VALUES (1, 'init', '2026-01-01T00:00:00Z')`);
     }
   } finally {
     db.close();
@@ -141,8 +239,15 @@ function buildBrainSource(path: string): void {
  *
  * @param projectPath - Absolute path for the consolidated project cleo.db.
  * @param globalPath  - Absolute path for the consolidated global cleo.db.
+ * @param opts        - Optional hazard injection (T11572) — adds the matching
+ *   target tables (`tasks_task_relations`, `brain_decisions`) so the hazard
+ *   source data has a consolidated home to copy INTO.
  */
-function buildTargetSchema(projectPath: string, globalPath: string): void {
+function buildTargetSchema(
+  projectPath: string,
+  globalPath: string,
+  opts: RepresentativeFixtureOptions = {},
+): void {
   const db = new DatabaseSync(projectPath);
   try {
     // tasks_tasks: created_at is text + ISO GLOB; self-FK on parent_id.
@@ -177,6 +282,29 @@ function buildTargetSchema(projectPath: string, globalPath: string): void {
         created_at TEXT CHECK ("created_at" IS NULL OR "created_at" GLOB ${ISO_GLOB})
       )`,
     );
+
+    // tasks_task_relations: self-FK to tasks_tasks via from_id/to_id. The
+    // pre-existing source orphan (to_id pointing at a missing task) copies
+    // through and surfaces under PRAGMA foreign_key_check — but is tolerated
+    // because the SOURCE already had it (T11572 BLOCKER 2).
+    if (opts.withPreExistingSourceOrphan) {
+      db.exec(
+        `CREATE TABLE "tasks_task_relations" (
+          id INTEGER PRIMARY KEY,
+          from_id TEXT REFERENCES "tasks_tasks"(id),
+          to_id TEXT REFERENCES "tasks_tasks"(id),
+          kind TEXT
+        )`,
+      );
+    }
+    // brain_decisions: consolidated home for the FTS5 content table. The derived
+    // FTS shadow tables + _conduit_meta have NO target — they are skipped, not
+    // migrated (T11572 BLOCKER 1).
+    if (opts.withDerivedAndInternalTables) {
+      db.exec(
+        `CREATE TABLE "brain_decisions" (id INTEGER PRIMARY KEY, decision TEXT, rationale TEXT)`,
+      );
+    }
   } finally {
     db.close();
   }
@@ -188,12 +316,19 @@ function buildTargetSchema(projectPath: string, globalPath: string): void {
  * Materialise the full representative fixture: two legacy source DBs and the
  * consolidated target DBs with production-grade CHECK/GLOB/FK constraints.
  *
- * @param dir - Directory the fixture files are written into. Must already exist.
+ * @param dir  - Directory the fixture files are written into. Must already exist.
+ * @param opts - Optional T11572 hazard injection (FTS5/meta derived tables +
+ *   pre-existing source FK orphan). Omitting it preserves the original
+ *   zero-loss base fixture exactly.
  * @returns Absolute paths of every fixture artifact.
  *
  * @task T11551 (DHQ-045 · AC3)
+ * @task T11572 (parity-gate hazards — FTS5/meta exclusion + source-orphan tolerance)
  */
-export function buildRepresentativeFixture(dir: string): {
+export function buildRepresentativeFixture(
+  dir: string,
+  opts: RepresentativeFixtureOptions = {},
+): {
   readonly tasksDbPath: string;
   readonly brainDbPath: string;
   readonly projectDbPath: string;
@@ -205,9 +340,9 @@ export function buildRepresentativeFixture(dir: string): {
   const projectDbPath = join(dir, 'cleo-project.db');
   const globalDbPath = join(dir, 'cleo-global.db');
 
-  buildTasksSource(tasksDbPath);
-  buildBrainSource(brainDbPath);
-  buildTargetSchema(projectDbPath, globalDbPath);
+  buildTasksSource(tasksDbPath, opts);
+  buildBrainSource(brainDbPath, opts);
+  buildTargetSchema(projectDbPath, globalDbPath, opts);
 
   return { tasksDbPath, brainDbPath, projectDbPath, globalDbPath };
 }

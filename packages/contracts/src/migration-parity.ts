@@ -71,9 +71,11 @@ export interface MigrationTableParity {
  * child `table`, the offending `rowid`, the referenced `parent` table, and the
  * `fkid` (the index of the foreign-key constraint within that table).
  *
- * A non-empty list means the migrated data has genuine referential orphans —
- * NOT copy-order artifacts (the migration copies with `foreign_keys=OFF` and
- * checks afterward). The parity gate treats any orphan as a failure.
+ * A non-empty list means the migrated data has referential orphans — NOT
+ * copy-order artifacts (the migration copies with `foreign_keys=OFF` and checks
+ * afterward). The parity gate fails only on orphans the migration *introduced*
+ * (those absent from the source); pre-existing source orphans are carried
+ * forward losslessly and tolerated (T11572).
  *
  * @public
  */
@@ -130,7 +132,8 @@ export const MIGRATION_ENUM_DRIFT_SAMPLE_LIMIT = 20 as const;
  * a single source→target migration verification pass.
  *
  * `ok === true` IFF every table has `countMatch && hashMatch`, the
- * `foreignKeyViolations` list is empty, AND no {@link MigrationEnumDrift} was
+ * `introducedForeignKeyViolations` list is empty (pre-existing source orphans do
+ * NOT fail the strict check — T11572), AND no {@link MigrationEnumDrift} was
  * detected. When `ok === false`, `error` is ALWAYS populated with a
  * human-readable failure summary (the false-pass guard from T11531).
  *
@@ -141,8 +144,30 @@ export interface VerifyMigrationResult {
   readonly ok: boolean;
   /** Per-table row-count + checksum parity entries. */
   readonly tables: readonly MigrationTableParity[];
-  /** Orphan rows from `PRAGMA foreign_key_check` on the consolidated target. */
+  /**
+   * ALL orphan rows from `PRAGMA foreign_key_check` on the consolidated target —
+   * both pre-existing (already orphaned in the SOURCE) and migration-introduced.
+   *
+   * NOTE: this list is NOT, on its own, a data-loss signal. A legacy source DB
+   * can carry pre-existing orphans (rows whose parent was deleted before the
+   * migration); those copy through faithfully (zero loss) and are NOT a migration
+   * failure. Use {@link introducedForeignKeyViolations} for the data-loss gate.
+   */
   readonly foreignKeyViolations: readonly MigrationForeignKeyViolation[];
+  /**
+   * Orphans present on the consolidated TARGET that the SOURCE did NOT already
+   * have — i.e. referential integrity the migration *worsened* (a parent row the
+   * migration dropped). This is the FK class that indicates genuine data loss and
+   * is the one the cutover parity gate fails on. Empty when the migration only
+   * carried forward pre-existing source orphans (T11572).
+   */
+  readonly introducedForeignKeyViolations: readonly MigrationForeignKeyViolation[];
+  /**
+   * Orphans that ALREADY existed in the SOURCE before migration (a data-hygiene
+   * pre-condition, not a migration defect). Carried forward as-is (zero loss);
+   * surfaced as a WARN for a follow-up clean-up, never an abort (T11572).
+   */
+  readonly preExistingForeignKeyViolations: readonly MigrationForeignKeyViolation[];
   /** Enum/type-drift findings (source values outside the target CHECK enum). */
   readonly enumDrift: readonly MigrationEnumDrift[];
   /**

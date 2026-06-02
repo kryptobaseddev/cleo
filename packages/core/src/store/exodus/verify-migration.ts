@@ -188,6 +188,22 @@ function listTables(db: DatabaseSync): string[] {
   return rows.map((r) => r.name);
 }
 
+/**
+ * Return `true` if `tableName` exists in `db`. Used to route an FK-orphan row to
+ * the scope DB that actually declares its child table (T11572).
+ */
+function tableExists(db: DatabaseSync, tableName: string): boolean {
+  try {
+    const escaped = tableName.replace(/'/g, "''");
+    return (
+      db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='${escaped}'`).get() !==
+      undefined
+    );
+  } catch {
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Enum/type-drift detection
 // ---------------------------------------------------------------------------
@@ -357,6 +373,126 @@ function foreignKeyCheck(db: DatabaseSync, scope: string): MigrationForeignKeyVi
   }
 }
 
+/**
+ * Compute a **migration-stable, name-mapping-stable signature** for one FK
+ * orphan so the same dangling row can be matched between the legacy SOURCE and
+ * the consolidated TARGET — despite (a) a different `rowid` after the copy AND
+ * (b) the legacy→consolidated table RENAME (`task_relations`→`tasks_task_relations`,
+ * parent `tasks`→`tasks_tasks`).
+ *
+ * `PRAGMA foreign_key_check` returns `{ table, rowid, parent, fkid }`. We key the
+ * orphan on:
+ *   - the CONSOLIDATED child-table name (source names are mapped via
+ *     {@link resolveConsolidatedTableName} so both sides agree),
+ *   - the CONSOLIDATED parent-table name (same mapping),
+ *   - the actual VALUES of the foreign-key child columns for that row (read via
+ *     `PRAGMA foreign_key_list` + the row at `rowid`) — these travel with the row
+ *     unchanged, so the dangling reference is identical on both sides.
+ *
+ * `fkid` is intentionally EXCLUDED — the consolidated table may declare its FKs
+ * in a different order than the legacy one, so the per-table fkid is not stable.
+ * The (consolidated child, consolidated parent, dangling FK column values) triple
+ * uniquely identifies the orphan reference.
+ *
+ * Falls back to a column-name-only shape if the child columns can't be read
+ * (best-effort — a fallback only ever makes two orphans compare as *different*,
+ * which biases toward treating an orphan as "introduced", the SAFE/strict
+ * direction).
+ *
+ * @param db         - DB handle the orphan was found in.
+ * @param v          - One `PRAGMA foreign_key_check` row.
+ * @param sourceName - When set, the orphan is on the SOURCE side and its
+ *   `table`/`parent` names are mapped to their consolidated equivalents so the
+ *   signature matches the target side. Omit for the already-consolidated target.
+ * @returns A stable string signature.
+ */
+function orphanSignature(
+  db: DatabaseSync,
+  v: { table: string; rowid: number | null; parent: string; fkid: number },
+  sourceName?: string,
+): string {
+  // Map both child + parent table names to their CONSOLIDATED form so the source
+  // and target signatures agree across the legacy→consolidated rename.
+  const mapName = (name: string): string => {
+    if (sourceName === undefined) return name; // already consolidated (target side)
+    const res = resolveConsolidatedTableName(sourceName, name);
+    return res.kind === 'skip' ? name : res.targetName;
+  };
+  const childTable = mapName(v.table);
+  const parentTable = mapName(v.parent);
+
+  // Resolve the child→parent column mapping for this specific FK (matched by
+  // fkid via PRAGMA foreign_key_list ordering).
+  let childCols: string[] = [];
+  try {
+    const fkList = db.prepare(`PRAGMA foreign_key_list("${v.table}")`).all() as Array<{
+      id: number;
+      from: string;
+    }>;
+    childCols = fkList.filter((r) => r.id === v.fkid).map((r) => r.from);
+  } catch {
+    // ignore — fall through to rowid-based fallback
+  }
+
+  if (v.rowid !== null && childCols.length > 0) {
+    try {
+      const sel = childCols.map((c) => `"${c}"`).join(', ');
+      const row = db.prepare(`SELECT ${sel} FROM "${v.table}" WHERE rowid = ?`).get(v.rowid) as
+        | Record<string, unknown>
+        | undefined;
+      if (row) {
+        // Order the FK column values deterministically by column name.
+        const vals = childCols
+          .slice()
+          .sort()
+          .map((c) => `${c}=${JSON.stringify(row[c])}`)
+          .join('&');
+        return `${childTable}|${parentTable}|${vals}`;
+      }
+    } catch {
+      // ignore — fall through to rowid-based fallback
+    }
+  }
+
+  // Fallback: rowid-qualified signature (only collides with itself).
+  return `${childTable}|${parentTable}|rowid:${v.rowid ?? '?'}`;
+}
+
+/**
+ * Collect the set of {@link orphanSignature}s for every FK orphan in a SOURCE DB.
+ *
+ * Used to compute SOURCE-side orphan signatures so the parity gate can subtract
+ * pre-existing orphans from the target's orphan set and fail only on the orphans
+ * the migration INTRODUCED (T11572). The signatures are mapped to consolidated
+ * table names so they compare equal to the target-side signatures.
+ *
+ * @param db         - SOURCE DB handle to scan.
+ * @param sourceName - `LegacyDbDescriptor.name` (for table-name mapping).
+ * @param scope      - Scope label for diagnostics.
+ * @returns A set of name-mapping-stable orphan signatures.
+ */
+function sourceOrphanSignatures(db: DatabaseSync, sourceName: string, scope: string): Set<string> {
+  const sigs = new Set<string>();
+  try {
+    const rows = db.prepare('PRAGMA foreign_key_check').all() as Array<{
+      table: string;
+      rowid: number | null;
+      parent: string;
+      fkid: number;
+    }>;
+    for (const r of rows) sigs.add(orphanSignature(db, r, sourceName));
+    if (rows.length > 0) {
+      log.warn(
+        { scope, count: rows.length, sample: rows.slice(0, 5) },
+        `verifyMigration: source already has ${rows.length} pre-existing FK orphan(s) — these are tolerated (carried forward losslessly, flagged for data-hygiene)`,
+      );
+    }
+  } catch (err) {
+    log.warn({ scope, err }, 'verifyMigration: source PRAGMA foreign_key_check failed (non-fatal)');
+  }
+  return sigs;
+}
+
 // ---------------------------------------------------------------------------
 // Public primitive
 // ---------------------------------------------------------------------------
@@ -396,13 +532,23 @@ export function verifyMigration(
   const tables: MigrationTableParity[] = [];
   const enumDrift: MigrationEnumDrift[] = [];
   const foreignKeyViolations: MigrationForeignKeyViolation[] = [];
+  const introducedForeignKeyViolations: MigrationForeignKeyViolation[] = [];
+  const preExistingForeignKeyViolations: MigrationForeignKeyViolation[] = [];
   const failureLines: string[] = [];
+  /**
+   * Signatures of FK orphans ALREADY present in the legacy SOURCE DBs (T11572).
+   * Target orphans whose signature is in this set are pre-existing — carried
+   * forward losslessly — and do NOT fail the parity gate.
+   */
+  const sourceOrphanSigs = new Set<string>();
 
   if (!existsSync(projectDbPath)) {
     return {
       ok: false,
       tables: [],
       foreignKeyViolations: [],
+      introducedForeignKeyViolations: [],
+      preExistingForeignKeyViolations: [],
       enumDrift: [],
       error: `Consolidated project cleo.db not found at ${projectDbPath}. Run 'cleo exodus migrate' first.`,
     };
@@ -412,6 +558,8 @@ export function verifyMigration(
       ok: false,
       tables: [],
       foreignKeyViolations: [],
+      introducedForeignKeyViolations: [],
+      preExistingForeignKeyViolations: [],
       enumDrift: [],
       error: `Consolidated global cleo.db not found at ${globalDbPath}. Run 'cleo exodus migrate' first.`,
     };
@@ -430,6 +578,16 @@ export function verifyMigration(
       const srcSnap = openCleoDbSnapshot(src.path, { readOnly: true });
 
       try {
+        // T11572: record FK orphans that already exist in THIS source DB so the
+        // gate can distinguish pre-existing orphans (tolerated, zero-loss) from
+        // orphans the migration introduces (genuine loss → abort). Done while the
+        // source snapshot is open; signatures are migration-stable (content, not
+        // rowid). FK enforcement on the source is irrelevant — foreign_key_check
+        // scans regardless.
+        for (const sig of sourceOrphanSignatures(srcSnap.db, src.name, `source:${src.name}`)) {
+          sourceOrphanSigs.add(sig);
+        }
+
         const sourceTables = listTables(srcSnap.db);
         // Pre-compute the table set for each consolidated scope once; the
         // per-table scope override (ADR-090 nexus graph residency, T11539) means
@@ -539,17 +697,54 @@ export function verifyMigration(
     }
 
     // --- Foreign-key integrity on each distinct target DB ---
-    foreignKeyViolations.push(...foreignKeyCheck(projectSnap.db, 'project'));
-    foreignKeyViolations.push(...foreignKeyCheck(globalSnap.db, 'global'));
-    for (const fk of foreignKeyViolations) {
-      failureLines.push(
-        `[fk] ${fk.table}.rowid=${fk.rowid ?? '?'} references missing ${fk.parent} (fkid=${fk.fkid})`,
+    // Collect ALL target orphans, then partition into pre-existing (already
+    // orphaned in the source — tolerated, zero-loss) vs migration-introduced
+    // (genuine loss → gate failure). Match by migration-stable signature so a
+    // faithfully-copied pre-existing orphan is recognised despite a new rowid.
+    const targetOrphans: MigrationForeignKeyViolation[] = [];
+    targetOrphans.push(...foreignKeyCheck(projectSnap.db, 'project'));
+    targetOrphans.push(...foreignKeyCheck(globalSnap.db, 'global'));
+    foreignKeyViolations.push(...targetOrphans);
+
+    for (const fk of targetOrphans) {
+      // Recompute the orphan signature on the TARGET side (same content key as
+      // the source side) to test membership in the pre-existing source set. The
+      // orphan lives in whichever scope DB declares the child table.
+      const orphanDb = tableExists(projectSnap.db, fk.table) ? projectSnap.db : globalSnap.db;
+      const sig = orphanSignature(orphanDb, fk);
+      const preExisting = sourceOrphanSigs.has(sig);
+      if (preExisting) {
+        preExistingForeignKeyViolations.push(fk);
+      } else {
+        introducedForeignKeyViolations.push(fk);
+        // ONLY migration-INTRODUCED orphans fail the gate (T11572).
+        failureLines.push(
+          `[fk] ${fk.table}.rowid=${fk.rowid ?? '?'} references missing ${fk.parent} (fkid=${fk.fkid}) — INTRODUCED by migration`,
+        );
+      }
+    }
+
+    if (preExistingForeignKeyViolations.length > 0) {
+      log.warn(
+        {
+          count: preExistingForeignKeyViolations.length,
+          sample: preExistingForeignKeyViolations.slice(0, 5),
+        },
+        `verifyMigration: ${preExistingForeignKeyViolations.length} pre-existing source FK orphan(s) carried forward losslessly — tolerated (flag for data-hygiene follow-up, NOT a migration failure)`,
       );
     }
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     log.error({ err }, 'verifyMigration failed');
-    return { ok: false, tables, foreignKeyViolations, enumDrift, error };
+    return {
+      ok: false,
+      tables,
+      foreignKeyViolations,
+      introducedForeignKeyViolations,
+      preExistingForeignKeyViolations,
+      enumDrift,
+      error,
+    };
   } finally {
     projectSnap.close();
     globalSnap.close();
@@ -560,8 +755,23 @@ export function verifyMigration(
       .map((l) => `  • ${l}`)
       .join('\n')}`;
     log.error({ failureCount: failureLines.length }, error);
-    return { ok: false, tables, foreignKeyViolations, enumDrift, error };
+    return {
+      ok: false,
+      tables,
+      foreignKeyViolations,
+      introducedForeignKeyViolations,
+      preExistingForeignKeyViolations,
+      enumDrift,
+      error,
+    };
   }
 
-  return { ok: true, tables, foreignKeyViolations, enumDrift };
+  return {
+    ok: true,
+    tables,
+    foreignKeyViolations,
+    introducedForeignKeyViolations,
+    preExistingForeignKeyViolations,
+    enumDrift,
+  };
 }

@@ -32,6 +32,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildRepresentativeFixture,
   FIXTURE_EXPECTED_ROWS,
+  FIXTURE_HAZARD_EXPECTED_ROWS,
+  type RepresentativeFixtureOptions,
 } from '../exodus/__fixtures__/representative-fixture.js';
 import type { ExodusPlan, LegacyDbDescriptor } from '../exodus/types.js';
 
@@ -69,14 +71,17 @@ function countRows(dbPath: string, table: string): number {
  * mock `buildExodusPlan` so the hook's plan points at the fixture sources +
  * targets. The REAL migrate + verify engines run unmocked.
  */
-async function armFixture(tmpDir: string): Promise<{
+async function armFixture(
+  tmpDir: string,
+  fixtureOpts: RepresentativeFixtureOptions = {},
+): Promise<{
   fx: ReturnType<typeof buildRepresentativeFixture>;
   sources: LegacyDbDescriptor[];
   plan: ExodusPlan;
   projectDb: DatabaseSyncType;
   globalDb: DatabaseSyncType;
 }> {
-  const fx = buildRepresentativeFixture(tmpDir);
+  const fx = buildRepresentativeFixture(tmpDir, fixtureOpts);
 
   const projectDb = new DatabaseSync(fx.projectDbPath);
   const globalDb = new DatabaseSync(fx.globalDbPath);
@@ -239,6 +244,8 @@ describe('exodus-on-open data-continuity (T11553)', () => {
         },
       ],
       foreignKeyViolations: [],
+      introducedForeignKeyViolations: [],
+      preExistingForeignKeyViolations: [],
       enumDrift: [],
       error: 'FORCED count deficit for abort test',
     });
@@ -389,5 +396,124 @@ describe('exodus-on-open data-continuity (T11553)', () => {
     expect(result.outcome).toBe('migrated');
     // Flag is always cleared in the finally block, even across the nested opens.
     expect(onOpen._isExodusInProgress()).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // T11572 — parity gate over-abort fixes, end-to-end through the REAL engines.
+  // -------------------------------------------------------------------------
+
+  it('T11572 BLOCKER 1: a fixture WITH FTS5 + _conduit_meta shadow tables migrates GREEN', async () => {
+    const { fx, projectDb, globalDb } = await armFixture(tmpDir, {
+      withDerivedAndInternalTables: true,
+    });
+    openProjectDb = projectDb;
+    openGlobalDb = globalDb;
+
+    // Sanity: the source carries the derived FTS shadow + internal meta tables.
+    expect(countRows(fx.brainDbPath, 'brain_decisions_fts_data')).toBeGreaterThan(0);
+    expect(countRows(fx.brainDbPath, '_conduit_meta')).toBe(1);
+
+    const { maybeRunExodusOnOpen } = await import('../exodus/on-open.js');
+    const result = await maybeRunExodusOnOpen('project', fx.projectDbPath, projectDb, tmpDir);
+
+    // The presence of FTS5 + meta shadow tables must NOT abort the cutover.
+    expect(result.outcome, `unexpected outcome: ${result.reason}`).toBe('migrated');
+
+    // Every BASE table — including the FTS5 content table brain_decisions — has
+    // exact row parity. The derived/meta tables were skipped (no consolidated
+    // home), not counted as deficits.
+    for (const [table, expected] of Object.entries(FIXTURE_EXPECTED_ROWS)) {
+      expect(countRows(fx.projectDbPath, table), `${table} parity`).toBe(expected);
+    }
+    expect(countRows(fx.projectDbPath, 'brain_decisions')).toBe(
+      FIXTURE_HAZARD_EXPECTED_ROWS.brain_decisions,
+    );
+  });
+
+  it('T11572 BLOCKER 2: a fixture with a pre-existing SOURCE FK orphan migrates GREEN (orphan preserved)', async () => {
+    const { fx, projectDb, globalDb } = await armFixture(tmpDir, {
+      withPreExistingSourceOrphan: true,
+    });
+    openProjectDb = projectDb;
+    openGlobalDb = globalDb;
+
+    // Sanity: the source already has the 6 task_relations rows (4 clean + 2 orphan).
+    expect(countRows(fx.tasksDbPath, 'task_relations')).toBe(
+      FIXTURE_HAZARD_EXPECTED_ROWS.tasks_task_relations,
+    );
+
+    const { maybeRunExodusOnOpen } = await import('../exodus/on-open.js');
+    const result = await maybeRunExodusOnOpen('project', fx.projectDbPath, projectDb, tmpDir);
+
+    // The pre-existing source orphan must NOT abort the cutover.
+    expect(result.outcome, `unexpected outcome: ${result.reason}`).toBe('migrated');
+
+    // The orphan row is PRESERVED (zero loss) — all 6 relation rows copied,
+    // including the 2 that reference deleted tasks.
+    expect(countRows(fx.projectDbPath, 'tasks_task_relations')).toBe(
+      FIXTURE_HAZARD_EXPECTED_ROWS.tasks_task_relations,
+    );
+    // Base parity unaffected.
+    for (const [table, expected] of Object.entries(FIXTURE_EXPECTED_ROWS)) {
+      expect(countRows(fx.projectDbPath, table), `${table} parity`).toBe(expected);
+    }
+  });
+
+  it('T11572 BLOCKER 3: retry after a FORCED abort RE-COPIES and succeeds (no permanent abort loop)', async () => {
+    const { fx, projectDb, globalDb } = await armFixture(tmpDir);
+    openProjectDb = projectDb;
+    openGlobalDb = globalDb;
+
+    const verifyMod = await import('../exodus/index.js');
+    const { maybeRunExodusOnOpen } = await import('../exodus/on-open.js');
+
+    // --- Attempt 1: force a genuine deficit so the cutover aborts + rolls back. ---
+    const verifySpy = vi.spyOn(verifyMod, 'verifyMigration').mockReturnValue({
+      ok: false,
+      tables: [
+        {
+          sourceTable: 'tasks',
+          targetTable: 'tasks_tasks',
+          scope: 'project',
+          sourceCount: 30,
+          targetCount: 12, // forced deficit
+          sourceHash: 'aaaa',
+          targetHash: 'bbbb',
+          countMatch: false,
+          hashMatch: false,
+        },
+      ],
+      foreignKeyViolations: [],
+      introducedForeignKeyViolations: [],
+      preExistingForeignKeyViolations: [],
+      enumDrift: [],
+      error: 'FORCED count deficit for retry test',
+    });
+
+    const aborted = await maybeRunExodusOnOpen('project', fx.projectDbPath, projectDb, tmpDir);
+    expect(aborted.outcome).toBe('aborted');
+    // Consolidated rolled back to empty; legacy intact.
+    expect(countRows(fx.projectDbPath, 'tasks_tasks')).toBe(0);
+    expect(countRows(fx.tasksDbPath, 'tasks')).toBe(FIXTURE_EXPECTED_ROWS.tasks_tasks);
+
+    // The journal MUST have been cleared on abort so the retry re-copies. Before
+    // the fix, the journal still marked every table 'done' and the retry copied
+    // NOTHING (permanent abort loop).
+    const stagingDir = join(tmpDir, 'staging');
+    expect(
+      existsSync(join(stagingDir, 'exodus-journal.json')),
+      'migrate journal must be cleared after abort/rollback so retry re-copies',
+    ).toBe(false);
+
+    // --- Attempt 2: restore real verify; the retry must RE-COPY and migrate GREEN. ---
+    verifySpy.mockRestore();
+
+    const retried = await maybeRunExodusOnOpen('project', fx.projectDbPath, projectDb, tmpDir);
+    expect(retried.outcome, `retry should re-copy and succeed: ${retried.reason}`).toBe('migrated');
+
+    // The retry actually re-copied every row (not a no-op resume over an empty DB).
+    for (const [table, expected] of Object.entries(FIXTURE_EXPECTED_ROWS)) {
+      expect(countRows(fx.projectDbPath, table), `${table} re-copied on retry`).toBe(expected);
+    }
   });
 });
