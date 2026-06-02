@@ -30,9 +30,11 @@
 
 /**
  * Known transport categories for token recording.
- * Mirrors `TokenTransport` from `@cleocode/core`.
+ * Mirrors `TokenTransport` from `@cleocode/core`. `'mcp'` is a first-class
+ * origin (MCP-gateway requests); it is preserved verbatim, never coerced to
+ * `'agent'` (T11649).
  */
-export type AdminTokenTransport = 'cli' | 'api' | 'agent' | 'unknown';
+export type AdminTokenTransport = 'cli' | 'api' | 'agent' | 'mcp' | 'unknown';
 
 /**
  * Token measurement method classification.

@@ -17,8 +17,10 @@
  *     `tasks_architecture_decisions`).
  *   - **Epoch-INTEGER timestamps** (seconds AND milliseconds) destined for a
  *     target `text` column with an ISO-8601 GLOB CHECK constraint.
- *   - **Legacy enum aliases** (`'Accepted'`, `'mcp'`, `'observation'`) that fail
- *     the target CHECK unless the migration normalises them.
+ *   - **Legacy enum aliases** (`'Accepted'`, `'observation'`) that fail the
+ *     target CHECK unless the migration normalises them, AND the real value
+ *     `'mcp'` (transport) which the consolidated CHECK now ACCEPTS verbatim —
+ *     proving exodus preserves it without coercion (T11649).
  *   - **A self-referential FK** (`tasks.parent_id → tasks.id`) copied
  *     child-before-parent to exercise the FK-defer path.
  *
@@ -267,11 +269,13 @@ function buildTargetSchema(
         decided_at TEXT CHECK ("decided_at" IS NULL OR "decided_at" GLOB ${ISO_GLOB})
       )`,
     );
-    // tasks_token_usage: transport CHECK enum (no 'mcp').
+    // tasks_token_usage: transport CHECK enum — WIDENED to include 'mcp' (T11649).
+    // 'mcp' is a first-class transport origin; the consolidated CHECK accepts it
+    // so exodus stores the real value verbatim (no coercion to 'agent').
     db.exec(
       `CREATE TABLE "tasks_token_usage" (
         id INTEGER PRIMARY KEY,
-        transport TEXT CHECK ("transport" IN ('cli', 'api', 'agent', 'unknown'))
+        transport TEXT CHECK ("transport" IN ('cli', 'api', 'agent', 'mcp', 'unknown'))
       )`,
     );
     // brain_observations: type CHECK enum + created_at ISO GLOB.

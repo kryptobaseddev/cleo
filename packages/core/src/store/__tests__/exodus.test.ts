@@ -1977,8 +1977,9 @@ describe('T11547 regression — enum normalization in migrate layer', () => {
 // ---------------------------------------------------------------------------
 // T11548 REGRESSION — final enum coverage (285 rows, zero genuine loss)
 //
-// Verifies the 8 new ENUM_NORMALIZATIONS entries added in T11548:
-//   - tasks_token_usage.transport: 'mcp' → 'agent'
+// Verifies the ENUM_NORMALIZATIONS entries added in T11548:
+//   - tasks_token_usage.transport: 'mcp' PRESERVED (T11649 — coercion removed,
+//     CHECK enum widened to include 'mcp'; no longer rewritten to 'agent')
 //   - brain_decisions.decision_category: 'architecture' → 'architectural'
 //   - brain_decisions.confidence: out-of-vocab → 'medium'
 //   - tasks_commits.conventional_type: 'style' → 'chore'
@@ -2069,7 +2070,12 @@ describe('T11548 regression — final enum coverage: transport/conventional_type
     return targetPath;
   }
 
-  it('normalizes tasks_token_usage.transport: mcp → agent', async () => {
+  // T11649 — INTEGRITY: 'mcp' is a first-class transport origin (MCP-gateway,
+  // `source: "mcp"`), NOT coerced to 'agent'. The consolidated CHECK enum was
+  // widened to include 'mcp', so exodus stores the true value verbatim. The
+  // earlier T11548 'mcp' → 'agent' mapping was a silent semantic alteration of
+  // ~194 rows (count-preserving, NOT integrity-preserving).
+  it('preserves tasks_token_usage.transport: mcp stays mcp (T11649 — no coercion)', async () => {
     const srcDb = new DatabaseSync(sourcePath);
     try {
       srcDb.exec(
@@ -2085,9 +2091,11 @@ describe('T11548 regression — final enum coverage: transport/conventional_type
 
     const tgtDb = new DatabaseSync(targetProjectPath);
     try {
+      // Widened CHECK enum (T11649) — the consolidated schema + forward migration
+      // `20260602000002_t11649-token-usage-transport-mcp` now accept 'mcp'.
       tgtDb.exec(
         `CREATE TABLE tasks_token_usage (id INTEGER PRIMARY KEY, ` +
-          `transport TEXT NOT NULL CHECK (transport IN ('cli','api','agent','unknown')) DEFAULT 'unknown', ` +
+          `transport TEXT NOT NULL CHECK (transport IN ('cli','api','agent','mcp','unknown')) DEFAULT 'unknown', ` +
           `tokens INTEGER)`,
       );
     } finally {
@@ -2103,10 +2111,16 @@ describe('T11548 regression — final enum coverage: transport/conventional_type
         .prepare('SELECT id, transport FROM tasks_token_usage ORDER BY id')
         .all() as Array<{ id: number; transport: string }>;
       expect(rows).toHaveLength(4);
-      expect(rows.find((r) => r.id === 1)?.transport, 'mcp → agent').toBe('agent');
+      // The crux of T11649: 'mcp' is PRESERVED, never rewritten to 'agent'.
+      expect(rows.find((r) => r.id === 1)?.transport, 'mcp preserved (not coerced)').toBe('mcp');
       expect(rows.find((r) => r.id === 2)?.transport, 'cli passthrough').toBe('cli');
       expect(rows.find((r) => r.id === 3)?.transport, 'agent passthrough').toBe('agent');
-      expect(rows.find((r) => r.id === 4)?.transport, 'mcp → agent').toBe('agent');
+      expect(rows.find((r) => r.id === 4)?.transport, 'mcp preserved (not coerced)').toBe('mcp');
+      // No row was silently rewritten to 'agent' from an 'mcp' source.
+      expect(
+        rows.filter((r) => r.transport === 'agent').length,
+        'only the genuinely-agent row is agent',
+      ).toBe(1);
     } finally {
       tgt.close();
     }

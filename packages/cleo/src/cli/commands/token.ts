@@ -197,7 +197,7 @@ const estimateCommand = defineCommand({
       responsePayload,
       provider: args.provider as string | undefined,
       model: args.model as string | undefined,
-      transport: args.transport as 'cli' | 'api' | 'agent' | 'unknown' | undefined,
+      transport: args.transport as 'cli' | 'api' | 'agent' | 'mcp' | 'unknown' | undefined,
       gateway: args.gateway as string | undefined,
       domain: args.domain as string | undefined,
       operation: args.operation as string | undefined,
