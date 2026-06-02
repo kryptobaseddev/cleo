@@ -1,17 +1,57 @@
 /**
- * Drizzle ORM schema for CLEO nexus.db (SQLite via node:sqlite + sqlite-proxy).
+ * Drizzle ORM runtime schema for the CLEO nexus domain inside the consolidated
+ * GLOBAL `cleo.db` (SQLite via node:sqlite).
  *
- * Tables: project_registry, nexus_audit_log, nexus_schema_meta,
- *         nexus_nodes, nexus_relations, user_profile, sigils
+ * Tables (post-cutover PREFIXED physical names — T11578 · AC3):
+ *   nexus_project_registry, nexus_audit_log, nexus_schema_meta, nexus_nodes,
+ *   nexus_relations, nexus_relation_weights, nexus_contracts,
+ *   nexus_user_profile, nexus_sigils, nexus_project_id_aliases.
  * Stores cross-project registry and audit infrastructure for the Nexus domain,
  * plus the code intelligence graph layer (nodes + directed edges), plus the
  * global user identity / preference profile (PSYCHE Wave 1 — T1077), plus the
  * peer-card sigil identity layer (PSYCHE Wave 8 — T1148).
  *
+ * ## COMPLETE-CUTOVER to prefixed `nexus_*` tables (T11578 · AC3)
+ *
+ * The nexus runtime READ + WRITE path now targets the PREFIXED consolidated
+ * tables the consolidated cleo-global migration
+ * (`drizzle-cleo-global/…t11363-consolidation-cleo-global`) creates — NOT the
+ * legacy BARE tables (`project_registry`, `user_profile`, `sigils`,
+ * `project_id_aliases`). Only the four registry/identity table NAMES change
+ * (bare → `nexus_*`); the five already-prefixed tables (`nexus_audit_log`,
+ * `nexus_schema_meta`, `nexus_nodes`, `nexus_relations`, `nexus_contracts`)
+ * keep identity. The TypeScript EXPORT symbol names are intentionally
+ * UNCHANGED (`projectRegistry`, `userProfile`, `sigils`, `projectIdAliases`,
+ * …) so every accessor that imports them needs ZERO source change — only the
+ * physical table they map to moves to the prefixed shape.
+ *
+ * ## Shape parity with the consolidated migration (T11578 · AC3)
+ *
+ * The consolidated migration (T11363) injects enum/format `CHECK` constraints
+ * and canonical TEXT ISO-8601 timestamp affinity. To keep the runtime drizzle
+ * mapping aligned with the physical tables it now queries:
+ *   - `nexus_user_profile.{firstObservedAt,lastReinforcedAt}` and
+ *     `nexus_sigils.{createdAt,updatedAt}` are canonical TEXT ISO-8601 (were
+ *     `integer({ mode:'timestamp' })`). The writers pass `.toISOString()` so
+ *     the `GLOB 'YYYY-MM-DD*'` CHECK is satisfied.
+ *   - The Hebbian plasticity columns (`weight`, `last_accessed_at`,
+ *     `co_accessed_count`) are PARTITIONED out of `nexus_relations` into the
+ *     sibling `nexus_relation_weights` table (T11545 · ADR-090 §5.3). The
+ *     `nexus-sqlite.ts` open path drops the inline columns from the consolidated
+ *     `nexus_relations` (which still carries them in the T11363 shape) and
+ *     ensures the sibling table.
+ *
+ * The four nexus code-graph tables retain their `project_id` column here (the
+ * runtime keeps a SINGLE global handle and the graph accessors filter by
+ * `project_id`). The ADR-090 residency move to PROJECT scope (drop `project_id`,
+ * open per-project handles) is a SEPARATE later task (T11538/T11539) — out of
+ * scope for AC3.
+ *
  * @task T5365
  * @task T529
  * @task T1077
  * @task T1148
+ * @task T11578
  */
 
 import { sql } from 'drizzle-orm';
@@ -21,7 +61,7 @@ import { index, integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core
 
 /** Central registry of all CLEO projects known to the Nexus. */
 export const projectRegistry = sqliteTable(
-  'project_registry',
+  'nexus_project_registry',
   {
     /**
      * Canonical project identifier (12-hex-char ID since T9149 W5).
@@ -72,10 +112,10 @@ export const projectRegistry = sqliteTable(
     statsJson: text('stats_json').notNull().default('{}'),
   },
   (table) => [
-    index('idx_project_registry_hash').on(table.projectHash),
-    index('idx_project_registry_health').on(table.healthStatus),
-    index('idx_project_registry_name').on(table.name),
-    index('idx_project_registry_last_indexed').on(table.lastIndexed),
+    index('idx_nexus_project_registry_hash').on(table.projectHash),
+    index('idx_nexus_project_registry_health').on(table.healthStatus),
+    index('idx_nexus_project_registry_name').on(table.name),
+    index('idx_nexus_project_registry_last_indexed').on(table.lastIndexed),
   ],
 );
 
@@ -90,7 +130,7 @@ export const projectRegistry = sqliteTable(
  * @task T9149
  */
 export const projectIdAliases = sqliteTable(
-  'project_id_aliases',
+  'nexus_project_id_aliases',
   {
     /** The legacy base64url(path) ID (e.g. from pre-W5 registrations). */
     legacyId: text('legacy_id').primaryKey(),
@@ -99,7 +139,7 @@ export const projectIdAliases = sqliteTable(
     /** ISO 8601 timestamp when this alias was recorded. */
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
   },
-  (table) => [index('idx_project_id_aliases_canonical').on(table.canonicalId)],
+  (table) => [index('idx_nexus_project_id_aliases_canonical').on(table.canonicalId)],
 );
 
 export type ProjectIdAliasRow = typeof projectIdAliases.$inferSelect;
@@ -549,7 +589,7 @@ export const nexusContracts = sqliteTable(
  * @epic T1076
  */
 export const userProfile = sqliteTable(
-  'user_profile',
+  'nexus_user_profile',
   {
     /** Stable semantic key for the trait, e.g. "prefers-zero-deps". Primary key. */
     traitKey: text('trait_key').primaryKey(),
@@ -579,11 +619,19 @@ export const userProfile = sqliteTable(
      */
     derivedFromMessageId: text('derived_from_message_id'),
 
-    /** Unix-epoch milliseconds when this trait was first recorded. */
-    firstObservedAt: integer('first_observed_at', { mode: 'timestamp' }).notNull(),
+    /**
+     * ISO-8601 UTC first-observed instant (T11578 · AC3: canonical TEXT ISO8601,
+     * was `integer({ mode:'timestamp' })`). The consolidated `nexus_user_profile`
+     * carries `CHECK (first_observed_at GLOB 'YYYY-MM-DD*')`; writers pass
+     * `Date.toISOString()`.
+     */
+    firstObservedAt: text('first_observed_at').notNull(),
 
-    /** Unix-epoch milliseconds of the most recent reinforcement event. */
-    lastReinforcedAt: integer('last_reinforced_at', { mode: 'timestamp' }).notNull(),
+    /**
+     * ISO-8601 UTC last-reinforced instant (T11578 · AC3: canonical TEXT ISO8601,
+     * was `integer({ mode:'timestamp' })`).
+     */
+    lastReinforcedAt: text('last_reinforced_at').notNull(),
 
     /** Number of times this trait has been confirmed/reinforced (starts at 1). */
     reinforcementCount: integer('reinforcement_count').notNull().default(1),
@@ -596,14 +644,40 @@ export const userProfile = sqliteTable(
     supersededBy: text('superseded_by'),
   },
   (table) => [
-    index('idx_user_profile_confidence').on(table.confidence),
-    index('idx_user_profile_source').on(table.source),
-    index('idx_user_profile_last_reinforced').on(table.lastReinforcedAt),
-    index('idx_user_profile_superseded').on(table.supersededBy),
+    index('idx_nexus_user_profile_confidence').on(table.confidence),
+    index('idx_nexus_user_profile_source').on(table.source),
+    index('idx_nexus_user_profile_last_reinforced').on(table.lastReinforcedAt),
+    index('idx_nexus_user_profile_superseded').on(table.supersededBy),
   ],
 );
 
 // === SIGILS TABLE (PSYCHE Wave 8 — T1148) ===
+
+/**
+ * Legal `nexus_sigils.role` values — the canonical CANT agent role taxonomy.
+ *
+ * Mirrors `SIGIL_ROLES` in the consolidated `cleo-global/nexus.ts` target
+ * module (T11578 · AC3) so the runtime drizzle mapping matches the physical
+ * `CHECK (role IN (…))` the consolidated migration injects. `''` is the column
+ * default (a sigil before a `.cant` role is associated). The writer
+ * (`nexus/sigil.ts`) normalizes any out-of-set free-form `.cant` role onto this
+ * enum so the CHECK is always satisfied.
+ *
+ * @task T1148
+ * @task T11578
+ */
+export const SIGIL_ROLES = [
+  '',
+  'orchestrator',
+  'lead',
+  'worker',
+  'subagent',
+  'specialist',
+  'validator',
+] as const;
+
+/** TypeScript union derived from {@link SIGIL_ROLES}. */
+export type SigilRole = (typeof SIGIL_ROLES)[number];
 
 /**
  * Peer-card sigil identity layer for CANT agents.
@@ -622,7 +696,7 @@ export const userProfile = sqliteTable(
  * @epic T1075
  */
 export const sigils = sqliteTable(
-  'sigils',
+  'nexus_sigils',
   {
     /**
      * Stable primary key — matches `peer_id` on brain tables (Wave 2).
@@ -642,9 +716,11 @@ export const sigils = sqliteTable(
     displayName: text('display_name').notNull().default(''),
 
     /**
-     * Short role description, e.g. "orchestrator", "researcher", "coder".
+     * Short role from {@link SIGIL_ROLES} (T11578 · AC3 — enum-typed to match the
+     * consolidated `nexus_sigils.role` CHECK). Defaults to `''` before a `.cant`
+     * role is associated.
      */
-    role: text('role').notNull().default(''),
+    role: text('role', { enum: SIGIL_ROLES }).notNull().default(''),
 
     /**
      * System-prompt fragment injected into spawn payloads when this peer is
@@ -660,19 +736,26 @@ export const sigils = sqliteTable(
      */
     capabilityFlags: text('capability_flags'),
 
-    /** Unix-epoch milliseconds when this sigil was first created. */
-    createdAt: integer('created_at', { mode: 'timestamp' })
+    /**
+     * ISO-8601 UTC creation instant (T11578 · AC3: canonical TEXT ISO8601, was
+     * `integer({ mode:'timestamp' })`). The consolidated `nexus_sigils` carries
+     * `CHECK (created_at GLOB 'YYYY-MM-DD*')`; writers pass `Date.toISOString()`.
+     */
+    createdAt: text('created_at')
       .notNull()
-      .$defaultFn(() => new Date()),
+      .$defaultFn(() => new Date().toISOString()),
 
-    /** Unix-epoch milliseconds when this sigil was last updated. */
-    updatedAt: integer('updated_at', { mode: 'timestamp' })
+    /**
+     * ISO-8601 UTC last-update instant (T11578 · AC3: canonical TEXT ISO8601,
+     * was `integer({ mode:'timestamp' })`).
+     */
+    updatedAt: text('updated_at')
       .notNull()
-      .$defaultFn(() => new Date()),
+      .$defaultFn(() => new Date().toISOString()),
   },
   (table) => [
-    index('idx_sigils_display_name').on(table.displayName),
-    index('idx_sigils_role').on(table.role),
+    index('idx_nexus_sigils_display_name').on(table.displayName),
+    index('idx_nexus_sigils_role').on(table.role),
   ],
 );
 

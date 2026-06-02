@@ -24,9 +24,49 @@ import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getNexusDb } from '../store/nexus-sqlite.js';
 import * as nexusSchema from '../store/schema/nexus-schema.js';
+import { SIGIL_ROLES } from '../store/schema/nexus-schema.js';
 
 /** Type alias for the Drizzle nexus database instance. */
 type NexusDb = NodeSQLiteDatabase<typeof nexusSchema>;
+
+/**
+ * Legal `nexus_sigils.role` values accepted by the consolidated migration's
+ * `CHECK (role IN (…))` (T11578 · AC3). The canonical CANT seed roster
+ * (`@cleocode/agents/templates`) only emits values in this set, but
+ * {@link upsertSigil} is a public SDK entry point that may receive an arbitrary
+ * `.cant` `role:` string — {@link normalizeSigilRole} maps any out-of-set value
+ * to the empty-string default so a runtime CHECK violation can never escape.
+ */
+const ALLOWED_SIGIL_ROLES = new Set<string>(SIGIL_ROLES);
+
+/**
+ * Map common free-form `.cant` `role:` synonyms onto the canonical
+ * {@link SIGIL_ROLES} enum so the consolidated `nexus_sigils.role` CHECK is
+ * satisfied without loosening the schema (T11578 · AC3 write-path
+ * reconciliation). Unknown roles fall back to the empty-string default.
+ */
+const SIGIL_ROLE_SYNONYMS: Readonly<Record<string, (typeof SIGIL_ROLES)[number]>> = {
+  prime: 'orchestrator',
+  'team-lead': 'lead',
+  'dev-lead': 'lead',
+  developer: 'worker',
+  coder: 'worker',
+  researcher: 'specialist',
+};
+
+/**
+ * Normalize an arbitrary `.cant` `role:` value to a legal {@link SIGIL_ROLES}
+ * member. Pass-through when already legal; synonym-mapped when recognized; else
+ * the empty-string default. Guarantees the consolidated `nexus_sigils.role`
+ * `CHECK` constraint is satisfied on every write (T11578 · AC3).
+ *
+ * @param role - Raw role string from the caller / parsed `.cant` frontmatter.
+ * @returns A role guaranteed to be in {@link SIGIL_ROLES}.
+ */
+function normalizeSigilRole(role: string): (typeof SIGIL_ROLES)[number] {
+  if (ALLOWED_SIGIL_ROLES.has(role)) return role as (typeof SIGIL_ROLES)[number];
+  return SIGIL_ROLE_SYNONYMS[role] ?? '';
+}
 
 // ---------------------------------------------------------------------------
 // Public types (wire shapes)
@@ -87,10 +127,12 @@ export interface SigilInput {
 
 /**
  * Convert a DB row into the canonical {@link SigilCard} wire shape.
- * Timestamps are stored as Date objects in the DB and surfaced as ISO 8601
- * strings on the wire contract.
+ * Timestamps are stored as canonical TEXT ISO-8601 in the consolidated
+ * `nexus_sigils` table (T11578 · AC3) and surfaced as ISO 8601 strings on the
+ * wire contract. The `instanceof Date` branch defends against any legacy
+ * Date-typed value still in flight pre-exodus.
  *
- * @param row - Raw row from the `sigils` table.
+ * @param row - Raw row from the `nexus_sigils` table.
  * @returns Canonical {@link SigilCard} object.
  */
 function rowToSigilCard(row: nexusSchema.SigilRow): SigilCard {
@@ -101,14 +143,10 @@ function rowToSigilCard(row: nexusSchema.SigilRow): SigilCard {
     role: row.role,
     systemPromptFragment: row.systemPromptFragment ?? null,
     capabilityFlags: row.capabilityFlags ?? null,
-    createdAt: (row.createdAt instanceof Date
-      ? row.createdAt
-      : new Date(row.createdAt)
-    ).toISOString(),
-    updatedAt: (row.updatedAt instanceof Date
-      ? row.updatedAt
-      : new Date(row.updatedAt)
-    ).toISOString(),
+    // T11578 · AC3: timestamps are canonical TEXT ISO-8601. The `new Date(...)`
+    // round-trip normalizes any legacy numeric-epoch value still in flight.
+    createdAt: new Date(row.createdAt).toISOString(),
+    updatedAt: new Date(row.updatedAt).toISOString(),
   };
 }
 
@@ -148,7 +186,9 @@ export async function getSigil(nexusDb: NexusDb, peerId: string): Promise<SigilC
  * @returns The resulting {@link SigilCard} after the upsert.
  */
 export async function upsertSigil(nexusDb: NexusDb, input: SigilInput): Promise<SigilCard> {
-  const now = new Date();
+  // Canonical TEXT ISO-8601 (T11578 · AC3) — satisfies the consolidated
+  // `nexus_sigils.{created_at,updated_at}` GLOB CHECK.
+  const now = new Date().toISOString();
 
   const existing = await nexusDb
     .select({ createdAt: nexusSchema.sigils.createdAt })
@@ -157,6 +197,8 @@ export async function upsertSigil(nexusDb: NexusDb, input: SigilInput): Promise<
     .limit(1);
 
   const createdAt = existing.length > 0 ? existing[0]!.createdAt : now;
+  // Normalize to the consolidated `nexus_sigils.role` CHECK enum (T11578 · AC3).
+  const role = normalizeSigilRole(input.role ?? '');
 
   await nexusDb
     .insert(nexusSchema.sigils)
@@ -164,7 +206,7 @@ export async function upsertSigil(nexusDb: NexusDb, input: SigilInput): Promise<
       peerId: input.peerId,
       cantFile: input.cantFile ?? null,
       displayName: input.displayName ?? '',
-      role: input.role ?? '',
+      role,
       systemPromptFragment: input.systemPromptFragment ?? null,
       capabilityFlags: input.capabilityFlags ?? null,
       createdAt,
@@ -175,7 +217,7 @@ export async function upsertSigil(nexusDb: NexusDb, input: SigilInput): Promise<
       set: {
         cantFile: input.cantFile ?? null,
         displayName: input.displayName ?? '',
-        role: input.role ?? '',
+        role,
         systemPromptFragment: input.systemPromptFragment ?? null,
         capabilityFlags: input.capabilityFlags ?? null,
         updatedAt: now,
@@ -201,7 +243,12 @@ export async function upsertSigil(nexusDb: NexusDb, input: SigilInput): Promise<
 export async function listSigils(nexusDb: NexusDb, opts?: { role?: string }): Promise<SigilCard[]> {
   const query = nexusDb.select().from(nexusSchema.sigils);
 
-  const rows = opts?.role ? await query.where(eq(nexusSchema.sigils.role, opts.role)) : await query;
+  // Normalize the filter role onto the consolidated enum (T11578 · AC3) so the
+  // typed `nexus_sigils.role` column comparison is well-typed and matches the
+  // normalization applied on write.
+  const rows = opts?.role
+    ? await query.where(eq(nexusSchema.sigils.role, normalizeSigilRole(opts.role)))
+    : await query;
 
   return rows.map(rowToSigilCard);
 }

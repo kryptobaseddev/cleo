@@ -1,8 +1,26 @@
--- BASELINE MARKER — T1165 Hybrid Path A+ (ADR-054).
--- Schema state for nexus captured in snapshot.json. No DDL to apply here.
--- On fresh installs, the CREATE statements from the canonical tree
--- (prior migrations in this folder) produce the target schema.
--- On existing installs, reconcileJournal Scenario 1 will see that
--- all migrations in this folder are applied and skip this baseline.
--- Snapshot.json MUST be preserved — it is the anchor for drizzle-kit
--- generate going forward.
+-- BASELINE MARKER — T1165 Hybrid Path A+ (ADR-054) · rewritten for T11578 · AC3.
+-- No DDL to apply here (comment-only marker).
+--
+-- ## COMPLETE-CUTOVER (T11578 · AC3)
+--
+-- The nexus runtime now reads + writes the PREFIXED consolidated `nexus_*`
+-- tables that the consolidated cleo-global migration
+-- (`drizzle-cleo-global/…t11363-consolidation-cleo-global`) creates — it OWNS
+-- the 10 prefixed base tables (single SSoT). The former base-table-creating
+-- migrations in THIS folder (initial / t529 graph / t622 registry-paths /
+-- t998 plasticity / t1077 user_profile / t1148 sigils / t1839 fts5 / t9163
+-- is_external / t11025 aliases) were REMOVED — the consolidated migration
+-- supersedes them. This folder now carries ONLY the FTS5 quartet over
+-- `nexus_nodes` + the plasticity-partition CREATE (the delta drizzle-orm
+-- sqlite-core cannot model / the consolidated migration omits), see the
+-- T11545 forward migration alongside this marker.
+--
+-- On existing DBs the old per-table migration hashes are removed from disk,
+-- so reconcileJournal Scenario 2 (Sub-case B) treats them as true orphans,
+-- deletes the orphaned journal rows, and re-probes the surviving migrations.
+-- The col-drop half of the plasticity partition is handled idempotently in
+-- `nexus-sqlite.ts` (`ensureNexusRelationWeights`) so a destructive ALTER never
+-- sits in the journaled SQL.
+--
+-- Snapshot.json is retained as the drizzle-kit generate anchor; it is ignored
+-- at runtime (`readMigrationFiles` reads only migration.sql bodies).
