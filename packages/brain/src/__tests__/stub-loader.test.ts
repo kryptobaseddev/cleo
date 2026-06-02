@@ -45,7 +45,7 @@ function loadStubNodesForEdgeTargets(
     if (sep === -1) continue;
 
     const substrateStr = nodeId.slice(0, sep);
-    if (!['brain', 'nexus', 'tasks', 'conduit', 'signaldock'].includes(substrateStr)) {
+    if (!['brain', 'nexus', 'tasks', 'conduit', 'agent-registry'].includes(substrateStr)) {
       continue;
     }
 
@@ -366,7 +366,7 @@ describe('loadStubNodesForEdgeTargets', () => {
     const edges: BrainEdge[] = [
       {
         source: 'brain:O-111',
-        target: 'signaldock:agent-abc',
+        target: 'agent-registry:agent-abc',
         type: 'authored_by',
         weight: 0.5,
         substrate: 'cross',
@@ -376,8 +376,8 @@ describe('loadStubNodesForEdgeTargets', () => {
     const stubs = loadStubNodesForEdgeTargets(loaded, edges);
 
     expect(stubs).toHaveLength(1);
-    expect(stubs[0].id).toBe('signaldock:agent-abc');
-    expect(stubs[0].substrate).toBe('signaldock');
+    expect(stubs[0].id).toBe('agent-registry:agent-abc');
+    expect(stubs[0].substrate).toBe('agent-registry');
     expect(stubs[0].meta.isStub).toBe(true);
   });
 

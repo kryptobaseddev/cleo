@@ -111,11 +111,11 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
     };
   });
 
-  const { ensureGlobalSignaldockDb, _resetGlobalSignaldockDb_TESTING_ONLY } = await import(
-    '../signaldock-sqlite.js'
+  const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
+    '../agent-registry-store.js'
   );
-  _resetGlobalSignaldockDb_TESTING_ONLY();
-  await ensureGlobalSignaldockDb();
+  _resetGlobalAgentRegistryDb_TESTING_ONLY();
+  await ensureGlobalAgentRegistryDb();
 
   // E6-L5 (T11525): the signaldock domain consolidated into the GLOBAL cleo.db.
   const dbPath = join(cleoHome, 'cleo.db');
@@ -123,19 +123,19 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
   // Seed a pair of skills so the junction-insert path has something to match.
   const seedDb = new DatabaseSync(dbPath);
   seedDb.exec('PRAGMA foreign_keys = ON');
-  const nowTs = Math.floor(Date.now() / 1000);
+  const nowIso = new Date().toISOString();
   seedDb
     .prepare(
-      `INSERT OR IGNORE INTO skills (id, slug, name, description, category, created_at)
+      `INSERT OR IGNORE INTO agent_registry_skills (id, slug, name, description, category, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
     )
-    .run('skill-ct-cleo', 'ct-cleo', 'CT CLEO', 'CLEO task protocol', 'core', nowTs);
+    .run('skill-ct-cleo', 'ct-cleo', 'CT CLEO', 'CLEO task protocol', 'core', nowIso);
   seedDb
     .prepare(
-      `INSERT OR IGNORE INTO skills (id, slug, name, description, category, created_at)
+      `INSERT OR IGNORE INTO agent_registry_skills (id, slug, name, description, category, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
     )
-    .run('skill-ct-validator', 'ct-validator', 'CT Validator', 'validator', 'core', nowTs);
+    .run('skill-ct-validator', 'ct-validator', 'CT Validator', 'validator', 'core', nowIso);
   seedDb.close();
 
   const openDb = (): DatabaseSync => {
@@ -145,7 +145,7 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
     return d;
   };
   const cleanup = (): void => {
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
     rmSync(base, { recursive: true, force: true });
   };
   return { cleoHome, projectRoot, dbPath, globalCantDir, openDb, cleanup };
@@ -208,9 +208,9 @@ describe('W2-3 installAgentFromCant — real sqlite + real .cant', () => {
       expect(result.skillsAttached).toEqual(expect.arrayContaining(['ct-cleo', 'ct-validator']));
 
       // Row is present with correct extended fields.
-      const row = db.prepare('SELECT * FROM agents WHERE agent_id = ?').get('cleo-historian') as
-        | AgentRow
-        | undefined;
+      const row = db
+        .prepare('SELECT * FROM agent_registry_agents WHERE agent_id = ?')
+        .get('cleo-historian') as AgentRow | undefined;
       expect(row).toBeDefined();
       if (!row) throw new Error('row missing');
       expect(row.tier).toBe('global');
@@ -230,7 +230,7 @@ describe('W2-3 installAgentFromCant — real sqlite + real .cant', () => {
       // agent_skills junction rows exist for catalog-matched slugs only.
       const junctionRows = db
         .prepare(
-          "SELECT slug, source FROM agent_skills JOIN skills ON skills.id = agent_skills.skill_id WHERE agent_skills.agent_id = ? AND source = 'cant'",
+          "SELECT agent_registry_skills.slug AS slug, agent_registry_agent_skills.source AS source FROM agent_registry_agent_skills JOIN agent_registry_skills ON agent_registry_skills.id = agent_registry_agent_skills.skill_id WHERE agent_registry_agent_skills.agent_id = ? AND agent_registry_agent_skills.source = 'cant'",
         )
         .all(row.id) as Array<{ slug: string; source: string }>;
       expect(junctionRows.map((r) => r.slug).sort()).toEqual(['ct-cleo', 'ct-validator']);
@@ -310,13 +310,13 @@ describe('W2-3 installAgentFromCant — real sqlite + real .cant', () => {
       });
 
       const orchRow = db
-        .prepare('SELECT can_spawn, orch_level FROM agents WHERE agent_id = ?')
+        .prepare('SELECT can_spawn, orch_level FROM agent_registry_agents WHERE agent_id = ?')
         .get('orch-agent') as { can_spawn: number; orch_level: number };
       expect(orchRow.can_spawn).toBe(1);
       expect(orchRow.orch_level).toBe(0);
 
       const workerRow = db
-        .prepare('SELECT can_spawn, orch_level FROM agents WHERE agent_id = ?')
+        .prepare('SELECT can_spawn, orch_level FROM agent_registry_agents WHERE agent_id = ?')
         .get('worker-agent') as { can_spawn: number; orch_level: number };
       expect(workerRow.can_spawn).toBe(0);
       expect(workerRow.orch_level).toBe(2);
@@ -401,7 +401,7 @@ describe('W2-3 installAgentFromCant — real sqlite + real .cant', () => {
       // the caller opens the transaction. This has to happen inside the
       // installer flow — so we pre-corrupt the schema so the very first
       // INSERT INTO agent_skills raises.
-      db.exec('DROP TABLE agent_skills');
+      db.exec('DROP TABLE agent_registry_agent_skills');
 
       const src = writeSource(
         join(env.projectRoot, 'sources'),
@@ -418,9 +418,9 @@ describe('W2-3 installAgentFromCant — real sqlite + real .cant', () => {
         }),
       ).toThrow();
 
-      const row = db.prepare('SELECT id FROM agents WHERE agent_id = ?').get('fixture-agent') as
-        | { id: string }
-        | undefined;
+      const row = db
+        .prepare('SELECT id FROM agent_registry_agents WHERE agent_id = ?')
+        .get('fixture-agent') as { id: string } | undefined;
       expect(row).toBeUndefined();
       // Destination file should have been cleaned up.
       const dest = join(env.globalCantDir, 'fixture-agent.cant');

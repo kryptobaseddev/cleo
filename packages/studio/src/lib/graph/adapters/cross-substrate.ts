@@ -272,7 +272,7 @@ export function computeBridges(nodes: readonly GraphNode[], dbRefs: DbRefs): Gra
   // 4. SIGNALDOCK ↔ TASKS — tasks.assignee matching loaded signaldock nodes
   // -------------------------------------------------------------------------
   if (dbRefs.tasksDb) {
-    raw.push(...bridgeSignaldockTasksViaAssignee(dbRefs.tasksDb, nodeIdSet));
+    raw.push(...bridgeAgentRegistryTasksViaAssignee(dbRefs.tasksDb, nodeIdSet));
   }
 
   // -------------------------------------------------------------------------
@@ -658,13 +658,13 @@ function bridgeConduitTasksViaPageEdges(db: DatabaseSync, nodeIds: Set<string>):
  * from the agent to the task.
  *
  * The `tasks.assignee` column is verified present in `tasks-schema.ts`.
- * The signaldock node ID format is `signaldock:<agent_id>`.
+ * The signaldock node ID format is `agent-registry:<agent_id>`.
  *
  * @param db - tasks.db connection.
  * @param nodeIds - Set of loaded node IDs.
  * @returns Bridge edges.
  */
-function bridgeSignaldockTasksViaAssignee(db: DatabaseSync, nodeIds: Set<string>): BridgeEdge[] {
+function bridgeAgentRegistryTasksViaAssignee(db: DatabaseSync, nodeIds: Set<string>): BridgeEdge[] {
   const bridges: BridgeEdge[] = [];
   try {
     const rows = allTyped<TaskAssigneeRow>(
@@ -681,7 +681,7 @@ function bridgeSignaldockTasksViaAssignee(db: DatabaseSync, nodeIds: Set<string>
       if (!row.assignee) continue;
 
       const tasksNodeId = `tasks:${row.id}`;
-      const signaldockNodeId = `signaldock:${row.assignee}`;
+      const signaldockNodeId = `agent-registry:${row.assignee}`;
 
       if (!nodeIds.has(tasksNodeId) || !nodeIds.has(signaldockNodeId)) continue;
 

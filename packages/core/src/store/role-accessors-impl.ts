@@ -11,9 +11,9 @@
  */
 
 import type {
+  AgentRegistrySubAccessor,
   ConduitAccessor,
   NexusAccessor,
-  SignaldockAccessor,
   TelemetryAccessor,
 } from '@cleocode/contracts';
 import { resolveOrCwd } from '../paths.js';
@@ -125,26 +125,26 @@ export function createNexusAccessor(_projectRoot?: string): NexusAccessor {
 }
 
 // ---------------------------------------------------------------------------
-// SignaldockAccessor
+// AgentRegistrySubAccessor
 // ---------------------------------------------------------------------------
 
 /**
- * Create a SignaldockAccessor.
+ * Create a AgentRegistrySubAccessor.
  *
  * Wraps signaldock-sqlite module functions behind the typed interface.
  *
- * @returns A SignaldockAccessor instance.
+ * @returns A AgentRegistrySubAccessor instance.
  * @task T9188
  */
-export function createSignaldockAccessor(): SignaldockAccessor {
+export function createAgentRegistrySubAccessor(): AgentRegistrySubAccessor {
   return {
     async ping(): Promise<boolean> {
       try {
-        const { ensureGlobalSignaldockDb, getGlobalSignaldockNativeDb } = await import(
-          './signaldock-sqlite.js'
+        const { ensureGlobalAgentRegistryDb, getGlobalAgentRegistryNativeDb } = await import(
+          './agent-registry-store.js'
         );
-        await ensureGlobalSignaldockDb();
-        const db = getGlobalSignaldockNativeDb();
+        await ensureGlobalAgentRegistryDb();
+        const db = getGlobalAgentRegistryNativeDb();
         if (!db) return false;
         db.prepare('SELECT 1').get();
         return true;

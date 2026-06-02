@@ -46,12 +46,12 @@ export const AGENT_TYPES = [
 export const agentInstances = sqliteTable(
   'agent_instances',
   {
-    /** @cross-db signaldock-global.agents.agent_id — tasks→signaldock soft FK (the identity this live instance is running as). Validated via `agentExistsInSignaldockDb` (T238); no DB-level FK. */
+    /** @cross-db signaldock-global.agents.agent_id — tasks→signaldock soft FK (the identity this live instance is running as). Validated via `agentExistsInAgentRegistryDb` (T238); no DB-level FK. */
     id: text('id').primaryKey(),
     agentType: text('agent_type', { enum: AGENT_TYPES }).notNull(),
     status: text('status', { enum: AGENT_INSTANCE_STATUSES }).notNull().default('starting'),
     // Soft references — no DB-level FK (SQLite cannot ALTER TABLE ADD CONSTRAINT).
-    // Application-layer validation via agentExistsInSignaldockDb (T238).
+    // Application-layer validation via agentExistsInAgentRegistryDb (T238).
     // Both sessionId + taskId resolve INTRA-DB (sessions and tasks live in this same tasks.db).
     sessionId: text('session_id'), // cross-db-annotation-ok: intra-DB FK to tasks.sessions.id (no .references() because the row may pre-date the session being created)
     taskId: text('task_id'), // cross-db-annotation-ok: intra-DB FK to tasks.tasks.id (no .references() because agent may not be bound to any task)
@@ -62,7 +62,7 @@ export const agentInstances = sqliteTable(
     totalTasksCompleted: integer('total_tasks_completed').notNull().default(0),
     capacity: text('capacity').notNull().default('1.0'),
     metadataJson: text('metadata_json').default('{}'),
-    /** @cross-db signaldock-global.agents.agent_id — tasks→signaldock soft FK (parent of this spawned agent). Validated via `agentExistsInSignaldockDb` (T238); no DB-level FK. */
+    /** @cross-db signaldock-global.agents.agent_id — tasks→signaldock soft FK (parent of this spawned agent). Validated via `agentExistsInAgentRegistryDb` (T238); no DB-level FK. */
     parentAgentId: text('parent_agent_id'),
   },
   (table) => [
@@ -83,7 +83,7 @@ export const agentErrorLog = sqliteTable(
   'agent_error_log',
   {
     id: integer('id').primaryKey({ autoIncrement: true }),
-    /** @cross-db signaldock-global.agents.agent_id — tasks→signaldock soft FK (which agent identity erred). Validated via `agentExistsInSignaldockDb` (T238); no DB-level FK. */
+    /** @cross-db signaldock-global.agents.agent_id — tasks→signaldock soft FK (which agent identity erred). Validated via `agentExistsInAgentRegistryDb` (T238); no DB-level FK. */
     agentId: text('agent_id').notNull(),
     errorType: text('error_type', {
       enum: ['retriable', 'permanent', 'unknown'],

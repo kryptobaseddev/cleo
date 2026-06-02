@@ -72,10 +72,10 @@ export interface CacheMetrics {
 
 /** All five substrate names in canonical sort order. */
 const ALL_SUBSTRATES_SORTED: BrainSubstrate[] = [
+  'agent-registry',
   'brain',
   'conduit',
   'nexus',
-  'signaldock',
   'tasks',
 ];
 

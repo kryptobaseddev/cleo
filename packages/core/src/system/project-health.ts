@@ -75,7 +75,7 @@ function getDatabaseSyncCtor(): DatabaseSyncModule['DatabaseSync'] | null {
 // project floor of 3, so it uses NEXUS_GLOBAL_DB_FLOOR (passed inline at the
 // probe site) instead of a `[NEXUS_DB]` map entry that would clobber `[TASKS_DB]`.
 // E6-L5 (T11525): the signaldock domain consolidated into the GLOBAL `cleo.db`
-// under getCleoHome() (ensureGlobalSignaldockDb → openDualScopeDb('global')), the
+// under getCleoHome() (ensureGlobalAgentRegistryDb → openDualScopeDb('global')), the
 // SAME physical file as the nexus global probe above. Like NEXUS_DB it uses
 // NEXUS_GLOBAL_DB_FLOOR inline at its probe site instead of a `[SIGNALDOCK_DB]`
 // map entry that would clobber `[TASKS_DB]` (both keys are now 'cleo.db').

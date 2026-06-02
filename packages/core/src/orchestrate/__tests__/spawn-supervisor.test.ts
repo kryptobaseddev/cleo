@@ -103,7 +103,7 @@ vi.mock('../../logger.js', () => ({
 // that is irrelevant to the supervisor tests. The stub satisfies the
 // `.close()` contract on the finally block in `composeSpawnForTask`.
 vi.mock('../plan.js', () => ({
-  openSignaldockDbForComposer: vi.fn(async () => ({ close: () => undefined })),
+  openAgentRegistryDbForComposer: vi.fn(async () => ({ close: () => undefined })),
 }));
 
 // Imported AFTER the mocks so the orchestrate spawn binding uses them.

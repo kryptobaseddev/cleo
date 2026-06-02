@@ -161,30 +161,30 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
     };
   });
 
-  const { ensureGlobalSignaldockDb, _resetGlobalSignaldockDb_TESTING_ONLY } = await import(
-    '../signaldock-sqlite.js'
+  const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
+    '../agent-registry-store.js'
   );
-  _resetGlobalSignaldockDb_TESTING_ONLY();
-  await ensureGlobalSignaldockDb();
+  _resetGlobalAgentRegistryDb_TESTING_ONLY();
+  await ensureGlobalAgentRegistryDb();
 
   const dbPath = join(cleoHome, 'cleo.db'); // E6-L5 (T11525): signaldock consolidated into GLOBAL cleo.db
 
   // Seed the skills catalog so junction writes succeed for fixtures.
   const seedDb = new DatabaseSync(dbPath);
   seedDb.exec('PRAGMA foreign_keys = ON');
-  const nowTs = Math.floor(Date.now() / 1000);
+  const nowIso = new Date().toISOString();
   seedDb
     .prepare(
-      `INSERT OR IGNORE INTO skills (id, slug, name, description, category, created_at)
+      `INSERT OR IGNORE INTO agent_registry_skills (id, slug, name, description, category, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
     )
-    .run('skill-ct-cleo', 'ct-cleo', 'CT CLEO', 'CLEO task protocol', 'core', nowTs);
+    .run('skill-ct-cleo', 'ct-cleo', 'CT CLEO', 'CLEO task protocol', 'core', nowIso);
   seedDb
     .prepare(
-      `INSERT OR IGNORE INTO skills (id, slug, name, description, category, created_at)
+      `INSERT OR IGNORE INTO agent_registry_skills (id, slug, name, description, category, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
     )
-    .run('skill-ct-validator', 'ct-validator', 'CT Validator', 'validator', 'core', nowTs);
+    .run('skill-ct-validator', 'ct-validator', 'CT Validator', 'validator', 'core', nowIso);
   seedDb.close();
 
   const openDb = (): DatabaseSync => {
@@ -194,7 +194,7 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
     return d;
   };
   const cleanup = (): void => {
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
     rmSync(base, { recursive: true, force: true });
   };
   return {
@@ -304,7 +304,9 @@ describe('W2-4 resolveAgent — 4-tier precedence with real sqlite', () => {
         installedFrom: 'seed',
         globalCantDir: env.packagedSeedDir,
       });
-      db.prepare("UPDATE agents SET tier = 'packaged' WHERE agent_id = ?").run('fixture-worker');
+      db.prepare("UPDATE agent_registry_agents SET tier = 'packaged' WHERE agent_id = ?").run(
+        'fixture-worker',
+      );
 
       const resolved = resolveAgent(db, 'fixture-worker', { projectRoot: env.projectRoot });
       expect(resolved.tier).toBe('packaged');
@@ -433,7 +435,9 @@ describe('W2-4 resolveAgent — 4-tier precedence with real sqlite', () => {
       });
       // Record the project-tier cant_path so we can nuke it below.
       const projectCantPath = (
-        db.prepare('SELECT cant_path FROM agents WHERE agent_id = ?').get('dual-tier') as {
+        db
+          .prepare('SELECT cant_path FROM agent_registry_agents WHERE agent_id = ?')
+          .get('dual-tier') as {
           cant_path: string;
         }
       ).cant_path;
@@ -456,19 +460,21 @@ describe('W2-4 resolveAgent — 4-tier precedence with real sqlite', () => {
       // After force-install the single row now tracks tier='global'. Restore the
       // project row with a deliberately-dangling cant_path so the cascade is
       // exercised end-to-end.
-      db.prepare('UPDATE agents SET tier = ?, cant_path = ? WHERE agent_id = ?').run(
+      db.prepare('UPDATE agent_registry_agents SET tier = ?, cant_path = ? WHERE agent_id = ?').run(
         'global',
         join(env.globalCantDir, 'dual-tier.cant'),
         'dual-tier',
       );
       // Insert a SECOND dangling project-tier row with a brand-new UUID so the
       // composite (agent_id, tier) scan hits it first.
-      const globalRow = db.prepare('SELECT * FROM agents WHERE agent_id = ?').get('dual-tier') as {
+      const globalRow = db
+        .prepare('SELECT * FROM agent_registry_agents WHERE agent_id = ?')
+        .get('dual-tier') as {
         id: string;
         skills: string;
       };
       db.prepare(
-        `INSERT INTO agents (
+        `INSERT INTO agent_registry_agents (
             id, agent_id, name, class, privacy_tier, capabilities, skills,
             transport_type, api_base_url, transport_config, is_active,
             status, created_at, updated_at, requires_reauth,
@@ -484,8 +490,8 @@ describe('W2-4 resolveAgent — 4-tier precedence with real sqlite', () => {
         'dual-tier-orphan',
         'dual-tier',
         globalRow.skills,
-        Math.floor(Date.now() / 1000),
-        Math.floor(Date.now() / 1000),
+        new Date().toISOString(),
+        new Date().toISOString(),
         join(env.projectCantDir, 'does-not-exist.cant'),
       );
 

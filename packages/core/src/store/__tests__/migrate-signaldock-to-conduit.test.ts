@@ -338,7 +338,7 @@ async function runMigration(
     getGlobalSalt: () => Buffer.alloc(32, 0xab),
     __clearGlobalSaltCache: vi.fn(),
   }));
-  vi.doMock('../signaldock-sqlite.js', () => ({
+  vi.doMock('../agent-registry-store.js', () => ({
     ensureGlobalSignaldockDb: vi.fn(async () => ({
       action: 'exists',
       path: join(home, 'signaldock.db'),

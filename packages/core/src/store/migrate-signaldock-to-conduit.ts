@@ -27,9 +27,9 @@ import { join } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType, SQLInputValue } from 'node:sqlite';
 import { getLogger } from '../logger.js';
 import { getCleoHome } from '../paths.js';
+import { ensureGlobalAgentRegistryDb } from './agent-registry-store.js';
 import { ensureConduitDb, getConduitDbPath } from './conduit-sqlite.js';
 import { getGlobalSalt } from './global-salt.js';
-import { ensureGlobalSignaldockDb } from './signaldock-sqlite.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
 
 const _require = createRequire(import.meta.url);
@@ -422,7 +422,7 @@ export async function migrateSignaldockToConduit(projectRoot: string): Promise<M
     // and rely on the schema already having been applied (or apply it inline).
     // We call ensureGlobalSignaldockDb() in a fire-and-forget style here, and
     // handle the open synchronously below with DatabaseSync.
-    void ensureGlobalSignaldockDb();
+    void ensureGlobalAgentRegistryDb();
   } catch {
     // Non-fatal: the global DB open below will create the file if needed.
   }

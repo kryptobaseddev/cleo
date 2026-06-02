@@ -18,7 +18,7 @@
  * Matches the runtime {@link import('@cleocode/brain').BrainSubstrate}
  * naming (`'brain'`, NOT `'memory'`). Keep the two planes aligned.
  */
-export type SubstrateId = 'brain' | 'nexus' | 'tasks' | 'conduit' | 'signaldock';
+export type SubstrateId = 'brain' | 'nexus' | 'tasks' | 'conduit' | 'agent-registry';
 
 /**
  * Canonical edge taxonomy across brain + nexus + tasks + conduit.
@@ -159,5 +159,5 @@ export const ALL_SUBSTRATES: readonly SubstrateId[] = [
   'nexus',
   'tasks',
   'conduit',
-  'signaldock',
+  'agent-registry',
 ] as const;

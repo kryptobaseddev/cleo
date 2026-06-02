@@ -259,14 +259,14 @@ export async function installTemplatesAtProjectTier(
   }
 
   // E6-L6 (T11526): the `agents` family is the legacy signaldock schema, created
-  // inside the global `cleo.db` by ensureGlobalSignaldockDb() (which routes
+  // inside the global `cleo.db` by ensureGlobalAgentRegistryDb() (which routes
   // through openDualScopeDb('global') AND runs the legacy signaldock migrations).
   // openCleoDb('global') alone would only create the consolidated schema.
-  const { ensureGlobalSignaldockDb, getGlobalSignaldockNativeDb } = await import(
-    './store/signaldock-sqlite.js'
+  const { ensureGlobalAgentRegistryDb, getGlobalAgentRegistryNativeDb } = await import(
+    './store/agent-registry-store.js'
   );
-  await ensureGlobalSignaldockDb();
-  const db = getGlobalSignaldockNativeDb();
+  await ensureGlobalAgentRegistryDb();
+  const db = getGlobalAgentRegistryNativeDb();
   if (!db) {
     throw new Error('init: global signaldock cleo.db could not be opened (no native handle)');
   }

@@ -45,7 +45,7 @@ vi.mock('$lib/server/db/connections.js', () => ({
     brain: false,
     tasks: false,
     conduit: false,
-    signaldock: false,
+    'agent-registry': false,
     nexusPath: '/tmp/nexus.db',
     brainPath: '/tmp/brain.db',
     tasksPath: '/tmp/tasks.db',

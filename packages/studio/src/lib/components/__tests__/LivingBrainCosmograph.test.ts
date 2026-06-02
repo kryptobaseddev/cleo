@@ -33,7 +33,7 @@ const SUBSTRATE_COLOR: Record<BrainSubstrate, string> = {
   nexus: '#22c55e',
   tasks: '#f97316',
   conduit: '#a855f7',
-  signaldock: '#ef4444',
+  'agent-registry': '#ef4444',
 };
 
 const EDGE_COLOR: Record<string, string> = {
@@ -150,7 +150,7 @@ function buildBuffers(
 // Fixtures
 // ---------------------------------------------------------------------------
 
-const SUBSTRATES: BrainSubstrate[] = ['brain', 'nexus', 'tasks', 'conduit', 'signaldock'];
+const SUBSTRATES: BrainSubstrate[] = ['brain', 'nexus', 'tasks', 'conduit', 'agent-registry'];
 
 function makeNode(idx: number): BrainNode {
   return {

@@ -286,7 +286,7 @@ describe('computeBridges — signaldock→tasks bridges via tasks.assignee', () 
   it('emits a messages bridge from signaldock agent to assigned task', () => {
     const rows = [{ id: 'T700', assignee: 'agent-cleo-prime' }];
     const nodes: GraphNode[] = [
-      mkNode('signaldock:agent-cleo-prime', 'signaldock'),
+      mkNode('agent-registry:agent-cleo-prime', 'agent-registry'),
       mkNode('tasks:T700', 'tasks'),
     ];
 
@@ -300,7 +300,7 @@ describe('computeBridges — signaldock→tasks bridges via tasks.assignee', () 
     const sigBridges = result.filter((e) => e.meta?.bridgeType === 'signaldock->tasks');
     expect(sigBridges.length).toBeGreaterThanOrEqual(1);
     expect(sigBridges[0].kind).toBe('messages');
-    expect(sigBridges[0].source).toBe('signaldock:agent-cleo-prime');
+    expect(sigBridges[0].source).toBe('agent-registry:agent-cleo-prime');
     expect(sigBridges[0].target).toBe('tasks:T700');
   });
 });

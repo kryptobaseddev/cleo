@@ -62,7 +62,7 @@ export type BrainNodeKind =
  * that bridge runtime output to the wire format translate between the two
  * naming planes at the adapter boundary.
  */
-export type BrainSubstrate = 'brain' | 'nexus' | 'tasks' | 'conduit' | 'signaldock';
+export type BrainSubstrate = 'brain' | 'nexus' | 'tasks' | 'conduit' | 'agent-registry';
 
 // ---------------------------------------------------------------------------
 // Canonical graph node
@@ -77,7 +77,7 @@ export type BrainSubstrate = 'brain' | 'nexus' | 'tasks' | 'conduit' | 'signaldo
  * - `"nexus:sym-123"` — a nexus code symbol
  * - `"tasks:T949"` — a CLEO task
  * - `"conduit:msg-7f3a2b1c"` — a conduit message
- * - `"signaldock:agent-cleo-prime"` — a SignalDock agent
+ * - `"agent-registry:agent-cleo-prime"` — an Agent Registry agent
  *
  * @remarks
  * This is the shape produced by all substrate adapters in `@cleocode/brain`

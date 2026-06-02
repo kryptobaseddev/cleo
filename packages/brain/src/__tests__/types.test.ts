@@ -31,7 +31,7 @@ const ALL_NODE_KINDS: BrainNodeKind[] = [
   'message',
 ];
 
-const ALL_SUBSTRATES: BrainSubstrate[] = ['brain', 'nexus', 'tasks', 'conduit', 'signaldock'];
+const ALL_SUBSTRATES: BrainSubstrate[] = ['brain', 'nexus', 'tasks', 'conduit', 'agent-registry'];
 
 // ---------------------------------------------------------------------------
 // BrainNodeKind
@@ -83,7 +83,7 @@ describe('BrainSubstrate', () => {
     expect(ALL_SUBSTRATES).toContain('nexus');
     expect(ALL_SUBSTRATES).toContain('tasks');
     expect(ALL_SUBSTRATES).toContain('conduit');
-    expect(ALL_SUBSTRATES).toContain('signaldock');
+    expect(ALL_SUBSTRATES).toContain('agent-registry');
   });
 });
 
@@ -149,9 +149,9 @@ describe('BrainNode structural contract', () => {
 
   it('accepts null createdAt for substrates without a timestamp', () => {
     const node: BrainNode = {
-      id: 'signaldock:agent-abc',
+      id: 'agent-registry:agent-abc',
       kind: 'agent',
-      substrate: 'signaldock',
+      substrate: 'agent-registry',
       label: 'cleo-prime',
       createdAt: null,
       meta: { status: 'active' },
@@ -255,7 +255,7 @@ describe('getAllSubstrates()', () => {
   it('node IDs are substrate-prefixed', () => {
     const graph = getAllSubstrates();
     for (const node of graph.nodes) {
-      expect(node.id).toMatch(/^(brain|nexus|tasks|conduit|signaldock):/);
+      expect(node.id).toMatch(/^(brain|nexus|tasks|conduit|agent-registry):/);
     }
   });
 

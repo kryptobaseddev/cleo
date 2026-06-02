@@ -13,6 +13,7 @@
  */
 
 import type {
+  AgentRegistrySubAccessor,
   ArchiveFields,
   ArchiveFile,
   BrainAccessor,
@@ -23,7 +24,6 @@ import type {
   NexusAccessor,
   QueryTasksResult,
   Session,
-  SignaldockAccessor,
   Task,
   TaskAuditLogQuery,
   TaskAuditLogRow,
@@ -35,9 +35,9 @@ import type {
 import { resolveOrCwd } from '../paths.js';
 import { createBrainAccessor } from './brain-accessor-impl.js';
 import {
+  createAgentRegistrySubAccessor,
   createConduitAccessor,
   createNexusAccessor,
-  createSignaldockAccessor,
   createTelemetryAccessor,
 } from './role-accessors-impl.js';
 import { createSqliteDataAccessor } from './sqlite-data-accessor.js';
@@ -70,7 +70,7 @@ export type TypedSubAccessor =
   | ConduitAccessor
   | DocsAccessor
   | NexusAccessor
-  | SignaldockAccessor
+  | AgentRegistrySubAccessor
   | TelemetryAccessor;
 
 export class UmbrellaDataAccessor implements DataAccessor {
@@ -97,7 +97,7 @@ export class UmbrellaDataAccessor implements DataAccessor {
    *   - 'brain'      → BrainAccessor (memory observe + find)
    *   - 'conduit'    → ConduitAccessor (messaging publish + ping)
    *   - 'nexus'      → NexusAccessor (code intelligence ping)
-   *   - 'signaldock' → SignaldockAccessor (agent identity ping)
+   *   - 'signaldock' → AgentRegistrySubAccessor (agent identity ping)
    *   - 'telemetry'  → TelemetryAccessor (event recording stub)
    *   - 'docs'       → DocsAccessor (document storage + search)
    *   - 'sessions'   → DataAccessor (session-scoped tasks accessor)
@@ -139,8 +139,8 @@ export class UmbrellaDataAccessor implements DataAccessor {
         break;
       }
       case 'signaldock': {
-        // SignaldockAccessor — global agent identity
-        accessor = createSignaldockAccessor();
+        // AgentRegistrySubAccessor — global agent identity
+        accessor = createAgentRegistrySubAccessor();
         break;
       }
       case 'telemetry': {

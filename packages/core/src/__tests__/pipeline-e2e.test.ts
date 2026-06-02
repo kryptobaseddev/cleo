@@ -125,7 +125,7 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
   mkdirSync(cleoHome, { recursive: true });
   mkdirSync(projectCantDir, { recursive: true });
 
-  // Required by signaldock-sqlite.ts initialisation.
+  // Required by agent-registry-store.ts initialisation.
   writeFileSync(join(cleoHome, 'machine-key'), Buffer.alloc(32, 0xab), { mode: 0o600 });
   writeFileSync(join(cleoHome, 'global-salt'), Buffer.alloc(32, 0xcd), { mode: 0o600 });
 
@@ -138,9 +138,9 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
     };
   });
 
-  const signaldockMod = await import('../store/signaldock-sqlite.js');
-  signaldockMod._resetGlobalSignaldockDb_TESTING_ONLY();
-  await signaldockMod.ensureGlobalSignaldockDb();
+  const signaldockMod = await import('../store/agent-registry-store.js');
+  signaldockMod._resetGlobalAgentRegistryDb_TESTING_ONLY();
+  await signaldockMod.ensureGlobalAgentRegistryDb();
 
   const dbPath = join(cleoHome, 'cleo.db'); // E6-L5 (T11525): signaldock consolidated into GLOBAL cleo.db
 
@@ -152,7 +152,7 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
   };
 
   const cleanup = (): void => {
-    signaldockMod._resetGlobalSignaldockDb_TESTING_ONLY();
+    signaldockMod._resetGlobalAgentRegistryDb_TESTING_ONLY();
     rmSync(base, { recursive: true, force: true });
   };
 
@@ -399,9 +399,9 @@ describe('Pipeline E2E — classifier emits canonical project-<role> IDs', () =>
     });
 
     try {
-      const signaldockMod = await import('../store/signaldock-sqlite.js');
-      signaldockMod._resetGlobalSignaldockDb_TESTING_ONLY();
-      await signaldockMod.ensureGlobalSignaldockDb();
+      const signaldockMod = await import('../store/agent-registry-store.js');
+      signaldockMod._resetGlobalAgentRegistryDb_TESTING_ONLY();
+      await signaldockMod.ensureGlobalAgentRegistryDb();
 
       const { installTemplatesAtProjectTier } = await import('../init.js');
       const installResult = await installTemplatesAtProjectTier(projectRoot);
@@ -422,7 +422,7 @@ describe('Pipeline E2E — classifier emits canonical project-<role> IDs', () =>
         expect(() => validateClassifierRules(db)).not.toThrow();
       } finally {
         db.close();
-        signaldockMod._resetGlobalSignaldockDb_TESTING_ONLY();
+        signaldockMod._resetGlobalAgentRegistryDb_TESTING_ONLY();
       }
     } finally {
       rmSync(base, { recursive: true, force: true });

@@ -47,7 +47,7 @@
     { id: 'nexus', label: 'NEXUS', cssVar: 'var(--success)', top: '42%', left: '52%', width: '26%', height: '16%' },
     { id: 'tasks', label: 'TASKS', cssVar: 'var(--warning)', top: '62%', left: '20%', width: '20%', height: '12%' },
     { id: 'conduit', label: 'CONDUIT', cssVar: 'var(--accent)', top: '28%', left: '58%', width: '16%', height: '10%' },
-    { id: 'signaldock', label: 'SIGNALDOCK', cssVar: 'var(--danger)', top: '70%', left: '55%', width: '18%', height: '10%' },
+    { id: 'agent-registry', label: 'SIGNALDOCK', cssVar: 'var(--danger)', top: '70%', left: '55%', width: '18%', height: '10%' },
   ];
 </script>
 

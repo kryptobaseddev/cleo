@@ -68,7 +68,7 @@ async function makeTmpEnv(): Promise<TmpEnv> {
   mkdirSync(cleoHome, { recursive: true });
   mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
 
-  // Required by signaldock-sqlite.ts initialisation.
+  // Required by agent-registry-store.ts initialisation.
   writeFileSync(join(cleoHome, 'machine-key'), Buffer.alloc(32, 0xab), { mode: 0o600 });
   writeFileSync(join(cleoHome, 'global-salt'), Buffer.alloc(32, 0xcd), { mode: 0o600 });
 
@@ -82,9 +82,9 @@ async function makeTmpEnv(): Promise<TmpEnv> {
   });
 
   // Re-import after mock so ensure* picks up the redirected path.
-  const signaldockMod = await import('../store/signaldock-sqlite.js');
-  signaldockMod._resetGlobalSignaldockDb_TESTING_ONLY();
-  await signaldockMod.ensureGlobalSignaldockDb();
+  const signaldockMod = await import('../store/agent-registry-store.js');
+  signaldockMod._resetGlobalAgentRegistryDb_TESTING_ONLY();
+  await signaldockMod.ensureGlobalAgentRegistryDb();
 
   const dbPath = join(cleoHome, 'signaldock.db');
 
@@ -96,7 +96,7 @@ async function makeTmpEnv(): Promise<TmpEnv> {
   };
 
   const cleanup = (): void => {
-    signaldockMod._resetGlobalSignaldockDb_TESTING_ONLY();
+    signaldockMod._resetGlobalAgentRegistryDb_TESTING_ONLY();
     rmSync(base, { recursive: true, force: true });
     vi.doUnmock('../paths.js');
     vi.resetModules();

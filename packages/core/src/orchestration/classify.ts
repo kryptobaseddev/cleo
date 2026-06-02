@@ -292,7 +292,7 @@ const STATIC_FALLBACK_AGENT_IDS: readonly string[] = [
  *
  * @example With live DB (registry-backed):
  * ```typescript
- * const db = new DatabaseSync(getGlobalSignaldockDbPath());
+ * const db = new DatabaseSync(getGlobalAgentRegistryDbPath());
  * const ids = getRegisteredAgentIds(db);
  * // [...all installed agents..., 'cleo-subagent']
  * db.close();
@@ -307,7 +307,7 @@ export function getRegisteredAgentIds(db?: DatabaseSync): readonly string[] {
     try {
       const placeholders = REGISTRY_QUERY_TIERS.map(() => '?').join(', ');
       const stmt = db.prepare(
-        `SELECT DISTINCT agent_id FROM agents WHERE tier IN (${placeholders}) ORDER BY agent_id ASC`,
+        `SELECT DISTINCT agent_id FROM agent_registry_agents WHERE tier IN (${placeholders}) ORDER BY agent_id ASC`,
       );
       const rows = typedAll<{ agent_id: string }>(stmt, ...REGISTRY_QUERY_TIERS);
 
@@ -353,7 +353,7 @@ export function getRegisteredAgentIds(db?: DatabaseSync): readonly string[] {
  *
  * @example At session start:
  * ```typescript
- * const db = new DatabaseSync(getGlobalSignaldockDbPath());
+ * const db = new DatabaseSync(getGlobalAgentRegistryDbPath());
  * validateClassifierRules(db);  // throws immediately if rules are stale
  * db.close();
  * ```

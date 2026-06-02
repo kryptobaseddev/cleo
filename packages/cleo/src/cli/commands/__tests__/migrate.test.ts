@@ -93,7 +93,7 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
   mkdirSync(join(projectRoot, '.cleo', 'agents'), { recursive: true });
   mkdirSync(join(projectRoot, '.cleo', 'audit'), { recursive: true });
 
-  // Deterministic machine-key / global-salt so ensureGlobalSignaldockDb() is happy.
+  // Deterministic machine-key / global-salt so ensureGlobalAgentRegistryDb() is happy.
   writeFileSync(join(cleoHome, 'machine-key'), Buffer.alloc(32, 0xab), { mode: 0o600 });
   writeFileSync(join(cleoHome, 'global-salt'), Buffer.alloc(32, 0xcd), { mode: 0o600 });
 
@@ -123,16 +123,16 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
   });
 
   // Bootstrap the signaldock.db with real migrations.
-  const { ensureGlobalSignaldockDb, _resetGlobalSignaldockDb_TESTING_ONLY } = await import(
+  const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
     '@cleocode/core/internal'
   );
-  _resetGlobalSignaldockDb_TESTING_ONLY();
-  await ensureGlobalSignaldockDb();
+  _resetGlobalAgentRegistryDb_TESTING_ONLY();
+  await ensureGlobalAgentRegistryDb();
 
   const dbPath = join(cleoHome, 'signaldock.db');
 
   const cleanup = (): void => {
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
     rmSync(base, { recursive: true, force: true });
   };
 
@@ -180,8 +180,8 @@ describe('T1938 cleo migrate agents-v2', () => {
 
   // 1. Empty directories — no files → 0/0/0
   it('reports 0/0/0 when both agent directories are empty', async () => {
-    const { _resetGlobalSignaldockDb_TESTING_ONLY } = await import('@cleocode/core/internal');
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    const { _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import('@cleocode/core/internal');
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
     const { runMigrateAgentsV2: run } = await import('../migrate-agents-v2.js');
 
     const summary = await run(env.projectRoot, false);
@@ -195,12 +195,12 @@ describe('T1938 cleo migrate agents-v2', () => {
   // 2. Files already in DB with same sha256 → all skipped
   it('skips all files when they are already registered with matching sha256', async () => {
     const {
-      _resetGlobalSignaldockDb_TESTING_ONLY,
-      ensureGlobalSignaldockDb,
-      getGlobalSignaldockDbPath,
+      _resetGlobalAgentRegistryDb_TESTING_ONLY,
+      ensureGlobalAgentRegistryDb,
+      getGlobalAgentRegistryDbPath,
     } = await import('@cleocode/core/internal');
-    _resetGlobalSignaldockDb_TESTING_ONLY();
-    await ensureGlobalSignaldockDb();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
+    await ensureGlobalAgentRegistryDb();
 
     const cantDir = join(env.projectRoot, '.cleo', 'cant', 'agents');
     const agents = [
@@ -213,7 +213,7 @@ describe('T1938 cleo migrate agents-v2', () => {
 
     // Write .cant files and pre-register them in the DB.
     const { installAgentFromCant } = await import('@cleocode/core/internal');
-    const db = new DatabaseSync(getGlobalSignaldockDbPath());
+    const db = new DatabaseSync(getGlobalAgentRegistryDbPath());
     db.exec('PRAGMA foreign_keys = ON');
     db.exec('PRAGMA journal_mode = WAL');
     try {
@@ -232,7 +232,7 @@ describe('T1938 cleo migrate agents-v2', () => {
       db.close();
     }
 
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
     const { runMigrateAgentsV2: run } = await import('../migrate-agents-v2.js');
     const summary = await run(env.projectRoot, false);
 
@@ -244,8 +244,8 @@ describe('T1938 cleo migrate agents-v2', () => {
 
   // 3. Files on disk, DB empty → all registered
   it('registers all .cant files when DB has no matching rows', async () => {
-    const { _resetGlobalSignaldockDb_TESTING_ONLY } = await import('@cleocode/core/internal');
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    const { _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import('@cleocode/core/internal');
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
 
     const cantDir = join(env.projectRoot, '.cleo', 'cant', 'agents');
     const agents = ['foo-worker', 'bar-worker', 'baz-worker', 'qux-worker', 'quux-worker'];
@@ -263,13 +263,13 @@ describe('T1938 cleo migrate agents-v2', () => {
     expect(summary.errors).toBe(0);
 
     // Verify rows exist in signaldock.db.
-    const { getGlobalSignaldockDbPath } = await import('@cleocode/core/internal');
-    const db = openDb(getGlobalSignaldockDbPath());
+    const { getGlobalAgentRegistryDbPath } = await import('@cleocode/core/internal');
+    const db = openDb(getGlobalAgentRegistryDbPath());
     try {
       for (const name of agents) {
-        const row = db.prepare('SELECT tier FROM agents WHERE agent_id = ?').get(name) as
-          | { tier: string }
-          | undefined;
+        const row = db
+          .prepare('SELECT tier FROM agent_registry_agents WHERE agent_id = ?')
+          .get(name) as { tier: string } | undefined;
         expect(row).toBeDefined();
         expect(row?.tier).toBe('project');
       }
@@ -280,8 +280,8 @@ describe('T1938 cleo migrate agents-v2', () => {
 
   // 4. Mix of canonical + custom agents → all registered
   it('registers all agents including custom (non-template) names', async () => {
-    const { _resetGlobalSignaldockDb_TESTING_ONLY } = await import('@cleocode/core/internal');
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    const { _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import('@cleocode/core/internal');
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
 
     const cantDir = join(env.projectRoot, '.cleo', 'cant', 'agents');
     const canonicalAgents = [
@@ -309,12 +309,12 @@ describe('T1938 cleo migrate agents-v2', () => {
   // 5. Conflict detection — same name, different content → conflict logged, not overwritten
   it('detects conflicts when disk content differs from registered sha256 — does not overwrite', async () => {
     const {
-      _resetGlobalSignaldockDb_TESTING_ONLY,
-      ensureGlobalSignaldockDb,
-      getGlobalSignaldockDbPath,
+      _resetGlobalAgentRegistryDb_TESTING_ONLY,
+      ensureGlobalAgentRegistryDb,
+      getGlobalAgentRegistryDbPath,
     } = await import('@cleocode/core/internal');
-    _resetGlobalSignaldockDb_TESTING_ONLY();
-    await ensureGlobalSignaldockDb();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
+    await ensureGlobalAgentRegistryDb();
 
     const cantDir = join(env.projectRoot, '.cleo', 'cant', 'agents');
     const agentName = 'conflict-agent';
@@ -324,7 +324,7 @@ describe('T1938 cleo migrate agents-v2', () => {
     writeCant(cantDir, `${agentName}.cant`, originalCant);
 
     const { installAgentFromCant } = await import('@cleocode/core/internal');
-    const db = new DatabaseSync(getGlobalSignaldockDbPath());
+    const db = new DatabaseSync(getGlobalAgentRegistryDbPath());
     db.exec('PRAGMA foreign_keys = ON');
     db.exec('PRAGMA journal_mode = WAL');
     let originalSha256: string;
@@ -343,7 +343,7 @@ describe('T1938 cleo migrate agents-v2', () => {
     // Now overwrite the .cant on disk with DIFFERENT content (simulates user customisation).
     writeFileSync(join(cantDir, `${agentName}.cant`), makeModifiedCant(agentName), 'utf8');
 
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
     const { runMigrateAgentsV2: run } = await import('../migrate-agents-v2.js');
     const summary = await run(env.projectRoot, false);
 
@@ -354,11 +354,11 @@ describe('T1938 cleo migrate agents-v2', () => {
     expect(summary.errors).toBe(0);
 
     // DB row should still have the original sha256.
-    const { getGlobalSignaldockDbPath: dbPath } = await import('@cleocode/core/internal');
+    const { getGlobalAgentRegistryDbPath: dbPath } = await import('@cleocode/core/internal');
     const verifyDb = openDb(dbPath());
     try {
       const row = verifyDb
-        .prepare('SELECT cant_sha256 FROM agents WHERE agent_id = ?')
+        .prepare('SELECT cant_sha256 FROM agent_registry_agents WHERE agent_id = ?')
         .get(agentName) as { cant_sha256: string } | undefined;
       expect(row?.cant_sha256).toBe(originalSha256);
     } finally {
@@ -380,8 +380,8 @@ describe('T1938 cleo migrate agents-v2', () => {
 
   // 6. Idempotency — re-running on previously-migrated state produces no changes
   it('is idempotent: re-running on a fully-migrated state produces 0 registered / N skipped', async () => {
-    const { _resetGlobalSignaldockDb_TESTING_ONLY } = await import('@cleocode/core/internal');
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    const { _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import('@cleocode/core/internal');
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
 
     const cantDir = join(env.projectRoot, '.cleo', 'cant', 'agents');
     const agents = ['idempotent-alpha', 'idempotent-beta', 'idempotent-gamma'];
@@ -396,7 +396,7 @@ describe('T1938 cleo migrate agents-v2', () => {
     expect(first.registered).toBe(agents.length);
 
     // Second run — all should be skipped.
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
     const { runMigrateAgentsV2: run2 } = await import('../migrate-agents-v2.js');
     const second = await run2(env.projectRoot, false);
     expect(second.registered).toBe(0);
@@ -408,12 +408,12 @@ describe('T1938 cleo migrate agents-v2', () => {
   // 7. Doctor surfaces conflicts — readMigrationConflicts returns conflict entries
   it('readMigrationConflicts returns conflict entries written by the walker', async () => {
     const {
-      _resetGlobalSignaldockDb_TESTING_ONLY,
-      ensureGlobalSignaldockDb,
-      getGlobalSignaldockDbPath,
+      _resetGlobalAgentRegistryDb_TESTING_ONLY,
+      ensureGlobalAgentRegistryDb,
+      getGlobalAgentRegistryDbPath,
     } = await import('@cleocode/core/internal');
-    _resetGlobalSignaldockDb_TESTING_ONLY();
-    await ensureGlobalSignaldockDb();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
+    await ensureGlobalAgentRegistryDb();
 
     const cantDir = join(env.projectRoot, '.cleo', 'cant', 'agents');
     const agentName = 'doctor-conflict-agent';
@@ -421,7 +421,7 @@ describe('T1938 cleo migrate agents-v2', () => {
     // Register the agent first.
     writeCant(cantDir, `${agentName}.cant`, makeCant(agentName));
     const { installAgentFromCant } = await import('@cleocode/core/internal');
-    const db = new DatabaseSync(getGlobalSignaldockDbPath());
+    const db = new DatabaseSync(getGlobalAgentRegistryDbPath());
     db.exec('PRAGMA foreign_keys = ON');
     db.exec('PRAGMA journal_mode = WAL');
     try {
@@ -438,7 +438,7 @@ describe('T1938 cleo migrate agents-v2', () => {
     // Overwrite the .cant with different content to trigger conflict.
     writeFileSync(join(cantDir, `${agentName}.cant`), makeModifiedCant(agentName), 'utf8');
 
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
     const { runMigrateAgentsV2: run } = await import('../migrate-agents-v2.js');
     await run(env.projectRoot, false);
 

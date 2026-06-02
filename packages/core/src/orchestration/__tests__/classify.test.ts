@@ -347,13 +347,15 @@ describe('classifyTask — registry validation', () => {
 function makeInMemoryAgentsDb(agentRows: Array<{ agent_id: string; tier: string }>): DatabaseSync {
   const db = new DatabaseSync(':memory:');
   db.exec(`
-    CREATE TABLE agents (
+    CREATE TABLE agent_registry_agents (
       id TEXT PRIMARY KEY,
       agent_id TEXT NOT NULL UNIQUE,
       tier TEXT NOT NULL DEFAULT 'fallback'
     )
   `);
-  const insert = db.prepare('INSERT INTO agents (id, agent_id, tier) VALUES (?, ?, ?)');
+  const insert = db.prepare(
+    'INSERT INTO agent_registry_agents (id, agent_id, tier) VALUES (?, ?, ?)',
+  );
   for (const row of agentRows) {
     insert.run(crypto.randomUUID(), row.agent_id, row.tier);
   }

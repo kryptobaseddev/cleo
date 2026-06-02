@@ -37,11 +37,11 @@
 
 import {
   type BrainGraph,
+  getAgentRegistryDb,
   getAllSubstrates,
   getBrainDb,
   getConduitDb,
   getNexusDb,
-  getSignaldockDb,
   getTasksDb,
 } from '@cleocode/brain';
 import { computeBridges } from '$lib/graph/adapters/cross-substrate.js';
@@ -143,7 +143,7 @@ function computeBridgesForGraph(graph: BrainGraph, ctx: App.Locals['projectCtx']
       tasksDb: getTasksDb(ctx) ?? undefined,
       conduitDb: getConduitDb(ctx) ?? undefined,
       nexusDb: getNexusDb() ?? undefined,
-      signaldockDb: getSignaldockDb() ?? undefined,
+      signaldockDb: getAgentRegistryDb() ?? undefined,
     });
   } catch (err) {
     console.warn('[brain/load] bridge computation failed:', err);

@@ -71,9 +71,9 @@ describe('BrainNode.createdAt contract via getAllSubstrates()', () => {
 describe('createdAt field on hand-constructed BrainNode fixtures', () => {
   it('null is accepted as a valid createdAt value', () => {
     const node: BrainNode = {
-      id: 'signaldock:agent-null',
+      id: 'agent-registry:agent-null',
       kind: 'agent',
-      substrate: 'signaldock',
+      substrate: 'agent-registry',
       label: 'Null timestamp agent',
       createdAt: null,
       meta: {},

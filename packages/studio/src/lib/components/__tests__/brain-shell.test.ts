@@ -59,12 +59,12 @@ function handleChipClick(
   if (currentFocus === s) {
     return {
       focus: null,
-      enabled: new Set<SubstrateId>(['brain', 'nexus', 'tasks', 'conduit', 'signaldock']),
+      enabled: new Set<SubstrateId>(['brain', 'nexus', 'tasks', 'conduit', 'agent-registry']),
     };
   }
   return {
     focus: s,
-    enabled: new Set<SubstrateId>(['brain', 'nexus', 'tasks', 'conduit', 'signaldock']),
+    enabled: new Set<SubstrateId>(['brain', 'nexus', 'tasks', 'conduit', 'agent-registry']),
   };
 }
 
@@ -79,7 +79,7 @@ function handleDblClick(
     return {
       solo: null,
       focus: null,
-      enabled: new Set<SubstrateId>(['brain', 'nexus', 'tasks', 'conduit', 'signaldock']),
+      enabled: new Set<SubstrateId>(['brain', 'nexus', 'tasks', 'conduit', 'agent-registry']),
     };
   }
   return {
@@ -98,7 +98,7 @@ function keyToSubstrate(key: string): SubstrateId | null {
     '2': 'nexus',
     '3': 'tasks',
     '4': 'conduit',
-    '5': 'signaldock',
+    '5': 'agent-registry',
   };
   return map[key] ?? null;
 }
@@ -149,7 +149,7 @@ function relativeTime(ms: number): string {
 // Fixtures
 // ---------------------------------------------------------------------------
 
-const ALL_SUBS: SubstrateId[] = ['brain', 'nexus', 'tasks', 'conduit', 'signaldock'];
+const ALL_SUBS: SubstrateId[] = ['brain', 'nexus', 'tasks', 'conduit', 'agent-registry'];
 
 function makeNode(id: string, substrate: SubstrateId): GraphNode {
   return { id, substrate, kind: 'observation', label: `Node ${id}` };
@@ -238,7 +238,7 @@ describe('Keyboard shortcut mapping', () => {
     ['2', 'nexus'],
     ['3', 'tasks'],
     ['4', 'conduit'],
-    ['5', 'signaldock'],
+    ['5', 'agent-registry'],
   ] as const)('key %s maps to substrate %s', (key, expected) => {
     expect(keyToSubstrate(key)).toBe(expected);
   });

@@ -39,8 +39,8 @@ function makeGraph(nodeCount: number): BrainGraph {
     })),
     edges: [],
     counts: {
-      nodes: { brain: nodeCount, nexus: 0, tasks: 0, conduit: 0, signaldock: 0 },
-      edges: { brain: 0, nexus: 0, tasks: 0, conduit: 0, signaldock: 0, cross: 0 },
+      nodes: { brain: nodeCount, nexus: 0, tasks: 0, conduit: 0, 'agent-registry': 0 },
+      edges: { brain: 0, nexus: 0, tasks: 0, conduit: 0, 'agent-registry': 0, cross: 0 },
     },
     truncated: false,
   };
@@ -74,7 +74,7 @@ describe('buildCacheKey', () => {
     const keyAll = buildCacheKey({ projectId: 'p', limit: 200 });
     const keyExplicit = buildCacheKey({
       projectId: 'p',
-      substrates: ['brain', 'conduit', 'nexus', 'signaldock', 'tasks'],
+      substrates: ['brain', 'conduit', 'nexus', 'agent-registry', 'tasks'],
       limit: 200,
     });
     expect(keyAll).toBe(keyExplicit);

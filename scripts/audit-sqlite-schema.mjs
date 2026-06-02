@@ -53,7 +53,7 @@ const REPO_ROOT = join(__dirname, '..');
 /**
  * The complete inventory of files holding Drizzle `sqliteTable(...)` definitions.
  * Mirrors the T11263 scope: the `*-schema.ts` family (chain/conduit/memory/
- * nexus/signaldock/skills/tasks + agent) + the `store/schema/` subdomain
+ * nexus/agent-registry/skills/tasks + agent) + the `store/schema/` subdomain
  * modules + nexus + playbooks + telemetry. `validation-schemas.ts` is a
  * Drizzle→Zod derivation (no `sqliteTable`) so it is intentionally excluded from
  * the column walk but recorded in the meta block.
@@ -76,7 +76,7 @@ const SCHEMA_FILES = [
   'packages/core/src/store/schema/conduit-schema.ts',
   'packages/core/src/store/schema/memory-schema.ts',
   'packages/core/src/store/schema/nexus-schema.ts',
-  'packages/core/src/store/schema/signaldock-schema.ts',
+  'packages/core/src/store/schema/agent-registry-schema.ts',
   'packages/core/src/store/schema/skills-schema.ts',
   'packages/core/src/store/schema/agent-schema.ts',
   'packages/core/src/store/schema/telemetry-schema.ts',
@@ -110,7 +110,10 @@ const FILE_DOMAIN = {
   'packages/core/src/store/schema/conduit-schema.ts': { scope: 'tasks', prefix: 'conduit_' },
   'packages/core/src/store/schema/memory-schema.ts': { scope: 'brain', prefix: 'brain_' },
   'packages/core/src/store/schema/nexus-schema.ts': { scope: 'brain', prefix: 'nexus_' },
-  'packages/core/src/store/schema/signaldock-schema.ts': { scope: 'brain', prefix: 'signaldock_' },
+  'packages/core/src/store/schema/agent-registry-schema.ts': {
+    scope: 'brain',
+    prefix: 'agent_registry_',
+  },
   'packages/core/src/store/schema/skills-schema.ts': { scope: 'brain', prefix: 'skills_' },
   'packages/core/src/store/schema/agent-schema.ts': { scope: 'tasks', prefix: 'tasks_' },
   'packages/core/src/store/schema/telemetry-schema.ts': { scope: 'tasks', prefix: 'telemetry_' },
@@ -141,7 +144,7 @@ const KNOWN_PREFIXES = [
   'docs_',
   'telemetry_',
   'nexus_',
-  'signaldock_',
+  'agent_registry_',
   'skills_',
 ];
 

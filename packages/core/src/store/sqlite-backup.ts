@@ -55,11 +55,14 @@ import type { DatabaseSync } from 'node:sqlite';
 import { DB_INVENTORY, type DbInventoryEntry, type DbRole } from '@cleocode/contracts';
 import { getCleoDir, getCleoHome, resolveOrCwd } from '../paths.js';
 import { getTelemetryDb, getTelemetryNativeDb } from '../telemetry/sqlite.js';
+import {
+  ensureGlobalAgentRegistryDb,
+  getGlobalAgentRegistryNativeDb,
+} from './agent-registry-store.js';
 import { ensureConduitDb, getConduitNativeDb } from './conduit-sqlite.js';
 import { getGlobalSaltPath } from './global-salt.js';
 import { getBrainDb, getBrainNativeDb } from './memory-sqlite.js';
 import { getNexusDb, getNexusNativeDb } from './nexus-sqlite.js';
-import { ensureGlobalSignaldockDb, getGlobalSignaldockNativeDb } from './signaldock-sqlite.js';
 import { getSkillsNativeDb, openSkillsDb } from './skills-db.js';
 import { getDb, getNativeDb } from './sqlite.js';
 
@@ -85,7 +88,7 @@ type SnapshotDbHandle = { exec: (sql: string) => void };
  *
  *   - `chokepoint-opener`        — role has a canonical opener (`getDb`,
  *                                  `getBrainDb`, `ensureConduitDb`,
- *                                  `getNexusDb`, `ensureGlobalSignaldockDb`,
+ *                                  `getNexusDb`, `ensureGlobalAgentRegistryDb`,
  *                                  `getTelemetryDb`, `openSkillsDb`).
  *   - `raw-file-vacuum-readonly` — role has NO live opener; the file is
  *                                  opened read-only via a one-shot
@@ -242,13 +245,13 @@ async function openNexusDbForSnapshot(): Promise<SnapshotDbHandle | null> {
 
 /**
  * Open the canonical global signaldock.db singleton via
- * {@link ensureGlobalSignaldockDb} and return its native handle.
+ * {@link ensureGlobalAgentRegistryDb} and return its native handle.
  *
  * @task T10316
  */
-async function openSignaldockDbForSnapshot(): Promise<SnapshotDbHandle | null> {
-  await ensureGlobalSignaldockDb();
-  return getGlobalSignaldockNativeDb();
+async function openAgentRegistryDbForSnapshot(): Promise<SnapshotDbHandle | null> {
+  await ensureGlobalAgentRegistryDb();
+  return getGlobalAgentRegistryNativeDb();
 }
 
 /**
@@ -391,8 +394,8 @@ const CHOKEPOINT_OPENERS: Partial<
   conduit: { getDb: getConduitNativeDb, openDb: openConduitDbForSnapshot },
   nexus: { getDb: getNexusNativeDb, openDb: openNexusDbForSnapshot },
   'signaldock-global': {
-    getDb: getGlobalSignaldockNativeDb,
-    openDb: openSignaldockDbForSnapshot,
+    getDb: getGlobalAgentRegistryNativeDb,
+    openDb: openAgentRegistryDbForSnapshot,
   },
   telemetry: { getDb: getTelemetryNativeDb, openDb: openTelemetryDbForSnapshot },
   skills: { getDb: getSkillsNativeDb, openDb: openSkillsDbForSnapshot },

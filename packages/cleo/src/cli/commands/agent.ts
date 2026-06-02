@@ -1987,13 +1987,13 @@ const installCommand = defineCommand({
 
       const { installAgentFromCant, attachAgentToProject } = await import('@cleocode/core/agents');
       // E6-L6 (T11526): the `agents`/`agent_skills` family is the legacy signaldock
-      // schema inside the global cleo.db — ensureGlobalSignaldockDb() guarantees
+      // schema inside the global cleo.db — ensureGlobalAgentRegistryDb() guarantees
       // those tables exist (openCleoDb('global') alone only runs the consolidated schema).
-      const { ensureGlobalSignaldockDb, getGlobalSignaldockNativeDb } = await import(
+      const { ensureGlobalAgentRegistryDb, getGlobalAgentRegistryNativeDb } = await import(
         '@cleocode/core/internal'
       );
-      await ensureGlobalSignaldockDb();
-      const db = getGlobalSignaldockNativeDb() as import('node:sqlite').DatabaseSync;
+      await ensureGlobalAgentRegistryDb();
+      const db = getGlobalAgentRegistryNativeDb() as import('node:sqlite').DatabaseSync;
 
       const isGlobal = args.global === true;
       const targetTier: 'global' | 'project' = isGlobal ? 'global' : 'project';
@@ -2569,12 +2569,12 @@ const pruneOrphansCommand = defineCommand({
     try {
       const { buildDoctorReport, reconcileDoctor } = await import('@cleocode/core/agents');
       // E6-L6 (T11526): the agent registry is the legacy signaldock schema inside
-      // the global cleo.db — ensureGlobalSignaldockDb() guarantees those tables exist.
-      const { ensureGlobalSignaldockDb, getGlobalSignaldockNativeDb } = await import(
+      // the global cleo.db — ensureGlobalAgentRegistryDb() guarantees those tables exist.
+      const { ensureGlobalAgentRegistryDb, getGlobalAgentRegistryNativeDb } = await import(
         '@cleocode/core/internal'
       );
-      await ensureGlobalSignaldockDb();
-      const db = getGlobalSignaldockNativeDb() as import('node:sqlite').DatabaseSync;
+      await ensureGlobalAgentRegistryDb();
+      const db = getGlobalAgentRegistryNativeDb() as import('node:sqlite').DatabaseSync;
       try {
         const report = await buildDoctorReport(db, {});
         const d002 = report.findings.filter((f: AgentDoctorFinding) => f.code === 'D-002');
@@ -2645,12 +2645,12 @@ const doctorCommand = defineCommand({
     try {
       const { buildDoctorReport, reconcileDoctor } = await import('@cleocode/core/agents');
       // E6-L6 (T11526): the agent registry is the legacy signaldock schema inside
-      // the global cleo.db — ensureGlobalSignaldockDb() guarantees those tables exist.
-      const { ensureGlobalSignaldockDb, getGlobalSignaldockNativeDb } = await import(
+      // the global cleo.db — ensureGlobalAgentRegistryDb() guarantees those tables exist.
+      const { ensureGlobalAgentRegistryDb, getGlobalAgentRegistryNativeDb } = await import(
         '@cleocode/core/internal'
       );
-      await ensureGlobalSignaldockDb();
-      const db = getGlobalSignaldockNativeDb() as import('node:sqlite').DatabaseSync;
+      await ensureGlobalAgentRegistryDb();
+      const db = getGlobalAgentRegistryNativeDb() as import('node:sqlite').DatabaseSync;
 
       try {
         const report = await buildDoctorReport(db, { projectRoot: getProjectRoot() });

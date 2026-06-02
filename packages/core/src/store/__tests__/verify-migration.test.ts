@@ -510,7 +510,7 @@ describe('verifyMigration — generalised internal-ledger skip (T11577)', () => 
     const projectPath = join(tmpDir, 'cleo-project.db');
     const globalPath = join(tmpDir, 'cleo-global.db');
     try {
-      // signaldock.db: a real base table (skills, 36 rows → signaldock_skills)
+      // signaldock.db: a real base table (skills, 36 rows → agent_registry_skills)
       // PLUS the private ledger tables the real-data dry-run aborted on.
       const sd = new DatabaseSync(sourcePath);
       try {
@@ -543,9 +543,9 @@ describe('verifyMigration — generalised internal-ledger skip (T11577)', () => 
       // tables have NO consolidated home (recreated by runtime).
       const g = new DatabaseSync(globalPath);
       try {
-        g.exec(`CREATE TABLE "signaldock_skills" (id INTEGER PRIMARY KEY, slug TEXT)`);
+        g.exec(`CREATE TABLE "agent_registry_skills" (id INTEGER PRIMARY KEY, slug TEXT)`);
         for (let i = 1; i <= 36; i++)
-          g.exec(`INSERT INTO "signaldock_skills" VALUES (${i}, 's-${i}')`);
+          g.exec(`INSERT INTO "agent_registry_skills" VALUES (${i}, 's-${i}')`);
         g.exec(`CREATE TABLE "skills_skills" (id INTEGER PRIMARY KEY, name TEXT)`);
         for (let i = 1; i <= 12; i++) g.exec(`INSERT INTO "skills_skills" VALUES (${i}, 'k-${i}')`);
       } finally {
@@ -564,7 +564,9 @@ describe('verifyMigration — generalised internal-ledger skip (T11577)', () => 
       // The ledger tables must NOT appear as parity rows.
       expect(r.tables.some((t) => t.targetTable.startsWith('_'))).toBe(false);
       // The base tables ARE verified at full parity.
-      expect(r.tables.find((t) => t.targetTable === 'signaldock_skills')?.countMatch).toBe(true);
+      expect(r.tables.find((t) => t.targetTable === 'agent_registry_skills')?.countMatch).toBe(
+        true,
+      );
       expect(r.tables.find((t) => t.targetTable === 'skills_skills')?.countMatch).toBe(true);
     } finally {
       rmSync(tmpDir, { recursive: true, force: true });

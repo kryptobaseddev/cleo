@@ -50,7 +50,7 @@ const VALID_SUBSTRATES = new Set<BrainSubstrate>([
   'nexus',
   'tasks',
   'conduit',
-  'signaldock',
+  'agent-registry',
 ]);
 
 /** Node limits per tier. */

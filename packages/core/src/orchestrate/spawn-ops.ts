@@ -87,7 +87,7 @@ import { initializeDefaultAdapters, spawnRegistry } from '../spawn/adapter-regis
 import { allocateSpawnSession } from '../spawn/agent-identity.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { getActiveSession } from '../store/session-store.js';
-import { openSignaldockDbForComposer } from './plan.js';
+import { openAgentRegistryDbForComposer } from './plan.js';
 
 export type { EngineResult };
 
@@ -648,7 +648,7 @@ export async function composeSpawnForTask(
       ? options.tier
       : resolveEffectiveTier(task, inferredRole ?? 'worker', undefined);
 
-  const db = await openSignaldockDbForComposer();
+  const db = await openAgentRegistryDbForComposer();
   try {
     return await composeSpawnPayload(db, task, {
       tier: effectiveTier,

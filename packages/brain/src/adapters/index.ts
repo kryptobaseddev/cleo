@@ -6,10 +6,10 @@
  * into a single BrainGraph.
  */
 
+export { getAgentRegistrySubstrate } from './agent-registry.js';
 export { getBrainSubstrate } from './brain.js';
 export { getConduitSubstrate } from './conduit.js';
 export { getNexusSubstrate } from './nexus.js';
-export { getSignaldockSubstrate } from './signaldock.js';
 export { getTasksSubstrate } from './tasks.js';
 
 import { allTyped, getNexusDb } from '../db-connections.js';
@@ -20,14 +20,14 @@ import type {
   BrainQueryOptions,
   BrainSubstrate,
 } from '../types.js';
+import { getAgentRegistrySubstrate } from './agent-registry.js';
 import { getBrainSubstrate } from './brain.js';
 import { getConduitSubstrate } from './conduit.js';
 import { getNexusSubstrate } from './nexus.js';
-import { getSignaldockSubstrate } from './signaldock.js';
 import { getTasksSubstrate } from './tasks.js';
 
 /** Substrate names ordered for iteration. */
-const ALL_SUBSTRATES: BrainSubstrate[] = ['brain', 'nexus', 'tasks', 'conduit', 'signaldock'];
+const ALL_SUBSTRATES: BrainSubstrate[] = ['brain', 'nexus', 'tasks', 'conduit', 'agent-registry'];
 
 /** Maps substrate name to its adapter function. */
 const ADAPTER_MAP: Record<
@@ -38,7 +38,7 @@ const ADAPTER_MAP: Record<
   nexus: getNexusSubstrate,
   tasks: getTasksSubstrate,
   conduit: getConduitSubstrate,
-  signaldock: getSignaldockSubstrate,
+  'agent-registry': getAgentRegistrySubstrate,
 };
 
 /**
@@ -73,7 +73,7 @@ function loadStubNodesForEdgeTargets(loadedNodeIds: Set<string>, edges: BrainEdg
 
     const substrateStr = nodeId.slice(0, sep);
     const substrate = substrateStr as BrainSubstrate;
-    if (!(['brain', 'nexus', 'tasks', 'conduit', 'signaldock'] as const).includes(substrate)) {
+    if (!(['brain', 'nexus', 'tasks', 'conduit', 'agent-registry'] as const).includes(substrate)) {
       continue;
     }
 

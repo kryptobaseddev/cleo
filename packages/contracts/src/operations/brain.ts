@@ -55,7 +55,7 @@
  *
  * @task T962 / T968
  */
-export type BrainSubstrateName = 'memory' | 'nexus' | 'tasks' | 'conduit' | 'signaldock';
+export type BrainSubstrateName = 'memory' | 'nexus' | 'tasks' | 'conduit' | 'agent-registry';
 
 /**
  * Concrete node type within a substrate (e.g. `observation`, `symbol`,
@@ -75,7 +75,7 @@ export type BrainNodeType = string;
  *   "memory:O-mo4abc123"
  *   "nexus:packages/core/src/store/sqlite-data-accessor.ts::createSqliteDataAccessor"
  *   "conduit:msg-7f3a2b1c"
- *   "signaldock:agent-cleo-prime"
+ *   "agent-registry:agent-cleo-prime"
  *
  * @remarks
  * The substrate prefix (before the first `:`) MUST match one of

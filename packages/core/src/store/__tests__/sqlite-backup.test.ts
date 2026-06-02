@@ -28,7 +28,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  * Stub the chokepoint openers we don't care about for a given test case.
  *
  * After T10317 the snapshot pipeline imports `telemetry/sqlite.js`,
- * `skills-db.js`, `signaldock-sqlite.js`, and `nexus-sqlite.js` at module
+ * `skills-db.js`, `agent-registry-store.js`, and `nexus-sqlite.js` at module
  * top-level. Tests that mock only `sqlite.js` + `memory-sqlite.js` +
  * `conduit-sqlite.js` MUST also neutralise these so the real modules don't
  * leak file-system writes to the developer's $XDG_DATA_HOME.
@@ -42,9 +42,9 @@ function stubOtherChokepointOpeners(): void {
     openSkillsDb: async () => null,
     getSkillsNativeDb: () => null,
   }));
-  vi.doMock('../signaldock-sqlite.js', () => ({
-    ensureGlobalSignaldockDb: async () => undefined,
-    getGlobalSignaldockNativeDb: () => null,
+  vi.doMock('../agent-registry-store.js', () => ({
+    ensureGlobalAgentRegistryDb: async () => undefined,
+    getGlobalAgentRegistryNativeDb: () => null,
   }));
   vi.doMock('../nexus-sqlite.js', () => ({
     getNexusDb: async () => null,

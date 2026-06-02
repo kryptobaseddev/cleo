@@ -1,26 +1,36 @@
 /**
  * Agent Registry Accessor — cross-DB CRUD for agent data.
  *
- * Post-T310 (ADR-037), agent identity lives in the GLOBAL `agents` table;
- * per-project visibility and overrides live in the PROJECT
- * `conduit_project_agent_refs` table (T11578 · AC4 — conduit namespace cutover).
+ * Post-T11622 cutover (folds T11578 AC2), agent identity lives in the GLOBAL
+ * PREFIXED `agent_registry_agents` table (+ `agent_registry_capabilities` /
+ * `agent_registry_skills` / `agent_registry_agent_capabilities` /
+ * `agent_registry_agent_skills`); per-project visibility and overrides live in the
+ * PROJECT `conduit_project_agent_refs` table (T11578 · AC4 — conduit namespace
+ * cutover). The bare legacy `agents` shape is no longer read or written.
  *
  * Post-E6-L5 (T11525) / E6-L6 (T11526), both tables are hosted inside the
  * CONSOLIDATED dual-scope `cleo.db` files (global `$XDG_DATA_HOME/cleo/cleo.db`
  * and project `.cleo/cleo.db`) — the standalone `signaldock.db` / `conduit.db`
- * files are gone. The global `agents` table is materialized by
- * `ensureGlobalSignaldockDb()`; the prefixed conduit `conduit_project_agent_refs`
- * table is created by the consolidated cleo-project migration (T11578 · AC4) and
- * `ensureConduitDb()` ensures the project `cleo.db` is open. The read path MUST
- * therefore go through those `ensure*` calls so it shares the same handle as the
- * write path (T11562 — agents read/write path divergence regression).
+ * files are gone. The global `agent_registry_*` tables are owned by the
+ * consolidated cleo-global migration (T11622 rename of `signaldock_*`);
+ * `ensureGlobalAgentRegistryDb()` opens the shared consolidated handle. The
+ * prefixed conduit `conduit_project_agent_refs` table is created by the
+ * consolidated cleo-project migration (T11578 · AC4) and `ensureConduitDb()`
+ * ensures the project `cleo.db` is open. The read path MUST therefore go through
+ * those `ensure*` calls so it shares the same handle as the write path (T11562 —
+ * agents read/write path divergence regression).
  *
- * This module provides three module-level functions that perform the
- * in-memory cross-DB join, plus the backward-compatible
- * `AgentRegistryAccessor` class that wraps them.
+ * The consolidated `agent_registry_agents` table carries TEXT ISO-8601 timestamps
+ * (`created_at` / `updated_at` / `last_used_at`, each with a GLOB CHECK) — every
+ * write path below stamps ISO strings, not the legacy epoch integers (T11622
+ * write-path constraint reconciliation).
+ *
+ * This module provides three module-level functions that perform the in-memory
+ * cross-DB join, plus the backward-compatible `AgentRegistryAccessor` class that
+ * wraps them.
  *
  * Architecture:
- *   global  cleo.db — canonical identity `agents` (openGlobalDb → ensureGlobalSignaldockDb)
+ *   global  cleo.db — canonical identity `agent_registry_agents` (openGlobalDb → ensureGlobalAgentRegistryDb)
  *   project cleo.db — `conduit_project_agent_refs` (openConduitDb)
  *   Join performed in Node (SQLite cannot cross-file-handle JOIN).
  *
@@ -28,6 +38,7 @@
  * @see .cleo/adrs/ADR-037-conduit-signaldock-separation.md
  * @task T355
  * @task T11562
+ * @task T11622
  * @epic T310
  * @epic T11249
  */
@@ -49,10 +60,13 @@ import type {
   TransportConfig,
 } from '@cleocode/contracts';
 import { getCleoHome } from '../paths.js';
+import {
+  ensureGlobalAgentRegistryDb,
+  getGlobalAgentRegistryNativeDb,
+} from './agent-registry-store.js';
 import { deriveApiKey } from './api-key-kdf.js';
 import { ensureConduitDb, getConduitDbPath } from './conduit-sqlite.js';
 import { getGlobalSalt } from './global-salt.js';
-import { ensureGlobalSignaldockDb, getGlobalSignaldockNativeDb } from './signaldock-sqlite.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
 
 // ---------------------------------------------------------------------------
@@ -119,7 +133,7 @@ function readMachineKey(): Buffer {
 // ---------------------------------------------------------------------------
 
 /**
- * Raw row shape from global signaldock.db:agents.
+ * Raw row shape from global cleo.db:agent_registry_agents.
  *
  * The T897 v3 columns (tier, can_spawn, orch_level, reports_to, cant_path,
  * cant_sha256, installed_from, installed_at) are typed as OPTIONAL here so
@@ -147,9 +161,11 @@ interface AgentDbRow {
   classification: string | null;
   transport_config: string;
   is_active: number;
-  last_used_at: number | null;
-  created_at: number;
-  updated_at: number;
+  // T11622 cutover: the consolidated `agent_registry_agents` carries TEXT ISO-8601
+  // timestamps (CHECK GLOB) — not the legacy INTEGER epoch shape.
+  last_used_at: string | null;
+  created_at: string;
+  updated_at: string;
   // ---- T897 v3 extensions ----
   tier?: string;
   can_spawn?: number;
@@ -195,12 +211,12 @@ function rowToProjectRef(row: ProjectAgentRefRow): ProjectAgentRef {
 }
 
 /**
- * Convert a global signaldock.db:agents row to an `AgentCredential`.
+ * Convert a global cleo.db:agent_registry_agents row to an `AgentCredential`.
  * API key is stored as binary (derived via KDF) — returned as hex string.
  * Legacy encrypted values (pre-T310) are left as-is; the reauth flag handles
  * forced re-authentication at the CLI layer.
  *
- * @param row - Raw SQLite row from global signaldock.db:agents.
+ * @param row - Raw SQLite row from global cleo.db:agent_registry_agents.
  * @returns Typed `AgentCredential` (apiKey is hex-encoded derived bytes or empty).
  * @task T355
  * @epic T310
@@ -221,9 +237,11 @@ function rowToCredential(row: AgentDbRow): AgentCredential {
     transportType: (row.transport_type ?? 'http') as AgentCredential['transportType'],
     transportConfig: JSON.parse(row.transport_config) as TransportConfig,
     isActive: row.is_active === 1,
-    lastUsedAt: row.last_used_at ? new Date(row.last_used_at * 1000).toISOString() : undefined,
-    createdAt: new Date(row.created_at * 1000).toISOString(),
-    updatedAt: new Date(row.updated_at * 1000).toISOString(),
+    // T11622 cutover: `agent_registry_agents` timestamps are TEXT ISO-8601 — read
+    // through as-is (no epoch→ms conversion).
+    lastUsedAt: row.last_used_at ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -250,7 +268,7 @@ function coerceTier(value: string | undefined): AgentTier {
  * 'fallback', canSpawn: false, orchLevel: 2). Callers that need strict
  * migration presence MUST check `row.tier !== undefined` before invoking.
  *
- * @param row - Raw SQLite row from signaldock.db:agents
+ * @param row - Raw SQLite row from cleo.db:agent_registry_agents
  * @returns The extended field block, with safe fallbacks for absent columns
  * @task T897
  * @epic T889
@@ -284,7 +302,7 @@ function rowToExtendedFields(row: AgentDbRow): AgentRegistryExtendedFields {
  * never been bound to a `.cant`). Callers that need a synthesized fallback
  * envelope MUST handle the null return explicitly.
  *
- * @param row - Raw agents row from signaldock.db
+ * @param row - Raw agent_registry_agents row from the global cleo.db
  * @returns A ResolvedAgent envelope, or null when provenance is missing
  * @task T897
  * @epic T889
@@ -313,7 +331,7 @@ export function rowToResolvedAgent(row: AgentDbRow): ResolvedAgent | null {
  * Merge a global agent row with an optional project_agent_refs row into an
  * `AgentWithProjectOverride` object.
  *
- * @param agentRow - Row from global signaldock.db:agents.
+ * @param agentRow - Row from global cleo.db:agent_registry_agents.
  * @param refRow   - Row from conduit.db:project_agent_refs, or null.
  * @returns Merged `AgentWithProjectOverride`.
  * @task T355
@@ -337,17 +355,15 @@ function mergeToAgentWithOverride(
  * Acquire the SHARED, fully-migrated handle to the GLOBAL agent identity DB —
  * the consolidated dual-scope global `cleo.db` (post-E6-L5 / T11525).
  *
- * Routes through {@link ensureGlobalSignaldockDb}, which opens the consolidated
- * `cleo.db` via `openDualScopeDb('global')`, runs the legacy `drizzle-signaldock`
- * migrations that materialize the BARE `agents` runtime table (the table this
- * accessor's raw SQL queries), and stores the native handle for reuse. The
- * returned handle is the SAME one the write path uses — reads and writes are now
- * aligned to `cleo.db` (T11562).
+ * Routes through {@link ensureGlobalAgentRegistryDb}, which opens the consolidated
+ * `cleo.db` via `openDualScopeDb('global')` (whose consolidated cleo-global
+ * migration creates the prefixed `agent_registry_*` tables this accessor's raw SQL
+ * now queries, post-T11622 cutover), reconciles the health-probe ledger, and
+ * stores the native handle for reuse. The returned handle is the SAME one the
+ * write path uses — reads and writes are aligned to `cleo.db` (T11562).
  *
- * Replaces the previous `new DatabaseSync(getGlobalSignaldockDbPath())` raw-open,
- * which diverged from the write path: it opened `cleo.db` WITHOUT first running
- * the legacy migrations, so the bare `agents` table did not exist on a clean
- * build (`no such table: agents`).
+ * Replaces the previous `new DatabaseSync(getGlobalAgentRegistryDbPath())` raw-open,
+ * which diverged from the write path (T11562).
  *
  * The handle is SHARED and co-owned by the nexus / skills global domains — its
  * lifecycle is owned by `openDualScopeDb`. Callers MUST NOT call `db.close()` on
@@ -363,14 +379,14 @@ function mergeToAgentWithOverride(
  */
 async function openGlobalDb(): Promise<DatabaseSync> {
   // Idempotent: opens the consolidated global cleo.db, runs the legacy
-  // signaldock migrations (creates the bare `agents` table), and caches the
-  // shared native handle in _globalSignaldockNativeDb.
-  await ensureGlobalSignaldockDb();
-  const db = getGlobalSignaldockNativeDb();
+  // (the consolidated cleo-global migration creates the agent_registry_* tables),
+  // and caches the shared native handle (T11622 cutover).
+  await ensureGlobalAgentRegistryDb();
+  const db = getGlobalAgentRegistryNativeDb();
   if (!db) {
     throw new Error(
-      'openGlobalDb: ensureGlobalSignaldockDb() did not yield a shared global ' +
-        'cleo.db handle (getGlobalSignaldockNativeDb() returned null). This indicates ' +
+      'openGlobalDb: ensureGlobalAgentRegistryDb() did not yield a shared global ' +
+        'cleo.db handle (getGlobalAgentRegistryNativeDb() returned null). This indicates ' +
         'the dual-scope global chokepoint failed to initialize — fix the caller, do ' +
         'not suppress.',
     );
@@ -394,14 +410,14 @@ function openConduitDb(projectRoot: string): DatabaseSync {
 }
 
 // ---------------------------------------------------------------------------
-// junction table sync (global signaldock.db only)
+// junction table sync (global cleo.db (Agent Registry) only)
 // ---------------------------------------------------------------------------
 
 /**
- * Sync capabilities/skills to junction tables in global signaldock.db.
+ * Sync capabilities/skills to junction tables in global cleo.db (Agent Registry).
  * Junction tables are the SSoT — JSON columns are a materialized cache.
  *
- * @param db         - Open handle to global signaldock.db.
+ * @param db         - Open handle to global cleo.db (Agent Registry).
  * @param agentUuid  - The `id` (UUID primary key) from the agents row.
  * @param capabilities - Array of capability slugs.
  * @param skills       - Array of skill slugs.
@@ -414,27 +430,26 @@ function syncJunctionTables(
   capabilities: string[],
   skills: string[],
 ): void {
-  db.prepare('DELETE FROM agent_capabilities WHERE agent_id = ?').run(agentUuid);
-  db.prepare('DELETE FROM agent_skills WHERE agent_id = ?').run(agentUuid);
+  db.prepare('DELETE FROM agent_registry_agent_capabilities WHERE agent_id = ?').run(agentUuid);
+  db.prepare('DELETE FROM agent_registry_agent_skills WHERE agent_id = ?').run(agentUuid);
   for (const cap of capabilities) {
-    const capRow = db.prepare('SELECT id FROM capabilities WHERE slug = ?').get(cap) as
-      | { id: string }
-      | undefined;
+    const capRow = db
+      .prepare('SELECT id FROM agent_registry_capabilities WHERE slug = ?')
+      .get(cap) as { id: string } | undefined;
     if (capRow) {
       db.prepare(
-        'INSERT OR IGNORE INTO agent_capabilities (agent_id, capability_id) VALUES (?, ?)',
+        'INSERT OR IGNORE INTO agent_registry_agent_capabilities (agent_id, capability_id) VALUES (?, ?)',
       ).run(agentUuid, capRow.id);
     }
   }
   for (const skill of skills) {
-    const skillRow = db.prepare('SELECT id FROM skills WHERE slug = ?').get(skill) as
+    const skillRow = db.prepare('SELECT id FROM agent_registry_skills WHERE slug = ?').get(skill) as
       | { id: string }
       | undefined;
     if (skillRow) {
-      db.prepare('INSERT OR IGNORE INTO agent_skills (agent_id, skill_id) VALUES (?, ?)').run(
-        agentUuid,
-        skillRow.id,
-      );
+      db.prepare(
+        'INSERT OR IGNORE INTO agent_registry_agent_skills (agent_id, skill_id) VALUES (?, ?)',
+      ).run(agentUuid, skillRow.id);
     }
   }
 }
@@ -444,7 +459,7 @@ function syncJunctionTables(
 // ---------------------------------------------------------------------------
 
 /**
- * Cross-DB agent lookup. Opens both the global signaldock.db and the
+ * Cross-DB agent lookup. Opens both the global cleo.db (Agent Registry) and the
  * current project's conduit.db, joins project_agent_refs ⨝ agents by
  * agentId, and returns the merged view.
  *
@@ -491,9 +506,9 @@ export async function lookupAgent(
   const conduitDb = openConduitDb(projectRoot);
 
   try {
-    const agentRow = globalDb.prepare('SELECT * FROM agents WHERE agent_id = ?').get(agentId) as
-      | AgentDbRow
-      | undefined;
+    const agentRow = globalDb
+      .prepare('SELECT * FROM agent_registry_agents WHERE agent_id = ?')
+      .get(agentId) as AgentDbRow | undefined;
 
     const refRow = conduitDb
       .prepare('SELECT * FROM conduit_project_agent_refs WHERE agent_id = ?')
@@ -572,7 +587,7 @@ export async function listAgentsForProject(
 
   try {
     const allAgents = globalDb
-      .prepare('SELECT * FROM agents ORDER BY name ASC')
+      .prepare('SELECT * FROM agent_registry_agents ORDER BY name ASC')
       .all() as unknown as AgentDbRow[];
 
     const allRefs = conduitDb
@@ -610,7 +625,7 @@ export async function listAgentsForProject(
 }
 
 /**
- * Creates a new agent: writes identity row to global signaldock.db AND attaches
+ * Creates a new agent: writes identity row to global cleo.db (Agent Registry) AND attaches
  * it to the current project via conduit.db:project_agent_refs.
  *
  * Write order: global first, then project ref. If the project ref write fails,
@@ -630,9 +645,9 @@ export async function createProjectAgent(
   spec: Omit<AgentCredential, 'createdAt' | 'updatedAt'>,
 ): Promise<AgentWithProjectOverride> {
   // E6-L3 (T11523): ensureConduitDb is now async (routes through the dual-scope
-  // cleo.db chokepoint). ensureGlobalSignaldockDb is already async. Await both so
+  // cleo.db chokepoint). ensureGlobalAgentRegistryDb is already async. Await both so
   // the bare schema exists before the short-lived raw handles below read/write it.
-  await ensureGlobalSignaldockDb();
+  await ensureGlobalAgentRegistryDb();
   await ensureConduitDb(projectRoot);
 
   const nowTs = Math.floor(Date.now() / 1000);
@@ -653,7 +668,7 @@ export async function createProjectAgent(
   const globalDb = await openGlobalDb();
   {
     const existing = globalDb
-      .prepare('SELECT id FROM agents WHERE agent_id = ?')
+      .prepare('SELECT id FROM agent_registry_agents WHERE agent_id = ?')
       .get(spec.agentId) as { id: string } | undefined;
 
     let agentUuid: string;
@@ -662,7 +677,7 @@ export async function createProjectAgent(
       agentUuid = crypto.randomUUID();
       globalDb
         .prepare(
-          `INSERT INTO agents (id, agent_id, name, class, privacy_tier, capabilities, skills,
+          `INSERT INTO agent_registry_agents (id, agent_id, name, class, privacy_tier, capabilities, skills,
            transport_type, api_key_encrypted, api_base_url, classification, transport_config,
            is_active, last_used_at, status, created_at, updated_at, requires_reauth)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'online', ?, ?, 0)`,
@@ -681,9 +696,10 @@ export async function createProjectAgent(
           spec.classification ?? null,
           JSON.stringify(spec.transportConfig),
           spec.isActive ? 1 : 0,
-          spec.lastUsedAt ? Math.floor(new Date(spec.lastUsedAt).getTime() / 1000) : null,
-          nowTs,
-          nowTs,
+          // T11622 cutover: TEXT ISO-8601 to satisfy the consolidated GLOB CHECK.
+          spec.lastUsedAt ? new Date(spec.lastUsedAt).toISOString() : null,
+          nowIso,
+          nowIso,
         );
       syncJunctionTables(globalDb, agentUuid, spec.capabilities, spec.skills);
     } else {
@@ -691,7 +707,7 @@ export async function createProjectAgent(
       // Update identity in global DB (idempotent re-register)
       globalDb
         .prepare(
-          `UPDATE agents SET name = ?, class = ?, privacy_tier = ?, capabilities = ?, skills = ?,
+          `UPDATE agent_registry_agents SET name = ?, class = ?, privacy_tier = ?, capabilities = ?, skills = ?,
            transport_type = ?, api_key_encrypted = ?, api_base_url = ?, classification = ?,
            transport_config = ?, is_active = ?, updated_at = ? WHERE agent_id = ?`,
         )
@@ -707,7 +723,7 @@ export async function createProjectAgent(
           spec.classification ?? null,
           JSON.stringify(spec.transportConfig),
           spec.isActive ? 1 : 0,
-          nowTs,
+          nowIso,
           spec.agentId,
         );
       syncJunctionTables(globalDb, agentUuid, spec.capabilities, spec.skills);
@@ -760,7 +776,7 @@ export async function createProjectAgent(
  * with `enabled=0`, it is re-enabled (idempotent). If the row already has
  * `enabled=1`, this is a no-op.
  *
- * The agent MUST already exist in the global `signaldock.db:agents` table.
+ * The agent MUST already exist in the global `cleo.db:agent_registry_agents` table.
  * This function does NOT validate global existence — callers must check via
  * `lookupAgent(..., { includeGlobal: true })` first.
  *
@@ -807,7 +823,7 @@ export function attachAgentToProject(
 /**
  * Detach an agent from the current project by setting `project_agent_refs.enabled=0`.
  *
- * This is a soft-delete: the global `signaldock.db:agents` row is preserved.
+ * This is a soft-delete: the global `cleo.db:agent_registry_agents` row is preserved.
  * The agent can be re-attached later via `attachAgentToProject`.
  *
  * Returns `false` if no row exists in `project_agent_refs` for the given agentId
@@ -895,13 +911,13 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
    */
   private async ensureDbs(): Promise<void> {
     // E6-L3 (T11523): ensureConduitDb is now async (dual-scope cleo.db
-    // chokepoint); ensureGlobalSignaldockDb is already async. Await both.
-    await ensureGlobalSignaldockDb();
+    // chokepoint); ensureGlobalAgentRegistryDb is already async. Await both.
+    await ensureGlobalAgentRegistryDb();
     await ensureConduitDb(this.projectPath);
   }
 
   /**
-   * Register (create or update) an agent in global signaldock.db and attach
+   * Register (create or update) an agent in global cleo.db (Agent Registry) and attach
    * it to the current project via conduit.db:project_agent_refs.
    *
    * @param credential - Agent spec (without createdAt/updatedAt).
@@ -962,16 +978,16 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
     const rows =
       filter?.active !== undefined
         ? (globalDb
-            .prepare('SELECT * FROM agents WHERE is_active = ? ORDER BY name ASC')
+            .prepare('SELECT * FROM agent_registry_agents WHERE is_active = ? ORDER BY name ASC')
             .all(filter.active ? 1 : 0) as unknown as AgentDbRow[])
         : (globalDb
-            .prepare('SELECT * FROM agents ORDER BY name ASC')
+            .prepare('SELECT * FROM agent_registry_agents ORDER BY name ASC')
             .all() as unknown as AgentDbRow[]);
     return rows.map(rowToCredential);
   }
 
   /**
-   * Update agent identity fields in global signaldock.db.
+   * Update agent identity fields in global cleo.db (Agent Registry).
    * Project-specific fields (role, capabilitiesOverride) require direct
    * conduit.db manipulation (not yet exposed by this method).
    *
@@ -989,12 +1005,13 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
     const existing = await this.get(agentId, { includeGlobal: true });
     if (!existing) throw new Error(`Agent not found: ${agentId}`);
 
-    const nowTs = Math.floor(Date.now() / 1000);
+    // T11622 cutover: `agent_registry_agents.updated_at` is TEXT ISO-8601 (GLOB CHECK).
+    const nowIso = new Date().toISOString();
     // SHARED global cleo.db handle — do NOT close (lifecycle owned by openDualScopeDb).
     const globalDb = await openGlobalDb();
     {
       const sets: string[] = ['updated_at = ?'];
-      const params: unknown[] = [nowTs];
+      const params: unknown[] = [nowIso];
 
       if (updates.displayName !== undefined) {
         sets.push('name = ?');
@@ -1043,13 +1060,13 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
 
       params.push(agentId);
       globalDb
-        .prepare(`UPDATE agents SET ${sets.join(', ')} WHERE agent_id = ?`)
+        .prepare(`UPDATE agent_registry_agents SET ${sets.join(', ')} WHERE agent_id = ?`)
         .run(...(params as Array<string | number | null>));
 
       // Sync junction tables if capabilities or skills changed
       if (updates.capabilities !== undefined || updates.skills !== undefined) {
         const agentRow = globalDb
-          .prepare('SELECT id FROM agents WHERE agent_id = ?')
+          .prepare('SELECT id FROM agent_registry_agents WHERE agent_id = ?')
           .get(agentId) as { id: string } | undefined;
         if (agentRow) {
           syncJunctionTables(
@@ -1070,7 +1087,7 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
 
   /**
    * Remove agent from current project (sets project_agent_refs.enabled=0).
-   * Does NOT delete from global signaldock.db (per ADR-037 §6 / Q4=C).
+   * Does NOT delete from global cleo.db (Agent Registry) (per ADR-037 §6 / Q4=C).
    *
    * @param agentId - Agent business identifier.
    * @task T355
@@ -1096,7 +1113,7 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
   }
 
   /**
-   * Remove agent from global signaldock.db.
+   * Remove agent from global cleo.db (Agent Registry).
    * Requires explicit opt-in. Warns if cross-project refs may exist.
    *
    * @param agentId     - Agent business identifier.
@@ -1108,9 +1125,9 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
     await this.ensureDbs();
     // SHARED global cleo.db handle — do NOT close (lifecycle owned by openDualScopeDb).
     const globalDb = await openGlobalDb();
-    const existing = globalDb.prepare('SELECT id FROM agents WHERE agent_id = ?').get(agentId) as
-      | { id: string }
-      | undefined;
+    const existing = globalDb
+      .prepare('SELECT id FROM agent_registry_agents WHERE agent_id = ?')
+      .get(agentId) as { id: string } | undefined;
     if (!existing) {
       throw new Error(`Agent not found globally: ${agentId}`);
     }
@@ -1135,13 +1152,13 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
       }
     }
 
-    globalDb.prepare('DELETE FROM agents WHERE agent_id = ?').run(agentId);
+    globalDb.prepare('DELETE FROM agent_registry_agents WHERE agent_id = ?').run(agentId);
     // NOTE: globalDb is the SHARED dual-scope handle — never close it (T11562).
   }
 
   /**
    * Rotate API key via cloud endpoint and re-encrypt with the new T310 KDF
-   * in global signaldock.db.
+   * in global cleo.db (Agent Registry).
    *
    * @param agentId - Agent business identifier.
    * @returns Object with agentId and a redacted new API key string.
@@ -1173,15 +1190,16 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
     const machineKey = readMachineKey();
     const globalSalt = getGlobalSalt();
     const derivedKey = deriveApiKey({ machineKey, globalSalt, agentId });
-    const nowTs = Math.floor(Date.now() / 1000);
+    // T11622 cutover: `updated_at` is TEXT ISO-8601 (GLOB CHECK).
+    const nowIso = new Date().toISOString();
 
     // SHARED global cleo.db handle — do NOT close (lifecycle owned by openDualScopeDb).
     const globalDb = await openGlobalDb();
     globalDb
       .prepare(
-        'UPDATE agents SET api_key_encrypted = ?, updated_at = ?, requires_reauth = 0 WHERE agent_id = ?',
+        'UPDATE agent_registry_agents SET api_key_encrypted = ?, updated_at = ?, requires_reauth = 0 WHERE agent_id = ?',
       )
-      .run(derivedKey.toString('hex'), nowTs, agentId);
+      .run(derivedKey.toString('hex'), nowIso, agentId);
     // NOTE: globalDb is the SHARED dual-scope handle — never close it (T11562).
 
     return { agentId, newApiKey: `${newApiKey.substring(0, 8)}...rotated` };
@@ -1210,7 +1228,7 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
 
       for (const ref of enabledRefs) {
         const agentRow = globalDb
-          .prepare('SELECT * FROM agents WHERE agent_id = ? AND is_active = 1')
+          .prepare('SELECT * FROM agent_registry_agents WHERE agent_id = ? AND is_active = 1')
           .get(ref.agent_id) as AgentDbRow | undefined;
         if (agentRow) return rowToCredential(agentRow);
       }
@@ -1218,7 +1236,7 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
       // Fall back to global last_used_at if no project-local activity recorded
       const row = globalDb
         .prepare(
-          'SELECT * FROM agents WHERE is_active = 1 ORDER BY last_used_at DESC, created_at DESC LIMIT 1',
+          'SELECT * FROM agent_registry_agents WHERE is_active = 1 ORDER BY last_used_at DESC, created_at DESC LIMIT 1',
         )
         .get() as AgentDbRow | undefined;
       if (!row) return null;
@@ -1230,7 +1248,7 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
   }
 
   /**
-   * Update last_used_at in both global signaldock.db:agents and
+   * Update last_used_at in both global cleo.db:agent_registry_agents and
    * conduit.db:project_agent_refs.
    *
    * @param agentId - Agent business identifier.
@@ -1239,14 +1257,17 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
    */
   async markUsed(agentId: string): Promise<void> {
     await this.ensureDbs();
-    const nowTs = Math.floor(Date.now() / 1000);
-    const nowIso = new Date(nowTs * 1000).toISOString();
+    // T11622 cutover: `last_used_at` / `updated_at` are TEXT ISO-8601 (GLOB CHECK)
+    // in `agent_registry_agents`; `conduit_project_agent_refs.last_used_at` is also ISO.
+    const nowIso = new Date().toISOString();
 
     // SHARED global cleo.db handle — do NOT close (lifecycle owned by openDualScopeDb).
     const globalDb = await openGlobalDb();
     globalDb
-      .prepare('UPDATE agents SET last_used_at = ?, updated_at = ? WHERE agent_id = ?')
-      .run(nowTs, nowTs, agentId);
+      .prepare(
+        'UPDATE agent_registry_agents SET last_used_at = ?, updated_at = ? WHERE agent_id = ?',
+      )
+      .run(nowIso, nowIso, agentId);
     // NOTE: globalDb is the SHARED dual-scope handle — never close it (T11562).
 
     const conduitDb = openConduitDb(this.projectPath);

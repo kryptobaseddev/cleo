@@ -455,7 +455,7 @@ async function runMainWithLafsEnvelope(
  *
  * DB-specific steps moved OUT of startup maintenance (T9029):
  *   - ensureConduitDb — deferred to commands that need conduit.db
- *   - ensureGlobalSignaldockDb — deferred to commands that need signaldock.db
+ *   - ensureGlobalAgentRegistryDb — deferred to commands that need signaldock.db
  *
  * Both functions are already called by their respective consumers (agent.ts,
  * migrate-agents-v2.ts, init.ts, upgrade.ts, agent-registry-accessor.ts)
@@ -559,14 +559,14 @@ export async function runStartupMaintenance(): Promise<void> {
 
   // Steps 3 + 4 REMOVED (T9029: deferred DB opens).
   //
-  // ensureConduitDb and ensureGlobalSignaldockDb previously ran here on every
+  // ensureConduitDb and ensureGlobalAgentRegistryDb previously ran here on every
   // non-fast-path invocation, opening two SQLite files even for commands that
   // never use them (e.g. cleo find, cleo show, cleo next, cleo memory find).
   //
   // Each DB is now opened lazily on first access by its own consumer:
   //   conduit.db      — agent.ts, migrate-agents-v2.ts, init.ts, upgrade.ts,
   //                     agent-registry-accessor.ts
-  //   signaldock.db   — agent.ts, migrate-agents-v2.ts, signaldock-sqlite.ts
+  //   signaldock.db   — agent.ts, migrate-agents-v2.ts, agent-registry-store.ts
   //
   // If a new command needs one of these DBs it MUST call the appropriate
   // ensure* function before its first DB read/write, not rely on startup.

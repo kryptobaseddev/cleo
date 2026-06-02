@@ -2,7 +2,7 @@
  * Registry-backed agent resolver with 5-tier precedence.
  *
  * Lookup order (highest wins):
- *   1. `project`   — rows in global `signaldock.db:agents` tagged
+ *   1. `project`   — rows in global `agent_registry_agents` tagged
  *                    `tier='project'` (attached from
  *                    `<projectRoot>/.cleo/cant/agents/`).
  *   2. `global`    — rows tagged `tier='global'` installed from
@@ -24,9 +24,9 @@
  *                    Wired into the spawn validator pre-flight by T1933
  *                    (ADR-068 Decision 6 — supersedes ADR-055 D035).
  *
- * The GLOBAL `signaldock.db:agents` row is the single source of truth for
- * tier-aware metadata. The `agents.agent_id` column is UNIQUE across the
- * whole table (see `signaldock-sqlite.ts` schema), so a single row exists
+ * The GLOBAL `agent_registry_agents` row is the single source of truth for
+ * tier-aware metadata. The `agent_registry_agents.agent_id` column is UNIQUE across the
+ * whole table (see `agent-registry-store.ts` schema), so a single row exists
  * per agent — `tier` records which directory holds the canonical `.cant`.
  *
  * Orphan-row detection (doctor D-002): if the row's `cant_path` points at
@@ -148,7 +148,7 @@ export interface ResolveAgentOptions {
    * Absolute path to the project root. Present in the envelope for callers
    * that want to display where the resolved project-tier `.cant` lives, but
    * the resolver does NOT perform its own filesystem walk inside the project
-   * — the global `signaldock.db` is consulted regardless of tier.
+   * — the global cleo.db (Agent Registry) is consulted regardless of tier.
    */
   projectRoot?: string;
   /**
@@ -213,9 +213,10 @@ interface ResolverAgentRow {
   classification: string | null;
   transport_config: string;
   is_active: number;
-  last_used_at: number | null;
-  created_at: number;
-  updated_at: number;
+  // T11622 cutover: consolidated `agent_registry_agents` timestamps are TEXT ISO-8601.
+  last_used_at: string | null;
+  created_at: string;
+  updated_at: string;
   tier?: string;
   can_spawn?: number;
   orch_level?: number;
@@ -241,7 +242,7 @@ interface ResolverAgentRow {
  * {@link AgentNotFoundError} — the error becomes genuinely exceptional
  * (catastrophic missing base file) rather than a routine resolution miss.
  *
- * @param db      - Open handle to global `signaldock.db`. Caller owns lifecycle.
+ * @param db      - Open handle to global cleo.db (Agent Registry). Caller owns lifecycle.
  * @param agentId - Business identifier of the agent to resolve.
  * @param options - Optional lookup overrides (see {@link ResolveAgentOptions}).
  * @returns The highest-precedence {@link ResolvedAgent} envelope.
@@ -324,7 +325,7 @@ export function resolveAgent(
  * Any unexpected error from {@link resolveAgent} propagates. Only the
  * structured "not found" envelope is collected as a per-id value.
  *
- * @param db       - Open handle to global `signaldock.db`.
+ * @param db       - Open handle to global cleo.db (Agent Registry).
  * @param agentIds - Business ids to resolve.
  * @param options  - Shared lookup options applied to every id.
  * @returns Map keyed by agentId with the envelope or the not-found error.
@@ -362,23 +363,23 @@ export function resolveAgentsBatch(
  * Lookup: `agents.agent_id = ?` → `agents.id` → junction `agent_skills` →
  * `skills.slug`. Ordered by `attached_at DESC` (most-recent attachment first).
  *
- * @param db      - Open handle to global `signaldock.db`.
+ * @param db      - Open handle to global cleo.db (Agent Registry).
  * @param agentId - Business id of the agent whose skills to read.
  * @returns Skill slugs, deduplicated. Returns `[]` when none attached.
  * @task T889 / W2-4
  */
 export function getAgentSkills(db: DatabaseSync, agentId: string): string[] {
-  const agentRow = db.prepare('SELECT id FROM agents WHERE agent_id = ?').get(agentId) as
-    | { id: string }
-    | undefined;
+  const agentRow = db
+    .prepare('SELECT id FROM agent_registry_agents WHERE agent_id = ?')
+    .get(agentId) as { id: string } | undefined;
   if (!agentRow) return [];
   const rows = db
     .prepare(
-      `SELECT skills.slug AS slug
-         FROM agent_skills
-         JOIN skills ON skills.id = agent_skills.skill_id
-        WHERE agent_skills.agent_id = ?
-        ORDER BY agent_skills.attached_at DESC`,
+      `SELECT agent_registry_skills.slug AS slug
+         FROM agent_registry_agent_skills
+         JOIN agent_registry_skills ON agent_registry_skills.id = agent_registry_agent_skills.skill_id
+        WHERE agent_registry_agent_skills.agent_id = ?
+        ORDER BY agent_registry_agent_skills.attached_at DESC`,
     )
     .all(agentRow.id) as Array<{ slug: string }>;
   const seen = new Set<string>();
@@ -414,7 +415,7 @@ function orderTiers(preferred: AgentTier | undefined): AgentTier[] {
 /**
  * Attempt to resolve `agentId` at the given tier.
  *
- * `project`, `global`, `packaged` — load the global `signaldock.db:agents`
+ * `project`, `global`, `packaged` — load the global `agent_registry_agents`
  * row with `tier = ?`, validate `.cant` still exists on disk, then delegate
  * to {@link rowToResolvedAgent}. Missing file (orphan row, D-002) returns
  * `null` so the caller can cascade.
@@ -422,7 +423,7 @@ function orderTiers(preferred: AgentTier | undefined): AgentTier[] {
  * `fallback` — synthesise an envelope when `templates/<id>.cant` exists
  * on disk but no DB row has been written (ADR-068 Decision 1 + 2).
  *
- * @param db      - Open handle to global `signaldock.db`.
+ * @param db      - Open handle to global cleo.db (Agent Registry).
  * @param agentId - Business id of the agent.
  * @param tier    - Tier to attempt.
  * @param options - Shared lookup options.
@@ -446,7 +447,7 @@ function tryResolveAtTier(
   let row: ResolverAgentRow | undefined;
   try {
     row = db
-      .prepare('SELECT * FROM agents WHERE agent_id = ? AND tier = ? LIMIT 1')
+      .prepare('SELECT * FROM agent_registry_agents WHERE agent_id = ? AND tier = ? LIMIT 1')
       .get(agentId, tier) as ResolverAgentRow | undefined;
   } catch (err) {
     if (isMissingAgentsTableError(err)) {
@@ -482,7 +483,7 @@ function tryResolveAtTier(
 }
 
 function isMissingAgentsTableError(err: unknown): boolean {
-  return err instanceof Error && /no such table:\s*agents/i.test(err.message);
+  return err instanceof Error && /no such table:\s*agent_registry_agents/i.test(err.message);
 }
 
 /**

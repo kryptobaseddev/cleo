@@ -6,7 +6,7 @@
  * Why this matters (T10324 · Saga T10281 SG-BRAIN-DB-RESILIENCE · Epic T10285 E4-DB-CROSS-LINKS)
  * --------------------------------------------------------------------------
  * SQLite cannot enforce foreign-key constraints across attached database
- * files. Today every cross-DB invariant (brain→tasks, conduit→signaldock,
+ * files. Today every cross-DB invariant (brain→tasks, conduit→agent-registry,
  * nexus→tasks, skills→tasks, etc.) is documented inconsistently — some
  * columns carry a `// soft FK to tasks.id in tasks.db` trailing comment,
  * others say nothing, and the accessor layer that performs the actual
@@ -26,8 +26,8 @@
  *   - `session_id`     (foreign tier — tasks.db sessions.id)
  *   - `epic_id`        (foreign tier — tasks.db tasks.id WHERE type='epic')
  *   - `project_id`     (foreign tier — nexus.db project_registry.project_id OR project-context.json)
- *   - `agent_id`       (foreign tier — signaldock.db agents.agent_id)
- *   - `*_agent_id`     (foreign tier — signaldock.db agents.agent_id; e.g. from_agent_id)
+ *   - `agent_id`       (foreign tier — agent_registry_agents.agent_id)
+ *   - `*_agent_id`     (foreign tier — agent_registry_agents.agent_id; e.g. from_agent_id)
  *   - `parent_agent_id`
  *   - `brain_anchor`   (foreign tier — brain.db brain_observations.id)
  *   - `derived_from_message_id`
@@ -119,7 +119,7 @@ const CROSS_DB_COLUMN_NAMES = new Set([
   'author_agent_id',
   'reviewer_agent_id',
   'subscriber_agent_id',
-  'created_by', // conduit-side topics.created_by ⇒ signaldock agent
+  'created_by', // conduit-side topics.created_by ⇒ agent-registry agent
   'brain_anchor',
   'context_epic_id',
   'context_task_id',
@@ -140,7 +140,7 @@ const CROSS_DB_COLUMN_NAMES = new Set([
  */
 const INTRA_DB_FILES = new Set([
   'packages/core/src/store/tasks-schema.ts',
-  // chain-schema.ts + signaldock-schema.ts relocated into store/schema/ (T11359);
+  // chain-schema.ts + agent-registry-schema.ts relocated into store/schema/ (T11359);
   // that whole subtree is already exempt via INTRA_DB_DIR_PREFIXES below, so no
   // explicit entries are needed here.
 ]);

@@ -300,7 +300,7 @@ async function runHarnessReachabilityCheck(cwd?: string): Promise<VerificationCh
  *
  * @internal
  */
-async function runSignaldockReachabilityCheck(cwd?: string): Promise<VerificationCheck> {
+async function runAgentRegistryReachabilityCheck(cwd?: string): Promise<VerificationCheck> {
   const name = 'signaldock-reach';
   try {
     const enabledResolved = await getConfigValue<boolean>('signaldock.enabled', cwd);
@@ -428,7 +428,7 @@ export function createVerificationSection(): WizardSectionRunner {
       checks.push(await runCredentialReachabilityCheck());
       checks.push(await runConfigIntegrityCheck(cwd));
       checks.push(await runHarnessReachabilityCheck(cwd));
-      checks.push(await runSignaldockReachabilityCheck(cwd));
+      checks.push(await runAgentRegistryReachabilityCheck(cwd));
       checks.push(await runBrainDbCheck(cwd));
 
       const failCount = checks.filter((c) => c.status === 'FAIL').length;

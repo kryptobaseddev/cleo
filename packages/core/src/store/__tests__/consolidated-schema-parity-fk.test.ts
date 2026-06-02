@@ -38,7 +38,7 @@
  *     migration fails here.
  *   - **AC3 — typed round-trip.** Inserts representative rows through the typed
  *     Drizzle writers for each domain (project: tasks/conduit/docs/brain;
- *     global: nexus/skills/signaldock/telemetry/brain), reads them back typed,
+ *     global: nexus/skills/agent-registry/telemetry/brain), reads them back typed,
  *     and asserts equality — proving the migrated physical schema accepts and
  *     returns exactly what the typed schema models.
  *   - **AC4 — ATTACH rejection re-asserted.** Re-proves, consistent with the
@@ -633,7 +633,7 @@ describe('T11364 AC3 — typed round-trip through the consolidated schema', () =
     expect(obs.verified).toBe(false); // boolean default — proves mode:'boolean' round-trip
   });
 
-  it('global: nexus/skills/signaldock/telemetry/brain round-trip equal', async () => {
+  it('global: nexus/skills/agent-registry/telemetry/brain round-trip equal', async () => {
     const db = drizzle({ client: globalDb });
 
     // nexus domain
@@ -661,8 +661,8 @@ describe('T11364 AC3 — typed round-trip through the consolidated schema', () =
     expect(skill.lifecycleState).toBe('active'); // default
     expect(skill.pinned).toBe(false); // boolean default
 
-    // signaldock domain
-    await db.insert(globalSchema.signaldockCapabilities).values({
+    // agent-registry domain
+    await db.insert(globalSchema.agentRegistryCapabilities).values({
       id: 'cap-rt-1',
       slug: 'code-review',
       name: 'Code Review',
@@ -672,8 +672,8 @@ describe('T11364 AC3 — typed round-trip through the consolidated schema', () =
     });
     const [cap] = await db
       .select()
-      .from(globalSchema.signaldockCapabilities)
-      .where(eq(globalSchema.signaldockCapabilities.id, 'cap-rt-1'));
+      .from(globalSchema.agentRegistryCapabilities)
+      .where(eq(globalSchema.agentRegistryCapabilities.id, 'cap-rt-1'));
     expect(cap.slug).toBe('code-review');
     expect(cap.name).toBe('Code Review');
     expect(cap.category).toBe('engineering');

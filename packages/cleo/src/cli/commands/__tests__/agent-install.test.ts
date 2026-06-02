@@ -109,7 +109,7 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
   mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
   mkdirSync(sourcesDir, { recursive: true });
 
-  // Deterministic machine-key / global-salt so ensureGlobalSignaldockDb() is happy.
+  // Deterministic machine-key / global-salt so ensureGlobalAgentRegistryDb() is happy.
   writeFileSync(join(cleoHome, 'machine-key'), Buffer.alloc(32, 0xab), { mode: 0o600 });
   writeFileSync(join(cleoHome, 'global-salt'), Buffer.alloc(32, 0xcd), { mode: 0o600 });
 
@@ -146,20 +146,21 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
   // Reset any cached signaldock singleton from a prior test, then migrate
   // both the global signaldock.db and the per-project conduit.db so
   // `--attach` has a real `project_agent_refs` table to write into.
-  const { ensureGlobalSignaldockDb, _resetGlobalSignaldockDb_TESTING_ONLY, ensureConduitDb } =
+  const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY, ensureConduitDb } =
     await import('@cleocode/core/internal');
-  _resetGlobalSignaldockDb_TESTING_ONLY();
-  await ensureGlobalSignaldockDb();
+  _resetGlobalAgentRegistryDb_TESTING_ONLY();
+  await ensureGlobalAgentRegistryDb();
   await ensureConduitDb(projectRoot);
 
-  const dbPath = join(cleoHome, 'signaldock.db');
+  // E6-L5 (T11525) / T11622: the Agent Registry consolidated into the GLOBAL cleo.db.
+  const dbPath = join(cleoHome, 'cleo.db');
 
   // Seed the two skills the .cant fixtures reference so junction-insert
   // has something to match. The historian fixture also references more,
   // but extras are expected to soft-warn — not fail.
   const seedDb = new DatabaseSync(dbPath);
   seedDb.exec('PRAGMA foreign_keys = ON');
-  const nowTs = Math.floor(Date.now() / 1000);
+  const nowIso = new Date().toISOString();
   for (const [id, slug, name] of [
     ['skill-ct-cleo', 'ct-cleo', 'CT CLEO'],
     ['skill-ct-validator', 'ct-validator', 'CT Validator'],
@@ -168,15 +169,15 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
   ] as const) {
     seedDb
       .prepare(
-        `INSERT OR IGNORE INTO skills (id, slug, name, description, category, created_at)
+        `INSERT OR IGNORE INTO agent_registry_skills (id, slug, name, description, category, created_at)
          VALUES (?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, slug, name, `${name} fixture`, 'core', nowTs);
+      .run(id, slug, name, `${name} fixture`, 'core', nowIso);
   }
   seedDb.close();
 
   const cleanup = (): void => {
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
     rmSync(base, { recursive: true, force: true });
   };
 
@@ -321,7 +322,9 @@ describe('T889 cleo agent install — real sqlite + real fs', () => {
     const db = openDb(env.dbPath);
     try {
       const row = db
-        .prepare('SELECT tier, cant_path, installed_from FROM agents WHERE agent_id = ?')
+        .prepare(
+          'SELECT tier, cant_path, installed_from FROM agent_registry_agents WHERE agent_id = ?',
+        )
         .get('fixture-cli-agent') as
         | { tier: string; cant_path: string; installed_from: string }
         | undefined;
@@ -353,9 +356,9 @@ describe('T889 cleo agent install — real sqlite + real fs', () => {
 
     const db = openDb(env.dbPath);
     try {
-      const row = db.prepare('SELECT tier FROM agents WHERE agent_id = ?').get('cleo-historian') as
-        | { tier: string }
-        | undefined;
+      const row = db
+        .prepare('SELECT tier FROM agent_registry_agents WHERE agent_id = ?')
+        .get('cleo-historian') as { tier: string } | undefined;
       expect(row?.tier).toBe('global');
     } finally {
       db.close();

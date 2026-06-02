@@ -74,24 +74,24 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
     };
   });
 
-  const { ensureGlobalSignaldockDb, _resetGlobalSignaldockDb_TESTING_ONLY } = await import(
-    '../../store/signaldock-sqlite.js'
+  const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
+    '../../store/agent-registry-store.js'
   );
-  _resetGlobalSignaldockDb_TESTING_ONLY();
-  await ensureGlobalSignaldockDb();
+  _resetGlobalAgentRegistryDb_TESTING_ONLY();
+  await ensureGlobalAgentRegistryDb();
 
   const dbPath = join(cleoHome, 'cleo.db'); // E6-L5 (T11525): signaldock consolidated into GLOBAL cleo.db
 
   // Seed the skills catalog so junction writes succeed.
   const seedDb = new DatabaseSync(dbPath);
   seedDb.exec('PRAGMA foreign_keys = ON');
-  const nowTs = Math.floor(Date.now() / 1000);
+  const nowIso = new Date().toISOString();
   seedDb
     .prepare(
-      `INSERT OR IGNORE INTO skills (id, slug, name, description, category, created_at)
+      `INSERT OR IGNORE INTO agent_registry_skills (id, slug, name, description, category, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
     )
-    .run('skill-ct-cleo', 'ct-cleo', 'CT CLEO', 'CLEO task protocol', 'core', nowTs);
+    .run('skill-ct-cleo', 'ct-cleo', 'CT CLEO', 'CLEO task protocol', 'core', nowIso);
   seedDb.close();
 
   // Install fixture agent CANT
@@ -104,7 +104,7 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
     return d;
   };
   const cleanup = (): void => {
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
     removeTempDirSync(base);
   };
   return {

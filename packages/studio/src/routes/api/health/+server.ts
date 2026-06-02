@@ -10,7 +10,7 @@
  *       brain: { … },
  *       tasks: { … },
  *       conduit: { … },
- *       signaldock: { … },
+ *       agent-registry: { … },
  *     }
  *   }
  *
@@ -28,11 +28,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { json } from '@sveltejs/kit';
 import {
+  getAgentRegistryDb,
   getBrainDb,
   getConduitDb,
   getDbStatus,
   getNexusDb,
-  getSignaldockDb,
   getTasksDb,
 } from '$lib/server/db/connections.js';
 import type { RequestHandler } from './$types';
@@ -173,7 +173,7 @@ export const GET: RequestHandler = ({ locals }) => {
   }
 
   if (dbStatus.signaldock) {
-    const db = getSignaldockDb();
+    const db = getAgentRegistryDb();
     if (db) {
       signaldockReport.schemaVersion = safeSchemaVersion(db);
     }
@@ -190,7 +190,7 @@ export const GET: RequestHandler = ({ locals }) => {
       brain: brainReport,
       tasks: tasksReport,
       conduit: conduitReport,
-      signaldock: signaldockReport,
+      'agent-registry': signaldockReport,
     },
   });
 };

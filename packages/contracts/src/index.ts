@@ -1949,12 +1949,12 @@ export {
 } from './status-registry.js';
 // === Sub-Accessor Contracts (T9188) ===
 export type {
+  AgentRegistrySubAccessor,
   BrainAccessor,
   BrainMemoryHit,
   BrainObserveParams,
   ConduitAccessor,
   NexusAccessor,
-  SignaldockAccessor,
   TelemetryAccessor,
 } from './sub-accessors.js';
 export type {

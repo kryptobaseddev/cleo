@@ -49,7 +49,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getCleoGlobalCantAgentsDir, getCleoHome } from '../paths.js';
 import { installAgentFromCant } from '../store/agent-install.js';
-// ensureGlobalSignaldockDb / getGlobalSignaldockDbPath removed — openCleoDb handles init (T9189)
+// ensureGlobalAgentRegistryDb / getGlobalAgentRegistryDbPath removed — openCleoDb handles init (T9189)
 import { resolveAgentTemplates } from './resolveAgentTemplates.js';
 import { loadProjectContext, substituteCantAgentBody } from './variable-substitution.js';
 
@@ -627,7 +627,7 @@ export interface ProjectTierForceInstallResult {
  *
  * Pre-conditions:
  * - The global `signaldock.db` is bootstrapped via {@link
- *   ensureGlobalSignaldockDb} before any DB write.
+ *   ensureGlobalAgentRegistryDb} before any DB write.
  * - When the scanned directory is empty / missing, the result is an empty
  *   `installed` array (no error).
  *
@@ -680,13 +680,13 @@ export async function forceInstallProjectTierAgents(
   }
 
   // E6-L6 (T11526): the `agents` family is the legacy signaldock schema inside
-  // the global cleo.db — ensureGlobalSignaldockDb() guarantees those tables exist
+  // the global cleo.db — ensureGlobalAgentRegistryDb() guarantees those tables exist
   // (openCleoDb('global') alone only runs the consolidated schema).
-  const { ensureGlobalSignaldockDb, getGlobalSignaldockNativeDb } = await import(
-    '../store/signaldock-sqlite.js'
+  const { ensureGlobalAgentRegistryDb, getGlobalAgentRegistryNativeDb } = await import(
+    '../store/agent-registry-store.js'
   );
-  await ensureGlobalSignaldockDb();
-  const db = getGlobalSignaldockNativeDb();
+  await ensureGlobalAgentRegistryDb();
+  const db = getGlobalAgentRegistryNativeDb();
   if (!db) {
     throw new Error(
       'seed-install: global signaldock cleo.db could not be opened (no native handle)',
@@ -824,7 +824,7 @@ export function rerouteLegacyStarterBundlePaths(
   db: RerouteLegacyDb,
 ): RerouteLegacyStarterBundleResult {
   const rows = db
-    .prepare('SELECT id, agent_id, cant_path FROM agents WHERE cant_path LIKE ?')
+    .prepare('SELECT id, agent_id, cant_path FROM agent_registry_agents WHERE cant_path LIKE ?')
     .all(`%${LEGACY_CLEO_OS_STARTER_BUNDLE_SUBSTR}%`) as LegacyStarterBundleAgentRow[];
 
   const newBundleRoot = resolveAgentTemplates();
@@ -848,7 +848,7 @@ export function rerouteLegacyStarterBundlePaths(
     return { rewrittenRows: 0, agents: [], skippedRows: skipped };
   }
 
-  const update = db.prepare('UPDATE agents SET cant_path = ? WHERE id = ?');
+  const update = db.prepare('UPDATE agent_registry_agents SET cant_path = ? WHERE id = ?');
 
   for (const row of rows) {
     const oldPath = row.cant_path;

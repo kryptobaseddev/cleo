@@ -37,7 +37,7 @@
     nexus: 'var(--success)',
     tasks: 'var(--warning)',
     conduit: 'var(--accent)',
-    signaldock: 'var(--danger)',
+    'agent-registry': 'var(--danger)',
   };
 
   /**
