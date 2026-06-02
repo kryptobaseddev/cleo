@@ -174,7 +174,7 @@ export interface StageDriftOutcome {
 function queryActiveEpics(db: DatabaseSync): Array<{ id: string; pipeline_stage: string | null }> {
   const sql = `
     SELECT id, pipeline_stage
-    FROM tasks
+    FROM tasks_tasks
     WHERE type = 'epic'
       AND status IN ('pending', 'active', 'blocked')
     ORDER BY id ASC
@@ -241,7 +241,7 @@ function buildDriftProposalInsert(
 
   // DB column is named 'role' (T9067 deferral — CHECK constraint defers rename)
   const sql = `
-    INSERT INTO tasks (
+    INSERT INTO tasks_tasks (
       id, title, description, status, priority,
       labels_json, notes_json,
       created_at, updated_at,
@@ -446,7 +446,7 @@ export async function runStageDriftScan(options: StageDriftOptions): Promise<Sta
         // filters (now junction joins, not labels_json LIKE) see this proposal.
         if (db) {
           const labelStmt = db.prepare(
-            'INSERT OR IGNORE INTO task_labels (task_id, label) VALUES (?, ?)',
+            'INSERT OR IGNORE INTO tasks_task_labels (task_id, label) VALUES (?, ?)',
           );
           labelStmt.run(taskId, 'sentient-tier2');
           labelStmt.run(taskId, DRIFT_SOURCE_LABEL);

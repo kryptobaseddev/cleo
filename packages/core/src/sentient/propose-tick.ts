@@ -475,7 +475,7 @@ export async function runProposeTick(options: ProposeTickOptions): Promise<Propo
 
     // DB column is named 'role' (T9067 deferral — CHECK constraint defers rename)
     const insertSql = `
-      INSERT INTO tasks (
+      INSERT INTO tasks_tasks (
         id, title, description, status, priority,
         labels_json, notes_json,
         created_at, updated_at,
@@ -517,7 +517,7 @@ export async function runProposeTick(options: ProposeTickOptions): Promise<Propo
         // labels_json LIKE — see this proposal. INSERT OR IGNORE is idempotent.
         if (tasksNativeDb) {
           const labelStmt = tasksNativeDb.prepare(
-            'INSERT OR IGNORE INTO task_labels (task_id, label) VALUES (?, ?)',
+            'INSERT OR IGNORE INTO tasks_task_labels (task_id, label) VALUES (?, ?)',
           );
           labelStmt.run(taskId, TIER2_LABEL);
           labelStmt.run(taskId, `source:${candidate.source}`);
@@ -715,8 +715,8 @@ export async function runProposalAutoPromoteScan(
               t.labels_json, t.notes_json, t.created_at, t.updated_at,
               t.acceptance_json, t.type, t.kind, t.scope, t.phase,
               t.pipeline_stage, t.blocked_by
-       FROM tasks t
-       INNER JOIN task_labels tl ON tl.task_id = t.id AND tl.label = ?
+       FROM tasks_tasks t
+       INNER JOIN tasks_task_labels tl ON tl.task_id = t.id AND tl.label = ?
        WHERE t.status = 'proposed'
        ORDER BY t.created_at ASC`,
     )
@@ -759,7 +759,7 @@ export async function runProposalAutoPromoteScan(
 
   const now = new Date().toISOString();
   const updateStmt = tasksNativeDb.prepare(
-    `UPDATE tasks SET status = 'pending', updated_at = ? WHERE id = ? AND status = 'proposed'`,
+    `UPDATE tasks_tasks SET status = 'pending', updated_at = ? WHERE id = ? AND status = 'proposed'`,
   );
 
   for (const { row } of toConsider) {

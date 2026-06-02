@@ -70,7 +70,7 @@ function insertTask(
   const status = row.status ?? 'pending';
   const pipelineStage = status === 'done' ? 'contribution' : null;
   db.prepare(
-    'INSERT INTO tasks (id, title, type, status, parent_id, labels_json, pipeline_stage) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO tasks_tasks (id, title, type, status, parent_id, labels_json, pipeline_stage) VALUES (?, ?, ?, ?, ?, ?, ?)',
   ).run(
     row.id,
     row.title,

@@ -80,10 +80,12 @@ describe('allocateNextTaskId', () => {
     `)
       .run();
 
-    // Insert T006 to cause a collision on next allocation
+    // Insert T006 to cause a collision on next allocation.
+    // T11578 · AC1: the allocator's collision probe + repairSequence read the
+    // PREFIXED consolidated table, so seed the blocking row there.
     nativeDb
       .prepare(
-        `INSERT INTO tasks (id, title, status, priority, created_at) VALUES (?, ?, 'pending', 'medium', datetime('now'))`,
+        `INSERT INTO tasks_tasks (id, title, status, priority, created_at) VALUES (?, ?, 'pending', 'medium', datetime('now'))`,
       )
       .run('T006', 'Blocking task');
 

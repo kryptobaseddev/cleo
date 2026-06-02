@@ -486,7 +486,7 @@ export async function loadOwningTaskStatuses(
   if (!db) return out;
 
   const placeholders = taskIds.map(() => '?').join(', ');
-  const sql = `SELECT id, status FROM tasks WHERE id IN (${placeholders})`;
+  const sql = `SELECT id, status FROM tasks_tasks WHERE id IN (${placeholders})`;
   const rows = db.prepare(sql).all(...taskIds) as Array<{ id: string; status: string }>;
   for (const row of rows) {
     out.set(row.id, row.status);

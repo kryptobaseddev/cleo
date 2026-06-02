@@ -34,12 +34,12 @@ describe('dedupHash exact json_extract (T11357 AC1)', () => {
   function createTasksDb(): DatabaseSync {
     const db = new DatabaseSync(':memory:');
     db.exec(`
-      CREATE TABLE tasks (
+      CREATE TABLE tasks_tasks (
         id TEXT PRIMARY KEY, parent_id TEXT, title TEXT, status TEXT,
         labels_json TEXT DEFAULT '[]', notes_json TEXT DEFAULT '[]',
         created_at TEXT NOT NULL
       );
-      CREATE TABLE task_labels (task_id TEXT, label TEXT, PRIMARY KEY (task_id, label));
+      CREATE TABLE tasks_task_labels (task_id TEXT, label TEXT, PRIMARY KEY (task_id, label));
     `);
     return db;
   }
@@ -47,9 +47,9 @@ describe('dedupHash exact json_extract (T11357 AC1)', () => {
   function insertProposal(db: DatabaseSync, id: string, dedupHash: string): void {
     const meta = JSON.stringify({ kind: 'proposal-meta', dedupHash });
     db.prepare(
-      'INSERT INTO tasks (id, parent_id, title, status, notes_json, created_at) VALUES (?, NULL, ?, ?, ?, ?)',
+      'INSERT INTO tasks_tasks (id, parent_id, title, status, notes_json, created_at) VALUES (?, NULL, ?, ?, ?, ?)',
     ).run(id, `[T2-BRAIN] ${id}`, 'proposed', JSON.stringify([meta]), new Date().toISOString());
-    db.prepare('INSERT INTO task_labels (task_id, label) VALUES (?, ?)').run(
+    db.prepare('INSERT INTO tasks_task_labels (task_id, label) VALUES (?, ?)').run(
       id,
       SENTIENT_TIER2_TAG,
     );
@@ -159,14 +159,16 @@ describe('session list append via json_insert($[#]) (T11357 AC4)', () => {
     const schema = await import('../tasks-schema.js');
 
     const nativeDb = openNativeDatabase(join(tempDir, 'tasks.db'));
+    // T11578 · AC1: appendSessionListItem now targets the PREFIXED consolidated
+    // sessions table, so the unit-test fixture creates `tasks_sessions`.
     nativeDb.exec(`
-      CREATE TABLE sessions (
+      CREATE TABLE tasks_sessions (
         id TEXT PRIMARY KEY,
         notes_json TEXT DEFAULT '[]',
         tasks_completed_json TEXT DEFAULT '[]',
         tasks_created_json TEXT DEFAULT '[]'
       );
-      INSERT INTO sessions (id) VALUES ('ses_1');
+      INSERT INTO tasks_sessions (id) VALUES ('ses_1');
     `);
     const db = drizzle({ client: nativeDb, schema });
 
@@ -177,7 +179,7 @@ describe('session list append via json_insert($[#]) (T11357 AC4)', () => {
     // Read whole-value via json(col).
     const row = nativeDb
       .prepare(
-        "SELECT json(tasks_completed_json) AS completed, json(notes_json) AS notes FROM sessions WHERE id = 'ses_1'",
+        "SELECT json(tasks_completed_json) AS completed, json(notes_json) AS notes FROM tasks_sessions WHERE id = 'ses_1'",
       )
       .get() as { completed: string; notes: string };
     expect(JSON.parse(row.completed)).toEqual(['T100', 'T200']);

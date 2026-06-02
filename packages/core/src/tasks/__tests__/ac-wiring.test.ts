@@ -195,7 +195,9 @@ describe('updateTask — AC dual-write update paths (T10508)', () => {
     expect(native).toBeTruthy();
     const historyRows = native!
       .prepare(
-        'SELECT ac_id, previous_text, reason FROM task_acceptance_criteria_history ORDER BY id ASC',
+        // T11578 · AC1: runtime now writes the AC-history rows to the PREFIXED
+        // consolidated table; read it back from there.
+        'SELECT ac_id, previous_text, reason FROM tasks_task_acceptance_criteria_history ORDER BY id ASC',
       )
       .all() as Array<{ ac_id: string; previous_text: string; reason: string }>;
     expect(historyRows).toHaveLength(2);
@@ -243,7 +245,9 @@ describe('updateTask — AC dual-write update paths (T10508)', () => {
     const native = getNativeTasksDb();
     const historyRows = native!
       .prepare(
-        'SELECT ac_id, previous_text, reason FROM task_acceptance_criteria_history ORDER BY id ASC',
+        // T11578 · AC1: runtime now writes the AC-history rows to the PREFIXED
+        // consolidated table; read it back from there.
+        'SELECT ac_id, previous_text, reason FROM tasks_task_acceptance_criteria_history ORDER BY id ASC',
       )
       .all() as Array<{ ac_id: string; previous_text: string; reason: string }>;
     expect(historyRows).toHaveLength(2);
@@ -294,7 +298,8 @@ describe('updateTask — AC dual-write update paths (T10508)', () => {
     const native = getNativeTasksDb();
     const historyAcIds = (
       native!
-        .prepare('SELECT ac_id FROM task_acceptance_criteria_history ORDER BY id ASC')
+        // T11578 · AC1: read AC-history from the PREFIXED consolidated table.
+        .prepare('SELECT ac_id FROM tasks_task_acceptance_criteria_history ORDER BY id ASC')
         .all() as Array<{ ac_id: string }>
     ).map((h) => h.ac_id);
     expect(historyAcIds.sort()).toEqual([...droppedIds].sort());

@@ -80,7 +80,7 @@ describe('drift-watchdog', () => {
       id: 'T9001',
       title: 'In-scope only',
       description: 'Drift test fixture — declared exactly matches modified.',
-      status: 'in_progress',
+      status: 'active', // T11578 AC1: 'in_progress' not a valid TASK_STATUSES member (consolidated CHECK)
       priority: 'medium',
       files: ['src/a.ts', 'src/b.ts'],
     };
@@ -117,7 +117,7 @@ describe('drift-watchdog', () => {
       id: 'T9002',
       title: 'Narrow scope',
       description: 'Drift test fixture — declared scope is intentionally narrow.',
-      status: 'in_progress',
+      status: 'active', // T11578 AC1: 'in_progress' not a valid TASK_STATUSES member (consolidated CHECK)
       priority: 'medium',
       files: ['src/audit.ts'],
     };
@@ -163,7 +163,7 @@ describe('drift-watchdog', () => {
       id: 'T9003',
       title: 'Mostly in-scope',
       description: 'Drift test fixture — only one file outside declared scope.',
-      status: 'in_progress',
+      status: 'active', // T11578 AC1: 'in_progress' not a valid TASK_STATUSES member (consolidated CHECK)
       priority: 'medium',
       files: ['src/a.ts', 'src/b.ts', 'src/c.ts'],
     };

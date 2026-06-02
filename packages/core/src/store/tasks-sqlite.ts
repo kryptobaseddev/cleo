@@ -11,6 +11,7 @@
 import {
   ARCHIVE_REASON_TOMBSTONE,
   ArchiveReasonTombstoneError,
+  type ArchiveReasonValue,
   isArchiveTombstoneAllowed,
   type Task,
   type TaskStatus,
@@ -245,9 +246,14 @@ export async function archiveTask(taskId: string, reason?: string, cwd?: string)
   // env flag is set. The fallback when no reason is supplied still maps to
   // the tombstone (since DB CHECK requires one of the 6 enum values), but
   // explicit caller-supplied tombstones from non-migration code are rejected.
-  const normalizedReason = (() => {
+  // T11578 · AC1: the consolidated `tasks_tasks.archive_reason` column is
+  // CHECK-backed by the T1408 enum, so the writer must produce a value typed as
+  // `ArchiveReasonValue` (the prefixed schema narrows the column type). The
+  // normalization already only ever yields canonical enum values; the explicit
+  // return type makes that guarantee visible to the drizzle `.set()` overload.
+  const normalizedReason: ArchiveReasonValue = (() => {
     if (!reason) return ARCHIVE_REASON_TOMBSTONE;
-    const valid = new Set([
+    const valid = new Set<ArchiveReasonValue>([
       'verified',
       'reconciled',
       'superseded',
@@ -258,7 +264,7 @@ export async function archiveTask(taskId: string, reason?: string, cwd?: string)
     if (reason === ARCHIVE_REASON_TOMBSTONE && !isArchiveTombstoneAllowed()) {
       throw new ArchiveReasonTombstoneError(taskId);
     }
-    if (valid.has(reason)) return reason;
+    if (valid.has(reason as ArchiveReasonValue)) return reason as ArchiveReasonValue;
     if (reason === 'deleted') return 'cancelled';
     return ARCHIVE_REASON_TOMBSTONE;
   })();
@@ -405,9 +411,9 @@ export async function getBlockerChain(taskId: string, cwd?: string): Promise<str
   const result = nativeDb
     .prepare(`
     WITH RECURSIVE blocker_chain(id) AS (
-      SELECT depends_on FROM task_dependencies WHERE task_id = ?
+      SELECT depends_on FROM tasks_task_dependencies WHERE task_id = ?
       UNION
-      SELECT td.depends_on FROM task_dependencies td
+      SELECT td.depends_on FROM tasks_task_dependencies td
       JOIN blocker_chain bc ON td.task_id = bc.id
     )
     SELECT id FROM blocker_chain
@@ -436,9 +442,9 @@ export async function getSubtree(rootId: string, cwd?: string): Promise<Task[]> 
   const rows = nativeDb
     .prepare(`
     WITH RECURSIVE subtree AS (
-      SELECT * FROM tasks WHERE id = ?
+      SELECT * FROM tasks_tasks WHERE id = ?
       UNION ALL
-      SELECT t.* FROM tasks t
+      SELECT t.* FROM tasks_tasks t
       JOIN subtree s ON t.parent_id = s.id
     )
     SELECT * FROM subtree

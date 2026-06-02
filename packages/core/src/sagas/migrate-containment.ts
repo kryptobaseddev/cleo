@@ -136,7 +136,7 @@ export async function migrateSagaContainment(
   const sagaArgs: unknown[] = sagaId ? [sagaId] : [];
 
   const sagas = db.all(
-    `SELECT DISTINCT p.id, p.title FROM tasks p WHERE p.type = 'saga' ${sagaFilter} ORDER BY p.id`,
+    `SELECT DISTINCT p.id, p.title FROM tasks_tasks p WHERE p.type = 'saga' ${sagaFilter} ORDER BY p.id`,
     ...sagaArgs,
   ) as Array<{ id: string; title: string }>;
 
@@ -157,9 +157,9 @@ export async function migrateSagaContainment(
 
   const epics = db.all(
     `SELECT t.id, t.title, t.parent_id as parentId, p.id as sagaId
-     FROM task_relations r
-     JOIN tasks p ON r.task_id = p.id
-     JOIN tasks t ON r.related_to = t.id
+     FROM tasks_task_relations r
+     JOIN tasks_tasks p ON r.task_id = p.id
+     JOIN tasks_tasks t ON r.related_to = t.id
      WHERE r.relation_type = 'groups'
        AND p.type = 'saga'
        AND t.type = 'epic'
@@ -171,9 +171,9 @@ export async function migrateSagaContainment(
   // 3. Find legacy groups relations whose target is not an Epic (conflicts).
   const tasks = db.all(
     `SELECT t.id, t.title, t.type, t.parent_id as parentId, p.id as sagaId
-     FROM task_relations r
-     JOIN tasks p ON r.task_id = p.id
-     JOIN tasks t ON r.related_to = t.id
+     FROM tasks_task_relations r
+     JOIN tasks_tasks p ON r.task_id = p.id
+     JOIN tasks_tasks t ON r.related_to = t.id
      WHERE r.relation_type = 'groups'
        AND p.type = 'saga'
        AND t.type != 'epic'

@@ -62,7 +62,8 @@ class FakeDb {
     return {
       all: (...params: readonly unknown[]) => {
         this.prepared.push({ sql, params: params.map(String) });
-        if (sql.includes('FROM task_dependencies')) return this.rowsByTable.dependencies ?? [];
+        if (sql.includes('FROM tasks_task_dependencies'))
+          return this.rowsByTable.dependencies ?? [];
         return this.rowsByTable.relations ?? [];
       },
     };
@@ -87,7 +88,7 @@ describe('SqliteWorkGraphRelationQueryService', () => {
     const result = service.listRelationEdges({ rootId: 'T1', direction: 'out' });
 
     expect(db.prepared).toHaveLength(1);
-    expect(db.prepared[0]?.sql).toContain('FROM task_relations');
+    expect(db.prepared[0]?.sql).toContain('FROM tasks_task_relations');
     expect(db.prepared[0]?.sql).toContain('WHERE task_id = ?');
     expect(db.prepared[0]?.sql).not.toContain('task_dependencies');
     expect(db.prepared[0]?.params).toEqual(['T1']);
@@ -188,8 +189,8 @@ describe('SqliteWorkGraphRelationQueryService', () => {
     });
 
     expect(db.prepared).toHaveLength(2);
-    expect(db.prepared[0]?.sql).toContain('FROM task_relations');
-    expect(db.prepared[1]?.sql).toContain('FROM task_dependencies');
+    expect(db.prepared[0]?.sql).toContain('FROM tasks_task_relations');
+    expect(db.prepared[1]?.sql).toContain('FROM tasks_task_dependencies');
     expect(db.prepared[1]?.sql).toContain('WHERE (task_id = ? OR depends_on = ?)');
     expect(result.edges).toEqual([
       {

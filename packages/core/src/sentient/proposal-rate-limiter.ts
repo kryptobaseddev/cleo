@@ -71,7 +71,7 @@ export function countTodayProposals(nativeDb: DatabaseSync | null): number {
 
   const stmt = nativeDb.prepare(`
     SELECT COUNT(*) as cnt
-    FROM tasks
+    FROM tasks_tasks
     WHERE labels_json LIKE :labelPattern
       AND date(created_at) = date('now')
       AND status IN ('proposed', 'pending', 'active', 'done')
