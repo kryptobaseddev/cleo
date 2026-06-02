@@ -203,6 +203,56 @@ function readJournal(stagingDir: string): ExodusJournal | null {
 }
 
 /**
+ * Invalidate the migrate journal after an aborted/rolled-back migration so a
+ * post-abort retry RE-COPIES every table from scratch (T11572).
+ *
+ * ## Why this is required for retry correctness
+ *
+ * `runExodusMigrate` is resumable (AC5): after each table copy it writes a
+ * journal entry with `status: 'done'`, and a subsequent run SKIPS any table
+ * already marked `done`. That resume optimisation is correct only while the
+ * consolidated rows it copied still EXIST. When the parity gate aborts, the
+ * exodus-on-open hook truncates the consolidated tables back to EMPTY
+ * (`rollbackConsolidatedToEmpty`) — but the on-disk journal still says every
+ * table is `done`. The next open therefore re-triggers (consolidated empty),
+ * runs `runExodusMigrate` again, finds every table `done` in the journal, copies
+ * NOTHING, re-verifies the still-empty target, and re-aborts — a permanent loop
+ * that pays the full migrate+verify cost on every open.
+ *
+ * Deleting the journal file forces `runExodusMigrate` to `initJournal()` afresh,
+ * so the retry actually re-copies. Idempotent and best-effort: a missing journal
+ * (or a missing staging dir) is a no-op. The staging backups are intentionally
+ * LEFT in place (they are the legacy source-of-truth snapshots — harmless to
+ * keep, valuable for forensics); only the progress journal is cleared.
+ *
+ * @param stagingDir - The staging directory whose `exodus-journal.json` to clear.
+ * @returns `true` if a journal file was removed, `false` if there was nothing to
+ *   remove.
+ *
+ * @task T11572 (abort/rollback must invalidate journal so retry re-copies)
+ * @epic T11249 (E6)
+ * @saga T11242
+ */
+export function clearExodusJournal(stagingDir: string): boolean {
+  const journalPath = join(stagingDir, JOURNAL_FILENAME);
+  try {
+    if (!existsSync(journalPath)) return false;
+    unlinkSync(journalPath);
+    log.info(
+      { stagingDir },
+      'exodus: cleared migrate journal after abort/rollback — a retry will RE-COPY all tables',
+    );
+    return true;
+  } catch (err) {
+    log.warn(
+      { err, stagingDir },
+      'exodus: failed to clear migrate journal after rollback (a retry may skip already-"done" tables)',
+    );
+    return false;
+  }
+}
+
+/**
  * Initialise a fresh journal object.
  */
 function initJournal(sqliteVersion: string): ExodusJournal {

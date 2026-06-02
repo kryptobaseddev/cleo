@@ -9,10 +9,11 @@
  * @saga T11242
  */
 
-export { runExodusMigrate } from './migrate.js';
+export { clearExodusJournal, runExodusMigrate } from './migrate.js';
 export { buildExodusPlan, deriveStagingDirName, sourcesPresent } from './plan.js';
 export { runExodusStatus } from './status.js';
 export {
+  isDerivedOrInternalTable,
   resolveConsolidatedTableName,
   reverseLookup,
   type TableNameResolution,

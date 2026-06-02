@@ -33,15 +33,26 @@
  *
  * After the copy, `verifyMigration` (T11551) compares row counts + canonical
  * digests + FK integrity + enum drift legacy↔consolidated. The data-continuity
- * gate is **row-count parity + zero FK orphans** (hash/enum drift are the
- * expected normalisation diagnostics — see {@link isDataContinuityOk}). If a
- * genuine deficit/orphan is detected the hook **aborts the cutover**: it rolls
- * the half-migrated consolidated tables back to EMPTY (`DELETE FROM` every user
- * table — see {@link rollbackConsolidatedToEmpty}) so the legacy DBs remain the
- * source of truth, no half-migrated `cleo.db` is exposed, and there are no silent
- * `INSERT OR IGNORE` row drops. The file is never unlinked; the chokepoint
- * re-opens a fresh handle afterwards (the migrate engine closes the handles it
- * opened, so the rollback re-opens the scope before truncating it).
+ * gate is **row-count parity + zero migration-INTRODUCED FK orphans** (hash/enum
+ * drift are the expected normalisation diagnostics, and pre-existing SOURCE FK
+ * orphans are tolerated as zero-loss — see {@link isDataContinuityOk}). If a
+ * genuine deficit/introduced-orphan is detected the hook **aborts the cutover**:
+ * it rolls the half-migrated consolidated tables back to EMPTY (`DELETE FROM`
+ * every user table — see {@link rollbackConsolidatedToEmpty}) so the legacy DBs
+ * remain the source of truth, no half-migrated `cleo.db` is exposed, and there
+ * are no silent `INSERT OR IGNORE` row drops. The file is never unlinked; the
+ * chokepoint re-opens a fresh handle afterwards (the migrate engine closes the
+ * handles it opened, so the rollback re-opens the scope before truncating it).
+ *
+ * ## Retry correctness — journal invalidation on abort (T11572)
+ *
+ * `runExodusMigrate` is resumable: it journals each table `done` and SKIPS
+ * already-`done` tables on a re-run. On abort we truncate the consolidated rows
+ * back to empty, so a stale `done` journal would make the next open re-trigger
+ * (target empty), copy NOTHING (journal says done), re-verify the still-empty
+ * target, and re-abort — a permanent loop. The abort path therefore also calls
+ * `clearExodusJournal(plan.stagingDir)` so a post-abort retry RE-COPIES from
+ * scratch.
  *
  * ## Concurrency safety (AC6 · reconcile with T11554 / R13-T11278)
  *
@@ -240,20 +251,33 @@ async function rollbackBothScopes(scope: DualScope): Promise<void> {
  *
  *   1. every data-bearing base table copied with EXACT row-count parity
  *      (`countMatch === true`), AND
- *   2. NO genuine referential orphans on the consolidated target
- *      (`foreignKeyViolations` empty).
+ *   2. NO referential orphans the migration INTRODUCED on the consolidated
+ *      target (`introducedForeignKeyViolations` empty).
+ *
+ * ## Pre-existing source orphans are tolerated (T11572)
+ *
+ * A legacy source DB can already contain referential orphans (e.g. a
+ * `tasks_task_relations` row pointing at a task that was deleted long before the
+ * migration). Those rows copy through faithfully — that is ZERO loss, not a
+ * migration defect — so they appear on BOTH sides and `verifyMigration`
+ * classifies them as `preExistingForeignKeyViolations`. Gating on the *total*
+ * orphan set (`foreignKeyViolations`) would permanently abort every real cutover
+ * over a defect the data already had. The gate therefore fails ONLY on
+ * `introducedForeignKeyViolations` — orphans present on the target that the
+ * source did not have (i.e. the migration dropped a parent row). Pre-existing
+ * orphans are logged as a WARN for a data-hygiene follow-up.
  *
  * Hash mismatch + source enum-drift are surfaced as WARN diagnostics (a true
- * content corruption would normally also show up as an FK orphan or a count
- * deficit), but they do NOT, on their own, indicate data loss.
+ * content corruption would normally also show up as an introduced FK orphan or a
+ * count deficit), but they do NOT, on their own, indicate data loss.
  *
  * @param result - The {@link VerifyMigrationResult} from `verifyMigration`.
- * @returns `true` when row-count parity holds for every table and there are no
- *   FK orphans — i.e. the cutover is safe.
+ * @returns `true` when row-count parity holds for every table and the migration
+ *   introduced no new FK orphans — i.e. the cutover is safe.
  */
 function isDataContinuityOk(result: VerifyMigrationResult): boolean {
   const allCountsMatch = result.tables.every((t) => t.countMatch);
-  return allCountsMatch && result.foreignKeyViolations.length === 0;
+  return allCountsMatch && result.introducedForeignKeyViolations.length === 0;
 }
 
 /**
@@ -322,7 +346,9 @@ export async function maybeRunExodusOnOpen(
 
   // Lazy-load the exodus engine via dynamic import to break the import cycle
   // (exodus/migrate.ts imports openDualScopeDb from dual-scope-db.ts).
-  const { buildExodusPlan, runExodusMigrate, verifyMigration } = await import('./index.js');
+  const { buildExodusPlan, runExodusMigrate, verifyMigration, clearExodusJournal } = await import(
+    './index.js'
+  );
 
   const plan = buildExodusPlan(cwd);
 
@@ -375,6 +401,9 @@ export async function maybeRunExodusOnOpen(
           // rolling the consolidated tables back to empty IN PLACE (handle stays
           // open; legacy DBs remain the source of truth).
           await rollbackBothScopes(scope);
+          // T11572: invalidate the journal so the NEXT open re-copies instead of
+          // resuming a half-done journal against the now-empty target (abort loop).
+          clearExodusJournal(migrateResult.stagingDir);
           const reason = `migration failed: ${migrateResult.error ?? 'unknown error'} — legacy DBs kept as source`;
           log.error({ scope, error: migrateResult.error }, `exodus-on-open: ${reason}`);
           return { outcome: 'aborted', reason };
@@ -410,18 +439,23 @@ export async function maybeRunExodusOnOpen(
           // source of truth. Never expose a lossy consolidated DB; never close the
           // caller's handle.
           await rollbackBothScopes(scope);
+          // T11572: invalidate the journal so a retry re-copies (see above).
+          clearExodusJournal(plan.stagingDir);
           const deficits = verifyResult.tables
             .filter((t) => !t.countMatch)
             .map((t) => `${t.targetTable}(${t.sourceCount}→${t.targetCount})`);
           const reason =
             `parity verification failed — cutover aborted, legacy DBs kept as source. ` +
             `count deficits: [${deficits.join(', ')}]; ` +
-            `fk orphans: ${verifyResult.foreignKeyViolations.length}. ${verifyResult.error ?? ''}`.trim();
+            `INTRODUCED fk orphans: ${verifyResult.introducedForeignKeyViolations.length} ` +
+            `(pre-existing source orphans tolerated: ${verifyResult.preExistingForeignKeyViolations.length}). ` +
+            `${verifyResult.error ?? ''}`.trim();
           log.error(
             {
               scope,
               countDeficits: deficits,
-              fkViolations: verifyResult.foreignKeyViolations.length,
+              introducedFkViolations: verifyResult.introducedForeignKeyViolations.length,
+              preExistingFkViolations: verifyResult.preExistingForeignKeyViolations.length,
             },
             'exodus-on-open: data-continuity FAILED — consolidated cleo.db rolled back to empty, legacy kept',
           );
