@@ -209,8 +209,17 @@ export async function migrateJsonToSqliteAtomic(
     const nativeDb = openNativeDatabase(tempDbPath, { enableWal: true });
     const db = drizzle({ client: nativeDb, schema });
 
-    // Run migrations to create tables
+    // Run migrations to create tables.
+    // T11578 · AC1: the runtime store now reads/writes the PREFIXED consolidated
+    // tables (`tasks_tasks`, …). This standalone temp DB is meant to become the
+    // project runtime DB, so it must carry the CONSOLIDATED schema first (which
+    // creates `tasks_tasks`) — the legacy `drizzle-tasks` bare schema is then
+    // applied for transition-period co-existence (same ordering getDb() uses).
     logger?.info('import', 'create-tables', 'Running drizzle migrations to create tables');
+    const { resolveCorePackageMigrationsFolder } = await import('./resolve-migrations-folder.js');
+    migrateSanitized(db, {
+      migrationsFolder: resolveCorePackageMigrationsFolder('drizzle-cleo-project'),
+    });
     const migrationsFolder = resolveMigrationsFolder();
     migrateSanitized(db, { migrationsFolder });
 

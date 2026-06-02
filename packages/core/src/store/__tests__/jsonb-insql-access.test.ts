@@ -159,14 +159,16 @@ describe('session list append via json_insert($[#]) (T11357 AC4)', () => {
     const schema = await import('../tasks-schema.js');
 
     const nativeDb = openNativeDatabase(join(tempDir, 'tasks.db'));
+    // T11578 · AC1: appendSessionListItem now targets the PREFIXED consolidated
+    // sessions table, so the unit-test fixture creates `tasks_sessions`.
     nativeDb.exec(`
-      CREATE TABLE sessions (
+      CREATE TABLE tasks_sessions (
         id TEXT PRIMARY KEY,
         notes_json TEXT DEFAULT '[]',
         tasks_completed_json TEXT DEFAULT '[]',
         tasks_created_json TEXT DEFAULT '[]'
       );
-      INSERT INTO sessions (id) VALUES ('ses_1');
+      INSERT INTO tasks_sessions (id) VALUES ('ses_1');
     `);
     const db = drizzle({ client: nativeDb, schema });
 
@@ -177,7 +179,7 @@ describe('session list append via json_insert($[#]) (T11357 AC4)', () => {
     // Read whole-value via json(col).
     const row = nativeDb
       .prepare(
-        "SELECT json(tasks_completed_json) AS completed, json(notes_json) AS notes FROM sessions WHERE id = 'ses_1'",
+        "SELECT json(tasks_completed_json) AS completed, json(notes_json) AS notes FROM tasks_sessions WHERE id = 'ses_1'",
       )
       .get() as { completed: string; notes: string };
     expect(JSON.parse(row.completed)).toEqual(['T100', 'T200']);
