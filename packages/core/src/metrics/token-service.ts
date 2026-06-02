@@ -15,13 +15,24 @@ import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getCleoHome } from '../paths.js';
-import { type NewTokenUsageRow, type TokenUsageRow, tokenUsage } from '../store/tasks-schema.js';
+import {
+  type NewTokenUsageRow,
+  type TOKEN_USAGE_TRANSPORTS,
+  type TokenUsageRow,
+  tokenUsage,
+} from '../store/tasks-schema.js';
 import { resolveProviderFromModelRegistry } from './model-provider-registry.js';
 import { detectRuntimeProviderContext } from './provider-detection.js';
 
 export type TokenMethod = 'otel' | 'provider_api' | 'tokenizer' | 'heuristic';
 export type TokenConfidence = 'real' | 'high' | 'estimated' | 'coarse';
-export type TokenTransport = 'cli' | 'api' | 'agent' | 'unknown';
+/**
+ * Transport origin of a token exchange. Derived from the canonical
+ * {@link TOKEN_USAGE_TRANSPORTS} enum SSoT (`cli | api | agent | mcp | unknown`)
+ * so the type, the schema CHECK, and the exodus normalization stay in lockstep
+ * (T11649 — `'mcp'` is a first-class origin, no longer coerced to `'agent'`).
+ */
+export type TokenTransport = (typeof TOKEN_USAGE_TRANSPORTS)[number];
 
 export interface TokenExchangeInput {
   requestPayload?: unknown;
