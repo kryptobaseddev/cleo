@@ -473,3 +473,184 @@ describe('verifyMigration — pre-existing source FK orphans tolerated (T11572)'
     expect(r.ok).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// T11577 — global-scope cutover: generalised internal-ledger skip + surplus.
+// The 3 real-data dry-run blockers: _signaldock_migrations (2→0),
+// _skills_meta (1→0), nexus_audit_log surplus (161923→161926).
+// ---------------------------------------------------------------------------
+
+describe('verifyMigration — generalised internal-ledger skip (T11577)', () => {
+  it('isDerivedOrInternalTable classifies signaldock/skills ledgers + any _<domain>_(meta|migrations)', () => {
+    // Exact known ledgers (the 3 real-data blockers' class).
+    expect(isDerivedOrInternalTable('_signaldock_meta')).toBe(true);
+    expect(isDerivedOrInternalTable('_signaldock_migrations')).toBe(true);
+    expect(isDerivedOrInternalTable('_skills_meta')).toBe(true);
+    // Pre-existing conduit ledgers still excluded (no regression).
+    expect(isDerivedOrInternalTable('_conduit_meta')).toBe(true);
+    expect(isDerivedOrInternalTable('_conduit_migrations')).toBe(true);
+    // Future-proof PATTERN: any _<domain>_meta / _<domain>_migrations ledger.
+    expect(isDerivedOrInternalTable('_brain_migrations')).toBe(true);
+    expect(isDerivedOrInternalTable('_tasks2_meta')).toBe(true);
+    expect(isDerivedOrInternalTable('_nexus_migrations')).toBe(true);
+    // Must NOT catch real data tables — including ones that merely END in
+    // a similar word but are not underscore-prefixed ledgers.
+    expect(isDerivedOrInternalTable('signaldock_skills')).toBe(false);
+    expect(isDerivedOrInternalTable('skills_skills')).toBe(false);
+    expect(isDerivedOrInternalTable('schema_meta')).toBe(false); // no leading underscore
+    expect(isDerivedOrInternalTable('brain_schema_meta')).toBe(false); // not _<domain>_meta shape
+    expect(isDerivedOrInternalTable('migrations')).toBe(false); // no _<domain>_ prefix
+    expect(isDerivedOrInternalTable('_metadata')).toBe(false); // not the _<domain>_meta shape
+  });
+
+  it('GREEN: signaldock source with _signaldock_meta/_migrations + _skills_meta verifies ok (no N→0 deficit)', () => {
+    const tmpDir = makeTempDir();
+    const sourcePath = join(tmpDir, 'signaldock.db');
+    const skillsPath = join(tmpDir, 'skills.db');
+    const projectPath = join(tmpDir, 'cleo-project.db');
+    const globalPath = join(tmpDir, 'cleo-global.db');
+    try {
+      // signaldock.db: a real base table (skills, 36 rows → signaldock_skills)
+      // PLUS the private ledger tables the real-data dry-run aborted on.
+      const sd = new DatabaseSync(sourcePath);
+      try {
+        sd.exec(`CREATE TABLE "skills" (id INTEGER PRIMARY KEY, slug TEXT)`);
+        for (let i = 1; i <= 36; i++) sd.exec(`INSERT INTO "skills" VALUES (${i}, 's-${i}')`);
+        sd.exec(`CREATE TABLE "_signaldock_meta" (key TEXT PRIMARY KEY, value TEXT)`);
+        sd.exec(`INSERT INTO "_signaldock_meta" VALUES ('schema_version', '3')`);
+        sd.exec(
+          `CREATE TABLE "_signaldock_migrations" (id INTEGER PRIMARY KEY, name TEXT, applied_at INTEGER)`,
+        );
+        sd.exec(`INSERT INTO "_signaldock_migrations" VALUES (1, 'init', 0)`);
+        sd.exec(`INSERT INTO "_signaldock_migrations" VALUES (2, 'add-skills', 1)`); // the 2→0 blocker
+      } finally {
+        sd.close();
+      }
+
+      // skills.db: a real base table (skills, 12 rows → skills_skills) + its
+      // _skills_meta ledger (the 1→0 blocker).
+      const sk = new DatabaseSync(skillsPath);
+      try {
+        sk.exec(`CREATE TABLE "skills" (id INTEGER PRIMARY KEY, name TEXT)`);
+        for (let i = 1; i <= 12; i++) sk.exec(`INSERT INTO "skills" VALUES (${i}, 'k-${i}')`);
+        sk.exec(`CREATE TABLE "_skills_meta" (key TEXT PRIMARY KEY, value TEXT)`);
+        sk.exec(`INSERT INTO "_skills_meta" VALUES ('schema_version', '1')`); // the 1→0 blocker
+      } finally {
+        sk.close();
+      }
+
+      // Consolidated GLOBAL target: the two base tables fully copied; the ledger
+      // tables have NO consolidated home (recreated by runtime).
+      const g = new DatabaseSync(globalPath);
+      try {
+        g.exec(`CREATE TABLE "signaldock_skills" (id INTEGER PRIMARY KEY, slug TEXT)`);
+        for (let i = 1; i <= 36; i++)
+          g.exec(`INSERT INTO "signaldock_skills" VALUES (${i}, 's-${i}')`);
+        g.exec(`CREATE TABLE "skills_skills" (id INTEGER PRIMARY KEY, name TEXT)`);
+        for (let i = 1; i <= 12; i++) g.exec(`INSERT INTO "skills_skills" VALUES (${i}, 'k-${i}')`);
+      } finally {
+        g.close();
+      }
+      new DatabaseSync(projectPath).close();
+
+      const sources: LegacyDbDescriptor[] = [
+        { name: 'signaldock', path: sourcePath, targetScope: 'global' },
+        { name: 'skills', path: skillsPath, targetScope: 'global' },
+      ];
+      const r = verifyMigration(sources, projectPath, globalPath);
+
+      // GREEN: base tables verified, ledger tables SKIPPED — no N→0 deficit.
+      expect(r.ok, r.error ?? '').toBe(true);
+      // The ledger tables must NOT appear as parity rows.
+      expect(r.tables.some((t) => t.targetTable.startsWith('_'))).toBe(false);
+      // The base tables ARE verified at full parity.
+      expect(r.tables.find((t) => t.targetTable === 'signaldock_skills')?.countMatch).toBe(true);
+      expect(r.tables.find((t) => t.targetTable === 'skills_skills')?.countMatch).toBe(true);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('verifyMigration — row SURPLUS is tolerated, DEFICIT still fails (T11577)', () => {
+  let tmpDir: string;
+  let sourcePath: string;
+  let projectPath: string;
+  let globalPath: string;
+
+  beforeEach(() => {
+    tmpDir = makeTempDir();
+    sourcePath = join(tmpDir, 'nexus.db');
+    projectPath = join(tmpDir, 'cleo-project.db');
+    globalPath = join(tmpDir, 'cleo-global.db');
+    new DatabaseSync(globalPath).close();
+
+    // Source: nexus_audit_log with 100 rows (stands in for the legacy audit log).
+    const src = new DatabaseSync(sourcePath);
+    try {
+      src.exec(`CREATE TABLE "nexus_audit_log" (id INTEGER PRIMARY KEY, action TEXT)`);
+      for (let i = 1; i <= 100; i++)
+        src.exec(`INSERT INTO "nexus_audit_log" VALUES (${i}, 'a-${i}')`);
+    } finally {
+      src.close();
+    }
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function sources(): LegacyDbDescriptor[] {
+    // nexus_audit_log lands in PROJECT scope (ADR-090 nexus residency).
+    return [{ name: 'nexus', path: sourcePath, targetScope: 'project' }];
+  }
+
+  it('GREEN: a target SURPLUS (more rows than source, e.g. migration-time audit writes) does NOT fail', () => {
+    // Target has 103 rows — the original 100 PLUS 3 rows the migration itself
+    // wrote during the migrating open (nexus/registry.ts writeNexusAudit). This
+    // is the exact 161923→161926 blocker shape. NOT data loss.
+    const tgt = new DatabaseSync(projectPath);
+    try {
+      tgt.exec(`CREATE TABLE "nexus_audit_log" (id INTEGER PRIMARY KEY, action TEXT)`);
+      for (let i = 1; i <= 103; i++)
+        tgt.exec(`INSERT INTO "nexus_audit_log" VALUES (${i}, 'a-${i}')`);
+    } finally {
+      tgt.close();
+    }
+
+    const r = verifyMigration(sources(), projectPath, globalPath);
+
+    // The gate is GREEN: a surplus is never loss.
+    expect(r.ok, r.error ?? '').toBe(true);
+    expect(r.error).toBeUndefined();
+    const entry = r.tables.find((t) => t.targetTable === 'nexus_audit_log');
+    expect(entry?.sourceCount).toBe(100);
+    expect(entry?.targetCount).toBe(103);
+    // The per-table countMatch field stays a STRICT diagnostic (100 !== 103) so
+    // the surplus remains visible to an operator inspecting the report.
+    expect(entry?.countMatch).toBe(false);
+  });
+
+  it('STILL FAILS: a genuine DEFICIT (target < source) aborts — surplus tolerance does NOT mask loss', () => {
+    // Target has only 97 rows — 3 are MISSING. This is real data loss.
+    const tgt = new DatabaseSync(projectPath);
+    try {
+      tgt.exec(`CREATE TABLE "nexus_audit_log" (id INTEGER PRIMARY KEY, action TEXT)`);
+      for (let i = 1; i <= 97; i++)
+        tgt.exec(`INSERT INTO "nexus_audit_log" VALUES (${i}, 'a-${i}')`);
+    } finally {
+      tgt.close();
+    }
+
+    const r = verifyMigration(sources(), projectPath, globalPath);
+
+    // Deficit → FAIL. The error names the table and reports the missing rows.
+    expect(r.ok).toBe(false);
+    expect(r.error).toBeDefined();
+    expect(r.error).toContain('nexus_audit_log');
+    expect(r.error).toMatch(/DEFICIT|missing/i);
+    const entry = r.tables.find((t) => t.targetTable === 'nexus_audit_log');
+    expect(entry?.sourceCount).toBe(100);
+    expect(entry?.targetCount).toBe(97);
+  });
+});

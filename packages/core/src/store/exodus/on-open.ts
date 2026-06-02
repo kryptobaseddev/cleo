@@ -249,10 +249,26 @@ async function rollbackBothScopes(scope: DualScope): Promise<void> {
  * The zero-loss invariant the exodus campaign actually proves (and the one the
  * representative real-data parity test asserts) is:
  *
- *   1. every data-bearing base table copied with EXACT row-count parity
- *      (`countMatch === true`), AND
+ *   1. every data-bearing base table copied with NO ROW DEFICIT
+ *      (`targetCount >= sourceCount` — you cannot LOSE a row you have MORE of),
+ *      AND
  *   2. NO referential orphans the migration INTRODUCED on the consolidated
  *      target (`introducedForeignKeyViolations` empty).
+ *
+ * ## A row SURPLUS is NOT data loss (T11577)
+ *
+ * Data loss means rows are MISSING: `targetCount < sourceCount` (a DEFICIT).
+ * A SURPLUS (`targetCount > sourceCount`) cannot be loss — every source row is
+ * still present, plus extra. The canonical benign surplus is the migration's
+ * OWN audit trail: `runExodusMigrate` opens the nexus registry, whose
+ * `writeNexusAudit` (`nexus/registry.ts`) appends rows to `nexus_audit_log`
+ * DURING the migrating open, so the consolidated `nexus_audit_log` legitimately
+ * has a few MORE rows than the legacy source (e.g. 161923 → 161926). Gating on
+ * exact `countMatch` (`source === target`) wrongly aborts the cutover on that
+ * append. The gate therefore fails ONLY on a genuine DEFICIT; a surplus is
+ * tolerated and logged as a WARN (with the table + delta) so it stays visible
+ * and a double-copy on a non-append table could still be spotted by an operator.
+ * Deficits are NEVER tolerated — that is the real data-loss class.
  *
  * ## Pre-existing source orphans are tolerated (T11572)
  *
@@ -272,12 +288,37 @@ async function rollbackBothScopes(scope: DualScope): Promise<void> {
  * count deficit), but they do NOT, on their own, indicate data loss.
  *
  * @param result - The {@link VerifyMigrationResult} from `verifyMigration`.
- * @returns `true` when row-count parity holds for every table and the migration
- *   introduced no new FK orphans — i.e. the cutover is safe.
+ * @returns `true` when NO base table has a row DEFICIT (`targetCount <
+ *   sourceCount`) and the migration introduced no new FK orphans — i.e. the
+ *   cutover is safe. A surplus (`targetCount > sourceCount`) is tolerated.
+ *
+ * @task T11577 (deficit-only gate — tolerate benign migration-time surplus)
  */
-function isDataContinuityOk(result: VerifyMigrationResult): boolean {
-  const allCountsMatch = result.tables.every((t) => t.countMatch);
-  return allCountsMatch && result.introducedForeignKeyViolations.length === 0;
+export function isDataContinuityOk(result: VerifyMigrationResult): boolean {
+  // A DEFICIT (target has FEWER rows than source) is the genuine data-loss
+  // class — abort. A SURPLUS (target has MORE, e.g. nexus_audit_log gaining the
+  // migration's own audit writes) is NOT loss; tolerate it but log a WARN so the
+  // table + delta stay visible (a surplus on a non-append table could hint at a
+  // double-copy worth an operator's attention).
+  const deficits = result.tables.filter((t) => t.targetCount < t.sourceCount);
+  const surpluses = result.tables.filter((t) => t.targetCount > t.sourceCount);
+  if (surpluses.length > 0) {
+    log.warn(
+      {
+        surpluses: surpluses.map((t) => ({
+          table: t.targetTable,
+          scope: t.scope,
+          source: t.sourceCount,
+          target: t.targetCount,
+          delta: t.targetCount - t.sourceCount,
+        })),
+      },
+      `exodus-on-open: ${surpluses.length} table(s) have MORE rows in target than source ` +
+        `(row surplus — NOT data loss, tolerated; e.g. migration-time nexus_audit_log writes). ` +
+        `Verify none is an unexpected double-copy on a non-append table.`,
+    );
+  }
+  return deficits.length === 0 && result.introducedForeignKeyViolations.length === 0;
 }
 
 /**
@@ -441,8 +482,10 @@ export async function maybeRunExodusOnOpen(
           await rollbackBothScopes(scope);
           // T11572: invalidate the journal so a retry re-copies (see above).
           clearExodusJournal(plan.stagingDir);
+          // T11577: report only genuine DEFICITS (target < source) — a surplus
+          // is tolerated by isDataContinuityOk() and must not appear as a cause.
           const deficits = verifyResult.tables
-            .filter((t) => !t.countMatch)
+            .filter((t) => t.targetCount < t.sourceCount)
             .map((t) => `${t.targetTable}(${t.sourceCount}→${t.targetCount})`);
           const reason =
             `parity verification failed — cutover aborted, legacy DBs kept as source. ` +

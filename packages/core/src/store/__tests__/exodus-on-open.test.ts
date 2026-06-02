@@ -517,3 +517,62 @@ describe('exodus-on-open data-continuity (T11553)', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// T11577 — data-continuity gate: a row SURPLUS is tolerated, a DEFICIT aborts.
+// Drives the exported isDataContinuityOk() directly with constructed parity
+// results so the deficit-vs-surplus decision is asserted in isolation.
+// ---------------------------------------------------------------------------
+
+describe('isDataContinuityOk — deficit vs surplus (T11577)', () => {
+  /** Build a minimal VerifyMigrationResult with one parity row. */
+  function resultWith(sourceCount: number, targetCount: number) {
+    return {
+      ok: sourceCount === targetCount,
+      tables: [
+        {
+          sourceTable: 'nexus_audit_log',
+          targetTable: 'nexus_audit_log',
+          scope: 'project',
+          sourceCount,
+          targetCount,
+          sourceHash: 'aaaa',
+          targetHash: sourceCount === targetCount ? 'aaaa' : 'bbbb',
+          countMatch: sourceCount === targetCount,
+          hashMatch: sourceCount === targetCount,
+        },
+      ],
+      foreignKeyViolations: [],
+      introducedForeignKeyViolations: [],
+      preExistingForeignKeyViolations: [],
+      enumDrift: [],
+    } as const;
+  }
+
+  it('GREEN: a target SURPLUS (target > source, e.g. migration-time audit writes) clears the gate', async () => {
+    const { isDataContinuityOk } = await import('../exodus/on-open.js');
+    // 161923 → 161926: target has 3 MORE rows than source — NOT data loss.
+    expect(isDataContinuityOk(resultWith(161923, 161926))).toBe(true);
+  });
+
+  it('GREEN: exact parity clears the gate', async () => {
+    const { isDataContinuityOk } = await import('../exodus/on-open.js');
+    expect(isDataContinuityOk(resultWith(100, 100))).toBe(true);
+  });
+
+  it('ABORTS: a genuine DEFICIT (target < source) fails the gate — loss is never tolerated', async () => {
+    const { isDataContinuityOk } = await import('../exodus/on-open.js');
+    // 100 → 97: 3 rows MISSING — real data loss must abort.
+    expect(isDataContinuityOk(resultWith(100, 97))).toBe(false);
+  });
+
+  it('ABORTS: a surplus does NOT mask an INTRODUCED FK orphan', async () => {
+    const { isDataContinuityOk } = await import('../exodus/on-open.js');
+    const r = {
+      ...resultWith(100, 103),
+      introducedForeignKeyViolations: [{ table: 'children', rowid: 1, parent: 'parents', fkid: 0 }],
+    };
+    // Surplus is fine on its own, but an introduced orphan is genuine loss.
+    expect(isDataContinuityOk(r)).toBe(false);
+  });
+});
