@@ -1027,13 +1027,19 @@ export function checkInvariantI3(
   nexusSnap: ReturnType<typeof openCleoDbSnapshot> | null,
 ): DbCrossDbOrphanReport {
   const description =
-    'nexus.db project_registry.project_path must match the live projectRoot for this project_id';
+    'nexus_project_registry.project_path must match the live projectRoot for this project_id';
 
   if (nexusSnap === null) {
-    return buildSkippedReport('I3', description, I3_FIX, 'nexus.db missing or unreadable');
+    return buildSkippedReport('I3', description, I3_FIX, 'global cleo.db missing or unreadable');
   }
-  if (!snapshotHasTable(nexusSnap, 'project_registry')) {
-    return buildSkippedReport('I3', description, I3_FIX, 'nexus.db has no project_registry table');
+  // T11578 · AC3: registry table is the PREFIXED `nexus_project_registry`.
+  if (!snapshotHasTable(nexusSnap, 'nexus_project_registry')) {
+    return buildSkippedReport(
+      'I3',
+      description,
+      I3_FIX,
+      'global cleo.db has no nexus_project_registry table',
+    );
   }
 
   const expectedProjectId = computeSubstrateProjectId(projectRoot);
@@ -1042,7 +1048,9 @@ export function checkInvariantI3(
   let row: RegistryRow | undefined;
   try {
     row = nexusSnap.db
-      .prepare('SELECT project_id, project_path FROM project_registry WHERE project_id = ? LIMIT 1')
+      .prepare(
+        'SELECT project_id, project_path FROM nexus_project_registry WHERE project_id = ? LIMIT 1',
+      )
       .get(expectedProjectId) as RegistryRow | undefined;
   } catch (err) {
     return buildSkippedReport(
