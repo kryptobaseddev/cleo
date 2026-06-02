@@ -247,6 +247,26 @@ export enum ExitCode {
    * @adr ADR-079-r4
    */
   AC_COVERAGE_INCOMPLETE = 108,
+
+  /**
+   * E_CANCELLED_CHILD_NO_WAIVER — `cleo complete <parentId>` was rejected
+   * because the parent has one or more `cancelled` children that have NOT been
+   * waived or replaced. A cancelled child represents work that was NOT done;
+   * silently treating it as satisfied lets a parent complete as if cancelled
+   * work had shipped (PM-Core V2 design-point 4 — agent-trust completion).
+   *
+   * `error.details.cancelledChildIds` lists the offending children. Recovery:
+   *   1. Record an audited waiver for the cancelled children via
+   *      `cleo complete <parentId> --waive-cancelled-children "<reason>"`
+   *      (logged to `.cleo/audit/cancelled-child-waiver.jsonl`).
+   *   2. Re-open and finish the work (the child stops being cancelled).
+   *   3. Replace the cancelled work with a new done child and waive the
+   *      original, citing the replacement task id in the reason.
+   *
+   * @codeName E_CANCELLED_CHILD_NO_WAIVER
+   * @saga T10538 (PM-Core V2 agent-trust)
+   */
+  CANCELLED_CHILD_NO_WAIVER = 109,
 }
 
 // ---------------------------------------------------------------------------

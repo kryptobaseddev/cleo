@@ -239,7 +239,12 @@ describe('coordination parent rollup (T9040)', () => {
   // All-cancelled siblings: treated as terminal → parent rolls up
   // -------------------------------------------------------------------------
 
-  it('auto-rolls-up when the last active child completes and all others are cancelled', async () => {
+  // T10538 / design-point 4 (agent-trust): a cancelled child is NOT done work,
+  // so it must NOT silently auto-roll-up the coordination parent. This test
+  // previously asserted the parent auto-completed despite an un-waived cancelled
+  // child — that was the defect. The corrected behavior leaves the parent open
+  // until the cancelled child is waived/replaced.
+  it('does NOT auto-roll-up when the last active child completes but a sibling is cancelled (un-waived)', async () => {
     await seedTasks(accessor, [
       {
         id: 'P005',
@@ -269,11 +274,14 @@ describe('coordination parent rollup (T9040)', () => {
 
     const result = await completeTask({ taskId: 'C010' }, env.tempDir, accessor);
 
+    // The completed child itself goes done.
     expect(result.task.status).toBe('done');
-    expect(result.autoCompleted).toContain('P005');
+    // But the coordination parent must NOT auto-close — the cancelled sibling
+    // is un-waived abandoned work.
+    expect(result.autoCompleted ?? []).not.toContain('P005');
 
     const parent = await accessor.loadSingleTask('P005');
-    expect(parent?.status).toBe('done');
+    expect(parent?.status).not.toBe('done');
   });
 });
 

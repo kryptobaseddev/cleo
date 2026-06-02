@@ -10,6 +10,7 @@ import { ExitCode } from '@cleocode/contracts';
 import { getRawConfigValue, loadConfig } from '../config.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
+import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { getIvtrState, type IvtrPhase } from '../lifecycle/ivtr-loop.js';
 import { getLogger } from '../logger.js';
 import {
@@ -88,6 +89,19 @@ export interface CompleteTaskOptions {
    * @task T10509
    */
   waiveReason?: string;
+  /**
+   * Reason for waiving the `E_CANCELLED_CHILD_NO_WAIVER` gate (PM-Core V2
+   * design-point 4). When a parent has `cancelled` children, completion is
+   * blocked unless this waiver is supplied: a cancelled child represents work
+   * that was NOT done, so it must not silently satisfy parent completion.
+   *
+   * When set, the waiver is audited to `.cleo/audit/cancelled-child-waiver.jsonl`.
+   * Cite a replacement task id in the reason when the cancelled work was
+   * superseded by other done work.
+   *
+   * @saga T10538 (PM-Core V2 agent-trust)
+   */
+  cancelledChildWaiverReason?: string;
 }
 
 /**
@@ -591,6 +605,64 @@ export async function completeTask(
     }
   }
 
+  // ---- T10538 / PM-Core V2 design-point 4: cancelled children require a waiver ----
+  // A cancelled child is NOT done work — it was abandoned. The legacy premature-
+  // close guard above filtered `cancelled` out of `pendingChildren`, which let a
+  // parent complete as if the cancelled work had shipped (the "cancelled children
+  // silently auto-satisfy parent completion" defect). Per the plan's agent-trust
+  // design-point 4, completing a parent that has cancelled children REQUIRES a
+  // waiver or replacement evidence for those children. The waiver is an audited
+  // `--waive-cancelled-children "<reason>"` bypass (mirrors `--override-reason`).
+  //
+  // This gate applies to any parent with children (not just epics), because the
+  // child_task AC projection is written for every parent → child edge.
+  const cancelledChildren = children.filter((c) => c.status === 'cancelled');
+  if (cancelledChildren.length > 0) {
+    const waiverReason = options.cancelledChildWaiverReason?.trim();
+    if (!waiverReason) {
+      throw new CleoError(
+        ExitCode.CANCELLED_CHILD_NO_WAIVER,
+        `Task ${options.taskId} has ${cancelledChildren.length} cancelled ` +
+          `child${cancelledChildren.length === 1 ? '' : 'ren'} that must be waived or ` +
+          `replaced before completion: ${cancelledChildren.map((c) => c.id).join(', ')}`,
+        {
+          fix:
+            `Cancelled children represent work that was NOT done — they cannot silently ` +
+            `satisfy parent completion. Either re-open and finish the work, replace it with ` +
+            `a done child, or record an audited waiver: ` +
+            `'cleo complete ${options.taskId} --waive-cancelled-children "<reason>"' ` +
+            `(cite the replacement task id in the reason when applicable; ` +
+            `audited to .cleo/audit/cancelled-child-waiver.jsonl).`,
+          details: {
+            field: 'cancelledChildIds',
+            cancelledChildIds: cancelledChildren.map((c) => c.id),
+          },
+        },
+      );
+    }
+
+    // Waiver supplied — audit the decision before proceeding.
+    try {
+      const { appendCancelledChildWaiverAudit } = await import('./cancelled-child-waiver-audit.js');
+      await appendCancelledChildWaiverAudit(
+        {
+          parentId: options.taskId,
+          cancelledChildIds: cancelledChildren.map((c) => c.id),
+          waiverReason,
+          timestamp: new Date().toISOString(),
+          agent: process.env['CLEO_AGENT_ID'] ?? 'cleo',
+        },
+        cwd,
+      );
+    } catch (err) {
+      // Audit write failure must not block the completion — warn only.
+      console.warn(
+        '[complete] failed to write cancelled-child-waiver audit:',
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
   const now = new Date().toISOString();
   const before = { ...task };
 
@@ -719,7 +791,21 @@ export async function completeTask(
               siblings.every(
                 (c) => c.id === task.id || c.status === 'done' || c.status === 'cancelled',
               );
-            if (allDone) {
+            // T10538 / design-point 4: a cancelled sibling is NOT done work, so
+            // it must not silently roll the epic up to done. When un-waived
+            // cancelled children exist, suppress auto-close and leave the epic
+            // open — the operator must run `cleo complete <epic>
+            // --waive-cancelled-children "<reason>"` to close it with an audit.
+            const hasCancelledSibling = siblings.some(
+              (c) => c.id !== task.id && c.status === 'cancelled',
+            );
+            if (allDone && hasCancelledSibling) {
+              getLogger('engine:complete').info(
+                { epicId: parent.id, completedChild: task.id },
+                '[complete] suppressing epic auto-close: un-waived cancelled children require `cleo complete --waive-cancelled-children`',
+              );
+            }
+            if (allDone && !hasCancelledSibling) {
               // T1632: When enforcement is strict + verification enabled, only
               // auto-close if the epic's evidence gates are satisfied.
               // `verifyEpicHasEvidence` returns true when:
@@ -798,7 +884,18 @@ export async function completeTask(
               const allCpDone = cpChildren.every(
                 (c) => c.id === task.id || c.status === 'done' || c.status === 'cancelled',
               );
-              if (allCpDone) {
+              // T10538 / design-point 4: un-waived cancelled children must not
+              // silently roll a coordination parent up to done.
+              const cpHasCancelledChild = cpChildren.some(
+                (c) => c.id !== task.id && c.status === 'cancelled',
+              );
+              if (allCpDone && cpHasCancelledChild) {
+                getLogger('engine:complete').info(
+                  { parentId: coordinationParent.id, completedChild: task.id },
+                  '[complete] suppressing coordination-parent auto-close: un-waived cancelled children require `cleo complete --waive-cancelled-children`',
+                );
+              }
+              if (allCpDone && !cpHasCancelledChild) {
                 // Synthesize verification evidence from children's gate state.
                 // The overlay adds the current task (not yet in DB) as done so
                 // buildRollupEvidence sees the post-write view.
@@ -1075,7 +1172,7 @@ export async function completeTask(
 // EngineResult-returning wrappers (T1568 / ADR-057 / ADR-058)
 // ---------------------------------------------------------------------------
 
-type CompleteEngineResult = EngineResult<{
+interface CompleteEngineSuccess {
   task: TaskRecord;
   autoCompleted?: string[];
   unblockedTasks?: Array<{ id: string; title: string }>;
@@ -1090,7 +1187,9 @@ type CompleteEngineResult = EngineResult<{
    * @task T9548
    */
   worktreeAutoComplete?: AutoCompleteWorktreeResult;
-}>;
+}
+
+type CompleteEngineResult = EngineResult<CompleteEngineSuccess>;
 
 /**
  * Options forwarded through the EngineResult-returning wrappers.
@@ -1125,6 +1224,12 @@ export interface TaskCompleteEngineOptions {
    * @task T10509
    */
   waiveReason?: string;
+  /**
+   * Reason for waiving the `E_CANCELLED_CHILD_NO_WAIVER` gate.
+   * @see CompleteTaskOptions.cancelledChildWaiverReason
+   * @saga T10538 (PM-Core V2 agent-trust)
+   */
+  cancelledChildWaiverReason?: string;
 }
 
 /**
@@ -1159,6 +1264,7 @@ export async function taskComplete(
         acknowledgeRisk: opts.acknowledgeRisk,
         waiveAc: opts.waiveAc,
         waiveReason: opts.waiveReason,
+        cancelledChildWaiverReason: opts.cancelledChildWaiverReason,
       },
       projectRoot,
       accessor,
@@ -1207,8 +1313,14 @@ export async function taskComplete(
       worktreeAutoComplete,
     });
   } catch (err: unknown) {
-    const e = err as { message?: string };
-    return engineError('E_INTERNAL', e?.message ?? 'Failed to complete task');
+    // T10538: preserve CleoError LAFS codes (E_EPIC_HAS_PENDING_CHILDREN,
+    // E_CANCELLED_CHILD_NO_WAIVER, …) + their `fix`/`details` instead of
+    // flattening every guard rejection to a contextless E_INTERNAL.
+    return cleoErrorToEngineResult<CompleteEngineSuccess>(
+      err,
+      'E_INTERNAL',
+      'Failed to complete task',
+    );
   }
 }
 
@@ -1396,7 +1508,11 @@ export async function completeTaskStrict(
     // No IVTR state, or lifecycle not strict, or already released — delegate normally.
     return taskComplete(projectRoot, taskId, opts);
   } catch (err: unknown) {
-    const e = err as { message?: string };
-    return engineError('E_INTERNAL', e?.message ?? 'Failed to complete task (strict mode)');
+    // T10538: preserve CleoError LAFS codes/details on strict-path pre-check throws.
+    return cleoErrorToEngineResult<CompleteEngineSuccess>(
+      err,
+      'E_INTERNAL',
+      'Failed to complete task (strict mode)',
+    );
   }
 }

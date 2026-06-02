@@ -175,6 +175,21 @@ export const MUTATE_PROJECTION_PLANS: Readonly<Record<string, MutateProjectionPl
       }
       if (data['duplicate'] === true) envelope['duplicate'] = true;
       if (data['dryRun'] === true) envelope['dryRun'] = true;
+      // T089 — surface non-blocking validation warnings (e.g. duplicate-similar)
+      // and the T10538 ancestor-reopen notice so `cleo add` callers see them.
+      const warnings = data['warnings'];
+      if (Array.isArray(warnings) && warnings.length > 0) {
+        envelope['warnings'] = warnings.filter(
+          (entry): entry is string => typeof entry === 'string',
+        );
+      }
+      // T10538 / design-point 5 — report any done ancestors reopened by this add.
+      const reopenedAncestors = data['reopenedAncestors'];
+      if (Array.isArray(reopenedAncestors) && reopenedAncestors.length > 0) {
+        envelope['reopenedAncestors'] = reopenedAncestors.filter(
+          (entry): entry is string => typeof entry === 'string',
+        );
+      }
       return envelope;
     },
   },

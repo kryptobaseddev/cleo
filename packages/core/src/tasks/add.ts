@@ -114,6 +114,14 @@ export interface AddTaskResult {
   };
   /** Non-blocking warnings emitted during validation. @task T089 */
   warnings?: string[];
+  /**
+   * IDs of done ancestors that were reopened because this child was added under
+   * a `done` parent (PM-Core V2 design-point 5 — a done parent must never
+   * silently hold an unsatisfied child). Empty/absent when nothing was reopened.
+   *
+   * @saga T10538 (PM-Core V2 agent-trust)
+   */
+  reopenedAncestors?: string[];
 }
 
 /** Normalize AC arrays once so legacy JSON, AC rows, and projections stay aligned. */
@@ -1271,8 +1279,32 @@ export async function addTask(
     }
   }
 
+  // ---- T10538 / PM-Core V2 design-point 5: never silently hold a stale done parent ----
+  // Adding a child under a `done` parent injects an unsatisfied `child_task` AC
+  // into that parent (the projection write below). Leaving the parent `done`
+  // makes it lie: it is marked complete while holding work that is not done.
+  // Per the agent-trust design-point 5 — "silent stale 'done' parents destroy
+  // agent trust" — reopen the done parent and any done ancestors so the
+  // hierarchy honestly reflects the new unsatisfied child. This reuses the same
+  // reopen semantics as `coreTaskReopen` (status→pending, clear completedAt,
+  // preserve completion history in notes). The reopen is reported on the result
+  // so the `add` caller sees what happened.
+  const ancestorsToReopen: Task[] = [];
+  if (parentId && parentTaskForProjection) {
+    const reopenCandidates: Task[] = [
+      parentTaskForProjection,
+      ...(await dataAccessor.getAncestorChain(parentId)),
+    ];
+    for (const candidate of reopenCandidates) {
+      if (candidate.status === 'done') {
+        ancestorsToReopen.push(candidate);
+      }
+    }
+  }
+
   // Wrap all writes in a transaction for TOCTOU safety (T023)
   const createdAcceptanceCriteriaIds: string[] = [];
+  const reopenedAncestorIds: string[] = [];
   await dataAccessor.transaction(async (tx: TransactionAccessor) => {
     // Position shuffling via bulk SQL update (T025)
     if (options.position !== undefined) {
@@ -1333,6 +1365,27 @@ export async function addTask(
       });
     }
 
+    // T10538 / design-point 5: reopen any done ancestor so it never silently
+    // holds the unsatisfied child injected above. Mirrors coreTaskReopen:
+    // status→pending, clear completedAt, preserve completion history in notes.
+    for (const ancestor of ancestorsToReopen) {
+      const reopened: Task = {
+        ...ancestor,
+        status: 'pending',
+        completedAt: undefined,
+        updatedAt: now,
+        notes: [
+          ...(ancestor.notes ?? []),
+          ...(ancestor.completedAt
+            ? [`[${now}] completion-history: completedAt=${ancestor.completedAt}`]
+            : []),
+          `[${now}] Reopened by add of child ${taskId} (done parent gained an unsatisfied child)`,
+        ],
+      };
+      await tx.upsertSingleTask(reopened);
+      reopenedAncestorIds.push(ancestor.id);
+    }
+
     // Update project metadata if a new phase was created
     if (options.addPhase && phase && updatedProjectMeta?.phases?.[phase]) {
       await tx.setMetaValue('project_meta', updatedProjectMeta);
@@ -1350,6 +1403,18 @@ export async function addTask(
       after: { title: options.title, status, priority },
     });
   });
+
+  // T10538 / design-point 5: surface the ancestor reopen on the add result so
+  // the operator is never surprised by a parent silently transitioning out of
+  // `done`. The reopen itself already happened inside the transaction above.
+  if (reopenedAncestorIds.length > 0) {
+    warnings.push(
+      `Reopened ${reopenedAncestorIds.length} done ancestor` +
+        `${reopenedAncestorIds.length === 1 ? '' : 's'} (${reopenedAncestorIds.join(', ')}) ` +
+        `because new child ${taskId} added unsatisfied work under a completed parent. ` +
+        `Re-complete the ancestor(s) once ${taskId} is done.`,
+    );
+  }
 
   // T945 Stage A — mint a `task:T###` brain graph node at creation, not at
   // completion. Prior to this hook, addTask never wrote to the graph, so new
@@ -1394,5 +1459,6 @@ export async function addTask(
     task,
     createdIds: { tasks: [taskId], acceptanceCriteria: createdAcceptanceCriteriaIds },
     ...(warnings.length > 0 && { warnings }),
+    ...(reopenedAncestorIds.length > 0 && { reopenedAncestors: reopenedAncestorIds }),
   };
 }

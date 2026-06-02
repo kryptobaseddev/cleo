@@ -439,6 +439,8 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
       // T10509 — AC-coverage gate waiver path
       waiveAc: params.waiveAc,
       waiveReason: params.waiveReason,
+      // T10538 — cancelled-child waiver (PM-Core V2 agent-trust)
+      cancelledChildWaiverReason: params.cancelledChildWaiverReason,
     });
     // T994: Track memory usage on task completion (fire-and-forget; must not block).
     // SSoT-EXEMPT: fire-and-forget side-effect that must not block the complete flow
