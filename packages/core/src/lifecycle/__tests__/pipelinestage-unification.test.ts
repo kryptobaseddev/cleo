@@ -48,7 +48,8 @@ afterEach(async () => {
 async function readTaskPipelineStage(taskId: string): Promise<string | null> {
   const { getNativeDb } = await import('../../store/sqlite.js');
   const db = getNativeDb()!;
-  const row = db.prepare('SELECT pipeline_stage FROM tasks WHERE id = ?').get(taskId) as
+  // T11578 · AC1: recordStageProgress now writes the PREFIXED consolidated table.
+  const row = db.prepare('SELECT pipeline_stage FROM tasks_tasks WHERE id = ?').get(taskId) as
     | { pipeline_stage: string | null }
     | undefined;
   return row?.pipeline_stage ?? null;

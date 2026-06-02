@@ -34,12 +34,12 @@ describe('dedupHash exact json_extract (T11357 AC1)', () => {
   function createTasksDb(): DatabaseSync {
     const db = new DatabaseSync(':memory:');
     db.exec(`
-      CREATE TABLE tasks (
+      CREATE TABLE tasks_tasks (
         id TEXT PRIMARY KEY, parent_id TEXT, title TEXT, status TEXT,
         labels_json TEXT DEFAULT '[]', notes_json TEXT DEFAULT '[]',
         created_at TEXT NOT NULL
       );
-      CREATE TABLE task_labels (task_id TEXT, label TEXT, PRIMARY KEY (task_id, label));
+      CREATE TABLE tasks_task_labels (task_id TEXT, label TEXT, PRIMARY KEY (task_id, label));
     `);
     return db;
   }
@@ -47,9 +47,9 @@ describe('dedupHash exact json_extract (T11357 AC1)', () => {
   function insertProposal(db: DatabaseSync, id: string, dedupHash: string): void {
     const meta = JSON.stringify({ kind: 'proposal-meta', dedupHash });
     db.prepare(
-      'INSERT INTO tasks (id, parent_id, title, status, notes_json, created_at) VALUES (?, NULL, ?, ?, ?, ?)',
+      'INSERT INTO tasks_tasks (id, parent_id, title, status, notes_json, created_at) VALUES (?, NULL, ?, ?, ?, ?)',
     ).run(id, `[T2-BRAIN] ${id}`, 'proposed', JSON.stringify([meta]), new Date().toISOString());
-    db.prepare('INSERT INTO task_labels (task_id, label) VALUES (?, ?)').run(
+    db.prepare('INSERT INTO tasks_task_labels (task_id, label) VALUES (?, ?)').run(
       id,
       SENTIENT_TIER2_TAG,
     );

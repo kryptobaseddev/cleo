@@ -61,7 +61,7 @@ function insertTestTask(
 
   nativeTasksDb
     .prepare(
-      `INSERT OR REPLACE INTO tasks
+      `INSERT OR REPLACE INTO tasks_tasks
        (id, title, status, session_id, verification_json, completed_at, cancelled_at,
         created_at, updated_at, priority, pipeline_stage)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'medium', ?)`,
@@ -87,7 +87,9 @@ function insertTestSession(
 ): void {
   const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
   nativeTasksDb
-    .prepare(`INSERT OR IGNORE INTO sessions (id, status, started_at) VALUES (?, 'active', ?)`)
+    .prepare(
+      `INSERT OR IGNORE INTO tasks_sessions (id, status, started_at) VALUES (?, 'active', ?)`,
+    )
     .run(sessionId, now);
 }
 
