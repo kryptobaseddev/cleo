@@ -466,13 +466,15 @@ describe('addTask (integration)', () => {
     // Epic→Task hierarchy (depth=1 for task parent).
     await addTask({ title: 'Epic', description: 'An epic', type: 'epic' }, env.tempDir, accessor); // T001 depth=0
 
+    // T002/T003 are intermediate containers that gain children below, so they
+    // carry no free-text ACs (PM-Core V2 design-point 3 / T11576 — a parent is
+    // either a text-AC leaf or a container, not both).
     await addTask(
       {
         title: 'Task',
         description: 'Under epic',
         type: 'task',
         parentId: 'T001',
-        acceptance: ['ac1'],
       },
       env.tempDir,
       accessor,
@@ -487,7 +489,6 @@ describe('addTask (integration)', () => {
         description: 'Under task',
         type: 'subtask',
         parentId: 'T002',
-        acceptance: ['ac1'],
       },
       env.tempDir,
       accessor,
@@ -511,5 +512,119 @@ describe('addTask (integration)', () => {
     expect(err.message).toMatch(/T00[12]/);
     // Must include actionable fix guidance.
     expect(err.message.toLowerCase()).toMatch(/parent|epic|reparent/);
+  });
+});
+
+// =============================================================================
+// PM-Core V2 design-point 3 (T11576): a non-container leaf may not mix its own
+// free-text ACs with machine-managed child_task projections.
+// =============================================================================
+describe('addTask mixed parent-text-AC + children guard (T11576)', () => {
+  let env: TestDbEnv;
+  let accessor: DataAccessor;
+
+  beforeEach(async () => {
+    env = await createTestDb();
+    accessor = env.accessor;
+    process.env['CLEO_DIR'] = env.cleoDir;
+  });
+
+  afterEach(async () => {
+    delete process.env['CLEO_DIR'];
+    resetDbState();
+    await env.cleanup();
+  });
+
+  it('rejects adding a child under a task that has free-text ACs of its own', async () => {
+    // A leaf task authored with its own text ACs.
+    const leaf = await addTask(
+      { title: 'Leaf with text ACs', description: 'a leaf', type: 'task', acceptance: ['do work'] },
+      env.tempDir,
+      accessor,
+    );
+
+    const err = await addTask(
+      { title: 'Surprise child', description: 'turns leaf into container', parentId: leaf.task.id },
+      env.tempDir,
+      accessor,
+    ).catch((e: Error) => e);
+
+    expect(err).toBeInstanceOf(Error);
+    expect(err.message.toLowerCase()).toMatch(/free-text acceptance|design-point 3/);
+    expect((err as { details?: { reason?: string } }).details?.reason).toBe(
+      'mixed_parent_text_ac_plus_child',
+    );
+  });
+
+  it('rejects the same mix on a dry-run add (no write either way)', async () => {
+    const leaf = await addTask(
+      {
+        title: 'Leaf task',
+        description: 'authored as a leaf',
+        type: 'task',
+        acceptance: ['do work'],
+      },
+      env.tempDir,
+      accessor,
+    );
+
+    const err = await addTask(
+      {
+        title: 'Dry-run child',
+        description: 'previewed child of the leaf',
+        parentId: leaf.task.id,
+        dryRun: true,
+      },
+      env.tempDir,
+      accessor,
+    ).catch((e: Error) => e);
+
+    expect(err).toBeInstanceOf(Error);
+    expect((err as { details?: { reason?: string } }).details?.reason).toBe(
+      'mixed_parent_text_ac_plus_child',
+    );
+  });
+
+  it('ALLOWS an epic (container by design) to carry text ACs and gain children', async () => {
+    const epic = await addTask(
+      {
+        title: 'Epic',
+        description: 'a container',
+        type: 'epic',
+        acceptance: ['epic outcome 1', 'epic outcome 2'],
+      },
+      env.tempDir,
+      accessor,
+    );
+
+    const child = await addTask(
+      { title: 'Child', description: 'child work', parentId: epic.task.id },
+      env.tempDir,
+      accessor,
+    );
+    expect(child.task.parentId).toBe(epic.task.id);
+  });
+
+  it('ALLOWS a container task (no text ACs) to gain multiple children', async () => {
+    const container = await addTask(
+      { title: 'Container task', description: 'no text ACs', type: 'task' },
+      env.tempDir,
+      accessor,
+    );
+
+    const c1 = await addTask(
+      { title: 'Child 1', description: 'c1', parentId: container.task.id, acceptance: ['c1 ac'] },
+      env.tempDir,
+      accessor,
+    );
+    // Parent now holds a child_task projection but no text AC of its own — a
+    // second child must still be allowed (single-mode container).
+    const c2 = await addTask(
+      { title: 'Child 2', description: 'c2', parentId: container.task.id, acceptance: ['c2 ac'] },
+      env.tempDir,
+      accessor,
+    );
+    expect(c1.task.parentId).toBe(container.task.id);
+    expect(c2.task.parentId).toBe(container.task.id);
   });
 });

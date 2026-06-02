@@ -1049,6 +1049,62 @@ export async function addTask(
     validatePipelineStage(options.pipelineStage);
   }
 
+  // ---- T11576 / PM-Core V2 design-point 3: disallow mixed parent ACs ----
+  // Adding a child under a parent injects a typed `child_task` projection AC
+  // into that parent (the projection write near the end of this function). If a
+  // NON-container parent (a `task` or `subtask` authored as a leaf with its own
+  // free-text ACs) gains a child, its acceptance array silently mixes two
+  // incompatible kinds — hand-authored text criteria and machine-managed child
+  // projections — turning a leaf into a half-defined container by surprise. PM-
+  // Core V2 design-point 3 — "Mixed parent text ACs plus children should be
+  // disallowed for new work" — requires such a leaf to be EITHER a task defined
+  // by its own text ACs OR a container defined by its children, not both.
+  //
+  // Scope: `epic` and `saga` are CONTAINERS by design — their text ACs describe
+  // the container's own outcome and they legitimately hold child projections
+  // (this is the canonical PM-Core V2 shape, e.g. saga T10538's AC1-6 text +
+  // AC7-16 child rows). Strict lifecycle mode even REQUIRES epics to carry >=5
+  // text ACs. So the guard fires ONLY for `task`/`subtask` parents.
+  //
+  // Runs during validation (before the dry-run preview return below) so both
+  // `--dry-run` and real adds are rejected identically. Container parents and
+  // pure single-mode leaves are unaffected — the guard fires only when a
+  // text-AC-bearing non-container leaf is about to gain its first child.
+  if (
+    parentId &&
+    parentTaskForProjection &&
+    parentTaskForProjection.type !== 'epic' &&
+    parentTaskForProjection.type !== 'saga'
+  ) {
+    const parentAcRows = await dataAccessor.getAcRows(parentId);
+    const parentHasTextAc = parentAcRows.some((row) => row.kind === 'text');
+    if (parentHasTextAc) {
+      throw new CleoError(
+        ExitCode.VALIDATION_ERROR,
+        `Cannot add child under ${parentId}: it is a ${parentTaskForProjection.type} with its ` +
+          `own free-text acceptance criteria, and adding a child would mix hand-authored text ` +
+          `ACs with machine-managed child_task projections (PM-Core V2 design-point 3). A ` +
+          `${parentTaskForProjection.type} must be either a leaf defined by its own text ACs OR ` +
+          `a container defined by its children, not both. (Epics and sagas are exempt — they are ` +
+          `containers by design.)`,
+        {
+          fix:
+            `Either (a) move ${parentId}'s text acceptance criteria onto a new child task and ` +
+            `add work under that child, (b) clear ${parentId}'s text ACs ` +
+            `(\`cleo update ${parentId} --acceptance ""\`) so it becomes a pure container, or ` +
+            `(c) promote ${parentId} to an epic if it is meant to hold children.`,
+          details: {
+            field: 'parentId',
+            parentId,
+            parentType: parentTaskForProjection.type,
+            textAcCount: parentAcRows.filter((row) => row.kind === 'text').length,
+            reason: 'mixed_parent_text_ac_plus_child',
+          },
+        },
+      );
+    }
+  }
+
   // BRAIN-powered duplicate detection (T1633) — query active tasks for semantic similarity.
   // Runs before the exact-title duplicate check so warnings/rejections surface early.
   // Skip on dry-run (no data written) and skip when forceDuplicate bypasses rejection.

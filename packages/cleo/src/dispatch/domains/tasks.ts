@@ -646,6 +646,10 @@ const MUTATE_OPS = new Set<string>([
   'reparent',
   'reorder',
   'relates.add',
+  // T11575 — without this entry the domain mutate() gate rejects the op with
+  // E_INVALID_OPERATION even though the handler exists below. Mirrors the
+  // OperationDef registered in @cleocode/contracts operations-registry.
+  'relates.add-batch',
   'relates.remove',
   'start',
   'stop',
