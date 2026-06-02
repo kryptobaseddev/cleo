@@ -182,7 +182,7 @@ function fetchChildAggregates(taskIds: string[]): Map<string, { total: number; d
       parent_id           AS parent_id,
       COUNT(*)            AS children_total,
       SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS children_done
-    FROM tasks
+    FROM tasks_tasks
     WHERE parent_id IN (${placeholders})
       AND status != 'archived'
     GROUP BY parent_id

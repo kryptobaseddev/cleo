@@ -53,7 +53,10 @@ beforeEach(async () => {
       id: 'T999',
       title: 'Test Task',
       description: 'A task for IVTR testing',
-      status: 'in_progress',
+      // T11578 · AC1: 'in_progress' is NOT a valid TASK_STATUSES member — the
+      // legacy bare `tasks` table had no CHECK so it slipped through; the
+      // consolidated `tasks_tasks` CHECK rejects it. Canonical = 'active'.
+      status: 'active',
       priority: 'medium',
       depends: [],
     },

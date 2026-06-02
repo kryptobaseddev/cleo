@@ -390,7 +390,7 @@ export function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
 function queryRecentActivityTokens(db: DatabaseSync): Set<string> | null {
   const sql = `
     SELECT title, description
-    FROM tasks
+    FROM tasks_tasks
     WHERE status IN ('pending', 'active', 'blocked')
       AND updated_at >= datetime('now', '-30 days')
     LIMIT 200
@@ -817,7 +817,7 @@ function queryWorkingTasks(db: DatabaseSync): TaskRow[] {
     SELECT id, parent_id, type, status, acceptance_json, files_json, labels_json,
            COALESCE(title, '') as title, COALESCE(description, '') as description,
            updated_at
-    FROM tasks
+    FROM tasks_tasks
     WHERE type != 'epic'
       AND status NOT IN ('done', 'cancelled')
       AND status != 'proposed'
@@ -839,7 +839,7 @@ function queryRecentlyDoneTasks(db: DatabaseSync): TaskRow[] {
     SELECT id, parent_id, type, status, acceptance_json, files_json, labels_json,
            COALESCE(title, '') as title, COALESCE(description, '') as description,
            updated_at
-    FROM tasks
+    FROM tasks_tasks
     WHERE type != 'epic'
       AND status = 'done'
       AND parent_id IS NOT NULL
@@ -858,7 +858,7 @@ function queryRecentlyDoneTasks(db: DatabaseSync): TaskRow[] {
  * Look up the status of a parent task. Returns null if not found.
  */
 function queryParentStatus(db: DatabaseSync, parentId: string): string | null {
-  const sql = `SELECT id, status FROM tasks WHERE id = :id LIMIT 1`;
+  const sql = `SELECT id, status FROM tasks_tasks WHERE id = :id LIMIT 1`;
   try {
     const row = db.prepare(sql).get({ id: parentId }) as ParentStatusRow | undefined;
     return row ? row.status : null;
@@ -873,7 +873,7 @@ function queryParentStatus(db: DatabaseSync, parentId: string): string | null {
 function countActiveSiblings(db: DatabaseSync, parentId: string, excludeTaskId: string): number {
   const sql = `
     SELECT COUNT(*) as cnt
-    FROM tasks
+    FROM tasks_tasks
     WHERE parent_id = :parentId
       AND id != :excludeId
       AND status IN ('pending', 'active', 'blocked')
@@ -1004,7 +1004,7 @@ async function scanTopLevelOrphanTasks(
     SELECT id, parent_id, type, status, acceptance_json, files_json, labels_json,
            COALESCE(title, '') as title, COALESCE(description, '') as description,
            updated_at
-    FROM tasks
+    FROM tasks_tasks
     WHERE parent_id IS NULL
       AND type = 'task'
       AND status NOT IN ('done', 'cancelled', 'proposed')

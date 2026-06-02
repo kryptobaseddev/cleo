@@ -229,8 +229,8 @@ export function checkDedupCollision(opts: DedupCheckOptions): DedupCheckResult {
   // exact value — no substring matching, no cross-field false positives.
   const baseSql = `
     SELECT id
-    FROM tasks
-    WHERE id IN (SELECT task_id FROM task_labels WHERE label = :tier2Label)
+    FROM tasks_tasks
+    WHERE id IN (SELECT task_id FROM tasks_task_labels WHERE label = :tier2Label)
       AND json_extract(json_extract(notes_json, '$[0]'), '$.dedupHash') = :dedupHash
       ${windowHours > 0 ? `AND datetime(created_at) >= datetime('now', :windowSpec)` : ''}
       AND ${parentKey === null ? 'parent_id IS NULL' : 'parent_id = :parentId'}
