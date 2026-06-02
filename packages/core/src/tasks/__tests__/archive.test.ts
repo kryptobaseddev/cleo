@@ -196,7 +196,8 @@ describe('archiveTasks', () => {
     const { getNativeTasksDb } = await import('../../store/sqlite.js');
     const historyRows = getNativeTasksDb()!
       .prepare(
-        'SELECT ac_id, previous_text, reason FROM task_acceptance_criteria_history ORDER BY id ASC',
+        // T11578 · AC1: AC-history rows now land in the PREFIXED consolidated table.
+        'SELECT ac_id, previous_text, reason FROM tasks_task_acceptance_criteria_history ORDER BY id ASC',
       )
       .all() as Array<{ ac_id: string; previous_text: string; reason: string }>;
     expect(historyRows).toEqual([
