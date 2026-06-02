@@ -255,7 +255,7 @@ describe('getAllSubstrates()', () => {
   it('node IDs are substrate-prefixed', () => {
     const graph = getAllSubstrates();
     for (const node of graph.nodes) {
-      expect(node.id).toMatch(/^(brain|nexus|tasks|conduit|signaldock):/);
+      expect(node.id).toMatch(/^(brain|nexus|tasks|conduit|agent-registry):/);
     }
   });
 

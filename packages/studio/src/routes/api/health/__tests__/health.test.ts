@@ -40,7 +40,9 @@ vi.mock('$lib/server/db/connections.js', () => ({
     brain: false,
     tasks: false,
     conduit: false,
-    'agent-registry': false,
+    // Internal availability flag (endpoint reads `dbStatus.signaldock`); the HTTP
+    // response exposes it under the `agent-registry` key (T11622).
+    signaldock: false,
     nexusPath: '/tmp/nexus.db',
     brainPath: '/tmp/brain.db',
     tasksPath: '/tmp/tasks.db',

@@ -144,7 +144,10 @@ export function getDbStatus(ctx: ProjectContext): {
   brain: boolean;
   tasks: boolean;
   conduit: boolean;
-  'agent-registry': boolean;
+  // Internal availability flag for the global Agent Registry. The HTTP health
+  // RESPONSE exposes it under the `agent-registry` key (T11622); this internal
+  // field name stays `signaldock` to match the endpoint's reader.
+  signaldock: boolean;
   nexusPath: string;
   brainPath: string;
   tasksPath: string;
@@ -157,7 +160,7 @@ export function getDbStatus(ctx: ProjectContext): {
     brain: existsSync(ctx.brainDbPath),
     tasks: existsSync(ctx.tasksDbPath),
     conduit: existsSync(conduitPath),
-    'agent-registry': dbExists(getAgentRegistryDbPath()),
+    signaldock: dbExists(getAgentRegistryDbPath()),
     nexusPath: getNexusDbPath(),
     brainPath: ctx.brainDbPath,
     tasksPath: ctx.tasksDbPath,

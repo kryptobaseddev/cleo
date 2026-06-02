@@ -267,9 +267,9 @@ describe('T1938 cleo migrate agents-v2', () => {
     const db = openDb(getGlobalAgentRegistryDbPath());
     try {
       for (const name of agents) {
-        const row = db.prepare('SELECT tier FROM agents WHERE agent_id = ?').get(name) as
-          | { tier: string }
-          | undefined;
+        const row = db
+          .prepare('SELECT tier FROM agent_registry_agents WHERE agent_id = ?')
+          .get(name) as { tier: string } | undefined;
         expect(row).toBeDefined();
         expect(row?.tier).toBe('project');
       }
@@ -358,7 +358,7 @@ describe('T1938 cleo migrate agents-v2', () => {
     const verifyDb = openDb(dbPath());
     try {
       const row = verifyDb
-        .prepare('SELECT cant_sha256 FROM agents WHERE agent_id = ?')
+        .prepare('SELECT cant_sha256 FROM agent_registry_agents WHERE agent_id = ?')
         .get(agentName) as { cant_sha256: string } | undefined;
       expect(row?.cant_sha256).toBe(originalSha256);
     } finally {

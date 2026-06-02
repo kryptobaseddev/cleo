@@ -214,9 +214,9 @@ export function walkAgentsDir(
       continue;
     }
 
-    // Check existing row in signaldock.db.
+    // Check existing row in the global Agent Registry (T11622 cutover → prefixed table).
     const existingRow = db
-      .prepare('SELECT cant_sha256 FROM agents WHERE agent_id = ?')
+      .prepare('SELECT cant_sha256 FROM agent_registry_agents WHERE agent_id = ?')
       .get(agentName) as { cant_sha256: string | null } | undefined;
 
     if (existingRow) {

@@ -104,7 +104,7 @@ export function mockBrain(
   const clusters: GraphCluster[] = [];
 
   // Distribute nodes across substrates with a weighted split:
-  //   brain 30%, nexus 35%, tasks 15%, conduit 12%, signaldock 8%.
+  //   brain 30%, nexus 35%, tasks 15%, conduit 12%, agent-registry 8%.
   const split: Record<SubstrateId, number> = {
     brain: Math.round(nodeCount * 0.3),
     nexus: Math.round(nodeCount * 0.35),
@@ -113,7 +113,7 @@ export function mockBrain(
     'agent-registry': 0,
   };
   const assigned = split.brain + split.nexus + split.tasks + split.conduit;
-  split.signaldock = Math.max(0, nodeCount - assigned);
+  split['agent-registry'] = Math.max(0, nodeCount - assigned);
 
   for (const sub of ALL_SUBSTRATES) {
     const count = split[sub];
