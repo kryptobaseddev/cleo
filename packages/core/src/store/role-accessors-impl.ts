@@ -41,12 +41,15 @@ export function createConduitAccessor(projectRoot?: string): ConduitAccessor {
       const db = getConduitNativeDb();
       if (!db) throw new Error('ConduitAccessor: conduit.db not initialized');
 
-      // Insert into a generic topic_messages table if available, or conduit messages.
-      // This is a best-effort publish — conduit schema evolves independently.
+      // Best-effort publish into the prefixed conduit_messages table (T11578 ·
+      // AC4). `created_at` is canonical TEXT ISO-8601 (CHECK enforces the ISO
+      // GLOB), so write ISO not epoch. The conversation_id is a synthetic
+      // `topic-*` value with no parent row; under FK enforcement the insert may
+      // throw — the surrounding try/catch keeps publish a graceful no-op.
       try {
         const payload_str = JSON.stringify(payload);
         db.prepare(
-          `INSERT OR IGNORE INTO messages (id, from_agent_id, to_agent_id, conversation_id, content, content_type, status, created_at)
+          `INSERT OR IGNORE INTO conduit_messages (id, from_agent_id, to_agent_id, conversation_id, content, content_type, status, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           `conduit-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -56,11 +59,11 @@ export function createConduitAccessor(projectRoot?: string): ConduitAccessor {
           payload_str,
           'application/json',
           'pending',
-          Date.now(),
+          new Date().toISOString(),
         );
       } catch {
-        // Messages table may not exist yet (conduit not initialized).
-        // Graceful no-op — publish is best-effort.
+        // conduit_messages may not exist yet (conduit not initialized) or the
+        // synthetic conversation_id may violate the FK — graceful no-op.
       }
     },
 

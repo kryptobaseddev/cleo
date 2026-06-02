@@ -422,18 +422,20 @@ describe('graph-memory-bridge', () => {
       await ensureConduitDb(tempDir);
       const conduitDb = getConduitNativeDb();
 
+      // T11578 (AC4): prefixed conduit_* tables + TEXT ISO-8601 timestamps.
+      const nowIso = new Date().toISOString();
       const convId = 'conv-001';
       conduitDb
         ?.prepare(
-          `INSERT INTO conversations (id, participants, visibility, message_count, created_at, updated_at)
+          `INSERT INTO conduit_conversations (id, participants, visibility, message_count, created_at, updated_at)
            VALUES (?, ?, 'private', 0, ?, ?)`,
         )
-        .run(convId, JSON.stringify(['agent-a', 'agent-b']), Date.now(), Date.now());
+        .run(convId, JSON.stringify(['agent-a', 'agent-b']), nowIso, nowIso);
 
       const msgId = 'msg-001';
       conduitDb
         ?.prepare(
-          `INSERT INTO messages (id, conversation_id, from_agent_id, to_agent_id, content, attachments, created_at)
+          `INSERT INTO conduit_messages (id, conversation_id, from_agent_id, to_agent_id, content, attachments, created_at)
            VALUES (?, ?, ?, ?, ?, '[]', ?)`,
         )
         .run(
@@ -442,7 +444,7 @@ describe('graph-memory-bridge', () => {
           'agent-a',
           'agent-b',
           'We should refactor the initApp function to improve startup performance',
-          Date.now(),
+          nowIso,
         );
 
       // Seed a nexus symbol with the same name
@@ -481,18 +483,20 @@ describe('graph-memory-bridge', () => {
       await ensureConduitDb(tempDir);
       const conduitDb = getConduitNativeDb();
 
+      // T11578 (AC4): prefixed conduit_* tables + TEXT ISO-8601 timestamps.
+      const nowIso = new Date().toISOString();
       const convId = 'conv-002';
       conduitDb
         ?.prepare(
-          `INSERT INTO conversations (id, participants, visibility, message_count, created_at, updated_at)
+          `INSERT INTO conduit_conversations (id, participants, visibility, message_count, created_at, updated_at)
            VALUES (?, ?, 'private', 0, ?, ?)`,
         )
-        .run(convId, JSON.stringify(['agent-c', 'agent-d']), Date.now(), Date.now());
+        .run(convId, JSON.stringify(['agent-c', 'agent-d']), nowIso, nowIso);
 
       const msgId = 'msg-002';
       conduitDb
         ?.prepare(
-          `INSERT INTO messages (id, conversation_id, from_agent_id, to_agent_id, content, attachments, created_at)
+          `INSERT INTO conduit_messages (id, conversation_id, from_agent_id, to_agent_id, content, attachments, created_at)
            VALUES (?, ?, ?, ?, ?, '[]', ?)`,
         )
         .run(
@@ -501,7 +505,7 @@ describe('graph-memory-bridge', () => {
           'agent-c',
           'agent-d',
           'The validateConfig function needs to handle edge cases',
-          Date.now(),
+          nowIso,
         );
 
       await seedNexusNode(

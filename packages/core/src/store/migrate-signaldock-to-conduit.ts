@@ -81,12 +81,16 @@ export interface MigrationResult {
  * source name to the prefixed destination name, otherwise rows would be inserted
  * into the unrelated docs `attachments` table.
  */
+// T11578 (AC4): destinations are the PREFIXED consolidated `conduit_*` tables —
+// the conduit runtime no longer materializes the BARE legacy tables. Copying
+// from the legacy bare source into these prefixed targets is epoch-→-ISO coerced
+// by copyTableRows for any target column carrying an ISO-8601 GLOB CHECK.
 const PROJECT_TIER_TABLES = [
-  { src: 'messages', dest: 'messages' },
-  { src: 'conversations', dest: 'conversations' },
-  { src: 'delivery_jobs', dest: 'delivery_jobs' },
-  { src: 'dead_letters', dest: 'dead_letters' },
-  { src: 'message_pins', dest: 'message_pins' },
+  { src: 'messages', dest: 'conduit_messages' },
+  { src: 'conversations', dest: 'conduit_conversations' },
+  { src: 'delivery_jobs', dest: 'conduit_delivery_jobs' },
+  { src: 'dead_letters', dest: 'conduit_dead_letters' },
+  { src: 'message_pins', dest: 'conduit_message_pins' },
   { src: 'attachments', dest: 'conduit_attachments' },
   { src: 'attachment_versions', dest: 'conduit_attachment_versions' },
   { src: 'attachment_approvals', dest: 'conduit_attachment_approvals' },
@@ -206,6 +210,12 @@ function copyTableRows(
   const cols = srcCols.filter((c) => destCols.includes(c));
   if (cols.length === 0) return 0;
 
+  // T11578 (AC4): the prefixed `conduit_*` targets carry ISO-8601 TEXT timestamp
+  // columns with an ISO GLOB CHECK, while the legacy bare source stored epoch
+  // SECONDS integers. Coerce those columns to ISO so the verbatim row copy does
+  // not fail (or, under INSERT OR IGNORE, silently drop) on the GLOB CHECK.
+  const isoGlobCols = detectIsoGlobColumns(destDb, destTableName);
+
   const colList = cols.map((c) => `"${c}"`).join(', ');
   const placeholders = cols.map(() => '?').join(', ');
   const conflictClause = ignoreConflicts ? 'OR IGNORE' : '';
@@ -222,10 +232,67 @@ function copyTableRows(
     // Values originate from another SQLite row via prepare().all(), so at runtime
     // they are already SQLInputValue-compatible (string | number | bigint | Uint8Array | null).
     // The surrounding `Record<string, unknown>` type erases this, hence the narrow cast.
-    const values = cols.map((c) => (row[c] ?? null) as SQLInputValue);
+    const values = cols.map((c) => {
+      const raw = row[c] ?? null;
+      if (isoGlobCols.has(c) && typeof raw === 'number') {
+        return epochSecondsToIso(raw);
+      }
+      return (raw ?? null) as SQLInputValue;
+    });
     stmt.run(...values);
   }
   return rows.length;
+}
+
+/**
+ * Regex matching the T11363-generated ISO-8601 GLOB CHECK constraint, e.g.
+ * `CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-...')`.
+ *
+ * The constrained column name appears twice; we capture the first occurrence.
+ *
+ * @task T11578
+ */
+const ISO_GLOB_CHECK_REGEX = /CHECK\s*\(\s*"([^"]+)"\s+IS\s+NULL\s+OR\s+"[^"]+"\s+GLOB\s+'\[0-9/gi;
+
+/**
+ * Read a target table's DDL from `sqlite_master` and return the set of column
+ * names that carry an ISO-8601 GLOB CHECK constraint (the consolidated
+ * `conduit_*` timestamp columns introduced by T11363).
+ *
+ * @param db        - The destination DB handle (consolidated `cleo.db`).
+ * @param tableName - Physical destination table name (e.g. `conduit_messages`).
+ * @returns Set of column names requiring ISO-8601 TEXT values.
+ * @task T11578
+ */
+function detectIsoGlobColumns(db: DatabaseSync, tableName: string): Set<string> {
+  const escaped = tableName.replace(/'/g, "''");
+  const row = db
+    .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='${escaped}'`)
+    .get() as { sql: string | null } | undefined;
+  const out = new Set<string>();
+  if (!row?.sql) return out;
+  ISO_GLOB_CHECK_REGEX.lastIndex = 0; // global regex is stateful — reset before reuse
+  for (const match of row.sql.matchAll(ISO_GLOB_CHECK_REGEX)) {
+    const col = match[1];
+    if (col) out.add(col);
+  }
+  return out;
+}
+
+/**
+ * Convert a legacy epoch-SECONDS integer to a canonical ISO-8601 UTC string.
+ *
+ * The legacy conduit writers stored timestamps as `Math.floor(Date.now() / 1000)`
+ * (§8.1 — seconds, never milliseconds), so this multiplies by 1000 before
+ * constructing the `Date`. Used by {@link copyTableRows} to satisfy the ISO GLOB
+ * CHECK on the prefixed `conduit_*` targets (T11578 · AC4).
+ *
+ * @param epochSeconds - Epoch seconds value from a legacy bare conduit row.
+ * @returns ISO-8601 UTC timestamp string.
+ * @task T11578
+ */
+function epochSecondsToIso(epochSeconds: number): string {
+  return new Date(epochSeconds * 1000).toISOString();
 }
 
 /**
@@ -413,10 +480,10 @@ export async function migrateSignaldockToConduit(projectRoot: string): Promise<M
       }
     }
 
-    // Rebuild FTS after message copy
-    if (tableExistsInDb(conduit, 'messages_fts')) {
+    // Rebuild FTS after message copy (T11578 · AC4: prefixed FTS index).
+    if (tableExistsInDb(conduit, 'conduit_messages_fts')) {
       try {
-        conduit.exec("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')");
+        conduit.exec("INSERT INTO conduit_messages_fts(conduit_messages_fts) VALUES('rebuild')");
       } catch {
         // FTS rebuild failure is non-fatal — the triggers will populate it over time
       }
@@ -452,7 +519,7 @@ export async function migrateSignaldockToConduit(projectRoot: string): Promise<M
 
         conduit
           .prepare(
-            `INSERT OR IGNORE INTO project_agent_refs
+            `INSERT OR IGNORE INTO conduit_project_agent_refs
                (agent_id, attached_at, role, capabilities_override, last_used_at, enabled)
              VALUES (?, ?, ?, NULL, ?, 1)`,
           )

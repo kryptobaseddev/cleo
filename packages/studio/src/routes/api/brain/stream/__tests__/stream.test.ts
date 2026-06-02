@@ -458,7 +458,7 @@ describe('GET /api/brain/stream', () => {
         if (sql.includes('MAX(rowid)')) {
           return makeStmt({ max_rowid: 0 });
         }
-        if (sql.includes('FROM messages')) {
+        if (sql.includes('FROM conduit_messages')) {
           return {
             get: () => undefined,
             all() {

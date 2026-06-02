@@ -1,21 +1,23 @@
 /**
  * Tests for conduit-sqlite.ts — project-tier CONDUIT domain module.
  *
- * ## E6-L3 (T11523)
+ * ## E6-L3 (T11523) → AC4 cutover (T11578)
  *
- * `ensureConduitDb()` now routes through `openDualScopeDb('project')` — the
- * conduit domain lives inside the consolidated project `cleo.db`, not a standalone
- * `conduit.db`. The 16-table inline DDL blob was converted to the forward Drizzle
- * migration `drizzle-conduit/20260601000003_t11523-conduit-inline-schema`. The
- * BARE legacy tables (`conversations`, `messages`, …) co-exist with the
- * consolidated `conduit_*` tables (disjoint names — no drop/rebuild).
+ * `ensureConduitDb()` routes through `openDualScopeDb('project')` — the conduit
+ * domain lives inside the consolidated project `cleo.db`, not a standalone
+ * `conduit.db`. After the AC4 cutover (T11578) the conduit runtime READ + WRITE
+ * path targets the PREFIXED consolidated tables (`conduit_conversations`,
+ * `conduit_messages`, `conduit_topics`, …) created by the consolidated
+ * cleo-project migration; the `drizzle-conduit` forward migration carries ONLY
+ * the `conduit_messages_fts` FTS5 quartet (the consolidated migration cannot model
+ * FTS5) + the two legacy `_conduit_*` health-probe tables.
  *
  * These tests therefore:
  * - await the now-async `ensureConduitDb`,
  * - assert the consolidated `cleo.db` path,
- * - assert the legacy BARE tables are PRESENT (via arrayContaining) rather than
- *   the only tables (the shared cleo.db also holds `tasks_*` / `brain_*` /
- *   `conduit_*` / etc.),
+ * - assert the PREFIXED conduit tables are PRESENT (via arrayContaining) rather
+ *   than the only tables (the shared cleo.db also holds `tasks_*` / `brain_*` /
+ *   etc.),
  * - reset the shared dual-scope cache between cases for deterministic
  *   created/exists semantics.
  *
@@ -25,6 +27,7 @@
  *
  * @task T344
  * @task T11523
+ * @task T11578
  * @epic T310
  * @epic T11249
  */
@@ -32,7 +35,6 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   applyConduitSchema,
@@ -55,36 +57,31 @@ import { _resetDualScopeDbCache, resolveDualScopeDbPath } from '../dual-scope-db
 // ---------------------------------------------------------------------------
 
 /**
- * The legacy conduit tables the forward migration creates. These now live INSIDE
- * the consolidated `cleo.db` alongside the prefixed `conduit_*` tables and the
+ * The PREFIXED conduit tables present after `ensureConduitDb`. After the AC4
+ * cutover (T11578) the 14 `conduit_*` tables are created by the consolidated
+ * cleo-project migration; the `drizzle-conduit` forward migration adds the
+ * `conduit_messages_fts` FTS5 index + the two legacy `_conduit_*` health-probe
+ * tables. They all live INSIDE the consolidated `cleo.db` alongside the
  * `tasks_*` / `brain_*` domains, so we assert PRESENCE (arrayContaining) rather
- * than equality. `_conduit_meta` / `_conduit_migrations` are the two legacy meta
- * tables.
- *
- * T11563: the attachment-family tables carry the `conduit_` prefix
- * (`conduit_attachments`, `conduit_attachment_versions`,
- * `conduit_attachment_approvals`, `conduit_attachment_contributors`) so they are
- * PHYSICALLY DISJOINT from the docs-domain bare `attachments` table that also
- * lives in the consolidated `cleo.db` — the bare names collided once conduit was
- * routed into `cleo.db` (#900), crashing the `conversation_id` index.
+ * than equality.
  */
-const EXPECTED_LEGACY_TABLES = [
+const EXPECTED_PREFIXED_TABLES = [
   '_conduit_meta',
   '_conduit_migrations',
   'conduit_attachment_approvals',
   'conduit_attachment_contributors',
   'conduit_attachment_versions',
   'conduit_attachments',
-  'conversations',
-  'dead_letters',
-  'delivery_jobs',
-  'message_pins',
-  'messages',
-  'project_agent_refs',
-  'topic_message_acks',
-  'topic_messages',
-  'topic_subscriptions',
-  'topics',
+  'conduit_conversations',
+  'conduit_dead_letters',
+  'conduit_delivery_jobs',
+  'conduit_message_pins',
+  'conduit_messages',
+  'conduit_project_agent_refs',
+  'conduit_topic_message_acks',
+  'conduit_topic_messages',
+  'conduit_topic_subscriptions',
+  'conduit_topics',
 ];
 
 // ---------------------------------------------------------------------------
@@ -145,25 +142,25 @@ describe('conduit-sqlite', () => {
       .all() as Array<{ name: string }>;
 
     const tableNames = rows.map((r) => r.name);
-    // The consolidated cleo.db holds tasks_*/brain_*/conduit_* too, so assert the
-    // legacy BARE conduit tables are PRESENT rather than the only tables.
-    expect(tableNames).toEqual(expect.arrayContaining(EXPECTED_LEGACY_TABLES));
+    // The consolidated cleo.db holds tasks_*/brain_* too, so assert the PREFIXED
+    // conduit tables are PRESENT rather than the only tables.
+    expect(tableNames).toEqual(expect.arrayContaining(EXPECTED_PREFIXED_TABLES));
   });
 
-  // TC-011 — messages_fts virtual table created
-  it('ensureConduitDb creates messages_fts virtual table', async () => {
+  // TC-011 — conduit_messages_fts virtual table created (T11578 · AC4)
+  it('ensureConduitDb creates conduit_messages_fts virtual table', async () => {
     await ensureConduitDb(tmpRoot);
     const db = getConduitNativeDb();
     expect(db).not.toBeNull();
 
     const row = db!
-      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages_fts'")
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='conduit_messages_fts'")
       .get() as { name: string } | undefined;
-    expect(row?.name).toBe('messages_fts');
+    expect(row?.name).toBe('conduit_messages_fts');
   });
 
-  // TC-012 — FTS5 triggers created and functional
-  it('messages_fts triggers are created and FTS search works after insert', async () => {
+  // TC-012 — FTS5 triggers created and functional (T11578 · AC4)
+  it('conduit_messages_fts triggers are created and FTS search works after insert', async () => {
     await ensureConduitDb(tmpRoot);
     const db = getConduitNativeDb();
     expect(db).not.toBeNull();
@@ -173,22 +170,23 @@ describe('conduit-sqlite', () => {
       .prepare("SELECT name FROM sqlite_master WHERE type='trigger' ORDER BY name")
       .all() as Array<{ name: string }>;
     const triggerNames = triggers.map((t) => t.name);
-    expect(triggerNames).toContain('messages_ai');
-    expect(triggerNames).toContain('messages_ad');
-    expect(triggerNames).toContain('messages_au');
+    expect(triggerNames).toContain('conduit_messages_ai');
+    expect(triggerNames).toContain('conduit_messages_ad');
+    expect(triggerNames).toContain('conduit_messages_au');
 
     // FK is enabled under the dual-scope pragma SSoT — insert a conversation
-    // first to satisfy the messages → conversations FK.
-    db!.exec(`INSERT INTO conversations (id, participants, created_at, updated_at)
-              VALUES ('conv-1', '["a","b"]', 1000, 1000)`);
+    // first to satisfy the conduit_messages → conduit_conversations FK.
+    // Timestamps are canonical TEXT ISO-8601 (CHECK enforces the ISO GLOB).
+    db!.exec(`INSERT INTO conduit_conversations (id, participants, created_at, updated_at)
+              VALUES ('conv-1', '["a","b"]', '2026-06-02T00:00:00.000Z', '2026-06-02T00:00:00.000Z')`);
 
-    // Insert a message — messages_ai trigger should populate messages_fts.
-    db!.exec(`INSERT INTO messages
+    // Insert a message — conduit_messages_ai trigger populates conduit_messages_fts.
+    db!.exec(`INSERT INTO conduit_messages
               (id, conversation_id, from_agent_id, to_agent_id, content, created_at)
-              VALUES ('msg-1', 'conv-1', 'agent-a', 'agent-b', 'hello world', 1000)`);
+              VALUES ('msg-1', 'conv-1', 'agent-a', 'agent-b', 'hello world', '2026-06-02T00:00:00.000Z')`);
 
     const ftsRow = db!
-      .prepare("SELECT * FROM messages_fts WHERE messages_fts MATCH 'hello'")
+      .prepare("SELECT * FROM conduit_messages_fts WHERE conduit_messages_fts MATCH 'hello'")
       .get() as Record<string, unknown> | undefined;
     expect(ftsRow).toBeDefined();
   });
@@ -211,7 +209,7 @@ describe('conduit-sqlite', () => {
   it('ensureConduitDb is idempotent: data survives across two opens', async () => {
     await ensureConduitDb(tmpRoot);
     const db1 = getConduitNativeDb()!;
-    db1.exec(`INSERT INTO project_agent_refs (agent_id, attached_at)
+    db1.exec(`INSERT INTO conduit_project_agent_refs (agent_id, attached_at)
               VALUES ('test-agent', '2026-04-12T00:00:00Z')`);
     closeConduitDb();
     _resetDualScopeDbCache();
@@ -219,7 +217,7 @@ describe('conduit-sqlite', () => {
     await ensureConduitDb(tmpRoot);
     const db2 = getConduitNativeDb()!;
     const row = db2
-      .prepare('SELECT agent_id FROM project_agent_refs WHERE agent_id = ?')
+      .prepare('SELECT agent_id FROM conduit_project_agent_refs WHERE agent_id = ?')
       .get('test-agent') as { agent_id: string } | undefined;
     expect(row?.agent_id).toBe('test-agent');
   });
@@ -252,12 +250,12 @@ describe('conduit-sqlite', () => {
     expect(result.integrity_check).toBe('ok');
   });
 
-  // project_agent_refs schema
-  it('project_agent_refs has expected columns with correct constraints', async () => {
+  // conduit_project_agent_refs schema (T11578 · AC4 — prefixed, consolidated)
+  it('conduit_project_agent_refs has expected columns with correct constraints', async () => {
     await ensureConduitDb(tmpRoot);
     const db = getConduitNativeDb()!;
 
-    const cols = db.prepare('PRAGMA table_info(project_agent_refs)').all() as Array<{
+    const cols = db.prepare('PRAGMA table_info(conduit_project_agent_refs)').all() as Array<{
       cid: number;
       name: string;
       type: string;
@@ -279,36 +277,22 @@ describe('conduit-sqlite', () => {
     const agentIdCol = cols.find((c) => c.name === 'agent_id');
     expect(agentIdCol?.pk).toBe(1);
 
+    // E10 §3b: `enabled` is a typed boolean → `integer DEFAULT true` with a
+    // `CHECK (enabled IN (0,1))` (the consolidated schema; the builder writes 0/1).
     const enabledCol = cols.find((c) => c.name === 'enabled');
     expect(enabledCol?.notnull).toBe(1);
-    expect(enabledCol?.dflt_value).toBe('1');
+    expect(enabledCol?.dflt_value).toBe('true');
   });
 
-  // partial index on project_agent_refs
-  it('idx_project_agent_refs_enabled partial index exists on project_agent_refs', async () => {
+  // applyConduitSchema — idempotent on a conduit-initialized db (T11578 · AC4).
+  // The FTS5 `content='conduit_messages'` index references the consolidated
+  // `conduit_messages` table, so the schema must be applied to a `cleo.db` that
+  // the consolidated migration has already populated — not a bare manual file.
+  it('applyConduitSchema is idempotent when called twice on the conduit db', async () => {
     await ensureConduitDb(tmpRoot);
     const db = getConduitNativeDb()!;
-
-    const indices = db.prepare('PRAGMA index_list(project_agent_refs)').all() as Array<{
-      seq: number;
-      name: string;
-      unique: number;
-      origin: string;
-      partial: number;
-    }>;
-    const enabledIdx = indices.find((i) => i.name === 'idx_project_agent_refs_enabled');
-    expect(enabledIdx).toBeDefined();
-    expect(enabledIdx?.partial).toBe(1);
-  });
-
-  // applyConduitSchema — idempotent on a caller-owned db
-  it('applyConduitSchema is idempotent when called twice on the same db', () => {
-    const dbPath = join(tmpRoot, 'manual.db');
-    mkdirSync(tmpRoot, { recursive: true });
-    const db = new DatabaseSync(dbPath);
     expect(() => applyConduitSchema(db)).not.toThrow();
     expect(() => applyConduitSchema(db)).not.toThrow();
-    db.close();
   });
 
   // schema version recorded in _conduit_meta
@@ -380,8 +364,8 @@ describe('conduit-sqlite', () => {
     expect(health.walMode).toBe(true);
     expect(health.schemaVersion).toBe(CONDUIT_SCHEMA_VERSION);
     expect(health.foreignKeysEnabled).toBe(true);
-    // At minimum all legacy conduit tables (the consolidated cleo.db has more).
-    expect(health.tableCount).toBeGreaterThanOrEqual(EXPECTED_LEGACY_TABLES.length);
+    // At minimum all prefixed conduit tables (the consolidated cleo.db has more).
+    expect(health.tableCount).toBeGreaterThanOrEqual(EXPECTED_PREFIXED_TABLES.length);
   });
 
   // ensureConduitDb with pre-existing .cleo/ dir
@@ -422,7 +406,7 @@ describe('conduit-sqlite', () => {
       expect(reattached?.role).toBe('reviewer');
       const count = (
         db
-          .prepare('SELECT COUNT(*) AS c FROM project_agent_refs WHERE agent_id = ?')
+          .prepare('SELECT COUNT(*) AS c FROM conduit_project_agent_refs WHERE agent_id = ?')
           .get('agent-1') as {
           c: number;
         }

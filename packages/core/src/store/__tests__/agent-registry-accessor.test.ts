@@ -243,7 +243,7 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     // Manually set enabled=0 in conduit.db
     const conduitDb = env.openConduit();
     conduitDb
-      .prepare('UPDATE project_agent_refs SET enabled = 0 WHERE agent_id = ?')
+      .prepare('UPDATE conduit_project_agent_refs SET enabled = 0 WHERE agent_id = ?')
       .run(BASE_SPEC.agentId);
     conduitDb.close();
 
@@ -448,7 +448,7 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     // Verify conduit.db project_agent_refs was written
     const conduitDb = env.openConduit();
     const refRow = conduitDb
-      .prepare('SELECT agent_id, enabled FROM project_agent_refs WHERE agent_id = ?')
+      .prepare('SELECT agent_id, enabled FROM conduit_project_agent_refs WHERE agent_id = ?')
       .get(BASE_SPEC.agentId) as { agent_id: string; enabled: number } | undefined;
     conduitDb.close();
     expect(refRow).toBeDefined();
@@ -487,7 +487,7 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     // project_agent_refs row should be disabled (enabled=0), not deleted
     const conduitDb = env.openConduit();
     const refRow = conduitDb
-      .prepare('SELECT agent_id, enabled FROM project_agent_refs WHERE agent_id = ?')
+      .prepare('SELECT agent_id, enabled FROM conduit_project_agent_refs WHERE agent_id = ?')
       .get(BASE_SPEC.agentId) as { agent_id: string; enabled: number } | undefined;
     conduitDb.close();
     expect(refRow).toBeDefined();
@@ -590,7 +590,7 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     // Check conduit.db project_agent_refs last_used_at was updated (stored as ISO string)
     const conduitDb = env.openConduit();
     const refRow = conduitDb
-      .prepare('SELECT last_used_at FROM project_agent_refs WHERE agent_id = ?')
+      .prepare('SELECT last_used_at FROM conduit_project_agent_refs WHERE agent_id = ?')
       .get(BASE_SPEC.agentId) as { last_used_at: string | null } | undefined;
     conduitDb.close();
     expect(refRow?.last_used_at).toBeTruthy();
@@ -626,7 +626,7 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     const conduitDb = env.openConduit();
     conduitDb
       .prepare(
-        `INSERT INTO project_agent_refs (agent_id, attached_at, enabled)
+        `INSERT INTO conduit_project_agent_refs (agent_id, attached_at, enabled)
          VALUES (?, ?, 1)`,
       )
       .run('dangling-agent', new Date().toISOString());
@@ -684,7 +684,7 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     // Verify no duplicate rows in conduit.db
     const conduitDb = env.openConduit();
     const rows = conduitDb
-      .prepare('SELECT agent_id FROM project_agent_refs WHERE agent_id = ?')
+      .prepare('SELECT agent_id FROM conduit_project_agent_refs WHERE agent_id = ?')
       .all(BASE_SPEC.agentId) as Array<{ agent_id: string }>;
     conduitDb.close();
     expect(rows).toHaveLength(1);

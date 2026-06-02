@@ -1146,12 +1146,13 @@ describe('doctor db-substrate (T10307)', () => {
   }
 
   /**
-   * Seed a conduit.db with a `dead_letters` table carrying job_id rows.
+   * Seed a conduit.db with a `conduit_dead_letters` table carrying job_id rows
+   * (T11578 · AC4 — prefixed table the I5 invariant check now reads).
    */
   function seedConduitDbForCrossDb(dbPath: string, jobIds: string[]): void {
     const writer = new DatabaseSyncCtor(dbPath);
     writer.exec(
-      `CREATE TABLE dead_letters (
+      `CREATE TABLE conduit_dead_letters (
          id         TEXT PRIMARY KEY,
          message_id TEXT NOT NULL,
          job_id     TEXT NOT NULL,
@@ -1161,7 +1162,7 @@ describe('doctor db-substrate (T10307)', () => {
        );`,
     );
     const insert = writer.prepare(
-      'INSERT INTO dead_letters (id, message_id, job_id, reason, attempts, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      'INSERT INTO conduit_dead_letters (id, message_id, job_id, reason, attempts, created_at) VALUES (?, ?, ?, ?, ?, ?)',
     );
     let i = 0;
     for (const jobId of jobIds) {

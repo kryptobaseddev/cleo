@@ -15,28 +15,38 @@
  * - DB Open Guard Gate 3 (`scripts/lint-no-direct-db-open.mjs`) stays green: the
  *   only native open is inside `dual-scope-db.ts`.
  *
- * ## Inline DDL → forward migration (T11523 acceptance criteria)
+ * ## COMPLETE-CUTOVER to prefixed `conduit_*` tables (T11578 · AC4)
  *
- * The 16-table inline `CONDUIT_SCHEMA_SQL` blob (formerly applied by
- * `applyConduitSchema()`) has been removed and converted to a forward Drizzle
- * migration under
- * `migrations/drizzle-conduit/20260601000003_t11523-conduit-inline-schema`,
- * matching the T1407 baseline marker and the L1/L2 precedent. The migration is
- * reproduced VERBATIM (legacy runtime shape) — 16 tables + indexes + the
- * `messages_fts` FTS5 virtual table + its 3 triggers — so the LocalTransport and
- * accessor writers keep working unchanged.
+ * The conduit runtime READ + WRITE path now targets the PREFIXED consolidated
+ * tables (`conduit_conversations`, `conduit_messages`, `conduit_topics`, …) that
+ * the consolidated cleo-project migration creates — NOT the legacy BARE tables
+ * (`conversations`, `messages`, …). The schema barrel imported below is therefore
+ * `schema/cleo-project/conduit.ts` (the prefixed target shape, TEXT ISO-8601
+ * timestamps + CHECK constraints), replacing the legacy `schema/conduit-schema.ts`
+ * bare shape. The drizzle journal `runConduitMigrations` reconciles now only needs
+ * the FTS5 quartet that the consolidated migration omits (drizzle-orm sqlite-core
+ * does not model FTS5 virtual tables).
  *
- * ## Disjoint physical names (no DROP/rebuild)
+ * ## Inline DDL → forward migration (T11523 → T11578)
  *
- * The conduit legacy physical tables are BARE (`conversations`, `messages`,
- * `delivery_jobs`, …) while the consolidated schema (`cleo-project/conduit.ts`)
- * carries the `conduit_` domain prefix (`conduit_conversations`, …). They are
- * therefore DISJOINT names — the legacy runtime-shape tables co-exist harmlessly
- * with the consolidated `conduit_*` tables in the same `cleo.db`, exactly like the
- * tasks domain (legacy `tasks` ≠ consolidated `tasks_tasks`). Unlike the brain
- * domain (E6-L2, same prefixed names → drop + rebuild), the conduit facade needs
- * no teardown. The exodus migration (T11248 / T11553) renames the legacy tables to
- * `conduit_*`.
+ * The legacy 16-table inline `CONDUIT_SCHEMA_SQL` blob was first converted to a
+ * forward Drizzle migration under
+ * `migrations/drizzle-conduit/20260601000003_t11523-conduit-inline-schema`
+ * (T11523, bare runtime shape). The AC4 cutover (T11578) rewrote that migration to
+ * carry ONLY the `conduit_messages_fts` FTS5 virtual table + its 3 sync triggers
+ * (`conduit_messages_ai/ad/au`) + the two legacy `_conduit_meta` /
+ * `_conduit_migrations` health-probe tables. The 14 prefixed `conduit_*` tables
+ * are owned by the consolidated cleo-project migration (single SSoT) — this
+ * migration no longer creates them.
+ *
+ * ## Single physical shape (consolidated owns the tables)
+ *
+ * After AC4 the runtime writes the SAME prefixed `conduit_*` tables the
+ * consolidated schema (`cleo-project/conduit.ts`) declares — there is no longer a
+ * disjoint bare runtime shape. The exodus migration (T11248 / T11553) still
+ * renames any LEGACY bare data (`messages` → `conduit_messages`) from a
+ * pre-cutover DB into those same prefixed tables; the FTS index is rebuilt
+ * post-migration from `conduit_messages` (exodus skips `*_fts` tables).
  *
  * Architecture (ADR-037):
  *   conduit (this module) — project-scoped — messaging, delivery, attachments,
@@ -78,7 +88,7 @@ import type { drizzle as drizzleFn } from 'drizzle-orm/node-sqlite';
 import { openDualScopeDb, resolveDualScopeDbPath } from './dual-scope-db.js';
 import { migrateSanitized, reconcileJournal } from './migration-manager.js';
 import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
-import * as conduitSchema from './schema/conduit-schema.js';
+import * as conduitSchema from './schema/cleo-project/conduit.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
 
 const _require = createRequire(import.meta.url);
@@ -218,11 +228,23 @@ export function applyConduitSchema(db: DatabaseSync): void {
  * the same `cleo.db` as the consolidated cleo-project journal; the hashes are
  * disjoint, so the conduit migrations reconcile/apply independently.
  *
- * The existence sentinel is `conversations` — the first table created by the
- * conduit schema migration (always present on any conduit-initialized DB).
+ * The existence sentinel is `_conduit_meta` (T11578 · AC4) — a table the conduit
+ * forward migration ITSELF creates, NOT one the consolidated migration owns. This
+ * is critical: `reconcileJournal` Scenario 2 (orphan deletion) is gated on the
+ * sentinel already existing. The consolidated cleo-project migration runs FIRST
+ * (via `openDualScopeDb`) and writes its OWN entries into the SHARED
+ * `__drizzle_migrations` journal; if the sentinel were a consolidated-owned table
+ * (e.g. `conduit_messages`) it would already exist on the first conduit open, so
+ * Scenario 2 would fire, see the consolidated entries as "orphans" (absent from
+ * the conduit folder), and DELETE them — corrupting the consolidated journal and
+ * forcing a destructive re-run on the next open (`table … already exists`).
+ * Pinning the sentinel to a conduit-migration-created table keeps Scenario 2
+ * dormant until the conduit set is journaled, exactly as the pre-cutover bare
+ * `conversations` sentinel did.
  *
  * @task T1407
  * @task T11523
+ * @task T11578
  * @epic T310
  */
 function runConduitMigrations(nativeDb: DatabaseSync): void {
@@ -230,8 +252,10 @@ function runConduitMigrations(nativeDb: DatabaseSync): void {
 
   // Reconcile the Drizzle journal first so existing DBs don't try to re-run the
   // comment-only baseline marker (Scenario 3 marks it applied immediately when
-  // the schema already matches).
-  reconcileJournal(nativeDb, migrationsFolder, 'conversations', 'conduit');
+  // the schema already matches). Sentinel = `_conduit_meta` (created by the
+  // conduit migration itself — see the doc note above on why it must NOT be a
+  // consolidated-owned table).
+  reconcileJournal(nativeDb, migrationsFolder, '_conduit_meta', 'conduit');
 
   const db = _getDrizzle()({ client: nativeDb, schema: conduitSchema });
   migrateSanitized(db, { migrationsFolder });
@@ -245,12 +269,12 @@ function runConduitMigrations(nativeDb: DatabaseSync): void {
  * Delegates the physical DB open to {@link openDualScopeDb}('project', cwd) — the
  * canonical dual-scope chokepoint. openDualScopeDb applies the pragma SSoT,
  * creates the directory, runs the consolidated cleo-project migrations (which
- * create the `conduit_*` tables), and manages the singleton cache. We extract its
- * native handle (`$client`) and run the legacy `drizzle-conduit` migrations on it
- * to (idempotently) create the BARE legacy runtime-shape tables (`conversations`,
- * `messages`, FTS5, …) that the LocalTransport + accessor writers query. The
- * legacy and consolidated `conduit_*` tables co-exist (disjoint names) — the
- * exodus migration (T11248 / T11553) renames the legacy ones.
+ * create the prefixed `conduit_*` tables), and manages the singleton cache. We
+ * extract its native handle (`$client`) and run the `drizzle-conduit` migration on
+ * it to (idempotently) create the `conduit_messages_fts` FTS5 quartet that the
+ * consolidated migration omits. After the AC4 cutover (T11578) the LocalTransport +
+ * accessor writers query the SAME prefixed `conduit_*` tables — the exodus
+ * migration (T11248 / T11553) renames any pre-cutover BARE data into them.
  *
  * On subsequent calls the existing singleton is returned immediately if the
  * resolved path matches AND the shared handle is still live (liveness guard);
@@ -308,12 +332,12 @@ export async function ensureConduitDb(
       );
     }
 
-    // Establish the LEGACY conduit-domain schema inside the consolidated cleo.db.
-    // The consolidated migrations created the prefixed `conduit_*` tables; the
-    // runtime writers query the BARE legacy tables (`conversations`, `messages`,
-    // FTS5, …). Running the `drizzle-conduit` set creates those bare tables. They
-    // are disjoint from the consolidated names, so no drop is needed (unlike the
-    // brain domain, E6-L2). Idempotent: a no-op once the tables already exist.
+    // Establish the FTS5 index over the consolidated `conduit_messages` table.
+    // The consolidated migrations already created the prefixed `conduit_*` tables;
+    // running the `drizzle-conduit` set adds the `conduit_messages_fts` virtual
+    // table + its 3 sync triggers (drizzle-orm cannot model FTS5, so the
+    // consolidated migration omits them). Idempotent: a no-op once the FTS index
+    // already exists (T11578 · AC4).
     runConduitMigrations(nativeDb);
 
     // Record schema version in the legacy `_conduit_meta` table for backwards-
@@ -419,11 +443,11 @@ export function attachAgentToProject(
 ): void {
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO project_agent_refs (agent_id, attached_at, role, capabilities_override, last_used_at, enabled)
+    `INSERT INTO conduit_project_agent_refs (agent_id, attached_at, role, capabilities_override, last_used_at, enabled)
      VALUES (?, ?, ?, ?, NULL, 1)
      ON CONFLICT(agent_id) DO UPDATE SET
        enabled = 1,
-       attached_at = CASE WHEN project_agent_refs.enabled = 0 THEN excluded.attached_at ELSE project_agent_refs.attached_at END,
+       attached_at = CASE WHEN conduit_project_agent_refs.enabled = 0 THEN excluded.attached_at ELSE conduit_project_agent_refs.attached_at END,
        role = excluded.role,
        capabilities_override = excluded.capabilities_override`,
   ).run(agentId, now, opts?.role ?? null, opts?.capabilitiesOverride ?? null);
@@ -439,7 +463,7 @@ export function attachAgentToProject(
  * @epic T310
  */
 export function detachAgentFromProject(db: DatabaseSync, agentId: string): void {
-  db.prepare(`UPDATE project_agent_refs SET enabled = 0 WHERE agent_id = ?`).run(agentId);
+  db.prepare(`UPDATE conduit_project_agent_refs SET enabled = 0 WHERE agent_id = ?`).run(agentId);
 }
 
 /**
@@ -459,10 +483,10 @@ export function listProjectAgentRefs(
   const enabledOnly = opts?.enabledOnly ?? true;
   const sql = enabledOnly
     ? `SELECT agent_id, attached_at, role, capabilities_override, last_used_at, enabled
-       FROM project_agent_refs WHERE enabled = 1
+       FROM conduit_project_agent_refs WHERE enabled = 1
        ORDER BY attached_at DESC`
     : `SELECT agent_id, attached_at, role, capabilities_override, last_used_at, enabled
-       FROM project_agent_refs
+       FROM conduit_project_agent_refs
        ORDER BY attached_at DESC`;
   const rows = db.prepare(sql).all() as Array<{
     agent_id: string;
@@ -495,7 +519,7 @@ export function getProjectAgentRef(db: DatabaseSync, agentId: string): ProjectAg
   const row = db
     .prepare(
       `SELECT agent_id, attached_at, role, capabilities_override, last_used_at, enabled
-       FROM project_agent_refs WHERE agent_id = ?`,
+       FROM conduit_project_agent_refs WHERE agent_id = ?`,
     )
     .get(agentId) as
     | {
@@ -528,7 +552,7 @@ export function getProjectAgentRef(db: DatabaseSync, agentId: string): ProjectAg
  * @epic T310
  */
 export function updateProjectAgentLastUsed(db: DatabaseSync, agentId: string): void {
-  db.prepare(`UPDATE project_agent_refs SET last_used_at = ? WHERE agent_id = ?`).run(
+  db.prepare(`UPDATE conduit_project_agent_refs SET last_used_at = ? WHERE agent_id = ?`).run(
     new Date().toISOString(),
     agentId,
   );

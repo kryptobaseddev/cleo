@@ -68,8 +68,13 @@ interface LocalTransportState {
   pollTimer: ReturnType<typeof setInterval> | null;
   /** Poll timer for cross-process topic message delivery. */
   topicPollTimer: ReturnType<typeof setInterval> | null;
-  /** Tracks the highest `created_at` unix timestamp seen per topic for incremental polling. */
-  topicLastSeen: Map<string, number>;
+  /**
+   * Tracks the highest `created_at` watermark seen per topic for incremental
+   * polling. T11578 (AC4): `conduit_topic_messages.created_at` is canonical TEXT
+   * ISO-8601, so the watermark is an ISO string (lexicographically comparable),
+   * not the prior unix-seconds number.
+   */
+  topicLastSeen: Map<string, string>;
 }
 
 /** In-process SQLite transport for fully offline agent messaging. */
@@ -102,15 +107,15 @@ export class LocalTransport implements Transport {
     // Open fresh (non-singleton) conduit connection with pragmas applied (T9189)
     const db = openFreshConduitDb(process.cwd()); // CWD-OK: LocalTransport pre-init contract
 
-    // Verify the messages table exists
+    // Verify the conduit_messages table exists (T11578 · AC4: prefixed table).
     const hasMessages = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'")
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='conduit_messages'")
       .get() as { name: string } | undefined;
 
     if (!hasMessages) {
       db.close();
       throw new Error(
-        'LocalTransport: conduit.db exists but messages table missing — run cleo init or allow auto-migration (T358)',
+        'LocalTransport: conduit.db exists but conduit_messages table missing — run cleo init or allow auto-migration (T358)',
       );
     }
 
@@ -158,20 +163,22 @@ export class LocalTransport implements Transport {
     this.ensureConnected();
     const { db, agentId } = this.state!;
     const messageId = randomUUID();
-    const nowUnix = Math.floor(Date.now() / 1000);
+    // T11578 (AC4): the consolidated `conduit_messages.created_at` is canonical
+    // TEXT ISO-8601 (CHECK enforces the ISO GLOB) — write ISO, not epoch.
+    const nowIso = new Date().toISOString();
 
     if (options?.conversationId) {
       db.prepare(
-        `INSERT INTO messages (id, conversation_id, from_agent_id, to_agent_id, content, content_type, status, created_at)
+        `INSERT INTO conduit_messages (id, conversation_id, from_agent_id, to_agent_id, content, content_type, status, created_at)
          VALUES (?, ?, ?, ?, ?, 'text', 'pending', ?)`,
-      ).run(messageId, options.conversationId, agentId, to, content, nowUnix);
+      ).run(messageId, options.conversationId, agentId, to, content, nowIso);
     } else {
       // Direct message — create or reuse a DM conversation
       const convId = this.ensureDmConversation(agentId, to);
       db.prepare(
-        `INSERT INTO messages (id, conversation_id, from_agent_id, to_agent_id, content, content_type, status, created_at)
+        `INSERT INTO conduit_messages (id, conversation_id, from_agent_id, to_agent_id, content, content_type, status, created_at)
          VALUES (?, ?, ?, ?, ?, 'text', 'pending', ?)`,
-      ).run(messageId, convId, agentId, to, content, nowUnix);
+      ).run(messageId, convId, agentId, to, content, nowIso);
     }
 
     // Notify local subscribers
@@ -180,7 +187,7 @@ export class LocalTransport implements Transport {
       from: agentId,
       content,
       threadId: options?.conversationId,
-      timestamp: new Date(nowUnix * 1000).toISOString(),
+      timestamp: nowIso,
     });
 
     return { messageId };
@@ -200,16 +207,20 @@ export class LocalTransport implements Transport {
     let query: string;
     let params: (string | number)[];
 
+    // T11578 (AC4): `created_at` is now canonical TEXT ISO-8601. ISO-8601 is
+    // lexicographically sortable, so `created_at > ?` and `ORDER BY created_at`
+    // remain correct against the prefixed `conduit_messages` table; `since` is an
+    // ISO string supplied by the caller (the prior epoch-number contract is gone).
     if (options?.since) {
       query = `SELECT id, from_agent_id, content, conversation_id, created_at
-               FROM messages
+               FROM conduit_messages
                WHERE to_agent_id = ? AND status = 'pending' AND created_at > ?
                ORDER BY created_at ASC
                LIMIT ?`;
       params = [agentId, options.since, limit];
     } else {
       query = `SELECT id, from_agent_id, content, conversation_id, created_at
-               FROM messages
+               FROM conduit_messages
                WHERE to_agent_id = ? AND status = 'pending'
                ORDER BY created_at ASC
                LIMIT ?`;
@@ -221,7 +232,7 @@ export class LocalTransport implements Transport {
       from_agent_id: string;
       content: string;
       conversation_id: string | null;
-      created_at: number;
+      created_at: string;
     }>;
 
     return rows.map((r) => ({
@@ -229,7 +240,7 @@ export class LocalTransport implements Transport {
       from: r.from_agent_id,
       content: r.content,
       threadId: r.conversation_id ?? undefined,
-      timestamp: new Date(r.created_at * 1000).toISOString(),
+      timestamp: r.created_at,
     }));
   }
 
@@ -243,12 +254,14 @@ export class LocalTransport implements Transport {
     if (messageIds.length === 0) return;
 
     const { db } = this.state!;
-    const nowUnix = Math.floor(Date.now() / 1000);
+    // T11578 (AC4): `conduit_messages.delivered_at` is canonical TEXT ISO-8601
+    // (CHECK enforces the ISO GLOB) — write ISO, not epoch.
+    const nowIso = new Date().toISOString();
 
     const placeholders = messageIds.map(() => '?').join(', ');
     db.prepare(
-      `UPDATE messages SET status = 'delivered', delivered_at = ? WHERE id IN (${placeholders})`,
-    ).run(nowUnix, ...messageIds);
+      `UPDATE conduit_messages SET status = 'delivered', delivered_at = ? WHERE id IN (${placeholders})`,
+    ).run(nowIso, ...messageIds);
   }
 
   /**
@@ -297,7 +310,9 @@ export class LocalTransport implements Transport {
   async subscribeTopic(topicName: string, _options?: ConduitTopicSubscribeOptions): Promise<void> {
     this.ensureConnected();
     const { db, agentId } = this.state!;
-    const nowUnix = Math.floor(Date.now() / 1000);
+    // T11578 (AC4): `conduit_topics.created_at` + `conduit_topic_subscriptions.
+    // subscribed_at` are canonical TEXT ISO-8601 (CHECK enforces the ISO GLOB).
+    const nowIso = new Date().toISOString();
 
     // Derive epic_id / wave_id from the topic name (e.g. "epic-T1149.wave-2" or "epic-T1149.coordination")
     const { epicId, waveId } = parseTopicName(topicName);
@@ -305,22 +320,22 @@ export class LocalTransport implements Transport {
 
     // Create topic if absent
     db.prepare(
-      `INSERT INTO topics (id, name, epic_id, wave_id, created_by, created_at)
+      `INSERT INTO conduit_topics (id, name, epic_id, wave_id, created_by, created_at)
        VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(name) DO NOTHING`,
-    ).run(topicId, topicName, epicId, waveId ?? null, agentId, nowUnix);
+    ).run(topicId, topicName, epicId, waveId ?? null, agentId, nowIso);
 
     // Resolve the actual topic id (might have been inserted above or pre-existing)
-    const topic = db.prepare('SELECT id FROM topics WHERE name = ?').get(topicName) as
+    const topic = db.prepare('SELECT id FROM conduit_topics WHERE name = ?').get(topicName) as
       | { id: string }
       | undefined;
     if (!topic) return; // Should not happen; inserted above
 
     db.prepare(
-      `INSERT INTO topic_subscriptions (topic_id, agent_id, subscribed_at)
+      `INSERT INTO conduit_topic_subscriptions (topic_id, agent_id, subscribed_at)
        VALUES (?, ?, ?)
        ON CONFLICT(topic_id, agent_id) DO NOTHING`,
-    ).run(topic.id, agentId, nowUnix);
+    ).run(topic.id, agentId, nowIso);
   }
 
   /**
@@ -346,7 +361,9 @@ export class LocalTransport implements Transport {
   ): Promise<{ messageId: string }> {
     this.ensureConnected();
     const { db, agentId } = this.state!;
-    const nowUnix = Math.floor(Date.now() / 1000);
+    // T11578 (AC4): `conduit_topics.created_at` + `conduit_topic_messages.
+    // created_at` are canonical TEXT ISO-8601 (CHECK enforces the ISO GLOB).
+    const nowIso = new Date().toISOString();
     const messageId = randomUUID();
     const kind = options?.kind ?? 'message';
 
@@ -354,12 +371,12 @@ export class LocalTransport implements Transport {
     const { epicId, waveId } = parseTopicName(topicName);
     const topicInsertId = randomUUID();
     db.prepare(
-      `INSERT INTO topics (id, name, epic_id, wave_id, created_by, created_at)
+      `INSERT INTO conduit_topics (id, name, epic_id, wave_id, created_by, created_at)
        VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(name) DO NOTHING`,
-    ).run(topicInsertId, topicName, epicId, waveId ?? null, agentId, nowUnix);
+    ).run(topicInsertId, topicName, epicId, waveId ?? null, agentId, nowIso);
 
-    const topic = db.prepare('SELECT id FROM topics WHERE name = ?').get(topicName) as
+    const topic = db.prepare('SELECT id FROM conduit_topics WHERE name = ?').get(topicName) as
       | { id: string }
       | undefined;
     if (!topic) {
@@ -367,7 +384,7 @@ export class LocalTransport implements Transport {
     }
 
     db.prepare(
-      `INSERT INTO topic_messages (id, topic_id, from_agent_id, kind, content, payload, created_at)
+      `INSERT INTO conduit_topic_messages (id, topic_id, from_agent_id, kind, content, payload, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       messageId,
@@ -376,7 +393,7 @@ export class LocalTransport implements Transport {
       kind,
       content,
       options?.payload != null ? JSON.stringify(options.payload) : null,
-      nowUnix,
+      nowIso,
     );
 
     // Notify in-process topic handlers immediately
@@ -389,7 +406,7 @@ export class LocalTransport implements Transport {
       kind,
       threadId: topicName,
       payload: options?.payload,
-      timestamp: new Date(nowUnix * 1000).toISOString(),
+      timestamp: nowIso,
     });
 
     return { messageId };
@@ -455,12 +472,12 @@ export class LocalTransport implements Transport {
     this.ensureConnected();
     const { db, agentId } = this.state!;
 
-    const topic = db.prepare('SELECT id FROM topics WHERE name = ?').get(topicName) as
+    const topic = db.prepare('SELECT id FROM conduit_topics WHERE name = ?').get(topicName) as
       | { id: string }
       | undefined;
     if (!topic) return; // Topic doesn't exist — nothing to do
 
-    db.prepare('DELETE FROM topic_subscriptions WHERE topic_id = ? AND agent_id = ?').run(
+    db.prepare('DELETE FROM conduit_topic_subscriptions WHERE topic_id = ? AND agent_id = ?').run(
       topic.id,
       agentId,
     );
@@ -477,14 +494,16 @@ export class LocalTransport implements Transport {
    */
   async pollTopic(
     topicName: string,
-    options?: { limit?: number; since?: number },
+    options?: { limit?: number; since?: string },
   ): Promise<ConduitMessage[]> {
     this.ensureConnected();
     const { db } = this.state!;
     const limit = options?.limit ?? 50;
-    const since = options?.since ?? 0;
+    // T11578 (AC4): `since` is now an ISO-8601 watermark. The empty-string floor
+    // sorts before any real ISO timestamp, so `created_at > ''` returns all rows.
+    const since = options?.since ?? '';
 
-    const topic = db.prepare('SELECT id FROM topics WHERE name = ?').get(topicName) as
+    const topic = db.prepare('SELECT id FROM conduit_topics WHERE name = ?').get(topicName) as
       | { id: string }
       | undefined;
     if (!topic) return [];
@@ -492,7 +511,7 @@ export class LocalTransport implements Transport {
     const rows = db
       .prepare(
         `SELECT id, from_agent_id, kind, content, payload, created_at
-         FROM topic_messages
+         FROM conduit_topic_messages
          WHERE topic_id = ? AND created_at > ?
          ORDER BY created_at ASC
          LIMIT ?`,
@@ -503,7 +522,7 @@ export class LocalTransport implements Transport {
       kind: string;
       content: string;
       payload: string | null;
-      created_at: number;
+      created_at: string;
     }>;
 
     return rows.map((r) => ({
@@ -515,7 +534,7 @@ export class LocalTransport implements Transport {
       kind: r.kind as ConduitMessage['kind'],
       threadId: topicName,
       payload: r.payload != null ? (JSON.parse(r.payload) as Record<string, unknown>) : undefined,
-      timestamp: new Date(r.created_at * 1000).toISOString(),
+      timestamp: r.created_at,
     }));
   }
 
@@ -561,16 +580,14 @@ export class LocalTransport implements Transport {
     if (!this.state || this.state.topicHandlers.size === 0) return;
 
     for (const [topicName] of this.state.topicHandlers) {
-      const since = this.state.topicLastSeen.get(topicName) ?? 0;
+      // T11578 (AC4): watermark is an ISO-8601 string ('' floor matches all rows).
+      const since = this.state.topicLastSeen.get(topicName) ?? '';
       const messages = await this.pollTopic(topicName, { limit: 50, since });
       if (messages.length > 0) {
-        // Advance the watermark
+        // Advance the watermark to the last message's ISO timestamp.
         const lastTs = messages[messages.length - 1];
-        if (lastTs) {
-          this.state.topicLastSeen.set(
-            topicName,
-            Math.floor(new Date(lastTs.timestamp).getTime() / 1000),
-          );
+        if (lastTs?.timestamp) {
+          this.state.topicLastSeen.set(topicName, lastTs.timestamp);
         }
         for (const msg of messages) {
           this.notifyTopicHandlers(topicName, msg);
@@ -622,7 +639,7 @@ export class LocalTransport implements Transport {
     // Check for existing DM conversation with these exact participants
     const existing = db
       .prepare(
-        `SELECT id FROM conversations
+        `SELECT id FROM conduit_conversations
          WHERE visibility = 'private' AND participants = ?
          LIMIT 1`,
       )
@@ -630,14 +647,15 @@ export class LocalTransport implements Transport {
 
     if (existing) return existing.id;
 
-    // Create new DM conversation
+    // Create new DM conversation. T11578 (AC4): `conduit_conversations.created_at`
+    // / `updated_at` are canonical TEXT ISO-8601 (CHECK enforces the ISO GLOB).
     const convId = randomUUID();
-    const nowUnix = Math.floor(Date.now() / 1000);
+    const nowIso = new Date().toISOString();
 
     db.prepare(
-      `INSERT INTO conversations (id, participants, visibility, message_count, created_at, updated_at)
+      `INSERT INTO conduit_conversations (id, participants, visibility, message_count, created_at, updated_at)
        VALUES (?, ?, 'private', 0, ?, ?)`,
-    ).run(convId, sortedParticipants, nowUnix, nowUnix);
+    ).run(convId, sortedParticipants, nowIso, nowIso);
 
     return convId;
   }

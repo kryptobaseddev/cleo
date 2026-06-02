@@ -88,17 +88,18 @@ describe('Agent Lifecycle E2E', () => {
     const db = new DatabaseSync(dbPath);
 
     try {
+      // T11578 (AC4): prefixed conduit_project_agent_refs; attached_at is TEXT ISO.
       const now = new Date().toISOString();
       db.prepare(
-        'INSERT INTO project_agent_refs (agent_id, attached_at, role, enabled) VALUES (?, ?, ?, 1)',
+        'INSERT INTO conduit_project_agent_refs (agent_id, attached_at, role, enabled) VALUES (?, ?, ?, 1)',
       ).run('agent-alpha', now, 'worker');
       db.prepare(
-        'INSERT INTO project_agent_refs (agent_id, attached_at, role, enabled) VALUES (?, ?, ?, 1)',
+        'INSERT INTO conduit_project_agent_refs (agent_id, attached_at, role, enabled) VALUES (?, ?, ?, 1)',
       ).run('agent-beta', now, 'worker');
 
       const refs = db
         .prepare(
-          'SELECT agent_id, role FROM project_agent_refs WHERE enabled = 1 ORDER BY agent_id',
+          'SELECT agent_id, role FROM conduit_project_agent_refs WHERE enabled = 1 ORDER BY agent_id',
         )
         .all() as Array<{ agent_id: string; role: string }>;
       expect(refs).toHaveLength(2);
@@ -120,22 +121,24 @@ describe('Agent Lifecycle E2E', () => {
     const db = new DatabaseSync(dbPath);
 
     try {
-      const now = Math.floor(Date.now() / 1000);
+      // T11578 (AC4): prefixed conduit_* tables; timestamps are canonical TEXT
+      // ISO-8601 (the consolidated GLOB CHECK rejects epoch integers).
+      const now = new Date().toISOString();
 
       // Create conversation. Messaging tables reference agent ids as plain
       // TEXT — they are not FK-bound to a project-tier agents table.
       db.exec(`
-        INSERT INTO conversations (id, participants, visibility, message_count, created_at, updated_at)
-        VALUES ('conv-1', '["agent-alpha","agent-beta"]', 'private', 0, ${now}, ${now});
+        INSERT INTO conduit_conversations (id, participants, visibility, message_count, created_at, updated_at)
+        VALUES ('conv-1', '["agent-alpha","agent-beta"]', 'private', 0, '${now}', '${now}');
       `);
 
       // Agent Alpha sends a message to Agent Beta.
       db.exec(`
-        INSERT INTO messages (id, conversation_id, from_agent_id, to_agent_id, content, content_type, status, created_at)
-        VALUES ('msg-1', 'conv-1', 'agent-alpha', 'agent-beta', '/action @agent-beta Hello from Alpha!', 'text', 'pending', ${now});
+        INSERT INTO conduit_messages (id, conversation_id, from_agent_id, to_agent_id, content, content_type, status, created_at)
+        VALUES ('msg-1', 'conv-1', 'agent-alpha', 'agent-beta', '/action @agent-beta Hello from Alpha!', 'text', 'pending', '${now}');
       `);
 
-      const msg = db.prepare('SELECT * FROM messages WHERE id = ?').get('msg-1') as {
+      const msg = db.prepare('SELECT * FROM conduit_messages WHERE id = ?').get('msg-1') as {
         from_agent_id: string;
         to_agent_id: string;
         content: string;
@@ -147,15 +150,21 @@ describe('Agent Lifecycle E2E', () => {
       expect(msg.status).toBe('pending');
 
       // Mark delivered.
-      db.exec(`UPDATE messages SET status = 'delivered', delivered_at = ${now} WHERE id = 'msg-1'`);
-      const delivered = db.prepare('SELECT status FROM messages WHERE id = ?').get('msg-1') as {
+      db.exec(
+        `UPDATE conduit_messages SET status = 'delivered', delivered_at = '${now}' WHERE id = 'msg-1'`,
+      );
+      const delivered = db
+        .prepare('SELECT status FROM conduit_messages WHERE id = ?')
+        .get('msg-1') as {
         status: string;
       };
       expect(delivered.status).toBe('delivered');
 
       // FTS index should pick up the word "Alpha".
       const ftsResults = db
-        .prepare("SELECT content FROM messages_fts WHERE messages_fts MATCH 'Alpha'")
+        .prepare(
+          "SELECT content FROM conduit_messages_fts WHERE conduit_messages_fts MATCH 'Alpha'",
+        )
         .all() as Array<{ content: string }>;
       expect(ftsResults.length).toBeGreaterThanOrEqual(1);
     } finally {
@@ -185,29 +194,30 @@ describe('Agent Lifecycle E2E', () => {
     const _require = createRequire(import.meta.url);
     const { DatabaseSync } = _require('node:sqlite') as typeof import('node:sqlite');
     const db = new DatabaseSync(path);
-    const now = Math.floor(Date.now() / 1000);
+    // T11578 (AC4): prefixed conduit_* tables; timestamps are TEXT ISO-8601.
+    const now = new Date().toISOString();
 
     try {
       db.exec(
-        `INSERT INTO conversations (id, participants, visibility, message_count, created_at, updated_at) VALUES ('c1', '["alice","bob"]', 'private', 0, ${now}, ${now})`,
+        `INSERT INTO conduit_conversations (id, participants, visibility, message_count, created_at, updated_at) VALUES ('c1', '["alice","bob"]', 'private', 0, '${now}', '${now}')`,
       );
       db.exec(
-        `INSERT INTO messages (id, conversation_id, from_agent_id, to_agent_id, content, content_type, status, created_at) VALUES ('m1', 'c1', 'alice', 'bob', 'Hello Bob!', 'text', 'pending', ${now})`,
+        `INSERT INTO conduit_messages (id, conversation_id, from_agent_id, to_agent_id, content, content_type, status, created_at) VALUES ('m1', 'c1', 'alice', 'bob', 'Hello Bob!', 'text', 'pending', '${now}')`,
       );
 
       // 4. Verify roundtrip.
       const received = db
-        .prepare("SELECT * FROM messages WHERE to_agent_id = 'bob'")
+        .prepare("SELECT * FROM conduit_messages WHERE to_agent_id = 'bob'")
         .all() as Array<{ content: string }>;
       expect(received).toHaveLength(1);
       expect(received[0]?.content).toBe('Hello Bob!');
 
       // 5. Mark delivered.
-      db.exec("UPDATE messages SET status = 'delivered' WHERE id = 'm1'");
+      db.exec("UPDATE conduit_messages SET status = 'delivered' WHERE id = 'm1'");
 
       // 6. Verify delivery state persisted.
       const delivered = db
-        .prepare("SELECT COUNT(*) as c FROM messages WHERE status = 'delivered'")
+        .prepare("SELECT COUNT(*) as c FROM conduit_messages WHERE status = 'delivered'")
         .get() as { c: number };
       expect(delivered.c).toBe(1);
     } finally {
