@@ -25,7 +25,7 @@ import {
 function createTestDb(): DatabaseSync {
   const db = new DatabaseSync(':memory:');
   db.exec(`
-    CREATE TABLE tasks (
+    CREATE TABLE tasks_tasks (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
       description TEXT,
@@ -51,7 +51,7 @@ function insertProposal(
   label = SENTIENT_TIER2_TAG,
 ) {
   db.prepare(
-    `INSERT INTO tasks (id, title, status, labels_json, created_at, role, scope)
+    `INSERT INTO tasks_tasks (id, title, status, labels_json, created_at, role, scope)
      VALUES (:id, :title, :status, :labelsJson, :createdAt, 'work', 'feature')`,
   ).run({
     id,
@@ -153,7 +153,7 @@ describe('isRateLimitExceeded', () => {
 
 describe('transactionalInsertProposal', () => {
   const insertSql = `
-    INSERT INTO tasks (id, title, status, labels_json, created_at, role, scope)
+    INSERT INTO tasks_tasks (id, title, status, labels_json, created_at, role, scope)
     VALUES (:id, :title, :status, :labelsJson, datetime('now'), 'work', 'feature')
   `;
 
@@ -259,10 +259,10 @@ describe('sentient proposal index (T11356)', () => {
     // the task_labels junction (idx_task_labels_label), not a JSON-LIKE scan.
     db.exec(`
       CREATE INDEX idx_tasks_created_date
-      ON tasks(date(created_at))
+      ON tasks_tasks(date(created_at))
     `);
 
-    const indexes = db.prepare('PRAGMA index_list(tasks)').all() as Array<{ name: string }>;
+    const indexes = db.prepare('PRAGMA index_list(tasks_tasks)').all() as Array<{ name: string }>;
     const idx = indexes.find((i) => i.name === 'idx_tasks_created_date');
     expect(idx).toBeDefined();
 

@@ -28,7 +28,7 @@ let statePath: string;
 function createTestTasksDb(): DatabaseSync {
   const db = new DatabaseSync(':memory:');
   db.exec(`
-    CREATE TABLE tasks (
+    CREATE TABLE tasks_tasks (
       id TEXT PRIMARY KEY,
       parent_id TEXT,
       title TEXT NOT NULL,
@@ -46,7 +46,7 @@ function createTestTasksDb(): DatabaseSync {
   // T11356/T11357: the propose-tick inserter writes Tier-2 membership into the
   // task_labels junction, and checkDedupCollision joins it. Mirror the table.
   db.exec(`
-    CREATE TABLE task_labels (
+    CREATE TABLE tasks_task_labels (
       task_id TEXT NOT NULL,
       label TEXT NOT NULL,
       PRIMARY KEY (task_id, label)
@@ -57,7 +57,7 @@ function createTestTasksDb(): DatabaseSync {
 
 function insertProposedTask(db: DatabaseSync, id: string) {
   db.prepare(
-    `INSERT INTO tasks (id, title, status, labels_json, created_at, role, scope)
+    `INSERT INTO tasks_tasks (id, title, status, labels_json, created_at, role, scope)
      VALUES (:id, :title, 'proposed', :labelsJson, datetime('now'), 'work', 'feature')`,
   ).run({
     id,
@@ -208,7 +208,7 @@ describe('runProposeTick', () => {
     // We need to actually insert a task to verify labels
     // Use the transactional insert directly for this check
     const { transactionalInsertProposal } = await import('../proposal-rate-limiter.js');
-    const sql = `INSERT INTO tasks (id, title, status, labels_json, created_at, role, scope)
+    const sql = `INSERT INTO tasks_tasks (id, title, status, labels_json, created_at, role, scope)
       VALUES (:id, '[T2-TEST] Test', 'proposed', :labelsJson, datetime('now'), 'work', 'feature')`;
     transactionalInsertProposal(db, sql, {
       id: 'T900',
@@ -216,7 +216,7 @@ describe('runProposeTick', () => {
     });
 
     expect(countTodayProposals(db)).toBe(1);
-    const row = db.prepare(`SELECT * FROM tasks WHERE id = 'T900'`).get() as {
+    const row = db.prepare(`SELECT * FROM tasks_tasks WHERE id = 'T900'`).get() as {
       status: string;
       labels_json: string;
     };

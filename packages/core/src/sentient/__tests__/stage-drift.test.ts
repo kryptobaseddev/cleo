@@ -37,7 +37,7 @@ import { DEFAULT_SENTIENT_STATE, writeSentientState } from '../state.js';
 function createTestDb(): DatabaseSync {
   const db = new DatabaseSync(':memory:');
   db.exec(`
-    CREATE TABLE tasks (
+    CREATE TABLE tasks_tasks (
       id TEXT PRIMARY KEY,
       parent_id TEXT,
       title TEXT NOT NULL,
@@ -57,7 +57,7 @@ function createTestDb(): DatabaseSync {
   // T11356/T11357: the drift proposal inserter writes Tier-2 membership into the
   // task_labels junction, and checkDedupCollision joins it. Mirror the table.
   db.exec(`
-    CREATE TABLE task_labels (
+    CREATE TABLE tasks_task_labels (
       task_id TEXT NOT NULL,
       label TEXT NOT NULL,
       PRIMARY KEY (task_id, label)
@@ -72,7 +72,7 @@ function insertEpic(
   opts: { status?: string; pipelineStage?: string | null } = {},
 ): void {
   db.prepare(`
-    INSERT INTO tasks (id, title, status, type, pipeline_stage, created_at, role, scope)
+    INSERT INTO tasks_tasks (id, title, status, type, pipeline_stage, created_at, role, scope)
     VALUES (:id, :title, :status, 'epic', :pipelineStage, datetime('now'), 'work', 'project')
   `).run({
     id,
@@ -89,7 +89,7 @@ function insertTask(
   opts: { status?: string } = {},
 ): void {
   db.prepare(`
-    INSERT INTO tasks (id, title, parent_id, status, created_at, role, scope)
+    INSERT INTO tasks_tasks (id, title, parent_id, status, created_at, role, scope)
     VALUES (:id, :title, :parentId, :status, datetime('now'), 'work', 'feature')
   `).run({
     id,
@@ -359,7 +359,7 @@ describe('runStageDriftScan', () => {
     expect(outcome.proposalsWritten).toBe(1);
 
     // Verify proposal was inserted into DB.
-    const row = db.prepare(`SELECT id, title, status FROM tasks WHERE id = :id`).get({
+    const row = db.prepare(`SELECT id, title, status FROM tasks_tasks WHERE id = :id`).get({
       id: allocatedIds[0],
     }) as { id: string; title: string; status: string } | undefined;
 

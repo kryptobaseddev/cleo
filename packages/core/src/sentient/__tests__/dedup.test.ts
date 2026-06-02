@@ -51,7 +51,7 @@ afterEach(() => {
 function createTasksDb(): DatabaseSync {
   const db = new DatabaseSync(':memory:');
   db.exec(`
-    CREATE TABLE tasks (
+    CREATE TABLE tasks_tasks (
       id TEXT PRIMARY KEY,
       parent_id TEXT,
       title TEXT NOT NULL,
@@ -69,7 +69,7 @@ function createTasksDb(): DatabaseSync {
   // T11356/T11357: dedup now joins the task_labels junction (Tier-2 membership)
   // and uses an exact json_extract on notes_json (no labels_json/notes_json LIKE).
   db.exec(`
-    CREATE TABLE task_labels (
+    CREATE TABLE tasks_task_labels (
       task_id TEXT NOT NULL,
       label TEXT NOT NULL,
       PRIMARY KEY (task_id, label)
@@ -103,7 +103,7 @@ function insertExistingProposal(
     dedupHash: args.dedupHash,
   });
   db.prepare(
-    `INSERT INTO tasks (
+    `INSERT INTO tasks_tasks (
       id, parent_id, title, description, status,
       labels_json, notes_json, created_at, role, scope
     ) VALUES (
@@ -121,7 +121,9 @@ function insertExistingProposal(
   });
   // T11356: mirror the junction the proposal inserters now maintain so the
   // Tier-2-membership join in checkDedupCollision sees this proposal.
-  const labelStmt = db.prepare('INSERT OR IGNORE INTO task_labels (task_id, label) VALUES (?, ?)');
+  const labelStmt = db.prepare(
+    'INSERT OR IGNORE INTO tasks_task_labels (task_id, label) VALUES (?, ?)',
+  );
   labelStmt.run(args.id, SENTIENT_TIER2_TAG);
   labelStmt.run(args.id, 'source:brain');
 }
