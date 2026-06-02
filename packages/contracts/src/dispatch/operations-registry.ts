@@ -2677,6 +2677,51 @@ export const OPERATIONS: OperationDef[] = [
     ] satisfies ParamDef[],
   },
   {
+    // T11575 — the handler (dispatch/domains/tasks.ts 'relates.add-batch') and
+    // CLI command (cli/commands/relates.ts add-batch) shipped, but no
+    // OperationDef existed here, so `resolve()` returned undefined and the
+    // dispatcher rejected the call with E_INVALID_OPERATION before it ever
+    // reached the handler. Registering the op (gateway:'mutate') closes the gap.
+    gateway: 'mutate',
+    domain: 'tasks',
+    operation: 'relates.add-batch',
+    description:
+      'tasks.relates.add-batch (mutate) — bulk-add advisory relation edges from a JSON payload ({relations:[...]} or {edges:[...]}); use dryRun to preview without writing.',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: false,
+    // Neither `relations` nor `edges` is individually required — the handler
+    // accepts either shape and validates emptiness in core — so no param is
+    // declared required at the dispatch boundary.
+    requiredParams: [],
+    params: [
+      {
+        name: 'relations',
+        type: 'array',
+        required: false,
+        description: 'Array of relation edges ({from|taskId, to|relatedId, type, reason})',
+      },
+      {
+        name: 'edges',
+        type: 'array',
+        required: false,
+        description: 'Alias for `relations` — array of relation edges',
+      },
+      {
+        name: 'dryRun',
+        type: 'boolean',
+        required: false,
+        description: 'Validate and report what would be created without writing',
+      },
+      {
+        name: 'reasonWaiver',
+        type: 'string',
+        required: false,
+        description: 'Explicit audit waiver text for edges without per-edge reasons',
+      },
+    ] satisfies ParamDef[],
+  },
+  {
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'relates.remove',
