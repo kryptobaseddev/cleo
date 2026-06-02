@@ -354,8 +354,12 @@ export async function allocateNextTaskId(cwd?: string, retryCount = 0): Promise<
 
     const newId = `T${String(row.counter).padStart(3, '0')}`;
 
-    // Collision check: verify no existing task with this ID
-    const existing = nativeDb.prepare('SELECT id FROM tasks WHERE id = ?').get(newId) as
+    // Collision check: verify no existing task with this ID.
+    // T11578 · AC1: the runtime task rows now live in the PREFIXED consolidated
+    // table; the collision probe must read `tasks_tasks` (not the dead bare
+    // `tasks`) or it returns a false-negative and allocates an ID that already
+    // exists — overwriting a live row on the next upsert.
+    const existing = nativeDb.prepare('SELECT id FROM tasks_tasks WHERE id = ?').get(newId) as
       | { id: string }
       | undefined;
 
