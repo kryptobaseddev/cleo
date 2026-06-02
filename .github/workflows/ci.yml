@@ -1482,6 +1482,16 @@ jobs:
         shell: bash
         run: |
           test -f packages/runtime/dist/gateway/mcp/index.js || (echo "packages/runtime/dist/gateway/mcp/index.js missing — build.mjs did not build @cleocode/runtime" && exit 1)
+      - name: Core bundle-budget + submodule tree-shake gate (T11582 · R10-L3)
+        # Build-time companion to check-core-tarball-size.mjs (which runs at
+        # release-tag time and needs the Rust supervisor fallback). Asserts the
+        # built dist/ stays within budget AND that importing one
+        # @cleocode/core/<submodule> tree-shakes (does NOT drag all of core into
+        # a consumer). Deterministic, esbuild byte output is platform-independent,
+        # so run it once on Linux. The full build above already produced dist/.
+        if: runner.os == 'Linux'
+        shell: bash
+        run: node packages/core/scripts/check-core-bundle-budget.mjs
 
   validate-json:
     name: Validate JSON Schemas
