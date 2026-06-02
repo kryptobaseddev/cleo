@@ -1,7 +1,7 @@
 {
   "name": "@cleocode/core",
   "version": "2026.5.126",
-  "description": "CLEO core business logic kernel — tasks, sessions, memory, orchestration, lifecycle, with bundled SQLite store",
+  "description": "CLEO core business logic kernel \u2014 tasks, sessions, memory, orchestration, lifecycle, with bundled SQLite store",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -360,6 +360,36 @@
       "types": "./dist/llm/*.d.ts",
       "import": "./dist/llm/*.js",
       "require": "./dist/llm/*.js"
+    },
+    "./paths": {
+      "types": "./dist/paths-export.d.ts",
+      "import": "./dist/paths-export.js",
+      "require": "./dist/paths-export.js"
+    },
+    "./lafs": {
+      "types": "./dist/lafs-export.d.ts",
+      "import": "./dist/lafs-export.js",
+      "require": "./dist/lafs-export.js"
+    },
+    "./skills-lib": {
+      "types": "./dist/skills-export.d.ts",
+      "import": "./dist/skills-export.js",
+      "require": "./dist/skills-export.js"
+    },
+    "./caamp": {
+      "types": "./dist/caamp-export.d.ts",
+      "import": "./dist/caamp-export.js",
+      "require": "./dist/caamp-export.js"
+    },
+    "./worktree": {
+      "types": "./dist/worktree-export.d.ts",
+      "import": "./dist/worktree-export.js",
+      "require": "./dist/worktree-export.js"
+    },
+    "./git-shim": {
+      "types": "./dist/git-shim-export.d.ts",
+      "import": "./dist/git-shim-export.js",
+      "require": "./dist/git-shim-export.js"
     }
   },
   "scripts": {
@@ -379,6 +409,7 @@
     "@cleocode/agents": "workspace:*",
     "@cleocode/caamp": "workspace:*",
     "@cleocode/contracts": "workspace:*",
+    "@cleocode/git-shim": "workspace:*",
     "@cleocode/lafs": "workspace:*",
     "@cleocode/nexus": "workspace:*",
     "@cleocode/paths": "workspace:*",

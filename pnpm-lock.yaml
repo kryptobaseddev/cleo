@@ -447,6 +447,9 @@ importers:
       '@cleocode/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@cleocode/git-shim':
+        specifier: workspace:*
+        version: link:../git-shim
       '@cleocode/lafs':
         specifier: workspace:*
         version: link:../lafs

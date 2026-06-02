@@ -225,3 +225,69 @@ describe('@cleocode/core — subpath coverage sanity', () => {
     expect(STABLE_SUBPATHS.length).toBe(9);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 7. R10-L2 (T11581) — internalized-package submodule re-exports
+//
+// `@cleocode/core/<pkg>` thin re-exports of internalized workspace packages
+// (batteries-included prep). Each entry maps to a flat `dist/<base>.js`
+// produced from `src/<base>.ts` (`export * from '@cleocode/<pkg>'`).
+//
+// Scope note: only packages that (a) `@cleocode/core` depends on and (b)
+// resolve at core's tsc declaration-emit point are wired here. `adapters`
+// and `animations` are deferred (built after core / no standalone pre-core
+// dist build); `runtime`/`brain`/`cant`/`playbooks` are excluded (they
+// depend on `@cleocode/core` — a re-export would be circular).
+// ---------------------------------------------------------------------------
+
+const SUBMODULE_REEXPORTS: Array<{
+  subpath: string;
+  distBase: string;
+  expectedSymbol: string;
+}> = [
+  { subpath: './paths', distBase: 'paths-export', expectedSymbol: 'canonicalizePath' },
+  { subpath: './lafs', distBase: 'lafs-export', expectedSymbol: 'AGENT_ACTIONS' },
+  { subpath: './skills-lib', distBase: 'skills-export', expectedSymbol: 'listSkills' },
+  { subpath: './caamp', distBase: 'caamp-export', expectedSymbol: 'CANONICAL_HOOK_EVENTS' },
+  {
+    subpath: './worktree',
+    distBase: 'worktree-export',
+    expectedSymbol: 'WORKTREE_INDEX_RELATIVE_PATH',
+  },
+  { subpath: './git-shim', distBase: 'git-shim-export', expectedSymbol: 'GIT_OP_DENYLIST' },
+];
+
+describe('@cleocode/core — internalized-package submodule re-exports (T11581)', () => {
+  it('declares every submodule re-export subpath with types + import conditions', () => {
+    for (const { subpath, distBase } of SUBMODULE_REEXPORTS) {
+      const entry = pkg.exports[subpath];
+      expect(entry, `exports[${JSON.stringify(subpath)}] must be defined`).toBeTypeOf('object');
+      const cond = entry as ExportConditions;
+      expect(cond.types, `exports[${JSON.stringify(subpath)}].types`).toBe(
+        `./dist/${distBase}.d.ts`,
+      );
+      expect(cond.import, `exports[${JSON.stringify(subpath)}].import`).toBe(
+        `./dist/${distBase}.js`,
+      );
+    }
+  });
+
+  describe.skipIf(!hasDist)('built dist artifacts + runtime resolution', () => {
+    it('emits a .js and .d.ts file per submodule re-export', () => {
+      for (const { subpath, distBase } of SUBMODULE_REEXPORTS) {
+        const js = path.join(DIST_DIR, `${distBase}.js`);
+        const dts = path.join(DIST_DIR, `${distBase}.d.ts`);
+        expect(existsSync(js), `${subpath} -> ${js} must exist`).toBe(true);
+        expect(existsSync(dts), `${subpath} -> ${dts} must exist`).toBe(true);
+      }
+    });
+
+    it('each submodule re-export resolves and exposes its expected symbol', async () => {
+      for (const { subpath, distBase, expectedSymbol } of SUBMODULE_REEXPORTS) {
+        const modPath = path.join(DIST_DIR, `${distBase}.js`);
+        const mod = (await import(modPath)) as Record<string, unknown>;
+        expect(mod[expectedSymbol], `${subpath} must re-export '${expectedSymbol}'`).toBeDefined();
+      }
+    });
+  });
+});
