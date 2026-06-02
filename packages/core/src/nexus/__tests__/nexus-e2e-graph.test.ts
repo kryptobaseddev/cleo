@@ -93,6 +93,12 @@ beforeEach(async () => {
   await mkdir(registryDir, { recursive: true });
 
   process.env['CLEO_HOME'] = registryDir;
+  // NOTE (ADR-090 · T11648): CLEO_DIR is intentionally NOT pinned here. These
+  // E2E tests register MULTIPLE synthetic projects (each with its own `.cleo/`)
+  // and assert per-project task/graph counts via each project's path — a global
+  // CLEO_DIR override would funnel every project into one DB. The GLOBAL-registry
+  // ATTACH stays fresh because `ensureGlobalRegistryAttached` self-heals when
+  // CLEO_HOME changes (DETACH + re-ATTACH on path drift).
   process.env['NEXUS_HOME'] = join(registryDir, 'nexus');
   process.env['NEXUS_CACHE_DIR'] = join(registryDir, 'nexus', 'cache');
   process.env['NEXUS_CURRENT_PROJECT'] = 'e2e-project';

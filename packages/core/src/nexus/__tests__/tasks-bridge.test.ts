@@ -24,11 +24,22 @@ describe('tasks-bridge', () => {
   let brainDb: DatabaseSync;
   let nexusDb: DatabaseSync;
 
+  let prevCleoDir: string | undefined;
+  let prevCleoHome: string | undefined;
+
   beforeEach(async () => {
     // Create isolated temp directory for this test, with a `.cleo/` so the
     // canonical resolveCleoDir SSoT resolves it as a project root (T11262).
     projectRoot = mkdtempSync(join(tmpdir(), 'tasks-bridge-test-'));
     mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
+
+    // ADR-090 · T11648: getNexusDb() resolves the PROJECT graph scope from
+    // CLEO_DIR/cwd — pin it to this temp project so nexus lands in the SAME
+    // `.cleo/` as the brain DB and stays isolated from the real repo.
+    prevCleoDir = process.env['CLEO_DIR'];
+    prevCleoHome = process.env['CLEO_HOME'];
+    process.env['CLEO_DIR'] = join(projectRoot, '.cleo');
+    process.env['CLEO_HOME'] = join(projectRoot, 'home');
 
     // Initialize databases (will create schema)
     await getBrainDb(projectRoot);
@@ -41,40 +52,32 @@ describe('tasks-bridge', () => {
     expect(brainDb).toBeDefined();
     expect(nexusDb).toBeDefined();
 
-    // Insert test symbols into nexus (OR REPLACE to tolerate duplicate IDs across runs)
+    // Insert test symbols into nexus (OR REPLACE to tolerate duplicate IDs across
+    // runs). ADR-090 · T11648: the project-scope graph has no `project_id` column.
     nexusDb
       .prepare(
         `INSERT OR REPLACE INTO nexus_nodes
-         (id, project_id, kind, name, file_path, label, indexed_at, is_exported)
-         VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?)`,
+         (id, kind, name, file_path, label, indexed_at, is_exported)
+         VALUES (?, ?, ?, ?, ?, datetime('now'), ?)`,
       )
-      .run(
-        'src/file.ts::myFunction',
-        'test-project',
-        'function',
-        'myFunction',
-        'src/file.ts',
-        'myFunction',
-        1,
-      );
+      .run('src/file.ts::myFunction', 'function', 'myFunction', 'src/file.ts', 'myFunction', 1);
 
     nexusDb
       .prepare(
         `INSERT OR REPLACE INTO nexus_nodes
-         (id, project_id, kind, name, file_path, label, indexed_at, is_exported)
-         VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?)`,
+         (id, kind, name, file_path, label, indexed_at, is_exported)
+         VALUES (?, ?, ?, ?, ?, datetime('now'), ?)`,
       )
-      .run('src/file.ts::MyClass', 'test-project', 'class', 'MyClass', 'src/file.ts', 'MyClass', 1);
+      .run('src/file.ts::MyClass', 'class', 'MyClass', 'src/file.ts', 'MyClass', 1);
 
     nexusDb
       .prepare(
         `INSERT OR REPLACE INTO nexus_nodes
-         (id, project_id, kind, name, file_path, label, indexed_at, is_exported)
-         VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?)`,
+         (id, kind, name, file_path, label, indexed_at, is_exported)
+         VALUES (?, ?, ?, ?, ?, datetime('now'), ?)`,
       )
       .run(
         'src/other.ts::helperFunction',
-        'test-project',
         'function',
         'helperFunction',
         'src/other.ts',
@@ -87,6 +90,10 @@ describe('tasks-bridge', () => {
     // Reset DB singletons so the next beforeEach gets fresh DBs with no colliding node IDs
     closeBrainDb();
     closeNexusDb();
+    if (prevCleoDir === undefined) delete process.env['CLEO_DIR'];
+    else process.env['CLEO_DIR'] = prevCleoDir;
+    if (prevCleoHome === undefined) delete process.env['CLEO_HOME'];
+    else process.env['CLEO_HOME'] = prevCleoHome;
     // Clean up temp directory
     rmSync(projectRoot, { recursive: true, force: true });
   });

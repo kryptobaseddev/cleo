@@ -55,7 +55,7 @@ import { getSymbolsForTask, getTasksForSymbol } from './tasks-bridge.js';
 
 interface RawNexusNode {
   id: string;
-  project_id: string;
+  // `project_id` DROPPED (ADR-090 · T11648) — graph is project-scoped.
   kind: string;
   name: string | null;
   file_path: string | null;
@@ -177,10 +177,11 @@ export async function getSymbolFullContext(
     await getNexusDb();
     const nexusNative = getNexusNativeDb();
     if (nexusNative) {
-      // Try exact match on id first; fall back to name lookup
+      // Try exact match on id first; fall back to name lookup.
+      // ADR-090 · T11648: project-scoped graph — `project_id` column dropped.
       let symbolNode = typedGet<RawNexusNode>(
         nexusNative.prepare(
-          `SELECT id, project_id, kind, name, file_path, label, community_id
+          `SELECT id, kind, name, file_path, label, community_id
            FROM nexus_nodes WHERE id = ? LIMIT 1`,
         ),
         symbolId,
@@ -190,7 +191,7 @@ export async function getSymbolFullContext(
         // Fuzzy match on name (case-insensitive)
         symbolNode = typedGet<RawNexusNode>(
           nexusNative.prepare(
-            `SELECT id, project_id, kind, name, file_path, label, community_id
+            `SELECT id, kind, name, file_path, label, community_id
              FROM nexus_nodes
              WHERE LOWER(name) = LOWER(?) AND kind NOT IN ('community', 'process', 'folder')
              LIMIT 1`,
@@ -978,9 +979,11 @@ export async function reasonImpactOfChange(
     await getNexusDb();
     const nexusNative = getNexusNativeDb();
     if (nexusNative) {
+      // ADR-090 · T11648: project-scoped graph — `project_id` column dropped
+      // (the stray `weight` column never existed on nexus_nodes; removed too).
       let nexusNode = typedGet<RawNexusNode>(
         nexusNative.prepare(
-          `SELECT id, project_id, kind, name, file_path, label, community_id, weight
+          `SELECT id, kind, name, file_path, label, community_id
            FROM nexus_nodes WHERE id = ? LIMIT 1`,
         ),
         symbolId,
@@ -988,7 +991,7 @@ export async function reasonImpactOfChange(
       if (!nexusNode) {
         nexusNode = typedGet<RawNexusNode>(
           nexusNative.prepare(
-            `SELECT id, project_id, kind, name, file_path, label, community_id, weight
+            `SELECT id, kind, name, file_path, label, community_id
              FROM nexus_nodes
              WHERE LOWER(name) = LOWER(?) AND kind NOT IN ('community', 'process', 'folder')
              LIMIT 1`,

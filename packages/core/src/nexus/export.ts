@@ -71,10 +71,13 @@ export async function exportNexusGraph(opts: NexusExportOptions = {}): Promise<N
     // DB may be empty
   }
 
-  const nodes = projectFilter ? allNodes.filter((n) => n['projectId'] === projectFilter) : allNodes;
-  const relations = projectFilter
-    ? allRelations.filter((r) => r['projectId'] === projectFilter)
-    : allRelations;
+  // ADR-090 · T11648: the graph is project-scoped (one project per `cleo.db`), so
+  // every row already belongs to the open project — `projectFilter` is a no-op
+  // (the rows no longer carry a `project_id` column to filter on). Retained in the
+  // signature for backward compatibility.
+  void projectFilter;
+  const nodes = allNodes;
+  const relations = allRelations;
 
   let content: string;
 

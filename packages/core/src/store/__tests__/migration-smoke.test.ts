@@ -139,40 +139,57 @@ describe('Test 1: fresh init — all 5 DBs migrate clean', () => {
     }
   });
 
-  it('nexus.db (drizzle-nexus) — fresh init succeeds, nexus_project_registry table exists', async () => {
+  it('nexus (drizzle-nexus) — fresh init succeeds; graph table in PROJECT scope, registry in GLOBAL scope', async () => {
     vi.resetModules();
     const cleoHome = join(tempDir, 'nexus-home');
+    const projectCleoDir = join(tempDir, 'nexus-proj', '.cleo');
     mkdirSync(cleoHome, { recursive: true });
+    mkdirSync(projectCleoDir, { recursive: true });
 
+    // ADR-090 · T11648: getNexusDb() opens the PROJECT scope as `main` (the graph
+    // home, resolved via resolveCleoDir) and ATTACHes the GLOBAL cleo.db (registry
+    // home, resolved via getCleoHome). Mock BOTH resolvers to isolated tmpdirs.
     vi.doMock('../../paths.js', () => ({
       getCleoHome: () => cleoHome,
-      getCleoDirAbsolute: (cwd?: string) => (cwd ? join(cwd, '.cleo') : join(tempDir, '.cleo')),
-      getProjectRoot: () => tempDir,
+      getCleoDirAbsolute: () => projectCleoDir,
+      getProjectRoot: () => join(tempDir, 'nexus-proj'),
+      resolveCleoDir: () => projectCleoDir,
     }));
 
-    const { getNexusDb, getNexusDbPath, resetNexusDbState } = await import('../nexus-sqlite.js');
+    const { getNexusDb, getNexusDbPath, getNexusRegistryDbPath, resetNexusDbState } = await import(
+      '../nexus-sqlite.js'
+    );
     resetNexusDbState();
 
     try {
       const db = await getNexusDb();
       expect(db).toBeTruthy();
 
-      // E6-L4 (T11524): the nexus domain consolidated into the GLOBAL `cleo.db`
-      // under getCleoHome(); getNexusDbPath() resolves to `<cleoHome>/cleo.db`.
-      const dbPath = getNexusDbPath();
-      expect(dbPath).toBe(join(cleoHome, 'cleo.db'));
-      expect(existsSync(dbPath)).toBe(true);
+      // ADR-090 · T11648: getNexusDbPath() = PROJECT graph home; registry path = GLOBAL.
+      const graphPath = getNexusDbPath();
+      const registryPath = getNexusRegistryDbPath();
+      expect(graphPath).toBe(join(projectCleoDir, 'cleo.db'));
+      expect(registryPath).toBe(join(cleoHome, 'cleo.db'));
+      expect(existsSync(graphPath)).toBe(true);
+      expect(existsSync(registryPath)).toBe(true);
 
-      // T11578 · AC3: the consolidated cleo-global migration creates the PREFIXED
-      // `nexus_project_registry` (the bare `project_registry` runtime shape is retired).
-      const nativeDb = new DatabaseSync(dbPath, { readonly: true });
-      const row = nativeDb
+      // The four code-graph tables live in the PROJECT `cleo.db` (graph home).
+      const graphDb = new DatabaseSync(graphPath, { readonly: true });
+      const nodesRow = graphDb
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='nexus_nodes'")
+        .get() as { name: string } | undefined;
+      graphDb.close();
+      expect(nodesRow?.name).toBe('nexus_nodes');
+
+      // The registry/identity tables live in the GLOBAL `cleo.db` (registry home).
+      const regDb = new DatabaseSync(registryPath, { readonly: true });
+      const regRow = regDb
         .prepare(
           "SELECT name FROM sqlite_master WHERE type='table' AND name='nexus_project_registry'",
         )
         .get() as { name: string } | undefined;
-      nativeDb.close();
-      expect(row?.name).toBe('nexus_project_registry');
+      regDb.close();
+      expect(regRow?.name).toBe('nexus_project_registry');
     } finally {
       resetNexusDbState();
       vi.restoreAllMocks();

@@ -41,42 +41,34 @@ async function seedNexusData(nexusNative: ReturnType<typeof getNexusNativeDb>) {
   if (!nexusNative) return;
   const now = new Date().toISOString();
 
+  // ADR-090 · T11648: the project-scope graph tables no longer carry `project_id`.
   // Insert test symbol node
   nexusNative
     .prepare(
       `INSERT OR IGNORE INTO nexus_nodes
-       (id, project_id, kind, name, file_path, label, indexed_at, is_exported)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, kind, name, file_path, label, indexed_at, is_exported)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(SYMBOL_ID, 'test-project', 'function', SYMBOL_NAME, FILE_PATH, SYMBOL_NAME, now, 1);
+    .run(SYMBOL_ID, 'function', SYMBOL_NAME, FILE_PATH, SYMBOL_NAME, now, 1);
 
   // Insert a caller node
   nexusNative
     .prepare(
       `INSERT OR IGNORE INTO nexus_nodes
-       (id, project_id, kind, name, file_path, label, indexed_at, is_exported)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, kind, name, file_path, label, indexed_at, is_exported)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(
-      CALLER_ID,
-      'test-project',
-      'function',
-      'callerFunction',
-      'src/caller.ts',
-      'callerFunction',
-      now,
-      1,
-    );
+    .run(CALLER_ID, 'function', 'callerFunction', 'src/caller.ts', 'callerFunction', now, 1);
 
   // Insert a calls relation: callerFunction -> testFunction.
   // T11545: plasticity weight lives in the sibling nexus_relation_weights table.
   nexusNative
     .prepare(
       `INSERT OR IGNORE INTO nexus_relations
-       (id, project_id, source_id, target_id, type, confidence)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+       (id, source_id, target_id, type, confidence)
+       VALUES (?, ?, ?, ?, ?)`,
     )
-    .run('rel-001', 'test-project', CALLER_ID, SYMBOL_ID, 'calls', 0.9);
+    .run('rel-001', CALLER_ID, SYMBOL_ID, 'calls', 0.9);
   nexusNative
     .prepare(
       `INSERT OR IGNORE INTO nexus_relation_weights (relation_id, weight, co_accessed_count)
@@ -163,11 +155,21 @@ async function seedBrainData(brainNative: ReturnType<typeof getBrainNativeDb>) {
 
 describe('living-brain SDK', () => {
   let projectRoot: string;
+  let prevCleoDir: string | undefined;
+  let prevCleoHome: string | undefined;
 
   beforeEach(async () => {
     projectRoot = mkdtempSync(join(tmpdir(), 'living-brain-test-'));
     // Pre-create `.cleo/` so resolveCleoDir resolves the temp dir (T11262).
     mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
+
+    // ADR-090 · T11648: getNexusDb() resolves the PROJECT scope from CLEO_DIR/cwd
+    // (the graph home) — pin it to this temp project so the nexus graph lands in
+    // the SAME `.cleo/` as the brain DB and is isolated from the real repo.
+    prevCleoDir = process.env['CLEO_DIR'];
+    prevCleoHome = process.env['CLEO_HOME'];
+    process.env['CLEO_DIR'] = join(projectRoot, '.cleo');
+    process.env['CLEO_HOME'] = join(projectRoot, 'home');
 
     // Initialize databases (creates schema)
     await getBrainDb(projectRoot);
@@ -186,6 +188,10 @@ describe('living-brain SDK', () => {
   afterEach(() => {
     resetBrainDbState();
     resetNexusDbState();
+    if (prevCleoDir === undefined) delete process.env['CLEO_DIR'];
+    else process.env['CLEO_DIR'] = prevCleoDir;
+    if (prevCleoHome === undefined) delete process.env['CLEO_HOME'];
+    else process.env['CLEO_HOME'] = prevCleoHome;
     removeTempDirSync(projectRoot);
   });
 

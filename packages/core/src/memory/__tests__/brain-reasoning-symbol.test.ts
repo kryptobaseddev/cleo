@@ -115,14 +115,15 @@ describe('brain-reasoning-symbol', () => {
     await getNexusDb();
     const native = getNexusNativeDb();
     if (!native) throw new Error('nexus native db not available');
-    // Use minimal INSERT with only always-present columns to avoid is_external / weight issues
+    // ADR-090 · T11648: the project-scope graph has no `project_id` column.
+    // Use minimal INSERT with only always-present columns.
     native
       .prepare(
         `INSERT OR IGNORE INTO nexus_nodes
-           (id, project_id, kind, label, name, file_path)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+           (id, kind, label, name, file_path)
+         VALUES (?, ?, ?, ?, ?)`,
       )
-      .run(id, 'test-project', kind, label, name, filePath);
+      .run(id, kind, label, name, filePath);
   }
 
   /** Seed a brain decision in brain_decisions table. */

@@ -4,6 +4,9 @@
  * @task T1065
  */
 
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { HttpContract } from '@cleocode/contracts/nexus-contract-ops.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getNexusDb, resetNexusDbState } from '../../store/nexus-sqlite.js';
@@ -11,12 +14,31 @@ import * as nexusSchema from '../../store/schema/nexus-schema.js';
 import { extractHttpContracts } from './http-extractor.js';
 
 describe('HTTP Contract Extractor', () => {
-  beforeEach(async () => {
+  // ADR-090 · T11648: the nexus code-graph is now PROJECT-scoped (one project per
+  // `cleo.db` resolved from `CLEO_DIR`/cwd) instead of a single global DB keyed by
+  // `project_id`. Each test therefore gets its own isolated project `.cleo/` via
+  // `CLEO_DIR` so seeded nodes never leak across cases (the former per-`project_id`
+  // isolation is gone — the project-scope schema has no `project_id` column).
+  let tmpDir: string;
+  let prevCleoDir: string | undefined;
+  let prevCleoHome: string | undefined;
+
+  beforeEach(() => {
     resetNexusDbState();
+    tmpDir = mkdtempSync(join(tmpdir(), 'cleo-http-extractor-'));
+    prevCleoDir = process.env['CLEO_DIR'];
+    prevCleoHome = process.env['CLEO_HOME'];
+    process.env['CLEO_DIR'] = join(tmpDir, '.cleo');
+    process.env['CLEO_HOME'] = join(tmpDir, 'home');
   });
 
-  afterEach(async () => {
+  afterEach(() => {
     resetNexusDbState();
+    if (prevCleoDir === undefined) delete process.env['CLEO_DIR'];
+    else process.env['CLEO_DIR'] = prevCleoDir;
+    if (prevCleoHome === undefined) delete process.env['CLEO_HOME'];
+    else process.env['CLEO_HOME'] = prevCleoHome;
+    rmSync(tmpDir, { recursive: true, force: true });
   });
 
   it('should extract HTTP contracts from route nodes', async () => {

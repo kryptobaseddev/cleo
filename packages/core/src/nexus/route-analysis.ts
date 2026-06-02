@@ -39,16 +39,11 @@ export async function getRouteMap(
   const db = await getNexusDb();
 
   try {
-    // Query all route nodes for this project
+    // Query all route nodes (project-scoped DB — ADR-090 · T11648: no project_id).
     const routeNodes: NexusNodeRow[] = db
       .select()
       .from(nexusSchema.nexusNodes)
-      .where(
-        and(
-          eq(nexusSchema.nexusNodes.projectId, projectId),
-          eq(nexusSchema.nexusNodes.kind, 'route'),
-        ),
-      )
+      .where(eq(nexusSchema.nexusNodes.kind, 'route'))
       .all();
 
     const routes: RouteMapEntry[] = [];
@@ -61,7 +56,6 @@ export async function getRouteMap(
         .from(nexusSchema.nexusRelations)
         .where(
           and(
-            eq(nexusSchema.nexusRelations.projectId, projectId),
             eq(nexusSchema.nexusRelations.targetId, routeNode.id),
             eq(nexusSchema.nexusRelations.type, 'handles_route'),
           ),
@@ -85,7 +79,6 @@ export async function getRouteMap(
           .from(nexusSchema.nexusRelations)
           .where(
             and(
-              eq(nexusSchema.nexusRelations.projectId, projectId),
               eq(nexusSchema.nexusRelations.sourceId, handlerNode.id),
               eq(nexusSchema.nexusRelations.type, 'fetches'),
             ),
@@ -107,7 +100,6 @@ export async function getRouteMap(
           .from(nexusSchema.nexusRelations)
           .where(
             and(
-              eq(nexusSchema.nexusRelations.projectId, projectId),
               eq(nexusSchema.nexusRelations.targetId, handlerNode.id),
               eq(nexusSchema.nexusRelations.type, 'calls'),
             ),
@@ -163,13 +155,14 @@ export async function getRouteMap(
  * from call sites, which is deferred to T1534 (AST-based shape inference).
  *
  * @param routeSymbol - Route symbol ID (format: `<filePath>::<routeName>`)
- * @param projectId - Project identifier from registry
+ * @param _projectId - Unused since ADR-090 · T11648 (project-scoped graph DB);
+ *   kept for the dispatch signature.
  * @param _projectRoot - Root directory of the project (unused, kept for signature)
  * @returns Promise resolving to shape check result
  */
 export async function shapeCheck(
   routeSymbol: string,
-  projectId: string,
+  _projectId: string,
   _projectRoot: string,
 ): Promise<ShapeCheckResult> {
   const { getNexusDb, nexusSchema } = await import('../store/nexus-sqlite.js');
@@ -180,12 +173,7 @@ export async function shapeCheck(
     const routeNode: NexusNodeRow | undefined = db
       .select()
       .from(nexusSchema.nexusNodes)
-      .where(
-        and(
-          eq(nexusSchema.nexusNodes.projectId, projectId),
-          eq(nexusSchema.nexusNodes.id, routeSymbol),
-        ),
-      )
+      .where(eq(nexusSchema.nexusNodes.id, routeSymbol))
       .get();
 
     if (!routeNode || routeNode.kind !== 'route') {
@@ -211,7 +199,6 @@ export async function shapeCheck(
       .from(nexusSchema.nexusRelations)
       .where(
         and(
-          eq(nexusSchema.nexusRelations.projectId, projectId),
           eq(nexusSchema.nexusRelations.targetId, routeSymbol),
           eq(nexusSchema.nexusRelations.type, 'handles_route'),
         ),
@@ -240,7 +227,6 @@ export async function shapeCheck(
       .from(nexusSchema.nexusRelations)
       .where(
         and(
-          eq(nexusSchema.nexusRelations.projectId, projectId),
           eq(nexusSchema.nexusRelations.targetId, handlerNode.id),
           eq(nexusSchema.nexusRelations.type, 'calls'),
         ),

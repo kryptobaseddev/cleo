@@ -134,8 +134,9 @@ export async function diffNexusIndex(
     const allNodesBefore = db.select().from(nexusSchema.nexusNodes).all() as Array<
       Record<string, unknown>
     >;
-    relationsBefore = allRelsBefore.filter((r) => r['projectId'] === projectId).length;
-    nodesBefore = allNodesBefore.filter((n) => n['projectId'] === projectId).length;
+    // ADR-090 · T11648: project-scoped graph DB — count all rows (no project_id).
+    relationsBefore = allRelsBefore.length;
+    nodesBefore = allNodesBefore.length;
   } catch {
     // DB not yet initialized
   }
@@ -162,8 +163,9 @@ export async function diffNexusIndex(
     const allNodesAfter = db.select().from(nexusSchema.nexusNodes).all() as Array<
       Record<string, unknown>
     >;
-    relationsAfter = allRelsAfter.filter((r) => r['projectId'] === projectId).length;
-    nodesAfter = allNodesAfter.filter((n) => n['projectId'] === projectId).length;
+    // ADR-090 · T11648: project-scoped graph DB — count all rows (no project_id).
+    relationsAfter = allRelsAfter.length;
+    nodesAfter = allNodesAfter.length;
   } catch {
     relationsAfter = pipelineResult.relationCount;
     nodesAfter = pipelineResult.nodeCount;

@@ -69,10 +69,9 @@ export async function runNexusAnalysis(params: NexusAnalysisParams): Promise<Nex
   // progress callback that is CLI-only. Extracted here to keep the core
   // runnable without the CLI layer, but the DB/pipeline imports still happen
   // via dynamic imports so the CLI controls when heavy deps are loaded.
-  const [{ getNexusDb, nexusSchema }, { runPipeline }, { eq }] = await Promise.all([
+  const [{ getNexusDb, nexusSchema }, { runPipeline }] = await Promise.all([
     import('@cleocode/core/store/nexus-sqlite' as string),
     import('@cleocode/nexus/pipeline' as string),
-    import('drizzle-orm' as string),
   ]);
 
   const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
@@ -84,17 +83,16 @@ export async function runNexusAnalysis(params: NexusAnalysisParams): Promise<Nex
   };
 
   if (!incremental) {
+    // ADR-090 · T11648: the graph is project-scoped (one project per `cleo.db`),
+    // so a non-incremental reindex clears the WHOLE graph table — the former
+    // `WHERE project_id = ?` predicate is dropped.
     try {
-      db.delete(nexusSchema.nexusNodes)
-        .where(eq(nexusSchema.nexusNodes.projectId, projectId))
-        .run();
+      db.delete(nexusSchema.nexusNodes).run();
     } catch {
       // table may be empty — ignore
     }
     try {
-      db.delete(nexusSchema.nexusRelations)
-        .where(eq(nexusSchema.nexusRelations.projectId, projectId))
-        .run();
+      db.delete(nexusSchema.nexusRelations).run();
     } catch {
       // table may be empty — ignore
     }

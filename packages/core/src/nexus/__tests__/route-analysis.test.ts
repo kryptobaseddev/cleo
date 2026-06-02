@@ -5,16 +5,33 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { getNexusDb, nexusSchema } from '../../store/nexus-sqlite.js';
+import { getNexusDb, nexusSchema, resetNexusDbState } from '../../store/nexus-sqlite.js';
 import { getRouteMap, shapeCheck } from '../route-analysis.js';
 
 describe('route-analysis', () => {
   let projectId: string;
   let db: ReturnType<typeof getNexusDb>;
+  // ADR-090 · T11648: the graph is PROJECT-scoped (no `project_id` filter), so
+  // isolate the project `.cleo/cleo.db` to a tempdir for this suite — otherwise
+  // the route queries would scan the real repo's graph instead of just the
+  // seeded fixtures.
+  let tmpDir: string;
+  let prevCleoDir: string | undefined;
+  let prevCleoHome: string | undefined;
 
   beforeAll(async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'route-analysis-'));
+    prevCleoDir = process.env['CLEO_DIR'];
+    prevCleoHome = process.env['CLEO_HOME'];
+    process.env['CLEO_DIR'] = join(tmpDir, '.cleo');
+    process.env['CLEO_HOME'] = join(tmpDir, 'home');
+    resetNexusDbState();
+
     projectId = `test-project-${randomUUID().slice(0, 8)}`;
     db = await getNexusDb();
 
@@ -162,30 +179,15 @@ describe('route-analysis', () => {
   });
 
   afterAll(async () => {
-    // Clean up: delete test data
-    const cleanDb = await getNexusDb();
-    const testNodes = cleanDb
-      .select()
-      .from(nexusSchema.nexusNodes)
-      .where(eq(nexusSchema.nexusNodes.projectId, projectId))
-      .all();
-
-    for (const node of testNodes) {
-      cleanDb.delete(nexusSchema.nexusNodes).where(eq(nexusSchema.nexusNodes.id, node.id)).run();
-    }
-
-    const testRelations = cleanDb
-      .select()
-      .from(nexusSchema.nexusRelations)
-      .where(eq(nexusSchema.nexusRelations.projectId, projectId))
-      .all();
-
-    for (const rel of testRelations) {
-      cleanDb
-        .delete(nexusSchema.nexusRelations)
-        .where(eq(nexusSchema.nexusRelations.id, rel.id))
-        .run();
-    }
+    // ADR-090 · T11648: the whole suite ran against an isolated tempdir project
+    // DB, so cleanup is just dropping the singleton + removing the tempdir and
+    // restoring env (no per-`project_id` row deletion — that column is gone).
+    resetNexusDbState();
+    if (prevCleoDir === undefined) delete process.env['CLEO_DIR'];
+    else process.env['CLEO_DIR'] = prevCleoDir;
+    if (prevCleoHome === undefined) delete process.env['CLEO_HOME'];
+    else process.env['CLEO_HOME'] = prevCleoHome;
+    rmSync(tmpDir, { recursive: true, force: true });
   });
 
   describe('getRouteMap', () => {

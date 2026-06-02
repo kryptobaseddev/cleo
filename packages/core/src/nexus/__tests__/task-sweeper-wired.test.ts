@@ -162,19 +162,12 @@ describe('task-sweeper post-analyze wiring', { sequential: true }, () => {
     for (let i = 1; i <= 3; i++) {
       nexusNative
         .prepare(
+          // ADR-090 · T11648: project-scope graph has no `project_id` column.
           `INSERT OR REPLACE INTO nexus_nodes
-             (id, project_id, kind, name, file_path, label, indexed_at, is_exported)
-             VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?)`,
+             (id, kind, name, file_path, label, indexed_at, is_exported)
+             VALUES (?, ?, ?, ?, ?, datetime('now'), ?)`,
         )
-        .run(
-          `src/module${i}.ts::fn${i}`,
-          'test-proj',
-          'function',
-          `fn${i}`,
-          `src/module${i}.ts`,
-          `fn${i}`,
-          1,
-        );
+        .run(`src/module${i}.ts::fn${i}`, 'function', `fn${i}`, `src/module${i}.ts`, `fn${i}`, 1);
     }
 
     // Act: run the sweeper (the post-hook that analyzeCommand triggers)
@@ -222,19 +215,12 @@ describe('task-sweeper post-analyze wiring', { sequential: true }, () => {
     for (let i = 1; i <= 2; i++) {
       nexusNative
         .prepare(
+          // ADR-090 · T11648: project-scope graph has no `project_id` column.
           `INSERT OR REPLACE INTO nexus_nodes
-             (id, project_id, kind, name, file_path, label, indexed_at, is_exported)
-             VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?)`,
+             (id, kind, name, file_path, label, indexed_at, is_exported)
+             VALUES (?, ?, ?, ?, ?, datetime('now'), ?)`,
         )
-        .run(
-          `src/module${i}.ts::fn${i}`,
-          'test-proj',
-          'function',
-          `fn${i}`,
-          `src/module${i}.ts`,
-          `fn${i}`,
-          1,
-        );
+        .run(`src/module${i}.ts::fn${i}`, 'function', `fn${i}`, `src/module${i}.ts`, `fn${i}`, 1);
     }
 
     // Act: run sweeper twice

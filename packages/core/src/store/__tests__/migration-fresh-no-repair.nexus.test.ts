@@ -67,17 +67,21 @@ describe('nexus.db fresh init — zero "Adding missing column" warnings', () => 
     mkdirSync(cleoHome, { recursive: true });
 
     // ------------------------------------------------------------------
-    // 2. Mock paths.js so the consolidated GLOBAL cleo.db is written to our
-    //    isolated tmpdir. E6-L4 (T11524): nexus opens via openDualScopeDb('global'),
-    //    which resolves getCleoHome()+'cleo.db'. resolveCleoDir is included for
-    //    the project-scope resolver path (dual-scope-db.ts imports it), though the
-    //    global scope only consults getCleoHome().
+    // 2. Mock paths.js so BOTH consolidated cleo.db files land in our isolated
+    //    tmpdir. ADR-090 · T11648: nexus now opens the PROJECT scope as `main`
+    //    (the graph home) via openDualScopeDb('project', process.cwd()) and
+    //    ATTACHes the GLOBAL cleo.db (registry home) — so we must pin BOTH:
+    //      - getCleoHome()  → cleoHome      (GLOBAL cleo.db = registry/identity)
+    //      - resolveCleoDir → tempDir/.cleo (PROJECT cleo.db = code-graph)
+    //    `resolveCleoDir` IGNORES the passed cwd here so `getNexusDb()`'s
+    //    `process.cwd()` (the real repo) cannot leak the project DB outside the
+    //    sandbox.
     // ------------------------------------------------------------------
     vi.doMock('../../paths.js', () => ({
       getCleoHome: () => cleoHome,
-      getCleoDirAbsolute: (cwd?: string) => (cwd ? join(cwd, '.cleo') : join(tempDir, '.cleo')),
+      getCleoDirAbsolute: () => join(tempDir, '.cleo'),
       getProjectRoot: () => tempDir,
-      resolveCleoDir: (cwd?: string) => (cwd ? join(cwd, '.cleo') : join(tempDir, '.cleo')),
+      resolveCleoDir: () => join(tempDir, '.cleo'),
     }));
 
     // ------------------------------------------------------------------
@@ -134,9 +138,15 @@ describe('nexus.db fresh init — zero "Adding missing column" warnings', () => 
 
       // ------------------------------------------------------------------
       // 7. SECONDARY: verify required columns exist via PRAGMA table_info.
-      //    E6-L4 (T11524): the nexus tables now live in the GLOBAL `cleo.db`.
+      //    ADR-090 · T11648: the four code-graph tables (`nexus_nodes`,
+      //    `nexus_relations`, …) + the `nexus_relation_weights` sibling now live
+      //    in the PROJECT `cleo.db` (`<projectRoot>/.cleo/cleo.db`). `getNexusDb()`
+      //    opens the PROJECT scope as `main`, so the graph-table assertions run
+      //    against the project DB — NOT the GLOBAL one (which only holds the
+      //    registry/identity tables for the runtime + empty frozen-migration
+      //    graph leftovers).
       // ------------------------------------------------------------------
-      const dbPath = join(cleoHome, 'cleo.db');
+      const dbPath = join(tempDir, '.cleo', 'cleo.db');
       const nativeDb = new DatabaseSync(dbPath, { readonly: true });
 
       try {
@@ -146,6 +156,9 @@ describe('nexus.db fresh init — zero "Adding missing column" warnings', () => 
         }>;
         const nodesColNames = nodesCols.map((c) => c.name);
         expect(nodesColNames).toContain('is_external');
+        // ADR-090 · T11648: the redundant per-row `project_id` column is dropped
+        // (scope is implicit in the owning project DB).
+        expect(nodesColNames).not.toContain('project_id');
 
         // T11545 (ADR-090 §5.3): the three plasticity columns are partitioned
         // OUT of nexus_relations into the sibling nexus_relation_weights table.
@@ -156,6 +169,7 @@ describe('nexus.db fresh init — zero "Adding missing column" warnings', () => 
         expect(relColNames).not.toContain('weight');
         expect(relColNames).not.toContain('last_accessed_at');
         expect(relColNames).not.toContain('co_accessed_count');
+        expect(relColNames).not.toContain('project_id');
 
         // The sibling weights table exists and carries the partitioned columns.
         const weightCols = nativeDb

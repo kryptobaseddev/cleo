@@ -1073,26 +1073,31 @@ function handleTopEntriesFromNexus(
 
   let rows: TopEntryRow[] = [];
   try {
+    // T11545 · ADR-090: the plasticity `weight` was partitioned out of
+    // `nexus_relations` into the sibling `nexus_relation_weights` table — LEFT
+    // JOIN it (absent rows ⇒ weight 0 via COALESCE).
     const sql =
       kind === null
         ? `SELECT r.source_id,
-                  SUM(COALESCE(r.weight, 0)) AS totalWeight,
+                  SUM(COALESCE(w.weight, 0)) AS totalWeight,
                   COUNT(*)                   AS edgeCount,
                   n.label,
                   n.kind,
                   n.file_path
              FROM nexus_relations r
+             LEFT JOIN nexus_relation_weights w ON w.relation_id = r.id
              LEFT JOIN nexus_nodes n ON n.id = r.source_id
             GROUP BY r.source_id
             ORDER BY totalWeight DESC, edgeCount DESC
             LIMIT ?`
         : `SELECT r.source_id,
-                  SUM(COALESCE(r.weight, 0)) AS totalWeight,
+                  SUM(COALESCE(w.weight, 0)) AS totalWeight,
                   COUNT(*)                   AS edgeCount,
                   n.label,
                   n.kind,
                   n.file_path
              FROM nexus_relations r
+             LEFT JOIN nexus_relation_weights w ON w.relation_id = r.id
              LEFT JOIN nexus_nodes n ON n.id = r.source_id
             WHERE n.kind = ?
             GROUP BY r.source_id
@@ -1193,7 +1198,7 @@ interface ImpactNodeRow {
   kind: string | null;
   file_path: string | null;
   name: string | null;
-  project_id: string;
+  // `project_id` DROPPED (ADR-090 · T11648) — graph is project-scoped.
 }
 
 /**
@@ -1289,14 +1294,15 @@ async function handleImpact(
     // process) never have callers so they are excluded from resolution.
     let allNodes: ImpactNodeRow[] = [];
     try {
+      // ADR-090 · T11648: the project-scope graph DB has one project, so the
+      // former `project_id` column + predicate are dropped.
       const rawRows = db
         .prepare(
-          `SELECT id, label, kind, file_path, name, project_id
+          `SELECT id, label, kind, file_path, name
              FROM nexus_nodes
-            WHERE project_id = ?
-              AND kind NOT IN ('community','process','file','folder')`,
+            WHERE kind NOT IN ('community','process','file','folder')`,
         )
-        .all(projectId);
+        .all();
       allNodes = rawRows.map((raw) => {
         const r = raw as Record<string, unknown>;
         return {
@@ -1305,7 +1311,6 @@ async function handleImpact(
           kind: r['kind'] != null ? String(r['kind']) : null,
           file_path: r['file_path'] != null ? String(r['file_path']) : null,
           name: r['name'] != null ? String(r['name']) : null,
-          project_id: String(r['project_id'] ?? ''),
         };
       });
     } catch {
@@ -1356,14 +1361,17 @@ async function handleImpact(
     // adjacency index: targetId -> list of { source_id, type, weight }.
     let allRelations: ImpactRelationRow[] = [];
     try {
+      // ADR-090 · T11648: project-scoped graph (no `project_id`). T11545: the
+      // plasticity `weight` lives in the sibling `nexus_relation_weights` table —
+      // LEFT JOIN it (NULL when the edge was never strengthened).
       const rawRows = db
         .prepare(
-          `SELECT source_id, target_id, type, weight
-             FROM nexus_relations
-            WHERE project_id = ?
-              AND type IN ('calls','imports','accesses')`,
+          `SELECT r.source_id AS source_id, r.target_id AS target_id, r.type AS type, w.weight AS weight
+             FROM nexus_relations r
+        LEFT JOIN nexus_relation_weights w ON w.relation_id = r.id
+            WHERE r.type IN ('calls','imports','accesses')`,
         )
-        .all(projectId);
+        .all();
       allRelations = rawRows.map((raw) => {
         const r = raw as Record<string, unknown>;
         return {

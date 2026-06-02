@@ -90,8 +90,14 @@ function typedGet<T>(
 // Query helpers
 // ============================================================================
 
-/** Query total node/relation counts and last indexed timestamp. */
-function queryIndexMeta(db: DatabaseSync, projectId: string): IndexMetaRow {
+/**
+ * Query total node/relation counts and last indexed timestamp.
+ *
+ * ADR-090 · T11648: the graph is project-scoped (one project per `cleo.db`), so
+ * these queries no longer filter by `project_id`. `projectId` is retained in the
+ * signatures for call-site compatibility and display only.
+ */
+function queryIndexMeta(db: DatabaseSync, _projectId: string): IndexMetaRow {
   try {
     const nodeMeta = typedGet<{
       total_nodes: number;
@@ -102,17 +108,13 @@ function queryIndexMeta(db: DatabaseSync, projectId: string): IndexMetaRow {
       `SELECT COUNT(*) as total_nodes,
               COUNT(CASE WHEN kind = 'file' THEN 1 END) as file_count,
               MAX(indexed_at) as last_indexed_at
-       FROM nexus_nodes
-       WHERE project_id = ?`,
-      projectId,
+       FROM nexus_nodes`,
     );
 
     const relMeta = typedGet<{ total_relations: number }>(
       db,
       `SELECT COUNT(*) as total_relations
-       FROM nexus_relations
-       WHERE project_id = ?`,
-      projectId,
+       FROM nexus_relations`,
     );
 
     return {
@@ -131,46 +133,42 @@ function queryIndexMeta(db: DatabaseSync, projectId: string): IndexMetaRow {
   }
 }
 
-/** Query node counts grouped by kind. */
-function queryNodeKindCounts(db: DatabaseSync, projectId: string): NodeKindCountRow[] {
+/** Query node counts grouped by kind (project-scoped DB — no project_id filter). */
+function queryNodeKindCounts(db: DatabaseSync, _projectId: string): NodeKindCountRow[] {
   try {
     return typedAll<NodeKindCountRow>(
       db,
       `SELECT kind, COUNT(*) as count
        FROM nexus_nodes
-       WHERE project_id = ?
-         AND kind NOT IN ('file', 'folder', 'community', 'process')
+       WHERE kind NOT IN ('file', 'folder', 'community', 'process')
        GROUP BY kind
        ORDER BY count DESC
        LIMIT 10`,
-      projectId,
     );
   } catch {
     return [];
   }
 }
 
-/** Query relation counts grouped by type. */
-function queryRelationTypeCounts(db: DatabaseSync, projectId: string): RelationTypeCountRow[] {
+/** Query relation counts grouped by type (project-scoped DB — no project_id filter). */
+function queryRelationTypeCounts(db: DatabaseSync, _projectId: string): RelationTypeCountRow[] {
   try {
     return typedAll<RelationTypeCountRow>(
       db,
       `SELECT type, COUNT(*) as count
        FROM nexus_relations
-       WHERE project_id = ?
-         AND type NOT IN ('member_of', 'step_in_process', 'entry_point_of')
+       WHERE type NOT IN ('member_of', 'step_in_process', 'entry_point_of')
        GROUP BY type
        ORDER BY count DESC
        LIMIT 8`,
-      projectId,
     );
   } catch {
     return [];
   }
 }
 
-/** Query top entry points by outgoing CALLS edge count. */
-function queryTopEntryPoints(db: DatabaseSync, projectId: string, limit = 5): EntryPointRow[] {
+/** Query top entry points by outgoing CALLS edge count (project-scoped DB). */
+function queryTopEntryPoints(db: DatabaseSync, _projectId: string, limit = 5): EntryPointRow[] {
   try {
     return typedAll<EntryPointRow>(
       db,
@@ -178,12 +176,10 @@ function queryTopEntryPoints(db: DatabaseSync, projectId: string, limit = 5): En
        FROM nexus_relations r
        JOIN nexus_nodes n ON r.source_id = n.id
        WHERE r.type = 'calls'
-         AND r.project_id = ?
          AND n.kind IN ('function', 'method', 'constructor')
        GROUP BY r.source_id
        ORDER BY callees DESC
        LIMIT ?`,
-      projectId,
       limit,
     );
   } catch {
@@ -191,18 +187,16 @@ function queryTopEntryPoints(db: DatabaseSync, projectId: string, limit = 5): En
   }
 }
 
-/** Query community nodes ordered by member count. */
-function queryCommunities(db: DatabaseSync, projectId: string, limit = 6): CommunityRow[] {
+/** Query community nodes ordered by member count (project-scoped DB). */
+function queryCommunities(db: DatabaseSync, _projectId: string, limit = 6): CommunityRow[] {
   try {
     return typedAll<CommunityRow>(
       db,
       `SELECT id, label, meta_json, indexed_at
        FROM nexus_nodes
-       WHERE project_id = ?
-         AND kind = 'community'
+       WHERE kind = 'community'
        ORDER BY indexed_at DESC
        LIMIT ?`,
-      projectId,
       limit,
     );
   } catch {
@@ -210,16 +204,14 @@ function queryCommunities(db: DatabaseSync, projectId: string, limit = 6): Commu
   }
 }
 
-/** Query count of execution flow (process) nodes. */
-function queryProcessCount(db: DatabaseSync, projectId: string): number {
+/** Query count of execution flow (process) nodes (project-scoped DB). */
+function queryProcessCount(db: DatabaseSync, _projectId: string): number {
   try {
     const row = typedGet<{ count: number }>(
       db,
       `SELECT COUNT(*) as count
        FROM nexus_nodes
-       WHERE project_id = ?
-         AND kind = 'process'`,
-      projectId,
+       WHERE kind = 'process'`,
     );
     return row?.count ?? 0;
   } catch {

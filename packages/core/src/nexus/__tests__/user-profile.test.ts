@@ -62,18 +62,26 @@ beforeEach(async () => {
   testDir = await mkdtemp(join(tmpdir(), 'nexus-user-profile-test-'));
   await mkdir(join(testDir, '.cleo'), { recursive: true });
 
-  // Point CLEO_HOME to isolated temp directory so nexus.db is isolated.
+  // Point CLEO_HOME to isolated temp directory so the GLOBAL cleo.db
+  // (nexus_user_profile registry home) is isolated.
   process.env['CLEO_HOME'] = testDir;
+  // ADR-090 · T11648: getNexusDb() now opens the PROJECT scope as `main` and
+  // ATTACHes the GLOBAL cleo.db. Pin CLEO_DIR to a fresh path per test so the
+  // project handle (and therefore its global ATTACH) is re-created each test —
+  // otherwise a cwd-cached project handle would keep a stale ATTACH to a prior
+  // test's CLEO_HOME and leak user_profile rows across cases.
+  process.env['CLEO_DIR'] = join(testDir, '.cleo');
 
   // Reset the nexus DB singleton so each test gets a fresh database.
   resetNexusDbState();
 
-  // Initialise the nexus registry (creates nexus.db + applies migrations).
+  // Initialise the nexus registry (creates cleo.db + applies migrations).
   await nexusInit();
 });
 
 afterEach(async () => {
   delete process.env['CLEO_HOME'];
+  delete process.env['CLEO_DIR'];
   resetNexusDbState();
   await rm(testDir, { recursive: true, force: true });
 });
