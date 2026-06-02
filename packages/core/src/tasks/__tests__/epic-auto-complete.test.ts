@@ -166,7 +166,12 @@ describe('epic auto-complete', () => {
     expect(epic?.status).not.toBe('done');
   });
 
-  it('auto-completes epic when all remaining subtasks are cancelled', async () => {
+  // T10538 / design-point 4 (agent-trust): a cancelled subtask is NOT done
+  // work, so it must NOT silently auto-complete the epic. This test previously
+  // asserted the epic auto-completed despite an un-waived cancelled child —
+  // that was the defect. The corrected behavior leaves the epic open until the
+  // cancelled child is waived/replaced via `cleo complete --waive-cancelled-children`.
+  it('does NOT auto-complete epic when a remaining subtask is cancelled (un-waived)', async () => {
     await seedTasks(accessor, [
       {
         id: 'T001',
@@ -199,11 +204,13 @@ describe('epic auto-complete', () => {
 
     const result = await completeTask({ taskId: 'T002' }, env.tempDir, accessor);
 
+    // The completed subtask itself goes done.
     expect(result.task.status).toBe('done');
-    expect(result.autoCompleted).toContain('T001');
+    // But the epic must NOT auto-close while a cancelled sibling is un-waived.
+    expect(result.autoCompleted ?? []).not.toContain('T001');
 
     const epic = await accessor.loadSingleTask('T001');
-    expect(epic?.status).toBe('done');
+    expect(epic?.status).not.toBe('done');
   });
 
   it('does NOT auto-complete epic when getChildren returns an empty list (vacuous truth guard, T585)', async () => {

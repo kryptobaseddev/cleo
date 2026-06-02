@@ -756,11 +756,16 @@ describe('TasksHandler', () => {
 
       expect(result.success).toBe(true);
       // T832/ADR-051: completeTaskStrict no longer accepts the force parameter.
-      // T1632: notes/overrideReason/acknowledgeRisk now passed as options object.
+      // T1632: notes/overrideReason/acknowledgeRisk passed as options object.
+      // T10509: waiveAc/waiveReason (AC-coverage gate waiver).
+      // T10538: cancelledChildWaiverReason (cancelled-child waiver, agent-trust).
       expect(completeTaskStrict).toHaveBeenCalledWith('/mock/project', 'T001', {
         notes: 'Done',
         overrideReason: undefined,
         acknowledgeRisk: undefined,
+        waiveAc: undefined,
+        waiveReason: undefined,
+        cancelledChildWaiverReason: undefined,
       });
     });
 

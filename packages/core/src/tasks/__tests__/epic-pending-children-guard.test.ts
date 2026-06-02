@@ -118,7 +118,12 @@ describe('T1632: epic pending-children guard', () => {
       expect(epic?.completedAt).toBeDefined();
     });
 
-    it('auto-closes parent epic when all remaining siblings are cancelled', async () => {
+    // T10538 / design-point 4 (agent-trust): a cancelled sibling is NOT done
+    // work, so it must NOT silently auto-close the epic. Previously this test
+    // asserted the epic auto-closed; that was the "cancelled children silently
+    // auto-satisfy parent completion" defect. The corrected behavior leaves the
+    // epic open until the cancelled child is waived/replaced.
+    it('does NOT auto-close parent epic when a remaining sibling is cancelled (un-waived)', async () => {
       await seedTasks(accessor, [
         makeEpic('E001'),
         makeChild('T002', 'E001', 'cancelled'),
@@ -127,8 +132,13 @@ describe('T1632: epic pending-children guard', () => {
 
       const result = await completeTask({ taskId: 'T003' }, env.tempDir, accessor);
 
+      // The completed child itself still goes done.
       expect(result.task.status).toBe('done');
-      expect(result.autoCompleted).toContain('E001');
+      // But the epic must NOT auto-close — the cancelled sibling needs a waiver.
+      expect(result.autoCompleted ?? []).not.toContain('E001');
+
+      const epic = await accessor.loadSingleTask('E001');
+      expect(epic?.status).not.toBe('done');
     });
 
     it('does NOT auto-close when siblings still have pending children', async () => {
@@ -192,11 +202,45 @@ describe('T1632: epic pending-children guard', () => {
       });
     });
 
-    it('ALLOWS direct complete on epic when all children are done or cancelled', async () => {
+    // T10538 / design-point 4: an un-waived cancelled child now BLOCKS direct
+    // completion (E_CANCELLED_CHILD_NO_WAIVER). The pre-fix behavior — allowing
+    // the epic to complete as if the cancelled work had shipped — was the defect.
+    it('REJECTS direct complete on epic with an un-waived cancelled child', async () => {
       await seedTasks(accessor, [
         makeEpic('E001'),
         makeChild('T002', 'E001', 'done'),
         makeChild('T003', 'E001', 'cancelled'),
+      ]);
+
+      await expect(completeTask({ taskId: 'E001' }, env.tempDir, accessor)).rejects.toMatchObject({
+        code: ExitCode.CANCELLED_CHILD_NO_WAIVER,
+        message: expect.stringContaining('T003'),
+      });
+
+      const epic = await accessor.loadSingleTask('E001');
+      expect(epic?.status).not.toBe('done');
+    });
+
+    it('ALLOWS direct complete on epic with a cancelled child when the waiver is supplied', async () => {
+      await seedTasks(accessor, [
+        makeEpic('E001'),
+        makeChild('T002', 'E001', 'done'),
+        makeChild('T003', 'E001', 'cancelled'),
+      ]);
+
+      const result = await completeTask(
+        { taskId: 'E001', cancelledChildWaiverReason: 'replaced by T999; out of scope' },
+        env.tempDir,
+        accessor,
+      );
+      expect(result.task.status).toBe('done');
+    });
+
+    it('ALLOWS direct complete on epic when all children are done (no cancelled)', async () => {
+      await seedTasks(accessor, [
+        makeEpic('E001'),
+        makeChild('T002', 'E001', 'done'),
+        makeChild('T003', 'E001', 'done'),
       ]);
 
       const result = await completeTask({ taskId: 'E001' }, env.tempDir, accessor);

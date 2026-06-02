@@ -1449,6 +1449,16 @@ export interface TasksCompleteQueryParams {
    * @task T10509
    */
   waiveReason?: string;
+  /**
+   * Reason for waiving the `E_CANCELLED_CHILD_NO_WAIVER` gate (PM-Core V2
+   * design-point 4). When the parent has `cancelled` children, completion is
+   * blocked unless this waiver is supplied — a cancelled child is abandoned
+   * work and must not silently satisfy parent completion. Recorded to
+   * `.cleo/audit/cancelled-child-waiver.jsonl`.
+   *
+   * @saga T10538 (PM-Core V2 agent-trust)
+   */
+  cancelledChildWaiverReason?: string;
 }
 /**
  * Result of `tasks.complete` — completion confirmation with unblocked tasks.

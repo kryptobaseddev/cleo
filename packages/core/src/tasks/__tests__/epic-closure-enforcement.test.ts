@@ -384,7 +384,12 @@ describe('epic closure enforcement (strict mode, integration)', () => {
     expect(result.task.status).toBe('done');
   });
 
-  it('ALLOWS: epic where remaining non-cancelled child is done+verified (cancelled sibling ignored)', async () => {
+  // T10538 / design-point 4 (agent-trust): the T1404 evidence gate is satisfied
+  // by the done+verified child, but a cancelled sibling is NOT done work, so the
+  // cancelled-child gate now blocks closure until the cancelled child is
+  // waived/replaced. This test previously asserted the cancelled sibling was
+  // silently ignored — that was the defect.
+  it('REJECTS: epic with a done+verified child but an un-waived cancelled sibling', async () => {
     await seedTasks(accessor, [
       makeEpic('T001'),
       makeChild('T002', 'T001', {
@@ -394,7 +399,27 @@ describe('epic closure enforcement (strict mode, integration)', () => {
       makeChild('T003', 'T001', { status: 'cancelled' }),
     ]);
 
-    const result = await completeTask({ taskId: 'T001' }, env.tempDir, accessor);
+    await expect(completeTask({ taskId: 'T001' }, env.tempDir, accessor)).rejects.toMatchObject({
+      code: ExitCode.CANCELLED_CHILD_NO_WAIVER,
+      message: expect.stringContaining('T003'),
+    });
+  });
+
+  it('ALLOWS: same epic once the cancelled-child waiver is supplied', async () => {
+    await seedTasks(accessor, [
+      makeEpic('T001'),
+      makeChild('T002', 'T001', {
+        status: 'done',
+        verification: makePassedVerification(),
+      }),
+      makeChild('T003', 'T001', { status: 'cancelled' }),
+    ]);
+
+    const result = await completeTask(
+      { taskId: 'T001', cancelledChildWaiverReason: 'T003 superseded by T002 scope' },
+      env.tempDir,
+      accessor,
+    );
     expect(result.task.status).toBe('done');
   });
 });

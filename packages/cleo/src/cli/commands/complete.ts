@@ -76,6 +76,12 @@ export const completeCommand = defineCommand({
       description:
         'Mandatory justification text for --waive-ac. Captured verbatim in the audit row.',
     },
+    // T10538 — cancelled-child waiver gate (PM-Core V2 agent-trust)
+    'waive-cancelled-children': {
+      type: 'string',
+      description:
+        'Reason for completing a parent that has cancelled children. Cancelled work does not silently satisfy completion; the reason is audited to .cleo/audit/cancelled-child-waiver.jsonl.',
+    },
   },
   async run({ args }) {
     const response = await dispatchRaw('mutate', 'tasks', 'complete', {
@@ -88,6 +94,8 @@ export const completeCommand = defineCommand({
       // T10509 — AC-coverage gate waiver path
       waiveAc: args['waive-ac'] as string | undefined,
       waiveReason: args['waive-reason'] as string | undefined,
+      // T10538 — cancelled-child waiver (PM-Core V2 agent-trust)
+      cancelledChildWaiverReason: args['waive-cancelled-children'] as string | undefined,
     });
 
     if (!response.success) {

@@ -139,7 +139,17 @@ export async function addTaskWithSessionScope(
     forceDuplicate?: boolean;
   },
 ): Promise<
-  EngineResult<{ task: TaskRecord; duplicate: boolean; dryRun?: boolean; warnings?: string[] }>
+  EngineResult<{
+    task: TaskRecord;
+    duplicate: boolean;
+    dryRun?: boolean;
+    warnings?: string[];
+    /**
+     * IDs of done ancestors reopened because this child was added under a done
+     * parent (PM-Core V2 design-point 5). @saga T10538
+     */
+    reopenedAncestors?: string[];
+  }>
 > {
   try {
     const { resolvedParent, error } = await resolveParentFromSession(projectRoot, {
@@ -154,6 +164,7 @@ export async function addTaskWithSessionScope(
         duplicate: boolean;
         dryRun?: boolean;
         warnings?: string[];
+        reopenedAncestors?: string[];
       }>;
     }
 
@@ -187,6 +198,10 @@ export async function addTaskWithSessionScope(
       duplicate: result.duplicate ?? false,
       dryRun: params.dryRun,
       ...(result.warnings?.length && { warnings: result.warnings }),
+      // T10538 / design-point 5 — surface the ancestor reopen to the caller.
+      ...(result.reopenedAncestors?.length && {
+        reopenedAncestors: result.reopenedAncestors,
+      }),
     });
   } catch (err: unknown) {
     // T9940: preserve CleoError LAFS codes; non-CleoError falls through to
