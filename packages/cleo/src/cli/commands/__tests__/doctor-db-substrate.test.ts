@@ -1096,7 +1096,8 @@ describe('doctor db-substrate (T10307)', () => {
   }
 
   /**
-   * Seed a nexus.db's project_registry with the given (projectId, projectPath) pair.
+   * Seed the global cleo.db's nexus_project_registry with the given
+   * (projectId, projectPath) pair (T11578 · AC3 prefixed registry table).
    */
   function seedNexusDbForCrossDb(
     dbPath: string,
@@ -1104,7 +1105,7 @@ describe('doctor db-substrate (T10307)', () => {
   ): void {
     const writer = new DatabaseSyncCtor(dbPath);
     writer.exec(
-      `CREATE TABLE project_registry (
+      `CREATE TABLE nexus_project_registry (
          project_id   TEXT PRIMARY KEY,
          project_hash TEXT NOT NULL,
          project_path TEXT NOT NULL,
@@ -1112,7 +1113,7 @@ describe('doctor db-substrate (T10307)', () => {
        );`,
     );
     const insert = writer.prepare(
-      'INSERT INTO project_registry (project_id, project_hash, project_path, name) VALUES (?, ?, ?, ?)',
+      'INSERT INTO nexus_project_registry (project_id, project_hash, project_path, name) VALUES (?, ?, ?, ?)',
     );
     for (const row of rows) {
       insert.run(row.projectId, row.projectId, row.projectPath, 'fixture');

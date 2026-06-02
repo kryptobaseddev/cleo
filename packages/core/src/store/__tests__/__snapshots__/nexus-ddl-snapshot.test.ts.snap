@@ -1,0 +1,106 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`T11578 AC3 — nexus DDL snapshot (post-cutover prefixed shape + FTS5) > nexus_* + *_fts* sqlite_master shape matches the committed baseline 1`] = `
+[
+  {
+    "name": "nexus_audit_log",
+    "sql": "CREATE TABLE \`nexus_audit_log\` ( \`id\` text PRIMARY KEY, \`timestamp\` text DEFAULT (datetime('now')) NOT NULL, \`action\` text NOT NULL, \`project_hash\` text, \`project_id\` text, \`domain\` text, \`operation\` text, \`session_id\` text, \`request_id\` text, \`source\` text, \`gateway\` text, \`success\` integer, \`duration_ms\` integer, \`details_json\` text DEFAULT '{}', \`error_message\` text )",
+    "type": "table",
+  },
+  {
+    "name": "nexus_code_index",
+    "sql": "CREATE TABLE \`nexus_code_index\` ( \`id\` text PRIMARY KEY, \`project_id\` text NOT NULL, \`file_path\` text NOT NULL, \`symbol_name\` text NOT NULL, \`kind\` text NOT NULL, \`start_line\` integer NOT NULL, \`end_line\` integer NOT NULL, \`language\` text NOT NULL, \`exported\` integer DEFAULT false, \`parent\` text, \`return_type\` text, \`doc_summary\` text, \`indexed_at\` text NOT NULL, -- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed CHECK ("kind" IN ('function', 'method', 'class', 'interface', 'type', 'enum', 'variable', 'constant', 'module', 'import', 'export', 'struct', 'trait', 'impl')), CHECK ("exported" IN (0, 1)), CHECK ("indexed_at" IS NULL OR "indexed_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
+    "type": "table",
+  },
+  {
+    "name": "nexus_contracts",
+    "sql": "CREATE TABLE \`nexus_contracts\` ( \`contract_id\` text PRIMARY KEY, \`project_id\` text NOT NULL, \`type\` text NOT NULL, \`path\` text NOT NULL, \`method\` text, \`request_schema_json\` text DEFAULT '{}' NOT NULL, \`response_schema_json\` text DEFAULT '{}' NOT NULL, \`source_symbol_id\` text, \`route_node_id\` text, \`confidence\` real DEFAULT 1 NOT NULL, \`description\` text, \`created_at\` text DEFAULT (datetime('now')) NOT NULL, \`updated_at\` text DEFAULT (datetime('now')) NOT NULL, -- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed CHECK ("type" IN ('http', 'grpc', 'topic')), CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'), CHECK ("updated_at" IS NULL OR "updated_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
+    "type": "table",
+  },
+  {
+    "name": "nexus_nodes",
+    "sql": "CREATE TABLE \`nexus_nodes\` ( \`id\` text PRIMARY KEY, \`project_id\` text NOT NULL, \`kind\` text NOT NULL, \`label\` text NOT NULL, \`name\` text, \`file_path\` text, \`start_line\` integer, \`end_line\` integer, \`language\` text, \`is_exported\` integer DEFAULT false NOT NULL, \`parent_id\` text, \`parameters_json\` text, \`return_type\` text, \`doc_summary\` text, \`community_id\` text, \`meta_json\` text, \`is_external\` integer DEFAULT false NOT NULL, \`indexed_at\` text DEFAULT (datetime('now')) NOT NULL, -- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed CHECK ("kind" IN ('file', 'folder', 'module', 'namespace', 'function', 'method', 'constructor', 'class', 'interface', 'struct', 'trait', 'impl', 'type_alias', 'enum', 'property', 'constant', 'variable', 'static', 'record', 'delegate', 'macro', 'union', 'typedef', 'annotation', 'template', 'community', 'process', 'route', 'tool', 'section', 'import', 'export', 'type')), CHECK ("is_exported" IN (0, 1)), CHECK ("is_external" IN (0, 1)), CHECK ("indexed_at" IS NULL OR "indexed_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
+    "type": "table",
+  },
+  {
+    "name": "nexus_project_id_aliases",
+    "sql": "CREATE TABLE \`nexus_project_id_aliases\` ( \`legacy_id\` text PRIMARY KEY, \`canonical_id\` text NOT NULL, \`created_at\` text DEFAULT (datetime('now')) NOT NULL, -- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
+    "type": "table",
+  },
+  {
+    "name": "nexus_project_registry",
+    "sql": "CREATE TABLE \`nexus_project_registry\` ( \`project_id\` text PRIMARY KEY, \`project_hash\` text NOT NULL, \`project_path\` text NOT NULL UNIQUE, \`name\` text NOT NULL, \`registered_at\` text DEFAULT (datetime('now')) NOT NULL, \`last_seen\` text DEFAULT (datetime('now')) NOT NULL, \`health_status\` text DEFAULT 'unknown' NOT NULL, \`health_last_check\` text, \`permissions\` text DEFAULT 'read' NOT NULL, \`last_sync\` text DEFAULT (datetime('now')) NOT NULL, \`task_count\` integer DEFAULT 0 NOT NULL, \`labels_json\` text DEFAULT '[]' NOT NULL, \`brain_db_path\` text, \`tasks_db_path\` text, \`last_indexed\` text, \`stats_json\` text DEFAULT '{}' NOT NULL, -- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed CHECK ("registered_at" IS NULL OR "registered_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
+    "type": "table",
+  },
+  {
+    "name": "nexus_relation_weights",
+    "sql": "CREATE TABLE \`nexus_relation_weights\` ( \`relation_id\` text PRIMARY KEY NOT NULL, \`weight\` real DEFAULT 0.0 NOT NULL, \`last_accessed_at\` text, \`co_accessed_count\` integer DEFAULT 0 NOT NULL )",
+    "type": "table",
+  },
+  {
+    "name": "nexus_relations",
+    "sql": "CREATE TABLE \`nexus_relations\` ( \`id\` text PRIMARY KEY, \`project_id\` text NOT NULL, \`source_id\` text NOT NULL, \`target_id\` text NOT NULL, \`type\` text NOT NULL, \`confidence\` real NOT NULL, \`reason\` text, \`step\` integer, \`indexed_at\` text DEFAULT (datetime('now')) NOT NULL, \`weight\` real DEFAULT 0, \`last_accessed_at\` text, \`co_accessed_count\` integer DEFAULT 0, -- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed CHECK ("type" IN ('contains', 'defines', 'imports', 'accesses', 'calls', 'extends', 'implements', 'method_overrides', 'method_implements', 'has_method', 'has_property', 'member_of', 'step_in_process', 'handles_route', 'fetches', 'handles_tool', 'entry_point_of', 'wraps', 'queries', 'documents', 'applies_to', 'co_changed', 'co_cited_in_task')), CHECK ("indexed_at" IS NULL OR "indexed_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'), CHECK ("last_accessed_at" IS NULL OR "last_accessed_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
+    "type": "table",
+  },
+  {
+    "name": "nexus_schema_meta",
+    "sql": "CREATE TABLE \`nexus_schema_meta\` ( \`key\` text PRIMARY KEY, \`value\` text NOT NULL )",
+    "type": "table",
+  },
+  {
+    "name": "nexus_sigils",
+    "sql": "CREATE TABLE \`nexus_sigils\` ( \`peer_id\` text PRIMARY KEY, \`cant_file\` text, \`display_name\` text DEFAULT '' NOT NULL, \`role\` text DEFAULT '' NOT NULL, \`system_prompt_fragment\` text, \`capability_flags\` text, \`created_at\` text DEFAULT (datetime('now')) NOT NULL, \`updated_at\` text DEFAULT (datetime('now')) NOT NULL, -- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed CHECK ("role" IN ('', 'orchestrator', 'lead', 'worker', 'subagent', 'specialist', 'validator')), CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'), CHECK ("updated_at" IS NULL OR "updated_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
+    "type": "table",
+  },
+  {
+    "name": "nexus_symbols_fts",
+    "sql": "CREATE VIRTUAL TABLE nexus_symbols_fts USING fts5( node_id UNINDEXED, label, file_path, tokenize = 'unicode61 remove_diacritics 1' )",
+    "type": "table",
+  },
+  {
+    "name": "nexus_symbols_fts_config",
+    "sql": "CREATE TABLE 'nexus_symbols_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID",
+    "type": "table",
+  },
+  {
+    "name": "nexus_symbols_fts_content",
+    "sql": "CREATE TABLE 'nexus_symbols_fts_content'(id INTEGER PRIMARY KEY, c0, c1, c2)",
+    "type": "table",
+  },
+  {
+    "name": "nexus_symbols_fts_data",
+    "sql": "CREATE TABLE 'nexus_symbols_fts_data'(id INTEGER PRIMARY KEY, block BLOB)",
+    "type": "table",
+  },
+  {
+    "name": "nexus_symbols_fts_docsize",
+    "sql": "CREATE TABLE 'nexus_symbols_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB)",
+    "type": "table",
+  },
+  {
+    "name": "nexus_symbols_fts_idx",
+    "sql": "CREATE TABLE 'nexus_symbols_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID",
+    "type": "table",
+  },
+  {
+    "name": "nexus_user_profile",
+    "sql": "CREATE TABLE \`nexus_user_profile\` ( \`trait_key\` text PRIMARY KEY, \`trait_value\` text NOT NULL, \`confidence\` real NOT NULL, \`source\` text NOT NULL, \`derived_from_message_id\` text, \`first_observed_at\` text NOT NULL, \`last_reinforced_at\` text NOT NULL, \`reinforcement_count\` integer DEFAULT 1 NOT NULL, \`superseded_by\` text, -- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed CHECK ("first_observed_at" IS NULL OR "first_observed_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'), CHECK ("last_reinforced_at" IS NULL OR "last_reinforced_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
+    "type": "table",
+  },
+  {
+    "name": "nexus_nodes_fts_ad",
+    "sql": "CREATE TRIGGER nexus_nodes_fts_ad AFTER DELETE ON nexus_nodes BEGIN DELETE FROM nexus_symbols_fts WHERE rowid = old.rowid; END",
+    "type": "trigger",
+  },
+  {
+    "name": "nexus_nodes_fts_ai",
+    "sql": "CREATE TRIGGER nexus_nodes_fts_ai AFTER INSERT ON nexus_nodes BEGIN INSERT INTO nexus_symbols_fts(rowid, node_id, label, file_path) VALUES (new.rowid, new.id, new.label, new.file_path); END",
+    "type": "trigger",
+  },
+  {
+    "name": "nexus_nodes_fts_au",
+    "sql": "CREATE TRIGGER nexus_nodes_fts_au AFTER UPDATE ON nexus_nodes BEGIN DELETE FROM nexus_symbols_fts WHERE rowid = old.rowid; INSERT INTO nexus_symbols_fts(rowid, node_id, label, file_path) VALUES (new.rowid, new.id, new.label, new.file_path); END",
+    "type": "trigger",
+  },
+]
+`;

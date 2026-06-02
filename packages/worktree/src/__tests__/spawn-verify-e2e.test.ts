@@ -62,10 +62,10 @@ function seedCleoProject(projectRoot: string, cleoHome: string): void {
   const db = new DatabaseSync(join(cleoHome, 'nexus.db'));
   try {
     db.exec(
-      'CREATE TABLE IF NOT EXISTS project_registry (project_id TEXT PRIMARY KEY, project_path TEXT NOT NULL)',
+      'CREATE TABLE IF NOT EXISTS nexus_project_registry (project_id TEXT PRIMARY KEY, project_path TEXT NOT NULL)',
     );
     db.prepare(
-      'INSERT OR REPLACE INTO project_registry (project_id, project_path) VALUES (?, ?)',
+      'INSERT OR REPLACE INTO nexus_project_registry (project_id, project_path) VALUES (?, ?)',
     ).run(projectId, projectRoot);
   } finally {
     db.close();

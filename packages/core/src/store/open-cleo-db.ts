@@ -109,9 +109,9 @@ function isDatabaseSync(db: unknown): db is DatabaseSync {
  * Scopes whose `cleo.db` tracks a per-project `project_id` and therefore need
  * a cross-check against `.cleo/project-info.json` on every open.
  *
- * After the E6 consolidation the cross-project registry (`project_registry`,
- * formerly nexus.db) lives inside the **global** `cleo.db`. Its
- * `project_registry` table records one row per known project with
+ * After the E6 consolidation the cross-project registry (formerly nexus.db)
+ * lives inside the **global** `cleo.db`. Its `nexus_project_registry` table
+ * (T11578 · AC3 prefixed shape) records one row per known project with
  * `(project_id PRIMARY KEY, project_path UNIQUE)`. The drift check verifies
  * that a row whose `project_path` matches the caller's project root has the
  * same `project_id` as the caller's `.cleo/project-info.json`. Mismatch →
@@ -180,12 +180,13 @@ export function validateProjectIdConsistency(role: CleoDbRole, db: unknown, cwd?
   let row: ProjectRegistryRow | undefined;
   try {
     const stmt = db.prepare(
-      'SELECT project_id, project_path FROM project_registry WHERE project_path = ? LIMIT 1',
+      'SELECT project_id, project_path FROM nexus_project_registry WHERE project_path = ? LIMIT 1',
     );
     row = stmt.get(projectInfo.projectRoot) as ProjectRegistryRow | undefined;
   } catch {
-    // `project_registry` may not exist yet (fresh nexus.db before
-    // migrations have run). Bootstrap is not drift.
+    // `nexus_project_registry` (T11578 · AC3 prefixed registry) may not exist
+    // yet (fresh global cleo.db before the consolidated migration runs).
+    // Bootstrap is not drift.
     return;
   }
   if (!row || typeof row.project_id !== 'string' || row.project_id.length === 0) {
@@ -351,9 +352,9 @@ export interface CleoDbSnapshotHandle {
  * ```typescript
  * import { openCleoDbSnapshot } from '@cleocode/core/store/open-cleo-db';
  *
- * const snap = openCleoDbSnapshot('/path/to/nexus.db');
+ * const snap = openCleoDbSnapshot('/path/to/cleo.db');
  * try {
- *   const rows = snap.db.prepare('SELECT * FROM project_registry').all();
+ *   const rows = snap.db.prepare('SELECT * FROM nexus_project_registry').all();
  *   // ...
  * } finally {
  *   snap.close();

@@ -113,14 +113,17 @@ export async function getUserProfileTrait(
  * @param nexusDb - Drizzle nexus database handle.
  * @param trait   - Trait to insert or replace.  `firstObservedAt` and
  *                  `lastReinforcedAt` should be ISO 8601 strings; they are
- *                  stored as Unix-epoch milliseconds internally.
+ *                  stored as canonical TEXT ISO-8601 in the consolidated
+ *                  `nexus_user_profile` table (T11578 · AC3).
  */
 export async function upsertUserProfileTrait(
   nexusDb: NexusDb,
   trait: UserProfileTrait,
 ): Promise<void> {
-  const now = new Date(trait.lastReinforcedAt);
-  const firstObserved = new Date(trait.firstObservedAt);
+  // Canonical TEXT ISO-8601 (T11578 · AC3) — satisfies the consolidated
+  // `nexus_user_profile.{first_observed_at,last_reinforced_at}` GLOB CHECK.
+  const now = new Date(trait.lastReinforcedAt).toISOString();
+  const firstObserved = new Date(trait.firstObservedAt).toISOString();
 
   const existing = await nexusDb
     .select({ firstObservedAt: nexusSchema.userProfile.firstObservedAt })
@@ -189,7 +192,8 @@ export async function reinforceTrait(
   const existing = rows[0]!;
   const newCount = existing.reinforcementCount + 1;
   const newConfidence = clampConfidence(existing.confidence + (1 - existing.confidence) * 0.1);
-  const now = new Date();
+  // Canonical TEXT ISO-8601 (T11578 · AC3) — satisfies the consolidated GLOB CHECK.
+  const now = new Date().toISOString();
 
   await nexusDb
     .update(nexusSchema.userProfile)

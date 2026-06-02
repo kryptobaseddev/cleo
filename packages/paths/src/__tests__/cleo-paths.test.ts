@@ -391,24 +391,26 @@ describe('cleo-paths', () => {
       mkdirSync(tempCleoHome, { recursive: true });
 
       // T11569: the cross-project registry lives in the consolidated GLOBAL
-      // `cleo.db` (E6-L4/T11524), no longer the standalone `nexus.db`.
+      // `cleo.db` (E6-L4/T11524), no longer the standalone `nexus.db`. T11578 ·
+      // AC3: the registry tables are the PREFIXED nexus_project_registry /
+      // nexus_project_id_aliases.
       const globalDbPath = join(tempCleoHome, 'cleo.db');
       const db = new DatabaseSync(globalDbPath);
       db.exec(
-        'CREATE TABLE IF NOT EXISTS project_registry (project_id TEXT PRIMARY KEY, project_path TEXT NOT NULL UNIQUE)',
+        'CREATE TABLE IF NOT EXISTS nexus_project_registry (project_id TEXT PRIMARY KEY, project_path TEXT NOT NULL UNIQUE)',
       );
       const insert = db.prepare(
-        'INSERT INTO project_registry (project_id, project_path) VALUES (?, ?)',
+        'INSERT INTO nexus_project_registry (project_id, project_path) VALUES (?, ?)',
       );
       insert.run('known-project-uuid', '/mnt/projects/my-project');
       insert.run('secondary-uuid', '/home/user/another-project');
 
-      // T11023 AC4: Set up project_id_aliases table
+      // T11023 AC4: Set up nexus_project_id_aliases table (T11578 · AC3 prefixed)
       db.exec(
-        'CREATE TABLE IF NOT EXISTS project_id_aliases (legacy_id TEXT PRIMARY KEY, canonical_id TEXT NOT NULL)',
+        'CREATE TABLE IF NOT EXISTS nexus_project_id_aliases (legacy_id TEXT PRIMARY KEY, canonical_id TEXT NOT NULL)',
       );
       const aliasInsert = db.prepare(
-        'INSERT INTO project_id_aliases (legacy_id, canonical_id) VALUES (?, ?)',
+        'INSERT INTO nexus_project_id_aliases (legacy_id, canonical_id) VALUES (?, ?)',
       );
       aliasInsert.run('legacy-base64-id', 'known-project-uuid');
       aliasInsert.run('old-uuid-format', 'secondary-uuid');

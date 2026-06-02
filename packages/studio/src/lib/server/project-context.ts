@@ -78,16 +78,19 @@ export function clearActiveProjectId(cookies: Cookies): void {
  */
 export function resolveProjectContext(projectId: string): ProjectContext | null {
   try {
-    const nexusPath = join(getCleoHome(), 'nexus.db');
-    if (!existsSync(nexusPath)) return null;
+    // T11578 · AC3: the cross-project registry lives in the consolidated GLOBAL
+    // `cleo.db` (the standalone `nexus.db` is retired post-E6), in the PREFIXED
+    // `nexus_project_registry` table.
+    const globalDbPath = join(getCleoHome(), 'cleo.db');
+    if (!existsSync(globalDbPath)) return null;
 
     // Read-only snapshot via chokepoint API (T9685-B3, ADR-068): the registry
     // is read-only from Studio context — writes happen via the CLI.
-    const snap = openCleoDbSnapshot(nexusPath);
+    const snap = openCleoDbSnapshot(globalDbPath);
     try {
       const row = snap.db
         .prepare(
-          'SELECT project_id, name, project_path, brain_db_path, tasks_db_path FROM project_registry WHERE project_id = ?',
+          'SELECT project_id, name, project_path, brain_db_path, tasks_db_path FROM nexus_project_registry WHERE project_id = ?',
         )
         .get(projectId) as
         | {
@@ -160,12 +163,14 @@ export function listRegisteredProjects(): Array<{
   healthStatus: string;
 }> {
   try {
-    const nexusPath = join(getCleoHome(), 'nexus.db');
-    if (!existsSync(nexusPath)) return [];
+    // T11578 · AC3: registry lives in the consolidated GLOBAL `cleo.db`
+    // (`nexus_project_registry`), not the retired standalone `nexus.db`.
+    const globalDbPath = join(getCleoHome(), 'cleo.db');
+    if (!existsSync(globalDbPath)) return [];
 
     // Read-only snapshot via chokepoint API (T9685-B3, ADR-068): the registry
     // is read-only from Studio context — writes happen via the CLI.
-    const snap = openCleoDbSnapshot(nexusPath);
+    const snap = openCleoDbSnapshot(globalDbPath);
     try {
       const rows = snap.db
         .prepare(
@@ -180,7 +185,7 @@ export function listRegisteredProjects(): Array<{
             stats_json,
             last_seen,
             health_status
-          FROM project_registry
+          FROM nexus_project_registry
           ORDER BY last_seen DESC`,
         )
         .all() as Array<{

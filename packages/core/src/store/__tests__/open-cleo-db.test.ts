@@ -210,7 +210,8 @@ describe('validateProjectIdConsistency (T10322)', () => {
   let tempDir: string;
 
   // Use createRequire to materialise an in-process DatabaseSync with the
-  // bits of nexus.db's project_registry schema the gate cares about.
+  // bits of the consolidated GLOBAL cleo.db `nexus_project_registry` schema the
+  // gate cares about (T11578 · AC3 — prefixed registry table).
   function makeFakeNexusDb(rows: Array<{ id: string; path: string }>): DatabaseSync {
     const _require = createRequire(import.meta.url);
     const { DatabaseSync: DatabaseSyncCtor } = _require('node:sqlite') as {
@@ -218,12 +219,14 @@ describe('validateProjectIdConsistency (T10322)', () => {
     };
     const db = new DatabaseSyncCtor(':memory:');
     db.exec(
-      `CREATE TABLE project_registry (
+      `CREATE TABLE nexus_project_registry (
         project_id   TEXT PRIMARY KEY,
         project_path TEXT NOT NULL UNIQUE
       );`,
     );
-    const ins = db.prepare('INSERT INTO project_registry (project_id, project_path) VALUES (?, ?)');
+    const ins = db.prepare(
+      'INSERT INTO nexus_project_registry (project_id, project_path) VALUES (?, ?)',
+    );
     for (const row of rows) {
       ins.run(row.id, row.path);
     }

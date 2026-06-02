@@ -22,31 +22,43 @@
  *   only native open is inside `dual-scope-db.ts`. The remaining raw opens in
  *   `nexus/**` migration scripts are the allowlisted migration paths.
  *
- * The legacy `drizzle-nexus` migrations are still applied to this handle during
- * the E3→E6 transition. They create the legacy runtime-queried physical tables
- * (`nexus_nodes`, `nexus_relations`, `nexus_contracts`, `project_registry`,
- * `project_id_aliases`, `nexus_audit_log`, `nexus_schema_meta`, `user_profile`,
- * `sigils`) plus the FTS5 virtual table + triggers (`nexus_symbols_fts`) that
- * Drizzle cannot model. The consolidated GLOBAL schema (`drizzle-cleo-global`)
- * creates a domain-prefixed subset (`nexus_nodes` / `nexus_relations` /
- * `nexus_contracts` / `nexus_audit_log` / `nexus_schema_meta` collide by name
- * but carry the exodus-TARGET shape — ISO-8601 timestamps + enum/format CHECK
- * constraints) which the runtime nexus writers cannot use. On first open we drop
- * those consolidated-target collisions and run the legacy `drizzle-nexus`
- * migrations to recreate them in the runtime shape — exactly mirroring the brain
- * domain (E6-L2). The residency MOVE of the nexus graph tables global→project is
- * a SEPARATE later task (T11538, post-E6) — this task keeps the ADR-036
- * global-only invariant intact.
+ * ## COMPLETE-CUTOVER to prefixed `nexus_*` tables (T11578 · AC3)
+ *
+ * The nexus runtime READ + WRITE path now targets the PREFIXED consolidated
+ * `nexus_*` tables that the consolidated cleo-global migration
+ * (`drizzle-cleo-global/…t11363-consolidation-cleo-global`) creates and OWNS —
+ * the single SSoT for the 10 base tables (`nexus_project_registry`,
+ * `nexus_project_id_aliases`, `nexus_user_profile`, `nexus_sigils`, `nexus_nodes`,
+ * `nexus_relations`, `nexus_contracts`, `nexus_code_index`, `nexus_audit_log`,
+ * `nexus_schema_meta`). The former legacy drop/rebuild (`establishLegacyNexusSchema`)
+ * and the BARE registry tables (`project_registry`, `user_profile`, `sigils`,
+ * `project_id_aliases`) are GONE. The runtime schema barrel `schema/nexus-schema.ts`
+ * now maps those four export symbols (`projectRegistry`, `userProfile`, `sigils`,
+ * `projectIdAliases`) to the prefixed physical tables — accessors need ZERO change.
+ *
+ * The `drizzle-nexus` migration set carries ONLY the delta the consolidated
+ * migration cannot model: the `nexus_symbols_fts` FTS5 virtual table + its three
+ * `nexus_nodes` triggers, the `nexus_relation_weights` plasticity-partition
+ * sibling (T11545), and the `_nexus_meta` health-probe table (the reconcile
+ * sentinel). The destructive half of the plasticity partition (DROP the inline
+ * `weight`/`last_accessed_at`/`co_accessed_count` columns the T11363
+ * `nexus_relations` still carries) is applied idempotently at open by
+ * `ensureNexusRelationWeights` — never as a non-idempotent journaled ALTER.
+ *
+ * The four nexus code-graph tables keep their `project_id` column (the runtime
+ * keeps a SINGLE global handle; the graph accessors filter by `project_id`). The
+ * ADR-090 residency MOVE to PROJECT scope (drop `project_id`, open per-project
+ * handles) is a SEPARATE later task (T11538/T11539) — out of scope for AC3.
  *
  * @adr ADR-036 — nexus.db (now the global `cleo.db`) is global-only.
  * @task T5365
  * @task T11524 - E6-L4: route getNexusDb through openDualScopeDb('global') (SG-DB-SUBSTRATE-V2)
+ * @task T11578 - AC3: COMPLETE-CUTOVER nexus runtime → prefixed nexus_* consolidated tables
  */
 
 import { copyFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { readMigrationFiles } from 'drizzle-orm/migrator';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { getLogger } from '../logger.js';
@@ -245,61 +257,6 @@ function objectExists(nativeDb: DatabaseSync, type: string, name: string): boole
 }
 
 /**
- * The consolidated (exodus-target) nexus tables that COLLIDE with the legacy
- * `drizzle-nexus` schema by physical name. The {@link openDualScopeDb}('global')
- * consolidation migration (`drizzle-cleo-global`, T11363) creates these in the
- * exodus-target shape (ISO-8601 `text` timestamps + enum/format `CHECK`
- * constraints — e.g. `nexus_nodes.kind IN (…)`, `nexus_relations.indexed_at
- * GLOB '[0-9]…'`). The runtime nexus writers and `nexusSchema`
- * (`nexus-schema.ts`) use the legacy shape — no CHECKs — so on first open we
- * drop these and let the legacy `CREATE TABLE IF NOT EXISTS` migrations recreate
- * them.
- *
- * The non-colliding consolidated tables (`nexus_project_registry`,
- * `nexus_project_id_aliases`, `nexus_user_profile`, `nexus_sigils`,
- * `nexus_code_index`) carry DIFFERENT physical names than the legacy bare names
- * (`project_registry`, `project_id_aliases`, `user_profile`, `sigils`) so they
- * co-exist harmlessly — like the tasks domain (`tasks` ≠ `tasks_tasks`). The
- * exodus (T11248 / T11553) and the nexus residency move (T11538) reconcile them.
- *
- * @internal
- * @task T11524
- */
-const CONSOLIDATED_NEXUS_TABLES = [
-  'nexus_nodes',
-  'nexus_relations',
-  'nexus_contracts',
-  'nexus_audit_log',
-  'nexus_schema_meta',
-] as const;
-
-/**
- * Detect whether the colliding nexus tables in the open handle carry the
- * CONSOLIDATED (exodus-target) shape rather than the LEGACY runtime shape.
- *
- * The consolidation migration (T11363) adds enum/format `CHECK` constraints to
- * `nexus_nodes` (`kind IN (…)`, `indexed_at GLOB '[0-9]…'`); the legacy runtime
- * schema (`nexus-schema.ts`) has none. The colliding tables share the SAME
- * physical name AND the same column affinities (both `indexed_at text`), so the
- * column type is not a discriminator — instead we inspect the stored DDL in
- * `sqlite_master` for the consolidation CHECK marker.
- *
- * @internal
- * @task T11524
- */
-function nexusTablesAreConsolidatedShape(nativeDb: DatabaseSync): boolean {
-  if (!tableExists(nativeDb, 'nexus_nodes')) return false;
-  const row = nativeDb
-    .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='nexus_nodes'")
-    .get() as { sql?: string } | undefined;
-  const sql = row?.sql ?? '';
-  // Legacy `nexus_nodes` has NO CHECK constraint; the consolidated target carries
-  // `CHECK ("kind" IN (…))`. Presence of a CHECK clause means the handle holds the
-  // consolidated (exodus-target) shape and must be rebuilt to the legacy shape.
-  return /\bCHECK\b/i.test(sql);
-}
-
-/**
  * Idempotent FTS5 setup for nexus_symbols_fts (T1839).
  *
  * Creates the FTS5 virtual table indexed on label + file_path, installs the
@@ -378,23 +335,32 @@ function ensureNexusFts5(nativeDb: DatabaseSync): void {
 }
 
 /**
- * Idempotent safety net for `nexus_relation_weights` (T11545 · ADR-090 §5.3).
+ * Idempotent safety net + partition completer for `nexus_relation_weights`
+ * (T11545 · ADR-090 §5.3 · T11578 · AC3).
  *
  * The Hebbian plasticity columns were partitioned out of `nexus_relations` into
- * this sibling 1:1 table. This safety net mirrors the prior T998 `ensureColumns`
- * band-aid: it CREATEs the table (+ indexes) on existing nexus instances that
- * predate the T11545 drizzle migration, and — when the legacy inline columns are
- * still present on `nexus_relations` (pre-partition DBs whose migration chain has
- * not yet reached T11545) — backfills any non-default plasticity state so the
- * accessor never loses weights. Every statement is guarded; safe to re-run.
+ * this sibling 1:1 table. After the AC3 cutover the consolidated cleo-global
+ * migration (T11363) owns `nexus_relations` but still creates it with the THREE
+ * inline plasticity columns (`weight`, `last_accessed_at`, `co_accessed_count`)
+ * — the T11363 shape predates the partition. This safety net completes the
+ * partition idempotently at runtime (the destructive column-DROP is kept OUT of
+ * the journaled migration SQL, where re-runs would throw):
+ *
+ *   1. CREATE the sibling table (+ indexes) — covers fresh + pre-partition DBs.
+ *   2. When the inline columns are still present on `nexus_relations`, BACKFILL
+ *      any non-default plasticity state into the sibling table so no weights are
+ *      lost, then DROP the three inline columns so the structural graph row is
+ *      narrow (matching `nexus-schema.ts` + the must-pass fresh-init test).
+ *
+ * Every statement is guarded by IF-NOT-EXISTS / column-presence probes; safe to
+ * re-run on every open (the DROP only fires while the inline columns exist).
  *
  * @task T11545
+ * @task T11578
  */
 function ensureNexusRelationWeights(nativeDb: DatabaseSync): void {
   // Only meaningful once the parent graph table exists.
   if (!tableExists(nativeDb, 'nexus_relations')) return;
-
-  const alreadyExists = tableExists(nativeDb, 'nexus_relation_weights');
 
   nativeDb.exec(`
     CREATE TABLE IF NOT EXISTS nexus_relation_weights (
@@ -411,16 +377,16 @@ function ensureNexusRelationWeights(nativeDb: DatabaseSync): void {
     `CREATE INDEX IF NOT EXISTS idx_nexus_relation_weights_weight ON nexus_relation_weights (weight)`,
   );
 
-  // Backfill from the legacy inline columns IFF they are still present and this
-  // is the first time the sibling table is created (avoids clobbering rows the
-  // running accessor may have written since the partition migration).
-  if (alreadyExists) return;
+  // Detect the inline plasticity columns the consolidated T11363 `nexus_relations`
+  // still carries. When absent, the partition is already complete — nothing to do.
   const relCols = nativeDb.prepare('PRAGMA table_info(nexus_relations)').all() as Array<{
     name: string;
   }>;
   const hasInlinePlasticity = relCols.some((c) => c.name === 'weight');
   if (!hasInlinePlasticity) return;
 
+  // Backfill any non-default plasticity state before dropping the columns
+  // (pristine rows are intentionally NOT copied — absence == weight 0.0).
   nativeDb.exec(`
     INSERT OR IGNORE INTO nexus_relation_weights (relation_id, weight, last_accessed_at, co_accessed_count)
     SELECT id, COALESCE(weight, 0.0), last_accessed_at, COALESCE(co_accessed_count, 0)
@@ -429,16 +395,104 @@ function ensureNexusRelationWeights(nativeDb: DatabaseSync): void {
         OR last_accessed_at IS NOT NULL
         OR COALESCE(co_accessed_count, 0) > 0
   `);
+
+  // Complete the partition: rebuild `nexus_relations` to the narrow structural
+  // shape (T11578 · AC3). A plain `ALTER TABLE ... DROP COLUMN last_accessed_at`
+  // is REJECTED by SQLite because the consolidated T11363 table carries
+  // `CHECK ("last_accessed_at" GLOB …)` — a column referenced by a CHECK cannot
+  // be dropped without a full table rebuild (the T11545 migration note). So we
+  // CREATE the narrow table, copy the structural columns, drop the old table, and
+  // rename. The `type`/`indexed_at` CHECKs + indexes are preserved; only the three
+  // plasticity columns + their CHECK + the plasticity index are removed.
+  //
+  // The FTS triggers fire on `nexus_nodes` (not `nexus_relations`), so they are
+  // unaffected. FKs are disabled for the rebuild then restored to the dual-scope
+  // SSoT state (T10314 idempotent-pragma contract).
+  const fkRow = nativeDb.prepare('PRAGMA foreign_keys').get() as
+    | { foreign_keys?: number }
+    | undefined;
+  const fkWasOn = fkRow?.foreign_keys === 1;
+  nativeDb.exec('PRAGMA foreign_keys=OFF');
+  try {
+    nativeDb.exec('DROP INDEX IF EXISTS idx_nexus_relations_last_accessed');
+    nativeDb.exec(`
+      CREATE TABLE nexus_relations__narrow (
+        id text PRIMARY KEY,
+        project_id text NOT NULL,
+        source_id text NOT NULL,
+        target_id text NOT NULL,
+        type text NOT NULL,
+        confidence real NOT NULL,
+        reason text,
+        step integer,
+        indexed_at text DEFAULT (datetime('now')) NOT NULL,
+        CHECK ("type" IN ('contains', 'defines', 'imports', 'accesses', 'calls', 'extends', 'implements', 'method_overrides', 'method_implements', 'has_method', 'has_property', 'member_of', 'step_in_process', 'handles_route', 'fetches', 'handles_tool', 'entry_point_of', 'wraps', 'queries', 'documents', 'applies_to', 'co_changed', 'co_cited_in_task')),
+        CHECK ("indexed_at" IS NULL OR "indexed_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')
+      )
+    `);
+    nativeDb.exec(`
+      INSERT INTO nexus_relations__narrow
+        (id, project_id, source_id, target_id, type, confidence, reason, step, indexed_at)
+      SELECT id, project_id, source_id, target_id, type, confidence, reason, step, indexed_at
+        FROM nexus_relations
+    `);
+    nativeDb.exec('DROP TABLE nexus_relations');
+    nativeDb.exec('ALTER TABLE nexus_relations__narrow RENAME TO nexus_relations');
+    // Recreate the structural indexes the rebuild dropped (match T11363 names).
+    nativeDb.exec(
+      'CREATE INDEX IF NOT EXISTS idx_nexus_relations_project ON nexus_relations (project_id)',
+    );
+    nativeDb.exec(
+      'CREATE INDEX IF NOT EXISTS idx_nexus_relations_source ON nexus_relations (source_id)',
+    );
+    nativeDb.exec(
+      'CREATE INDEX IF NOT EXISTS idx_nexus_relations_target ON nexus_relations (target_id)',
+    );
+    nativeDb.exec('CREATE INDEX IF NOT EXISTS idx_nexus_relations_type ON nexus_relations (type)');
+    nativeDb.exec(
+      'CREATE INDEX IF NOT EXISTS idx_nexus_relations_project_type ON nexus_relations (project_id, type)',
+    );
+    nativeDb.exec(
+      'CREATE INDEX IF NOT EXISTS idx_nexus_relations_source_type ON nexus_relations (source_id, type)',
+    );
+    nativeDb.exec(
+      'CREATE INDEX IF NOT EXISTS idx_nexus_relations_target_type ON nexus_relations (target_id, type)',
+    );
+    nativeDb.exec(
+      'CREATE INDEX IF NOT EXISTS idx_nexus_relations_confidence ON nexus_relations (confidence)',
+    );
+  } finally {
+    nativeDb.exec(`PRAGMA foreign_keys=${fkWasOn ? 'ON' : 'OFF'}`);
+  }
 }
 
 /**
- * Run drizzle migrations to create/update the legacy nexus tables inside the
- * consolidated GLOBAL `cleo.db`.
+ * Apply the nexus-domain DELTA migration + idempotent safety nets on top of the
+ * PREFIXED consolidated `nexus_*` tables the dual-scope chokepoint already
+ * created (T11578 · AC3).
  *
- * Uses IMMEDIATE transactions to prevent concurrent migration races.
- * Follows the same pattern as memory-sqlite.ts runBrainMigrations().
+ * ## COMPLETE-CUTOVER (T11578 · AC3)
+ *
+ * The consolidated cleo-global migration (T11363) OWNS the 10 prefixed nexus base
+ * tables (`nexus_project_registry`, `nexus_user_profile`, `nexus_sigils`,
+ * `nexus_project_id_aliases`, `nexus_nodes`, `nexus_relations`, `nexus_contracts`,
+ * `nexus_code_index`, `nexus_audit_log`, `nexus_schema_meta`). The runtime no
+ * longer drops/rebuilds a legacy shape (former `establishLegacyNexusSchema`) and
+ * no longer creates the BARE registry tables. The `drizzle-nexus` set carries
+ * ONLY the delta the consolidated migration cannot model:
+ *   - the `nexus_relation_weights` sibling (plasticity partition, T11545),
+ *   - the `nexus_symbols_fts` FTS5 virtual table + its three triggers, and
+ *   - the `_nexus_meta` health-probe table (also the reconcile sentinel).
+ *
+ * The reconcile sentinel is `_nexus_meta` (a table the nexus migration ITSELF
+ * creates, NOT a consolidated-owned table). This keeps `reconcileJournal`
+ * Scenario 2 (orphan deletion) dormant until the nexus migration set is journaled
+ * — otherwise the consolidated migration's journal entries (written FIRST by
+ * `openDualScopeDb`) would look like orphans and be deleted, corrupting the shared
+ * journal (mirrors the conduit `_conduit_meta` sentinel, AC4).
  *
  * @task T5365
+ * @task T11578
  */
 function runNexusMigrations(
   nativeDb: DatabaseSync,
@@ -446,8 +500,9 @@ function runNexusMigrations(
 ): void {
   const migrationsFolder = resolveNexusMigrationsFolder();
 
-  // If existing DB with pending migrations, create safety backup (cleo compat)
-  if (tableExists(nativeDb, 'project_registry') && _nexusDbPath) {
+  // If existing DB with pending migrations, create safety backup (cleo compat).
+  // Sentinel is the prefixed consolidated registry table (T11578 · AC3).
+  if (tableExists(nativeDb, 'nexus_project_registry') && _nexusDbPath) {
     const backupPath = _nexusDbPath.replace(/\.db$/, '-pre-cleo.db.bak');
     if (!existsSync(backupPath)) {
       try {
@@ -458,131 +513,25 @@ function runNexusMigrations(
     }
   }
 
-  // Bootstrap existing databases that predate drizzle migrations.
-  // Mark baseline migration as already applied if tables exist but
-  // __drizzle_migrations doesn't.
-  if (tableExists(nativeDb, 'project_registry') && !tableExists(nativeDb, '__drizzle_migrations')) {
-    const migrations = readMigrationFiles({ migrationsFolder });
-    const baseline = migrations[0];
-    if (baseline) {
-      nativeDb
-        .prepare(
-          `CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (id INTEGER PRIMARY KEY AUTOINCREMENT, hash text NOT NULL, created_at numeric)`,
-        )
-        .run();
-      nativeDb
-        .prepare(
-          `INSERT INTO "__drizzle_migrations" ("hash", "created_at") VALUES ('${baseline.hash}', ${baseline.folderMillis})`,
-        )
-        .run();
-    }
-  }
+  // Reconcile the Drizzle journal first so existing DBs don't try to re-run the
+  // comment-only baseline marker, and so removed legacy per-table migrations are
+  // treated as true orphans (Sub-case B) rather than re-run. Sentinel =
+  // `_nexus_meta` (created by the nexus delta migration itself — NOT a
+  // consolidated-owned table; see the doc note above).
+  reconcileJournal(nativeDb, migrationsFolder, '_nexus_meta', 'nexus');
 
-  // T11545: idempotent safety net for the partitioned plasticity table —
-  // covers pre-migration nexus instances created before the T11545 migration
-  // runs (it CREATEs the sibling table + backfills any legacy inline columns).
-  // No-op when the table already exists.
-  ensureNexusRelationWeights(nativeDb);
-
-  // T1062: idempotent safety net for external module nodes — covers pre-migration
-  // nexus instances that were created before the drizzle migration runs.
-  // Unresolved imports are persisted as ExternalModule nodes with is_external=true.
-  ensureColumns(
-    nativeDb,
-    'nexus_nodes',
-    [{ name: 'is_external', ddl: 'integer DEFAULT 0' }],
-    'nexus',
-  );
-
-  // T1065: idempotent safety net for contracts table — covers pre-migration
-  // nexus instances that were created before contracts extraction.
-  // If the table doesn't exist after migrations, it will be created here.
-  if (!tableExists(nativeDb, 'nexus_contracts')) {
-    nativeDb
-      .prepare(
-        `CREATE TABLE IF NOT EXISTS nexus_contracts (
-        contract_id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL,
-        type TEXT NOT NULL CHECK (type IN ('http', 'grpc', 'topic')),
-        path TEXT NOT NULL,
-        method TEXT,
-        request_schema_json TEXT NOT NULL DEFAULT '{}',
-        response_schema_json TEXT NOT NULL DEFAULT '{}',
-        source_symbol_id TEXT,
-        route_node_id TEXT,
-        confidence REAL NOT NULL DEFAULT 1.0,
-        description TEXT,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-      )`,
-      )
-      .run();
-
-    // Create indexes
-    nativeDb
-      .prepare(
-        'CREATE INDEX IF NOT EXISTS idx_nexus_contracts_project ON nexus_contracts(project_id)',
-      )
-      .run();
-    nativeDb
-      .prepare('CREATE INDEX IF NOT EXISTS idx_nexus_contracts_type ON nexus_contracts(type)')
-      .run();
-    nativeDb
-      .prepare('CREATE INDEX IF NOT EXISTS idx_nexus_contracts_path ON nexus_contracts(path)')
-      .run();
-    nativeDb
-      .prepare('CREATE INDEX IF NOT EXISTS idx_nexus_contracts_method ON nexus_contracts(method)')
-      .run();
-    nativeDb
-      .prepare(
-        'CREATE INDEX IF NOT EXISTS idx_nexus_contracts_project_type ON nexus_contracts(project_id, type)',
-      )
-      .run();
-    nativeDb
-      .prepare(
-        'CREATE INDEX IF NOT EXISTS idx_nexus_contracts_source_symbol ON nexus_contracts(source_symbol_id)',
-      )
-      .run();
-    nativeDb
-      .prepare(
-        'CREATE INDEX IF NOT EXISTS idx_nexus_contracts_created ON nexus_contracts(created_at)',
-      )
-      .run();
-  }
-
-  // T1839: idempotent safety net for FTS5 virtual table + triggers.
-  // Covers existing nexus instances that were created before this migration.
-  // Each statement uses nativeDb.exec() (not prepare().run()) so that the entire
-  // DDL block executes atomically without the node:sqlite first-statement-only limit.
-  ensureNexusFts5(nativeDb);
-
-  // T9183: Reconcile partial migrations before running migrate (matches brain.db
-  // pattern in memory-sqlite.ts). When a legacy nexus DB has columns from prior
-  // ensureColumns() repair but no journal entries, reconcileJournal Scenario 3
-  // marks those migrations applied via DDL probe so migrateWithRetry doesn't
-  // hit duplicate-column errors on the legacy-upgrade path.
-  reconcileJournal(nativeDb, migrationsFolder, 'project_registry', 'nexus');
-
-  // Run pending migrations via migrateWithRetry which catches duplicate-column
-  // errors and triggers Scenario 3 reconciliation as a belt-and-suspenders
-  // safety net (T9183, matches memory-sqlite.ts:99 brain pattern).
+  // Run the nexus DELTA migration (FTS5 quartet + nexus_relation_weights +
+  // `_nexus_meta`). Wrapped in a busy retry — the GLOBAL `cleo.db` handle is
+  // shared with sibling domains, so a concurrent open may briefly hold a lock.
   const MAX_RETRIES = 5;
   const BASE_DELAY_MS = 100;
   const MAX_DELAY_MS = 2000;
   let lastError: unknown;
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      migrateWithRetry(db, migrationsFolder, nativeDb, 'project_registry', 'nexus');
-      // T1062: post-migration safety net for is_external — ensures the column exists
-      // on fresh DBs where ensureColumns ran before the table was created, and on
-      // old DBs where this column was added after initial schema creation.
-      ensureColumns(
-        nativeDb,
-        'nexus_nodes',
-        [{ name: 'is_external', ddl: 'integer DEFAULT 0' }],
-        'nexus',
-      );
-      return;
+      migrateWithRetry(db, migrationsFolder, nativeDb, '_nexus_meta', 'nexus');
+      lastError = undefined;
+      break;
     } catch (err) {
       if (!isSqliteBusy(err) || attempt === MAX_RETRIES) throw err;
       lastError = err;
@@ -593,102 +542,38 @@ function runNexusMigrations(
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.round(delay));
     }
   }
-  /* c8 ignore next */
-  throw lastError;
+  /* c8 ignore next 1 */
+  if (lastError) throw lastError;
+
+  // Complete the plasticity partition: create the sibling table (the migration
+  // also creates it idempotently), backfill, then DROP the inline plasticity
+  // columns the consolidated T11363 `nexus_relations` still carries (T11578 · AC3).
+  ensureNexusRelationWeights(nativeDb);
+
+  // T1062 safety net: ensure `nexus_nodes.is_external` exists (the consolidated
+  // T11363 shape already includes it; this is a belt-and-suspenders no-op).
+  ensureColumns(
+    nativeDb,
+    'nexus_nodes',
+    [{ name: 'is_external', ddl: 'integer DEFAULT 0' }],
+    'nexus',
+  );
+
+  // T1839 safety net: (re)build the FTS5 virtual table + triggers and backfill
+  // existing `nexus_nodes` rows. Idempotent — a no-op once the index exists.
+  ensureNexusFts5(nativeDb);
 }
 
 /**
- * Establish the LEGACY nexus-domain schema inside the consolidated GLOBAL
- * `cleo.db`, replacing the consolidated (exodus-target) nexus tables that
- * collide by name.
+ * Initialize the consolidated GLOBAL `cleo.db` and the nexus DELTA schema within
+ * it (lazy, singleton).
  *
- * ## Why (T11524 · E6-L4)
- *
- * Routing `getNexusDb()` through {@link openDualScopeDb}('global') runs the
- * T11363 consolidation migration, which creates the colliding `nexus_*` tables
- * (see {@link CONSOLIDATED_NEXUS_TABLES}) in their **exodus-target** shape:
- * ISO-8601 `text` timestamps and enum/format `CHECK` constraints (e.g.
- * `nexus_nodes.kind IN (…)`, `nexus_relations.indexed_at GLOB '[0-9]…'`). The
- * runtime nexus writers and `nexusSchema` (`nexus-schema.ts`) use the **legacy**
- * shape — no enum/format CHECKs — exactly as the brain domain keeps using the
- * legacy shape after E6-L2.
- *
- * The legacy and consolidated tables share the SAME physical names, so they
- * cannot co-exist. The runtime must win, so on first open we drop the
- * consolidated colliding tables and run the legacy `drizzle-nexus` migrations
- * (all `CREATE TABLE IF NOT EXISTS`) to recreate them in the runtime shape. The
- * consolidated-target cutover and the nexus residency move (global→project) are
- * separate exodus jobs — see T11248 / T11553 / T11538.
- *
- * Idempotent: after the first rebuild the colliding tables are already
- * legacy-shaped, so {@link nexusTablesAreConsolidatedShape} returns `false` and
- * this only reconciles/applies the `drizzle-nexus` journal (nothing is dropped).
- *
- * @internal
- * @task T11524
- */
-function establishLegacyNexusSchema(
-  nativeDb: DatabaseSync,
-  db: NodeSQLiteDatabase<typeof nexusSchema>,
-): void {
-  const log = getLogger('nexus-schema');
-
-  if (nexusTablesAreConsolidatedShape(nativeDb)) {
-    // Drop the consolidated (exodus-target) colliding nexus tables so the legacy
-    // `drizzle-nexus` migrations can recreate them in the runtime shape. The
-    // FTS5 virtual table + triggers (`nexus_symbols_fts`) reference `nexus_nodes`;
-    // dropping `nexus_nodes` orphans them, so drop the FTS5 artifacts too and let
-    // `ensureNexusFts5` (called by `runNexusMigrations`) rebuild them cleanly.
-    // Disable FKs during the drop so cross-table references do not block the
-    // teardown — then RESTORE the prior pragma state (the dual-scope pragma SSoT
-    // enables foreign_keys; leaving it OFF would break the idempotent-pragma
-    // contract, T10314).
-    const fkRow = nativeDb.prepare('PRAGMA foreign_keys').get() as
-      | { foreign_keys?: number }
-      | undefined;
-    const fkWasOn = fkRow?.foreign_keys === 1;
-    nativeDb.exec('PRAGMA foreign_keys=OFF');
-    try {
-      // FTS5 triggers + virtual table first (they reference nexus_nodes).
-      nativeDb.exec('DROP TRIGGER IF EXISTS nexus_nodes_fts_ai');
-      nativeDb.exec('DROP TRIGGER IF EXISTS nexus_nodes_fts_ad');
-      nativeDb.exec('DROP TRIGGER IF EXISTS nexus_nodes_fts_au');
-      nativeDb.exec('DROP TABLE IF EXISTS nexus_symbols_fts');
-      for (const table of CONSOLIDATED_NEXUS_TABLES) {
-        try {
-          nativeDb.exec(`DROP TABLE IF EXISTS \`${table}\``);
-        } catch (err) {
-          log.warn(
-            { table, err },
-            'Failed to drop consolidated nexus table during legacy rebuild.',
-          );
-        }
-      }
-    } finally {
-      // Restore the pragma to its pre-drop state (ON under the dual-scope SSoT).
-      nativeDb.exec(`PRAGMA foreign_keys=${fkWasOn ? 'ON' : 'OFF'}`);
-    }
-    log.debug(
-      { count: CONSOLIDATED_NEXUS_TABLES.length },
-      'Dropped consolidated (exodus-target) nexus tables — rebuilding in legacy runtime shape.',
-    );
-  }
-
-  // Run the legacy `drizzle-nexus` migrations to (re)create the runtime-shaped
-  // nexus tables + FTS5 artifacts. Their `__drizzle_migrations` journal is shared
-  // with the cleo-global journal in the same `cleo.db`; the hashes are disjoint so
-  // the nexus migrations are reconciled/applied independently.
-  runNexusMigrations(nativeDb, db);
-}
-
-/**
- * Initialize the consolidated GLOBAL `cleo.db` and the legacy nexus tables
- * within it (lazy, singleton).
- *
- * E6-L4 (T11524): delegates the physical open to {@link openDualScopeDb}('global')
- * — the canonical dual-scope chokepoint — and re-wraps its native handle with the
- * legacy `nexusSchema` drizzle instance so existing callers compile unchanged.
- * Returns the drizzle ORM instance (async via the dual-scope migration step).
+ * T11578 · AC3: delegates the physical open to {@link openDualScopeDb}('global')
+ * — the canonical dual-scope chokepoint, which runs the consolidated cleo-global
+ * migrations that OWN the prefixed `nexus_*` base tables — and re-wraps its native
+ * handle with the `nexusSchema` drizzle instance (now mapping the PREFIXED
+ * physical tables). Returns the drizzle ORM instance (async via the dual-scope
+ * migration step).
  *
  * Uses a promise guard so concurrent callers wait for the same
  * initialization to complete (migrations are async).
@@ -725,37 +610,35 @@ export async function getNexusDb(): Promise<NodeSQLiteDatabase<typeof nexusSchem
     // carries the nested-nexus migration debris. Does not alter the open.
     detectAndWarnOnNestedNexus();
 
-    // ── Dual-scope chokepoint delegation (T11524 · E6-L4) ─────────────────
+    // ── Dual-scope chokepoint delegation (T11524 · E6-L4 · T11578 · AC3) ───
     // openDualScopeDb('global') applies the pragma SSoT, creates the directory,
-    // runs the consolidated cleo-global migrations (which create the colliding
-    // `nexus_*` tables in exodus-target shape), and manages the singleton cache.
-    // We extract its native handle so we can re-wrap it with the legacy
-    // nexus-schema and rebuild the runtime-shaped nexus tables.
+    // runs the consolidated cleo-global migrations (which OWN the PREFIXED
+    // `nexus_*` base tables), and manages the singleton cache. We extract its
+    // native handle and re-wrap it with the `nexusSchema` drizzle instance (now
+    // mapping the prefixed physical tables) so existing accessors run unchanged.
     const dualHandle = await openDualScopeDb('global');
 
     // Extract the underlying DatabaseSync. Drizzle exposes it via `$client`.
     const nativeDb = (dualHandle.db as { $client?: DatabaseSync }).$client ?? null;
     if (!nativeDb) {
       throw new Error(
-        'E6-L4: openDualScopeDb returned a handle without $client — ' +
-          'cannot extract DatabaseSync for legacy nexus-schema wrapping.',
+        'T11578 · AC3: openDualScopeDb returned a handle without $client — ' +
+          'cannot extract DatabaseSync for the nexus-schema drizzle wrapping.',
       );
     }
     _nexusNativeDb = nativeDb;
 
-    // Wrap the native handle with the legacy nexus-schema drizzle instance so
-    // existing callers (nexusSchema.* queries) continue to work unchanged.
+    // Wrap the native handle with the `nexusSchema` drizzle instance so existing
+    // accessors (nexusSchema.* queries) run against the PREFIXED tables unchanged.
     const db = drizzle({ client: nativeDb, schema: nexusSchema });
 
-    // Establish the LEGACY nexus-domain schema inside the consolidated GLOBAL
-    // cleo.db. openDualScopeDb created the colliding nexus tables in their
-    // exodus-TARGET shape (ISO-8601 timestamps + enum/format CHECK constraints),
-    // which the runtime nexus writers cannot use. This drops those and runs the
-    // legacy `drizzle-nexus` migrations to recreate them in the runtime shape
-    // (plus the FTS5 virtual table + triggers). Idempotent once already-legacy.
-    // The consolidated-target cutover + residency move are exodus jobs (T11248 /
-    // T11553 / T11538). (T11524)
-    establishLegacyNexusSchema(nativeDb, db);
+    // Apply the nexus DELTA migration + idempotent safety nets on top of the
+    // consolidated prefixed tables openDualScopeDb already created: the FTS5
+    // quartet, the `nexus_relation_weights` plasticity partition (incl. the
+    // inline-column DROP), and the `_nexus_meta` health-probe sentinel. The
+    // legacy drop/rebuild (`establishLegacyNexusSchema`) is GONE — the
+    // consolidated migration is the single SSoT for the base tables (T11578 · AC3).
+    runNexusMigrations(nativeDb, db);
 
     // Seed schema version for new databases (no-op if already set)
     nativeDb

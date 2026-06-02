@@ -139,7 +139,7 @@ describe('Test 1: fresh init — all 5 DBs migrate clean', () => {
     }
   });
 
-  it('nexus.db (drizzle-nexus) — fresh init succeeds, project_registry table exists', async () => {
+  it('nexus.db (drizzle-nexus) — fresh init succeeds, nexus_project_registry table exists', async () => {
     vi.resetModules();
     const cleoHome = join(tempDir, 'nexus-home');
     mkdirSync(cleoHome, { recursive: true });
@@ -163,13 +163,16 @@ describe('Test 1: fresh init — all 5 DBs migrate clean', () => {
       expect(dbPath).toBe(join(cleoHome, 'cleo.db'));
       expect(existsSync(dbPath)).toBe(true);
 
-      // nexus initial migration creates project_registry (not nexus_projects)
+      // T11578 · AC3: the consolidated cleo-global migration creates the PREFIXED
+      // `nexus_project_registry` (the bare `project_registry` runtime shape is retired).
       const nativeDb = new DatabaseSync(dbPath, { readonly: true });
       const row = nativeDb
-        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='project_registry'")
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='nexus_project_registry'",
+        )
         .get() as { name: string } | undefined;
       nativeDb.close();
-      expect(row?.name).toBe('project_registry');
+      expect(row?.name).toBe('nexus_project_registry');
     } finally {
       resetNexusDbState();
       vi.restoreAllMocks();
@@ -381,49 +384,11 @@ describe('Test 2: null-name journal rows — reconciler backfills names, no re-r
     nativeDb.close();
   });
 
-  it('nexus.db: reconcileJournal backfills null names without re-running migrations', async () => {
-    const { openNativeDatabase } = await import('../sqlite.js');
-    const { drizzle } = await import('drizzle-orm/node-sqlite');
-    const { reconcileJournal, migrateSanitized } = await import('../migration-manager.js');
-
-    const migrationsFolder = resolveMigrationsDir('drizzle-nexus');
-    const { readMigrationFiles } = await import('drizzle-orm/migrator');
-    const localMigrations = readMigrationFiles({ migrationsFolder });
-    expect(localMigrations.length).toBeGreaterThan(0);
-
-    const dbPath = join(tempDir, 'nexus-null-name.db');
-    const nativeDb = openNativeDatabase(dbPath);
-    const db = drizzle({ client: nativeDb });
-
-    migrateSanitized(db, { migrationsFolder });
-
-    nativeDb.exec('UPDATE "__drizzle_migrations" SET "name" = NULL');
-
-    const countBefore = (
-      nativeDb.prepare('SELECT COUNT(*) as cnt FROM "__drizzle_migrations"').get() as {
-        cnt: number;
-      }
-    ).cnt;
-
-    // nexus existence table is 'project_registry' (not 'nexus_projects')
-    reconcileJournal(nativeDb, migrationsFolder, 'project_registry', 'nexus');
-
-    const stillNull = nativeDb
-      .prepare('SELECT COUNT(*) as cnt FROM "__drizzle_migrations" WHERE name IS NULL')
-      .get() as { cnt: number };
-    expect(stillNull.cnt).toBe(0);
-
-    const countAfter = (
-      nativeDb.prepare('SELECT COUNT(*) as cnt FROM "__drizzle_migrations"').get() as {
-        cnt: number;
-      }
-    ).cnt;
-    expect(countAfter).toBe(countBefore);
-
-    expect(() => migrateSanitized(db, { migrationsFolder })).not.toThrow();
-
-    nativeDb.close();
-  });
+  // T11578 · AC3: the in-isolation nexus null-name reconcile case is removed —
+  // the `drizzle-nexus` set is now a consolidated-dependent DELTA (see the note
+  // on the removed nexus partial-migration case below). The generic reconcile
+  // backfill behavior is still covered by the tasks/brain/telemetry/signaldock
+  // cases here; nexus full-path coverage lives in the dedicated nexus suites.
 
   it('telemetry.db: reconcileJournal backfills null names without re-running migrations', async () => {
     const { openNativeDatabase } = await import('../sqlite.js');
@@ -637,35 +602,12 @@ describe('Test 3: partial migration fixture — reconciler recovers without dupl
     nativeDb.close();
   });
 
-  it('nexus.db: column exists but journal entry absent — reconciler inserts entry, migrate() does not throw', async () => {
-    const { openNativeDatabase } = await import('../sqlite.js');
-    const { drizzle } = await import('drizzle-orm/node-sqlite');
-    const { reconcileJournal, migrateSanitized } = await import('../migration-manager.js');
-    const { readMigrationFiles } = await import('drizzle-orm/migrator');
-
-    const migrationsFolder = resolveMigrationsDir('drizzle-nexus');
-    const localMigrations = readMigrationFiles({ migrationsFolder });
-    expect(localMigrations.length).toBeGreaterThanOrEqual(2);
-
-    const dbPath = join(tempDir, 'nexus-partial.db');
-    const nativeDb = openNativeDatabase(dbPath);
-    const db = drizzle({ client: nativeDb });
-
-    migrateSanitized(db, { migrationsFolder });
-
-    // Pick the second migration to simulate partial application
-    const targetMig = localMigrations[1]!;
-    nativeDb.exec(`DELETE FROM "__drizzle_migrations" WHERE hash = '${targetMig.hash}'`);
-
-    // nexus existence table is 'project_registry' (not 'nexus_projects')
-    expect(() =>
-      reconcileJournal(nativeDb, migrationsFolder, 'project_registry', 'nexus'),
-    ).not.toThrow();
-
-    expect(() => migrateSanitized(db, { migrationsFolder })).not.toThrow();
-
-    nativeDb.close();
-  });
+  // T11578 · AC3: the in-isolation nexus reconcile case is removed — the
+  // `drizzle-nexus` set is now a consolidated-dependent DELTA (its FTS5 migration
+  // does `CREATE TRIGGER … ON nexus_nodes`, a table the consolidated
+  // `drizzle-cleo-global` migration owns), so it cannot be applied standalone.
+  // This mirrors the conduit delta, which is likewise absent from these tests.
+  // Nexus coverage: `migration-fresh-no-repair.nexus.test.ts` + `nexus-ddl-snapshot.test.ts`.
 
   it('telemetry.db: column exists but journal entry absent — reconciler inserts entry, migrate() does not throw', async () => {
     const { openNativeDatabase } = await import('../sqlite.js');

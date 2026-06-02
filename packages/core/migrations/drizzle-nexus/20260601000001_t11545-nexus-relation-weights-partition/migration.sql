@@ -1,30 +1,41 @@
--- T11545: Partition the Hebbian plasticity columns out of `nexus_relations`
--- into the sibling 1:1 table `nexus_relation_weights` (ADR-090 §5.3).
+-- T11545 (ADR-090 §5.3) → T11578 (AC3 · COMPLETE-CUTOVER): nexus delta over the
+-- consolidated `nexus_*` tables.
 --
--- The write-heavy plasticity columns (`weight`, `last_accessed_at`,
--- `co_accessed_count`) added by T998 are moved off the read-mostly structural
--- graph row so structural queries scan a narrower row and the Hebbian hot path
--- writes only the sibling table. A relation has at most one weights row, keyed
--- by `relation_id` (soft FK -> `nexus_relations.id`). Rows are created lazily on
--- the first co-access strengthening event, so absence == "never strengthened"
--- (weight 0.0).
+-- ## History
 --
--- Forward migration order:
---   1. CREATE the sibling table + indexes.
---   2. Backfill: copy any relation that already carries non-default plasticity
---      state (weight > 0, a recorded last_accessed_at, or co_accessed_count > 0)
---      into the new table. Pristine rows are intentionally NOT copied (absence
---      == weight 0.0), matching the lazy-create semantics.
---   3. DROP the three legacy columns + the old index from `nexus_relations`.
---      SQLite ALTER TABLE ... DROP COLUMN requires SQLite >= 3.35 (Node 24's
---      bundled SQLite is 3.53+).
+-- T11545 partitioned the Hebbian plasticity columns (`weight`,
+-- `last_accessed_at`, `co_accessed_count`) out of `nexus_relations` into the
+-- sibling 1:1 `nexus_relation_weights` table.
 --
--- Legacy DBs where the T998 columns exist hit the backfill + drop path. Fresh
--- DBs created after T11539's residency move never had the columns inline, but
--- the backfill SELECT references them; the ensureNexusRelationWeights() safety
--- net in nexus-sqlite.ts handles the column-absent path idempotently (the
--- migration chain itself always runs on a DB where the prior T998 migration
--- already added the columns, so the references resolve).
+-- ## AC3 cutover (T11578)
+--
+-- The nexus runtime READ + WRITE path now targets the PREFIXED consolidated
+-- tables (`nexus_project_registry`, `nexus_user_profile`, `nexus_sigils`,
+-- `nexus_project_id_aliases`, `nexus_nodes`, `nexus_relations`, …) that the
+-- consolidated cleo-global migration
+-- (`drizzle-cleo-global/…t11363-consolidation-cleo-global`) creates. Those 10
+-- prefixed base tables are therefore NO LONGER created here — the consolidated
+-- migration owns them (single SSoT; CHECK constraints + ISO-8601 TEXT timestamp
+-- affinity are injected by T11363). This migration's remaining responsibility is:
+--
+--   1. the `nexus_relation_weights` sibling table (the consolidated GLOBAL
+--      migration's `nexus_relations` still carries the inline plasticity columns
+--      — the matching column-DROP is applied idempotently in `nexus-sqlite.ts`
+--      `ensureNexusRelationWeights`, never as a non-idempotent journaled ALTER);
+--   2. the `nexus_symbols_fts` FTS5 virtual table + its three `nexus_nodes` sync
+--      triggers — drizzle-orm sqlite-core cannot model FTS5, so the consolidated
+--      migration omits them;
+--   3. the legacy `_nexus_meta` health-probe table — pinned as the reconcile
+--      sentinel (a table THIS migration creates, NOT a consolidated-owned one) so
+--      `reconcileJournal` Scenario 2 stays dormant until the nexus set is
+--      journaled (mirrors the conduit `_conduit_meta` sentinel, T11578 · AC4).
+--
+-- Every statement is `IF NOT EXISTS` / `DROP … IF EXISTS` — idempotent across
+-- repeated opens and the orphan re-probe path.
+
+-- -------------------------------------------------------------------------
+-- 1. Plasticity weights sibling (1:1 with nexus_relations.id).
+-- -------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `nexus_relation_weights` (
 	`relation_id` text PRIMARY KEY NOT NULL,
 	`weight` real DEFAULT 0.0 NOT NULL,
@@ -36,17 +47,51 @@ CREATE INDEX IF NOT EXISTS `idx_nexus_relation_weights_last_accessed` ON `nexus_
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `idx_nexus_relation_weights_weight` ON `nexus_relation_weights` (`weight`);
 --> statement-breakpoint
-INSERT OR IGNORE INTO `nexus_relation_weights` (`relation_id`, `weight`, `last_accessed_at`, `co_accessed_count`)
-SELECT `id`, COALESCE(`weight`, 0.0), `last_accessed_at`, COALESCE(`co_accessed_count`, 0)
-FROM `nexus_relations`
-WHERE COALESCE(`weight`, 0.0) > 0.0
-   OR `last_accessed_at` IS NOT NULL
-   OR COALESCE(`co_accessed_count`, 0) > 0;
+
+-- -------------------------------------------------------------------------
+-- 2. FTS5 full-text index over nexus_nodes (label + file_path) + triggers.
+--    The consolidated migration cannot model FTS5 virtual tables.
+-- -------------------------------------------------------------------------
+CREATE VIRTUAL TABLE IF NOT EXISTS nexus_symbols_fts USING fts5(
+	node_id UNINDEXED,
+	label,
+	file_path,
+	tokenize = 'unicode61 remove_diacritics 1'
+);
 --> statement-breakpoint
-DROP INDEX IF EXISTS `idx_nexus_relations_last_accessed`;
+DROP TRIGGER IF EXISTS nexus_nodes_fts_ai;
 --> statement-breakpoint
-ALTER TABLE `nexus_relations` DROP COLUMN `weight`;
+CREATE TRIGGER nexus_nodes_fts_ai
+AFTER INSERT ON nexus_nodes
+BEGIN
+	INSERT INTO nexus_symbols_fts(rowid, node_id, label, file_path)
+	VALUES (new.rowid, new.id, new.label, new.file_path);
+END;
 --> statement-breakpoint
-ALTER TABLE `nexus_relations` DROP COLUMN `last_accessed_at`;
+DROP TRIGGER IF EXISTS nexus_nodes_fts_ad;
 --> statement-breakpoint
-ALTER TABLE `nexus_relations` DROP COLUMN `co_accessed_count`;
+CREATE TRIGGER nexus_nodes_fts_ad
+AFTER DELETE ON nexus_nodes
+BEGIN
+	DELETE FROM nexus_symbols_fts WHERE rowid = old.rowid;
+END;
+--> statement-breakpoint
+DROP TRIGGER IF EXISTS nexus_nodes_fts_au;
+--> statement-breakpoint
+CREATE TRIGGER nexus_nodes_fts_au
+AFTER UPDATE ON nexus_nodes
+BEGIN
+	DELETE FROM nexus_symbols_fts WHERE rowid = old.rowid;
+	INSERT INTO nexus_symbols_fts(rowid, node_id, label, file_path)
+	VALUES (new.rowid, new.id, new.label, new.file_path);
+END;
+--> statement-breakpoint
+
+-- -------------------------------------------------------------------------
+-- 3. Legacy meta health-probe table + reconcile sentinel (T11578 · AC3).
+-- -------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS _nexus_meta (
+	key TEXT PRIMARY KEY,
+	value TEXT NOT NULL,
+	updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+);

@@ -412,8 +412,8 @@ export function resolveProjectByCwd(cwd?: string): ResolvedProject | null {
  * Resolve the canonical `.cleo` directory for a project given its `projectId`.
  *
  * Looks up the project in the consolidated GLOBAL `cleo.db` registry
- * (`project_registry` table) to find the project's root path, then returns the
- * `.cleo/` directory under that root.
+ * (`nexus_project_registry` table) to find the project's root path, then returns
+ * the `.cleo/` directory under that root.
  *
  * **Post-E6 consolidation (T11569):** The cross-project registry moved from the
  * standalone `<cleoHome>/nexus.db` into the consolidated dual-scope
@@ -421,14 +421,16 @@ export function resolveProjectByCwd(cwd?: string): ResolvedProject | null {
  * install `nexus.db` is never created, so opening it here returned `null` and
  * the core wrapper threw `E_PROJECT_NOT_FOUND` even for registered projects (the
  * read path had diverged from the write path — same class as #909/T11562). This
- * resolver now opens `cleo.db`. The live runtime registry table inside `cleo.db`
- * is the bare `project_registry` (materialized by the legacy `drizzle-nexus`
- * migrations via `establishLegacyNexusSchema`); the prefixed
- * `nexus_project_registry` is the consolidated-migration existence sentinel and
- * stays empty until the exodus cutover (T11248/T11553).
+ * resolver opens `cleo.db`.
+ *
+ * **COMPLETE-CUTOVER (T11578 · AC3):** The live runtime registry table is now the
+ * PREFIXED consolidated `nexus_project_registry` (the consolidated cleo-global
+ * migration owns it; the bare `project_registry` runtime shape is retired). The
+ * runtime writers and this read path both target the prefixed table — the read
+ * path no longer diverges from the write path.
  *
  * **Legacy ID support (T11023 AC4):** If the `projectId` is not found in
- * `project_registry`, also checks the `project_id_aliases` table for a
+ * `nexus_project_registry`, also checks the `nexus_project_id_aliases` table for a
  * legacy→canonical mapping before returning `null`. The path-derived canonical
  * 12-hex id is recorded as an alias of the immutable registry id (T11281), so a
  * canonical id supplied by `resolveProjectByCwd` resolves through this fallback.
@@ -448,8 +450,9 @@ export function resolveProjectByCwd(cwd?: string): ResolvedProject | null {
 export function resolveCanonicalCleoDir(projectId: string): string | null {
   const cleoHome = getCleoHome();
   // T11569: read the consolidated GLOBAL `cleo.db` (the registry moved out of
-  // the now-gone `nexus.db` at E6-L4/T11524). The bare `project_registry` table
-  // inside `cleo.db` is the live runtime registry SSoT.
+  // the now-gone `nexus.db` at E6-L4/T11524). T11578 · AC3: the PREFIXED
+  // `nexus_project_registry` table inside `cleo.db` is the live runtime registry
+  // SSoT.
   const globalDbPath = join(cleoHome, 'cleo.db');
 
   if (!existsSync(globalDbPath)) return null;
@@ -459,9 +462,9 @@ export function resolveCanonicalCleoDir(projectId: string): string | null {
     const DatabaseSync = getDatabaseSyncCtor();
     db = new DatabaseSync(globalDbPath, { readOnly: true }); // db-open-allowed: leaf path package cannot depend on core DB chokepoint
 
-    // Try direct project_registry lookup first.
+    // Try direct nexus_project_registry lookup first (T11578 · AC3).
     const directStmt = db.prepare(
-      'SELECT project_path FROM project_registry WHERE project_id = ? LIMIT 1',
+      'SELECT project_path FROM nexus_project_registry WHERE project_id = ? LIMIT 1',
     );
     const directRow = directStmt.get(projectId) as { project_path: string } | undefined;
 
@@ -473,13 +476,13 @@ export function resolveCanonicalCleoDir(projectId: string): string | null {
       return join(directRow.project_path, '.cleo');
     }
 
-    // T11023 AC4: Fall back to project_id_aliases for legacy ID resolution.
-    // Legacy base64url(path) IDs and old UUIDs are mapped to canonical IDs
-    // in the aliases table. Try resolving the input as a legacy ID first,
-    // then look up the canonical ID.
+    // T11023 AC4: Fall back to nexus_project_id_aliases for legacy ID resolution
+    // (T11578 · AC3 prefixed table). Legacy base64url(path) IDs and old UUIDs are
+    // mapped to canonical IDs in the aliases table. Try resolving the input as a
+    // legacy ID first, then look up the canonical ID.
     try {
       const aliasStmt = db.prepare(
-        'SELECT canonical_id FROM project_id_aliases WHERE legacy_id = ? LIMIT 1',
+        'SELECT canonical_id FROM nexus_project_id_aliases WHERE legacy_id = ? LIMIT 1',
       );
       const aliasRow = aliasStmt.get(projectId) as { canonical_id: string } | undefined;
 
@@ -501,7 +504,7 @@ export function resolveCanonicalCleoDir(projectId: string): string | null {
         }
       }
     } catch {
-      // project_id_aliases table may not exist yet (pre-migration) — non-fatal.
+      // nexus_project_id_aliases table may not exist yet (pre-migration) — non-fatal.
     }
 
     return null;

@@ -125,10 +125,17 @@ describe('T1165 baseline-reset snapshot chains', () => {
   // -------------------------------------------------------------------------
 
   describe('fresh install — baseline migration is a no-op', () => {
+    // T11578 · AC3: `nexus` is excluded from the in-isolation migration cases —
+    // its `drizzle-nexus` set is now a DELTA (FTS5 + nexus_relation_weights +
+    // `_nexus_meta`) that depends on the consolidated `drizzle-cleo-global` base
+    // tables (`nexus_nodes`, …) created by `openDualScopeDb`. Applying it alone
+    // would fail (`CREATE TRIGGER … ON nexus_nodes` with no `nexus_nodes`),
+    // exactly like the conduit delta — which is why conduit is also absent here.
+    // Full-path nexus coverage lives in `migration-fresh-no-repair.nexus.test.ts`
+    // and `nexus-ddl-snapshot.test.ts`.
     it.each([
       'tasks',
       'brain',
-      'nexus',
     ] as const)('%s: migrateSanitized runs to completion on fresh empty DB', async (db) => {
       const { openNativeDatabase } = await import('../sqlite.js');
       const { drizzle } = await import('drizzle-orm/node-sqlite');
@@ -170,10 +177,11 @@ describe('T1165 baseline-reset snapshot chains', () => {
   // -------------------------------------------------------------------------
 
   describe('existing install — baseline marker handled by Scenario 3', () => {
+    // T11578 · AC3: `nexus` excluded — see the Scenario-2 note above (the
+    // `drizzle-nexus` delta cannot be applied in isolation post-cutover).
     it.each([
       'tasks',
       'brain',
-      'nexus',
     ] as const)('%s: reconcileJournal marks baseline applied on populated DB without running DDL', async (db) => {
       const { openNativeDatabase } = await import('../sqlite.js');
       const { drizzle } = await import('drizzle-orm/node-sqlite');
