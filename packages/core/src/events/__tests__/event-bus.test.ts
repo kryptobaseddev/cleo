@@ -29,7 +29,18 @@ function mockConduitAvailable(value: boolean) {
   _mockConduitAvailable = value;
 }
 
-vi.mock('../conduit/local-transport.js', () => ({
+// NOTE: the mock specifier MUST match the module id that `event-bus.ts` imports.
+// `event-bus.ts` lives in `src/events/` and dynamically imports
+// `'../conduit/local-transport.js'` → resolves to `src/conduit/local-transport.js`.
+// This test file lives in `src/events/__tests__/`, so the vitest mock path
+// (resolved relative to the test file) must be `'../../conduit/local-transport.js'`
+// to target the SAME module. The previous `'../conduit/…'` pointed at the
+// nonexistent `src/events/conduit/…`, so the mock never intercepted and the test
+// silently exercised the REAL LocalTransport — passing only when no conduit DB was
+// resolvable from cwd (T11578: after the conduit namespace cutover the real
+// publish path succeeds against the prefixed `conduit_*` tables, so the accidental
+// fallback no longer fired and the test flaked by shard cwd).
+vi.mock('../../conduit/local-transport.js', () => ({
   LocalTransport: {
     isAvailable: () => _mockConduitAvailable,
   },
