@@ -3,15 +3,15 @@
  *
  * Post-T310 (ADR-037), agent identity lives in the GLOBAL `agents` table;
  * per-project visibility and overrides live in the PROJECT
- * `project_agent_refs` table.
+ * `conduit_project_agent_refs` table (T11578 · AC4 — conduit namespace cutover).
  *
  * Post-E6-L5 (T11525) / E6-L6 (T11526), both tables are hosted inside the
  * CONSOLIDATED dual-scope `cleo.db` files (global `$XDG_DATA_HOME/cleo/cleo.db`
  * and project `.cleo/cleo.db`) — the standalone `signaldock.db` / `conduit.db`
- * files are gone. The bare `agents` / `project_agent_refs` runtime tables are
- * materialized into `cleo.db` by `ensureGlobalSignaldockDb()` /
- * `ensureConduitDb()` (legacy drizzle migrations), which co-exist with the
- * prefixed `signaldock_*` / `conduit_*` consolidated tables. The read path MUST
+ * files are gone. The global `agents` table is materialized by
+ * `ensureGlobalSignaldockDb()`; the prefixed conduit `conduit_project_agent_refs`
+ * table is created by the consolidated cleo-project migration (T11578 · AC4) and
+ * `ensureConduitDb()` ensures the project `cleo.db` is open. The read path MUST
  * therefore go through those `ensure*` calls so it shares the same handle as the
  * write path (T11562 — agents read/write path divergence regression).
  *
@@ -21,7 +21,7 @@
  *
  * Architecture:
  *   global  cleo.db — canonical identity `agents` (openGlobalDb → ensureGlobalSignaldockDb)
- *   project cleo.db — `project_agent_refs`        (openConduitDb)
+ *   project cleo.db — `conduit_project_agent_refs` (openConduitDb)
  *   Join performed in Node (SQLite cannot cross-file-handle JOIN).
  *
  * @see .cleo/rcasd/T310/specification/T310-specification.md §3.5
@@ -481,9 +481,9 @@ export async function lookupAgent(
 ): Promise<AgentWithProjectOverride | null> {
   const includeGlobal = opts?.includeGlobal ?? false;
 
-  // Ensure the consolidated project cleo.db has the bare `project_agent_refs`
-  // table before the raw-open read below (mirrors the global side, which is
-  // ensured inside openGlobalDb).
+  // Ensure the consolidated project cleo.db has the prefixed
+  // `conduit_project_agent_refs` table (T11578 · AC4) before the raw-open read
+  // below (mirrors the global side, which is ensured inside openGlobalDb).
   await ensureConduitDb(projectRoot);
 
   // SHARED global cleo.db handle — do NOT close (lifecycle owned by openDualScopeDb).
@@ -496,7 +496,7 @@ export async function lookupAgent(
       | undefined;
 
     const refRow = conduitDb
-      .prepare('SELECT * FROM project_agent_refs WHERE agent_id = ?')
+      .prepare('SELECT * FROM conduit_project_agent_refs WHERE agent_id = ?')
       .get(agentId) as ProjectAgentRefRow | undefined;
 
     // Dangling soft-FK: ref exists in conduit but not in global
@@ -561,9 +561,9 @@ export async function listAgentsForProject(
   const includeGlobal = opts?.includeGlobal ?? false;
   const includeDisabled = opts?.includeDisabled ?? false;
 
-  // Ensure the consolidated project cleo.db has the bare `project_agent_refs`
-  // table before the raw-open read below (mirrors the global side, which is
-  // ensured inside openGlobalDb).
+  // Ensure the consolidated project cleo.db has the prefixed
+  // `conduit_project_agent_refs` table (T11578 · AC4) before the raw-open read
+  // below (mirrors the global side, which is ensured inside openGlobalDb).
   await ensureConduitDb(projectRoot);
 
   // SHARED global cleo.db handle — do NOT close (lifecycle owned by openDualScopeDb).
@@ -576,7 +576,7 @@ export async function listAgentsForProject(
       .all() as unknown as AgentDbRow[];
 
     const allRefs = conduitDb
-      .prepare('SELECT * FROM project_agent_refs')
+      .prepare('SELECT * FROM conduit_project_agent_refs')
       .all() as unknown as ProjectAgentRefRow[];
 
     // Build a map from agentId → ref row for O(1) lookup during join
@@ -719,20 +719,22 @@ export async function createProjectAgent(
   const conduitDb = openConduitDb(projectRoot);
   try {
     const existingRef = conduitDb
-      .prepare('SELECT agent_id, enabled FROM project_agent_refs WHERE agent_id = ?')
+      .prepare('SELECT agent_id, enabled FROM conduit_project_agent_refs WHERE agent_id = ?')
       .get(spec.agentId) as { agent_id: string; enabled: number } | undefined;
 
     if (!existingRef) {
       conduitDb
         .prepare(
-          `INSERT INTO project_agent_refs (agent_id, attached_at, role, capabilities_override, last_used_at, enabled)
+          `INSERT INTO conduit_project_agent_refs (agent_id, attached_at, role, capabilities_override, last_used_at, enabled)
            VALUES (?, ?, NULL, NULL, NULL, 1)`,
         )
         .run(spec.agentId, nowIso);
     } else if (existingRef.enabled === 0) {
       // Re-enable a previously detached agent
       conduitDb
-        .prepare(`UPDATE project_agent_refs SET enabled = 1, attached_at = ? WHERE agent_id = ?`)
+        .prepare(
+          `UPDATE conduit_project_agent_refs SET enabled = 1, attached_at = ? WHERE agent_id = ?`,
+        )
         .run(nowIso, spec.agentId);
     }
     // If enabled=1 already, leave the existing ref intact
@@ -779,20 +781,20 @@ export function attachAgentToProject(
   const nowIso = new Date().toISOString();
   try {
     const existingRef = conduitDb
-      .prepare('SELECT agent_id, enabled FROM project_agent_refs WHERE agent_id = ?')
+      .prepare('SELECT agent_id, enabled FROM conduit_project_agent_refs WHERE agent_id = ?')
       .get(agentId) as { agent_id: string; enabled: number } | undefined;
 
     if (!existingRef) {
       conduitDb
         .prepare(
-          `INSERT INTO project_agent_refs (agent_id, attached_at, role, capabilities_override, last_used_at, enabled)
+          `INSERT INTO conduit_project_agent_refs (agent_id, attached_at, role, capabilities_override, last_used_at, enabled)
            VALUES (?, ?, ?, ?, NULL, 1)`,
         )
         .run(agentId, nowIso, opts?.role ?? null, opts?.capabilitiesOverride ?? null);
     } else if (existingRef.enabled === 0) {
       conduitDb
         .prepare(
-          `UPDATE project_agent_refs SET enabled = 1, attached_at = ?, role = ?, capabilities_override = ? WHERE agent_id = ?`,
+          `UPDATE conduit_project_agent_refs SET enabled = 1, attached_at = ?, role = ?, capabilities_override = ? WHERE agent_id = ?`,
         )
         .run(nowIso, opts?.role ?? null, opts?.capabilitiesOverride ?? null, agentId);
     }
@@ -822,12 +824,14 @@ export function detachAgentFromProject(projectRoot: string, agentId: string): bo
   const conduitDb = openConduitDb(projectRoot);
   try {
     const ref = conduitDb
-      .prepare('SELECT agent_id FROM project_agent_refs WHERE agent_id = ?')
+      .prepare('SELECT agent_id FROM conduit_project_agent_refs WHERE agent_id = ?')
       .get(agentId) as { agent_id: string } | undefined;
 
     if (!ref) return false;
 
-    conduitDb.prepare('UPDATE project_agent_refs SET enabled = 0 WHERE agent_id = ?').run(agentId);
+    conduitDb
+      .prepare('UPDATE conduit_project_agent_refs SET enabled = 0 WHERE agent_id = ?')
+      .run(agentId);
     return true;
   } finally {
     conduitDb.close();
@@ -850,7 +854,7 @@ export function getProjectAgentRef(projectRoot: string, agentId: string): Projec
   const conduitDb = openConduitDb(projectRoot);
   try {
     const row = conduitDb
-      .prepare('SELECT * FROM project_agent_refs WHERE agent_id = ?')
+      .prepare('SELECT * FROM conduit_project_agent_refs WHERE agent_id = ?')
       .get(agentId) as ProjectAgentRefRow | undefined;
     if (!row) return null;
     return rowToProjectRef(row);
@@ -1078,13 +1082,13 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
     const conduitDb = openConduitDb(this.projectPath);
     try {
       const ref = conduitDb
-        .prepare('SELECT agent_id FROM project_agent_refs WHERE agent_id = ?')
+        .prepare('SELECT agent_id FROM conduit_project_agent_refs WHERE agent_id = ?')
         .get(agentId) as { agent_id: string } | undefined;
       if (!ref) {
         throw new Error(`Agent not found in current project: ${agentId}`);
       }
       conduitDb
-        .prepare('UPDATE project_agent_refs SET enabled = 0 WHERE agent_id = ?')
+        .prepare('UPDATE conduit_project_agent_refs SET enabled = 0 WHERE agent_id = ?')
         .run(agentId);
     } finally {
       conduitDb.close();
@@ -1116,7 +1120,9 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
       const conduitDb = openConduitDb(this.projectPath);
       try {
         const ref = conduitDb
-          .prepare('SELECT agent_id FROM project_agent_refs WHERE agent_id = ? AND enabled = 1')
+          .prepare(
+            'SELECT agent_id FROM conduit_project_agent_refs WHERE agent_id = ? AND enabled = 1',
+          )
           .get(agentId) as { agent_id: string } | undefined;
         if (ref) {
           throw new Error(
@@ -1198,7 +1204,7 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
       // Get all project-attached, enabled agent IDs ordered by project last_used_at
       const enabledRefs = conduitDb
         .prepare(
-          'SELECT agent_id, last_used_at FROM project_agent_refs WHERE enabled = 1 ORDER BY last_used_at DESC',
+          'SELECT agent_id, last_used_at FROM conduit_project_agent_refs WHERE enabled = 1 ORDER BY last_used_at DESC',
         )
         .all() as unknown as Array<{ agent_id: string; last_used_at: string | null }>;
 
@@ -1246,7 +1252,7 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
     const conduitDb = openConduitDb(this.projectPath);
     try {
       conduitDb
-        .prepare('UPDATE project_agent_refs SET last_used_at = ? WHERE agent_id = ?')
+        .prepare('UPDATE conduit_project_agent_refs SET last_used_at = ? WHERE agent_id = ?')
         .run(nowIso, agentId);
     } finally {
       conduitDb.close();

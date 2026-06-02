@@ -616,11 +616,12 @@ async function listenTopicImpl(
     apiBaseUrl: credential.apiBaseUrl,
   });
   try {
-    // Convert ISO since to unix timestamp for pollTopic
-    const sinceUnix = since ? Math.floor(new Date(since).getTime() / 1000) : 0;
+    // T11578 (AC4): pollTopic now compares ISO-8601 `created_at` directly — pass
+    // the ISO `since` through unchanged (the prior epoch-seconds conversion is
+    // gone). An empty floor returns all topic messages.
     const messages = await transport.pollTopic(topicName, {
       limit: limit ?? 50,
-      since: sinceUnix,
+      since: since ?? '',
     });
     return {
       success: true,

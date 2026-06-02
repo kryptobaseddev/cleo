@@ -1385,12 +1385,15 @@ export async function linkConduitMessagesToSymbols(
         attachments: string;
       }
 
+      // T11578 (AC4): conduit runtime read path repointed to the prefixed
+      // consolidated tables — `conduit_messages` + the `conduit_messages_fts`
+      // FTS5 index over it.
       const messages = typedAll<RawConduitMessage>(
         conduitDb.prepare(`
           SELECT id, content, attachments
-          FROM messages
+          FROM conduit_messages
           WHERE attachments != '[]'
-             OR rowid IN (SELECT rowid FROM messages_fts WHERE content MATCH ?)
+             OR rowid IN (SELECT rowid FROM conduit_messages_fts WHERE content MATCH ?)
           LIMIT 10000
         `),
         ftsQuery,

@@ -1,0 +1,116 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`T11578 AC4 — conduit DDL snapshot (post-cutover prefixed shape + FTS5) > conduit_* + *_fts* sqlite_master shape matches the committed baseline 1`] = `
+[
+  {
+    "name": "conduit_attachment_approvals",
+    "sql": "CREATE TABLE \`conduit_attachment_approvals\` ( \`id\` text PRIMARY KEY, \`slug\` text NOT NULL, \`reviewer_agent_id\` text NOT NULL, \`status\` text DEFAULT 'pending' NOT NULL, \`comment\` text, \`version_reviewed\` integer NOT NULL, \`created_at\` text DEFAULT (datetime('now')) NOT NULL, \`updated_at\` text DEFAULT (datetime('now')) NOT NULL, CONSTRAINT \`fk_conduit_attachment_approvals_slug_conduit_attachments_slug_fk\` FOREIGN KEY (\`slug\`) REFERENCES \`conduit_attachments\`(\`slug\`) ON DELETE CASCADE, CONSTRAINT \`uq_conduit_attachment_approvals_slug_reviewer\` UNIQUE(\`slug\`,\`reviewer_agent_id\`), -- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'), CHECK ("updated_at" IS NULL OR "updated_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
+    "type": "table",
+  },
+  {
+    "name": "conduit_attachment_contributors",
+    "sql": "CREATE TABLE \`conduit_attachment_contributors\` ( \`slug\` text NOT NULL, \`agent_id\` text NOT NULL, \`version_count\` integer DEFAULT 0 NOT NULL, \`total_tokens_added\` integer DEFAULT 0 NOT NULL, \`total_tokens_removed\` integer DEFAULT 0 NOT NULL, \`first_contribution_at\` text NOT NULL, \`last_contribution_at\` text NOT NULL, CONSTRAINT \`conduit_attachment_contributors_pk\` PRIMARY KEY(\`slug\`, \`agent_id\`), CONSTRAINT \`fk_conduit_attachment_contributors_slug_conduit_attachments_slug_fk\` FOREIGN KEY (\`slug\`) REFERENCES \`conduit_attachments\`(\`slug\`) ON DELETE CASCADE, -- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed CHECK ("first_contribution_at" IS NULL OR "first_contribution_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'), CHECK ("last_contribution_at" IS NULL OR "last_contribution_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
+    "type": "table",
+  },
+  {
+    "name": "conduit_attachment_versions",
+    "sql": "CREATE TABLE \`conduit_attachment_versions\` ( \`id\` text PRIMARY KEY, \`slug\` text NOT NULL, \`version_number\` integer NOT NULL, \`author_agent_id\` text NOT NULL, \`change_type\` text DEFAULT 'patch' NOT NULL, \`patch_text\` text, \`storage_key\` text NOT NULL, \`content_hash\` text NOT NULL, \`original_size\` integer NOT NULL, \`compressed_size\` integer NOT NULL, \`tokens\` integer NOT NULL, \`change_summary\` text, \`sections_modified\` text DEFAULT '[]' NOT NULL, \`tokens_added\` integer DEFAULT 0 NOT NULL, \`tokens_removed\` integer DEFAULT 0 NOT NULL, \`created_at\` text DEFAULT (datetime('now')) NOT NULL, CONSTRAINT \`fk_conduit_attachment_versions_slug_conduit_attachments_slug_fk\` FOREIGN KEY (\`slug\`) REFERENCES \`conduit_attachments\`(\`slug\`) ON DELETE CASCADE, CONSTRAINT \`uq_conduit_attachment_versions_slug_version\` UNIQUE(\`slug\`,\`version_number\`), -- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
+    "type": "table",
+  },
+  {
+    "name": "conduit_attachments",
+    "sql": "CREATE TABLE \`conduit_attachments\` ( \`slug\` text PRIMARY KEY, \`conversation_id\` text NOT NULL, \`from_agent_id\` text NOT NULL, \`content\` blob NOT NULL, \`original_size\` integer NOT NULL, \`compressed_size\` integer NOT NULL, \`content_hash\` text NOT NULL, \`format\` text DEFAULT 'text' NOT NULL, \`title\` text, \`tokens\` integer DEFAULT 0 NOT NULL, \`expires_at\` text, \`storage_key\` text, \`mode\` text DEFAULT 'draft' NOT NULL, \`version_count\` integer DEFAULT 1 NOT NULL, \`current_version\` integer DEFAULT 1 NOT NULL, \`created_at\` text DEFAULT (datetime('now')) NOT NULL, -- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed CHECK ("expires_at" IS NULL OR "expires_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'), CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
+    "type": "table",
+  },
+  {
+    "name": "conduit_conversations",
+    "sql": "CREATE TABLE \`conduit_conversations\` ( \`id\` text PRIMARY KEY, \`participants\` text NOT NULL, \`visibility\` text DEFAULT 'private' NOT NULL, \`message_count\` integer DEFAULT 0 NOT NULL, \`last_message_at\` text, \`created_at\` text DEFAULT (datetime('now')) NOT NULL, \`updated_at\` text DEFAULT (datetime('now')) NOT NULL, -- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed CHECK ("last_message_at" IS NULL OR "last_message_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'), CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'), CHECK ("updated_at" IS NULL OR "updated_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
+    "type": "table",
+  },
+  {
+    "name": "conduit_dead_letters",
+    "sql": "CREATE TABLE \`conduit_dead_letters\` ( \`id\` text PRIMARY KEY, \`message_id\` text NOT NULL, \`job_id\` text NOT NULL, \`reason\` text NOT NULL, \`attempts\` integer NOT NULL, \`created_at\` text DEFAULT (datetime('now')) NOT NULL, -- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
+    "type": "table",
+  },
+  {
+    "name": "conduit_delivery_jobs",
+    "sql": "CREATE TABLE \`conduit_delivery_jobs\` ( \`id\` text PRIMARY KEY, \`message_id\` text NOT NULL, \`payload\` text NOT NULL, \`status\` text DEFAULT 'pending' NOT NULL, \`attempts\` integer DEFAULT 0 NOT NULL, \`max_attempts\` integer DEFAULT 6 NOT NULL, \`next_attempt_at\` text NOT NULL, \`last_error\` text, \`created_at\` text DEFAULT (datetime('now')) NOT NULL, \`updated_at\` text DEFAULT (datetime('now')) NOT NULL, \`idempotency_key\` text CONSTRAINT \`uq_conduit_delivery_jobs_idempotency_key\` UNIQUE, -- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed CHECK ("next_attempt_at" IS NULL OR "next_attempt_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'), CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'), CHECK ("updated_at" IS NULL OR "updated_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
+    "type": "table",
+  },
+  {
+    "name": "conduit_message_pins",
+    "sql": "CREATE TABLE \`conduit_message_pins\` ( \`id\` text PRIMARY KEY, \`message_id\` text NOT NULL, \`conversation_id\` text NOT NULL, \`pinned_by\` text NOT NULL, \`note\` text, \`created_at\` text DEFAULT (datetime('now')) NOT NULL, CONSTRAINT \`uq_conduit_message_pins_message_pinned_by\` UNIQUE(\`message_id\`,\`pinned_by\`), -- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
+    "type": "table",
+  },
+  {
+    "name": "conduit_messages",
+    "sql": "CREATE TABLE \`conduit_messages\` ( \`id\` text PRIMARY KEY, \`conversation_id\` text NOT NULL, \`from_agent_id\` text NOT NULL, \`to_agent_id\` text NOT NULL, \`content\` text NOT NULL, \`content_type\` text DEFAULT 'text' NOT NULL, \`status\` text DEFAULT 'pending' NOT NULL, \`attachments\` text DEFAULT '[]' NOT NULL, \`group_id\` text, \`metadata\` text DEFAULT '{}', \`reply_to\` text, \`created_at\` text DEFAULT (datetime('now')) NOT NULL, \`delivered_at\` text, \`read_at\` text, \`idempotency_key\` text CONSTRAINT \`uq_conduit_messages_idempotency_key\` UNIQUE, CONSTRAINT \`fk_conduit_messages_conversation_id_conduit_conversations_id_fk\` FOREIGN KEY (\`conversation_id\`) REFERENCES \`conduit_conversations\`(\`id\`), -- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'), CHECK ("delivered_at" IS NULL OR "delivered_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'), CHECK ("read_at" IS NULL OR "read_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
+    "type": "table",
+  },
+  {
+    "name": "conduit_messages_fts",
+    "sql": "CREATE VIRTUAL TABLE conduit_messages_fts USING fts5(content, from_agent_id, content='conduit_messages', content_rowid='rowid')",
+    "type": "table",
+  },
+  {
+    "name": "conduit_messages_fts_config",
+    "sql": "CREATE TABLE 'conduit_messages_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID",
+    "type": "table",
+  },
+  {
+    "name": "conduit_messages_fts_data",
+    "sql": "CREATE TABLE 'conduit_messages_fts_data'(id INTEGER PRIMARY KEY, block BLOB)",
+    "type": "table",
+  },
+  {
+    "name": "conduit_messages_fts_docsize",
+    "sql": "CREATE TABLE 'conduit_messages_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB)",
+    "type": "table",
+  },
+  {
+    "name": "conduit_messages_fts_idx",
+    "sql": "CREATE TABLE 'conduit_messages_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID",
+    "type": "table",
+  },
+  {
+    "name": "conduit_project_agent_refs",
+    "sql": "CREATE TABLE \`conduit_project_agent_refs\` ( \`agent_id\` text PRIMARY KEY, \`attached_at\` text NOT NULL, \`role\` text, \`capabilities_override\` text, \`last_used_at\` text, \`enabled\` integer DEFAULT true NOT NULL, -- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed CHECK ("attached_at" IS NULL OR "attached_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'), CHECK ("last_used_at" IS NULL OR "last_used_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'), CHECK ("enabled" IN (0, 1)) )",
+    "type": "table",
+  },
+  {
+    "name": "conduit_topic_message_acks",
+    "sql": "CREATE TABLE \`conduit_topic_message_acks\` ( \`message_id\` text NOT NULL, \`subscriber_agent_id\` text NOT NULL, \`delivered_at\` text, \`read_at\` text, CONSTRAINT \`conduit_topic_message_acks_pk\` PRIMARY KEY(\`message_id\`, \`subscriber_agent_id\`), CONSTRAINT \`fk_conduit_topic_message_acks_message_id_conduit_topic_messages_id_fk\` FOREIGN KEY (\`message_id\`) REFERENCES \`conduit_topic_messages\`(\`id\`) ON DELETE CASCADE, -- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed CHECK ("delivered_at" IS NULL OR "delivered_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'), CHECK ("read_at" IS NULL OR "read_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
+    "type": "table",
+  },
+  {
+    "name": "conduit_topic_messages",
+    "sql": "CREATE TABLE \`conduit_topic_messages\` ( \`id\` text PRIMARY KEY, \`topic_id\` text NOT NULL, \`from_agent_id\` text NOT NULL, \`kind\` text DEFAULT 'message' NOT NULL, \`content\` text NOT NULL, \`payload\` text, \`created_at\` text DEFAULT (datetime('now')) NOT NULL, \`idempotency_key\` text CONSTRAINT \`uq_conduit_topic_messages_idempotency_key\` UNIQUE, CONSTRAINT \`fk_conduit_topic_messages_topic_id_conduit_topics_id_fk\` FOREIGN KEY (\`topic_id\`) REFERENCES \`conduit_topics\`(\`id\`) ON DELETE CASCADE, -- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
+    "type": "table",
+  },
+  {
+    "name": "conduit_topic_subscriptions",
+    "sql": "CREATE TABLE \`conduit_topic_subscriptions\` ( \`topic_id\` text NOT NULL, \`agent_id\` text NOT NULL, \`subscribed_at\` text NOT NULL, CONSTRAINT \`conduit_topic_subscriptions_pk\` PRIMARY KEY(\`topic_id\`, \`agent_id\`), CONSTRAINT \`fk_conduit_topic_subscriptions_topic_id_conduit_topics_id_fk\` FOREIGN KEY (\`topic_id\`) REFERENCES \`conduit_topics\`(\`id\`) ON DELETE CASCADE, -- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed CHECK ("subscribed_at" IS NULL OR "subscribed_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
+    "type": "table",
+  },
+  {
+    "name": "conduit_topics",
+    "sql": "CREATE TABLE \`conduit_topics\` ( \`id\` text PRIMARY KEY, \`name\` text NOT NULL UNIQUE, \`epic_id\` text NOT NULL, \`wave_id\` integer, \`created_by\` text NOT NULL, \`created_at\` text DEFAULT (datetime('now')) NOT NULL, -- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
+    "type": "table",
+  },
+  {
+    "name": "conduit_messages_ad",
+    "sql": "CREATE TRIGGER conduit_messages_ad AFTER DELETE ON conduit_messages BEGIN INSERT INTO conduit_messages_fts(conduit_messages_fts, rowid, content, from_agent_id) VALUES('delete', old.rowid, old.content, old.from_agent_id); END",
+    "type": "trigger",
+  },
+  {
+    "name": "conduit_messages_ai",
+    "sql": "CREATE TRIGGER conduit_messages_ai AFTER INSERT ON conduit_messages BEGIN INSERT INTO conduit_messages_fts(rowid, content, from_agent_id) VALUES (new.rowid, new.content, new.from_agent_id); END",
+    "type": "trigger",
+  },
+  {
+    "name": "conduit_messages_au",
+    "sql": "CREATE TRIGGER conduit_messages_au AFTER UPDATE ON conduit_messages BEGIN INSERT INTO conduit_messages_fts(conduit_messages_fts, rowid, content, from_agent_id) VALUES('delete', old.rowid, old.content, old.from_agent_id); INSERT INTO conduit_messages_fts(rowid, content, from_agent_id) VALUES (new.rowid, new.content, new.from_agent_id); END",
+    "type": "trigger",
+  },
+]
+`;

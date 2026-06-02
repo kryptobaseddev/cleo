@@ -82,16 +82,16 @@ describe('conduit.db idempotency contract (T10314)', () => {
 
     const attachedAt = '2026-05-23T00:00:00.000Z';
     const insertSql = `
-      INSERT INTO project_agent_refs (agent_id, attached_at, role, capabilities_override, last_used_at, enabled)
+      INSERT INTO conduit_project_agent_refs (agent_id, attached_at, role, capabilities_override, last_used_at, enabled)
       VALUES ('idem-agent', '${attachedAt}', NULL, NULL, NULL, 1)
       ON CONFLICT(agent_id) DO UPDATE SET
         enabled = 1,
-        attached_at = project_agent_refs.attached_at
+        attached_at = conduit_project_agent_refs.attached_at
     `;
     dbFirst!.exec(insertSql);
 
     const countFirst = dbFirst!
-      .prepare('SELECT count(*) AS n FROM project_agent_refs WHERE agent_id = ?')
+      .prepare('SELECT count(*) AS n FROM conduit_project_agent_refs WHERE agent_id = ?')
       .get('idem-agent') as { n: number };
     expect(countFirst.n).toBe(1);
 
@@ -107,14 +107,14 @@ describe('conduit.db idempotency contract (T10314)', () => {
     dbSecond!.exec(insertSql);
 
     const countSecond = dbSecond!
-      .prepare('SELECT count(*) AS n FROM project_agent_refs WHERE agent_id = ?')
+      .prepare('SELECT count(*) AS n FROM conduit_project_agent_refs WHERE agent_id = ?')
       .get('idem-agent') as { n: number };
     expect(countSecond.n).toBe(1);
 
     // Original attached_at must be preserved by the ON CONFLICT clause —
     // the second open's upsert intentionally keeps the historical value.
     const row = dbSecond!
-      .prepare('SELECT attached_at, enabled FROM project_agent_refs WHERE agent_id = ?')
+      .prepare('SELECT attached_at, enabled FROM conduit_project_agent_refs WHERE agent_id = ?')
       .get('idem-agent') as { attached_at: string; enabled: number };
     expect(row.attached_at).toBe(attachedAt);
     expect(row.enabled).toBe(1);

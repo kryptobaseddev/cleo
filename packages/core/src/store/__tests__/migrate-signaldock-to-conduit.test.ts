@@ -447,14 +447,16 @@ describe('migrate-signaldock-to-conduit', () => {
     expect(result.agentsCopied).toBe(3);
     expect(result.errors).toHaveLength(0);
 
-    // Verify project_agent_refs in conduit.db
+    // Verify conduit_project_agent_refs in conduit.db (T11578 · AC4 — prefixed)
     const conduitDb = new DatabaseSync(join(dirs.projectRoot, '.cleo', 'cleo.db'));
     const refs = conduitDb
-      .prepare('SELECT agent_id FROM project_agent_refs ORDER BY agent_id')
+      .prepare('SELECT agent_id FROM conduit_project_agent_refs ORDER BY agent_id')
       .all() as Array<{ agent_id: string }>;
     expect(refs.map((r) => r.agent_id)).toEqual(['agent-alpha', 'agent-beta', 'agent-gamma']);
 
-    const allEnabled = conduitDb.prepare('SELECT enabled FROM project_agent_refs').all() as Array<{
+    const allEnabled = conduitDb
+      .prepare('SELECT enabled FROM conduit_project_agent_refs')
+      .all() as Array<{
       enabled: number;
     }>;
     for (const row of allEnabled) {
@@ -510,10 +512,10 @@ describe('migrate-signaldock-to-conduit', () => {
     expect(agents[0]?.name).toBe('Agent X Original');
     globalDb.close();
 
-    // conduit.db should have a project_agent_refs row for agent-x
+    // conduit.db should have a conduit_project_agent_refs row for agent-x (AC4)
     const conduitDb = new DatabaseSync(join(dirs.projectRoot, '.cleo', 'cleo.db'));
     const refs = conduitDb
-      .prepare("SELECT agent_id FROM project_agent_refs WHERE agent_id = 'agent-x'")
+      .prepare("SELECT agent_id FROM conduit_project_agent_refs WHERE agent_id = 'agent-x'")
       .all() as Array<{ agent_id: string }>;
     expect(refs).toHaveLength(1);
     conduitDb.close();
@@ -581,12 +583,16 @@ describe('migrate-signaldock-to-conduit', () => {
 
     const conduitDb = new DatabaseSync(join(dirs.projectRoot, '.cleo', 'cleo.db'));
 
-    const convRows = conduitDb.prepare('SELECT id FROM conversations ORDER BY id').all() as Array<{
+    const convRows = conduitDb
+      .prepare('SELECT id FROM conduit_conversations ORDER BY id')
+      .all() as Array<{
       id: string;
     }>;
     expect(convRows.map((r) => r.id)).toEqual(['conv-1', 'conv-2']);
 
-    const msgRows = conduitDb.prepare('SELECT id FROM messages ORDER BY id').all() as Array<{
+    const msgRows = conduitDb
+      .prepare('SELECT id FROM conduit_messages ORDER BY id')
+      .all() as Array<{
       id: string;
     }>;
     expect(msgRows.map((r) => r.id)).toEqual(['msg-1', 'msg-2', 'msg-3', 'msg-4', 'msg-5']);
@@ -597,7 +603,7 @@ describe('migrate-signaldock-to-conduit', () => {
   // -------------------------------------------------------------------------
   // TC-072: FTS search after migration
   // -------------------------------------------------------------------------
-  it('TC-072: messages_fts search returns results after migration', async () => {
+  it('TC-072: conduit_messages_fts search returns results after migration', async () => {
     const now = Math.floor(Date.now() / 1000);
     createLegacySignaldockDb(
       dirs.projectRoot,
@@ -621,7 +627,9 @@ describe('migrate-signaldock-to-conduit', () => {
 
     const conduitDb = new DatabaseSync(join(dirs.projectRoot, '.cleo', 'cleo.db'));
     const ftsResults = conduitDb
-      .prepare("SELECT rowid FROM messages_fts WHERE messages_fts MATCH 'migration'")
+      .prepare(
+        "SELECT rowid FROM conduit_messages_fts WHERE conduit_messages_fts MATCH 'migration'",
+      )
       .all() as Array<{ rowid: number }>;
     expect(ftsResults.length).toBeGreaterThan(0);
     conduitDb.close();

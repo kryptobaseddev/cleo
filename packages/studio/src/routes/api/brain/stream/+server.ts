@@ -77,7 +77,8 @@ interface MsgRow {
   content: string;
   from_agent_id: string | null;
   to_agent_id: string | null;
-  created_at: number;
+  /** Canonical TEXT ISO-8601 (T11578 · AC4 — `conduit_messages.created_at`). */
+  created_at: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -183,7 +184,7 @@ function initWatermarks(ctx: ProjectContext): WatermarkState {
     const conduitDb = getConduitDb(ctx);
     if (conduitDb) {
       const msgMax = conduitDb
-        .prepare('SELECT COALESCE(MAX(rowid), 0) AS max_rowid FROM messages')
+        .prepare('SELECT COALESCE(MAX(rowid), 0) AS max_rowid FROM conduit_messages')
         .get() as { max_rowid: number } | undefined;
       state.lastMsgRowid = msgMax?.max_rowid ?? 0;
     }
@@ -370,7 +371,7 @@ function detectNewMessages(state: WatermarkState, ctx: ProjectContext): BrainStr
     const rows = db
       .prepare(
         `SELECT rowid, id, content, from_agent_id, to_agent_id, created_at
-         FROM messages
+         FROM conduit_messages
          WHERE rowid > ?
          ORDER BY rowid ASC`,
       )

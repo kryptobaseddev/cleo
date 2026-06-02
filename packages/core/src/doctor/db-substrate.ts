@@ -1225,13 +1225,18 @@ export function checkInvariantI5(
   conduitSnap: ReturnType<typeof openCleoDbSnapshot> | null,
 ): DbCrossDbOrphanReport {
   const description =
-    'conduit.db dead_letters.job_id must reference an existing tasks.id row OR a brain anchor (brain_page_nodes.id / brain_observations.id)';
+    'conduit.db conduit_dead_letters.job_id must reference an existing tasks.id row OR a brain anchor (brain_page_nodes.id / brain_observations.id)';
 
   if (conduitSnap === null) {
     return buildSkippedReport('I5', description, I5_FIX, 'conduit.db missing or unreadable');
   }
-  if (!snapshotHasTable(conduitSnap, 'dead_letters')) {
-    return buildSkippedReport('I5', description, I5_FIX, 'conduit.db has no dead_letters table');
+  if (!snapshotHasTable(conduitSnap, 'conduit_dead_letters')) {
+    return buildSkippedReport(
+      'I5',
+      description,
+      I5_FIX,
+      'conduit.db has no conduit_dead_letters table',
+    );
   }
   // Both targets missing → cannot resolve; skip.
   if (tasksSnap === null && brainSnap === null) {
@@ -1248,7 +1253,7 @@ export function checkInvariantI5(
   try {
     const rows = conduitSnap.db
       .prepare(
-        `SELECT DISTINCT job_id FROM dead_letters WHERE job_id IS NOT NULL LIMIT ${CROSS_DB_QUERY_LIMIT}`,
+        `SELECT DISTINCT job_id FROM conduit_dead_letters WHERE job_id IS NOT NULL LIMIT ${CROSS_DB_QUERY_LIMIT}`,
       )
       .all() as JobRow[];
     candidates = rows.map((r) => r.job_id);
