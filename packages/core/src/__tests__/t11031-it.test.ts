@@ -36,10 +36,10 @@ function seedNexusDb(cleoHome: string, rows: Array<{ project_id: string; project
   const dbPath = join(cleoHome, 'cleo.db');
   const db = new DatabaseSync(dbPath);
   db.exec(
-    'CREATE TABLE IF NOT EXISTS project_registry (project_id TEXT PRIMARY KEY, project_path TEXT NOT NULL)',
+    'CREATE TABLE IF NOT EXISTS nexus_project_registry (project_id TEXT PRIMARY KEY, project_path TEXT NOT NULL)',
   );
   const stmt = db.prepare(
-    'INSERT OR REPLACE INTO project_registry (project_id, project_path) VALUES (?, ?)',
+    'INSERT OR REPLACE INTO nexus_project_registry (project_id, project_path) VALUES (?, ?)',
   );
   for (const row of rows) {
     stmt.run(row.project_id, row.project_path);
@@ -49,10 +49,13 @@ function seedNexusDb(cleoHome: string, rows: Array<{ project_id: string; project
 
 function countRegistryRows(cleoHome: string): number {
   // T11569: registry lives in the consolidated GLOBAL `cleo.db` (E6-L4/T11524).
+  // T11578 · AC3: the PREFIXED nexus_project_registry is the runtime registry table.
   const dbPath = join(cleoHome, 'cleo.db');
   try {
     const db = new DatabaseSync(dbPath, { readOnly: true });
-    const row = db.prepare('SELECT COUNT(*) as cnt FROM project_registry').get() as { cnt: number };
+    const row = db.prepare('SELECT COUNT(*) as cnt FROM nexus_project_registry').get() as {
+      cnt: number;
+    };
     db.close();
     return row.cnt;
   } catch {

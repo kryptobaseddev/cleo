@@ -98,13 +98,15 @@ beforeEach(async () => {
   const cleoHomeDir = process.env.CLEO_HOME!;
   await mkdir(cleoHomeDir, { recursive: true });
   const { DatabaseSync } = await import('node:sqlite');
-  const nexusDb = new DatabaseSync(join(cleoHomeDir, 'nexus.db'));
+  // T11578 · AC3: the registry lives in the consolidated GLOBAL cleo.db, in the
+  // PREFIXED nexus_project_registry table (the standalone nexus.db is retired).
+  const nexusDb = new DatabaseSync(join(cleoHomeDir, 'cleo.db'));
   nexusDb.exec(`
-    CREATE TABLE IF NOT EXISTS project_registry (
+    CREATE TABLE IF NOT EXISTS nexus_project_registry (
       project_id TEXT PRIMARY KEY,
       project_path TEXT NOT NULL
     );
-    INSERT OR REPLACE INTO project_registry (project_id, project_path)
+    INSERT OR REPLACE INTO nexus_project_registry (project_id, project_path)
     VALUES ('${projectId}', '${tmpProjectRoot}');
   `);
   nexusDb.close();

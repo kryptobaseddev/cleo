@@ -604,10 +604,10 @@ describe('resolveCanonicalCleoDir', () => {
     const dbPath = join(tmpHome, 'cleo.db');
     const db = new DatabaseSync(dbPath);
     db.exec(
-      'CREATE TABLE IF NOT EXISTS project_registry (project_id TEXT PRIMARY KEY, project_path TEXT NOT NULL)',
+      'CREATE TABLE IF NOT EXISTS nexus_project_registry (project_id TEXT PRIMARY KEY, project_path TEXT NOT NULL)',
     );
     const stmt = db.prepare(
-      'INSERT OR REPLACE INTO project_registry (project_id, project_path) VALUES (?, ?)',
+      'INSERT OR REPLACE INTO nexus_project_registry (project_id, project_path) VALUES (?, ?)',
     );
     for (const row of rows) {
       stmt.run(row.project_id, row.project_path);
@@ -871,10 +871,10 @@ describe('resolveProjectByCwd', () => {
     const dbPath = join(tmpHome, 'cleo.db');
     const db = new DatabaseSync(dbPath);
     db.exec(
-      'CREATE TABLE IF NOT EXISTS project_registry (project_id TEXT PRIMARY KEY, project_path TEXT NOT NULL)',
+      'CREATE TABLE IF NOT EXISTS nexus_project_registry (project_id TEXT PRIMARY KEY, project_path TEXT NOT NULL)',
     );
     const stmt = db.prepare(
-      'INSERT OR REPLACE INTO project_registry (project_id, project_path) VALUES (?, ?)',
+      'INSERT OR REPLACE INTO nexus_project_registry (project_id, project_path) VALUES (?, ?)',
     );
     for (const row of rows) {
       stmt.run(row.project_id, row.project_path);
@@ -1035,10 +1035,10 @@ describe('ID-Aware Path Resolver — resolveProjectByCwd + resolveCanonicalCleoD
     const dbPath = join(tmpHome, 'cleo.db');
     const db = new DatabaseSync(dbPath);
     db.exec(
-      'CREATE TABLE IF NOT EXISTS project_registry (project_id TEXT PRIMARY KEY, project_path TEXT NOT NULL)',
+      'CREATE TABLE IF NOT EXISTS nexus_project_registry (project_id TEXT PRIMARY KEY, project_path TEXT NOT NULL)',
     );
     const stmt = db.prepare(
-      'INSERT OR REPLACE INTO project_registry (project_id, project_path) VALUES (?, ?)',
+      'INSERT OR REPLACE INTO nexus_project_registry (project_id, project_path) VALUES (?, ?)',
     );
     for (const row of rows) {
       stmt.run(row.project_id, row.project_path);

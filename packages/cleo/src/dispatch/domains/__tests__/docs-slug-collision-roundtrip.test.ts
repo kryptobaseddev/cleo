@@ -71,10 +71,12 @@ async function setupDocsProject(
   const nexusDb = new DatabaseSync(join(process.env['CLEO_HOME'], 'nexus.db'));
   try {
     nexusDb.exec(
-      'CREATE TABLE IF NOT EXISTS project_registry (project_id TEXT PRIMARY KEY, project_path TEXT NOT NULL)',
+      'CREATE TABLE IF NOT EXISTS nexus_project_registry (project_id TEXT PRIMARY KEY, project_path TEXT NOT NULL)',
     );
     nexusDb
-      .prepare('INSERT OR REPLACE INTO project_registry (project_id, project_path) VALUES (?, ?)')
+      .prepare(
+        'INSERT OR REPLACE INTO nexus_project_registry (project_id, project_path) VALUES (?, ?)',
+      )
       .run(projectId, tempDir);
   } finally {
     nexusDb.close();
