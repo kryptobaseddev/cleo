@@ -415,6 +415,88 @@ function inferSourceKind(sourceName: string): SourceKind | null {
 }
 
 // ---------------------------------------------------------------------------
+// Derived / internal table classification (T11572)
+// ---------------------------------------------------------------------------
+
+/**
+ * Internal bookkeeping tables that exist in a legacy source DB but have NO
+ * consolidated counterpart and carry no user data — they are recreated by the
+ * runtime, not migrated. Matched by EXACT name.
+ *
+ * - `_conduit_meta` / `_conduit_migrations` — conduit-sqlite's own
+ *   schema-version + migration-ledger tables (see `conduit-sqlite.ts`). They
+ *   describe HOW the legacy conduit.db was built, not message payload data, and
+ *   the consolidated `cleo.db` has its own Drizzle journal (`__drizzle_*`) for
+ *   the same purpose. Row-comparing them would count internal ledger rows as a
+ *   user-data deficit and abort the cutover.
+ *
+ * @task T11572 (parity gate over-abort — internal/meta exclusion)
+ */
+const INTERNAL_BOOKKEEPING_TABLES: ReadonlySet<string> = new Set([
+  '_conduit_meta',
+  '_conduit_migrations',
+]);
+
+/**
+ * FTS5 shadow-table suffixes. A full-text index `<base>_fts` (an `fts5` VIRTUAL
+ * TABLE — e.g. `brain_decisions_fts`, `messages_fts`) materialises a family of
+ * backing tables `<base>_fts_data`, `<base>_fts_idx`, `<base>_fts_docsize`,
+ * `<base>_fts_config`, and (for `content=`-less indexes) `<base>_fts_content`.
+ *
+ * These are DERIVED from their content table and are REBUILT post-migration
+ * (`brain-search.ts` issues `INSERT INTO <base>_fts(<base>_fts) VALUES('rebuild')`).
+ * Their row counts do NOT correspond 1:1 to user rows, so comparing them against
+ * an absent consolidated target produces a spurious N→0 deficit. They must be
+ * excluded from the row-count-parity gate, not migrated.
+ *
+ * @task T11572 (parity gate over-abort — FTS5 shadow-table exclusion)
+ */
+const FTS5_SHADOW_SUFFIXES: readonly string[] = [
+  '_fts_data',
+  '_fts_idx',
+  '_fts_docsize',
+  '_fts_config',
+  '_fts_content',
+] as const;
+
+/**
+ * Return `true` if `tableName` is a DERIVED or INTERNAL table that must be
+ * EXCLUDED from the exodus row-count-parity gate (and from the copy path).
+ *
+ * This is the single, named, documented classification consumed by BOTH the
+ * migrate copy loop and the `verifyMigration` parity check, so the two never
+ * disagree about which tables carry migratable user data. It recognises:
+ *
+ *   1. **FTS5 virtual tables** — a bare `*_fts` name (e.g. `brain_decisions_fts`,
+ *      `messages_fts`). The virtual table itself cannot be `INSERT … SELECT`-ed
+ *      and is rebuilt from its content table after migration.
+ *   2. **FTS5 shadow/backing tables** — `*_fts_data`, `*_fts_idx`,
+ *      `*_fts_docsize`, `*_fts_config`, `*_fts_content` (see
+ *      {@link FTS5_SHADOW_SUFFIXES}). Derived; rebuilt post-migration.
+ *   3. **Internal bookkeeping** — `_conduit_meta`, `_conduit_migrations` (see
+ *      {@link INTERNAL_BOOKKEEPING_TABLES}). Schema-version ledgers with no
+ *      consolidated home.
+ *
+ * A migration is "safe" iff every BASE-DATA row survives; these derived/internal
+ * tables are NOT base data, so a 0-row consolidated counterpart for them is
+ * expected and correct — not data loss.
+ *
+ * @param tableName - Physical table name from a legacy source DB.
+ * @returns `true` when the table is derived/internal and must be skipped.
+ *
+ * @task T11572 (exodus parity gate: exclude FTS5 + internal/meta shadow tables)
+ * @epic T11249 (E6)
+ * @saga T11242
+ */
+export function isDerivedOrInternalTable(tableName: string): boolean {
+  if (INTERNAL_BOOKKEEPING_TABLES.has(tableName)) return true;
+  // Bare FTS5 virtual table (e.g. `brain_decisions_fts`, `messages_fts`).
+  if (tableName.endsWith('_fts')) return true;
+  // FTS5 backing/shadow tables (`*_fts_data`, `*_fts_idx`, …).
+  return FTS5_SHADOW_SUFFIXES.some((suffix) => tableName.endsWith(suffix));
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -443,6 +525,20 @@ export function resolveConsolidatedTableName(
   sourceName: string,
   legacyTable: string,
 ): TableNameResolution {
+  // T11572: derived (FTS5 shadow) + internal (conduit meta/migrations) tables
+  // are excluded BEFORE any per-source map lookup. They carry no migratable base
+  // data — comparing them against an absent consolidated target would count an
+  // N→0 "deficit" and abort the cutover. This guard is source-kind-agnostic so
+  // it covers FTS shadow tables in any DB (brain/conduit/…).
+  if (isDerivedOrInternalTable(legacyTable)) {
+    return {
+      kind: 'skip',
+      reason: legacyTable.includes('_fts')
+        ? `derived FTS5 table — rebuilt post-migration from its content table, not row-compared`
+        : `internal bookkeeping table — no consolidated home (recreated by runtime)`,
+    };
+  }
+
   const kind = inferSourceKind(sourceName);
 
   if (kind === null) {
