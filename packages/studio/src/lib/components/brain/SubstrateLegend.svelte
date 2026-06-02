@@ -35,14 +35,14 @@
     onSolo?: (s: SubstrateId | null) => void;
   }
 
-  const ALL_SUBSTRATES: SubstrateId[] = ['brain', 'nexus', 'tasks', 'conduit', 'signaldock'];
+  const ALL_SUBSTRATES: SubstrateId[] = ['brain', 'nexus', 'tasks', 'conduit', 'agent-registry'];
 
   const SUBSTRATE_META: Record<SubstrateId, { label: string; colorVar: string; regionName: string }> = {
     brain:      { label: 'brain',      colorVar: 'var(--info)',    regionName: 'BRAIN' },
     nexus:      { label: 'nexus',      colorVar: 'var(--success)', regionName: 'NEXUS' },
     tasks:      { label: 'tasks',      colorVar: 'var(--warning)', regionName: 'TASKS' },
     conduit:    { label: 'conduit',    colorVar: 'var(--accent)',  regionName: 'CONDUIT' },
-    signaldock: { label: 'signaldock', colorVar: 'var(--danger)',  regionName: 'SIGNALDOCK' },
+    'agent-registry': { label: 'agent-registry', colorVar: 'var(--danger)',  regionName: 'SIGNALDOCK' },
   };
 
   let {

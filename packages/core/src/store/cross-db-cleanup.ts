@@ -328,27 +328,30 @@ export async function sessionExistsInTasksDb(
 }
 
 /**
- * Verify an agent exists in signaldock.db before creating cross-DB references.
- * Returns true if the agent_id exists in signaldock.db agents table.
+ * Verify an agent exists in the global Agent Registry before creating cross-DB references.
+ * Returns true if the agent_id exists in the global cleo.db agent_registry_agents table.
  *
  * Provides write-guard for agent_instances and agent_error_log in tasks.db
- * that reference agents whose identity lives in signaldock.db.
+ * that reference agents whose identity lives in the global Agent Registry.
  *
  * @param agentId - Agent slug (e.g. 'cleo-db-lead') to verify
  * @param cwd - Optional working directory
- * @returns True if the agent exists in signaldock.db
+ * @returns True if the agent exists in the global Agent Registry
  *
  * @task T238
  */
-export async function agentExistsInSignaldockDb(agentId: string, cwd?: string): Promise<boolean> {
+export async function agentExistsInAgentRegistryDb(
+  agentId: string,
+  cwd?: string,
+): Promise<boolean> {
   // `cwd` parameter is retained for API compatibility but is intentionally
-  // unused: signaldock.db is global-only since T310. Agent identity lives in
+  // unused: the global Agent Registry is global-only since T310. Agent identity lives in
   // the global DB regardless of which project is being queried.
   void cwd;
   try {
-    const { getGlobalSignaldockDbPath } = await import('./signaldock-sqlite.js');
+    const { getGlobalAgentRegistryDbPath } = await import('./agent-registry-store.js');
     const { existsSync } = await import('node:fs');
-    const dbPath = getGlobalSignaldockDbPath();
+    const dbPath = getGlobalAgentRegistryDbPath();
     if (!existsSync(dbPath)) return false;
 
     const { createRequire } = await import('node:module');
@@ -358,15 +361,15 @@ export async function agentExistsInSignaldockDb(agentId: string, cwd?: string): 
     const { applyPerfPragmas } = await import('./sqlite-pragmas.js');
     applyPerfPragmas(db); // apply pragma SSoT (T9023)
     try {
-      const row = db.prepare('SELECT id FROM agents WHERE agent_id = ?').get(agentId) as
-        | { id: string }
-        | undefined;
+      const row = db
+        .prepare('SELECT id FROM agent_registry_agents WHERE agent_id = ?')
+        .get(agentId) as { id: string } | undefined;
       return !!row;
     } finally {
       db.close();
     }
   } catch {
-    // signaldock.db may not exist yet — non-fatal
+    // the global cleo.db may not exist yet — non-fatal
     return false;
   }
 }

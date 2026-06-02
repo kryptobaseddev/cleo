@@ -15,7 +15,7 @@
  *      local inspection (does not commit).
  *
  * Usage:
- *   node scripts/new-migration.mjs --db <tasks|brain|nexus|signaldock|telemetry> \
+ *   node scripts/new-migration.mjs --db <tasks|brain|nexus|agent-registry|telemetry> \
  *     --task <TNNNN> --name <kebab-desc> [--commit] [--apply]
  *
  * Root-package alias: pnpm db:new -- --db tasks --task T1234 --name add-column
@@ -47,7 +47,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..');
 
 /** Valid DB identifiers. */
-const VALID_DBS = ['tasks', 'brain', 'nexus', 'signaldock', 'telemetry'];
+const VALID_DBS = ['tasks', 'brain', 'nexus', 'agent-registry', 'telemetry'];
 
 /** Drizzle-kit binary location (R3: never use pnpm dlx — it has incompat issues). */
 const DRIZZLE_KIT_BIN = join(REPO_ROOT, 'node_modules', '.bin', 'drizzle-kit');
@@ -82,16 +82,16 @@ Environment:
   CLEO_DRIZZLE_BASELINE_DB            Override temp-DB path for tasks DB
   CLEO_DRIZZLE_BASELINE_BRAIN_DB      Override temp-DB path for brain DB
   CLEO_DRIZZLE_BASELINE_NEXUS_DB      Override temp-DB path for nexus DB
-  CLEO_DRIZZLE_BASELINE_SIGNALDOCK_DB Override temp-DB path for signaldock DB
+  CLEO_DRIZZLE_BASELINE_AGENT_REGISTRY_DB Override temp-DB path for agent-registry DB
   CLEO_DRIZZLE_BASELINE_TELEMETRY_DB  Override temp-DB path for telemetry DB
 
 Example:
   pnpm db:new -- --db tasks --task T1234 --name add-priority-column --commit
 
 Notes:
-  - signaldock requires W2A-04 (bare-SQL → Drizzle schema conversion) before
-    the generator can produce clean output. The script will warn and exit if you
-    target signaldock before that work is complete.
+  - agent-registry regenerates the LEGACY bare-shape schema only
+    (agent-registry-schema.ts). Post-T11622 the runtime targets the consolidated
+    agent_registry_* tables — add new runtime table changes to cleo-global instead.
   - Do NOT run against production DBs. The baseline DB is always a throwaway temp file.
 `.trim();
 
@@ -171,7 +171,7 @@ const DB_ENV_VAR_MAP = {
   tasks: 'CLEO_DRIZZLE_BASELINE_DB',
   brain: 'CLEO_DRIZZLE_BASELINE_BRAIN_DB',
   nexus: 'CLEO_DRIZZLE_BASELINE_NEXUS_DB',
-  signaldock: 'CLEO_DRIZZLE_BASELINE_SIGNALDOCK_DB',
+  'agent-registry': 'CLEO_DRIZZLE_BASELINE_AGENT_REGISTRY_DB',
   telemetry: 'CLEO_DRIZZLE_BASELINE_TELEMETRY_DB',
 };
 
@@ -549,27 +549,29 @@ function printMigrationSummary(folderPath) {
 }
 
 // ---------------------------------------------------------------------------
-// Signaldock guard
+// Agent-registry guard
 // ---------------------------------------------------------------------------
 
 /**
- * Emit a warning when targeting signaldock, which requires W2A-04 completion
- * before the generator can produce clean output.
+ * Emit a note when targeting the agent-registry DB.
  *
- * The script does NOT exit for signaldock — it warns and proceeds so that
- * W2A-04 implementors can test incrementally. The linter will catch any issues.
+ * Post-T11622 cutover the agent-registry RUNTIME reads/writes the prefixed
+ * `agent_registry_*` tables owned by the consolidated cleo-global migration. The
+ * `drizzle-agent-registry` folder this config targets now carries only the legacy
+ * bare-shape schema (`agent-registry-schema.ts`) used by the schema-audit walk +
+ * any legacy on-disk `signaldock.db` the exodus migration reads. New runtime table
+ * changes belong in the consolidated cleo-global schema, not here.
  *
  * @param db - DB identifier.
  */
-function warnIfSignaldock(db) {
-  if (db !== 'signaldock') return;
+function warnIfAgentRegistry(db) {
+  if (db !== 'agent-registry') return;
 
   process.stderr.write(
-    '\nWARNING (T1164): signaldock is flagged as needing W2A-04 (bare-SQL → Drizzle schema\n' +
-      'conversion in packages/core/src/store/signaldock-sqlite.ts) before the generator\n' +
-      'can produce clean output. The current config points at signaldock-sqlite.ts which\n' +
-      'contains embedded bare-SQL migrations rather than a proper Drizzle ORM schema.\n\n' +
-      'Proceeding anyway — the linter will catch any violations.\n\n',
+    '\nNOTE (T11622): the agent-registry runtime now targets the consolidated\n' +
+      '`agent_registry_*` tables (cleo-global migration). This config regenerates the\n' +
+      'LEGACY bare-shape schema only (agent-registry-schema.ts + drizzle-agent-registry/).\n' +
+      'Add new runtime table changes to the consolidated cleo-global schema instead.\n\n',
   );
 }
 
@@ -591,8 +593,8 @@ async function main() {
   console.log(`[new-migration] Commit: ${commit}`);
   console.log(`[new-migration] Apply:  ${apply}`);
 
-  // 1. Warn for signaldock (W2A-04 dependency)
-  warnIfSignaldock(db);
+  // 1. Note for agent-registry (consolidated-table cutover, T11622)
+  warnIfAgentRegistry(db);
 
   // 2. Resolve baseline DB path (creates parent dir if needed)
   const baselineDbPath = resolveBaselineDb(db);

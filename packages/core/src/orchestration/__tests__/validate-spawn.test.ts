@@ -279,7 +279,7 @@ describe('validateSpawnReadiness — T1933 agent-existence pre-flight (ADR-068 D
    */
   it('skips agent-existence check gracefully when signaldock.db unavailable', async () => {
     // The makeAccessor stub does not initialise the global signaldock.db, so
-    // openSignaldockDbForPreflight() will return null and the check is skipped.
+    // openAgentRegistryDbForPreflight() will return null and the check is skipped.
     const accessor = makeAccessor([baseTask()]);
     const result = await validateSpawnReadiness('T9801', undefined, accessor);
     // Ready — no V_AGENT_NOT_FOUND emitted because DB was unavailable → skipped.
@@ -294,8 +294,10 @@ describe('validateSpawnReadiness — T1933 agent-existence pre-flight (ADR-068 D
    */
   it('emits V_AGENT_NOT_FOUND when all 5 tiers miss (catastrophic state)', async () => {
     const { DatabaseSync } = await import('node:sqlite');
-    const { ensureGlobalSignaldockDb: _ensure, _resetGlobalSignaldockDb_TESTING_ONLY: _reset } =
-      await import('../../store/signaldock-sqlite.js');
+    const {
+      ensureGlobalAgentRegistryDb: _ensure,
+      _resetGlobalAgentRegistryDb_TESTING_ONLY: _reset,
+    } = await import('../../store/agent-registry-store.js');
     const { getCleoHome: _getCleoHome } = await import('../../paths.js');
 
     // Set up a minimal tmp environment with a real signaldock.db.
@@ -310,7 +312,7 @@ describe('validateSpawnReadiness — T1933 agent-existence pre-flight (ADR-068 D
       writeFileSync(join(cleoHome, 'machine-key'), Buffer.alloc(32, 0xab), { mode: 0o600 });
       writeFileSync(join(cleoHome, 'global-salt'), Buffer.alloc(32, 0xcd), { mode: 0o600 });
 
-      // Mock paths so ensureGlobalSignaldockDb uses our tmp cleoHome.
+      // Mock paths so ensureGlobalAgentRegistryDb uses our tmp cleoHome.
       const { vi } = await import('vitest');
       vi.doMock('../../paths.js', async () => {
         const actual = await vi.importActual<typeof import('../../paths.js')>('../../paths.js');
@@ -319,11 +321,10 @@ describe('validateSpawnReadiness — T1933 agent-existence pre-flight (ADR-068 D
 
       // Re-import to pick up the mock.
       vi.resetModules();
-      const { ensureGlobalSignaldockDb, _resetGlobalSignaldockDb_TESTING_ONLY } = await import(
-        '../../store/signaldock-sqlite.js'
-      );
-      _resetGlobalSignaldockDb_TESTING_ONLY();
-      await ensureGlobalSignaldockDb();
+      const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } =
+        await import('../../store/agent-registry-store.js');
+      _resetGlobalAgentRegistryDb_TESTING_ONLY();
+      await ensureGlobalAgentRegistryDb();
 
       const dbPath = join(cleoHome, 'cleo.db'); // E6-L5 (T11525): signaldock consolidated into GLOBAL cleo.db
       const db = new DatabaseSync(dbPath);
@@ -346,7 +347,7 @@ describe('validateSpawnReadiness — T1933 agent-existence pre-flight (ADR-068 D
       expect(agentIssue?.severity).toBe('error');
       expect(result.ready).toBe(false);
 
-      _resetGlobalSignaldockDb_TESTING_ONLY();
+      _resetGlobalAgentRegistryDb_TESTING_ONLY();
       vi.restoreAllMocks();
     } finally {
       removeTempDirSync(base);
@@ -359,8 +360,8 @@ describe('validateSpawnReadiness — T1933 agent-existence pre-flight (ADR-068 D
    */
   it('passes pre-flight when fallback tier resolves the agent', async () => {
     const { DatabaseSync } = await import('node:sqlite');
-    const { _resetGlobalSignaldockDb_TESTING_ONLY } = await import(
-      '../../store/signaldock-sqlite.js'
+    const { _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
+      '../../store/agent-registry-store.js'
     );
     const { vi } = await import('vitest');
 
@@ -397,10 +398,10 @@ agent project-docs-worker:
       });
 
       vi.resetModules();
-      const { ensureGlobalSignaldockDb, _resetGlobalSignaldockDb_TESTING_ONLY: resetDb } =
-        await import('../../store/signaldock-sqlite.js');
+      const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY: resetDb } =
+        await import('../../store/agent-registry-store.js');
       resetDb();
-      await ensureGlobalSignaldockDb();
+      await ensureGlobalAgentRegistryDb();
 
       const dbPath = join(cleoHome, 'cleo.db'); // E6-L5 (T11525): signaldock consolidated into GLOBAL cleo.db
       const db = new DatabaseSync(dbPath);

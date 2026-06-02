@@ -88,7 +88,7 @@
     nexus: 'var(--success)',
     tasks: 'var(--warning)',
     conduit: 'var(--accent)',
-    signaldock: 'var(--danger)',
+    'agent-registry': 'var(--danger)',
   };
 
   const substrateTone: Record<SubstrateId, 'info' | 'success' | 'warning' | 'accent' | 'danger'> = {
@@ -96,7 +96,7 @@
     nexus: 'success',
     tasks: 'warning',
     conduit: 'accent',
-    signaldock: 'danger',
+    'agent-registry': 'danger',
   };
 
   // ---------------------------------------------------------------------------

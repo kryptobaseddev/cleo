@@ -76,7 +76,7 @@ export interface BackupDatabaseEntry {
   /**
    * Latest applied migration identifier.
    * For Drizzle-managed DBs: folderMillis string (e.g. "20260327000000").
-   * For signaldock.db: SIGNALDOCK_SCHEMA_VERSION constant.
+   * For signaldock.db: AGENT_REGISTRY_SCHEMA_VERSION constant.
    */
   schemaVersion: string;
   /**

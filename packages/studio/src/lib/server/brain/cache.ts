@@ -75,7 +75,7 @@ const ALL_SUBSTRATES_SORTED: BrainSubstrate[] = [
   'brain',
   'conduit',
   'nexus',
-  'signaldock',
+  'agent-registry',
   'tasks',
 ];
 

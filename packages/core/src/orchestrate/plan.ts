@@ -16,9 +16,12 @@ import type { OrchestratePlanResult } from '@cleocode/contracts/operations/orche
 import { type EngineResult, engineError } from '../engine-result.js';
 import { getEnrichedWaves } from '../orchestration/waves.js';
 import { getProjectRoot } from '../paths.js';
+import {
+  ensureGlobalAgentRegistryDb,
+  getGlobalAgentRegistryDbPath,
+} from '../store/agent-registry-store.js';
 import { AgentNotFoundError, resolveAgent } from '../store/agent-resolver.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { ensureGlobalSignaldockDb, getGlobalSignaldockDbPath } from '../store/signaldock-sqlite.js';
 import { loadTasks } from './query-ops.js';
 
 // ---------------------------------------------------------------------------
@@ -28,7 +31,7 @@ import { loadTasks } from './query-ops.js';
 // ---------------------------------------------------------------------------
 
 const _engineRequire = createRequire(import.meta.url);
-type _SignaldockDbHandle = _DatabaseSyncType;
+type _AgentRegistryDbHandle = _DatabaseSyncType;
 const { DatabaseSync: _DatabaseSyncCtor } = _engineRequire('node:sqlite') as {
   DatabaseSync: new (...args: ConstructorParameters<typeof _DatabaseSyncType>) => _DatabaseSyncType;
 };
@@ -218,7 +221,7 @@ function computePlanInputHash(epicId: string, children: Task[]): string {
  * @task T889 / W3-6
  */
 function resolveAgentGraceful(
-  db: _SignaldockDbHandle,
+  db: _AgentRegistryDbHandle,
   agentId: string,
   preferTier?: AgentTier,
 ): ResolvedAgent | null {
@@ -237,12 +240,12 @@ function resolveAgentGraceful(
  * NOT cache this handle — the resolver contract owns its own lifecycle and
  * callers must close the returned handle when the batch completes.
  *
- * @returns Open {@link _SignaldockDbHandle} bound to the global signaldock.db.
+ * @returns Open {@link _AgentRegistryDbHandle} bound to the global signaldock.db.
  * @task T932
  */
-export async function openSignaldockDbForComposer(): Promise<_SignaldockDbHandle> {
-  await ensureGlobalSignaldockDb();
-  const dbPath = getGlobalSignaldockDbPath();
+export async function openAgentRegistryDbForComposer(): Promise<_AgentRegistryDbHandle> {
+  await ensureGlobalAgentRegistryDb();
+  const dbPath = getGlobalAgentRegistryDbPath();
   const db = new _DatabaseSyncCtor(dbPath);
   db.exec('PRAGMA foreign_keys = ON');
   return db;
@@ -325,8 +328,8 @@ export async function orchestratePlan(
     // Open a short-lived handle to the global signaldock.db for resolver lookups.
     // We intentionally do NOT cache this handle — the resolver contract owns
     // its own lifecycle and we close after the batch.
-    await ensureGlobalSignaldockDb();
-    const dbPath = getGlobalSignaldockDbPath();
+    await ensureGlobalAgentRegistryDb();
+    const dbPath = getGlobalAgentRegistryDbPath();
     const db = new _DatabaseSyncCtor(dbPath);
     db.exec('PRAGMA foreign_keys = ON');
 

@@ -95,7 +95,7 @@
     nexus: 'var(--success)',
     tasks: 'var(--warning)',
     conduit: 'var(--accent)',
-    signaldock: 'var(--danger)',
+    'agent-registry': 'var(--danger)',
   };
 
   // ---------------------------------------------------------------------------
@@ -168,7 +168,7 @@
     nexus: [],
     tasks: [],
     conduit: [],
-    signaldock: [],
+    'agent-registry': [],
   });
 
   /** Currently-firing substrates (drives pulse dots). */
@@ -179,7 +179,7 @@
 
   /** Rolling 5-second fire counts per substrate, used to compute firing rate. */
   const substrateFireCount = new Map<SubstrateId, number>([
-    ['brain', 0], ['nexus', 0], ['tasks', 0], ['conduit', 0], ['signaldock', 0],
+    ['brain', 0], ['nexus', 0], ['tasks', 0], ['conduit', 0], ['agent-registry', 0],
   ]);
 
   // Sample the firing rate once per second.
@@ -332,7 +332,7 @@
     nexus: 'NEXUS',
     tasks: 'TASKS',
     conduit: 'CONDUIT',
-    signaldock: 'SIGNALDOCK',
+    'agent-registry': 'SIGNALDOCK',
   };
 
   /**
@@ -341,7 +341,7 @@
    */
   const bridgeCounts = $derived.by<Record<SubstrateId, number>>(() => {
     const counts: Record<SubstrateId, number> = {
-      brain: 0, nexus: 0, tasks: 0, conduit: 0, signaldock: 0,
+      brain: 0, nexus: 0, tasks: 0, conduit: 0, 'agent-registry': 0,
     };
     for (const edge of renderGraph.edges) {
       if ((edge.meta as { isBridge?: boolean } | undefined)?.isBridge !== true) continue;
@@ -463,14 +463,14 @@
             nexus: mock.nodes.filter((n) => n.substrate === 'nexus').length,
             tasks: mock.nodes.filter((n) => n.substrate === 'tasks').length,
             conduit: mock.nodes.filter((n) => n.substrate === 'conduit').length,
-            signaldock: mock.nodes.filter((n) => n.substrate === 'signaldock').length,
+            'agent-registry': mock.nodes.filter((n) => n.substrate === 'agent-registry').length,
           },
           edges: {
             brain: 0,
             nexus: 0,
             tasks: 0,
             conduit: 0,
-            signaldock: 0,
+            'agent-registry': 0,
             cross: mock.edges.length,
           },
         },
@@ -680,7 +680,7 @@
 
     // Substrate focus shortcuts: 1–5.
     const digitMap: Record<string, SubstrateId> = {
-      '1': 'brain', '2': 'nexus', '3': 'tasks', '4': 'conduit', '5': 'signaldock',
+      '1': 'brain', '2': 'nexus', '3': 'tasks', '4': 'conduit', '5': 'agent-registry',
     };
     if (digitMap[e.key]) {
       e.preventDefault();

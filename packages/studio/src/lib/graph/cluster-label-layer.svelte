@@ -75,7 +75,7 @@
     nexus: 'NEXUS',
     tasks: 'TASKS',
     conduit: 'CONDUIT',
-    signaldock: 'SIGNALDOCK',
+    'agent-registry': 'SIGNALDOCK',
   };
 
   /**
@@ -87,7 +87,7 @@
     nexus: 'SYMBOLS',
     tasks: 'TASKS',
     conduit: 'MESSAGES',
-    signaldock: 'AGENTS',
+    'agent-registry': 'AGENTS',
   };
 
   /**

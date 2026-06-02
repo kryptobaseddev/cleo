@@ -701,11 +701,11 @@ describe('T11532 regression — resolveConsolidatedTableName (name-mapping unit 
     });
   });
 
-  it('maps signaldock.db sessions to signaldock_sessions (not tasks_sessions)', () => {
+  it('maps signaldock.db sessions to agent_registry_sessions (not tasks_sessions)', () => {
     // disambiguation: signaldock.db has its own 'sessions' table
     expect(resolveConsolidatedTableName('signaldock', 'sessions')).toEqual({
       kind: 'mapped',
-      targetName: 'signaldock_sessions',
+      targetName: 'agent_registry_sessions',
     });
   });
 
@@ -1255,26 +1255,26 @@ describe('T11533 regression — NOT NULL coalesce: rows with NULL in target-only
 });
 
 describe('T11533 regression — resolveConsolidatedTableName: signaldock skills mapping', () => {
-  it('maps signaldock.db skills → signaldock_skills (not identity fallback)', () => {
+  it('maps signaldock.db skills → agent_registry_skills (not identity fallback)', () => {
     // Before T11533 fix: 'skills' was not in SIGNALDOCK_DB_MAP → identity fallback
-    // → 'skills' absent in global cleo.db → 0 rows. After fix: maps to 'signaldock_skills'.
+    // → 'skills' absent in global cleo.db → 0 rows. After fix: maps to 'agent_registry_skills'.
     expect(resolveConsolidatedTableName('signaldock', 'skills')).toEqual({
       kind: 'mapped',
-      targetName: 'signaldock_skills',
+      targetName: 'agent_registry_skills',
     });
   });
 
-  it('maps signaldock.db capabilities → signaldock_capabilities', () => {
+  it('maps signaldock.db capabilities → agent_registry_capabilities', () => {
     expect(resolveConsolidatedTableName('signaldock', 'capabilities')).toEqual({
       kind: 'mapped',
-      targetName: 'signaldock_capabilities',
+      targetName: 'agent_registry_capabilities',
     });
   });
 
-  it('maps signaldock.db agents → signaldock_agents', () => {
+  it('maps signaldock.db agents → agent_registry_agents', () => {
     expect(resolveConsolidatedTableName('signaldock', 'agents')).toEqual({
       kind: 'mapped',
-      targetName: 'signaldock_agents',
+      targetName: 'agent_registry_agents',
     });
   });
 

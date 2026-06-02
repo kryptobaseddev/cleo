@@ -111,11 +111,11 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
     };
   });
 
-  const { ensureGlobalSignaldockDb, _resetGlobalSignaldockDb_TESTING_ONLY } = await import(
-    '../signaldock-sqlite.js'
+  const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
+    '../agent-registry-store.js'
   );
-  _resetGlobalSignaldockDb_TESTING_ONLY();
-  await ensureGlobalSignaldockDb();
+  _resetGlobalAgentRegistryDb_TESTING_ONLY();
+  await ensureGlobalAgentRegistryDb();
 
   // E6-L5 (T11525): the signaldock domain consolidated into the GLOBAL cleo.db.
   const dbPath = join(cleoHome, 'cleo.db');
@@ -145,7 +145,7 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
     return d;
   };
   const cleanup = (): void => {
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
     rmSync(base, { recursive: true, force: true });
   };
   return { cleoHome, projectRoot, dbPath, globalCantDir, openDb, cleanup };

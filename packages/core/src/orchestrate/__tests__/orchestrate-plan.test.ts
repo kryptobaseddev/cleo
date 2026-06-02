@@ -143,19 +143,19 @@ describe('orchestratePlan (T889 / W3-6)', () => {
     process.env['CLEO_HOME'] = CLEO_HOME_DIR;
 
     // Reset any cached global signaldock handle from a prior test.
-    const { _resetGlobalSignaldockDb_TESTING_ONLY } = await import('@cleocode/core/internal');
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    const { _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import('@cleocode/core/internal');
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
 
     await seedTasks(TEST_ROOT, [...EPIC_TASKS, LEAF_TASK]);
   });
 
   afterEach(async () => {
     try {
-      const { closeAllDatabases, _resetGlobalSignaldockDb_TESTING_ONLY } = await import(
+      const { closeAllDatabases, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
         '@cleocode/core/internal'
       );
       await closeAllDatabases();
-      _resetGlobalSignaldockDb_TESTING_ONLY();
+      _resetGlobalAgentRegistryDb_TESTING_ONLY();
     } catch {
       /* ignore */
     }

@@ -1,6 +1,6 @@
 /**
  * Agent registry doctor — reconcile `.cant` files on disk against the
- * global `signaldock.db:agents` table.
+ * global `agent_registry_agents` table.
  *
  * The doctor walks the tier filesystems (global + optional project) and the
  * `agents` rows that have a `cant_path`, then emits typed
@@ -285,7 +285,7 @@ async function listCantFiles(dir: string): Promise<string[]> {
  * mutates state — use {@link reconcileDoctor} when you want to apply
  * remediations.
  *
- * @param db      - Open handle to the global `signaldock.db`.
+ * @param db      - Open handle to the global cleo.db (Agent Registry).
  * @param options - Scope options (project root, directory overrides).
  * @returns Ordered list of findings + severity histogram.
  * @task T889 / W2-7
@@ -322,7 +322,7 @@ export async function buildDoctorReport(
 
       const row = db
         .prepare(
-          'SELECT id, agent_id, tier, cant_path, cant_sha256, skills FROM agents WHERE agent_id = ? AND tier = ?',
+          'SELECT id, agent_id, tier, cant_path, cant_sha256, skills FROM agent_registry_agents WHERE agent_id = ? AND tier = ?',
         )
         .get(agentId, scan.tier) as DoctorAgentRow | undefined;
 
@@ -366,7 +366,7 @@ export async function buildDoctorReport(
       if (parsedSkills !== null) {
         const junctionRows = db
           .prepare(
-            "SELECT skills.slug AS slug FROM agent_skills JOIN skills ON skills.id = agent_skills.skill_id WHERE agent_skills.agent_id = ? AND agent_skills.source = 'cant'",
+            "SELECT agent_registry_skills.slug AS slug FROM agent_registry_agent_skills JOIN agent_registry_skills ON agent_registry_skills.id = agent_registry_agent_skills.skill_id WHERE agent_registry_agent_skills.agent_id = ? AND agent_registry_agent_skills.source = 'cant'",
           )
           .all(row.id) as unknown as DoctorSkillRow[];
         const junctionSlugs = new Set(junctionRows.map((r) => r.slug));
@@ -377,9 +377,9 @@ export async function buildDoctorReport(
         // are tolerated on install (see agent-install.ts step 7).
         for (const slug of parsedSkills) {
           if (junctionSlugs.has(slug)) continue;
-          const catalogRow = db.prepare('SELECT id FROM skills WHERE slug = ?').get(slug) as
-            | { id: string }
-            | undefined;
+          const catalogRow = db
+            .prepare('SELECT id FROM agent_registry_skills WHERE slug = ?')
+            .get(slug) as { id: string } | undefined;
           if (!catalogRow) continue;
           findings.push({
             code: 'D-005',
@@ -407,7 +407,7 @@ export async function buildDoctorReport(
   // --- D-002 / D-008: row-driven walk -------------------------------------
   const rows = db
     .prepare(
-      'SELECT id, agent_id, tier, cant_path, cant_sha256, skills FROM agents WHERE cant_path IS NOT NULL',
+      'SELECT id, agent_id, tier, cant_path, cant_sha256, skills FROM agent_registry_agents WHERE cant_path IS NOT NULL',
     )
     .all() as unknown as DoctorAgentRow[];
   for (const r of rows) {
@@ -474,7 +474,7 @@ export async function buildDoctorReport(
  * The function is idempotent: invoking it twice with the same findings
  * leaves the second invocation with nothing to do.
  *
- * @param db       - Open handle to the global `signaldock.db`.
+ * @param db       - Open handle to the global cleo.db (Agent Registry).
  * @param findings - Findings from {@link buildDoctorReport}.
  * @param options  - Opt-in flags for destructive or seed-driven repairs.
  * @returns Summary of which codes were repaired vs skipped.
@@ -496,17 +496,17 @@ export async function reconcileDoctor(
           skipped.push(finding.code);
           break;
         }
-        const row = db.prepare('SELECT id FROM agents WHERE agent_id = ?').get(agentId) as
-          | { id: string }
-          | undefined;
+        const row = db
+          .prepare('SELECT id FROM agent_registry_agents WHERE agent_id = ?')
+          .get(agentId) as { id: string } | undefined;
         if (!row) {
           skipped.push(finding.code);
           break;
         }
         db.exec('BEGIN IMMEDIATE TRANSACTION');
         try {
-          db.prepare('DELETE FROM agent_skills WHERE agent_id = ?').run(row.id);
-          db.prepare('DELETE FROM agents WHERE id = ?').run(row.id);
+          db.prepare('DELETE FROM agent_registry_agent_skills WHERE agent_id = ?').run(row.id);
+          db.prepare('DELETE FROM agent_registry_agents WHERE id = ?').run(row.id);
           db.exec('COMMIT');
           repaired.push(finding.code);
         } catch (err) {
@@ -523,7 +523,7 @@ export async function reconcileDoctor(
           break;
         }
         const row = db
-          .prepare('SELECT cant_path FROM agents WHERE agent_id = ? AND tier = ?')
+          .prepare('SELECT cant_path FROM agent_registry_agents WHERE agent_id = ? AND tier = ?')
           .get(agentId, tier) as { cant_path: string | null } | undefined;
         if (!row?.cant_path) {
           skipped.push(finding.code);
@@ -532,10 +532,11 @@ export async function reconcileDoctor(
         try {
           const buf = await readFile(row.cant_path);
           const newHash = sha256Hex(buf);
-          const nowTs = Math.floor(Date.now() / 1000);
+          // T11622 cutover: `agent_registry_agents.updated_at` is TEXT ISO-8601 (GLOB CHECK).
+          const nowIso = new Date().toISOString();
           db.prepare(
-            'UPDATE agents SET cant_sha256 = ?, updated_at = ? WHERE agent_id = ? AND tier = ?',
-          ).run(newHash, nowTs, agentId, tier);
+            'UPDATE agent_registry_agents SET cant_sha256 = ?, updated_at = ? WHERE agent_id = ? AND tier = ?',
+          ).run(newHash, nowIso, agentId, tier);
           repaired.push(finding.code);
         } catch {
           skipped.push(finding.code);

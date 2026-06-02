@@ -325,9 +325,9 @@ describe('sqlite-backup global tier', () => {
     vi.doMock('../memory-sqlite.js', () => ({ getBrainNativeDb: () => brainDb }));
     vi.doMock('../conduit-sqlite.js', () => ({ getConduitNativeDb: () => conduitDb }));
     vi.doMock('../nexus-sqlite.js', () => ({ getNexusNativeDb: () => null }));
-    vi.doMock('../signaldock-sqlite.js', () => ({
-      getGlobalSignaldockNativeDb: () => null,
-      getGlobalSignaldockDbPath: () => '',
+    vi.doMock('../agent-registry-store.js', () => ({
+      getGlobalAgentRegistryNativeDb: () => null,
+      getGlobalAgentRegistryDbPath: () => '',
     }));
     vi.doMock('../global-salt.js', () => ({ getGlobalSaltPath: () => join(cwd, 'global-salt') }));
     vi.doMock('../../paths.js', () => ({
@@ -379,9 +379,9 @@ describe('sqlite-backup global tier', () => {
     db.close();
 
     const sdDb = new DatabaseSync(sdDbPath);
-    vi.doMock('../signaldock-sqlite.js', () => ({
-      getGlobalSignaldockNativeDb: () => sdDb,
-      getGlobalSignaldockDbPath: () => sdDbPath,
+    vi.doMock('../agent-registry-store.js', () => ({
+      getGlobalAgentRegistryNativeDb: () => sdDb,
+      getGlobalAgentRegistryDbPath: () => sdDbPath,
     }));
     vi.doMock('../nexus-sqlite.js', () => ({ getNexusNativeDb: () => null }));
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
@@ -484,9 +484,9 @@ describe('sqlite-backup global tier', () => {
     vi.doMock('../sqlite.js', () => ({ getNativeDb: () => null, getDb: () => null }));
     vi.doMock('../memory-sqlite.js', () => ({ getBrainNativeDb: () => null }));
     vi.doMock('../nexus-sqlite.js', () => ({ getNexusNativeDb: () => null }));
-    vi.doMock('../signaldock-sqlite.js', () => ({
-      getGlobalSignaldockNativeDb: () => null,
-      getGlobalSignaldockDbPath: () => '',
+    vi.doMock('../agent-registry-store.js', () => ({
+      getGlobalAgentRegistryNativeDb: () => null,
+      getGlobalAgentRegistryDbPath: () => '',
     }));
     vi.doMock('../global-salt.js', () => ({ getGlobalSaltPath: () => '' }));
     vi.doMock('../../paths.js', () => ({
@@ -524,9 +524,9 @@ describe('sqlite-backup global tier', () => {
     vi.doMock('../memory-sqlite.js', () => ({ getBrainNativeDb: () => null }));
     vi.doMock('../conduit-sqlite.js', () => ({ getConduitNativeDb: () => null }));
     vi.doMock('../nexus-sqlite.js', () => ({ getNexusNativeDb: () => null }));
-    vi.doMock('../signaldock-sqlite.js', () => ({
-      getGlobalSignaldockNativeDb: () => null,
-      getGlobalSignaldockDbPath: () => '',
+    vi.doMock('../agent-registry-store.js', () => ({
+      getGlobalAgentRegistryNativeDb: () => null,
+      getGlobalAgentRegistryDbPath: () => '',
     }));
     vi.doMock('../global-salt.js', () => ({ getGlobalSaltPath: () => '' }));
     vi.doMock('../../paths.js', () => ({
@@ -572,9 +572,9 @@ describe('sqlite-backup global tier', () => {
       getTelemetryNativeDb: () => telDb,
     }));
     vi.doMock('../nexus-sqlite.js', () => ({ getNexusNativeDb: () => null }));
-    vi.doMock('../signaldock-sqlite.js', () => ({
-      getGlobalSignaldockNativeDb: () => null,
-      ensureGlobalSignaldockDb: async () => undefined,
+    vi.doMock('../agent-registry-store.js', () => ({
+      getGlobalAgentRegistryNativeDb: () => null,
+      ensureGlobalAgentRegistryDb: async () => undefined,
     }));
     vi.doMock('../skills-db.js', () => ({
       openSkillsDb: async () => null,
@@ -625,9 +625,9 @@ describe('sqlite-backup global tier', () => {
       getTelemetryNativeDb: () => null,
     }));
     vi.doMock('../nexus-sqlite.js', () => ({ getNexusNativeDb: () => null }));
-    vi.doMock('../signaldock-sqlite.js', () => ({
-      getGlobalSignaldockNativeDb: () => null,
-      ensureGlobalSignaldockDb: async () => undefined,
+    vi.doMock('../agent-registry-store.js', () => ({
+      getGlobalAgentRegistryNativeDb: () => null,
+      ensureGlobalAgentRegistryDb: async () => undefined,
     }));
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
@@ -659,9 +659,9 @@ describe('sqlite-backup global tier', () => {
     // Provide neutral stubs for all chokepoint-opener modules so they do
     // not leak file-system writes to the developer's machine.
     vi.doMock('../nexus-sqlite.js', () => ({ getNexusNativeDb: () => null }));
-    vi.doMock('../signaldock-sqlite.js', () => ({
-      getGlobalSignaldockNativeDb: () => null,
-      ensureGlobalSignaldockDb: async () => undefined,
+    vi.doMock('../agent-registry-store.js', () => ({
+      getGlobalAgentRegistryNativeDb: () => null,
+      ensureGlobalAgentRegistryDb: async () => undefined,
     }));
     vi.doMock('../skills-db.js', () => ({
       openSkillsDb: async () => null,
@@ -704,9 +704,9 @@ describe('sqlite-backup global tier', () => {
     // must detect the missing file and skip cleanly.
 
     vi.doMock('../nexus-sqlite.js', () => ({ getNexusNativeDb: () => null }));
-    vi.doMock('../signaldock-sqlite.js', () => ({
-      getGlobalSignaldockNativeDb: () => null,
-      ensureGlobalSignaldockDb: async () => undefined,
+    vi.doMock('../agent-registry-store.js', () => ({
+      getGlobalAgentRegistryNativeDb: () => null,
+      ensureGlobalAgentRegistryDb: async () => undefined,
     }));
     vi.doMock('../skills-db.js', () => ({
       openSkillsDb: async () => null,
@@ -751,9 +751,9 @@ describe('sqlite-backup global tier', () => {
       getNexusNativeDb: () => nexusDb,
       getNexusDb: async () => null,
     }));
-    vi.doMock('../signaldock-sqlite.js', () => ({
-      getGlobalSignaldockNativeDb: () => null,
-      ensureGlobalSignaldockDb: async () => undefined,
+    vi.doMock('../agent-registry-store.js', () => ({
+      getGlobalAgentRegistryNativeDb: () => null,
+      ensureGlobalAgentRegistryDb: async () => undefined,
     }));
     vi.doMock('../skills-db.js', () => ({
       openSkillsDb: async () => null,
@@ -812,9 +812,9 @@ describe('sqlite-backup global tier', () => {
 
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
     vi.doMock('../nexus-sqlite.js', () => ({ getNexusNativeDb: () => null }));
-    vi.doMock('../signaldock-sqlite.js', () => ({
-      getGlobalSignaldockNativeDb: () => null,
-      ensureGlobalSignaldockDb: async () => undefined,
+    vi.doMock('../agent-registry-store.js', () => ({
+      getGlobalAgentRegistryNativeDb: () => null,
+      ensureGlobalAgentRegistryDb: async () => undefined,
     }));
     vi.doMock('../skills-db.js', () => ({
       openSkillsDb: async () => null,

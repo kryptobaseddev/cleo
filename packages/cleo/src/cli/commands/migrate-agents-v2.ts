@@ -28,8 +28,8 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import {
-  ensureGlobalSignaldockDb,
-  getGlobalSignaldockNativeDb,
+  ensureGlobalAgentRegistryDb,
+  getGlobalAgentRegistryNativeDb,
   getProjectRoot,
   installAgentFromCant,
 } from '@cleocode/core/internal';
@@ -307,10 +307,10 @@ export async function runMigrateAgentsV2(
   const summary: MigrationSummary = { registered: 0, skipped: 0, conflicts: 0, errors: 0 };
 
   // E6-L6 (T11526): the `agents` family is the legacy signaldock schema inside
-  // the global cleo.db — ensureGlobalSignaldockDb() guarantees those tables exist
+  // the global cleo.db — ensureGlobalAgentRegistryDb() guarantees those tables exist
   // (openCleoDb('global') alone only runs the consolidated schema).
-  await ensureGlobalSignaldockDb();
-  const db = getGlobalSignaldockNativeDb() as DatabaseSync;
+  await ensureGlobalAgentRegistryDb();
+  const db = getGlobalAgentRegistryNativeDb() as DatabaseSync;
 
   try {
     // Scan canonical project-tier directory (post-T889).

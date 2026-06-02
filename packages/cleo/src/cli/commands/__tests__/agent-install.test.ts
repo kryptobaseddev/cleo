@@ -109,7 +109,7 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
   mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
   mkdirSync(sourcesDir, { recursive: true });
 
-  // Deterministic machine-key / global-salt so ensureGlobalSignaldockDb() is happy.
+  // Deterministic machine-key / global-salt so ensureGlobalAgentRegistryDb() is happy.
   writeFileSync(join(cleoHome, 'machine-key'), Buffer.alloc(32, 0xab), { mode: 0o600 });
   writeFileSync(join(cleoHome, 'global-salt'), Buffer.alloc(32, 0xcd), { mode: 0o600 });
 
@@ -146,10 +146,10 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
   // Reset any cached signaldock singleton from a prior test, then migrate
   // both the global signaldock.db and the per-project conduit.db so
   // `--attach` has a real `project_agent_refs` table to write into.
-  const { ensureGlobalSignaldockDb, _resetGlobalSignaldockDb_TESTING_ONLY, ensureConduitDb } =
+  const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY, ensureConduitDb } =
     await import('@cleocode/core/internal');
-  _resetGlobalSignaldockDb_TESTING_ONLY();
-  await ensureGlobalSignaldockDb();
+  _resetGlobalAgentRegistryDb_TESTING_ONLY();
+  await ensureGlobalAgentRegistryDb();
   await ensureConduitDb(projectRoot);
 
   const dbPath = join(cleoHome, 'signaldock.db');
@@ -176,7 +176,7 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
   seedDb.close();
 
   const cleanup = (): void => {
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
     rmSync(base, { recursive: true, force: true });
   };
 

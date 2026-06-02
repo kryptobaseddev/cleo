@@ -9,7 +9,7 @@
  *   nexus:packages/core/src/store/tasks-schema.ts::createTask
  *   tasks:T626
  *   conduit:msg-xyz
- *   signaldock:agent-007
+ *   agent-registry:agent-007
  *
  * Returns 404 if the node is not found.
  * Returns neighbors = nodes directly connected by at least one edge.

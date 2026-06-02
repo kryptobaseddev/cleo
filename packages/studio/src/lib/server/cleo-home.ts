@@ -70,7 +70,7 @@ export function getConduitDbPath(): string {
 }
 
 /** Returns the absolute path to the global signaldock.db file. */
-export function getSignaldockDbPath(): string {
+export function getAgentRegistryDbPath(): string {
   return join(getCleoHome(), 'signaldock.db');
 }
 

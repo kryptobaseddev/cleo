@@ -8,7 +8,7 @@
  * - TC-053: lookupAgent with includeGlobal=true returns agent even without project ref
  * - TC-054: listAgentsForProject returns only project-attached agents by default
  * - TC-055: listAgentsForProject with includeGlobal=true returns all global agents
- * - TC-056: createProjectAgent writes to global signaldock.db AND creates project_agent_refs row
+ * - TC-056: createProjectAgent writes to global cleo.db (agent_registry) AND creates project_agent_refs row
  * - TC-057: AgentRegistryAccessor.remove() detaches from project; global row untouched
  * - TC-058: AgentRegistryAccessor.removeGlobal() deletes global agents row
  * - TC-059: AgentRegistryAccessor.markUsed() updates last_used_at in both DBs
@@ -79,7 +79,7 @@ function makeTmpEnv(suffix: string): {
   mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
 
   const openGlobal = (): DatabaseSync => {
-    // E6-L5 (T11525): the signaldock domain consolidated into the GLOBAL cleo.db.
+    // E6-L5 (T11525): the agent-registry domain consolidated into the GLOBAL cleo.db.
     const db = new DatabaseSync(join(cleoHome, 'cleo.db'));
     db.exec('PRAGMA foreign_keys = ON');
     db.exec('PRAGMA journal_mode = WAL');
@@ -103,7 +103,7 @@ function makeTmpEnv(suffix: string): {
 
 /**
  * Bootstrap both databases (schema only) in the tmp environment.
- * Uses the real ensureGlobalSignaldockDb / ensureConduitDb with mocked paths.
+ * Uses the real ensureGlobalAgentRegistryDb / ensureConduitDb with mocked paths.
  */
 async function bootstrapDbs(
   cleoHome: string,
@@ -122,12 +122,12 @@ async function bootstrapDbs(
   writeFileSync(join(cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
   writeFileSync(join(cleoHome, 'global-salt'), globalSalt, { mode: 0o600 });
 
-  const { ensureGlobalSignaldockDb } = await import('../signaldock-sqlite.js');
+  const { ensureGlobalAgentRegistryDb } = await import('../agent-registry-store.js');
   const { ensureConduitDb, closeConduitDb } = await import('../conduit-sqlite.js');
 
   return {
     ensureGlobal: async () => {
-      await ensureGlobalSignaldockDb();
+      await ensureGlobalAgentRegistryDb();
     },
     ensureConduit: async () => {
       await ensureConduitDb(projectRoot);
@@ -167,11 +167,11 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
     writeFileSync(join(env.cleoHome, 'global-salt'), globalSalt, { mode: 0o600 });
 
-    const { ensureGlobalSignaldockDb } = await import('../signaldock-sqlite.js');
+    const { ensureGlobalAgentRegistryDb } = await import('../agent-registry-store.js');
     const { ensureConduitDb, closeConduitDb } = await import('../conduit-sqlite.js');
     const { lookupAgent } = await import('../agent-registry-accessor.js');
 
-    await ensureGlobalSignaldockDb();
+    await ensureGlobalAgentRegistryDb();
     await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
@@ -193,11 +193,11 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
     writeFileSync(join(env.cleoHome, 'global-salt'), globalSalt, { mode: 0o600 });
 
-    const { ensureGlobalSignaldockDb } = await import('../signaldock-sqlite.js');
+    const { ensureGlobalAgentRegistryDb } = await import('../agent-registry-store.js');
     const { ensureConduitDb, closeConduitDb } = await import('../conduit-sqlite.js');
     const { createProjectAgent, lookupAgent } = await import('../agent-registry-accessor.js');
 
-    await ensureGlobalSignaldockDb();
+    await ensureGlobalAgentRegistryDb();
     await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
@@ -230,11 +230,11 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
     writeFileSync(join(env.cleoHome, 'global-salt'), globalSalt, { mode: 0o600 });
 
-    const { ensureGlobalSignaldockDb } = await import('../signaldock-sqlite.js');
+    const { ensureGlobalAgentRegistryDb } = await import('../agent-registry-store.js');
     const { ensureConduitDb, closeConduitDb } = await import('../conduit-sqlite.js');
     const { createProjectAgent, lookupAgent } = await import('../agent-registry-accessor.js');
 
-    await ensureGlobalSignaldockDb();
+    await ensureGlobalAgentRegistryDb();
     await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
@@ -265,26 +265,26 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
     writeFileSync(join(env.cleoHome, 'global-salt'), globalSalt, { mode: 0o600 });
 
-    const { ensureGlobalSignaldockDb } = await import('../signaldock-sqlite.js');
+    const { ensureGlobalAgentRegistryDb } = await import('../agent-registry-store.js');
     const { ensureConduitDb, closeConduitDb } = await import('../conduit-sqlite.js');
     const { lookupAgent } = await import('../agent-registry-accessor.js');
 
-    await ensureGlobalSignaldockDb();
+    await ensureGlobalAgentRegistryDb();
     await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
-    // Insert directly into global signaldock.db without touching conduit.db
+    // Insert directly into agent_registry_agents (global cleo.db) without touching conduit.db
     const globalDb = env.openGlobal();
-    const nowTs = Math.floor(Date.now() / 1000);
+    const nowIso = new Date().toISOString();
     globalDb
       .prepare(
-        `INSERT INTO agents (id, agent_id, name, class, privacy_tier, capabilities, skills,
+        `INSERT INTO agent_registry_agents (id, agent_id, name, class, privacy_tier, capabilities, skills,
          transport_type, api_base_url, classification, transport_config, is_active, status,
          created_at, updated_at, requires_reauth)
          VALUES (?, ?, ?, 'custom', 'public', '[]', '[]', 'http',
                  'https://api.signaldock.io', NULL, '{}', 1, 'online', ?, ?, 0)`,
       )
-      .run(crypto.randomUUID(), 'global-only-agent', 'Global Only Agent', nowTs, nowTs);
+      .run(crypto.randomUUID(), 'global-only-agent', 'Global Only Agent', nowIso, nowIso);
     globalDb.close();
 
     // Default (includeGlobal=false): should return null because no project ref
@@ -314,28 +314,28 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
     writeFileSync(join(env.cleoHome, 'global-salt'), globalSalt, { mode: 0o600 });
 
-    const { ensureGlobalSignaldockDb } = await import('../signaldock-sqlite.js');
+    const { ensureGlobalAgentRegistryDb } = await import('../agent-registry-store.js');
     const { ensureConduitDb, closeConduitDb } = await import('../conduit-sqlite.js');
     const { createProjectAgent, listAgentsForProject } = await import(
       '../agent-registry-accessor.js'
     );
 
-    await ensureGlobalSignaldockDb();
+    await ensureGlobalAgentRegistryDb();
     await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
     // Insert a global-only agent (no project ref)
     const globalDb = env.openGlobal();
-    const nowTs = Math.floor(Date.now() / 1000);
+    const nowIso = new Date().toISOString();
     globalDb
       .prepare(
-        `INSERT INTO agents (id, agent_id, name, class, privacy_tier, capabilities, skills,
+        `INSERT INTO agent_registry_agents (id, agent_id, name, class, privacy_tier, capabilities, skills,
          transport_type, api_base_url, classification, transport_config, is_active, status,
          created_at, updated_at, requires_reauth)
          VALUES (?, ?, ?, 'custom', 'public', '[]', '[]', 'http',
                  'https://api.signaldock.io', NULL, '{}', 1, 'online', ?, ?, 0)`,
       )
-      .run(crypto.randomUUID(), 'global-only', 'Global Only', nowTs, nowTs);
+      .run(crypto.randomUUID(), 'global-only', 'Global Only', nowIso, nowIso);
     globalDb.close();
 
     // Create one project-attached agent
@@ -361,28 +361,28 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
     writeFileSync(join(env.cleoHome, 'global-salt'), globalSalt, { mode: 0o600 });
 
-    const { ensureGlobalSignaldockDb } = await import('../signaldock-sqlite.js');
+    const { ensureGlobalAgentRegistryDb } = await import('../agent-registry-store.js');
     const { ensureConduitDb, closeConduitDb } = await import('../conduit-sqlite.js');
     const { createProjectAgent, listAgentsForProject } = await import(
       '../agent-registry-accessor.js'
     );
 
-    await ensureGlobalSignaldockDb();
+    await ensureGlobalAgentRegistryDb();
     await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
     // Insert a global-only agent
     const globalDb = env.openGlobal();
-    const nowTs = Math.floor(Date.now() / 1000);
+    const nowIso = new Date().toISOString();
     globalDb
       .prepare(
-        `INSERT INTO agents (id, agent_id, name, class, privacy_tier, capabilities, skills,
+        `INSERT INTO agent_registry_agents (id, agent_id, name, class, privacy_tier, capabilities, skills,
          transport_type, api_base_url, classification, transport_config, is_active, status,
          created_at, updated_at, requires_reauth)
          VALUES (?, ?, ?, 'custom', 'public', '[]', '[]', 'http',
                  'https://api.signaldock.io', NULL, '{}', 1, 'online', ?, ?, 0)`,
       )
-      .run(crypto.randomUUID(), 'global-only-2', 'Global Only 2', nowTs, nowTs);
+      .run(crypto.randomUUID(), 'global-only-2', 'Global Only 2', nowIso, nowIso);
     globalDb.close();
 
     // Create one project-attached agent
@@ -405,10 +405,10 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   });
 
   // -------------------------------------------------------------------------
-  // TC-056: createProjectAgent writes to global signaldock.db AND conduit.db
+  // TC-056: createProjectAgent writes to global cleo.db (agent_registry) AND conduit.db
   // -------------------------------------------------------------------------
 
-  it('TC-056: createProjectAgent writes to global signaldock.db AND project_agent_refs', async () => {
+  it('TC-056: createProjectAgent writes to global cleo.db (agent_registry) AND project_agent_refs', async () => {
     vi.doMock('../../paths.js', () => ({
       getCleoHome: () => env.cleoHome,
       resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
@@ -418,11 +418,11 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
     writeFileSync(join(env.cleoHome, 'global-salt'), globalSalt, { mode: 0o600 });
 
-    const { ensureGlobalSignaldockDb } = await import('../signaldock-sqlite.js');
+    const { ensureGlobalAgentRegistryDb } = await import('../agent-registry-store.js');
     const { ensureConduitDb, closeConduitDb } = await import('../conduit-sqlite.js');
     const { createProjectAgent } = await import('../agent-registry-accessor.js');
 
-    await ensureGlobalSignaldockDb();
+    await ensureGlobalAgentRegistryDb();
     await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
@@ -436,10 +436,10 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     expect(result.projectRef?.enabled).toBe(1);
     expect(result.projectRef?.attachedAt).toBeTruthy();
 
-    // Verify global signaldock.db was written
+    // Verify global agent_registry_agents was written
     const globalDb = env.openGlobal();
     const globalRow = globalDb
-      .prepare('SELECT agent_id, name FROM agents WHERE agent_id = ?')
+      .prepare('SELECT agent_id, name FROM agent_registry_agents WHERE agent_id = ?')
       .get(BASE_SPEC.agentId) as { agent_id: string; name: string } | undefined;
     globalDb.close();
     expect(globalRow).toBeDefined();
@@ -469,13 +469,13 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
     writeFileSync(join(env.cleoHome, 'global-salt'), globalSalt, { mode: 0o600 });
 
-    const { ensureGlobalSignaldockDb } = await import('../signaldock-sqlite.js');
+    const { ensureGlobalAgentRegistryDb } = await import('../agent-registry-store.js');
     const { ensureConduitDb, closeConduitDb } = await import('../conduit-sqlite.js');
     const { AgentRegistryAccessor, createProjectAgent } = await import(
       '../agent-registry-accessor.js'
     );
 
-    await ensureGlobalSignaldockDb();
+    await ensureGlobalAgentRegistryDb();
     await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
@@ -493,10 +493,10 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     expect(refRow).toBeDefined();
     expect(refRow?.enabled).toBe(0);
 
-    // Global signaldock.db row should still exist
+    // Global agent_registry_agents row should still exist
     const globalDb = env.openGlobal();
     const globalRow = globalDb
-      .prepare('SELECT agent_id FROM agents WHERE agent_id = ?')
+      .prepare('SELECT agent_id FROM agent_registry_agents WHERE agent_id = ?')
       .get(BASE_SPEC.agentId) as { agent_id: string } | undefined;
     globalDb.close();
     expect(globalRow).toBeDefined();
@@ -506,7 +506,7 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   // TC-058: AgentRegistryAccessor.removeGlobal() deletes global agents row
   // -------------------------------------------------------------------------
 
-  it('TC-058: AgentRegistryAccessor.removeGlobal() deletes row from global signaldock.db', async () => {
+  it('TC-058: AgentRegistryAccessor.removeGlobal() deletes row from global agent_registry_agents', async () => {
     vi.doMock('../../paths.js', () => ({
       getCleoHome: () => env.cleoHome,
       resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
@@ -516,13 +516,13 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
     writeFileSync(join(env.cleoHome, 'global-salt'), globalSalt, { mode: 0o600 });
 
-    const { ensureGlobalSignaldockDb } = await import('../signaldock-sqlite.js');
+    const { ensureGlobalAgentRegistryDb } = await import('../agent-registry-store.js');
     const { ensureConduitDb, closeConduitDb } = await import('../conduit-sqlite.js');
     const { AgentRegistryAccessor, createProjectAgent } = await import(
       '../agent-registry-accessor.js'
     );
 
-    await ensureGlobalSignaldockDb();
+    await ensureGlobalAgentRegistryDb();
     await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
@@ -538,7 +538,7 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     // Global row should be gone
     const globalDb = env.openGlobal();
     const globalRow = globalDb
-      .prepare('SELECT agent_id FROM agents WHERE agent_id = ?')
+      .prepare('SELECT agent_id FROM agent_registry_agents WHERE agent_id = ?')
       .get(BASE_SPEC.agentId) as { agent_id: string } | undefined;
     globalDb.close();
     expect(globalRow).toBeUndefined();
@@ -558,13 +558,13 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
     writeFileSync(join(env.cleoHome, 'global-salt'), globalSalt, { mode: 0o600 });
 
-    const { ensureGlobalSignaldockDb } = await import('../signaldock-sqlite.js');
+    const { ensureGlobalAgentRegistryDb } = await import('../agent-registry-store.js');
     const { ensureConduitDb, closeConduitDb } = await import('../conduit-sqlite.js');
     const { AgentRegistryAccessor, createProjectAgent } = await import(
       '../agent-registry-accessor.js'
     );
 
-    await ensureGlobalSignaldockDb();
+    await ensureGlobalAgentRegistryDb();
     await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
@@ -577,15 +577,16 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
 
     const after = Date.now();
 
-    // Check global signaldock.db last_used_at was updated (stored as Unix timestamp)
+    // T11622 cutover: agent_registry_agents.last_used_at is TEXT ISO-8601 (GLOB CHECK).
     const globalDb = env.openGlobal();
     const globalRow = globalDb
-      .prepare('SELECT last_used_at FROM agents WHERE agent_id = ?')
-      .get(BASE_SPEC.agentId) as { last_used_at: number } | undefined;
+      .prepare('SELECT last_used_at FROM agent_registry_agents WHERE agent_id = ?')
+      .get(BASE_SPEC.agentId) as { last_used_at: string | null } | undefined;
     globalDb.close();
     expect(globalRow?.last_used_at).toBeDefined();
-    expect(globalRow!.last_used_at * 1000).toBeGreaterThanOrEqual(Math.floor(before / 1000) * 1000);
-    expect(globalRow!.last_used_at * 1000).toBeLessThanOrEqual(after + 1000);
+    const globalUsedMs = new Date(globalRow!.last_used_at as string).getTime();
+    expect(globalUsedMs).toBeGreaterThanOrEqual(Math.floor(before / 1000) * 1000);
+    expect(globalUsedMs).toBeLessThanOrEqual(after + 1000);
 
     // Check conduit.db project_agent_refs last_used_at was updated (stored as ISO string)
     const conduitDb = env.openConduit();
@@ -614,11 +615,11 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
     writeFileSync(join(env.cleoHome, 'global-salt'), globalSalt, { mode: 0o600 });
 
-    const { ensureGlobalSignaldockDb } = await import('../signaldock-sqlite.js');
+    const { ensureGlobalAgentRegistryDb } = await import('../agent-registry-store.js');
     const { ensureConduitDb, closeConduitDb } = await import('../conduit-sqlite.js');
     const { lookupAgent } = await import('../agent-registry-accessor.js');
 
-    await ensureGlobalSignaldockDb();
+    await ensureGlobalAgentRegistryDb();
     await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
@@ -655,13 +656,13 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
     writeFileSync(join(env.cleoHome, 'global-salt'), globalSalt, { mode: 0o600 });
 
-    const { ensureGlobalSignaldockDb } = await import('../signaldock-sqlite.js');
+    const { ensureGlobalAgentRegistryDb } = await import('../agent-registry-store.js');
     const { ensureConduitDb, closeConduitDb } = await import('../conduit-sqlite.js');
     const { AgentRegistryAccessor, createProjectAgent, lookupAgent } = await import(
       '../agent-registry-accessor.js'
     );
 
-    await ensureGlobalSignaldockDb();
+    await ensureGlobalAgentRegistryDb();
     await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
@@ -704,13 +705,13 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
     writeFileSync(join(env.cleoHome, 'global-salt'), globalSalt, { mode: 0o600 });
 
-    const { ensureGlobalSignaldockDb } = await import('../signaldock-sqlite.js');
+    const { ensureGlobalAgentRegistryDb } = await import('../agent-registry-store.js');
     const { ensureConduitDb, closeConduitDb } = await import('../conduit-sqlite.js');
     const { AgentRegistryAccessor, createProjectAgent, listAgentsForProject } = await import(
       '../agent-registry-accessor.js'
     );
 
-    await ensureGlobalSignaldockDb();
+    await ensureGlobalAgentRegistryDb();
     await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
@@ -745,28 +746,28 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
     writeFileSync(join(env.cleoHome, 'global-salt'), globalSalt, { mode: 0o600 });
 
-    const { ensureGlobalSignaldockDb } = await import('../signaldock-sqlite.js');
+    const { ensureGlobalAgentRegistryDb } = await import('../agent-registry-store.js');
     const { ensureConduitDb, closeConduitDb } = await import('../conduit-sqlite.js');
     const { AgentRegistryAccessor, createProjectAgent } = await import(
       '../agent-registry-accessor.js'
     );
 
-    await ensureGlobalSignaldockDb();
+    await ensureGlobalAgentRegistryDb();
     await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
     // Add global-only agent
     const globalDb = env.openGlobal();
-    const nowTs = Math.floor(Date.now() / 1000);
+    const nowIso = new Date().toISOString();
     globalDb
       .prepare(
-        `INSERT INTO agents (id, agent_id, name, class, privacy_tier, capabilities, skills,
+        `INSERT INTO agent_registry_agents (id, agent_id, name, class, privacy_tier, capabilities, skills,
          transport_type, api_base_url, classification, transport_config, is_active, status,
          created_at, updated_at, requires_reauth)
          VALUES (?, ?, ?, 'custom', 'public', '[]', '[]', 'http',
                  'https://api.signaldock.io', NULL, '{}', 1, 'online', ?, ?, 0)`,
       )
-      .run(crypto.randomUUID(), 'global-only-list', 'Global Only List', nowTs, nowTs);
+      .run(crypto.randomUUID(), 'global-only-list', 'Global Only List', nowIso, nowIso);
     globalDb.close();
 
     await createProjectAgent(env.projectRoot, BASE_SPEC);
@@ -791,28 +792,28 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
     writeFileSync(join(env.cleoHome, 'global-salt'), globalSalt, { mode: 0o600 });
 
-    const { ensureGlobalSignaldockDb } = await import('../signaldock-sqlite.js');
+    const { ensureGlobalAgentRegistryDb } = await import('../agent-registry-store.js');
     const { ensureConduitDb, closeConduitDb } = await import('../conduit-sqlite.js');
     const { AgentRegistryAccessor, createProjectAgent } = await import(
       '../agent-registry-accessor.js'
     );
 
-    await ensureGlobalSignaldockDb();
+    await ensureGlobalAgentRegistryDb();
     await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
     // Add global-only agent
     const globalDb = env.openGlobal();
-    const nowTs = Math.floor(Date.now() / 1000);
+    const nowIso = new Date().toISOString();
     globalDb
       .prepare(
-        `INSERT INTO agents (id, agent_id, name, class, privacy_tier, capabilities, skills,
+        `INSERT INTO agent_registry_agents (id, agent_id, name, class, privacy_tier, capabilities, skills,
          transport_type, api_base_url, classification, transport_config, is_active, status,
          created_at, updated_at, requires_reauth)
          VALUES (?, ?, ?, 'custom', 'public', '[]', '[]', 'http',
                  'https://api.signaldock.io', NULL, '{}', 1, 'online', ?, ?, 0)`,
       )
-      .run(crypto.randomUUID(), 'global-only-listg', 'Global Only ListG', nowTs, nowTs);
+      .run(crypto.randomUUID(), 'global-only-listg', 'Global Only ListG', nowIso, nowIso);
     globalDb.close();
 
     await createProjectAgent(env.projectRoot, BASE_SPEC);
@@ -838,13 +839,13 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
     writeFileSync(join(env.cleoHome, 'global-salt'), globalSalt, { mode: 0o600 });
 
-    const { ensureGlobalSignaldockDb } = await import('../signaldock-sqlite.js');
+    const { ensureGlobalAgentRegistryDb } = await import('../agent-registry-store.js');
     const { ensureConduitDb, closeConduitDb } = await import('../conduit-sqlite.js');
     const { AgentRegistryAccessor, createProjectAgent } = await import(
       '../agent-registry-accessor.js'
     );
 
-    await ensureGlobalSignaldockDb();
+    await ensureGlobalAgentRegistryDb();
     await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
@@ -860,16 +861,14 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
   });
 
   // -------------------------------------------------------------------------
-  // T11562 regression: agents read/write path alignment to the consolidated
+  // T11562 / T11622: agents read/write path alignment to the consolidated
   // global cleo.db.
   //
-  // Before the fix, openGlobalDb() raw-opened the legacy signaldock path WITHOUT
-  // running ensureGlobalSignaldockDb() first, so the BARE `agents` runtime table
-  // (materialized only by the legacy drizzle-signaldock migrations) did not exist
-  // in cleo.db on a clean build whose read path was hit first — the standalone
-  // read functions threw `no such table: agents`, diverging from the write path
-  // (E6-L5 routes writes to cleo.db). This test asserts that a write through the
-  // consolidated cleo.db is read back through the SAME consolidated cleo.db.
+  // Post-T11622 cutover the runtime READS + WRITES the PREFIXED
+  // `agent_registry_agents` table owned by the consolidated cleo-global migration
+  // (the bare `agents` table is no longer materialized). This test asserts that a
+  // write through the consolidated cleo.db is read back through the SAME
+  // consolidated cleo.db.
   // -------------------------------------------------------------------------
 
   it('T11562: write-then-read round-trips through the consolidated global cleo.db (read/write aligned)', async () => {
@@ -882,12 +881,12 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     writeFileSync(join(env.cleoHome, 'machine-key'), machineKey, { mode: 0o600 });
     writeFileSync(join(env.cleoHome, 'global-salt'), globalSalt, { mode: 0o600 });
 
-    const { ensureGlobalSignaldockDb } = await import('../signaldock-sqlite.js');
+    const { ensureGlobalAgentRegistryDb } = await import('../agent-registry-store.js');
     const { ensureConduitDb, closeConduitDb } = await import('../conduit-sqlite.js');
     const { AgentRegistryAccessor, createProjectAgent, listAgentsForProject, lookupAgent } =
       await import('../agent-registry-accessor.js');
 
-    await ensureGlobalSignaldockDb();
+    await ensureGlobalAgentRegistryDb();
     await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
@@ -895,10 +894,10 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     await createProjectAgent(env.projectRoot, BASE_SPEC);
 
     // The write must land in the consolidated global `cleo.db` (NOT a legacy
-    // `signaldock.db`), in the BARE `agents` table.
+    // `signaldock.db`), in the PREFIXED `agent_registry_agents` table (T11622).
     const globalDb = env.openGlobal();
     const writtenRow = globalDb
-      .prepare('SELECT agent_id FROM agents WHERE agent_id = ?')
+      .prepare('SELECT agent_id FROM agent_registry_agents WHERE agent_id = ?')
       .get(BASE_SPEC.agentId) as { agent_id: string } | undefined;
     globalDb.close();
     expect(writtenRow?.agent_id).toBe(BASE_SPEC.agentId);
@@ -917,7 +916,7 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     expect(listed.map((a) => a.agentId)).toContain(BASE_SPEC.agentId);
   });
 
-  it('T11562: read-first standalone read materializes the bare `agents` table (no "no such table: agents")', async () => {
+  it('T11622: read-first standalone read resolves against the prefixed agent_registry_agents table', async () => {
     vi.doMock('../../paths.js', () => ({
       getCleoHome: () => env.cleoHome,
       resolveCleoDir: (cwd) => join(cwd ?? env.projectRoot, '.cleo'),
@@ -928,49 +927,48 @@ describe('agent-registry-accessor (cross-DB T355)', () => {
     writeFileSync(join(env.cleoHome, 'global-salt'), globalSalt, { mode: 0o600 });
 
     const { openDualScopeDb, _resetDualScopeDbCache } = await import('../dual-scope-db.js');
-    const { _resetGlobalSignaldockDb_TESTING_ONLY } = await import('../signaldock-sqlite.js');
+    const { _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import('../agent-registry-store.js');
     const { ensureConduitDb, closeConduitDb } = await import('../conduit-sqlite.js');
     const { listAgentsForProject } = await import('../agent-registry-accessor.js');
 
-    // Simulate the clean-build / read-first state: the consolidated global
-    // cleo.db has been opened by the dual-scope chokepoint (creating ONLY the
-    // prefixed `signaldock_*` tables) but the legacy signaldock migrations that
-    // create the BARE `agents` table have NOT run yet.
+    // Open the consolidated global cleo.db via the dual-scope chokepoint. Its
+    // consolidated cleo-global migration (+ the T11622 rename) creates the PREFIXED
+    // `agent_registry_*` tables directly — the runtime read path targets those.
     await openDualScopeDb('global');
     await ensureConduitDb(env.projectRoot);
     closeConduitDb();
 
-    // Confirm the bare `agents` table does NOT exist yet — this is the exact
-    // precondition that produced `no such table: agents` before the fix.
+    // Post-T11622: the PREFIXED `agent_registry_agents` table exists; the legacy
+    // BARE `agents` table is NO LONGER materialized.
     const probe = env.openGlobal();
     const bareAgents = probe
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agents'")
       .get() as { name: string } | undefined;
     const prefixedAgents = probe
-      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='signaldock_agents'")
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agent_registry_agents'")
       .get() as { name: string } | undefined;
     probe.close();
     expect(bareAgents).toBeUndefined();
     expect(prefixedAgents).toBeDefined();
 
-    // Reset the in-process signaldock singleton so the read path must re-ensure
-    // (the read-first scenario in a fresh process).
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    // Reset the in-process singleton so the read path must re-ensure (read-first
+    // scenario in a fresh process).
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
     _resetDualScopeDbCache();
 
-    // The standalone read used to throw `no such table: agents`; post-fix it
-    // routes through ensureGlobalSignaldockDb() (materializing the bare table)
-    // and returns an empty list without throwing.
+    // The standalone read routes through ensureGlobalAgentRegistryDb() (which opens
+    // the consolidated cleo.db where `agent_registry_agents` already exists) and
+    // returns an empty list without throwing `no such table`.
     await expect(listAgentsForProject(env.projectRoot, { includeGlobal: true })).resolves.toEqual(
       [],
     );
 
-    // And the bare `agents` table now exists in the consolidated cleo.db.
+    // The prefixed `agent_registry_agents` table remains present in cleo.db.
     const after = env.openGlobal();
-    const bareAgentsAfter = after
-      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agents'")
+    const prefixedAgentsAfter = after
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agent_registry_agents'")
       .get() as { name: string } | undefined;
     after.close();
-    expect(bareAgentsAfter).toBeDefined();
+    expect(prefixedAgentsAfter).toBeDefined();
   });
 });

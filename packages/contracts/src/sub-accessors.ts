@@ -8,7 +8,7 @@
  *   - BrainAccessor        → brain.db (memory observations, semantic graph)
  *   - ConduitAccessor      → conduit.db (project-scoped messaging)
  *   - NexusAccessor        → nexus.db (code intelligence graph)
- *   - SignaldockAccessor   → signaldock.db (global agent identity)
+ *   - AgentRegistrySubAccessor   → signaldock.db (global agent identity)
  *   - TelemetryAccessor    → (future — telemetry collection)
  *
  * See DocsAccessor in docs-accessor.ts for the docs/llmtxt sub-accessor.
@@ -149,18 +149,18 @@ export interface NexusAccessor {
 }
 
 // ---------------------------------------------------------------------------
-// SignaldockAccessor
+// AgentRegistrySubAccessor
 // ---------------------------------------------------------------------------
 
 /**
- * SignaldockAccessor — typed interface for signaldock.db (global agent identity).
+ * AgentRegistrySubAccessor — typed interface for signaldock.db (global agent identity).
  *
- * Minimal surface for T9188; full signaldock API lives in signaldock-sqlite.ts.
+ * Minimal surface for T9188; full signaldock API lives in agent-registry-store.ts.
  *
  * @task T9188
  * @epic T9048
  */
-export interface SignaldockAccessor {
+export interface AgentRegistrySubAccessor {
   /**
    * Check whether signaldock.db is open and accessible.
    *

@@ -54,7 +54,7 @@ const KIND_BY_SUBSTRATE: Record<SubstrateId, string[]> = {
   nexus: ['symbol', 'file', 'community'],
   tasks: ['task', 'session'],
   conduit: ['message'],
-  signaldock: ['agent'],
+  'agent-registry': ['agent'],
 };
 
 /**
@@ -76,7 +76,7 @@ const KINDS_BY_SUBSTRATE: Record<SubstrateId, EdgeKind[]> = {
   ],
   tasks: ['blocks', 'depends', 'parent'],
   conduit: ['messages', 'fires'],
-  signaldock: ['messages', 'co_fires'],
+  'agent-registry': ['messages', 'co_fires'],
 };
 
 const CROSS_KINDS: EdgeKind[] = [
@@ -110,7 +110,7 @@ export function mockBrain(
     nexus: Math.round(nodeCount * 0.35),
     tasks: Math.round(nodeCount * 0.15),
     conduit: Math.round(nodeCount * 0.12),
-    signaldock: 0,
+    'agent-registry': 0,
   };
   const assigned = split.brain + split.nexus + split.tasks + split.conduit;
   split.signaldock = Math.max(0, nodeCount - assigned);
@@ -214,7 +214,7 @@ function buildClusterLabels(sub: SubstrateId, count: number): Array<{ id: string
     nexus: ['Core', 'Dispatch', 'Memory Bridge', 'Session Runtime', 'Brain Adapter'],
     tasks: ['Epic', 'Backlog', 'In Flight', 'Release'],
     conduit: ['Agent Chatter', 'System Events', 'Broadcast'],
-    signaldock: ['Orchestrators', 'Leads', 'Workers'],
+    'agent-registry': ['Orchestrators', 'Leads', 'Workers'],
   };
   const pool = vocab[sub];
   return Array.from({ length: count }, (_, idx) => ({
@@ -249,7 +249,7 @@ function labelFor(sub: SubstrateId, kind: string, i: number): string {
         : `T${(i + 100).toString(10)}: ${sample(['wire', 'ship', 'audit', 'repair'], i)} ${sample(['brain', 'nexus', 'harness', 'payload'], i)}`;
     case 'conduit':
       return `msg_${idx} → ${sample(['orchestrator', 'worker-a', 'worker-b'], i)}`;
-    case 'signaldock':
+    case 'agent-registry':
       return `${sample(['orc', 'lead', 'wk'], i)}-${idx}`;
   }
 }
@@ -273,7 +273,7 @@ function groupBySubstrate(nodes: GraphNode[]): Record<SubstrateId, GraphNode[]> 
     nexus: [],
     tasks: [],
     conduit: [],
-    signaldock: [],
+    'agent-registry': [],
   };
   for (const n of nodes) out[n.substrate].push(n);
   return out;

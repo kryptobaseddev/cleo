@@ -1,23 +1,33 @@
 /**
- * SIGNALDOCK substrate adapter for the Living Brain API.
+ * AGENT-REGISTRY substrate adapter for the Living Brain API.
  *
- * Queries signaldock.db (global) and returns BrainNodes/BrainEdges for agents
- * and agent-to-agent social connections.
+ * Read-only visualization path. Queries the LEGACY standalone `signaldock.db`
+ * (resolved by `getAgentRegistryDbPath`) and returns BrainNodes/BrainEdges for
+ * agents and agent-to-agent social connections. The legacy standalone file still
+ * carries the BARE table names (`agents`, `agent_connections`); the brain-package
+ * read path is migrated to the consolidated `cleo.db` separately in E6 (T11249),
+ * so the SQL below intentionally still targets the bare names.
  *
- * Node IDs are prefixed with "signaldock:" to prevent collisions.
+ * The substrate identifier + node-id prefix were renamed `signaldock` →
+ * `agent-registry` under T11622 (display identifiers, decoupled from the physical
+ * table names).
+ *
+ * Node IDs are prefixed with "agent-registry:" to prevent collisions.
  * Agents are the cross-substrate identity bridge — they appear in TASKS
  * (assignee), CONDUIT (from/to), and BRAIN (source agent).
+ *
+ * @task T11622 (Signaldock → Agent Registry rename; folds T11578 AC2)
  */
 
-import { allTyped, getSignaldockDb } from '../db-connections.js';
+import { allTyped, getAgentRegistryDb } from '../db-connections.js';
 import type { BrainEdge, BrainNode, BrainQueryOptions } from '../types.js';
 
-/** Raw row from agents table. */
+/** Raw row from the legacy standalone `signaldock.db` `agents` table. */
 interface AgentRow {
   agent_id: string;
   name: string;
   status: string;
-  /** UNIX epoch seconds (INTEGER column in signaldock.db). May be null on legacy rows. */
+  /** UNIX epoch seconds (INTEGER column in the legacy `signaldock.db`). May be null on legacy rows. */
   created_at: number | null;
 }
 
@@ -42,19 +52,19 @@ interface AgentConnectionRow {
 }
 
 /**
- * Returns all BrainNodes and BrainEdges sourced from signaldock.db.
+ * Returns all BrainNodes and BrainEdges sourced from the Agent Registry.
  *
  * Fetches all active agents plus their declared connections.
  * Agent nodes serve as the cross-substrate identity anchors.
  *
  * @param options - Query options (limit).
- * @returns Nodes and edges from the SIGNALDOCK substrate.
+ * @returns Nodes and edges from the AGENT-REGISTRY substrate.
  */
-export function getSignaldockSubstrate(options: BrainQueryOptions = {}): {
+export function getAgentRegistrySubstrate(options: BrainQueryOptions = {}): {
   nodes: BrainNode[];
   edges: BrainEdge[];
 } {
-  const db = getSignaldockDb();
+  const db = getAgentRegistryDb();
   if (!db) return { nodes: [], edges: [] };
 
   const perSubstrateLimit = Math.ceil((options.limit ?? 500) / 5);
@@ -63,7 +73,7 @@ export function getSignaldockSubstrate(options: BrainQueryOptions = {}): {
   const edges: BrainEdge[] = [];
 
   try {
-    // Active agents
+    // Active agents (legacy standalone signaldock.db bare table)
     const agentRows = allTyped<AgentRow>(
       db.prepare(
         `SELECT agent_id, name, status, created_at
@@ -79,9 +89,9 @@ export function getSignaldockSubstrate(options: BrainQueryOptions = {}): {
     for (const row of agentRows) {
       agentIds.add(row.agent_id);
       nodes.push({
-        id: `signaldock:${row.agent_id}`,
+        id: `agent-registry:${row.agent_id}`,
         kind: 'agent',
-        substrate: 'signaldock',
+        substrate: 'agent-registry',
         label: row.name,
         weight: row.status === 'active' ? 1.0 : 0.5,
         createdAt: epochToIso(row.created_at),
@@ -108,11 +118,11 @@ export function getSignaldockSubstrate(options: BrainQueryOptions = {}): {
 
       for (const row of connRows) {
         edges.push({
-          source: `signaldock:${row.from_agent_id}`,
-          target: `signaldock:${row.to_agent_id}`,
+          source: `agent-registry:${row.from_agent_id}`,
+          target: `agent-registry:${row.to_agent_id}`,
           type: row.connection_type,
           weight: row.strength ?? 0.5,
-          substrate: 'signaldock',
+          substrate: 'agent-registry',
         });
       }
     }

@@ -138,7 +138,7 @@
     nexus: 'var(--success)',
     tasks: 'var(--warning)',
     conduit: 'var(--accent)',
-    signaldock: 'var(--danger)',
+    'agent-registry': 'var(--danger)',
   };
 
   /**
@@ -152,7 +152,7 @@
     nexus: 'NEXUS',
     tasks: 'TASKS',
     conduit: 'CONDUIT',
-    signaldock: 'SIGNALDOCK',
+    'agent-registry': 'SIGNALDOCK',
   };
 
   /** Per-substrate content noun used in the callout (`{N} {NOUN}`). */
@@ -161,7 +161,7 @@
     nexus: 'SYMBOLS',
     tasks: 'TASKS',
     conduit: 'MESSAGES',
-    signaldock: 'AGENTS',
+    'agent-registry': 'AGENTS',
   };
 
   /**
@@ -182,7 +182,7 @@
     brain: [0, -20, 0],
     nexus: [0, 40, -20],
     conduit: [0, 0, 0],
-    signaldock: [0, -120, -30],
+    'agent-registry': [0, -120, -30],
   };
 
   // ---------------------------------------------------------------------------

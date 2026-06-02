@@ -1,7 +1,7 @@
 /**
  * Tests for the T897 agent_registry v3 schema extension.
  *
- * Verifies that `ensureGlobalSignaldockDb()` applies the T897 migration on
+ * Verifies that `ensureGlobalAgentRegistryDb()` applies the T897 migration on
  * fresh installs, that all eight new `agents` columns and both new
  * `agent_skills` columns are present with the declared types / defaults,
  * and that re-running the migration loop is a no-op (true idempotency under
@@ -99,12 +99,12 @@ describe('T897 agent_registry v3 migration', () => {
   it('agents table carries all eight T897 v3 columns with correct types + defaults', async () => {
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
-    const { ensureGlobalSignaldockDb, _resetGlobalSignaldockDb_TESTING_ONLY } = await import(
-      '../signaldock-sqlite.js'
+    const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
+      '../agent-registry-store.js'
     );
 
-    const { path } = await ensureGlobalSignaldockDb();
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    const { path } = await ensureGlobalAgentRegistryDb();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
 
     const db = new DatabaseSync(path);
     try {
@@ -127,11 +127,11 @@ describe('T897 agent_registry v3 migration', () => {
   it('agent_skills table carries the two new v3 columns', async () => {
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
-    const { ensureGlobalSignaldockDb, _resetGlobalSignaldockDb_TESTING_ONLY } = await import(
-      '../signaldock-sqlite.js'
+    const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
+      '../agent-registry-store.js'
     );
-    const { path } = await ensureGlobalSignaldockDb();
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    const { path } = await ensureGlobalAgentRegistryDb();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
 
     const db = new DatabaseSync(path);
     try {
@@ -151,11 +151,11 @@ describe('T897 agent_registry v3 migration', () => {
   it('creates idx_agents_tier, idx_agents_cant_path, and idx_agent_skills_source', async () => {
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
-    const { ensureGlobalSignaldockDb, _resetGlobalSignaldockDb_TESTING_ONLY } = await import(
-      '../signaldock-sqlite.js'
+    const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
+      '../agent-registry-store.js'
     );
-    const { path } = await ensureGlobalSignaldockDb();
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    const { path } = await ensureGlobalAgentRegistryDb();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
 
     const db = new DatabaseSync(path);
     try {
@@ -180,11 +180,11 @@ describe('T897 agent_registry v3 migration', () => {
     // This test verifies the column is present and accepts valid tier values.
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
-    const { ensureGlobalSignaldockDb, _resetGlobalSignaldockDb_TESTING_ONLY } = await import(
-      '../signaldock-sqlite.js'
+    const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
+      '../agent-registry-store.js'
     );
-    const { path } = await ensureGlobalSignaldockDb();
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    const { path } = await ensureGlobalAgentRegistryDb();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
 
     const db = new DatabaseSync(path);
     try {
@@ -217,21 +217,21 @@ describe('T897 agent_registry v3 migration', () => {
     }
   });
 
-  it('re-running ensureGlobalSignaldockDb is idempotent (no double-ALTER error)', async () => {
+  it('re-running ensureGlobalAgentRegistryDb is idempotent (no double-ALTER error)', async () => {
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
-    const { ensureGlobalSignaldockDb, _resetGlobalSignaldockDb_TESTING_ONLY } = await import(
-      '../signaldock-sqlite.js'
+    const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
+      '../agent-registry-store.js'
     );
 
-    const first = await ensureGlobalSignaldockDb();
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    const first = await ensureGlobalAgentRegistryDb();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
     expect(first.action).toBe('created');
 
     // Second pass must NOT throw — SQLite's missing ADD COLUMN IF NOT EXISTS
     // means a naive re-apply would fail on `duplicate column`.
-    const second = await ensureGlobalSignaldockDb();
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    const second = await ensureGlobalAgentRegistryDb();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
     expect(second.action).toBe('exists');
 
     const db = new DatabaseSync(first.path);
@@ -246,7 +246,7 @@ describe('T897 agent_registry v3 migration', () => {
     }
   });
 
-  it('upgrade path: re-running ensureGlobalSignaldockDb after removing a drizzle journal entry does not error', async () => {
+  it('upgrade path: re-running ensureGlobalAgentRegistryDb after removing a drizzle journal entry does not error', async () => {
     // T1166: The bare-SQL _signaldock_migrations runner has been replaced by the
     // standard drizzle pipeline (__drizzle_migrations journal). This test verifies
     // that reconcileJournal Scenario 3 (column exists but journal entry absent)
@@ -255,17 +255,17 @@ describe('T897 agent_registry v3 migration', () => {
     // journal entry without re-running the DDL.
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
-    const { ensureGlobalSignaldockDb, _resetGlobalSignaldockDb_TESTING_ONLY } = await import(
-      '../signaldock-sqlite.js'
+    const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
+      '../agent-registry-store.js'
     );
 
     // Bootstrap the DB fully.
-    const first = await ensureGlobalSignaldockDb();
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    const first = await ensureGlobalAgentRegistryDb();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
 
     // Simulate a partial-upgrade DB: remove all journal entries so the
     // reconciler must re-discover which migrations have been applied.
-    // Also clear the T9027 schema_version sentinel so ensureGlobalSignaldockDb
+    // Also clear the T9027 schema_version sentinel so ensureGlobalAgentRegistryDb
     // does not take the fast-path and skip runSignaldockMigrations() entirely.
     const db = new DatabaseSync(first.path);
     try {
@@ -279,8 +279,8 @@ describe('T897 agent_registry v3 migration', () => {
 
     // Re-running must succeed — reconcileJournal Scenario 1 detects agents table
     // exists, bootstraps the journal with the initial migration marked as applied.
-    const second = await ensureGlobalSignaldockDb();
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    const second = await ensureGlobalAgentRegistryDb();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
     expect(second.path).toBe(first.path);
 
     const verify = new DatabaseSync(second.path);

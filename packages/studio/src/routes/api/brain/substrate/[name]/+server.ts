@@ -24,7 +24,7 @@ const VALID_SUBSTRATES = new Set<BrainSubstrate>([
   'nexus',
   'tasks',
   'conduit',
-  'signaldock',
+  'agent-registry',
 ]);
 
 export const GET: RequestHandler = ({ locals, params, url }) => {

@@ -190,12 +190,12 @@ describe('Test 1: fresh init — all 5 DBs migrate clean', () => {
       getProjectRoot: () => tempDir,
     }));
 
-    const { ensureGlobalSignaldockDb, _resetGlobalSignaldockDb_TESTING_ONLY } = await import(
-      '../signaldock-sqlite.js'
+    const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
+      '../agent-registry-store.js'
     );
 
     try {
-      const result = await ensureGlobalSignaldockDb();
+      const result = await ensureGlobalAgentRegistryDb();
       expect(result.action).toBe('created');
       expect(existsSync(result.path)).toBe(true);
 
@@ -223,7 +223,7 @@ describe('Test 1: fresh init — all 5 DBs migrate clean', () => {
 
       nativeDb.close();
     } finally {
-      _resetGlobalSignaldockDb_TESTING_ONLY();
+      _resetGlobalAgentRegistryDb_TESTING_ONLY();
       vi.restoreAllMocks();
     }
   });

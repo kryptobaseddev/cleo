@@ -10,10 +10,10 @@ import { existsSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { resolveTelemetryMigrationsFolder } from '../../telemetry/sqlite.js';
+import { resolveAgentRegistryMigrationsFolder } from '../agent-registry-store.js';
 import { resolveBrainMigrationsFolder } from '../memory-sqlite.js';
 import { resolveNexusMigrationsFolder } from '../nexus-sqlite.js';
 import { resolveCorePackageMigrationsFolder } from '../resolve-migrations-folder.js';
-import { resolveSignaldockMigrationsFolder } from '../signaldock-sqlite.js';
 import { resolveMigrationsFolder } from '../sqlite.js';
 
 const ALL_SET_NAMES = [
@@ -93,8 +93,8 @@ describe('DB-specific wrapper functions', () => {
     expect(existsSync(result)).toBe(true);
   });
 
-  it('resolveSignaldockMigrationsFolder() returns the drizzle-signaldock path', () => {
-    const result = resolveSignaldockMigrationsFolder();
+  it('resolveAgentRegistryMigrationsFolder() returns the drizzle-signaldock path', () => {
+    const result = resolveAgentRegistryMigrationsFolder();
     expect(result).toContain(join('migrations', 'drizzle-signaldock'));
     expect(isAbsolute(result)).toBe(true);
     expect(existsSync(result)).toBe(true);
@@ -106,7 +106,7 @@ describe('DB-specific wrapper functions', () => {
       resolveBrainMigrationsFolder(),
       resolveNexusMigrationsFolder(),
       resolveTelemetryMigrationsFolder(),
-      resolveSignaldockMigrationsFolder(),
+      resolveAgentRegistryMigrationsFolder(),
     ];
     const unique = new Set(results);
     expect(unique.size).toBe(5);
@@ -118,7 +118,7 @@ describe('DB-specific wrapper functions', () => {
       resolveBrainMigrationsFolder(),
       resolveNexusMigrationsFolder(),
       resolveTelemetryMigrationsFolder(),
-      resolveSignaldockMigrationsFolder(),
+      resolveAgentRegistryMigrationsFolder(),
     ];
     // All paths share the same migrations parent — same @cleocode/core pkg root
     const roots = results.map((p) => {

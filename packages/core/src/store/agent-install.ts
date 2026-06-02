@@ -2,13 +2,14 @@
  * Atomic agent install pipeline.
  *
  * Validates a `.cant` source, computes its SHA-256, copies it to the target
- * tier directory, and writes an `agents` row + `agent_skills` junctions in
- * ONE SQLite transaction. On any failure the transaction is rolled back and
+ * tier directory, and writes an `agent_registry_agents` row +
+ * `agent_registry_agent_skills` junctions in ONE SQLite transaction (post-T11622
+ * cutover — folds T11578 AC2). On any failure the transaction is rolled back and
  * the filesystem is rewound to its pre-call state (newly-copied file is
  * removed if we own it), leaving DB + FS unchanged.
  *
- * The install function takes an already-open handle to the GLOBAL
- * `signaldock.db` (i.e. the target of `openGlobalDb()` in
+ * The install function takes an already-open handle to the GLOBAL consolidated
+ * `cleo.db` (i.e. the target of `openGlobalDb()` in
  * `agent-registry-accessor.ts`) rather than opening its own, so composite
  * workflows (seed-install, `cleo agent attach`) can batch multiple installs
  * under a single DB handle. Project attachment (`conduit.db:project_agent_refs`)
@@ -277,7 +278,7 @@ function resolveDestinationPath(input: InstallAgentFromCantInput, agentId: strin
  * The caller owns the `db` handle lifecycle; this function never calls
  * `db.close()`.
  *
- * @param db    - Open handle to global `signaldock.db`.
+ * @param db    - Open handle to global cleo.db (Agent Registry).
  * @param input - Install options (source path, tier, provenance, flags).
  * @returns Install result with the persisted agentId, digest, and tier.
  * @throws When the source is invalid, a duplicate row exists without
@@ -329,9 +330,9 @@ export function installAgentFromCant(
   const destinationDir = join(destinationPath, '..');
 
   // 6. Check existing row
-  const existingRow = db.prepare('SELECT id FROM agents WHERE agent_id = ?').get(agentId) as
-    | { id: string }
-    | undefined;
+  const existingRow = db
+    .prepare('SELECT id FROM agent_registry_agents WHERE agent_id = ?')
+    .get(agentId) as { id: string } | undefined;
   if (existingRow && !input.force) {
     throw new Error(
       `E_AGENT_ALREADY_INSTALLED: agent '${agentId}' is already registered. Pass force: true to overwrite.`,
@@ -342,7 +343,7 @@ export function installAgentFromCant(
   const warnings: string[] = [];
   const skillRows = new Map<string, string>(); // slug → skill id
   for (const slug of parsed.skills) {
-    const row = db.prepare('SELECT id FROM skills WHERE slug = ?').get(slug) as
+    const row = db.prepare('SELECT id FROM agent_registry_skills WHERE slug = ?').get(slug) as
       | { id: string }
       | undefined;
     if (row) {
@@ -354,10 +355,11 @@ export function installAgentFromCant(
 
   // 8. Determine orchestration fields
   const { canSpawn, orchLevel } = deriveSpawnFromRole(parsed.role);
-  const nowTs = Math.floor(Date.now() / 1000);
-  const nowIso = new Date(nowTs * 1000).toISOString();
+  // T11622 cutover: `agent_registry_agents` created_at/updated_at/installed_at +
+  // `agent_registry_agent_skills` attached_at are TEXT ISO-8601 (GLOB CHECK).
+  const nowIso = new Date().toISOString();
 
-  // 9. Atomic transaction: copy file, INSERT/UPDATE agents, sync agent_skills.
+  // 9. Atomic transaction: copy file, INSERT/UPDATE agent_registry_agents, sync agent_skills.
   //    On ANY failure roll back the DB AND (if we own the destination file)
   //    unlink it, restoring pre-call state.
   const destinationExistedBefore = existsSync(destinationPath);
@@ -375,7 +377,7 @@ export function installAgentFromCant(
 
     if (inserted) {
       db.prepare(
-        `INSERT INTO agents (
+        `INSERT INTO agent_registry_agents (
           id, agent_id, name, class, privacy_tier, capabilities, skills,
           transport_type, api_base_url, transport_config, is_active,
           status, created_at, updated_at, requires_reauth,
@@ -391,8 +393,8 @@ export function installAgentFromCant(
         agentId,
         agentId,
         JSON.stringify(parsed.skills),
-        nowTs,
-        nowTs,
+        nowIso,
+        nowIso,
         input.targetTier,
         canSpawn ? 1 : 0,
         orchLevel,
@@ -404,14 +406,14 @@ export function installAgentFromCant(
       );
     } else {
       db.prepare(
-        `UPDATE agents SET
+        `UPDATE agent_registry_agents SET
            skills = ?, updated_at = ?,
            tier = ?, can_spawn = ?, orch_level = ?, reports_to = ?,
            cant_path = ?, cant_sha256 = ?, installed_from = ?, installed_at = ?
          WHERE agent_id = ?`,
       ).run(
         JSON.stringify(parsed.skills),
-        nowTs,
+        nowIso,
         input.targetTier,
         canSpawn ? 1 : 0,
         orchLevel,
@@ -426,13 +428,13 @@ export function installAgentFromCant(
 
     // Refresh agent_skills junctions with source='cant'.
     const cantSource: AgentSkillSource = 'cant';
-    db.prepare('DELETE FROM agent_skills WHERE agent_id = ? AND source = ?').run(
+    db.prepare('DELETE FROM agent_registry_agent_skills WHERE agent_id = ? AND source = ?').run(
       agentUuid,
       cantSource,
     );
     for (const [, skillId] of skillRows) {
       db.prepare(
-        `INSERT OR IGNORE INTO agent_skills (agent_id, skill_id, source, attached_at)
+        `INSERT OR IGNORE INTO agent_registry_agent_skills (agent_id, skill_id, source, attached_at)
          VALUES (?, ?, ?, ?)`,
       ).run(agentUuid, skillId, cantSource, nowIso);
     }

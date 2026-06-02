@@ -4,7 +4,7 @@
  * Exports:
  * - Wire-format types (BrainNode, BrainEdge, BrainGraph, BrainQueryOptions, BrainStreamEvent, BrainConnectionStatus, BrainNodeKind, BrainSubstrate)
  * - Unified query function (`getAllSubstrates`)
- * - Individual substrate adapters (`getBrainSubstrate`, `getNexusSubstrate`, `getTasksSubstrate`, `getConduitSubstrate`, `getSignaldockSubstrate`)
+ * - Individual substrate adapters (`getBrainSubstrate`, `getNexusSubstrate`, `getTasksSubstrate`, `getConduitSubstrate`, `getAgentRegistrySubstrate`)
  * - Project context helpers (`ProjectContext`, `resolveDefaultProjectContext`)
  * - Path helpers (`getCleoHome`, `getCleoProjectDir`, `getBrainDbPath`, etc.)
  *
@@ -20,32 +20,32 @@
 
 // Substrate adapters and unified query
 export {
+  getAgentRegistrySubstrate,
   getAllSubstrates,
   getBrainSubstrate,
   getConduitSubstrate,
   getNexusSubstrate,
-  getSignaldockSubstrate,
   getTasksSubstrate,
 } from './adapters/index.js';
 // Path helpers (re-exported for downstream consumers that need to resolve
 // DB paths without importing the connection helpers directly)
 export {
   dbExists,
+  getAgentRegistryDbPath,
   getBrainDbPath,
   getCleoHome,
   getCleoProjectDir,
   getConduitDbPath,
   getNexusDbPath,
-  getSignaldockDbPath,
   getTasksDbPath,
 } from './cleo-home.js';
 // Low-level connection getters (for advanced consumers; studio typically uses
 // its own connection helpers and passes ProjectContext to the adapters instead)
 export {
+  getAgentRegistryDb,
   getBrainDb,
   getConduitDb,
   getNexusDb,
-  getSignaldockDb,
   getTasksDb,
 } from './db-connections.js';
 // Project context

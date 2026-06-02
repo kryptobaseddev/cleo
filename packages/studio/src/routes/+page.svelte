@@ -81,7 +81,7 @@
       brain: HealthDb;
       tasks: HealthDb;
       conduit: HealthDb;
-      signaldock: HealthDb;
+      'agent-registry': HealthDb;
     };
   }
 

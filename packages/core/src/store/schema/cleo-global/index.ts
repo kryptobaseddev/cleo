@@ -10,20 +10,20 @@
  * (`<projectRoot>/.cleo/cleo.db`, authored under `../cleo-project/`) and this
  * GLOBAL-scope DB (`$XDG_DATA_HOME/cleo/cleo.db`). The GLOBAL-scope DB holds
  * every CROSS-PROJECT domain — `nexus_*` (code-intelligence index) / `skills_*`
- * (installed-skills registry) / `signaldock_*` (global agent identity — folded
- * here per D1, no standalone `signaldock.db`) / `telemetry_*` (machine-wide
+ * (installed-skills registry) / `agent_registry_*` (global agent identity — folded
+ * here per D1, no standalone identity-DB file) / `telemetry_*` (machine-wide
  * command telemetry — relocated here from PROJECT scope by T11540 per ADR-090
  * §2.3) / `brain_*` (cross-project memory) — as domain-prefixed Pattern-A tables.
  *
  * Per the canonical typing report §1 (D1″), the GLOBAL `cleo.db` is
- * **51 tables / 567 columns** = nexus 10 + skills 4 + signaldock 13 +
+ * **51 tables / 567 columns** = nexus 10 + skills 4 + agent_registry 13 +
  * telemetry 2 + brain 22 (MIRRORED). This barrel composes exactly that set.
  *
  * Modules under this directory author the **target shape**: domain-prefixed
  * `sqliteTable` definitions with the E10 strict typing applied per
  * `docs/migration/sqlite-schema-canonical.md`. They are NOT yet the runtime
  * schema — the live runtime modules one level up
- * (`schema/{nexus-schema,code-index,skills-schema,signaldock-schema}.ts`) keep
+ * (`schema/{nexus-schema,code-index,skills-schema,agent-registry-schema}.ts`) keep
  * their UNPREFIXED physical names because they back live runtime queries and the
  * journaled drizzle migrations. The **exodus migration (T11248)** swaps the
  * substrate to this shape and renames the physical tables.
@@ -45,7 +45,7 @@
  * recognized domain prefix (`nexus_audit_log`, `nexus_nodes`, …) are NOT
  * double-prefixed; bare tables gain their domain prefix (`project_registry` →
  * `nexus_project_registry`, `code_index` → `nexus_code_index`, `skills` →
- * `skills_skills`, `agents` → `signaldock_agents`, …).
+ * `skills_skills`, `agents` → `agent_registry_agents`, …).
  *
  * ## Coverage (T11361 — global-exclusive authoring COMPLETE · 29 tables + 22 mirrored brain)
  *
@@ -59,15 +59,15 @@
  *   - **skills** (4 tables · `./skills.ts`): skills_skills · skills_skill_usage
  *     · skills_skill_reviews · skills_skill_patches. Already E10-clean (named
  *     enums + typed booleans + TEXT timestamps).
- *   - **signaldock** (13 tables · `./signaldock.ts`): signaldock_users ·
- *     signaldock_organization · signaldock_agents · signaldock_claim_codes ·
- *     signaldock_capabilities · signaldock_skills · signaldock_agent_capabilities
- *     · signaldock_agent_skills · signaldock_agent_connections ·
- *     signaldock_accounts · signaldock_sessions · signaldock_verifications ·
- *     signaldock_org_agent_keys. E10: §4 epoch → TEXT ISO8601 across cloud-sync
+ *   - **agent-registry** (13 tables · `./agent-registry.ts`): agent_registry_users ·
+ *     agent_registry_organization · agent_registry_agents · agent_registry_claim_codes ·
+ *     agent_registry_capabilities · agent_registry_skills · agent_registry_agent_capabilities
+ *     · agent_registry_agent_skills · agent_registry_agent_connections ·
+ *     agent_registry_accounts · agent_registry_sessions · agent_registry_verifications ·
+ *     agent_registry_org_agent_keys. E10: §4 epoch → TEXT ISO8601 across cloud-sync
  *     timestamps; §3b `agents.is_active` → typed boolean; §5b enums minted for
- *     `users.role` (`SIGNALDOCK_USER_ROLES`) and `agents.status`
- *     (`SIGNALDOCK_AGENT_STATUSES`). All FKs are intra-domain (single global
+ *     `users.role` (`AGENT_REGISTRY_USER_ROLES`) and `agents.status`
+ *     (`AGENT_REGISTRY_AGENT_STATUSES`). All FKs are intra-domain (single global
  *     file) → kept native `.references()` (AC4).
  *   - **telemetry** (2 tables · `./telemetry.ts`): telemetry_events ·
  *     telemetry_schema_meta. Relocated from PROJECT scope by T11540 per ADR-090
@@ -80,7 +80,7 @@
  *
  * **GLOBAL SCHEMA NOW COMPLETE.** 29 global-exclusive prefixed `sqliteTable`s +
  * 22 mirrored brain tables = the canonical 51 (nexus 10 + skills 4 +
- * signaldock 13 + telemetry 2 + brain 22). What remains for the saga is the
+ * agent_registry 13 + telemetry 2 + brain 22). What remains for the saga is the
  * exodus cutover (T11248).
  *
  * @task T11361
@@ -93,7 +93,7 @@
  */
 
 export * from '../cleo-shared/index.js';
+export * from './agent-registry.js';
 export * from './nexus.js';
-export * from './signaldock.js';
 export * from './skills.js';
 export * from './telemetry.js';

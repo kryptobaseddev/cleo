@@ -105,8 +105,8 @@ export function getConduitSubstrate(options: BrainQueryOptions = {}): {
     for (const [, pair] of agentPairs) {
       const weight = Math.min(1.0, pair.count / 10);
       edges.push({
-        source: `signaldock:${pair.from}`,
-        target: `signaldock:${pair.to}`,
+        source: `agent-registry:${pair.from}`,
+        target: `agent-registry:${pair.to}`,
         type: 'messages',
         weight,
         substrate: 'cross',

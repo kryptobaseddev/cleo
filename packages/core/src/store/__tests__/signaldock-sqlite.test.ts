@@ -1,13 +1,13 @@
 /**
- * Unit tests for signaldock-sqlite.ts — global-tier refactor (T346, T310).
+ * Unit tests for agent-registry-store.ts — global-tier refactor (T346, T310).
  *
  * All tests use a tmpdir override via vi.doMock('../../paths.js') so they
  * NEVER touch the real $XDG_DATA_HOME/cleo/ directory.
  *
  * Coverage (AC from T346):
- * - TC-020: getGlobalSignaldockDbPath returns path within getCleoHome()
- * - TC-021: ensureGlobalSignaldockDb creates file with global schema on fresh install
- * - TC-022: ensureGlobalSignaldockDb is idempotent
+ * - TC-020: getGlobalAgentRegistryDbPath returns path within getCleoHome()
+ * - TC-021: ensureGlobalAgentRegistryDb creates file with global schema on fresh install
+ * - TC-022: ensureGlobalAgentRegistryDb is idempotent
  * - TC-023: agents table contains requires_reauth column
  * - TC-024: All cloud-sync tables present (users, organization, accounts, sessions,
  *            verifications, claim_codes, org_agent_keys) with zero rows
@@ -15,17 +15,17 @@
  * - TC-026: agent_capabilities and agent_skills junction tables present
  * - TC-027: agent_connections table present
  * Additional:
- * - getSignaldockDbPath() (no args) returns global path (deprecated alias)
- * - getSignaldockDbPath(cwd) THROWS migration error
- * - ensureSignaldockDb() (no args) forwards to ensureGlobalSignaldockDb
- * - ensureSignaldockDb(cwd) THROWS migration error
- * - checkGlobalSignaldockDbHealth returns health report for existing DB
- * - checkSignaldockDbHealth(cwd) THROWS migration error
- * - getGlobalSignaldockNativeDb returns null before init, handle after ensureGlobalSignaldockDb
- * - _resetGlobalSignaldockDb_TESTING_ONLY clears singleton
- * - GLOBAL_SIGNALDOCK_DB_FILENAME constant value
- * - GLOBAL_SIGNALDOCK_SCHEMA_VERSION constant value
- * - SIGNALDOCK_SCHEMA_VERSION deprecated alias equals GLOBAL_SIGNALDOCK_SCHEMA_VERSION
+ * - getAgentRegistryDbPath() (no args) returns global path (deprecated alias)
+ * - getAgentRegistryDbPath(cwd) THROWS migration error
+ * - ensureAgentRegistryDb() (no args) forwards to ensureGlobalAgentRegistryDb
+ * - ensureAgentRegistryDb(cwd) THROWS migration error
+ * - checkGlobalAgentRegistryDbHealth returns health report for existing DB
+ * - checkAgentRegistryDbHealth(cwd) THROWS migration error
+ * - getGlobalAgentRegistryNativeDb returns null before init, handle after ensureGlobalAgentRegistryDb
+ * - _resetGlobalAgentRegistryDb_TESTING_ONLY clears singleton
+ * - GLOBAL_AGENT_REGISTRY_DB_FILENAME constant value
+ * - GLOBAL_AGENT_REGISTRY_SCHEMA_VERSION constant value
+ * - AGENT_REGISTRY_SCHEMA_VERSION deprecated alias equals GLOBAL_AGENT_REGISTRY_SCHEMA_VERSION
  *
  * @task T346
  * @epic T310
@@ -48,10 +48,10 @@ function makeTmpDir(suffix: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// TC-020: getGlobalSignaldockDbPath returns path within getCleoHome()
+// TC-020: getGlobalAgentRegistryDbPath returns path within getCleoHome()
 // ---------------------------------------------------------------------------
 
-describe('getGlobalSignaldockDbPath', () => {
+describe('getGlobalAgentRegistryDbPath', () => {
   beforeEach(() => {
     vi.resetModules();
   });
@@ -63,8 +63,8 @@ describe('getGlobalSignaldockDbPath', () => {
     const cleoHome = makeTmpDir('path-tc020');
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
-    const { getGlobalSignaldockDbPath } = await import('../signaldock-sqlite.js');
-    const result = getGlobalSignaldockDbPath();
+    const { getGlobalAgentRegistryDbPath } = await import('../agent-registry-store.js');
+    const result = getGlobalAgentRegistryDbPath();
 
     expect(result.startsWith(cleoHome)).toBe(true);
     // E6-L5 (T11525): signaldock now consolidates into the GLOBAL cleo.db.
@@ -75,8 +75,8 @@ describe('getGlobalSignaldockDbPath', () => {
     const cleoHome = makeTmpDir('path-filename');
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
-    const { getGlobalSignaldockDbPath } = await import('../signaldock-sqlite.js');
-    const result = getGlobalSignaldockDbPath();
+    const { getGlobalAgentRegistryDbPath } = await import('../agent-registry-store.js');
+    const result = getGlobalAgentRegistryDbPath();
 
     // E6-L5 (T11525): signaldock now consolidates into the GLOBAL cleo.db.
     expect(result.endsWith('cleo.db')).toBe(true);
@@ -84,10 +84,10 @@ describe('getGlobalSignaldockDbPath', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Deprecated alias: getSignaldockDbPath
+// Deprecated alias: getAgentRegistryDbPath
 // ---------------------------------------------------------------------------
 
-describe('getSignaldockDbPath (deprecated alias)', () => {
+describe('getAgentRegistryDbPath (deprecated alias)', () => {
   beforeEach(() => {
     vi.resetModules();
   });
@@ -96,27 +96,27 @@ describe('getSignaldockDbPath (deprecated alias)', () => {
     const cleoHome = makeTmpDir('deprecated-path-noargs');
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
-    const { getSignaldockDbPath, getGlobalSignaldockDbPath } = await import(
-      '../signaldock-sqlite.js'
+    const { getAgentRegistryDbPath, getGlobalAgentRegistryDbPath } = await import(
+      '../agent-registry-store.js'
     );
-    expect(getSignaldockDbPath()).toBe(getGlobalSignaldockDbPath());
+    expect(getAgentRegistryDbPath()).toBe(getGlobalAgentRegistryDbPath());
   });
 
   it('with a cwd argument THROWS a migration error', async () => {
     const cleoHome = makeTmpDir('deprecated-path-cwd');
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
-    const { getSignaldockDbPath } = await import('../signaldock-sqlite.js');
-    expect(() => getSignaldockDbPath('/some/project')).toThrow('T310');
-    expect(() => getSignaldockDbPath('/some/project')).toThrow('conduit-sqlite.ts');
+    const { getAgentRegistryDbPath } = await import('../agent-registry-store.js');
+    expect(() => getAgentRegistryDbPath('/some/project')).toThrow('T310');
+    expect(() => getAgentRegistryDbPath('/some/project')).toThrow('conduit-sqlite.ts');
   });
 });
 
 // ---------------------------------------------------------------------------
-// TC-021 + TC-022: ensureGlobalSignaldockDb creates DB and is idempotent
+// TC-021 + TC-022: ensureGlobalAgentRegistryDb creates DB and is idempotent
 // ---------------------------------------------------------------------------
 
-describe('ensureGlobalSignaldockDb', () => {
+describe('ensureGlobalAgentRegistryDb', () => {
   let cleoHome: string;
 
   beforeEach(() => {
@@ -137,31 +137,31 @@ describe('ensureGlobalSignaldockDb', () => {
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
     const {
-      ensureGlobalSignaldockDb,
-      getGlobalSignaldockDbPath,
-      _resetGlobalSignaldockDb_TESTING_ONLY,
-    } = await import('../signaldock-sqlite.js');
+      ensureGlobalAgentRegistryDb,
+      getGlobalAgentRegistryDbPath,
+      _resetGlobalAgentRegistryDb_TESTING_ONLY,
+    } = await import('../agent-registry-store.js');
 
-    const result = await ensureGlobalSignaldockDb();
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    const result = await ensureGlobalAgentRegistryDb();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
 
     expect(result.action).toBe('created');
-    expect(result.path).toBe(getGlobalSignaldockDbPath());
+    expect(result.path).toBe(getGlobalAgentRegistryDbPath());
     expect(existsSync(result.path)).toBe(true);
   });
 
   it('TC-022: is idempotent — second call returns action="exists"', async () => {
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
-    const { ensureGlobalSignaldockDb, _resetGlobalSignaldockDb_TESTING_ONLY } = await import(
-      '../signaldock-sqlite.js'
+    const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
+      '../agent-registry-store.js'
     );
 
-    const first = await ensureGlobalSignaldockDb();
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    const first = await ensureGlobalAgentRegistryDb();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
 
-    const second = await ensureGlobalSignaldockDb();
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    const second = await ensureGlobalAgentRegistryDb();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
 
     expect(first.action).toBe('created');
     expect(second.action).toBe('exists');
@@ -172,12 +172,12 @@ describe('ensureGlobalSignaldockDb', () => {
     const nestedHome = join(cleoHome, 'deep', 'nested');
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => nestedHome }));
 
-    const { ensureGlobalSignaldockDb, _resetGlobalSignaldockDb_TESTING_ONLY } = await import(
-      '../signaldock-sqlite.js'
+    const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
+      '../agent-registry-store.js'
     );
 
-    await ensureGlobalSignaldockDb();
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    await ensureGlobalAgentRegistryDb();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
 
     expect(existsSync(nestedHome)).toBe(true);
     // E6-L5 (T11525): signaldock now consolidates into the GLOBAL cleo.db.
@@ -209,11 +209,11 @@ describe('agents table schema', () => {
   it('TC-023: agents table contains requires_reauth column', async () => {
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
-    const { ensureGlobalSignaldockDb, _resetGlobalSignaldockDb_TESTING_ONLY } = await import(
-      '../signaldock-sqlite.js'
+    const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
+      '../agent-registry-store.js'
     );
-    const { path: dbPath } = await ensureGlobalSignaldockDb();
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    const { path: dbPath } = await ensureGlobalAgentRegistryDb();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
 
     const db = new DatabaseSync(dbPath);
     try {
@@ -238,11 +238,11 @@ describe('agents table schema', () => {
   it('agents table has is_active column from former migration 000003', async () => {
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
-    const { ensureGlobalSignaldockDb, _resetGlobalSignaldockDb_TESTING_ONLY } = await import(
-      '../signaldock-sqlite.js'
+    const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
+      '../agent-registry-store.js'
     );
-    const { path: dbPath } = await ensureGlobalSignaldockDb();
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    const { path: dbPath } = await ensureGlobalAgentRegistryDb();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
 
     const db = new DatabaseSync(dbPath);
     try {
@@ -283,11 +283,11 @@ describe('cloud-sync tables', () => {
   it('TC-024: users, organization, accounts, sessions, verifications, claim_codes, org_agent_keys all present with zero rows', async () => {
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
-    const { ensureGlobalSignaldockDb, _resetGlobalSignaldockDb_TESTING_ONLY } = await import(
-      '../signaldock-sqlite.js'
+    const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
+      '../agent-registry-store.js'
     );
-    const { path: dbPath } = await ensureGlobalSignaldockDb();
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    const { path: dbPath } = await ensureGlobalAgentRegistryDb();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
 
     const db = new DatabaseSync(dbPath);
     try {
@@ -339,11 +339,11 @@ describe('identity catalog tables', () => {
   it('TC-025: capabilities and skills tables are present', async () => {
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
-    const { ensureGlobalSignaldockDb, _resetGlobalSignaldockDb_TESTING_ONLY } = await import(
-      '../signaldock-sqlite.js'
+    const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
+      '../agent-registry-store.js'
     );
-    const { path: dbPath } = await ensureGlobalSignaldockDb();
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    const { path: dbPath } = await ensureGlobalAgentRegistryDb();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
 
     const db = new DatabaseSync(dbPath);
     try {
@@ -361,11 +361,11 @@ describe('identity catalog tables', () => {
   it('TC-026: agent_capabilities and agent_skills junction tables are present', async () => {
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
-    const { ensureGlobalSignaldockDb, _resetGlobalSignaldockDb_TESTING_ONLY } = await import(
-      '../signaldock-sqlite.js'
+    const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
+      '../agent-registry-store.js'
     );
-    const { path: dbPath } = await ensureGlobalSignaldockDb();
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    const { path: dbPath } = await ensureGlobalAgentRegistryDb();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
 
     const db = new DatabaseSync(dbPath);
     try {
@@ -383,11 +383,11 @@ describe('identity catalog tables', () => {
   it('TC-027: agent_connections table is present with correct columns', async () => {
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
-    const { ensureGlobalSignaldockDb, _resetGlobalSignaldockDb_TESTING_ONLY } = await import(
-      '../signaldock-sqlite.js'
+    const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
+      '../agent-registry-store.js'
     );
-    const { path: dbPath } = await ensureGlobalSignaldockDb();
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    const { path: dbPath } = await ensureGlobalAgentRegistryDb();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
 
     const db = new DatabaseSync(dbPath);
     try {
@@ -433,11 +433,11 @@ describe('project-local tables absent from global signaldock.db', () => {
   it('conversations, messages, delivery_jobs, dead_letters tables are NOT present', async () => {
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
-    const { ensureGlobalSignaldockDb, _resetGlobalSignaldockDb_TESTING_ONLY } = await import(
-      '../signaldock-sqlite.js'
+    const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
+      '../agent-registry-store.js'
     );
-    const { path: dbPath } = await ensureGlobalSignaldockDb();
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    const { path: dbPath } = await ensureGlobalAgentRegistryDb();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
 
     const db = new DatabaseSync(dbPath);
     try {
@@ -458,10 +458,10 @@ describe('project-local tables absent from global signaldock.db', () => {
 });
 
 // ---------------------------------------------------------------------------
-// checkGlobalSignaldockDbHealth
+// checkGlobalAgentRegistryDbHealth
 // ---------------------------------------------------------------------------
 
-describe('checkGlobalSignaldockDbHealth', () => {
+describe('checkGlobalAgentRegistryDbHealth', () => {
   let cleoHome: string;
 
   beforeEach(() => {
@@ -481,27 +481,27 @@ describe('checkGlobalSignaldockDbHealth', () => {
   it('returns exists=false when DB does not exist', async () => {
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
-    const { checkGlobalSignaldockDbHealth } = await import('../signaldock-sqlite.js');
-    const health = await checkGlobalSignaldockDbHealth();
+    const { checkGlobalAgentRegistryDbHealth } = await import('../agent-registry-store.js');
+    const health = await checkGlobalAgentRegistryDbHealth();
 
     expect(health).not.toBeNull();
     expect(health?.exists).toBe(false);
     expect(health?.tableCount).toBe(0);
   });
 
-  it('returns exists=true with correct table count after ensureGlobalSignaldockDb', async () => {
+  it('returns exists=true with correct table count after ensureGlobalAgentRegistryDb', async () => {
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
     const {
-      ensureGlobalSignaldockDb,
-      checkGlobalSignaldockDbHealth,
-      _resetGlobalSignaldockDb_TESTING_ONLY,
-    } = await import('../signaldock-sqlite.js');
+      ensureGlobalAgentRegistryDb,
+      checkGlobalAgentRegistryDbHealth,
+      _resetGlobalAgentRegistryDb_TESTING_ONLY,
+    } = await import('../agent-registry-store.js');
 
-    await ensureGlobalSignaldockDb();
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    await ensureGlobalAgentRegistryDb();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
 
-    const health = await checkGlobalSignaldockDbHealth();
+    const health = await checkGlobalAgentRegistryDbHealth();
     expect(health?.exists).toBe(true);
     expect(health?.schemaVersion).toBe('2026.4.12');
     // Global schema has: users, organization, agents, claim_codes, capabilities, skills,
@@ -512,10 +512,10 @@ describe('checkGlobalSignaldockDbHealth', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Deprecated: checkSignaldockDbHealth
+// Deprecated: checkAgentRegistryDbHealth
 // ---------------------------------------------------------------------------
 
-describe('checkSignaldockDbHealth (deprecated alias)', () => {
+describe('checkAgentRegistryDbHealth (deprecated alias)', () => {
   beforeEach(() => {
     vi.resetModules();
   });
@@ -524,26 +524,26 @@ describe('checkSignaldockDbHealth (deprecated alias)', () => {
     const cleoHome = makeTmpDir('deprecated-health-cwd');
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
-    const { checkSignaldockDbHealth } = await import('../signaldock-sqlite.js');
-    await expect(checkSignaldockDbHealth('/some/project')).rejects.toThrow('T310');
+    const { checkAgentRegistryDbHealth } = await import('../agent-registry-store.js');
+    await expect(checkAgentRegistryDbHealth('/some/project')).rejects.toThrow('T310');
   });
 
   it('with no args forwards to global health check', async () => {
     const cleoHome = makeTmpDir('deprecated-health-noargs');
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
-    const { checkSignaldockDbHealth } = await import('../signaldock-sqlite.js');
-    const health = await checkSignaldockDbHealth();
+    const { checkAgentRegistryDbHealth } = await import('../agent-registry-store.js');
+    const health = await checkAgentRegistryDbHealth();
     // DB doesn't exist yet; should return exists=false
     expect(health?.exists).toBe(false);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Deprecated: ensureSignaldockDb
+// Deprecated: ensureAgentRegistryDb
 // ---------------------------------------------------------------------------
 
-describe('ensureSignaldockDb (deprecated alias)', () => {
+describe('ensureAgentRegistryDb (deprecated alias)', () => {
   beforeEach(() => {
     vi.resetModules();
   });
@@ -552,19 +552,19 @@ describe('ensureSignaldockDb (deprecated alias)', () => {
     const cleoHome = makeTmpDir('deprecated-ensure-cwd');
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
-    const { ensureSignaldockDb } = await import('../signaldock-sqlite.js');
-    await expect(ensureSignaldockDb('/some/project')).rejects.toThrow('T310');
+    const { ensureAgentRegistryDb } = await import('../agent-registry-store.js');
+    await expect(ensureAgentRegistryDb('/some/project')).rejects.toThrow('T310');
   });
 
-  it('with no args forwards to ensureGlobalSignaldockDb', async () => {
+  it('with no args forwards to ensureGlobalAgentRegistryDb', async () => {
     const cleoHome = makeTmpDir('deprecated-ensure-noargs');
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
-    const { ensureSignaldockDb, _resetGlobalSignaldockDb_TESTING_ONLY } = await import(
-      '../signaldock-sqlite.js'
+    const { ensureAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
+      '../agent-registry-store.js'
     );
-    const result = await ensureSignaldockDb();
-    _resetGlobalSignaldockDb_TESTING_ONLY();
+    const result = await ensureAgentRegistryDb();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
 
     expect(result.action).toBe('created');
     // E6-L5 (T11525): signaldock now consolidates into the GLOBAL cleo.db.
@@ -574,10 +574,10 @@ describe('ensureSignaldockDb (deprecated alias)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// getGlobalSignaldockNativeDb and _resetGlobalSignaldockDb_TESTING_ONLY
+// getGlobalAgentRegistryNativeDb and _resetGlobalAgentRegistryDb_TESTING_ONLY
 // ---------------------------------------------------------------------------
 
-describe('getGlobalSignaldockNativeDb', () => {
+describe('getGlobalAgentRegistryNativeDb', () => {
   let cleoHome: string;
 
   beforeEach(() => {
@@ -594,28 +594,28 @@ describe('getGlobalSignaldockNativeDb', () => {
     }
   });
 
-  it('returns null before ensureGlobalSignaldockDb is called', async () => {
+  it('returns null before ensureGlobalAgentRegistryDb is called', async () => {
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
-    const { getGlobalSignaldockNativeDb } = await import('../signaldock-sqlite.js');
-    expect(getGlobalSignaldockNativeDb()).toBeNull();
+    const { getGlobalAgentRegistryNativeDb } = await import('../agent-registry-store.js');
+    expect(getGlobalAgentRegistryNativeDb()).toBeNull();
   });
 
-  it('returns a DatabaseSync handle after ensureGlobalSignaldockDb', async () => {
+  it('returns a DatabaseSync handle after ensureGlobalAgentRegistryDb', async () => {
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
     const {
-      ensureGlobalSignaldockDb,
-      getGlobalSignaldockNativeDb,
-      _resetGlobalSignaldockDb_TESTING_ONLY,
-    } = await import('../signaldock-sqlite.js');
+      ensureGlobalAgentRegistryDb,
+      getGlobalAgentRegistryNativeDb,
+      _resetGlobalAgentRegistryDb_TESTING_ONLY,
+    } = await import('../agent-registry-store.js');
 
-    await ensureGlobalSignaldockDb();
-    const handle = getGlobalSignaldockNativeDb();
+    await ensureGlobalAgentRegistryDb();
+    const handle = getGlobalAgentRegistryNativeDb();
     expect(handle).not.toBeNull();
 
-    _resetGlobalSignaldockDb_TESTING_ONLY();
-    expect(getGlobalSignaldockNativeDb()).toBeNull();
+    _resetGlobalAgentRegistryDb_TESTING_ONLY();
+    expect(getGlobalAgentRegistryNativeDb()).toBeNull();
   });
 });
 
@@ -628,29 +628,29 @@ describe('exported constants', () => {
     vi.resetModules();
   });
 
-  it('GLOBAL_SIGNALDOCK_DB_FILENAME is "signaldock.db"', async () => {
+  it('GLOBAL_AGENT_REGISTRY_DB_FILENAME is "signaldock.db"', async () => {
     const cleoHome = makeTmpDir('constants');
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
-    const { GLOBAL_SIGNALDOCK_DB_FILENAME } = await import('../signaldock-sqlite.js');
-    expect(GLOBAL_SIGNALDOCK_DB_FILENAME).toBe('signaldock.db');
+    const { GLOBAL_AGENT_REGISTRY_DB_FILENAME } = await import('../agent-registry-store.js');
+    expect(GLOBAL_AGENT_REGISTRY_DB_FILENAME).toBe('signaldock.db');
   });
 
-  it('GLOBAL_SIGNALDOCK_SCHEMA_VERSION is "2026.4.12"', async () => {
+  it('GLOBAL_AGENT_REGISTRY_SCHEMA_VERSION is "2026.4.12"', async () => {
     const cleoHome = makeTmpDir('constants2');
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
-    const { GLOBAL_SIGNALDOCK_SCHEMA_VERSION } = await import('../signaldock-sqlite.js');
-    expect(GLOBAL_SIGNALDOCK_SCHEMA_VERSION).toBe('2026.4.12');
+    const { GLOBAL_AGENT_REGISTRY_SCHEMA_VERSION } = await import('../agent-registry-store.js');
+    expect(GLOBAL_AGENT_REGISTRY_SCHEMA_VERSION).toBe('2026.4.12');
   });
 
-  it('SIGNALDOCK_SCHEMA_VERSION deprecated alias equals GLOBAL_SIGNALDOCK_SCHEMA_VERSION', async () => {
+  it('AGENT_REGISTRY_SCHEMA_VERSION deprecated alias equals GLOBAL_AGENT_REGISTRY_SCHEMA_VERSION', async () => {
     const cleoHome = makeTmpDir('constants3');
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
-    const { SIGNALDOCK_SCHEMA_VERSION, GLOBAL_SIGNALDOCK_SCHEMA_VERSION } = await import(
-      '../signaldock-sqlite.js'
+    const { AGENT_REGISTRY_SCHEMA_VERSION, GLOBAL_AGENT_REGISTRY_SCHEMA_VERSION } = await import(
+      '../agent-registry-store.js'
     );
-    expect(SIGNALDOCK_SCHEMA_VERSION).toBe(GLOBAL_SIGNALDOCK_SCHEMA_VERSION);
+    expect(AGENT_REGISTRY_SCHEMA_VERSION).toBe(GLOBAL_AGENT_REGISTRY_SCHEMA_VERSION);
   });
 });

@@ -881,7 +881,7 @@ export type {
 } from './orchestrate/plan.js';
 export {
   numericToAgentTier,
-  openSignaldockDbForComposer,
+  openAgentRegistryDbForComposer,
   orchestratePlan,
 } from './orchestrate/plan.js';
 // Orchestrate query ops (T1570 Wave 1 — migrated from orchestrate-engine.ts)
@@ -1306,6 +1306,20 @@ export type {
   StickyConvertTaskParams,
 } from './sticky/ops.js';
 export type { CreateStickyParams, ListStickiesParams, StickyNote } from './sticky/types.js';
+export {
+  _resetGlobalAgentRegistryDb_TESTING_ONLY,
+  AGENT_REGISTRY_SCHEMA_VERSION,
+  checkAgentRegistryDbHealth,
+  checkGlobalAgentRegistryDbHealth,
+  ensureAgentRegistryDb,
+  ensureGlobalAgentRegistryDb,
+  GLOBAL_AGENT_REGISTRY_DB_FILENAME,
+  GLOBAL_AGENT_REGISTRY_SCHEMA_VERSION,
+  getAgentRegistryDbPath,
+  getGlobalAgentRegistryDbPath,
+  getGlobalAgentRegistryNativeDb,
+  resolveAgentRegistryMigrationsFolder,
+} from './store/agent-registry-store.js';
 export type {
   AttachmentBackend,
   AttachmentBlobStore,
@@ -1392,20 +1406,6 @@ export {
   resolveCurrentSession,
   resolveCurrentSessionId,
 } from './store/session-store.js';
-export {
-  _resetGlobalSignaldockDb_TESTING_ONLY,
-  checkGlobalSignaldockDbHealth,
-  checkSignaldockDbHealth,
-  ensureGlobalSignaldockDb,
-  ensureSignaldockDb,
-  GLOBAL_SIGNALDOCK_DB_FILENAME,
-  GLOBAL_SIGNALDOCK_SCHEMA_VERSION,
-  getGlobalSignaldockDbPath,
-  getGlobalSignaldockNativeDb,
-  getSignaldockDbPath,
-  resolveSignaldockMigrationsFolder,
-  SIGNALDOCK_SCHEMA_VERSION,
-} from './store/signaldock-sqlite.js';
 export { getDb, getNativeDb } from './store/sqlite.js';
 export type {
   BackupScope,

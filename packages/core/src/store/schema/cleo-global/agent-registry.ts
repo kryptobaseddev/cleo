@@ -1,31 +1,36 @@
 /**
- * Global-scope `cleo.db` — consolidated **signaldock** domain (13 tables).
+ * Global-scope `cleo.db` — consolidated **Agent Registry** domain (13 tables).
+ *
+ * The Agent Registry is the GLOBAL agent-identity tier (formerly labelled
+ * "signaldock" — the rename landed under T11622 / SG-AGENT-IDENTITY E4). It holds
+ * agents / capabilities / skills / credentials and has ZERO send/receive
+ * functions — agent-to-agent messaging is owned by the conduit domain. The
+ * external `api.signaldock.io` URL retained below is an EXTERNAL Conduit transport
+ * channel, NOT this local registry; it intentionally keeps the legacy hostname.
  *
  * Part of the consolidated GLOBAL-scope `cleo.db` target shape authored for
- * SG-DB-SUBSTRATE-V2 (saga T11242, epic T11245/E2, task T11361). Signaldock is
- * the global agent-identity tier — it FOLDS into the global `cleo.db` per D1
- * (no standalone `signaldock.db` survives). Target-shape authoring only —
- * physical names carry the `signaldock_` domain prefix. The live runtime module
- * `schema/signaldock-schema.ts` keeps its UNPREFIXED names (`users`, `agents`,
- * …) until the exodus migration (T11248) swaps the substrate.
+ * SG-DB-SUBSTRATE-V2 (saga T11242, epic T11245/E2, task T11361). The Agent
+ * Registry FOLDS into the global `cleo.db` per D1 (no standalone identity-DB file
+ * survives). Physical names carry the `agent_registry_` domain prefix — these are
+ * the runtime READ + WRITE tables after the T11622 cutover (folds T11578 AC2).
  *
  * ## Idempotent prefixer (AC1)
  *
- * All 13 source tables are bare and gain the `signaldock_` prefix at exodus:
- * `users` → `signaldock_users` · `organization` → `signaldock_organization` ·
- * `agents` → `signaldock_agents` · `claim_codes` → `signaldock_claim_codes` ·
- * `capabilities` → `signaldock_capabilities` · `skills` → `signaldock_skills`
+ * All 13 source tables are bare and gain the `agent_registry_` prefix at exodus:
+ * `users` → `agent_registry_users` · `organization` → `agent_registry_organization` ·
+ * `agents` → `agent_registry_agents` · `claim_codes` → `agent_registry_claim_codes` ·
+ * `capabilities` → `agent_registry_capabilities` · `skills` → `agent_registry_skills`
  * (the global agent CAPABILITY/SKILL catalog — distinct from the `skills_*`
  * installed-skills registry) · `agent_capabilities` →
- * `signaldock_agent_capabilities` · `agent_skills` → `signaldock_agent_skills`
- * · `agent_connections` → `signaldock_agent_connections` · `accounts` →
- * `signaldock_accounts` · `sessions` → `signaldock_sessions` · `verifications`
- * → `signaldock_verifications` · `org_agent_keys` → `signaldock_org_agent_keys`.
+ * `agent_registry_agent_capabilities` · `agent_skills` → `agent_registry_agent_skills`
+ * · `agent_connections` → `agent_registry_agent_connections` · `accounts` →
+ * `agent_registry_accounts` · `sessions` → `agent_registry_sessions` · `verifications`
+ * → `agent_registry_verifications` · `org_agent_keys` → `agent_registry_org_agent_keys`.
  *
  * ## E10 typing applied
  *
  * - **§4 timestamps (INTEGER epoch non-conformers → TEXT ISO8601):** the
- *   signaldock cloud-sync tables stored `created_at` / `updated_at` (and
+ *   agent-registry cloud-sync tables stored `created_at` / `updated_at` (and
  *   `expires_at` / `used_at` / `last_seen` / `last_used_at` / `connected_at`)
  *   as raw INTEGER epoch. Every column the audit flagged `timestamp-epoch`
  *   becomes canonical `text` ISO8601; the matching `CHECK (col GLOB
@@ -33,12 +38,12 @@
  *   classified `numeric` by the audit — a heartbeat counter, NOT a flagged
  *   timestamp — so it stays `integer`. The better-auth `accounts` / `sessions`
  *   / `verifications` tables already use TEXT timestamps; left as-is.)
- * - **§5b enum-like bare TEXT → `{ enum }`:** `signaldock_users.role` →
- *   `{ enum: SIGNALDOCK_USER_ROLES }` and `signaldock_agents.status` →
- *   `{ enum: SIGNALDOCK_AGENT_STATUSES }` (the two signaldock §5b
+ * - **§5b enum-like bare TEXT → `{ enum }`:** `agent_registry_users.role` →
+ *   `{ enum: AGENT_REGISTRY_USER_ROLES }` and `agent_registry_agents.status` →
+ *   `{ enum: AGENT_REGISTRY_AGENT_STATUSES }` (the two agent-registry §5b
  *   non-conformers; const arrays minted in-module per §8.3 from the cloud-sync
  *   writer conventions — better-auth roles + the conduit presence set).
- * - **§3b boolean non-conformer:** `signaldock_agents.is_active` was untyped
+ * - **§3b boolean non-conformer:** `agent_registry_agents.is_active` was untyped
  *   INTEGER 0/1 → `integer({ mode:'boolean' })`. The remaining 0/1 columns the
  *   audit classified `numeric` (`email_verified`, `banned`, `two_factor_enabled`,
  *   `requires_reauth`, `can_spawn`, `sessions.active`) are NOT flagged as
@@ -47,10 +52,10 @@
  *
  * ## FK reconciliation to single-file Pattern A (AC4)
  *
- * Every signaldock FK is INTRA-domain (all 13 tables now live in the SAME global
+ * Every agent-registry FK is INTRA-domain (all 13 tables now live in the SAME global
  * `cleo.db` file), so the source `.references()` are preserved as native FKs:
- * `agents.owner_id` → `signaldock_users.id`, `agents.organization_id` →
- * `signaldock_organization.id`, `claim_codes.{agent_id,used_by}`,
+ * `agents.owner_id` → `agent_registry_users.id`, `agents.organization_id` →
+ * `agent_registry_organization.id`, `claim_codes.{agent_id,used_by}`,
  * `agent_capabilities`/`agent_skills` composite-PK junctions,
  * `accounts.user_id` / `sessions.user_id`, `org_agent_keys.{organization_id,
  * agent_id}`. None of these crossed a file boundary, so no soft-FK downgrade is
@@ -61,7 +66,8 @@
  * @saga T11242
  * @see docs/migration/sqlite-schema-canonical.md §1 (D1″ · global counts) · §3b · §4 · §5b
  * @see docs/migration/sqlite-schema-columns.json (per-column affinity SSoT)
- * @see ../signaldock-schema.ts (the runtime source module)
+ * @see ../agent-registry-schema.ts (the legacy bare-named runtime schema module)
+ * @task T11622 (Signaldock → Agent Registry rename + runtime cutover; folds T11578 AC2)
  */
 
 import { sql } from 'drizzle-orm';
@@ -72,21 +78,21 @@ import { index, integer, primaryKey, sqliteTable, text, unique } from 'drizzle-o
 // ---------------------------------------------------------------------------
 
 /**
- * Legal `signaldock_users.role` values — better-auth account roles.
+ * Legal `agent_registry_users.role` values — better-auth account roles.
  *
  * E10 §5b: `users.role` was bare `text('role')` (default `'user'`). The
- * signaldock users table mirrors the api.signaldock.io better-auth admin-plugin
+ * agent-registry users table mirrors the api.signaldock.io better-auth admin-plugin
  * role set; populated only on cloud sync. Default `'user'`.
  *
  * @task T11361
  */
-export const SIGNALDOCK_USER_ROLES = ['user', 'admin'] as const;
+export const AGENT_REGISTRY_USER_ROLES = ['user', 'admin'] as const;
 
-/** TypeScript union derived from {@link SIGNALDOCK_USER_ROLES}. */
-export type SignaldockUserRole = (typeof SIGNALDOCK_USER_ROLES)[number];
+/** TypeScript union derived from {@link AGENT_REGISTRY_USER_ROLES}. */
+export type AgentRegistryUserRole = (typeof AGENT_REGISTRY_USER_ROLES)[number];
 
 /**
- * Legal `signaldock_agents.status` values — agent presence.
+ * Legal `agent_registry_agents.status` values — agent presence.
  *
  * E10 §5b: `agents.status` was bare `text('status')` (default `'online'`). The
  * presence set is the one the conduit client distinguishes (`status ===
@@ -94,23 +100,23 @@ export type SignaldockUserRole = (typeof SIGNALDOCK_USER_ROLES)[number];
  *
  * @task T11361
  */
-export const SIGNALDOCK_AGENT_STATUSES = ['online', 'offline', 'busy', 'away'] as const;
+export const AGENT_REGISTRY_AGENT_STATUSES = ['online', 'offline', 'busy', 'away'] as const;
 
-/** TypeScript union derived from {@link SIGNALDOCK_AGENT_STATUSES}. */
-export type SignaldockAgentStatus = (typeof SIGNALDOCK_AGENT_STATUSES)[number];
+/** TypeScript union derived from {@link AGENT_REGISTRY_AGENT_STATUSES}. */
+export type AgentRegistryAgentStatus = (typeof AGENT_REGISTRY_AGENT_STATUSES)[number];
 
 // ---------------------------------------------------------------------------
 // Cloud-sync: user accounts + organizations
 // ---------------------------------------------------------------------------
 
 /**
- * `signaldock_users` — cloud-sync user accounts (zero rows in pure-local mode).
- * Bare `users` → `signaldock_users` under the AC1 idempotent prefixer.
+ * `agent_registry_users` — cloud-sync user accounts (zero rows in pure-local mode).
+ * Bare `users` → `agent_registry_users` under the AC1 idempotent prefixer.
  *
  * @task T11361 (target shape) · T346 (original)
  */
-export const signaldockUsers = sqliteTable(
-  'signaldock_users',
+export const agentRegistryUsers = sqliteTable(
+  'agent_registry_users',
   {
     /** User id. Primary key. */
     id: text('id').primaryKey(),
@@ -122,7 +128,7 @@ export const signaldockUsers = sqliteTable(
     name: text('name'),
     /** URL slug. */
     slug: text('slug'),
-    /** Default agent id for this user (soft FK → signaldock_agents.agent_id). */
+    /** Default agent id for this user (soft FK → agent_registry_agents.agent_id). */
     defaultAgentId: text('default_agent_id'),
     /** Login username. */
     username: text('username'),
@@ -132,8 +138,8 @@ export const signaldockUsers = sqliteTable(
     emailVerified: integer('email_verified').notNull().default(0),
     /** Avatar image URL. */
     image: text('image'),
-    /** Account role from {@link SIGNALDOCK_USER_ROLES} (E10 §5b — was bare TEXT). */
-    role: text('role', { enum: SIGNALDOCK_USER_ROLES }).notNull().default('user'),
+    /** Account role from {@link AGENT_REGISTRY_USER_ROLES} (E10 §5b — was bare TEXT). */
+    role: text('role', { enum: AGENT_REGISTRY_USER_ROLES }).notNull().default('user'),
     /** Banned flag (0/1; audit-classified numeric). */
     banned: integer('banned').notNull().default(0),
     /** Ban reason text. */
@@ -149,17 +155,17 @@ export const signaldockUsers = sqliteTable(
     /** ISO-8601 UTC last-update instant (E10 §4: epoch → TEXT ISO8601). */
     updatedAt: text('updated_at').notNull(),
   },
-  (table) => [index('idx_signaldock_users_slug').on(table.slug)],
+  (table) => [index('idx_agent_registry_users_slug').on(table.slug)],
 );
 
 /**
- * `signaldock_organization` — cloud-sync org/team records (zero rows locally).
- * Bare `organization` → `signaldock_organization`.
+ * `agent_registry_organization` — cloud-sync org/team records (zero rows locally).
+ * Bare `organization` → `agent_registry_organization`.
  *
  * @task T11361 (target shape) · T346 (original)
  */
-export const signaldockOrganization = sqliteTable(
-  'signaldock_organization',
+export const agentRegistryOrganization = sqliteTable(
+  'agent_registry_organization',
   {
     /** Organization id. Primary key. */
     id: text('id').primaryKey().notNull(),
@@ -171,14 +177,14 @@ export const signaldockOrganization = sqliteTable(
     logo: text('logo'),
     /** JSON metadata blob (serialized TEXT). */
     metadata: text('metadata'),
-    /** Owner user id (soft FK → signaldock_users.id). */
+    /** Owner user id (soft FK → agent_registry_users.id). */
     ownerId: text('owner_id'),
     /** ISO-8601 UTC creation instant (E10 §4: epoch → TEXT ISO8601). */
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
     /** ISO-8601 UTC last-update instant (E10 §4: epoch → TEXT ISO8601). */
     updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
   },
-  (table) => [index('idx_signaldock_organization_slug').on(table.slug)],
+  (table) => [index('idx_agent_registry_organization_slug').on(table.slug)],
 );
 
 // ---------------------------------------------------------------------------
@@ -186,16 +192,16 @@ export const signaldockOrganization = sqliteTable(
 // ---------------------------------------------------------------------------
 
 /**
- * `signaldock_agents` — canonical cross-project agent registry (global
- * identity). Bare `agents` → `signaldock_agents`.
+ * `agent_registry_agents` — canonical cross-project agent registry (global
+ * identity). Bare `agents` → `agent_registry_agents`.
  *
  * T897 v3 columns: tier, can_spawn, orch_level, reports_to, cant_path,
  * cant_sha256, installed_from, installed_at.
  *
  * @task T11361 (target shape) · T346 / T897 (original)
  */
-export const signaldockAgents = sqliteTable(
-  'signaldock_agents',
+export const agentRegistryAgents = sqliteTable(
+  'agent_registry_agents',
   {
     /** Agent id. Primary key. */
     id: text('id').primaryKey(),
@@ -209,8 +215,8 @@ export const signaldockAgents = sqliteTable(
     class: text('class').notNull().default('custom'),
     /** Privacy tier ("public" / "private" / …). */
     privacyTier: text('privacy_tier').notNull().default('public'),
-    /** Owner user id (intra-domain FK → signaldock_users.id). */
-    ownerId: text('owner_id').references(() => signaldockUsers.id),
+    /** Owner user id (intra-domain FK → agent_registry_users.id). */
+    ownerId: text('owner_id').references(() => agentRegistryUsers.id),
     /** Transport endpoint URL. */
     endpoint: text('endpoint'),
     /** Webhook signing secret. */
@@ -229,16 +235,16 @@ export const signaldockAgents = sqliteTable(
     conversationCount: integer('conversation_count').notNull().default(0),
     /** Friend count. */
     friendCount: integer('friend_count').notNull().default(0),
-    /** Agent presence from {@link SIGNALDOCK_AGENT_STATUSES} (E10 §5b — was bare TEXT). */
-    status: text('status', { enum: SIGNALDOCK_AGENT_STATUSES }).notNull().default('online'),
+    /** Agent presence from {@link AGENT_REGISTRY_AGENT_STATUSES} (E10 §5b — was bare TEXT). */
+    status: text('status', { enum: AGENT_REGISTRY_AGENT_STATUSES }).notNull().default('online'),
     /** Epoch-ms last-seen heartbeat (audit-classified numeric, not a flagged timestamp). */
     lastSeen: integer('last_seen'),
     /** JSON payment-config blob (serialized TEXT). */
     paymentConfig: text('payment_config'),
     /** Hashed API key. */
     apiKeyHash: text('api_key_hash'),
-    /** Owning organization id (intra-domain FK → signaldock_organization.id). */
-    organizationId: text('organization_id').references(() => signaldockOrganization.id, {
+    /** Owning organization id (intra-domain FK → agent_registry_organization.id). */
+    organizationId: text('organization_id').references(() => agentRegistryOrganization.id, {
       onDelete: 'set null',
     }),
     /** ISO-8601 UTC creation instant (E10 §4: epoch → TEXT ISO8601). */
@@ -249,7 +255,12 @@ export const signaldockAgents = sqliteTable(
     transportType: text('transport_type').notNull().default('http'),
     /** KDF-encrypted API key (ADR-037 §5). */
     apiKeyEncrypted: text('api_key_encrypted'),
-    /** Cloud API base URL. */
+    /**
+     * Cloud API base URL. The `api.signaldock.io` default is the EXTERNAL Conduit
+     * transport channel — it intentionally retains the legacy hostname and is NOT
+     * part of the Agent Registry rename (T11622). It configures where the agent
+     * talks to the cloud, not where the local registry lives.
+     */
     apiBaseUrl: text('api_base_url').notNull().default('https://api.signaldock.io'),
     /** Free-form classification label. */
     classification: text('classification'),
@@ -267,7 +278,7 @@ export const signaldockAgents = sqliteTable(
     canSpawn: integer('can_spawn').notNull().default(0),
     /** Orchestration level: 0=worker, 1=lead, 2=orchestrator. */
     orchLevel: integer('orch_level').notNull().default(2),
-    /** Agent id this agent reports to (soft FK → signaldock_agents.agent_id). */
+    /** Agent id this agent reports to (soft FK → agent_registry_agents.agent_id). */
     reportsTo: text('reports_to'),
     /** Absolute path to the agent's .cant definition file. */
     cantPath: text('cant_path'),
@@ -279,15 +290,15 @@ export const signaldockAgents = sqliteTable(
     installedAt: text('installed_at'),
   },
   (table) => [
-    index('idx_signaldock_agents_owner').on(table.ownerId),
-    index('idx_signaldock_agents_class').on(table.class),
-    index('idx_signaldock_agents_privacy').on(table.privacyTier),
-    index('idx_signaldock_agents_org').on(table.organizationId),
-    index('idx_signaldock_agents_transport_type').on(table.transportType),
-    index('idx_signaldock_agents_is_active').on(table.isActive),
-    index('idx_signaldock_agents_last_used').on(table.lastUsedAt),
-    index('idx_signaldock_agents_tier').on(table.tier),
-    index('idx_signaldock_agents_cant_path').on(table.cantPath),
+    index('idx_agent_registry_agents_owner').on(table.ownerId),
+    index('idx_agent_registry_agents_class').on(table.class),
+    index('idx_agent_registry_agents_privacy').on(table.privacyTier),
+    index('idx_agent_registry_agents_org').on(table.organizationId),
+    index('idx_agent_registry_agents_transport_type').on(table.transportType),
+    index('idx_agent_registry_agents_is_active').on(table.isActive),
+    index('idx_agent_registry_agents_last_used').on(table.lastUsedAt),
+    index('idx_agent_registry_agents_tier').on(table.tier),
+    index('idx_agent_registry_agents_cant_path').on(table.cantPath),
   ],
 );
 
@@ -296,32 +307,32 @@ export const signaldockAgents = sqliteTable(
 // ---------------------------------------------------------------------------
 
 /**
- * `signaldock_claim_codes` — one-time agent claim tokens (cloud provisioning).
- * Bare `claim_codes` → `signaldock_claim_codes`.
+ * `agent_registry_claim_codes` — one-time agent claim tokens (cloud provisioning).
+ * Bare `claim_codes` → `agent_registry_claim_codes`.
  *
  * @task T11361 (target shape) · T346 (original)
  */
-export const signaldockClaimCodes = sqliteTable(
-  'signaldock_claim_codes',
+export const agentRegistryClaimCodes = sqliteTable(
+  'agent_registry_claim_codes',
   {
     /** Claim code id. Primary key. */
     id: text('id').primaryKey(),
-    /** Agent being claimed (intra-domain FK → signaldock_agents.id). */
+    /** Agent being claimed (intra-domain FK → agent_registry_agents.id). */
     agentId: text('agent_id')
       .notNull()
-      .references(() => signaldockAgents.id),
+      .references(() => agentRegistryAgents.id),
     /** One-time claim code (unique). */
     code: text('code').notNull().unique(),
     /** ISO-8601 UTC expiry instant (E10 §4: epoch → TEXT ISO8601). */
     expiresAt: text('expires_at').notNull(),
     /** ISO-8601 UTC used instant; NULL until used (E10 §4: epoch → TEXT ISO8601). */
     usedAt: text('used_at'),
-    /** User who used the code (intra-domain FK → signaldock_users.id). */
-    usedBy: text('used_by').references(() => signaldockUsers.id),
+    /** User who used the code (intra-domain FK → agent_registry_users.id). */
+    usedBy: text('used_by').references(() => agentRegistryUsers.id),
     /** ISO-8601 UTC creation instant (E10 §4: epoch → TEXT ISO8601). */
     createdAt: text('created_at').notNull(),
   },
-  (table) => [index('idx_signaldock_claim_codes_agent').on(table.agentId)],
+  (table) => [index('idx_agent_registry_claim_codes_agent').on(table.agentId)],
 );
 
 // ---------------------------------------------------------------------------
@@ -329,12 +340,12 @@ export const signaldockClaimCodes = sqliteTable(
 // ---------------------------------------------------------------------------
 
 /**
- * `signaldock_capabilities` — pre-seeded capability-slug catalog. Bare
- * `capabilities` → `signaldock_capabilities`.
+ * `agent_registry_capabilities` — pre-seeded capability-slug catalog. Bare
+ * `capabilities` → `agent_registry_capabilities`.
  *
  * @task T11361 (target shape) · T346 (original)
  */
-export const signaldockCapabilities = sqliteTable('signaldock_capabilities', {
+export const agentRegistryCapabilities = sqliteTable('agent_registry_capabilities', {
   /** Capability id. Primary key. */
   id: text('id').primaryKey(),
   /** Capability slug (unique). */
@@ -350,13 +361,13 @@ export const signaldockCapabilities = sqliteTable('signaldock_capabilities', {
 });
 
 /**
- * `signaldock_skills` — pre-seeded agent skill-slug catalog. Bare `skills` →
- * `signaldock_skills`. (The agent CAPABILITY catalog — distinct from the
+ * `agent_registry_skills` — pre-seeded agent skill-slug catalog. Bare `skills` →
+ * `agent_registry_skills`. (The agent CAPABILITY catalog — distinct from the
  * installed-skills `skills_*` registry in `./skills.ts`.)
  *
  * @task T11361 (target shape) · T346 (original)
  */
-export const signaldockSkills = sqliteTable('signaldock_skills', {
+export const agentRegistrySkills = sqliteTable('agent_registry_skills', {
   /** Skill id. Primary key. */
   id: text('id').primaryKey(),
   /** Skill slug (unique). */
@@ -376,43 +387,43 @@ export const signaldockSkills = sqliteTable('signaldock_skills', {
 // ---------------------------------------------------------------------------
 
 /**
- * `signaldock_agent_capabilities` — agent ↔ capability junction. Bare
- * `agent_capabilities` → `signaldock_agent_capabilities`.
+ * `agent_registry_agent_capabilities` — agent ↔ capability junction. Bare
+ * `agent_capabilities` → `agent_registry_agent_capabilities`.
  *
  * @task T11361 (target shape) · T346 (original)
  */
-export const signaldockAgentCapabilities = sqliteTable(
-  'signaldock_agent_capabilities',
+export const agentRegistryAgentCapabilities = sqliteTable(
+  'agent_registry_agent_capabilities',
   {
-    /** Agent id (intra-domain FK → signaldock_agents.id). */
+    /** Agent id (intra-domain FK → agent_registry_agents.id). */
     agentId: text('agent_id')
       .notNull()
-      .references(() => signaldockAgents.id),
-    /** Capability id (intra-domain FK → signaldock_capabilities.id). */
+      .references(() => agentRegistryAgents.id),
+    /** Capability id (intra-domain FK → agent_registry_capabilities.id). */
     capabilityId: text('capability_id')
       .notNull()
-      .references(() => signaldockCapabilities.id),
+      .references(() => agentRegistryCapabilities.id),
   },
   (table) => [primaryKey({ columns: [table.agentId, table.capabilityId] })],
 );
 
 /**
- * `signaldock_agent_skills` — agent ↔ skill junction. Bare `agent_skills` →
- * `signaldock_agent_skills`. T897 v3 columns: source, attached_at.
+ * `agent_registry_agent_skills` — agent ↔ skill junction. Bare `agent_skills` →
+ * `agent_registry_agent_skills`. T897 v3 columns: source, attached_at.
  *
  * @task T11361 (target shape) · T897 (original)
  */
-export const signaldockAgentSkills = sqliteTable(
-  'signaldock_agent_skills',
+export const agentRegistryAgentSkills = sqliteTable(
+  'agent_registry_agent_skills',
   {
-    /** Agent id (intra-domain FK → signaldock_agents.id). */
+    /** Agent id (intra-domain FK → agent_registry_agents.id). */
     agentId: text('agent_id')
       .notNull()
-      .references(() => signaldockAgents.id),
-    /** Skill id (intra-domain FK → signaldock_skills.id). */
+      .references(() => agentRegistryAgents.id),
+    /** Skill id (intra-domain FK → agent_registry_skills.id). */
     skillId: text('skill_id')
       .notNull()
-      .references(() => signaldockSkills.id),
+      .references(() => agentRegistrySkills.id),
     /** Skill-attachment provenance (cant / manual / computed). */
     source: text('source').notNull().default('manual'),
     /** ISO-8601 UTC attachment instant (already canonical TEXT, §4). */
@@ -420,7 +431,7 @@ export const signaldockAgentSkills = sqliteTable(
   },
   (table) => [
     primaryKey({ columns: [table.agentId, table.skillId] }),
-    index('idx_signaldock_agent_skills_source').on(table.source),
+    index('idx_agent_registry_agent_skills_source').on(table.source),
   ],
 );
 
@@ -429,17 +440,17 @@ export const signaldockAgentSkills = sqliteTable(
 // ---------------------------------------------------------------------------
 
 /**
- * `signaldock_agent_connections` — live transport connection tracking
- * (heartbeat state). Bare `agent_connections` → `signaldock_agent_connections`.
+ * `agent_registry_agent_connections` — live transport connection tracking
+ * (heartbeat state). Bare `agent_connections` → `agent_registry_agent_connections`.
  *
  * @task T11361 (target shape) · T346 (original)
  */
-export const signaldockAgentConnections = sqliteTable(
-  'signaldock_agent_connections',
+export const agentRegistryAgentConnections = sqliteTable(
+  'agent_registry_agent_connections',
   {
     /** Connection id. Primary key. */
     id: text('id').primaryKey().notNull(),
-    /** Connected agent id (soft FK → signaldock_agents.agent_id). */
+    /** Connected agent id (soft FK → agent_registry_agents.agent_id). */
     agentId: text('agent_id').notNull(),
     /** Transport type ("http" / …). */
     transportType: text('transport_type').notNull().default('http'),
@@ -455,9 +466,9 @@ export const signaldockAgentConnections = sqliteTable(
     createdAt: text('created_at').notNull(),
   },
   (table) => [
-    index('idx_signaldock_agent_connections_agent').on(table.agentId),
-    index('idx_signaldock_agent_connections_transport').on(table.transportType),
-    index('idx_signaldock_agent_connections_heartbeat').on(table.lastHeartbeat),
+    index('idx_agent_registry_agent_connections_agent').on(table.agentId),
+    index('idx_agent_registry_agent_connections_transport').on(table.transportType),
+    index('idx_agent_registry_agent_connections_heartbeat').on(table.lastHeartbeat),
     unique().on(table.agentId, table.connectionId),
   ],
 );
@@ -467,20 +478,20 @@ export const signaldockAgentConnections = sqliteTable(
 // ---------------------------------------------------------------------------
 
 /**
- * `signaldock_accounts` — cloud-sync OAuth/provider accounts. Bare `accounts` →
- * `signaldock_accounts`. (better-auth timestamps already canonical TEXT, §4.)
+ * `agent_registry_accounts` — cloud-sync OAuth/provider accounts. Bare `accounts` →
+ * `agent_registry_accounts`. (better-auth timestamps already canonical TEXT, §4.)
  *
  * @task T11361 (target shape) · T346 (original)
  */
-export const signaldockAccounts = sqliteTable(
-  'signaldock_accounts',
+export const agentRegistryAccounts = sqliteTable(
+  'agent_registry_accounts',
   {
     /** Account row id. Primary key. */
     id: text('id').primaryKey().notNull(),
-    /** Owning user (intra-domain FK → signaldock_users.id). */
+    /** Owning user (intra-domain FK → agent_registry_users.id). */
     userId: text('user_id')
       .notNull()
-      .references(() => signaldockUsers.id, { onDelete: 'cascade' }),
+      .references(() => agentRegistryUsers.id, { onDelete: 'cascade' }),
     /** Provider account id. */
     accountId: text('account_id').notNull(),
     /** OAuth provider id. */
@@ -505,26 +516,26 @@ export const signaldockAccounts = sqliteTable(
     updatedAt: text('updated_at').notNull(),
   },
   (table) => [
-    index('idx_signaldock_accounts_user_id').on(table.userId),
-    unique('idx_signaldock_accounts_provider').on(table.providerId, table.accountId),
+    index('idx_agent_registry_accounts_user_id').on(table.userId),
+    unique('idx_agent_registry_accounts_provider').on(table.providerId, table.accountId),
   ],
 );
 
 /**
- * `signaldock_sessions` — cloud-sync authenticated sessions. Bare `sessions` →
- * `signaldock_sessions`.
+ * `agent_registry_sessions` — cloud-sync authenticated sessions. Bare `sessions` →
+ * `agent_registry_sessions`.
  *
  * @task T11361 (target shape) · T346 (original)
  */
-export const signaldockSessions = sqliteTable(
-  'signaldock_sessions',
+export const agentRegistrySessions = sqliteTable(
+  'agent_registry_sessions',
   {
     /** Session id. Primary key. */
     id: text('id').primaryKey().notNull(),
-    /** Owning user (intra-domain FK → signaldock_users.id). */
+    /** Owning user (intra-domain FK → agent_registry_users.id). */
     userId: text('user_id')
       .notNull()
-      .references(() => signaldockUsers.id, { onDelete: 'cascade' }),
+      .references(() => agentRegistryUsers.id, { onDelete: 'cascade' }),
     /** Session token (unique). */
     token: text('token').notNull().unique(),
     /** Client IP address. */
@@ -533,7 +544,7 @@ export const signaldockSessions = sqliteTable(
     userAgent: text('user_agent'),
     /** ISO-8601 UTC expiry instant (canonical TEXT, §4). */
     expiresAt: text('expires_at').notNull(),
-    /** Active organization id (soft FK → signaldock_organization.id). */
+    /** Active organization id (soft FK → agent_registry_organization.id). */
     activeOrganizationId: text('active_organization_id'),
     /** Impersonating admin user id, if any. */
     impersonatedBy: text('impersonated_by'),
@@ -544,17 +555,17 @@ export const signaldockSessions = sqliteTable(
     /** ISO-8601 UTC last-update instant (canonical TEXT, §4). */
     updatedAt: text('updated_at').notNull(),
   },
-  (table) => [index('idx_signaldock_sessions_user_id').on(table.userId)],
+  (table) => [index('idx_agent_registry_sessions_user_id').on(table.userId)],
 );
 
 /**
- * `signaldock_verifications` — cloud-sync email/2FA verification tokens. Bare
- * `verifications` → `signaldock_verifications`.
+ * `agent_registry_verifications` — cloud-sync email/2FA verification tokens. Bare
+ * `verifications` → `agent_registry_verifications`.
  *
  * @task T11361 (target shape) · T346 (original)
  */
-export const signaldockVerifications = sqliteTable(
-  'signaldock_verifications',
+export const agentRegistryVerifications = sqliteTable(
+  'agent_registry_verifications',
   {
     /** Verification id. Primary key. */
     id: text('id').primaryKey().notNull(),
@@ -569,7 +580,7 @@ export const signaldockVerifications = sqliteTable(
     /** ISO-8601 UTC last-update instant (canonical TEXT, §4). */
     updatedAt: text('updated_at').notNull(),
   },
-  (table) => [index('idx_signaldock_verifications_identifier').on(table.identifier)],
+  (table) => [index('idx_agent_registry_verifications_identifier').on(table.identifier)],
 );
 
 // ---------------------------------------------------------------------------
@@ -577,32 +588,32 @@ export const signaldockVerifications = sqliteTable(
 // ---------------------------------------------------------------------------
 
 /**
- * `signaldock_org_agent_keys` — org-scoped agent API keys (cloud use; zero rows
- * locally). Bare `org_agent_keys` → `signaldock_org_agent_keys`.
+ * `agent_registry_org_agent_keys` — org-scoped agent API keys (cloud use; zero rows
+ * locally). Bare `org_agent_keys` → `agent_registry_org_agent_keys`.
  *
  * @task T11361 (target shape) · T346 (original)
  */
-export const signaldockOrgAgentKeys = sqliteTable(
-  'signaldock_org_agent_keys',
+export const agentRegistryOrgAgentKeys = sqliteTable(
+  'agent_registry_org_agent_keys',
   {
     /** Key row id. Primary key. */
     id: text('id').primaryKey().notNull(),
-    /** Owning organization (intra-domain FK → signaldock_organization.id). */
+    /** Owning organization (intra-domain FK → agent_registry_organization.id). */
     organizationId: text('organization_id')
       .notNull()
-      .references(() => signaldockOrganization.id, { onDelete: 'cascade' }),
-    /** Scoped agent (intra-domain FK → signaldock_agents.id). */
+      .references(() => agentRegistryOrganization.id, { onDelete: 'cascade' }),
+    /** Scoped agent (intra-domain FK → agent_registry_agents.id). */
     agentId: text('agent_id')
       .notNull()
-      .references(() => signaldockAgents.id, { onDelete: 'cascade' }),
+      .references(() => agentRegistryAgents.id, { onDelete: 'cascade' }),
     /** Creator user id. */
     createdBy: text('created_by').notNull(),
     /** ISO-8601 UTC creation instant (E10 §4: epoch → TEXT ISO8601). */
     createdAt: text('created_at').notNull(),
   },
   (table) => [
-    index('idx_signaldock_org_agent_keys_org').on(table.organizationId),
-    index('idx_signaldock_org_agent_keys_agent').on(table.agentId),
+    index('idx_agent_registry_org_agent_keys_org').on(table.organizationId),
+    index('idx_agent_registry_org_agent_keys_agent').on(table.agentId),
   ],
 );
 
@@ -610,55 +621,55 @@ export const signaldockOrgAgentKeys = sqliteTable(
 // Inferred row + insert types
 // ---------------------------------------------------------------------------
 
-/** Row type for `signaldock_users` SELECT (target shape). */
-export type SignaldockUserRow = typeof signaldockUsers.$inferSelect;
-/** Row type for `signaldock_users` INSERT (target shape). */
-export type NewSignaldockUserRow = typeof signaldockUsers.$inferInsert;
-/** Row type for `signaldock_organization` SELECT (target shape). */
-export type SignaldockOrganizationRow = typeof signaldockOrganization.$inferSelect;
-/** Row type for `signaldock_organization` INSERT (target shape). */
-export type NewSignaldockOrganizationRow = typeof signaldockOrganization.$inferInsert;
-/** Row type for `signaldock_agents` SELECT (target shape). */
-export type SignaldockAgentRow = typeof signaldockAgents.$inferSelect;
-/** Row type for `signaldock_agents` INSERT (target shape). */
-export type NewSignaldockAgentRow = typeof signaldockAgents.$inferInsert;
-/** Row type for `signaldock_claim_codes` SELECT (target shape). */
-export type SignaldockClaimCodeRow = typeof signaldockClaimCodes.$inferSelect;
-/** Row type for `signaldock_claim_codes` INSERT (target shape). */
-export type NewSignaldockClaimCodeRow = typeof signaldockClaimCodes.$inferInsert;
-/** Row type for `signaldock_capabilities` SELECT (target shape). */
-export type SignaldockCapabilityRow = typeof signaldockCapabilities.$inferSelect;
-/** Row type for `signaldock_capabilities` INSERT (target shape). */
-export type NewSignaldockCapabilityRow = typeof signaldockCapabilities.$inferInsert;
-/** Row type for `signaldock_skills` SELECT (target shape). */
-export type SignaldockSkillRow = typeof signaldockSkills.$inferSelect;
-/** Row type for `signaldock_skills` INSERT (target shape). */
-export type NewSignaldockSkillRow = typeof signaldockSkills.$inferInsert;
-/** Row type for `signaldock_agent_capabilities` SELECT (target shape). */
-export type SignaldockAgentCapabilityRow = typeof signaldockAgentCapabilities.$inferSelect;
-/** Row type for `signaldock_agent_capabilities` INSERT (target shape). */
-export type NewSignaldockAgentCapabilityRow = typeof signaldockAgentCapabilities.$inferInsert;
-/** Row type for `signaldock_agent_skills` SELECT (target shape). */
-export type SignaldockAgentSkillRow = typeof signaldockAgentSkills.$inferSelect;
-/** Row type for `signaldock_agent_skills` INSERT (target shape). */
-export type NewSignaldockAgentSkillRow = typeof signaldockAgentSkills.$inferInsert;
-/** Row type for `signaldock_agent_connections` SELECT (target shape). */
-export type SignaldockAgentConnectionRow = typeof signaldockAgentConnections.$inferSelect;
-/** Row type for `signaldock_agent_connections` INSERT (target shape). */
-export type NewSignaldockAgentConnectionRow = typeof signaldockAgentConnections.$inferInsert;
-/** Row type for `signaldock_accounts` SELECT (target shape). */
-export type SignaldockAccountRow = typeof signaldockAccounts.$inferSelect;
-/** Row type for `signaldock_accounts` INSERT (target shape). */
-export type NewSignaldockAccountRow = typeof signaldockAccounts.$inferInsert;
-/** Row type for `signaldock_sessions` SELECT (target shape). */
-export type SignaldockSessionRow = typeof signaldockSessions.$inferSelect;
-/** Row type for `signaldock_sessions` INSERT (target shape). */
-export type NewSignaldockSessionRow = typeof signaldockSessions.$inferInsert;
-/** Row type for `signaldock_verifications` SELECT (target shape). */
-export type SignaldockVerificationRow = typeof signaldockVerifications.$inferSelect;
-/** Row type for `signaldock_verifications` INSERT (target shape). */
-export type NewSignaldockVerificationRow = typeof signaldockVerifications.$inferInsert;
-/** Row type for `signaldock_org_agent_keys` SELECT (target shape). */
-export type SignaldockOrgAgentKeyRow = typeof signaldockOrgAgentKeys.$inferSelect;
-/** Row type for `signaldock_org_agent_keys` INSERT (target shape). */
-export type NewSignaldockOrgAgentKeyRow = typeof signaldockOrgAgentKeys.$inferInsert;
+/** Row type for `agent_registry_users` SELECT (target shape). */
+export type AgentRegistryUserRow = typeof agentRegistryUsers.$inferSelect;
+/** Row type for `agent_registry_users` INSERT (target shape). */
+export type NewAgentRegistryUserRow = typeof agentRegistryUsers.$inferInsert;
+/** Row type for `agent_registry_organization` SELECT (target shape). */
+export type AgentRegistryOrganizationRow = typeof agentRegistryOrganization.$inferSelect;
+/** Row type for `agent_registry_organization` INSERT (target shape). */
+export type NewAgentRegistryOrganizationRow = typeof agentRegistryOrganization.$inferInsert;
+/** Row type for `agent_registry_agents` SELECT (target shape). */
+export type AgentRegistryAgentRow = typeof agentRegistryAgents.$inferSelect;
+/** Row type for `agent_registry_agents` INSERT (target shape). */
+export type NewAgentRegistryAgentRow = typeof agentRegistryAgents.$inferInsert;
+/** Row type for `agent_registry_claim_codes` SELECT (target shape). */
+export type AgentRegistryClaimCodeRow = typeof agentRegistryClaimCodes.$inferSelect;
+/** Row type for `agent_registry_claim_codes` INSERT (target shape). */
+export type NewAgentRegistryClaimCodeRow = typeof agentRegistryClaimCodes.$inferInsert;
+/** Row type for `agent_registry_capabilities` SELECT (target shape). */
+export type AgentRegistryCapabilityRow = typeof agentRegistryCapabilities.$inferSelect;
+/** Row type for `agent_registry_capabilities` INSERT (target shape). */
+export type NewAgentRegistryCapabilityRow = typeof agentRegistryCapabilities.$inferInsert;
+/** Row type for `agent_registry_skills` SELECT (target shape). */
+export type AgentRegistrySkillRow = typeof agentRegistrySkills.$inferSelect;
+/** Row type for `agent_registry_skills` INSERT (target shape). */
+export type NewAgentRegistrySkillRow = typeof agentRegistrySkills.$inferInsert;
+/** Row type for `agent_registry_agent_capabilities` SELECT (target shape). */
+export type AgentRegistryAgentCapabilityRow = typeof agentRegistryAgentCapabilities.$inferSelect;
+/** Row type for `agent_registry_agent_capabilities` INSERT (target shape). */
+export type NewAgentRegistryAgentCapabilityRow = typeof agentRegistryAgentCapabilities.$inferInsert;
+/** Row type for `agent_registry_agent_skills` SELECT (target shape). */
+export type AgentRegistryAgentSkillRow = typeof agentRegistryAgentSkills.$inferSelect;
+/** Row type for `agent_registry_agent_skills` INSERT (target shape). */
+export type NewAgentRegistryAgentSkillRow = typeof agentRegistryAgentSkills.$inferInsert;
+/** Row type for `agent_registry_agent_connections` SELECT (target shape). */
+export type AgentRegistryAgentConnectionRow = typeof agentRegistryAgentConnections.$inferSelect;
+/** Row type for `agent_registry_agent_connections` INSERT (target shape). */
+export type NewAgentRegistryAgentConnectionRow = typeof agentRegistryAgentConnections.$inferInsert;
+/** Row type for `agent_registry_accounts` SELECT (target shape). */
+export type AgentRegistryAccountRow = typeof agentRegistryAccounts.$inferSelect;
+/** Row type for `agent_registry_accounts` INSERT (target shape). */
+export type NewAgentRegistryAccountRow = typeof agentRegistryAccounts.$inferInsert;
+/** Row type for `agent_registry_sessions` SELECT (target shape). */
+export type AgentRegistrySessionRow = typeof agentRegistrySessions.$inferSelect;
+/** Row type for `agent_registry_sessions` INSERT (target shape). */
+export type NewAgentRegistrySessionRow = typeof agentRegistrySessions.$inferInsert;
+/** Row type for `agent_registry_verifications` SELECT (target shape). */
+export type AgentRegistryVerificationRow = typeof agentRegistryVerifications.$inferSelect;
+/** Row type for `agent_registry_verifications` INSERT (target shape). */
+export type NewAgentRegistryVerificationRow = typeof agentRegistryVerifications.$inferInsert;
+/** Row type for `agent_registry_org_agent_keys` SELECT (target shape). */
+export type AgentRegistryOrgAgentKeyRow = typeof agentRegistryOrgAgentKeys.$inferSelect;
+/** Row type for `agent_registry_org_agent_keys` INSERT (target shape). */
+export type NewAgentRegistryOrgAgentKeyRow = typeof agentRegistryOrgAgentKeys.$inferInsert;

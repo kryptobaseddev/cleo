@@ -9,10 +9,13 @@
 import { createRequire } from 'node:module';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import type { AgentSpawnCapability, Task } from '@cleocode/contracts';
+import {
+  ensureGlobalAgentRegistryDb,
+  getGlobalAgentRegistryDbPath,
+} from '../store/agent-registry-store.js';
 import { AgentNotFoundError, resolveAgent } from '../store/agent-resolver.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { ensureGlobalSignaldockDb, getGlobalSignaldockDbPath } from '../store/signaldock-sqlite.js';
 import { MAX_WORKER_FILES } from './atomicity.js';
 import { CLASSIFY_CONFIDENCE_FLOOR, CLASSIFY_FALLBACK_AGENT_ID, classifyTask } from './classify.js';
 
@@ -86,10 +89,10 @@ export interface SpawnValidationContext {
  * "skip the agent-existence check" so the validator degrades gracefully
  * instead of blocking spawn for a missing global DB.
  */
-async function openSignaldockDbForPreflight(): Promise<DatabaseSync | null> {
+async function openAgentRegistryDbForPreflight(): Promise<DatabaseSync | null> {
   try {
-    await ensureGlobalSignaldockDb();
-    const dbPath = getGlobalSignaldockDbPath();
+    await ensureGlobalAgentRegistryDb();
+    const dbPath = getGlobalAgentRegistryDbPath();
     const db = new _DatabaseSyncCtor(dbPath);
     db.exec('PRAGMA foreign_keys = ON');
     return db;
@@ -239,7 +242,7 @@ export async function validateSpawnReadiness(
   // initialised (e.g. pre-init unit tests) the check is skipped entirely
   // so the validator does not block spawn for a missing DB.
   {
-    const db = await openSignaldockDbForPreflight();
+    const db = await openAgentRegistryDbForPreflight();
     if (db !== null) {
       try {
         const agentId = deriveAgentIdForPreflight(task);

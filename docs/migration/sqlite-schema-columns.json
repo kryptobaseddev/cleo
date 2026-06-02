@@ -24,7 +24,7 @@
     "packages/core/src/store/schema/conduit-schema.ts",
     "packages/core/src/store/schema/memory-schema.ts",
     "packages/core/src/store/schema/nexus-schema.ts",
-    "packages/core/src/store/schema/signaldock-schema.ts",
+    "packages/core/src/store/schema/agent-registry-schema.ts",
     "packages/core/src/store/schema/skills-schema.ts",
     "packages/core/src/store/schema/agent-schema.ts",
     "packages/core/src/store/schema/telemetry-schema.ts",
@@ -15277,9 +15277,9 @@
     {
       "tableVar": "users",
       "tableName": "users",
-      "relPath": "packages/core/src/store/schema/signaldock-schema.ts",
+      "relPath": "packages/core/src/store/schema/agent-registry-schema.ts",
       "targetScope": "brain",
-      "targetTable": "signaldock_users",
+      "targetTable": "agent_registry_users",
       "columns": [
         {
           "field": "id",
@@ -15556,9 +15556,9 @@
     {
       "tableVar": "organization",
       "tableName": "organization",
-      "relPath": "packages/core/src/store/schema/signaldock-schema.ts",
+      "relPath": "packages/core/src/store/schema/agent-registry-schema.ts",
       "targetScope": "brain",
-      "targetTable": "signaldock_organization",
+      "targetTable": "agent_registry_organization",
       "columns": [
         {
           "field": "id",
@@ -15685,9 +15685,9 @@
     {
       "tableVar": "agents",
       "tableName": "agents",
-      "relPath": "packages/core/src/store/schema/signaldock-schema.ts",
+      "relPath": "packages/core/src/store/schema/agent-registry-schema.ts",
       "targetScope": "brain",
-      "targetTable": "signaldock_agents",
+      "targetTable": "agent_registry_agents",
       "columns": [
         {
           "field": "id",
@@ -16279,9 +16279,9 @@
     {
       "tableVar": "claimCodes",
       "tableName": "claim_codes",
-      "relPath": "packages/core/src/store/schema/signaldock-schema.ts",
+      "relPath": "packages/core/src/store/schema/agent-registry-schema.ts",
       "targetScope": "brain",
-      "targetTable": "signaldock_claim_codes",
+      "targetTable": "agent_registry_claim_codes",
       "columns": [
         {
           "field": "id",
@@ -16393,9 +16393,9 @@
     {
       "tableVar": "capabilities",
       "tableName": "capabilities",
-      "relPath": "packages/core/src/store/schema/signaldock-schema.ts",
+      "relPath": "packages/core/src/store/schema/agent-registry-schema.ts",
       "targetScope": "brain",
-      "targetTable": "signaldock_capabilities",
+      "targetTable": "agent_registry_capabilities",
       "columns": [
         {
           "field": "id",
@@ -16492,9 +16492,9 @@
     {
       "tableVar": "skills",
       "tableName": "skills",
-      "relPath": "packages/core/src/store/schema/signaldock-schema.ts",
+      "relPath": "packages/core/src/store/schema/agent-registry-schema.ts",
       "targetScope": "brain",
-      "targetTable": "signaldock_skills",
+      "targetTable": "agent_registry_skills",
       "columns": [
         {
           "field": "id",
@@ -16591,9 +16591,9 @@
     {
       "tableVar": "agentCapabilities",
       "tableName": "agent_capabilities",
-      "relPath": "packages/core/src/store/schema/signaldock-schema.ts",
+      "relPath": "packages/core/src/store/schema/agent-registry-schema.ts",
       "targetScope": "brain",
-      "targetTable": "signaldock_agent_capabilities",
+      "targetTable": "agent_registry_agent_capabilities",
       "columns": [
         {
           "field": "agentId",
@@ -16630,9 +16630,9 @@
     {
       "tableVar": "agentSkills",
       "tableName": "agent_skills",
-      "relPath": "packages/core/src/store/schema/signaldock-schema.ts",
+      "relPath": "packages/core/src/store/schema/agent-registry-schema.ts",
       "targetScope": "brain",
-      "targetTable": "signaldock_agent_skills",
+      "targetTable": "agent_registry_agent_skills",
       "columns": [
         {
           "field": "agentId",
@@ -16699,9 +16699,9 @@
     {
       "tableVar": "agentConnections",
       "tableName": "agent_connections",
-      "relPath": "packages/core/src/store/schema/signaldock-schema.ts",
+      "relPath": "packages/core/src/store/schema/agent-registry-schema.ts",
       "targetScope": "brain",
-      "targetTable": "signaldock_agent_connections",
+      "targetTable": "agent_registry_agent_connections",
       "columns": [
         {
           "field": "id",
@@ -16828,9 +16828,9 @@
     {
       "tableVar": "accounts",
       "tableName": "accounts",
-      "relPath": "packages/core/src/store/schema/signaldock-schema.ts",
+      "relPath": "packages/core/src/store/schema/agent-registry-schema.ts",
       "targetScope": "brain",
-      "targetTable": "signaldock_accounts",
+      "targetTable": "agent_registry_accounts",
       "columns": [
         {
           "field": "id",
@@ -17032,9 +17032,9 @@
     {
       "tableVar": "sessions",
       "tableName": "sessions",
-      "relPath": "packages/core/src/store/schema/signaldock-schema.ts",
+      "relPath": "packages/core/src/store/schema/agent-registry-schema.ts",
       "targetScope": "brain",
-      "targetTable": "signaldock_sessions",
+      "targetTable": "agent_registry_sessions",
       "columns": [
         {
           "field": "id",
@@ -17206,9 +17206,9 @@
     {
       "tableVar": "verifications",
       "tableName": "verifications",
-      "relPath": "packages/core/src/store/schema/signaldock-schema.ts",
+      "relPath": "packages/core/src/store/schema/agent-registry-schema.ts",
       "targetScope": "brain",
-      "targetTable": "signaldock_verifications",
+      "targetTable": "agent_registry_verifications",
       "columns": [
         {
           "field": "id",
@@ -17305,9 +17305,9 @@
     {
       "tableVar": "orgAgentKeys",
       "tableName": "org_agent_keys",
-      "relPath": "packages/core/src/store/schema/signaldock-schema.ts",
+      "relPath": "packages/core/src/store/schema/agent-registry-schema.ts",
       "targetScope": "brain",
-      "targetTable": "signaldock_org_agent_keys",
+      "targetTable": "agent_registry_org_agent_keys",
       "columns": [
         {
           "field": "id",

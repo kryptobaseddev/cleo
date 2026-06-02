@@ -3,7 +3,7 @@
  *
  * Verifies that `migrateSignaldockToConduit` is invoked at CLI startup when
  * `needsSignaldockToConduitMigration` returns true, and is skipped when it
- * returns false. Also verifies that `ensureConduitDb`, `ensureGlobalSignaldockDb`,
+ * returns false. Also verifies that `ensureConduitDb`, `ensureGlobalAgentRegistryDb`,
  * and `validateGlobalSalt` are called as part of the startup sequence.
  *
  * Because `packages/cleo/src/cli/index.ts` executes its startup block at
@@ -26,7 +26,7 @@ const {
   needsSignaldockToConduitMigrationMock,
   migrateSignaldockToConduitMock,
   ensureConduitDbMock,
-  ensureGlobalSignaldockDbMock,
+  ensureGlobalAgentRegistryDbMock,
   validateGlobalSaltMock,
   getGlobalSaltMock,
   getLoggerMock,
@@ -48,7 +48,7 @@ const {
     ensureConduitDbMock: vi
       .fn()
       .mockReturnValue({ action: 'exists', path: '/test/project/.cleo/conduit.db' }),
-    ensureGlobalSignaldockDbMock: vi
+    ensureGlobalAgentRegistryDbMock: vi
       .fn()
       .mockResolvedValue({ action: 'exists', path: '/home/.local/share/cleo/signaldock.db' }),
     validateGlobalSaltMock: vi.fn(),
@@ -72,7 +72,7 @@ vi.mock('@cleocode/core/internal', () => ({
   needsSignaldockToConduitMigration: needsSignaldockToConduitMigrationMock,
   migrateSignaldockToConduit: migrateSignaldockToConduitMock,
   ensureConduitDb: ensureConduitDbMock,
-  ensureGlobalSignaldockDb: ensureGlobalSignaldockDbMock,
+  ensureGlobalAgentRegistryDb: ensureGlobalAgentRegistryDbMock,
   validateGlobalSalt: validateGlobalSaltMock,
   getGlobalSalt: getGlobalSaltMock,
   getLogger: getLoggerMock,
@@ -264,14 +264,14 @@ describe('CLI startup: T310 migration hook (T360)', () => {
     expect(migrateSignaldockToConduitMock).not.toHaveBeenCalled();
   });
 
-  it('T9029: does NOT call ensureConduitDb or ensureGlobalSignaldockDb during startup (deferred DB opens)', async () => {
-    // ensureConduitDb + ensureGlobalSignaldockDb were removed from runStartupMaintenance
+  it('T9029: does NOT call ensureConduitDb or ensureGlobalAgentRegistryDb during startup (deferred DB opens)', async () => {
+    // ensureConduitDb + ensureGlobalAgentRegistryDb were removed from runStartupMaintenance
     // (T9029) — they now open lazily only when the command that needs them runs.
     const { runStartupMaintenance } = await import('../index.js');
     await runStartupMaintenance();
 
     expect(ensureConduitDbMock).not.toHaveBeenCalled();
-    expect(ensureGlobalSignaldockDbMock).not.toHaveBeenCalled();
+    expect(ensureGlobalAgentRegistryDbMock).not.toHaveBeenCalled();
   });
 
   it('calls validateGlobalSalt and logs 4-byte hex fingerprint at INFO level (AC3)', async () => {

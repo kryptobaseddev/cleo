@@ -20,7 +20,7 @@ const VALID_SUBSTRATES = new Set<BrainSubstrate>([
   'nexus',
   'tasks',
   'conduit',
-  'signaldock',
+  'agent-registry',
 ]);
 
 const TIER_LIMITS: Record<number, number> = {
@@ -150,8 +150,8 @@ describe('response shape contract', () => {
       nodes: [],
       edges: [],
       counts: {
-        nodes: { brain: 0, nexus: 0, tasks: 0, conduit: 0, signaldock: 0 },
-        edges: { brain: 0, nexus: 0, tasks: 0, conduit: 0, signaldock: 0, cross: 0 },
+        nodes: { brain: 0, nexus: 0, tasks: 0, conduit: 0, 'agent-registry': 0 },
+        edges: { brain: 0, nexus: 0, tasks: 0, conduit: 0, 'agent-registry': 0, cross: 0 },
       },
       truncated: false,
     };
@@ -170,8 +170,8 @@ describe('response shape contract', () => {
       nodes: [],
       edges: [],
       counts: {
-        nodes: { brain: 0, nexus: 0, tasks: 0, conduit: 0, signaldock: 0 },
-        edges: { brain: 0, nexus: 0, tasks: 0, conduit: 0, signaldock: 0, cross: 0 },
+        nodes: { brain: 0, nexus: 0, tasks: 0, conduit: 0, 'agent-registry': 0 },
+        edges: { brain: 0, nexus: 0, tasks: 0, conduit: 0, 'agent-registry': 0, cross: 0 },
       },
       truncated: false,
     };

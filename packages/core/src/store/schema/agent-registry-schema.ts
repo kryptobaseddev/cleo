@@ -1,9 +1,19 @@
 /**
- * Drizzle ORM schema for CLEO signaldock.db (global-tier agent identity database).
+ * Drizzle ORM schema for the LEGACY BARE-named Agent Registry shape (global-tier
+ * agent identity database; formerly labelled "signaldock").
  *
- * Reverse-engineered from GLOBAL_EMBEDDED_MIGRATIONS in signaldock-sqlite.ts
- * (initial migration + T897 v3 column additions). Replaces the bare-SQL
- * bootstrap so drizzle-kit generate / check can operate on this database.
+ * ## Post-T11622 status — historical bare shape
+ *
+ * After the T11622 cutover (folds T11578 AC2) the Agent Registry runtime READS +
+ * WRITES the PREFIXED consolidated tables (`agent_registry_*`) authored in
+ * `cleo-global/agent-registry.ts`, NOT these bare tables. This module is retained
+ * for: (1) the schema-audit walk (`scripts/audit-sqlite-schema.mjs`), and (2) any
+ * legacy on-disk `signaldock.db` the exodus migration still reads from. It is no
+ * longer the live runtime schema.
+ *
+ * Reverse-engineered from GLOBAL_EMBEDDED_MIGRATIONS (initial migration + T897 v3
+ * column additions). Replaces the bare-SQL bootstrap so drizzle-kit generate /
+ * check can operate on this database.
  *
  * Tables:
  *   - users              — Cloud-sync user accounts (zero rows in pure-local mode)

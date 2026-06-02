@@ -8,7 +8,7 @@
  * in global-tier signaldock.db and is not exercised here.
  *
  * @task T249
- * @task T344 — migrated from ensureSignaldockDb(cwd) (project-tier) to
+ * @task T344 — migrated from ensureAgentRegistryDb(cwd) (project-tier) to
  *               await ensureConduitDb(cwd) after T310 moved messaging to conduit.db.
  */
 

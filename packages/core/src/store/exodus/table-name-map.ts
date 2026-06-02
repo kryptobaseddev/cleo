@@ -346,38 +346,49 @@ export function resolveTableTargetScope(
 }
 
 /**
- * signaldock.db (global) — tables from signaldock-schema.ts, all prefixed `signaldock_*`.
+ * agent-registry (global) — the legacy on-disk source file is `signaldock.db`
+ * (the source-descriptor `name` stays `"signaldock"` — see {@link inferSourceKind} —
+ * because that is the genuine artifact name on disk). Its bare tables map to the
+ * consolidated PREFIXED `agent_registry_*` tables (renamed from `signaldock_*`
+ * under T11622 / SG-AGENT-IDENTITY E4).
  *
- * Note: signaldock.db has a `sessions` table (identity session management),
- * which maps to `signaldock_sessions` — NOT `tasks_sessions`.
+ * KEYS are the bare legacy names (the source DB still has the old shape); VALUES
+ * are the consolidated `agent_registry_*` target names — these MUST equal the
+ * `sqliteTable` names declared in `cleo-global/agent-registry.ts` (asserted by
+ * the exodus-map invariant test, the DHQ-046 N→0 deficit catcher).
+ *
+ * Note: the legacy `signaldock.db` has a `sessions` table (identity session
+ * management), which maps to `agent_registry_sessions` — NOT `tasks_sessions`.
  *
  * ## `skills` mapping (T11533 ROOT CAUSE 3 fix)
  *
- * signaldock.db contains a `skills` table (36 rows — pre-seeded skill slug catalog,
- * `export const skills = sqliteTable('skills', …)` in `signaldock-schema.ts`).
- * In the consolidated global schema this becomes `signaldock_skills`. Without
- * this entry the legacy `skills` table fell through to an identity mapping,
- * looked for a `skills` table in the global cleo.db (absent), and was silently
- * skipped — resulting in signaldock_skills=0 despite 36 source rows.
+ * The legacy `signaldock.db` contains a `skills` table (36 rows — pre-seeded skill
+ * slug catalog). In the consolidated global schema this becomes
+ * `agent_registry_skills`. Without this entry the legacy `skills` table fell
+ * through to an identity mapping, looked for a `skills` table in the global
+ * cleo.db (absent), and was silently skipped — resulting in
+ * agent_registry_skills=0 despite 36 source rows.
+ *
+ * @task T11622 (signaldock_* → agent_registry_* target rename; folds T11578 AC2)
  */
-const SIGNALDOCK_DB_MAP: ReadonlyMap<string, string> = new Map([
-  ['users', 'signaldock_users'],
-  ['organization', 'signaldock_organization'],
-  ['agents', 'signaldock_agents'],
-  ['claim_codes', 'signaldock_claim_codes'],
-  ['agent_capabilities', 'signaldock_agent_capabilities'],
+const AGENT_REGISTRY_DB_MAP: ReadonlyMap<string, string> = new Map([
+  ['users', 'agent_registry_users'],
+  ['organization', 'agent_registry_organization'],
+  ['agents', 'agent_registry_agents'],
+  ['claim_codes', 'agent_registry_claim_codes'],
+  ['agent_capabilities', 'agent_registry_agent_capabilities'],
   // agent_skills junction: agent <-> skill slug catalog bindings
-  ['agent_skills', 'signaldock_agent_skills'],
-  ['agent_connections', 'signaldock_agent_connections'],
-  ['accounts', 'signaldock_accounts'],
-  ['sessions', 'signaldock_sessions'],
-  ['verifications', 'signaldock_verifications'],
-  ['org_agent_keys', 'signaldock_org_agent_keys'],
+  ['agent_skills', 'agent_registry_agent_skills'],
+  ['agent_connections', 'agent_registry_agent_connections'],
+  ['accounts', 'agent_registry_accounts'],
+  ['sessions', 'agent_registry_sessions'],
+  ['verifications', 'agent_registry_verifications'],
+  ['org_agent_keys', 'agent_registry_org_agent_keys'],
   // Capability catalog (pre-seeded, 19 entries)
-  ['capabilities', 'signaldock_capabilities'],
+  ['capabilities', 'agent_registry_capabilities'],
   // Skill catalog (pre-seeded, 36 entries) — T11533 ROOT CAUSE 3 fix:
   // was missing → identity fallback → 'skills' absent in global → 0 rows copied.
-  ['skills', 'signaldock_skills'],
+  ['skills', 'agent_registry_skills'],
 ]);
 
 /**
@@ -429,7 +440,7 @@ function inferSourceKind(sourceName: string): SourceKind | null {
  *
  * - `_conduit_meta` / `_conduit_migrations` — conduit-sqlite's own
  *   schema-version + migration-ledger tables (see `conduit-sqlite.ts`).
- * - `_signaldock_meta` / `_signaldock_migrations` — signaldock-sqlite's own
+ * - `_signaldock_meta` / `_signaldock_migrations` — agent-registry-store's own
  *   ledger tables (same class — T11577 global-scope cutover blocker).
  * - `_skills_meta` — skills.db's own schema-version row (same class — T11577).
  *
@@ -608,7 +619,7 @@ export function resolveConsolidatedTableName(
       map = NEXUS_DB_MAP;
       break;
     case 'signaldock':
-      map = SIGNALDOCK_DB_MAP;
+      map = AGENT_REGISTRY_DB_MAP;
       break;
     case 'skills':
       map = SKILLS_DB_MAP;
@@ -689,7 +700,7 @@ export function reverseLookup(
         map = NEXUS_DB_MAP;
         break;
       case 'signaldock':
-        map = SIGNALDOCK_DB_MAP;
+        map = AGENT_REGISTRY_DB_MAP;
         break;
       case 'skills':
         map = SKILLS_DB_MAP;

@@ -102,7 +102,7 @@ let _skillsInitPromise: Promise<NodeSQLiteDatabase<typeof skillsSchema>> | null 
  */
 export function getDefaultSkillsDbPath(): string {
   // Resolve via THIS module's getCleoHome binding so the path and the guard are
-  // self-consistent — see the same note on signaldock-sqlite.getGlobalSignaldockDbPath
+  // self-consistent — see the same note on signaldock-sqlite.getGlobalAgentRegistryDbPath
   // (T11525). resolveDualScopeDbPath('global') builds the identical path but binds
   // getCleoHome through dual-scope-db's module graph, which can diverge under
   // per-test vi.doMock timing.

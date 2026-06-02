@@ -20,7 +20,7 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { applyPerfPragmas } from '@cleocode/core';
-import { dbExists, getNexusDbPath, getSignaldockDbPath } from '../cleo-home.js';
+import { dbExists, getAgentRegistryDbPath, getNexusDbPath } from '../cleo-home.js';
 import type { ProjectContext } from '../project-context.js';
 
 const _require = createRequire(import.meta.url);
@@ -60,9 +60,9 @@ export function getNexusDb(): DatabaseSync | null {
  * Returns a read-only connection to the global signaldock.db.
  * Returns null when the file does not exist on disk.
  */
-export function getSignaldockDb(): DatabaseSync | null {
+export function getAgentRegistryDb(): DatabaseSync | null {
   if (signaldockDb) return signaldockDb;
-  const path = getSignaldockDbPath();
+  const path = getAgentRegistryDbPath();
   if (!dbExists(path)) return null;
   signaldockDb = new DatabaseSync(path, { open: true });
   applyPerfPragmas(signaldockDb); // apply pragma SSoT (T9045)
@@ -144,7 +144,7 @@ export function getDbStatus(ctx: ProjectContext): {
   brain: boolean;
   tasks: boolean;
   conduit: boolean;
-  signaldock: boolean;
+  'agent-registry': boolean;
   nexusPath: string;
   brainPath: string;
   tasksPath: string;
@@ -157,11 +157,11 @@ export function getDbStatus(ctx: ProjectContext): {
     brain: existsSync(ctx.brainDbPath),
     tasks: existsSync(ctx.tasksDbPath),
     conduit: existsSync(conduitPath),
-    signaldock: dbExists(getSignaldockDbPath()),
+    'agent-registry': dbExists(getAgentRegistryDbPath()),
     nexusPath: getNexusDbPath(),
     brainPath: ctx.brainDbPath,
     tasksPath: ctx.tasksDbPath,
     conduitPath,
-    signaldockPath: getSignaldockDbPath(),
+    signaldockPath: getAgentRegistryDbPath(),
   };
 }

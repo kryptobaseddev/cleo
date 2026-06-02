@@ -42,7 +42,7 @@ export type {
   PlanWave,
   PlanWorkerEntry,
 } from './plan.js';
-export { numericToAgentTier, openSignaldockDbForComposer, orchestratePlan } from './plan.js';
+export { numericToAgentTier, openAgentRegistryDbForComposer, orchestratePlan } from './plan.js';
 export type { EngineResult } from './query-ops.js';
 export {
   loadTasks,

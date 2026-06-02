@@ -40,7 +40,7 @@ vi.mock('$lib/server/db/connections.js', () => ({
     brain: false,
     tasks: false,
     conduit: false,
-    signaldock: false,
+    'agent-registry': false,
     nexusPath: '/tmp/nexus.db',
     brainPath: '/tmp/brain.db',
     tasksPath: '/tmp/tasks.db',
@@ -51,7 +51,7 @@ vi.mock('$lib/server/db/connections.js', () => ({
   getBrainDb: vi.fn(() => null),
   getTasksDb: vi.fn(() => null),
   getConduitDb: vi.fn(() => null),
-  getSignaldockDb: vi.fn(() => null),
+  getAgentRegistryDb: vi.fn(() => null),
 }));
 
 interface PartialEvent {
@@ -102,7 +102,7 @@ describe('GET /api/health', () => {
     const res = await GET(asEvent<typeof GET>({ locals: { projectCtx: {} } }));
     const body = (await (res as Response).json()) as HealthEnvelope;
 
-    for (const key of ['nexus', 'brain', 'tasks', 'conduit', 'signaldock']) {
+    for (const key of ['nexus', 'brain', 'tasks', 'conduit', 'agent-registry']) {
       const report = body.databases[key];
       expect(report).toBeDefined();
       expect(typeof report?.available).toBe('boolean');

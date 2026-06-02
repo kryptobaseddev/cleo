@@ -37,7 +37,7 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { applyPerfPragmas } from '@cleocode/core/store/sqlite-pragmas.js';
-import { dbExists, getNexusDbPath, getSignaldockDbPath } from './cleo-home.js';
+import { dbExists, getAgentRegistryDbPath, getNexusDbPath } from './cleo-home.js';
 import type { ProjectContext } from './project-context.js';
 
 /**
@@ -132,9 +132,9 @@ export function getNexusDb(): DatabaseSync | null {
  * The raw open is per-line-allowed during the E4 → E6 transition; substrate
  * adapters still target legacy signaldock.db table names. Full exodus in E6 (T11249).
  */
-export function getSignaldockDb(): DatabaseSync | null {
+export function getAgentRegistryDb(): DatabaseSync | null {
   if (signaldockDb) return signaldockDb;
-  const path = getSignaldockDbPath();
+  const path = getAgentRegistryDbPath();
   if (!dbExists(path)) return null;
   signaldockDb = new DatabaseSync(path, { open: true }); // db-open-allowed: E4-T5 coexistence — adapters target legacy signaldock.db schema; full exodus in E6 (T11249)
   applyPerfPragmas(signaldockDb);

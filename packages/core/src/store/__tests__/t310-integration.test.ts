@@ -382,13 +382,13 @@ async function runMigration(
     getGlobalSalt: () => Buffer.alloc(32, 0xab),
     __clearGlobalSaltCache: vi.fn(),
   }));
-  vi.doMock('../signaldock-sqlite.js', () => ({
+  vi.doMock('../agent-registry-store.js', () => ({
     // E6-L5 (T11525): the global signaldock domain consolidated into cleo.db.
-    ensureGlobalSignaldockDb: vi.fn(async () => ({
+    ensureGlobalAgentRegistryDb: vi.fn(async () => ({
       action: 'exists',
       path: join(cleoHome, 'cleo.db'),
     })),
-    getGlobalSignaldockDbPath: () => join(cleoHome, 'cleo.db'),
+    getGlobalAgentRegistryDbPath: () => join(cleoHome, 'cleo.db'),
   }));
   const { migrateSignaldockToConduit } = await import('../migrate-signaldock-to-conduit.js');
   return await migrateSignaldockToConduit(projectRoot);
@@ -427,13 +427,13 @@ describe('T310: conduit + signaldock integration', () => {
     }));
 
     const { ensureConduitDb } = await import('../conduit-sqlite.js');
-    const { ensureGlobalSignaldockDb } = await import('../signaldock-sqlite.js');
+    const { ensureGlobalAgentRegistryDb } = await import('../agent-registry-store.js');
 
     const conduitResult = await ensureConduitDb(projectRoot);
     expect(conduitResult.action).toBe('created');
     expect(existsSync(conduitResult.path)).toBe(true);
 
-    const sdResult = await ensureGlobalSignaldockDb();
+    const sdResult = await ensureGlobalAgentRegistryDb();
     expect(sdResult.action).toBe('created');
     expect(existsSync(sdResult.path)).toBe(true);
 
@@ -470,12 +470,12 @@ describe('T310: conduit + signaldock integration', () => {
       __clearGlobalSaltCache: vi.fn(),
     }));
 
-    const { ensureGlobalSignaldockDb } = await import('../signaldock-sqlite.js');
+    const { ensureGlobalAgentRegistryDb } = await import('../agent-registry-store.js');
     const { ensureConduitDb, closeConduitDb } = await import('../conduit-sqlite.js');
     const { createProjectAgent } = await import('../agent-registry-accessor.js');
     const { deriveApiKey } = await import('../api-key-kdf.js');
 
-    await ensureGlobalSignaldockDb();
+    await ensureGlobalAgentRegistryDb();
     await ensureConduitDb(projectRoot);
     closeConduitDb();
 
@@ -541,11 +541,11 @@ describe('T310: conduit + signaldock integration', () => {
       __clearGlobalSaltCache: vi.fn(),
     }));
 
-    const { ensureGlobalSignaldockDb } = await import('../signaldock-sqlite.js');
+    const { ensureGlobalAgentRegistryDb } = await import('../agent-registry-store.js');
     const { ensureConduitDb, closeConduitDb } = await import('../conduit-sqlite.js');
     const { lookupAgent } = await import('../agent-registry-accessor.js');
 
-    await ensureGlobalSignaldockDb();
+    await ensureGlobalAgentRegistryDb();
     await ensureConduitDb(projectRoot);
     closeConduitDb();
 
@@ -580,11 +580,11 @@ describe('T310: conduit + signaldock integration', () => {
       __clearGlobalSaltCache: vi.fn(),
     }));
 
-    const { ensureGlobalSignaldockDb } = await import('../signaldock-sqlite.js');
+    const { ensureGlobalAgentRegistryDb } = await import('../agent-registry-store.js');
     const { ensureConduitDb, closeConduitDb } = await import('../conduit-sqlite.js');
     const { listAgentsForProject } = await import('../agent-registry-accessor.js');
 
-    await ensureGlobalSignaldockDb();
+    await ensureGlobalAgentRegistryDb();
     await ensureConduitDb(projectRoot);
     closeConduitDb();
 
@@ -644,13 +644,13 @@ describe('T310: conduit + signaldock integration', () => {
       __clearGlobalSaltCache: vi.fn(),
     }));
 
-    const { ensureGlobalSignaldockDb } = await import('../signaldock-sqlite.js');
+    const { ensureGlobalAgentRegistryDb } = await import('../agent-registry-store.js');
     const { ensureConduitDb, closeConduitDb } = await import('../conduit-sqlite.js');
     const { createProjectAgent, listAgentsForProject } = await import(
       '../agent-registry-accessor.js'
     );
 
-    await ensureGlobalSignaldockDb();
+    await ensureGlobalAgentRegistryDb();
     await ensureConduitDb(projectA);
     closeConduitDb();
     await ensureConduitDb(projectB);
@@ -703,7 +703,7 @@ describe('T310: conduit + signaldock integration', () => {
       __clearGlobalSaltCache: vi.fn(),
     }));
 
-    const { ensureGlobalSignaldockDb } = await import('../signaldock-sqlite.js');
+    const { ensureGlobalAgentRegistryDb } = await import('../agent-registry-store.js');
     const { ensureConduitDb, closeConduitDb } = await import('../conduit-sqlite.js');
     const {
       createProjectAgent,
@@ -712,7 +712,7 @@ describe('T310: conduit + signaldock integration', () => {
       listAgentsForProject,
     } = await import('../agent-registry-accessor.js');
 
-    await ensureGlobalSignaldockDb();
+    await ensureGlobalAgentRegistryDb();
     await ensureConduitDb(projectA);
     closeConduitDb();
     await ensureConduitDb(projectB);
@@ -1050,9 +1050,9 @@ describe('T310: conduit + signaldock integration', () => {
     vi.doMock('../sqlite.js', () => ({ getNativeDb: () => tasksDb, getDb: () => tasksDb }));
     vi.doMock('../memory-sqlite.js', () => ({ getBrainNativeDb: () => brainDb }));
     vi.doMock('../conduit-sqlite.js', () => ({ getConduitNativeDb: () => conduitDb }));
-    vi.doMock('../signaldock-sqlite.js', () => ({
-      getGlobalSignaldockNativeDb: () => sdDb,
-      getGlobalSignaldockDbPath: () => sdPath,
+    vi.doMock('../agent-registry-store.js', () => ({
+      getGlobalAgentRegistryNativeDb: () => sdDb,
+      getGlobalAgentRegistryDbPath: () => sdPath,
     }));
     vi.doMock('../nexus-sqlite.js', () => ({ getNexusNativeDb: () => null }));
     vi.doMock('../global-salt.js', () => ({ getGlobalSaltPath: () => saltPath }));

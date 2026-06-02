@@ -263,9 +263,9 @@ function rule3OrphanSnapshots(violations, dbSet, dbSetPath, folderNames) {
  * Standard migration folders must match: /^\d{14}_[a-z0-9-]+$/
  * (14-digit timestamp + underscore + lowercase alphanumeric slug with hyphens allowed).
  *
- * The signaldock DB set uses a legacy flat SQL file pattern (not a folder-based
+ * The agent-registry DB set uses a folder-based migration (post-T11622) (not a folder-based
  * convention). Flat .sql files in a DB set are flagged with a WARN, not ERROR,
- * since signaldock has its own migration runner.
+ * since agent-registry has its own migration runner.
  */
 function rule4FolderNames(violations, dbSet, dbSetPath, folderNames) {
   for (const folder of folderNames) {

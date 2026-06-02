@@ -169,7 +169,7 @@ describe('ThreeBrainRenderer — T990 Agent-B rebuild contract', () => {
     // tasks = PREFRONTAL anchor (anterior-superior-anterior).
     expect(source).toMatch(/tasks:\s*\[-80,\s*60,\s*100\]/);
     // signaldock = BRAINSTEM anchor (inferior-posterior).
-    expect(source).toMatch(/signaldock:\s*\[0,\s*-120,\s*-30\]/);
+    expect(source).toMatch(/'agent-registry':\s*\[0,\s*-120,\s*-30\]/);
   });
 
   it('maps substrates to CLEO substrate names via CORTICAL_NAME', () => {
@@ -181,7 +181,7 @@ describe('ThreeBrainRenderer — T990 Agent-B rebuild contract', () => {
     expect(source).toMatch(/nexus:\s*'NEXUS'/);
     expect(source).toMatch(/tasks:\s*'TASKS'/);
     expect(source).toMatch(/conduit:\s*'CONDUIT'/);
-    expect(source).toMatch(/signaldock:\s*'SIGNALDOCK'/);
+    expect(source).toMatch(/'agent-registry':\s*'SIGNALDOCK'/);
   });
 
   it('declares SUBSTRATE_NOUN for per-substrate content-kind labels', () => {
@@ -189,7 +189,7 @@ describe('ThreeBrainRenderer — T990 Agent-B rebuild contract', () => {
     expect(source).toMatch(/brain:\s*'MEMORIES'/);
     expect(source).toMatch(/nexus:\s*'SYMBOLS'/);
     expect(source).toMatch(/conduit:\s*'MESSAGES'/);
-    expect(source).toMatch(/signaldock:\s*'AGENTS'/);
+    expect(source).toMatch(/'agent-registry':\s*'AGENTS'/);
   });
 
   it('has a bridge edge layer for cross-substrate edges', () => {
@@ -245,7 +245,7 @@ describe('cluster-label-layer — Agent-B contract', () => {
     expect(CORTICAL_REGIONS.nexus).toBe('NEXUS');
     expect(CORTICAL_REGIONS.tasks).toBe('TASKS');
     expect(CORTICAL_REGIONS.conduit).toBe('CONDUIT');
-    expect(CORTICAL_REGIONS.signaldock).toBe('SIGNALDOCK');
+    expect(CORTICAL_REGIONS['agent-registry']).toBe('SIGNALDOCK');
   });
 
   it('renders exactly 5 labels via {#each points}', () => {
