@@ -207,8 +207,11 @@ describe('LocalTransport — A2A Topic Operations (T1252)', () => {
       await transport.connect(testConfig('lead-1'));
       await transport.subscribeTopic('epic-T1149.wave-2');
 
-      // Record a point-in-time before any messages are published
-      const beforeAny = Math.floor(Date.now() / 1000) - 1;
+      // T11578 (AC4): `since` is now a TEXT ISO-8601 watermark (conduit_topic_
+      // messages.created_at is canonical ISO), not the prior epoch-seconds number.
+      // ISO-8601 is lexicographically sortable, so `created_at > since` compares
+      // string-wise. Record an ISO instant before any messages are published.
+      const beforeAny = new Date(Date.now() - 1000).toISOString();
 
       // Publish two messages
       await transport.publishToTopic('epic-T1149.wave-2', 'msg-1', { kind: 'notify' });
@@ -218,8 +221,8 @@ describe('LocalTransport — A2A Topic Operations (T1252)', () => {
       const all = await transport.pollTopic('epic-T1149.wave-2');
       expect(all.length).toBeGreaterThanOrEqual(2);
 
-      // With since = a future time: returns nothing
-      const afterAll = Math.floor(Date.now() / 1000) + 9999;
+      // With since = a future ISO time: returns nothing
+      const afterAll = new Date(Date.now() + 9_999_000).toISOString();
       const none = await transport.pollTopic('epic-T1149.wave-2', { since: afterAll });
       expect(none).toHaveLength(0);
 

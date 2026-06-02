@@ -436,7 +436,7 @@ describe('T889 cleo agent install — real sqlite + real fs', () => {
     const conduitDb = openDb(conduitPath);
     try {
       const refRow = conduitDb
-        .prepare('SELECT agent_id, enabled FROM project_agent_refs WHERE agent_id = ?')
+        .prepare('SELECT agent_id, enabled FROM conduit_project_agent_refs WHERE agent_id = ?')
         .get('cleo-historian') as { agent_id: string; enabled: number } | undefined;
       expect(refRow?.agent_id).toBe('cleo-historian');
       expect(refRow?.enabled).toBe(1);
