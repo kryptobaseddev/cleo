@@ -146,6 +146,32 @@ const MIN_BACKUP_TASK_COUNT = 10;
  *
  * @task T5188
  */
+/**
+ * Count tasks in a backup snapshot, tolerant of the cutover (T11578 · AC1).
+ *
+ * Post-exodus snapshots of the consolidated `cleo.db` carry the prefixed
+ * `tasks_tasks` table; legacy pre-consolidation `tasks.db` snapshots carry the
+ * bare `tasks` table. Prefer the prefixed table, falling back to the bare one
+ * when the prefixed table is absent, so auto-recovery keeps working across the
+ * substrate transition.
+ *
+ * @param backupDb - Read-only handle to the backup snapshot.
+ * @returns Task row count, or 0 if neither table exists / the read fails.
+ */
+function countBackupTasks(backupDb: DatabaseSync): number {
+  for (const table of ['tasks_tasks', 'tasks']) {
+    try {
+      const row = backupDb.prepare(`SELECT COUNT(*) as cnt FROM "${table}"`).get() as
+        | { cnt: number }
+        | undefined;
+      return row?.cnt ?? 0;
+    } catch {
+      // Table missing in this snapshot — try the next candidate.
+    }
+  }
+  return 0;
+}
+
 async function autoRecoverFromBackup(
   nativeDb: DatabaseSync,
   dbPath: string,
@@ -157,8 +183,11 @@ async function autoRecoverFromBackup(
   const log = getLogger('sqlite');
 
   try {
-    // Count tasks in current database
-    const countResult = nativeDb.prepare('SELECT COUNT(*) as cnt FROM tasks').get() as
+    // Count tasks in current database.
+    // T11578 · AC1: the runtime now reads the PREFIXED consolidated table, so the
+    // emptiness probe targets `tasks_tasks` (the exodus-fill target) rather than
+    // the now-dead bare `tasks` table.
+    const countResult = nativeDb.prepare('SELECT COUNT(*) as cnt FROM tasks_tasks').get() as
       | { cnt: number }
       | undefined;
     const taskCount = countResult?.cnt ?? 0;
@@ -180,10 +209,10 @@ async function autoRecoverFromBackup(
     const backupDb = openNativeDatabase(newestBackup.path, { readonly: true, enableWal: false });
     let backupTaskCount = 0;
     try {
-      const backupCount = backupDb.prepare('SELECT COUNT(*) as cnt FROM tasks').get() as
-        | { cnt: number }
-        | undefined;
-      backupTaskCount = backupCount?.cnt ?? 0;
+      // T11578 · AC1: prefer the PREFIXED consolidated table (post-exodus
+      // snapshots) and fall back to the bare `tasks` table for legacy
+      // pre-consolidation backups so recovery still works across the cutover.
+      backupTaskCount = countBackupTasks(backupDb);
     } finally {
       backupDb.close();
     }

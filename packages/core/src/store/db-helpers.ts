@@ -7,7 +7,7 @@
  * @epic T4454
  */
 
-import type { Session, Task } from '@cleocode/contracts';
+import type { ArchiveReasonValue, Session, Task } from '@cleocode/contracts';
 import { eq, inArray, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { getLogger } from '../logger.js';
@@ -22,7 +22,13 @@ type DrizzleDb = NodeSQLiteDatabase<typeof schema>;
 /** Archive-specific fields for task upsert. */
 export interface ArchiveFields {
   archivedAt?: string;
-  archiveReason?: string;
+  /**
+   * T11578 · AC1: typed to the canonical {@link ArchiveReasonValue} enum so
+   * writes conform to the consolidated `tasks_tasks.archive_reason` CHECK
+   * constraint (the bare legacy `tasks` table had no CHECK, masking
+   * out-of-enum values such as the historical `'completed'` literal).
+   */
+  archiveReason?: ArchiveReasonValue;
   cycleTimeDays?: number | null;
 }
 
@@ -215,7 +221,10 @@ export async function upsertSession(db: DrizzleDb, session: Session): Promise<vo
     // Session stats fields
     statsJson: session.stats ? JSON.stringify(session.stats) : null,
     resumeCount: session.resumeCount ?? null,
-    gradeMode: session.gradeMode ? 1 : null,
+    // T11578 · AC1: the consolidated `tasks_sessions.grade_mode` column is
+    // `integer({ mode: 'boolean' })`, so the writer passes a boolean (drizzle
+    // serializes true→1 / null→NULL) rather than the legacy raw `1`.
+    gradeMode: session.gradeMode ? true : null,
     // T9975 — per-agent session isolation fields
     agentHandle: session.agentHandle ?? null,
     scopeKind: session.scopeKind ?? null,
@@ -275,8 +284,9 @@ export async function appendSessionListItem(
   value: string,
 ): Promise<void> {
   const physicalColumn = APPENDABLE_SESSION_COLUMNS[column];
+  // T11578 · AC1: append into the PREFIXED consolidated sessions table.
   db.run(
-    sql`UPDATE sessions
+    sql`UPDATE tasks_sessions
         SET ${sql.raw(physicalColumn)} = json_insert(
           COALESCE(${sql.raw(physicalColumn)}, '[]'), '$[#]', ${value}
         )
