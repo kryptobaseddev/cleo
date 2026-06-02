@@ -289,7 +289,7 @@ export class SqliteWorkGraphRelationQueryService implements WorkGraphRelationQue
     const direction = normalizeDirection(options.direction);
     const relationFilter = directionWhere(direction, 'task_id', 'related_to');
     const relationSql = `SELECT task_id, related_to, relation_type, reason
-FROM task_relations
+FROM tasks_task_relations
 WHERE ${relationFilter.clause}
 ORDER BY task_id ASC, related_to ASC, relation_type ASC`;
 
@@ -301,7 +301,7 @@ ORDER BY task_id ASC, related_to ASC, relation_type ASC`;
     if (options.includeDependencies === true) {
       const dependencyFilter = directionWhere(direction, 'task_id', 'depends_on');
       const dependencySql = `SELECT task_id, depends_on
-FROM task_dependencies
+FROM tasks_task_dependencies
 WHERE ${dependencyFilter.clause}
 ORDER BY task_id ASC, depends_on ASC`;
       const dependencyRows = this.#db

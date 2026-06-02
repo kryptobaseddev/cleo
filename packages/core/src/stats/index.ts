@@ -5,7 +5,7 @@
  */
 
 import type { Task, TaskRecord } from '@cleocode/contracts';
-import { ExitCode } from '@cleocode/contracts';
+import { ARCHIVE_REASON_TOMBSTONE, ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { resolveOrCwd } from '../paths.js';
 import { getProjectInfoSync } from '../project-info.js';
@@ -142,12 +142,20 @@ export async function getProjectStats(
     totalCancelled = statusMap['cancelled'] ?? 0;
     totalArchived = archivedCount;
 
-    // Count archived tasks that were completed (archiveReason = 'completed')
+    // Count archived tasks that were completed without verification.
+    // T11578 · AC1: the canonical archive reason for a completed-but-unverified
+    // task is the tombstone `'completed-unverified'` (T1408 enum). The previous
+    // literal `'completed'` is not a member of the enum — it never matched any
+    // real row and is now also rejected by the consolidated `tasks_tasks`
+    // CHECK constraint.
     const archivedDoneRow = await db
       .select({ c: dbCount() })
       .from(tasksTable)
       .where(
-        dbAnd(dbEq(tasksTable.status, 'archived'), dbEq(tasksTable.archiveReason, 'completed')),
+        dbAnd(
+          dbEq(tasksTable.status, 'archived'),
+          dbEq(tasksTable.archiveReason, ARCHIVE_REASON_TOMBSTONE),
+        ),
       )
       .get();
     archivedCompleted = archivedDoneRow?.c ?? 0;

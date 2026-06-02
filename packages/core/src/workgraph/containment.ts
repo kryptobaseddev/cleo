@@ -319,17 +319,17 @@ export class SqliteWorkGraphContainmentQueryService implements WorkGraphContainm
 ancestor_edges(root_id, id, depth) AS (
   SELECT input.root_id, root.parent_id, 1
   FROM input
-  JOIN tasks root ON root.id = input.root_id
+  JOIN tasks_tasks root ON root.id = input.root_id
   WHERE root.parent_id IS NOT NULL
   UNION ALL
   SELECT ancestor_edges.root_id, parent.parent_id, ancestor_edges.depth + 1
   FROM ancestor_edges
-  JOIN tasks parent ON parent.id = ancestor_edges.id
+  JOIN tasks_tasks parent ON parent.id = ancestor_edges.id
   WHERE parent.parent_id IS NOT NULL
 )
 SELECT ancestor_edges.root_id, ancestor_edges.depth, ${TASK_COLUMNS}
 FROM ancestor_edges
-JOIN tasks t ON t.id = ancestor_edges.id
+JOIN tasks_tasks t ON t.id = ancestor_edges.id
 ORDER BY ancestor_edges.root_id ASC, ancestor_edges.depth DESC`;
 
     const rows = this.#db.prepare(sql).all(...ids) as AncestorTaskRow[];
@@ -349,7 +349,7 @@ ORDER BY ancestor_edges.root_id ASC, ancestor_edges.depth DESC`;
 
     const placeholders = ids.map(() => '?').join(', ');
     const sql = `SELECT t.parent_id AS root_id, ${TASK_COLUMNS}
-FROM tasks t
+FROM tasks_tasks t
 WHERE t.parent_id IN (${placeholders})
 ORDER BY t.parent_id ASC, t.position ASC, t.created_at ASC, t.id ASC`;
 
@@ -375,13 +375,13 @@ ORDER BY t.parent_id ASC, t.position ASC, t.created_at ASC, t.id ASC`;
 
     const sql = `WITH RECURSIVE descendants(root_id, id, depth) AS (
   SELECT ? AS root_id, child.id, 1
-  FROM tasks child
+  FROM tasks_tasks child
   WHERE child.parent_id = ?
   UNION ALL
   SELECT descendants.root_id, child.id, descendants.depth + 1
   FROM descendants
-  JOIN tasks parent ON parent.id = descendants.id
-  JOIN tasks child ON child.parent_id = parent.id
+  JOIN tasks_tasks parent ON parent.id = descendants.id
+  JOIN tasks_tasks child ON child.parent_id = parent.id
   WHERE (? IS NULL OR descendants.depth < ?)
 ), ordered AS (
   SELECT descendants.root_id,
@@ -389,7 +389,7 @@ ORDER BY t.parent_id ASC, t.position ASC, t.created_at ASC, t.id ASC`;
          printf('%08d:%s', descendants.depth, t.id) AS sort_cursor,
          ${TASK_COLUMNS}
   FROM descendants
-  JOIN tasks t ON t.id = descendants.id
+  JOIN tasks_tasks t ON t.id = descendants.id
 )
 SELECT *
 FROM ordered
@@ -427,20 +427,20 @@ LIMIT ?`;
   summarizeSubtree(options: WorkGraphSubtreeSummaryOptions): WorkGraphSubtreeSummaryResult {
     const sql = `WITH RECURSIVE summary_descendants(root_id, id, depth) AS (
   SELECT ? AS root_id, child.id, 1
-  FROM tasks child
+  FROM tasks_tasks child
   WHERE child.parent_id = ?
   UNION ALL
   SELECT summary_descendants.root_id, child.id, summary_descendants.depth + 1
   FROM summary_descendants
-  JOIN tasks parent ON parent.id = summary_descendants.id
-  JOIN tasks child ON child.parent_id = parent.id
+  JOIN tasks_tasks parent ON parent.id = summary_descendants.id
+  JOIN tasks_tasks child ON child.parent_id = parent.id
 )
 SELECT summary_descendants.root_id,
        summary_descendants.depth,
        printf('%08d:%s', summary_descendants.depth, t.id) AS sort_cursor,
        ${TASK_COLUMNS}
 FROM summary_descendants
-JOIN tasks t ON t.id = summary_descendants.id
+JOIN tasks_tasks t ON t.id = summary_descendants.id
 ORDER BY sort_cursor ASC`;
 
     const rows = this.#db.prepare(sql).all(options.rootId, options.rootId) as DescendantTaskRow[];
@@ -471,13 +471,13 @@ ORDER BY sort_cursor ASC`;
     const roleFilter = options.role === undefined ? '' : 'AND t.role = ?';
     const sql = `WITH RECURSIVE ready_frontier_scope(root_id, id) AS (
   SELECT ? AS root_id, child.id
-  FROM tasks child
+  FROM tasks_tasks child
   WHERE child.parent_id = ?
   UNION ALL
   SELECT ready_frontier_scope.root_id, child.id
   FROM ready_frontier_scope
-  JOIN tasks parent ON parent.id = ready_frontier_scope.id
-  JOIN tasks child ON child.parent_id = parent.id
+  JOIN tasks_tasks parent ON parent.id = ready_frontier_scope.id
+  JOIN tasks_tasks child ON child.parent_id = parent.id
 )
 SELECT ready_frontier_scope.root_id,
        t.id,
@@ -491,9 +491,9 @@ SELECT ready_frontier_scope.root_id,
        td.depends_on,
        dep.status AS dep_status
 FROM ready_frontier_scope
-JOIN tasks t ON t.id = ready_frontier_scope.id
-LEFT JOIN task_dependencies td ON td.task_id = t.id
-LEFT JOIN tasks dep ON dep.id = td.depends_on
+JOIN tasks_tasks t ON t.id = ready_frontier_scope.id
+LEFT JOIN tasks_task_dependencies td ON td.task_id = t.id
+LEFT JOIN tasks_tasks dep ON dep.id = td.depends_on
 WHERE t.status IN ('pending', 'active', 'blocked', 'proposed')
 ${roleFilter}
 ORDER BY t.priority ASC, t.created_at ASC, t.id ASC, td.depends_on ASC`;

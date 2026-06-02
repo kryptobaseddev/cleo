@@ -12,7 +12,13 @@
 
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { Session, Task } from '@cleocode/contracts';
+import {
+  ARCHIVE_REASON_TOMBSTONE,
+  ARCHIVE_REASONS,
+  type ArchiveReasonValue,
+  type Session,
+  type Task,
+} from '@cleocode/contracts';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { resolveCleoDir } from '../paths.js';
@@ -20,6 +26,26 @@ import { migrateSanitized } from './migration-manager.js';
 import { dbExists, getDb, openNativeDatabase, resolveMigrationsFolder } from './sqlite.js';
 import type { SessionStatus } from './status-registry.js';
 import * as schema from './tasks-schema.js';
+
+/**
+ * Normalise an imported archive-reason string to a valid {@link ArchiveReasonValue}.
+ *
+ * T11578 · AC1: the consolidated `tasks_tasks.archive_reason` column is
+ * CHECK-backed by the 6-value T1408 enum. Imported migration JSON may carry a
+ * missing reason or a legacy value (e.g. `'completed'`) that the bare legacy
+ * `tasks` table accepted without a CHECK. Any out-of-enum value is mapped
+ * defensively to the canonical tombstone (`'completed-unverified'`) rather than
+ * throwing mid-import.
+ *
+ * @param reason - candidate archive-reason string from the migration source.
+ * @returns a value guaranteed to satisfy the consolidated CHECK constraint.
+ */
+function normalizeImportedArchiveReason(reason: string | undefined): ArchiveReasonValue {
+  if (reason && (ARCHIVE_REASONS as readonly string[]).includes(reason)) {
+    return reason as ArchiveReasonValue;
+  }
+  return ARCHIVE_REASON_TOMBSTONE;
+}
 
 /**
  * Topological sort for tasks: ensures parents and dependency targets are inserted before
@@ -183,8 +209,17 @@ export async function migrateJsonToSqliteAtomic(
     const nativeDb = openNativeDatabase(tempDbPath, { enableWal: true });
     const db = drizzle({ client: nativeDb, schema });
 
-    // Run migrations to create tables
+    // Run migrations to create tables.
+    // T11578 · AC1: the runtime store now reads/writes the PREFIXED consolidated
+    // tables (`tasks_tasks`, …). This standalone temp DB is meant to become the
+    // project runtime DB, so it must carry the CONSOLIDATED schema first (which
+    // creates `tasks_tasks`) — the legacy `drizzle-tasks` bare schema is then
+    // applied for transition-period co-existence (same ordering getDb() uses).
     logger?.info('import', 'create-tables', 'Running drizzle migrations to create tables');
+    const { resolveCorePackageMigrationsFolder } = await import('./resolve-migrations-folder.js');
+    migrateSanitized(db, {
+      migrationsFolder: resolveCorePackageMigrationsFolder('drizzle-cleo-project'),
+    });
     const migrationsFolder = resolveMigrationsFolder();
     migrateSanitized(db, { migrationsFolder });
 
@@ -403,7 +438,7 @@ async function runMigrationDataImport(
               updatedAt: task.updatedAt,
               completedAt: task.completedAt,
               archivedAt: task.archivedAt ?? task.completedAt ?? new Date().toISOString(),
-              archiveReason: task.archiveReason ?? 'completed-unverified',
+              archiveReason: normalizeImportedArchiveReason(task.archiveReason),
               cycleTimeDays: task.cycleTimeDays,
             })
             .onConflictDoNothing()
@@ -739,7 +774,7 @@ export async function migrateJsonToSqlite(
               updatedAt: task.updatedAt,
               completedAt: task.completedAt,
               archivedAt: task.archivedAt ?? task.completedAt ?? new Date().toISOString(),
-              archiveReason: task.archiveReason ?? 'completed-unverified',
+              archiveReason: normalizeImportedArchiveReason(task.archiveReason),
               cycleTimeDays: task.cycleTimeDays,
             })
             .onConflictDoNothing()

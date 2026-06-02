@@ -123,7 +123,7 @@ async function createRawTestDb(): Promise<{
 
 function seedSaga(db: DbHandle, id: string) {
   db.exec(
-    `INSERT INTO tasks (id, title, type, status) VALUES ('${id}', 'Saga ${id}', 'saga', 'active')`,
+    `INSERT INTO tasks_tasks (id, title, type, status) VALUES ('${id}', 'Saga ${id}', 'saga', 'active')`,
   );
 }
 
@@ -131,20 +131,20 @@ function seedSaga(db: DbHandle, id: string) {
 function seedEpicWithGroupsRelation(db: DbHandle, epicId: string, sagaId: string) {
   // Standalone Epic — no parent_id (legacy pattern: membership was via groups relation)
   db.exec(
-    `INSERT INTO tasks (id, title, type, status) VALUES ('${epicId}', 'Epic ${epicId}', 'epic', 'active')`,
+    `INSERT INTO tasks_tasks (id, title, type, status) VALUES ('${epicId}', 'Epic ${epicId}', 'epic', 'active')`,
   );
   // Legacy groups relation from Saga to Epic
   db.exec(
-    `INSERT INTO task_relations (task_id, related_to, relation_type) VALUES ('${sagaId}', '${epicId}', 'groups')`,
+    `INSERT INTO tasks_task_relations (task_id, related_to, relation_type) VALUES ('${sagaId}', '${epicId}', 'groups')`,
   );
 }
 
 function seedTaskWithGroupsRelation(db: DbHandle, taskId: string, sagaId: string) {
   db.exec(
-    `INSERT INTO tasks (id, title, type, status) VALUES ('${taskId}', 'Task ${taskId}', 'task', 'pending')`,
+    `INSERT INTO tasks_tasks (id, title, type, status) VALUES ('${taskId}', 'Task ${taskId}', 'task', 'pending')`,
   );
   db.exec(
-    `INSERT INTO task_relations (task_id, related_to, relation_type) VALUES ('${sagaId}', '${taskId}', 'groups')`,
+    `INSERT INTO tasks_task_relations (task_id, related_to, relation_type) VALUES ('${sagaId}', '${taskId}', 'groups')`,
   );
 }
 
@@ -152,12 +152,12 @@ function seedTaskWithGroupsRelation(db: DbHandle, taskId: string, sagaId: string
 
 function getRelations(db: DbHandle): Array<{ task_id: string; related_to: string }> {
   return db.all(
-    "SELECT task_id, related_to FROM task_relations WHERE relation_type = 'groups' ORDER BY task_id, related_to",
+    "SELECT task_id, related_to FROM tasks_task_relations WHERE relation_type = 'groups' ORDER BY task_id, related_to",
   ) as Array<{ task_id: string; related_to: string }>;
 }
 
 function getParentId(db: DbHandle, taskId: string): string | null {
-  const rows = db.all('SELECT parent_id FROM tasks WHERE id = ?', taskId) as Array<{
+  const rows = db.all('SELECT parent_id FROM tasks_tasks WHERE id = ?', taskId) as Array<{
     parent_id: string | null;
   }>;
   return rows[0]?.parent_id ?? null;
@@ -306,10 +306,10 @@ describe('migrateSagaContainment', () => {
     seedSaga(db, 'T100');
     // Epic already parented under Saga AND has legacy groups relation
     db.exec(
-      "INSERT INTO tasks (id, title, type, status, parent_id) VALUES ('T200', 'Epic T200', 'epic', 'active', 'T100')",
+      "INSERT INTO tasks_tasks (id, title, type, status, parent_id) VALUES ('T200', 'Epic T200', 'epic', 'active', 'T100')",
     );
     db.exec(
-      "INSERT INTO task_relations (task_id, related_to, relation_type) VALUES ('T100', 'T200', 'groups')",
+      "INSERT INTO tasks_task_relations (task_id, related_to, relation_type) VALUES ('T100', 'T200', 'groups')",
     );
 
     const result = await migrateSagaContainment(projectRoot, { sagaId: 'T100' });

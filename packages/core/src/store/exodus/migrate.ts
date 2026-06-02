@@ -556,11 +556,28 @@ const ENUM_NORMALIZATIONS: ReadonlyMap<string, NormalizeFn> = new Map([
       ` END`,
   ],
 
-  // --- tasks_commits.conventional_type (T11548) ----------------------------
-  // 'style' → 'chore' (enum does not include 'style'; chore is the nearest). 33 rows.
+  // --- tasks_commits.conventional_type (T11548 + T11578) -------------------
+  // The consolidated CHECK enum is feat/fix/chore/docs/refactor/test/build/ci/
+  // perf/revert/breaking. Real git history carries non-conventional subjects:
+  //   - 'style'           → 'chore' (pre-T11548 mapping; no 'style' in enum).
+  //   - 'merge'/'release' → 'chore' (T11578): merge + release commits are
+  //     maintenance-class; the precise semantic is preserved by the dedicated
+  //     `is_merge_commit` / `is_release_commit` boolean columns, so collapsing
+  //     `conventional_type` to the maintenance catch-all 'chore' is lossless at
+  //     the row grain. Without this the 'merge'/'release' rows violate the CHECK,
+  //     `INSERT OR IGNORE` drops the WHOLE commits table, and the exodus-on-open
+  //     data-continuity gate aborts the cutover (T11578 CI regression).
+  //   - any OTHER out-of-enum value → 'chore' (defensive: future non-conventional
+  //     subjects must never re-break the zero-deficit gate; the boolean flags and
+  //     raw subject text remain the precise provenance).
   [
     'tasks_commits.conventional_type',
-    (src: string) => `CASE ${src} WHEN 'style' THEN 'chore' ELSE ${src} END`,
+    (src: string) =>
+      `CASE` +
+      ` WHEN ${src} IS NULL THEN NULL` +
+      ` WHEN ${src} IN ('feat', 'fix', 'chore', 'docs', 'refactor', 'test', 'build', 'ci', 'perf', 'revert', 'breaking') THEN ${src}` +
+      ` ELSE 'chore'` +
+      ` END`,
   ],
 
   // --- tasks_task_relations.relation_type (T11548) -------------------------

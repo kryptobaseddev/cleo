@@ -108,8 +108,10 @@ async function insertTasks(projectRoot: string, taskIds: string[]): Promise<void
   const { sql } = await import('drizzle-orm');
   const db = await getDb(projectRoot);
   for (const id of taskIds) {
+    // T11578 · AC1: reconcile reads the PREFIXED consolidated table, so the
+    // fixture seeds tasks_tasks (created_at applies its NOT NULL default).
     await db.run(
-      sql`INSERT OR IGNORE INTO tasks (id, title, status, priority, role, scope)
+      sql`INSERT OR IGNORE INTO tasks_tasks (id, title, status, priority, role, scope)
           VALUES (${id}, ${`Task ${id}`}, 'pending', 'medium', 'work', 'feature')`,
     );
   }

@@ -60,7 +60,7 @@ import { DEFAULT_SENTIENT_STATE, writeSentientState } from '../state.js';
 function createTestDb(): DatabaseSync {
   const db = new DatabaseSync(':memory:');
   db.exec(`
-    CREATE TABLE tasks (
+    CREATE TABLE tasks_tasks (
       id TEXT PRIMARY KEY,
       parent_id TEXT,
       title TEXT NOT NULL DEFAULT '',
@@ -97,7 +97,7 @@ function insertTask(
   },
 ): void {
   db.prepare(`
-    INSERT INTO tasks (id, parent_id, type, status, acceptance_json, files_json, updated_at,
+    INSERT INTO tasks_tasks (id, parent_id, type, status, acceptance_json, files_json, updated_at,
       created_at, role, scope, title, description)
     VALUES (:id, :parentId, :type, :status, :acceptanceJson, :filesJson,
       COALESCE(:updatedAt, datetime('now')), datetime('now'), 'work', 'feature',

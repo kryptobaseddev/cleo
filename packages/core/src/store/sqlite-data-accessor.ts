@@ -11,7 +11,13 @@
  * @epic T4454
  */
 
-import type { Session, Task, TaskStatus } from '@cleocode/contracts';
+import {
+  ARCHIVE_REASON_TOMBSTONE,
+  type ArchiveReasonValue,
+  type Session,
+  type Task,
+  type TaskStatus,
+} from '@cleocode/contracts';
 import { and, eq, inArray, isNull, like, ne, notInArray, or, sql } from 'drizzle-orm';
 import { archivedTaskToRow, rowToSession, rowToTask, taskToRow } from './converters.js';
 import { cleanupBrainRefsOnSessionDelete } from './cross-db-cleanup.js';
@@ -259,13 +265,17 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
           // Extract archive-specific fields if they exist on the task object
           const taskAny = task as Task & {
             archivedAt?: string;
-            archiveReason?: string;
+            archiveReason?: ArchiveReasonValue;
             cycleTimeDays?: number;
           };
 
           const archiveFields = {
             archivedAt: taskAny.archivedAt ?? row.completedAt ?? new Date().toISOString(),
-            archiveReason: taskAny.archiveReason ?? 'completed',
+            // T11578 · AC1: default to the canonical tombstone enum value
+            // (`'completed-unverified'`) — the legacy `'completed'` literal is
+            // not a member of the T1408 enum and would violate the consolidated
+            // `tasks_tasks.archive_reason` CHECK constraint.
+            archiveReason: taskAny.archiveReason ?? ARCHIVE_REASON_TOMBSTONE,
             cycleTimeDays: taskAny.cycleTimeDays ?? null,
           };
 
@@ -538,7 +548,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
           .set({
             status: 'archived',
             archivedAt: fields.archivedAt ?? new Date().toISOString(),
-            archiveReason: fields.archiveReason ?? 'completed',
+            archiveReason: fields.archiveReason ?? ARCHIVE_REASON_TOMBSTONE,
             cycleTimeDays: fields.cycleTimeDays ?? null,
             updatedAt: new Date().toISOString(),
           })
@@ -799,9 +809,9 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       const idRows = nativeDb
         .prepare(
           `WITH RECURSIVE ancestor_ids(id, depth) AS (
-            SELECT parent_id, 0 FROM tasks WHERE id = ? AND parent_id IS NOT NULL
+            SELECT parent_id, 0 FROM tasks_tasks WHERE id = ? AND parent_id IS NOT NULL
             UNION ALL
-            SELECT t.parent_id, a.depth + 1 FROM tasks t
+            SELECT t.parent_id, a.depth + 1 FROM tasks_tasks t
             JOIN ancestor_ids a ON t.id = a.id
             WHERE t.parent_id IS NOT NULL
           )
@@ -839,9 +849,9 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       const idRows = nativeDb
         .prepare(
           `WITH RECURSIVE subtree AS (
-            SELECT id FROM tasks WHERE id = ?
+            SELECT id FROM tasks_tasks WHERE id = ?
             UNION ALL
-            SELECT t.id FROM tasks t
+            SELECT t.id FROM tasks_tasks t
             JOIN subtree s ON t.parent_id = s.id
           )
           SELECT id FROM subtree`,
@@ -897,9 +907,9 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       const rows = nativeDb
         .prepare(
           `WITH RECURSIVE dep_chain(id) AS (
-            SELECT depends_on FROM task_dependencies WHERE task_id = ?
+            SELECT depends_on FROM tasks_task_dependencies WHERE task_id = ?
             UNION
-            SELECT td.depends_on FROM task_dependencies td
+            SELECT td.depends_on FROM tasks_task_dependencies td
             JOIN dep_chain dc ON td.task_id = dc.id
           )
           SELECT id FROM dep_chain`,
@@ -949,12 +959,12 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
         parentId === null
           ? (nativeDb
               .prepare(
-                `SELECT COALESCE(MAX(position), 0) + 1 AS next_pos FROM tasks WHERE parent_id IS NULL AND status != 'archived'`,
+                `SELECT COALESCE(MAX(position), 0) + 1 AS next_pos FROM tasks_tasks WHERE parent_id IS NULL AND status != 'archived'`,
               )
               .get() as { next_pos: number } | undefined)
           : (nativeDb
               .prepare(
-                `SELECT COALESCE(MAX(position), 0) + 1 AS next_pos FROM tasks WHERE parent_id = ? AND status != 'archived'`,
+                `SELECT COALESCE(MAX(position), 0) + 1 AS next_pos FROM tasks_tasks WHERE parent_id = ? AND status != 'archived'`,
               )
               .get(parentId) as { next_pos: number } | undefined);
       return row?.next_pos ?? 1;
@@ -972,13 +982,13 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       if (parentId === null) {
         nativeDb
           .prepare(
-            `UPDATE tasks SET position = position + ?, position_version = position_version + 1, updated_at = ? WHERE parent_id IS NULL AND position >= ? AND status != 'archived'`,
+            `UPDATE tasks_tasks SET position = position + ?, position_version = position_version + 1, updated_at = ? WHERE parent_id IS NULL AND position >= ? AND status != 'archived'`,
           )
           .run(delta, new Date().toISOString(), fromPosition);
       } else {
         nativeDb
           .prepare(
-            `UPDATE tasks SET position = position + ?, position_version = position_version + 1, updated_at = ? WHERE parent_id = ? AND position >= ? AND status != 'archived'`,
+            `UPDATE tasks_tasks SET position = position + ?, position_version = position_version + 1, updated_at = ? WHERE parent_id = ? AND position >= ? AND status != 'archived'`,
           )
           .run(delta, new Date().toISOString(), parentId, fromPosition);
       }
@@ -1074,7 +1084,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
               .set({
                 status: 'archived',
                 archivedAt: fields.archivedAt ?? new Date().toISOString(),
-                archiveReason: fields.archiveReason ?? 'completed',
+                archiveReason: fields.archiveReason ?? ARCHIVE_REASON_TOMBSTONE,
                 cycleTimeDays: fields.cycleTimeDays ?? null,
                 updatedAt: new Date().toISOString(),
               })
@@ -1341,9 +1351,9 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       }
 
       // Verify the task exists first
-      const existsRow = nativeDb.prepare('SELECT assignee FROM tasks WHERE id = ?').get(taskId) as
-        | { assignee: string | null }
-        | undefined;
+      const existsRow = nativeDb
+        .prepare('SELECT assignee FROM tasks_tasks WHERE id = ?')
+        .get(taskId) as { assignee: string | null } | undefined;
       if (!existsRow) {
         throw new Error(`Task not found: ${taskId}`);
       }
@@ -1352,14 +1362,14 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       // This prevents race conditions between concurrent agents.
       const result = nativeDb
         .prepare(
-          'UPDATE tasks SET assignee = ?, updated_at = ? WHERE id = ? AND (assignee IS NULL OR assignee = ?)',
+          'UPDATE tasks_tasks SET assignee = ?, updated_at = ? WHERE id = ? AND (assignee IS NULL OR assignee = ?)',
         )
         .run(agentId, new Date().toISOString(), taskId, agentId) as { changes: number };
 
       if (result.changes === 0) {
         // Row was not updated — task is claimed by a different agent
         const currentRow = nativeDb
-          .prepare('SELECT assignee FROM tasks WHERE id = ?')
+          .prepare('SELECT assignee FROM tasks_tasks WHERE id = ?')
           .get(taskId) as { assignee: string | null } | undefined;
         throw new Error(
           `Task ${taskId} is already claimed by agent: ${currentRow?.assignee ?? 'unknown'}`,
@@ -1374,7 +1384,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       }
 
       // Verify the task exists
-      const existsRow = nativeDb.prepare('SELECT id FROM tasks WHERE id = ?').get(taskId) as
+      const existsRow = nativeDb.prepare('SELECT id FROM tasks_tasks WHERE id = ?').get(taskId) as
         | { id: string }
         | undefined;
       if (!existsRow) {
@@ -1383,7 +1393,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
 
       // Clear the assignee — no-op if already null
       nativeDb
-        .prepare('UPDATE tasks SET assignee = NULL, updated_at = ? WHERE id = ?')
+        .prepare('UPDATE tasks_tasks SET assignee = NULL, updated_at = ? WHERE id = ?')
         .run(new Date().toISOString(), taskId);
     },
   };

@@ -103,8 +103,9 @@ async function insertTasks(projectRoot: string, taskIds: string[]): Promise<void
   const { getDb } = await import('../../store/sqlite.js');
   const db = await getDb(projectRoot);
   for (const id of taskIds) {
+    // T11578 · AC1: backfill reads the PREFIXED consolidated table; seed it.
     await db.run(
-      sql`INSERT OR IGNORE INTO tasks (id, title, status, priority, role, scope)
+      sql`INSERT OR IGNORE INTO tasks_tasks (id, title, status, priority, role, scope)
           VALUES (${id}, ${`Task ${id}`}, 'pending', 'medium', 'work', 'feature')`,
     );
   }

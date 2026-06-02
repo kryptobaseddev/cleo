@@ -76,7 +76,7 @@ function fetchChildAggregates(
       SUM(CASE WHEN status = 'done'    THEN 1 ELSE 0 END)            AS children_done,
       SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END)            AS children_blocked,
       SUM(CASE WHEN status = 'active'  THEN 1 ELSE 0 END)            AS children_active
-    FROM tasks
+    FROM tasks_tasks
     WHERE parent_id IN (${placeholders})
       AND status != 'archived'
     GROUP BY parent_id

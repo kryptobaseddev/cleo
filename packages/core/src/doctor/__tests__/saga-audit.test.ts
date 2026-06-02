@@ -82,7 +82,7 @@ function insertTask(
   const status = row.status ?? 'pending';
   const pipelineStage = status === 'done' ? 'contribution' : null;
   db.prepare(
-    'INSERT INTO tasks (id, title, type, status, parent_id, labels_json, pipeline_stage) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO tasks_tasks (id, title, type, status, parent_id, labels_json, pipeline_stage) VALUES (?, ?, ?, ?, ?, ?, ?)',
   ).run(
     row.id,
     row.title,
@@ -102,7 +102,7 @@ function insertTask(
  * saga for the I7 case).
  */
 function linkMember(db: NativeDbForTest, sagaId: string, memberId: string): void {
-  db.prepare('UPDATE tasks SET parent_id = ? WHERE id = ?').run(sagaId, memberId);
+  db.prepare('UPDATE tasks_tasks SET parent_id = ? WHERE id = ?').run(sagaId, memberId);
 }
 
 describe('auditSagaHierarchy (T10119)', () => {

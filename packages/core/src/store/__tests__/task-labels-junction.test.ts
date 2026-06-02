@@ -45,7 +45,8 @@ describe('task_labels junction (T11356)', () => {
     const nativeDb = getNativeTasksDb();
     expect(nativeDb).not.toBeNull();
     const rows = nativeDb!
-      .prepare('SELECT label FROM task_labels WHERE task_id = ? ORDER BY label')
+      // T11578 · AC1: the label junction is now the PREFIXED consolidated table.
+      .prepare('SELECT label FROM tasks_task_labels WHERE task_id = ? ORDER BY label')
       .all('T001') as Array<{ label: string }>;
     expect(rows.map((r) => r.label)).toEqual(['bug', 'frontend']);
   });
