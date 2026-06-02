@@ -100,13 +100,13 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
   // Seed the skills catalog so junction writes succeed.
   const seedDb = new DatabaseSync(dbPath);
   seedDb.exec('PRAGMA foreign_keys = ON');
-  const nowTs = Math.floor(Date.now() / 1000);
+  const nowIso = new Date().toISOString();
   seedDb
     .prepare(
-      `INSERT OR IGNORE INTO skills (id, slug, name, description, category, created_at)
+      `INSERT OR IGNORE INTO agent_registry_skills (id, slug, name, description, category, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
     )
-    .run('skill-ct-cleo', 'ct-cleo', 'CT CLEO', 'CLEO task protocol', 'core', nowTs);
+    .run('skill-ct-cleo', 'ct-cleo', 'CT CLEO', 'CLEO task protocol', 'core', nowIso);
   seedDb.close();
 
   const openDb = (): DatabaseSync => {

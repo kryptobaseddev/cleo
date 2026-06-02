@@ -15,7 +15,7 @@
  * function in `execution-learning.ts` and wraps it with a simpler metrics
  * interface suited for load-balancer callers.
  *
- * @module agents/agent-registry
+ * @module agents/agent-capacity-tracker
  * @task T041
  * @epic T038
  */

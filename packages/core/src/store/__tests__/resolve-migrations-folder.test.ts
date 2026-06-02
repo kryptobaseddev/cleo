@@ -21,7 +21,7 @@ const ALL_SET_NAMES = [
   'drizzle-brain',
   'drizzle-nexus',
   'drizzle-telemetry',
-  'drizzle-signaldock',
+  'drizzle-agent-registry',
 ] as const;
 
 describe('resolveCorePackageMigrationsFolder', () => {
@@ -93,9 +93,9 @@ describe('DB-specific wrapper functions', () => {
     expect(existsSync(result)).toBe(true);
   });
 
-  it('resolveAgentRegistryMigrationsFolder() returns the drizzle-signaldock path', () => {
+  it('resolveAgentRegistryMigrationsFolder() returns the drizzle-agent-registry path', () => {
     const result = resolveAgentRegistryMigrationsFolder();
-    expect(result).toContain(join('migrations', 'drizzle-signaldock'));
+    expect(result).toContain(join('migrations', 'drizzle-agent-registry'));
     expect(isAbsolute(result)).toBe(true);
     expect(existsSync(result)).toBe(true);
   });

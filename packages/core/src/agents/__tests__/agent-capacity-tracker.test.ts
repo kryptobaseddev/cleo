@@ -4,7 +4,7 @@
  * Covers: task-count-based capacity, specialization read/write,
  * performance recording delegation, and sorted agent queries.
  *
- * @module agents/__tests__/agent-registry.test
+ * @module agents/__tests__/agent-capacity-tracker.test
  * @task T041
  * @epic T038
  */
@@ -21,7 +21,7 @@ import {
   MAX_TASKS_PER_AGENT,
   recordAgentPerformance,
   updateAgentSpecializations,
-} from '../agent-registry.js';
+} from '../agent-capacity-tracker.js';
 import { registerAgent, updateAgentStatus } from '../registry.js';
 
 describe('Agent Registry (T041)', () => {

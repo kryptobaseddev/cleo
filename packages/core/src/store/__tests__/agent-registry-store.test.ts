@@ -6,7 +6,7 @@
  *
  * Coverage (AC from T346):
  * - TC-020: getGlobalAgentRegistryDbPath returns path within getCleoHome()
- * - TC-021: ensureGlobalAgentRegistryDb creates file with global schema on fresh install
+ * - TC-021: ensureGlobalAgentRegistryDb creates the consolidated cleo.db on fresh install
  * - TC-022: ensureGlobalAgentRegistryDb is idempotent
  * - TC-023: agents table contains requires_reauth column
  * - TC-024: All cloud-sync tables present (users, organization, accounts, sessions,
@@ -133,7 +133,7 @@ describe('ensureGlobalAgentRegistryDb', () => {
     }
   });
 
-  it('TC-021: creates the signaldock.db file on fresh install', async () => {
+  it('TC-021: creates the consolidated cleo.db on fresh install', async () => {
     vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
 
     const {
@@ -217,7 +217,7 @@ describe('agents table schema', () => {
 
     const db = new DatabaseSync(dbPath);
     try {
-      const cols = db.prepare('PRAGMA table_info(agents)').all() as Array<{
+      const cols = db.prepare('PRAGMA table_info(agent_registry_agents)').all() as Array<{
         name: string;
         type: string;
         notnull: number;
@@ -246,7 +246,9 @@ describe('agents table schema', () => {
 
     const db = new DatabaseSync(dbPath);
     try {
-      const cols = db.prepare('PRAGMA table_info(agents)').all() as Array<{ name: string }>;
+      const cols = db.prepare('PRAGMA table_info(agent_registry_agents)').all() as Array<{
+        name: string;
+      }>;
       const colNames = cols.map((c) => c.name);
       expect(colNames).toContain('is_active');
       expect(colNames).toContain('api_key_encrypted');
@@ -292,13 +294,13 @@ describe('cloud-sync tables', () => {
     const db = new DatabaseSync(dbPath);
     try {
       const cloudTables = [
-        'users',
-        'organization',
-        'accounts',
-        'sessions',
-        'verifications',
-        'claim_codes',
-        'org_agent_keys',
+        'agent_registry_users',
+        'agent_registry_organization',
+        'agent_registry_accounts',
+        'agent_registry_sessions',
+        'agent_registry_verifications',
+        'agent_registry_claim_codes',
+        'agent_registry_org_agent_keys',
       ];
       for (const tbl of cloudTables) {
         const row = db
@@ -347,7 +349,7 @@ describe('identity catalog tables', () => {
 
     const db = new DatabaseSync(dbPath);
     try {
-      for (const tbl of ['capabilities', 'skills']) {
+      for (const tbl of ['agent_registry_capabilities', 'agent_registry_skills']) {
         const row = db
           .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
           .get(tbl) as { name: string } | undefined;
@@ -369,7 +371,7 @@ describe('identity catalog tables', () => {
 
     const db = new DatabaseSync(dbPath);
     try {
-      for (const tbl of ['agent_capabilities', 'agent_skills']) {
+      for (const tbl of ['agent_registry_agent_capabilities', 'agent_registry_agent_skills']) {
         const row = db
           .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
           .get(tbl) as { name: string } | undefined;
@@ -392,11 +394,15 @@ describe('identity catalog tables', () => {
     const db = new DatabaseSync(dbPath);
     try {
       const row = db
-        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agent_connections'")
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_registry_agent_connections'",
+        )
         .get() as { name: string } | undefined;
       expect(row).toBeDefined();
 
-      const cols = db.prepare('PRAGMA table_info(agent_connections)').all() as Array<{
+      const cols = db
+        .prepare('PRAGMA table_info(agent_registry_agent_connections)')
+        .all() as Array<{
         name: string;
       }>;
       const colNames = cols.map((c) => c.name);

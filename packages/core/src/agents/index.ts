@@ -52,7 +52,9 @@ export {
   type NewAgentErrorLogRow,
   type NewAgentInstanceRow,
 } from '../store/schema/agent-schema.js';
-// Load-balancing registry: task-count capacity, specializations, performance recording
+// Load-balancing capacity tracker: task-count capacity, specializations,
+// performance recording (over `agent_instances`). Renamed from `agent-registry.ts`
+// (T11622) so "agent-registry" unambiguously means the GLOBAL identity registry.
 export {
   type AgentCapacity,
   type AgentPerformanceMetrics,
@@ -62,7 +64,7 @@ export {
   MAX_TASKS_PER_AGENT,
   recordAgentPerformance,
   updateAgentSpecializations,
-} from './agent-registry.js';
+} from './agent-capacity-tracker.js';
 // Capacity tracking
 export {
   type CapacitySummary,

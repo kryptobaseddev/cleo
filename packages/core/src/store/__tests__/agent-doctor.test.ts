@@ -93,13 +93,13 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
   // Seed the catalog so junction-row assertions have something to match.
   const seedDb = new DatabaseSync(dbPath);
   seedDb.exec('PRAGMA foreign_keys = ON');
-  const nowTs = Math.floor(Date.now() / 1000);
+  const nowIso = new Date().toISOString();
   seedDb
     .prepare(
-      `INSERT OR IGNORE INTO skills (id, slug, name, description, category, created_at)
+      `INSERT OR IGNORE INTO agent_registry_skills (id, slug, name, description, category, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
     )
-    .run('skill-ct-cleo', 'ct-cleo', 'CT CLEO', 'CLEO task protocol', 'core', nowTs);
+    .run('skill-ct-cleo', 'ct-cleo', 'CT CLEO', 'CLEO task protocol', 'core', nowIso);
   seedDb.close();
 
   const openDb = (): DatabaseSync => {
@@ -164,9 +164,9 @@ describe('W2-7 buildDoctorReport + reconcileDoctor — real sqlite + real .cant'
     const { buildDoctorReport } = await import('../agent-doctor.js');
     const db = env.openDb();
     try {
-      const nowTs = Math.floor(Date.now() / 1000);
+      const nowIso = new Date().toISOString();
       db.prepare(
-        `INSERT INTO agents (
+        `INSERT INTO agent_registry_agents (
           id, agent_id, name, class, privacy_tier, capabilities, skills,
           transport_type, api_base_url, transport_config, is_active,
           status, created_at, updated_at, requires_reauth,
@@ -179,11 +179,11 @@ describe('W2-7 buildDoctorReport + reconcileDoctor — real sqlite + real .cant'
         'uuid-orphan',
         'orphan-row',
         'orphan-row',
-        nowTs,
-        nowTs,
+        nowIso,
+        nowIso,
         '/tmp/definitely-does-not-exist/missing.cant',
         'a'.repeat(64),
-        new Date(nowTs * 1000).toISOString(),
+        nowIso,
       );
 
       const report = await buildDoctorReport(db, {
@@ -262,9 +262,9 @@ describe('W2-7 buildDoctorReport + reconcileDoctor — real sqlite + real .cant'
     const { buildDoctorReport, reconcileDoctor } = await import('../agent-doctor.js');
     const db = env.openDb();
     try {
-      const nowTs = Math.floor(Date.now() / 1000);
+      const nowIso = new Date().toISOString();
       db.prepare(
-        `INSERT INTO agents (
+        `INSERT INTO agent_registry_agents (
           id, agent_id, name, class, privacy_tier, capabilities, skills,
           transport_type, api_base_url, transport_config, is_active,
           status, created_at, updated_at, requires_reauth,
@@ -277,11 +277,11 @@ describe('W2-7 buildDoctorReport + reconcileDoctor — real sqlite + real .cant'
         'uuid-orphan-2',
         'orphan-row-2',
         'orphan-row-2',
-        nowTs,
-        nowTs,
+        nowIso,
+        nowIso,
         '/tmp/definitely-does-not-exist/also-missing.cant',
         'b'.repeat(64),
-        new Date(nowTs * 1000).toISOString(),
+        nowIso,
       );
 
       const report = await buildDoctorReport(db, {
@@ -292,7 +292,7 @@ describe('W2-7 buildDoctorReport + reconcileDoctor — real sqlite + real .cant'
       expect(result.repaired).toContain('D-002');
 
       const remaining = db
-        .prepare('SELECT id FROM agents WHERE agent_id = ?')
+        .prepare('SELECT id FROM agent_registry_agents WHERE agent_id = ?')
         .get('orphan-row-2') as { id: string } | undefined;
       expect(remaining).toBeUndefined();
     } finally {
