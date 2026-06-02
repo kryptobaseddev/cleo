@@ -263,6 +263,8 @@ export type {
   LifecycleEnforcementMode,
   LlmConfig,
   LlmDefaultConfig,
+  LlmProfileConfig,
+  LlmProfileTuning,
   LlmProviderEntry,
   LlmProviderTransport,
   LlmRoleConfig,

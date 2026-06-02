@@ -205,14 +205,22 @@ export interface CredentialResultWire {
  *
  * Resolution chain order:
  *   1. `role`               — `config.llm.roles[role]` (explicit override)
- *   2. `default`            — `config.llm.default` (canonical default)
- *   3. `implicit-fallback`  — hard-coded fallback inside the resolver
+ *   2. `profile`            — `config.llm.profiles[roles[role].profile]`
+ *   3. `default`            — `config.llm.default` (canonical default)
+ *   4. `default-profile`    — `config.llm.profiles[config.llm.defaultProfile]`
+ *   5. `implicit-fallback`  — hard-coded fallback inside the resolver
  *
  * Useful for `cleo llm whoami` diagnostics.
  *
  * @task T9306
+ * @task T11617 (`profile`, `default-profile`)
  */
-export type ResolutionSource = 'role' | 'default' | 'implicit-fallback';
+export type ResolutionSource =
+  | 'role'
+  | 'profile'
+  | 'default'
+  | 'default-profile'
+  | 'implicit-fallback';
 
 /**
  * Result envelope returned by `resolveLLMForRole(role)`.

@@ -404,13 +404,49 @@ export class CredentialPool {
     if (existing.expiresAt == null) return false;
 
     const remaining = existing.expiresAt - Date.now();
-    // Refresh when remaining lifetime is less than the floor (300s).
+    // Refresh when remaining lifetime is less than the floor (300s). A negative
+    // `remaining` (already-expired token) also satisfies this, so an expired
+    // OAuth credential that still has a refresh token is renewed rather than
+    // dropped.
     // ConcreteSession handles the 50%-of-lifetime check using the original
     // expiresIn from the token response; CredentialPool covers the floor case.
     if (remaining >= PROACTIVE_REFRESH_FLOOR_MS) return false;
 
     await this._refreshOAuthCredential(existing);
     return true;
+  }
+
+  /**
+   * Refresh every expired-but-refreshable OAuth credential for this provider
+   * before a selection pass, so the role resolver renews a stale token instead
+   * of silently filtering it out (which previously demoted resolution to a
+   * lower-priority — or fake — credential).
+   *
+   * For each stored OAuth entry that is expired (or within the proactive-refresh
+   * floor) AND carries a `refreshToken`, attempts a refresh via
+   * {@link proactiveRefresh}. Entries without a refresh token, non-OAuth
+   * entries, and still-valid tokens are left untouched. Errors are swallowed
+   * per-entry — a failed refresh leaves the entry expired and the normal
+   * eligible-filter still drops it.
+   *
+   * @returns The number of entries for which a refresh was attempted.
+   * @task T11617
+   */
+  async refreshExpiredOAuth(): Promise<number> {
+    const entries = await this.listEntries();
+    let attempted = 0;
+    for (const entry of entries) {
+      if (entry.authType !== 'oauth') continue;
+      if (!entry.refreshToken) continue;
+      try {
+        const didRefresh = await this.proactiveRefresh(entry.label);
+        if (didRefresh) attempted += 1;
+      } catch {
+        // Non-fatal: a refresh failure leaves the entry expired; the
+        // eligible-filter drops it and resolution falls through normally.
+      }
+    }
+    return attempted;
   }
 
   /**
