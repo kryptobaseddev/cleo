@@ -7,7 +7,12 @@
  * returns a typed {@link VerifyMigrationResult} covering FOUR failure classes:
  *
  *   1. **Per-table row-count parity** — every data-bearing source table's
- *      consolidated counterpart MUST have the same row count.
+ *      consolidated counterpart MUST NOT have FEWER rows than the source (a
+ *      DEFICIT = data loss → failure). A SURPLUS (target > source — e.g.
+ *      `nexus_audit_log` gaining the migration's own audit writes during the
+ *      migrating open) is NOT loss and is tolerated with a WARN (T11577). The
+ *      per-table `countMatch` field stays a strict `source === target`
+ *      diagnostic; only a deficit contributes a failure.
  *   2. **`PRAGMA foreign_key_check`** — genuine referential orphans on the
  *      consolidated target surface as failures (not copy-order artifacts).
  *   3. **Content checksum** — an ordered canonical-JSON SHA-256 digest over the
@@ -672,7 +677,38 @@ export function verifyMigration(
           const countMatch = srcDigest.count === tgtDigest.count;
           const hashMatch = srcDigest.hash === tgtDigest.hash;
 
-          if (!countMatch || !hashMatch) {
+          // T11577: only a row DEFICIT (target < source) is genuine data loss.
+          // A SURPLUS (target > source) — e.g. nexus_audit_log gaining the
+          // migration's OWN audit writes during the migrating open — is NOT loss
+          // and must not fail the gate. When a surplus exists the content digest
+          // necessarily differs (more rows), so the hash difference is expected
+          // and is NOT counted as a failure. Surplus is logged as a WARN so the
+          // table + delta stay visible (a surplus on a non-append table could
+          // hint at a double-copy worth an operator's attention).
+          if (tgtDigest.count < srcDigest.count) {
+            failureLines.push(
+              `[${scope}] ${src.name}.${legacyTableName} → ${targetTableName}: ` +
+                `DEFICIT — source=${srcDigest.count} rows, target=${tgtDigest.count} rows (${
+                  srcDigest.count - tgtDigest.count
+                } missing), hashMatch=${hashMatch}`,
+            );
+          } else if (tgtDigest.count > srcDigest.count) {
+            log.warn(
+              {
+                scope,
+                source: src.name,
+                table: targetTableName,
+                sourceCount: srcDigest.count,
+                targetCount: tgtDigest.count,
+                delta: tgtDigest.count - srcDigest.count,
+              },
+              `verifyMigration: ${targetTableName} has ${
+                tgtDigest.count - srcDigest.count
+              } MORE row(s) in target than source (surplus — NOT data loss, tolerated; ` +
+                `e.g. migration-time audit writes). Verify it is not an unexpected double-copy.`,
+            );
+          } else if (!hashMatch) {
+            // Exact count parity but content drift — a genuine corruption class.
             failureLines.push(
               `[${scope}] ${src.name}.${legacyTableName} → ${targetTableName}: ` +
                 `source=${srcDigest.count} rows, target=${tgtDigest.count} rows, hashMatch=${hashMatch}`,

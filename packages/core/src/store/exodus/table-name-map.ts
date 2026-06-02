@@ -423,19 +423,56 @@ function inferSourceKind(sourceName: string): SourceKind | null {
  * consolidated counterpart and carry no user data — they are recreated by the
  * runtime, not migrated. Matched by EXACT name.
  *
+ * Each legacy per-domain SQLite file (`conduit.db`, `signaldock.db`,
+ * `skills.db`, …) carries its OWN private schema-version / migration-ledger
+ * table that records HOW that file was built — NOT user-payload data:
+ *
  * - `_conduit_meta` / `_conduit_migrations` — conduit-sqlite's own
- *   schema-version + migration-ledger tables (see `conduit-sqlite.ts`). They
- *   describe HOW the legacy conduit.db was built, not message payload data, and
- *   the consolidated `cleo.db` has its own Drizzle journal (`__drizzle_*`) for
- *   the same purpose. Row-comparing them would count internal ledger rows as a
- *   user-data deficit and abort the cutover.
+ *   schema-version + migration-ledger tables (see `conduit-sqlite.ts`).
+ * - `_signaldock_meta` / `_signaldock_migrations` — signaldock-sqlite's own
+ *   ledger tables (same class — T11577 global-scope cutover blocker).
+ * - `_skills_meta` — skills.db's own schema-version row (same class — T11577).
+ *
+ * The consolidated `cleo.db` has its own Drizzle journal (`__drizzle_*`) for the
+ * same purpose, so these legacy ledgers have no consolidated home. Row-comparing
+ * them would count internal ledger rows as a user-data deficit and abort the
+ * cutover. The {@link INTERNAL_LEDGER_PATTERN} below generalises the same skip
+ * to ANY future `_<domain>_meta` / `_<domain>_migrations` ledger so a new source
+ * DB never re-introduces this false-positive; these exact entries remain for
+ * documentation + as a fast path.
  *
  * @task T11572 (parity gate over-abort — internal/meta exclusion)
+ * @task T11577 (generalise to signaldock/skills + any per-source ledger)
  */
 const INTERNAL_BOOKKEEPING_TABLES: ReadonlySet<string> = new Set([
   '_conduit_meta',
   '_conduit_migrations',
+  '_signaldock_meta',
+  '_signaldock_migrations',
+  '_skills_meta',
 ]);
+
+/**
+ * Pattern matching a per-source SQLite **internal ledger** table: an underscore-
+ * prefixed `_<domain>_meta` or `_<domain>_migrations` name where `<domain>` is a
+ * lowercase identifier (e.g. `_conduit_meta`, `_signaldock_migrations`,
+ * `_skills_meta`).
+ *
+ * Every legacy domain DB (conduit/signaldock/skills/…) materialises one of these
+ * to track its own schema version / applied-migration history. They are private
+ * bookkeeping — NOT migratable base data — and have no consolidated home (the
+ * consolidated `cleo.db` keeps its own `__drizzle_*` journal). Generalising the
+ * skip to this shape is future-proof: a NEW source DB that follows the same
+ * `_<domain>_(meta|migrations)` convention is excluded automatically, so this
+ * exact false-positive class can never abort the cutover again.
+ *
+ * The pattern is intentionally conservative — it requires the leading underscore
+ * and the exact `_meta` / `_migrations` suffix so it can never match a real
+ * data table (those are never underscore-prefixed in any legacy source schema).
+ *
+ * @task T11577 (parity gate over-abort — generalise per-source ledger skip)
+ */
+const INTERNAL_LEDGER_PATTERN: RegExp = /^_[a-z][a-z0-9]*_(?:meta|migrations)$/;
 
 /**
  * FTS5 shadow-table suffixes. A full-text index `<base>_fts` (an `fts5` VIRTUAL
@@ -473,7 +510,11 @@ const FTS5_SHADOW_SUFFIXES: readonly string[] = [
  *   2. **FTS5 shadow/backing tables** — `*_fts_data`, `*_fts_idx`,
  *      `*_fts_docsize`, `*_fts_config`, `*_fts_content` (see
  *      {@link FTS5_SHADOW_SUFFIXES}). Derived; rebuilt post-migration.
- *   3. **Internal bookkeeping** — `_conduit_meta`, `_conduit_migrations` (see
+ *   3. **Internal bookkeeping** — any per-source schema-version / migration
+ *      ledger: `_conduit_meta`, `_conduit_migrations`, `_signaldock_meta`,
+ *      `_signaldock_migrations`, `_skills_meta`, and — generalised via
+ *      {@link INTERNAL_LEDGER_PATTERN} — ANY `_<domain>_meta` /
+ *      `_<domain>_migrations` ledger from a future source DB (see
  *      {@link INTERNAL_BOOKKEEPING_TABLES}). Schema-version ledgers with no
  *      consolidated home.
  *
@@ -485,11 +526,16 @@ const FTS5_SHADOW_SUFFIXES: readonly string[] = [
  * @returns `true` when the table is derived/internal and must be skipped.
  *
  * @task T11572 (exodus parity gate: exclude FTS5 + internal/meta shadow tables)
+ * @task T11577 (generalise internal-ledger skip to signaldock/skills + any per-source ledger)
  * @epic T11249 (E6)
  * @saga T11242
  */
 export function isDerivedOrInternalTable(tableName: string): boolean {
+  // Exact-name fast path (documented known ledgers).
   if (INTERNAL_BOOKKEEPING_TABLES.has(tableName)) return true;
+  // Generalised per-source ledger: `_<domain>_meta` / `_<domain>_migrations`.
+  // Future-proofs against a new source DB re-introducing the same false-positive.
+  if (INTERNAL_LEDGER_PATTERN.test(tableName)) return true;
   // Bare FTS5 virtual table (e.g. `brain_decisions_fts`, `messages_fts`).
   if (tableName.endsWith('_fts')) return true;
   // FTS5 backing/shadow tables (`*_fts_data`, `*_fts_idx`, …).
@@ -525,11 +571,12 @@ export function resolveConsolidatedTableName(
   sourceName: string,
   legacyTable: string,
 ): TableNameResolution {
-  // T11572: derived (FTS5 shadow) + internal (conduit meta/migrations) tables
+  // T11572/T11577: derived (FTS5 shadow) + internal per-source ledger tables
+  // (`_<domain>_meta` / `_<domain>_migrations` — conduit/signaldock/skills/…)
   // are excluded BEFORE any per-source map lookup. They carry no migratable base
   // data — comparing them against an absent consolidated target would count an
   // N→0 "deficit" and abort the cutover. This guard is source-kind-agnostic so
-  // it covers FTS shadow tables in any DB (brain/conduit/…).
+  // it covers FTS shadow + ledger tables in any DB (brain/conduit/signaldock/…).
   if (isDerivedOrInternalTable(legacyTable)) {
     return {
       kind: 'skip',
