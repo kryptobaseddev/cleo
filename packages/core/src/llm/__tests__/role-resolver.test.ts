@@ -204,6 +204,110 @@ describe('resolveLLMForRole — provider/model resolution chain', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Named profile + defaultProfile binding (T11617)
+// ---------------------------------------------------------------------------
+
+describe('resolveLLMForRole — named profile + defaultProfile binding (T11617)', () => {
+  it("source='profile' when a role pins a named profile", async () => {
+    const { projectRoot } = isolate();
+    seedProjectConfig(projectRoot, {
+      profiles: {
+        'codex-bg': { provider: 'anthropic', model: 'profile-model-z' },
+      },
+      roles: {
+        consolidation: { provider: 'openai', model: 'inline-ignored', profile: 'codex-bg' },
+      },
+    });
+    process.env['ANTHROPIC_API_KEY'] = 'sk-ant-profile';
+    const llm = await resolveLLMForRole('consolidation', { projectRoot });
+    expect(llm.source).toBe('profile');
+    expect(llm.provider).toBe('anthropic');
+    expect(llm.model).toBe('profile-model-z');
+  });
+
+  it("source='default-profile' when only defaultProfile is configured", async () => {
+    const { projectRoot } = isolate();
+    seedProjectConfig(projectRoot, {
+      profiles: {
+        'codex-bg': { provider: 'anthropic', model: 'default-profile-model' },
+      },
+      defaultProfile: 'codex-bg',
+    });
+    process.env['ANTHROPIC_API_KEY'] = 'sk-ant-defprofile';
+    const llm = await resolveLLMForRole('consolidation', { projectRoot });
+    expect(llm.source).toBe('default-profile');
+    expect(llm.model).toBe('default-profile-model');
+  });
+
+  it('a role profile reference beats llm.default', async () => {
+    const { projectRoot } = isolate();
+    seedProjectConfig(projectRoot, {
+      profiles: { fast: { provider: 'anthropic', model: 'profile-wins' } },
+      roles: { consolidation: { provider: 'anthropic', model: 'unused', profile: 'fast' } },
+      default: { provider: 'anthropic', model: 'default-loses' },
+    });
+    process.env['ANTHROPIC_API_KEY'] = 'sk-ant';
+    const llm = await resolveLLMForRole('consolidation', { projectRoot });
+    expect(llm.source).toBe('profile');
+    expect(llm.model).toBe('profile-wins');
+  });
+
+  it('llm.default beats defaultProfile (default-profile is a last-resort binding)', async () => {
+    const { projectRoot } = isolate();
+    seedProjectConfig(projectRoot, {
+      profiles: { 'codex-bg': { provider: 'anthropic', model: 'default-profile-loses' } },
+      defaultProfile: 'codex-bg',
+      default: { provider: 'anthropic', model: 'default-wins' },
+    });
+    process.env['ANTHROPIC_API_KEY'] = 'sk-ant';
+    const llm = await resolveLLMForRole('extraction', { projectRoot });
+    expect(llm.source).toBe('default');
+    expect(llm.model).toBe('default-wins');
+  });
+
+  it('falls through to implicit-fallback when a role references an unknown profile', async () => {
+    const { projectRoot } = isolate();
+    seedProjectConfig(projectRoot, {
+      roles: {
+        consolidation: { provider: 'anthropic', model: 'inline-model', profile: 'missing' },
+      },
+    });
+    process.env['ANTHROPIC_API_KEY'] = 'sk-ant';
+    // Unknown profile name → resolveNamedProfile returns undefined → falls to
+    // the inline {provider, model} tuple on the same role entry.
+    const llm = await resolveLLMForRole('consolidation', { projectRoot });
+    expect(llm.source).toBe('role');
+    expect(llm.model).toBe('inline-model');
+  });
+
+  it('a profile credentialLabel pins the credential for the role', async () => {
+    const { projectRoot } = isolate();
+    seedProjectConfig(projectRoot, {
+      profiles: {
+        'codex-bg': {
+          provider: 'anthropic',
+          model: 'profile-model',
+          credentialLabel: 'pinned-label',
+        },
+      },
+      roles: { consolidation: { provider: 'anthropic', model: 'x', profile: 'codex-bg' } },
+    });
+    // Seed a cred-file entry under the pinned label.
+    await addCredential({
+      provider: 'anthropic',
+      label: 'pinned-label',
+      authType: 'api_key',
+      accessToken: 'sk-ant-pinned',
+      priority: 100,
+    });
+    const llm = await resolveLLMForRole('consolidation', { projectRoot });
+    expect(llm.source).toBe('profile');
+    expect(llm.credentialLabel).toBe('pinned-label');
+    expect(llm.credential?.apiKey).toBe('sk-ant-pinned');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Credential resolution
 // ---------------------------------------------------------------------------
 

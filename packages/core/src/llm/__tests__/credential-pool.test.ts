@@ -612,3 +612,82 @@ describe('CredentialPool.proactiveRefresh() — OAuth credential threshold', () 
     vi.restoreAllMocks();
   });
 });
+
+describe('CredentialPool.refreshExpiredOAuth() — self-heal on resolve (T11617)', () => {
+  it('refreshes an ALREADY-EXPIRED OAuth credential that has a refresh token', async () => {
+    isolateHomes();
+
+    // expiresAt in the PAST (negative remaining) — previously dropped, now renewed.
+    const expiresAt = Date.now() - 60_000;
+    await addCredential(
+      makeCredential('anthropic-expired', 10, {
+        provider: 'anthropic',
+        authType: 'oauth',
+        expiresAt,
+        refreshToken: 'ant-expired-refresh-tok',
+        accessToken: 'sk-ant-stale',
+      }),
+    );
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          access_token: 'sk-ant-renewed',
+          refresh_token: 'ant-renewed-refresh',
+          expires_in: 3600,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    const pool = new CredentialPool('anthropic');
+    const attempted = await pool.refreshExpiredOAuth();
+
+    expect(attempted).toBe(1);
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const entries = await pool.listEntries();
+    const entry = entries.find((e) => e.label === 'anthropic-expired');
+    expect(entry?.accessToken).toBe('sk-ant-renewed');
+    vi.restoreAllMocks();
+  });
+
+  it('skips non-OAuth and refresh-token-less entries (no network)', async () => {
+    isolateHomes();
+
+    await addCredential(makeCredential('api-key-entry', 50)); // api_key, no refresh
+    await addCredential(
+      makeCredential('oauth-no-refresh', 40, {
+        authType: 'oauth',
+        expiresAt: Date.now() - 1000, // expired but NO refresh token
+      }),
+    );
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const pool = new CredentialPool('anthropic');
+    const attempted = await pool.refreshExpiredOAuth();
+
+    expect(attempted).toBe(0);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  it('does not refresh a still-valid OAuth token', async () => {
+    isolateHomes();
+
+    await addCredential(
+      makeCredential('valid-oauth', 30, {
+        authType: 'oauth',
+        expiresAt: Date.now() + 60 * 60 * 1000, // 1h out — well past the floor
+        refreshToken: 'still-valid-refresh',
+      }),
+    );
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const pool = new CredentialPool('anthropic');
+    const attempted = await pool.refreshExpiredOAuth();
+
+    expect(attempted).toBe(0);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+});

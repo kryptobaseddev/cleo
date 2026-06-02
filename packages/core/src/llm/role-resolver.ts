@@ -31,6 +31,7 @@ import type {
   CleoConfig,
   LlmConfig,
   LlmDefaultConfig,
+  LlmProfileConfig,
   LlmRoleConfig,
   ResolutionSource,
   ResolveLLMForRoleOptions,
@@ -38,6 +39,7 @@ import type {
 } from '@cleocode/contracts';
 import type { OpenAI } from 'openai';
 import { resolveOrCwd } from '../paths.js';
+import { CredentialPool } from './credential-pool.js';
 import { type CredentialResult, resolveCredentials } from './credentials.js';
 import { getCredentialByLabel, pickCredentialForProvider } from './credentials-store.js';
 import { IMPLICIT_FALLBACK_MODEL } from './fallback-model.js';
@@ -149,22 +151,62 @@ function readLlmBlock(config: CleoConfig | undefined): LlmConfig | undefined {
   return config?.llm;
 }
 
-/**
- * Pick provider/model/credentialLabel from the highest-priority configured
- * tier. Always returns a value because the implicit fallback is unconditional.
- *
- * Resolution order: `roles[role]` → `default` → implicit fallback.
- */
-function selectProviderModel(
-  llm: LlmConfig | undefined,
-  role: RoleName,
-): {
+/** Internal shape returned by {@link selectProviderModel}. */
+interface SelectedProviderModel {
   provider: ModelTransport;
   model: string;
   credentialLabel: string | undefined;
   source: ResolutionSource;
-} {
+}
+
+/**
+ * Resolve a named profile from `llm.profiles[name]` into a
+ * {@link SelectedProviderModel}, or `undefined` when the name is unknown or
+ * the profile is structurally incomplete (missing provider/model).
+ *
+ * @param llm    - The LLM config block (may be undefined).
+ * @param name   - Profile name to look up (may be undefined).
+ * @param source - The {@link ResolutionSource} to stamp on a hit.
+ * @task T11617
+ */
+function resolveNamedProfile(
+  llm: LlmConfig | undefined,
+  name: string | undefined,
+  source: ResolutionSource,
+): SelectedProviderModel | undefined {
+  if (!name) return undefined;
+  const profile: LlmProfileConfig | undefined = llm?.profiles?.[name];
+  if (!profile?.provider || !profile.model) return undefined;
+  return {
+    provider: profile.provider as ModelTransport,
+    model: profile.model,
+    credentialLabel: profile.credentialLabel,
+    source,
+  };
+}
+
+/**
+ * Pick provider/model/credentialLabel from the highest-priority configured
+ * tier. Always returns a value because the implicit fallback is unconditional.
+ *
+ * Resolution order:
+ *   1. `roles[role].profile` → named profile (`source: 'profile'`)
+ *   2. `roles[role]` inline `{provider, model}` (`source: 'role'`)
+ *   3. `default` (`source: 'default'`)
+ *   4. `defaultProfile` → named profile (`source: 'default-profile'`)
+ *   5. implicit fallback (`source: 'implicit-fallback'`)
+ *
+ * The configurable `defaultProfile` is what lets background roles resolve to a
+ * user-selectable provider WITHOUT hardcoding the provider in code.
+ */
+function selectProviderModel(llm: LlmConfig | undefined, role: RoleName): SelectedProviderModel {
   const roleEntry: LlmRoleConfig | undefined = llm?.roles?.[role];
+
+  // 1. Role pinned to a named profile.
+  const roleProfile = resolveNamedProfile(llm, roleEntry?.profile, 'profile');
+  if (roleProfile) return roleProfile;
+
+  // 2. Role with an inline provider/model tuple (existing behaviour).
   if (roleEntry?.provider && roleEntry.model) {
     return {
       provider: roleEntry.provider as ModelTransport,
@@ -174,6 +216,7 @@ function selectProviderModel(
     };
   }
 
+  // 3. Canonical default tuple.
   const defaultEntry: LlmDefaultConfig | undefined = llm?.default;
   if (defaultEntry?.provider && defaultEntry.model) {
     return {
@@ -184,6 +227,11 @@ function selectProviderModel(
     };
   }
 
+  // 4. Configurable default profile binding (user-selectable; not hardcoded).
+  const defaultProfile = resolveNamedProfile(llm, llm?.defaultProfile, 'default-profile');
+  if (defaultProfile) return defaultProfile;
+
+  // 5. Implicit fallback (last resort).
   return {
     provider: IMPLICIT_FALLBACK_PROVIDER,
     model: IMPLICIT_FALLBACK_MODEL,
@@ -205,6 +253,18 @@ async function resolveCredentialForRole(
   credentialLabel: string | undefined,
   projectRoot: string,
 ): Promise<{ credential: CredentialResult | null; usedLabel: string | undefined }> {
+  // Self-heal (T11617): before any lookup/pick, renew expired-but-refreshable
+  // OAuth credentials for this provider so a stale token is REFRESHED rather
+  // than silently filtered out (which previously demoted resolution to a
+  // lower-priority — or fake — credential, e.g. the consolidation 401). A
+  // refresh failure leaves the entry expired and the eligible-filter drops it,
+  // so this is purely additive: best-effort renewal, never throws.
+  try {
+    await new CredentialPool(provider).refreshExpiredOAuth();
+  } catch {
+    // Non-fatal — proceed with whatever credentials are currently usable.
+  }
+
   // Pinned-label path: must match exactly OR fall through to the generic chain.
   if (credentialLabel) {
     const stored = await getCredentialByLabel(provider, credentialLabel);

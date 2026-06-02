@@ -451,6 +451,58 @@ export interface LlmRoleConfig {
    * inherits the default credential resolution order.
    */
   credentialLabel?: string;
+  /**
+   * Optional reference to a named profile in {@link LlmConfig.profiles}. When
+   * set, the named profile's `provider` / `model` / `credentialLabel` take
+   * precedence over this entry's inline `provider` / `model` — letting many
+   * roles share one reusable provider+model definition (hermes-agent's
+   * profile-mapping model).
+   *
+   * @task T11617
+   */
+  profile?: string;
+}
+
+/**
+ * Tuning parameters carried by a named LLM profile.
+ *
+ * @task T11617
+ */
+export interface LlmProfileTuning {
+  /** Default maximum tokens to generate for calls bound to this profile. */
+  maxTokens?: number;
+  /** Default sampling temperature (0.0–1.0) for calls bound to this profile. */
+  temperature?: number;
+}
+
+/**
+ * A named, reusable LLM profile.
+ *
+ * A profile names a `provider` + `model` (+ optional credential label and
+ * tuning params) ONCE so that multiple call-sites/roles can bind to it by name
+ * instead of repeating the inline tuple. This is the "Profile" abstraction
+ * modeled on hermes-agent's `auxiliary.<task>` provider bindings — the user
+ * selects which provider fulfills a profile, and roles map to profiles.
+ *
+ * Profiles live in {@link LlmConfig.profiles}; roles reference them via
+ * {@link LlmRoleConfig.profile} and the default binding via
+ * {@link LlmConfig.defaultProfile}.
+ *
+ * @task T11617
+ */
+export interface LlmProfileConfig {
+  /** LLM provider transport this profile resolves to. */
+  provider: LlmProviderTransport;
+  /** Full model identifier for the selected provider. */
+  model: string;
+  /**
+   * Optional credential label pinning this profile to a specific credential
+   * pool entry (e.g. `'codex-cli'` for the OpenAI Codex OAuth token). When
+   * omitted, the standard priority-based credential resolution applies.
+   */
+  credentialLabel?: string;
+  /** Optional tuning parameters (max tokens, temperature). */
+  params?: LlmProfileTuning;
 }
 
 /**
@@ -482,11 +534,31 @@ export interface LlmConfig {
   /**
    * Per-role LLM overrides. Each role optionally pins to a credential label.
    *
-   * Resolution order: `roles[role]` → `default` → implicit fallback.
+   * Resolution order: `roles[role].profile` → `roles[role]` (inline) →
+   * `defaultProfile` → `default` → implicit fallback.
    *
    * @task T-LLM-CRED-CENTRALIZATION Phase 4 (T9306)
    */
   roles?: Partial<Record<RoleName, LlmRoleConfig>>;
+  /**
+   * Named, reusable LLM profiles keyed by profile name. Roles bind to a
+   * profile via {@link LlmRoleConfig.profile}; the unscoped default binding is
+   * {@link LlmConfig.defaultProfile}. Modeled on hermes-agent's
+   * provider→profile mapping for "what to use when".
+   *
+   * @task T11617
+   */
+  profiles?: Record<string, LlmProfileConfig>;
+  /**
+   * Name of the profile (a key of {@link LlmConfig.profiles}) used for any
+   * role that does NOT pin its own provider/model/profile. This is the
+   * user-selectable default binding for background roles — it is NEVER a
+   * hardcoded provider in code; the owner re-selects it with
+   * `cleo llm bind --default <profileName>`.
+   *
+   * @task T11617
+   */
+  defaultProfile?: string;
 }
 
 /** SignalDock transport mode. */

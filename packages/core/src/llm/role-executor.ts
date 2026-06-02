@@ -34,14 +34,54 @@ import type {
   NormalizedUsage,
   TransportRequest,
 } from '@cleocode/contracts/llm/normalized-response.js';
+import { CredentialPool } from './credential-pool.js';
+import { classifyError } from './error-classifier.js';
 import { getKimiCodeMshHeaders, isKimiCodeApiKey } from './provider-registry/builtin/kimi-code.js';
 import { resolveLLMForRole } from './role-resolver.js';
 import { AnthropicTransport } from './transports/anthropic.js';
 import { ChatCompletionsTransport } from './transports/chat-completions.js';
+import { buildCodexOAuthHeaders, CODEX_OAUTH_BASE_URL } from './transports/codex-oauth-headers.js';
+import { CodexResponsesTransport } from './transports/codex-responses.js';
 import type { ModelTransport } from './types-config.js';
 
 /** Kimi Code chat endpoint — speaks Anthropic Messages protocol. */
 const KIMI_CODE_BASE_URL = 'https://api.kimi.com/coding';
+
+/**
+ * Process-lifetime latch set of `role|provider|label` keys that have already
+ * emitted a credential-failure warning. Prevents a dead/rejected credential
+ * from spamming the log on every background tick (e.g. every `cleo briefing`).
+ * Cleared only by process restart — once a credential is fixed and re-picked,
+ * a fresh `(role, provider, label)` tuple is logged again.
+ *
+ * @task T11617
+ */
+const WARNED_ROLE_FAILURES = new Set<string>();
+
+/**
+ * Emit a role-failure warning AT MOST ONCE per `(role, provider, label)` tuple
+ * for the lifetime of the process. Subsequent identical failures are silent.
+ *
+ * @param key     - The `role|provider|label` latch key.
+ * @param message - The full warning line to emit on first occurrence.
+ * @task T11617
+ */
+function warnOnceForRole(key: string, message: string): void {
+  if (WARNED_ROLE_FAILURES.has(key)) return;
+  WARNED_ROLE_FAILURES.add(key);
+  console.warn(message);
+}
+
+/**
+ * Test-only: clear the role-failure warning latch so a fresh test run starts
+ * from a clean slate. Production callers MUST NOT use this.
+ *
+ * @internal
+ * @task T11617
+ */
+export function _resetRoleWarnLatchForTests(): void {
+  WARNED_ROLE_FAILURES.clear();
+}
 
 /**
  * Options accepted by {@link executeForRole}.
@@ -112,9 +152,19 @@ export async function executeForRole(
 ): Promise<ExecuteForRoleResult | null> {
   const llm = await resolveLLMForRole(role, { projectRoot: opts.projectRoot });
   if (!llm.credential?.apiKey) {
+    // No usable credential for this role's resolved provider. Surface ONE
+    // actionable re-auth hint per (role, provider) tuple instead of a silent
+    // skip — the caller still degrades gracefully via the null return.
+    warnOnceForRole(
+      `${role}|${llm.provider}|<none>`,
+      `[role-executor] role=${role} provider=${llm.provider}: no usable credential. ` +
+        `Run 'cleo llm login' (or 'cleo llm add ${llm.provider}') to authenticate, ` +
+        `or 'cleo llm profile ${role} <provider>' to bind this role to a configured provider.`,
+    );
     return null;
   }
 
+  const credentialLabel = llm.credentialLabel ?? '<default>';
   const model = opts.modelOverride ?? llm.model;
 
   const request: TransportRequest = {
@@ -179,9 +229,33 @@ export async function executeForRole(
       };
     }
 
-    // openai / openrouter / deepseek / xai / groq / moonshot / gemini-via-shim
-    // — all speak OpenAI chat_completions. ChatCompletionsTransport routes
-    // through the OpenAI SDK which sets Authorization: Bearer from apiKey.
+    if (llm.provider === 'openai' && llm.credential.authType === 'oauth') {
+      // OpenAI Codex OAuth path. A ChatGPT-issued OAuth bearer token is NOT
+      // accepted at `api.openai.com`; it authenticates against the Codex
+      // backend (`chatgpt.com/backend-api/codex`) via the Responses API, with
+      // the Cloudflare-bypass headers hermes-agent documented (originator +
+      // ChatGPT-Account-ID). This is the branch the RCA found missing — it lets
+      // a background role be fulfilled by the live `openai/codex-cli` OAuth
+      // credential in the pool. (api_key OpenAI keeps the chat_completions
+      // path below.)
+      const transport = new CodexResponsesTransport({
+        provider: llm.provider,
+        apiKey: llm.credential.apiKey,
+        baseUrl: CODEX_OAUTH_BASE_URL,
+        defaultHeaders: buildCodexOAuthHeaders(llm.credential.apiKey),
+      });
+      const resp = await transport.complete(request);
+      return {
+        content: resp.content ?? '',
+        usage: resp.usage,
+        provider: llm.provider,
+        model: resp.model,
+      };
+    }
+
+    // openai (api_key) / openrouter / deepseek / xai / groq / moonshot /
+    // gemini-via-shim — all speak OpenAI chat_completions. ChatCompletionsTransport
+    // routes through the OpenAI SDK which sets Authorization: Bearer from apiKey.
     const transport = new ChatCompletionsTransport({
       provider: llm.provider,
       apiKey: llm.credential.apiKey,
@@ -195,9 +269,37 @@ export async function executeForRole(
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.warn(
-      `[role-executor] role=${role} provider=${llm.provider} model=${model} call failed: ${message}`,
-    );
+    const classified = classifyError(err, { provider: llm.provider, model });
+    const latchKey = `${role}|${llm.provider}|${credentialLabel}`;
+
+    // Self-heal: a rejected (401/403) credential is quarantined so the resolver
+    // stops re-picking the dead key on the next tick. `markExhausted` persists
+    // a cooldown + `lastStatus` so `eligibleForProvider` skips it. We only
+    // quarantine when we know the concrete credential label (a `<default>`
+    // resolution has no addressable pool entry to mark).
+    if (classified.reason === 'auth' && llm.credentialLabel) {
+      // Fire-and-forget: quarantine MUST NOT block the graceful-degradation
+      // return, and a write failure here is non-fatal (next tick retries).
+      void new CredentialPool(llm.provider)
+        .markExhausted(llm.credentialLabel, classified.statusCode ?? 401)
+        .catch(() => {
+          /* non-fatal: persistence error is retried next tick */
+        });
+      warnOnceForRole(
+        latchKey,
+        `[role-executor] role=${role} provider=${llm.provider} model=${model} ` +
+          `credential '${credentialLabel}' rejected (${classified.statusCode ?? 401} auth). ` +
+          `Quarantined this credential. Run 'cleo llm login' to re-authenticate, ` +
+          `or 'cleo llm profile ${role} <provider>' to bind this role elsewhere.`,
+      );
+    } else {
+      // Non-auth failure (network, 5xx, timeout). Log once per tuple so a
+      // persistently-failing backend does not spam every background tick.
+      warnOnceForRole(
+        latchKey,
+        `[role-executor] role=${role} provider=${llm.provider} model=${model} call failed: ${message}`,
+      );
+    }
     return null;
   }
 }
