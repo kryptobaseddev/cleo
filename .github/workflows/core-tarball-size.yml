@@ -1,16 +1,18 @@
 name: Core Tarball Size Gate
 
 # @task T11342 — SG-RUNTIME-UNIFICATION R1 (T11252).
+# @task T11580 — R10-L1: worktree-napi joins the supervisor picker.
 #
 # Asserts the packed @cleocode/core tarball stays <= 25 MB and bundles ONLY the
-# linux-x64-gnu cleo-supervisor fallback binary (Pattern P1). Fails the build
-# with a largest-contributors message when the budget is exceeded or an extra
-# platform binary sneaks in.
+# linux-x64-gnu fallback for each CLEO-managed native binary family
+# (cleo-supervisor + worktree-napi, Pattern P1). Fails the build with a
+# largest-contributors message when the budget is exceeded or an extra platform
+# binary sneaks in.
 #
 # Runs at RELEASE-TAG time (and on-demand), NOT on PRs/main: the assertion is only
-# meaningful once the cross-compiled linux-x64-gnu fallback binary has been produced
-# by cleo-supervisor-prebuild.yml (tag-triggered) and bundled into the packed tarball.
-# On PRs the fallback is a placeholder, so the gate would false-fail (T11252 integration).
+# meaningful once the cross-compiled linux-x64-gnu fallback binaries have been
+# produced and bundled into the packed tarball. On PRs the fallbacks are
+# placeholders, so the gate would false-fail (T11252 integration).
 
 on:
   push:
@@ -56,6 +58,25 @@ jobs:
           node packages/core/scripts/gen-supervisor-manifest.mjs \
             --bin-dir /tmp/sup-bin \
             --out packages/core/binaries/cleo-supervisor-manifest.json
+
+      # Stage the P1 worktree-napi fallback addon + manifest so the gate measures
+      # the REAL shipped layout for the worktree-napi family too (T11580 · R10-L1).
+      # Only the linux-x64-gnu .node is bundled; the manifest pins all triples for
+      # the postinstall P2 picker.
+      - name: Build + stage linux-x64-gnu worktree-napi fallback
+        run: |
+          set -euo pipefail
+          cargo build --release -p worktree-napi
+          # cargo emits the cdylib as libworktree_napi.so; rename to the .node
+          # triple name the loader + manifest expect.
+          mkdir -p packages/core/binaries/fallback /tmp/napi-bin
+          cp target/release/libworktree_napi.so \
+            packages/core/binaries/fallback/worktree-napi.linux-x64-gnu.node
+          cp target/release/libworktree_napi.so \
+            /tmp/napi-bin/worktree-napi.linux-x64-gnu.node
+          node packages/core/scripts/gen-napi-manifest.mjs \
+            --bin-dir /tmp/napi-bin \
+            --out packages/core/binaries/worktree-napi-manifest.json
 
       - name: Assert tarball size + fallback policy
         run: node packages/core/scripts/check-core-tarball-size.mjs

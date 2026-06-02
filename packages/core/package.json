@@ -462,6 +462,7 @@
     "templates",
     "binaries",
     "scripts/install-supervisor-binary.mjs",
+    "scripts/napi-binary-picker.mjs",
     "README.md",
     "STABILITY.md"
   ],

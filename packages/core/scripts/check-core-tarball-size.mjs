@@ -1,18 +1,20 @@
 #!/usr/bin/env node
 /**
  * CI gate: assert the packed `@cleocode/core` tarball stays within budget and
- * bundles ONLY the linux-x64-gnu supervisor fallback binary
- * (T11342 — SG-RUNTIME-UNIFICATION R1).
+ * bundles ONLY the linux-x64-gnu fallback for each CLEO-managed native binary
+ * (T11342 — SG-RUNTIME-UNIFICATION R1; extended T11580 — R10-L1).
  *
- * Rationale: Distribution Pattern P1 bundles exactly ONE supervisor binary
- * (linux-x64-gnu) into the tarball; the other four targets are downloaded at
+ * Rationale: Distribution Pattern P1 bundles exactly ONE binary per family
+ * (linux-x64-gnu) into the tarball; the other targets are downloaded at
  * postinstall (P2). If a future change bundles additional platform binaries,
  * the tarball bloats and `npm install` slows for everyone. This gate fails the
  * build (non-zero exit) when:
  *
  *   1. The packed tarball exceeds {@link MAX_CORE_TARBALL_BYTES}, OR
- *   2. More than one `cleo-supervisor.*` platform binary is bundled, OR a
- *      bundled binary targets a triple other than `linux-x64-gnu`.
+ *   2. More than one `cleo-supervisor.*` platform binary is bundled, or a
+ *      bundled one targets a triple other than `linux-x64-gnu`, OR
+ *   3. More than one `worktree-napi.*.node` platform addon is bundled, or a
+ *      bundled one targets a triple other than `linux-x64-gnu` (T11580).
  *
  * On failure it prints the largest contributors so the regression is obvious.
  *
@@ -20,6 +22,7 @@
  *   node packages/core/scripts/check-core-tarball-size.mjs
  *
  * @task T11342
+ * @task T11580
  */
 
 import { execFileSync } from 'node:child_process';
@@ -40,8 +43,16 @@ export const MAX_CORE_TARBALL_MB = 25;
 /** The threshold expressed in bytes for the size comparison. */
 export const MAX_CORE_TARBALL_BYTES = MAX_CORE_TARBALL_MB * 1024 * 1024;
 
-/** The ONLY supervisor platform binary permitted inside the bundled tarball. */
-export const ALLOWED_BUNDLED_SUPERVISOR_TRIPLE = 'linux-x64-gnu';
+/** The ONLY platform triple permitted bundled for each native-binary family. */
+export const ALLOWED_BUNDLED_TRIPLE = 'linux-x64-gnu';
+
+/**
+ * Back-compat alias — the supervisor-specific name kept for any external
+ * importer. Both families share the single allowed triple.
+ *
+ * @deprecated Use {@link ALLOWED_BUNDLED_TRIPLE}.
+ */
+export const ALLOWED_BUNDLED_SUPERVISOR_TRIPLE = ALLOWED_BUNDLED_TRIPLE;
 
 /**
  * Run `npm pack --dry-run --json` and parse the single package report.
@@ -84,6 +95,40 @@ function supervisorTripleFromPath(path) {
   return m[1];
 }
 
+/** Extract the platform triple from a bundled worktree-napi addon path, or null. */
+function worktreeNapiTripleFromPath(path) {
+  // Match `worktree-napi.<triple>.node`; never `worktree-napi-manifest.json`.
+  const m = /(?:^|\/)worktree-napi\.([a-z0-9-]+?)\.node$/.exec(path);
+  return m ? m[1] : null;
+}
+
+/**
+ * Assert a native-binary family bundles exactly one fallback, for the allowed
+ * triple. Pushes a message into `failures` per violation.
+ *
+ * @param {string} family - Human label, e.g. `supervisor` or `worktree-napi`.
+ * @param {Array<{ path: string }>} files - Packed tarball file entries.
+ * @param {(path: string) => string | null} tripleFromPath - Family extractor.
+ * @param {string[]} failures - Mutable failure sink.
+ */
+function assertSingleFallback(family, files, tripleFromPath, failures) {
+  const bundledTriples = files.map((f) => tripleFromPath(f.path)).filter((t) => t !== null);
+  for (const triple of bundledTriples) {
+    if (triple !== ALLOWED_BUNDLED_TRIPLE) {
+      failures.push(
+        `tarball bundles a non-fallback ${family} binary for '${triple}' — only ` +
+          `'${ALLOWED_BUNDLED_TRIPLE}' may be bundled (other targets download via P2)`,
+      );
+    }
+  }
+  if (bundledTriples.length > 1) {
+    failures.push(
+      `tarball bundles ${bundledTriples.length} ${family} binaries (${bundledTriples.join(', ')}) — ` +
+        `exactly one (${ALLOWED_BUNDLED_TRIPLE}) is allowed`,
+    );
+  }
+}
+
 function main() {
   const report = packReport();
 
@@ -98,23 +143,10 @@ function main() {
   }
 
   // 2. Bundled supervisor binaries — exactly one, linux-x64-gnu.
-  const bundledTriples = report.files
-    .map((f) => supervisorTripleFromPath(f.path))
-    .filter((t) => t !== null);
-  for (const triple of bundledTriples) {
-    if (triple !== ALLOWED_BUNDLED_SUPERVISOR_TRIPLE) {
-      failures.push(
-        `tarball bundles a non-fallback supervisor binary for '${triple}' — only ` +
-          `'${ALLOWED_BUNDLED_SUPERVISOR_TRIPLE}' may be bundled (other targets download via P2)`,
-      );
-    }
-  }
-  if (bundledTriples.length > 1) {
-    failures.push(
-      `tarball bundles ${bundledTriples.length} supervisor binaries (${bundledTriples.join(', ')}) — ` +
-        'exactly one (linux-x64-gnu) is allowed',
-    );
-  }
+  assertSingleFallback('supervisor', report.files, supervisorTripleFromPath, failures);
+
+  // 3. Bundled worktree-napi addons — exactly one, linux-x64-gnu (T11580).
+  assertSingleFallback('worktree-napi', report.files, worktreeNapiTripleFromPath, failures);
 
   // Always print the headline numbers + largest contributors.
   console.log(
@@ -129,7 +161,7 @@ function main() {
 
   if (failures.length > 0) {
     console.error('');
-    console.error('::error::@cleocode/core tarball gate FAILED (T11342):');
+    console.error('::error::@cleocode/core tarball gate FAILED (T11342 / T11580):');
     for (const f of failures) console.error(`  - ${f}`);
     process.exit(1);
   }

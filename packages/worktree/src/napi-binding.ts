@@ -11,11 +11,27 @@
  * package import napi functions from THIS module, never directly from the
  * native loader.
  *
+ * Resolution order (first hit wins):
+ *
+ *   1. Bundled loader at `../native/worktree-napi.cjs` (published
+ *      `@cleocode/worktree` tarball).
+ *   2. Repo-local crate loader at `../../../crates/worktree-napi/index.cjs`
+ *      (source-tree execution after a local napi build).
+ *   3. **Core-managed cache** (T11580 · R10-L1): the host-triple `.node`
+ *      resolved by the shared `@cleocode/core` postinstall picker under
+ *      `<cache>/cleo/napi-bin/<version>/worktree-napi.<triple>.node`. This is
+ *      the Distribution Pattern P2 runtime hand-off — the picker downloads +
+ *      sha256-verifies the addon; this loader simply `require()`s the cached
+ *      file (the `.node` exports `module.exports = nativeBinding`, so no `.cjs`
+ *      wrapper is needed). Picked newest-version-first.
+ *
  * @task T9982
+ * @task T11580
  */
 
-import { cpSync, existsSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -26,6 +42,69 @@ const bundledNativeLoaderPath = fileURLToPath(
 const repoLocalNativeLoaderPath = fileURLToPath(
   new URL('../../../crates/worktree-napi/index.cjs', import.meta.url),
 );
+
+/**
+ * Resolve the platform triple for the current host, mirroring the napi loader's
+ * `tripleName()` and the core picker's `resolveTriple()`. Returns `null` for
+ * unsupported platform/arch (e.g. macOS x64, for which no prebuild ships).
+ *
+ * @returns The host triple, or `null` when unsupported.
+ */
+function resolveHostTriple(): string | null {
+  const { platform, arch } = process;
+  if (platform === 'linux' && arch === 'x64') return 'linux-x64-gnu';
+  if (platform === 'linux' && arch === 'arm64') return 'linux-arm64-gnu';
+  if (platform === 'darwin' && arch === 'arm64') return 'darwin-arm64';
+  if (platform === 'win32' && arch === 'x64') return 'win32-x64-msvc';
+  return null;
+}
+
+/**
+ * Base cache directory holding the per-version `napi-bin` subdirs that the
+ * `@cleocode/core` picker writes to. Mirrors `cacheDir()` in
+ * `packages/core/scripts/napi-binary-picker.mjs` (env-paths('cleo').cache /
+ * napi-bin) without importing `@cleocode/core` (a devDependency only).
+ *
+ * @returns Absolute path to `<cache>/cleo/napi-bin`.
+ */
+function napiBinCacheRoot(): string {
+  const p = process.platform;
+  if (p === 'win32') {
+    const local = process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local');
+    return join(local, 'cleo', 'Cache', 'napi-bin');
+  }
+  if (p === 'darwin') {
+    return join(homedir(), 'Library', 'Caches', 'cleo', 'napi-bin');
+  }
+  const xdg = process.env.XDG_CACHE_HOME;
+  const base = xdg?.startsWith('/') ? xdg : join(homedir(), '.cache');
+  return join(base, 'cleo', 'napi-bin');
+}
+
+/**
+ * Find the core-managed cached `worktree-napi.<triple>.node` for the host,
+ * preferring the newest version directory. Returns `null` when no cached addon
+ * exists (the common case in a fully-bundled install — tiers 1/2 win first).
+ *
+ * @returns Absolute path to the cached `.node`, or `null`.
+ */
+function resolveCoreManagedNapiPath(): string | null {
+  const triple = resolveHostTriple();
+  if (triple === null) return null;
+  const root = napiBinCacheRoot();
+  if (!existsSync(root)) return null;
+  let versions: string[];
+  try {
+    versions = readdirSync(root).sort().reverse();
+  } catch {
+    return null;
+  }
+  for (const version of versions) {
+    const candidate = join(root, version, `worktree-napi.${triple}.node`);
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
 
 interface CopyOptsNapi {
   /** Overwrite existing entries at the destination. */
@@ -260,6 +339,29 @@ function getNative(): WorktreeNapiModule {
     }
   }
 
+  // Tier 3 (T11580 · R10-L1): the core-managed cached `.node` resolved by the
+  // shared @cleocode/core postinstall picker (Distribution Pattern P2). The
+  // cached file is a raw addon exporting `module.exports = nativeBinding`, so
+  // it is `require()`d directly — no `.cjs` wrapper.
+  const coreManagedNapiPath = resolveCoreManagedNapiPath();
+  if (coreManagedNapiPath !== null) {
+    try {
+      nativeBinding = require_(coreManagedNapiPath) as WorktreeNapiModule;
+      return nativeBinding;
+    } catch {
+      if (isTestRuntime()) {
+        nativeBinding = createTestFallbackNativeModule();
+        return nativeBinding;
+      }
+
+      throw new Error(
+        `@cleocode/worktree: failed to load core-managed native addon at ${coreManagedNapiPath}. ` +
+          'The @cleocode/core postinstall picker resolved a cached binary that could not be loaded — ' +
+          'reinstall @cleocode/core or clear the napi-bin cache.',
+      );
+    }
+  }
+
   if (isTestRuntime()) {
     nativeBinding = createTestFallbackNativeModule();
     return nativeBinding;
@@ -267,7 +369,8 @@ function getNative(): WorktreeNapiModule {
 
   throw new Error(
     `@cleocode/worktree: missing bundled native loader at ${bundledNativeLoaderPath}. ` +
-      'The release package must include native/worktree-napi.cjs and worktree-napi.<triple>.node files.',
+      'The release package must include native/worktree-napi.cjs and worktree-napi.<triple>.node files, ' +
+      'or @cleocode/core must resolve worktree-napi via its postinstall picker (Pattern P2).',
   );
 }
 
