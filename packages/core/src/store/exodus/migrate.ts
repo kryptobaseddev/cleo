@@ -366,6 +366,18 @@ function typeDefaultLiteral(colType: string): string {
  * column, returns a SQL CASE expression that produces the canonical value.
  * Rows with already-canonical values pass through unchanged (the ELSE branch).
  *
+ * ## Brain enum normalizations REMOVED (T11647)
+ *
+ * The brain memory family no longer participates in enum normalization. Its
+ * consolidated exodus target now matches the LEGACY RUNTIME shape, which carries
+ * NO SQL CHECK constraints (the `text({ enum })` unions are enforced at the
+ * application layer only). With no CHECK to satisfy, coercing brain enum values
+ * would be data corruption, not a fix — so every brain enum value is copied
+ * VERBATIM. The historical brain rules (`brain_observations.{source_type,type}`,
+ * `brain_decisions.{confirmation_state,decision_category,confidence,outcome,
+ * decided_by}`) were deleted. The TASKS-domain rules below remain because those
+ * consolidated tables keep their CHECK constraints.
+ *
  * ## Design decisions (T11547)
  *
  * - `tasks_task_commits.link_source = 'commit-message'`
@@ -378,40 +390,12 @@ function typeDefaultLiteral(colType: string): string {
  *   `'Accepted (2026-04-18)'` and similar date-suffixed variants → `'accepted'`.
  *   These map cleanly to the existing enum; no schema extension needed.
  *
- * - `brain_observations.source_type`
- *   → `'observer-compressed'` was a legacy compression artefact produced by
- *   the brain observer pipeline when it batch-compressed session observations;
- *   semantically equivalent to `'agent'`. `'sleep-consolidation'` was the
- *   nightly dream-consolidation job; also maps to `'agent'` (closest canonical).
- *
- * - `brain_observations.type`
- *   → `'observation'` was the original catch-all type before the taxonomy was
- *   expanded; `'discovery'` is the closest canonical.
- *   `'proposal'` was used before `'decision'` was split out; maps to `'decision'`.
- *   `'pattern'` was an experimental type; maps to `'refactor'` (structural insight).
- *
- * - `brain_decisions.confirmation_state`
- *   → `'Accepted'`, `'ACCEPTED'`, `'approved'` all → `'accepted'` (same case
- *   normalization as architecture_decisions.status; brain_decisions uses
- *   a separate CHECK with the same three canonical values).
- *
  * ## Additional entries (T11548 — final 285 rows)
  *
  * - `tasks_token_usage.transport`
  *   → `'mcp'` → `'agent'` (CHECK enum: cli/api/agent/unknown). Legacy writers
  *   emitted 'mcp' before the transport taxonomy was consolidated; 'agent' is
  *   the nearest canonical for MCP-originated requests. [194 rows]
- *
- * - `brain_decisions.decision_category`
- *   → `'architecture'` → `'architectural'` (enum: architectural/agent_dispatch/other).
- *   Legacy writers used the unabbreviated form. [31 rows]
- *   → `'process'` → `'other'`, `'technical'` → `'other'` (T11549 zero-loss final mile).
- *   These categories pre-date the enum tightening; no closer canonical exists.
- *
- * - `brain_decisions.confidence`
- *   → `'confirmed'` → `'high'` (T11549: semantically maps to the high tier, not medium).
- *   → any remaining value not in (low/medium/high) → `'medium'` as a safe fallback.
- *   Covers typos, empty strings, and out-of-vocabulary legacy values. [4 rows]
  *
  * - `tasks_commits.conventional_type`
  *   → `'style'` → `'chore'` (enum includes feat/fix/chore/docs/refactor/test/
@@ -436,24 +420,17 @@ function typeDefaultLiteral(colType: string): string {
  *   (enum: direct/satisfies/coverage). Strip the namespace prefix introduced
  *   before the enum was tightened. [3 rows]
  *
- * ## Additional entries (T11550 — last 4 rows, P0 zero-loss final mile)
+ * ## T11550 (last 4 brain rows) — superseded by T11647
  *
- * - `brain_decisions.outcome`
- *   → `'accepted'` → `'success'` (enum: success/failure/mixed/pending). A decision
- *   that was accepted/adopted = successful outcome. `'rejected'` → `'failure'`.
- *   [1 row: D11132]
- *
- * - `brain_decisions.decided_by`
- *   → `'prime'` → `'agent'` (enum: owner/council/agent). 'prime' is the CLEO Prime
- *   agent persona; maps to 'agent'. Any other out-of-vocab value also becomes 'agent'
- *   (the NOT NULL default). [3 rows: T11025-alias-registration, T11027-envelope-compliance,
- *   T11030-integration-test]
+ * The T11550 `brain_decisions.{outcome,decided_by}` rules were removed by T11647
+ * (brain target = runtime shape, no CHECK). Those legacy values (`'accepted'`,
+ * `'rejected'`, `'prime'`) now copy VERBATIM and survive intact.
  *
  * Lookup key: `${targetTable}.${column}` (lowercase, dotted).
  *
  * @since T11547 (P0 data-loss fix)
  * @since T11548 (P0 final enum coverage)
- * @since T11550 (P0 zero-loss final mile — last 4 rows)
+ * @since T11647 (brain target = runtime shape — brain enum coercions removed)
  */
 type NormalizeFn = (srcRef: string) => string;
 
@@ -481,43 +458,19 @@ const ENUM_NORMALIZATIONS: ReadonlyMap<string, NormalizeFn> = new Map([
       ` END`,
   ],
 
-  // --- brain_observations.source_type -------------------------------------
-  // 'observer-compressed' and 'sleep-consolidation' → 'agent'
-  [
-    'brain_observations.source_type',
-    (src: string) =>
-      `CASE ${src}` +
-      ` WHEN 'observer-compressed' THEN 'agent'` +
-      ` WHEN 'sleep-consolidation' THEN 'agent'` +
-      ` ELSE ${src}` +
-      ` END`,
-  ],
-
-  // --- brain_observations.type --------------------------------------------
-  // 'observation' → 'discovery', 'proposal' → 'decision', 'pattern' → 'refactor'
-  [
-    'brain_observations.type',
-    (src: string) =>
-      `CASE ${src}` +
-      ` WHEN 'observation' THEN 'discovery'` +
-      ` WHEN 'proposal' THEN 'decision'` +
-      ` WHEN 'pattern' THEN 'refactor'` +
-      ` ELSE ${src}` +
-      ` END`,
-  ],
-
-  // --- brain_decisions.confirmation_state ---------------------------------
-  // Same case normalization as architecture_decisions.status
-  [
-    'brain_decisions.confirmation_state',
-    (src: string) =>
-      `CASE` +
-      ` WHEN lower(${src}) = 'accepted' OR lower(${src}) = 'approved' THEN 'accepted'` +
-      ` WHEN lower(${src}) = 'proposed' THEN 'proposed'` +
-      ` WHEN lower(${src}) = 'superseded' THEN 'superseded'` +
-      ` ELSE ${src}` +
-      ` END`,
-  ],
+  // --- brain_* enum normalizations REMOVED (T11647) -----------------------
+  // The brain memory family now lands in the consolidated cleo.db in its LEGACY
+  // RUNTIME shape — INTEGER epoch timestamps and, critically, NO SQL CHECK
+  // constraints (the `text({ enum })` unions are enforced only at the
+  // application layer, exactly as the runtime `drizzle-brain` tables are). With
+  // no brain CHECK constraint to satisfy, exodus MUST copy every brain enum
+  // value VERBATIM — coercing them (e.g. source_type 'observer-compressed'/
+  // 'sleep-consolidation' → 'agent', type 'observation'/'proposal'/'pattern' →
+  // nearest) would now be unnecessary data CORRUPTION, not a constraint fix.
+  // The previous brain entries (brain_observations.{source_type,type},
+  // brain_decisions.{confirmation_state,decision_category,confidence,outcome,
+  // decided_by}) are therefore deleted. The non-brain entries below still apply
+  // because those consolidated tables retain their CHECK constraints.
 
   // --- tasks_token_usage.transport (T11548) --------------------------------
   // 'mcp' → 'agent' (CHECK enum: cli/api/agent/unknown). 194 rows.
@@ -527,34 +480,8 @@ const ENUM_NORMALIZATIONS: ReadonlyMap<string, NormalizeFn> = new Map([
     (src: string) => `CASE ${src} WHEN 'mcp' THEN 'agent' ELSE ${src} END`,
   ],
 
-  // --- brain_decisions.decision_category (T11548 + T11549) -----------------
-  // 'architecture' → 'architectural' (enum: architectural/agent_dispatch/other). 31 rows.
-  // 'process' → 'other', 'technical' → 'other' (T11549: pre-tightening categories). [4 rows]
-  [
-    'brain_decisions.decision_category',
-    (src: string) =>
-      `CASE ${src}` +
-      ` WHEN 'architecture' THEN 'architectural'` +
-      ` WHEN 'process' THEN 'other'` +
-      ` WHEN 'technical' THEN 'other'` +
-      ` ELSE ${src}` +
-      ` END`,
-  ],
-
-  // --- brain_decisions.confidence (T11548 + T11549) -------------------------
-  // 'confirmed' → 'high' (T11549: 'confirmed' is semantically equivalent to 'high').
-  // Any remaining value NOT in (low/medium/high) → 'medium'. 4 rows.
-  // General fallback: if the value is already canonical it passes through the ELSE;
-  // any out-of-vocabulary value (typo, empty-string, etc.) becomes 'medium'.
-  [
-    'brain_decisions.confidence',
-    (src: string) =>
-      `CASE` +
-      ` WHEN ${src} = 'confirmed' THEN 'high'` +
-      ` WHEN ${src} IN ('low', 'medium', 'high') THEN ${src}` +
-      ` ELSE 'medium'` +
-      ` END`,
-  ],
+  // (brain_decisions.{decision_category,confidence} normalizations removed —
+  //  T11647: brain target = runtime shape with no CHECK; copy values verbatim.)
 
   // --- tasks_commits.conventional_type (T11548 + T11578) -------------------
   // The consolidated CHECK enum is feat/fix/chore/docs/refactor/test/build/ci/
@@ -626,39 +553,9 @@ const ENUM_NORMALIZATIONS: ReadonlyMap<string, NormalizeFn> = new Map([
       `CASE` + ` WHEN ${src} LIKE 'validator:%' THEN 'direct'` + ` ELSE ${src}` + ` END`,
   ],
 
-  // --- brain_decisions.outcome (T11550 P0 zero-loss fix) -------------------
-  // Legacy value 'accepted' is not in the consolidated CHECK enum
-  // (success|failure|mixed|pending). A decision that was 'accepted' (adopted,
-  // ratified, acted upon) maps to 'success' — the decision achieved its intended
-  // outcome. Legacy value 'rejected' maps to 'failure'.
-  // Covers 1 row (D11132) in the real-project brain.db.
-  [
-    'brain_decisions.outcome',
-    (src: string) =>
-      `CASE` +
-      ` WHEN ${src} = 'accepted' THEN 'success'` +
-      ` WHEN ${src} = 'rejected' THEN 'failure'` +
-      ` WHEN ${src} IN ('success', 'failure', 'mixed', 'pending') THEN ${src}` +
-      ` ELSE ${src}` +
-      ` END`,
-  ],
-
-  // --- brain_decisions.decided_by (T11550 P0 zero-loss fix) ----------------
-  // Legacy value 'prime' is not in the consolidated CHECK enum (owner|council|agent).
-  // 'prime' refers to the CLEO Prime agent persona (a system agent); maps to 'agent'.
-  // Covers 3 rows (T11025-alias-registration, T11027-envelope-compliance,
-  // T11030-integration-test) in the real-project brain.db.
-  // The column is NOT NULL with default 'agent' — any out-of-vocab value also
-  // falls back to 'agent' (the safe system default).
-  [
-    'brain_decisions.decided_by',
-    (src: string) =>
-      `CASE` +
-      ` WHEN ${src} = 'prime' THEN 'agent'` +
-      ` WHEN ${src} IN ('owner', 'council', 'agent') THEN ${src}` +
-      ` ELSE 'agent'` +
-      ` END`,
-  ],
+  // (brain_decisions.{outcome,decided_by} normalizations removed — T11647:
+  //  brain target = runtime shape with no CHECK; legacy values like 'accepted',
+  //  'rejected', 'prime' now survive VERBATIM instead of being coerced.)
 ]);
 
 /**

@@ -16,16 +16,24 @@
  *     (`tasks` → `tasks_tasks`, `architecture_decisions` →
  *     `tasks_architecture_decisions`).
  *   - **Epoch-INTEGER timestamps** (seconds AND milliseconds) destined for a
- *     target `text` column with an ISO-8601 GLOB CHECK constraint.
- *   - **Legacy enum aliases** (`'Accepted'`, `'mcp'`, `'observation'`) that fail
- *     the target CHECK unless the migration normalises them.
+ *     TASKS-domain target `text` column with an ISO-8601 GLOB CHECK constraint.
+ *   - **Legacy enum aliases** (`'Accepted'`, `'mcp'`) that fail the TASKS-domain
+ *     target CHECK unless the migration normalises them.
  *   - **A self-referential FK** (`tasks.parent_id → tasks.id`) copied
  *     child-before-parent to exercise the FK-defer path.
  *
- * The matching consolidated target schemas are built with the REAL CHECK and
- * GLOB constraints the production schema declares, so a regression in the
- * coercion/normalisation layer surfaces as a row deficit caught by
+ * The matching consolidated TASKS-domain target schemas are built with the REAL
+ * CHECK and GLOB constraints the production schema declares, so a regression in
+ * the coercion/normalisation layer surfaces as a row deficit caught by
  * {@link verifyMigration}.
+ *
+ * **Brain domain (T11647):** the consolidated `brain_*` target now matches the
+ * LEGACY RUNTIME shape — INTEGER epoch-ms timestamps and NO SQL CHECK
+ * constraints. So the fixture's `brain_observations` target carries no `type`
+ * CHECK and an INTEGER `created_at`: every legacy `type` value (`'observation'`,
+ * `'proposal'`, `'pattern'`) and the raw epoch-ms timestamp copy through VERBATIM
+ * — zero coercion, zero deficit. This is what proves the brain data-loss /
+ * corruption fix end-to-end against representative data.
  *
  * @task T11551 (DHQ-045 — exodus zero-loss durable guard · AC3)
  * @epic T10878
@@ -274,12 +282,15 @@ function buildTargetSchema(
         transport TEXT CHECK ("transport" IN ('cli', 'api', 'agent', 'unknown'))
       )`,
     );
-    // brain_observations: type CHECK enum + created_at ISO GLOB.
+    // brain_observations: LEGACY RUNTIME shape (T11647) — NO CHECK on `type`,
+    // INTEGER epoch-ms `created_at`. The consolidated brain target equals the
+    // runtime shape (no SQL CHECKs), so every legacy `type` value and the raw
+    // epoch-ms timestamp copy through VERBATIM (zero coercion, zero deficit).
     db.exec(
       `CREATE TABLE "brain_observations" (
         id INTEGER PRIMARY KEY,
-        type TEXT CHECK ("type" IN ('discovery', 'decision', 'refactor', 'insight')),
-        created_at TEXT CHECK ("created_at" IS NULL OR "created_at" GLOB ${ISO_GLOB})
+        type TEXT,
+        created_at INTEGER
       )`,
     );
 
