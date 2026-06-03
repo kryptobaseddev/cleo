@@ -414,7 +414,6 @@
     "@cleocode/nexus": "workspace:*",
     "@cleocode/paths": "workspace:*",
     "@cleocode/skills": "workspace:*",
-    "@cleocode/utils": "workspace:*",
     "@cleocode/worktree": "workspace:*",
     "@google/generative-ai": "^0.21.0",
     "@huggingface/transformers": "^4.0.1",
@@ -467,6 +466,7 @@
     "STABILITY.md"
   ],
   "devDependencies": {
+    "@cleocode/utils": "workspace:*",
     "@types/node-cron": "^3.0.11",
     "@types/proper-lockfile": "^4.1.4",
     "@types/tar": "^6.1.13",
