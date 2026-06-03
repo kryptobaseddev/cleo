@@ -24,8 +24,18 @@ export const TOKEN_USAGE_METHODS = ['otel', 'provider_api', 'tokenizer', 'heuris
 /** Confidence levels for token measurements. */
 export const TOKEN_USAGE_CONFIDENCE = ['real', 'high', 'estimated', 'coarse'] as const;
 
-/** Transport types for token telemetry. */
-export const TOKEN_USAGE_TRANSPORTS = ['cli', 'api', 'agent', 'unknown'] as const;
+/**
+ * Transport types for token telemetry.
+ *
+ * `'mcp'` is a first-class transport (MCP-originated requests through the unified
+ * gateway — see `packages/runtime/src/gateway/mcp`, `source: "mcp"`). It is a
+ * distinct origin from `'agent'` and MUST be preserved verbatim: the exodus
+ * migration previously coerced `'mcp'` → `'agent'`, silently altering ~194 rows
+ * of real telemetry. Widening the canonical enum (T11649) lets the consolidated
+ * `tasks_token_usage.transport` CHECK accept `'mcp'`, so the exodus copy stores
+ * the true origin with zero semantic loss.
+ */
+export const TOKEN_USAGE_TRANSPORTS = ['cli', 'api', 'agent', 'mcp', 'unknown'] as const;
 
 // === SCHEMA METADATA ===
 

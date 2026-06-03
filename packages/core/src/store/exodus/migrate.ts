@@ -392,10 +392,16 @@ function typeDefaultLiteral(colType: string): string {
  *
  * ## Additional entries (T11548 — final 285 rows)
  *
- * - `tasks_token_usage.transport`
- *   → `'mcp'` → `'agent'` (CHECK enum: cli/api/agent/unknown). Legacy writers
- *   emitted 'mcp' before the transport taxonomy was consolidated; 'agent' is
- *   the nearest canonical for MCP-originated requests. [194 rows]
+ * - `tasks_token_usage.transport` (T11649 — coercion REMOVED, value PRESERVED)
+ *   → `'mcp'` is NOT coerced. It is a first-class transport origin (MCP-gateway
+ *   requests, `source: "mcp"`), semantically distinct from `'agent'`. The earlier
+ *   T11548 mapping (`'mcp'` → `'agent'`) was count-preserving but NOT
+ *   integrity-preserving — it silently altered the true origin of ~194 telemetry
+ *   rows with no column capturing the lost value. T11649 instead WIDENS the
+ *   consolidated CHECK enum to `cli/api/agent/mcp/unknown` (canonical SSoT
+ *   `TOKEN_USAGE_TRANSPORTS` in `schema/audit.ts` + forward migration
+ *   `20260602000002_t11649-token-usage-transport-mcp`) so exodus stores `'mcp'`
+ *   verbatim — zero semantic loss.
  *
  * - `tasks_commits.conventional_type`
  *   → `'style'` → `'chore'` (enum includes feat/fix/chore/docs/refactor/test/
@@ -472,13 +478,13 @@ const ENUM_NORMALIZATIONS: ReadonlyMap<string, NormalizeFn> = new Map([
   // decided_by}) are therefore deleted. The non-brain entries below still apply
   // because those consolidated tables retain their CHECK constraints.
 
-  // --- tasks_token_usage.transport (T11548) --------------------------------
-  // 'mcp' → 'agent' (CHECK enum: cli/api/agent/unknown). 194 rows.
-  // Legacy writers emitted 'mcp' before transport taxonomy was consolidated.
-  [
-    'tasks_token_usage.transport',
-    (src: string) => `CASE ${src} WHEN 'mcp' THEN 'agent' ELSE ${src} END`,
-  ],
+  // --- tasks_token_usage.transport (T11548 → REMOVED T11649) ---------------
+  // NO normalization. 'mcp' is a first-class transport origin (MCP-gateway
+  // requests) and is preserved verbatim. The consolidated CHECK enum was WIDENED
+  // to include 'mcp' (canonical TOKEN_USAGE_TRANSPORTS SSoT + forward migration
+  // 20260602000002_t11649-token-usage-transport-mcp), so the value lands without
+  // coercion. The earlier 'mcp' → 'agent' mapping was a silent semantic alteration
+  // of ~194 rows (count-preserving, NOT integrity-preserving) — see T11649.
 
   // (brain_decisions.{decision_category,confidence} normalizations removed —
   //  T11647: brain target = runtime shape with no CHECK; copy values verbatim.)
