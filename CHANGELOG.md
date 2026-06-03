@@ -1,5 +1,37 @@
 # Changelog
 
+## [2026.6.0] (2026-06-03)
+
+### Added
+
+- Dual cleo.db substrate cutover — tasks/conduit/nexus/agent-registry runtime read+write repointed to prefixed consolidated tables (DHQ-046 fix, migrated data now visible). _(provenance: [T11578](https://github.com/kryptobaseddev/cleo/search?q=T11578&type=commits); [#930](https://github.com/kryptobaseddev/cleo/pull/930), [#931](https://github.com/kryptobaseddev/cleo/pull/931), [#932](https://github.com/kryptobaseddev/cleo/pull/932), [#933](https://github.com/kryptobaseddev/cleo/pull/933))_
+- Signaldock subsystem dissolved into Agent Registry — rename to agent_registry_* + registry runtime cutover (external api.signaldock.io kept as a Conduit channel). _(provenance: [T11622](https://github.com/kryptobaseddev/cleo/search?q=T11622&type=commits); [#933](https://github.com/kryptobaseddev/cleo/pull/933))_
+
+### Changed
+
+
+
+### Fixed
+
+- LLM credential self-heal (refresh expired OAuth, quarantine 401'd creds, prompt only when none valid) + OpenAI-Codex-OAuth role-executor branch + configurable default profile. _(provenance: [T11617](https://github.com/kryptobaseddev/cleo/search?q=T11617&type=commits); [#929](https://github.com/kryptobaseddev/cleo/pull/929))_
+- Brain cutover — align exodus brain target to the runtime shape so the first runtime open no longer DROPs migrated brain data (zero brain-data loss) + brain enum values preserved verbatim. _(provenance: [T11647](https://github.com/kryptobaseddev/cleo/search?q=T11647&type=commits); [#936](https://github.com/kryptobaseddev/cleo/pull/936))_
+- Route nexus code-graph reads to project scope (ATTACH global) so the migrated graph is visible post-cutover (nexus search-code/context). _(provenance: [T11648](https://github.com/kryptobaseddev/cleo/search?q=T11648&type=commits); [#935](https://github.com/kryptobaseddev/cleo/pull/935))_
+- Widen TOKEN_USAGE_TRANSPORTS to preserve transport='mcp' — no silent exodus enum coercion (data-integrity). _(provenance: [T11649](https://github.com/kryptobaseddev/cleo/search?q=T11649&type=commits); [#934](https://github.com/kryptobaseddev/cleo/pull/934))_
+
+### Deprecated
+
+
+
+### Removed
+
+
+
+### Security
+
+
+
+### BREAKING CHANGES
+
 ## [2026.5.134] (2026-05-31)
 
 ### Added
