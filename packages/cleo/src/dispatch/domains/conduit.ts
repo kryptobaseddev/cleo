@@ -1,7 +1,7 @@
 /**
  * Conduit Domain Handler — Agent messaging via dispatch.
  *
- * Replaces standalone clawmsgr scripts with dispatch-native operations:
+ * Dispatch-native agent messaging operations:
  *   conduit.status    (query)  — connection status + unread count
  *   conduit.peek      (query)  — one-shot poll for messages
  *   conduit.listen    (query)  — one-shot poll for topic messages (A2A, T1252)

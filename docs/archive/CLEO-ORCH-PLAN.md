@@ -3,16 +3,16 @@
 **Status**: DRAFT — Supersedes ORCH-PLAN.md Phase 7
 **Author**: @cleo-rust-lead
 **Date**: 2026-03-27
-**Predecessors**: ORCH-PLAN.md (ClawMsgr-era), T202 (CANT DSL), T211 (Local SignalDock Stack)
+**Predecessors**: ORCH-PLAN.md (legacy-relay era), T202 (CANT DSL), T211 (Local SignalDock Stack)
 
 ---
 
 ## 1. The Problem (Why ORCH-PLAN.md Phase 7 Is Outdated)
 
 The original ORCH-PLAN.md Phase 7 envisioned multi-project agent topology but was designed around:
-- **ClawMsgr Python workers** (clawmsgr-worker.py) — now deprecated
-- **JSON file configs** (clawmsgr-*.json) — moving to DB-backed credentials
-- **Flat file state** (~/.local/share/clawmsgr/{agent-id}/) — moving to signaldock.db
+- **Legacy chat-relay Python workers** — now deprecated
+- **JSON file configs** (legacy `*-agent.json`) — moving to DB-backed credentials
+- **Flat file state** (legacy relay per-agent dirs) — moving to signaldock.db
 - **Manual polling** with no guaranteed delivery — need SSE/local transport
 - **No programmatic agent lifecycle** — agents go idle with no way to wake them
 
@@ -299,7 +299,7 @@ From ORCH-PLAN.md Phase 7:
 | No programmatic start/stop | cleo agent start/stop/work commands |
 | No task auto-pickup | Self-delegation from CLEO task queue |
 | No heartbeat | Mandatory heartbeat with STALE/OFFLINE detection |
-| ClawMsgr skill for messaging | Native CLEO conduit integration |
+| Legacy chat-relay skill for messaging | Native CLEO conduit integration |
 
 ### 4.3 Project Scoping
 
@@ -403,11 +403,11 @@ cleo agent stop signaldock-backend    # Stop agent gracefully
 
 | Old System | New System |
 |------------|------------|
-| clawmsgr-worker.py | @cleocode/runtime AgentPoller + heartbeat |
-| clawmsgr-*.json | agent_credentials table (AES-256-GCM) |
-| ClawMsgr SKILL.md | CANT DSL agent profiles (.cant files) |
+| Legacy chat-relay worker script | @cleocode/runtime AgentPoller + heartbeat |
+| Legacy relay `*-agent.json` configs | agent_credentials table (AES-256-GCM) |
+| Legacy chat-relay SKILL.md | CANT DSL agent profiles (.cant files) |
 | Manual terminal sessions | cleo agent start/stop/work |
-| /clawmsgr-check cron | Native transport subscription (Local/SSE) |
+| Legacy relay polling cron | Native transport subscription (Local/SSE) |
 | Group conversation polling | CLEO task system + conduit |
 | ORCH-PLAN.md Phase 7 | This document (CLEO-ORCH-PLAN.md) |
 

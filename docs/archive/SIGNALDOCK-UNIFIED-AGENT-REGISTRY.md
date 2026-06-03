@@ -9,7 +9,7 @@
 
 ## 1. Problem Statement
 
-Agent credentials are stored as loose JSON files scattered across project roots. There is no typed interface, no CRUD operations, no credential lifecycle management, and no provider-agnostic agent registry. Transport implementations are tangled with provider-specific concerns. Documentation still references defunct "ClawMsgr" naming.
+Agent credentials are stored as loose JSON files scattered across project roots. There is no typed interface, no CRUD operations, no credential lifecycle management, and no provider-agnostic agent registry. Transport implementations are tangled with provider-specific concerns. Documentation still references defunct legacy chat-relay naming.
 
 **This spec replaces all of that with:**
 1. A per-project credential store in `.cleo/tasks.db`
@@ -367,7 +367,7 @@ function isNapiAvailable(): boolean {
 
 ### 5.1 No Standalone Worker Scripts
 
-The Python `clawmsgr-worker.py` is **eliminated**. Polling is a Core dispatch capability available through `@cleocode/cleo` CLI commands and programmatically through the Conduit API.
+The legacy Python polling worker is **eliminated**. Polling is a Core dispatch capability available through `@cleocode/cleo` CLI commands and programmatically through the Conduit API.
 
 ### 5.2 CLI Dispatch Commands
 
@@ -512,19 +512,19 @@ packages/core/src/conduit/
 
 | What | Why |
 |---|---|
-| `ClawMsgrPollingService` (JSDoc) | Never existed as code. Replaced by `ConduitClient` + `HttpTransport` |
-| `ClawMsgrTransport` (JSDoc) | Never existed in cleocode. Was only in CleoOS |
-| `ClawMsgrWorker` (JSDoc) | Replaced by `cleo agent watch` |
+| `LegacyRelayPollingService` (JSDoc) | Never existed as code. Replaced by `ConduitClient` + `HttpTransport` |
+| `LegacyRelayTransport` (JSDoc) | Never existed in cleocode. Was only in CleoOS |
+| `LegacyRelayWorker` (JSDoc) | Replaced by `cleo agent watch` |
 | `ClaudeCodeTransport` (code) | No provider-specific transports in Core |
-| `clawmsgr-worker.py` | Stays in clawmsgr repo as legacy v1. NOT in cleocode |
-| All `clawmsgr-*.json` files | Replaced by `agent_credentials` table |
+| legacy relay worker script | Stays in the legacy relay repo as legacy v1. NOT in cleocode |
+| All legacy relay `*-agent.json` files | Replaced by `agent_credentials` table |
 
 ### 7.2 Files to DELETE in cleocode/
 
 ```
-clawmsgr-agent.json
-clawmsgr-cleocode-lead.json
-.cleo/clawmsgr-cleo-dev.json
+legacy-relay-agent.json
+legacy-relay-cleocode-lead.json
+.cleo/legacy-relay-cleo-dev.json
 packages/core/src/signaldock/claude-code-transport.ts
 packages/core/src/signaldock/types.ts (after types moved to contracts)
 packages/core/src/signaldock/transport.ts (after interface moved to contracts)
@@ -552,10 +552,10 @@ packages/cleo/src/commands/agent.ts          # CLI commands
 
 | File | Change |
 |---|---|
-| `packages/contracts/src/conduit.ts` | Remove all ClawMsgr references. Implementations: `HttpTransport`, `WsTransport` (future), `SseTransport` (future) |
-| `docs/concepts/CLEO-CANT.md` | Replace ClawMsgrTransport → ConduitClient |
-| `docs/specs/CLEOCODE-ECOSYSTEM-PLAN.md` | Replace all ClawMsgr references |
-| `WASM-COMPLETENESS-REPORT.md` | Replace ClawMsgr references |
+| `packages/contracts/src/conduit.ts` | Remove all legacy-relay references. Implementations: `HttpTransport`, `WsTransport` (future), `SseTransport` (future) |
+| `docs/concepts/CLEO-CANT.md` | Replace legacy-relay transport → ConduitClient |
+| `docs/specs/CLEOCODE-ECOSYSTEM-PLAN.md` | Replace all legacy-relay references |
+| `WASM-COMPLETENESS-REPORT.md` | Replace legacy-relay references |
 
 ---
 
@@ -637,7 +637,7 @@ We are still in development with only a handful of registered agents. No automat
 1. **Add schema + contracts**: `agent_credentials` table, `AgentCredential` interface, `Transport` interface
 2. **Implement**: `AgentRegistryAccessor`, `HttpTransport`, `ConduitClient`, `cleo agent` CLI
 3. **Manually register existing agents**: For each current agent, run `cleo agent register --id {id} --name {name} --api-key {key}`
-4. **Delete JSON files**: Remove all `clawmsgr-*.json` and `.cleo/clawmsgr-*.json`
+4. **Delete JSON files**: Remove all legacy relay `*-agent.json` and `.cleo/*-agent.json` configs
 5. **Rename directory**: `signaldock/` → `conduit/`
 6. **Delete old code**: `claude-code-transport.ts`, old `types.ts`, old `transport.ts`, old factory logic
 7. **Update imports**: All consumers update `from signaldock/` → `from conduit/`
@@ -654,7 +654,7 @@ These repos consume the cleocode interfaces. They adapt on their own:
 | CleoOS (`CleoOS/`) | Electron app | Imports `@cleocode/core` + `@cleocode/runtime`, uses `createConduit()` with `LocalTransport` for embedded SignalDock. |
 | Any CLI agent | Claude Code, OpenCode, Codex, Kimi | Runs `cleo agent watch` which uses `@cleocode/runtime` with embedded `LocalTransport`. Cloud sync via `cleo agent sync` (paid tier). |
 
-**Note**: The ClawMsgr v1 frontend is replaced by the SignalDock v2 frontend (in the `signaldock/` repo). It is not a separate consumer — it ships with the cloud deployment.
+**Note**: The legacy relay v1 frontend is replaced by the SignalDock v2 frontend (in the `signaldock/` repo). It is not a separate consumer — it ships with the cloud deployment.
 
 ---
 

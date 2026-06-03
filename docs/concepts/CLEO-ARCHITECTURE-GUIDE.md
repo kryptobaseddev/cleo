@@ -58,7 +58,7 @@ Transports are the physical delivery mechanism. Conduit picks the best one autom
 |-----------|-------------|----------------|
 | **LocalTransport** | Reads/writes directly to signaldock.db on disk. No network at all. | Preferred whenever signaldock.db exists. Fully offline. |
 | **SseTransport** | Server-Sent Events for real-time push from the cloud API. Falls back to HTTP if SSE fails. | When online and SSE endpoint is configured. |
-| **HttpTransport** | HTTP polling to api.signaldock.io (primary) or api.clawmsgr.com (fallback). | Always available as last resort. |
+| **HttpTransport** | HTTP polling to api.signaldock.io. | Always available as last resort. |
 
 Priority: **Local > SSE > HTTP**. Local is always preferred because it's fastest, offline-capable, and has zero network dependency.
 

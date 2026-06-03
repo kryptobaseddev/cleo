@@ -604,8 +604,8 @@ Orchestrator is **paused here** pending owner decisions. No workers dispatched. 
 | T556 (critical) | `reciprocalRankFusion` function exported in `brain-search.ts`, wired into `searchBrainCompact` |
 | T557 (critical) | `observer-reflector.ts` + tests, hooked into task/session hooks |
 | T047-T055 (9 tasks) | `packages/core/src/nexus/transfer.ts` + `__tests__/transfer.test.ts` + domain + CLI + `external_task_links` migration; 264 test files / 4137 tests pass in @cleocode/core |
-| T465 | Zero `clawmsgr`/`ClawMsgr` refs in non-test non-md code; zero `.cleo/clawmsgr-*.json` configs |
-| T179 | Same — ClawMsgr Wave 3 delete verified clean |
+| T465 | Zero legacy chat-relay refs in non-test non-md code; zero legacy `.cleo/*-agent.json` configs |
+| T179 | Same — legacy chat-relay Wave 3 delete verified clean |
 
 **Cancelled (test fixtures or orphaned post-parent-close)**:
 
