@@ -1877,7 +1877,11 @@ describe('T11547 regression — enum normalization in migrate layer', () => {
     }
   });
 
-  it('normalizes brain_observations.source_type legacy values → agent', async () => {
+  // T11647: brain enum coercion REMOVED — the consolidated brain target now
+  // matches the legacy RUNTIME shape (no SQL CHECK), so every legacy value must
+  // survive VERBATIM (zero semantic alteration). Target tables here carry NO
+  // CHECK, mirroring the real consolidated `brain_*` DDL.
+  it('preserves brain_observations.source_type legacy values verbatim (T11647 — no coercion)', async () => {
     const srcDb = new DatabaseSync(sourcePath);
     try {
       srcDb.exec(
@@ -1897,10 +1901,10 @@ describe('T11547 regression — enum normalization in migrate layer', () => {
 
     const tgtDb = new DatabaseSync(targetProjectPath);
     try {
+      // Runtime shape: NO CHECK on source_type (T11647).
       tgtDb.exec(
         `CREATE TABLE brain_observations (id TEXT PRIMARY KEY, type TEXT NOT NULL, ` +
-          `source_type TEXT CHECK (source_type IS NULL OR source_type IN ('agent','session-debrief','claude-mem','manual')), ` +
-          `narrative TEXT NOT NULL)`,
+          `source_type TEXT, narrative TEXT NOT NULL)`,
       );
     } finally {
       tgtDb.close();
@@ -1916,20 +1920,22 @@ describe('T11547 regression — enum normalization in migrate layer', () => {
         .prepare('SELECT id, source_type FROM brain_observations ORDER BY id')
         .all() as Array<{ id: string; source_type: string }>;
       expect(rows).toHaveLength(4);
-      expect(rows.find((r) => r.id === 'O-1')?.source_type, 'observer-compressed → agent').toBe(
-        'agent',
-      );
-      expect(rows.find((r) => r.id === 'O-2')?.source_type, 'sleep-consolidation → agent').toBe(
-        'agent',
-      );
-      expect(rows.find((r) => r.id === 'O-3')?.source_type, 'agent passthrough').toBe('agent');
-      expect(rows.find((r) => r.id === 'O-4')?.source_type, 'manual passthrough').toBe('manual');
+      expect(
+        rows.find((r) => r.id === 'O-1')?.source_type,
+        'observer-compressed preserved verbatim',
+      ).toBe('observer-compressed');
+      expect(
+        rows.find((r) => r.id === 'O-2')?.source_type,
+        'sleep-consolidation preserved verbatim',
+      ).toBe('sleep-consolidation');
+      expect(rows.find((r) => r.id === 'O-3')?.source_type, 'agent preserved').toBe('agent');
+      expect(rows.find((r) => r.id === 'O-4')?.source_type, 'manual preserved').toBe('manual');
     } finally {
       tgt.close();
     }
   });
 
-  it('normalizes brain_observations.type legacy values to canonical types', async () => {
+  it('preserves brain_observations.type legacy values verbatim (T11647 — no coercion)', async () => {
     const srcDb = new DatabaseSync(sourcePath);
     try {
       srcDb.exec(
@@ -1945,10 +1951,9 @@ describe('T11547 regression — enum normalization in migrate layer', () => {
 
     const tgtDb = new DatabaseSync(targetProjectPath);
     try {
+      // Runtime shape: NO CHECK on type (T11647).
       tgtDb.exec(
-        `CREATE TABLE brain_observations (id TEXT PRIMARY KEY, ` +
-          `type TEXT NOT NULL CHECK (type IN ('discovery','change','feature','bugfix','decision','refactor','diary','session-summary')), ` +
-          `narrative TEXT NOT NULL)`,
+        `CREATE TABLE brain_observations (id TEXT PRIMARY KEY, type TEXT NOT NULL, narrative TEXT NOT NULL)`,
       );
     } finally {
       tgtDb.close();
@@ -1964,10 +1969,14 @@ describe('T11547 regression — enum normalization in migrate layer', () => {
         .prepare('SELECT id, type FROM brain_observations ORDER BY id')
         .all() as Array<{ id: string; type: string }>;
       expect(rows).toHaveLength(4);
-      expect(rows.find((r) => r.id === 'O-1')?.type, 'observation → discovery').toBe('discovery');
-      expect(rows.find((r) => r.id === 'O-2')?.type, 'proposal → decision').toBe('decision');
-      expect(rows.find((r) => r.id === 'O-3')?.type, 'pattern → refactor').toBe('refactor');
-      expect(rows.find((r) => r.id === 'O-4')?.type, 'discovery passthrough').toBe('discovery');
+      expect(rows.find((r) => r.id === 'O-1')?.type, 'observation preserved verbatim').toBe(
+        'observation',
+      );
+      expect(rows.find((r) => r.id === 'O-2')?.type, 'proposal preserved verbatim').toBe(
+        'proposal',
+      );
+      expect(rows.find((r) => r.id === 'O-3')?.type, 'pattern preserved verbatim').toBe('pattern');
+      expect(rows.find((r) => r.id === 'O-4')?.type, 'discovery preserved').toBe('discovery');
     } finally {
       tgt.close();
     }
@@ -2126,7 +2135,7 @@ describe('T11548 regression — final enum coverage: transport/conventional_type
     }
   });
 
-  it('normalizes brain_decisions.decision_category: architecture → architectural', async () => {
+  it('preserves brain_decisions.decision_category verbatim (T11647 — no coercion)', async () => {
     const srcDb = new DatabaseSync(sourcePath);
     try {
       srcDb.exec(
@@ -2141,9 +2150,9 @@ describe('T11548 regression — final enum coverage: transport/conventional_type
 
     const tgtDb = new DatabaseSync(targetProjectPath);
     try {
+      // Runtime shape: NO CHECK on decision_category (T11647).
       tgtDb.exec(
-        `CREATE TABLE brain_decisions (id TEXT PRIMARY KEY, title TEXT NOT NULL, ` +
-          `decision_category TEXT CHECK (decision_category IS NULL OR decision_category IN ('architectural','agent_dispatch','other')))`,
+        `CREATE TABLE brain_decisions (id TEXT PRIMARY KEY, title TEXT NOT NULL, decision_category TEXT)`,
       );
     } finally {
       tgtDb.close();
@@ -2160,20 +2169,18 @@ describe('T11548 regression — final enum coverage: transport/conventional_type
       expect(rows).toHaveLength(3);
       expect(
         rows.find((r) => r.id === 'D-1')?.decision_category,
-        'architecture → architectural',
-      ).toBe('architectural');
-      expect(rows.find((r) => r.id === 'D-2')?.decision_category, 'architectural passthrough').toBe(
+        'architecture preserved verbatim',
+      ).toBe('architecture');
+      expect(rows.find((r) => r.id === 'D-2')?.decision_category, 'architectural preserved').toBe(
         'architectural',
       );
-      expect(rows.find((r) => r.id === 'D-3')?.decision_category, 'other passthrough').toBe(
-        'other',
-      );
+      expect(rows.find((r) => r.id === 'D-3')?.decision_category, 'other preserved').toBe('other');
     } finally {
       tgt.close();
     }
   });
 
-  it('normalizes brain_decisions.confidence: out-of-vocab → medium', async () => {
+  it('preserves brain_decisions.confidence verbatim (T11647 — no coercion)', async () => {
     const srcDb = new DatabaseSync(sourcePath);
     try {
       srcDb.exec(
@@ -2190,9 +2197,9 @@ describe('T11548 regression — final enum coverage: transport/conventional_type
 
     const tgtDb = new DatabaseSync(targetProjectPath);
     try {
+      // Runtime shape: NO CHECK on confidence (T11647).
       tgtDb.exec(
-        `CREATE TABLE brain_decisions (id TEXT PRIMARY KEY, title TEXT NOT NULL, ` +
-          `confidence TEXT CHECK (confidence IS NULL OR confidence IN ('low','medium','high')))`,
+        `CREATE TABLE brain_decisions (id TEXT PRIMARY KEY, title TEXT NOT NULL, confidence TEXT)`,
       );
     } finally {
       tgtDb.close();
@@ -2207,11 +2214,15 @@ describe('T11548 regression — final enum coverage: transport/conventional_type
         .prepare('SELECT id, confidence FROM brain_decisions ORDER BY id')
         .all() as Array<{ id: string; confidence: string }>;
       expect(rows).toHaveLength(5);
-      expect(rows.find((r) => r.id === 'D-1')?.confidence, 'high passthrough').toBe('high');
-      expect(rows.find((r) => r.id === 'D-2')?.confidence, 'medium passthrough').toBe('medium');
-      expect(rows.find((r) => r.id === 'D-3')?.confidence, 'low passthrough').toBe('low');
-      expect(rows.find((r) => r.id === 'D-4')?.confidence, 'very-high → medium').toBe('medium');
-      expect(rows.find((r) => r.id === 'D-5')?.confidence, 'uncertain → medium').toBe('medium');
+      expect(rows.find((r) => r.id === 'D-1')?.confidence, 'high preserved').toBe('high');
+      expect(rows.find((r) => r.id === 'D-2')?.confidence, 'medium preserved').toBe('medium');
+      expect(rows.find((r) => r.id === 'D-3')?.confidence, 'low preserved').toBe('low');
+      expect(rows.find((r) => r.id === 'D-4')?.confidence, 'very-high preserved verbatim').toBe(
+        'very-high',
+      );
+      expect(rows.find((r) => r.id === 'D-5')?.confidence, 'uncertain preserved verbatim').toBe(
+        'uncertain',
+      );
     } finally {
       tgt.close();
     }
@@ -2565,7 +2576,7 @@ describe('T11549 regression — zero-loss final mile: confidence/decision_catego
     return targetPath;
   }
 
-  it('normalizes brain_decisions.confidence: confirmed → high (not medium)', async () => {
+  it('preserves brain_decisions.confidence verbatim incl. confirmed/unknown (T11647 — no coercion)', async () => {
     const srcDb = new DatabaseSync(sourcePath);
     try {
       srcDb.exec(
@@ -2593,11 +2604,10 @@ describe('T11549 regression — zero-loss final mile: confidence/decision_catego
 
     const tgtDb = new DatabaseSync(targetProjectPath);
     try {
+      // Runtime shape: NO CHECK on confidence (T11647).
       tgtDb.exec(
         `CREATE TABLE brain_decisions (id TEXT PRIMARY KEY, decision TEXT NOT NULL, ` +
-          `rationale TEXT NOT NULL, ` +
-          `confidence TEXT NOT NULL CHECK (confidence IN ('low','medium','high')), ` +
-          `type TEXT NOT NULL DEFAULT 'architecture')`,
+          `rationale TEXT NOT NULL, confidence TEXT NOT NULL, type TEXT NOT NULL DEFAULT 'architecture')`,
       );
     } finally {
       tgtDb.close();
@@ -2612,19 +2622,21 @@ describe('T11549 regression — zero-loss final mile: confidence/decision_catego
         .prepare('SELECT id, confidence FROM brain_decisions ORDER BY id')
         .all() as Array<{ id: string; confidence: string }>;
       expect(rows).toHaveLength(5);
-      expect(rows.find((r) => r.id === 'D-1')?.confidence, 'confirmed → high').toBe('high');
-      expect(rows.find((r) => r.id === 'D-2')?.confidence, 'high passthrough').toBe('high');
-      expect(rows.find((r) => r.id === 'D-3')?.confidence, 'medium passthrough').toBe('medium');
-      expect(rows.find((r) => r.id === 'D-4')?.confidence, 'low passthrough').toBe('low');
-      expect(rows.find((r) => r.id === 'D-5')?.confidence, 'unknown-val → medium fallback').toBe(
-        'medium',
+      expect(rows.find((r) => r.id === 'D-1')?.confidence, 'confirmed preserved verbatim').toBe(
+        'confirmed',
+      );
+      expect(rows.find((r) => r.id === 'D-2')?.confidence, 'high preserved').toBe('high');
+      expect(rows.find((r) => r.id === 'D-3')?.confidence, 'medium preserved').toBe('medium');
+      expect(rows.find((r) => r.id === 'D-4')?.confidence, 'low preserved').toBe('low');
+      expect(rows.find((r) => r.id === 'D-5')?.confidence, 'unknown-val preserved verbatim').toBe(
+        'unknown-val',
       );
     } finally {
       tgt.close();
     }
   });
 
-  it('normalizes brain_decisions.decision_category: process/technical → other', async () => {
+  it('preserves brain_decisions.decision_category verbatim incl. process/technical (T11647 — no coercion)', async () => {
     const srcDb = new DatabaseSync(sourcePath);
     try {
       srcDb.exec(
@@ -2652,13 +2664,12 @@ describe('T11549 regression — zero-loss final mile: confidence/decision_catego
 
     const tgtDb = new DatabaseSync(targetProjectPath);
     try {
+      // Runtime shape: NO CHECK on confidence/decision_category (T11647).
       tgtDb.exec(
         `CREATE TABLE brain_decisions (id TEXT PRIMARY KEY, decision TEXT NOT NULL, ` +
-          `rationale TEXT NOT NULL, ` +
-          `confidence TEXT NOT NULL CHECK (confidence IN ('low','medium','high')) DEFAULT 'medium', ` +
+          `rationale TEXT NOT NULL, confidence TEXT NOT NULL DEFAULT 'medium', ` +
           `type TEXT NOT NULL DEFAULT 'architecture', ` +
-          `decision_category TEXT NOT NULL ` +
-          `CHECK (decision_category IN ('architectural','agent_dispatch','other')) DEFAULT 'architectural')`,
+          `decision_category TEXT NOT NULL DEFAULT 'architectural')`,
       );
     } finally {
       tgtDb.close();
@@ -2673,24 +2684,25 @@ describe('T11549 regression — zero-loss final mile: confidence/decision_catego
         .prepare('SELECT id, decision_category FROM brain_decisions ORDER BY id')
         .all() as Array<{ id: string; decision_category: string }>;
       expect(rows).toHaveLength(6);
-      expect(rows.find((r) => r.id === 'D-1')?.decision_category, 'process → other').toBe('other');
-      expect(rows.find((r) => r.id === 'D-2')?.decision_category, 'technical → other').toBe(
-        'other',
-      );
+      expect(
+        rows.find((r) => r.id === 'D-1')?.decision_category,
+        'process preserved verbatim',
+      ).toBe('process');
+      expect(
+        rows.find((r) => r.id === 'D-2')?.decision_category,
+        'technical preserved verbatim',
+      ).toBe('technical');
       expect(
         rows.find((r) => r.id === 'D-3')?.decision_category,
-        'architecture → architectural',
-      ).toBe('architectural');
-      expect(rows.find((r) => r.id === 'D-4')?.decision_category, 'architectural passthrough').toBe(
+        'architecture preserved verbatim',
+      ).toBe('architecture');
+      expect(rows.find((r) => r.id === 'D-4')?.decision_category, 'architectural preserved').toBe(
         'architectural',
       );
-      expect(
-        rows.find((r) => r.id === 'D-5')?.decision_category,
-        'agent_dispatch passthrough',
-      ).toBe('agent_dispatch');
-      expect(rows.find((r) => r.id === 'D-6')?.decision_category, 'other passthrough').toBe(
-        'other',
+      expect(rows.find((r) => r.id === 'D-5')?.decision_category, 'agent_dispatch preserved').toBe(
+        'agent_dispatch',
       );
+      expect(rows.find((r) => r.id === 'D-6')?.decision_category, 'other preserved').toBe('other');
     } finally {
       tgt.close();
     }
@@ -2992,9 +3004,9 @@ describe('T11550 regression — agent_credentials/brain_release_links from tasks
     }
   });
 
-  it('normalizes brain_decisions.outcome: accepted → success (1 row, P0 enum fix)', async () => {
-    // Legacy 'accepted' not in consolidated CHECK enum (success|failure|mixed|pending).
-    // Maps to 'success' (decision was accepted = successfully ratified).
+  it('preserves brain_decisions.outcome verbatim incl. accepted (T11647 — no coercion)', async () => {
+    // T11647: brain target carries no CHECK, so legacy 'accepted' survives
+    // VERBATIM (previously coerced to 'success'). Zero semantic alteration.
     const srcDb = new DatabaseSync(sourcePath);
     try {
       srcDb.exec(
@@ -3010,9 +3022,9 @@ describe('T11550 regression — agent_credentials/brain_release_links from tasks
 
     const tgtDb = new DatabaseSync(targetProjectPath);
     try {
+      // Runtime shape: NO CHECK on outcome (T11647).
       tgtDb.exec(
-        `CREATE TABLE brain_decisions (id TEXT PRIMARY KEY, title TEXT NOT NULL, ` +
-          `outcome TEXT CHECK (outcome IS NULL OR outcome IN ('success','failure','mixed','pending')))`,
+        `CREATE TABLE brain_decisions (id TEXT PRIMARY KEY, title TEXT NOT NULL, outcome TEXT)`,
       );
     } finally {
       tgtDb.close();
@@ -3027,18 +3039,20 @@ describe('T11550 regression — agent_credentials/brain_release_links from tasks
         .prepare('SELECT id, outcome FROM brain_decisions ORDER BY id')
         .all() as Array<{ id: string; outcome: string | null }>;
       expect(rows, 'all 4 rows must migrate (none dropped)').toHaveLength(4);
-      expect(rows.find((r) => r.id === 'D11132')?.outcome, 'accepted → success').toBe('success');
-      expect(rows.find((r) => r.id === 'D-ok1')?.outcome, 'success passthrough').toBe('success');
-      expect(rows.find((r) => r.id === 'D-ok2')?.outcome, 'pending passthrough').toBe('pending');
+      expect(rows.find((r) => r.id === 'D11132')?.outcome, 'accepted preserved verbatim').toBe(
+        'accepted',
+      );
+      expect(rows.find((r) => r.id === 'D-ok1')?.outcome, 'success preserved').toBe('success');
+      expect(rows.find((r) => r.id === 'D-ok2')?.outcome, 'pending preserved').toBe('pending');
       expect(rows.find((r) => r.id === 'D-ok3')?.outcome, 'null preserved').toBeNull();
     } finally {
       tgt.close();
     }
   });
 
-  it('normalizes brain_decisions.decided_by: prime → agent (3 rows, P0 enum fix)', async () => {
-    // Legacy 'prime' not in consolidated CHECK enum (owner|council|agent).
-    // Maps to 'agent' (CLEO Prime is a system agent persona).
+  it('preserves brain_decisions.decided_by verbatim incl. prime (T11647 — no coercion)', async () => {
+    // T11647: brain target carries no CHECK, so legacy 'prime' survives VERBATIM
+    // (previously coerced to 'agent'). Zero semantic alteration.
     const srcDb = new DatabaseSync(sourcePath);
     try {
       srcDb.exec(
@@ -3062,9 +3076,10 @@ describe('T11550 regression — agent_credentials/brain_release_links from tasks
 
     const tgtDb = new DatabaseSync(targetProjectPath);
     try {
+      // Runtime shape: NO CHECK on decided_by (T11647).
       tgtDb.exec(
         `CREATE TABLE brain_decisions (id TEXT PRIMARY KEY, title TEXT NOT NULL, ` +
-          `decided_by TEXT NOT NULL DEFAULT 'agent' CHECK (decided_by IN ('owner','council','agent')))`,
+          `decided_by TEXT NOT NULL DEFAULT 'agent')`,
       );
     } finally {
       tgtDb.close();
@@ -3078,33 +3093,35 @@ describe('T11550 regression — agent_credentials/brain_release_links from tasks
       const rows = tgt
         .prepare('SELECT id, decided_by FROM brain_decisions ORDER BY id')
         .all() as Array<{ id: string; decided_by: string }>;
-      expect(rows, 'all 6 rows must migrate (none dropped by CHECK)').toHaveLength(6);
+      expect(rows, 'all 6 rows must migrate (none dropped)').toHaveLength(6);
       expect(
         rows.find((r) => r.id === 'T11025-alias-registration')?.decided_by,
-        'prime → agent',
-      ).toBe('agent');
+        'prime preserved verbatim',
+      ).toBe('prime');
       expect(
         rows.find((r) => r.id === 'T11027-envelope-compliance')?.decided_by,
-        'prime → agent',
-      ).toBe('agent');
+        'prime preserved verbatim',
+      ).toBe('prime');
       expect(
         rows.find((r) => r.id === 'T11030-integration-test')?.decided_by,
-        'prime → agent',
-      ).toBe('agent');
-      expect(rows.find((r) => r.id === 'D-owner')?.decided_by, 'owner passthrough').toBe('owner');
-      expect(rows.find((r) => r.id === 'D-council')?.decided_by, 'council passthrough').toBe(
+        'prime preserved verbatim',
+      ).toBe('prime');
+      expect(rows.find((r) => r.id === 'D-owner')?.decided_by, 'owner preserved').toBe('owner');
+      expect(rows.find((r) => r.id === 'D-council')?.decided_by, 'council preserved').toBe(
         'council',
       );
-      expect(rows.find((r) => r.id === 'D-agent')?.decided_by, 'agent passthrough').toBe('agent');
+      expect(rows.find((r) => r.id === 'D-agent')?.decided_by, 'agent preserved').toBe('agent');
     } finally {
       tgt.close();
     }
   });
 
-  it('brain_decisions 118→118: all 4 real-project rows survive with combined outcome+decided_by normalization', async () => {
-    // Simulate the exact 4 rows from the real-project brain.db that were dropping.
-    // D11132: outcome='accepted' (→ success), decided_by='agent' (ok), confidence='confirmed' (→ high via T11549 rule), decision_category='process' (→ other via T11549 rule)
-    // T11025/T11027/T11030: outcome=null (ok), decided_by='prime' (→ agent), confidence='confirmed' (→ high), decision_category='technical' (→ other)
+  it('brain_decisions 118→118: all 4 real-project rows survive with values preserved VERBATIM (T11647)', async () => {
+    // The exact 4 rows from the real-project brain.db that were dropping under
+    // the old CHECK-enforced target. T11647: brain target = runtime shape (no
+    // CHECK) → every legacy value survives UNCHANGED, zero coercion.
+    // D11132: outcome='accepted', decided_by='agent', confidence='confirmed', decision_category='process'
+    // T11025/T11027/T11030: outcome=null, decided_by='prime', confidence='confirmed', decision_category='technical'
     const srcDb = new DatabaseSync(sourcePath);
     try {
       srcDb.exec(
@@ -3116,11 +3133,9 @@ describe('T11550 regression — agent_credentials/brain_release_links from tasks
           `confidence TEXT NOT NULL DEFAULT 'medium', ` +
           `decision_category TEXT NOT NULL DEFAULT 'architectural')`,
       );
-      // D11132: outcome='accepted', decided_by='agent' (already canonical)
       srcDb.exec(
         `INSERT INTO brain_decisions VALUES ('D11132', 'D11132', 'accepted', 'agent', 'confirmed', 'process')`,
       );
-      // Three 'prime' rows with null outcome
       srcDb.exec(
         `INSERT INTO brain_decisions VALUES ('T11025-alias-registration', 'T11025', null, 'prime', 'confirmed', 'technical')`,
       );
@@ -3136,14 +3151,15 @@ describe('T11550 regression — agent_credentials/brain_release_links from tasks
 
     const tgtDb = new DatabaseSync(targetProjectPath);
     try {
+      // Runtime shape: NO CHECK on any brain_decisions enum column (T11647).
       tgtDb.exec(
         `CREATE TABLE brain_decisions (` +
           `id TEXT PRIMARY KEY, ` +
           `title TEXT NOT NULL, ` +
-          `outcome TEXT CHECK (outcome IS NULL OR outcome IN ('success','failure','mixed','pending')), ` +
-          `decided_by TEXT NOT NULL DEFAULT 'agent' CHECK (decided_by IN ('owner','council','agent')), ` +
-          `confidence TEXT NOT NULL DEFAULT 'medium' CHECK (confidence IN ('low','medium','high')), ` +
-          `decision_category TEXT NOT NULL DEFAULT 'architectural' CHECK (decision_category IN ('architectural','agent_dispatch','other')))`,
+          `outcome TEXT, ` +
+          `decided_by TEXT NOT NULL DEFAULT 'agent', ` +
+          `confidence TEXT NOT NULL DEFAULT 'medium', ` +
+          `decision_category TEXT NOT NULL DEFAULT 'architectural')`,
       );
     } finally {
       tgtDb.close();
@@ -3168,18 +3184,26 @@ describe('T11550 regression — agent_credentials/brain_release_links from tasks
       expect(rows, 'all 4 rows must survive — brain_decisions 118→118').toHaveLength(4);
 
       const d11132 = rows.find((r) => r.id === 'D11132');
-      expect(d11132?.outcome, 'D11132 outcome: accepted → success').toBe('success');
-      expect(d11132?.decided_by, 'D11132 decided_by: agent passthrough').toBe('agent');
-      expect(d11132?.confidence, 'D11132 confidence: confirmed → high').toBe('high');
-      expect(d11132?.decision_category, 'D11132 decision_category: process → other').toBe('other');
+      expect(d11132?.outcome, 'D11132 outcome: accepted preserved verbatim').toBe('accepted');
+      expect(d11132?.decided_by, 'D11132 decided_by: agent preserved').toBe('agent');
+      expect(d11132?.confidence, 'D11132 confidence: confirmed preserved verbatim').toBe(
+        'confirmed',
+      );
+      expect(
+        d11132?.decision_category,
+        'D11132 decision_category: process preserved verbatim',
+      ).toBe('process');
 
       const t11025 = rows.find((r) => r.id === 'T11025-alias-registration');
       expect(t11025?.outcome, 'T11025 outcome: null preserved').toBeNull();
-      expect(t11025?.decided_by, 'T11025 decided_by: prime → agent').toBe('agent');
-      expect(t11025?.confidence, 'T11025 confidence: confirmed → high').toBe('high');
-      expect(t11025?.decision_category, 'T11025 decision_category: technical → other').toBe(
-        'other',
+      expect(t11025?.decided_by, 'T11025 decided_by: prime preserved verbatim').toBe('prime');
+      expect(t11025?.confidence, 'T11025 confidence: confirmed preserved verbatim').toBe(
+        'confirmed',
       );
+      expect(
+        t11025?.decision_category,
+        'T11025 decision_category: technical preserved verbatim',
+      ).toBe('technical');
     } finally {
       tgt.close();
     }

@@ -64,6 +64,33 @@ const BLOCK_HEADER =
   '-- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed';
 
 /**
+ * `brain_*` tables are EXCLUDED from CHECK-constraint injection (T11647).
+ *
+ * The brain memory family is the one consolidated domain whose RUNTIME schema
+ * (`packages/core/src/store/schema/memory-schema.ts`, applied by the
+ * `drizzle-brain` migrations) remains the source of truth: on the first brain
+ * open `establishLegacyBrainSchema` (memory-sqlite.ts) reconciles the brain
+ * tables to that runtime shape. The legacy/runtime brain tables carry **zero**
+ * SQL CHECK constraints (the `text({ enum })` unions are enforced only at the
+ * application layer — verified: `grep -c CHECK` over every `drizzle-brain`
+ * migration returns 0). Injecting enum/timestamp CHECKs onto the consolidated
+ * `brain_*` tables therefore DIVERGED the exodus target shape from the runtime
+ * shape, which (a) forced exodus to COERCE legacy enum values to pass the CHECK
+ * (corrupting `source_type`/`type`/… values) and (b) was part of the
+ * "consolidated shape" the runtime then DROPped. Skipping brain here keeps the
+ * consolidated brain DDL byte-aligned with the runtime: enum unions stay typed
+ * in TypeScript, but no SQL CHECK is emitted — so migrated values survive
+ * verbatim and the first runtime open treats the tables as already-legacy.
+ *
+ * @param {string} tableName - Physical consolidated table name.
+ * @returns {boolean} `true` when the table must NOT receive injected CHECKs.
+ * @task T11647
+ */
+function isCheckExemptTable(tableName) {
+  return tableName.startsWith('brain_');
+}
+
+/**
  * @typedef {object} ScopePlan
  * @property {string} schemaModule - Built barrel whose `sqliteTable`s drive the CHECKs.
  * @property {string} migrationsDir - The scope's drizzle `out` directory.
@@ -145,6 +172,11 @@ function buildCheckMap(mod) {
     if (!cfg || typeof cfg.name !== 'string') {
       continue;
     }
+    // brain_* tables keep the runtime shape (no SQL CHECKs) — see
+    // isCheckExemptTable (T11647).
+    if (isCheckExemptTable(cfg.name)) {
+      continue;
+    }
     const { name, checks } = deriveChecks(value);
     if (checks.length > 0) {
       map.set(name, checks);
@@ -180,23 +212,35 @@ function injectChecks(body, checkMap) {
 }
 
 /**
- * Locate the single migration.sql inside a scope's `out` directory
- * (folder-per-migration structure: `<out>/<timestamp_name>/migration.sql`).
+ * Locate the CONSOLIDATION-BASELINE migration.sql inside a scope's `out`
+ * directory (folder-per-migration structure: `<out>/<timestamp_name>/migration.sql`).
+ *
+ * The injected CHECK constraints belong to the squashed consolidation baseline
+ * (the `*_t11363-consolidation-*` folder) — that single migration emits every
+ * `CREATE TABLE`. Post-baseline incremental folders (T11546/T11549/T11538/…)
+ * only ADD a handful of tables and never re-declare the consolidated set, so the
+ * injector targets the baseline folder specifically. (Earlier this required
+ * exactly ONE folder; once incremental migrations landed that assumption broke —
+ * we now select the baseline by name.)
  *
  * @param {string} migrationsDir
- * @returns {string} absolute path to migration.sql
+ * @returns {string} absolute path to the consolidation-baseline migration.sql
  */
 function resolveMigrationSql(migrationsDir) {
   const folders = readdirSync(migrationsDir, { withFileTypes: true })
     .filter((d) => d.isDirectory())
     .map((d) => d.name)
     .sort();
-  if (folders.length !== 1) {
+  if (folders.length === 0) {
+    throw new Error(`no migration folder found in ${migrationsDir}`);
+  }
+  const baseline = folders.find((f) => f.includes('consolidation'));
+  if (!baseline) {
     throw new Error(
-      `expected exactly one migration folder in ${migrationsDir}, found ${folders.length}: ${folders.join(', ')}`,
+      `no consolidation-baseline migration folder found in ${migrationsDir}; folders: ${folders.join(', ')}`,
     );
   }
-  return join(migrationsDir, folders[0], 'migration.sql');
+  return join(migrationsDir, baseline, 'migration.sql');
 }
 
 const checkMode = process.argv.includes('--check');

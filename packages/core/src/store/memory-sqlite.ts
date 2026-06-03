@@ -59,6 +59,7 @@ import { openDualScopeDb, resolveDualScopeDbPath } from './dual-scope-db.js';
 import {
   createSafetyBackup,
   migrateWithRetry,
+  reconcileBrainMigrationsForConsolidatedDb,
   reconcileJournal,
   tableExists,
 } from './migration-manager.js';
@@ -275,11 +276,45 @@ function establishLegacyBrainSchema(
     );
   }
 
-  // Run the legacy `drizzle-brain` migrations to (re)create the runtime-shaped
-  // brain tables. Their `__drizzle_migrations` journal is shared with the
-  // cleo-project journal in the same `cleo.db`; the hashes are disjoint so the
-  // brain migrations are reconciled/applied independently.
   const migrationsFolder = resolveBrainMigrationsFolder();
+
+  // T11647 — CONSOLIDATED `cleo.db` path. The consolidated `drizzle-cleo-project`
+  // / `drizzle-cleo-global` migration already created every DOMAIN-PREFIXED
+  // `brain_*` table in the LEGACY RUNTIME shape (the exodus target was aligned to
+  // the runtime shape — see `cleo-shared/brain.ts`), so `brain_decisions` exists
+  // and `brainTablesAreConsolidatedShape` is false (no DROP fired above). The
+  // standalone `drizzle-brain` migrations must NOT be re-run wholesale: their
+  // non-`IF NOT EXISTS` `CREATE TABLE`s / table-rebuilds for already-present
+  // prefixed tables (e.g. `brain_observations_staging`) and their ALTER-ADD-COLUMN
+  // for already-present columns would collide.
+  if (tableExists(nativeDb, 'brain_decisions') && !brainTablesAreConsolidatedShape(nativeDb)) {
+    // Additive reconcile-and-apply: for each not-yet-journaled `drizzle-brain`
+    // migration, mark-applied-without-running when its net effect is already
+    // present (the prefixed `brain_*` tables + their final columns the
+    // consolidated migration created), else exec it directly (the UNPREFIXED
+    // runtime tables `deriver_queue`/`sticky_tags`/`session_narrative`/
+    // `brain_task_observations` the consolidated migration omits but the runtime
+    // queries). This NEVER deletes a journal row and never engages drizzle's
+    // shared-handle transaction, so it cannot corrupt the tasks-domain journal
+    // entries that share this consolidated `cleo.db`'s `__drizzle_migrations` —
+    // see reconcileBrainMigrationsForConsolidatedDb for the full rationale. The
+    // exodus-migrated rows in the prefixed tables survive untouched (the
+    // data-loss fix).
+    const { marked, applied } = reconcileBrainMigrationsForConsolidatedDb(
+      nativeDb,
+      migrationsFolder,
+    );
+    log.debug(
+      { marked, applied },
+      'brain consolidated cleo.db reconcile (T11647) — marked already-present migrations applied + executed the missing unprefixed-table migrations directly.',
+    );
+    return;
+  }
+
+  // LEGACY standalone `brain.db` (or brand-new DB) path: no prefixed brain tables
+  // pre-created, so run the full `drizzle-brain` migrate via the generic
+  // reconcile (its Scenario-2 orphan-delete is safe here — a standalone brain.db
+  // journal contains only brain hashes).
   if (tableExists(nativeDb, 'brain_decisions') && _dbPath) {
     createSafetyBackup(_dbPath);
   }
@@ -441,14 +476,17 @@ export async function getBrainDb(cwd?: string): Promise<NodeSQLiteDatabase<typeo
     // existing callers (brainSchema.* queries) continue to work unchanged.
     const db = _getDrizzle()({ client: nativeDb, schema: brainSchema });
 
-    // Establish the LEGACY brain-domain schema inside the consolidated cleo.db.
-    // openDualScopeDb created the brain tables in their exodus-TARGET shape
-    // (ISO-8601 timestamps + enum/format CHECK constraints), which the runtime
-    // brain writers (epoch-ms integers, no CHECKs) cannot use. This drops those
-    // and runs the legacy `drizzle-brain` migrations to recreate them in the
-    // runtime shape — plus `brain_task_observations` (no drizzle-brain migration).
-    // Idempotent: a no-op once the tables are already legacy-shaped. The
-    // consolidated-target cutover is the exodus's job (T11248 / T11553). (T11522)
+    // Reconcile the LEGACY brain-domain schema inside the consolidated cleo.db.
+    // Since T11647 the consolidated `cleo.db` migration already creates every
+    // `brain_*` table in the LEGACY RUNTIME shape (epoch-ms integer timestamps,
+    // no SQL CHECK constraints — the exodus target was aligned to the runtime
+    // shape in `cleo-shared/brain.ts`). So this is now a no-op reconcile: it
+    // marks the `drizzle-brain` lineage applied and skips the migrate, leaving
+    // any exodus-migrated brain rows intact. The legacy standalone-`brain.db`
+    // path (DB with no consolidated brain tables) still runs the full
+    // `drizzle-brain` migrate. The pre-T11647 DROP+recreate path is retained as
+    // a defensive fallback for any DB still carrying the old consolidated shape.
+    // (T11522 · T11647)
     establishLegacyBrainSchema(nativeDb, db);
 
     // Create the vec0 virtual table for embeddings if the extension is loaded

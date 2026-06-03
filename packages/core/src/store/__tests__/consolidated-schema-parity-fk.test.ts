@@ -366,6 +366,15 @@ describe('T11364 AC2 — consolidated migration parity (declared == written)', (
 
         let totalChecks = 0;
         for (const { config } of iterateTables(descriptor.schema)) {
+          // brain_* tables intentionally carry NO SQL CHECK constraints (T11647):
+          // the consolidated brain target matches the LEGACY RUNTIME shape, whose
+          // `drizzle-brain` tables have zero CHECKs (enum unions enforced at the
+          // app layer only). `scripts/inject-consolidation-checks.mjs` skips them
+          // via `isCheckExemptTable`, so the migration carries none — assert the
+          // same exemption here rather than expecting CHECKs that must not exist.
+          if (config.name.startsWith('brain_')) {
+            continue;
+          }
           for (const check of deriveChecks(config)) {
             totalChecks++;
             expect(
@@ -375,8 +384,12 @@ describe('T11364 AC2 — consolidated migration parity (declared == written)', (
           }
         }
         // Guard against a vacuous pass: the consolidated schema is enum/boolean
-        // heavy, so each scope MUST contribute many CHECKs.
-        expect(totalChecks).toBeGreaterThan(50);
+        // heavy, so each scope MUST still contribute many CHECKs. The floor is
+        // 40 (was 50) because the brain_* family — a large CHECK contributor,
+        // especially in the global scope where brain is one of few domains — is
+        // now intentionally CHECK-exempt (T11647: brain target = runtime shape,
+        // no SQL CHECKs). Project still emits 200+; global emits ~50.
+        expect(totalChecks).toBeGreaterThanOrEqual(40);
       });
     });
   }
