@@ -201,15 +201,43 @@ async function writeNexusAudit(fields: NexusAuditFields): Promise<void> {
 // ── Registry operations ──────────────────────────────────────────────
 
 /**
+ * Run a registry query against a LIVE nexus handle, retrying ONCE if the shared
+ * project handle was closed mid-flight (ADR-090 · T11648).
+ *
+ * The nexus runtime handle is the PROJECT-scope `cleo.db` (graph home) with the
+ * GLOBAL registry ATTACHed. That handle is SHARED with the tasks/brain domains;
+ * a concurrent cross-project open (`getTaskAccessor(otherProject)`), a
+ * `resetDbState()`, or a sibling exodus-on-open can close it between our
+ * `getNexusDb()` await and the query await — surfacing as `"database is not
+ * open"`. The liveness guard inside `getNexusDb()` re-derives a fresh handle (and
+ * re-attaches the registry), so re-acquiring and retrying once makes registry
+ * reads deterministic under that churn.
+ *
+ * @param fn - Receives a freshly-acquired nexus drizzle handle.
+ * @returns The result of `fn`, or re-throws after one failed retry.
+ */
+async function withLiveNexusDb<T>(
+  fn: (db: Awaited<ReturnType<typeof import('../store/nexus-sqlite.js').getNexusDb>>) => Promise<T>,
+): Promise<T> {
+  const { getNexusDb } = await import('../store/nexus-sqlite.js');
+  try {
+    return await fn(await getNexusDb());
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!/database is not open|not open/i.test(msg)) throw err;
+    // Re-acquire a live handle (the liveness guard re-opens + re-attaches) and retry once.
+    return await fn(await getNexusDb());
+  }
+}
+
+/**
  * Read all projects from nexus.db and return as a NexusRegistryFile.
  * Compatibility wrapper for consumers that expect the legacy JSON shape.
  * Returns null if nexus.db has not been initialized yet.
  */
 export async function readRegistry(): Promise<NexusRegistryFile | null> {
   try {
-    const { getNexusDb } = await import('../store/nexus-sqlite.js');
-    const db = await getNexusDb();
-    const rows = await db.select().from(projectRegistry);
+    const rows = await withLiveNexusDb((db) => db.select().from(projectRegistry));
     const projects: Record<string, NexusProject> = {};
     let latestUpdate = '';
     for (const row of rows) {
@@ -538,9 +566,7 @@ export async function nexusList(
   _params: NexusListParams = {},
 ): Promise<NexusProject[]> {
   try {
-    const { getNexusDb } = await import('../store/nexus-sqlite.js');
-    const db = await getNexusDb();
-    const rows = await db.select().from(projectRegistry);
+    const rows = await withLiveNexusDb((db) => db.select().from(projectRegistry));
     return rows.map(rowToProject);
   } catch {
     return [];
@@ -564,39 +590,43 @@ export async function nexusGetProject(
   const nameOrHash =
     paramsOrUndefined !== undefined ? paramsOrUndefined.name : projectRootOrNameOrHash;
   try {
-    const { getNexusDb } = await import('../store/nexus-sqlite.js');
     const { eq, or } = await import('drizzle-orm');
-    const db = await getNexusDb();
-
-    // Try hash match first, then name
-    let rows = await db
-      .select()
-      .from(projectRegistry)
-      .where(or(eq(projectRegistry.projectHash, nameOrHash), eq(projectRegistry.name, nameOrHash)));
-
-    if (rows.length === 0) {
-      // Try direct projectId match
-      rows = await db
+    // ADR-090 · T11648: run on a LIVE handle with retry — the registry lives in
+    // the GLOBAL ATTACH of the shared project handle, which a concurrent
+    // cross-project open can close mid-query.
+    const row = await withLiveNexusDb(async (db) => {
+      // Try hash match first, then name
+      let rows = await db
         .select()
         .from(projectRegistry)
-        .where(eq(projectRegistry.projectId, nameOrHash));
-    }
-    if (rows.length === 0) {
-      // Try alias resolution: legacyId → canonicalId lookup (T11025)
-      const aliasRows = await db
-        .select()
-        .from(projectIdAliases)
-        .where(eq(projectIdAliases.legacyId, nameOrHash))
-        .limit(1);
-      if (aliasRows.length > 0) {
+        .where(
+          or(eq(projectRegistry.projectHash, nameOrHash), eq(projectRegistry.name, nameOrHash)),
+        );
+
+      if (rows.length === 0) {
+        // Try direct projectId match
         rows = await db
           .select()
           .from(projectRegistry)
-          .where(eq(projectRegistry.projectId, aliasRows[0].canonicalId));
+          .where(eq(projectRegistry.projectId, nameOrHash));
       }
-    }
+      if (rows.length === 0) {
+        // Try alias resolution: legacyId → canonicalId lookup (T11025)
+        const aliasRows = await db
+          .select()
+          .from(projectIdAliases)
+          .where(eq(projectIdAliases.legacyId, nameOrHash))
+          .limit(1);
+        if (aliasRows.length > 0) {
+          rows = await db
+            .select()
+            .from(projectRegistry)
+            .where(eq(projectRegistry.projectId, aliasRows[0].canonicalId));
+        }
+      }
+      return rows[0] ?? null;
+    });
 
-    const row = rows[0];
     if (!row) return null;
     return rowToProject(row);
   } catch {
@@ -668,11 +698,18 @@ export async function nexusSyncAll(): Promise<{ synced: number; failed: number }
   let failed = 0;
   const { getNexusDb } = await import('../store/nexus-sqlite.js');
   const { eq } = await import('drizzle-orm');
-  const db = await getNexusDb();
 
   for (const project of projects) {
     try {
+      // readProjectMeta opens the TARGET project's own `cleo.db` (a different
+      // project than the open nexus handle). Under the ADR-090 · T11648 residency
+      // split the nexus runtime handle is the PROJECT-scope `cleo.db` (graph home)
+      // with the GLOBAL registry ATTACHed; opening another project's `cleo.db`
+      // can churn the shared dual-scope project cache and close our nexus handle.
+      // Re-acquire `getNexusDb()` AFTER readProjectMeta so the registry UPDATE
+      // always runs against a live handle (the liveness guard re-opens + re-attaches).
       const meta = await readProjectMeta(project.path);
+      const db = await getNexusDb();
       const now = new Date().toISOString();
       await db
         .update(projectRegistry)

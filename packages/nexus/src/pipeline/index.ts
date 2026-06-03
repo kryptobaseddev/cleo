@@ -150,7 +150,7 @@ export type { WorkerPool } from './workers/worker-pool.js';
 export { createWorkerPool } from './workers/worker-pool.js';
 
 import fs from 'node:fs/promises';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { resolveCalls } from './call-processor.js';
 import { detectCommunities } from './community-processor.js';
 import type { ScannedFile } from './filesystem-walker.js';
@@ -237,8 +237,13 @@ export interface IndexStats {
  * Extends the insert-only NexusDbInsert with select capabilities.
  */
 export interface NexusDbReadInsert extends NexusDbInsert {
+  // `from(table)` is itself awaitable (the Drizzle query builder is a thenable
+  // resolving to the rows) AND chainable with `.where()` / `.orderBy()`. The
+  // awaitable shape is required since ADR-090 · T11648 dropped the per-query
+  // `WHERE project_id = ?` filter — project-scoped graph reads now await the
+  // unfiltered `select().from(table)` directly.
   select: (fields?: Record<string, unknown>) => {
-    from: (table: unknown) => {
+    from: (table: unknown) => Promise<Record<string, unknown>[]> & {
       where: (condition: unknown) => Promise<Record<string, unknown>[]>;
       orderBy?: (...args: unknown[]) => Promise<Record<string, unknown>[]>;
     };
@@ -303,13 +308,14 @@ export interface PipelineResult {
  * Safe to call even if the project has never been indexed — returns
  * `{ indexed: false, ... }` in that case.
  *
- * @param projectId - Project registry ID (same value passed to `runPipeline`)
+ * @param _projectId - Unused since ADR-090 · T11648 (project-scoped graph DB);
+ *   retained for call-site compatibility with `runPipeline`.
  * @param repoPath - Absolute path to the repository root (used for mtime checks)
  * @param db - Drizzle database instance
  * @param tables - Drizzle table references
  */
 export async function getIndexStats(
-  projectId: string,
+  _projectId: string,
   repoPath: string,
   db: NexusDbReadInsert,
   tables: NexusTables,
@@ -321,6 +327,8 @@ export async function getIndexStats(
   const nodesTable = tables.nexusNodes;
   const relationsTable = tables.nexusRelations;
 
+  // ADR-090 · T11648: the graph tables are PROJECT-scoped (one project per
+  // `cleo.db`), so these queries no longer filter by `project_id`.
   let rows: NodeRow[] = [];
   try {
     const raw = await db
@@ -328,8 +336,7 @@ export async function getIndexStats(
         filePath: nodesTable['filePath'],
         indexedAt: nodesTable['indexedAt'],
       })
-      .from(tables.nexusNodes)
-      .where(eq(nodesTable['projectId'], projectId));
+      .from(tables.nexusNodes);
     rows = raw as NodeRow[];
   } catch {
     // Table may not exist yet
@@ -369,10 +376,7 @@ export async function getIndexStats(
   // Count relations
   let relationCount = 0;
   try {
-    const relRows = await db
-      .select({ id: relationsTable['id'] })
-      .from(tables.nexusRelations)
-      .where(eq(relationsTable['projectId'], projectId));
+    const relRows = await db.select({ id: relationsTable['id'] }).from(tables.nexusRelations);
     relationCount = (relRows as unknown[]).length;
   } catch {
     // ignore
@@ -413,20 +417,20 @@ export async function getIndexStats(
 
 /** Internal: get existing indexed file paths and their indexedAt timestamps. */
 async function getIndexedFileMtimes(
-  projectId: string,
+  _projectId: string,
   db: NexusDbReadInsert,
   tables: NexusTables,
 ): Promise<Map<string, string>> {
   type Row = { filePath: string | null; indexedAt: string };
   const nodesTable = tables.nexusNodes;
   try {
+    // ADR-090 · T11648: project-scoped graph DB — no `project_id` predicate.
     const rows = await db
       .select({
         filePath: nodesTable['filePath'],
         indexedAt: nodesTable['indexedAt'],
       })
-      .from(tables.nexusNodes)
-      .where(eq(nodesTable['projectId'], projectId));
+      .from(tables.nexusNodes);
     const map = new Map<string, string>();
     for (const row of rows as Row[]) {
       if (row.filePath) map.set(row.filePath, row.indexedAt);
@@ -442,7 +446,7 @@ async function getIndexedFileMtimes(
  * or deleted file, wrapped in a transaction for atomicity.
  */
 async function deleteStaleEntries(
-  projectId: string,
+  _projectId: string,
   stalePaths: string[],
   db: NexusDbReadInsert,
   tables: NexusTables,
@@ -456,12 +460,13 @@ async function deleteStaleEntries(
   const CHUNK = 200;
   for (let i = 0; i < stalePaths.length; i += CHUNK) {
     const chunk = stalePaths.slice(i, i + CHUNK);
-    // Delete nodes for these file paths
+    // Delete nodes for these file paths (project-scoped DB — ADR-090 · T11648:
+    // no `project_id` predicate).
     for (const filePath of chunk) {
       try {
         await (db as NexusDbReadInsert)
           .delete(tables.nexusNodes)
-          .where(and(eq(nodesTable['projectId'], projectId), eq(nodesTable['filePath'], filePath)));
+          .where(eq(nodesTable['filePath'], filePath));
       } catch {
         // ignore — node may not exist for this file
       }
@@ -472,12 +477,7 @@ async function deleteStaleEntries(
       try {
         await (db as NexusDbReadInsert)
           .delete(tables.nexusRelations)
-          .where(
-            and(
-              eq(relationsTable['projectId'], projectId),
-              eq(relationsTable['sourceId'], filePath),
-            ),
-          );
+          .where(eq(relationsTable['sourceId'], filePath));
       } catch {
         // ignore
       }
@@ -589,17 +589,10 @@ export async function runPipeline(
         let existingNodeCount = 0;
         let existingRelationCount = 0;
         try {
-          const nodesT = tables.nexusNodes;
-          const relationsT = tables.nexusRelations;
-          const nr = await readableDb
-            .select()
-            .from(tables.nexusNodes)
-            .where(eq(nodesT['projectId'], projectId));
+          // ADR-090 · T11648: project-scoped graph DB — no `project_id` predicate.
+          const nr = await readableDb.select().from(tables.nexusNodes);
           existingNodeCount = (nr as unknown[]).length;
-          const rr = await readableDb
-            .select()
-            .from(tables.nexusRelations)
-            .where(eq(relationsT['projectId'], projectId));
+          const rr = await readableDb.select().from(tables.nexusRelations);
           existingRelationCount = (rr as unknown[]).length;
         } catch {
           /* ignore */

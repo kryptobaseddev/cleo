@@ -8,7 +8,7 @@
  */
 
 import path from 'node:path';
-import { and, eq, notInArray } from 'drizzle-orm';
+import { notInArray } from 'drizzle-orm';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getNexusDb, nexusSchema } from '../store/nexus-sqlite.js';
 
@@ -131,19 +131,16 @@ export async function getSymbolContext(
   const { sortMatchingNodes } = await import('./symbol-ranking.js');
   const db = await getNexusDb();
 
-  // Fetch only symbol nodes for this project (exclude community/process structural nodes).
-  // The SQL filter pushes projectId + kind exclusion into the index, avoiding the 89k full scan.
+  // Fetch only symbol nodes (exclude community/process structural nodes).
+  // ADR-090 · T11648: the graph lives in the PROJECT `cleo.db` (one project per
+  // DB), so the former `project_id = ?` predicate is dropped — only the kind
+  // exclusion remains, pushed into the `idx_nexus_nodes_kind` index.
   let projectSymbolNodes: Array<Record<string, unknown>> = [];
   try {
     projectSymbolNodes = db
       .select()
       .from(nexusSchema.nexusNodes)
-      .where(
-        and(
-          eq(nexusSchema.nexusNodes.projectId, projectId),
-          notInArray(nexusSchema.nexusNodes.kind, ['community', 'process']),
-        ),
-      )
+      .where(notInArray(nexusSchema.nexusNodes.kind, ['community', 'process']))
       .all() as Array<Record<string, unknown>>;
   } catch {
     projectSymbolNodes = [];
@@ -161,27 +158,23 @@ export async function getSymbolContext(
     throw err;
   }
 
-  // Fetch all project-scoped relations for callers/callees/process edges in one indexed query.
+  // Fetch all relations for callers/callees/process edges (project-scoped DB).
   let allRelations: Array<Record<string, unknown>> = [];
   try {
-    allRelations = db
-      .select()
-      .from(nexusSchema.nexusRelations)
-      .where(eq(nexusSchema.nexusRelations.projectId, projectId))
-      .all() as Array<Record<string, unknown>>;
+    allRelations = db.select().from(nexusSchema.nexusRelations).all() as Array<
+      Record<string, unknown>
+    >;
   } catch {
     allRelations = [];
   }
 
-  // Fetch ALL project nodes (including community/process) for the nodeById map so community
+  // Fetch ALL nodes (including community/process) for the nodeById map so community
   // labels and process names resolve correctly.
   let allProjectNodes: Array<Record<string, unknown>> = [];
   try {
-    allProjectNodes = db
-      .select()
-      .from(nexusSchema.nexusNodes)
-      .where(eq(nexusSchema.nexusNodes.projectId, projectId))
-      .all() as Array<Record<string, unknown>>;
+    allProjectNodes = db.select().from(nexusSchema.nexusNodes).all() as Array<
+      Record<string, unknown>
+    >;
   } catch {
     allProjectNodes = projectSymbolNodes;
   }

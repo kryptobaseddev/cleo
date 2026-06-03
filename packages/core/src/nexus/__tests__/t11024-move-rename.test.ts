@@ -67,6 +67,10 @@ beforeEach(async () => {
   pd = join(td, 'tp');
   await mkdir(rd, { recursive: true });
   process.env['CLEO_HOME'] = rd;
+  // ADR-090 · T11648: pin CLEO_DIR per test so the cwd-cached nexus project
+  // handle (and its GLOBAL-registry ATTACH) is re-created against the current
+  // CLEO_HOME each test (avoids a stale ATTACH to a prior test's registry).
+  process.env['CLEO_DIR'] = join(td, '.cleo');
   process.env['NEXUS_HOME'] = join(rd, 'nexus');
   process.env['NEXUS_CACHE_DIR'] = join(rd, 'nexus', 'cache');
   resetNexusDbState();
@@ -74,6 +78,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   delete process.env['CLEO_HOME'];
+  delete process.env['CLEO_DIR'];
   delete process.env['NEXUS_HOME'];
   delete process.env['NEXUS_CACHE_DIR'];
   resetNexusDbState();

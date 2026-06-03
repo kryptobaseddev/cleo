@@ -7,7 +7,7 @@
  * @task T1473
  */
 
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getNexusDb, nexusSchema } from '../store/nexus-sqlite.js';
 
@@ -54,15 +54,11 @@ export async function getProjectClusters(
 
   let communities: Array<Record<string, unknown>> = [];
   try {
+    // ADR-090 · T11648: project-scoped DB — drop the `project_id = ?` predicate.
     communities = db
       .select()
       .from(nexusSchema.nexusNodes)
-      .where(
-        and(
-          eq(nexusSchema.nexusNodes.projectId, projectId),
-          eq(nexusSchema.nexusNodes.kind, 'community'),
-        ),
-      )
+      .where(eq(nexusSchema.nexusNodes.kind, 'community'))
       .all() as Array<Record<string, unknown>>;
   } catch {
     communities = [];

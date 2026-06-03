@@ -1,59 +1,71 @@
 /**
- * SQLite store for the global-scope NEXUS domain via drizzle-orm/node-sqlite +
- * node:sqlite (DatabaseSync).
+ * SQLite store for the NEXUS domain via drizzle-orm/node-sqlite + node:sqlite
+ * (DatabaseSync).
  *
- * ## E6-L4 — thin-facade migration (T11524)
+ * ## Dual-scope residency split (ADR-090 · T11648 — runtime read half)
  *
- * `getNexusDb()` is now a thin facade that delegates the database open to
- * {@link openDualScopeDb}('global') — the canonical dual-scope chokepoint
- * introduced by E3/E4 (T11512/T11517) and already adopted by the tasks domain
- * (E6-L1, T11521), the brain domain (E6-L2, T11522), and the conduit domain
- * (E6-L3, T11523). This is the GLOBAL-scope variant: nexus is a cross-project
- * registry and stays GLOBAL — its tables live inside the consolidated GLOBAL
- * `cleo.db` under {@link getCleoHome}, NOT a per-project `.cleo/` file.
+ * The nexus domain is now SPLIT across the two consolidated `cleo.db` files:
  *
- * This ensures:
+ * - **GRAPH (project scope):** the four code-graph tables (`nexus_nodes`,
+ *   `nexus_relations`, `nexus_contracts`, `nexus_code_index`) + the
+ *   `nexus_relation_weights` plasticity sibling live in
+ *   `<projectRoot>/.cleo/cleo.db` — the portable per-project living brain.
+ *   This is where exodus WRITES them (`resolveTableTargetScope` in
+ *   `store/exodus/table-name-map.ts`), so the runtime READS them from there too.
+ * - **REGISTRY/identity (global scope):** the six cross-project tables
+ *   (`nexus_project_registry`, `nexus_project_id_aliases`, `nexus_user_profile`,
+ *   `nexus_sigils`, `nexus_audit_log`, `nexus_schema_meta`) stay in the GLOBAL
+ *   `cleo.db` under {@link getCleoHome} (ADR-090 §2.2).
  *
+ * `getNexusDb()` opens the PROJECT scope as `main` (via {@link openDualScopeDb}
+ * ('project')) and ATTACHes the GLOBAL `cleo.db` under
+ * {@link NEXUS_GLOBAL_ATTACH_ALIAS}. SQLite's bare-name resolution then routes
+ * each query to the correct file with ZERO accessor changes: graph tables exist
+ * in `main` (project) and resolve there; registry/identity tables are absent
+ * from `main` and fall through to the attached GLOBAL db. The GLOBAL db also
+ * carries empty graph tables (frozen T11363 migration leftovers), correctly
+ * SHADOWED by `main`.
+ *
+ * ### Why this fix (T11648)
+ *
+ * T11538/T11539 moved the graph schema to PROJECT scope and routed exodus there,
+ * but the runtime READ accessors still opened the GLOBAL handle — so after a
+ * `cleo exodus migrate` the project held 24k+ `nexus_nodes` while the runtime
+ * read 0 from global (`cleo nexus search-code` / `context` returned empty). This
+ * module is the deferred runtime half: it reads the graph from the SAME scope
+ * exodus writes it.
+ *
+ * This preserves the prior guarantees:
  * - Every nexus-domain open flows through the single pragma SSoT (ADR-068/069).
- * - The nexus tables now live inside the consolidated GLOBAL `cleo.db` — NOT a
- *   separate `nexus.db` file — co-existing with `signaldock_*` / `skills_*` /
- *   global `brain_*`.
  * - DB Open Guard Gate 3 (`scripts/lint-no-direct-db-open.mjs`) stays green: the
- *   only native open is inside `dual-scope-db.ts`. The remaining raw opens in
- *   `nexus/**` migration scripts are the allowlisted migration paths.
+ *   only native open is inside `dual-scope-db.ts` (the ATTACH below is a SQL
+ *   statement on an already-chokepointed handle, not a `new DatabaseSync(`).
  *
  * ## COMPLETE-CUTOVER to prefixed `nexus_*` tables (T11578 · AC3)
  *
- * The nexus runtime READ + WRITE path now targets the PREFIXED consolidated
- * `nexus_*` tables that the consolidated cleo-global migration
- * (`drizzle-cleo-global/…t11363-consolidation-cleo-global`) creates and OWNS —
- * the single SSoT for the 10 base tables (`nexus_project_registry`,
- * `nexus_project_id_aliases`, `nexus_user_profile`, `nexus_sigils`, `nexus_nodes`,
- * `nexus_relations`, `nexus_contracts`, `nexus_code_index`, `nexus_audit_log`,
- * `nexus_schema_meta`). The former legacy drop/rebuild (`establishLegacyNexusSchema`)
- * and the BARE registry tables (`project_registry`, `user_profile`, `sigils`,
- * `project_id_aliases`) are GONE. The runtime schema barrel `schema/nexus-schema.ts`
- * now maps those four export symbols (`projectRegistry`, `userProfile`, `sigils`,
- * `projectIdAliases`) to the prefixed physical tables — accessors need ZERO change.
+ * The nexus runtime READ + WRITE path targets PREFIXED consolidated tables. The
+ * five PROJECT graph tables are owned by the consolidated cleo-project migration;
+ * the six GLOBAL registry/identity tables by the consolidated cleo-global
+ * migration. The former legacy drop/rebuild (`establishLegacyNexusSchema`) and
+ * BARE registry tables (`project_registry`, …) are GONE. The runtime schema
+ * barrel `schema/nexus-schema.ts` maps every export symbol to its prefixed
+ * physical name — accessors need ZERO change.
  *
  * The `drizzle-nexus` migration set carries ONLY the delta the consolidated
  * migration cannot model: the `nexus_symbols_fts` FTS5 virtual table + its three
  * `nexus_nodes` triggers, the `nexus_relation_weights` plasticity-partition
  * sibling (T11545), and the `_nexus_meta` health-probe table (the reconcile
- * sentinel). The destructive half of the plasticity partition (DROP the inline
- * `weight`/`last_accessed_at`/`co_accessed_count` columns the T11363
- * `nexus_relations` still carries) is applied idempotently at open by
- * `ensureNexusRelationWeights` — never as a non-idempotent journaled ALTER.
+ * sentinel). The destructive half of the plasticity partition is applied
+ * idempotently at open by `ensureNexusRelationWeights` (a no-op for the
+ * already-narrow project-scope `nexus_relations`).
  *
- * The four nexus code-graph tables keep their `project_id` column (the runtime
- * keeps a SINGLE global handle; the graph accessors filter by `project_id`). The
- * ADR-090 residency MOVE to PROJECT scope (drop `project_id`, open per-project
- * handles) is a SEPARATE later task (T11538/T11539) — out of scope for AC3.
- *
- * @adr ADR-036 — nexus.db (now the global `cleo.db`) is global-only.
+ * @adr ADR-036 — registry/identity is global-only (relaxed for the 4 graph
+ *   tables by ADR-090 §2.4).
+ * @adr ADR-090 — nexus code-graph residency global→project scope split.
  * @task T5365
- * @task T11524 - E6-L4: route getNexusDb through openDualScopeDb('global') (SG-DB-SUBSTRATE-V2)
- * @task T11578 - AC3: COMPLETE-CUTOVER nexus runtime → prefixed nexus_* consolidated tables
+ * @task T11524 - E6-L4: route getNexusDb through the dual-scope chokepoint
+ * @task T11578 - AC3: COMPLETE-CUTOVER nexus runtime → prefixed nexus_* tables
+ * @task T11648 - ADR-090 runtime read half: route graph reads to project scope
  */
 
 import { copyFileSync, existsSync } from 'node:fs';
@@ -84,47 +96,150 @@ export const NEXUS_SCHEMA_VERSION = '1.0.0';
 let _nexusDb: NodeSQLiteDatabase<typeof nexusSchema> | null = null;
 let _nexusNativeDb: DatabaseSync | null = null;
 let _nexusDbPath: string | null = null;
+/**
+ * The GLOBAL registry path the current singleton's ATTACH targets (ADR-090 ·
+ * T11648). When `getCleoHome()` changes (e.g. tests mutating `CLEO_HOME`), the
+ * attached global differs AND must be migrated via `openDualScopeDb('global')` —
+ * which only runs on the init path. So a registry-path change forces a full
+ * singleton reset rather than a cheap re-attach to an unmigrated file.
+ */
+let _nexusRegistryPath: string | null = null;
 /** Guard against concurrent initialization (async migration). */
 let _nexusInitPromise: Promise<NodeSQLiteDatabase<typeof nexusSchema>> | null = null;
 
 /**
- * Returns the global-tier nexus DB path — the consolidated GLOBAL `cleo.db`.
+ * SQLite ATTACH alias under which the GLOBAL consolidated `cleo.db` is mounted
+ * into the PROJECT-scope nexus handle so the cross-project registry/identity
+ * tables (`nexus_project_registry`, `nexus_user_profile`, `nexus_sigils`,
+ * `nexus_project_id_aliases`, `nexus_audit_log`, `nexus_schema_meta`) stay
+ * reachable by their BARE names (ADR-090 · T11648).
  *
- * E6-L4 (T11524): delegates to {@link resolveDualScopeDbPath}('global'), which
- * resolves `getCleoHome()` + `cleo.db`. nexus is a cross-project registry and
- * must live in the global CLEO home directory (`~/.local/share/cleo/` on Linux
- * via XDG). It is NEVER written to a per-project `.cleo/` directory.
+ * SQLite resolves a bare table name against `main` first, then attached
+ * databases in attach order. The PROJECT `cleo.db` (`main`) physically carries
+ * ONLY the five graph tables (`nexus_nodes`, `nexus_relations`,
+ * `nexus_contracts`, `nexus_code_index`, `nexus_relation_weights`), so those
+ * bare names resolve to the populated project graph; the registry/identity
+ * tables — absent from `main` — fall through to this attached GLOBAL db. The
+ * GLOBAL db ALSO carries empty graph tables (frozen T11363 migration leftovers),
+ * but those are correctly SHADOWED by `main` and never read or written.
+ */
+const NEXUS_GLOBAL_ATTACH_ALIAS = 'nexus_global';
+
+/**
+ * Returns the nexus GRAPH DB path — the consolidated PROJECT `cleo.db`
+ * (`<projectRoot>/.cleo/cleo.db`), where the four code-graph tables
+ * (`nexus_nodes`, `nexus_relations`, `nexus_contracts`, `nexus_code_index`) and
+ * the `nexus_relation_weights` plasticity sibling physically reside post the
+ * ADR-090 residency split (T11538/T11539).
  *
+ * ## ADR-090 residency move — runtime read half (T11648)
+ *
+ * Exodus WRITES the graph tables to PROJECT scope (per `resolveTableTargetScope`
+ * in `store/exodus/table-name-map.ts`); this resolver routes the runtime READ
+ * path to the SAME scope so the migrated graph is visible. Previously this
+ * returned the GLOBAL `cleo.db` (`resolveDualScopeDbPath('global')`), which left
+ * `cleo nexus search-code` / `context` reading the empty global graph tables —
+ * the T11538/T11539 runtime-half gap this fix closes. The cross-project
+ * registry/identity tables stay GLOBAL and are reached via the
+ * {@link NEXUS_GLOBAL_ATTACH_ALIAS} attach (see {@link getNexusRegistryDbPath}).
+ *
+ * @param cwd - Optional working directory used to resolve the owning project
+ *   root (forwarded to {@link resolveDualScopeDbPath}('project', cwd)).
  * @task T307
  * @epic T299
- * @why ADR-036 §Decision/Global-Tier: nexus is global-only. This guard
- *   throws immediately if path resolution ever drifts outside getCleoHome(),
- *   preventing silent creation of project-tier stray DB files. The dual-scope
- *   global resolver builds the path from getCleoHome() so the invariant holds;
- *   the assertion is retained as defence-in-depth against future regressions.
- * @throws {Error} If the resolved path is not under `getCleoHome()` — this
- *   indicates a code path that bypasses canonical path resolution and is a
- *   bug that must be fixed rather than silently tolerated.
+ * @task T11648 (ADR-090 runtime read half — route graph reads to project scope)
+ * @why ADR-090 §2.1/§2.4 supersedes ADR-036's global-only assertion FOR THE
+ *   GRAPH TABLES ONLY. The graph is per-project and must live in the portable
+ *   `.cleo/cleo.db`; the registry/identity tables remain global-asserted in
+ *   {@link getNexusRegistryDbPath}.
  */
-export function getNexusDbPath(): string {
-  const cleoHome = getCleoHome();
-  const nexusPath = resolveDualScopeDbPath('global');
+export function getNexusDbPath(cwd?: string): string {
+  return resolveDualScopeDbPath('project', cwd);
+}
 
-  // Guard: the resolved path MUST be under the global tier (ADR-036). The
-  // dual-scope global resolver joins getCleoHome() with 'cleo.db', so the
-  // invariant is always satisfied under normal operation. The assertion catches
-  // hypothetical future regressions where getCleoHome() is monkey-patched or the
-  // resolver drifts.
-  if (!nexusPath.startsWith(cleoHome)) {
+/**
+ * Returns the cross-project nexus REGISTRY/identity DB path — the consolidated
+ * GLOBAL `cleo.db` under `getCleoHome()`.
+ *
+ * The registry/identity tables (`nexus_project_registry`,
+ * `nexus_project_id_aliases`, `nexus_user_profile`, `nexus_sigils`,
+ * `nexus_audit_log`, `nexus_schema_meta`) are genuinely global (ADR-090 §2.2)
+ * and MUST stay under `getCleoHome()`. The ADR-036 global-only assertion is
+ * retained here as defence-in-depth (it was relaxed only for the four graph
+ * tables, now homed in PROJECT scope via {@link getNexusDbPath}).
+ *
+ * @task T11648 (ADR-090 — registry stays global-asserted)
+ * @adr ADR-036 — registry/identity is global-only.
+ * @throws {Error} If the resolved path is not under `getCleoHome()`.
+ */
+export function getNexusRegistryDbPath(): string {
+  const cleoHome = getCleoHome();
+  const registryPath = resolveDualScopeDbPath('global');
+
+  // Guard: the registry/identity home MUST be under the global tier (ADR-036).
+  if (!registryPath.startsWith(cleoHome)) {
     throw new Error(
-      `BUG: getNexusDbPath() resolved to "${nexusPath}" which is NOT under ` +
-        `getCleoHome() ("${cleoHome}"). nexus is global-only per ADR-036. ` +
-        `This indicates a code path that bypasses canonical path resolution — ` +
-        `fix the caller, do not suppress this error.`,
+      `BUG: getNexusRegistryDbPath() resolved to "${registryPath}" which is NOT ` +
+        `under getCleoHome() ("${cleoHome}"). The nexus registry/identity tables ` +
+        `are global-only per ADR-036/ADR-090 §2.2. This indicates a code path that ` +
+        `bypasses canonical path resolution — fix the caller, do not suppress this error.`,
     );
   }
 
-  return nexusPath;
+  return registryPath;
+}
+
+/**
+ * Idempotently ATTACH the GLOBAL consolidated `cleo.db` into a PROJECT-scope
+ * nexus handle under {@link NEXUS_GLOBAL_ATTACH_ALIAS}, so the cross-project
+ * registry/identity tables resolve by their bare names (ADR-090 · T11648).
+ *
+ * Safe to call repeatedly: if the alias is already attached (a sibling domain
+ * opened the same shared project handle first, or a prior nexus open ran this),
+ * the duplicate `ATTACH` throws and is swallowed. The global `cleo.db` is the
+ * canonical registry home; we ensure its directory exists via the global open
+ * resolver before attaching.
+ *
+ * @param nativeDb - The open PROJECT-scope `DatabaseSync` handle.
+ * @task T11648
+ */
+function ensureGlobalRegistryAttached(nativeDb: DatabaseSync): void {
+  const globalPath = getNexusRegistryDbPath();
+  const escaped = globalPath.replace(/'/g, "''");
+
+  // Inspect the current attach (if any). `PRAGMA database_list` reports the alias
+  // + the file each schema is bound to. The registry home is resolved fresh from
+  // `getNexusRegistryDbPath()` (which reads `getCleoHome()`), so it can change
+  // between opens — e.g. tests that mutate `CLEO_HOME` while sharing the cwd-keyed
+  // project handle, or a sibling domain that re-opened the shared project DB. A
+  // stale ATTACH would silently read a prior registry. To stay deterministic we
+  // DETACH any existing `nexus_global` (unless it is provably the same file) and
+  // re-ATTACH the current registry path.
+  const existing = (
+    nativeDb.prepare('PRAGMA database_list').all() as Array<{ name?: string; file?: string }>
+  ).find((row) => row.name === NEXUS_GLOBAL_ATTACH_ALIAS);
+
+  if (existing) {
+    // Fast path: the alias is already bound to exactly the current registry file.
+    if (existing.file === globalPath) return;
+    // Otherwise re-bind. DETACH is best-effort; the subsequent ATTACH surfaces a
+    // clear error rather than silently leaving a stale binding.
+    try {
+      nativeDb.exec(`DETACH DATABASE ${NEXUS_GLOBAL_ATTACH_ALIAS}`);
+    } catch {
+      // Alias still bound (e.g. an open statement) — the ATTACH below would throw
+      // "database nexus_global is already in use"; treat the existing binding as
+      // authoritative only when its file matches, which we already returned for.
+      return;
+    }
+  }
+
+  // The global cleo.db is created/migrated by the global dual-scope open path
+  // (sibling domains: skills/agent-registry/global-brain). ATTACH only needs the
+  // file to exist; SQLite creates it if absent, but it will then lack the
+  // consolidated registry schema. Registry readers tolerate a missing table
+  // (try/catch), so a bare ATTACH is sufficient and non-fatal here.
+  nativeDb.exec(`ATTACH DATABASE '${escaped}' AS ${NEXUS_GLOBAL_ATTACH_ALIAS}`);
 }
 
 /**
@@ -468,31 +583,34 @@ function ensureNexusRelationWeights(nativeDb: DatabaseSync): void {
 
 /**
  * Apply the nexus-domain DELTA migration + idempotent safety nets on top of the
- * PREFIXED consolidated `nexus_*` tables the dual-scope chokepoint already
- * created (T11578 · AC3).
+ * PREFIXED consolidated graph tables the PROJECT dual-scope chokepoint already
+ * created (T11578 · AC3 · ADR-090 T11648).
  *
- * ## COMPLETE-CUTOVER (T11578 · AC3)
+ * ## COMPLETE-CUTOVER (T11578 · AC3) + residency move (ADR-090 · T11648)
  *
- * The consolidated cleo-global migration (T11363) OWNS the 10 prefixed nexus base
- * tables (`nexus_project_registry`, `nexus_user_profile`, `nexus_sigils`,
- * `nexus_project_id_aliases`, `nexus_nodes`, `nexus_relations`, `nexus_contracts`,
- * `nexus_code_index`, `nexus_audit_log`, `nexus_schema_meta`). The runtime no
- * longer drops/rebuilds a legacy shape (former `establishLegacyNexusSchema`) and
- * no longer creates the BARE registry tables. The `drizzle-nexus` set carries
- * ONLY the delta the consolidated migration cannot model:
+ * The consolidated cleo-project migration OWNS the five PREFIXED graph tables
+ * in the PROJECT `cleo.db` `main` (`nexus_nodes`, `nexus_relations`,
+ * `nexus_contracts`, `nexus_code_index`, `nexus_relation_weights`); the
+ * cross-project registry/identity tables are owned by the cleo-global migration
+ * and reached through the {@link NEXUS_GLOBAL_ATTACH_ALIAS} attach. The runtime
+ * no longer drops/rebuilds a legacy shape (former `establishLegacyNexusSchema`).
+ * The `drizzle-nexus` set carries ONLY the delta the consolidated migration
+ * cannot model:
  *   - the `nexus_relation_weights` sibling (plasticity partition, T11545),
- *   - the `nexus_symbols_fts` FTS5 virtual table + its three triggers, and
+ *   - the `nexus_symbols_fts` FTS5 virtual table + its three triggers (over the
+ *     project-scope `nexus_nodes`), and
  *   - the `_nexus_meta` health-probe table (also the reconcile sentinel).
  *
  * The reconcile sentinel is `_nexus_meta` (a table the nexus migration ITSELF
  * creates, NOT a consolidated-owned table). This keeps `reconcileJournal`
  * Scenario 2 (orphan deletion) dormant until the nexus migration set is journaled
- * — otherwise the consolidated migration's journal entries (written FIRST by
- * `openDualScopeDb`) would look like orphans and be deleted, corrupting the shared
- * journal (mirrors the conduit `_conduit_meta` sentinel, AC4).
+ * — otherwise the consolidated PROJECT migration's journal entries (written FIRST
+ * by `openDualScopeDb`) would look like orphans and be deleted, corrupting the
+ * shared journal (mirrors the conduit `_conduit_meta` sentinel, AC4).
  *
  * @task T5365
  * @task T11578
+ * @task T11648
  */
 function runNexusMigrations(
   nativeDb: DatabaseSync,
@@ -500,9 +618,11 @@ function runNexusMigrations(
 ): void {
   const migrationsFolder = resolveNexusMigrationsFolder();
 
-  // If existing DB with pending migrations, create safety backup (cleo compat).
-  // Sentinel is the prefixed consolidated registry table (T11578 · AC3).
-  if (tableExists(nativeDb, 'nexus_project_registry') && _nexusDbPath) {
+  // If existing DB with populated graph, create a safety backup (cleo compat).
+  // Sentinel is `nexus_nodes` — the canonical project-scope graph table in
+  // `main` (ADR-090 · T11648); the former `nexus_project_registry` sentinel now
+  // lives in the attached GLOBAL db, not this project handle.
+  if (tableExists(nativeDb, 'nexus_nodes') && _nexusDbPath) {
     const backupPath = _nexusDbPath.replace(/\.db$/, '-pre-cleo.db.bak');
     if (!existsSync(backupPath)) {
       try {
@@ -565,30 +685,54 @@ function runNexusMigrations(
 }
 
 /**
- * Initialize the consolidated GLOBAL `cleo.db` and the nexus DELTA schema within
- * it (lazy, singleton).
+ * Initialize the consolidated PROJECT `cleo.db` (the nexus GRAPH home) with the
+ * GLOBAL `cleo.db` ATTACHed for registry/identity reads, plus the nexus DELTA
+ * schema within it (lazy, singleton).
  *
- * T11578 · AC3: delegates the physical open to {@link openDualScopeDb}('global')
- * — the canonical dual-scope chokepoint, which runs the consolidated cleo-global
- * migrations that OWN the prefixed `nexus_*` base tables — and re-wraps its native
- * handle with the `nexusSchema` drizzle instance (now mapping the PREFIXED
- * physical tables). Returns the drizzle ORM instance (async via the dual-scope
- * migration step).
+ * ## ADR-090 residency move — runtime read half (T11648)
  *
- * Uses a promise guard so concurrent callers wait for the same
- * initialization to complete (migrations are async).
+ * The four code-graph tables (`nexus_nodes`, `nexus_relations`, `nexus_contracts`,
+ * `nexus_code_index`) + the `nexus_relation_weights` plasticity sibling now live
+ * in PROJECT scope (`<projectRoot>/.cleo/cleo.db`) — that is where exodus WRITES
+ * them. The runtime READ path therefore opens the PROJECT scope as `main` so the
+ * graph is visible (previously it opened GLOBAL and read empty graph tables —
+ * the T11538/T11539 gap). The cross-project registry/identity tables stay GLOBAL;
+ * we open GLOBAL first (so its consolidated migration creates them) then ATTACH
+ * it under {@link NEXUS_GLOBAL_ATTACH_ALIAS} so the registry/identity accessors —
+ * which reference bare names (`nexus_project_registry`, `nexus_user_profile`,
+ * `nexus_sigils`, `nexus_project_id_aliases`, `nexus_audit_log`,
+ * `nexus_schema_meta`) — resolve via SQLite's bare-name fall-through to the
+ * attached GLOBAL db. ADR-036's global-only assertion is relaxed for the four
+ * graph tables ONLY (registry stays global-asserted in {@link getNexusRegistryDbPath}).
+ *
+ * Uses a promise guard so concurrent callers wait for the same initialization to
+ * complete (migrations are async).
+ *
+ * @task T307
+ * @task T11524 (E6-L4 — dual-scope chokepoint delegation)
+ * @task T11578 (AC3 — prefixed `nexus_*` tables)
+ * @task T11648 (ADR-090 runtime read half — project-scope graph + global attach)
  */
 export async function getNexusDb(): Promise<NodeSQLiteDatabase<typeof nexusSchema>> {
   const requestedPath = getNexusDbPath();
+  const requestedRegistryPath = getNexusRegistryDbPath();
 
-  // If singleton exists but points to a different path (e.g. CLEO_HOME changed
-  // between tests), reset it.
+  // If singleton exists but points to a different PROJECT graph path (e.g.
+  // CLEO_DIR changed between tests), reset it.
   if (_nexusDb && _nexusDbPath !== requestedPath) {
     resetNexusDbState();
   }
 
-  // Liveness guard (T11524): nexus shares the consolidated GLOBAL `cleo.db`
-  // handle with the other global-tier domains (signaldock/skills, E6-L5). Another
+  // If the GLOBAL registry path changed (e.g. CLEO_HOME changed), reset fully so
+  // the init path runs `openDualScopeDb('global')` to MIGRATE the new registry
+  // file before the ATTACH — a cheap re-attach alone would bind an unmigrated
+  // global (→ "no such table: nexus_project_registry"). (ADR-090 · T11648)
+  if (_nexusDb && _nexusRegistryPath !== requestedRegistryPath) {
+    resetNexusDbState();
+  }
+
+  // Liveness guard (T11524): nexus shares the consolidated PROJECT `cleo.db`
+  // handle with the other project-tier domains (tasks/brain/conduit). Another
   // domain may have closed + re-opened the shared `DatabaseSync` while our nexus
   // singleton still references the now-closed handle. Detect a stale (closed)
   // handle and drop the singleton so we re-derive from the live openDualScopeDb
@@ -597,7 +741,24 @@ export async function getNexusDb(): Promise<NodeSQLiteDatabase<typeof nexusSchem
     resetNexusDbState();
   }
 
-  if (_nexusDb) return _nexusDb;
+  if (_nexusDb) {
+    // Re-validate the GLOBAL registry ATTACH on every singleton hit (ADR-090 ·
+    // T11648). The registry home (`getCleoHome()`) can change between calls —
+    // tests that mutate `CLEO_HOME` while the cwd-keyed project handle stays
+    // cached, or a sibling domain that re-opened the shared project handle and
+    // dropped the attach. `ensureGlobalRegistryAttached` early-returns when the
+    // current attach already points at the right file, so this is cheap.
+    if (_nexusNativeDb) {
+      try {
+        ensureGlobalRegistryAttached(_nexusNativeDb);
+      } catch {
+        // A failed re-attach means the shared handle is unusable — drop the
+        // singleton so the next call re-derives a fresh handle + attach.
+        resetNexusDbState();
+      }
+    }
+    if (_nexusDb) return _nexusDb;
+  }
 
   // If already initializing, wait for the in-flight init
   if (_nexusInitPromise) return _nexusInitPromise;
@@ -605,31 +766,49 @@ export async function getNexusDb(): Promise<NodeSQLiteDatabase<typeof nexusSchem
   _nexusInitPromise = (async () => {
     const dbPath = requestedPath;
     _nexusDbPath = dbPath;
+    _nexusRegistryPath = requestedRegistryPath;
 
     // ADR-086 / T10321 — warn (one-shot, non-blocking) if the install still
     // carries the nested-nexus migration debris. Does not alter the open.
     detectAndWarnOnNestedNexus();
 
-    // ── Dual-scope chokepoint delegation (T11524 · E6-L4 · T11578 · AC3) ───
-    // openDualScopeDb('global') applies the pragma SSoT, creates the directory,
-    // runs the consolidated cleo-global migrations (which OWN the PREFIXED
-    // `nexus_*` base tables), and manages the singleton cache. We extract its
-    // native handle and re-wrap it with the `nexusSchema` drizzle instance (now
-    // mapping the prefixed physical tables) so existing accessors run unchanged.
-    const dualHandle = await openDualScopeDb('global');
+    // ── Registry home: open GLOBAL first (T11648) ──────────────────────────
+    // The registry/identity tables are global (ADR-090 §2.2). Opening the GLOBAL
+    // scope through the dual-scope chokepoint runs its consolidated migration,
+    // guaranteeing those tables (and their schema) physically exist before we
+    // ATTACH the global file into the project handle below. This is the same
+    // shared handle the global-tier siblings (skills/agent-registry) hold; we do
+    // NOT keep a reference to it — we only need its schema materialised on disk.
+    await openDualScopeDb('global');
+
+    // ── Graph home: open PROJECT scope as `main` (T11648 · ADR-090 §2.1/§2.4) ─
+    // openDualScopeDb('project') applies the pragma SSoT, creates the directory,
+    // runs the consolidated cleo-project migrations (which OWN the five PREFIXED
+    // graph tables), and manages the singleton cache. We pass NO cwd: the
+    // dual-scope resolver resolves the canonical project root via the
+    // `resolveCleoDir()` SSoT (CWD-walk / CLEO_DIR / worktree scope) — never a
+    // bare `process.cwd()` (T9584). Omitting the cwd also keeps the exodus-on-open
+    // hook un-armed, which is correct for the runtime READ path (exodus is a
+    // separate explicit step).
+    const dualHandle = await openDualScopeDb('project');
 
     // Extract the underlying DatabaseSync. Drizzle exposes it via `$client`.
     const nativeDb = (dualHandle.db as { $client?: DatabaseSync }).$client ?? null;
     if (!nativeDb) {
       throw new Error(
-        'T11578 · AC3: openDualScopeDb returned a handle without $client — ' +
+        'T11648: openDualScopeDb returned a handle without $client — ' +
           'cannot extract DatabaseSync for the nexus-schema drizzle wrapping.',
       );
     }
     _nexusNativeDb = nativeDb;
 
+    // ATTACH the GLOBAL `cleo.db` so the registry/identity tables resolve by
+    // their bare names via SQLite's fall-through (ADR-090 · T11648). Idempotent.
+    ensureGlobalRegistryAttached(nativeDb);
+
     // Wrap the native handle with the `nexusSchema` drizzle instance so existing
-    // accessors (nexusSchema.* queries) run against the PREFIXED tables unchanged.
+    // accessors (nexusSchema.* queries) run unchanged: graph tables resolve to
+    // the project `main`; registry/identity tables fall through to the attach.
     const db = drizzle({ client: nativeDb, schema: nexusSchema });
 
     // Apply the nexus DELTA migration + idempotent safety nets on top of the
@@ -662,23 +841,25 @@ export async function getNexusDb(): Promise<NodeSQLiteDatabase<typeof nexusSchem
 /**
  * Close the nexus-domain database connection and release resources.
  *
- * ## E6-L4 (T11524)
+ * ## E6-L4 (T11524) · ADR-090 runtime read half (T11648)
  *
- * The nexus domain now SHARES the consolidated GLOBAL `cleo.db` handle with the
- * other global-tier domains (signaldock/skills, E6-L5 — all open it via
- * {@link openDualScopeDb}('global'), same cache key). This function therefore must
- * NOT close the underlying `DatabaseSync` nor evict the dual-scope cache — doing
- * so would break in-flight queries from those siblings with "database is not
- * open". It only drops the nexus-domain singleton references; the shared handle's
- * lifecycle is owned by `openDualScopeDb` and torn down by a coordinated reset
- * (`closeAllDatabases` → `_resetDualScopeDbCache`).
+ * The nexus GRAPH domain now SHARES the consolidated PROJECT `cleo.db` handle
+ * with the other project-tier domains (tasks/brain/conduit — all open it via
+ * {@link openDualScopeDb}('project'), same cache key), with the GLOBAL `cleo.db`
+ * ATTACHed for registry/identity reads. This function therefore must NOT close
+ * the underlying `DatabaseSync` nor evict the dual-scope cache — doing so would
+ * break in-flight queries from those siblings with "database is not open". It
+ * only drops the nexus-domain singleton references; the shared handle's lifecycle
+ * (and the global ATTACH) is owned by `openDualScopeDb` and torn down by a
+ * coordinated reset (`closeAllDatabases` → `_resetDualScopeDbCache`).
  */
 export function closeNexusDb(): void {
   // Drop only the nexus singleton references. Do NOT close `_nexusNativeDb` — it
-  // is the shared dual-scope handle, possibly still in use by global siblings.
+  // is the shared dual-scope project handle, possibly still in use by siblings.
   _nexusNativeDb = null;
   _nexusDb = null;
   _nexusDbPath = null;
+  _nexusRegistryPath = null;
   _nexusInitPromise = null;
 }
 
@@ -687,16 +868,17 @@ export function closeNexusDb(): void {
  * Used during tests or when the database file is recreated.
  * Safe to call multiple times.
  *
- * ## E6-L4 (T11524)
+ * ## E6-L4 (T11524) · ADR-090 runtime read half (T11648)
  *
  * Drops only the nexus-domain singleton references — does NOT close the shared
- * dual-scope GLOBAL `cleo.db` handle nor evict the dual-scope cache (that handle
- * is shared with the other global-tier domains). Mirrors {@link closeNexusDb}.
+ * dual-scope PROJECT `cleo.db` handle nor evict the dual-scope cache (that handle
+ * is shared with the other project-tier domains). Mirrors {@link closeNexusDb}.
  */
 export function resetNexusDbState(): void {
   _nexusNativeDb = null;
   _nexusDb = null;
   _nexusDbPath = null;
+  _nexusRegistryPath = null;
   _nexusInitPromise = null;
 }
 

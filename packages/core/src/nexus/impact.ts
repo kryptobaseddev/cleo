@@ -8,7 +8,7 @@
  * @task T1473
  */
 
-import { and, eq, notInArray } from 'drizzle-orm';
+import { eq, notInArray } from 'drizzle-orm';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getNexusDb, getNexusNativeDb, nexusSchema } from '../store/nexus-sqlite.js';
 
@@ -105,19 +105,15 @@ export async function getSymbolImpact(
   const { sortMatchingNodes } = await import('./symbol-ranking.js');
   const db = await getNexusDb();
 
-  // Fetch only symbol nodes for this project (exclude community/process structural nodes).
-  // SQL WHERE pushes projectId + kind exclusion into the indexed path, avoiding full-table scan.
+  // Fetch only symbol nodes (exclude community/process structural nodes).
+  // ADR-090 · T11648: project-scoped DB — the former `project_id = ?` predicate
+  // is dropped; only the kind exclusion remains (indexed via idx_nexus_nodes_kind).
   let projectSymbolNodes: Array<Record<string, unknown>> = [];
   try {
     projectSymbolNodes = db
       .select()
       .from(nexusSchema.nexusNodes)
-      .where(
-        and(
-          eq(nexusSchema.nexusNodes.projectId, projectId),
-          notInArray(nexusSchema.nexusNodes.kind, ['community', 'process']),
-        ),
-      )
+      .where(notInArray(nexusSchema.nexusNodes.kind, ['community', 'process']))
       .all() as Array<Record<string, unknown>>;
   } catch {
     projectSymbolNodes = [];
@@ -135,10 +131,10 @@ export async function getSymbolImpact(
     throw err;
   }
 
-  // Fetch project-scoped relations filtered by projectId and BFS-relevant types.
-  // T11545: plasticity `weight` lives in the sibling `nexus_relation_weights`
-  // table — LEFT JOIN it and flatten so downstream reads `r['weight']` (NULL
-  // when the edge has never been strengthened).
+  // Fetch all relations (project-scoped DB — ADR-090 · T11648: no `project_id`
+  // predicate). T11545: plasticity `weight` lives in the sibling
+  // `nexus_relation_weights` table — LEFT JOIN it and flatten so downstream reads
+  // `r['weight']` (NULL when the edge has never been strengthened).
   let allRelations: Array<Record<string, unknown>> = [];
   try {
     const joined = db
@@ -148,7 +144,6 @@ export async function getSymbolImpact(
         nexusSchema.nexusRelationWeights,
         eq(nexusSchema.nexusRelationWeights.relationId, nexusSchema.nexusRelations.id),
       )
-      .where(eq(nexusSchema.nexusRelations.projectId, projectId))
       .all() as Array<{
       nexus_relations: Record<string, unknown>;
       nexus_relation_weights: Record<string, unknown> | null;
@@ -287,7 +282,9 @@ export async function getSymbolImpact(
 // SSoT-EXEMPT:engine-migration-T1569
 export async function nexusImpact(
   symbol: string,
-  projectId?: string,
+  // `projectId` unused since ADR-090 · T11648 (project-scoped graph DB); retained
+  // for the CLI dispatch signature.
+  _projectId?: string,
   why?: boolean,
 ): Promise<
   EngineResult<{
@@ -310,20 +307,20 @@ export async function nexusImpact(
       });
     }
 
+    // ADR-090 · T11648: project-scoped graph DB — drop the `project_id` column +
+    // predicate (one project per DB).
     const allNodes = db
       .prepare(
-        `SELECT id, label, kind, file_path, name, project_id
+        `SELECT id, label, kind, file_path, name
            FROM nexus_nodes
-          WHERE project_id = ?
-            AND kind NOT IN ('community','process','file','folder')`,
+          WHERE kind NOT IN ('community','process','file','folder')`,
       )
-      .all(projectId || '') as Array<{
+      .all() as Array<{
       id: string;
       label: string | null;
       kind: string | null;
       file_path: string | null;
       name: string | null;
-      project_id: string;
     }>;
 
     const lowerSymbol = symbol.toLowerCase();
@@ -358,10 +355,9 @@ export async function nexusImpact(
         `SELECT r.source_id AS source_id, r.target_id AS target_id, r.type AS type, w.weight AS weight
            FROM nexus_relations r
       LEFT JOIN nexus_relation_weights w ON w.relation_id = r.id
-          WHERE r.project_id = ?
-            AND r.type IN ('calls','imports','accesses')`,
+          WHERE r.type IN ('calls','imports','accesses')`,
       )
-      .all(projectId || '') as Array<{
+      .all() as Array<{
       source_id: string;
       target_id: string;
       type: string;

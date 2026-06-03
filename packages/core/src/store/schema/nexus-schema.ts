@@ -41,17 +41,25 @@
  *     `nexus_relations` (which still carries them in the T11363 shape) and
  *     ensures the sibling table.
  *
- * The four nexus code-graph tables retain their `project_id` column here (the
- * runtime keeps a SINGLE global handle and the graph accessors filter by
- * `project_id`). The ADR-090 residency move to PROJECT scope (drop `project_id`,
- * open per-project handles) is a SEPARATE later task (T11538/T11539) — out of
- * scope for AC3.
+ * ## ADR-090 residency split — graph tables PROJECT-scoped (T11648)
+ *
+ * The four code-graph tables (`nexus_nodes`, `nexus_relations`,
+ * `nexus_contracts`, `nexus_code_index`) + the `nexus_relation_weights`
+ * plasticity sibling no longer carry `project_id` (ADR-090 §2.1): they live in
+ * the PROJECT `cleo.db` and `nexus-sqlite.ts` opens the project scope as `main`,
+ * so scope is implicit. The graph accessors therefore DROP the former
+ * `WHERE project_id = ?` predicate (single project per DB). The
+ * registry/identity tables (`nexus_project_registry`, `nexus_user_profile`,
+ * `nexus_sigils`, `nexus_project_id_aliases`, `nexus_audit_log`,
+ * `nexus_schema_meta`) stay GLOBAL and are reached through the
+ * `nexus_global` ATTACH (see `nexus-sqlite.ts`); their mappings are unchanged.
  *
  * @task T5365
  * @task T529
  * @task T1077
  * @task T1148
  * @task T11578
+ * @task T11648
  */
 
 import { sql } from 'drizzle-orm';
@@ -263,8 +271,11 @@ export const nexusNodes = sqliteTable(
      *  `process:<slug>` for execution flow nodes. */
     id: text('id').primaryKey(),
 
-    /** Foreign key to project_registry.project_id. Scopes the node. */
-    projectId: text('project_id').notNull(),
+    // `project_id` DROPPED (ADR-090 §2.1 · T11648): the graph now lives in the
+    // PROJECT `cleo.db` (`nexus-sqlite.ts` opens the project scope as `main`), so
+    // scope is implicit in the owning project DB — a redundant per-row scope
+    // column is no longer carried. Matches the project-scope physical shape
+    // (`schema/cleo-project/nexus-graph.ts`) that exodus writes.
 
     /** Node kind from GraphNodeKind union. */
     kind: text('kind', { enum: NEXUS_NODE_KINDS }).notNull(),
@@ -326,12 +337,12 @@ export const nexusNodes = sqliteTable(
     indexedAt: text('indexed_at').notNull().default(sql`(datetime('now'))`),
   },
   (table) => [
-    index('idx_nexus_nodes_project').on(table.projectId),
+    // `idx_nexus_nodes_project` + the two `project_id`-leading composite indexes
+    // are DROPPED (ADR-090 §2.1 · T11648) — they collapse to the non-leading
+    // siblings (kind / file) since scope is implicit per project DB.
     index('idx_nexus_nodes_kind').on(table.kind),
     index('idx_nexus_nodes_file').on(table.filePath),
     index('idx_nexus_nodes_name').on(table.name),
-    index('idx_nexus_nodes_project_kind').on(table.projectId, table.kind),
-    index('idx_nexus_nodes_project_file').on(table.projectId, table.filePath),
     index('idx_nexus_nodes_community').on(table.communityId),
     index('idx_nexus_nodes_parent').on(table.parentId),
     index('idx_nexus_nodes_exported').on(table.isExported),
@@ -404,8 +415,8 @@ export const nexusRelations = sqliteTable(
     /** UUID v4 row identifier. */
     id: text('id').primaryKey(),
 
-    /** Foreign key to project_registry.project_id. */
-    projectId: text('project_id').notNull(),
+    // `project_id` DROPPED (ADR-090 §2.1 · T11648) — scope is implicit in the
+    // owning project `cleo.db`. Matches `schema/cleo-project/nexus-graph.ts`.
 
     /** Source node ID (nexus_nodes.id). */
     sourceId: text('source_id').notNull(),
@@ -436,11 +447,11 @@ export const nexusRelations = sqliteTable(
     // and isolate the write-heavy Hebbian hot path. See {@link nexusRelationWeights}.
   },
   (table) => [
-    index('idx_nexus_relations_project').on(table.projectId),
+    // `idx_nexus_relations_project` + `idx_nexus_relations_project_type` DROPPED
+    // (ADR-090 §2.1 · T11648) — collapse to the non-leading type sibling.
     index('idx_nexus_relations_source').on(table.sourceId),
     index('idx_nexus_relations_target').on(table.targetId),
     index('idx_nexus_relations_type').on(table.type),
-    index('idx_nexus_relations_project_type').on(table.projectId, table.type),
     index('idx_nexus_relations_source_type').on(table.sourceId, table.type),
     index('idx_nexus_relations_target_type').on(table.targetId, table.type),
     index('idx_nexus_relations_confidence').on(table.confidence),
@@ -515,8 +526,8 @@ export const nexusContracts = sqliteTable(
     /** Unique contract ID (format: `<type>:<projectId>::<path>::<method>` or similar). */
     contractId: text('contract_id').primaryKey(),
 
-    /** Foreign key to project_registry.project_id. */
-    projectId: text('project_id').notNull(),
+    // `project_id` DROPPED (ADR-090 §2.1 · T11648) — scope is implicit in the
+    // owning project `cleo.db`. Matches `schema/cleo-project/nexus-graph.ts`.
 
     /** Contract type: 'http', 'grpc', 'topic'. */
     type: text('type', { enum: NEXUS_CONTRACT_TYPES }).notNull(),
@@ -552,11 +563,11 @@ export const nexusContracts = sqliteTable(
     updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
   },
   (table) => [
-    index('idx_nexus_contracts_project').on(table.projectId),
+    // `idx_nexus_contracts_project` + `idx_nexus_contracts_project_type` DROPPED
+    // (ADR-090 §2.1 · T11648) — collapse to the non-leading type sibling.
     index('idx_nexus_contracts_type').on(table.type),
     index('idx_nexus_contracts_path').on(table.path),
     index('idx_nexus_contracts_method').on(table.method),
-    index('idx_nexus_contracts_project_type').on(table.projectId, table.type),
     index('idx_nexus_contracts_source_symbol').on(table.sourceSymbolId),
     index('idx_nexus_contracts_created').on(table.createdAt),
   ],

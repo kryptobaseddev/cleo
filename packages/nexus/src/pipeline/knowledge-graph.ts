@@ -71,10 +71,13 @@ export interface NexusTables {
 // Row types (matches nexus-schema.ts NewNexusNodeRow / NewNexusRelationRow)
 // ---------------------------------------------------------------------------
 
+// ADR-090 · T11648: the graph tables are PROJECT-scoped (one project per
+// `cleo.db`), so `project_id` was dropped from `nexus_nodes` / `nexus_relations`.
+// The insert rows below therefore no longer carry `projectId`.
+
 /** Insert row shape for nexus_nodes. */
 interface NexusNodeInsertRow {
   id: string;
-  projectId: string;
   kind: string;
   label: string;
   name: string | null;
@@ -95,7 +98,6 @@ interface NexusNodeInsertRow {
 /** Insert row shape for nexus_relations. */
 interface NexusRelationInsertRow {
   id: string;
-  projectId: string;
   sourceId: string;
   targetId: string;
   type: string;
@@ -165,15 +167,14 @@ export function createKnowledgeGraph(): KnowledgeGraph {
     }
   }
 
-  async function flush(projectId: string, db: NexusDbInsert, tables: NexusTables): Promise<void> {
+  async function flush(_projectId: string, db: NexusDbInsert, tables: NexusTables): Promise<void> {
     const now = new Date().toISOString();
 
-    // Build node insert rows
+    // Build node insert rows (ADR-090 · T11648 — no `projectId`).
     const nodeRows: NexusNodeInsertRow[] = [];
     for (const node of nodes.values()) {
       nodeRows.push({
         id: node.id,
-        projectId,
         kind: node.kind,
         label: node.name || node.id,
         name: node.name || null,
@@ -192,12 +193,11 @@ export function createKnowledgeGraph(): KnowledgeGraph {
       });
     }
 
-    // Build relation insert rows
+    // Build relation insert rows (ADR-090 · T11648 — no `projectId`).
     const relationRows: NexusRelationInsertRow[] = [];
     for (const rel of relations) {
       relationRows.push({
         id: randomUUID(),
-        projectId,
         sourceId: rel.source,
         targetId: rel.target,
         type: rel.type,

@@ -29,16 +29,11 @@ export async function extractHttpContracts(
   const db = await getNexusDb();
 
   try {
-    // Query all route nodes for this project
+    // Query all route nodes (project-scoped DB — ADR-090 · T11648: no project_id).
     const routeNodes: NexusNodeRow[] = db
       .select()
       .from(nexusSchema.nexusNodes)
-      .where(
-        and(
-          eq(nexusSchema.nexusNodes.projectId, projectId),
-          eq(nexusSchema.nexusNodes.kind, 'route'),
-        ),
-      )
+      .where(eq(nexusSchema.nexusNodes.kind, 'route'))
       .all();
 
     const contracts: HttpContract[] = [];
@@ -87,7 +82,6 @@ export async function extractHttpContracts(
         .from(nexusSchema.nexusRelations)
         .where(
           and(
-            eq(nexusSchema.nexusRelations.projectId, projectId),
             eq(nexusSchema.nexusRelations.targetId, routeNode.id),
             eq(nexusSchema.nexusRelations.type, 'handles_route'),
           ),

@@ -60,7 +60,9 @@ export async function getProjectFlows(
     rows = [];
   }
 
-  const processes = rows.filter((r) => r['kind'] === 'process' && r['projectId'] === projectId);
+  // ADR-090 · T11648: the graph is project-scoped (one project per `cleo.db`),
+  // so the in-memory `projectId` filter is dropped — only the kind filter remains.
+  const processes = rows.filter((r) => r['kind'] === 'process');
 
   return {
     projectId,
