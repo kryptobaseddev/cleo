@@ -1,5 +1,33 @@
 # Changelog
 
+## [2026.6.2] (2026-06-03)
+
+### Added
+
+- Interactive-output command class — `cleo llm login` and `cleo llm refresh-catalog` now print a friendly line on a terminal and emit a JSON envelope when piped or under `--json`. Human-facing command paths (logins, credential entry, onboarding wizards) default to human-readable output on a TTY while every other command keeps the agent-first JSON default; `--json` always wins. _(provenance: [T11672](https://github.com/kryptobaseddev/cleo/search?q=T11672&type=commits); [#943](https://github.com/kryptobaseddev/cleo/pull/943))_
+
+### Changed
+
+
+
+### Fixed
+
+
+
+### Deprecated
+
+
+
+### Removed
+
+
+
+### Security
+
+
+
+### BREAKING CHANGES
+
 ## [2026.6.1] (2026-06-03)
 
 ### Added
