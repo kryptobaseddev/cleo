@@ -764,11 +764,15 @@ export async function getNexusDb(): Promise<NodeSQLiteDatabase<typeof nexusSchem
     await openDualScopeDb('global');
 
     // ── Graph home: open PROJECT scope as `main` (T11648 · ADR-090 §2.1/§2.4) ─
-    // openDualScopeDb('project', cwd) applies the pragma SSoT, creates the
-    // directory, runs the consolidated cleo-project migrations (which OWN the
-    // five PREFIXED graph tables), and manages the singleton cache. We extract
-    // its native handle and re-wrap it with the `nexusSchema` drizzle instance.
-    const dualHandle = await openDualScopeDb('project', process.cwd());
+    // openDualScopeDb('project') applies the pragma SSoT, creates the directory,
+    // runs the consolidated cleo-project migrations (which OWN the five PREFIXED
+    // graph tables), and manages the singleton cache. We pass NO cwd: the
+    // dual-scope resolver resolves the canonical project root via the
+    // `resolveCleoDir()` SSoT (CWD-walk / CLEO_DIR / worktree scope) — never a
+    // bare `process.cwd()` (T9584). Omitting the cwd also keeps the exodus-on-open
+    // hook un-armed, which is correct for the runtime READ path (exodus is a
+    // separate explicit step).
+    const dualHandle = await openDualScopeDb('project');
 
     // Extract the underlying DatabaseSync. Drizzle exposes it via `$client`.
     const nativeDb = (dualHandle.db as { $client?: DatabaseSync }).$client ?? null;
