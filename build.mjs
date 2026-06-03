@@ -849,6 +849,32 @@ export declare function is_canonical(skillPath: string, options?: IsCanonicalOpt
   await buildPkg('@cleocode/playbooks', 'packages/playbooks/dist/');
 
   // ---------------------------------------------------------------------------
+  // Wave 7.5: re-emit core's esbuild entry points (T11654)
+  //
+  // playbooks builds with `tsc -b` (project-reference BUILD mode) and references
+  // `../core`. Because core's Wave-5 tsc pass runs `--emitDeclarationOnly`, its
+  // .tsbuildinfo records a declaration-only emit, so playbooks' `tsc -b` decides
+  // core's `.js` is stale and RE-EMITS the whole composite project via plain
+  // tsc — which does NOT apply the `@cleocode/utils` -> packages/utils/src
+  // esbuild alias. That clobbered core's Wave-5 esbuild output for the three
+  // leaf modules that import utils (memory/redaction.js, llm/plugin-facade.js,
+  // docs/export-document.js), leaving a bare `import '@cleocode/utils'` in the
+  // published @cleocode/core tarball. Since @cleocode/utils is private (never
+  // published), that import would throw ERR_MODULE_NOT_FOUND at runtime.
+  //
+  // The tsc clobber is otherwise load-bearing: it ALSO emits the nested-subdir
+  // `.js` (e.g. store/exodus/index.js) that the esbuild entry-point scan does
+  // not cover but the CLI imports at runtime. So we keep that tsc output and
+  // only RE-RUN core's esbuild here — esbuild re-emits its 625 entry points
+  // (utils inlined) and overwrites the three clobbered files, while the
+  // tsc-emitted nested-subdir files survive untouched.
+  // ---------------------------------------------------------------------------
+  console.log('\n[build] Wave 7.5: re-emit core esbuild entry points (T11654 utils-inline restore)');
+  await esbuild.build(coreBuildOptions);
+  await sanitizeSourcemaps('packages/core/dist'); // T9184
+  console.log('  -> packages/core/dist/ (esbuild entry points re-emitted)');
+
+  // ---------------------------------------------------------------------------
   // Wave 8: cleo esbuild bundle (deps adapters, playbooks, runtime — all ready)
   // ---------------------------------------------------------------------------
   console.log('\n[build] Wave 8: cleo (esbuild)');
