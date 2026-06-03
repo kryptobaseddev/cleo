@@ -5,8 +5,6 @@ coverage/
 .cleo/.cache/
 .cleo/*.lock
 .cleo/**/*.lock
-clawmsgr-*.json
-clawmsgr-agent.json
 
 # Python
 __pycache__/

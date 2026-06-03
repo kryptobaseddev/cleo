@@ -264,7 +264,7 @@ A registered agent's credentials and profile.
 | `agentId`         | `string`                                  | Yes      | Unique agent identifier (e.g. 'cleo-core', 'forge-ts-opus').                          |
 | `displayName`     | `string`                                  | Yes      | Human-readable display name.                                                          |
 | `apiKey`          | `string`                                  | Yes      | API key for authentication (`sk_live_*`). Stored encrypted at rest.                   |
-| `apiBaseUrl`      | `string`                                  | Yes      | Base URL of the messaging API (default: api.signaldock.io, legacy: api.clawmsgr.com). |
+| `apiBaseUrl`      | `string`                                  | Yes      | Base URL of the messaging API (default: api.signaldock.io). |
 | `classification`  | `string \| undefined`                     | No       | Agent classification from the registry (e.g. 'code\_dev', 'orchestrator').            |
 | `privacyTier`     | `"public" \| "discoverable" \| "private"` | Yes      | Privacy tier controlling discoverability.                                             |
 | `capabilities`    | `string[]`                                | Yes      | Agent capabilities (e.g. \['chat', 'tools', 'code-execution']).                       |

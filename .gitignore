@@ -115,10 +115,6 @@ packages/*/extensions/**/*.d.ts.map
 !packages/core/src/llm/rust/index.js
 !packages/core/src/llm/rust/index.d.ts
 
-# Misc noise
-clawmsgr-agent.json
-clawmsgr-*.json
-
 # Tool / editor configs (personal, not project)
 .serena/
 .vscode/

@@ -115,16 +115,6 @@ describe('resolveTransport', () => {
       expect(transport).toBeInstanceOf(SseTransport);
     });
 
-    it('returns SseTransport for legacy clawmsgr.com base URL with SSE endpoint', () => {
-      isAvailableSpy.mockReturnValue(false);
-      const credential = makeCredential({
-        apiBaseUrl: 'https://api.clawmsgr.com',
-        transportConfig: { sseEndpoint: 'https://api.clawmsgr.com/sse' },
-      });
-      const transport = resolveTransport(credential);
-      expect(transport).toBeInstanceOf(SseTransport);
-    });
-
     it('does NOT return SseTransport for "local" apiBaseUrl even with sseEndpoint', () => {
       isAvailableSpy.mockReturnValue(false);
       const credential = makeCredential({

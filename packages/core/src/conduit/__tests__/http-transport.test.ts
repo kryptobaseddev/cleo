@@ -3,12 +3,10 @@
  *
  * Uses `vi.stubGlobal('fetch', ...)` to mock the global fetch API so
  * no real network I/O occurs. Tests cover:
- * - connect with primary-only URL
- * - connect with primary/fallback failover
+ * - connect with the configured API base URL
  * - push (send message)
  * - poll (receive messages)
  * - ack
- * - automatic failover on push/poll network failure
  * - error propagation on non-2xx responses
  * - not-connected guards
  *
@@ -38,12 +36,6 @@ const CONFIG = {
   agentId: 'agent-001',
   apiKey: 'sk_live_test_key',
   apiBaseUrl: 'https://api.signaldock.io',
-};
-
-/** Config with a fallback URL. */
-const CONFIG_WITH_FALLBACK = {
-  ...CONFIG,
-  apiBaseUrlFallback: 'https://api.clawmsgr.com',
 };
 
 // ============================================================================
@@ -77,70 +69,23 @@ describe('HttpTransport', () => {
   });
 
   // --------------------------------------------------------------------------
-  // connect — primary only
+  // connect
   // --------------------------------------------------------------------------
 
-  describe('connect (primary only)', () => {
-    it('connects without probing health when no fallback is configured', async () => {
+  describe('connect', () => {
+    it('connects without issuing any network request', async () => {
       await transport.connect(CONFIG);
       // No health probe issued — fetch should NOT have been called
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it('uses primaryUrl as activeUrl when no fallback is provided', async () => {
+    it('uses the configured apiBaseUrl for subsequent requests', async () => {
       await transport.connect(CONFIG);
-      // Verify activeUrl is used by making a push
+      // Verify apiBaseUrl is used by making a push
       fetchMock.mockResolvedValue(mockResponse(200, { data: { message: { id: 'msg-1' } } }));
       await transport.push('to', 'content');
       const calledUrl = fetchMock.mock.calls[0][0] as string;
       expect(calledUrl).toContain('api.signaldock.io');
-    });
-  });
-
-  // --------------------------------------------------------------------------
-  // connect — failover
-  // --------------------------------------------------------------------------
-
-  describe('connect (primary/fallback failover)', () => {
-    it('stays on primary when both URLs are healthy', async () => {
-      fetchMock
-        .mockResolvedValueOnce(mockResponse(200, {})) // primary /health
-        .mockResolvedValueOnce(mockResponse(200, {})); // fallback /health
-
-      await transport.connect(CONFIG_WITH_FALLBACK);
-
-      // Push to verify activeUrl is primary
-      fetchMock.mockResolvedValueOnce(mockResponse(200, { data: { message: { id: 'p' } } }));
-      await transport.push('to', 'x');
-      const url = fetchMock.mock.calls[2][0] as string;
-      expect(url).toContain('api.signaldock.io');
-    });
-
-    it('switches to fallback when primary health check fails', async () => {
-      fetchMock
-        .mockRejectedValueOnce(new Error('primary unreachable')) // primary /health
-        .mockResolvedValueOnce(mockResponse(200, {})); // fallback /health
-
-      await transport.connect(CONFIG_WITH_FALLBACK);
-
-      // Push to verify activeUrl switched to fallback
-      fetchMock.mockResolvedValueOnce(mockResponse(200, { data: { message: { id: 'f' } } }));
-      await transport.push('to', 'x');
-      const url = fetchMock.mock.calls[2][0] as string;
-      expect(url).toContain('api.clawmsgr.com');
-    });
-
-    it('stays on primary when fallback health check fails', async () => {
-      fetchMock
-        .mockResolvedValueOnce(mockResponse(200, {})) // primary /health OK
-        .mockRejectedValueOnce(new Error('fallback unreachable')); // fallback /health fails
-
-      await transport.connect(CONFIG_WITH_FALLBACK);
-
-      fetchMock.mockResolvedValueOnce(mockResponse(200, { data: { message: { id: 'x' } } }));
-      await transport.push('to', 'x');
-      const url = fetchMock.mock.calls[2][0] as string;
-      expect(url).toContain('api.signaldock.io');
     });
   });
 
@@ -213,23 +158,10 @@ describe('HttpTransport', () => {
       await expect(transport.push('to', 'msg')).rejects.toThrow('push failed');
     });
 
-    it('falls back to alternateUrl on primary network error', async () => {
-      // First connect to fresh transport with fallback
-      const t = new HttpTransport();
-      fetchMock
-        .mockResolvedValueOnce(mockResponse(200, {})) // primary /health
-        .mockResolvedValueOnce(mockResponse(200, {})); // fallback /health
-      await t.connect(CONFIG_WITH_FALLBACK);
+    it('propagates network errors from fetch', async () => {
+      fetchMock.mockRejectedValueOnce(new Error('network down'));
 
-      // Push: primary fetch fails, fallback succeeds
-      fetchMock
-        .mockRejectedValueOnce(new Error('primary down'))
-        .mockResolvedValueOnce(mockResponse(200, { data: { message: { id: 'fb-1' } } }));
-
-      const result = await t.push('to', 'msg');
-      expect(result.messageId).toBe('fb-1');
-
-      await t.disconnect();
+      await expect(transport.push('to', 'msg')).rejects.toThrow('network down');
     });
 
     it('throws when not connected', async () => {

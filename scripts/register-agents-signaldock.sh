@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # T219: Register all 9 agents on api.signaldock.io
 # Creates signaldock-*.json config files in .cleo/
-# Both clawmsgr-*.json (legacy) and signaldock-*.json (canonical) coexist.
 set -euo pipefail
 
 API="https://api.signaldock.io"
@@ -37,14 +36,8 @@ print(d.get('data', {}).get('apiKey', 'FAILED'))
 " 2>/dev/null)
 
     if [ "${api_key}" = "FAILED" ]; then
-      echo "  WARN: Could not generate new key. Using existing clawmsgr key if available."
-      local clawmsgr_config="${CONFIG_DIR}/clawmsgr-${agent_id}.json"
-      if [ -f "${clawmsgr_config}" ]; then
-        api_key=$(python3 -c "import json; print(json.load(open('${clawmsgr_config}'))['apiKey'])")
-      else
-        echo "  ERROR: No key available for ${agent_id}"
-        return 1
-      fi
+      echo "  ERROR: Could not generate key for ${agent_id}"
+      return 1
     fi
   else
 
