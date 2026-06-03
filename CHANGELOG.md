@@ -1,5 +1,34 @@
 # Changelog
 
+## [2026.6.1] (2026-06-03)
+
+### Added
+
+
+
+### Changed
+
+- Remove legacy ClawMsgr integration — drop api.clawmsgr.com Conduit transport fallback + all refs. _(provenance: [T11658](https://github.com/kryptobaseddev/cleo/search?q=T11658&type=commits))_
+
+### Fixed
+
+- Fix v2026.6.0 uninstallable — move private @cleocode/utils to devDependencies in cleo+core (it is esbuild-inlined, not a runtime dep). _(provenance: [T11654](https://github.com/kryptobaseddev/cleo/search?q=T11654&type=commits))_
+- Tear down EmbeddingQueue worker in shutdownCliRuntime + gate opportunistic dream off one-shot CLI — fixes briefing spin/WAL-bloat. _(provenance: [T11655](https://github.com/kryptobaseddev/cleo/search?q=T11655&type=commits))_
+
+### Deprecated
+
+
+
+### Removed
+
+
+
+### Security
+
+
+
+### BREAKING CHANGES
+
 ## [2026.6.0] (2026-06-03)
 
 ### Added
