@@ -105,7 +105,9 @@ afterEach(() => {
 
 describe('computeBriefing — keepalive + trace contract (T9948)', () => {
   it('emits an opportunistic-dream-trigger debug trace before firing', async () => {
-    await computeBriefing('/fake/project');
+    // T11655: the opportunistic dream is OFF by default for one-shot read
+    // briefings — opt in so the keepalive/trace contract is exercised.
+    await computeBriefing('/fake/project', { allowOpportunisticDream: true });
 
     // Allow the post-return async work to fully settle so the trace fires.
     await new Promise((r) => setImmediate(r));
@@ -129,7 +131,7 @@ describe('computeBriefing — keepalive + trace contract (T9948)', () => {
     mockCheckAndDream.mockImplementation(() => new Promise(() => undefined));
 
     const start = Date.now();
-    const result = await computeBriefing('/fake/project');
+    const result = await computeBriefing('/fake/project', { allowOpportunisticDream: true });
     const elapsed = Date.now() - start;
 
     // 500ms is a generous upper bound — the briefing path under mocks

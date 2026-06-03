@@ -10,7 +10,7 @@
  * resource opened during the command is released by the time the handler
  * resolves.
  *
- * Two process-lifetime singletons violate that contract because they own a
+ * Three process-lifetime singletons violate that contract because they own a
  * `worker_threads.Worker` whose `MessagePort` keeps the event loop alive:
  *
  *   1. **The BRAIN single-writer worker** ({@link shutdownBrainWriter}). Every
@@ -21,7 +21,14 @@
  *      because the worker's `MessagePort` is itself what keeps the loop alive,
  *      so a `cleo memory observe` printed its success envelope and then hung
  *      (rc:124) until the shell timed it out.
- *   2. **The pino-roll log transport** ({@link closeLogger}). `pino.transport()`
+ *   2. **The embedding queue worker** ({@link resetEmbeddingQueue}). The
+ *      {@link EmbeddingQueue} singleton (T134/T137) lazily spawns a
+ *      `worker_threads.Worker` to batch transformers.js embeddings off the main
+ *      thread. Its live `MessagePort` keeps the loop alive exactly like the
+ *      brain writer — and the opportunistic dream in `cleo briefing` could feed
+ *      it (or, in the worker-unavailable fallback, run embeddings inline on the
+ *      main thread), the residual hang/spin path tracked in T11655.
+ *   3. **The pino-roll log transport** ({@link closeLogger}). `pino.transport()`
  *      backs a worker thread too; its rotation timer + port keep the loop alive
  *      in the same way once `initLogger` has run.
  *
@@ -47,6 +54,7 @@
 
 import { closeLogger } from './logger.js';
 import { shutdownBrainWriter } from './memory/brain-writer-thread.js';
+import { resetEmbeddingQueue } from './memory/embedding-queue.js';
 import { closeAllDatabases } from './store/sqlite.js';
 
 /**
@@ -74,9 +82,12 @@ async function safely(step: () => Promise<void> | void): Promise<void> {
  * Order:
  *   1. {@link shutdownBrainWriter} — terminate the BRAIN single-writer worker
  *      thread (the `MessagePort` proven to hang `cleo memory observe`).
- *   2. {@link closeAllDatabases} — close the dual-scope `cleo.db` + brain/nexus
+ *   2. {@link resetEmbeddingQueue} — flush + terminate the embedding queue
+ *      worker thread (T11655 — the second live `MessagePort` that can keep a
+ *      one-shot CLI command alive after its envelope is emitted).
+ *   3. {@link closeAllDatabases} — close the dual-scope `cleo.db` + brain/nexus
  *      native handles (releases file locks; required on Windows).
- *   3. {@link closeLogger} — flush + terminate the pino-roll transport worker.
+ *   4. {@link closeLogger} — flush + terminate the pino-roll transport worker.
  *
  * Every step is best-effort and idempotent — safe to call once per process at
  * exit, and harmless if a given subsystem was never initialized.
@@ -99,10 +110,15 @@ export async function shutdownCliRuntime(): Promise<void> {
   //    `cleo memory observe` / `cleo docs add` / any brain.db write path.
   await safely(() => shutdownBrainWriter());
 
-  // 2. Close DB singletons (dual-scope cleo.db + brain/nexus native handles).
+  // 2. Embedding queue worker thread (T11655) — the second live MessagePort.
+  //    Flushes in-flight batches then terminates the worker, so an opportunistic
+  //    embed enqueued during the command cannot keep the loop alive at exit.
+  await safely(() => resetEmbeddingQueue());
+
+  // 3. Close DB singletons (dual-scope cleo.db + brain/nexus native handles).
   //    Releases SQLite file handles — required before tmpdir cleanup on Windows.
   await safely(() => closeAllDatabases());
 
-  // 3. Flush + terminate the pino-roll transport worker thread.
+  // 4. Flush + terminate the pino-roll transport worker thread.
   await safely(() => closeLogger());
 }
