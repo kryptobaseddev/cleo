@@ -605,29 +605,35 @@ const contextEnginesCommand = defineCommand({
 // ---------------------------------------------------------------------------
 
 /**
- * cleo llm login <provider> — initiate OAuth device-code login.
+ * cleo llm login <provider> — authenticate a provider via OAuth.
  *
- * Prints the user code + verification URI to stderr, polls the token
- * endpoint in the background, and stores the resulting credential in the
- * pool once the user approves.
+ * Routes by the provider's registered OAuth mode:
+ *   - PKCE (anthropic, openai/codex): opens the browser (or prints the URL),
+ *     captures the redirect on a local loopback callback, exchanges the code,
+ *     and stores the OAuth credential in the pool.
+ *   - device-code (kimi-code): prints the user code + verification URI and
+ *     polls the token endpoint until the user approves.
  *
- * Only `anthropic` is supported in the current MVP. See
- * `@cleocode/core/llm/oauth/device-code.ts` for the TODO items around
- * endpoint verification.
+ * Providers without an OAuth profile return E_NOT_IMPLEMENTED with the live
+ * registry-derived list of OAuth-capable providers; use
+ * `cleo llm add <provider> --api-key-stdin` for API-key auth instead.
  *
  * @task T9266
+ * @task T11669
  */
 const loginCommand = defineCommand({
   meta: {
     name: 'login',
     description:
-      'Authenticate with a provider via OAuth device-code flow. Supported providers: anthropic (MVP). ' +
-      'Prints the verification URL and user code, then polls until the user approves.',
+      'Authenticate an LLM provider via OAuth. PKCE (browser): anthropic, openai/codex. ' +
+      'Device-code: kimi-code. Example: `cleo llm login openai`. ' +
+      'For any other provider use `cleo llm add <provider> --api-key-stdin`. ' +
+      'Prompts/URLs go to stderr; the result is a human line on a terminal or a JSON envelope when piped/--json.',
   },
   args: {
     provider: {
       type: 'positional',
-      description: 'Provider to authenticate with (e.g. anthropic)',
+      description: 'Provider to authenticate: anthropic | openai | codex | kimi-code',
       required: true,
     },
     label: {

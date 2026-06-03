@@ -138,7 +138,24 @@ export interface ProviderOAuthConfig {
   /**
    * Redirect URI (required for `pkce` mode; omit for `device-code`).
    *
+   * When this is a fixed loopback URL with an explicit port
+   * (e.g. `http://localhost:1455/auth/callback`), the PKCE login flow binds its
+   * local callback server to THAT exact port + path instead of a random free
+   * port — required by providers (e.g. OpenAI/Codex) that pre-register a fixed
+   * redirect. A non-loopback URL (e.g. a hosted paste-back page) keeps the
+   * random-port interactive flow.
+   *
    * @default 'http://localhost'
    */
   redirectUri?: string;
+  /**
+   * Provider-specific extra query parameters appended to the authorization URL
+   * (beyond the RFC-required `response_type`/`client_id`/`redirect_uri`/`scope`/
+   * `code_challenge`/`code_challenge_method`/`state`).
+   *
+   * Used by OpenAI/Codex (`id_token_add_organizations=true`,
+   * `codex_cli_simplified_flow=true`, `originator=codex_cli_rs`). Anthropic and
+   * Kimi Code leave this unset.
+   */
+  extraAuthParams?: Readonly<Record<string, string>>;
 }

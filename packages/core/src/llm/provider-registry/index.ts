@@ -37,6 +37,7 @@ import { geminiProfile } from './builtin/gemini.js';
 import { kimiCodeProfile } from './builtin/kimi-code.js';
 import { moonshotProfile } from './builtin/moonshot.js';
 import { ollamaProfile } from './builtin/ollama.js';
+import { openaiProfile } from './builtin/openai.js';
 import { openrouterProfile } from './builtin/openrouter.js';
 import { xaiProfile, xaiResponsesProfile } from './builtin/xai.js';
 import { runDiscovery } from './loader.js';
@@ -73,6 +74,7 @@ const BUILTIN_PROFILES: ReadonlyArray<ProviderProfile> = [
   kimiCodeProfile,
   moonshotProfile,
   ollamaProfile,
+  openaiProfile,
   openrouterProfile,
   xaiProfile,
   xaiResponsesProfile,

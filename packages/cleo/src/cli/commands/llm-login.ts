@@ -55,7 +55,7 @@ import {
   refreshPkceToken,
 } from '@cleocode/core/llm/oauth/pkce.js';
 import { getKimiCodeMshHeaders } from '@cleocode/core/llm/provider-registry/builtin/kimi-code.js';
-import { getProviderProfile } from '@cleocode/core/llm/provider-registry/index.js';
+import { getProviderProfile, listProviders } from '@cleocode/core/llm/provider-registry/index.js';
 
 // Re-export for tests that need to mock it.
 export { refreshPkceToken };
@@ -124,7 +124,9 @@ export async function runLlmLogin(
   }
 
   if (oauthMode === 'pkce') {
-    return _runPkceLogin(provider, profile!.oauth!, opts, meta);
+    // Pass the CANONICAL profile name (resolves aliases like 'codex' → 'openai')
+    // so the stored credential's provider matches the runtime transport.
+    return _runPkceLogin(profile!.name, profile!.oauth!, opts, meta);
   }
 
   return {
@@ -134,11 +136,29 @@ export async function runLlmLogin(
       codeName: 'E_NOT_IMPLEMENTED',
       message:
         `OAuth login for '${provider}' is not yet wired. ` +
-        `Supported providers: 'anthropic' (PKCE), 'kimi-code' (device-code). ` +
-        `To add credentials for other providers use 'cleo llm add <provider> --api-key-stdin'.`,
+        `${await _supportedOauthProvidersHint()} ` +
+        `For any other provider, add an API key with 'cleo llm add <provider> --api-key-stdin'.`,
     },
     meta,
   };
+}
+
+/**
+ * Build the supported-OAuth-providers hint from the provider registry so the
+ * help/error text can never drift from what is actually wired (DHQ-006 class).
+ *
+ * @internal
+ */
+async function _supportedOauthProvidersHint(): Promise<string> {
+  try {
+    const profiles = await listProviders();
+    const oauthable = profiles.flatMap((p) => (p.oauth ? [`'${p.name}' (${p.oauth.mode})`] : []));
+    return oauthable.length > 0
+      ? `Providers with OAuth login: ${oauthable.join(', ')}.`
+      : 'No providers currently expose OAuth login.';
+  } catch {
+    return "Providers with OAuth login: 'anthropic' (pkce), 'openai' (pkce), 'kimi-code' (device-code).";
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -175,10 +195,17 @@ async function _runPkceLogin(
   const isHeadless = opts.headless || process.env['CLEO_HEADLESS'] === '1';
 
   // Determine redirect URI and port for the local callback server.
-  const port = isHeadless ? 0 : await _findFreePort();
+  // A fixed loopback redirect (e.g. OpenAI/Codex http://localhost:1455/auth/callback)
+  // pins the callback server to THAT exact port + path; otherwise bind a random
+  // free port at /callback. (Headless uses the provider's paste-back redirect.)
+  const fixedPort = isHeadless ? null : _parseFixedLoopbackPort(oauthCfg.redirectUri);
+  const port = isHeadless ? 0 : (fixedPort ?? (await _findFreePort()));
+  const randomRedirect = `http://localhost:${port}/callback`;
   const redirectUri = isHeadless
     ? (oauthCfg.redirectUri ?? 'http://localhost')
-    : `http://localhost:${port}/callback`;
+    : fixedPort != null
+      ? (oauthCfg.redirectUri ?? randomRedirect)
+      : randomRedirect;
 
   const authUrl = buildAuthorizationUrl({
     authorizationEndpoint: oauthCfg.authorizationEndpoint ?? '',
@@ -187,6 +214,7 @@ async function _runPkceLogin(
     scope: oauthCfg.scope ?? '',
     codeChallenge,
     state,
+    extraParams: oauthCfg.extraAuthParams,
   });
 
   let code: string;
@@ -231,6 +259,13 @@ async function _runPkceLogin(
   const expiresAt =
     typeof tokens.expiresIn === 'number' ? Date.now() + tokens.expiresIn * 1000 : undefined;
 
+  // Anthropic requires the oauth-beta header on every request; OpenAI/Codex
+  // headers (User-Agent, originator, ChatGPT-Account-ID) are built at request
+  // time by buildCodexOAuthHeaders() from the access-token JWT, so no stored
+  // headers are needed there.
+  const oauthExtraHeaders =
+    provider === 'anthropic' ? { 'anthropic-beta': 'oauth-2025-04-20' } : undefined;
+
   try {
     await addCredential({
       provider: provider as ModelTransport,
@@ -241,7 +276,7 @@ async function _runPkceLogin(
       expiresAt,
       priority: 10,
       source: 'oauth-pkce',
-      extraHeaders: { 'anthropic-beta': 'oauth-2025-04-20' },
+      ...(oauthExtraHeaders ? { extraHeaders: oauthExtraHeaders } : {}),
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -261,6 +296,30 @@ async function _runPkceLogin(
     data: { provider, label, expiresIn: tokens.expiresIn },
     meta,
   };
+}
+
+/**
+ * Parse a fixed loopback callback PORT from a provider redirect URI.
+ *
+ * Returns the port when `redirectUri` is a loopback URL with an explicit port
+ * (`http://localhost:1455/auth/callback` or `http://127.0.0.1:<port>/...`) so
+ * the PKCE flow binds its callback server to that pre-registered port. Returns
+ * `null` for missing, non-loopback (hosted paste-back), or port-less URIs — the
+ * caller then uses a random free port + `/callback`.
+ *
+ * @internal
+ */
+function _parseFixedLoopbackPort(redirectUri?: string): number | null {
+  if (!redirectUri) return null;
+  try {
+    const u = new URL(redirectUri);
+    const isLoopback = u.hostname === 'localhost' || u.hostname === '127.0.0.1';
+    if (!isLoopback || !u.port) return null;
+    const port = Number(u.port);
+    return Number.isInteger(port) && port > 0 ? port : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
