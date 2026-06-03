@@ -108,6 +108,12 @@ export interface BuildAuthorizationUrlParams {
   codeChallenge: string;
   /** Opaque CSRF-prevention state value. Must be round-tripped through the redirect. */
   state: string;
+  /**
+   * Provider-specific extra query parameters appended after the RFC-required
+   * ones (e.g. OpenAI/Codex `id_token_add_organizations`,
+   * `codex_cli_simplified_flow`, `originator`). Omitted by Anthropic.
+   */
+  extraParams?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -129,6 +135,14 @@ export function buildAuthorizationUrl(params: BuildAuthorizationUrlParams): stri
   url.searchParams.set('code_challenge', params.codeChallenge);
   url.searchParams.set('code_challenge_method', 'S256');
   url.searchParams.set('state', params.state);
+  // Provider-specific extras (e.g. OpenAI/Codex id_token_add_organizations,
+  // codex_cli_simplified_flow, originator). Set last so they cannot clobber
+  // the RFC-required params above.
+  if (params.extraParams) {
+    for (const [k, v] of Object.entries(params.extraParams)) {
+      if (!url.searchParams.has(k)) url.searchParams.set(k, v);
+    }
+  }
   return url.toString();
 }
 

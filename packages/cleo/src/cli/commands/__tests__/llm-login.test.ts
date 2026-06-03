@@ -347,14 +347,28 @@ describe('runLlmLogin — kimi-code error cases', () => {
 // ---------------------------------------------------------------------------
 
 describe('runLlmLogin — E_NOT_IMPLEMENTED for unsupported providers', () => {
-  it('returns E_NOT_IMPLEMENTED for openai', async () => {
-    const result = await runLlmLogin('openai', {});
+  it('does NOT return E_NOT_IMPLEMENTED for openai (now PKCE / codex)', async () => {
+    // T11669: openai/codex now has oauth.mode='pkce' → dispatches to the PKCE
+    // flow, not E_NOT_IMPLEMENTED. headless + mocked stdin (invalid URL) makes
+    // _headlessPkceFlow reject fast; the key assertion is the code is NOT
+    // E_NOT_IMPLEMENTED.
+    const stdinSpy = vi
+      .spyOn(process.stdin, 'once')
+      .mockImplementation((event: string, listener: (...args: unknown[]) => void) => {
+        if (event === 'data') {
+          setTimeout(() => listener('not-a-valid-url'), 0);
+        }
+        return process.stdin;
+      });
 
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error?.code).toBe('E_NOT_IMPLEMENTED');
-    expect(result.error?.message).toContain('anthropic');
-    expect(result.error?.message).toContain('kimi-code');
+    const result = await runLlmLogin('openai', { headless: true }).catch((e: unknown) => ({
+      success: false as const,
+      error: { code: 'E_TEST_ERROR', codeName: 'E_TEST_ERROR', message: String(e) },
+      meta: { operation: 'llm.login', timestamp: '' },
+    }));
+
+    stdinSpy.mockRestore();
+    expect(result.error?.code).not.toBe('E_NOT_IMPLEMENTED');
   });
 
   it('returns E_NOT_IMPLEMENTED for gemini', async () => {
