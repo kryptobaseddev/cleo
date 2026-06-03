@@ -597,6 +597,158 @@ export function reconcileJournal(
 }
 
 /**
+ * Reconcile + apply the standalone `drizzle-brain` migrations against a CONSOLIDATED
+ * `cleo.db` whose prefixed `brain_*` tables were already created by the
+ * consolidated migration (T11647). For each not-yet-journaled `drizzle-brain`
+ * migration, this either:
+ *
+ *  1. **Marks it applied without running** when its net effect is ALREADY present:
+ *     every `CREATE TABLE` / `RENAME TO` result table exists, OR it is an
+ *     ALTER-ADD-COLUMN-only migration whose columns all already exist (the
+ *     consolidated migration created the prefixed tables with their FINAL
+ *     columns). This avoids the `CREATE TABLE`/rename collisions and
+ *     "duplicate column" errors a wholesale re-run would hit.
+ *  2. **Executes it directly** (native `exec`, then journals it) when it is
+ *     genuinely missing — the UNPREFIXED legacy runtime tables (`deriver_queue`,
+ *     `sticky_tags`, `session_narrative`, `brain_task_observations`) the
+ *     consolidated migration omits but the runtime queries. Those migrations are
+ *     all `IF NOT EXISTS` DDL + idempotent `INSERT OR IGNORE` backfills, so a
+ *     direct exec is safe.
+ *
+ * ## Why NOT {@link reconcileJournal} + drizzle `migrate()`
+ *
+ * The brain `__drizzle_migrations` journal is SHARED with the TASKS domain inside
+ * the same consolidated `cleo.db`. On a first consolidated open the brain hashes
+ * are not yet journaled, so `reconcileJournal`'s Scenario-2 path classifies the
+ * TASKS-domain hashes as "orphans" of the brain migration set and DELETES them —
+ * which forces the tasks domain to re-run its table-rebuild migrations on the
+ * NEXT tasks open and crash (`tasks_new RENAME TO tasks` fires the
+ * `task_relations_non_containment_insert` trigger against a mid-rebuild `tasks`).
+ * And drizzle's `migrate()` wraps the brain DDL in a `BEGIN`/`COMMIT` over the
+ * shared handle. This function is **additive-only** (it never deletes a journal
+ * row) and uses plain `nativeDb.exec()`, so it cannot corrupt the shared journal
+ * or engage the cross-domain transaction.
+ *
+ * Idempotent: dedups by hash (the journal has no UNIQUE on `hash`, so an explicit
+ * presence check is required). On a brand-new / standalone `brain.db` (no
+ * prefixed brain tables yet) every migration is "genuinely missing" and is
+ * executed in order — equivalent to a full migrate.
+ *
+ * @param nativeDb - Native SQLite handle (the consolidated `cleo.db`).
+ * @param migrationsFolder - The `drizzle-brain` migrations folder.
+ * @returns `{ marked, applied }` — counts of migrations journaled-without-running
+ *   vs executed-and-journaled.
+ *
+ * @task T11647
+ */
+export function reconcileBrainMigrationsForConsolidatedDb(
+  nativeDb: DatabaseSync,
+  migrationsFolder: string,
+): { marked: number; applied: number } {
+  nativeDb.exec(`
+    CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
+      id INTEGER PRIMARY KEY,
+      hash text NOT NULL,
+      created_at numeric,
+      name text,
+      applied_at TEXT
+    )
+  `);
+  const localMigrations = sanitizeMigrationStatements(readMigrationFiles({ migrationsFolder }));
+  const existingHashes = new Set(
+    (
+      nativeDb.prepare('SELECT hash FROM "__drizzle_migrations"').all() as Array<{ hash: string }>
+    ).map((r) => r.hash),
+  );
+  const createTableRegex = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"]?(\w+)[`"]?/gi;
+  const renameRegex = /ALTER\s+TABLE\s+[`"]?(\w+)[`"]?\s+RENAME\s+TO\s+[`"]?(\w+)[`"]?/gi;
+  const addColumnRegex = /ALTER\s+TABLE\s+[`"]?(\w+)[`"]?\s+ADD\s+COLUMN\s+[`"]?(\w+)[`"]?/gi;
+  const columnExists = (table: string, column: string): boolean => {
+    if (!tableExists(nativeDb, table)) return false;
+    const cols = nativeDb.prepare(`PRAGMA table_info("${table}")`).all() as Array<{ name: string }>;
+    return cols.some((c) => c.name === column);
+  };
+  // Strip SQL line (`-- …`) and block (`/* … */`) comments before scanning for
+  // DDL targets. A migration's prose comments routinely contain phrases like
+  // "CREATE TABLE IF NOT EXISTS ensures it exists", which would otherwise make
+  // the CREATE-TABLE regex capture bogus "table" names (`IF`, `ensures`) and
+  // wrongly classify a satisfied migration as missing.
+  const stripSqlComments = (sql: string): string =>
+    sql.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  let marked = 0;
+  let applied = 0;
+  for (const m of localMigrations) {
+    if (existingHashes.has(m.hash)) continue;
+    const fullSql = stripSqlComments(m.sql.join('\n'));
+    // Follow the SQLite table-rebuild/rename idiom (`CREATE TABLE x_new …; ALTER
+    // TABLE x_new RENAME TO x`): the migration's RESULT table is the FINAL name,
+    // not the transient intermediate.
+    const renameMap = new Map<string, string>();
+    const renameFinals: string[] = [];
+    for (const match of fullSql.matchAll(renameRegex)) {
+      renameMap.set(match[1] as string, match[2] as string);
+      renameFinals.push(match[2] as string);
+    }
+    const resultTables = new Set<string>(renameFinals);
+    for (const match of fullSql.matchAll(createTableRegex)) {
+      const created = match[1] as string;
+      resultTables.add(renameMap.get(created) ?? created);
+    }
+    const addColumns: Array<{ table: string; column: string }> = [];
+    for (const match of fullSql.matchAll(addColumnRegex)) {
+      addColumns.push({ table: match[1] as string, column: match[2] as string });
+    }
+
+    const tablesSatisfied =
+      resultTables.size > 0 && [...resultTables].every((t) => tableExists(nativeDb, t));
+    const altersSatisfied =
+      resultTables.size === 0 &&
+      addColumns.length > 0 &&
+      addColumns.every(({ table, column }) => columnExists(table, column));
+
+    if (tablesSatisfied || altersSatisfied) {
+      // Net effect (table/columns) already present — journal without re-running
+      // the table/column DDL. BUT first replay any `CREATE [UNIQUE] INDEX IF NOT
+      // EXISTS` statements the migration carries: the consolidated migration may
+      // create a prefixed table with a DIFFERENT (incomplete) index set than the
+      // legacy `drizzle-brain` lineage. A missing UNIQUE index is not cosmetic —
+      // e.g. `idx_transcript_events_session_seq` powers the
+      // `brain_transcript_events` re-ingest dedup; without it, INSERT-OR-IGNORE
+      // re-inserts duplicates. `CREATE … INDEX IF NOT EXISTS` is idempotent (a
+      // no-op when the index already exists), so replaying them is safe and
+      // closes any consolidated-vs-runtime index drift.
+      for (const statement of m.sql) {
+        // Only replay pure `CREATE [UNIQUE] INDEX IF NOT EXISTS` statements (after
+        // stripping any leading comment). A statement that ALSO contains other
+        // DDL (CREATE TABLE / ALTER) is skipped — re-running those would collide.
+        const stripped = stripSqlComments(statement).trim();
+        if (
+          /^CREATE\s+(?:UNIQUE\s+)?INDEX\s+IF\s+NOT\s+EXISTS/i.test(stripped) &&
+          !/CREATE\s+TABLE|ALTER\s+TABLE/i.test(stripped)
+        ) {
+          nativeDb.exec(statement);
+        }
+      }
+      insertJournalEntry(nativeDb, m.hash, m.folderMillis, m.name ?? '');
+      existingHashes.add(m.hash);
+      marked++;
+      continue;
+    }
+
+    // Genuinely missing (an unprefixed runtime table the consolidated migration
+    // omits) — execute its statements directly, then journal it. These migrations
+    // are `IF NOT EXISTS` DDL + idempotent backfills, safe to native-exec.
+    for (const statement of m.sql) {
+      nativeDb.exec(statement);
+    }
+    insertJournalEntry(nativeDb, m.hash, m.folderMillis, m.name ?? '');
+    existingHashes.add(m.hash);
+    applied++;
+  }
+  return { marked, applied };
+}
+
+/**
  * Check whether an error is a SQLite "duplicate column name" error.
  *
  * These are thrown when an ALTER TABLE ADD COLUMN statement is re-executed
