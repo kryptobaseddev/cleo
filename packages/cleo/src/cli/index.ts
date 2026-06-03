@@ -50,6 +50,7 @@ import { extractIdempotencyKeyArg, setIdempotencyKeyContext } from './idempotenc
 import { lazyCommand } from './lazy-command.js';
 import { didYouMean } from './lib/did-you-mean.js';
 import { maybePromptFirstRun } from './lib/first-run-detection.js';
+import { isInteractiveInvocation } from './lib/interactive-commands.js';
 import { resolveFormat } from './middleware/output-format.js';
 import { resolveOutputMode, setOutputMode } from './output-context.js';
 import { setProjectionOptOut } from './projection-context.js';
@@ -153,7 +154,23 @@ async function startCli(): Promise<void> {
     else if (arg === '--summary') summaryFlag = true;
   }
 
-  const formatResolution = resolveFormat(rawOpts);
+  // T11672 (SG-PROVIDER-AUTH-UNIFICATION E7) — interactive-output class.
+  // Commands whose primary job is real-time human interaction (logins,
+  // credential entry, onboarding wizards) default to HUMAN output on an
+  // interactive terminal, while still honoring --json/--output for automation
+  // and always emitting JSON when piped or non-TTY (CI, agents). This feeds the
+  // LAFS resolver's TTY→human fallback ONLY for these command paths; the
+  // agent-first JSON default is unchanged everywhere else. An explicit --json
+  // (or --output) always wins over this fallback.
+  //
+  // Gated on stdout.isTTY ONLY — output format depends on whether a HUMAN is
+  // viewing stdout, not on stdin. This is deliberate so `cleo llm add <p>
+  // --api-key-stdin` (the secure way to pass a secret: piped stdin) still
+  // renders human output when run on a terminal. Whether a command can PROMPT
+  // is a separate stdin.isTTY concern handled by the prompt helpers themselves.
+  const interactiveTty = isInteractiveInvocation(argv) && process.stdout.isTTY === true;
+
+  const formatResolution = resolveFormat(rawOpts, undefined, interactiveTty);
   setFormatContext(formatResolution);
 
   const fieldResolution = resolveFieldContext(rawOpts);

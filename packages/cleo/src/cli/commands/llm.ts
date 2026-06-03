@@ -40,7 +40,7 @@
 import { pushWarning } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import { cliError, cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput, humanLine, isHumanOutput } from '../renderers/index.js';
 import { costCommand } from './llm-cost.js';
 import { runLlmLogin } from './llm-login.js';
 import { runLlmRefreshCatalog } from './llm-refresh-catalog.js';
@@ -645,21 +645,28 @@ const loginCommand = defineCommand({
     const a = args as Record<string, unknown>;
     const provider = String(a['provider'] ?? '');
     const label = typeof a['label'] === 'string' && a['label'] ? a['label'] : undefined;
-    const jsonOutput = a['json'] === true;
 
     const result = await runLlmLogin(provider, { label });
 
-    if (jsonOutput) {
-      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-    } else if (result.success && result.data) {
-      process.stdout.write(
-        `Logged in to ${result.data.provider} as '${result.data.label}'` +
-          (result.data.expiresIn != null
-            ? ` (expires in ${Math.round(result.data.expiresIn / 60)} min)`
-            : '') +
-          '\n',
-      );
-    } else if (result.error) {
+    if (result.success && result.data) {
+      // T11672 interactive-output class: a friendly one-liner on a human
+      // terminal; the canonical LAFS envelope when piped or under --json so
+      // automation/agents can parse the result. (The global format context set
+      // by startCli's interactive lever decides which — `--json` always wins.)
+      if (isHumanOutput()) {
+        humanLine(
+          `Logged in to ${result.data.provider} as '${result.data.label}'` +
+            (result.data.expiresIn != null
+              ? ` (expires in ${Math.round(result.data.expiresIn / 60)} min)`
+              : ''),
+        );
+      } else {
+        cliOutput(result.data, { command: 'llm-login', operation: 'llm.login' });
+      }
+      return;
+    }
+
+    if (result.error) {
       // T9772: surface login failure through LAFS envelope (no raw stderr).
       cliError(
         result.error.message,
@@ -703,17 +710,22 @@ const refreshCatalogCommand = defineCommand({
       description: 'Output result as JSON',
     },
   },
-  async run({ args }) {
-    const jsonOutput = (args as Record<string, unknown>)['json'] === true;
+  async run() {
     const result = await runLlmRefreshCatalog();
-    if (jsonOutput) {
-      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-    } else if (result.success && result.data) {
+    if (result.success && result.data) {
       const d = result.data;
-      process.stdout.write(
-        `Catalog refreshed: ${d.providers} providers, ${d.models} models written to ${d.filePath}\n`,
-      );
-    } else if (!result.success) {
+      // T11672 interactive-output class: human summary on a terminal, JSON
+      // envelope when piped / under --json (global format context decides).
+      if (isHumanOutput()) {
+        humanLine(
+          `Catalog refreshed: ${d.providers} providers, ${d.models} models written to ${d.filePath}`,
+        );
+      } else {
+        cliOutput(result.data, { command: 'llm-refresh-catalog', operation: 'llm.refreshCatalog' });
+      }
+      return;
+    }
+    if (!result.success) {
       // T9772: surface refresh failure through LAFS envelope (no raw stderr).
       cliError(
         result.error?.message ?? 'refresh failed',
