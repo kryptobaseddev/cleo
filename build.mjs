@@ -849,6 +849,44 @@ export declare function is_canonical(skillPath: string, options?: IsCanonicalOpt
   await buildPkg('@cleocode/playbooks', 'packages/playbooks/dist/');
 
   // ---------------------------------------------------------------------------
+  // Wave 7.5: re-inline @cleocode/utils into core's tsc-emitted leaf files (T11654)
+  //
+  // core's published dist is tsc-transpiled (small per-file output where every
+  // workspace dep survives as a bare `@cleocode/*` import — each of which is a
+  // DECLARED runtime dependency of @cleocode/core, so the bundle-budget gate's
+  // AC1 inlining check passes). @cleocode/utils is the one exception: it is
+  // private (never published) and esbuild-inlined into the Wave-5 bundle — but
+  // the playbooks `tsc -b` reference build (Wave 7) re-emits core's composite
+  // project via plain tsc, which does NOT apply the esbuild utils alias and
+  // leaves a bare `import '@cleocode/utils'` in the three leaf modules that
+  // consume it (memory/redaction.ts, llm/plugin-facade.ts, docs/export-document.ts).
+  // With utils moved to devDependencies (T11654) that surviving import is
+  // unresolvable on npm (install 404 / runtime ERR_MODULE_NOT_FOUND) AND trips
+  // the bundle-budget gate's AC1 (undeclared @cleocode/* import).
+  //
+  // Re-running the FULL core esbuild here would self-contain all ~625 entry
+  // points and blow the dist size budget (T11582 — observed 1 GB). Instead,
+  // surgically re-emit ONLY core's three utils-consuming entry points with
+  // esbuild (utils inlined per the coreBuildOptions alias), overwriting the tsc
+  // output for just those files. The rest of the tsc-transpiled tree — incl.
+  // nested-subdir JS like store/exodus/index.js that the esbuild entry-point
+  // scan does not cover — is left untouched, so dist size is unaffected.
+  // ---------------------------------------------------------------------------
+  console.log('\n[build] Wave 7.5: re-inline @cleocode/utils into core leaf files (T11654)');
+  await esbuild.build({
+    ...coreBuildOptions,
+    entryPoints: [
+      { in: 'packages/core/src/memory/redaction.ts', out: 'memory/redaction' },
+      { in: 'packages/core/src/llm/plugin-facade.ts', out: 'llm/plugin-facade' },
+      { in: 'packages/core/src/docs/export-document.ts', out: 'docs/export-document' },
+    ],
+  });
+  await sanitizeSourcemaps('packages/core/dist'); // T9184
+  console.log(
+    '  -> packages/core/dist/{memory/redaction,llm/plugin-facade,docs/export-document}.js (utils inlined)',
+  );
+
+  // ---------------------------------------------------------------------------
   // Wave 8: cleo esbuild bundle (deps adapters, playbooks, runtime — all ready)
   // ---------------------------------------------------------------------------
   console.log('\n[build] Wave 8: cleo (esbuild)');

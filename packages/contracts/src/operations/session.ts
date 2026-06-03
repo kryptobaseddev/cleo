@@ -332,6 +332,23 @@ export interface SessionBriefingShowParams {
    * @task T9964
    */
   memoryDetail?: boolean;
+  /**
+   * Opt-in to firing the opportunistic memory-consolidation dream while
+   * computing this briefing.
+   *
+   * **Default: `false`** — a one-shot read command (`cleo briefing`) must NOT
+   * spawn main-thread consolidation/embedding. Running transformers.js
+   * embeddings inline (the worker-unavailable fallback in the published bundle)
+   * pins the CPU and holds the brain WAL open, the spin/hang regression tracked
+   * in T11655. Long-lived hosts (the sentient daemon / tick loop) own
+   * consolidation directly via `checkAndDream`; they do not rely on this flag.
+   *
+   * Set to `true` only from a long-lived host that intends the briefing call to
+   * also drive consolidation.
+   *
+   * @task T11655
+   */
+  allowOpportunisticDream?: boolean;
 }
 
 /** Compact task entry in a session briefing's next-tasks list. */

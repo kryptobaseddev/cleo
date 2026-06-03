@@ -32,7 +32,18 @@
  * which is true for the shipped dist but not inside the vitest worker. Only a
  * real CLI subprocess exercises the exact hang.
  *
+ * ## T11655 — briefing residual spin/hang
+ *
+ * #914 (T11568 above) tore down the brain-writer worker but NOT the
+ * `EmbeddingQueue` worker, and the opportunistic dream in `cleo briefing` could
+ * run transformers.js embeddings on the main thread (the worker-unavailable
+ * fallback) → CPU spin (state Rl) holding the brain WAL open. The T11655 fix
+ * (a) tears down the embedding worker in `shutdownCliRuntime` and (b) gates the
+ * opportunistic dream OFF for one-shot read commands. The added case below
+ * proves a one-shot `cleo briefing` exits on its own (no lingering worker).
+ *
  * @task T11568
+ * @task T11655
  * @epic T11249 (E6)
  * @saga T11242
  */
@@ -155,5 +166,22 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T11568 — write commands exit, never hang
     // self-exit (signal === null), NOT a timeout kill. Assert non-hang only.
     expect(find.signal, `find was killed (hang).\nstderr:\n${find.stderr}`).toBeNull();
     expect(typeof find.status).toBe('number');
+  }, 60_000);
+
+  it('T11655: a one-shot `cleo briefing` exits on its own (no lingering embedding worker / dream spin)', () => {
+    const init = runCli(['init'], projectRoot, dataHome);
+    expect(init.signal, `init was killed (hang); stderr:\n${init.stderr}`).toBeNull();
+
+    const briefing = runCli(['briefing'], projectRoot, dataHome);
+
+    // The regression: an undismissed EmbeddingQueue worker MessagePort — or an
+    // opportunistic main-thread dream — keeps the loop alive and the spawnSync
+    // timeout kills the process (signal === 'SIGTERM'). A one-shot read command
+    // MUST exit on its own.
+    expect(
+      briefing.signal,
+      `cleo briefing was KILLED by the timeout (spin/hang regression).\nstdout:\n${briefing.stdout}\nstderr:\n${briefing.stderr}`,
+    ).toBeNull();
+    expect(typeof briefing.status).toBe('number');
   }, 60_000);
 });

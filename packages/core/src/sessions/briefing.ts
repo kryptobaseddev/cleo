@@ -478,9 +478,9 @@ export async function computeBriefing(
       : partialBriefing;
 
   // Opportunistic dream trigger — T1904 W2-3
-  // Every cleo briefing call gives the dream cycle a chance to fire. The existing
-  // 5-minute cooldown + dreamInFlight guard in dream-cycle.ts prevent over-firing.
-  // Gated by config flag briefing.opportunisticDream (defaults to true).
+  // The existing 5-minute cooldown + dreamInFlight guard in dream-cycle.ts
+  // prevent over-firing. Gated by config flag briefing.opportunisticDream
+  // (defaults to true).
   //
   // T9948 contention contract:
   //   - The fire-and-forget path inside `dispatchDream` uses
@@ -489,10 +489,25 @@ export async function computeBriefing(
   //     subsystem logger (silent by default; `LOG_LEVEL=info` opt-in) so
   //     contention investigations can correlate writer-lock holders with
   //     opportunistic dream firings.
+  //
+  // T11655 one-shot guard:
+  //   - A one-shot read command (`cleo briefing`) must NOT spawn main-thread
+  //     consolidation/embedding. In the published CLI bundle the embedding
+  //     worker file is unresolvable, so `runConsolidation` falls back to inline
+  //     transformers.js embeddings on the MAIN thread — pinning the CPU (state
+  //     Rl) and holding the brain WAL open (the 2.1GB-bloat regression).
+  //   - The dream therefore fires ONLY when (a) the caller explicitly opts in
+  //     (`params.allowOpportunisticDream`), or (b) we are running inside a
+  //     long-lived sentient host (CLEO_SENTIENT_DAEMON / CLEO_SENTIENT_SPAWN).
+  //     The sentient daemon's tick loop owns consolidation directly via
+  //     `checkAndDream`, so this gate does not affect that path.
+  const inLongLivedHost =
+    process.env['CLEO_SENTIENT_DAEMON'] === '1' || process.env['CLEO_SENTIENT_SPAWN'] === '1';
+  const dreamAllowed = params.allowOpportunisticDream === true || inLongLivedHost;
   try {
     const { loadConfig } = await import('../config.js');
     const cfg = await loadConfig(projectRoot).catch(() => undefined);
-    const enabled = cfg?.briefing?.opportunisticDream ?? true;
+    const enabled = (cfg?.briefing?.opportunisticDream ?? true) && dreamAllowed;
     if (enabled) {
       const { checkAndDream } = await import('../memory/dream-cycle.js');
       const { getLogger } = await import('../logger.js');
