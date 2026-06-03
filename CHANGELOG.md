@@ -1,5 +1,33 @@
 # Changelog
 
+## [2026.6.3] (2026-06-03)
+
+### Added
+
+- `cleo llm login openai` (and alias `codex`) now works — RFC 7636 PKCE against `auth.openai.com` on the pre-registered loopback port 1455, storing the OAuth credential for the runtime Codex transport. The supported-provider hint is now derived from the provider registry so it cannot drift. _(provenance: [T11669](https://github.com/kryptobaseddev/cleo/search?q=T11669&type=commits); [#944](https://github.com/kryptobaseddev/cleo/pull/944))_
+
+### Changed
+
+
+
+### Fixed
+
+
+
+### Deprecated
+
+
+
+### Removed
+
+- Removed the external GitNexus integration (the `CLAUDE.md` section + `.claude/skills/gitnexus/` + the local index) — a competing code-intelligence system, not part of CLEO. _(provenance: [T11669](https://github.com/kryptobaseddev/cleo/search?q=T11669&type=commits))_
+
+### Security
+
+
+
+### BREAKING CHANGES
+
 ## [2026.6.2] (2026-06-03)
 
 ### Added
