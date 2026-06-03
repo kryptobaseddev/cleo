@@ -96,6 +96,14 @@ export const NEXUS_SCHEMA_VERSION = '1.0.0';
 let _nexusDb: NodeSQLiteDatabase<typeof nexusSchema> | null = null;
 let _nexusNativeDb: DatabaseSync | null = null;
 let _nexusDbPath: string | null = null;
+/**
+ * The GLOBAL registry path the current singleton's ATTACH targets (ADR-090 ·
+ * T11648). When `getCleoHome()` changes (e.g. tests mutating `CLEO_HOME`), the
+ * attached global differs AND must be migrated via `openDualScopeDb('global')` —
+ * which only runs on the init path. So a registry-path change forces a full
+ * singleton reset rather than a cheap re-attach to an unmigrated file.
+ */
+let _nexusRegistryPath: string | null = null;
 /** Guard against concurrent initialization (async migration). */
 let _nexusInitPromise: Promise<NodeSQLiteDatabase<typeof nexusSchema>> | null = null;
 
@@ -707,10 +715,19 @@ function runNexusMigrations(
  */
 export async function getNexusDb(): Promise<NodeSQLiteDatabase<typeof nexusSchema>> {
   const requestedPath = getNexusDbPath();
+  const requestedRegistryPath = getNexusRegistryDbPath();
 
-  // If singleton exists but points to a different path (e.g. CLEO_HOME changed
-  // between tests), reset it.
+  // If singleton exists but points to a different PROJECT graph path (e.g.
+  // CLEO_DIR changed between tests), reset it.
   if (_nexusDb && _nexusDbPath !== requestedPath) {
+    resetNexusDbState();
+  }
+
+  // If the GLOBAL registry path changed (e.g. CLEO_HOME changed), reset fully so
+  // the init path runs `openDualScopeDb('global')` to MIGRATE the new registry
+  // file before the ATTACH — a cheap re-attach alone would bind an unmigrated
+  // global (→ "no such table: nexus_project_registry"). (ADR-090 · T11648)
+  if (_nexusDb && _nexusRegistryPath !== requestedRegistryPath) {
     resetNexusDbState();
   }
 
@@ -749,6 +766,7 @@ export async function getNexusDb(): Promise<NodeSQLiteDatabase<typeof nexusSchem
   _nexusInitPromise = (async () => {
     const dbPath = requestedPath;
     _nexusDbPath = dbPath;
+    _nexusRegistryPath = requestedRegistryPath;
 
     // ADR-086 / T10321 — warn (one-shot, non-blocking) if the install still
     // carries the nested-nexus migration debris. Does not alter the open.
@@ -841,6 +859,7 @@ export function closeNexusDb(): void {
   _nexusNativeDb = null;
   _nexusDb = null;
   _nexusDbPath = null;
+  _nexusRegistryPath = null;
   _nexusInitPromise = null;
 }
 
@@ -859,6 +878,7 @@ export function resetNexusDbState(): void {
   _nexusNativeDb = null;
   _nexusDb = null;
   _nexusDbPath = null;
+  _nexusRegistryPath = null;
   _nexusInitPromise = null;
 }
 
