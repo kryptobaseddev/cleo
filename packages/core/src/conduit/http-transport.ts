@@ -1,10 +1,8 @@
 /**
- * HttpTransport — HTTP polling transport with automatic failover.
+ * HttpTransport — HTTP polling transport against the SignalDock API.
  *
- * Tries the primary API URL (api.signaldock.io) first. If unreachable,
- * falls back to the legacy URL (api.clawmsgr.com). Failover is transparent
- * to callers — they see a single transport that always works if either
- * endpoint is up.
+ * Connects to the configured API base URL (api.signaldock.io) and exposes
+ * push/poll/ack over HTTP.
  *
  * @see docs/specs/SIGNALDOCK-UNIFIED-AGENT-REGISTRY.md Section 4.4
  * @task T177
@@ -16,42 +14,21 @@ import type { ConduitMessage, Transport, TransportConnectConfig } from '@cleocod
 interface HttpTransportState {
   agentId: string;
   apiKey: string;
-  primaryUrl: string;
-  fallbackUrl: string | null;
-  activeUrl: string;
+  apiBaseUrl: string;
   connected: boolean;
 }
 
-/** HTTP transport with automatic primary/fallback failover. */
+/** HTTP polling transport for the SignalDock messaging API. */
 export class HttpTransport implements Transport {
   readonly name = 'http';
   private state: HttpTransportState | null = null;
 
-  /** Connect to the SignalDock API, probing primary/fallback health when both are configured. */
+  /** Connect to the SignalDock API. */
   async connect(config: TransportConnectConfig): Promise<void> {
-    const primaryUrl = config.apiBaseUrl;
-    const fallbackUrl = config.apiBaseUrlFallback ?? null;
-
-    // Only probe health when there's a fallback to choose between
-    let activeUrl = primaryUrl;
-    if (fallbackUrl) {
-      const [primaryResult, fallbackResult] = await Promise.allSettled([
-        fetch(`${primaryUrl}/health`, { method: 'GET', signal: AbortSignal.timeout(5000) }),
-        fetch(`${fallbackUrl}/health`, { method: 'GET', signal: AbortSignal.timeout(5000) }),
-      ]);
-      const primaryOk = primaryResult.status === 'fulfilled' && primaryResult.value.ok;
-      const fallbackOk = fallbackResult.status === 'fulfilled' && fallbackResult.value.ok;
-      if (!primaryOk && fallbackOk) {
-        activeUrl = fallbackUrl;
-      }
-    }
-
     this.state = {
       agentId: config.agentId,
       apiKey: config.apiKey,
-      primaryUrl,
-      fallbackUrl,
-      activeUrl,
+      apiBaseUrl: config.apiBaseUrl,
       connected: true,
     };
   }
@@ -82,7 +59,7 @@ export class HttpTransport implements Transport {
       body['toAgentId'] = to;
     }
 
-    const response = await this.fetchWithFallback(path, {
+    const response = await this.fetch(path, {
       method: 'POST',
       headers: this.headers(),
       body: JSON.stringify(body),
@@ -111,7 +88,7 @@ export class HttpTransport implements Transport {
     if (options?.limit) params.set('limit', String(options.limit));
     if (options?.since) params.set('since', options.since);
 
-    const response = await this.fetchWithFallback(`/messages/peek?${params}`, {
+    const response = await this.fetch(`/messages/peek?${params}`, {
       method: 'GET',
       headers: this.headers(),
     });
@@ -143,47 +120,18 @@ export class HttpTransport implements Transport {
   async ack(messageIds: string[]): Promise<void> {
     this.ensureConnected();
 
-    await this.fetchWithFallback('/messages/ack', {
+    await this.fetch('/messages/ack', {
       method: 'POST',
       headers: this.headers(),
       body: JSON.stringify({ messageIds }),
     });
   }
 
-  /**
-   * Fetch with automatic failover. Tries activeUrl first.
-   * If it fails and a fallback exists, retries on the other URL
-   * and swaps activeUrl for subsequent calls.
-   */
-  private async fetchWithFallback(path: string, init: RequestInit): Promise<Response> {
+  /** Fetch against the configured API base URL with a 10s timeout. */
+  private async fetch(path: string, init: RequestInit): Promise<Response> {
     const timeout = AbortSignal.timeout(10000);
     const signal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
-    const url = `${this.state!.activeUrl}${path}`;
-
-    try {
-      return await fetch(url, { ...init, signal });
-    } catch (primaryErr) {
-      const otherUrl =
-        this.state!.activeUrl === this.state!.primaryUrl
-          ? this.state!.fallbackUrl
-          : this.state!.primaryUrl;
-
-      if (!otherUrl) throw primaryErr;
-
-      try {
-        const fallbackSignal = init.signal
-          ? AbortSignal.any([init.signal, AbortSignal.timeout(10000)])
-          : AbortSignal.timeout(10000);
-        const fallbackResponse = await fetch(`${otherUrl}${path}`, {
-          ...init,
-          signal: fallbackSignal,
-        });
-        this.state!.activeUrl = otherUrl;
-        return fallbackResponse;
-      } catch {
-        throw primaryErr;
-      }
-    }
+    return fetch(`${this.state!.apiBaseUrl}${path}`, { ...init, signal });
   }
 
   private headers(): Record<string, string> {

@@ -35912,7 +35912,7 @@ AgentCredential
 - `agentId` — Unique agent identifier (e.g. 'cleo-core', 'forge-ts-opus').
 - `displayName` — Human-readable display name.
 - `apiKey` — API key for authentication (`sk_live_*`). Stored encrypted at rest.
-- `apiBaseUrl` — Base URL of the messaging API (default: api.signaldock.io, legacy: api.clawmsgr.com).
+- `apiBaseUrl` — Base URL of the messaging API (default: api.signaldock.io).
 - `classification` — Agent classification from the registry (e.g. 'code_dev', 'orchestrator').
 - `privacyTier` — Privacy tier controlling discoverability.
 - `capabilities` — Agent capabilities (e.g. ['chat', 'tools', 'code-execution']).

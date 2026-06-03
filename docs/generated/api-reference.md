@@ -71086,7 +71086,7 @@ API key for authentication (`sk_live_*`). Stored encrypted at rest.
 string
 ```
 
-Base URL of the messaging API (default: api.signaldock.io, legacy: api.clawmsgr.com).
+Base URL of the messaging API (default: api.signaldock.io).
 
 #### `classification`
 

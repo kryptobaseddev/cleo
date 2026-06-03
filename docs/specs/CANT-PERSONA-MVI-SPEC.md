@@ -149,7 +149,6 @@ The CLEO ecosystem supports two chat channel types:
 
 | Channel | Type | Backend | Status |
 |---------|------|---------|--------|
-| **ClawMsgr** | Cloud relay (legacy) | `api.clawmsgr.com` | Active — parallel operation during transition |
 | **SignalDock Cloud** | Cloud relay (canonical) | `api.signaldock.io` | Active — primary channel |
 | **SignalDock Local** | Local daemon | Embedded in `@cleocode/core` | Active — offline agent communication |
 
@@ -161,13 +160,11 @@ Every persona MUST declare:
 | Config file path | REQUIRED | Path to the JSON file carrying agentId, apiKey, apiBaseUrl |
 | Connection sequence | REQUIRED | Numbered steps: load config, authenticate, check inbox, start polling |
 | Status lifecycle | REQUIRED | `online` on connect, `idle` on session end, `offline` on disconnect |
-| Transition notes | RECOMMENDED | Which endpoints are primary vs fallback during migrations |
 
-**Config file convention**: ClawMsgr/SignalDock configs follow the naming pattern
-`clawmsgr-{project}-{classification}.json` (see ClawMsgr skill for full convention).
-The config carries `apiBaseUrl` for the primary endpoint and `apiBaseUrlFallback` for
-the fallback. Both ClawMsgr and SignalDock Cloud use the same config format — the
-`apiBaseUrl` field determines which backend the agent connects to.
+**Config file convention**: SignalDock configs follow the naming pattern
+`signaldock-{project}-{classification}.json`. The config carries `apiBaseUrl`
+for the messaging endpoint — the `apiBaseUrl` field determines which backend the
+agent connects to.
 
 **CANT protocol on the wire**: Once connected, all messages MUST use CANT directive syntax.
 The channel is the transport. CANT is the language. LAFS is the response shape.
@@ -177,8 +174,7 @@ The channel is the transport. CANT is the language. LAFS is the response shape.
 
 | Channel | Type | Config File | Activation |
 |---------|------|-------------|------------|
-| **ClawMsgr** | Cloud relay (legacy) | `./clawmsgr-{project}-{class}.json` | `/clawmsgr-start` |
-| **SignalDock** | Cloud relay (canonical) | Same config, apiBaseUrl -> api.signaldock.io | Same activation |
+| **SignalDock** | Cloud relay (canonical) | `./signaldock-{project}-{class}.json`, apiBaseUrl -> api.signaldock.io | `/signaldock-start` |
 | **SignalDock Local** | Local daemon | Embedded in @cleocode/core | Auto-discovers via Conduit |
 
 **Connection sequence**:
@@ -316,11 +312,11 @@ Trigger patterns SHOULD follow this format:
 
 | Location | `@`-references allowed? | Reason |
 |---|---|---|
-| T0 | NO (except ClawMsgr config) | Must be self-contained to stay within budget |
+| T0 | NO (except SignalDock config) | Must be self-contained to stay within budget |
 | T1-T3 | YES | These tiers exist to load documents on demand |
 | T-Live | YES (with verify warning) | Mutable state needs freshness check |
 
-Exception: Small files under 500 tokens (e.g., ClawMsgr config JSON for identity) MAY be
+Exception: Small files under 500 tokens (e.g., SignalDock config JSON for identity) MAY be
 `@`-referenced in T0 if they are essential for the agent to function (messaging, auth).
 
 ### 3.5 Budget Enforcement

@@ -23,8 +23,6 @@ export interface TransportConfig {
   wsUrl?: string;
   /** HTTP polling endpoint path (for HTTP polling transport). */
   pollEndpoint?: string;
-  /** Fallback API base URL (used when primary apiBaseUrl is unreachable). */
-  apiBaseUrlFallback?: string;
 }
 
 // ============================================================================
@@ -39,7 +37,7 @@ export interface AgentCredential {
   displayName: string;
   /** API key for authentication (`sk_live_*`). Stored encrypted at rest. */
   apiKey: string;
-  /** Base URL of the messaging API (default: api.signaldock.io, legacy: api.clawmsgr.com). */
+  /** Base URL of the messaging API (default: api.signaldock.io). */
   apiBaseUrl: string;
   /** Agent classification from the registry (e.g. 'code_dev', 'orchestrator'). */
   classification?: string;
