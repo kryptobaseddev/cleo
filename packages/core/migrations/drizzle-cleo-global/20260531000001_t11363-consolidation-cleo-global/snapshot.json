@@ -277,17 +277,17 @@
       "table": "brain_attention"
     },
     {
-      "type": "text",
+      "type": "integer",
       "notNull": true,
       "autoincrement": false,
-      "default": "(datetime('now'))",
+      "default": "(unixepoch() * 1000)",
       "generated": null,
       "name": "created_at",
       "entityType": "columns",
       "table": "brain_attention"
     },
     {
-      "type": "text",
+      "type": "integer",
       "notNull": false,
       "autoincrement": false,
       "default": null,
@@ -807,7 +807,7 @@
       "table": "brain_decisions"
     },
     {
-      "type": "text",
+      "type": "integer",
       "notNull": false,
       "autoincrement": false,
       "default": null,
@@ -2717,10 +2717,10 @@
       "table": "brain_session_narrative"
     },
     {
-      "type": "text",
-      "notNull": false,
+      "type": "integer",
+      "notNull": true,
       "autoincrement": false,
-      "default": null,
+      "default": 0,
       "generated": null,
       "name": "last_updated_at",
       "entityType": "columns",

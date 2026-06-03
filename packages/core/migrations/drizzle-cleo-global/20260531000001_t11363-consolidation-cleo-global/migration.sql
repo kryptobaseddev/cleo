@@ -6,15 +6,10 @@ CREATE TABLE `brain_attention` (
 	`scope_kind` text NOT NULL,
 	`scope_id` text NOT NULL,
 	`tags` blob DEFAULT (jsonb('[]')),
-	`created_at` text DEFAULT (datetime('now')) NOT NULL,
-	`expires_at` text,
+	`created_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
+	`expires_at` integer,
 	`decay_score` real,
-	`status` text DEFAULT 'open' NOT NULL,
-	-- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed
-	CHECK ("scope_kind" IN ('agent', 'task', 'epic', 'saga', 'session', 'global')),
-	CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("expires_at" IS NULL OR "expires_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("status" IN ('open', 'consolidated', 'discarded'))
+	`status` text DEFAULT 'open' NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE `brain_backfill_runs` (
@@ -27,12 +22,7 @@ CREATE TABLE `brain_backfill_runs` (
 	`rollback_snapshot_json` text,
 	`source` text DEFAULT 'unknown' NOT NULL,
 	`target_table` text DEFAULT 'brain_observations' NOT NULL,
-	`approved_by` text,
-	-- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed
-	CHECK ("kind" IN ('observation-promotion', 'transcript-ingest', 'graph-backfill', 'noise-sweep-2440', 'custom')),
-	CHECK ("status" IN ('staged', 'approved', 'rolled-back')),
-	CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("approved_at" IS NULL OR "approved_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')
+	`approved_by` text
 );
 --> statement-breakpoint
 CREATE TABLE `brain_consolidation_events` (
@@ -42,10 +32,7 @@ CREATE TABLE `brain_consolidation_events` (
 	`step_results_json` text NOT NULL,
 	`duration_ms` integer,
 	`succeeded` integer DEFAULT true NOT NULL,
-	`started_at` text DEFAULT (datetime('now')) NOT NULL,
-	-- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed
-	CHECK ("succeeded" IN (0, 1)),
-	CHECK ("started_at" IS NULL OR "started_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')
+	`started_at` text DEFAULT (datetime('now')) NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE `brain_decisions` (
@@ -81,27 +68,10 @@ CREATE TABLE `brain_decisions` (
 	`superseded_by` text,
 	`confirmation_state` text DEFAULT 'proposed' NOT NULL,
 	`decided_by` text DEFAULT 'agent' NOT NULL,
-	`validator_run_at` text,
+	`validator_run_at` integer,
 	`decision_category` text DEFAULT 'architectural' NOT NULL,
 	CONSTRAINT `fk_brain_decisions_supersedes_brain_decisions_id_fk` FOREIGN KEY (`supersedes`) REFERENCES `brain_decisions`(`id`),
-	CONSTRAINT `fk_brain_decisions_superseded_by_brain_decisions_id_fk` FOREIGN KEY (`superseded_by`) REFERENCES `brain_decisions`(`id`),
-	-- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed
-	CHECK ("type" IN ('architecture', 'technical', 'process', 'strategic', 'tactical')),
-	CHECK ("confidence" IN ('low', 'medium', 'high')),
-	CHECK ("outcome" IN ('success', 'failure', 'mixed', 'pending')),
-	CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("updated_at" IS NULL OR "updated_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("memory_tier" IN ('short', 'medium', 'long')),
-	CHECK ("memory_type" IN ('semantic', 'episodic', 'procedural')),
-	CHECK ("verified" IN (0, 1)),
-	CHECK ("valid_at" IS NULL OR "valid_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("invalid_at" IS NULL OR "invalid_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("source_confidence" IN ('owner', 'task-outcome', 'agent', 'speculative')),
-	CHECK ("tier_promoted_at" IS NULL OR "tier_promoted_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("confirmation_state" IN ('proposed', 'accepted', 'superseded')),
-	CHECK ("decided_by" IN ('owner', 'council', 'agent')),
-	CHECK ("validator_run_at" IS NULL OR "validator_run_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("decision_category" IN ('architectural', 'agent_dispatch', 'other'))
+	CONSTRAINT `fk_brain_decisions_superseded_by_brain_decisions_id_fk` FOREIGN KEY (`superseded_by`) REFERENCES `brain_decisions`(`id`)
 );
 --> statement-breakpoint
 CREATE TABLE `brain_deriver_queue` (
@@ -115,13 +85,7 @@ CREATE TABLE `brain_deriver_queue` (
 	`error_msg` text,
 	`retry_count` integer DEFAULT 0 NOT NULL,
 	`created_at` text DEFAULT (datetime('now')) NOT NULL,
-	`completed_at` text,
-	-- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed
-	CHECK ("item_type" IN ('observation', 'session', 'narrative', 'embedding')),
-	CHECK ("status" IN ('pending', 'in_progress', 'done', 'failed')),
-	CHECK ("claimed_at" IS NULL OR "claimed_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("completed_at" IS NULL OR "completed_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')
+	`completed_at` text
 );
 --> statement-breakpoint
 CREATE TABLE `brain_learnings` (
@@ -147,18 +111,7 @@ CREATE TABLE `brain_learnings` (
 	`content_hash` text,
 	`provenance_class` text DEFAULT 'swept-clean',
 	`peer_id` text DEFAULT 'global' NOT NULL,
-	`peer_scope` text DEFAULT 'project' NOT NULL,
-	-- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed
-	CHECK ("actionable" IN (0, 1)),
-	CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("updated_at" IS NULL OR "updated_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("memory_tier" IN ('short', 'medium', 'long')),
-	CHECK ("memory_type" IN ('semantic', 'episodic', 'procedural')),
-	CHECK ("verified" IN (0, 1)),
-	CHECK ("valid_at" IS NULL OR "valid_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("invalid_at" IS NULL OR "invalid_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("source_confidence" IN ('owner', 'task-outcome', 'agent', 'speculative')),
-	CHECK ("tier_promoted_at" IS NULL OR "tier_promoted_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')
+	`peer_scope` text DEFAULT 'project' NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE `brain_memory_links` (
@@ -167,11 +120,7 @@ CREATE TABLE `brain_memory_links` (
 	`task_id` text NOT NULL,
 	`link_type` text NOT NULL,
 	`created_at` text DEFAULT (datetime('now')) NOT NULL,
-	CONSTRAINT `brain_memory_links_pk` PRIMARY KEY(`memory_type`, `memory_id`, `task_id`, `link_type`),
-	-- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed
-	CHECK ("memory_type" IN ('decision', 'pattern', 'learning', 'observation')),
-	CHECK ("link_type" IN ('produced_by', 'applies_to', 'informed_by', 'contradicts')),
-	CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')
+	CONSTRAINT `brain_memory_links_pk` PRIMARY KEY(`memory_type`, `memory_id`, `task_id`, `link_type`)
 );
 --> statement-breakpoint
 CREATE TABLE `brain_memory_trees` (
@@ -181,10 +130,7 @@ CREATE TABLE `brain_memory_trees` (
 	`centroid` text,
 	`parent_id` integer,
 	`created_at` text DEFAULT (datetime('now')) NOT NULL,
-	`updated_at` text,
-	-- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed
-	CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("updated_at" IS NULL OR "updated_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')
+	`updated_at` text
 );
 --> statement-breakpoint
 CREATE TABLE `brain_modulators` (
@@ -195,9 +141,7 @@ CREATE TABLE `brain_modulators` (
 	`source_event_id` text,
 	`session_id` text,
 	`description` text,
-	`created_at` text DEFAULT (datetime('now')) NOT NULL,
-	-- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed
-	CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')
+	`created_at` text DEFAULT (datetime('now')) NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE `brain_observations` (
@@ -240,20 +184,7 @@ CREATE TABLE `brain_observations` (
 	`origin` text,
 	`validated_at` text,
 	`provenance_chain` text,
-	`idempotency_key` text CONSTRAINT `uq_brain_observations_idempotency_key` UNIQUE,
-	-- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed
-	CHECK ("type" IN ('discovery', 'change', 'feature', 'bugfix', 'decision', 'refactor', 'diary', 'session-summary')),
-	CHECK ("source_type" IN ('agent', 'session-debrief', 'claude-mem', 'manual')),
-	CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("updated_at" IS NULL OR "updated_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("memory_tier" IN ('short', 'medium', 'long')),
-	CHECK ("memory_type" IN ('semantic', 'episodic', 'procedural')),
-	CHECK ("verified" IN (0, 1)),
-	CHECK ("valid_at" IS NULL OR "valid_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("invalid_at" IS NULL OR "invalid_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("source_confidence" IN ('owner', 'task-outcome', 'agent', 'speculative')),
-	CHECK ("tier_promoted_at" IS NULL OR "tier_promoted_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("validated_at" IS NULL OR "validated_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')
+	`idempotency_key` text CONSTRAINT `uq_brain_observations_idempotency_key` UNIQUE
 );
 --> statement-breakpoint
 CREATE TABLE `brain_observations_staging` (
@@ -266,12 +197,7 @@ CREATE TABLE `brain_observations_staging` (
 	`new_invalid_at` text,
 	`new_provenance_class` text,
 	`validation_status` text DEFAULT 'pending' NOT NULL,
-	`created_at` text DEFAULT (datetime('now')) NOT NULL,
-	-- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed
-	CHECK ("action" IN ('purge', 'keep', 'reclassify', 'promote')),
-	CHECK ("new_invalid_at" IS NULL OR "new_invalid_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("validation_status" IN ('pending', 'applied', 'skipped')),
-	CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')
+	`created_at` text DEFAULT (datetime('now')) NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE `brain_page_edges` (
@@ -287,13 +213,7 @@ CREATE TABLE `brain_page_edges` (
 	`last_depressed_at` text,
 	`depression_count` integer DEFAULT 0 NOT NULL,
 	`stability_score` real,
-	CONSTRAINT `brain_page_edges_pk` PRIMARY KEY(`from_id`, `to_id`, `edge_type`),
-	-- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed
-	CHECK ("edge_type" IN ('derived_from', 'produced_by', 'informed_by', 'supports', 'contradicts', 'supersedes', 'applies_to', 'documents', 'summarizes', 'part_of', 'references', 'modified_by', 'code_reference', 'affects', 'mentions', 'conduit_mentions_symbol', 'co_retrieved', 'blocks', 'discusses', 'cites', 'embeds', 'touches_code', 'task_touches_symbol')),
-	CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("last_reinforced_at" IS NULL OR "last_reinforced_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("plasticity_class" IN ('static', 'hebbian', 'stdp')),
-	CHECK ("last_depressed_at" IS NULL OR "last_depressed_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')
+	CONSTRAINT `brain_page_edges_pk` PRIMARY KEY(`from_id`, `to_id`, `edge_type`)
 );
 --> statement-breakpoint
 CREATE TABLE `brain_page_nodes` (
@@ -305,12 +225,7 @@ CREATE TABLE `brain_page_nodes` (
 	`last_activity_at` text DEFAULT (datetime('now')) NOT NULL,
 	`metadata_json` text,
 	`created_at` text DEFAULT (datetime('now')) NOT NULL,
-	`updated_at` text,
-	-- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed
-	CHECK ("node_type" IN ('decision', 'pattern', 'learning', 'observation', 'sticky', 'task', 'session', 'epic', 'file', 'symbol', 'concept', 'summary', 'msg', 'llmtxt', 'commit')),
-	CHECK ("last_activity_at" IS NULL OR "last_activity_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("updated_at" IS NULL OR "updated_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')
+	`updated_at` text
 );
 --> statement-breakpoint
 CREATE TABLE `brain_patterns` (
@@ -341,20 +256,7 @@ CREATE TABLE `brain_patterns` (
 	`peer_id` text DEFAULT 'global' NOT NULL,
 	`peer_scope` text DEFAULT 'project' NOT NULL,
 	`occurrence_count` integer DEFAULT 1 NOT NULL,
-	`last_seen_at` text,
-	-- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed
-	CHECK ("type" IN ('workflow', 'blocker', 'success', 'failure', 'optimization')),
-	CHECK ("impact" IN ('low', 'medium', 'high')),
-	CHECK ("extracted_at" IS NULL OR "extracted_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("updated_at" IS NULL OR "updated_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("memory_tier" IN ('short', 'medium', 'long')),
-	CHECK ("memory_type" IN ('semantic', 'episodic', 'procedural')),
-	CHECK ("verified" IN (0, 1)),
-	CHECK ("valid_at" IS NULL OR "valid_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("invalid_at" IS NULL OR "invalid_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("source_confidence" IN ('owner', 'task-outcome', 'agent', 'speculative')),
-	CHECK ("tier_promoted_at" IS NULL OR "tier_promoted_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("last_seen_at" IS NULL OR "last_seen_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')
+	`last_seen_at` text
 );
 --> statement-breakpoint
 CREATE TABLE `brain_plasticity_events` (
@@ -369,9 +271,7 @@ CREATE TABLE `brain_plasticity_events` (
 	`weight_after` real,
 	`retrieval_log_id` integer,
 	`reward_signal` real,
-	`delta_t_ms` integer,
-	-- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed
-	CHECK ("kind" IN ('ltp', 'ltd'))
+	`delta_t_ms` integer
 );
 --> statement-breakpoint
 CREATE TABLE `brain_promotion_log` (
@@ -382,9 +282,7 @@ CREATE TABLE `brain_promotion_log` (
 	`score` real NOT NULL,
 	`decided_at` text DEFAULT (datetime('now')) NOT NULL,
 	`decided_by` text DEFAULT 'composite-scorer' NOT NULL,
-	`rationale_json` text,
-	-- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed
-	CHECK ("decided_at" IS NULL OR "decided_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')
+	`rationale_json` text
 );
 --> statement-breakpoint
 CREATE TABLE `brain_retrieval_log` (
@@ -398,9 +296,7 @@ CREATE TABLE `brain_retrieval_log` (
 	`created_at` text DEFAULT (datetime('now')) NOT NULL,
 	`retrieval_order` integer,
 	`delta_ms` integer,
-	`reward_signal` real,
-	-- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed
-	CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')
+	`reward_signal` real
 );
 --> statement-breakpoint
 CREATE TABLE `brain_schema_meta` (
@@ -412,10 +308,8 @@ CREATE TABLE `brain_session_narrative` (
 	`session_id` text PRIMARY KEY,
 	`narrative` text DEFAULT '' NOT NULL,
 	`turn_count` integer DEFAULT 0 NOT NULL,
-	`last_updated_at` text,
-	`pivot_count` integer DEFAULT 0 NOT NULL,
-	-- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed
-	CHECK ("last_updated_at" IS NULL OR "last_updated_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')
+	`last_updated_at` integer DEFAULT 0 NOT NULL,
+	`pivot_count` integer DEFAULT 0 NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE `brain_sticky_notes` (
@@ -428,13 +322,7 @@ CREATE TABLE `brain_sticky_notes` (
 	`converted_to_json` text,
 	`color` text,
 	`priority` text,
-	`source_type` text DEFAULT 'sticky-note',
-	-- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed
-	CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("updated_at" IS NULL OR "updated_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("status" IN ('active', 'converted', 'archived')),
-	CHECK ("color" IN ('yellow', 'blue', 'green', 'red', 'purple')),
-	CHECK ("priority" IN ('low', 'medium', 'high'))
+	`source_type` text DEFAULT 'sticky-note'
 );
 --> statement-breakpoint
 CREATE TABLE `brain_sticky_tags` (
@@ -453,11 +341,7 @@ CREATE TABLE `brain_transcript_events` (
 	`content` text NOT NULL,
 	`tokens` integer,
 	`redacted_at` text,
-	`created_at` text DEFAULT (datetime('now')) NOT NULL,
-	-- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed
-	CHECK ("role" IN ('user', 'assistant', 'system')),
-	CHECK ("redacted_at" IS NULL OR "redacted_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
-	CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')
+	`created_at` text DEFAULT (datetime('now')) NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE `brain_weight_history` (
@@ -472,9 +356,7 @@ CREATE TABLE `brain_weight_history` (
 	`source_plasticity_event_id` integer,
 	`retrieval_log_id` integer,
 	`reward_signal` real,
-	`changed_at` text DEFAULT (datetime('now')) NOT NULL,
-	-- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed
-	CHECK ("changed_at" IS NULL OR "changed_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')
+	`changed_at` text DEFAULT (datetime('now')) NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE `nexus_audit_log` (

@@ -43,14 +43,24 @@
  *     (reused from the source module — staged|approved|rolled-back).
  *   (The nexus `sigils.role` non-conformer the report also flags is GLOBAL-only
  *   — it belongs to `nexus_*`, authored in the global batch T11361, not here.)
- * - **§4 epoch → canonical TEXT ISO8601** (these are the ONLY brain epoch
- *   non-conformers; the other ~157 brain timestamps were already TEXT ISO8601):
- *   - `brain_decisions.validator_run_at`        (was INTEGER ms epoch)
- *   - `brain_attention.{created_at,expires_at}`  (was INTEGER ms epoch)
- *   - `brain_session_narrative.last_updated_at`  (was INTEGER ms epoch)
- *   **§8.1 epoch-unit RESOLVED:** all four are MILLISECONDS — the writers use
- *   `Date.now()` / `unixepoch() * 1000`, so the exodus conversion uses the
- *   `/1000` ms divisor: `strftime('%Y-%m-%dT%H:%M:%fZ', col/1000, 'unixepoch')`.
+ * - **§4 timestamps — brain target = LEGACY RUNTIME shape (T11647 reversal).**
+ *   The brain family is the ONE consolidated domain whose RUNTIME schema
+ *   (`../memory-schema.ts`, applied by `drizzle-brain`) remains the source of
+ *   truth (see {@link establishLegacyBrainSchema}). The original T11360 §4 plan
+ *   converted four epoch-ms columns to canonical TEXT ISO8601, but that diverged
+ *   the exodus TARGET shape from the runtime shape — the runtime never moved
+ *   these columns, so on the first brain open it treated the migrated tables as
+ *   "consolidated shape", DROPped them, and destroyed every migrated row (the
+ *   T11647 catastrophic-data-loss bug). They are therefore kept INTEGER epoch-ms
+ *   to MATCH the runtime, so the discriminator returns `false` and no rebuild
+ *   fires:
+ *   - `brain_decisions.validator_run_at`         (INTEGER ms epoch — runtime shape)
+ *   - `brain_attention.{created_at,expires_at}`  (INTEGER ms epoch — runtime shape)
+ *   - `brain_session_narrative.last_updated_at`  (INTEGER ms epoch — runtime shape)
+ *   The remaining brain timestamps were ALREADY TEXT in the runtime schema
+ *   (`text('created_at')` etc.), so they stay TEXT here — that matches the live
+ *   brain.db, and exodus copies those values verbatim. No epoch→ISO coercion is
+ *   applied to any brain column.
  * - **§3 booleans:** every `verified` flag, `brain_learnings.actionable`, and
  *   `brain_consolidation_events.succeeded` are already
  *   `integer({ mode: 'boolean' })` — preserved.
@@ -355,8 +365,19 @@ export const brainDecisions = sqliteTable(
       .default('proposed'),
     /** Decided-by — CHECK-backed via the inline-promoted const below. */
     decidedBy: text('decided_by', { enum: BRAIN_DECISION_DECIDED_BY }).notNull().default('agent'),
-    /** ISO-8601 UTC last validator-run instant (was ms epoch, §4 / §8.1). */
-    validatorRunAt: text('validator_run_at'),
+    /**
+     * Epoch-millisecond timestamp of the most recent LLM-validator run (T1828).
+     *
+     * Kept as `integer` epoch-ms to match the LEGACY RUNTIME shape
+     * (`memory-schema.ts` — `integer('validator_run_at')`). The brain runtime
+     * writers and the `drizzle-brain` migrations never moved this column to TEXT,
+     * so the consolidated exodus target MUST keep it INTEGER too. Aligning the
+     * target shape to the runtime is what lets the first runtime brain open
+     * recognise the migrated tables as already-legacy-shaped — see
+     * {@link brainTablesAreConsolidatedShape} / {@link establishLegacyBrainSchema}
+     * in `../../memory-sqlite.ts` (T11647).
+     */
+    validatorRunAt: integer('validator_run_at'),
     /** Decision category — CHECK-backed via {@link BRAIN_DECISION_CATEGORIES}. */
     decisionCategory: text('decision_category', { enum: BRAIN_DECISION_CATEGORIES })
       .notNull()
@@ -701,10 +722,21 @@ export const brainAttention = sqliteTable(
      * otherwise carry is a `near "(": syntax error` at `CREATE TABLE` time.
      */
     tags: jsonb<string[]>('tags').default(sql`(jsonb('[]'))`),
-    /** ISO-8601 UTC creation instant (was ms epoch, §4 / §8.1). */
-    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
-    /** ISO-8601 UTC hard-TTL instant; NULL = no TTL (was ms epoch, §4 / §8.1). */
-    expiresAt: text('expires_at'),
+    /**
+     * Epoch-millisecond creation instant. Kept as `integer` epoch-ms to match the
+     * LEGACY RUNTIME shape (`memory-schema.ts` —
+     * `integer('created_at').notNull().default(sql\`(unixepoch() * 1000)\`)`).
+     *
+     * This is the column {@link brainTablesAreConsolidatedShape} keys on: a TEXT
+     * affinity here is what made the runtime treat the exodus-migrated brain
+     * tables as "consolidated shape" and DROP+recreate them, destroying every
+     * migrated row on the first `cleo memory find`. Keeping it INTEGER (= runtime
+     * shape) makes that discriminator return `false`, so the DROP never fires and
+     * the migrated data survives (T11647).
+     */
+    createdAt: integer('created_at').notNull().default(sql`(unixepoch() * 1000)`),
+    /** Epoch-millisecond hard-TTL instant; NULL = no TTL (legacy runtime shape, T11647). */
+    expiresAt: integer('expires_at'),
     /** Decay score [0,1]; NULL = no decay applied. */
     decayScore: real('decay_score'),
     /** Lifecycle status — CHECK-backed via {@link BRAIN_ATTENTION_STATUSES}. */
@@ -1205,8 +1237,14 @@ export const brainSessionNarrative = sqliteTable('brain_session_narrative', {
   narrative: text('narrative').notNull().default(''),
   /** Dialectic turn count. */
   turnCount: integer('turn_count').notNull().default(0),
-  /** ISO-8601 UTC last-update instant (was ms epoch, §4 / §8.1). */
-  lastUpdatedAt: text('last_updated_at'),
+  /**
+   * Epoch-millisecond last-update instant. Kept as `integer` epoch-ms to match
+   * the LEGACY RUNTIME shape (`memory-schema.ts` —
+   * `integer('last_updated_at').notNull().default(0)`) so the exodus target
+   * equals the runtime shape and the first runtime open does not rebuild it
+   * (T11647).
+   */
+  lastUpdatedAt: integer('last_updated_at').notNull().default(0),
   /** Topic-pivot count. */
   pivotCount: integer('pivot_count').notNull().default(0),
 });
