@@ -42,6 +42,7 @@ import {
   openDualScopeDb,
   resolveDualScopeDbPath,
 } from './dual-scope-db.js';
+import { withLock } from './lock.js';
 import type { RequiredColumn } from './migration-manager.js';
 import {
   createSafetyBackup,
@@ -131,6 +132,71 @@ export function getDbPath(cwd?: string): string {
 const MIN_BACKUP_TASK_COUNT = 10;
 
 /**
+ * Inter-process lock suffix shared by the two destructive first-open paths that
+ * both fire on the `tasks_tasks == 0` (empty-consolidated-`cleo.db`) condition:
+ *
+ *  - {@link autoRecoverFromBackup} (T5188) — restore a `tasks-*.db` snapshot over
+ *    the live `cleo.db` file (closes the handle, unlinks the WAL, overwrites the
+ *    DB file via copy+rename).
+ *  - `maybeRunExodusOnOpen` (`exodus/on-open.ts`, T11553) — copy the legacy fleet
+ *    into the same `cleo.db` under a single-flight lock keyed by this suffix.
+ *
+ * Before T11662 these paths used DIFFERENT (or, for auto-recovery, NO) locks, so
+ * they could run concurrently against the same file in two processes — one
+ * unlinking the WAL while the other was mid-copy → a torn WAL frame and
+ * `"database disk image is malformed"` (observed on a live 4 687-task DB under 3
+ * concurrent agents).
+ *
+ * Auto-recovery now contends on the SAME lock the exodus path uses
+ * (`<cleo.db>.exodus-on-open.lock`). Mutual exclusion is therefore guaranteed in
+ * BOTH directions: while exodus holds the lock copying the fleet, auto-recovery
+ * blocks; while auto-recovery holds it restoring a snapshot, exodus blocks. The
+ * winner re-checks `tasks_tasks` under the lock (double-checked locking) and the
+ * loser early-exits without touching the WAL or the DB file.
+ *
+ * @task T11662
+ * @see packages/core/src/store/exodus/on-open.ts — the exodus single-flight lock
+ */
+const FIRST_OPEN_LOCK_SUFFIX = '.exodus-on-open.lock';
+
+/**
+ * Re-count `tasks_tasks` from a FRESH read-only handle on the on-disk `cleo.db`,
+ * used as the double-checked-locking re-query inside {@link autoRecoverFromBackup}
+ * (T11662). A fresh handle is required because the caller's `nativeDb` is about
+ * to be (or has been) closed by the recovery path, and because another process
+ * may have populated the file (exodus or a sibling auto-recovery) while we were
+ * blocked acquiring the lock — a read through a stale cached handle would not see
+ * those committed rows.
+ *
+ * Returns `0` on any read failure (missing table / unreadable file) so a failed
+ * probe is treated as "still empty" and never falsely suppresses a needed
+ * recovery (the subsequent restore is itself idempotent under the lock).
+ *
+ * @param dbPath - Absolute path to the consolidated project `cleo.db`.
+ * @returns The current `tasks_tasks` row count, or `0` if it cannot be read.
+ * @task T11662
+ */
+async function recountTasksFromDisk(dbPath: string): Promise<number> {
+  const { openNativeDatabase } = await import('./sqlite-native.js');
+  let probe: DatabaseSync | null = null;
+  try {
+    probe = openNativeDatabase(dbPath, { readonly: true, enableWal: false });
+    const row = probe.prepare('SELECT COUNT(*) as cnt FROM tasks_tasks').get() as
+      | { cnt: number }
+      | undefined;
+    return row?.cnt ?? 0;
+  } catch {
+    return 0;
+  } finally {
+    try {
+      probe?.close();
+    } catch {
+      /* already closed / never opened */
+    }
+  }
+}
+
+/**
  * Auto-recover from backup if the database has tables but zero tasks
  * and a backup with data exists.
  *
@@ -144,7 +210,21 @@ const MIN_BACKUP_TASK_COUNT = 10;
  * backup exists with real data. If so, it closes the current connection,
  * replaces the DB file from backup, and re-opens.
  *
+ * ## Concurrency safety (T11662)
+ *
+ * The destructive restore (`close → unlink WAL → copy+rename DB file`) is wrapped
+ * in an inter-process lock keyed by {@link FIRST_OPEN_LOCK_SUFFIX} — the SAME
+ * lock the exodus first-open migration (`maybeRunExodusOnOpen`) uses. Both paths
+ * fire on the identical `tasks_tasks == 0` condition, so without a shared lock
+ * two processes could destroy the WAL / overwrite the DB file simultaneously,
+ * producing a torn WAL frame (`"database disk image is malformed"`). Under the
+ * lock the function re-queries `tasks_tasks` from a fresh on-disk handle
+ * (double-checked locking); if another process already recovered/migrated the
+ * data, it returns WITHOUT touching the WAL or DB file. Only the first winner
+ * performs the restore.
+ *
  * @task T5188
+ * @task T11662
  */
 /**
  * Count tasks in a backup snapshot, tolerant of the cutover (T11578 · AC1).
@@ -172,7 +252,22 @@ function countBackupTasks(backupDb: DatabaseSync): number {
   return 0;
 }
 
-async function autoRecoverFromBackup(
+/**
+ * See the doc block above {@link countBackupTasks} for the full T5188/T11662
+ * rationale. Exported (rather than module-private) ONLY so the T11662 concurrency
+ * regression test can drive ≥4 racing invocations against a single `cleo.db` and
+ * assert exactly one restore occurs under the shared first-open lock. Production
+ * code MUST reach this solely via {@link getDb}.
+ *
+ * @param nativeDb - The freshly-opened consolidated handle (its `tasks_tasks` is
+ *   probed for emptiness; closed before the file is overwritten on the restore path).
+ * @param dbPath - Absolute path to the consolidated project `cleo.db`.
+ * @param cwd - Working directory used to resolve the `.cleo/backups/sqlite/` dir.
+ * @internal
+ * @task T5188
+ * @task T11662
+ */
+export async function autoRecoverFromBackup(
   nativeDb: DatabaseSync,
   dbPath: string,
   cwd: string | undefined,
@@ -222,56 +317,90 @@ async function autoRecoverFromBackup(
       return;
     }
 
-    // We have an empty database AND a backup with data — auto-recover
-    log.warn(
-      { dbPath, backupPath: newestBackup.path, backupTasks: backupTaskCount },
-      `Empty database detected with ${backupTaskCount}-task backup available. ` +
-        'Auto-recovering from backup. This likely happened because git-tracked ' +
-        'WAL/SHM files were overwritten during a branch switch (T5188).',
+    // ── Destructive restore under the shared first-open lock (T11662) ─────────
+    // Everything above is a cheap, side-effect-free probe; from here we mutate
+    // the live DB file + WAL. Serialise that against (a) any other concurrent
+    // autoRecoverFromBackup invocation and (b) the exodus first-open migration,
+    // BOTH of which contend on this exact lock for the same empty cleo.db.
+    const lockPath = dbPath + FIRST_OPEN_LOCK_SUFFIX;
+    await withLock(
+      lockPath,
+      async (): Promise<void> => {
+        // Double-checked locking: while we were blocked acquiring the lock,
+        // another process (a sibling auto-recovery OR the exodus migration) may
+        // have already populated the DB. Re-query from a FRESH on-disk handle —
+        // the caller's `nativeDb` may be stale and cannot see another process's
+        // commits. If the data is now present, the restore is unnecessary →
+        // return WITHOUT touching the WAL or DB file.
+        const currentTaskCount = await recountTasksFromDisk(dbPath);
+        if (currentTaskCount > 0) {
+          log.info(
+            { dbPath, currentTaskCount },
+            'Auto-recovery skipped: database was populated by a concurrent process ' +
+              'while acquiring the first-open lock (T11662 double-checked re-query).',
+          );
+          return;
+        }
+
+        // We are the lock winner over a still-empty DB AND have a backup with
+        // data — perform the restore.
+        log.warn(
+          { dbPath, backupPath: newestBackup.path, backupTasks: backupTaskCount },
+          `Empty database detected with ${backupTaskCount}-task backup available. ` +
+            'Auto-recovering from backup. This likely happened because git-tracked ' +
+            'WAL/SHM files were overwritten during a branch switch (T5188).',
+        );
+
+        // Close current connection
+        if (nativeDb.isOpen) {
+          nativeDb.close();
+        }
+
+        // Remove stale WAL/SHM files that may have been corrupted by git
+        const walPath = dbPath + '-wal';
+        const shmPath = dbPath + '-shm';
+        try {
+          unlinkSync(walPath);
+        } catch {
+          /* may not exist */
+        }
+        try {
+          unlinkSync(shmPath);
+        } catch {
+          /* may not exist */
+        }
+
+        // Restore from backup (atomic: copy to temp, rename)
+        const tempPath = dbPath + '.recovery-tmp';
+        copyFileSync(newestBackup.path, tempPath);
+
+        // Rename in place — on the same filesystem this is atomic
+        renameSync(tempPath, dbPath);
+
+        log.info(
+          { dbPath, backupPath: newestBackup.path, restoredTasks: backupTaskCount },
+          'Database auto-recovered from backup successfully.',
+        );
+
+        // Re-open the restored database — update the native singleton.
+        // The dual-scope cache is now stale (its nativeDb was closed above);
+        // reset it so the singleton is re-established on next getDb().
+        _resetDualScopeDbCache();
+        const restoredNativeDb = openNativeDatabase(dbPath);
+        _nativeDb = restoredNativeDb;
+
+        // Re-run migrations on restored DB to ensure schema is current
+        const restoredDb = _getDrizzle()({ client: restoredNativeDb, schema });
+        runMigrations(restoredNativeDb, restoredDb);
+
+        // Update the singleton drizzle instance
+        _db = restoredDb;
+      },
+      // Allow a generous stale window + retries: an exodus migration holding this
+      // lock can take a while on a large fleet (matches on-open.ts), so a blocked
+      // auto-recovery must wait rather than time out and race.
+      { stale: 600_000, retries: 30 },
     );
-
-    // Close current connection
-    nativeDb.close();
-
-    // Remove stale WAL/SHM files that may have been corrupted by git
-    const walPath = dbPath + '-wal';
-    const shmPath = dbPath + '-shm';
-    try {
-      unlinkSync(walPath);
-    } catch {
-      /* may not exist */
-    }
-    try {
-      unlinkSync(shmPath);
-    } catch {
-      /* may not exist */
-    }
-
-    // Restore from backup (atomic: copy to temp, rename)
-    const tempPath = dbPath + '.recovery-tmp';
-    copyFileSync(newestBackup.path, tempPath);
-
-    // Rename in place — on the same filesystem this is atomic
-    renameSync(tempPath, dbPath);
-
-    log.info(
-      { dbPath, backupPath: newestBackup.path, restoredTasks: backupTaskCount },
-      'Database auto-recovered from backup successfully.',
-    );
-
-    // Re-open the restored database — update the native singleton.
-    // The dual-scope cache is now stale (its nativeDb was closed above);
-    // reset it so the singleton is re-established on next getDb().
-    _resetDualScopeDbCache();
-    const restoredNativeDb = openNativeDatabase(dbPath);
-    _nativeDb = restoredNativeDb;
-
-    // Re-run migrations on restored DB to ensure schema is current
-    const restoredDb = _getDrizzle()({ client: restoredNativeDb, schema });
-    runMigrations(restoredNativeDb, restoredDb);
-
-    // Update the singleton drizzle instance
-    _db = restoredDb;
   } catch (err) {
     // Auto-recovery failure is non-fatal — log and continue with empty DB
     log.error({ err, dbPath }, 'Auto-recovery from backup failed. Continuing with empty database.');

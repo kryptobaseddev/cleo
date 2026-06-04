@@ -201,6 +201,35 @@ describe('exchangePkceCode', () => {
     expect((err as Error).message).toContain('Code expired');
   });
 
+  it('T11774: surfaces the raw error body (not [object Object]) when no error_description', async () => {
+    // Provider returns JSON with an unknown field structure — no error_description.
+    // The improved extractErrorDetail must stringify the full body, not produce [object Object].
+    fetchSpy.mockResolvedValue(makeResponse(400, { message: 'redirect_uri_mismatch', code: 400 }));
+
+    const err = await exchangePkceCode(BASE_PARAMS).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toContain('HTTP 400');
+    // Must NOT be [object Object]
+    expect((err as Error).message).not.toContain('[object Object]');
+    // Must contain the actual error field
+    expect((err as Error).message).toContain('redirect_uri_mismatch');
+  });
+
+  it('T11774: surfaces raw text body when response is not valid JSON', async () => {
+    // Simulate a provider that returns a plain-text or HTML error body.
+    fetchSpy.mockResolvedValue(
+      new Response('invalid_client: bad redirect_uri', {
+        status: 400,
+        headers: { 'Content-Type': 'text/plain' },
+      }),
+    );
+
+    const err = await exchangePkceCode(BASE_PARAMS).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toContain('HTTP 400');
+    expect((err as Error).message).toContain('bad redirect_uri');
+  });
+
   it('throws when access_token is missing from 200 response', async () => {
     fetchSpy.mockResolvedValueOnce(
       makeResponse(200, { token_type: 'bearer' /* no access_token */ }),
