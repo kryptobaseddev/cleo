@@ -318,17 +318,37 @@ function parseTokenResponse(provider: string, data: unknown): OAuthTokens {
 /**
  * Extract a human-readable error detail string from a non-OK HTTP response.
  *
- * Tries to parse JSON body for `error_description` or `error`; falls back to
- * empty string on parse failure.
+ * Strategy:
+ * 1. Clone the response so the body stream is not consumed by the primary
+ *    error path (callers may need the body for further inspection).
+ * 2. Parse as JSON; use `error_description` or `error` fields (RFC 6749 §5.2).
+ * 3. Fall back to the raw text body when JSON parsing fails (e.g. HTML pages
+ *    returned by a WAF or a misconfigured reverse proxy). Truncate at 512 chars
+ *    so a multi-kilobyte HTML page does not flood the error message.
+ * 4. Return `''` only when all fallbacks are exhausted.
+ *
+ * This ensures the caller never sees `[object Object]` in the thrown message
+ * and always surfaces the actual HTTP response body for debugging.
  *
  * @internal
  */
 async function extractErrorDetail(resp: Response): Promise<string> {
+  // Clone before reading so the caller's Response is not drained.
+  const clone = resp.clone();
   try {
-    const body = (await resp.json()) as Record<string, unknown>;
+    const body = (await clone.json()) as Record<string, unknown>;
     const desc = body['error_description'] ?? body['error'];
-    return desc ? ` — ${String(desc)}` : '';
+    if (desc) return ` — ${String(desc)}`;
+    // JSON parsed but had no recognized field: fall through to raw-text path.
+    const text = JSON.stringify(body);
+    return ` — ${text.slice(0, 512)}`;
   } catch {
-    return '';
+    // Not valid JSON — try reading as plain text (HTML, plain-text errors, etc.)
+    try {
+      const text = (await resp.text()).trim();
+      return text ? ` — ${text.slice(0, 512)}` : '';
+    } catch {
+      return '';
+    }
   }
 }

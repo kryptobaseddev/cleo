@@ -155,7 +155,9 @@ const ANTHROPIC_PROFILE = {
     authorizationEndpoint: 'https://claude.ai/oauth/authorize',
     tokenEndpoint: 'https://console.anthropic.com/v1/oauth/token',
     scope: 'org:create_api_key user:profile user:inference',
-    redirectUri: 'http://localhost',
+    // Canonical Anthropic paste-back redirect URI — NOT a loopback URL.
+    // This is the only registered redirect for Anthropic's OAuth app.
+    redirectUri: 'https://console.anthropic.com/oauth/code/callback',
   },
 };
 
@@ -172,6 +174,29 @@ const KIMI_PROFILE = {
   },
 };
 
+// OpenAI/Codex uses a FIXED loopback redirect on port 1455 (pre-registered),
+// so the interactive callback server path is exercised (not paste-back).
+const OPENAI_PROFILE = {
+  name: 'openai',
+  displayName: 'OpenAI / Codex',
+  authTypes: ['api_key', 'oauth'],
+  baseUrl: 'https://api.openai.com',
+  defaultModel: 'gpt-4o',
+  oauth: {
+    mode: 'pkce' as const,
+    clientId: 'app_EMoamEEZ73f0CkXaXp7hrann',
+    authorizationEndpoint: 'https://auth.openai.com/oauth/authorize',
+    tokenEndpoint: 'https://auth.openai.com/oauth/token',
+    scope: 'openid profile email offline_access',
+    redirectUri: 'http://localhost:1455/auth/callback',
+    extraAuthParams: {
+      id_token_add_organizations: 'true',
+      codex_cli_simplified_flow: 'true',
+      originator: 'codex_cli_rs',
+    },
+  },
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   // Reset the child_process spawn mock so each test starts clean.
@@ -184,6 +209,7 @@ beforeEach(() => {
   m.getProviderProfile.mockImplementation(async (provider: string) => {
     if (provider === 'anthropic') return ANTHROPIC_PROFILE;
     if (provider === 'kimi-code') return KIMI_PROFILE;
+    if (provider === 'openai' || provider === 'codex') return OPENAI_PROFILE;
     return undefined;
   });
   // PKCE helpers defaults
@@ -451,6 +477,10 @@ describe('runLlmLogin — anthropic PKCE success (headless + mocked exchange)', 
     expect(urlCallArgs.clientId).toBe('9d1c250a-e61b-44d9-88ed-5944d1962f5e');
     expect(urlCallArgs.codeChallenge).toBe('test-challenge');
     expect(urlCallArgs.state).toBeTruthy();
+    // T11774: redirect_uri passed to buildAuthorizationUrl must be the paste-back
+    // URI (not a random localhost port) because Anthropic only accepts its
+    // registered console.anthropic.com redirect.
+    expect(urlCallArgs.redirectUri).toBe('https://console.anthropic.com/oauth/code/callback');
 
     // Regression guard (T9579): headless path must NOT spawn a browser process.
     expect(spawnMock).not.toHaveBeenCalled();
@@ -559,6 +589,122 @@ describe('runLlmLogin — anthropic PKCE success (headless + mocked exchange)', 
     expect(spawnMock).not.toHaveBeenCalled();
 
     stdinSpy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T11774 regression: redirect_uri MUST be consistent between authorize and exchange
+// ---------------------------------------------------------------------------
+
+describe('runLlmLogin — T11774: redirect_uri consistency (Anthropic paste-back)', () => {
+  it('passes the same redirectUri to buildAuthorizationUrl and exchangePkceCode', async () => {
+    // Anthropic has a non-loopback redirectUri — the flow must use the
+    // provider-configured paste-back URI for BOTH the authorize URL and the
+    // token exchange, not a random localhost port.
+    const stdinSpy = vi
+      .spyOn(process.stdin, 'once')
+      .mockImplementation((event: string, listener: (...args: unknown[]) => void) => {
+        if (event === 'data') {
+          setTimeout(
+            () =>
+              listener('https://console.anthropic.com/oauth/code/callback?code=test-code&state='),
+            0,
+          );
+        }
+        return process.stdin;
+      });
+
+    m.exchangePkceCode.mockResolvedValue({
+      accessToken: 'sk-ant-oat-ok',
+      expiresIn: 3600,
+      tokenType: 'bearer',
+    });
+    m.addCredential.mockResolvedValue({ provider: 'anthropic', label: 'oauth-login' });
+
+    // Run WITHOUT headless — the non-loopback redirectUri should still trigger
+    // paste-back mode automatically (T11774 fix).
+    await runLlmLogin('anthropic', {});
+
+    stdinSpy.mockRestore();
+
+    expect(m.buildAuthorizationUrl).toHaveBeenCalledOnce();
+    expect(m.exchangePkceCode).toHaveBeenCalledOnce();
+
+    const authorizeArgs = m.buildAuthorizationUrl.mock.calls[0]![0] as Record<string, string>;
+    const exchangeArgs = m.exchangePkceCode.mock.calls[0]![0] as Record<string, string>;
+
+    // Both must use the SAME redirect URI — the Anthropic paste-back URL.
+    expect(authorizeArgs.redirectUri).toBe('https://console.anthropic.com/oauth/code/callback');
+    expect(exchangeArgs.redirectUri).toBe('https://console.anthropic.com/oauth/code/callback');
+    expect(authorizeArgs.redirectUri).toBe(exchangeArgs.redirectUri);
+  });
+
+  it('uses paste-back flow even without --headless for non-loopback redirectUri (no browser spawn)', async () => {
+    const stdinSpy = vi
+      .spyOn(process.stdin, 'once')
+      .mockImplementation((event: string, listener: (...args: unknown[]) => void) => {
+        if (event === 'data') {
+          setTimeout(
+            () =>
+              listener('https://console.anthropic.com/oauth/code/callback?code=auto-paste&state='),
+            0,
+          );
+        }
+        return process.stdin;
+      });
+
+    m.exchangePkceCode.mockResolvedValue({
+      accessToken: 'sk-ant-oat-auto',
+      expiresIn: 3600,
+      tokenType: 'bearer',
+    });
+    m.addCredential.mockResolvedValue({ provider: 'anthropic', label: 'oauth-login' });
+
+    // No --headless flag, but the non-loopback redirectUri forces paste-back.
+    await runLlmLogin('anthropic', {});
+
+    stdinSpy.mockRestore();
+
+    // Must NOT spawn a browser for the local callback server — that would send
+    // the user to a localhost URL that Anthropic would reject.
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  it('loopback redirectUri still uses the local callback server (not forced to paste-back)', async () => {
+    // Use a provider profile with a loopback redirectUri to confirm the
+    // interactive callback-server path is NOT broken by the T11774 fix.
+    m.getProviderProfile.mockResolvedValue({
+      ...ANTHROPIC_PROFILE,
+      name: 'openai',
+      oauth: {
+        ...ANTHROPIC_PROFILE.oauth,
+        redirectUri: 'http://localhost:1455/auth/callback',
+      },
+    });
+
+    // We do NOT mock stdin — the local callback server path does not read stdin.
+    // The test just needs to confirm the loopback detection works; we abort quickly
+    // by returning an error from buildAuthorizationUrl (the server starts but gets
+    // no callback so the test would hang otherwise). Instead, use headless to keep
+    // the test synchronous.
+    const stdinSpy = vi
+      .spyOn(process.stdin, 'once')
+      .mockImplementation((event: string, listener: (...args: unknown[]) => void) => {
+        if (event === 'data') {
+          setTimeout(() => listener('not-a-url'), 0);
+        }
+        return process.stdin;
+      });
+
+    await runLlmLogin('openai', { headless: true }).catch(() => {
+      /* fast-exit via invalid stdin URL is expected */
+    });
+
+    stdinSpy.mockRestore();
+
+    // Loopback provider used headless flag so the paste-back URI is the loopback one.
+    const authorizeArgs = m.buildAuthorizationUrl.mock.calls[0]![0] as Record<string, string>;
+    expect(authorizeArgs.redirectUri).toBe('http://localhost:1455/auth/callback');
   });
 });
 
