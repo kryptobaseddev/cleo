@@ -15,6 +15,7 @@ export {
   checkCliVersion,
   checkCoreFilesNotIgnored,
   checkDocsAccessibility,
+  checkExodusStrandedResidue,
   checkNodeVersion,
   checkRootGitignore,
   checkSqliteNotTracked,

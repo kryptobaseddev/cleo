@@ -1436,6 +1436,78 @@ export async function checkJsonSchemaIntegrity(projectDir: string): Promise<Chec
   };
 }
 
+// ============================================================================
+// Check: exodus stranded-residue (T11777)
+// ============================================================================
+
+/**
+ * Detect stranded legacy source DBs after an exodus cutover.
+ *
+ * Once a scope's exodus completion marker (`exodus-complete`) exists, every one
+ * of the six legacy source DBs for that scope SHOULD have been archived into the
+ * scope's `_archive/` directory. A source still present on disk is "stranded
+ * residue" — it re-arms the `tasks_tasks=0` auto-recover / exodus-on-open
+ * corruption trigger (DHQ-052 · T11662). This check surfaces that residue so it
+ * can be archived via `cleo doctor exodus-residue --fix`.
+ *
+ * Read-only. Returns `'passed'` when no marker exists yet (a pre-cutover install
+ * where the legacy DBs are still the live source of truth — NOT residue) or when
+ * every marked scope's sources have been archived. Returns `'warning'` when
+ * residue is found (it is recoverable, never data-loss — the fix only MOVES
+ * files into `_archive/`).
+ *
+ * @param projectRoot - Project root used to resolve the project `.cleo/` dir.
+ * @returns A {@link CheckResult} describing stranded residue (if any).
+ *
+ * @task T11777
+ */
+export async function checkExodusStrandedResidue(projectRoot?: string): Promise<CheckResult> {
+  // Lazy import: keep the heavy exodus barrel out of the doctor module graph at
+  // load time; only the pure read helpers (plan + residue detect) are used here.
+  const { buildExodusPlan, detectStrandedResidue } = await import('../../store/exodus/index.js');
+
+  let stranded: import('../../store/exodus/archive.js').StrandedResidueEntry[];
+  try {
+    const plan = buildExodusPlan(projectRoot);
+    stranded = detectStrandedResidue(plan.sources, projectRoot);
+  } catch (err) {
+    return {
+      id: 'exodus_stranded_residue',
+      category: 'data',
+      status: 'warning',
+      message: `Could not run exodus stranded-residue check: ${err instanceof Error ? err.message : String(err)}`,
+      details: {},
+      fix: null,
+    };
+  }
+
+  if (stranded.length === 0) {
+    return {
+      id: 'exodus_stranded_residue',
+      category: 'data',
+      status: 'passed',
+      message: 'No stranded legacy exodus source DBs (clean cutover or pre-migration install)',
+      details: { strandedCount: 0 },
+      fix: null,
+    };
+  }
+
+  return {
+    id: 'exodus_stranded_residue',
+    category: 'data',
+    status: 'warning',
+    message:
+      `${stranded.length} legacy exodus source DB(s) still present after cutover ` +
+      `(stranded residue re-arms the exodus-on-open corruption trigger): ` +
+      stranded.map((s) => `${s.name} (${s.scope})`).join(', '),
+    details: {
+      strandedCount: stranded.length,
+      stranded: stranded.map((s) => ({ name: s.name, path: s.path, scope: s.scope })),
+    },
+    fix: 'cleo doctor exodus-residue --fix',
+  };
+}
+
 /**
  * Run all global health checks and return results array.
  * @task T4525

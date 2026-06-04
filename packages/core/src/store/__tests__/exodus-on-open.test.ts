@@ -516,6 +516,43 @@ describe('exodus-on-open data-continuity (T11553)', () => {
       expect(countRows(fx.projectDbPath, table), `${table} re-copied on retry`).toBe(expected);
     }
   });
+
+  it('T11777 (c): completion marker present → SKIP even when a legacy DB is on disk', async () => {
+    const { fx, projectDb, globalDb } = await armFixture(tmpDir);
+    openProjectDb = projectDb;
+    openGlobalDb = globalDb;
+
+    // Pin a temp project .cleo dir so the marker gate's resolveCleoDir(cwd) finds
+    // exactly the marker we write (and never touches the live repo .cleo/).
+    const cleoDir = join(tmpDir, '.cleo');
+    const prevCleoDir = process.env.CLEO_DIR;
+    process.env.CLEO_DIR = cleoDir; // absolute → pins the project .cleo dir
+
+    try {
+      const { writeExodusCompleteMarker } = await import('../exodus/archive.js');
+      // Seal the project cutover. The marker is the durable trigger-gate.
+      writeExodusCompleteMarker('project', ['tasks'], tmpDir);
+
+      // The consolidated DB is EMPTY and a legacy source DB still exists on disk —
+      // pre-T11777 this would re-arm the auto-migration. With the marker present
+      // the hook MUST skip (cutover sealed) so a stranded legacy file can never
+      // re-trigger exodus-on-open (DHQ-052 · T11662).
+      expect(countRows(fx.projectDbPath, 'tasks_tasks')).toBe(0);
+      expect(existsSync(fx.tasksDbPath)).toBe(true);
+
+      const { maybeRunExodusOnOpen } = await import('../exodus/on-open.js');
+      const result = await maybeRunExodusOnOpen('project', fx.projectDbPath, projectDb, tmpDir);
+
+      expect(result.outcome).toBe('skipped');
+      expect(result.reason).toMatch(/completion marker/i);
+      // No migration ran — consolidated stays empty, legacy untouched.
+      expect(countRows(fx.projectDbPath, 'tasks_tasks')).toBe(0);
+      expect(countRows(fx.tasksDbPath, 'tasks')).toBe(FIXTURE_EXPECTED_ROWS.tasks_tasks);
+    } finally {
+      if (prevCleoDir === undefined) delete process.env.CLEO_DIR;
+      else process.env.CLEO_DIR = prevCleoDir;
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
