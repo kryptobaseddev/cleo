@@ -14,12 +14,16 @@
  *
  * ## LLM Integration
  *
- * Uses `resolveLlmBackend('cold')` from `llm-backend-resolver.ts` so this
- * module never imports PSYCHE's `llm/` layer directly.  The LLM call uses
+ * Uses `resolveLlmBackend('warm')` from `llm-backend-resolver.ts` so this
+ * module never imports PSYCHE's `llm/` layer directly.  Warm tier prefers the
+ * unified `extraction`-role profile + local inference (Ollama → transformers)
+ * before escalating to cold/anthropic (T11757), which is what keeps the loop
+ * running on a local model rather than dormant.  The LLM call uses
  * `generateObject()` (Vercel AI SDK) with a Zod schema that maps directly to
  * `DialecticInsights`.
  *
- * When no LLM backend is available (no `ANTHROPIC_API_KEY`, no local Ollama),
+ * When no LLM backend is available (no pinned profile, no local Ollama, no
+ * `ANTHROPIC_API_KEY`),
  * `evaluateDialectic` returns empty arrays so the caller can continue without
  * failing.  Prompt-iteration work is tracked in T1532 (confidence thresholds +
  * few-shot examples) and T1533 (telemetry for missing backend / errors).
@@ -306,9 +310,12 @@ higher confidence because it describes a concrete, verifiable result.`;
 /**
  * Analyse a single conversational turn and extract structured insights.
  *
- * Uses CLEO's existing `resolveLlmBackend('cold')` for the LLM call so that
- * no new network egress paths are introduced.  When no LLM backend is available,
- * returns empty `DialecticInsights` so the caller can continue safely.
+ * Uses CLEO's existing `resolveLlmBackend('warm')` for the LLM call so that
+ * no new network egress paths are introduced — warm prefers the unified
+ * `extraction` profile and local inference, escalating to cold/anthropic only
+ * when no local backend is reachable (T11757).  When no LLM backend is
+ * available, returns empty `DialecticInsights` so the caller can continue
+ * safely.
  *
  * The result is intended to be immediately passed to `applyInsights`.
  *
@@ -369,7 +376,11 @@ export async function evaluateDialectic(turn: DialecticTurn): Promise<DialecticI
     return EMPTY;
   }
 
-  const backend = await resolveLlmBackend('cold');
+  // Warm tier (T11757): prefer the unified `extraction`-role profile + local
+  // inference (Ollama → transformers) before escalating to cold/anthropic. This
+  // turns the dialectic loop ON wherever a local model or a pinned profile is
+  // available, instead of staying dormant whenever ANTHROPIC_API_KEY is absent.
+  const backend = await resolveLlmBackend('warm');
   if (!backend || backend.name === 'none') {
     log.warn(
       {
