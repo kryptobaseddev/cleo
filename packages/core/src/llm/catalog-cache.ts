@@ -57,6 +57,9 @@ export interface ModelsCatalogEntry {
   id: string;
   /** Human-readable display name. */
   name?: string;
+  /** ISO 8601 date when the model was released (e.g. `"2025-08-07"`). Used to
+   * derive a provider's latest model when no explicit default is pinned. */
+  release_date?: string;
   /** Context + output window limits. */
   limit?: { context?: number; output?: number };
 }

@@ -53,6 +53,12 @@ export {
   loadDiskCatalogIndex,
   MODELS_DEV_URL,
 } from './catalog-cache.js';
+// Catalog-driven model resolution + validation (T11773 · E8)
+export {
+  catalogKeyForProvider,
+  resolveProviderDefaultModel,
+  validateModelForProvider,
+} from './catalog-model-resolver.js';
 // `cleo llm` CLI / dispatch engine ops (T9258 — T-LLM-CRED Phase 2 / T-llm-4)
 export {
   llmAdd,

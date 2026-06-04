@@ -25,6 +25,9 @@ const m = vi.hoisted(() => ({
   getCredentialByLabel: vi.fn(),
   resolveLLMForRole: vi.fn(),
   setConfigValue: vi.fn().mockResolvedValue({ key: 'x', value: 'y', scope: 'global' }),
+  // T11773: validateModelForProvider mock — returns 'found' so tests are
+  // independent of the disk snapshot's presence.
+  validateModelForProvider: vi.fn().mockReturnValue({ valid: true, reason: 'found' }),
 }));
 
 vi.mock('../credentials-store.js', async (importOriginal) => {
@@ -54,6 +57,16 @@ vi.mock('../../config.js', async (importOriginal) => {
   };
 });
 
+// T11773: mock the catalog-model-resolver so llmUse/llmProfile tests are
+// independent of the disk catalog snapshot.
+vi.mock('../catalog-model-resolver.js', async (importOriginal) => {
+  const actual = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...actual,
+    validateModelForProvider: m.validateModelForProvider,
+  };
+});
+
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
@@ -73,6 +86,8 @@ describe('llm cli-ops — redaction + envelope shape', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     m.setConfigValue.mockResolvedValue({ key: 'x', value: 'y', scope: 'global' });
+    // T11773: default — all model validations pass so pre-existing tests remain green.
+    m.validateModelForProvider.mockReturnValue({ valid: true, reason: 'found' });
   });
 
   afterEach(() => {
@@ -292,6 +307,58 @@ describe('llm cli-ops — redaction + envelope shape', () => {
       undefined,
       { global: true },
     );
+  });
+
+  // -------------------------------------------------------------------------
+  // T11773: catalog-driven model validation in llmUse / llmProfile
+  // -------------------------------------------------------------------------
+
+  it('llmUse — rejects E_MODEL_NOT_IN_CATALOG when model is not in catalog', async () => {
+    m.validateModelForProvider.mockReturnValueOnce({ valid: false, reason: 'not-found' });
+    const result = await llmUse({ provider: 'openai', model: 'gpt-typo-unknown' });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.code).toBe('E_MODEL_NOT_IN_CATALOG');
+    expect(result.error.message).toContain('gpt-typo-unknown');
+    expect(result.error.message).toContain('openai');
+    // config should NOT have been written
+    expect(m.setConfigValue).not.toHaveBeenCalled();
+  });
+
+  it('llmUse — passes through when catalog is unavailable (no snapshot yet)', async () => {
+    m.validateModelForProvider.mockReturnValueOnce({ valid: true, reason: 'catalog-unavailable' });
+    const result = await llmUse({ provider: 'openai', model: 'gpt-new-model' });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.model).toBe('gpt-new-model');
+  });
+
+  it('llmProfile — rejects E_MODEL_NOT_IN_CATALOG when model is not in catalog', async () => {
+    m.validateModelForProvider.mockReturnValueOnce({ valid: false, reason: 'not-found' });
+    const result = await llmProfile({
+      role: 'extraction',
+      provider: 'anthropic',
+      model: 'claude-typo-unknown',
+    });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.code).toBe('E_MODEL_NOT_IN_CATALOG');
+    expect(result.error.message).toContain('claude-typo-unknown');
+    expect(result.error.message).toContain('anthropic');
+    // config should NOT have been written
+    expect(m.setConfigValue).not.toHaveBeenCalled();
+  });
+
+  it('llmProfile — passes through when catalog is unavailable (no snapshot yet)', async () => {
+    m.validateModelForProvider.mockReturnValueOnce({ valid: true, reason: 'catalog-unavailable' });
+    const result = await llmProfile({
+      role: 'consolidation',
+      provider: 'anthropic',
+      model: 'claude-new-model',
+    });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.model).toBe('claude-new-model');
   });
 
   // -------------------------------------------------------------------------
