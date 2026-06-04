@@ -782,6 +782,12 @@ export type {
 } from './llm/provider-profile.js';
 // === Phase 4 Unified Architecture (T9281 / ADR-072) — Resolved credential ===
 export type { ResolvedCredential } from './llm/resolved-credential.js';
+// === E9 System-of-Use chokepoint contract (T11749) ===
+export type {
+  ResolveLLMForSystemOptions,
+  SystemOfUse,
+} from './llm/system-resolver.js';
+export { SYSTEM_ROLE_MAP } from './llm/system-resolver.js';
 // === Logger contract (T9766 — centralized from @cleocode/core) ===
 export type { LoggerConfig } from './logger.js';
 // === BRAIN memory wire-shape contracts (T9956 — promoted from @cleocode/core) ===
