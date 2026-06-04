@@ -782,6 +782,8 @@ export type {
 } from './llm/provider-profile.js';
 // === Phase 4 Unified Architecture (T9281 / ADR-072) — Resolved credential ===
 export type { ResolvedCredential } from './llm/resolved-credential.js';
+// === E9 SSoT resolution descriptor (T11745 / T11761) ===
+export type { ModelCaps, ResolvedLLMDescriptor } from './llm/resolved-descriptor.js';
 // === E9 System-of-Use chokepoint contract (T11749) ===
 export type {
   ResolveLLMForSystemOptions,

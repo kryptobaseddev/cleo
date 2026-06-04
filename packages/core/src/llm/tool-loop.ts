@@ -31,17 +31,15 @@ import type { ResolvedCredential } from '@cleocode/contracts/llm/resolved-creden
 import { ConcreteExecutor } from './concrete-executor.js';
 import { ConcreteSession } from './concrete-session.js';
 import { truncateMessagesToFit } from './conversation.js';
+import { ModelRunner } from './model-runner.js';
 import type { AttemptPlan, AttemptRef } from './runtime.js';
-import { AnthropicTransport } from './transports/anthropic.js';
-import { ChatCompletionsTransport } from './transports/chat-completions.js';
-import { GeminiTransport } from './transports/gemini.js';
 import type {
   IterationCallback,
   LLMCallResponse,
   StreamingResponseWithMetadata,
   VerbosityType,
 } from './types.js';
-import type { ModelConfig, ModelTransport } from './types-config.js';
+import type { ModelConfig } from './types-config.js';
 
 export const MIN_TOOL_ITERATIONS = 1;
 export const MAX_TOOL_ITERATIONS = 100;
@@ -93,42 +91,16 @@ function _resolvedCredentialFromConfig(config: ModelConfig): ResolvedCredential 
   };
 }
 
-function _transportForProvider(
-  provider: ModelTransport,
-  cred: ResolvedCredential,
-): import('@cleocode/contracts/llm/normalized-response.js').LlmTransport {
-  if (provider === 'anthropic') {
-    const opts =
-      cred.authType === 'oauth'
-        ? { authToken: cred.token, baseUrl: cred.baseUrl ?? undefined }
-        : {
-            apiKey: cred.token,
-            baseUrl: cred.baseUrl ?? undefined,
-            defaultHeaders: Object.keys(cred.extraHeaders).length ? cred.extraHeaders : undefined,
-          };
-    return new AnthropicTransport(opts);
-  }
-  if (provider === 'gemini') {
-    return new GeminiTransport({
-      apiKey: cred.token,
-      baseUrl: cred.baseUrl ?? undefined,
-    });
-  }
-  const defaultHeaders: Record<string, string> = { ...cred.extraHeaders };
-  if (cred.authType === 'oauth') {
-    defaultHeaders['Authorization'] = `Bearer ${cred.token}`;
-  }
-  return new ChatCompletionsTransport({
-    apiKey: cred.token,
-    baseUrl: cred.baseUrl ?? undefined,
-    defaultHeaders: Object.keys(defaultHeaders).length ? defaultHeaders : undefined,
-    provider,
-  });
-}
-
+/**
+ * Build a one-shot {@link LlmSession} from a {@link ModelConfig}.
+ *
+ * Transport construction is delegated to the single SSoT factory
+ * {@link ModelRunner.buildTransportFromCredential} (E9 · T11745) — the
+ * previously-duplicated local `_transportForProvider` is gone.
+ */
 function _sessionFromConfig(config: ModelConfig, model: string): LlmSession {
   const cred = _resolvedCredentialFromConfig(config);
-  const transport = _transportForProvider(config.transport, cred);
+  const transport = ModelRunner.buildTransportFromCredential(config.transport, cred);
   return new ConcreteSession({ transport, model, credential: cred });
 }
 
