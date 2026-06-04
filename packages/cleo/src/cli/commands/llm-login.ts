@@ -194,14 +194,33 @@ async function _runPkceLogin(
   const state = _generateState();
   const isHeadless = opts.headless || process.env['CLEO_HEADLESS'] === '1';
 
-  // Determine redirect URI and port for the local callback server.
-  // A fixed loopback redirect (e.g. OpenAI/Codex http://localhost:1455/auth/callback)
-  // pins the callback server to THAT exact port + path; otherwise bind a random
-  // free port at /callback. (Headless uses the provider's paste-back redirect.)
+  // Determine the redirect URI and whether a local callback server is needed.
+  //
+  // Three cases (evaluated in order):
+  //
+  // 1. Headless mode (--headless / CLEO_HEADLESS=1): always use the provider's
+  //    configured redirectUri (paste-back page) — no local HTTP server.
+  //
+  // 2. Non-headless + provider redirectUri IS a loopback URL with a fixed port
+  //    (e.g. OpenAI/Codex http://localhost:1455/auth/callback): spin up the
+  //    callback server on THAT exact pre-registered port.
+  //
+  // 3. Non-headless + provider redirectUri is NOT a loopback URL (e.g. Anthropic's
+  //    https://console.anthropic.com/oauth/code/callback): the provider only
+  //    accepts its registered paste-back URI. The local HTTP server would receive
+  //    no redirect and the authorize / token endpoints would return HTTP 400
+  //    (redirect_uri_mismatch). Force paste-back mode — use the configured URI and
+  //    treat it as headless even when the user did not pass --headless.
   const fixedPort = isHeadless ? null : _parseFixedLoopbackPort(oauthCfg.redirectUri);
-  const port = isHeadless ? 0 : (fixedPort ?? (await _findFreePort()));
+  const isNonLoopbackPasteBack =
+    !isHeadless && fixedPort === null && !_isLoopbackUri(oauthCfg.redirectUri);
+  // Effective headless: either the user requested it, or the provider only
+  // supports a paste-back (non-loopback) redirect URI.
+  const effectiveHeadless = isHeadless || isNonLoopbackPasteBack;
+
+  const port = effectiveHeadless ? 0 : (fixedPort ?? (await _findFreePort()));
   const randomRedirect = `http://localhost:${port}/callback`;
-  const redirectUri = isHeadless
+  const redirectUri = effectiveHeadless
     ? (oauthCfg.redirectUri ?? 'http://localhost')
     : fixedPort != null
       ? (oauthCfg.redirectUri ?? randomRedirect)
@@ -219,7 +238,7 @@ async function _runPkceLogin(
 
   let code: string;
 
-  if (isHeadless) {
+  if (effectiveHeadless) {
     code = await _headlessPkceFlow(provider, authUrl);
   } else {
     const result = await _localCallbackPkceFlow(provider, authUrl, state, port);
@@ -319,6 +338,27 @@ function _parseFixedLoopbackPort(redirectUri?: string): number | null {
     return Number.isInteger(port) && port > 0 ? port : null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Return `true` when `redirectUri` is a loopback (`localhost` / `127.0.0.1`)
+ * URL that can host a local HTTP callback server, `false` otherwise.
+ *
+ * Non-loopback URIs (e.g. `https://console.anthropic.com/oauth/code/callback`)
+ * are provider-hosted paste-back pages — the browser is redirected there and
+ * the user manually copies the authorization code back to the CLI. These cannot
+ * receive an HTTP callback and MUST use the paste-back (headless) code path.
+ *
+ * @internal
+ */
+function _isLoopbackUri(redirectUri?: string): boolean {
+  if (!redirectUri) return false;
+  try {
+    const u = new URL(redirectUri);
+    return u.hostname === 'localhost' || u.hostname === '127.0.0.1';
+  } catch {
+    return false;
   }
 }
 
