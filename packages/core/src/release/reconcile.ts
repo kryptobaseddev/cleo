@@ -45,7 +45,7 @@ import { type EngineResult, engineError, engineSuccess } from '../engine-result.
 import { getLogger } from '../logger.js';
 import { generateProjectHash } from '../nexus/hash.js';
 import { getProjectRoot } from '../paths.js';
-import { getDb, getNativeDb } from '../store/sqlite.js';
+import { type DatabaseSync, getDb, getNativeDb } from '../store/sqlite.js';
 import * as schema from '../store/tasks-schema.js';
 
 const log = getLogger('release:reconcile-v2');
@@ -120,6 +120,14 @@ export interface ReleaseReconcileV2Result {
   reReconciled?: boolean;
   /** T#### tokens encountered that did not validate against `tasks.id` (R-331). */
   unknownTokens?: string[];
+  /**
+   * Task IDs present in the runtime task store but UNRESOLVABLE by the
+   * provenance `task_id` foreign keys (their FK parent — the bare `tasks` table
+   * on a consolidated cleo.db — has no matching row). Their provenance links
+   * were skipped-with-warn or NULLed rather than aborting the reconcile
+   * (DHQ-051 · T11659).
+   */
+  skippedTaskRefs?: string[];
   /** Total wall-clock duration (filled into envelope `meta.durationMs`). */
   durationMs?: number;
   /** Total inserts performed (filled into envelope `meta.txSize`). */
@@ -872,6 +880,126 @@ export function sanitisePrShasForFk(
   };
 }
 
+// ─── Helpers — FK-safe task-id resolution (DHQ-051 · T11659) ────────────────
+
+/** Result of resolving + reconciling the provenance `task_id` FK parent table. */
+export interface FkParentTaskResolution {
+  /** Physical table the provenance `task_id` FK references, or null if absent. */
+  parentTable: string | null;
+  /**
+   * Task IDs the FK can now resolve (FK parent rows present after any
+   * FK-ordered shim backfill). A `task_id` reference to an id in this set is
+   * safe to INSERT under strict FK enforcement.
+   */
+  resolvableIds: Set<string>;
+}
+
+/**
+ * Make the provenance `task_id` foreign keys satisfiable on a consolidated
+ * `cleo.db` by inserting any missing FK-parent rows in FK order (parent-before
+ * -child), then returning the set of IDs the FK can resolve.
+ *
+ * ## Background (DHQ-051 · T11659 — same class as DHQ-045)
+ *
+ * After the dual-scope `cleo.db` cutover (T11578) the runtime task store moved
+ * from the bare `tasks` table to the prefixed `tasks_tasks` table. The drizzle
+ * `schema.tasks` symbol is shadowed at the barrel (`tasks-schema.ts`) onto
+ * `tasks_tasks`, so reconcile's token-validity probe reads the populated
+ * prefixed table. BUT the provenance tables (`task_commits`, `pr_tasks`,
+ * `releases`, `release_changes`) predate the cutover — their `task_id` /
+ * `epic_id` FKs still reference the BARE `tasks` table, which is empty on a
+ * consolidated `cleo.db`. A token validated against `tasks_tasks` therefore
+ * passes the legacy gate yet violates the FK at INSERT time, aborting the
+ * whole reconcile with `E_PROVENANCE_FAILED`.
+ *
+ * ## Strategy — FK-ordered parent backfill (Strategy 1)
+ *
+ * For every task referenced by this release we ensure a row exists in the FK
+ * parent table BEFORE the child provenance rows are written. The parent table
+ * is discovered dynamically via `PRAGMA foreign_key_list('task_commits')` (so
+ * the logic tracks whatever the live schema enforces — including a future
+ * schema that repoints the FK at `tasks_tasks`, where this becomes a no-op).
+ * Missing parent rows are copied from the runtime `tasks_tasks` store via
+ * `INSERT OR IGNORE … SELECT` of only the NOT NULL columns, so the copied rows
+ * satisfy the parent table's own CHECK/NOT NULL constraints. Tasks that exist
+ * in neither table remain unresolvable and are skipped-with-warn by the
+ * callers (the row, never the whole reconcile).
+ *
+ * Idempotent: `INSERT OR IGNORE` never duplicates and never overwrites an
+ * existing parent row. Runs inside the reconcile transaction so a later
+ * failure rolls the shim rows back too.
+ *
+ * @param nativeDb - The consolidated `cleo.db` native handle.
+ * @param referencedIds - Every task id this reconcile may reference (commit
+ *   tokens, PR tokens, plan tasks, epic).
+ * @returns The FK parent table name + the IDs it can now resolve.
+ */
+export function ensureProvenanceTaskFkParents(
+  nativeDb: DatabaseSync,
+  referencedIds: ReadonlySet<string>,
+): FkParentTaskResolution {
+  // Discover the physical parent table the `task_commits.task_id` FK targets.
+  let parentTable = 'tasks';
+  try {
+    const fks = nativeDb.prepare(`PRAGMA foreign_key_list('task_commits')`).all() as Array<{
+      table: string;
+      from: string;
+    }>;
+    const taskFk = fks.find((fk) => fk.from === 'task_id');
+    if (taskFk?.table) parentTable = taskFk.table;
+  } catch {
+    // PRAGMA unavailable (table absent / older sqlite) — keep the bare default.
+  }
+
+  const tableExists = (name: string): boolean =>
+    nativeDb.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`).get(name) !=
+    null;
+
+  // Parent table absent entirely → nothing resolvable, nothing to backfill.
+  if (!tableExists(parentTable)) {
+    return { parentTable: null, resolvableIds: new Set<string>() };
+  }
+
+  // FK-ordered shim backfill: copy any referenced task that lives in the
+  // runtime `tasks_tasks` store but is missing from the FK parent. Only when
+  // the parent is the bare legacy table AND the prefixed store exists (i.e. the
+  // post-cutover split-brain) — when the FK already points at `tasks_tasks`
+  // this is skipped and the parent is read as-is.
+  // Identifiers come from sqlite_master / the FK pragma (verified existing
+  // table names), never user input — safe to interpolate (node:sqlite exposes
+  // no bound-identifier form). All VALUES are bound parameters.
+  if (parentTable !== 'tasks_tasks' && tableExists('tasks_tasks') && referencedIds.size > 0) {
+    const insertShim = nativeDb.prepare(
+      `INSERT OR IGNORE INTO "${parentTable}" (id, title, status, priority, role, scope)
+       SELECT id, title, status, priority, role, scope FROM tasks_tasks WHERE id = ?`,
+    );
+    for (const id of referencedIds) {
+      try {
+        insertShim.run(id);
+      } catch (err) {
+        // A single shim copy that violates the parent's own constraints (e.g. a
+        // NOT NULL / CHECK the prefixed row does not satisfy) must NOT abort the
+        // whole reconcile. Leave the id unresolvable — the writers below
+        // skip-with-warn that one link (Strategy 3). SAVEPOINT-free: the failed
+        // statement is rolled back individually by SQLite, leaving the
+        // surrounding transaction intact.
+        log.warn(
+          { taskId: id, parentTable, err: err instanceof Error ? err.message : String(err) },
+          'reconcile: FK-parent shim copy failed — task_id stays unresolvable, link will be skipped',
+        );
+      }
+    }
+  }
+
+  // Read back what the FK can now resolve.
+  const resolvableIds = new Set<string>();
+  const rows = nativeDb.prepare(`SELECT id FROM "${parentTable}"`).all() as Array<{ id: unknown }>;
+  for (const r of rows) {
+    if (typeof r.id === 'string') resolvableIds.add(r.id);
+  }
+  return { parentTable, resolvableIds };
+}
+
 // ─── Main reconcile entrypoint ──────────────────────────────────────────────
 
 /**
@@ -929,6 +1057,9 @@ export async function releaseReconcileV2(
   const db = await getDb(projectRoot);
 
   // ── 3. Pre-flight: list of valid task IDs for token validation (R-331) ──
+  // `validTaskIds` reads the RUNTIME task store (`schema.tasks` shadows the
+  // prefixed `tasks_tasks` table post-cutover) — this drives the user-facing
+  // "unknown token" report.
   const validTaskIds = new Set<string>();
   {
     const rows = await db.select({ id: schema.tasks.id }).from(schema.tasks).all();
@@ -936,6 +1067,18 @@ export async function releaseReconcileV2(
       if (typeof r.id === 'string') validTaskIds.add(r.id);
     }
   }
+
+  // `fkResolvableTaskIds` (DHQ-051 · T11659) holds the IDs the provenance
+  // `task_id` FKs can resolve. On a consolidated `cleo.db` those FKs reference
+  // the bare `tasks` table (empty post-cutover) while runtime data lives in
+  // `tasks_tasks`. It is FILLED inside the transaction by
+  // `ensureProvenanceTaskFkParents`, which inserts the needed FK-parent rows in
+  // FK order (parent-before-child) so the links can be written; any task that
+  // exists in neither table stays unresolvable and its single link is
+  // skipped-with-warn / NULLed by the writers below — never the whole reconcile.
+  const fkResolvableTaskIds = new Set<string>();
+  /** Task IDs dropped from a provenance link because the FK could not resolve them. */
+  const skippedTaskRefs = new Set<string>();
 
   const unknownTokens = new Set<string>();
   const orphanCommits: string[] = [];
@@ -989,8 +1132,44 @@ export async function releaseReconcileV2(
   let brainLinkCount = 0;
   let brainEntryId: string | null = null;
 
+  // ── 6b. Collect every task id this reconcile may reference, so the FK-parent
+  //        backfill (DHQ-051 · T11659) can pre-seed parent rows in FK order. ──
+  const referencedTaskIds = new Set<string>();
+  for (const c of commits) {
+    for (const tok of extractTaskTokens(c)) {
+      if (validTaskIds.has(tok)) referencedTaskIds.add(tok);
+    }
+  }
+  for (const pr of fetchedPRs) {
+    const prText = `${pr.title}\n${pr.body ?? ''}\n${pr.headRef}`;
+    TASK_TOKEN_RE.lastIndex = 0;
+    let pt: RegExpExecArray | null = TASK_TOKEN_RE.exec(prText);
+    while (pt !== null) {
+      if (validTaskIds.has(pt[0])) referencedTaskIds.add(pt[0]);
+      pt = TASK_TOKEN_RE.exec(prText);
+    }
+  }
+  for (const task of plan.tasks) {
+    if (validTaskIds.has(task.id)) referencedTaskIds.add(task.id);
+  }
+  if (plan.epicId && validTaskIds.has(plan.epicId)) referencedTaskIds.add(plan.epicId);
+
   try {
     await withTransaction(async () => {
+      // ── FK-parent reconciliation (DHQ-051 · T11659) — MUST run first so the
+      //    provenance `task_id` FKs resolve under strict enforcement. Inserts
+      //    any missing FK-parent rows in FK order (parent-before-child) and
+      //    records which ids the FK can now satisfy. ──
+      try {
+        const nativeDbForFk = getNativeDb();
+        if (nativeDbForFk) {
+          const resolution = ensureProvenanceTaskFkParents(nativeDbForFk, referencedTaskIds);
+          for (const id of resolution.resolvableIds) fkResolvableTaskIds.add(id);
+        }
+      } catch (err) {
+        throw new ProvenanceTableError('tasks (fk-parent backfill)', err);
+      }
+
       // ── commits + commit_files ──
       try {
         for (const c of commits) {
@@ -1070,6 +1249,18 @@ export async function releaseReconcileV2(
           for (const tok of tokens) {
             if (!validTaskIds.has(tok)) {
               unknownTokens.add(tok);
+              continue;
+            }
+            // FK safety (DHQ-051 · T11659): `task_commits.task_id` FKs the bare
+            // `tasks` table, which is empty on a consolidated cleo.db. A token
+            // valid in the runtime store but unresolvable by the FK is
+            // skipped-with-warn — dropping the single link, never the reconcile.
+            if (!fkResolvableTaskIds.has(tok)) {
+              skippedTaskRefs.add(tok);
+              log.warn(
+                { taskId: tok, commitSha: c.sha, table: 'task_commits' },
+                'reconcile: task_id unresolvable by FK parent — skipping task_commits link',
+              );
               continue;
             }
             const linkSource = c.subject.includes(tok) ? 'commit-message' : 'commit-trailer';
@@ -1187,6 +1378,16 @@ export async function releaseReconcileV2(
               unknownTokens.add(tok);
               continue;
             }
+            // FK safety (DHQ-051 · T11659): `pr_tasks.task_id` FKs the bare
+            // `tasks` table — skip-with-warn when the FK cannot resolve the id.
+            if (!fkResolvableTaskIds.has(tok)) {
+              skippedTaskRefs.add(tok);
+              log.warn(
+                { taskId: tok, prId, table: 'pr_tasks' },
+                'reconcile: task_id unresolvable by FK parent — skipping pr_tasks link',
+              );
+              continue;
+            }
             let linkSource: schema.PrLinkSource = 'pr-body';
             if (pr.title.includes(tok)) linkSource = 'pr-title';
             else if (pr.headRef.includes(tok)) linkSource = 'branch-name';
@@ -1215,6 +1416,21 @@ export async function releaseReconcileV2(
         // avoid violating the constraint at INSERT time.
         const safeReleaseMergeSha =
           plan.mergeCommitSha && insertedShas.has(plan.mergeCommitSha) ? plan.mergeCommitSha : null;
+        // FK safety (DHQ-051 · T11659): `releases.epic_id` FKs the bare `tasks`
+        // table (ON DELETE SET NULL, nullable). When the epic is unresolvable by
+        // the FK parent, NULL the column rather than violate the constraint.
+        const safeEpicId = plan.epicId && fkResolvableTaskIds.has(plan.epicId) ? plan.epicId : null;
+        if (plan.epicId && safeEpicId === null) {
+          // Only a VALID runtime task that the FK could not resolve is a true
+          // "skipped ref" — an epic id that is not even a known task was never
+          // linkable and is NULLed silently (it surfaces under unknownTokens if
+          // it appeared in commit/PR text).
+          if (validTaskIds.has(plan.epicId)) skippedTaskRefs.add(plan.epicId);
+          log.warn(
+            { epicId: plan.epicId, releaseId, table: 'releases' },
+            'reconcile: epic_id unresolvable by FK parent — nulling releases.epic_id',
+          );
+        }
         await db
           .insert(schema.releases)
           .values({
@@ -1222,7 +1438,7 @@ export async function releaseReconcileV2(
             version,
             scheme: plan.scheme,
             channel: mapChannel(plan.channel),
-            epicId: plan.epicId,
+            epicId: safeEpicId,
             releaseKind: plan.releaseKind,
             status: 'reconciled',
             previousVersion: plan.previousVersion,
@@ -1290,12 +1506,20 @@ export async function releaseReconcileV2(
           // Build deterministic ID so re-running upserts the same row.
           const idSeed = `${releaseId}|${task.id}|${changeType}`;
           const id = createHash('sha256').update(idSeed).digest('hex').slice(0, 32);
+          // FK safety (DHQ-051 · T11659): `release_changes.task_id` FKs the bare
+          // `tasks` table (ON DELETE SET NULL, nullable). NULL the column when
+          // the FK parent cannot resolve the id; the change row still records
+          // the summary/impact, just without the dangling task linkage.
+          const safeTaskId = fkResolvableTaskIds.has(task.id) ? task.id : null;
+          if (safeTaskId === null && validTaskIds.has(task.id)) {
+            skippedTaskRefs.add(task.id);
+          }
           await db
             .insert(schema.releaseChanges)
             .values({
               id,
               releaseId,
-              taskId: validTaskIds.has(task.id) ? task.id : null,
+              taskId: safeTaskId,
               changeType,
               summary: task.userFacingSummary || `${task.id}: ${task.kind}`,
               description: null,
@@ -1455,6 +1679,7 @@ export async function releaseReconcileV2(
     brainLinkCount,
     orphanCommits,
     ...(unknownTokens.size > 0 ? { unknownTokens: Array.from(unknownTokens) } : {}),
+    ...(skippedTaskRefs.size > 0 ? { skippedTaskRefs: Array.from(skippedTaskRefs) } : {}),
     ...(reReconciled ? { reReconciled: true } : {}),
     durationMs,
     txSize,
