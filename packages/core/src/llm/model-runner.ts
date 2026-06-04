@@ -58,6 +58,22 @@ const logger = getLogger('llm-model-runner');
 /** Kimi Code chat endpoint — speaks the Anthropic Messages protocol. */
 const KIMI_CODE_BASE_URL = 'https://api.kimi.com/coding';
 
+/**
+ * Anthropic OAuth opt-in header. A `sk-ant-oat-` / `sk-ant-ort-` OAuth token is
+ * REJECTED by the Anthropic API unless the request carries
+ * `anthropic-beta: oauth-2025-04-20`. Centralising it here — the single SSoT
+ * transport factory — means EVERY resolver-path caller (session-factory, api,
+ * tool-loop, role-executor, auxiliary-fallback) inherits it automatically,
+ * instead of each call-site re-declaring it (role-executor hardcoded it; the
+ * session-factory / auxiliary-fallback paths OMITTED it → latent OAuth 401s).
+ * The SDK auto-sets `anthropic-version`, so only the beta opt-in is needed here.
+ *
+ * @task T11745
+ */
+const ANTHROPIC_OAUTH_HEADERS: Readonly<Record<string, string>> = {
+  'anthropic-beta': 'oauth-2025-04-20',
+};
+
 /** Ollama's OpenAI-compatible `/v1` shim base URL (Vercel `LanguageModel` path). */
 const OLLAMA_OPENAI_COMPAT_BASE_URL = 'http://localhost:11434/v1';
 
@@ -180,9 +196,9 @@ export const ModelRunner = {
           ? {
               authToken: credential.token,
               baseUrl: credential.baseUrl ?? undefined,
-              defaultHeaders: Object.keys(credential.extraHeaders).length
-                ? credential.extraHeaders
-                : undefined,
+              // OAuth REQUIRES the beta opt-in header. The canonical header is
+              // the default; a caller's own extraHeaders override it if set.
+              defaultHeaders: { ...ANTHROPIC_OAUTH_HEADERS, ...credential.extraHeaders },
             }
           : {
               apiKey: credential.token,

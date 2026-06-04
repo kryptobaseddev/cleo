@@ -20,10 +20,10 @@
 
 import type { SendOptions } from '@cleocode/contracts/llm/interfaces.js';
 import type {
-  LlmTransport,
   NormalizedResponse,
   TransportMessage,
 } from '@cleocode/contracts/llm/normalized-response.js';
+import type { ResolvedCredential } from '@cleocode/contracts/llm/resolved-credential.js';
 import { PoolExhaustedError } from './credential-pool.js';
 import { classifyError } from './error-classifier.js';
 import type { ModelTransport } from './types-config.js';
@@ -380,14 +380,11 @@ async function _defaultAuxiliaryProvider(
   // If no credential exists for this provider, the factory will throw and the
   // outer loop will catch it as a pool-exhaustion signal.
   //
-  // We synthesise a temporary session by using the contracts layer directly:
-  // import the transport factory helpers from session-factory internals via
-  // the concrete-session constructor pattern used in role-executor.
-  const { AnthropicTransport } = await import('./transports/anthropic.js');
-  const { ChatCompletionsTransport } = await import('./transports/chat-completions.js');
-  const { GeminiTransport } = await import('./transports/gemini.js');
+  // We synthesise a temporary session via the single SSoT transport factory.
   const { resolveCredentials } = await import('./credentials.js');
   const { ConcreteSession } = await import('./concrete-session.js');
+  const { ModelRunner } = await import('./model-runner.js');
+  const { deriveApiWire } = await import('./api-mode.js');
 
   const credResult = await resolveCredentials(targetProvider, {});
   if (!credResult.apiKey) {
@@ -395,41 +392,36 @@ async function _defaultAuxiliaryProvider(
     throw new PoolExhaustedError(targetProvider, 0, 0);
   }
 
-  let transport: LlmTransport;
-  if (targetProvider === 'anthropic') {
-    transport =
-      credResult.authType === 'oauth'
-        ? new AnthropicTransport({ authToken: credResult.apiKey })
-        : new AnthropicTransport({ apiKey: credResult.apiKey });
-  } else if (targetProvider === 'gemini') {
-    transport = new GeminiTransport({ apiKey: credResult.apiKey });
-  } else {
-    const defaultHeaders: Record<string, string> = {};
-    if (credResult.authType === 'oauth') {
-      defaultHeaders['Authorization'] = `Bearer ${credResult.apiKey}`;
-    }
-    transport = new ChatCompletionsTransport({
-      provider: targetProvider,
-      apiKey: credResult.apiKey,
-      ...(Object.keys(defaultHeaders).length ? { defaultHeaders } : {}),
-    });
-  }
+  // Single SSoT transport construction (E9 · T11745): `deriveApiWire` stamps the
+  // wire protocol + implied base URL; the one {@link ModelRunner} builds the
+  // transport for ANY provider. This replaces the inline anthropic/gemini/
+  // openai-compat branches that had drifted from `session-factory` — notably the
+  // anthropic-OAuth branch here OMITTED the required `anthropic-beta` header,
+  // which the ModelRunner now injects centrally.
+  const authType: 'api_key' | 'oauth' = credResult.authType === 'oauth' ? 'oauth' : 'api_key';
+  const wire = deriveApiWire(targetProvider, authType);
+  const resolvedCredential: ResolvedCredential = {
+    provider: targetProvider,
+    label: 'fallback',
+    token: credResult.apiKey,
+    authType,
+    expiresAt: null,
+    refreshToken: null,
+    extraHeaders: {},
+    baseUrl: wire.baseUrl,
+    awsProfile: null,
+  };
+  const transport = ModelRunner.buildTransportFromCredential(
+    targetProvider,
+    resolvedCredential,
+    wire.apiMode,
+  );
 
   const model = entry.model ?? resolved.model;
   const session = new ConcreteSession({
     transport,
     model,
-    credential: {
-      provider: targetProvider,
-      label: 'fallback',
-      token: credResult.apiKey,
-      authType: credResult.authType === 'oauth' ? 'oauth' : 'api_key',
-      expiresAt: null,
-      refreshToken: null,
-      extraHeaders: {},
-      baseUrl: null,
-      awsProfile: null,
-    },
+    credential: resolvedCredential,
   });
 
   return session.send(messages, opts);
