@@ -28,15 +28,19 @@
  * @saga T11242
  */
 
+import { existsSync } from 'node:fs';
 import { ExitCode } from '@cleocode/contracts';
 import { resolveDualScopeDbPath } from '@cleocode/core/store/dual-scope-db.js';
 import {
+  archiveMigratedSources,
   buildExodusPlan,
   runExodusMigrate,
   runExodusStatus,
   runExodusVerify,
   sourcesPresent,
+  verifyMigration,
 } from '@cleocode/core/store/exodus/index.js';
+import { isDataContinuityOk } from '@cleocode/core/store/exodus/on-open.js';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
 import { cliError, cliOutput, humanInfo } from '../renderers/index.js';
@@ -172,6 +176,30 @@ const migrateSubCommand = defineCommand({
     const copied = result.tables.filter((t) => !t.skipped).reduce((n, t) => n + t.rowsCopied, 0);
     const skipped = result.tables.filter((t) => t.skipped).length;
 
+    // T11777: ARCHIVE the consumed legacy sources + write a completion marker —
+    // but ONLY after the SAME lossless validation the on-open path uses
+    // (verifyMigration + isDataContinuityOk: row-count parity, no INTRODUCED FK
+    // orphans). Never blind-move a source whose parity did not pass.
+    const verifyResult = verifyMigration(
+      plan.sources,
+      plan.projectDbPath,
+      plan.globalDbPath,
+      (msg) => humanInfo(`  verify: ${msg}`),
+    );
+    let archived: string[] = [];
+    if (isDataContinuityOk(verifyResult)) {
+      const consumed = plan.sources.filter((s) => existsSync(s.path));
+      const archiveResult = archiveMigratedSources(consumed, process.cwd());
+      archived = archiveResult.sources.filter((s) => s.action === 'archived').map((s) => s.name);
+      humanInfo(
+        `  Archived ${archived.length} legacy source DB(s) → _archive/ and sealed completion marker(s): ${archiveResult.markersWritten.join(', ')}`,
+      );
+    } else {
+      humanInfo(
+        '  Parity validation did NOT pass — legacy sources LEFT IN PLACE (not archived). Run `cleo exodus verify` to inspect.',
+      );
+    }
+
     cliOutput(
       {
         kind: 'generic',
@@ -182,6 +210,8 @@ const migrateSubCommand = defineCommand({
           tablesSkipped: skipped,
           stagingDir: result.stagingDir,
           backupCount: result.backupPaths.length,
+          archivedSources: archived,
+          archived: archived.length > 0,
         },
         tables: result.tables,
       },
