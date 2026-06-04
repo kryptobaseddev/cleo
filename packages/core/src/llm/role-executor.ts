@@ -34,14 +34,15 @@ import type {
   NormalizedUsage,
   TransportRequest,
 } from '@cleocode/contracts/llm/normalized-response.js';
+import type { ResolvedCredential } from '@cleocode/contracts/llm/resolved-credential.js';
 import { CredentialPool } from './credential-pool.js';
 import { classifyError } from './error-classifier.js';
+import { ModelRunner } from './model-runner.js';
 import { getKimiCodeMshHeaders, isKimiCodeApiKey } from './provider-registry/builtin/kimi-code.js';
 import { resolveLLMForRole } from './role-resolver.js';
 import { AnthropicTransport } from './transports/anthropic.js';
 import { ChatCompletionsTransport } from './transports/chat-completions.js';
-import { buildCodexOAuthHeaders, CODEX_OAUTH_BASE_URL } from './transports/codex-oauth-headers.js';
-import { CodexResponsesTransport } from './transports/codex-responses.js';
+import { CODEX_OAUTH_BASE_URL } from './transports/codex-oauth-headers.js';
 import type { ModelTransport } from './types-config.js';
 
 /** Kimi Code chat endpoint — speaks Anthropic Messages protocol. */
@@ -238,12 +239,28 @@ export async function executeForRole(
       // a background role be fulfilled by the live `openai/codex-cli` OAuth
       // credential in the pool. (api_key OpenAI keeps the chat_completions
       // path below.)
-      const transport = new CodexResponsesTransport({
+      //
+      // Transport construction is delegated to the single SSoT factory
+      // (E9 · T11745): a `codex_responses` apiMode + a credential carrying the
+      // ChatGPT-backend `baseUrl` reproduces the exact transport this block
+      // used to build inline. The OAuth Cloudflare headers are added by the
+      // ModelRunner codex branch for `authType: 'oauth'`.
+      const codexCredential: ResolvedCredential = {
         provider: llm.provider,
-        apiKey: llm.credential.apiKey,
+        label: llm.credentialLabel ?? 'default',
+        token: llm.credential.apiKey,
+        authType: 'oauth',
+        expiresAt: null,
+        refreshToken: null,
+        extraHeaders: {},
         baseUrl: CODEX_OAUTH_BASE_URL,
-        defaultHeaders: buildCodexOAuthHeaders(llm.credential.apiKey),
-      });
+        awsProfile: null,
+      };
+      const transport = ModelRunner.buildTransportFromCredential(
+        llm.provider,
+        codexCredential,
+        'codex_responses',
+      );
       const resp = await transport.complete(request);
       return {
         content: resp.content ?? '',

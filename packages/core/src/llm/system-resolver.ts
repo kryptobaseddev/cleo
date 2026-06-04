@@ -201,6 +201,12 @@ export async function resolveLLMForSystem(
       client: null,
       credential: null,
       source: 'implicit-fallback',
+      // SSoT wire facts (E9 · T11745): the implicit-fallback provider is
+      // anthropic and there is no credential, so the descriptor advertises the
+      // anthropic_messages protocol with no override / no auth.
+      apiMode: 'anthropic_messages',
+      baseUrl: null,
+      authType: null,
     };
   }
 

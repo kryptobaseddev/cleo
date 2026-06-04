@@ -20,13 +20,8 @@ import type { LlmTransport } from '@cleocode/contracts/llm/normalized-response.j
 import type { ApiMode } from '@cleocode/contracts/llm/provider-id.js';
 import type { ResolvedCredential } from '@cleocode/contracts/llm/resolved-credential.js';
 import { ConcreteSession } from './concrete-session.js';
+import { ModelRunner } from './model-runner.js';
 import { resolveLLMForRole } from './role-resolver.js';
-import { AnthropicTransport } from './transports/anthropic.js';
-import { BedrockTransport } from './transports/bedrock.js';
-import { ChatCompletionsTransport } from './transports/chat-completions.js';
-import { CodexResponsesTransport } from './transports/codex-responses.js';
-import { GeminiTransport } from './transports/gemini.js';
-import { OllamaTransport } from './transports/ollama.js';
 import type { ModelTransport } from './types-config.js';
 
 // ---------------------------------------------------------------------------
@@ -36,12 +31,10 @@ import type { ModelTransport } from './types-config.js';
 /**
  * Instantiate the correct {@link LlmTransport} for a provider/credential pair.
  *
- * Provider mapping:
- * - `'anthropic'` → {@link AnthropicTransport}
- * - `'bedrock'` → {@link BedrockTransport} (AWS credential chain; token unused)
- * - `'gemini'` → {@link GeminiTransport}
- * - `apiMode === 'codex_responses'` → {@link CodexResponsesTransport}
- * - everything else → {@link ChatCompletionsTransport} (OpenAI-compatible)
+ * Thin shim over the single SSoT factory {@link ModelRunner.buildTransportFromCredential}
+ * (E9 · T11745). The provider→transport mapping (anthropic / bedrock / gemini /
+ * ollama / codex_responses / chat-completions) now lives in ONE place — this
+ * function delegates so existing callers keep their signature.
  *
  * `apiMode` takes precedence over provider name when `'codex_responses'` is
  * supplied — this allows xAI `grok-*` models to be served via the Responses
@@ -58,72 +51,7 @@ function transportForProvider(
   credential: ResolvedCredential,
   apiMode?: ApiMode,
 ): LlmTransport {
-  if (provider === 'anthropic') {
-    const opts =
-      credential.authType === 'oauth'
-        ? { authToken: credential.token, baseUrl: credential.baseUrl ?? undefined }
-        : {
-            apiKey: credential.token,
-            baseUrl: credential.baseUrl ?? undefined,
-            defaultHeaders: Object.keys(credential.extraHeaders).length
-              ? credential.extraHeaders
-              : undefined,
-          };
-    return new AnthropicTransport(opts);
-  }
-
-  if (provider === 'bedrock') {
-    // BedrockTransport resolves credentials via fromNodeProviderChain() internally.
-    // The credential.awsProfile field carries the optional profile override.
-    return new BedrockTransport({
-      awsProfile: credential.awsProfile ?? undefined,
-    });
-  }
-
-  if (provider === 'gemini') {
-    return new GeminiTransport({
-      apiKey: credential.token,
-      baseUrl: credential.baseUrl ?? undefined,
-    });
-  }
-
-  if (provider === 'ollama') {
-    // Ollama typically requires no auth key for local deployments; the token
-    // is passed through anyway so remote/proxied deployments work transparently.
-    return new OllamaTransport({
-      baseUrl: credential.baseUrl ?? undefined,
-      apiKey: credential.token || undefined,
-      defaultHeaders: Object.keys(credential.extraHeaders).length
-        ? credential.extraHeaders
-        : undefined,
-    });
-  }
-
-  if (apiMode === 'codex_responses') {
-    const defaultHeaders: Record<string, string> = { ...credential.extraHeaders };
-    if (credential.authType === 'oauth') {
-      defaultHeaders['Authorization'] = `Bearer ${credential.token}`;
-    }
-    return new CodexResponsesTransport({
-      apiKey: credential.token,
-      baseUrl: credential.baseUrl ?? undefined,
-      defaultHeaders: Object.keys(defaultHeaders).length ? defaultHeaders : undefined,
-      provider,
-    });
-  }
-
-  // All other providers (openai, moonshot, openrouter, deepseek, xai, groq,
-  // kimi-code, …) use ChatCompletionsTransport.
-  const defaultHeaders: Record<string, string> = { ...credential.extraHeaders };
-  if (credential.authType === 'oauth') {
-    defaultHeaders['Authorization'] = `Bearer ${credential.token}`;
-  }
-  return new ChatCompletionsTransport({
-    apiKey: credential.token,
-    baseUrl: credential.baseUrl ?? undefined,
-    defaultHeaders: Object.keys(defaultHeaders).length ? defaultHeaders : undefined,
-    provider,
-  });
+  return ModelRunner.buildTransportFromCredential(provider, credential, apiMode);
 }
 
 // ---------------------------------------------------------------------------

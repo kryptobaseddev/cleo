@@ -28,17 +28,20 @@
 
 import type { Anthropic } from '@anthropic-ai/sdk';
 import type {
+  ApiMode,
   CleoConfig,
   LlmConfig,
   LlmDefaultConfig,
   LlmProfileConfig,
   LlmRoleConfig,
+  ModelCaps,
   ResolutionSource,
   ResolveLLMForRoleOptions,
   RoleName,
 } from '@cleocode/contracts';
 import type { OpenAI } from 'openai';
 import { resolveOrCwd } from '../paths.js';
+import { deriveApiWire } from './api-mode.js';
 import { CredentialPool } from './credential-pool.js';
 import { type CredentialResult, resolveCredentials } from './credentials.js';
 import { getCredentialByLabel, pickCredentialForProvider } from './credentials-store.js';
@@ -141,6 +144,33 @@ export interface ResolvedLLM {
   source: ResolutionSource;
   /** When `roles[role].credentialLabel` was set, the label that was used. */
   credentialLabel?: string;
+  /**
+   * Wire protocol spoken by the resolved provider/credential pair (E9 · T11745).
+   *
+   * The load-bearing SSoT addition: the single {@link import('./model-runner.js').ModelRunner}
+   * branches on this to construct the correct transport — `'codex_responses'`
+   * routes a ChatGPT OAuth token through the Responses API; everything else
+   * follows {@link deriveApiWire}. Derived in {@link resolveLLMForRole} from the
+   * resolved `provider` + `credential.authType`.
+   */
+  apiMode: ApiMode;
+  /**
+   * Per-provider API endpoint override implied by the resolution. `null` when
+   * the transport's own default (or the credential's `baseUrl`) should win.
+   * Currently carries the codex ChatGPT-backend URL for OAuth openai resolution.
+   */
+  baseUrl: string | null;
+  /**
+   * Scheme used to present the credential. Mirrors `credential.authType`,
+   * surfaced at the top level so the runner does not have to reach into the
+   * credential. `null` when no credential was resolved.
+   */
+  authType: 'api_key' | 'oauth' | 'aws_sdk' | null;
+  /**
+   * Coarse capability hints (tools/json/vision/thinking) so a runner can pick
+   * the right call shape. Optional — absent means "unknown".
+   */
+  capabilities?: ModelCaps;
 }
 
 /**
@@ -403,6 +433,13 @@ export async function resolveLLMForRole(
     }
   }
 
+  // Step 5 — derive the SSoT wire facts (E9 · T11745). `apiMode`/`baseUrl` let
+  // the single ModelRunner construct the correct transport from descriptor data
+  // alone (codex routes purely on `apiMode === 'codex_responses'`). `authType`
+  // is surfaced from the resolved credential (or null when none).
+  const authType: 'api_key' | 'oauth' | 'aws_sdk' | null = credential?.authType ?? null;
+  const wire = deriveApiWire(provider, authType);
+
   return {
     provider,
     model,
@@ -410,6 +447,9 @@ export async function resolveLLMForRole(
     credential,
     source,
     credentialLabel: usedLabel,
+    apiMode: wire.apiMode,
+    baseUrl: wire.baseUrl,
+    authType,
   };
 }
 
