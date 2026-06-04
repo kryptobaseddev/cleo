@@ -6,13 +6,27 @@
  * escalating to the cloud (Claude Sonnet). Cold-tier uses Claude Sonnet
  * exclusively (owner-mandated, NOT Haiku).
  *
+ * ## Unified resolver convergence (T11757)
+ *
+ * Before walking the legacy fallback chain, `resolveLlmBackend` FIRST consults
+ * the unified role/profile resolver (`resolveLLMForRole('extraction')` in
+ * `../llm/role-resolver.ts`). This honours a pinned `extraction`-role profile —
+ * e.g. an openai-compatible provider (`openai`/`ollama`, optionally with a
+ * `baseUrl` override) or `anthropic` — so the sentient loop uses the SAME
+ * provider/credential machinery as the rest of CLEO. When the unified resolver
+ * yields nothing usable (no pinned profile, no credential, or a client that
+ * cannot be constructed), the call falls through to the legacy warm/cold chain
+ * below — no behavioural regression for unconfigured installs.
+ *
  * Fallback chain (warm):
+ *   0. Unified resolver (`extraction` role profile) — anthropic OR openai-compatible
  *   1. Ollama daemon running at localhost:11434 (gemma4:e4b-it or fallback model)
  *   2. @huggingface/transformers (already installed; ONNX pipeline, zero extra deps)
  *   3. Claude Sonnet via Anthropic API (cold escalation)
  *   4. null — no backend; caller must skip extraction
  *
  * Fallback chain (cold):
+ *   0. Unified resolver (`extraction` role profile)
  *   1. Claude Sonnet via Anthropic API (ANTHROPIC_API_KEY required)
  *   2. null — no API key; caller must skip extraction
  *
@@ -22,6 +36,7 @@
  * Spec reference: `docs/specs/memory-architecture-spec.md` §7
  *
  * @task T730
+ * @task T11757
  * @epic T726
  */
 
@@ -33,12 +48,17 @@ export type ExtractionTier = 'warm' | 'cold';
 /**
  * The resolved backend name. Used for telemetry and logging.
  *
- * - `ollama`       — Ollama daemon (local)
+ * - `ollama`       — Ollama daemon (local), reached via its OpenAI-compatible `/v1` shim
+ * - `openai`       — an OpenAI-compatible provider resolved from the unified
+ *                    role/profile resolver (T11757) — covers a pinned `openai`
+ *                    profile, including one whose `baseUrl` points at a local
+ *                    server. `ollama` is reported separately when the unified
+ *                    profile provider is literally `ollama`.
  * - `transformers` — @huggingface/transformers ONNX pipeline (local, in-process)
- * - `anthropic`    — Claude Sonnet via Anthropic API (cloud)
+ * - `anthropic`    — Claude (Sonnet) via Anthropic API (cloud)
  * - `none`         — No backend available; extraction must be skipped
  */
-export type ExtractionBackendName = 'ollama' | 'transformers' | 'anthropic' | 'none';
+export type ExtractionBackendName = 'ollama' | 'openai' | 'transformers' | 'anthropic' | 'none';
 
 /**
  * Resolved backend descriptor returned by `resolveLlmBackend`.
@@ -106,6 +126,15 @@ const TRANSFORMERS_FALLBACK_MODEL = 'onnx-community/Qwen2.5-0.5B-Instruct' as co
  * ```
  */
 export async function resolveLlmBackend(tier: ExtractionTier): Promise<ResolvedBackend | null> {
+  // 0. Unified convergence (T11757): honour a pinned `extraction`-role profile
+  //    from the unified role/profile resolver before any legacy chain. This is
+  //    what makes the sentient loop use the SAME provider/credential machinery
+  //    as every other LLM call-site (so a pinned codex/openai/ollama/anthropic
+  //    profile is reachable). Returns null when nothing usable is configured —
+  //    then we fall through to the legacy warm/cold chain below.
+  const unifiedBackend = await tryUnifiedResolver();
+  if (unifiedBackend) return unifiedBackend;
+
   if (tier === 'warm') {
     // 1. Try Ollama (best local quality, GPU-accelerated if available)
     const ollamaBackend = await tryOllama();
@@ -260,6 +289,120 @@ async function tryAnthropic(modelId: string): Promise<ResolvedBackend | null> {
       name: 'anthropic',
       modelId,
     };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Default OpenAI-compatible base URL for the local Ollama daemon (T11757).
+ *
+ * Ollama exposes an OpenAI-compatible surface under `/v1`. The provider-registry
+ * profile records the bare host (`http://localhost:11434`); the unified backend
+ * path appends `/v1` so `createOpenAICompatible` can speak the OpenAI wire shape.
+ */
+const OLLAMA_OPENAI_COMPAT_BASE_URL = 'http://localhost:11434/v1' as const;
+
+/**
+ * Resolve the OpenAI-compatible base URL for a provider resolved by the unified
+ * role/profile resolver.
+ *
+ * Looks up the provider-registry profile (which carries the canonical `baseUrl`)
+ * and normalises it for the OpenAI-compatible client. For `ollama` we guarantee
+ * the `/v1` shim suffix; other openai-family providers use their registered
+ * base URL verbatim (already a `/v1`-style endpoint) and fall back to the OpenAI
+ * default when no profile is registered.
+ *
+ * @param provider - The provider id resolved by the unified resolver.
+ * @returns A base URL suitable for `createOpenAICompatible`, or `undefined`
+ *          when none can be determined (caller skips the openai-compatible path).
+ */
+async function resolveOpenAiCompatibleBaseUrl(provider: string): Promise<string | undefined> {
+  if (provider === 'ollama') {
+    return OLLAMA_OPENAI_COMPAT_BASE_URL;
+  }
+  try {
+    const { getProviderProfile } = await import('../llm/provider-registry/index.js');
+    const profile = await getProviderProfile(provider);
+    if (profile?.baseUrl) {
+      return profile.baseUrl;
+    }
+  } catch {
+    // Registry lookup failed — fall through to the openai default below.
+  }
+  if (provider === 'openai') {
+    return 'https://api.openai.com/v1';
+  }
+  return undefined;
+}
+
+/**
+ * Attempt to resolve an extraction backend via the unified role/profile resolver
+ * (`resolveLLMForRole('extraction')`) — the T11757 convergence point.
+ *
+ * This is consulted BEFORE the legacy warm/cold chain so a pinned `extraction`
+ * profile (or the unscoped default) drives the sentient loop with the same
+ * provider/credential machinery as every other CLEO LLM call-site:
+ *
+ *  - `anthropic` provider → build via `createAnthropic` (returns `name: 'anthropic'`).
+ *  - `openai` / `ollama` (openai-compatible) → build via `createOpenAICompatible`
+ *    against the resolved base URL (returns `name: 'ollama'` for ollama, else
+ *    `name: 'openai'`). An openai-family client whose key later 401s simply
+ *    fails the downstream `generateObject` call and the caller degrades — it is
+ *    NOT this resolver's job to validate the credential live.
+ *
+ * Returns `null` (so the caller falls through to the legacy chain) when:
+ *  - the resolver throws or yields no usable provider, OR
+ *  - no credential is reachable for the resolved provider, OR
+ *  - the provider is not one we can wire here (e.g. a transport-only provider).
+ *
+ * NOTE: codex's ChatGPT-backend transport is intentionally NOT handled here
+ * (tracked separately as T11767). A codex/openai profile resolves through the
+ * openai-compatible path; if its client cannot authenticate it falls through to
+ * the warm chain rather than crashing.
+ *
+ * @task T11757
+ */
+async function tryUnifiedResolver(): Promise<ResolvedBackend | null> {
+  try {
+    const { resolveLLMForRole } = await import('../llm/role-resolver.js');
+    const resolved = await resolveLLMForRole('extraction');
+
+    // No credential reachable → let the legacy chain try local backends.
+    const apiKey = resolved.credential?.apiKey ?? null;
+
+    if (resolved.provider === 'anthropic') {
+      if (!apiKey) return null;
+      const { createAnthropic } = await import('@ai-sdk/anthropic');
+      const anthropicProvider = createAnthropic({ apiKey });
+      return {
+        model: anthropicProvider(resolved.model),
+        name: 'anthropic',
+        modelId: resolved.model,
+      };
+    }
+
+    if (resolved.provider === 'openai' || resolved.provider === 'ollama') {
+      const baseURL = await resolveOpenAiCompatibleBaseUrl(resolved.provider);
+      if (!baseURL) return null;
+      // Local Ollama needs no key; remote openai-compatible servers do. Use an
+      // empty placeholder when none is configured so the local path still works
+      // (mirrors tryOllama, which sends no Authorization for localhost).
+      const { createOpenAICompatible } = await import('@ai-sdk/openai-compatible');
+      const provider = createOpenAICompatible({
+        baseURL,
+        name: resolved.provider,
+        ...(apiKey ? { apiKey } : {}),
+      });
+      return {
+        model: provider(resolved.model),
+        name: resolved.provider === 'ollama' ? 'ollama' : 'openai',
+        modelId: resolved.model,
+      };
+    }
+
+    // Provider not wireable here (transport-only) — fall through to legacy chain.
+    return null;
   } catch {
     return null;
   }
