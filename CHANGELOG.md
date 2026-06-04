@@ -1,5 +1,21 @@
 # Changelog
 
+## [2026.6.6] (2026-06-04)
+
+### Added
+
+- CI Gate 13 — LLM Chokepoint Guard: forbids LLM resolution + client/transport construction outside the single `ModelRunner` chokepoint that PR #954 established (six baselined rule classes; baseline mode like Gate 3). _(provenance: [T11783](https://github.com/kryptobaseddev/cleo/search?q=T11783&type=commits); [#956](https://github.com/kryptobaseddev/cleo/pull/956))_
+
+### Changed
+
+- Migrate the remaining LLM consumers (`role-executor`, `auxiliary-fallback`, `llm-stream`) onto the single `ModelRunner`, collapsing four inline transport branches into one `deriveApiWire` + `buildTransportFromCredential` call. _(provenance: [T11745](https://github.com/kryptobaseddev/cleo/search?q=T11745&type=commits); [#957](https://github.com/kryptobaseddev/cleo/pull/957))_
+
+### Fixed
+
+- Centralize the Anthropic OAuth `anthropic-beta` header in `ModelRunner`, fixing a latent gap where the `session-factory`/`auxiliary-fallback` OAuth path omitted the required header (silent 401s). _(provenance: [T11745](https://github.com/kryptobaseddev/cleo/search?q=T11745&type=commits); [#957](https://github.com/kryptobaseddev/cleo/pull/957))_
+- Exodus `verifyMigration` now applies source-side coercion (epoch/enum/clamp) so equal data digests equal — eliminating the false `hashMatch` mismatch that aborted an otherwise-lossless cutover. A real-data nexus/signaldock audit found zero enum drift. _(provenance: [T11809](https://github.com/kryptobaseddev/cleo/search?q=T11809&type=commits); [#958](https://github.com/kryptobaseddev/cleo/pull/958))_
+- Release reconcile provenance backfill inserts FK-ordered and skips-with-warn for the post-cutover bare-`tasks` split-brain, so the 11 provenance tables backfill and changesets archive (DHQ-051). _(provenance: [T11659](https://github.com/kryptobaseddev/cleo/search?q=T11659&type=commits); [#959](https://github.com/kryptobaseddev/cleo/pull/959))_
+
 ## [2026.6.5] (2026-06-04)
 
 ### Added
