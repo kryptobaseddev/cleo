@@ -78,6 +78,7 @@ import type { VerifyMigrationResult } from '@cleocode/contracts';
 import { getLogger } from '../../logger.js';
 import type { DualScope } from '../dual-scope-db.js';
 import { withLock } from '../lock.js';
+import { archiveMigratedSources, hasExodusCompleteMarker } from './archive.js';
 
 const log = getLogger('exodus-on-open');
 
@@ -379,6 +380,18 @@ export async function maybeRunExodusOnOpen(
     return { outcome: 'skipped', reason: 'CLEO_DISABLE_EXODUS_ON_OPEN set' };
   }
 
+  // Completion-marker gate (T11777): once this scope's cutover is recorded, the
+  // migration has already happened and the legacy sources have been archived.
+  // Gate on the committed MARKER rather than (only) the source-file existsSync,
+  // so a re-appearing or stranded legacy DB can NEVER re-arm exodus-on-open even
+  // if the consolidated base table momentarily reads empty (DHQ-052 · T11662).
+  if (hasExodusCompleteMarker(scope, cwd)) {
+    return {
+      outcome: 'skipped',
+      reason: 'exodus completion marker present — scope already migrated (cutover sealed)',
+    };
+  }
+
   // Fast path (unlocked): if the consolidated DB already has data, nothing to do.
   // This makes the second-open case a cheap COUNT(*) with no lock acquisition.
   if (!consolidatedIsEmpty(nativeDb, scope)) {
@@ -513,6 +526,31 @@ export async function maybeRunExodusOnOpen(
           { scope, rowsCopied, tables: migrateResult.tables.length },
           'exodus-on-open: parity verified — legacy data migrated into consolidated cleo.db',
         );
+
+        // T11777: parity passed — ARCHIVE the consumed legacy sources (+ sidecars)
+        // into the per-scope `_archive/` dir and write a committed completion
+        // marker. `runExodusMigrate` consolidates BOTH scopes once triggered, so
+        // archive every source that was present at migration time (the validated,
+        // consumed fleet). Reversible (move, never delete) + idempotent. A failure
+        // here must NOT undo a verified migration — the cutover already succeeded —
+        // so it is logged but does not flip the outcome to 'aborted'.
+        try {
+          const consumed = plan.sources.filter((s) => existsSync(s.path));
+          const archiveResult = archiveMigratedSources(consumed, cwd);
+          log.info(
+            {
+              scope,
+              archived: archiveResult.sources.filter((s) => s.action === 'archived').length,
+              markersWritten: archiveResult.markersWritten,
+            },
+            'exodus-on-open: archived legacy sources + sealed completion marker(s)',
+          );
+        } catch (err) {
+          log.error(
+            { err, scope },
+            'exodus-on-open: post-migration archive/marker step failed (migration itself succeeded — legacy DBs left in place, will be re-checked by `cleo doctor exodus-residue`)',
+          );
+        }
 
         return {
           outcome: 'migrated',

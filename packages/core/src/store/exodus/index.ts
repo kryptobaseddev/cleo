@@ -9,6 +9,20 @@
  * @saga T11242
  */
 
+export {
+  type ArchivedSourceResult,
+  type ArchiveMigratedSourcesResult,
+  archiveMigratedSources,
+  archiveSourceDb,
+  archiveStrandedResidue,
+  detectStrandedResidue,
+  type ExodusCompleteMarker,
+  exodusArchiveDir,
+  exodusMarkerPath,
+  hasExodusCompleteMarker,
+  type StrandedResidueEntry,
+  writeExodusCompleteMarker,
+} from './archive.js';
 export { clearExodusJournal, runExodusMigrate } from './migrate.js';
 export { buildExodusPlan, deriveStagingDirName, sourcesPresent } from './plan.js';
 export { runExodusStatus } from './status.js';

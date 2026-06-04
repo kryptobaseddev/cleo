@@ -30,6 +30,7 @@ import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
 import { createDoctorProgress } from '../progress.js';
 import { cliError, cliOutput, humanLine } from '../renderers/index.js';
 import { doctorDbSubstrateCommand } from './doctor-db-substrate.js';
+import { doctorExodusResidueCommand } from './doctor-exodus-residue.js';
 import { doctorLegacyBackupsCommand } from './doctor-legacy-backups.js';
 import { runDoctorProjects } from './doctor-projects.js';
 import { doctorReleaseReadinessCommand } from './doctor-release-readiness.js';
@@ -231,6 +232,8 @@ export const doctorCommand = defineCommand({
     'db-substrate': doctorDbSubstrateCommand,
     // T10309 / Saga T10281 / Epic T10282 — Legacy-backup walker
     'legacy-backups': doctorLegacyBackupsCommand,
+    // T11777 / Saga T11242 / Epic T11249 — exodus stranded-residue check (+ --fix)
+    'exodus-residue': doctorExodusResidueCommand,
     // T10458 / Saga T10431 / Epic T10436 — Release-readiness preflight
     'release-readiness': doctorReleaseReadinessCommand,
   },
