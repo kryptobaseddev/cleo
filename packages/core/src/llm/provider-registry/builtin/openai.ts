@@ -59,15 +59,27 @@ const OPENAI_CODEX_OAUTH: ProviderOAuthConfig = {
 /**
  * OpenAI / Codex provider profile.
  *
- * `defaultModel` is the Codex coding model; override per-credential with
- * `cleo llm use openai --model <m>` or `cleo llm profile <role> openai --model <m>`.
+ * `defaultModel` is a static FALLBACK used when no live catalog snapshot is
+ * available (i.e. before `cleo llm refresh-catalog` has been run). At runtime,
+ * `cleo llm use openai` / `cleo llm profile <role> openai` derive the default
+ * from the live catalog via `resolveProviderDefaultModel` and validate any
+ * explicit `--model` against `validateModelForProvider` (T11773 · E8).
+ *
+ * Override per-credential:
+ *   `cleo llm use openai --model <m>`
+ *   `cleo llm profile <role> openai --model <m>`
+ *
+ * @task T11773
  */
 export const openaiProfile: ProviderProfile = {
   name: 'openai',
   displayName: 'OpenAI Codex (ChatGPT)',
   authTypes: ['api_key', 'oauth'],
   baseUrl: 'https://api.openai.com/v1',
-  defaultModel: 'gpt-5-codex',
+  // Static fallback — catalog-driven resolver replaces this at runtime when a
+  // disk snapshot is available (T11773 · E8). Updated from stale 'gpt-5-codex'
+  // to the confirmed latest OpenAI model (catalog release_date 2026-04-23).
+  defaultModel: 'gpt-5.5',
   aliases: ['codex', 'chatgpt', 'openai-codex'],
   oauth: OPENAI_CODEX_OAUTH,
 };

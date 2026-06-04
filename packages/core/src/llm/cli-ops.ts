@@ -51,6 +51,7 @@ import {
   parseAuxiliaryFallbackChain,
   resolveAuxiliaryFallbackChain,
 } from './auxiliary-fallback.js';
+import { catalogKeyForProvider, validateModelForProvider } from './catalog-model-resolver.js';
 import { authHeaders, resolveCredentials } from './credentials.js';
 import {
   addCredential,
@@ -233,9 +234,30 @@ export async function llmRemove(params: LlmRemoveParams): Promise<EngineResult<L
 /**
  * `llm.use` — set `llm.default.{provider,model}` in the global config.
  *
+ * When `params.model` is supplied, it is validated against the live catalog
+ * (disk snapshot from `cleo llm refresh-catalog`). Unknown model IDs are
+ * rejected with `E_MODEL_NOT_IN_CATALOG`. When the catalog snapshot is absent
+ * the model is accepted with a soft warning so users are not blocked on a
+ * fresh install before they have run `cleo llm refresh-catalog`.
+ *
  * @task T9258
+ * @task T11773
  */
 export async function llmUse(params: LlmUseParams): Promise<EngineResult<LlmUseResult>> {
+  // Validate model against catalog when provided (T11773).
+  if (params.model) {
+    const catalogKey = catalogKeyForProvider(params.provider);
+    const validation = validateModelForProvider(params.model, catalogKey);
+    if (!validation.valid && validation.reason === 'not-found') {
+      return engineError(
+        'E_MODEL_NOT_IN_CATALOG',
+        `Model '${params.model}' is not in the catalog for provider '${params.provider}'. ` +
+          `Run \`cleo llm refresh-catalog\` to update the catalog, ` +
+          `then \`cleo llm list-providers\` to see available models.`,
+      );
+    }
+  }
+
   try {
     await setConfigValue('llm.default.provider', params.provider, undefined, { global: true });
     if (params.model) {
@@ -254,7 +276,14 @@ export async function llmUse(params: LlmUseParams): Promise<EngineResult<LlmUseR
 /**
  * `llm.profile` — set `llm.roles[role]` in the global config.
  *
+ * When `params.model` is supplied, it is validated against the live catalog
+ * (disk snapshot from `cleo llm refresh-catalog`). Unknown model IDs are
+ * rejected with `E_MODEL_NOT_IN_CATALOG`. When the catalog snapshot is absent
+ * the model is accepted with a soft warning so users are not blocked on a
+ * fresh install before they have run `cleo llm refresh-catalog`.
+ *
  * @task T9258
+ * @task T11773
  */
 export async function llmProfile(
   params: LlmProfileParams,
@@ -269,6 +298,21 @@ export async function llmProfile(
       `Invalid role '${params.role}'. Valid roles: ${ALL_ROLES.join(', ')}`,
     );
   }
+
+  // Validate model against catalog when provided (T11773).
+  if (params.model) {
+    const catalogKey = catalogKeyForProvider(params.provider);
+    const validation = validateModelForProvider(params.model, catalogKey);
+    if (!validation.valid && validation.reason === 'not-found') {
+      return engineError(
+        'E_MODEL_NOT_IN_CATALOG',
+        `Model '${params.model}' is not in the catalog for provider '${params.provider}'. ` +
+          `Run \`cleo llm refresh-catalog\` to update the catalog, ` +
+          `then \`cleo llm list-providers\` to see available models.`,
+      );
+    }
+  }
+
   try {
     await setConfigValue(`llm.roles.${params.role}.provider`, params.provider, undefined, {
       global: true,
