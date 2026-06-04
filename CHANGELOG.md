@@ -1,5 +1,37 @@
 # Changelog
 
+## [2026.6.4] (2026-06-04)
+
+### Added
+
+- `resolveLLMForSystem` chokepoint (E9 · SG-PROVIDER-AUTH-UNIFICATION) — the single system-of-use → profile → credential resolution path so every LLM call routes through one address-resolve seam instead of the prior 4-resolver sprawl. _(provenance: [T11749](https://github.com/kryptobaseddev/cleo/search?q=T11749&type=commits); [#945](https://github.com/kryptobaseddev/cleo/pull/945))_
+- Catalog-driven default model selection plus `profile`/`use` validation (E8) — the curated model catalog now seeds the default model and validates profile/use bindings against known capabilities. _(provenance: [T11773](https://github.com/kryptobaseddev/cleo/search?q=T11773&type=commits); [#947](https://github.com/kryptobaseddev/cleo/pull/947))_
+- Exodus now archives all six legacy databases after validation, writes a completion marker, and `cleo doctor` gained a stranded-residue check for partially-migrated projects. _(provenance: [T11777](https://github.com/kryptobaseddev/cleo/search?q=T11777&type=commits); [#949](https://github.com/kryptobaseddev/cleo/pull/949))_
+
+### Changed
+
+
+
+### Fixed
+
+- Exodus write-reliability — rollback connection isolation, `brain_weight_history` Infinity recovery, a deterministic verify digest, and non-fatal per-table handling so a single bad row no longer aborts the whole migration. Fixes the live `cleo` write-loss path this release closes. _(provenance: [T11782](https://github.com/kryptobaseddev/cleo/search?q=T11782&type=commits); [#950](https://github.com/kryptobaseddev/cleo/pull/950))_
+- `autoRecoverFromBackup` is now serialized with `withLock` plus a double-checked re-query, stopping the `cleo.db` WAL corruption that DHQ-052 hit when a project carried a `tasks.db` backup (kodomeet). _(provenance: [T11662](https://github.com/kryptobaseddev/cleo/search?q=T11662&type=commits); [#948](https://github.com/kryptobaseddev/cleo/pull/948))_
+- Anthropic OAuth `redirect_uri` consistency across the authorize/token exchange, and the real upstream error body is now surfaced instead of a generic failure. _(provenance: [T11774](https://github.com/kryptobaseddev/cleo/search?q=T11774&type=commits); [#946](https://github.com/kryptobaseddev/cleo/pull/946))_
+
+### Deprecated
+
+
+
+### Removed
+
+
+
+### Security
+
+
+
+### BREAKING CHANGES
+
 ## [2026.6.3] (2026-06-03)
 
 ### Added
