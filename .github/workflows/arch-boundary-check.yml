@@ -238,3 +238,30 @@ jobs:
           node-version: '24'
       - name: Lint contract-literal enums against canonical SSoT
         run: node scripts/lint-contract-literal-enums.mjs
+
+  llm-chokepoint-guard:
+    # Gate 13 (AGENTS.md SSoT table) · T11783 · E9 T11745 · Saga T9831 SG-ARCH-SOLID
+    #
+    # Forbids LLM resolution + client/transport construction outside the single
+    # SSoT chokepoint (resolveLLMForSystem → ModelRunner). PR #954 collapsed the
+    # four near-duplicate transport factories onto one ModelRunner; this gate
+    # makes resolver-divergence (a new call-site building its own transport / SDK
+    # client, reading process.env.*_API_KEY, or hardcoding a model literal) fail
+    # CI. Baseline mode: pre-existing call sites are pinned in
+    # scripts/.lint-llm-chokepoint-baseline.json; only NET-NEW violations fail.
+    #
+    # After migrating a call site to the chokepoint:
+    #   node scripts/lint-llm-chokepoint.mjs --update-baseline
+    #   git add scripts/.lint-llm-chokepoint-baseline.json && git commit
+    #
+    # Pure static analysis of checked-in source — no untrusted user input.
+    name: LLM Chokepoint Guard (T11745)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Lint LLM chokepoint (baseline mode)
+        run: node scripts/lint-llm-chokepoint.mjs
