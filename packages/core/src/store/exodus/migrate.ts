@@ -125,7 +125,8 @@ import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { getLogger } from '../../logger.js';
 import { getCleoVersion } from '../../scaffold/ensure-config.js';
-import { openDualScopeDb } from '../dual-scope-db.js';
+import type { DualScopeDbHandle } from '../dual-scope-db.js';
+import { openDualScopeDbAtPath } from '../dual-scope-db.js';
 import { openCleoDbSnapshot } from '../open-cleo-db.js';
 import { resolveConsolidatedTableName, resolveTableTargetScope } from './table-name-map.js';
 import type {
@@ -581,6 +582,71 @@ function enumNormExpr(targetTableName: string, col: string, srcRef: string): str
 }
 
 // ---------------------------------------------------------------------------
+// Non-finite numeric clamp layer (ROOT CAUSE fix — T11782 · FIX B)
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-(targetTable, column) numeric-clamp rules that coerce non-finite legacy
+ * REAL values (`Inf` / `-Inf` / `NaN`) to a finite in-range value so the row is
+ * NOT silently dropped by `INSERT OR IGNORE`.
+ *
+ * ## Why this exists (T11782)
+ *
+ * 188,926 of 697,780 legacy `brain_weight_history` rows carry
+ * `delta_weight = Inf`/`-Inf` (the R-STDP plasticity writer saturated the delta
+ * before the value was clamped at write time). SQLite stores ±Inf as the IEEE-754
+ * float, but the consolidated `brain_weight_history.delta_weight` column is a
+ * plain `real NOT NULL` with NO CHECK — so a verbatim copy would land the Inf
+ * value. The historical deficit, however, was that those rows tripped a constraint
+ * elsewhere in the copy chain and `INSERT OR IGNORE` dropped them, yielding a
+ * deficit that fired the parity-gate abort. Clamping the non-finite value to a
+ * finite member of the column's domain guarantees every row lands.
+ *
+ * The clamp mirrors the {@link ENUM_NORMALIZATIONS} shape: each entry is a
+ * function `(srcRef) => CASE …`. Finite values pass through unchanged via the
+ * ELSE branch. The `col != col` self-comparison is the canonical SQL NaN guard
+ * (NaN is the only value not equal to itself); `9e999` is the SQLite literal that
+ * evaluates to `+Infinity` (and `-9e999` to `-Infinity`).
+ *
+ * Lookup key: `${targetTable}.${column}` (lowercase, dotted).
+ *
+ * @since T11782 (P0 — brain_weight_history Inf recovery)
+ */
+type NumericClampFn = (srcRef: string) => string;
+
+const NUMERIC_CLAMPS: ReadonlyMap<string, NumericClampFn> = new Map([
+  // --- brain_weight_history.delta_weight (T11782) -------------------------
+  // +Inf → 1.0 (max canonical reinforcement), -Inf → -1.0 (max canonical
+  // depression), NaN → 0.0 (no-op delta). Finite values pass through.
+  [
+    'brain_weight_history.delta_weight',
+    (src: string) =>
+      `CASE` +
+      ` WHEN ${src} = 9e999 THEN 1.0` +
+      ` WHEN ${src} = -9e999 THEN -1.0` +
+      ` WHEN ${src} != ${src} THEN 0.0` +
+      ` ELSE ${src}` +
+      ` END`,
+  ],
+]);
+
+/**
+ * Return a SQL CASE expression that clamps non-finite legacy REAL values for
+ * `col` in `targetTableName` to a finite in-range value, or `null` when no
+ * clamp rule exists for this (table, column).
+ *
+ * @param targetTableName - Physical consolidated target table name.
+ * @param col             - Column name.
+ * @param srcRef          - SQL expression referencing the source column.
+ * @returns A SQL CASE expression string, or `null` if no rule applies.
+ */
+function numericClampExpr(targetTableName: string, col: string, srcRef: string): string | null {
+  const key = `${targetTableName}.${col}`;
+  const fn = NUMERIC_CLAMPS.get(key);
+  return fn ? fn(srcRef) : null;
+}
+
+// ---------------------------------------------------------------------------
 // Epoch-to-ISO coercion layer (ROOT CAUSE 1 fix — T11546)
 // ---------------------------------------------------------------------------
 
@@ -748,12 +814,15 @@ function detectIsoGlobColumns(
  *
  * 1. **Epoch→ISO-8601 coercion** (T11546): when the target has an ISO GLOB CHECK
  *    and the source column is INTEGER-typed.
- * 2. **Enum-value normalization** (T11547): when `ENUM_NORMALIZATIONS` has an
+ * 2. **Non-finite numeric clamp** (T11782): when `NUMERIC_CLAMPS` has an entry
+ *    for `(targetTableName, col)`, mapping `Inf`/`-Inf`/`NaN` to a finite in-range
+ *    value so the row is not silently dropped.
+ * 3. **Enum-value normalization** (T11547): when `ENUM_NORMALIZATIONS` has an
  *    entry for `(targetTableName, col)`, producing a SQL CASE expression that
  *    maps legacy values to canonical enum members without losing semantics.
- * 3. **NOT NULL coalesce** (T11533): for non-epoch, non-normalized columns whose
+ * 4. **NOT NULL coalesce** (T11533): for non-epoch, non-normalized columns whose
  *    target is NOT NULL with no schema default.
- * 4. **Plain column reference** otherwise.
+ * 5. **Plain column reference** otherwise.
  *
  * The epoch→ISO conversion uses `buildEpochToIsoExpr` which detects the epoch
  * scale (seconds vs milliseconds) per-row using a magnitude heuristic: values
@@ -805,7 +874,21 @@ function buildSelectExpr(
     return `${isoExpr} AS "${col}"`;
   }
 
-  // Priority 2: Enum-value normalization (T11547) — maps legacy enum values to
+  // Priority 2: Non-finite numeric clamp (T11782) — coerce Inf/-Inf/NaN legacy
+  // REAL values to a finite in-range value so the row is not silently dropped.
+  // (delta_weight is NOT NULL without a default — but the clamp always produces
+  // a non-NULL finite value for non-NULL input, so no extra COALESCE is needed;
+  // a genuinely NULL source still flows to the NOT NULL coalesce below.)
+  const clampExpr = numericClampExpr(targetTableName, col, srcRef);
+  if (clampExpr !== null) {
+    if (isNotNullWithoutDefault) {
+      const defLiteral = typeDefaultLiteral(tgtInfo.type);
+      return `COALESCE(${clampExpr}, ${defLiteral}) AS "${col}"`;
+    }
+    return `${clampExpr} AS "${col}"`;
+  }
+
+  // Priority 3: Enum-value normalization (T11547) — maps legacy enum values to
   // canonical members so CHECK constraints accept them.
   const normExpr = enumNormExpr(targetTableName, col, srcRef);
   if (normExpr !== null) {
@@ -818,8 +901,8 @@ function buildSelectExpr(
     return `${normExpr} AS "${col}"`;
   }
 
-  // Priority 3: Standard NOT NULL coalesce for non-epoch, non-normalized columns
-  // (T11533 fix preserved).
+  // Priority 4: Standard NOT NULL coalesce for non-epoch, non-clamped,
+  // non-normalized columns (T11533 fix preserved).
   if (isNotNullWithoutDefault) {
     const defLiteral = typeDefaultLiteral(tgtInfo.type);
     return `COALESCE(${srcRef}, ${defLiteral}) AS "${col}"`;
@@ -1016,13 +1099,29 @@ function copyTableFromAttached(
     );
   }
 
+  // --- Step 5d: Detect non-finite numeric-clamp columns (T11782) -----------
+  //
+  // Log which columns have a numeric clamp rule (Inf/-Inf/NaN → finite) so the
+  // recovery of otherwise-dropped rows (e.g. brain_weight_history.delta_weight)
+  // is traceable in the migration journal.
+  const clampedCols = sharedColumns.filter((col) =>
+    NUMERIC_CLAMPS.has(`${targetTableName}.${col}`),
+  );
+  if (clampedCols.length > 0) {
+    log.info(
+      { legacyTableName, targetTableName, sourceName, clampedCols },
+      `Exodus: applying non-finite numeric clamp for ${clampedCols.length} column(s) (T11782)`,
+    );
+  }
+
   // --- Step 6: Build the SELECT expression list ---
   //
   // For each shared column, `buildSelectExpr` handles (priority order):
   //   1. Epoch→ISO coercion when target has ISO GLOB CHECK and source is INTEGER (T11546)
-  //   2. Enum-value normalization for legacy values not in the consolidated CHECK (T11547)
-  //   3. COALESCE for NOT NULL target columns without schema defaults (T11533)
-  //   4. Plain column reference otherwise
+  //   2. Non-finite numeric clamp (Inf/-Inf/NaN → finite in-range) (T11782)
+  //   3. Enum-value normalization for legacy values not in the consolidated CHECK (T11547)
+  //   4. COALESCE for NOT NULL target columns without schema defaults (T11533)
+  //   5. Plain column reference otherwise
   const selectExprs = sharedColumns.map((col) => {
     const srcType = srcTypeMap.get(col) ?? '';
     const tgtInfo = tgtColMap.get(col)!;
@@ -1153,7 +1252,7 @@ export async function runExodusMigrate(
   forceCrossVersion = false,
   onProgress?: (msg: string) => void,
 ): Promise<ExodusMigrateResult> {
-  const { sources, stagingDir, diskPreflight, projectDbPath } = plan;
+  const { sources, stagingDir, diskPreflight, projectDbPath, globalDbPath } = plan;
 
   // AC8: disk pre-flight
   if (!diskPreflight) {
@@ -1202,6 +1301,18 @@ export async function runExodusMigrate(
   const allTableResults: TableCopyResult[] = [];
   const lockedPaths: string[] = [];
 
+  // FIX D (T11782): the migrate engine opens the consolidated TARGET DBs on a
+  // DEDICATED, NON-cached connection (a second SQLite handle to the same file —
+  // WAL allows it) rather than the cached caller handle. The copy AND the
+  // parity-abort rollback operate ONLY on these dedicated connections, so a
+  // concurrent caller INSERT (`tasks.add`) on its OWN cached connection is
+  // physically OUTSIDE this migration's transaction and CANNOT be rolled back
+  // with an aborted migration. The handles are closed in the `finally` below to
+  // avoid a file-descriptor leak (a dedicated handle is never evicted by the
+  // singleton cache).
+  let projectHandle: DualScopeDbHandle | null = null;
+  let globalHandle: DualScopeDbHandle | null = null;
+
   try {
     // 1. Back up existing source DBs into staging dir and acquire advisory locks
     for (const src of sources) {
@@ -1217,14 +1328,18 @@ export async function runExodusMigrate(
       lockedPaths.push(src.path);
     }
 
-    // 2. Open (or create) the consolidated target DBs via the chokepoint.
-    //    This runs Drizzle migrations to create the target schema.
-    onProgress?.('Opening consolidated project-scope cleo.db (running migrations)…');
-    // openDualScopeDb takes cwd, not a db path — pass undefined to use process.cwd()
-    const projectHandle = await openDualScopeDb('project');
+    // 2. Open the consolidated target DBs on a DEDICATED connection via the
+    //    chokepoint (FIX D). This runs Drizzle migrations to create the target
+    //    schema on an isolated handle, NOT the cached caller handle.
+    onProgress?.('Opening DEDICATED project-scope cleo.db connection (running migrations)…');
+    projectHandle = await openDualScopeDbAtPath('project', projectDbPath, undefined, {
+      dedicated: true,
+    });
 
-    onProgress?.('Opening consolidated global-scope cleo.db (running migrations)…');
-    const globalHandle = await openDualScopeDb('global');
+    onProgress?.('Opening DEDICATED global-scope cleo.db connection (running migrations)…');
+    globalHandle = await openDualScopeDbAtPath('global', globalDbPath, undefined, {
+      dedicated: true,
+    });
 
     // Extract the raw DatabaseSync from the Drizzle wrapper ($client pattern).
     function extractNativeDb(handle: { db: unknown }): DatabaseSync {
@@ -1276,15 +1391,25 @@ export async function runExodusMigrate(
     journal.updatedAt = new Date().toISOString();
     writeJournal(stagingDir, journal);
 
-    projectHandle.close();
-    globalHandle.close();
-
     return { ok: true, tables: allTableResults, stagingDir, backupPaths };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     log.error({ err }, 'Exodus migration failed');
     return { ok: false, tables: allTableResults, stagingDir, backupPaths, error };
   } finally {
+    // FIX D (T11782): always close the DEDICATED migrate connections (success OR
+    // failure) so the second SQLite handle does not leak a file descriptor. A
+    // dedicated handle is never cached, so this is the only thing that closes it.
+    try {
+      projectHandle?.close();
+    } catch {
+      // ignore double-close
+    }
+    try {
+      globalHandle?.close();
+    } catch {
+      // ignore double-close
+    }
     // Release advisory locks
     for (const p of lockedPaths) {
       releaseAdvisoryLock(p);
@@ -1441,10 +1566,21 @@ async function migrateScope(
                 errorMsg = copyResult.reason;
                 skipped = true;
               } else if (copyResult.reason) {
-                // No-swallow error: all rows dropped by a constraint (T11546).
-                // The table is NOT skipped (copy was attempted) but the result
-                // must be surfaced as an error, not a silent 0-row success.
-                status = 'skipped'; // Mark skipped so journal doesn't say "done" on 0 rows
+                // No-swallow error: rows dropped by a constraint (T11546). The
+                // copy WAS attempted (skipped stays false) and the deficit MUST be
+                // surfaced — never a silent 0-row "done". (T11782 · FIX C.)
+                //
+                // Record `partial` rather than `skipped`: the table is neither
+                // intentionally excluded nor cleanly complete. `partial` keeps the
+                // journal honest (a resume re-copies; it never masquerades as
+                // `done`) WITHOUT, by itself, tripping a scope-wide rollback at
+                // this layer. A genuine deficit on a data-bearing BASE table still
+                // ABORTS the cutover downstream: the parity gate
+                // (`isDataContinuityOk` via `verifyMigration`) compares row counts
+                // and fails on any `targetCount < sourceCount` deficit regardless
+                // of journal status. With FIX B (Inf clamp) this branch should
+                // rarely fire — it is belt-and-suspenders.
+                status = 'partial';
                 errorMsg = copyResult.reason;
                 // skipped stays false — the distinction is the reason field (data loss vs intentional skip)
               }

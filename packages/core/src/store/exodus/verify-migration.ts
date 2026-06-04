@@ -138,8 +138,19 @@ function computeTableDigest(
     return { count: 0, hash: '' };
   }
 
+  // Canonicalise each row's property order before hashing (T11782 · FIX A).
+  //
+  // `JSON.stringify(row)` serialises object keys in the SQLite driver's row
+  // property-insertion order, which is NOT guaranteed identical between the
+  // SOURCE snapshot and the TARGET snapshot for the same logical row (the two
+  // handles may materialise columns in a different order). Identical data would
+  // then digest to a DIFFERENT hash, producing a false `hashMatch === false`
+  // and — historically — false-negative aborts. Passing the SORTED key array as
+  // `JSON.stringify`'s `replacer` forces a canonical, order-independent
+  // serialisation so identical rows always digest identically.
   for (const row of rows) {
-    hasher.update(JSON.stringify(row));
+    const rowObj = row as Record<string, unknown>;
+    hasher.update(JSON.stringify(rowObj, Object.keys(rowObj).sort()));
   }
 
   return {
