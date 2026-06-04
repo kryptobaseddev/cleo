@@ -1,5 +1,33 @@
 # Changelog
 
+## [2026.6.5] (2026-06-04)
+
+### Added
+
+- Converge the sentient loop onto the unified resolver plus warm-tier local Ollama — turns the dormant dialectic loop ON (Ollama now; codex once T11767 lands). _(provenance: [T11757](https://github.com/kryptobaseddev/cleo/search?q=T11757&type=commits); [#952](https://github.com/kryptobaseddev/cleo/pull/952))_
+
+### Changed
+
+
+
+### Fixed
+
+
+
+### Deprecated
+
+
+
+### Removed
+
+
+
+### Security
+
+
+
+### BREAKING CHANGES
+
 ## [2026.6.4] (2026-06-04)
 
 ### Added
