@@ -1,3 +1,8 @@
+> [!WARNING] RETIRED — superseded by the canonical North Star.
+> This document is **historical, non-canonical**, and pending distillation review (T11675 / saga T11778 SG-DOCS-VAULT-SSOT). It is NOT a source of truth.
+> **Canonical now:** the North Star — vault `projects/cleo/concepts/north-star.md` and `cleo docs fetch cleo-canonical-north-star`.
+> **SSoT model:** `cleo docs fetch docs-ssot-vault-reconciliation` (ratified 2026-06-04). Naming/themes worth keeping will be distilled into the SSoT before this file is retired.
+
 # CLEO Prime — Canonical Sentient Master Plan
 
 > **Canonical**: this document supersedes `~/.claude/plans/dreamy-yawning-pinwheel.md` and `~/.claude/plans/i-know-there-was-sequential-elephant.md`, merging both into a single layered roadmap.
