@@ -246,6 +246,9 @@ export {
   StructuredOutputError,
   validateStructuredOutput,
 } from './structured-output.js';
+// E9 System-of-Use chokepoint (T11749)
+export type { ResolvedLLMForSystem } from './system-resolver.js';
+export { resolveLLMForSystem } from './system-resolver.js';
 // Transports (Phase-4/5 LlmTransport implementations)
 export type { AnthropicTransportOptions } from './transports/anthropic.js';
 export { AnthropicTransport } from './transports/anthropic.js';
