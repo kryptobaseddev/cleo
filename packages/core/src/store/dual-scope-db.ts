@@ -100,6 +100,25 @@ export interface DualScopeDbHandle<TScope extends DualScope = DualScope> {
   close(): void;
 }
 
+/**
+ * Options for {@link openDualScopeDbAtPath}.
+ *
+ * @task T11782 (FIX D — dedicated migrate connection)
+ */
+export interface OpenDualScopeAtPathOptions {
+  /**
+   * When `true`, open a DEDICATED, NON-cached connection — a second SQLite
+   * handle to the same file, independent of the singleton `_cache`. Used by the
+   * exodus migrate engine so its copy + rollback transactions are isolated from
+   * the caller's cached handle (and any concurrent task INSERTs sharing it). The
+   * returned handle's `close()` closes only the native connection and never
+   * mutates the cache; the caller MUST close it to avoid a descriptor leak.
+   *
+   * @default false
+   */
+  readonly dedicated?: boolean;
+}
+
 // ── Internal singleton state ─────────────────────────────────────────────────
 
 /** Cache key = `${scope}::${dbPath}` */
@@ -263,6 +282,75 @@ export async function openDualScopeDb(scope: DualScope, cwd?: string): Promise<D
 }
 
 /**
+ * Open a DEDICATED, NON-cached consolidated dual-scope `cleo.db` connection
+ * (T11782 · FIX D).
+ *
+ * This opens a fresh `DatabaseSync` to `dbPath`, applies the canonical pragmas,
+ * wraps it in Drizzle, reconciles + runs migrations, and returns a handle whose
+ * `close()` ONLY closes the native connection — it never reads or mutates the
+ * singleton `_cache`. WAL mode permits this second connection to coexist with
+ * the cached caller handle on the same file. The exodus migrate engine uses this
+ * so its bulk-copy + parity-abort rollback transactions are physically isolated
+ * from the caller's connection (and any concurrent task INSERTs sharing it).
+ *
+ * @param scope  - The consolidated schema scope.
+ * @param dbPath - Absolute path to the consolidated `cleo.db` file.
+ * @param log    - The module logger.
+ * @returns A typed {@link DualScopeDbHandle} backed by a dedicated connection.
+ *
+ * @task T11782 (FIX D — rollback connection isolation)
+ */
+async function openDedicatedDualScopeDb(
+  scope: DualScope,
+  dbPath: string,
+  log: ReturnType<typeof getLogger>,
+): Promise<DualScopeDbHandle> {
+  log.debug({ scope, dbPath }, 'opening DEDICATED (non-cached) dual-scope cleo.db (T11782 FIX D)');
+
+  // Ensure the directory exists before opening.
+  const dir = dirname(dbPath);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+
+  const DatabaseSyncCtor = getDatabaseSyncCtor();
+  const nativeDb = new DatabaseSyncCtor(dbPath, { allowExtension: true });
+
+  applyPerfPragmas(nativeDb);
+
+  const schema = scope === 'project' ? await loadProjectSchema() : await loadGlobalSchema();
+  const drizzle = getDrizzle();
+  // biome-ignore lint/suspicious/noExplicitAny: schema type is scope-specific; typed via DualScopeDbHandle<TScope>
+  const db = drizzle({ client: nativeDb, schema }) as NodeSQLiteDatabase<any>;
+
+  const migrationsFolder = resolveCorePackageMigrationsFolder(migrationsSetName(scope));
+  reconcileJournal(nativeDb, migrationsFolder, existenceTable(scope), `dual-scope-db[${scope}]`);
+  migrateWithRetry(
+    db,
+    migrationsFolder,
+    nativeDb,
+    existenceTable(scope),
+    `dual-scope-db[${scope}]`,
+  );
+
+  log.debug({ scope, dbPath }, 'DEDICATED dual-scope cleo.db ready (T11782 FIX D)');
+
+  return {
+    db,
+    scope,
+    dbPath,
+    close() {
+      // Dedicated handles are never cached — close only the native connection.
+      try {
+        nativeDb.close();
+      } catch {
+        // Idempotent — ignore double-close errors.
+      }
+    },
+  };
+}
+
+/**
  * Open (or re-use) a consolidated dual-scope `cleo.db` at an EXPLICIT path,
  * bypassing the scope→path resolver.
  *
@@ -293,11 +381,13 @@ export async function openDualScopeDbAtPath(
   scope: 'project',
   dbPath: string,
   exodusCwd?: string,
+  options?: OpenDualScopeAtPathOptions,
 ): Promise<DualScopeDbHandle<'project'>>;
 export async function openDualScopeDbAtPath(
   scope: 'global',
   dbPath: string,
   exodusCwd?: string,
+  options?: OpenDualScopeAtPathOptions,
 ): Promise<DualScopeDbHandle<'global'>>;
 export async function openDualScopeDbAtPath(
   scope: DualScope,
@@ -310,19 +400,36 @@ export async function openDualScopeDbAtPath(
    * never auto-migrate an isolated fixture DB.
    */
   exodusCwd?: string,
+  options?: OpenDualScopeAtPathOptions,
 ): Promise<DualScopeDbHandle> {
+  const dedicated = options?.dedicated === true;
   const key = cacheKey(scope, dbPath);
 
-  // Return cached handle if available and not mid-init.
-  const existing = _cache.get(key);
-  if (existing) {
-    if (existing.initPromise) {
-      return existing.initPromise;
+  // A DEDICATED open (T11782 · FIX D) bypasses the singleton cache entirely: it
+  // opens a SECOND SQLite connection to the same file (WAL allows concurrent
+  // connections) so the exodus migrate engine can copy + (on abort) truncate on
+  // an ISOLATED handle. The caller's cached handle — shared by concurrent task
+  // INSERTs — is a physically distinct connection, so the migration's rollback
+  // can only ever truncate its OWN connection's transaction, never the caller's
+  // concurrent writes. The returned handle's `close()` only closes the native
+  // connection; it never touches `_cache`. Callers MUST close it after use to
+  // avoid a file-descriptor leak.
+  if (!dedicated) {
+    // Return cached handle if available and not mid-init.
+    const existing = _cache.get(key);
+    if (existing) {
+      if (existing.initPromise) {
+        return existing.initPromise;
+      }
+      return existing.handle;
     }
-    return existing.handle;
   }
 
   const log = getLogger('dual-scope-db');
+
+  if (dedicated) {
+    return openDedicatedDualScopeDb(scope, dbPath, log);
+  }
 
   // Create a placeholder entry so concurrent callers wait for the same init.
   const initPromise: Promise<DualScopeDbHandle> = (async (): Promise<DualScopeDbHandle> => {

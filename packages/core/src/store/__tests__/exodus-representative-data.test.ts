@@ -86,6 +86,7 @@ describe('exodus real-data parity gate (T11551 · DHQ-045)', () => {
 
     vi.mock('../dual-scope-db.js', () => ({
       openDualScopeDb: vi.fn(),
+      openDualScopeDbAtPath: vi.fn(),
       resolveDualScopeDbPath: vi.fn(),
     }));
     const dualScope = await import('../dual-scope-db.js');
@@ -93,6 +94,15 @@ describe('exodus real-data parity gate (T11551 · DHQ-045)', () => {
       scope === 'project'
         ? Promise.resolve(makeFakeHandle(projectDb) as never)
         : Promise.resolve(makeFakeHandle(globalDb) as never),
+    );
+    // T11782 (FIX D): runExodusMigrate opens the TARGET DBs on a dedicated
+    // connection via openDualScopeDbAtPath. Wire it to the fixture handles
+    // (keyed by the fixture path the engine passes).
+    vi.mocked(dualScope.openDualScopeDbAtPath).mockImplementation(
+      (scope: string, dbPath: string) => {
+        const native = dbPath === fx.globalDbPath || scope === 'global' ? globalDb : projectDb;
+        return Promise.resolve(makeFakeHandle(native) as never);
+      },
     );
     vi.mocked(dualScope.resolveDualScopeDbPath).mockImplementation((scope: string) =>
       scope === 'project' ? fx.projectDbPath : fx.globalDbPath,

@@ -99,6 +99,14 @@ async function armFixture(
       ? Promise.resolve(makeFakeHandle(projectDb) as never)
       : Promise.resolve(makeFakeHandle(globalDb) as never),
   );
+  // T11782 (FIX D): runExodusMigrate + the abort rollback now open the TARGET
+  // DBs on a DEDICATED connection via openDualScopeDbAtPath. Wire it to the same
+  // fixture handles so the real migrate/rollback engines exercise the fixture
+  // target DBs (keyed by the fixture path the engine passes).
+  vi.mocked(dualScope.openDualScopeDbAtPath).mockImplementation((scope: string, dbPath: string) => {
+    const native = dbPath === fx.globalDbPath || scope === 'global' ? globalDb : projectDb;
+    return Promise.resolve(makeFakeHandle(native) as never);
+  });
   vi.mocked(dualScope.resolveDualScopeDbPath).mockImplementation((scope: string) =>
     scope === 'project' ? fx.projectDbPath : fx.globalDbPath,
   );
@@ -138,6 +146,7 @@ vi.mock('../dual-scope-db.js', async (importOriginal) => {
   return {
     ...actual,
     openDualScopeDb: vi.fn(),
+    openDualScopeDbAtPath: vi.fn(),
     resolveDualScopeDbPath: vi.fn(),
   };
 });

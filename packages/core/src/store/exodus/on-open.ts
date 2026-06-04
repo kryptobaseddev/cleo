@@ -138,25 +138,28 @@ function consolidatedIsEmpty(nativeDb: DatabaseSync, scope: DualScope): boolean 
 }
 
 /**
- * Roll a half-migrated consolidated `cleo.db` back to EMPTY **in place**, on the
- * caller's live handle — without closing the handle or deleting the file.
+ * Roll a half-migrated consolidated `cleo.db` back to EMPTY on the given native
+ * handle — without deleting the file.
  *
- * Called on a parity-failure abort. `runExodusMigrate` writes into the SAME
- * cached native handle the chokepoint caller is using (the cache is keyed by
- * path), so we must NOT close it or unlink the file out from under the caller
- * (`getBrainDb`/`ensureConduitDb` would then hit "database is not open"). Instead
- * we `DELETE FROM` every user table inside a single transaction with foreign
- * keys OFF, restoring the post-migration *empty* schema. The caller then
- * proceeds with an empty `cleo.db` and the legacy DBs remain the source of
- * truth — exactly the AC2 "no half-migrated cleo.db" contract, achieved without
- * destroying the open handle.
+ * Called on a parity-failure abort. As of T11782 (FIX D) the handle passed here
+ * is a DEDICATED, NON-cached connection opened by {@link rollbackBothScopes}, NOT
+ * the cached caller handle. This is critical: a scope-wide `DELETE FROM` on the
+ * CALLER's connection would roll back any concurrent task INSERT (`tasks.add`)
+ * issued on that same connection during the migrate window. Truncating on an
+ * isolated connection limits the blast radius to the migration's own writes —
+ * the caller's concurrent INSERT on its own connection survives. We `DELETE FROM`
+ * every user table inside a single transaction with foreign keys OFF, restoring
+ * the post-migration *empty* schema, so the legacy DBs remain the source of
+ * truth — exactly the AC2 "no half-migrated cleo.db" contract. The file is never
+ * unlinked; the caller's (separate) cached handle stays valid and sees the
+ * committed empty state on its next read (WAL).
  *
  * The schema (tables, indexes, drizzle journal) is preserved; only data rows are
  * removed. Idempotent and best-effort: a failure to clear one table is logged
  * but does not throw (the next open's emptiness check still sees a populated
  * base table and could re-attempt, which is acceptable — it will re-abort).
  *
- * @param nativeDb - The live consolidated handle to truncate.
+ * @param nativeDb - The dedicated consolidated connection to truncate.
  * @param scope    - Scope label for logging.
  */
 function rollbackConsolidatedToEmpty(nativeDb: DatabaseSync, scope: DualScope): void {
@@ -204,24 +207,43 @@ function rollbackConsolidatedToEmpty(nativeDb: DatabaseSync, scope: DualScope): 
 /**
  * Roll BOTH consolidated scopes back to empty after a failed auto-migration.
  *
- * IMPORTANT: `runExodusMigrate` closes the dual-scope handles it opened (and
- * evicts them from the chokepoint cache) when it finishes — including on
- * failure. Any `nativeDb` reference captured before the migrate ran is therefore
- * already CLOSED, so we must NOT operate on it. Instead we re-open each scope
- * fresh from the chokepoint (a cache-miss → a new live handle on the same
- * on-disk file, which still holds the half-migrated rows) and truncate THAT.
- * `_exodusInProgress` is still `true`, so the re-opens do not recurse into the
- * hook.
+ * ## Connection isolation (T11782 · FIX D)
  *
- * @param scope - The scope being opened (logging context only; both scopes are
- *   cleared because `runExodusMigrate` populates both).
+ * The rollback opens each scope on a DEDICATED, NON-cached connection (a second
+ * SQLite handle to the same file — WAL allows it) and truncates THAT, NEVER the
+ * cached caller handle. This is the load-bearing half of the write-reliability
+ * fix: a scope-wide `DELETE FROM`/`BEGIN…COMMIT` on the CALLER's shared
+ * connection would sweep away any concurrent task INSERT (`tasks.add`) issued on
+ * that same connection during the migrate window. Truncating on an isolated
+ * connection means the abort can only ever clear the migration's own writes; a
+ * caller's concurrent INSERT on its own connection is physically outside this
+ * rollback's transaction and survives.
+ *
+ * `runExodusMigrate` already closed its dedicated migrate connections by the
+ * time we get here, so the rows it wrote are still on disk; we re-open a fresh
+ * dedicated connection per scope and truncate. `_exodusInProgress` is still
+ * `true`, so these opens do not recurse into the hook (dedicated opens never arm
+ * exodus-on-open anyway).
+ *
+ * @param scope         - The scope being opened (logging context only; both
+ *   scopes are cleared because `runExodusMigrate` populates both).
+ * @param projectDbPath - Absolute path to the consolidated project `cleo.db`.
+ * @param globalDbPath  - Absolute path to the consolidated global `cleo.db`.
  */
-async function rollbackBothScopes(scope: DualScope): Promise<void> {
-  const { openDualScopeDb } = await import('../dual-scope-db.js');
+async function rollbackBothScopes(
+  scope: DualScope,
+  projectDbPath: string,
+  globalDbPath: string,
+): Promise<void> {
+  const { openDualScopeDbAtPath } = await import('../dual-scope-db.js');
   for (const s of ['project', 'global'] as const) {
+    const path = s === 'project' ? projectDbPath : globalDbPath;
+    let handle: { db: unknown; close(): void } | null = null;
     try {
-      const handle =
-        s === 'project' ? await openDualScopeDb('project') : await openDualScopeDb('global');
+      handle =
+        s === 'project'
+          ? await openDualScopeDbAtPath('project', path, undefined, { dedicated: true })
+          : await openDualScopeDbAtPath('global', path, undefined, { dedicated: true });
       const native = (handle.db as { $client?: DatabaseSync }).$client;
       if (native) {
         rollbackConsolidatedToEmpty(native, s);
@@ -231,6 +253,13 @@ async function rollbackBothScopes(scope: DualScope): Promise<void> {
         { err, scope: s, openingScope: scope },
         'exodus-on-open: could not roll back scope (best-effort)',
       );
+    } finally {
+      // Close the dedicated rollback connection so it does not leak a descriptor.
+      try {
+        handle?.close();
+      } catch {
+        // ignore double-close
+      }
     }
   }
 }
@@ -452,9 +481,10 @@ export async function maybeRunExodusOnOpen(
 
         if (!migrateResult.ok) {
           // Migration itself failed mid-copy — abort the cutover cleanly by
-          // rolling the consolidated tables back to empty IN PLACE (handle stays
-          // open; legacy DBs remain the source of truth).
-          await rollbackBothScopes(scope);
+          // rolling the consolidated tables back to empty on a DEDICATED
+          // connection (T11782 FIX D — caller's concurrent writes survive; legacy
+          // DBs remain the source of truth).
+          await rollbackBothScopes(scope, plan.projectDbPath, plan.globalDbPath);
           // T11572: invalidate the journal so the NEXT open re-copies instead of
           // resuming a half-done journal against the now-empty target (abort loop).
           clearExodusJournal(migrateResult.stagingDir);
@@ -489,10 +519,11 @@ export async function maybeRunExodusOnOpen(
 
         if (!isDataContinuityOk(verifyResult)) {
           // DATA LOSS (count deficit or FK orphan) → abort. Roll the half-migrated
-          // consolidated tables back to EMPTY in place so legacy remains the
-          // source of truth. Never expose a lossy consolidated DB; never close the
-          // caller's handle.
-          await rollbackBothScopes(scope);
+          // consolidated tables back to EMPTY on a DEDICATED connection (T11782
+          // FIX D) so legacy remains the source of truth AND any concurrent caller
+          // INSERT on its own connection survives. Never expose a lossy
+          // consolidated DB; never close the caller's handle.
+          await rollbackBothScopes(scope, plan.projectDbPath, plan.globalDbPath);
           // T11572: invalidate the journal so a retry re-copies (see above).
           clearExodusJournal(plan.stagingDir);
           // T11577: report only genuine DEFICITS (target < source) — a surplus

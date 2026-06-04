@@ -31,8 +31,17 @@ export interface LegacyDbDescriptor {
 /**
  * Per-table migration status tracked inside the staging journal
  * (`exodus-journal.json`).
+ *
+ * - `pending`  — not yet attempted.
+ * - `done`     — copied with no row deficit.
+ * - `skipped`  — intentionally not copied (no consolidated home, empty source, …).
+ * - `partial`  — copied, but with a KNOWN-recovered / known-lossy row deficit on
+ *   a non-data-bearing or already-reconciled table. Recorded so the table does
+ *   NOT masquerade as `done`, yet a single belt-and-suspenders deficit does not
+ *   trip a scope-wide rollback. A genuine deficit on a data-bearing BASE table
+ *   still aborts via the parity gate ({@link isDataContinuityOk}). (T11782 · FIX C.)
  */
-export type TableMigrationStatus = 'pending' | 'done' | 'skipped';
+export type TableMigrationStatus = 'pending' | 'done' | 'skipped' | 'partial';
 
 /** Journal entry for one source table. */
 export interface JournalTableEntry {
