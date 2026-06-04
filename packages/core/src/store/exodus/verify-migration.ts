@@ -53,6 +53,7 @@ import type {
 import { MIGRATION_ENUM_DRIFT_SAMPLE_LIMIT } from '@cleocode/contracts';
 import { getLogger } from '../../logger.js';
 import { openCleoDbSnapshot } from '../open-cleo-db.js';
+import { buildDigestExpr, detectIsoGlobColumns } from './column-transforms.js';
 import { resolveConsolidatedTableName, resolveTableTargetScope } from './table-name-map.js';
 import type { ExodusScope, LegacyDbDescriptor } from './types.js';
 
@@ -97,6 +98,27 @@ function orderByClause(db: DatabaseSync, tableName: string): string {
 }
 
 /**
+ * Source-side digest-transform specification (T11809 · AC2).
+ *
+ * When digesting a SOURCE table, the verifier must apply the SAME value
+ * transforms the migration applied (epoch INTEGER → ISO-8601 TEXT, legacy enum →
+ * canonical member, `Inf`/`-Inf`/`NaN` → finite) so the source digest reflects
+ * the canonical values the target actually STORES. Without it, every coerced
+ * column digests differently on the two sides — a false `hashMatch === false`
+ * that aborts an otherwise-lossless cutover.
+ *
+ * The TARGET side passes `null` (it already holds canonical values).
+ */
+interface DigestTransformSpec {
+  /** Physical consolidated target table name — the transform lookup key. */
+  readonly targetTableName: string;
+  /** Map of source column name → raw `PRAGMA table_info` type string. */
+  readonly srcTypeByCol: ReadonlyMap<string, string>;
+  /** Target columns carrying an ISO-8601 GLOB CHECK (drives epoch→ISO coercion). */
+  readonly isoGlobCols: ReadonlySet<string>;
+}
+
+/**
  * Compute an ordered canonical-JSON SHA-256 digest (32 hex chars) for all rows
  * in a table, restricted to the given column list.
  *
@@ -106,23 +128,48 @@ function orderByClause(db: DatabaseSync, tableName: string): string {
  * 4). Returns `{ count: 0, hash: '' }` for virtual tables that cannot be
  * selected from, rather than throwing.
  *
+ * ## Source-side coercion (T11809 · AC2)
+ *
+ * When `transform` is provided (SOURCE side only), each column is SELECTed
+ * through {@link buildDigestExpr} — the SAME epoch→ISO / enum-normalize /
+ * non-finite-clamp transforms the migration applied — and aliased back to its
+ * original name so the canonical-key serialisation matches the (already
+ * canonical) target row. The TARGET side passes `transform === undefined` and
+ * digests its stored values raw.
+ *
  * @param db         - Database handle to query.
  * @param tableName  - Physical table name.
  * @param columns    - Explicit column list in canonical order, or `null` for
  *   `SELECT *` (used when there is no counterpart table to intersect with).
+ * @param transform  - Source-side transform spec, or `undefined` for the raw
+ *   (target-side) digest.
  * @returns `{ count, hash }` for the table.
  */
 function computeTableDigest(
   db: DatabaseSync,
   tableName: string,
   columns: readonly string[] | null,
+  transform?: DigestTransformSpec,
 ): { count: number; hash: string } {
   const { createHash } = _require('node:crypto') as typeof import('node:crypto');
   const hasher = createHash('sha256');
 
   const orderBy = orderByClause(db, tableName);
-  const selectClause =
-    columns !== null && columns.length > 0 ? columns.map((c) => `"${c}"`).join(', ') : '*';
+  let selectClause: string;
+  if (columns !== null && columns.length > 0) {
+    selectClause = columns
+      .map((c) => {
+        if (transform === undefined) return `"${c}"`;
+        // SOURCE side: route the raw value through the SAME transform migrate
+        // applied, aliased back to `c` so the row key matches the target side.
+        const srcType = transform.srcTypeByCol.get(c) ?? '';
+        const expr = buildDigestExpr(transform.targetTableName, c, srcType, transform.isoGlobCols);
+        return `${expr} AS "${c}"`;
+      })
+      .join(', ');
+  } else {
+    selectClause = '*';
+  }
 
   let rows: unknown[];
   try {
@@ -189,6 +236,43 @@ function sharedColumnsSorted(
     return srcCols.filter((c) => tgtColSet.has(c)).sort();
   } catch {
     return null;
+  }
+}
+
+/**
+ * Build the source-side {@link DigestTransformSpec} for a source→target table
+ * pair: the source column type affinities and the target's ISO-GLOB columns,
+ * keyed by the consolidated target name (the transform lookup key).
+ *
+ * Returns `undefined` (raw digest, no transform) when the source `PRAGMA
+ * table_info` cannot be read — best-effort, biased to surfacing a real
+ * difference rather than masking one.
+ *
+ * @param srcDb           - Source database handle.
+ * @param srcTable        - Physical legacy source table name.
+ * @param tgtDb           - Target database handle (consolidated cleo.db).
+ * @param targetTableName - Physical consolidated target table name.
+ * @returns A transform spec, or `undefined` when source metadata is unavailable.
+ */
+function buildSourceDigestTransform(
+  srcDb: DatabaseSync,
+  srcTable: string,
+  tgtDb: DatabaseSync,
+  targetTableName: string,
+): DigestTransformSpec | undefined {
+  try {
+    const srcTypeByCol = new Map<string, string>(
+      (
+        srcDb.prepare(`PRAGMA table_info("${srcTable}")`).all() as Array<{
+          name: string;
+          type: string;
+        }>
+      ).map((r) => [r.name, r.type]),
+    );
+    const isoGlobCols = detectIsoGlobColumns(tgtDb, targetTableName);
+    return { targetTableName, srcTypeByCol, isoGlobCols };
+  } catch {
+    return undefined;
   }
 }
 
@@ -683,7 +767,17 @@ export function verifyMigration(
             targetSnap.db,
             targetTableName,
           );
-          const srcDigest = computeTableDigest(srcSnap.db, legacyTableName, cols);
+          // Source-side coercion spec (T11809 · AC2): digest the SOURCE through
+          // the SAME transforms migrate applied (epoch→ISO, enum-normalize,
+          // non-finite clamp) so equal logical data digests EQUAL. The target
+          // side already holds canonical values and is digested raw.
+          const srcTransform = buildSourceDigestTransform(
+            srcSnap.db,
+            legacyTableName,
+            targetSnap.db,
+            targetTableName,
+          );
+          const srcDigest = computeTableDigest(srcSnap.db, legacyTableName, cols, srcTransform);
           const tgtDigest = computeTableDigest(targetSnap.db, targetTableName, cols);
           const countMatch = srcDigest.count === tgtDigest.count;
           const hashMatch = srcDigest.hash === tgtDigest.hash;
