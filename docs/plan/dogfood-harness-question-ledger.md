@@ -919,3 +919,32 @@ Next review trigger: any `cleo session start` failing with a conflict on an orph
 - **Workload-budget (no new DHQ):** heavy parallel agent/workflow fan-out should request + be bounded by a per-workload resource budget (concurrency + aggregate RSS), arbiter-enforced — routed to **T11636** (Worker↔arbiter ResourceRequest, EP-WORKER-ISOLATION) via a relates edge from the daemon DHQ-055/T11681. Distinct from the per-daemon RSS ceiling.
 - **Task hygiene:** T11669 (E4) evidence backfilled (pr:944 across implemented/testsPassed/qaPassed) to clear a false `blocked-on-deps`; left **pending** (deferred id_token/device-code/in-flow-validation). T11672 (E7) already carries pr:943. W1–W6 dep-chain (W2-W6 → W1) applied on v2026.6.3.
 - **Owner decisions still pending (record for next session):** (1) publish surface 1-vs-4 (T11261/T11584); (2) vault security model — machine-key (ship now) vs OS-keychain vs passphrase (W4/T11689); (3) daemon restart/authority (running+capped now). Not yet queryable as BRAIN decisions — recorded via memory observe.
+
+---
+
+## Session 2026-06-04 — docs-SSoT/vault reconciliation + repo-docs cleanup (saga T11778)
+
+Reconciled 9 CORE/TOOLS friction observations against DHQ-001..058 (workflow wf_07ec95fb-00b). 2 NEW · 2 NEW-FACET · 5 DUPLICATE. Owner directive: fix the CORE harness API + TOOLS first, NOT the CLI.
+
+### DHQ-059 — exodus-on-open silently rolls back a concurrent caller's committed writes
+
+**Status: open · BLOCKING · CORE (store/exodus).** Owner surface: **T11828** (P1 bug under E2-DB-AUTHORITY T11780) · relates T11662 (DONE but RECURRED) · T11242 · T11553/T11578.
+The data-continuity net (`rollbackBothScopes`, `store/exodus/on-open.ts:487/526`, `dual-scope-db.ts:404`) truncated a concurrent caller's committed `add-batch` (8 tasks) to empty on abort while the caller op returned **success-shaped output** (`"No ids"`). An agent believes its writes persisted when they were destroyed. Distinct from DHQ-046 (migrated-but-invisible) and DHQ-053 (`--output id` projection) — this is a write-reliability/data-INTEGRITY hole. **THE headline finding.** Fix: on-open migration must take an exclusive lock OR detect+preserve concurrent inter-open writes before rollback; a rolled-back caller mutation MUST surface a non-zero error, never success.
+
+### DHQ-060 — CORE store has no corruption resilience (corrupt WAL bricks every op)
+
+**Status: open · BLOCKING · CORE (store).** Owner surface: **T11829** (P1 bug under E-AGENT-DOGFOOD-CORE-ERGONOMICS T10965) · relates T11480.
+A corrupt `cleo.db-wal` made EVERY op return `database disk image is malformed` with no graceful degradation, no self-diagnosis, and no in-harness recovery — the agent had to drop to external `sqlite3`. No prior DHQ covers runtime store-corruption resilience (045/046/052 are migration-specific). Fix: detect malformed WAL on open → auto-quarantine the corrupt sidecar + recover from `cleo backup` VACUUM-INTO snapshots; add a `cleo doctor` corruption-diagnose+repair affordance; surface a structured `E_DB_CORRUPT` envelope carrying the recovery command.
+
+### NEW-FACETs (logged under existing DHQs — no new task)
+
+- **DHQ-056 facet — `docs add` has no inline-authoring path.** A new canonical doc requires a pre-written file + owner-id (forcing a temp file, which then trips the `/tmp` `--allow-external` block, DHQ-004). Fix under **T10965**: a Core docs-write path accepting `--content`/stdin with owner auto-resolve.
+- **DHQ-052 facet — on-open re-fires full `verifyMigration` (~34s/command, no progress signal).** Even after a prior migration, every DB open re-ran full parity (the `consolidatedIsEmpty` fast-path at `on-open.ts:426` did not short-circuit the re-fire), reading as a hang. Owner surface **T11242** (perf/UX) · relates latency class T11292. Fix: short-circuit on-open once cleo.db is populated + emit a structured progress signal on long on-open ops.
+
+### DUPLICATEs (session-confirmation only — routed to existing owners)
+
+- **DHQ-057 (T11692) — CONFIRMED:** `docs add --output id` + `saga create --output id` → `"No ids"`; `session status --field /data/sessionId` → E_FIELD_NOT_FOUND (real path `data.session.*`, `sessions/index.ts:154`). No-per-op-output-schema; fix = `resultSchema` on OperationDef + `cleo <op> --describe`.
+- **DHQ-033 (T10986) — CONFIRMED:** `add --acceptance "A|B|C"` pipe-STRING vs `add-batch` acceptance JSON-ARRAY — two contracts for one concept; unify the creation paths.
+- **DHQ-017 (T10970) — CONFIRMED:** `docs fetch` returns body only as `bytesBase64` (`view.ts:134`); no decoded-text read mode; blocks the docs.read render use case. (`docs view --render markdown` partially mitigates.)
+- **DHQ-048 (T11621) — CONFIRMED:** every memory/observe (and every mutate) emits `dialectic.no_backend` WARN + SKIPS extraction (no LLM backend; owner Codex token 401'd). Dormancy fix = zero-config extraction backend; noise fix = log-level gating (DHQ-026).
+- **DHQ-047 (T11620) — CONFIRMED:** rapid unpinned `add` risks code36; pinning needs the session id but it is not reliably obtainable (compounds DHQ-057). Fix: env-first `getActiveSessionInfo` (T11620) + echo `meta.sessionId` in mutation envelopes.
