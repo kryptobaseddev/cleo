@@ -15,8 +15,14 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { catalog, registerSkillLibraryFromPath } from '@cleocode/caamp';
-import { autoRecordDispatchTokenUsage, getProjectRoot, hooks } from '@cleocode/core/internal';
+import {
+  autoRecordDispatchTokenUsage,
+  describeOperation,
+  getProjectRoot,
+  hooks,
+} from '@cleocode/core/internal';
 import { createDispatchSpinner } from '../../cli/animation-bridge.js';
+import { isDescribeMode } from '../../cli/describe-context.js';
 import { getIdempotencyKeyContext } from '../../cli/idempotency-context.js';
 import { type CliOutputOptions, cliError, cliOutput } from '../../cli/renderers/index.js';
 import { Dispatcher } from '../dispatcher.js';
@@ -209,6 +215,61 @@ export function resetCliDispatcher(): void {
 }
 
 // ---------------------------------------------------------------------------
+// --describe short-circuit (T11692 / DHQ-057)
+// ---------------------------------------------------------------------------
+
+/**
+ * When the global `--describe` flag is active, emit the operation's INPUT +
+ * OUTPUT contract as a LAFS envelope (per ADR-086: one envelope to stdout) and
+ * return `true` to signal the caller to SKIP dispatch entirely.
+ *
+ * This is the introspection affordance behind `cleo <op> --describe`: instead
+ * of running the operation, an agent receives the declared result shape and the
+ * exact valid `--field` JSON pointers (e.g. `/data/task/title`), eliminating the
+ * trial-and-error that previously produced `E_FIELD_NOT_FOUND`.
+ *
+ * @param gateway - CQRS gateway of the operation about to be dispatched.
+ * @param domain - Canonical domain of the operation.
+ * @param operation - Operation name.
+ * @param outputOpts - The caller's CLI output options (command label, etc.).
+ * @returns `true` when a describe envelope was emitted (caller must return),
+ *          `false` when normal dispatch should proceed.
+ *
+ * @task T11692
+ */
+export function maybeEmitDescribe(
+  gateway: Gateway,
+  domain: string,
+  operation: string,
+  outputOpts?: CliOutputOptions,
+): boolean {
+  if (!isDescribeMode()) return false;
+
+  const key = `${domain}.${operation}`;
+  const descriptor = describeOperation(key);
+  const command = outputOpts?.command ?? operation;
+
+  if (descriptor === null) {
+    cliOutput(
+      { operation: key, gateway, inputContract: null, outputContract: null },
+      {
+        command,
+        operation: `describe.${key}`,
+        message: `No registered operation found for "${key}".`,
+      },
+    );
+    return true;
+  }
+
+  cliOutput(descriptor, {
+    command,
+    operation: `describe.${key}`,
+    message: `Schema for ${key} (input + output). Use the outputContract.fieldPointers for --field.`,
+  });
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // Main adapter function
 // ---------------------------------------------------------------------------
 
@@ -236,6 +297,11 @@ export async function dispatchFromCli(
   params?: Record<string, unknown>,
   outputOpts?: CliOutputOptions,
 ): Promise<void> {
+  // T11692 (DHQ-057) — `--describe` short-circuit: print the op's I/O schema
+  // envelope and skip execution. Runs BEFORE the dispatcher/session is touched
+  // so introspection works with no DB or active session.
+  if (maybeEmitDescribe(gateway, domain, operation, outputOpts)) return;
+
   const dispatcher = getCliDispatcher();
   const projectRoot = getProjectRoot();
   const dispatchStart = Date.now();

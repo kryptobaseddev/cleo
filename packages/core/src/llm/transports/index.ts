@@ -11,7 +11,11 @@
  * - `codex_responses`    → {@link CodexResponsesTransport}
  * - `gemini`             → {@link GeminiTransport} (native Gemini SDK)
  * - `ollama_native`      → {@link OllamaTransport}
- * - `openai`             → {@link OpenAITransport} (native OpenAI SDK)
+ *
+ * (The legacy native-OpenAI-SDK `OpenAITransport` was removed under T11832 —
+ * it was unreachable, superseded by `ChatCompletionsTransport` on the live
+ * ModelRunner path; the `usesMaxCompletionTokens` predicate moved to
+ * `llm/model-metadata.ts`.)
  *
  * Note: `GeminiTransport` uses the native `@google/generative-ai` SDK and
  * speaks `chat_completions` when proxied via Gemini's OpenAI-compat shim,
@@ -35,5 +39,3 @@ export type { GeminiTransportOptions } from './gemini.js';
 export { GeminiTransport } from './gemini.js';
 export type { OllamaTransportOptions } from './ollama.js';
 export { OLLAMA_DEFAULT_BASE_URL, OllamaTransport } from './ollama.js';
-export type { OpenAITransportOptions } from './openai.js';
-export { OpenAITransport, usesMaxCompletionTokens } from './openai.js';

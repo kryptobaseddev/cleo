@@ -45,6 +45,7 @@ describe('LOOM auto-init on epic creation (T1634)', () => {
         title: 'My Test Epic',
         description: 'Epic created to verify LOOM auto-init',
         type: 'epic',
+        skipContainmentInvariant: true,
       },
       env.tempDir,
       accessor,
@@ -73,6 +74,7 @@ describe('LOOM auto-init on epic creation (T1634)', () => {
         title: 'Idempotent Epic',
         description: 'Testing idempotency of LOOM init',
         type: 'epic',
+        skipContainmentInvariant: true,
       },
       env.tempDir,
       accessor,
@@ -146,7 +148,12 @@ describe('LOOM auto-init on epic creation (T1634)', () => {
   it('does not initialize LOOM for non-epic tasks', async () => {
     // First create an epic parent (required in lifecycle strict mode — but config is 'off')
     const epicResult = await addTask(
-      { title: 'Parent Epic', description: 'Parent epic for hierarchy', type: 'epic' },
+      {
+        title: 'Parent Epic',
+        description: 'Parent epic for hierarchy',
+        type: 'epic',
+        skipContainmentInvariant: true,
+      },
       env.tempDir,
       accessor,
     );
@@ -229,6 +236,7 @@ describe('backfillEpicLoom (T1634)', () => {
         title: 'Already LOOMed',
         description: 'Epic that already has LOOM from addTask hook',
         type: 'epic',
+        skipContainmentInvariant: true,
       },
       env.tempDir,
       accessor,

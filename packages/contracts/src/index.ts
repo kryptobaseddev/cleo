@@ -782,6 +782,8 @@ export type {
 } from './llm/provider-profile.js';
 // === Phase 4 Unified Architecture (T9281 / ADR-072) — Resolved credential ===
 export type { ResolvedCredential } from './llm/resolved-credential.js';
+// === E9 SSoT resolution descriptor (T11745 / T11761) ===
+export type { ModelCaps, ResolvedLLMDescriptor } from './llm/resolved-descriptor.js';
 // === E9 System-of-Use chokepoint contract (T11749) ===
 export type {
   ResolveLLMForSystemOptions,
@@ -1316,6 +1318,15 @@ export type {
   OrchestrateReportGroup,
   OrchestrateReportParams,
 } from './operations/orchestrate.js';
+// === Operation Output Contracts (T11692 / DHQ-057 — per-op result shape SSoT) ===
+// OUTPUT-side mirror of the input contracts. Surfaces the LAFS envelope `data`
+// shape + valid --field JSON pointers so agents stop guessing (e.g. the real
+// pointer is /data/task/title, not /data/title).
+export type {
+  OperationOutputContract,
+  OperationOutputContractRegistry,
+} from './operations/output-contract.js';
+export { OUTPUT_CONTRACTS } from './operations/output-contracts-data.js';
 // ParamDef contract — re-exported at top level (SSoT for all operation param descriptors)
 export type {
   CittyArgDef,

@@ -161,6 +161,7 @@ describe('archiveTasks', () => {
         description: 'Parent epic task',
         type: 'epic',
         acceptance: ['manual parent AC'],
+        skipContainmentInvariant: true,
       },
       env.tempDir,
       accessor,

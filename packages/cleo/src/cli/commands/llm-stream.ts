@@ -34,19 +34,13 @@ async function buildSession(
   provider: ModelTransport,
   model: string,
 ): Promise<import('@cleocode/contracts/llm/interfaces.js').LlmSession> {
-  const [
-    { resolveCredentials },
-    { ConcreteSession },
-    { AnthropicTransport },
-    { ChatCompletionsTransport },
-    { GeminiTransport },
-  ] = await Promise.all([
-    import(/* webpackIgnore: true */ '@cleocode/core/llm/credentials.js'),
-    import(/* webpackIgnore: true */ '@cleocode/core/llm/concrete-session.js'),
-    import(/* webpackIgnore: true */ '@cleocode/core/llm/transports/anthropic.js'),
-    import(/* webpackIgnore: true */ '@cleocode/core/llm/transports/chat-completions.js'),
-    import(/* webpackIgnore: true */ '@cleocode/core/llm/transports/gemini.js'),
-  ]);
+  const [{ resolveCredentials }, { ConcreteSession }, { ModelRunner }, { deriveApiWire }] =
+    await Promise.all([
+      import(/* webpackIgnore: true */ '@cleocode/core/llm/credentials.js'),
+      import(/* webpackIgnore: true */ '@cleocode/core/llm/concrete-session.js'),
+      import(/* webpackIgnore: true */ '@cleocode/core/llm/model-runner.js'),
+      import(/* webpackIgnore: true */ '@cleocode/core/llm/api-mode.js'),
+    ]);
 
   const cred = resolveCredentials(provider);
   if (!cred.apiKey) {
@@ -56,18 +50,11 @@ async function buildSession(
     );
   }
 
-  let transport: import('@cleocode/contracts/llm/normalized-response.js').LlmTransport;
-  if (provider === 'anthropic') {
-    transport =
-      cred.authType === 'oauth'
-        ? new AnthropicTransport({ authToken: cred.apiKey })
-        : new AnthropicTransport({ apiKey: cred.apiKey });
-  } else if (provider === 'gemini') {
-    transport = new GeminiTransport({ apiKey: cred.apiKey });
-  } else {
-    transport = new ChatCompletionsTransport({ provider, apiKey: cred.apiKey });
-  }
-
+  // Single SSoT transport construction (E9 · T11745): deriveApiWire stamps the
+  // wire protocol + base URL; the one ModelRunner builds the transport for ANY
+  // provider (anthropic incl. the OAuth beta header, gemini, OpenAI-compat) —
+  // no per-provider branching here.
+  const wire = deriveApiWire(provider, cred.authType);
   const resolvedCredential: import('@cleocode/contracts/llm/resolved-credential.js').ResolvedCredential =
     {
       provider,
@@ -77,9 +64,15 @@ async function buildSession(
       expiresAt: null,
       refreshToken: null,
       extraHeaders: {},
-      baseUrl: null,
+      baseUrl: wire.baseUrl,
       awsProfile: null,
     };
+
+  const transport = ModelRunner.buildTransportFromCredential(
+    provider,
+    resolvedCredential,
+    wire.apiMode,
+  );
 
   return new ConcreteSession({ transport, model, credential: resolvedCredential });
 }

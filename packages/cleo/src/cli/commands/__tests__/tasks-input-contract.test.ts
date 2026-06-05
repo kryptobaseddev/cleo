@@ -47,6 +47,7 @@ const mockHumanWarn = vi.fn();
 
 vi.mock('../../../dispatch/adapters/cli.js', () => ({
   dispatchRaw: (...args: unknown[]) => mockDispatchRaw(...args),
+  maybeEmitDescribe: () => false,
   dispatchFromCli: (...args: unknown[]) => mockDispatchFromCli(...args),
   handleRawError: (...args: unknown[]) => mockHandleRawError(...args),
 }));

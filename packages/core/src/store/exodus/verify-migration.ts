@@ -53,6 +53,11 @@ import type {
 import { MIGRATION_ENUM_DRIFT_SAMPLE_LIMIT } from '@cleocode/contracts';
 import { getLogger } from '../../logger.js';
 import { openCleoDbSnapshot } from '../open-cleo-db.js';
+import {
+  buildDigestExpr,
+  detectIsoGlobColumns,
+  type TargetColumnInfo,
+} from './column-transforms.js';
 import { resolveConsolidatedTableName, resolveTableTargetScope } from './table-name-map.js';
 import type { ExodusScope, LegacyDbDescriptor } from './types.js';
 
@@ -97,6 +102,35 @@ function orderByClause(db: DatabaseSync, tableName: string): string {
 }
 
 /**
+ * Source-side digest-transform specification (T11809 · AC2).
+ *
+ * When digesting a SOURCE table, the verifier must apply the SAME value
+ * transforms the migration applied (epoch INTEGER → ISO-8601 TEXT, legacy enum →
+ * canonical member, `Inf`/`-Inf`/`NaN` → finite) so the source digest reflects
+ * the canonical values the target actually STORES. Without it, every coerced
+ * column digests differently on the two sides — a false `hashMatch === false`
+ * that aborts an otherwise-lossless cutover.
+ *
+ * The TARGET side passes `null` (it already holds canonical values).
+ */
+interface DigestTransformSpec {
+  /** Physical consolidated target table name — the transform lookup key. */
+  readonly targetTableName: string;
+  /** Map of source column name → raw `PRAGMA table_info` type string. */
+  readonly srcTypeByCol: ReadonlyMap<string, string>;
+  /** Target columns carrying an ISO-8601 GLOB CHECK (drives epoch→ISO coercion). */
+  readonly isoGlobCols: ReadonlySet<string>;
+  /**
+   * Map of target column name → its NOT-NULL flag + schema default + affinity
+   * (from the target `PRAGMA table_info`). Drives the NULL→NOT-NULL-default
+   * `COALESCE` substitution migrate applies, so a faithful FRESH migration that
+   * stored a type default for a NULL source value digests as a MATCH rather than
+   * a false `hashMatch === false` (T11836).
+   */
+  readonly tgtColByCol: ReadonlyMap<string, TargetColumnInfo>;
+}
+
+/**
  * Compute an ordered canonical-JSON SHA-256 digest (32 hex chars) for all rows
  * in a table, restricted to the given column list.
  *
@@ -106,55 +140,108 @@ function orderByClause(db: DatabaseSync, tableName: string): string {
  * 4). Returns `{ count: 0, hash: '' }` for virtual tables that cannot be
  * selected from, rather than throwing.
  *
+ * ## Source-side coercion (T11809 · AC2)
+ *
+ * When `transform` is provided (SOURCE side only), each column is SELECTed
+ * through {@link buildDigestExpr} — the SAME epoch→ISO / enum-normalize /
+ * non-finite-clamp transforms the migration applied — and aliased back to its
+ * original name so the canonical-key serialisation matches the (already
+ * canonical) target row. The TARGET side passes `transform === undefined` and
+ * digests its stored values raw.
+ *
  * @param db         - Database handle to query.
  * @param tableName  - Physical table name.
  * @param columns    - Explicit column list in canonical order, or `null` for
  *   `SELECT *` (used when there is no counterpart table to intersect with).
+ * @param transform  - Source-side transform spec, or `undefined` for the raw
+ *   (target-side) digest.
  * @returns `{ count, hash }` for the table.
  */
 function computeTableDigest(
   db: DatabaseSync,
   tableName: string,
   columns: readonly string[] | null,
+  transform?: DigestTransformSpec,
 ): { count: number; hash: string } {
-  const { createHash } = _require('node:crypto') as typeof import('node:crypto');
-  const hasher = createHash('sha256');
-
-  const orderBy = orderByClause(db, tableName);
-  const selectClause =
-    columns !== null && columns.length > 0 ? columns.map((c) => `"${c}"`).join(', ') : '*';
-
-  let rows: unknown[];
+  // Row count — a cheap, set-based `COUNT(*)` that never materialises rows.
+  //
+  // This is the value the data-continuity gate ({@link isDataContinuityOk})
+  // consumes to decide deficit/surplus, so it MUST stay independent of the heavy
+  // content digest below: the migrate-time verify can then pass/fail on counts
+  // alone even when the digest is large or streaming-slow (T11834).
+  let count = 0;
   try {
-    rows = db
-      .prepare(`SELECT ${selectClause} FROM "${tableName}" ORDER BY ${orderBy}`)
-      .all() as unknown[];
+    const row = db.prepare(`SELECT COUNT(*) AS c FROM "${tableName}"`).get() as
+      | { c: number | bigint }
+      | undefined;
+    count = Number(row?.c ?? 0);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.warn(
       { tableName, err: msg },
-      'computeTableDigest: SELECT failed (possibly a virtual/FTS table) — treating as 0 rows',
+      'computeTableDigest: COUNT(*) failed (possibly a virtual/FTS table) — treating as 0 rows',
     );
     return { count: 0, hash: '' };
   }
 
-  // Canonicalise each row's property order before hashing (T11782 · FIX A).
+  const { createHash } = _require('node:crypto') as typeof import('node:crypto');
+  const hasher = createHash('sha256');
+
+  const orderBy = orderByClause(db, tableName);
+  let selectClause: string;
+  if (columns !== null && columns.length > 0) {
+    selectClause = columns
+      .map((c) => {
+        if (transform === undefined) return `"${c}"`;
+        // SOURCE side: route the raw value through the SAME transform migrate
+        // applied, aliased back to `c` so the row key matches the target side.
+        const srcType = transform.srcTypeByCol.get(c) ?? '';
+        const tgtCol = transform.tgtColByCol.get(c);
+        const expr = buildDigestExpr(
+          transform.targetTableName,
+          c,
+          srcType,
+          transform.isoGlobCols,
+          tgtCol,
+        );
+        return `${expr} AS "${c}"`;
+      })
+      .join(', ');
+  } else {
+    selectClause = '*';
+  }
+
+  // Content digest — STREAMED row-by-row through the statement iterator so peak
+  // heap stays bounded by ONE row regardless of table size (T11834).
   //
-  // `JSON.stringify(row)` serialises object keys in the SQLite driver's row
-  // property-insertion order, which is NOT guaranteed identical between the
-  // SOURCE snapshot and the TARGET snapshot for the same logical row (the two
-  // handles may materialise columns in a different order). Identical data would
-  // then digest to a DIFFERENT hash, producing a false `hashMatch === false`
-  // and — historically — false-negative aborts. Passing the SORTED key array as
-  // `JSON.stringify`'s `replacer` forces a canonical, order-independent
-  // serialisation so identical rows always digest identically.
-  for (const row of rows) {
-    const rowObj = row as Record<string, unknown>;
-    hasher.update(JSON.stringify(rowObj, Object.keys(rowObj).sort()));
+  // The prior implementation called `.all()`, materialising the ENTIRE table
+  // (SOURCE *and* TARGET) into a JS array — a multi-hundred-MB-to-GB allocation
+  // on a 697K-row / 1.7 GB-class table (e.g. `brain_weight_history`) that OOM'd
+  // the migrate-time verify and rolled back an otherwise-lossless cutover. The
+  // digest is a NON-FATAL diagnostic; the gate is driven by the `COUNT(*)` parity
+  // above + introduced-FK orphans, never this hash.
+  //
+  // Canonicalise each row's property order before hashing (T11782 · FIX A): pass
+  // the SORTED key array as `JSON.stringify`'s replacer so identical rows digest
+  // identically regardless of the driver's column-materialisation order on the
+  // two snapshots (otherwise a false `hashMatch === false`).
+  try {
+    const stmt = db.prepare(`SELECT ${selectClause} FROM "${tableName}" ORDER BY ${orderBy}`);
+    for (const row of stmt.iterate()) {
+      const rowObj = row as Record<string, unknown>;
+      hasher.update(JSON.stringify(rowObj, Object.keys(rowObj).sort()));
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.warn(
+      { tableName, err: msg },
+      'computeTableDigest: streamed SELECT failed (possibly a virtual/FTS table) — digest skipped (COUNT(*) parity still enforced)',
+    );
+    return { count, hash: '' };
   }
 
   return {
-    count: rows.length,
+    count,
     hash: hasher.digest('hex').slice(0, 32),
   };
 }
@@ -189,6 +276,61 @@ function sharedColumnsSorted(
     return srcCols.filter((c) => tgtColSet.has(c)).sort();
   } catch {
     return null;
+  }
+}
+
+/**
+ * Build the source-side {@link DigestTransformSpec} for a source→target table
+ * pair: the source column type affinities, the target's ISO-GLOB columns, and
+ * the target column metadata (NOT-NULL flag + default + affinity), keyed by the
+ * consolidated target name (the transform lookup key). The target metadata
+ * drives the NULL→NOT-NULL-default `COALESCE` mirroring (T11836).
+ *
+ * Returns `undefined` (raw digest, no transform) when the source `PRAGMA
+ * table_info` cannot be read — best-effort, biased to surfacing a real
+ * difference rather than masking one.
+ *
+ * @param srcDb           - Source database handle.
+ * @param srcTable        - Physical legacy source table name.
+ * @param tgtDb           - Target database handle (consolidated cleo.db).
+ * @param targetTableName - Physical consolidated target table name.
+ * @returns A transform spec, or `undefined` when source metadata is unavailable.
+ */
+function buildSourceDigestTransform(
+  srcDb: DatabaseSync,
+  srcTable: string,
+  tgtDb: DatabaseSync,
+  targetTableName: string,
+): DigestTransformSpec | undefined {
+  try {
+    const srcTypeByCol = new Map<string, string>(
+      (
+        srcDb.prepare(`PRAGMA table_info("${srcTable}")`).all() as Array<{
+          name: string;
+          type: string;
+        }>
+      ).map((r) => [r.name, r.type]),
+    );
+    const isoGlobCols = detectIsoGlobColumns(tgtDb, targetTableName);
+    // Target column metadata (notnull + dflt_value + type) — drives the
+    // NULL→NOT-NULL-default COALESCE migrate applies, so a stored type default
+    // for a NULL source value digests as a MATCH (T11836).
+    const tgtColByCol = new Map<string, TargetColumnInfo>(
+      (
+        tgtDb.prepare(`PRAGMA table_info("${targetTableName}")`).all() as Array<{
+          name: string;
+          type: string;
+          notnull: number;
+          dflt_value: string | null;
+        }>
+      ).map((r) => [
+        r.name,
+        { notnull: r.notnull, dflt_value: r.dflt_value, type: r.type } satisfies TargetColumnInfo,
+      ]),
+    );
+    return { targetTableName, srcTypeByCol, isoGlobCols, tgtColByCol };
+  } catch {
+    return undefined;
   }
 }
 
@@ -683,7 +825,17 @@ export function verifyMigration(
             targetSnap.db,
             targetTableName,
           );
-          const srcDigest = computeTableDigest(srcSnap.db, legacyTableName, cols);
+          // Source-side coercion spec (T11809 · AC2): digest the SOURCE through
+          // the SAME transforms migrate applied (epoch→ISO, enum-normalize,
+          // non-finite clamp) so equal logical data digests EQUAL. The target
+          // side already holds canonical values and is digested raw.
+          const srcTransform = buildSourceDigestTransform(
+            srcSnap.db,
+            legacyTableName,
+            targetSnap.db,
+            targetTableName,
+          );
+          const srcDigest = computeTableDigest(srcSnap.db, legacyTableName, cols, srcTransform);
           const tgtDigest = computeTableDigest(targetSnap.db, targetTableName, cols);
           const countMatch = srcDigest.count === tgtDigest.count;
           const hashMatch = srcDigest.hash === tgtDigest.hash;

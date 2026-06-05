@@ -4,10 +4,11 @@
  * Coverage:
  * 1. `AnthropicTransport.complete` — mocks `@anthropic-ai/sdk`, asserts full
  *    `NormalizedResponse` mapping (content, toolCalls, stopReason, usage, raw).
- * 2. `OpenAITransport.complete` — asserts rejects with `code: 'E_NOT_IMPLEMENTED'`.
- * 3. `GeminiTransport.complete` — asserts rejects with `code: 'E_NOT_IMPLEMENTED'`.
- * 4. `NormalizedResponse.raw` field is typed as `unknown` — typecheck assertion
+ * 2. `GeminiTransport.complete` — asserts rejects with `code: 'E_NOT_IMPLEMENTED'`.
+ * 3. `NormalizedResponse.raw` field is typed as `unknown` — typecheck assertion
  *    that consumers must narrow before access.
+ *
+ * (The OpenAITransport.complete section was removed with OpenAITransport — T11832.)
  *
  * @task T9263
  * @epic T-LLM-CRED-CENTRALIZATION
@@ -77,7 +78,6 @@ vi.mock('@anthropic-ai/sdk', () => {
 import type { NormalizedResponse } from '@cleocode/contracts/llm/normalized-response.js';
 import { AnthropicTransport, type AnthropicTransportOptions } from '../transports/anthropic.js';
 import { GeminiTransport } from '../transports/gemini.js';
-import { OpenAITransport } from '../transports/openai.js';
 
 // ---------------------------------------------------------------------------
 // Shared fixtures
@@ -234,21 +234,6 @@ describe('AnthropicTransport', () => {
 });
 
 // ---------------------------------------------------------------------------
-// OpenAITransport
-// ---------------------------------------------------------------------------
-
-describe('OpenAITransport', () => {
-  it('exposes provider as "openai"', () => {
-    const transport = new OpenAITransport({ apiKey: 'sk-openai-test' });
-    expect(transport.provider).toBe('openai');
-  });
-
-  it('exposes apiMode as "chat_completions"', () => {
-    const transport = new OpenAITransport({ apiKey: 'sk-openai-test' });
-    expect(transport.apiMode).toBe('chat_completions');
-  });
-});
-
 // ---------------------------------------------------------------------------
 // GeminiTransport
 // ---------------------------------------------------------------------------

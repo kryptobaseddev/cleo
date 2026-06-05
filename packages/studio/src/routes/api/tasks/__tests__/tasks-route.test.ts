@@ -271,6 +271,7 @@ describe('GET /api/tasks end-to-end (T948)', () => {
         description: 'An epic for testing',
         type: 'epic',
         acceptance,
+        skipContainmentInvariant: true,
       },
       tempDir,
     );
@@ -386,6 +387,7 @@ describe('GET /api/tasks/pipeline end-to-end (T948)', () => {
         title: 'Research task',
         description: 'A task for research stage',
         acceptance: ['Exists', 'Lists', 'Rolls up'],
+        skipContainmentInvariant: true,
       },
       tempDir,
     );

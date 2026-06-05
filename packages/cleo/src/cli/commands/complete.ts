@@ -25,7 +25,7 @@
  */
 
 import { defineCommand } from 'citty';
-import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
+import { dispatchRaw, handleRawError, maybeEmitDescribe } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
 
 /**
@@ -84,6 +84,10 @@ export const completeCommand = defineCommand({
     },
   },
   async run({ args }) {
+    // T11692 (DHQ-057) — `cleo complete --describe` prints the op's I/O schema
+    // (completion is a status mutation → the task lands at /data/updated/0).
+    if (maybeEmitDescribe('mutate', 'tasks', 'complete', { command: 'complete' })) return;
+
     const response = await dispatchRaw('mutate', 'tasks', 'complete', {
       taskId: args.taskId,
       notes: args.notes as string | undefined,

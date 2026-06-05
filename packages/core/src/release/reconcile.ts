@@ -47,6 +47,13 @@ import { generateProjectHash } from '../nexus/hash.js';
 import { getProjectRoot } from '../paths.js';
 import { getDb, getNativeDb } from '../store/sqlite.js';
 import * as schema from '../store/tasks-schema.js';
+import { ensureProvenanceTaskFkParents, type FkParentTaskResolution } from './provenance-fk.js';
+
+// Re-export the FK-parent reconciliation surface so existing consumers of
+// `reconcile.js` keep working after the DRY hoist into `provenance-fk.ts`
+// (T11818). The implementation now lives in the shared module, used by both
+// `cleo release reconcile` and `cleo release plan`.
+export { ensureProvenanceTaskFkParents, type FkParentTaskResolution };
 
 const log = getLogger('release:reconcile-v2');
 const execFileAsync = promisify(execFile);
@@ -120,6 +127,14 @@ export interface ReleaseReconcileV2Result {
   reReconciled?: boolean;
   /** T#### tokens encountered that did not validate against `tasks.id` (R-331). */
   unknownTokens?: string[];
+  /**
+   * Task IDs present in the runtime task store but UNRESOLVABLE by the
+   * provenance `task_id` foreign keys (their FK parent — the bare `tasks` table
+   * on a consolidated cleo.db — has no matching row). Their provenance links
+   * were skipped-with-warn or NULLed rather than aborting the reconcile
+   * (DHQ-051 · T11659).
+   */
+  skippedTaskRefs?: string[];
   /** Total wall-clock duration (filled into envelope `meta.durationMs`). */
   durationMs?: number;
   /** Total inserts performed (filled into envelope `meta.txSize`). */
@@ -872,6 +887,14 @@ export function sanitisePrShasForFk(
   };
 }
 
+// ─── Helpers — FK-safe task-id resolution (DHQ-051 · T11659 / T11818) ───────
+//
+// `ensureProvenanceTaskFkParents` + `FkParentTaskResolution` were hoisted to
+// the shared `./provenance-fk.ts` module (T11818) so `cleo release plan` can
+// reuse the identical FK-ordered parent backfill. They are imported and
+// re-exported at the top of this file — reconcile's public surface and runtime
+// behavior are unchanged.
+
 // ─── Main reconcile entrypoint ──────────────────────────────────────────────
 
 /**
@@ -929,6 +952,9 @@ export async function releaseReconcileV2(
   const db = await getDb(projectRoot);
 
   // ── 3. Pre-flight: list of valid task IDs for token validation (R-331) ──
+  // `validTaskIds` reads the RUNTIME task store (`schema.tasks` shadows the
+  // prefixed `tasks_tasks` table post-cutover) — this drives the user-facing
+  // "unknown token" report.
   const validTaskIds = new Set<string>();
   {
     const rows = await db.select({ id: schema.tasks.id }).from(schema.tasks).all();
@@ -936,6 +962,18 @@ export async function releaseReconcileV2(
       if (typeof r.id === 'string') validTaskIds.add(r.id);
     }
   }
+
+  // `fkResolvableTaskIds` (DHQ-051 · T11659) holds the IDs the provenance
+  // `task_id` FKs can resolve. On a consolidated `cleo.db` those FKs reference
+  // the bare `tasks` table (empty post-cutover) while runtime data lives in
+  // `tasks_tasks`. It is FILLED inside the transaction by
+  // `ensureProvenanceTaskFkParents`, which inserts the needed FK-parent rows in
+  // FK order (parent-before-child) so the links can be written; any task that
+  // exists in neither table stays unresolvable and its single link is
+  // skipped-with-warn / NULLed by the writers below — never the whole reconcile.
+  const fkResolvableTaskIds = new Set<string>();
+  /** Task IDs dropped from a provenance link because the FK could not resolve them. */
+  const skippedTaskRefs = new Set<string>();
 
   const unknownTokens = new Set<string>();
   const orphanCommits: string[] = [];
@@ -989,8 +1027,44 @@ export async function releaseReconcileV2(
   let brainLinkCount = 0;
   let brainEntryId: string | null = null;
 
+  // ── 6b. Collect every task id this reconcile may reference, so the FK-parent
+  //        backfill (DHQ-051 · T11659) can pre-seed parent rows in FK order. ──
+  const referencedTaskIds = new Set<string>();
+  for (const c of commits) {
+    for (const tok of extractTaskTokens(c)) {
+      if (validTaskIds.has(tok)) referencedTaskIds.add(tok);
+    }
+  }
+  for (const pr of fetchedPRs) {
+    const prText = `${pr.title}\n${pr.body ?? ''}\n${pr.headRef}`;
+    TASK_TOKEN_RE.lastIndex = 0;
+    let pt: RegExpExecArray | null = TASK_TOKEN_RE.exec(prText);
+    while (pt !== null) {
+      if (validTaskIds.has(pt[0])) referencedTaskIds.add(pt[0]);
+      pt = TASK_TOKEN_RE.exec(prText);
+    }
+  }
+  for (const task of plan.tasks) {
+    if (validTaskIds.has(task.id)) referencedTaskIds.add(task.id);
+  }
+  if (plan.epicId && validTaskIds.has(plan.epicId)) referencedTaskIds.add(plan.epicId);
+
   try {
     await withTransaction(async () => {
+      // ── FK-parent reconciliation (DHQ-051 · T11659) — MUST run first so the
+      //    provenance `task_id` FKs resolve under strict enforcement. Inserts
+      //    any missing FK-parent rows in FK order (parent-before-child) and
+      //    records which ids the FK can now satisfy. ──
+      try {
+        const nativeDbForFk = getNativeDb();
+        if (nativeDbForFk) {
+          const resolution = ensureProvenanceTaskFkParents(nativeDbForFk, referencedTaskIds);
+          for (const id of resolution.resolvableIds) fkResolvableTaskIds.add(id);
+        }
+      } catch (err) {
+        throw new ProvenanceTableError('tasks (fk-parent backfill)', err);
+      }
+
       // ── commits + commit_files ──
       try {
         for (const c of commits) {
@@ -1070,6 +1144,18 @@ export async function releaseReconcileV2(
           for (const tok of tokens) {
             if (!validTaskIds.has(tok)) {
               unknownTokens.add(tok);
+              continue;
+            }
+            // FK safety (DHQ-051 · T11659): `task_commits.task_id` FKs the bare
+            // `tasks` table, which is empty on a consolidated cleo.db. A token
+            // valid in the runtime store but unresolvable by the FK is
+            // skipped-with-warn — dropping the single link, never the reconcile.
+            if (!fkResolvableTaskIds.has(tok)) {
+              skippedTaskRefs.add(tok);
+              log.warn(
+                { taskId: tok, commitSha: c.sha, table: 'task_commits' },
+                'reconcile: task_id unresolvable by FK parent — skipping task_commits link',
+              );
               continue;
             }
             const linkSource = c.subject.includes(tok) ? 'commit-message' : 'commit-trailer';
@@ -1187,6 +1273,16 @@ export async function releaseReconcileV2(
               unknownTokens.add(tok);
               continue;
             }
+            // FK safety (DHQ-051 · T11659): `pr_tasks.task_id` FKs the bare
+            // `tasks` table — skip-with-warn when the FK cannot resolve the id.
+            if (!fkResolvableTaskIds.has(tok)) {
+              skippedTaskRefs.add(tok);
+              log.warn(
+                { taskId: tok, prId, table: 'pr_tasks' },
+                'reconcile: task_id unresolvable by FK parent — skipping pr_tasks link',
+              );
+              continue;
+            }
             let linkSource: schema.PrLinkSource = 'pr-body';
             if (pr.title.includes(tok)) linkSource = 'pr-title';
             else if (pr.headRef.includes(tok)) linkSource = 'branch-name';
@@ -1215,6 +1311,21 @@ export async function releaseReconcileV2(
         // avoid violating the constraint at INSERT time.
         const safeReleaseMergeSha =
           plan.mergeCommitSha && insertedShas.has(plan.mergeCommitSha) ? plan.mergeCommitSha : null;
+        // FK safety (DHQ-051 · T11659): `releases.epic_id` FKs the bare `tasks`
+        // table (ON DELETE SET NULL, nullable). When the epic is unresolvable by
+        // the FK parent, NULL the column rather than violate the constraint.
+        const safeEpicId = plan.epicId && fkResolvableTaskIds.has(plan.epicId) ? plan.epicId : null;
+        if (plan.epicId && safeEpicId === null) {
+          // Only a VALID runtime task that the FK could not resolve is a true
+          // "skipped ref" — an epic id that is not even a known task was never
+          // linkable and is NULLed silently (it surfaces under unknownTokens if
+          // it appeared in commit/PR text).
+          if (validTaskIds.has(plan.epicId)) skippedTaskRefs.add(plan.epicId);
+          log.warn(
+            { epicId: plan.epicId, releaseId, table: 'releases' },
+            'reconcile: epic_id unresolvable by FK parent — nulling releases.epic_id',
+          );
+        }
         await db
           .insert(schema.releases)
           .values({
@@ -1222,7 +1333,7 @@ export async function releaseReconcileV2(
             version,
             scheme: plan.scheme,
             channel: mapChannel(plan.channel),
-            epicId: plan.epicId,
+            epicId: safeEpicId,
             releaseKind: plan.releaseKind,
             status: 'reconciled',
             previousVersion: plan.previousVersion,
@@ -1290,12 +1401,20 @@ export async function releaseReconcileV2(
           // Build deterministic ID so re-running upserts the same row.
           const idSeed = `${releaseId}|${task.id}|${changeType}`;
           const id = createHash('sha256').update(idSeed).digest('hex').slice(0, 32);
+          // FK safety (DHQ-051 · T11659): `release_changes.task_id` FKs the bare
+          // `tasks` table (ON DELETE SET NULL, nullable). NULL the column when
+          // the FK parent cannot resolve the id; the change row still records
+          // the summary/impact, just without the dangling task linkage.
+          const safeTaskId = fkResolvableTaskIds.has(task.id) ? task.id : null;
+          if (safeTaskId === null && validTaskIds.has(task.id)) {
+            skippedTaskRefs.add(task.id);
+          }
           await db
             .insert(schema.releaseChanges)
             .values({
               id,
               releaseId,
-              taskId: validTaskIds.has(task.id) ? task.id : null,
+              taskId: safeTaskId,
               changeType,
               summary: task.userFacingSummary || `${task.id}: ${task.kind}`,
               description: null,
@@ -1455,6 +1574,7 @@ export async function releaseReconcileV2(
     brainLinkCount,
     orphanCommits,
     ...(unknownTokens.size > 0 ? { unknownTokens: Array.from(unknownTokens) } : {}),
+    ...(skippedTaskRefs.size > 0 ? { skippedTaskRefs: Array.from(skippedTaskRefs) } : {}),
     ...(reReconciled ? { reReconciled: true } : {}),
     durationMs,
     txSize,

@@ -34,9 +34,12 @@ import { resolveDualScopeDbPath } from '@cleocode/core/store/dual-scope-db.js';
 import {
   archiveMigratedSources,
   buildExodusPlan,
+  hasExodusCompleteMarker,
   runExodusMigrate,
   runExodusStatus,
   runExodusVerify,
+  type SealScopeArg,
+  sealExodus,
   sourcesPresent,
   verifyMigration,
 } from '@cleocode/core/store/exodus/index.js';
@@ -87,12 +90,49 @@ const migrateSubCommand = defineCommand({
       description: 'Skip schema-version guard (AC9 — use with care)',
       default: false,
     },
+    scope: {
+      type: 'string',
+      description: "Which scope to migrate: 'global', 'project', or 'both' (default = full fleet)",
+      default: 'both',
+    },
   },
   async run({ args }) {
     const dryRun = args['dry-run'] === true;
     const forceCrossVersion = args['force-cross-version'] === true;
+    const scope = (args.scope as string | undefined) ?? 'both';
 
-    const plan = buildExodusPlan(process.cwd());
+    if (scope !== 'both' && scope !== 'project' && scope !== 'global') {
+      cliError(
+        `Invalid --scope '${scope}'. Use 'global', 'project', or 'both'.`,
+        ExitCode.VALIDATION_ERROR,
+        { name: 'E_INVALID_SCOPE' },
+        { operation: 'exodus.migrate' },
+      );
+      process.exitCode = ExitCode.VALIDATION_ERROR;
+      return;
+    }
+
+    const fullPlan = buildExodusPlan(process.cwd());
+    // `--scope global|project` narrows the fleet plan to that scope's sources; the
+    // default 'both' preserves full-fleet behaviour. The global scope is shared
+    // across the fleet, so migrating it once up front (`--scope global`) is the
+    // owner-flow's "migrate global" step.
+    const plan =
+      scope === 'both'
+        ? fullPlan
+        : { ...fullPlan, sources: fullPlan.sources.filter((s) => s.targetScope === scope) };
+
+    // A scope already sealed (completion marker present) is a no-op.
+    if (scope !== 'both' && hasExodusCompleteMarker(scope) && !dryRun) {
+      cliOutput(
+        { kind: 'generic', ok: true, alreadySealed: true, scope },
+        {
+          command: 'exodus migrate',
+          message: `Scope '${scope}' already migrated + sealed (completion marker present) — nothing to do.`,
+        },
+      );
+      return;
+    }
 
     // Disk pre-flight summary
     humanInfo(`Exodus migration plan:`);
@@ -105,7 +145,9 @@ const migrateSubCommand = defineCommand({
     humanInfo(`  Target project cleo.db: ${plan.projectDbPath}`);
     humanInfo(`  Target global  cleo.db: ${plan.globalDbPath}`);
     humanInfo(`  Available disk: ${fmtBytes(plan.availableBytes)}`);
-    humanInfo(`  Required (3×): ${fmtBytes(3 * plan.totalSourceBytes)}`);
+    humanInfo(
+      `  Required (1.2× largest ${fmtBytes(plan.largestSourceBytes)} + consolidated): ${fmtBytes(plan.requiredBytes)}`,
+    );
     humanInfo(`  Disk pre-flight: ${plan.diskPreflight ? 'PASS' : 'FAIL'}`);
 
     if (plan.resumeFromStaging) {
@@ -124,6 +166,8 @@ const migrateSubCommand = defineCommand({
               targetScope: s.targetScope,
             })),
             totalSourceBytes: plan.totalSourceBytes,
+            largestSourceBytes: plan.largestSourceBytes,
+            requiredBytes: plan.requiredBytes,
             availableBytes: plan.availableBytes,
             diskPreflight: plan.diskPreflight,
             stagingDir: plan.stagingDir,
@@ -149,8 +193,12 @@ const migrateSubCommand = defineCommand({
     }
 
     if (!plan.diskPreflight) {
+      const shortfall = Math.max(0, plan.requiredBytes - plan.availableBytes);
       cliError(
-        `Insufficient disk space for exodus. Need ≥3× source size (${fmtBytes(plan.totalSourceBytes)}), have ${fmtBytes(plan.availableBytes)}.`,
+        `Insufficient disk space for exodus. Need ≥${fmtBytes(plan.requiredBytes)} ` +
+          `(≈1.2× largest source ${fmtBytes(plan.largestSourceBytes)} + consolidated estimate ` +
+          `${fmtBytes(plan.totalSourceBytes)}), have ${fmtBytes(plan.availableBytes)} — ` +
+          `${fmtBytes(shortfall)} short. Free up space (e.g. \`cleo backup prune\`) or move .cleo/ to a larger volume.`,
         ExitCode.VALIDATION_ERROR,
         { name: 'E_DISK_PREFLIGHT_FAIL' },
         { operation: 'exodus.migrate' },
@@ -315,6 +363,93 @@ const verifySubCommand = defineCommand({
 });
 
 // ---------------------------------------------------------------------------
+// seal subcommand (T11837)
+// ---------------------------------------------------------------------------
+
+/**
+ * `cleo exodus seal` — certify an already-migrated install WITHOUT a destructive
+ * re-migrate and WITHOUT the OOM-prone verify digest.
+ *
+ * Gates on the memory-safe COUNT(*) deficit check, then archives the consumed
+ * legacy sources (reversible move) and writes the per-scope completion marker so
+ * `exodus-on-open` stops re-firing. For installs cut over before the archive +
+ * completion-marker subsystem (T11777) existed.
+ *
+ * @task T11837 (EP-EXODUS-FLEET-HARDENING)
+ */
+const sealSubCommand = defineCommand({
+  meta: {
+    name: 'seal',
+    description:
+      'Certify an already-migrated install: count-parity gate (no digest) → archive legacy ' +
+      'source DBs (reversible) + write the completion marker so exodus-on-open stops re-firing.',
+  },
+  args: {
+    scope: {
+      type: 'string',
+      description: "Which scope to seal: 'global', 'project', or 'both' (default)",
+      default: 'both',
+    },
+  },
+  run({ args }) {
+    const scope = (args.scope as string | undefined) ?? 'both';
+    if (scope !== 'both' && scope !== 'project' && scope !== 'global') {
+      cliError(
+        `Invalid --scope '${scope}'. Use 'global', 'project', or 'both'.`,
+        ExitCode.VALIDATION_ERROR,
+        { name: 'E_INVALID_SCOPE' },
+        { operation: 'exodus.seal' },
+      );
+      process.exitCode = ExitCode.VALIDATION_ERROR;
+      return;
+    }
+
+    const plan = buildExodusPlan(process.cwd());
+    const result = sealExodus(plan, scope as SealScopeArg, process.cwd());
+
+    if (!result.ok) {
+      cliError(
+        result.refusedReason ?? 'Seal refused — parity deficit.',
+        ExitCode.GENERAL_ERROR,
+        { name: 'E_EXODUS_SEAL_DEFICIT' },
+        { operation: 'exodus.seal' },
+      );
+      process.exitCode = ExitCode.GENERAL_ERROR;
+      return;
+    }
+
+    for (const sc of result.scopes) {
+      const moved = sc.archived.filter((a) => a.action === 'archived').length;
+      humanInfo(
+        `  [${sc.scope}] ${sc.alreadySealed ? 're-sealed' : 'sealed'} — archived ${moved} legacy DB(s), marker: ${sc.markerPath}`,
+      );
+    }
+
+    cliOutput(
+      {
+        kind: 'generic',
+        ok: true,
+        scopesSealed: result.scopes.map((s) => s.scope),
+        tablesVerified: result.parity.checked,
+        archived: result.scopes.flatMap((s) =>
+          s.archived
+            .filter((a) => a.action === 'archived')
+            .map((a) => ({ scope: s.scope, name: a.name, archivedTo: a.archivedTo })),
+        ),
+      },
+      {
+        command: 'exodus seal',
+        message: `Sealed ${result.scopes
+          .map((s) => s.scope)
+          .join(
+            ' + ',
+          )} — ${result.parity.checked} tables count-verified, legacy DBs archived (reversible).`,
+      },
+    );
+  },
+});
+
+// ---------------------------------------------------------------------------
 // status subcommand
 // ---------------------------------------------------------------------------
 
@@ -381,6 +516,7 @@ export const exodusCommand = defineCommand({
   subCommands: {
     migrate: migrateSubCommand,
     verify: verifySubCommand,
+    seal: sealSubCommand,
     status: statusSubCommand,
   },
   async run({ cmd, rawArgs }) {

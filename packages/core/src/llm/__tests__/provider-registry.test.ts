@@ -269,4 +269,29 @@ export function register(api) {
     const profile = await getProviderProfile('anthropic');
     expect(profile).toBeDefined();
   });
+
+  // ── T11756: hermes-parity routing/catalog fields + canonical alias map ──────
+
+  it('carries hermes-parity tier/defaultAuxModel/defaultMaxTokens fields (T11756)', async () => {
+    process.env['CLEO_HOME'] = join(tmpdir(), 'no-such-cleo-home-' + Date.now());
+
+    const openai = await getProviderProfile('openai');
+    expect(openai?.tier).toBe('frontier');
+    expect(openai?.defaultAuxModel).toBe('gpt-5-mini');
+    expect(openai?.defaultMaxTokens).toBe(4096);
+
+    const ollama = await getProviderProfile('ollama');
+    expect(ollama?.tier).toBe('local');
+    expect(ollama?.defaultMaxTokens).toBe(2048);
+  });
+
+  it('declares the canonical alias map as data — codex→openai, google→gemini (T11756)', async () => {
+    process.env['CLEO_HOME'] = join(tmpdir(), 'no-such-cleo-home-' + Date.now());
+
+    const fromCodex = await getProviderProfile('codex');
+    expect(fromCodex?.name).toBe('openai');
+
+    const fromGoogle = await getProviderProfile('google');
+    expect(fromGoogle?.name).toBe('gemini');
+  });
 });

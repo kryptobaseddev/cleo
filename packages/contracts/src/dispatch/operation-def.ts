@@ -28,6 +28,8 @@
  * @since SG-ARCH-SOLID Saga T9831 · E-CONTRACTS-FOUNDATION T9832 · T9954 (Phase 0b)
  */
 
+import type { OperationInputContract } from '../operations/input-contract.js';
+import type { OperationOutputContract } from '../operations/output-contract.js';
 import type { ParamDef } from '../operations/params.js';
 import type { CanonicalDomain, Gateway, Tier } from './identity.js';
 
@@ -92,6 +94,48 @@ export interface OperationDef {
    * @task T11448
    */
   mcpExposed?: boolean;
+
+  /**
+   * Schema-first INPUT contract for this operation (DHQ-033 / T11692).
+   *
+   * Declares the accepted request payload shape as a JSON Schema draft-07
+   * document with worked examples. When present, the dispatch/CLI layer
+   * validates the incoming payload against `inputSchema.schema` and rejects
+   * unknown keys LOUDLY (the schemas set `additionalProperties: false`), so a
+   * typo'd or unsupported field — e.g. passing `relates` to `tasks.add-batch`,
+   * which only accepts `depends` — fails fast with a typed {@link ValidationError}
+   * instead of being silently dropped.
+   *
+   * **Optional / incremental**: absent means "no declared input contract yet".
+   * The canonical SSoT registry of contracts is keyed by `<domain>.<operation>`
+   * (INPUT_CONTRACTS in core); this inline field lets a definition carry its
+   * own contract and is resolved by the SDK `describeOperation` when set.
+   *
+   * @see OperationInputContract
+   * @task T11692 — DHQ-033 input shape SSoT
+   */
+  inputSchema?: OperationInputContract<unknown>;
+
+  /**
+   * Schema-first OUTPUT contract for this operation (DHQ-057 / T11692).
+   *
+   * Declares the shape of the LAFS envelope's `data` payload as a JSON Schema
+   * draft-07 document, PLUS the curated list of valid `--field` JSON pointers.
+   * This is the SSoT that lets an agent predict the result shape instead of
+   * hand-sniffing it per verb — e.g. it encodes that `tasks.show` returns the
+   * task under `task`, so the correct pointer is `/data/task/title` and NOT
+   * `/data/title` (the latter is the exact `E_FIELD_NOT_FOUND` failure this
+   * field exists to prevent).
+   *
+   * **Optional / incremental**: absent means "no declared output contract yet".
+   * The canonical SSoT registry is keyed by `<domain>.<operation>`
+   * (OUTPUT_CONTRACTS in contracts); this inline field lets a definition carry
+   * its own contract and is resolved by the SDK `describeOperation` when set.
+   *
+   * @see OperationOutputContract
+   * @task T11692 — DHQ-057 output shape SSoT
+   */
+  outputSchema?: OperationOutputContract;
 }
 
 // ── Resolution ───────────────────────────────────────────────────────

@@ -7,11 +7,12 @@
  *
  *   1. {@link resolveLLMForRole}(role) — picks provider + model + credential
  *      from the standard config chain (roles → default → daemon → fallback).
- *   2. Selects the correct transport based on the resolved provider:
- *        - `'anthropic'` → {@link AnthropicTransport} (anthropic_messages mode)
- *        - everything else → {@link ChatCompletionsTransport} (OpenAI-compat)
- *   3. Maps `cred.authType` to the right SDK auth slot (`apiKey` vs
- *      `authToken` for Anthropic OAuth; Bearer header for OpenAI-compat OAuth).
+ *   2. {@link deriveApiWire}(provider, authType) — stamps the wire protocol +
+ *      implied base URL for the resolved pair (E9 · T11745).
+ *   3. {@link ModelRunner.buildTransportFromCredential} — the single SSoT
+ *      factory builds the exact transport for ANY provider (anthropic incl. the
+ *      OAuth beta header, kimi-code, openai-OAuth/codex, OpenAI-compat) from the
+ *      descriptor data alone — no per-provider branching here.
  *
  * Replaces the hardcoded `fetch('https://api.anthropic.com/v1/messages')`
  * in {@link memory/sleep-consolidation.ts} and {@link memory/observer-reflector.ts}
@@ -34,18 +35,14 @@ import type {
   NormalizedUsage,
   TransportRequest,
 } from '@cleocode/contracts/llm/normalized-response.js';
+import type { ResolvedCredential } from '@cleocode/contracts/llm/resolved-credential.js';
+import { deriveApiWire } from './api-mode.js';
 import { CredentialPool } from './credential-pool.js';
 import { classifyError } from './error-classifier.js';
-import { getKimiCodeMshHeaders, isKimiCodeApiKey } from './provider-registry/builtin/kimi-code.js';
+import { ModelRunner } from './model-runner.js';
+import { isKimiCodeApiKey } from './provider-registry/builtin/kimi-code.js';
 import { resolveLLMForRole } from './role-resolver.js';
-import { AnthropicTransport } from './transports/anthropic.js';
-import { ChatCompletionsTransport } from './transports/chat-completions.js';
-import { buildCodexOAuthHeaders, CODEX_OAUTH_BASE_URL } from './transports/codex-oauth-headers.js';
-import { CodexResponsesTransport } from './transports/codex-responses.js';
 import type { ModelTransport } from './types-config.js';
-
-/** Kimi Code chat endpoint — speaks Anthropic Messages protocol. */
-const KIMI_CODE_BASE_URL = 'https://api.kimi.com/coding';
 
 /**
  * Process-lifetime latch set of `role|provider|label` keys that have already
@@ -177,89 +174,49 @@ export async function executeForRole(
   };
 
   try {
-    if (llm.provider === 'anthropic') {
-      // Anthropic supports two auth schemes — API key vs OAuth bearer.
-      // Pass the credential through the matching SDK slot so the SDK sends
-      // exactly one auth header (avoid x-api-key + Authorization collision).
-      const transport =
-        llm.credential.authType === 'oauth'
-          ? new AnthropicTransport({
-              authToken: llm.credential.apiKey,
-              defaultHeaders: {
-                'anthropic-beta': 'oauth-2025-04-20',
-              },
-            })
-          : new AnthropicTransport({ apiKey: llm.credential.apiKey });
+    // Single SSoT transport construction (E9 · T11745). The resolver gives us
+    // (provider, authType); `deriveApiWire` stamps the wire protocol + implied
+    // base URL; the one {@link ModelRunner} builds the exact transport for ANY
+    // provider — anthropic (incl. the OAuth beta header), kimi-code (Anthropic
+    // protocol + mandatory X-Msh headers), openai-OAuth/codex (codex_responses +
+    // ChatGPT-backend Cloudflare headers), or OpenAI-compatible chat_completions
+    // — with NO per-provider branching here. This replaces the four inline
+    // transport blocks that had each drifted from `session-factory` (the
+    // anthropic block hardcoded the OAuth beta header; the others omitted it).
+    const authType: 'api_key' | 'oauth' = llm.credential.authType === 'oauth' ? 'oauth' : 'api_key';
 
-      const resp = await transport.complete(request);
-      return {
-        content: resp.content ?? '',
-        usage: resp.usage,
-        provider: llm.provider,
-        model: resp.model,
-      };
+    // Diagnostic (preserved): a non-`sk-kimi-`, non-OAuth key routed to
+    // kimi-code will likely fail — the legacy Moonshot `mk-*` path lives on the
+    // separate `moonshot` provider.
+    if (
+      llm.provider === 'kimi-code' &&
+      authType !== 'oauth' &&
+      !isKimiCodeApiKey(llm.credential.apiKey)
+    ) {
+      console.warn(
+        `[role-executor] kimi-code credential is not sk-kimi- prefixed and not OAuth; ` +
+          `the request may fail. Configure a coding-plan key from kimi.com/code or ` +
+          `switch the provider to 'moonshot' for legacy mk- keys.`,
+      );
     }
 
-    if (llm.provider === 'kimi-code') {
-      // Kimi Code speaks Anthropic Messages protocol against
-      // api.kimi.com/coding. Both `sk-kimi-*` API keys and OAuth bearer
-      // tokens authenticate via `Authorization: Bearer …` — the legacy
-      // Moonshot `mk-*` API-key path lives on the separate `moonshot`
-      // provider, not here. Mandatory `X-Msh-*` headers are merged in.
-      // (Defensive: also check the key prefix in case a misconfigured key
-      // routed to kimi-code despite being a legacy moonshot key.)
-      if (!isKimiCodeApiKey(llm.credential.apiKey) && llm.credential.authType !== 'oauth') {
-        console.warn(
-          `[role-executor] kimi-code credential is not sk-kimi- prefixed and not OAuth; ` +
-            `the request may fail. Configure a coding-plan key from kimi.com/code or ` +
-            `switch the provider to 'moonshot' for legacy mk- keys.`,
-        );
-      }
-      const transport = new AnthropicTransport({
-        authToken: llm.credential.apiKey,
-        baseUrl: KIMI_CODE_BASE_URL,
-        defaultHeaders: getKimiCodeMshHeaders(),
-      });
-      const resp = await transport.complete(request);
-      return {
-        content: resp.content ?? '',
-        usage: resp.usage,
-        provider: llm.provider,
-        model: resp.model,
-      };
-    }
-
-    if (llm.provider === 'openai' && llm.credential.authType === 'oauth') {
-      // OpenAI Codex OAuth path. A ChatGPT-issued OAuth bearer token is NOT
-      // accepted at `api.openai.com`; it authenticates against the Codex
-      // backend (`chatgpt.com/backend-api/codex`) via the Responses API, with
-      // the Cloudflare-bypass headers hermes-agent documented (originator +
-      // ChatGPT-Account-ID). This is the branch the RCA found missing — it lets
-      // a background role be fulfilled by the live `openai/codex-cli` OAuth
-      // credential in the pool. (api_key OpenAI keeps the chat_completions
-      // path below.)
-      const transport = new CodexResponsesTransport({
-        provider: llm.provider,
-        apiKey: llm.credential.apiKey,
-        baseUrl: CODEX_OAUTH_BASE_URL,
-        defaultHeaders: buildCodexOAuthHeaders(llm.credential.apiKey),
-      });
-      const resp = await transport.complete(request);
-      return {
-        content: resp.content ?? '',
-        usage: resp.usage,
-        provider: llm.provider,
-        model: resp.model,
-      };
-    }
-
-    // openai (api_key) / openrouter / deepseek / xai / groq / moonshot /
-    // gemini-via-shim — all speak OpenAI chat_completions. ChatCompletionsTransport
-    // routes through the OpenAI SDK which sets Authorization: Bearer from apiKey.
-    const transport = new ChatCompletionsTransport({
+    const wire = deriveApiWire(llm.provider, authType);
+    const resolvedCredential: ResolvedCredential = {
       provider: llm.provider,
-      apiKey: llm.credential.apiKey,
-    });
+      label: llm.credentialLabel ?? 'default',
+      token: llm.credential.apiKey,
+      authType,
+      expiresAt: null,
+      refreshToken: null,
+      extraHeaders: {},
+      baseUrl: wire.baseUrl,
+      awsProfile: null,
+    };
+    const transport = ModelRunner.buildTransportFromCredential(
+      llm.provider,
+      resolvedCredential,
+      wire.apiMode,
+    );
     const resp = await transport.complete(request);
     return {
       content: resp.content ?? '',

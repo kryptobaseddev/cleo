@@ -196,6 +196,10 @@ describe('error-hints: anti-hallucination (title === description)', () => {
           {
             title: 'same text',
             description: 'same text',
+            // Bypass the T11811 strict-spine containment guard so this case isolates
+            // the anti-hallucination (title===description) issue — otherwise the
+            // combined error reports field='multiple' instead of 'description'.
+            skipContainmentInvariant: true,
           },
           env.tempDir,
           env.accessor,

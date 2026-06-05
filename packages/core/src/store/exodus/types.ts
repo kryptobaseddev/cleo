@@ -104,10 +104,33 @@ export interface ExodusPlan {
   readonly sources: LegacyDbDescriptor[];
   /** Combined size of all source DB files in bytes. */
   readonly totalSourceBytes: number;
+  /**
+   * Size of the SINGLE largest source DB file in bytes. The right-sized disk
+   * preflight is driven by this (the staging copy only ever holds one source at
+   * a time before its lock is released), NOT by {@link totalSourceBytes} (T11838).
+   */
+  readonly largestSourceBytes: number;
+  /**
+   * Right-sized free-disk requirement in bytes:
+   * `STAGING_HEADROOM_FACTOR * largestSourceBytes + consolidatedEstimate`, where
+   * `consolidatedEstimate ≈ totalSourceBytes` (all source rows land in the
+   * consolidated cleo.db). Replaces the historical `3 * totalSourceBytes`
+   * over-estimate that blocked large-fleet migrations (T11838).
+   */
+  readonly requiredBytes: number;
   /** Available disk bytes on the target filesystem. */
   readonly availableBytes: number;
-  /** Whether the 3× free-disk pre-flight passes. */
+  /** Whether the right-sized free-disk pre-flight passes. */
   readonly diskPreflight: boolean;
+  /**
+   * Per-source byte threshold above which the full {@link LegacyDbDescriptor}
+   * staging `copyFileSync` backup is SKIPPED (T11838). The legacy source is
+   * archived (renamed into `_archive/`), not deleted, on success — so a redundant
+   * full-file backup of a large source only doubles its disk + I/O cost. Sources
+   * at or below this threshold still get the staging backup (cheap rollback
+   * safety for the common small-fleet case).
+   */
+  readonly stagingCopyThresholdBytes: number;
   /** Absolute path to the staging directory. */
   readonly stagingDir: string;
   /** Whether a staging directory from a previous run was found (resume mode). */

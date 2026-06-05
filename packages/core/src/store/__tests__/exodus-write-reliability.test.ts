@@ -244,6 +244,9 @@ async function armFixture(
   const plan: ExodusPlan = {
     sources,
     totalSourceBytes: 0,
+    largestSourceBytes: 0,
+    requiredBytes: 0,
+    stagingCopyThresholdBytes: 256 * 1024 * 1024,
     availableBytes: 100_000_000,
     diskPreflight: true,
     stagingDir: join(tmpDir, 'staging'),
@@ -419,6 +422,9 @@ describe('exodus write-reliability (T11782)', () => {
         { name: 'brain (project)', path: paths.brainDbPath, targetScope: 'project' },
       ],
       totalSourceBytes: 0,
+      largestSourceBytes: 0,
+      requiredBytes: 0,
+      stagingCopyThresholdBytes: 256 * 1024 * 1024,
       availableBytes: 100_000_000,
       diskPreflight: true,
       stagingDir: join(tmpDir, 'staging'),
@@ -600,5 +606,119 @@ describe('exodus write-reliability (T11782)', () => {
       JSON.stringify(rowA),
       'the naive serialisation differs by key order — proving the FIX A replacer is required',
     ).not.toBe(JSON.stringify(rowB));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T11835 — honest migrate diagnostics: distinguish idempotent PK dedup (a re-run
+// against an already-populated target, ZERO loss) from a genuine constraint drop.
+// The prior code hard-coded "dropped ALL N rows / Likely a CHECK/type constraint
+// violation" for EVERY full-table 0-row result, which fired on every idempotent
+// re-run (the cleocode confusion) and on every operator's first re-migrate.
+// ---------------------------------------------------------------------------
+
+describe('exodus migrate diagnostics — idempotent dedup vs real loss (T11835)', () => {
+  let tmpDir: string;
+  let projectDb: DatabaseSyncType | undefined;
+  let globalDb: DatabaseSyncType | undefined;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'cleo-exodus-diag-'));
+    delete process.env.CLEO_DISABLE_EXODUS_ON_OPEN;
+  });
+
+  afterEach(() => {
+    for (const db of [projectDb, globalDb]) {
+      try {
+        db?.close();
+      } catch {
+        /* already closed */
+      }
+    }
+    projectDb = undefined;
+    globalDb = undefined;
+    rmSync(tmpDir, { recursive: true, force: true });
+    vi.clearAllMocks();
+  });
+
+  it('idempotent: a re-migrate against an already-populated target reports NO loss (no misleading constraint message)', async () => {
+    const paths = buildFixture(tmpDir);
+    projectDb = new DatabaseSync(paths.projectDbPath);
+    globalDb = new DatabaseSync(paths.globalDbPath);
+    const { plan } = await armFixture(tmpDir, projectDb, globalDb, paths);
+
+    const { runExodusMigrate } = await import('../exodus/index.js');
+
+    // Run 1: populate the consolidated target.
+    const r1 = await runExodusMigrate(plan, false, undefined);
+    expect(r1.ok, r1.error ?? '').toBe(true);
+    expect(countRows(paths.projectDbPath, 'tasks_tasks')).toBe(TASKS_SEEDED);
+
+    // Run 2: a FRESH journal (different staging dir) against the SAME populated
+    // target — every INSERT OR IGNORE is a PK conflict (rowsCopied=0). This is the
+    // exact cleocode scenario that produced "dropped ALL N rows / Likely a
+    // CHECK/type constraint violation" for every table.
+    const plan2: ExodusPlan = { ...plan, stagingDir: join(tmpDir, 'staging-2') };
+    const r2 = await runExodusMigrate(plan2, false, undefined);
+    expect(r2.ok, r2.error ?? '').toBe(true);
+
+    // The data tables re-copy 0 rows (all already present, PK dedup) ...
+    const tasks = r2.tables.find((t) => t.tableName === 'tasks');
+    expect(tasks?.rowsCopied).toBe(0);
+    // ... but NONE is flagged as a constraint loss — the misleading message is gone.
+    const falseLoss = r2.tables.filter(
+      (t) => t.reason && /constraint|lost|dropped ALL/i.test(t.reason),
+    );
+    expect(
+      falseLoss,
+      `idempotent re-run must not report constraint loss, got: ${falseLoss
+        .map((t) => `${t.tableName}: ${t.reason}`)
+        .join('; ')}`,
+    ).toHaveLength(0);
+
+    // And no rows were lost.
+    expect(countRows(paths.projectDbPath, 'tasks_tasks')).toBe(TASKS_SEEDED);
+    expect(countRows(paths.projectDbPath, 'brain_weight_history')).toBe(WEIGHT_HISTORY_SEEDED);
+  });
+
+  it('real loss: a source row rejected by a target CHECK on an empty target IS reported as genuine loss', async () => {
+    const paths = buildFixture(tmpDir);
+
+    // Tighten the consolidated target so legacy 'legacy task 7' is rejected by a
+    // CHECK that NO coercion/normalisation rewrites — a genuine constraint drop on
+    // an EMPTY target (existingBefore=0), which must be surfaced as real loss.
+    {
+      const setup = new DatabaseSync(paths.projectDbPath);
+      try {
+        setup.exec('DROP TABLE "tasks_tasks"');
+        setup.exec(
+          `CREATE TABLE "tasks_tasks" (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL CHECK (title <> 'legacy task 7'),
+            created_at TEXT CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')
+          )`,
+        );
+      } finally {
+        setup.close();
+      }
+    }
+
+    projectDb = new DatabaseSync(paths.projectDbPath);
+    globalDb = new DatabaseSync(paths.globalDbPath);
+    const { plan } = await armFixture(tmpDir, projectDb, globalDb, paths);
+
+    const { runExodusMigrate } = await import('../exodus/index.js');
+    const r = await runExodusMigrate(plan, false, undefined);
+
+    // existingBefore=0 (empty target) and one row rejected → a GENUINE shortfall,
+    // reported precisely (not the old hard-coded "dropped ALL" guess).
+    const tasks = r.tables.find((t) => t.tableName === 'tasks');
+    expect(
+      tasks?.reason,
+      'a real constraint drop on an empty target must be reported as loss',
+    ).toBeDefined();
+    expect(tasks?.reason).toMatch(/lost 1 of 12|constraint/i);
+    // 11 of 12 landed; the rejected row is genuinely missing.
+    expect(countRows(paths.projectDbPath, 'tasks_tasks')).toBe(TASKS_SEEDED - 1);
   });
 });

@@ -124,6 +124,12 @@ export async function coreTaskCancel(
     reason?: string;
     /** Explicit child handling mode. Defaults to 'block' so propagation is never implicit. */
     children?: ChildStrategy;
+    /**
+     * Target parent ID for the `reparent` strategy (T11811). REQUIRED when
+     * `children='reparent'` — the direct children move under this parent via
+     * {@link coreTaskReparent} so the type-matrix / depth / sibling checks run.
+     */
+    reparentTo?: string;
     /** Required when cascade affects more than cascadeThreshold descendants. */
     force?: boolean;
     /** Large-subtree guard threshold. Defaults to 10 descendants. */
@@ -173,7 +179,7 @@ export async function coreTaskCancel(
   if (children.length > 0) {
     if (childStrategy === 'block') {
       throw new Error(
-        `E_HAS_CHILDREN: Task ${taskId} has ${children.length} child task(s); pass children='cascade' or children='orphan' explicitly`,
+        `E_HAS_CHILDREN: Task ${taskId} has ${children.length} child task(s); pass children='cascade' (cancel the subtree) or children='reparent' with reparentTo=<epicId> (move them) explicitly`,
       );
     }
 
@@ -215,7 +221,16 @@ export async function coreTaskCancel(
           timestamp: new Date().toISOString(),
         });
       }
-    } else if (childStrategy === 'orphan') {
+    } else if (childStrategy === 'reparent') {
+      // T11811: the direct children move under an existing parent so they stay
+      // attached to the containment tree (replaces the deleted `orphan`/detach
+      // strategy that produced exactly the orphan this guard rejects). A target
+      // parent is mandatory.
+      if (!params?.reparentTo) {
+        throw new Error(
+          `E_REPARENT_TARGET_REQUIRED: children='reparent' requires reparentTo=<epicId> to name the new parent for ${taskId}'s ${children.length} child task(s)`,
+        );
+      }
       affectedTasks.push(...children.map((child: { id: string }) => child.id));
     } else {
       throw new Error(`E_INVALID_STRATEGY: Unknown child handling strategy: ${childStrategy}`);
@@ -235,13 +250,19 @@ export async function coreTaskCancel(
       descendant.pipelineStage = 'cancelled';
       await accessor.upsertSingleTask(descendant);
     }
-  } else if (childStrategy === 'orphan') {
+  } else if (childStrategy === 'reparent') {
+    // T11811: move each direct child under the target parent via
+    // coreTaskReparent so the PM-Core V2 type-matrix / depth / sibling
+    // invariants are enforced on the move. This keeps the children attached
+    // (no orphan) — the safe replacement for the deleted detach strategy.
+    const reparentTo = params?.reparentTo;
+    if (!reparentTo) {
+      throw new Error(
+        `E_REPARENT_TARGET_REQUIRED: children='reparent' requires reparentTo=<epicId> for ${taskId}`,
+      );
+    }
     for (const childId of affectedTasks) {
-      const child = await accessor.loadSingleTask(childId);
-      if (!child) continue;
-      child.parentId = null;
-      child.updatedAt = cancelledAt;
-      await accessor.upsertSingleTask(child);
+      await coreTaskReparent(projectRoot, childId, reparentTo);
     }
   }
 
@@ -689,6 +710,8 @@ export async function taskCancel(
     | {
         reason?: string;
         children?: ChildStrategy;
+        /** Target parent for the `reparent` strategy (T11811). */
+        reparentTo?: string;
         force?: boolean;
         cascadeThreshold?: number;
         allowCascade?: boolean;
@@ -735,6 +758,12 @@ export async function taskCancel(
     }
     if (message.startsWith('E_INVALID_STRATEGY:')) {
       return engineError('E_INVALID_STRATEGY', message.replace(/^E_INVALID_STRATEGY:\s*/, ''));
+    }
+    if (message.startsWith('E_REPARENT_TARGET_REQUIRED:')) {
+      return engineError(
+        'E_REPARENT_TARGET_REQUIRED',
+        message.replace(/^E_REPARENT_TARGET_REQUIRED:\s*/, ''),
+      );
     }
     if (message.includes(' not found')) {
       return engineError('E_NOT_FOUND', message);

@@ -476,6 +476,7 @@ describe('addTask with BRAIN duplicate detection', () => {
       {
         title: 'Add user avatar upload feature',
         description: 'Allow users to upload and display profile pictures in their account',
+        skipContainmentInvariant: true,
       },
       env.tempDir,
       accessor,
@@ -504,6 +505,7 @@ describe('addTask with BRAIN duplicate detection', () => {
           title: 'Epic: Auth API imported v2',
           description:
             'Import the auth api module and wire it into the gateway layer for all services',
+          skipContainmentInvariant: true,
         },
         env.tempDir,
         accessor,
@@ -528,6 +530,7 @@ describe('addTask with BRAIN duplicate detection', () => {
         description:
           'Import the auth api module and wire it into the gateway layer for all services',
         forceDuplicate: true,
+        skipContainmentInvariant: true,
       },
       env.tempDir,
       accessor,
@@ -580,6 +583,7 @@ describe('addTask with BRAIN duplicate detection', () => {
           title: 'Integrate GitHub Actions CI pipeline',
           description:
             'Configure GitHub Actions CI workflow with automated testing, linting and type-checking',
+          skipContainmentInvariant: true,
         },
         env.tempDir,
         accessor,
@@ -596,6 +600,7 @@ describe('addTask with BRAIN duplicate detection', () => {
             title: 'Integrate GitHub Actions CI pipeline',
             description:
               'Configure GitHub Actions CI workflow with automated testing, linting and type-checking',
+            skipContainmentInvariant: true,
           },
           env.tempDir,
           accessor,
@@ -608,6 +613,7 @@ describe('addTask with BRAIN duplicate detection', () => {
           title: 'Integrate GitHub Actions CI pipeline',
           description:
             'Configure GitHub Actions CI workflow with automated testing, linting and type-checking',
+          skipContainmentInvariant: true,
         },
         env.tempDir,
         accessor,
@@ -775,6 +781,7 @@ describe('Tier-3 LLM escalation (T1681)', () => {
         description:
           'Import the auth api module and wire it into the gateway layer for all services',
         forceDuplicate: true,
+        skipContainmentInvariant: true,
       },
       env.tempDir,
       accessor,

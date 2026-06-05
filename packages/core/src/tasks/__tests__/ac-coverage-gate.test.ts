@@ -93,8 +93,15 @@ async function createTaskWithAcs(
 ) {
   // T10509: anti-hallucination guard rejects title===description, so
   // give the description a unique prefix.
+  // T11811: this is a fixture-seed (a standalone task under test), not agent-facing
+  // net-new work, so bypass the strict-spine containment guard.
   const result = await addTask(
-    { title, description: `${title} — seeded fixture for the T10509 gate`, acceptance },
+    {
+      title,
+      description: `${title} — seeded fixture for the T10509 gate`,
+      acceptance,
+      skipContainmentInvariant: true,
+    },
     projectRoot,
     accessor,
   );

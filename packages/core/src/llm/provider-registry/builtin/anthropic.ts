@@ -86,6 +86,10 @@ export const anthropicProfile: ProviderProfile = {
   baseUrl: 'https://api.anthropic.com',
   defaultModel: 'claude-haiku-4-5-20251001',
   aliases: ['claude', 'anthropic-api'],
+  // Hermes-parity routing/catalog fields (T11756); catalog-sourced under E8.
+  tier: 'frontier',
+  defaultAuxModel: 'claude-haiku-4-5-20251001',
+  defaultMaxTokens: 4096,
   defaultHeaders: { 'anthropic-version': '2023-06-01' },
   oauth: ANTHROPIC_OAUTH,
 };

@@ -30,6 +30,8 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('../../../dispatch/adapters/cli.js', () => ({
   dispatchRaw: vi.fn(),
   handleRawError: vi.fn(),
+  // T11692 — commands call maybeEmitDescribe() at run() start; off by default.
+  maybeEmitDescribe: () => false,
 }));
 
 vi.mock('../../renderers/index.js', () => ({

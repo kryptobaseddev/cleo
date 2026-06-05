@@ -131,13 +131,18 @@ export async function archiveTasks(
       continue;
     }
 
-    // Skip epics that have non-archived children
-    if (task.type === 'epic') {
-      const activeCount = await acc.countActiveChildren(task.id);
-      if (activeCount > 0) {
-        skipped.push(task.id);
-        continue;
-      }
+    // T11811 AC2 — orphan-prevention guard. Skip ANY container with active
+    // (non-terminal) children, not just epics. Archiving a `task` (or `saga`)
+    // that still has active subtask/epic children would strand them under an
+    // archived parent — the same silent-strand class the cancel guard closes.
+    // `countActiveChildren` excludes done/cancelled/archived, so leaf tasks
+    // and fully-disposed containers archive cleanly; only live containers are
+    // skipped. The operator disposes children explicitly via `cleo cancel
+    // <id> --children …` before re-archiving.
+    const activeCount = await acc.countActiveChildren(task.id);
+    if (activeCount > 0) {
+      skipped.push(task.id);
+      continue;
     }
 
     archived.push(task.id);

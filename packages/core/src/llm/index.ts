@@ -215,6 +215,7 @@ export {
   DEFAULT_CONTEXT_LENGTH,
   getModelContextLength,
   getModelMetadata,
+  usesMaxCompletionTokens,
 } from './model-metadata.js';
 // Prompt-caching strategies (Anthropic) — T9269 / T-LLM-CRED Phase 3
 export type {
@@ -266,8 +267,6 @@ export type { CodexResponsesTransportOptions } from './transports/codex-response
 export { CodexResponsesTransport } from './transports/codex-responses.js';
 export type { GeminiTransportOptions } from './transports/gemini.js';
 export { GeminiTransport } from './transports/gemini.js';
-export type { OpenAITransportOptions } from './transports/openai.js';
-export { OpenAITransport, usesMaxCompletionTokens } from './transports/openai.js';
 // Response / stream types (scoped names to avoid collision with Vercel AI SDK)
 export type {
   IterationCallback,

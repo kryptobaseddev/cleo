@@ -656,3 +656,172 @@ describe('verifyMigration — row SURPLUS is tolerated, DEFICIT still fails (T11
     expect(entry?.targetCount).toBe(97);
   });
 });
+
+// ---------------------------------------------------------------------------
+// T11834 — the content digest is STREAMED (statement iterator), NOT `.all()`-
+// materialised. A large table must verify with the SAME correctness as before
+// without pulling the whole table into a JS array (the OOM that rolled back a
+// lossless cutover on a 697K-row / 1.7 GB-class brain.db). count comes from a
+// set-based COUNT(*) so the parity gate never depends on the heavy digest.
+// ---------------------------------------------------------------------------
+
+describe('verifyMigration — streamed content digest at scale (T11834)', () => {
+  let tmpDir: string;
+  let sourcePath: string;
+  let projectPath: string;
+  let globalPath: string;
+
+  beforeEach(() => {
+    tmpDir = makeTempDir();
+    sourcePath = join(tmpDir, 'brain.db');
+    projectPath = join(tmpDir, 'cleo-project.db');
+    globalPath = join(tmpDir, 'cleo-global.db');
+    new DatabaseSync(globalPath).close();
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const N = 5000;
+
+  function seed(path: string, mutateAt?: number): void {
+    const db = new DatabaseSync(path);
+    try {
+      db.exec(
+        `CREATE TABLE "brain_weight_history" (id INTEGER PRIMARY KEY, weight REAL, note TEXT)`,
+      );
+      const ins = db.prepare(`INSERT INTO "brain_weight_history" VALUES (?, ?, ?)`);
+      db.exec('BEGIN');
+      for (let i = 1; i <= N; i++) {
+        ins.run(i, i * 0.5, i === mutateAt ? 'CORRUPTED' : `n-${i}`);
+      }
+      db.exec('COMMIT');
+    } finally {
+      db.close();
+    }
+  }
+
+  function sources(): LegacyDbDescriptor[] {
+    return [{ name: 'brain (project)', path: sourcePath, targetScope: 'project' }];
+  }
+
+  it('GREEN: a 5000-row table copied faithfully verifies ok via the streamed digest', () => {
+    seed(sourcePath);
+    seed(projectPath);
+
+    const r = verifyMigration(sources(), projectPath, globalPath);
+    expect(r.ok, r.error ?? '').toBe(true);
+    const entry = r.tables.find((t) => t.targetTable === 'brain_weight_history');
+    expect(entry?.sourceCount).toBe(N);
+    expect(entry?.targetCount).toBe(N);
+    expect(entry?.countMatch).toBe(true);
+    expect(entry?.hashMatch).toBe(true);
+  });
+
+  it('detects a single corrupted row among 5000 (streamed hashMatch=false, counts still match)', () => {
+    seed(sourcePath);
+    seed(projectPath, 2500); // one row differs
+
+    const r = verifyMigration(sources(), projectPath, globalPath);
+    const entry = r.tables.find((t) => t.targetTable === 'brain_weight_history');
+    expect(entry?.countMatch).toBe(true);
+    expect(entry?.hashMatch).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T11836 — a NULL source value migrate substituted with a type default for a
+// target NOT-NULL-without-default column is a NON-FATAL diagnostic, NOT a false
+// hashMatch=false. The verifier mirrors migrate's COALESCE(expr, type_default)
+// in the source digest so a FAITHFUL fresh migration digests as a MATCH.
+// ---------------------------------------------------------------------------
+
+describe('verifyMigration — NULL→NOT-NULL-default substitution is non-fatal (T11836)', () => {
+  let tmpDir: string;
+  let sourcePath: string;
+  let projectPath: string;
+  let globalPath: string;
+
+  beforeEach(() => {
+    tmpDir = makeTempDir();
+    sourcePath = join(tmpDir, 'tasks.db');
+    projectPath = join(tmpDir, 'cleo-project.db');
+    globalPath = join(tmpDir, 'cleo-global.db');
+    new DatabaseSync(globalPath).close();
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function sources(): LegacyDbDescriptor[] {
+    return [{ name: 'tasks', path: sourcePath, targetScope: 'project' }];
+  }
+
+  it('hashMatch=true when a NULL source value is stored as the type default in a NOT-NULL-without-default target column', () => {
+    // Source: legacy 'tasks' where `label` is NULLABLE and one row carries NULL.
+    const src = new DatabaseSync(sourcePath);
+    try {
+      src.exec(`CREATE TABLE "tasks" (id INTEGER PRIMARY KEY, label TEXT)`);
+      src.exec(`INSERT INTO "tasks" VALUES (1, 'alpha')`);
+      src.exec(`INSERT INTO "tasks" (id, label) VALUES (2, NULL)`); // NULL source value
+      src.exec(`INSERT INTO "tasks" VALUES (3, 'gamma')`);
+    } finally {
+      src.close();
+    }
+
+    // Target: consolidated 'tasks_tasks' where `label` is NOT NULL WITHOUT a
+    // schema default — exactly the shape migrate's buildSelectExpr coalesces to
+    // the TEXT type default (''). A FAITHFUL migration therefore stores '' for
+    // the row-2 NULL, which is precisely what we seed here.
+    const tgt = new DatabaseSync(projectPath);
+    try {
+      tgt.exec(`CREATE TABLE "tasks_tasks" (id INTEGER PRIMARY KEY, label TEXT NOT NULL)`);
+      tgt.exec(`INSERT INTO "tasks_tasks" VALUES (1, 'alpha')`);
+      tgt.exec(`INSERT INTO "tasks_tasks" VALUES (2, '')`); // type-default substitution
+      tgt.exec(`INSERT INTO "tasks_tasks" VALUES (3, 'gamma')`);
+    } finally {
+      tgt.close();
+    }
+
+    const r = verifyMigration(sources(), projectPath, globalPath);
+
+    // BEFORE T11836: the source digest read NULL while the target stored '' →
+    // hashMatch=false at equal counts (a false content-corruption failure).
+    // AFTER T11836: the source digest mirrors migrate's COALESCE → MATCH.
+    const entry = r.tables.find((t) => t.targetTable === 'tasks_tasks');
+    expect(entry?.countMatch).toBe(true);
+    expect(entry?.hashMatch).toBe(true);
+    expect(r.ok, r.error ?? '').toBe(true);
+    expect(r.error).toBeUndefined();
+  });
+
+  it('STILL FAILS: a NULL source value stored as a NON-default value in the target is a real content mismatch', () => {
+    // Same NOT-NULL-without-default target column, but the target stored a value
+    // migrate would never produce for a NULL source ('UNEXPECTED' ≠ the '' type
+    // default). This is genuine content drift and MUST stay a hashMatch=false.
+    const src = new DatabaseSync(sourcePath);
+    try {
+      src.exec(`CREATE TABLE "tasks" (id INTEGER PRIMARY KEY, label TEXT)`);
+      src.exec(`INSERT INTO "tasks" VALUES (1, 'alpha')`);
+      src.exec(`INSERT INTO "tasks" (id, label) VALUES (2, NULL)`);
+    } finally {
+      src.close();
+    }
+
+    const tgt = new DatabaseSync(projectPath);
+    try {
+      tgt.exec(`CREATE TABLE "tasks_tasks" (id INTEGER PRIMARY KEY, label TEXT NOT NULL)`);
+      tgt.exec(`INSERT INTO "tasks_tasks" VALUES (1, 'alpha')`);
+      tgt.exec(`INSERT INTO "tasks_tasks" VALUES (2, 'UNEXPECTED')`); // NOT the type default
+    } finally {
+      tgt.close();
+    }
+
+    const r = verifyMigration(sources(), projectPath, globalPath);
+    const entry = r.tables.find((t) => t.targetTable === 'tasks_tasks');
+    expect(entry?.countMatch).toBe(true);
+    expect(entry?.hashMatch).toBe(false);
+  });
+});

@@ -15,6 +15,17 @@ import type { TransportMessage, TransportTool } from './normalized-response.js';
 import type { ProviderOAuthConfig } from './oauth.js';
 
 /**
+ * Coarse provider capability tier used by the system-of-use router (E9).
+ *
+ * Ordered most→least capable: `frontier` (flagship reasoning), `standard`
+ * (general-purpose), `fast` (cheap/low-latency aux), `local` (on-device, e.g.
+ * Ollama). Sourced from the models.dev catalog (E8) when generated.
+ *
+ * @task T11756
+ */
+export type ProviderTier = 'frontier' | 'standard' | 'fast' | 'local';
+
+/**
  * Describes a single LLM provider — its auth capabilities, base URL,
  * default model, and optional live model-discovery hook.
  *
@@ -54,8 +65,56 @@ export interface ProviderProfile {
    * Alternate names that resolve to this profile. Resolution is
    * case-insensitive. Alias conflicts with another profile's primary name
    * cause a `TypeError` at registration time.
+   *
+   * The canonical alias map (`codex`→`openai`, `google`→`gemini`, …) is declared
+   * here as DATA so the resolver never branches on provider name in code
+   * (T11756 AC2 · hermes `ProviderProfile.aliases` parity).
    */
   aliases?: ReadonlyArray<string>;
+
+  /**
+   * Coarse capability tier for system-of-use routing (E9). Sourced from the
+   * models.dev catalog capabilities when generated (E8 join), hand-set for
+   * builtins. Absent = unknown (the router treats it as `standard`).
+   *
+   * Hermes derives this from `model_metadata`; CLEO carries it as profile DATA
+   * so `resolveLLMForSystem` can pick the right tier without a code branch.
+   *
+   * @task T11756
+   */
+  readonly tier?: ProviderTier;
+
+  /**
+   * Cheap/fast auxiliary model for low-stakes calls (title generation, summaries,
+   * the warm/aux tier). Hermes `ProviderProfile.default_aux_model` parity. Absent
+   * (or empty) → fall back to {@link defaultModel}.
+   *
+   * @task T11756
+   */
+  readonly defaultAuxModel?: string;
+
+  /**
+   * Default `maxTokens` for this provider when the caller omits it. Hermes
+   * `ProviderProfile.default_max_tokens` parity. Absent → the transport's own
+   * default applies.
+   *
+   * @task T11756
+   */
+  readonly defaultMaxTokens?: number;
+
+  /**
+   * Temperature handling this provider REQUIRES. Hermes
+   * `ProviderProfile.fixed_temperature` parity:
+   *  - a `number` — the provider only accepts this exact temperature (e.g. the
+   *    OpenAI o-series require `1`); the transport MUST send it and ignore the
+   *    caller's override.
+   *  - `'omit'` — the provider rejects a `temperature` field entirely; the
+   *    transport MUST NOT send one.
+   *  - absent — the caller's temperature (or the transport default) applies.
+   *
+   * @task T11756
+   */
+  readonly fixedTemperature?: number | 'omit';
 
   /**
    * HTTP headers sent with every request to this provider.

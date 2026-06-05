@@ -25,11 +25,9 @@ import type { ResolvedCredential } from '@cleocode/contracts/llm/resolved-creden
 import pRetry from 'p-retry';
 import { ConcreteExecutor } from './concrete-executor.js';
 import { ConcreteSession } from './concrete-session.js';
+import { ModelRunner } from './model-runner.js';
 import { effectiveTemperature, makeAttemptRef, planAttempt } from './runtime.js';
 import { executeToolLoop } from './tool-loop.js';
-import { AnthropicTransport } from './transports/anthropic.js';
-import { ChatCompletionsTransport } from './transports/chat-completions.js';
-import { GeminiTransport } from './transports/gemini.js';
 import type {
   IterationCallback,
   LLMCallResponse,
@@ -38,7 +36,7 @@ import type {
   StreamingResponseWithMetadata,
   VerbosityType,
 } from './types.js';
-import type { ModelConfig, ModelTransport } from './types-config.js';
+import type { ModelConfig } from './types-config.js';
 
 export interface CleoLlmCallParams {
   modelConfig: ModelConfig;
@@ -90,53 +88,17 @@ function _resolvedCredentialFromConfig(config: ModelConfig): ResolvedCredential 
 }
 
 /**
- * Instantiate the correct {@link import('@cleocode/contracts/llm/normalized-response.js').LlmTransport}
- * for the given provider + credential.
- */
-function _transportForConfig(
-  provider: ModelTransport,
-  cred: ResolvedCredential,
-): import('@cleocode/contracts/llm/normalized-response.js').LlmTransport {
-  if (provider === 'anthropic') {
-    const opts =
-      cred.authType === 'oauth'
-        ? { authToken: cred.token, baseUrl: cred.baseUrl ?? undefined }
-        : {
-            apiKey: cred.token,
-            baseUrl: cred.baseUrl ?? undefined,
-            defaultHeaders: Object.keys(cred.extraHeaders).length ? cred.extraHeaders : undefined,
-          };
-    return new AnthropicTransport(opts);
-  }
-
-  if (provider === 'gemini') {
-    return new GeminiTransport({
-      apiKey: cred.token,
-      baseUrl: cred.baseUrl ?? undefined,
-    });
-  }
-
-  const defaultHeaders: Record<string, string> = { ...cred.extraHeaders };
-  if (cred.authType === 'oauth') {
-    defaultHeaders['Authorization'] = `Bearer ${cred.token}`;
-  }
-  return new ChatCompletionsTransport({
-    apiKey: cred.token,
-    baseUrl: cred.baseUrl ?? undefined,
-    defaultHeaders: Object.keys(defaultHeaders).length ? defaultHeaders : undefined,
-    provider,
-  });
-}
-
-/**
  * Build a one-shot {@link LlmSession} from a {@link ModelConfig}.
  *
  * Each call gets a fresh session so that history does not bleed across
- * retry attempts or independent callers.
+ * retry attempts or independent callers. Transport construction is delegated
+ * to the single SSoT factory {@link ModelRunner.buildTransportFromCredential}
+ * (E9 · T11745) — `ModelConfig` carries no apiMode, so codex routing is not
+ * applicable on this path.
  */
 function _sessionFromConfig(config: ModelConfig, model: string): LlmSession {
   const cred = _resolvedCredentialFromConfig(config);
-  const transport = _transportForConfig(config.transport, cred);
+  const transport = ModelRunner.buildTransportFromCredential(config.transport, cred);
   return new ConcreteSession({ transport, model, credential: cred });
 }
 

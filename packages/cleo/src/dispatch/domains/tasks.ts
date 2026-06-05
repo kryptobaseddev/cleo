@@ -461,6 +461,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
       await taskCancel(projectRoot, params.taskId, {
         reason: params.reason,
         children: params.children,
+        reparentTo: params.reparentTo,
         force: params.force,
         cascadeThreshold: params.cascadeThreshold,
         allowCascade: params.allowCascade,

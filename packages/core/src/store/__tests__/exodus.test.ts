@@ -24,7 +24,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseSync as DatabaseSyncType } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { deriveStagingDirName, sourcesPresent } from '../exodus/plan.js';
+import {
+  computeRequiredBytes,
+  deriveStagingDirName,
+  STAGING_COPY_SKIP_THRESHOLD_BYTES,
+  STAGING_HEADROOM_FACTOR,
+  sourcesPresent,
+} from '../exodus/plan.js';
 import { runExodusStatus } from '../exodus/status.js';
 import { resolveConsolidatedTableName } from '../exodus/table-name-map.js';
 import type { ExodusPlan, LegacyDbDescriptor } from '../exodus/types.js';
@@ -256,6 +262,9 @@ describe('ExodusPlan type shape', () => {
     const plan: ExodusPlan = {
       sources: [],
       totalSourceBytes: 0,
+      largestSourceBytes: 0,
+      requiredBytes: 0,
+      stagingCopyThresholdBytes: 256 * 1024 * 1024,
       availableBytes: 1_000_000,
       diskPreflight: true,
       stagingDir: '/tmp/exodus-staging-20260101T000000Z',
@@ -265,6 +274,59 @@ describe('ExodusPlan type shape', () => {
     };
     expect(plan.diskPreflight).toBe(true);
     expect(plan.sources).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T11838 — right-sized disk preflight: ~1.2× largest source + consolidated
+// estimate, NOT 3× the SUM of all sources. The old gate blocked large-fleet
+// migrations even with ample headroom.
+// ---------------------------------------------------------------------------
+
+describe('computeRequiredBytes — right-sized preflight (T11838)', () => {
+  it('uses 1.2× largest source + total (consolidated estimate), NOT 3× total', () => {
+    // A fleet whose largest source dominates the sum (e.g. brain.db ≫ the rest).
+    const largest = 1_000_000_000; // ~1 GB largest source
+    const total = 1_200_000_000; // sum of all sources
+    const required = computeRequiredBytes(total, largest);
+
+    // Right-sized: ceil(1.2 × 1e9) + 1.2e9 = 1.2e9 + 1.2e9 = 2.4e9.
+    expect(required).toBe(Math.ceil(STAGING_HEADROOM_FACTOR * largest) + total);
+    expect(required).toBe(2_400_000_000);
+
+    // And it is STRICTLY less than the old 3× SUM gate (which was 3.6e9) — the
+    // exact over-estimate that blocked migrations with adequate disk.
+    expect(required).toBeLessThan(3 * total);
+  });
+
+  it('is monotonic in both the largest source and the total', () => {
+    const base = computeRequiredBytes(100, 50);
+    expect(computeRequiredBytes(200, 50)).toBeGreaterThan(base); // bigger total
+    expect(computeRequiredBytes(100, 80)).toBeGreaterThan(base); // bigger largest
+  });
+
+  it('degenerate single-source fleet: largest === total → 2.2× that single source', () => {
+    const n = 500_000_000;
+    // ceil(1.2 × n) + n = 2.2 × n.
+    expect(computeRequiredBytes(n, n)).toBe(Math.ceil(STAGING_HEADROOM_FACTOR * n) + n);
+  });
+
+  it('a preflight PASSES at headroom the old 3× gate would have REJECTED', () => {
+    const largest = 1_000_000_000;
+    const total = 1_200_000_000;
+    const required = computeRequiredBytes(total, largest); // 2.4e9
+    // Disk with 2.5e9 free: PASSES the new gate, but FAILS the old 3× (3.6e9).
+    const available = 2_500_000_000;
+    expect(available >= required).toBe(true);
+    expect(available >= 3 * total).toBe(false);
+  });
+
+  it('exposes the staging-copy skip threshold for large sources', () => {
+    // The threshold separates small sources (keep the cheap backup) from large
+    // ones (skip the redundant full-file copy — source is archived, not deleted).
+    expect(STAGING_COPY_SKIP_THRESHOLD_BYTES).toBe(256 * 1024 * 1024);
+    expect(1_000 > STAGING_COPY_SKIP_THRESHOLD_BYTES).toBe(false); // small → keep copy
+    expect(2_000_000_000 > STAGING_COPY_SKIP_THRESHOLD_BYTES).toBe(true); // large → skip copy
   });
 });
 
@@ -543,6 +605,9 @@ describe('T11531 regression — runExodusMigrate copies all tables from all sour
     const plan: ExodusPlan = {
       sources,
       totalSourceBytes: 0,
+      largestSourceBytes: 0,
+      requiredBytes: 0,
+      stagingCopyThresholdBytes: 256 * 1024 * 1024,
       availableBytes: 100_000_000,
       diskPreflight: true,
       stagingDir,
@@ -828,6 +893,9 @@ describe('T11532 regression — runExodusMigrate: unprefixed source → prefixed
     const plan: ExodusPlan = {
       sources,
       totalSourceBytes: 0,
+      largestSourceBytes: 0,
+      requiredBytes: 0,
+      stagingCopyThresholdBytes: 256 * 1024 * 1024,
       availableBytes: 100_000_000,
       diskPreflight: true,
       stagingDir,
@@ -1135,6 +1203,9 @@ describe('T11533 regression — FK-defer: child rows survive when copied before 
     const plan: ExodusPlan = {
       sources,
       totalSourceBytes: 0,
+      largestSourceBytes: 0,
+      requiredBytes: 0,
+      stagingCopyThresholdBytes: 256 * 1024 * 1024,
       availableBytes: 100_000_000,
       diskPreflight: true,
       stagingDir,
@@ -1254,6 +1325,9 @@ describe('T11533 regression — NOT NULL coalesce: rows with NULL in target-only
     const plan: ExodusPlan = {
       sources,
       totalSourceBytes: 0,
+      largestSourceBytes: 0,
+      requiredBytes: 0,
+      stagingCopyThresholdBytes: 256 * 1024 * 1024,
       availableBytes: 100_000_000,
       diskPreflight: true,
       stagingDir,
@@ -1544,6 +1618,9 @@ describe('T11546 regression — epoch→ISO coercion: INTEGER epoch source → t
     const plan: ExodusPlan = {
       sources,
       totalSourceBytes: 0,
+      largestSourceBytes: 0,
+      requiredBytes: 0,
+      stagingCopyThresholdBytes: 256 * 1024 * 1024,
       availableBytes: 100_000_000,
       diskPreflight: true,
       stagingDir,
@@ -1650,6 +1727,9 @@ describe('T11546 regression — epoch→ISO coercion: INTEGER epoch source → t
     const plan: ExodusPlan = {
       sources,
       totalSourceBytes: 0,
+      largestSourceBytes: 0,
+      requiredBytes: 0,
+      stagingCopyThresholdBytes: 256 * 1024 * 1024,
       availableBytes: 100_000_000,
       diskPreflight: true,
       stagingDir,
@@ -1799,6 +1879,9 @@ describe('T11547 regression — enum normalization in migrate layer', () => {
     const plan: ExodusPlan = {
       sources: [{ name: sourceName, path: sourcePath, targetScope }],
       totalSourceBytes: 0,
+      largestSourceBytes: 0,
+      requiredBytes: 0,
+      stagingCopyThresholdBytes: 256 * 1024 * 1024,
       availableBytes: 100_000_000,
       diskPreflight: true,
       stagingDir,
@@ -2118,6 +2201,9 @@ describe('T11548 regression — final enum coverage: transport/conventional_type
     const plan: ExodusPlan = {
       sources: [{ name: sourceName, path: sourcePath, targetScope }],
       totalSourceBytes: 0,
+      largestSourceBytes: 0,
+      requiredBytes: 0,
+      stagingCopyThresholdBytes: 256 * 1024 * 1024,
       availableBytes: 100_000_000,
       diskPreflight: true,
       stagingDir,
@@ -2622,6 +2708,9 @@ describe('T11549 regression — zero-loss final mile: confidence/decision_catego
     const plan: ExodusPlan = {
       sources: [{ name: sourceName, path: sourcePath, targetScope }],
       totalSourceBytes: 0,
+      largestSourceBytes: 0,
+      requiredBytes: 0,
+      stagingCopyThresholdBytes: 256 * 1024 * 1024,
       availableBytes: 100_000_000,
       diskPreflight: true,
       stagingDir,
@@ -2937,6 +3026,9 @@ describe('T11550 regression — agent_credentials/brain_release_links from tasks
     const plan: ExodusPlan = {
       sources: [{ name: sourceName, path: sourcePath, targetScope }],
       totalSourceBytes: 0,
+      largestSourceBytes: 0,
+      requiredBytes: 0,
+      stagingCopyThresholdBytes: 256 * 1024 * 1024,
       availableBytes: 100_000_000,
       diskPreflight: true,
       stagingDir,
