@@ -23,8 +23,26 @@ export {
   type StrandedResidueEntry,
   writeExodusCompleteMarker,
 } from './archive.js';
+export {
+  type CountParityEntry,
+  type CountParityResult,
+  computeCountParity,
+} from './count-parity.js';
+export {
+  buildExodusHealth,
+  type ExodusHealth,
+  type ExodusScopeHealth,
+  type ExodusScopeState,
+  type ExodusSourceHealth,
+} from './health.js';
 export { clearExodusJournal, runExodusMigrate } from './migrate.js';
 export { buildExodusPlan, deriveStagingDirName, sourcesPresent } from './plan.js';
+export {
+  type SealResult,
+  type SealScopeArg,
+  type SealScopeOutcome,
+  sealExodus,
+} from './seal.js';
 export { runExodusStatus } from './status.js';
 export {
   isDerivedOrInternalTable,
