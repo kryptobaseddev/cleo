@@ -51,9 +51,18 @@ describe('addBatchTasks', () => {
             description: 'First task in the batch',
             labels: ['pm-core-v2', 'wave.3'],
             acceptance: ['labels persist as arrays', 'acceptance persists as arrays'],
+            skipContainmentInvariant: true,
           },
-          { title: 'Batch task B', description: 'Second task in the batch' },
-          { title: 'Batch task C', description: 'Third task in the batch' },
+          {
+            title: 'Batch task B',
+            description: 'Second task in the batch',
+            skipContainmentInvariant: true,
+          },
+          {
+            title: 'Batch task C',
+            description: 'Third task in the batch',
+            skipContainmentInvariant: true,
+          },
         ],
       },
       accessor,
@@ -92,13 +101,21 @@ describe('addBatchTasks', () => {
       addBatchTasks(
         {
           tasks: [
-            { title: 'First task OK', description: 'This one would succeed' },
+            {
+              title: 'First task OK',
+              description: 'This one would succeed',
+              skipContainmentInvariant: true,
+            },
             {
               title: 'Second task bad parent',
               description: 'This task has a non-existent parent',
               parentId: 'T999',
             },
-            { title: 'Third task OK', description: 'This would succeed too' },
+            {
+              title: 'Third task OK',
+              description: 'This would succeed too',
+              skipContainmentInvariant: true,
+            },
           ],
         },
         accessor,
@@ -135,8 +152,8 @@ describe('addBatchTasks', () => {
       addBatchTasks(
         {
           tasks: [
-            { title: 'Alpha task', description: 'First in batch' },
-            { title: 'Beta task', description: 'Second in batch' },
+            { title: 'Alpha task', description: 'First in batch', skipContainmentInvariant: true },
+            { title: 'Beta task', description: 'Second in batch', skipContainmentInvariant: true },
             {
               title: 'Gamma task invalid',
               description: 'Third with bad parent causes rollback',
@@ -229,7 +246,10 @@ describe('addBatchTasks', () => {
   it('(T10599 AC2) live run: insertedCount equals created', async () => {
     const result = await addBatchTasks(
       {
-        tasks: [{ title: 'Live AC2 A' }, { title: 'Live AC2 B' }],
+        tasks: [
+          { title: 'Live AC2 A', skipContainmentInvariant: true },
+          { title: 'Live AC2 B', skipContainmentInvariant: true },
+        ],
       },
       accessor,
       env.tempDir,
@@ -275,7 +295,12 @@ describe('addBatchTasks', () => {
     const parentResult = await addBatchTasks(
       {
         tasks: [
-          { title: 'Parent epic', description: 'Root epic for batch children', type: 'epic' },
+          {
+            title: 'Parent epic',
+            description: 'Root epic for batch children',
+            type: 'epic',
+            skipContainmentInvariant: true,
+          },
         ],
       },
       accessor,

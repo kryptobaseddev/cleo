@@ -316,6 +316,9 @@ export async function reconcile(
                 type: ext.type,
                 labels: [...(defaultLabels ?? []), ...(ext.labels ?? []), `sync.${providerId}`],
                 ...(defaultPhase ? { phase: defaultPhase, addPhase: true } : {}),
+                // External-sync ingest legitimately creates standalone tasks
+                // mirroring an external provider; exempt from the T11811 guard.
+                skipContainmentInvariant: true,
               },
               cwd,
               acc,

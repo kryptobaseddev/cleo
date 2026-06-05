@@ -241,7 +241,7 @@ export function previewDelete(
         dryRun: true,
         error: {
           code: 'E_HAS_CHILDREN',
-          message: `Task has ${childCount} child task(s). Use --children=cascade or --children=orphan`,
+          message: `Task has ${childCount} child task(s). Use --children=cascade or --children=reparent --to <epicId>`,
           childCount,
         },
       };
