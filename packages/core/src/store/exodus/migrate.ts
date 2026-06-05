@@ -118,6 +118,7 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -137,6 +138,7 @@ import {
   numericClampExpr,
   typeDefaultLiteral,
 } from './column-transforms.js';
+import { STAGING_HEADROOM_FACTOR } from './plan.js';
 import { resolveConsolidatedTableName, resolveTableTargetScope } from './table-name-map.js';
 import type {
   ExodusJournal,
@@ -297,6 +299,24 @@ function releaseAdvisoryLock(dbPath: string): void {
     unlinkSync(lockPath(dbPath));
   } catch {
     // Ignore — lock may already be gone
+  }
+}
+
+/**
+ * Return a file's size in bytes, or `0` when it cannot be stat'd (T11838).
+ *
+ * Used to decide whether a source exceeds the staging-copy skip threshold. A
+ * non-existent / unreadable source is treated as 0 bytes (it is filtered out of
+ * the copy loop separately), so it never trips the large-source skip branch.
+ *
+ * @param filePath - Absolute path to the file to stat.
+ * @returns The file size in bytes, or `0` on any stat failure.
+ */
+function safeStatBytes(filePath: string): number {
+  try {
+    return statSync(filePath).size;
+  } catch {
+    return 0;
   }
 }
 
@@ -887,14 +907,22 @@ export async function runExodusMigrate(
 ): Promise<ExodusMigrateResult> {
   const { sources, stagingDir, diskPreflight, projectDbPath, globalDbPath } = plan;
 
-  // AC8: disk pre-flight
+  // AC8 (right-sized — T11838): disk pre-flight. The requirement is
+  // `1.2 × largestSource + consolidatedEstimate`, NOT 3× the SUM of all sources.
   if (!diskPreflight) {
+    const shortfall = Math.max(0, plan.requiredBytes - plan.availableBytes);
     return {
       ok: false,
       tables: [],
       stagingDir,
       backupPaths: [],
-      error: `Insufficient disk space: need ≥3× source size (${plan.totalSourceBytes} bytes source, ${plan.availableBytes} bytes available). Free up space or use a different storage location.`,
+      error:
+        `Insufficient disk space for exodus: need ≥${plan.requiredBytes} bytes ` +
+        `(≈${STAGING_HEADROOM_FACTOR}× largest source ${plan.largestSourceBytes} + ` +
+        `consolidated estimate ${plan.totalSourceBytes}), but only ${plan.availableBytes} bytes ` +
+        `are free on the target filesystem — ${shortfall} bytes short. ` +
+        `Free up at least ${shortfall} bytes (e.g. \`cleo backup prune\`, clear caches), ` +
+        `or move the .cleo/ directory to a larger volume, then retry.`,
     };
   }
 
@@ -947,11 +975,28 @@ export async function runExodusMigrate(
   let globalHandle: DualScopeDbHandle | null = null;
 
   try {
-    // 1. Back up existing source DBs into staging dir and acquire advisory locks
+    // 1. Back up existing source DBs into staging dir and acquire advisory locks.
+    //
+    // T11838: the full `copyFileSync` staging backup is SKIPPED for sources
+    // larger than `plan.stagingCopyThresholdBytes`. On a successful cutover the
+    // legacy source is ARCHIVED (renamed into `_archive/`, not deleted — see
+    // archive.ts / T11777), so a redundant full-file backup of a multi-GB source
+    // only doubles its disk + I/O cost. The staging copy's sole remaining value
+    // is a rollback fallback if the migration crashes BEFORE archival; the
+    // consolidated target is written on a dedicated isolated handle and the
+    // source is never mutated in place, so skipping it for large sources cannot
+    // lose data. Small sources keep the cheap backup (common-case safety).
     for (const src of sources) {
       if (!existsSync(src.path)) continue;
       const backupDest = join(stagingDir, `${src.name.replace(/[^a-z0-9-]/g, '_')}-backup.db`);
-      if (!existsSync(backupDest)) {
+      const srcBytes = safeStatBytes(src.path);
+      const skipStagingCopy = srcBytes > plan.stagingCopyThresholdBytes;
+      if (skipStagingCopy) {
+        onProgress?.(
+          `Skipping full staging copy of ${src.name} (${srcBytes} bytes > ` +
+            `${plan.stagingCopyThresholdBytes} threshold) — source is archived, not deleted, on success.`,
+        );
+      } else if (!existsSync(backupDest)) {
         onProgress?.(`Backing up ${src.name} → staging dir…`);
         copyFileSync(src.path, backupDest);
         backupPaths.push(backupDest);
