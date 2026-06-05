@@ -53,7 +53,11 @@ import type {
 import { MIGRATION_ENUM_DRIFT_SAMPLE_LIMIT } from '@cleocode/contracts';
 import { getLogger } from '../../logger.js';
 import { openCleoDbSnapshot } from '../open-cleo-db.js';
-import { buildDigestExpr, detectIsoGlobColumns } from './column-transforms.js';
+import {
+  buildDigestExpr,
+  detectIsoGlobColumns,
+  type TargetColumnInfo,
+} from './column-transforms.js';
 import { resolveConsolidatedTableName, resolveTableTargetScope } from './table-name-map.js';
 import type { ExodusScope, LegacyDbDescriptor } from './types.js';
 
@@ -116,6 +120,14 @@ interface DigestTransformSpec {
   readonly srcTypeByCol: ReadonlyMap<string, string>;
   /** Target columns carrying an ISO-8601 GLOB CHECK (drives epoch→ISO coercion). */
   readonly isoGlobCols: ReadonlySet<string>;
+  /**
+   * Map of target column name → its NOT-NULL flag + schema default + affinity
+   * (from the target `PRAGMA table_info`). Drives the NULL→NOT-NULL-default
+   * `COALESCE` substitution migrate applies, so a faithful FRESH migration that
+   * stored a type default for a NULL source value digests as a MATCH rather than
+   * a false `hashMatch === false` (T11836).
+   */
+  readonly tgtColByCol: ReadonlyMap<string, TargetColumnInfo>;
 }
 
 /**
@@ -184,7 +196,14 @@ function computeTableDigest(
         // SOURCE side: route the raw value through the SAME transform migrate
         // applied, aliased back to `c` so the row key matches the target side.
         const srcType = transform.srcTypeByCol.get(c) ?? '';
-        const expr = buildDigestExpr(transform.targetTableName, c, srcType, transform.isoGlobCols);
+        const tgtCol = transform.tgtColByCol.get(c);
+        const expr = buildDigestExpr(
+          transform.targetTableName,
+          c,
+          srcType,
+          transform.isoGlobCols,
+          tgtCol,
+        );
         return `${expr} AS "${c}"`;
       })
       .join(', ');
@@ -262,8 +281,10 @@ function sharedColumnsSorted(
 
 /**
  * Build the source-side {@link DigestTransformSpec} for a source→target table
- * pair: the source column type affinities and the target's ISO-GLOB columns,
- * keyed by the consolidated target name (the transform lookup key).
+ * pair: the source column type affinities, the target's ISO-GLOB columns, and
+ * the target column metadata (NOT-NULL flag + default + affinity), keyed by the
+ * consolidated target name (the transform lookup key). The target metadata
+ * drives the NULL→NOT-NULL-default `COALESCE` mirroring (T11836).
  *
  * Returns `undefined` (raw digest, no transform) when the source `PRAGMA
  * table_info` cannot be read — best-effort, biased to surfacing a real
@@ -291,7 +312,23 @@ function buildSourceDigestTransform(
       ).map((r) => [r.name, r.type]),
     );
     const isoGlobCols = detectIsoGlobColumns(tgtDb, targetTableName);
-    return { targetTableName, srcTypeByCol, isoGlobCols };
+    // Target column metadata (notnull + dflt_value + type) — drives the
+    // NULL→NOT-NULL-default COALESCE migrate applies, so a stored type default
+    // for a NULL source value digests as a MATCH (T11836).
+    const tgtColByCol = new Map<string, TargetColumnInfo>(
+      (
+        tgtDb.prepare(`PRAGMA table_info("${targetTableName}")`).all() as Array<{
+          name: string;
+          type: string;
+          notnull: number;
+          dflt_value: string | null;
+        }>
+      ).map((r) => [
+        r.name,
+        { notnull: r.notnull, dflt_value: r.dflt_value, type: r.type } satisfies TargetColumnInfo,
+      ]),
+    );
+    return { targetTableName, srcTypeByCol, isoGlobCols, tgtColByCol };
   } catch {
     return undefined;
   }

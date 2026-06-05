@@ -729,3 +729,99 @@ describe('verifyMigration — streamed content digest at scale (T11834)', () => 
     expect(entry?.hashMatch).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// T11836 — a NULL source value migrate substituted with a type default for a
+// target NOT-NULL-without-default column is a NON-FATAL diagnostic, NOT a false
+// hashMatch=false. The verifier mirrors migrate's COALESCE(expr, type_default)
+// in the source digest so a FAITHFUL fresh migration digests as a MATCH.
+// ---------------------------------------------------------------------------
+
+describe('verifyMigration — NULL→NOT-NULL-default substitution is non-fatal (T11836)', () => {
+  let tmpDir: string;
+  let sourcePath: string;
+  let projectPath: string;
+  let globalPath: string;
+
+  beforeEach(() => {
+    tmpDir = makeTempDir();
+    sourcePath = join(tmpDir, 'tasks.db');
+    projectPath = join(tmpDir, 'cleo-project.db');
+    globalPath = join(tmpDir, 'cleo-global.db');
+    new DatabaseSync(globalPath).close();
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function sources(): LegacyDbDescriptor[] {
+    return [{ name: 'tasks', path: sourcePath, targetScope: 'project' }];
+  }
+
+  it('hashMatch=true when a NULL source value is stored as the type default in a NOT-NULL-without-default target column', () => {
+    // Source: legacy 'tasks' where `label` is NULLABLE and one row carries NULL.
+    const src = new DatabaseSync(sourcePath);
+    try {
+      src.exec(`CREATE TABLE "tasks" (id INTEGER PRIMARY KEY, label TEXT)`);
+      src.exec(`INSERT INTO "tasks" VALUES (1, 'alpha')`);
+      src.exec(`INSERT INTO "tasks" (id, label) VALUES (2, NULL)`); // NULL source value
+      src.exec(`INSERT INTO "tasks" VALUES (3, 'gamma')`);
+    } finally {
+      src.close();
+    }
+
+    // Target: consolidated 'tasks_tasks' where `label` is NOT NULL WITHOUT a
+    // schema default — exactly the shape migrate's buildSelectExpr coalesces to
+    // the TEXT type default (''). A FAITHFUL migration therefore stores '' for
+    // the row-2 NULL, which is precisely what we seed here.
+    const tgt = new DatabaseSync(projectPath);
+    try {
+      tgt.exec(`CREATE TABLE "tasks_tasks" (id INTEGER PRIMARY KEY, label TEXT NOT NULL)`);
+      tgt.exec(`INSERT INTO "tasks_tasks" VALUES (1, 'alpha')`);
+      tgt.exec(`INSERT INTO "tasks_tasks" VALUES (2, '')`); // type-default substitution
+      tgt.exec(`INSERT INTO "tasks_tasks" VALUES (3, 'gamma')`);
+    } finally {
+      tgt.close();
+    }
+
+    const r = verifyMigration(sources(), projectPath, globalPath);
+
+    // BEFORE T11836: the source digest read NULL while the target stored '' →
+    // hashMatch=false at equal counts (a false content-corruption failure).
+    // AFTER T11836: the source digest mirrors migrate's COALESCE → MATCH.
+    const entry = r.tables.find((t) => t.targetTable === 'tasks_tasks');
+    expect(entry?.countMatch).toBe(true);
+    expect(entry?.hashMatch).toBe(true);
+    expect(r.ok, r.error ?? '').toBe(true);
+    expect(r.error).toBeUndefined();
+  });
+
+  it('STILL FAILS: a NULL source value stored as a NON-default value in the target is a real content mismatch', () => {
+    // Same NOT-NULL-without-default target column, but the target stored a value
+    // migrate would never produce for a NULL source ('UNEXPECTED' ≠ the '' type
+    // default). This is genuine content drift and MUST stay a hashMatch=false.
+    const src = new DatabaseSync(sourcePath);
+    try {
+      src.exec(`CREATE TABLE "tasks" (id INTEGER PRIMARY KEY, label TEXT)`);
+      src.exec(`INSERT INTO "tasks" VALUES (1, 'alpha')`);
+      src.exec(`INSERT INTO "tasks" (id, label) VALUES (2, NULL)`);
+    } finally {
+      src.close();
+    }
+
+    const tgt = new DatabaseSync(projectPath);
+    try {
+      tgt.exec(`CREATE TABLE "tasks_tasks" (id INTEGER PRIMARY KEY, label TEXT NOT NULL)`);
+      tgt.exec(`INSERT INTO "tasks_tasks" VALUES (1, 'alpha')`);
+      tgt.exec(`INSERT INTO "tasks_tasks" VALUES (2, 'UNEXPECTED')`); // NOT the type default
+    } finally {
+      tgt.close();
+    }
+
+    const r = verifyMigration(sources(), projectPath, globalPath);
+    const entry = r.tables.find((t) => t.targetTable === 'tasks_tasks');
+    expect(entry?.countMatch).toBe(true);
+    expect(entry?.hashMatch).toBe(false);
+  });
+});

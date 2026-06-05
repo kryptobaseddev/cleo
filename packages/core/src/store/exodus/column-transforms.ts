@@ -452,6 +452,50 @@ function isIntegerSourceType(srcType: string): boolean {
 }
 
 /**
+ * Target-column metadata a {@link buildDigestExpr} caller passes so the digest
+ * can mirror migrate's NOT-NULL `COALESCE(..., type_default)` substitution
+ * (T11836).
+ *
+ * Keyed by column name, this carries the consolidated target's NOT-NULL flag and
+ * declared schema default for every column the digest visits, sourced from the
+ * target `PRAGMA table_info`. A column is NOT-NULL-without-default when
+ * `notnull === 1 && dflt_value === null` — exactly the condition under which
+ * migrate's `buildSelectExpr` wraps the value in `COALESCE(expr, type_default)`.
+ */
+export interface TargetColumnInfo {
+  /** `PRAGMA table_info.notnull` — `1` for a NOT NULL column, `0` otherwise. */
+  readonly notnull: number;
+  /** `PRAGMA table_info.dflt_value` — the column's schema default, or `null`. */
+  readonly dflt_value: string | null;
+  /** `PRAGMA table_info.type` — raw affinity string (drives {@link typeDefaultLiteral}). */
+  readonly type: string;
+}
+
+/**
+ * Wrap a digest value expression in the SAME `COALESCE(expr, type_default)`
+ * substitution migrate's `buildSelectExpr` applies, when (and only when) the
+ * matching TARGET column is NOT NULL without a schema default (T11836).
+ *
+ * On a faithful FRESH migration a NULL source value in such a column is stored
+ * as the type default (`''`/`0`/`0.0`/`x''`) by migrate; digesting the source
+ * raw would read NULL and diverge from the stored default — a false
+ * `hashMatch === false` at equal row counts. Mirroring the COALESCE here makes
+ * the source digest reflect what migrate actually stored, so the substitution is
+ * a NON-FATAL diagnostic class rather than a content-corruption failure.
+ *
+ * @param expr   - The value expression produced by an upstream transform branch.
+ * @param tgtCol - Target column metadata, or `undefined` when unavailable (no
+ *   COALESCE applied — best-effort, biased to surfacing a real difference).
+ * @returns The expression, COALESCE-wrapped when the target is NOT-NULL-without-default.
+ */
+function maybeCoalesceNotNull(expr: string, tgtCol: TargetColumnInfo | undefined): string {
+  if (tgtCol === undefined) return expr;
+  const isNotNullWithoutDefault = tgtCol.notnull === 1 && tgtCol.dflt_value === null;
+  if (!isNotNullWithoutDefault) return expr;
+  return `COALESCE(${expr}, ${typeDefaultLiteral(tgtCol.type)})`;
+}
+
+/**
  * Build the SQL expression a column's SOURCE value must pass through so it
  * matches the canonical value the migration STORES in the target — for use by
  * the parity verifier's content digest (T11809 · AC2).
@@ -465,13 +509,19 @@ function isIntegerSourceType(srcType: string): boolean {
  *   3. **Enum-value normalization** ({@link enumNormExpr}).
  *   4. **Plain column reference** otherwise.
  *
- * Crucially it does NOT add the NOT-NULL `COALESCE(..., type_default)` wrapping
- * that `buildSelectExpr` uses: that wrapping only ever fires on a NULL source
- * value that the target stores as a type-default, which is a NULL→default value
- * CHANGE the digest should not paper over (a genuine NULL→'' divergence remains a
- * real, visible content difference, not a coercion artifact). The verifier
- * intentionally omits it so the digest reflects the canonical value transforms
- * (epoch/enum/clamp) WITHOUT masking a true NULL→default substitution.
+ * ## NOT-NULL default substitution mirroring (T11836)
+ *
+ * After the value transform, the result is wrapped in the SAME
+ * `COALESCE(expr, type_default)` substitution migrate's `buildSelectExpr` uses
+ * for a TARGET column that is NOT NULL without a schema default (see
+ * {@link maybeCoalesceNotNull}). migrate stores the type default (`''`/`0`/
+ * `0.0`/`x''`) for a NULL source value in such a column; without mirroring it
+ * here the source digest would read NULL and diverge from the stored default — a
+ * false `hashMatch === false` on a faithful FRESH migration (the exact T11836
+ * symptom). Mirroring it makes a NULL→NOT-NULL-default substitution a NON-FATAL
+ * diagnostic class rather than a hash failure. The target metadata is supplied
+ * via the `tgtColByCol` map; when it is absent (best-effort) no COALESCE is
+ * applied and a genuine NULL→'' divergence remains visible as before.
  *
  * The returned expression is a bare SQL value expression (no `AS "col"` alias)
  * suitable for embedding directly in a `SELECT <expr> ... ORDER BY ...` digest
@@ -482,6 +532,8 @@ function isIntegerSourceType(srcType: string): boolean {
  * @param col             - Column name (present in BOTH source and target).
  * @param srcType         - Raw `type` string from the source `PRAGMA table_info`.
  * @param isoGlobCols     - Set of target columns carrying an ISO GLOB CHECK.
+ * @param tgtCol          - Target column metadata (NOT-NULL flag + default +
+ *   affinity) for `col`, or `undefined` when unavailable.
  * @returns A SQL value expression that maps the raw source value to the canonical
  *   value the target stores.
  */
@@ -490,6 +542,7 @@ export function buildDigestExpr(
   col: string,
   srcType: string,
   isoGlobCols: ReadonlySet<string>,
+  tgtCol?: TargetColumnInfo,
 ): string {
   const srcRef = `"${col}"`;
 
@@ -497,17 +550,18 @@ export function buildDigestExpr(
   // CHECK and the source column is INTEGER (epoch) typed. Mirrors migrate's
   // per-row magnitude heuristic exactly.
   if (isoGlobCols.has(col) && isIntegerSourceType(srcType)) {
-    return buildEpochToIsoExpr(srcRef);
+    return maybeCoalesceNotNull(buildEpochToIsoExpr(srcRef), tgtCol);
   }
 
   // Priority 2: Non-finite numeric clamp (Inf/-Inf/NaN → finite in-range).
   const clampExpr = numericClampExpr(targetTableName, col, srcRef);
-  if (clampExpr !== null) return clampExpr;
+  if (clampExpr !== null) return maybeCoalesceNotNull(clampExpr, tgtCol);
 
   // Priority 3: Enum-value normalization (legacy value → canonical member).
   const normExpr = enumNormExpr(targetTableName, col, srcRef);
-  if (normExpr !== null) return normExpr;
+  if (normExpr !== null) return maybeCoalesceNotNull(normExpr, tgtCol);
 
-  // Priority 4: plain column reference (no transform migrate would have applied).
-  return srcRef;
+  // Priority 4: plain column reference, COALESCE-wrapped when the target is
+  // NOT NULL without a default (mirrors migrate's T11533 substitution — T11836).
+  return maybeCoalesceNotNull(srcRef, tgtCol);
 }
