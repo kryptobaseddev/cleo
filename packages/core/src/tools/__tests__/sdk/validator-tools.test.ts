@@ -34,8 +34,14 @@ async function makeTaskWithAcs(
   title: string,
   acceptance: string[],
 ) {
+  // T11811: fixture-seed (standalone task under test) — bypass strict-spine guard.
   const out = await addTask(
-    { title, description: `${title} — seeded fixture for T10511 tests`, acceptance },
+    {
+      title,
+      description: `${title} — seeded fixture for T10511 tests`,
+      acceptance,
+      skipContainmentInvariant: true,
+    },
     projectRoot,
     accessor,
   );

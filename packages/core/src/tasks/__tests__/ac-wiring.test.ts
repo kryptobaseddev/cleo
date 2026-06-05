@@ -47,6 +47,7 @@ describe('addTask — AC dual-write (T10508)', () => {
         title: 'AC create test',
         description: 'Creates with three ACs',
         acceptance: ['First AC', 'Second AC', 'Third AC'],
+        skipContainmentInvariant: true,
       },
       env.tempDir,
       accessor,
@@ -76,6 +77,7 @@ describe('addTask — AC dual-write (T10508)', () => {
         title: 'AC dual-write check',
         description: 'Dual-write the legacy string column too',
         acceptance: ['Alpha', 'Beta'],
+        skipContainmentInvariant: true,
       },
       env.tempDir,
       accessor,
@@ -94,7 +96,11 @@ describe('addTask — AC dual-write (T10508)', () => {
 
   it('no AC rows written when --acceptance omitted', async () => {
     const result = await addTask(
-      { title: 'No AC task', description: 'No acceptance criteria here' },
+      {
+        title: 'No AC task',
+        description: 'No acceptance criteria here',
+        skipContainmentInvariant: true,
+      },
       env.tempDir,
       accessor,
     );
@@ -125,6 +131,7 @@ describe('updateTask — AC dual-write update paths (T10508)', () => {
         title: 'Extend me',
         description: 'Starts with two ACs, gains a third',
         acceptance: ['AC1', 'AC2'],
+        skipContainmentInvariant: true,
       },
       env.tempDir,
       accessor,
@@ -163,6 +170,7 @@ describe('updateTask — AC dual-write update paths (T10508)', () => {
         title: 'Shrink me',
         description: 'Starts with three ACs, drops to one',
         acceptance: ['AC1-keep', 'AC2-drop', 'AC3-drop'],
+        skipContainmentInvariant: true,
       },
       env.tempDir,
       accessor,
@@ -216,6 +224,7 @@ describe('updateTask — AC dual-write update paths (T10508)', () => {
         title: 'Replace me',
         description: 'Wholesale rewrite with new text',
         acceptance: ['Old A', 'Old B'],
+        skipContainmentInvariant: true,
       },
       env.tempDir,
       accessor,
@@ -271,6 +280,7 @@ describe('updateTask — AC dual-write update paths (T10508)', () => {
         title: 'Order check',
         description: 'Validates history rows exist + tail rows gone',
         acceptance: ['Keep1', 'Drop1', 'Drop2'],
+        skipContainmentInvariant: true,
       },
       env.tempDir,
       accessor,

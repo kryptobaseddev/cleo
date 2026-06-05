@@ -940,11 +940,18 @@ export async function addTask(
       });
     }
 
-    // T11811 AC1 — reject filing NET-NEW work under a TERMINAL parent
-    // (done/cancelled/archived). A child added under a terminal parent is born
-    // stranded — the resolved parent can never satisfy it. Skip for the
-    // historical-replay escape hatch (legacy rows reference terminal parents).
-    if (!options.skipContainmentInvariant && TERMINAL_TASK_STATUSES.has(parentTask.status)) {
+    // T11811 AC1 — reject filing NET-NEW work under an IRREVERSIBLY-TERMINAL
+    // parent (`cancelled` / `archived`). A child added under such a parent is
+    // born stranded — the parent can never be auto-reopened to satisfy it.
+    //
+    // `done` is deliberately EXCLUDED: PM-Core V2 design-point 5 (saga T10538)
+    // reopens a `done` parent (and done ancestors) when a child is filed under
+    // it, so the child is NOT stranded — see the reopen logic below. Mirrors the
+    // `s !== 'done'` carve-out already in satisfies-validator.ts. Skip entirely
+    // for the historical-replay escape hatch (legacy rows reference terminals).
+    const parentIsIrreversiblyTerminal =
+      TERMINAL_TASK_STATUSES.has(parentTask.status) && parentTask.status !== 'done';
+    if (!options.skipContainmentInvariant && parentIsIrreversiblyTerminal) {
       throw new CleoError(
         ExitCode.VALIDATION_ERROR,
         `Cannot file new work under ${parentId}: its status is '${parentTask.status}' (terminal). ` +
@@ -953,7 +960,7 @@ export async function addTask(
           fix: `Pick a non-terminal parent (cleo find), or reopen ${parentId} first (cleo restore task ${parentId}).`,
           details: {
             field: 'parentId',
-            expected: 'non-terminal parent (pending|active|blocked)',
+            expected: 'non-terminal parent (pending|active|blocked|done)',
             actual: parentTask.status,
           },
         },

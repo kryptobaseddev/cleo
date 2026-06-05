@@ -86,11 +86,13 @@ async function seedWorkerTask(
   title: string,
   acceptance: string[],
 ) {
+  // T11811: fixture-seed (standalone worker task under test) — bypass strict-spine guard.
   const out = await addTask(
     {
       title,
       description: `${title} — T10515 integration fixture`,
       acceptance,
+      skipContainmentInvariant: true,
     },
     projectRoot,
     accessor,
