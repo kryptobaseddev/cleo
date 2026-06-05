@@ -248,3 +248,25 @@ export function getModelContextLengthSync(model: string): number {
   const curated = lookupCurated(model);
   return curated !== null ? curated.entry.contextLength : DEFAULT_CONTEXT_LENGTH;
 }
+
+/**
+ * Determine if a model requires `max_completion_tokens` instead of `max_tokens`.
+ *
+ * OpenAI's reasoning families (`gpt-5*`, `o1*`, `o3*`, `o4*`) reject the legacy
+ * `max_tokens` request field and require `max_completion_tokens`; every other
+ * model uses `max_tokens`. This is a pure model-id capability predicate, so it
+ * lives with the model-metadata helpers (relocated from the deleted
+ * `transports/openai.ts` under T11832).
+ *
+ * @param model - Provider model identifier to test.
+ * @returns `true` when the model family requires `max_completion_tokens`.
+ * @task T11832
+ */
+export function usesMaxCompletionTokens(model: string): boolean {
+  const m = model.toLowerCase();
+  if (m === 'gpt-5' || m.startsWith('gpt-5-') || m.startsWith('gpt-5.')) return true;
+  for (const prefix of ['o1', 'o3', 'o4']) {
+    if (m === prefix || m.startsWith(`${prefix}-`)) return true;
+  }
+  return false;
+}
