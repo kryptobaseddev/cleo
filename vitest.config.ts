@@ -1,5 +1,33 @@
+import { cpus, totalmem } from 'node:os';
 import { svelte, vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig } from 'vitest/config';
+
+// ---------------------------------------------------------------------------
+// Memory-safe fork concurrency (session-crash fix · T11839).
+//
+// `pool: 'forks'` with the default `maxWorkers` (CPU-1) spawned ~23 fork
+// processes on a 24-core box, each loading the heavy @cleocode/core graph
+// (sqlite/vec0 native + the full SDK) → ~23 × ~2.7 GB ≈ 62 GB → an OOM that
+// froze the whole machine and killed the session. CI never hit it (GitHub
+// runners have 2-4 cores → ≤3 forks).
+//
+// Bound concurrency by BOTH cpu AND physical RAM (with a hard ceiling) so a
+// large local box can never exceed memory, and cap each fork's V8 heap so a
+// single leaky/heavy test OOMs only its OWN fork (failing that one test)
+// instead of freezing the machine.
+// ---------------------------------------------------------------------------
+const GB = 1024 ** 3;
+const RAM_BUDGET_PER_FORK_GB = 6;
+const MEMORY_SAFE_MAX_WORKERS = Math.max(
+  1,
+  Math.min(
+    Math.max(1, cpus().length - 1),
+    Math.floor(totalmem() / (RAM_BUDGET_PER_FORK_GB * GB)),
+    6,
+  ),
+);
+/** Per-fork V8 old-space cap (MB) — bounds a single runaway/leaky test fork. */
+const FORK_HEAP_MB = 4096;
 
 export default defineConfig({
   // ---------------------------------------------------------------------------
@@ -57,6 +85,17 @@ export default defineConfig({
     // ---------------------------------------------------------------------------
     pool: 'forks',
     isolate: true,
+    // Memory-safe concurrency (T11839 · see MEMORY_SAFE_MAX_WORKERS above).
+    // Bound BOTH the number of parallel forks and each fork's heap so running
+    // the suite on a 24-core/62 GB box cannot OOM-freeze the machine. Inherited
+    // by every package config via `test.extends: true`.
+    maxWorkers: MEMORY_SAFE_MAX_WORKERS,
+    minWorkers: 1,
+    poolOptions: {
+      forks: {
+        execArgv: [`--max-old-space-size=${FORK_HEAP_MB}`],
+      },
+    },
     // T753: Force-kill worker forks that fail to exit after teardown.
     // Without this, workers with open SQLite handles or process.once('SIGTERM')
     // handlers that call async code can block the runner indefinitely.
