@@ -1,5 +1,27 @@
 # Changelog
 
+## [2026.6.7] (2026-06-05)
+
+### Added
+
+- Exodus fleet-flow surface: `cleo doctor exodus-health` (read-only per-scope state + recommendations), `cleo exodus migrate --scope global|project|both`, and `cleo exodus seal --scope` to certify an already-migrated install (memory-safe count-parity gate → archive + completion marker) without a destructive re-migrate or the OOM-prone verify. _(provenance: [T11837](https://github.com/kryptobaseddev/cleo/search?q=T11837&type=commits); [#970](https://github.com/kryptobaseddev/cleo/pull/970))_
+- Per-operation input/output schema SSoT — `OperationDef.inputSchema`/`outputSchema` + `cleo <op> --describe` + `describeOperation()`. _(provenance: [T11692](https://github.com/kryptobaseddev/cleo/search?q=T11692&type=commits); [#974](https://github.com/kryptobaseddev/cleo/pull/974))_
+- Orphan-prevention guard: a single child-disposition path with a write-time strict-spine invariant; filing a child under a `done` parent reopens it (PM-Core V2). _(provenance: [T11811](https://github.com/kryptobaseddev/cleo/search?q=T11811&type=commits); [#968](https://github.com/kryptobaseddev/cleo/pull/968))_
+
+### Changed
+
+- Honest exodus migrate diagnostics: capture `existingBefore` to distinguish idempotent PK-dedup (zero loss) from a genuine constraint shortfall, replacing the misleading hard-coded "CHECK/type constraint violation" message that conflated the two. _(provenance: [T11835](https://github.com/kryptobaseddev/cleo/search?q=T11835&type=commits); [#967](https://github.com/kryptobaseddev/cleo/pull/967))_
+- Right-size the exodus disk preflight (1.2× largest source + consolidated estimate, was 3× of the sum) and make the per-source staging copy optional for large sources. _(provenance: [T11838](https://github.com/kryptobaseddev/cleo/search?q=T11838&type=commits); [#972](https://github.com/kryptobaseddev/cleo/pull/972))_
+
+### Fixed
+
+- Exodus `verifyMigration` content digest now streams (statement iterator + set-based `COUNT(*)`) instead of `.all()`-materializing whole tables — a 697K-row / 1.7 GB-class verify completes in bounded memory (3M rows in 3.7 s at 44 MB heap), eliminating the OOM that rolled back an otherwise-lossless cutover. _(provenance: [T11834](https://github.com/kryptobaseddev/cleo/search?q=T11834&type=commits); [#966](https://github.com/kryptobaseddev/cleo/pull/966))_
+- Classify NULL→NOT-NULL-default substitution as a distinct non-fatal exodus verify diagnostic so a faithful fresh migration no longer reports a false `hashMatch=false`. _(provenance: [T11836](https://github.com/kryptobaseddev/cleo/search?q=T11836&type=commits); [#971](https://github.com/kryptobaseddev/cleo/pull/971))_
+
+### Docs
+
+- ADR-072 (nexus DB topology split) superseded by ADR-090 (dual-`cleo.db` residency); zero-orphans session ledger. _(provenance: [T11810](https://github.com/kryptobaseddev/cleo/search?q=T11810&type=commits); [#969](https://github.com/kryptobaseddev/cleo/pull/969))_
+
 ## [2026.6.6] (2026-06-04)
 
 ### Added
