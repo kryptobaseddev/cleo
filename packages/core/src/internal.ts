@@ -2596,6 +2596,15 @@ export { ConduitClient } from './conduit/conduit-client.js';
 export { createConduit } from './conduit/factory.js';
 export { HttpTransport } from './conduit/http-transport.js';
 export { decrypt, encrypt } from './crypto/credentials.js';
+export { getOutputContract, OUTPUT_CONTRACTS } from './dispatch/contracts/output-contracts.js';
+// T11692 (DHQ-057) — SDK describeOperation + OUTPUT contract accessor.
+// Re-exported from the internal barrel so the CLI dispatch adapter
+// (dispatchFromCli, which already imports from @cleocode/core/internal) can
+// resolve the I/O descriptor for the `--describe` short-circuit.
+export {
+  describeOperation,
+  type OperationDescriptor,
+} from './dispatch/describe-operation.js';
 // T9915 (Saga T9855 / E7.2) — SSoT input validator over OperationInputContract
 // Re-exported explicitly so CLI transport adapter (T9916) can resolve from
 // the internal barrel without traversing the public re-export chain.

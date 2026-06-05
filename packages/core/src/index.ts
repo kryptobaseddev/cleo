@@ -673,6 +673,14 @@ export { updateTask } from './tasks/update.js';
 // T9918 (Saga T9855 / E7.5) — OperationInputContract registry seed
 // T9917 (Saga T9855 / E7.4) — extended with tasks.add + tasks.update via contracts package
 export { getInputContract, INPUT_CONTRACTS } from './dispatch/contracts/input-contracts.js';
+// T11692 (DHQ-057 / EP-DHQ-CORE-FIXES T11679) — per-operation OUTPUT contract
+// registry + the SDK describeOperation() introspection surface behind
+// `cleo <op> --describe`. OUTPUT-side mirror of getInputContract.
+export { getOutputContract, OUTPUT_CONTRACTS } from './dispatch/contracts/output-contracts.js';
+export {
+  describeOperation,
+  type OperationDescriptor,
+} from './dispatch/describe-operation.js';
 // T9931 (Saga T9855 / E9.4) — minimal mutate envelopes (default for mutate ops)
 export {
   applyMutateProjection,

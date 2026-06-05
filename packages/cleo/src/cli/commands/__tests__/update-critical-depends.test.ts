@@ -34,6 +34,8 @@ const mockCliError = vi.fn();
 vi.mock('../../../dispatch/adapters/cli.js', () => ({
   dispatchFromCli: (...args: unknown[]) => mockDispatchFromCli(...args),
   dispatchRaw: (...args: unknown[]) => mockDispatchRaw(...args),
+  // T11692 — commands call maybeEmitDescribe() at run() start; off by default.
+  maybeEmitDescribe: () => false,
 }));
 
 vi.mock('../../renderers/index.js', () => ({

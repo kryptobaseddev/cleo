@@ -367,6 +367,23 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
       (await import('../commands/doctor-db-substrate.js')).doctorDbSubstrateCommand as CommandDef,
   },
   {
+    exportName: 'doctorExodusResidueCommand',
+    name: 'exodus-residue',
+    description:
+      'Detect legacy exodus source DBs still present after a cutover (stranded residue that ',
+    load: async () =>
+      (await import('../commands/doctor-exodus-residue.js'))
+        .doctorExodusResidueCommand as CommandDef,
+  },
+  {
+    exportName: 'doctorExodusCommand',
+    name: 'exodus-health',
+    description:
+      'Read-only exodus health report: per-scope migration state, legacy DB sizes, completion ',
+    load: async () =>
+      (await import('../commands/doctor-exodus.js')).doctorExodusCommand as CommandDef,
+  },
+  {
     exportName: 'doctorLegacyBackupsCommand',
     name: 'legacy-backups',
     description:

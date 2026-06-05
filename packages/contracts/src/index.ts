@@ -1318,6 +1318,15 @@ export type {
   OrchestrateReportGroup,
   OrchestrateReportParams,
 } from './operations/orchestrate.js';
+// === Operation Output Contracts (T11692 / DHQ-057 — per-op result shape SSoT) ===
+// OUTPUT-side mirror of the input contracts. Surfaces the LAFS envelope `data`
+// shape + valid --field JSON pointers so agents stop guessing (e.g. the real
+// pointer is /data/task/title, not /data/title).
+export type {
+  OperationOutputContract,
+  OperationOutputContractRegistry,
+} from './operations/output-contract.js';
+export { OUTPUT_CONTRACTS } from './operations/output-contracts-data.js';
 // ParamDef contract — re-exported at top level (SSoT for all operation param descriptors)
 export type {
   CittyArgDef,

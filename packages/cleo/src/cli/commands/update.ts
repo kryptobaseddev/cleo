@@ -30,7 +30,7 @@ import {
   validateOperationInput,
 } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
-import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
+import { dispatchFromCli, dispatchRaw, maybeEmitDescribe } from '../../dispatch/adapters/cli.js';
 import { collectMutateInput } from '../lib/collect-input.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
@@ -276,6 +276,10 @@ export const updateCommand = defineCommand({
     },
   },
   async run({ args, cmd }) {
+    // T11692 (DHQ-057) — `cleo update --describe` prints the op's I/O schema
+    // (updated task lands at /data/updated/0).
+    if (maybeEmitDescribe('mutate', 'tasks', 'update', { command: 'update' })) return;
+
     // T9917: schema-first input path. When --params or --params-file is
     // supplied, collect → validate against INPUT_CONTRACTS['tasks.update']
     // → dispatch directly. The legacy flag-mapping path is skipped.
