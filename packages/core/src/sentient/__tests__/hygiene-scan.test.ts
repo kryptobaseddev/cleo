@@ -57,8 +57,16 @@ import { DEFAULT_SENTIENT_STATE, writeSentientState } from '../state.js';
 // Test DB helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * All in-memory DBs created by createTestDb(), closed in afterEach (T11860).
+ * Without this the ~34 createTestDb() handles per run were never closed, growing
+ * the fork's heap across the suite and contributing to the OOM pressure.
+ */
+const _openTestDbs: DatabaseSync[] = [];
+
 function createTestDb(): DatabaseSync {
   const db = new DatabaseSync(':memory:');
+  _openTestDbs.push(db);
   db.exec(`
     CREATE TABLE tasks_tasks (
       id TEXT PRIMARY KEY,
@@ -128,6 +136,16 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // T11860: close every in-memory DB createTestDb() opened this test so handles
+  // don't accumulate across the suite (a contributor to the fork OOM pressure).
+  for (const db of _openTestDbs) {
+    try {
+      db.close();
+    } catch {
+      /* already closed */
+    }
+  }
+  _openTestDbs.length = 0;
   removeTempDirSync(tmpDir);
   vi.restoreAllMocks();
 });
