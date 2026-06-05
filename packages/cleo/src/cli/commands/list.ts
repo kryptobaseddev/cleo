@@ -18,7 +18,7 @@
 import { ExitCode } from '@cleocode/contracts';
 import { createPage } from '@cleocode/core';
 import { defineCommand } from 'citty';
-import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
+import { dispatchRaw, handleRawError, maybeEmitDescribe } from '../../dispatch/adapters/cli.js';
 import { getOperationParams, paramsToCittyArgs } from '../lib/registry-args.js';
 import { cliOutput } from '../renderers/index.js';
 
@@ -55,6 +55,10 @@ export const listCommand = defineCommand({
   meta: { name: 'list', description: 'List tasks with optional filters' },
   args: listArgs,
   async run({ args }) {
+    // T11692 (DHQ-057) — `cleo list --describe` prints the op's I/O schema.
+    // list uses dispatchRaw, so it calls the describe short-circuit directly.
+    if (maybeEmitDescribe('query', 'tasks', 'list', { command: 'list' })) return;
+
     const limit = args['limit'] !== undefined ? parseInt(args['limit'] as string, 10) : undefined;
     const offset =
       args['offset'] !== undefined ? parseInt(args['offset'] as string, 10) : undefined;

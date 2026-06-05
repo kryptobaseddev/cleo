@@ -28,6 +28,9 @@ const { dispatchRawMock, existsSyncMock, readFileSyncMock, readFileMock } = vi.h
 vi.mock('../../dispatch/adapters/cli.js', () => ({
   dispatchRaw: dispatchRawMock,
   dispatchFromCli: vi.fn(),
+  // T11692 — addBatchCommand now calls maybeEmitDescribe() at the top of run().
+  // Default to false (describe mode off) so normal dispatch proceeds.
+  maybeEmitDescribe: vi.fn(() => false),
 }));
 
 vi.mock('node:fs', async (importOriginal) => {

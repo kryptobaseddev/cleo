@@ -17,7 +17,7 @@
 import { ExitCode } from '@cleocode/contracts';
 import { INPUT_CONTRACTS, validateOperationInput } from '@cleocode/core';
 import { defineCommand } from 'citty';
-import { dispatchRaw } from '../../dispatch/adapters/cli.js';
+import { dispatchRaw, maybeEmitDescribe } from '../../dispatch/adapters/cli.js';
 import { collectMutateInput } from '../lib/collect-input.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
@@ -61,6 +61,12 @@ export const addBatchCommand = defineCommand({
     },
   },
   async run({ args }) {
+    // T11692 (DHQ-057) — `cleo add-batch --describe` prints the op's I/O schema
+    // (input rejects `relates`; accepts `depends`) instead of executing. This
+    // command uses dispatchRaw, so it calls the describe short-circuit directly
+    // rather than relying on the dispatchFromCli intercept.
+    if (maybeEmitDescribe('mutate', 'tasks', 'add-batch', { command: 'add-batch' })) return;
+
     const defaultParent = args.parent as string | undefined;
     const dryRunFlag = args['dry-run'] as boolean | undefined;
     const paramsArg = args.params as string | undefined;
