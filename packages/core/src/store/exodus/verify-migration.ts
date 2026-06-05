@@ -151,6 +151,27 @@ function computeTableDigest(
   columns: readonly string[] | null,
   transform?: DigestTransformSpec,
 ): { count: number; hash: string } {
+  // Row count — a cheap, set-based `COUNT(*)` that never materialises rows.
+  //
+  // This is the value the data-continuity gate ({@link isDataContinuityOk})
+  // consumes to decide deficit/surplus, so it MUST stay independent of the heavy
+  // content digest below: the migrate-time verify can then pass/fail on counts
+  // alone even when the digest is large or streaming-slow (T11834).
+  let count = 0;
+  try {
+    const row = db.prepare(`SELECT COUNT(*) AS c FROM "${tableName}"`).get() as
+      | { c: number | bigint }
+      | undefined;
+    count = Number(row?.c ?? 0);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.warn(
+      { tableName, err: msg },
+      'computeTableDigest: COUNT(*) failed (possibly a virtual/FTS table) — treating as 0 rows',
+    );
+    return { count: 0, hash: '' };
+  }
+
   const { createHash } = _require('node:crypto') as typeof import('node:crypto');
   const hasher = createHash('sha256');
 
@@ -171,37 +192,37 @@ function computeTableDigest(
     selectClause = '*';
   }
 
-  let rows: unknown[];
+  // Content digest — STREAMED row-by-row through the statement iterator so peak
+  // heap stays bounded by ONE row regardless of table size (T11834).
+  //
+  // The prior implementation called `.all()`, materialising the ENTIRE table
+  // (SOURCE *and* TARGET) into a JS array — a multi-hundred-MB-to-GB allocation
+  // on a 697K-row / 1.7 GB-class table (e.g. `brain_weight_history`) that OOM'd
+  // the migrate-time verify and rolled back an otherwise-lossless cutover. The
+  // digest is a NON-FATAL diagnostic; the gate is driven by the `COUNT(*)` parity
+  // above + introduced-FK orphans, never this hash.
+  //
+  // Canonicalise each row's property order before hashing (T11782 · FIX A): pass
+  // the SORTED key array as `JSON.stringify`'s replacer so identical rows digest
+  // identically regardless of the driver's column-materialisation order on the
+  // two snapshots (otherwise a false `hashMatch === false`).
   try {
-    rows = db
-      .prepare(`SELECT ${selectClause} FROM "${tableName}" ORDER BY ${orderBy}`)
-      .all() as unknown[];
+    const stmt = db.prepare(`SELECT ${selectClause} FROM "${tableName}" ORDER BY ${orderBy}`);
+    for (const row of stmt.iterate()) {
+      const rowObj = row as Record<string, unknown>;
+      hasher.update(JSON.stringify(rowObj, Object.keys(rowObj).sort()));
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.warn(
       { tableName, err: msg },
-      'computeTableDigest: SELECT failed (possibly a virtual/FTS table) — treating as 0 rows',
+      'computeTableDigest: streamed SELECT failed (possibly a virtual/FTS table) — digest skipped (COUNT(*) parity still enforced)',
     );
-    return { count: 0, hash: '' };
-  }
-
-  // Canonicalise each row's property order before hashing (T11782 · FIX A).
-  //
-  // `JSON.stringify(row)` serialises object keys in the SQLite driver's row
-  // property-insertion order, which is NOT guaranteed identical between the
-  // SOURCE snapshot and the TARGET snapshot for the same logical row (the two
-  // handles may materialise columns in a different order). Identical data would
-  // then digest to a DIFFERENT hash, producing a false `hashMatch === false`
-  // and — historically — false-negative aborts. Passing the SORTED key array as
-  // `JSON.stringify`'s `replacer` forces a canonical, order-independent
-  // serialisation so identical rows always digest identically.
-  for (const row of rows) {
-    const rowObj = row as Record<string, unknown>;
-    hasher.update(JSON.stringify(rowObj, Object.keys(rowObj).sort()));
+    return { count, hash: '' };
   }
 
   return {
-    count: rows.length,
+    count,
     hash: hasher.digest('hex').slice(0, 32),
   };
 }
