@@ -194,6 +194,9 @@ describe('exodus verify source-side coercion (T11809 · AC2)', () => {
     const plan: ExodusPlan = {
       sources,
       totalSourceBytes: 0,
+      largestSourceBytes: 0,
+      requiredBytes: 0,
+      stagingCopyThresholdBytes: 256 * 1024 * 1024,
       availableBytes: 100_000_000,
       diskPreflight: true,
       stagingDir,
@@ -277,6 +280,9 @@ describe('exodus verify source-side coercion (T11809 · AC2)', () => {
     const plan: ExodusPlan = {
       sources,
       totalSourceBytes: 0,
+      largestSourceBytes: 0,
+      requiredBytes: 0,
+      stagingCopyThresholdBytes: 256 * 1024 * 1024,
       availableBytes: 100_000_000,
       diskPreflight: true,
       stagingDir,
@@ -342,6 +348,9 @@ describe('exodus verify source-side coercion (T11809 · AC2)', () => {
     const plan: ExodusPlan = {
       sources,
       totalSourceBytes: 0,
+      largestSourceBytes: 0,
+      requiredBytes: 0,
+      stagingCopyThresholdBytes: 256 * 1024 * 1024,
       availableBytes: 100_000_000,
       diskPreflight: true,
       stagingDir,
