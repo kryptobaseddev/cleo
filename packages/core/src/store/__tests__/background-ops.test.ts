@@ -71,7 +71,11 @@ describe('addTask background ops are flushed at the test boundary (T10490)', () 
   it('leaves zero in-flight background ops after an explicit flush', async () => {
     // addTask kicks off the detached ensureTaskNode graph write.
     await addTask(
-      { title: 'bg-op task', description: 'tracks a deferred graph write' },
+      {
+        title: 'bg-op task',
+        description: 'tracks a deferred graph write',
+        skipContainmentInvariant: true,
+      },
       env.tempDir,
       accessor,
     );
@@ -83,7 +87,12 @@ describe('addTask background ops are flushed at the test boundary (T10490)', () 
 
   it('epic creation tracks + drains its initLoomForEpic op', async () => {
     await addTask(
-      { title: 'bg-op epic', description: 'tracks a deferred LOOM init', type: 'epic' },
+      {
+        title: 'bg-op epic',
+        description: 'tracks a deferred LOOM init',
+        type: 'epic',
+        skipContainmentInvariant: true,
+      },
       env.tempDir,
       accessor,
     );

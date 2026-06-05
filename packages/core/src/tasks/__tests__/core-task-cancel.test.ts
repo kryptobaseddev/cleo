@@ -23,7 +23,13 @@ import { coreTaskCancel, taskCancel } from '../task-ops.js';
 
 async function seedTask(
   env: TestDbEnv,
-  overrides: { id: string; status?: string; pipelineStage?: string; parentId?: string | null },
+  overrides: {
+    id: string;
+    status?: string;
+    pipelineStage?: string;
+    parentId?: string | null;
+    type?: Task['type'];
+  },
 ): Promise<void> {
   const now = new Date().toISOString();
   // Cast through `unknown` rather than `any` — we provide the minimal shape
@@ -33,6 +39,7 @@ async function seedTask(
     title: `Seed ${overrides.id}`,
     status: overrides.status ?? 'pending',
     priority: 'medium',
+    type: overrides.type ?? 'task',
     createdAt: now,
     updatedAt: now,
     pipelineStage: overrides.pipelineStage ?? null,
@@ -134,19 +141,41 @@ describe('coreTaskCancel (engine, with live T877 trigger)', () => {
     }
   });
 
-  it('orphans direct children when children=orphan is explicit', async () => {
-    await seedTask(env, { id: 'T0040', status: 'pending' });
-    await seedTask(env, { id: 'T0041', status: 'pending', parentId: 'T0040' });
+  it('reparents direct children under the target parent when children=reparent (T11811)', async () => {
+    // T11811 replaced the orphan/detach strategy with reparent: the children
+    // move under an EXISTING parent (no detach-to-root) so the containment tree
+    // stays intact. Seed: epic T0040 (cancel target) with child task T0041, and
+    // a sibling epic T0042 to receive the child.
+    await seedTask(env, { id: 'T0040', status: 'pending', type: 'epic' });
+    await seedTask(env, { id: 'T0041', status: 'pending', parentId: 'T0040', type: 'task' });
+    await seedTask(env, { id: 'T0042', status: 'pending', type: 'epic' });
 
-    const result = await coreTaskCancel(env.tempDir, 'T0040', { children: 'orphan' });
+    const result = await coreTaskCancel(env.tempDir, 'T0040', {
+      children: 'reparent',
+      reparentTo: 'T0042',
+    });
 
-    expect(result.childStrategy).toBe('orphan');
+    expect(result.childStrategy).toBe('reparent');
     expect(result.affectedTasks).toEqual(['T0041']);
     const parent = await env.accessor.loadSingleTask('T0040');
     const child = await env.accessor.loadSingleTask('T0041');
     expect(parent?.status).toBe('cancelled');
     expect(child?.status).toBe('pending');
-    expect(child?.parentId ?? null).toBeNull();
+    // Child stays attached — moved under the target, NOT detached to root.
+    expect(child?.parentId).toBe('T0042');
+  });
+
+  it('rejects children=reparent without a reparentTo target (T11811)', async () => {
+    await seedTask(env, { id: 'T0045', status: 'pending', type: 'epic' });
+    await seedTask(env, { id: 'T0046', status: 'pending', parentId: 'T0045', type: 'task' });
+
+    await expect(coreTaskCancel(env.tempDir, 'T0045', { children: 'reparent' })).rejects.toThrow(
+      /E_REPARENT_TARGET_REQUIRED/,
+    );
+
+    // The parent must remain uncancelled — the guard fires before any write.
+    const parent = await env.accessor.loadSingleTask('T0045');
+    expect(parent?.status).toBe('pending');
   });
 
   it('requires force waiver and audit log for large subtree cascade', async () => {

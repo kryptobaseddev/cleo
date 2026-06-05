@@ -250,7 +250,11 @@ describe('addTask (integration)', () => {
       console.log('DEBUG cleoDir contents:', readdirSync(cleoDir!));
     }
     const result = await addTask(
-      { title: 'Test task', description: 'A test task for defaults' },
+      {
+        title: 'Test task',
+        description: 'A test task for defaults',
+        skipContainmentInvariant: true,
+      },
       env.tempDir,
       accessor,
     );
@@ -272,6 +276,7 @@ describe('addTask (integration)', () => {
         size: 'large',
         description: 'A detailed description',
         labels: ['bug', 'security'],
+        skipContainmentInvariant: true,
       },
       env.tempDir,
       accessor,
@@ -286,9 +291,13 @@ describe('addTask (integration)', () => {
   });
 
   it('generates sequential IDs', async () => {
-    const r1 = await addTask({ title: 'Task 1', description: 'First task' }, env.tempDir, accessor);
+    const r1 = await addTask(
+      { title: 'Task 1', description: 'First task', skipContainmentInvariant: true },
+      env.tempDir,
+      accessor,
+    );
     const r2 = await addTask(
-      { title: 'Task 2', description: 'Second task' },
+      { title: 'Task 2', description: 'Second task', skipContainmentInvariant: true },
       env.tempDir,
       accessor,
     );
@@ -298,12 +307,20 @@ describe('addTask (integration)', () => {
 
   it('detects duplicates', async () => {
     await addTask(
-      { title: 'Duplicate me', description: 'Duplicate detection test' },
+      {
+        title: 'Duplicate me',
+        description: 'Duplicate detection test',
+        skipContainmentInvariant: true,
+      },
       env.tempDir,
       accessor,
     );
     const r2 = await addTask(
-      { title: 'Duplicate me', description: 'Duplicate detection test' },
+      {
+        title: 'Duplicate me',
+        description: 'Duplicate detection test',
+        skipContainmentInvariant: true,
+      },
       env.tempDir,
       accessor,
     );
@@ -326,7 +343,12 @@ describe('addTask (integration)', () => {
   it('validates parent hierarchy', async () => {
     // Create parent
     await addTask(
-      { title: 'Parent', description: 'Parent epic task', type: 'epic' },
+      {
+        title: 'Parent',
+        description: 'Parent epic task',
+        type: 'epic',
+        skipContainmentInvariant: true,
+      },
       env.tempDir,
       accessor,
     );
@@ -343,7 +365,12 @@ describe('addTask (integration)', () => {
 
   it('normalizes child acceptance, creates parent child AC projection, and returns created IDs', async () => {
     await addTask(
-      { title: 'Parent', description: 'Parent epic task', type: 'epic' },
+      {
+        title: 'Parent',
+        description: 'Parent epic task',
+        type: 'epic',
+        skipContainmentInvariant: true,
+      },
       env.tempDir,
       accessor,
     );
@@ -382,7 +409,12 @@ describe('addTask (integration)', () => {
 
   it('projects one typed child_task acceptance row per direct child with unique source keys', async () => {
     await addTask(
-      { title: 'Parent', description: 'Parent epic task', type: 'epic' },
+      {
+        title: 'Parent',
+        description: 'Parent epic task',
+        type: 'epic',
+        skipContainmentInvariant: true,
+      },
       env.tempDir,
       accessor,
     );
@@ -464,7 +496,11 @@ describe('addTask (integration)', () => {
 
   it('depth cap error message names the grandparent epic as the suggested target', async () => {
     // Epic→Task hierarchy (depth=1 for task parent).
-    await addTask({ title: 'Epic', description: 'An epic', type: 'epic' }, env.tempDir, accessor); // T001 depth=0
+    await addTask(
+      { title: 'Epic', description: 'An epic', type: 'epic', skipContainmentInvariant: true },
+      env.tempDir,
+      accessor,
+    ); // T001 depth=0
 
     // T002/T003 are intermediate containers that gain children below, so they
     // carry no free-text ACs (PM-Core V2 design-point 3 / T11576 — a parent is
@@ -538,7 +574,13 @@ describe('addTask mixed parent-text-AC + children guard (T11576)', () => {
   it('rejects adding a child under a task that has free-text ACs of its own', async () => {
     // A leaf task authored with its own text ACs.
     const leaf = await addTask(
-      { title: 'Leaf with text ACs', description: 'a leaf', type: 'task', acceptance: ['do work'] },
+      {
+        title: 'Leaf with text ACs',
+        description: 'a leaf',
+        type: 'task',
+        acceptance: ['do work'],
+        skipContainmentInvariant: true,
+      },
       env.tempDir,
       accessor,
     );
@@ -563,6 +605,7 @@ describe('addTask mixed parent-text-AC + children guard (T11576)', () => {
         description: 'authored as a leaf',
         type: 'task',
         acceptance: ['do work'],
+        skipContainmentInvariant: true,
       },
       env.tempDir,
       accessor,
@@ -592,6 +635,7 @@ describe('addTask mixed parent-text-AC + children guard (T11576)', () => {
         description: 'a container',
         type: 'epic',
         acceptance: ['epic outcome 1', 'epic outcome 2'],
+        skipContainmentInvariant: true,
       },
       env.tempDir,
       accessor,
@@ -607,7 +651,12 @@ describe('addTask mixed parent-text-AC + children guard (T11576)', () => {
 
   it('ALLOWS a container task (no text ACs) to gain multiple children', async () => {
     const container = await addTask(
-      { title: 'Container task', description: 'no text ACs', type: 'task' },
+      {
+        title: 'Container task',
+        description: 'no text ACs',
+        type: 'task',
+        skipContainmentInvariant: true,
+      },
       env.tempDir,
       accessor,
     );

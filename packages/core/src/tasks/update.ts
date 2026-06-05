@@ -34,6 +34,7 @@ import {
   validateTaskType,
   validateTitle,
 } from './add.js';
+import { assertNoActiveChildrenForTerminal } from './child-disposition.js';
 import { completeTask } from './complete.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
 import { taskToRecord } from './engine-converters.js';
@@ -260,6 +261,18 @@ export async function updateTask(
           actual: options.status,
         },
       });
+    }
+
+    // T11811 AC2 — orphan-prevention guard. A `status -> cancelled` transition
+    // via the update path historically flipped the parent to cancelled with NO
+    // child handling, silently STRANDING active children under a terminal
+    // parent (the T9031/T9044 strand). Route the transition through the SAME
+    // single child-disposition decision `coreTaskCancel` uses: refuse the write
+    // when the parent still has active children, pointing the operator at
+    // `cleo cancel <id> --children …` (where cascade/reparent live). The guard
+    // runs BEFORE any in-memory mutation so a blocked parent is never altered.
+    if (options.status === 'cancelled' && task.status !== 'cancelled') {
+      await assertNoActiveChildrenForTerminal(acc, options.taskId, 'cancel');
     }
 
     const oldStatus = task.status;
