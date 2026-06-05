@@ -39,7 +39,11 @@ describe('claimTask', () => {
 
     // Seed a single task used by most tests
     await addTask(
-      { title: 'Claim test task', description: 'Task for assignee tests' },
+      {
+        title: 'Claim test task',
+        description: 'Task for assignee tests',
+        skipContainmentInvariant: true,
+      },
       env.tempDir,
       accessor,
     );
@@ -89,7 +93,11 @@ describe('unclaimTask', () => {
     await writeFile(join(env.cleoDir, 'config.json'), NO_ENFORCEMENT_CONFIG);
 
     await addTask(
-      { title: 'Unclaim test task', description: 'Task for unclaim tests' },
+      {
+        title: 'Unclaim test task',
+        description: 'Task for unclaim tests',
+        skipContainmentInvariant: true,
+      },
       env.tempDir,
       accessor,
     );
@@ -137,7 +145,11 @@ describe('assignee updateTaskFields integration', () => {
     await writeFile(join(env.cleoDir, 'config.json'), NO_ENFORCEMENT_CONFIG);
 
     await addTask(
-      { title: 'Update fields test', description: 'Task for updateTaskFields test' },
+      {
+        title: 'Update fields test',
+        description: 'Task for updateTaskFields test',
+        skipContainmentInvariant: true,
+      },
       env.tempDir,
       accessor,
     );

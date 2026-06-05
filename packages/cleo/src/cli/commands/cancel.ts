@@ -33,8 +33,14 @@ export const cancelCommand = defineCommand({
     },
     children: {
       type: 'string',
-      description: 'Child handling mode: block (default), cascade, or orphan',
+      description:
+        'Child handling mode: block (default), cascade (cancel subtree), or reparent (move children under --to)',
       default: 'block',
+    },
+    to: {
+      type: 'string',
+      description:
+        'Target parent ID for --children reparent (T11811): children move under this epic',
     },
     force: {
       type: 'boolean',
@@ -54,7 +60,8 @@ export const cancelCommand = defineCommand({
       {
         taskId: args.taskId,
         reason: args.reason as string | undefined,
-        children: args.children as 'block' | 'cascade' | 'orphan' | undefined,
+        children: args.children as 'block' | 'cascade' | 'reparent' | undefined,
+        reparentTo: typeof args.to === 'string' && args.to.length > 0 ? args.to : undefined,
         force: args.force === true,
         cascadeThreshold:
           typeof args.cascadeThreshold === 'string' && args.cascadeThreshold.length > 0

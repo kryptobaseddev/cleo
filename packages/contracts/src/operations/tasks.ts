@@ -959,8 +959,18 @@ export interface TasksSyncLinksRemoveResult {
 export interface TasksCancelParams {
   taskId: string;
   reason?: string;
-  /** Explicit child handling mode. Defaults to 'block' so propagation is never implicit. */
-  children?: 'block' | 'cascade' | 'orphan';
+  /**
+   * Explicit child handling mode. Defaults to 'block' so propagation is never
+   * implicit. `reparent` moves the children under {@link reparentTo}; the
+   * legacy `orphan`/detach mode was removed by T11811 (it manufactured the
+   * exact orphan the containment guard rejects).
+   */
+  children?: 'block' | 'cascade' | 'reparent';
+  /**
+   * Target parent ID for the `reparent` strategy (T11811). REQUIRED when
+   * `children='reparent'`.
+   */
+  reparentTo?: string;
   /** Operator waiver for large cascade cancellation. */
   force?: boolean;
   /** Large-subtree cascade guard threshold. Defaults to 10 descendants. */
@@ -992,8 +1002,8 @@ export interface TasksCancelResult {
    */
   alreadyCancelled?: boolean;
   /** Explicit child handling mode applied by the operation. */
-  childStrategy?: 'block' | 'cascade' | 'orphan';
-  /** Child or descendant tasks affected by cascade/orphan handling. */
+  childStrategy?: 'block' | 'cascade' | 'reparent';
+  /** Child or descendant tasks affected by cascade/reparent handling. */
   affectedTasks?: string[];
   /** Count of affected child/descendant tasks. */
   affectedCount?: number;
