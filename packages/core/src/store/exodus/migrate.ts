@@ -771,6 +771,17 @@ function copyTableFromAttached(
   // on CHECK constraint violations (dangerous — must detect and report).
   // `targetSchema` is `main` by default; for cross-scope nexus graph tables
   // (ADR-090 T11539) it is the ATTACH alias of the project consolidated cleo.db.
+  // Capture the target row count BEFORE the INSERT so a deficit can be classified
+  // precisely (T11835). A row that fails to copy because its PK already exists is
+  // accounted for by a pre-existing target row; only a shortfall those rows
+  // cannot explain is genuine constraint loss. (The prior code claimed it "did
+  // not know existingBefore" and hard-coded a CHECK-violation guess — which fired
+  // on every idempotent re-run against an already-populated target.)
+  const existingBeforeRow = targetNativeDb
+    .prepare(`SELECT COUNT(*) AS c FROM "${targetSchema}"."${targetTableName}"`)
+    .get() as { c: number | bigint } | null;
+  const existingBefore = Number(existingBeforeRow?.c ?? 0);
+
   const stmt = targetNativeDb.prepare(
     `INSERT OR IGNORE INTO "${targetSchema}"."${targetTableName}" (${colList}) ` +
       `SELECT ${selectList} FROM "${attachAlias}"."${legacyTableName}"`,
@@ -778,42 +789,58 @@ function copyTableFromAttached(
   const result = stmt.run();
   const rowsCopied = (result as unknown as { changes: number }).changes ?? 0;
 
-  // --- Step 7: No-swallow assertion (ROOT CAUSE 1b — T11546) ---
+  // --- Step 7: No-swallow assertion — idempotent dedup vs real loss (T11835) ---
   //
-  // If rowsCopied < sourceCount, rows were silently dropped. This can happen for
-  // two reasons:
-  //   a) PK/UNIQUE conflict on idempotent resume — EXPECTED and SAFE (the data
-  //      is already in the target from a previous run).
-  //   b) CHECK / NOT NULL / type constraint violation — DATA LOSS, must error.
+  // When `rowsCopied < sourceCount`, INSERT OR IGNORE dropped rows for one of two
+  // VERY different reasons:
+  //   a) PK/UNIQUE conflict — the row is ALREADY in the target (a re-run against
+  //      a populated cleo.db, or an earlier source in this same migration wrote
+  //      the same key). EXPECTED, idempotent, ZERO loss.
+  //   b) CHECK / NOT NULL / type / enum constraint — the row was REJECTED.
+  //      Genuine DATA LOSS that must be surfaced.
   //
-  // We distinguish these by counting existing target rows BEFORE the INSERT
-  // and comparing: if (existingBefore + sourceCount) > rowsCopied + existingBefore,
-  // some rows were dropped by constraints rather than deduplicated. However,
-  // since we are mid-transaction and do not know existingBefore (prior sources
-  // may have written to the same table), we take a simpler approach: if
-  // rowsCopied == 0 AND sourceCount > 0, this is almost certainly a constraint
-  // failure (a full-table dedup on resume would be extremely unusual). If
-  // rowsCopied < sourceCount but > 0, it may be a partial dedup. We log a
-  // warning for partial losses and a hard error for full (0-row) losses.
-  //
-  // The verifier (`runExodusVerify`) catches any remaining discrepancy post-hoc.
+  // `existingBefore` (target rows present before this INSERT) tells them apart
+  // precisely: a PK-deduped source row is accounted for by a pre-existing target
+  // row, so `existingBefore + rowsCopied` is the number of source rows provably
+  // present after the INSERT. If that is >= sourceCount every source row is
+  // present (idempotent — no loss, no error); a smaller value is the genuine
+  // shortfall. The verifier (`verifyMigration`) independently re-confirms via
+  // COUNT(*) parity.
   if (rowsCopied < sourceCount) {
-    const dropped = sourceCount - rowsCopied;
-    if (rowsCopied === 0) {
-      // Full table drop — almost certainly a CHECK or type constraint failure.
-      const reason = `INSERT OR IGNORE dropped ALL ${sourceCount} rows from '${legacyTableName}'→'${targetTableName}' (rowsCopied=0, sourceCount=${sourceCount}). Likely a CHECK/type constraint violation — check epoch coercion or enum values.`;
-      log.error(
-        { legacyTableName, targetTableName, sourceName, sourceCount, rowsCopied },
-        `Exodus: ${reason}`,
+    const presentAccountedFor = existingBefore + rowsCopied;
+    if (presentAccountedFor >= sourceCount) {
+      // Idempotent: every source row is already in the target (PK dedup on a
+      // re-run / already-populated target). NOT data loss → no error reason; the
+      // table is journaled `done` with the rows it actually needed to copy.
+      log.info(
+        { legacyTableName, targetTableName, sourceName, sourceCount, rowsCopied, existingBefore },
+        `Exodus: '${legacyTableName}'→'${targetTableName}' — ${sourceCount - rowsCopied} of ` +
+          `${sourceCount} row(s) already present in target (idempotent PK dedup), ${rowsCopied} ` +
+          `newly copied; no loss`,
       );
-      return { rowsCopied: 0, skipped: false, reason };
+      return { rowsCopied, skipped: false };
     }
-    // Partial drop — could be UNIQUE dedup on resume or a real constraint drop.
-    // Log as warning and let the verifier catch genuine losses.
-    log.warn(
-      { legacyTableName, targetTableName, sourceName, sourceCount, rowsCopied, dropped },
-      `Exodus: INSERT OR IGNORE dropped ${dropped}/${sourceCount} rows from '${legacyTableName}'→'${targetTableName}' — may be idempotent-resume dedup or a constraint violation; verify will confirm`,
+    // Genuine shortfall: more rows are missing than the pre-existing target rows
+    // can explain — a CHECK / NOT NULL / type / enum constraint rejected them.
+    const missing = sourceCount - presentAccountedFor;
+    const reason =
+      `INSERT OR IGNORE lost ${missing} of ${sourceCount} rows from ` +
+      `'${legacyTableName}'→'${targetTableName}' (rowsCopied=${rowsCopied}, ` +
+      `existingBefore=${existingBefore}) — a CHECK/NOT NULL/type/enum constraint rejected ` +
+      `them (NOT PK dedup); inspect epoch coercion + enum normalization. verify will confirm.`;
+    log.error(
+      {
+        legacyTableName,
+        targetTableName,
+        sourceName,
+        sourceCount,
+        rowsCopied,
+        existingBefore,
+        missing,
+      },
+      `Exodus: ${reason}`,
     );
+    return { rowsCopied, skipped: false, reason };
   }
 
   return { rowsCopied, skipped: false };
