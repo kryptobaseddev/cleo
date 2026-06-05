@@ -42,6 +42,7 @@ import type { LlmTransport } from '@cleocode/contracts/llm/normalized-response.j
 import type { ResolvedCredential } from '@cleocode/contracts/llm/resolved-credential.js';
 import type { LanguageModel } from 'ai';
 import { getLogger } from '../logger.js';
+import { deriveApiWire } from './api-mode.js';
 import { ConcreteSession } from './concrete-session.js';
 import { getKimiCodeMshHeaders } from './provider-registry/builtin/kimi-code.js';
 import { AnthropicTransport } from './transports/anthropic.js';
@@ -72,6 +73,146 @@ const KIMI_CODE_BASE_URL = 'https://api.kimi.com/coding';
  */
 const ANTHROPIC_OAUTH_HEADERS: Readonly<Record<string, string>> = {
   'anthropic-beta': 'oauth-2025-04-20',
+};
+
+// ---------------------------------------------------------------------------
+// Data-driven transport adapter table (T11767)
+// ---------------------------------------------------------------------------
+
+/**
+ * A transport adapter builds the wire transport for ONE {@link ApiMode} from a
+ * resolved credential. Adapters are looked up in {@link TRANSPORT_ADAPTERS} by
+ * the descriptor's `apiMode` — the construction dispatch is DATA (a keyed
+ * table), not a hardcoded provider if/else (T11767 AC1).
+ *
+ * Each apiMode is a DISTINCT wire protocol — `anthropic_messages`, OpenAI
+ * `chat_completions`, the `codex_responses` Responses API, `ollama_native`
+ * NDJSON, and `bedrock_converse` — so each keeps its own protocol class; the
+ * table is the SSoT that maps a mode to its implementation (collapsing five
+ * genuinely-different wire framings into one class would be a giant internal
+ * switch, strictly worse than one class per protocol). Within a mode, the only
+ * remaining provider branch is a same-protocol endpoint quirk expressed as
+ * credential data (kimi-code's coding endpoint + `X-Msh` headers under
+ * `anthropic_messages`; gemini's OpenAI-compat shim under `chat_completions`).
+ *
+ * @task T11767
+ */
+type TransportAdapter = (provider: ModelTransport, credential: ResolvedCredential) => LlmTransport;
+
+/** `codex_responses` — OpenAI Responses API (ChatGPT backend / xAI grok-via-responses). */
+function buildCodexResponsesTransport(
+  provider: ModelTransport,
+  credential: ResolvedCredential,
+): LlmTransport {
+  // OAuth tokens authenticate against the ChatGPT backend with the Cloudflare-
+  // bypass headers; an api_key codex credential carries only its own headers.
+  const defaultHeaders: Record<string, string> =
+    credential.authType === 'oauth'
+      ? { ...credential.extraHeaders, ...buildCodexOAuthHeaders(credential.token) }
+      : { ...credential.extraHeaders };
+  return new CodexResponsesTransport({
+    apiKey: credential.token,
+    baseUrl: credential.baseUrl ?? undefined,
+    defaultHeaders: Object.keys(defaultHeaders).length ? defaultHeaders : undefined,
+    provider,
+  });
+}
+
+/** `anthropic_messages` — native Anthropic SDK (+ the kimi-code coding endpoint quirk). */
+function buildAnthropicMessagesTransport(
+  provider: ModelTransport,
+  credential: ResolvedCredential,
+): LlmTransport {
+  if (provider === 'kimi-code') {
+    // Kimi Code speaks the Anthropic Messages protocol against its own endpoint
+    // (same protocol, different baseUrl + mandatory X-Msh headers — data, not a
+    // separate transport class).
+    return new AnthropicTransport({
+      authToken: credential.token,
+      baseUrl: credential.baseUrl ?? KIMI_CODE_BASE_URL,
+      defaultHeaders: getKimiCodeMshHeaders(),
+    });
+  }
+  // Mirrors the canonical `session-factory.transportForProvider`: OAuth →
+  // authToken slot (+ the required beta header); api_key → apiKey slot.
+  const opts =
+    credential.authType === 'oauth'
+      ? {
+          authToken: credential.token,
+          baseUrl: credential.baseUrl ?? undefined,
+          defaultHeaders: { ...ANTHROPIC_OAUTH_HEADERS, ...credential.extraHeaders },
+        }
+      : {
+          apiKey: credential.token,
+          baseUrl: credential.baseUrl ?? undefined,
+          defaultHeaders: Object.keys(credential.extraHeaders).length
+            ? credential.extraHeaders
+            : undefined,
+        };
+  return new AnthropicTransport(opts);
+}
+
+/** `bedrock_converse` — AWS Bedrock Converse API (SDK-credentialed, no token). */
+function buildBedrockConverseTransport(
+  _provider: ModelTransport,
+  credential: ResolvedCredential,
+): LlmTransport {
+  return new BedrockTransport({ awsProfile: credential.awsProfile ?? undefined });
+}
+
+/** `ollama_native` — Ollama `/api/chat` NDJSON-streaming protocol. */
+function buildOllamaNativeTransport(
+  _provider: ModelTransport,
+  credential: ResolvedCredential,
+): LlmTransport {
+  return new OllamaTransport({
+    baseUrl: credential.baseUrl ?? undefined,
+    apiKey: credential.token || undefined,
+    defaultHeaders: Object.keys(credential.extraHeaders).length
+      ? credential.extraHeaders
+      : undefined,
+  });
+}
+
+/** `chat_completions` — OpenAI-compatible (openai/openrouter/deepseek/xai/groq/moonshot + gemini's compat shim). */
+function buildChatCompletionsTransport(
+  provider: ModelTransport,
+  credential: ResolvedCredential,
+): LlmTransport {
+  if (provider === 'gemini') {
+    // Gemini speaks the OpenAI-compatible shape against its own `/openai`
+    // endpoint via the dedicated GeminiTransport (extra-body thinking config).
+    return new GeminiTransport({
+      apiKey: credential.token,
+      baseUrl: credential.baseUrl ?? undefined,
+    });
+  }
+  const defaultHeaders: Record<string, string> = { ...credential.extraHeaders };
+  if (credential.authType === 'oauth') {
+    defaultHeaders['Authorization'] = `Bearer ${credential.token}`;
+  }
+  return new ChatCompletionsTransport({
+    apiKey: credential.token,
+    baseUrl: credential.baseUrl ?? undefined,
+    defaultHeaders: Object.keys(defaultHeaders).length ? defaultHeaders : undefined,
+    provider,
+  });
+}
+
+/**
+ * The single SSoT adapter table: `ApiMode → TransportAdapter`. Construction of
+ * any provider's transport flows through this table keyed by the descriptor's
+ * resolved `apiMode` (T11767 AC1) — the previous per-provider if/else in
+ * {@link ModelRunner.buildTransportFromCredential} is gone.
+ *
+ * @task T11767
+ */
+const TRANSPORT_ADAPTERS: Readonly<Record<ApiMode, TransportAdapter>> = {
+  codex_responses: buildCodexResponsesTransport,
+  anthropic_messages: buildAnthropicMessagesTransport,
+  bedrock_converse: buildBedrockConverseTransport,
+  ollama_native: buildOllamaNativeTransport,
+  chat_completions: buildChatCompletionsTransport,
 };
 
 /** Ollama's OpenAI-compatible `/v1` shim base URL (Vercel `LanguageModel` path). */
@@ -171,88 +312,16 @@ export const ModelRunner = {
     credential: ResolvedCredential,
     apiMode?: ApiMode,
   ): LlmTransport {
-    // Codex ChatGPT-backend path — keyed purely on apiMode (the whole point of
-    // carrying apiMode in the descriptor). OAuth tokens authenticate against the
-    // ChatGPT backend via the Responses API with the Cloudflare-bypass headers;
-    // an api_key codex credential carries only its own extra headers.
-    if (apiMode === 'codex_responses') {
-      const defaultHeaders: Record<string, string> =
-        credential.authType === 'oauth'
-          ? { ...credential.extraHeaders, ...buildCodexOAuthHeaders(credential.token) }
-          : { ...credential.extraHeaders };
-      return new CodexResponsesTransport({
-        apiKey: credential.token,
-        baseUrl: credential.baseUrl ?? undefined,
-        defaultHeaders: Object.keys(defaultHeaders).length ? defaultHeaders : undefined,
-        provider,
-      });
-    }
-
-    if (provider === 'anthropic') {
-      // Mirrors the canonical `session-factory.transportForProvider` exactly:
-      // OAuth → authToken slot; api_key → apiKey slot + any extra headers.
-      const opts =
-        credential.authType === 'oauth'
-          ? {
-              authToken: credential.token,
-              baseUrl: credential.baseUrl ?? undefined,
-              // OAuth REQUIRES the beta opt-in header. The canonical header is
-              // the default; a caller's own extraHeaders override it if set.
-              defaultHeaders: { ...ANTHROPIC_OAUTH_HEADERS, ...credential.extraHeaders },
-            }
-          : {
-              apiKey: credential.token,
-              baseUrl: credential.baseUrl ?? undefined,
-              defaultHeaders: Object.keys(credential.extraHeaders).length
-                ? credential.extraHeaders
-                : undefined,
-            };
-      return new AnthropicTransport(opts);
-    }
-
-    if (provider === 'kimi-code') {
-      // Kimi Code speaks the Anthropic Messages protocol against its own endpoint.
-      return new AnthropicTransport({
-        authToken: credential.token,
-        baseUrl: credential.baseUrl ?? KIMI_CODE_BASE_URL,
-        defaultHeaders: getKimiCodeMshHeaders(),
-      });
-    }
-
-    if (provider === 'bedrock') {
-      return new BedrockTransport({
-        awsProfile: credential.awsProfile ?? undefined,
-      });
-    }
-
-    if (provider === 'gemini') {
-      return new GeminiTransport({
-        apiKey: credential.token,
-        baseUrl: credential.baseUrl ?? undefined,
-      });
-    }
-
-    if (provider === 'ollama') {
-      return new OllamaTransport({
-        baseUrl: credential.baseUrl ?? undefined,
-        apiKey: credential.token || undefined,
-        defaultHeaders: Object.keys(credential.extraHeaders).length
-          ? credential.extraHeaders
-          : undefined,
-      });
-    }
-
-    // openai (api_key), openrouter, deepseek, xai, groq, moonshot → OpenAI-compat.
-    const defaultHeaders: Record<string, string> = { ...credential.extraHeaders };
-    if (credential.authType === 'oauth') {
-      defaultHeaders['Authorization'] = `Bearer ${credential.token}`;
-    }
-    return new ChatCompletionsTransport({
-      apiKey: credential.token,
-      baseUrl: credential.baseUrl ?? undefined,
-      defaultHeaders: Object.keys(defaultHeaders).length ? defaultHeaders : undefined,
-      provider,
-    });
+    // Construction is DATA-driven (T11767): the resolved `apiMode` selects the
+    // adapter from {@link TRANSPORT_ADAPTERS}. An explicit apiMode (e.g.
+    // `codex_responses` for an openai-oauth ChatGPT token, stamped by the
+    // resolver) wins; otherwise the provider's STATIC default mode is used —
+    // `deriveApiWire(provider, null)` intentionally omits the auth-derived
+    // openai→codex routing so a no-apiMode caller keeps an api_key/oauth openai
+    // on `chat_completions` exactly as before (the codex route requires an
+    // explicit apiMode from the resolver).
+    const mode = apiMode ?? deriveApiWire(provider, null).apiMode;
+    return TRANSPORT_ADAPTERS[mode](provider, credential);
   },
 
   /**
