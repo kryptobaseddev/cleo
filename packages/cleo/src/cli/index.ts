@@ -42,6 +42,7 @@ import {
 // dependency tree (drizzle, node:sqlite, every dispatch handler, every
 // middleware) for every CLI invocation — even `cleo --version`. We defer
 // every CORE import to the point of actual use instead.
+import { setDescribeMode } from './describe-context.js';
 import { resolveFieldContext, setFieldContext } from './field-context.js';
 import { setFormatContext } from './format-context.js';
 import { COMMAND_MANIFEST } from './generated/command-manifest.js';
@@ -138,6 +139,7 @@ async function startCli(): Promise<void> {
   let verboseFlag = false;
   let outputModeRaw: string | undefined;
   let summaryFlag = false;
+  let describeFlag = false;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--json') rawOpts['json'] = true;
@@ -152,6 +154,11 @@ async function startCli(): Promise<void> {
     else if (arg === '--output' && i + 1 < argv.length) outputModeRaw = argv[++i];
     // T9932 — global --summary flag: 1-line-per-record re-render.
     else if (arg === '--summary') summaryFlag = true;
+    // T11692 (DHQ-057) — global --describe flag: print the operation's INPUT +
+    // OUTPUT schema as a LAFS envelope instead of executing it. Intercepted in
+    // dispatchFromCli (the universal chokepoint that always knows the
+    // canonical domain.operation triple).
+    else if (arg === '--describe') describeFlag = true;
   }
 
   // T11672 (SG-PROVIDER-AUTH-UNIFICATION E7) — interactive-output class.
@@ -211,6 +218,11 @@ async function startCli(): Promise<void> {
   // T9932 — 1-line-per-record summary render. See summary-context.ts for the
   // precedence rules (--field > --output non-envelope > --summary > defaults).
   setSummaryMode(summaryFlag);
+
+  // T11692 (DHQ-057) — record the --describe request. dispatchFromCli reads
+  // this and short-circuits to emit the operation's I/O schema envelope
+  // instead of executing the operation.
+  setDescribeMode(describeFlag);
 
   // ---------------------------------------------------------------------------
   // Fast-path for help / version / no-args invocations.
@@ -303,7 +315,16 @@ async function startCli(): Promise<void> {
     }
   }
 
-  await runMainWithLafsEnvelope(main, argv, customShowUsage);
+  // T11692 (DHQ-057) — `--describe` introspects a command WITHOUT running it,
+  // so required positionals (e.g. `cleo show <taskId>`) should not be required.
+  // citty validates required positionals during arg-parsing — BEFORE the
+  // command's run() (where maybeEmitDescribe short-circuits). Append a single
+  // sentinel positional so that validation passes; the value is never used
+  // because run() short-circuits to the describe envelope first. Skipped on the
+  // help/version fast-path.
+  const dispatchArgv = describeFlag && !isHelpOrVersion ? [...argv, '__cleo_describe__'] : argv;
+
+  await runMainWithLafsEnvelope(main, dispatchArgv, customShowUsage);
 }
 
 /** Structural shape of citty's `CLIError` class. */

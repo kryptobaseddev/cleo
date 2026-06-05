@@ -7,7 +7,7 @@
 import { ExitCode } from '@cleocode/contracts';
 import { createPage } from '@cleocode/core';
 import { defineCommand } from 'citty';
-import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
+import { dispatchRaw, handleRawError, maybeEmitDescribe } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
 /** Native citty command for `cleo find [query]`. */
 export const findCommand = defineCommand({
@@ -93,6 +93,10 @@ export const findCommand = defineCommand({
     },
   },
   async run({ args }) {
+    // T11692 (DHQ-057) — `cleo find --describe` prints the op's I/O schema.
+    // find uses dispatchRaw, so it calls the describe short-circuit directly.
+    if (maybeEmitDescribe('query', 'tasks', 'find', { command: 'find' })) return;
+
     const limit = args.limit !== undefined ? Number.parseInt(args.limit, 10) : undefined;
     const offset = args.offset !== undefined ? Number.parseInt(args.offset, 10) : undefined;
     const params: Record<string, unknown> = {};

@@ -21,6 +21,8 @@ import { describe, expect, it } from 'vitest';
 import type { CanonicalDomain, Gateway, Tier } from '../dispatch/identity.js';
 import { CANONICAL_DOMAINS } from '../dispatch/identity.js';
 import type { OperationDef, Resolution } from '../dispatch/operation-def.js';
+import type { OperationInputContract } from '../operations/input-contract.js';
+import type { OperationOutputContract } from '../operations/output-contract.js';
 import type { ParamDef } from '../operations/params.js';
 
 // ─── Compile-time structural-equality helpers ───────────────────────
@@ -66,6 +68,9 @@ type _OperationDefShape = {
   requiredParams: string[];
   params?: ParamDef[];
   mcpExposed?: boolean;
+  // T11692 (DHQ-033 / DHQ-057) — optional schema-first input/output contracts.
+  inputSchema?: OperationInputContract<unknown>;
+  outputSchema?: OperationOutputContract;
 };
 
 type _AssertOperationDefPinned = AssertEquals1<Equals<OperationDef, _OperationDefShape>>;
