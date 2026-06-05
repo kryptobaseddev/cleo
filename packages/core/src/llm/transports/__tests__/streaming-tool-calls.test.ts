@@ -4,9 +4,10 @@
  * Covers:
  * 1. AnthropicTransport.stream() — tool_use sequence yields start/args/end deltas
  * 2. ChatCompletionsTransport.stream() — OpenAI tool_calls yields incremental args
- * 3. OpenAITransport.stream() — tool_calls yields start/args deltas (T9362 parity)
- * 4. GeminiTransport.stream() — functionCall parts yield start/args/end deltas (T9362 parity)
- * 5. Consumers can accumulate argumentsChunk fragments to reconstruct full JSON
+ * 3. GeminiTransport.stream() — functionCall parts yield start/args/end deltas (T9362 parity)
+ * 4. Consumers can accumulate argumentsChunk fragments to reconstruct full JSON
+ *
+ * (The OpenAITransport.stream() block was removed with OpenAITransport — T11832.)
  *
  * @task T9316
  * @task T9362 (openai+gemini streaming parity)
@@ -122,7 +123,6 @@ vi.mock('../../image-routing.js', () => ({
 import { AnthropicTransport } from '../anthropic.js';
 import { ChatCompletionsTransport } from '../chat-completions.js';
 import { GeminiTransport } from '../gemini.js';
-import { OpenAITransport } from '../openai.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -537,195 +537,6 @@ describe('ChatCompletionsTransport.stream() — tool-call deltas', () => {
       {
         choices: [{ delta: { content: ' world' }, finish_reason: 'stop' }],
         usage: null,
-      },
-      {
-        choices: [{ delta: {}, finish_reason: null }],
-        usage: { prompt_tokens: 5, completion_tokens: 3 },
-      },
-    ];
-
-    mockChatCompletionsCreate.mockResolvedValue(
-      (async function* () {
-        for (const c of chunks) yield c;
-      })(),
-    );
-
-    const deltas = await collectDeltas(
-      transport.stream(
-        { model: 'gpt-4o', messages: [{ role: 'user', content: 'hi' }], maxTokens: 50 },
-        makeCtx(),
-      ),
-    );
-
-    const textContent = deltas
-      .filter((d) => d.text.length > 0)
-      .map((d) => d.text)
-      .join('');
-    expect(textContent).toBe('Hello world');
-
-    const toolDeltas = deltas.filter((d) => d.toolCallDelta !== undefined);
-    expect(toolDeltas).toHaveLength(0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// OpenAITransport streaming tool-call tests (T9362 parity)
-// ---------------------------------------------------------------------------
-
-describe('OpenAITransport.stream() — tool-call deltas (T9362)', () => {
-  let transport: OpenAITransport;
-
-  beforeEach(() => {
-    transport = new OpenAITransport({ apiKey: 'test-key' });
-    vi.clearAllMocks();
-  });
-
-  it('yields start and incremental args deltas for a single tool call', async () => {
-    const chunks = [
-      {
-        choices: [
-          {
-            delta: {
-              tool_calls: [{ index: 0, function: { name: 'get_weather', arguments: '' } }],
-            },
-            finish_reason: null,
-          },
-        ],
-      },
-      {
-        choices: [
-          {
-            delta: {
-              tool_calls: [{ index: 0, function: { name: '', arguments: '{"city":' } }],
-            },
-            finish_reason: null,
-          },
-        ],
-      },
-      {
-        choices: [
-          {
-            delta: {
-              tool_calls: [{ index: 0, function: { name: '', arguments: '"Paris"}' } }],
-            },
-            finish_reason: 'tool_calls',
-          },
-        ],
-      },
-      {
-        choices: [{ delta: {}, finish_reason: null }],
-        usage: { prompt_tokens: 20, completion_tokens: 10 },
-      },
-    ];
-
-    mockChatCompletionsCreate.mockResolvedValue(
-      (async function* () {
-        for (const c of chunks) yield c;
-      })(),
-    );
-
-    const deltas = await collectDeltas(
-      transport.stream(
-        { model: 'gpt-4o', messages: [{ role: 'user', content: 'weather?' }], maxTokens: 100 },
-        makeCtx(),
-      ),
-    );
-
-    const toolDeltas = deltas.filter((d) => d.toolCallDelta !== undefined);
-    expect(toolDeltas.length).toBeGreaterThanOrEqual(2);
-
-    // First delta: start marker with name
-    const first = toolDeltas[0];
-    expect(first.toolCallDelta?.index).toBe(0);
-    expect(first.toolCallDelta?.name).toBe('get_weather');
-
-    // Subsequent: incremental argument JSON
-    const argText = toolDeltas
-      .slice(1)
-      .map((d) => d.toolCallDelta?.argumentsChunk ?? '')
-      .join('');
-    expect(argText).toBe('{"city":"Paris"}');
-
-    // Final delta has usage and stop reason
-    const final = deltas[deltas.length - 1];
-    expect(final.stopReason).toBe('tool_calls');
-    expect(final.usage?.inputTokens).toBe(20);
-  });
-
-  it('handles two parallel tool calls at different indices', async () => {
-    const chunks = [
-      {
-        choices: [
-          {
-            delta: {
-              tool_calls: [
-                { index: 0, function: { name: 'tool_a', arguments: '' } },
-                { index: 1, function: { name: 'tool_b', arguments: '' } },
-              ],
-            },
-            finish_reason: null,
-          },
-        ],
-      },
-      {
-        choices: [
-          {
-            delta: {
-              tool_calls: [
-                { index: 0, function: { name: '', arguments: '{"x":1}' } },
-                { index: 1, function: { name: '', arguments: '{"y":2}' } },
-              ],
-            },
-            finish_reason: 'tool_calls',
-          },
-        ],
-      },
-      {
-        choices: [{ delta: {}, finish_reason: null }],
-        usage: { prompt_tokens: 10, completion_tokens: 8 },
-      },
-    ];
-
-    mockChatCompletionsCreate.mockResolvedValue(
-      (async function* () {
-        for (const c of chunks) yield c;
-      })(),
-    );
-
-    const deltas = await collectDeltas(
-      transport.stream(
-        { model: 'gpt-4o', messages: [{ role: 'user', content: 'multi' }], maxTokens: 100 },
-        makeCtx(),
-      ),
-    );
-
-    const toolDeltas = deltas.filter((d) => d.toolCallDelta !== undefined);
-    const idx0 = toolDeltas.filter((d) => d.toolCallDelta?.index === 0);
-    const idx1 = toolDeltas.filter((d) => d.toolCallDelta?.index === 1);
-
-    expect(idx0[0].toolCallDelta?.name).toBe('tool_a');
-    expect(idx1[0].toolCallDelta?.name).toBe('tool_b');
-
-    const args0 = idx0
-      .slice(1)
-      .map((d) => d.toolCallDelta?.argumentsChunk ?? '')
-      .join('');
-    const args1 = idx1
-      .slice(1)
-      .map((d) => d.toolCallDelta?.argumentsChunk ?? '')
-      .join('');
-
-    expect(JSON.parse(args0)).toEqual({ x: 1 });
-    expect(JSON.parse(args1)).toEqual({ y: 2 });
-  });
-
-  it('text-only stream emits no toolCallDelta entries', async () => {
-    const chunks = [
-      {
-        choices: [{ delta: { content: 'Hello' }, finish_reason: null }],
-      },
-      {
-        choices: [{ delta: { content: ' world' }, finish_reason: 'stop' }],
       },
       {
         choices: [{ delta: {}, finish_reason: null }],

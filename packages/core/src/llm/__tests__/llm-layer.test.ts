@@ -32,6 +32,8 @@ import {
   GeminiHistoryAdapter,
   OpenAIHistoryAdapter,
 } from '../history-adapters.js';
+// --- usesMaxCompletionTokens relocated to model-metadata.ts (T11832) ---
+import { usesMaxCompletionTokens } from '../model-metadata.js';
 // --- Moonshot constants (MoonshotBackend removed in T9286 W1d) ---
 import {
   isMoonshotModel,
@@ -51,8 +53,6 @@ import {
 import { AnthropicTransport } from '../transports/anthropic.js';
 // --- Gemini transport (W1a: backends/gemini.ts removed; static helpers preserved on GeminiTransport) ---
 import { GeminiTransport as GeminiBackend } from '../transports/gemini.js';
-// --- OpenAI transport (backends/openai.ts deleted in T9286 W1d) ---
-import { usesMaxCompletionTokens } from '../transports/openai.js';
 import type { ModelConfig, PromptCachePolicy } from '../types-config.js';
 
 // ============================================================================
