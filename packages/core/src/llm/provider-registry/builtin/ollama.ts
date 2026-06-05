@@ -44,6 +44,10 @@ export const ollamaProfile: ProviderProfile = {
   baseUrl: 'http://localhost:11434',
   defaultModel: 'llama3',
   aliases: ['ollama-local'],
+  // Hermes-parity routing/catalog fields (T11756). Local on-device tier.
+  tier: 'local',
+  defaultAuxModel: 'llama3',
+  defaultMaxTokens: 2048,
   envVars: ['OLLAMA_API_KEY', 'OLLAMA_BASE_URL'],
   supportsThinkingBudget: false,
 };

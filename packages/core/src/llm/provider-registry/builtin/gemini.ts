@@ -61,6 +61,10 @@ export const geminiProfile: ProviderProfile = {
   baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
   defaultModel: 'gemini-2.0-flash',
   aliases: ['google', 'google-gemini'],
+  // Hermes-parity routing/catalog fields (T11756); catalog-sourced under E8.
+  tier: 'standard',
+  defaultAuxModel: 'gemini-2.0-flash',
+  defaultMaxTokens: 4096,
   envVars: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'],
 
   /**

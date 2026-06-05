@@ -81,5 +81,11 @@ export const openaiProfile: ProviderProfile = {
   // to the confirmed latest OpenAI model (catalog release_date 2026-04-23).
   defaultModel: 'gpt-5.5',
   aliases: ['codex', 'chatgpt', 'openai-codex'],
+  // Hermes-parity routing/catalog fields (T11756). tier + defaultAuxModel are
+  // catalog-sourced (E8 join, T11773) when a snapshot is present; these are the
+  // static fallbacks used until the catalog populates them.
+  tier: 'frontier',
+  defaultAuxModel: 'gpt-5-mini',
+  defaultMaxTokens: 4096,
   oauth: OPENAI_CODEX_OAUTH,
 };
