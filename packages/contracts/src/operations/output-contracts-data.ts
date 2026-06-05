@@ -13,7 +13,7 @@
  * one source of truth.
  *
  * Each `dataSchema` is grounded in the concrete result interface declared in
- * `./tasks.js` (e.g. {@link TasksShowResult}, {@link TaskMutationEnvelope}) so
+ * `./tasks.js` (e.g. {@link TasksShowResult}, {@link MinimalMutateEnvelope}) so
  * the schema can never drift from the typed shape without a compile-time touch
  * to this file.
  *
@@ -46,7 +46,7 @@ const tasksShowOutputContract: OperationOutputContract = {
   operation: 'tasks.show',
   shapeNote:
     'The task record is nested under `task` — use /data/task/<field>, not /data/<field>. ' +
-    '`view` is the computed projection; `acRows` and `relations` are conditional.',
+    '`view` may be null. `acRows` and `relations` are conditional.',
   dataSchema: {
     type: 'object',
     required: ['task', 'view', 'attachments'],
@@ -139,152 +139,199 @@ const tasksListOutputContract: OperationOutputContract = {
 };
 
 // ---------------------------------------------------------------------------
-// tasks.find — flat array of minimal task rows
+// tasks.find — { results: MinimalTask[], total, query, searchType }
 // ---------------------------------------------------------------------------
 
 /**
  * OUTPUT contract for `tasks.find`.
  *
- * Grounded in {@link TasksFindResult} = `MinimalTask[]` — the `data` payload is
- * the array itself (no wrapper object), so pointers index into `/data/<n>`.
+ * Grounded in the actual return shape from `findTasks()` (find.ts:503-505)
+ * and the MVI projection plan (mvi-projection.ts:330 `path: 'results'`):
+ * `{ results: MinimalTask[], total: number, query: string, searchType: string }`.
+ *
+ * The `data` payload is a **wrapper object** (NOT a bare array). Results live
+ * under `/data/results`; the total count is at `/data/total`.
  */
 const tasksFindOutputContract: OperationOutputContract = {
   operation: 'tasks.find',
-  shapeNote: 'data IS the array of matches (no wrapper object) — index with /data/0, /data/1, ...',
+  shapeNote:
+    'Results are wrapped: /data/results (array of matches), /data/total (count). ' +
+    'Use /data/results/0/id — NOT /data/0/id.',
   dataSchema: {
-    type: 'array',
-    description: 'Array of minimal task matches.',
-    items: {
-      type: 'object',
-      required: ['id', 'title'],
-      properties: {
-        id: { type: 'string' },
-        title: { type: 'string' },
-        status: { type: 'string' },
+    type: 'object',
+    required: ['results', 'total'],
+    additionalProperties: true,
+    properties: {
+      results: {
+        type: 'array',
+        description: 'Array of minimal task matches.',
+        items: {
+          type: 'object',
+          required: ['id', 'title'],
+          properties: {
+            id: { type: 'string' },
+            title: { type: 'string' },
+            status: { type: 'string' },
+          },
+        },
       },
+      total: { type: 'number', description: 'Total matching tasks.' },
+      query: { type: 'string', description: 'The query string that was searched.' },
+      searchType: { type: 'string', description: 'Kind of search performed (fts, semantic, ...).' },
     },
   },
-  fieldPointers: ['/data/0/id', '/data/0/title', '/data/0/status'],
+  fieldPointers: [
+    '/data/results/0/id',
+    '/data/results/0/title',
+    '/data/results/0/status',
+    '/data/total',
+  ],
 };
 
 // ---------------------------------------------------------------------------
 // Mutation envelope shape (T9931 / T10608) — shared by add / add-batch /
-// update / complete / delete. Each builds on TaskMutationEnvelope:
-//   { created[], updated[], deleted[], affectedCount, mutationWarnings[], ... }
+// update / complete / delete.
+//
+// DEFAULT (minimal) shape — what `--field` resolves against — is
+// `MinimalMutateEnvelope` from `mutate-projection.ts`:
+//   { count, created: string[], updated: string[], deleted: string[], ids: string[], ... }
+//
+// `created`, `updated`, and `deleted` contain BARE TASK ID STRINGS, not
+// objects. `/data/created/0` resolves to a string like "T11692" directly.
+// The object-array shape (`TaskMutationEnvelope`) is the `--full` shape only.
 // ---------------------------------------------------------------------------
 
 /**
- * The shared JSON Schema for the standardized task mutation envelope
- * (`TaskMutationEnvelope` — T10608 / T9931). `created`, `updated`, and
- * `deleted` are always present arrays; the gateway populates only the relevant
- * bucket. This is the reference pattern the OUTPUT-schema work models itself on.
+ * The shared JSON Schema for the minimal mutate projection envelope
+ * (`MinimalMutateEnvelope` — T9931 / mutate-projection.ts). `created`,
+ * `updated`, and `deleted` are always present arrays of **bare task ID strings**
+ * (not objects). The gateway populates only the relevant bucket. Pointers:
+ * - `/data/created/0` → first created task ID string (e.g. "T11692")
+ * - `/data/updated/0` → first updated task ID string
+ * - `/data/deleted/0` → first deleted task ID string
+ *
+ * This is the DEFAULT shape (applies unless caller passes `--full`).
  */
 const TASK_MUTATION_DATA_SCHEMA = {
   type: 'object',
-  required: ['created', 'updated', 'deleted', 'affectedCount'],
+  required: ['count', 'created', 'updated', 'deleted'],
   additionalProperties: true,
   properties: {
+    count: { type: 'number', description: 'Number of records the mutation affected.' },
     created: {
       type: 'array',
-      description: 'Created task records (empty for update/delete-only mutations).',
-      items: { type: 'object', properties: { id: { type: 'string' } } },
+      description:
+        'Task IDs created by the mutation (bare strings, e.g. "T11692"). ' +
+        'Empty for update/delete-only mutations.',
+      items: { type: 'string' },
     },
     updated: {
       type: 'array',
-      description: 'Updated task records (empty for create/delete-only mutations).',
-      items: { type: 'object', properties: { id: { type: 'string' } } },
+      description:
+        'Task IDs updated by the mutation (bare strings). ' +
+        'Empty for create/delete-only mutations.',
+      items: { type: 'string' },
     },
     deleted: {
       type: 'array',
-      description: 'Deleted task records (empty for create/update-only mutations).',
-      items: { type: 'object', properties: { id: { type: 'string' } } },
+      description:
+        'Task IDs deleted by the mutation (bare strings). ' +
+        'Empty for create/update-only mutations.',
+      items: { type: 'string' },
     },
-    affectedCount: { type: 'number', description: 'Total live rows affected by the mutation.' },
-    mutationWarnings: {
+    ids: {
       type: 'array',
-      description: 'Structured partial-success/preflight warnings.',
+      description: 'Deprecated alias for the non-empty bucket. Prefer created/updated/deleted.',
+      items: { type: 'string' },
     },
     dryRun: { type: 'boolean', description: 'True when this was a preview-only mutation.' },
-    dryRunSummary: {
-      type: 'object',
-      description: 'Dry-run projection (wouldCreate/wouldUpdate/...). Present only for dry-run.',
-    },
+    status: { type: 'string', description: 'Post-mutation task status (add/update/complete).' },
   },
 } as const;
 
 /**
  * OUTPUT contract for `tasks.add`.
  *
- * Grounded in {@link TasksAddResult} extends `TaskMutationEnvelope<TaskRecord[]>`
- * — the created task lands in `created[0]`.
+ * Grounded in `MinimalMutateEnvelope` (mutate-projection.ts) — the created
+ * task ID lands as a bare string in `created[0]`.
+ * Use `/data/created/0` (a string like "T11692"), NOT `/data/created/0/id`.
  */
 const tasksAddOutputContract: OperationOutputContract = {
   operation: 'tasks.add',
-  shapeNote: 'The created task id is at /data/created/0/id.',
+  shapeNote:
+    'The created task ID (bare string) is at /data/created/0 — NOT /data/created/0/id. ' +
+    'Example: /data/created/0 → "T11692".',
   dataSchema: { ...TASK_MUTATION_DATA_SCHEMA },
-  fieldPointers: ['/data/created/0/id', '/data/created/0/title', '/data/affectedCount'],
+  fieldPointers: ['/data/created/0', '/data/count'],
 };
 
 /**
  * OUTPUT contract for `tasks.add-batch`.
  *
- * Grounded in {@link TasksAddBatchResult} extends `TaskMutationEnvelope<number>`
- * with an extra `tasks: TasksAddResult[]`. `created` carries the count; per-task
- * rows are also surfaced. For dry-run, `dryRunSummary.wouldCreate` is the
- * projected count and `insertedCount` stays 0 (see CLEO-INJECTION.md).
+ * Grounded in `MinimalMutateEnvelope` (mutate-projection.ts). For dry-run,
+ * `wouldCreate` and `insertedCount` are projected to the **root** of the
+ * envelope data (NOT under `dryRunSummary`) — confirmed in
+ * mutate-projection.ts lines 224/232.
  */
 const tasksAddBatchOutputContract: OperationOutputContract = {
   operation: 'tasks.add-batch',
   shapeNote:
-    'Atomic batch insert. Use /data/created/0/id for the first created task; ' +
-    'dry-run projections live under /data/dryRunSummary (wouldCreate, insertedCount=0).',
+    'Atomic batch insert. Each created task ID (bare string) is in /data/created (array). ' +
+    'Dry-run projections are at root: /data/wouldCreate and /data/insertedCount (=0). ' +
+    'NOT under /data/dryRunSummary.',
   dataSchema: {
     type: 'object',
-    required: ['created', 'updated', 'deleted', 'affectedCount'],
+    required: ['count', 'created', 'updated', 'deleted'],
     additionalProperties: true,
     properties: {
       ...TASK_MUTATION_DATA_SCHEMA.properties,
-      tasks: {
-        type: 'array',
-        description: 'Per-task add results in batch order.',
+      wouldCreate: {
+        type: 'number',
+        description: 'Dry-run: predicted write count. Present only when dryRun=true.',
+      },
+      insertedCount: {
+        type: 'number',
+        description: 'Dry-run: always 0 (no DB write). Present only when dryRun=true.',
+      },
+      wouldAffect: {
+        type: 'number',
+        description: 'Dry-run: generic affected count. Present only when dryRun=true.',
       },
     },
   },
-  fieldPointers: [
-    '/data/created/0/id',
-    '/data/affectedCount',
-    '/data/dryRunSummary/wouldCreate',
-    '/data/dryRunSummary/insertedCount',
-  ],
+  fieldPointers: ['/data/created/0', '/data/count', '/data/wouldCreate', '/data/insertedCount'],
 };
 
 /**
  * OUTPUT contract for `tasks.update` (and the `complete` alias, which is an
  * update to `status: done`).
  *
- * Grounded in {@link TasksUpdateQueryResult} extends
- * `TaskMutationEnvelope<[], TaskRecord[], []>` — the changed task lands in
- * `updated[0]`.
+ * Grounded in `MinimalMutateEnvelope` (mutate-projection.ts) — the changed
+ * task ID lands as a bare string in `updated[0]`.
+ * Use `/data/updated/0` (a string like "T11692"), NOT `/data/updated/0/id`.
  */
 const tasksUpdateOutputContract: OperationOutputContract = {
   operation: 'tasks.update',
   shapeNote:
-    'The updated task is at /data/updated/0 — use /data/updated/0/id, /data/updated/0/status.',
+    'The updated task ID (bare string) is at /data/updated/0 — NOT /data/updated/0/id. ' +
+    'Use /data/status for the post-mutation status.',
   dataSchema: { ...TASK_MUTATION_DATA_SCHEMA },
-  fieldPointers: ['/data/updated/0/id', '/data/updated/0/status', '/data/affectedCount'],
+  fieldPointers: ['/data/updated/0', '/data/status', '/data/count'],
 };
 
 /**
  * OUTPUT contract for `tasks.complete`.
  *
  * Identical envelope to `tasks.update` — completion is a status mutation that
- * lands the task in `updated[0]`.
+ * lands the task ID in `updated[0]` as a bare string.
  */
 const tasksCompleteOutputContract: OperationOutputContract = {
   operation: 'tasks.complete',
-  shapeNote: 'Completion is a status mutation — the task is at /data/updated/0 (status=done).',
+  shapeNote:
+    'Completion is a status mutation — the task ID (bare string) is at /data/updated/0 ' +
+    '(status=done). Use /data/status for the post-mutation status.',
   dataSchema: { ...TASK_MUTATION_DATA_SCHEMA },
-  fieldPointers: ['/data/updated/0/id', '/data/updated/0/status', '/data/affectedCount'],
+  fieldPointers: ['/data/updated/0', '/data/status', '/data/count'],
 };
 
 // ---------------------------------------------------------------------------

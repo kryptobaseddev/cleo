@@ -5,6 +5,10 @@
  * shape fact that produced the bug: `tasks.show` returns the task under `task`,
  * so the canonical pointer is `/data/task/title`, NOT `/data/title`.
  *
+ * Also validates that mutation contracts reflect the MinimalMutateEnvelope
+ * shape (string[] ids, NOT object arrays) and that tasks.find uses the
+ * { results, total } wrapper (NOT a bare array).
+ *
  * @task T11692
  * @epic T11679
  */
@@ -57,29 +61,65 @@ describe('operations/output-contracts (T11692 · DHQ-057)', () => {
       expect(show.shapeNote).toBeTruthy();
       expect(show.shapeNote).toContain('/data/task/');
     });
+
+    it('notes that view may be null', () => {
+      expect(show.shapeNote).toContain('null');
+    });
   });
 
-  describe('mutation envelopes (T9931 / T10608 reference pattern)', () => {
-    it('tasks.add surfaces the created id at /data/created/0/id', () => {
+  describe('mutation envelopes — MinimalMutateEnvelope (string[] ids, T9931)', () => {
+    it('tasks.add surfaces the created task ID as a bare string at /data/created/0', () => {
       const add = OUTPUT_CONTRACTS['tasks.add'] as OperationOutputContract;
-      expect(add.fieldPointers).toContain('/data/created/0/id');
-      const schema = add.dataSchema as { required?: string[] };
+      // Correct: /data/created/0 → "T11692" (string), NOT /data/created/0/id
+      expect(add.fieldPointers).toContain('/data/created/0');
+      expect(add.fieldPointers).not.toContain('/data/created/0/id');
+      // Schema must reflect string[] items, not object[]
+      const schema = add.dataSchema as {
+        required?: string[];
+        properties?: Record<string, { items?: { type?: string } }>;
+      };
       expect(schema.required).toEqual(
-        expect.arrayContaining(['created', 'updated', 'deleted', 'affectedCount']),
+        expect.arrayContaining(['count', 'created', 'updated', 'deleted']),
       );
+      expect(schema.properties?.created?.items?.type).toBe('string');
+      expect(schema.properties?.updated?.items?.type).toBe('string');
+      expect(schema.properties?.deleted?.items?.type).toBe('string');
     });
 
-    it('tasks.update / tasks.complete surface the changed task at /data/updated/0', () => {
+    it('tasks.update / tasks.complete surface the changed task ID at /data/updated/0 (string)', () => {
       for (const op of ['tasks.update', 'tasks.complete']) {
         const c = OUTPUT_CONTRACTS[op] as OperationOutputContract;
-        expect(c.fieldPointers).toContain('/data/updated/0/id');
+        // Correct: /data/updated/0 → "T11692" (string), NOT /data/updated/0/id
+        expect(c.fieldPointers).toContain('/data/updated/0');
+        expect(c.fieldPointers).not.toContain('/data/updated/0/id');
+        const schema = c.dataSchema as {
+          properties?: Record<string, { items?: { type?: string } }>;
+        };
+        expect(schema.properties?.updated?.items?.type).toBe('string');
       }
+    });
+
+    it('tasks.add-batch dry-run pointers point to root /data/wouldCreate and /data/insertedCount', () => {
+      const batch = OUTPUT_CONTRACTS['tasks.add-batch'] as OperationOutputContract;
+      // Correct: root-level, NOT /data/dryRunSummary/wouldCreate
+      expect(batch.fieldPointers).toContain('/data/wouldCreate');
+      expect(batch.fieldPointers).toContain('/data/insertedCount');
+      expect(batch.fieldPointers).not.toContain('/data/dryRunSummary/wouldCreate');
+      expect(batch.fieldPointers).not.toContain('/data/dryRunSummary/insertedCount');
+      // shapeNote should clarify they are NOT under dryRunSummary
+      expect(batch.shapeNote).toContain('/data/wouldCreate');
     });
   });
 
-  it('tasks.find data IS the array (pointers index /data/0, not /data/tasks)', () => {
+  it('tasks.find data is a wrapper object with /data/results (array) and /data/total', () => {
     const find = OUTPUT_CONTRACTS['tasks.find'] as OperationOutputContract;
-    expect((find.dataSchema as { type?: string }).type).toBe('array');
-    expect(find.fieldPointers).toContain('/data/0/id');
+    // Correct: wrapper object, NOT a bare array
+    expect((find.dataSchema as { type?: string }).type).toBe('object');
+    // Correct pointers
+    expect(find.fieldPointers).toContain('/data/results/0/id');
+    expect(find.fieldPointers).toContain('/data/total');
+    // Wrong pointers must NOT appear
+    expect(find.fieldPointers).not.toContain('/data/0/id');
+    expect(find.shapeNote).toContain('/data/results');
   });
 });

@@ -243,7 +243,7 @@ export const addCommand = defineCommand({
   },
   async run({ args, cmd }) {
     // T11692 (DHQ-057) — `cleo add --describe` prints the op's I/O schema
-    // (created task lands at /data/created/0/id).
+    // (created task ID is a bare string at /data/created/0, NOT /data/created/0/id).
     if (maybeEmitDescribe('mutate', 'tasks', 'add', { command: 'add' })) return;
 
     // T9917: schema-first input path. When --params or --params-file is
