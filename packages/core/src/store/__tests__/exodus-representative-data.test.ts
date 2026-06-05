@@ -121,6 +121,9 @@ describe('exodus real-data parity gate (T11551 · DHQ-045)', () => {
     const plan: ExodusPlan = {
       sources,
       totalSourceBytes: 0,
+      largestSourceBytes: 0,
+      requiredBytes: 0,
+      stagingCopyThresholdBytes: 256 * 1024 * 1024,
       availableBytes: 100_000_000,
       diskPreflight: true,
       stagingDir,

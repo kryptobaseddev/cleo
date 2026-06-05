@@ -145,7 +145,9 @@ const migrateSubCommand = defineCommand({
     humanInfo(`  Target project cleo.db: ${plan.projectDbPath}`);
     humanInfo(`  Target global  cleo.db: ${plan.globalDbPath}`);
     humanInfo(`  Available disk: ${fmtBytes(plan.availableBytes)}`);
-    humanInfo(`  Required (3×): ${fmtBytes(3 * plan.totalSourceBytes)}`);
+    humanInfo(
+      `  Required (1.2× largest ${fmtBytes(plan.largestSourceBytes)} + consolidated): ${fmtBytes(plan.requiredBytes)}`,
+    );
     humanInfo(`  Disk pre-flight: ${plan.diskPreflight ? 'PASS' : 'FAIL'}`);
 
     if (plan.resumeFromStaging) {
@@ -164,6 +166,8 @@ const migrateSubCommand = defineCommand({
               targetScope: s.targetScope,
             })),
             totalSourceBytes: plan.totalSourceBytes,
+            largestSourceBytes: plan.largestSourceBytes,
+            requiredBytes: plan.requiredBytes,
             availableBytes: plan.availableBytes,
             diskPreflight: plan.diskPreflight,
             stagingDir: plan.stagingDir,
@@ -189,8 +193,12 @@ const migrateSubCommand = defineCommand({
     }
 
     if (!plan.diskPreflight) {
+      const shortfall = Math.max(0, plan.requiredBytes - plan.availableBytes);
       cliError(
-        `Insufficient disk space for exodus. Need ≥3× source size (${fmtBytes(plan.totalSourceBytes)}), have ${fmtBytes(plan.availableBytes)}.`,
+        `Insufficient disk space for exodus. Need ≥${fmtBytes(plan.requiredBytes)} ` +
+          `(≈1.2× largest source ${fmtBytes(plan.largestSourceBytes)} + consolidated estimate ` +
+          `${fmtBytes(plan.totalSourceBytes)}), have ${fmtBytes(plan.availableBytes)} — ` +
+          `${fmtBytes(shortfall)} short. Free up space (e.g. \`cleo backup prune\`) or move .cleo/ to a larger volume.`,
         ExitCode.VALIDATION_ERROR,
         { name: 'E_DISK_PREFLIGHT_FAIL' },
         { operation: 'exodus.migrate' },
