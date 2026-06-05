@@ -313,4 +313,140 @@ describe('updateTask cancellation path (T9838-D)', () => {
       }
     });
   });
+
+  // ==========================================================================
+  // T11811 AC2 — orphan-prevention guard: `update --status cancelled` MUST NOT
+  // silently strand active children. Before this fix, cancelling a parent via
+  // the update path flipped the parent to cancelled while leaving its active
+  // children attached to a terminal parent (the exact T9031/T9044 strand). The
+  // guard routes the cancellation through the SAME child-disposition decision
+  // `coreTaskCancel` uses: the DEFAULT on a parent with active children BLOCKS
+  // with E_HAS_CHILDREN, pointing the agent at `cleo cancel <id> --children …`.
+  // ==========================================================================
+  describe('child-disposition guard (T11811 AC2)', () => {
+    /**
+     * Seed an epic with two active task children. The epic is the
+     * cancellation target; the children are the strand risk.
+     */
+    async function seedParentWithActiveChildren(): Promise<void> {
+      await seedTasks(accessor, [
+        {
+          id: 'T8000',
+          title: 'Parent epic with active children',
+          type: 'epic',
+          status: 'active',
+          priority: 'medium',
+          pipelineStage: 'implementation',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: 'T8001',
+          title: 'Active child A',
+          type: 'task',
+          parentId: 'T8000',
+          status: 'active',
+          priority: 'medium',
+          pipelineStage: 'implementation',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: 'T8002',
+          title: 'Active child B',
+          type: 'task',
+          parentId: 'T8000',
+          status: 'pending',
+          priority: 'medium',
+          pipelineStage: 'research',
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+    }
+
+    it('STRANDS active children — update --status=cancelled bypasses child disposition (T11811 AC2 repro)', async () => {
+      // This is the pinned bug. With the guard in place, cancelling a parent
+      // that still has ACTIVE children via the update path MUST be rejected
+      // (E_HAS_CHILDREN) rather than silently flipping the parent and orphaning
+      // the children. The repro asserts the children remain UNCHANGED because
+      // the operation was refused — no silent strand.
+      await seedParentWithActiveChildren();
+
+      await expect(
+        updateTask({ taskId: 'T8000', status: 'cancelled' }, env.tempDir, accessor),
+      ).rejects.toMatchObject({ code: ExitCode.HAS_CHILDREN });
+
+      // Parent unchanged (still active), children unchanged (still attached).
+      const parent = await accessor.loadSingleTask('T8000');
+      const childA = await accessor.loadSingleTask('T8001');
+      const childB = await accessor.loadSingleTask('T8002');
+      expect(parent?.status).toBe('active');
+      expect(childA?.status).toBe('active');
+      expect(childA?.parentId).toBe('T8000');
+      expect(childB?.status).toBe('pending');
+      expect(childB?.parentId).toBe('T8000');
+    });
+
+    it('the E_HAS_CHILDREN error points the operator at `cleo cancel`', async () => {
+      await seedParentWithActiveChildren();
+
+      await expect(
+        updateTask({ taskId: 'T8000', status: 'cancelled' }, env.tempDir, accessor),
+      ).rejects.toMatchObject({
+        code: ExitCode.HAS_CHILDREN,
+        fix: expect.stringContaining('cleo cancel'),
+      });
+    });
+
+    it('cancelling a leaf (no children) via update still succeeds', async () => {
+      await seedTasks(accessor, [
+        {
+          id: 'T8100',
+          title: 'Leaf task',
+          type: 'task',
+          status: 'active',
+          priority: 'medium',
+          pipelineStage: 'implementation',
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+
+      const result = await updateTask(
+        { taskId: 'T8100', status: 'cancelled' },
+        env.tempDir,
+        accessor,
+      );
+      expect(result.task.status).toBe('cancelled');
+      expect(result.task.pipelineStage).toBe('cancelled');
+    });
+
+    it('cancelling a parent whose children are already terminal succeeds (no active strand risk)', async () => {
+      await seedTasks(accessor, [
+        {
+          id: 'T8200',
+          title: 'Parent with done children',
+          type: 'epic',
+          status: 'active',
+          priority: 'medium',
+          pipelineStage: 'implementation',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: 'T8201',
+          title: 'Done child',
+          type: 'task',
+          parentId: 'T8200',
+          status: 'done',
+          priority: 'medium',
+          completedAt: new Date().toISOString(),
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+
+      const result = await updateTask(
+        { taskId: 'T8200', status: 'cancelled' },
+        env.tempDir,
+        accessor,
+      );
+      expect(result.task.status).toBe('cancelled');
+    });
+  });
 });

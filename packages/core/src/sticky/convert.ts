@@ -58,6 +58,9 @@ export async function convertStickyToTask(
         title,
         description,
         labels: sticky.tagsJson ? JSON.parse(sticky.tagsJson) : undefined,
+        // Sticky-note conversion is an ingest path that legitimately creates a
+        // standalone capture task; exempt it from the T11811 strict-spine guard.
+        skipContainmentInvariant: true,
       },
       projectRoot,
     );

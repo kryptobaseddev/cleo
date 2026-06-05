@@ -19,7 +19,12 @@ import type {
   TaskVerification,
 } from '@cleocode/contracts';
 // setMetaValue now called via tx.setMetaValue inside transaction (T023)
-import { ExitCode, isAllowedWorkGraphParentType, TASK_STATUSES } from '@cleocode/contracts';
+import {
+  ExitCode,
+  isAllowedWorkGraphParentType,
+  TASK_STATUSES,
+  TERMINAL_TASK_STATUSES,
+} from '@cleocode/contracts';
 import { loadConfig } from '../config.js';
 import { CleoError } from '../errors.js';
 import { resolveOrCwd } from '../paths.js';
@@ -39,7 +44,6 @@ import {
 import { createAcceptanceEnforcement } from './enforcement.js';
 import {
   findEpicAncestor,
-  getLifecycleMode,
   validateChildStageCeiling,
   validateEpicCreation,
 } from './epic-enforcement.js';
@@ -100,6 +104,19 @@ export interface AddTaskOptions {
    * @task T1633
    */
   forceDuplicate?: boolean;
+  /**
+   * Bypass the T11811 write-time containment invariant (orphan / terminal-parent
+   * / wrong-tier rejection).
+   *
+   * MUST be set ONLY by historical data-movement paths — exodus migration,
+   * `cleo import`, restore/JSON-merge replay — which legitimately re-insert
+   * rows that predate the strict-spine rule (the fleet still carries legacy
+   * orphans). Agent-facing `cleo add` / `add-batch` MUST NOT set this; the
+   * invariant is the whole point of the guard for net-new work.
+   *
+   * @task T11811
+   */
+  skipContainmentInvariant?: boolean;
 }
 
 /** Result of adding a task. */
@@ -731,25 +748,37 @@ export async function addTask(
     });
   }
 
-  // Orphan prevention (T101): non-epic tasks must have a parent in strict mode.
-  // Epics are root containers and are exempt. Only enforced in strict lifecycle mode.
-  // Skip for dry-run — no data is written.
+  // Orphan prevention (T101 → hardened by T11811 AC1).
+  //
+  // Write-time containment invariant — the strict-spine rule (owner decision 1):
+  // EVERY net-new node must attach to a parent unless it is a `saga`. Only sagas
+  // may be roots. A `task` / `subtask` / `epic` with a null/absent parent is a
+  // NET-NEW ORPHAN and is HARD-REJECTED regardless of lifecycle mode — the prior
+  // strict-mode-only gate let advisory-mode installs silently manufacture the
+  // exact orphan the doctor/CI gate then flags.
+  //
+  // Escape hatch: historical data-movement paths (exodus, import, restore replay)
+  // set `skipContainmentInvariant` so legacy rows that predate the rule are not
+  // self-blocked. Dry-run is exempt (no data is written).
+  //
+  // The effective type mirrors the later inference: an unset type with no parent
+  // resolves to `task`, so a bare `cleo add "X"` (no parent, no type) is rejected.
   const parentId = options.parentId ?? null;
-  if (!options.dryRun && !parentId && options.type !== 'epic') {
-    const lifecycleMode = await getLifecycleMode(cwd);
-    if (lifecycleMode === 'strict') {
-      issues.push({
-        field: 'parentId',
-        message:
-          'Tasks must have a parent (epic or task) in strict mode. Use --parent <epicId>, --type epic for a root-level epic, or set lifecycle.mode to "advisory".',
-        fix: 'cleo add "Task title" --parent T### --acceptance "AC1|AC2|AC3"',
-      });
-    } else {
-      // Advisory mode: warn about parentless task creation (T089)
-      warnings.push(
-        'Task created without a parent. Use --parent <epicId> to assign to an epic hierarchy.',
-      );
-    }
+  const effectiveRootType: TaskType = options.type ?? 'task';
+  if (
+    !options.dryRun &&
+    !options.skipContainmentInvariant &&
+    !parentId &&
+    effectiveRootType !== 'saga'
+  ) {
+    issues.push({
+      field: 'parentId',
+      message:
+        `A ${effectiveRootType} must attach to a parent — only a saga may be a root ` +
+        `(strict-spine containment, T11811). Use --parent <id> to file it under the ` +
+        `correct container (saga→epic, epic→task, task→subtask).`,
+      fix: 'cleo add "Task title" --parent T### --acceptance "AC1|AC2|AC3"',
+    });
   }
 
   // Always use accessor (SQLite canonical storage per ADR-006)
@@ -909,6 +938,26 @@ export async function addTask(
         fix: `Use 'cleo find "${parentId}"' to search or create as standalone task`,
         details: { field: 'parentId', actual: parentId },
       });
+    }
+
+    // T11811 AC1 — reject filing NET-NEW work under a TERMINAL parent
+    // (done/cancelled/archived). A child added under a terminal parent is born
+    // stranded — the resolved parent can never satisfy it. Skip for the
+    // historical-replay escape hatch (legacy rows reference terminal parents).
+    if (!options.skipContainmentInvariant && TERMINAL_TASK_STATUSES.has(parentTask.status)) {
+      throw new CleoError(
+        ExitCode.VALIDATION_ERROR,
+        `Cannot file new work under ${parentId}: its status is '${parentTask.status}' (terminal). ` +
+          `A child under a terminal parent is born stranded.`,
+        {
+          fix: `Pick a non-terminal parent (cleo find), or reopen ${parentId} first (cleo restore task ${parentId}).`,
+          details: {
+            field: 'parentId',
+            expected: 'non-terminal parent (pending|active|blocked)',
+            actual: parentTask.status,
+          },
+        },
+      );
     }
 
     parentTaskForProjection = parentTask;
