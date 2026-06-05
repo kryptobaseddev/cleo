@@ -1,9 +1,21 @@
 # ADR-072: Nexus DB Topology Split — nexus-registry.db + nexus-graph/<projectId>.db
 
-**Status**: Proposed  
+**Status**: SUPERSEDED by ADR-090 (dual-cleo.db residency) — 2026-06-04  
 **Date**: 2026-05-12  
-**Task**: T9150 (W6 — Nexus Restructure Release 2)  
-**Supersedes**: none (extends existing nexus.db design)
+**Task**: T9150 (W6 — Nexus Restructure Release 2) — **CANCELLED 2026-06-04**  
+**Supersedes**: none (extended existing nexus.db design)
+
+> **⛔ SUPERSEDED 2026-06-04.** This ADR proposed splitting the monolithic `nexus.db`
+> into a separate `nexus-registry.db` + per-project `nexus-graph/<projectId>.db` files to
+> solve WAL contention, registry-walk cost, and cross-project leakage. The **dual-cleo.db
+> cutover (ADR-090 · T11648 · T11578, shipped + live)** solved all three problems
+> differently and more completely: the 4 nexus code-graph tables now reside in **project-scope
+> `cleo.db`** (per-project isolation by construction) and the registry/identity tables in
+> **global `cleo.db`**, joined via `ATTACH`. A second physical file-split is redundant.
+> The LRU handle-pool built for this ADR (`packages/core/src/nexus/store.ts`) has zero live
+> importers and is dead code slated for deletion. Implementing task **T9150 was cancelled**
+> under the SG-NEXUS-RESTRUCTURE (T11812) re-scope. Do not act on this ADR — kept for
+> historical provenance only.
 
 ---
 
