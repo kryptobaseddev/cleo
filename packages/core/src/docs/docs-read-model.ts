@@ -110,6 +110,18 @@ export interface ResolvedDoc {
 }
 
 /**
+ * Discriminated result of {@link DocsReadModel.fetchDecoded}.
+ *
+ * The success arm carries both the resolved doc record and its decoded
+ * UTF-8 body; the failure arms distinguish a missing reference from a
+ * resolvable doc whose blob could not be read.
+ */
+export type DecodedDocResult =
+  | { readonly ok: true; readonly doc: ResolvedDoc; readonly content: string }
+  | { readonly ok: false; readonly reason: 'not-found' }
+  | { readonly ok: false; readonly reason: 'no-content'; readonly doc: ResolvedDoc };
+
+/**
  * Filters for {@link DocsReadModel.listProjectDocs}.
  */
 export interface ListProjectDocsOpts {
@@ -398,6 +410,36 @@ export class DocsReadModel {
     }
 
     return null;
+  }
+
+  /**
+   * Resolve a reference (slug, attachment ID, or SHA-256) and return its
+   * decoded UTF-8 body in a single call.
+   *
+   * Convenience wrapper around the resolve → {@link fetchContent} two-step
+   * used by agent-facing surfaces (e.g. `cleo docs fetch --content`) that
+   * want the raw document text without first hand-decoding the base64
+   * `bytesBase64` field from the LAFS fetch envelope (T10970).
+   *
+   * Resolution order mirrors the canonical fetch path: slug first (the
+   * common agent ergonomic), then attachment ID / SHA-256 content address.
+   *
+   * @param ref - Slug, attachment UUID, or 64-char hex SHA-256.
+   * @returns A discriminated result:
+   *   - `{ ok: true, doc, content }` when the ref resolved AND content was
+   *     retrievable.
+   *   - `{ ok: false, reason: 'not-found' }` when no doc carries the ref.
+   *   - `{ ok: false, reason: 'no-content', doc }` when the doc metadata
+   *     exists but its blob could not be read (e.g. purged or unpublished).
+   */
+  async fetchDecoded(ref: string): Promise<DecodedDocResult> {
+    const doc = (await this.resolveBySlug(ref)) ?? (await this.resolveByAttachmentId(ref));
+    if (!doc) return { ok: false, reason: 'not-found' };
+
+    const content = await this.fetchContent(doc);
+    if (content === null) return { ok: false, reason: 'no-content', doc };
+
+    return { ok: true, doc, content };
   }
 
   /**

@@ -30,7 +30,7 @@
 
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import type { DocAttachmentObservationPayload } from '@cleocode/contracts';
+import type { BlobAttachment, DocAttachmentObservationPayload } from '@cleocode/contracts';
 import { DocKindRegistry } from '@cleocode/contracts';
 import type {
   DocsAddParams,
@@ -855,6 +855,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       ownerId,
       file: filePath,
       url,
+      content: inlineContent,
       desc: description,
       labels: rawLabels,
       attachedBy: rawAttachedBy,
@@ -867,11 +868,24 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       return lafsError('E_INVALID_INPUT', 'ownerId is required', 'add');
     }
 
-    if (!filePath && !url) {
+    // T10965 — inline authoring. Exactly one source (file | url | content)
+    // must be supplied. `content` is mutually exclusive with file/url because
+    // the three write distinct attachment kinds (local-file / url / blob).
+    const hasContent = typeof inlineContent === 'string';
+    const sourceCount = (filePath ? 1 : 0) + (url ? 1 : 0) + (hasContent ? 1 : 0);
+    if (sourceCount === 0) {
       return lafsError(
         'E_INVALID_INPUT',
-        'Provide either a file path (positional or --file) or --url',
+        'Provide a file path (positional or --file), --url, or --content <text>',
         'add',
+      );
+    }
+    if (sourceCount > 1) {
+      return lafsError(
+        'E_INVALID_INPUT',
+        '--file, --url, and --content are mutually exclusive — provide exactly one source',
+        'add',
+        'Use `cleo docs add <owner> ./file.md` OR `--url <url>` OR `--content "<text>"` (not more than one).',
       );
     }
 
@@ -1374,6 +1388,157 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           sha256: meta.sha256,
           refCount: meta.refCount,
           kind: 'local-file',
+          ownerId,
+          ownerType,
+          // Cast: core returns 'llmtxt'|'legacy'; contracts uses 'legacy'|'llmstxt-v2' (T1529)
+          attachmentBackend: backend as DocsAddResult['attachmentBackend'],
+          ...(slug !== undefined ? { slug } : {}),
+          ...(type !== undefined ? { type } : {}),
+          ...(adrNumber !== undefined ? { adrNumber } : {}),
+        },
+        'add',
+      );
+    }
+
+    // T10965 — inline content attachment. Authored on the CLI or piped via
+    // stdin (`--content -`) with no backing file. Stored as a content-
+    // addressed `blob` attachment so it flows through the EXACT same write
+    // surface as a file-sourced add: tasks.db row (slug/refcount/lifecycle),
+    // manifest.db mirror, graph node, memory observation, and audit trail.
+    if (hasContent) {
+      const bytes = Buffer.from(inlineContent, 'utf-8');
+
+      // T10160 — body schema validation per DocKind (mirrors the file branch;
+      // there are real bytes to scan here, unlike URL attachments).
+      if (type !== undefined) {
+        let registry: DocKindRegistry | undefined;
+        try {
+          registry = DocKindRegistry.load(getProjectRoot());
+        } catch {
+          registry = undefined;
+        }
+        const check = validateDocBody(type, inlineContent, registry);
+        if (!check.ok) {
+          const missingList = check.missing.join(', ');
+          if (strictMode === true) {
+            // Release any allocator reservation so a rejected write does not
+            // leak the slug claim.
+            if (slug !== undefined) releaseReservedSlug(slug);
+            return lafsError(
+              'E_DOC_SCHEMA_MISMATCH',
+              `body for kind '${type}' is missing required section(s): ${missingList}`,
+              'add',
+              `Add the missing H2 section(s) — '## ${check.missing[0] ?? ''}' — then retry. ` +
+                `Pass --strict=false (default) to surface as an advisory warning instead of an error.`,
+              { kind: type, missing: check.missing, strict: true },
+            );
+          }
+          pushWarning({
+            code: 'W_DOC_SCHEMA_MISMATCH',
+            message: `body for kind '${type}' is missing required section(s): ${missingList}. Add '--strict' to fail on schema violations.`,
+          });
+        }
+      }
+
+      // The `blob` kind's `sha256`/`storageKey`/`size` are computed at the
+      // AttachmentStore chokepoint (T11262/T11280) — pass placeholders.
+      const mime = 'text/markdown';
+      const attachment: Omit<BlobAttachment, 'sha256' | 'storageKey' | 'size'> = {
+        kind: 'blob',
+        mime,
+        ...(description ? { description } : {}),
+        ...(labels ? { labels } : {}),
+      };
+
+      let meta: Awaited<ReturnType<typeof store.put>>;
+      try {
+        meta = await store.put(
+          bytes,
+          attachment as Omit<BlobAttachment, 'sha256'>,
+          ownerType,
+          ownerId,
+          attachedBy,
+          undefined,
+          extras,
+        );
+      } catch (err) {
+        if (slug !== undefined) releaseReservedSlug(slug);
+        if (err instanceof SlugCollisionError) {
+          return {
+            success: false,
+            error: {
+              code: 'E_SLUG_RESERVED',
+              message: SLUG_COLLISION_GUIDANCE.replaceAll('{slug}', err.slug ?? ''),
+              fix: `cleo docs update ${err.slug ?? '<slug>'} --content "..."`,
+              details: {
+                suggestions: err.suggestions,
+                aliases: ['E_SLUG_TAKEN'],
+              },
+            },
+          };
+        }
+        throw err;
+      }
+
+      if (adrNumber !== undefined && slug !== undefined) consumeReservedSlug(slug);
+
+      // T947 Wave C — manifest.db blob mirror. Use the slug (or sha prefix)
+      // as the blob name so `blobList`/`publishDocs` see a stable handle.
+      const blobName = slug ?? meta.sha256.slice(0, 12);
+      let backend: AttachmentBackend = 'llmtxt';
+      try {
+        const blobMirror = createAttachmentBlobStore(getProjectRoot());
+        const mirrorResult = await blobMirror.put(ownerId, {
+          name: blobName,
+          data: new Uint8Array(bytes),
+          contentType: mime,
+        });
+        backend = mirrorResult.backend;
+      } catch {
+        backend = await currentAttachmentBackend();
+      }
+
+      // T945 Stage A — mint `llmtxt:<sha256>` node + `embeds` edge.
+      import('@cleocode/core/internal')
+        .then(({ ensureLlmtxtNode }) =>
+          ensureLlmtxtNode(getProjectRoot(), meta.sha256, `${ownerType}:${ownerId}`, blobName),
+        )
+        .catch(() => {
+          /* Graph population is best-effort — never fail docs add. */
+        });
+
+      // T9976 — structured memory observation (fire-and-forget).
+      const contentPayload: DocAttachmentObservationPayload = {
+        kind: 'doc-attachment',
+        attachmentId: meta.id,
+        ownerId,
+        addedAt: new Date().toISOString(),
+        ...(slug !== undefined ? { slug } : {}),
+        ...(type !== undefined ? { type } : {}),
+      };
+      emitDocAttachmentObservation(contentPayload, getProjectRoot());
+
+      // T11139 — audit trail.
+      try {
+        writeAuditEntry(getProjectRoot(), {
+          op: 'docs.add',
+          slug,
+          type,
+          attachmentId: meta.id,
+          sha256: meta.sha256,
+          ownerId,
+          summary: `Added inline doc '${slug ?? meta.sha256.slice(0, 12)}'${type ? ` of type '${type}'` : ''} for owner ${ownerId}`,
+        });
+      } catch {
+        /* best-effort */
+      }
+
+      return lafsSuccess<DocsAddResult>(
+        {
+          attachmentId: meta.id,
+          sha256: meta.sha256,
+          refCount: meta.refCount,
+          kind: 'blob',
           ownerId,
           ownerType,
           // Cast: core returns 'llmtxt'|'legacy'; contracts uses 'legacy'|'llmstxt-v2' (T1529)

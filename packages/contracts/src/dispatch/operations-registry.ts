@@ -7117,7 +7117,7 @@ export const OPERATIONS: OperationDef[] = [
     domain: 'docs',
     operation: 'add',
     description:
-      'docs.add (mutate) — attach a local file or URL to a CLEO owner entity (task, session, observation)',
+      'docs.add (mutate) — attach a local file, URL, or inline content to a CLEO owner entity (task, session, observation)',
     tier: 1,
     idempotent: false,
     sessionRequired: false,
@@ -7140,6 +7140,12 @@ export const OPERATIONS: OperationDef[] = [
         type: 'string' as const,
         required: false,
         description: 'Remote URL to attach',
+      },
+      {
+        name: 'content',
+        type: 'string' as const,
+        required: false,
+        description: 'Inline document body (T10965); mutually exclusive with file/url',
       },
       {
         name: 'desc',

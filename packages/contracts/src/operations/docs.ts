@@ -383,15 +383,25 @@ export interface DocsGenerateResult {
 /**
  * Parameters for `docs.add`.
  *
- * Exactly one of `file` or `url` must be provided.
+ * Exactly one of `file`, `url`, or `content` must be provided.
  */
 export interface DocsAddParams {
   /** Owner entity ID (task, session, observation, etc.) — required. */
   ownerId: string;
-  /** Local file path to attach (mutually exclusive with `url`). */
+  /** Local file path to attach (mutually exclusive with `url` and `content`). */
   file?: string;
-  /** URL to attach as reference (mutually exclusive with `file`). */
+  /** URL to attach as reference (mutually exclusive with `file` and `content`). */
   url?: string;
+  /**
+   * Inline document body authored directly on the command line or piped via
+   * stdin (`--content -`). Mutually exclusive with `file` and `url`. Stored
+   * as a `text/markdown` blob exactly as a file-sourced add would be —
+   * including the manifest.db mirror, slug reservation, memory observation,
+   * and audit trail — so a doc can be created without a pre-existing file.
+   *
+   * @task T10965
+   */
+  content?: string;
   /** Optional human-readable description. */
   desc?: string;
   /** Optional comma-separated labels for categorization. */
