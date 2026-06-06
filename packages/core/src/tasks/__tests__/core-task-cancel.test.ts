@@ -109,8 +109,8 @@ describe('coreTaskCancel (engine, with live T877 trigger)', () => {
   });
 
   it('blocks parent cancellation unless child propagation is explicit', async () => {
-    await seedTask(env, { id: 'T0020', status: 'pending' });
-    await seedTask(env, { id: 'T0021', status: 'pending', parentId: 'T0020' });
+    await seedTask(env, { id: 'T0020', status: 'pending', type: 'epic' });
+    await seedTask(env, { id: 'T0021', status: 'pending', parentId: 'T0020', type: 'task' });
 
     await expect(coreTaskCancel(env.tempDir, 'T0020')).rejects.toThrow(/E_HAS_CHILDREN/);
 
@@ -121,9 +121,9 @@ describe('coreTaskCancel (engine, with live T877 trigger)', () => {
   });
 
   it('cascades cancellation to descendants only when children=cascade is explicit', async () => {
-    await seedTask(env, { id: 'T0030', status: 'pending' });
-    await seedTask(env, { id: 'T0031', status: 'pending', parentId: 'T0030' });
-    await seedTask(env, { id: 'T0032', status: 'pending', parentId: 'T0031' });
+    await seedTask(env, { id: 'T0030', status: 'pending', type: 'epic' });
+    await seedTask(env, { id: 'T0031', status: 'pending', parentId: 'T0030', type: 'task' });
+    await seedTask(env, { id: 'T0032', status: 'pending', parentId: 'T0031', type: 'subtask' });
 
     const result = await coreTaskCancel(env.tempDir, 'T0030', {
       reason: 'scope removed',
@@ -179,9 +179,9 @@ describe('coreTaskCancel (engine, with live T877 trigger)', () => {
   });
 
   it('requires force waiver and audit log for large subtree cascade', async () => {
-    await seedTask(env, { id: 'T0050', status: 'pending' });
-    await seedTask(env, { id: 'T0051', status: 'pending', parentId: 'T0050' });
-    await seedTask(env, { id: 'T0052', status: 'pending', parentId: 'T0050' });
+    await seedTask(env, { id: 'T0050', status: 'pending', type: 'epic' });
+    await seedTask(env, { id: 'T0051', status: 'pending', parentId: 'T0050', type: 'task' });
+    await seedTask(env, { id: 'T0052', status: 'pending', parentId: 'T0050', type: 'task' });
 
     await expect(
       coreTaskCancel(env.tempDir, 'T0050', { children: 'cascade', cascadeThreshold: 1 }),
