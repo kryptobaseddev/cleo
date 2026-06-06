@@ -1,5 +1,11 @@
 # Changelog
 
+## [2026.6.10] (2026-06-06)
+
+### Fixed
+
+- **Migration journal reconciler — consolidated-DB self-heal.** A cold open of a consolidated/sealed `cleo.db` could hang or fail with `E_NOT_INITIALIZED` ("Task database not initialized"). Root cause: `probeAndMarkApplied` ran its `CREATE TABLE` regex over raw migration SQL **including prose comments**, capturing phantom table targets (e.g. "…the project-side CREATE TABLE **half** of that move…") → the migration was never marked applied → Drizzle re-ran a bare `CREATE TABLE` against an existing table → threw (wrapped in `.cause`, so the "table already exists" retry guard missed it) → the rejected init-promise poisoned the connection cache → surfaced as a masked `E_NOT_INITIALIZED`. Fixes: (1) strip SQL line/block comments before DDL-target extraction (reusing the existing `stripSqlComments` idiom); (2) probe-tolerance for **eliminated tables** — a `CREATE` of a table a later migration permanently `DROP`s (e.g. `release_manifests` → superseded by `releases`) now counts as satisfied via a `computeEliminatedTables()` disposition walk; (3) **zero-DDL migrations** (pure-DML backfills, `DROP`-only, index/trigger-only) are gated by the consolidation cutover — pre-consolidation ones are stamped applied, post-consolidation ones are run-once by `migrate()` (so new backfills/drops actually execute); (4) retry predicates now walk the full `err.cause` chain; (5) a rejected init-promise is evicted from the connection cache so a transient open failure no longer poisons later callers. _(provenance: [T11829](https://github.com/kryptobaseddev/cleo/search?q=T11829&type=commits); [#986](https://github.com/kryptobaseddev/cleo/pull/986))_
+
 ## [2026.6.9] (2026-06-06)
 
 ### Added
