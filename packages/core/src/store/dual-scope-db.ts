@@ -701,6 +701,22 @@ export async function openDualScopeDbAtPath(
     initPromise,
   });
 
+  // Defense-in-depth: if init REJECTS, evict the placeholder so a transient open
+  // failure (e.g. a one-shot migration crash) does not POISON the cache. Without
+  // this, the rejected promise stays in `_cache` and every later caller hits
+  // `return existing.initPromise` (above) and re-receives the same rejection —
+  // which the engine's bare catch then surfaces as "Task database not
+  // initialized" forever. Only evict if the SAME placeholder entry is still
+  // present (a successful init replaces `initPromise` with `null`, so this guard
+  // never clobbers a healthy cached handle). Returns the original (rejecting)
+  // promise unchanged so callers still see the real error.
+  initPromise.catch(() => {
+    const entry = _cache.get(key);
+    if (entry && entry.initPromise === initPromise) {
+      _cache.delete(key);
+    }
+  });
+
   return initPromise;
 }
 

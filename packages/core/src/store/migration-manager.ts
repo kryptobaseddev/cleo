@@ -12,6 +12,7 @@
  */
 
 import { copyFileSync, existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { MigrationConfig, MigrationMeta } from 'drizzle-orm/migrator';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
@@ -40,6 +41,187 @@ export interface RequiredColumn {
 const MAX_MIGRATION_RETRIES = 5;
 const MIGRATION_RETRY_BASE_DELAY_MS = 100;
 const MIGRATION_RETRY_MAX_DELAY_MS = 2000;
+
+/**
+ * Strip SQL line (`-- …`) and block (`/* … *​/`) comments from a migration's SQL
+ * before scanning it for DDL targets.
+ *
+ * Migration files routinely carry prose comments describing the change — phrases
+ * like "the project-side CREATE TABLE half of that move" or "CREATE TABLE IF NOT
+ * EXISTS ensures it exists". A DDL-extraction regex run over the RAW SQL captures
+ * bogus "table" names from those comments (`half`, `IF`, `ensures`), making a
+ * fully-satisfied migration look un-applied. The journal then omits it, Drizzle
+ * re-runs its bare `CREATE TABLE …` against a DB where the table already exists,
+ * and the open fails (root cause of the "Task database not initialized" poison).
+ *
+ * Always strip comments via this helper BEFORE any `createTableRegex` /
+ * `createIndexRegex` / `alterColumnRegex` scan. The pair of replaces matches the
+ * idiom already used by {@link isExecutableStatement} and Scenario 3's
+ * comment-only baseline detection.
+ *
+ * @param sql - Raw migration SQL (one statement or many joined with `\n`)
+ * @returns The SQL with all `--` line comments and `/* … *​/` block comments removed
+ */
+export function stripSqlComments(sql: string): string {
+  return sql.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+}
+
+/**
+ * Compute the set of tables that a migration lineage CREATEs and a LATER
+ * migration permanently ELIMINATES (DROP TABLE with no subsequent recreate).
+ *
+ * ## Why (bug #2)
+ *
+ * The DDL probe ({@link probeAndMarkApplied}) marks a `CREATE TABLE foo`
+ * migration applied only if `foo` exists in the live schema. That breaks when a
+ * later migration DROPs `foo` for good: e.g. `t033`/`initial` create
+ * `release_manifests`, which `t9686b2` later DROPs (superseded by `releases`).
+ * On a DB that has run the WHOLE lineage, `release_manifests` is correctly
+ * absent — but the probe then refuses to mark `t033`/`initial` applied, so
+ * drizzle's `migrate()` re-runs their bare `CREATE TABLE release_manifests`
+ * against the live DB and throws ("table already exists" / cascade) — surfacing
+ * as the opaque E_NOT_INITIALIZED / E_INTERNAL on a consolidated `cleo.db`.
+ *
+ * Pre-computing the eliminated set lets the probe treat a CREATE-of-an-
+ * eliminated-table as already satisfied: the table is *supposed* to be gone, so
+ * its absence is evidence the lineage ran, not that it didn't.
+ *
+ * ## Disposition tracking
+ *
+ * Walks migrations in `folderMillis` order and, WITHIN each migration, processes
+ * statements IN ORDER so the SQLite rebuild/recreate idioms resolve correctly:
+ *
+ *  - `CREATE TABLE x` (or `… RENAME TO x`) → `x` is present.
+ *  - `DROP TABLE x`                        → `x` is dropped.
+ *
+ * The rebuild idiom (`CREATE __new_x; DROP x; ALTER __new_x RENAME TO x`) and the
+ * drop-then-recreate idiom (`DROP x; CREATE x`) both end with `x` PRESENT because
+ * the final in-order statement for `x` is a create/rename. A table is
+ * "eliminated" only if the LAST statement touching it across the whole lineage is
+ * a DROP. Transient intermediates (`__new_*`) are naturally classified by the
+ * same rule and are irrelevant to the probe (which already redirects renames to
+ * the final name).
+ *
+ * @param migrations - All local migrations of one lineage (from readMigrationFiles)
+ * @returns The set of permanently-eliminated final table names
+ * @task T11553
+ */
+export function computeEliminatedTables(
+  migrations: ReadonlyArray<{ folderMillis: number; sql?: string | string[] }>,
+): Set<string> {
+  const createTableRegex = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"]?(\w+)[`"]?/i;
+  const dropTableRegex = /DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?[`"]?(\w+)[`"]?/i;
+  const renameRegex = /ALTER\s+TABLE\s+[`"]?(\w+)[`"]?\s+RENAME\s+TO\s+[`"]?(\w+)[`"]?/i;
+
+  // Final disposition per table: true = present, false = dropped.
+  const disposition = new Map<string, boolean>();
+
+  const ordered = [...migrations].sort((a, b) => a.folderMillis - b.folderMillis);
+  for (const migration of ordered) {
+    const statements = Array.isArray(migration.sql) ? migration.sql : [migration.sql ?? ''];
+    for (const rawStatement of statements) {
+      // Split on `;` so multiple DDL statements joined in one `.sql` array entry
+      // are still evaluated IN ORDER (drizzle usually splits on
+      // statement-breakpoint, but a migration may carry several `;`-separated
+      // statements in a single chunk).
+      const stripped = stripSqlComments(rawStatement);
+      for (const clause of stripped.split(';')) {
+        const create = createTableRegex.exec(clause);
+        if (create) {
+          disposition.set(create[1] as string, true);
+          continue;
+        }
+        const rename = renameRegex.exec(clause);
+        if (rename) {
+          disposition.set(rename[2] as string, true);
+          continue;
+        }
+        const drop = dropTableRegex.exec(clause);
+        if (drop) {
+          disposition.set(drop[1] as string, false);
+        }
+      }
+    }
+  }
+
+  const eliminated = new Set<string>();
+  for (const [table, present] of disposition) {
+    if (!present) eliminated.add(table);
+  }
+  return eliminated;
+}
+
+/**
+ * The timestamp-prefix of the consolidation cutover migration
+ * (`20260531000001_t11363-consolidation-cleo-{project,global}`), used as the
+ * fallback when the consolidation migration cannot be located on disk.
+ *
+ * Migration folder names start with a 14-char numeric timestamp prefix
+ * (`YYYYMMDDHHMMSS`). Comparing those prefixes lexicographically is equivalent
+ * to comparing the encoded timestamps, so this string is the cutover boundary.
+ *
+ * @task T11553
+ */
+export const CONSOLIDATION_CUTOVER_PREFIX = '20260531000001';
+
+/**
+ * Length of a drizzle migration folder's leading `YYYYMMDDHHMMSS` timestamp.
+ */
+const MIGRATION_TIMESTAMP_PREFIX_LEN = 14;
+
+/**
+ * Resolve the consolidation cutover timestamp-prefix for a lineage being
+ * reconciled, by locating the `*-consolidation-cleo-*` migration in the SIBLING
+ * consolidated folders (`drizzle-cleo-project` / `drizzle-cleo-global`) next to
+ * the supplied `migrationsFolder`.
+ *
+ * The legacy lineages (`drizzle-tasks` / `drizzle-brain`) do NOT themselves
+ * contain the consolidation migration — it lives in the consolidated folders —
+ * so we scan the siblings. Best-effort: if neither sibling is present/readable
+ * (partial install) the function returns {@link CONSOLIDATION_CUTOVER_PREFIX}.
+ *
+ * @param migrationsFolder - Absolute path to the lineage folder being reconciled
+ * @returns The 14-char timestamp prefix of the consolidation cutover migration
+ * @task T11553
+ */
+export function resolveConsolidationCutoverPrefix(migrationsFolder: string): string {
+  const parent = dirname(migrationsFolder);
+  for (const setName of ['drizzle-cleo-project', 'drizzle-cleo-global']) {
+    const folder = join(parent, setName);
+    if (!existsSync(folder)) continue;
+    try {
+      const consolidation = readMigrationFiles({ migrationsFolder: folder }).find((m) =>
+        /-consolidation-cleo-/.test(m.name ?? ''),
+      );
+      if (consolidation?.name) {
+        return consolidation.name.slice(0, MIGRATION_TIMESTAMP_PREFIX_LEN);
+      }
+    } catch {
+      // Best-effort — fall through to the next sibling / the constant fallback.
+    }
+  }
+  return CONSOLIDATION_CUTOVER_PREFIX;
+}
+
+/**
+ * Whether a migration's `YYYYMMDDHHMMSS` timestamp prefix is at or before the
+ * consolidation cutover — i.e. it is a PRE-consolidation legacy migration
+ * subsumed by the consolidation snapshot (vs a NEW post-consolidation migration
+ * that must run normally).
+ *
+ * @param migrationName - The migration folder name (e.g. `20260321000000_t033-…`)
+ * @param cutoverPrefix - The cutover prefix from {@link resolveConsolidationCutoverPrefix}
+ * @returns true if at/before the cutover (pre-consolidation), false if after
+ * @task T11553
+ */
+function isAtOrBeforeCutover(migrationName: string | undefined, cutoverPrefix: string): boolean {
+  const prefix = (migrationName ?? '').slice(0, MIGRATION_TIMESTAMP_PREFIX_LEN);
+  // A name without a parseable prefix is treated as pre-cutover (legacy/unknown):
+  // safer to stamp-and-skip than to re-run an unknown legacy migration. Real
+  // post-consolidation migrations always carry a valid prefix.
+  if (prefix.length < MIGRATION_TIMESTAMP_PREFIX_LEN) return true;
+  return prefix <= cutoverPrefix;
+}
 
 /**
  * Check whether a table exists in a SQLite database.
@@ -118,18 +300,62 @@ function insertJournalEntry(
  * Replaces the broken "wholesale mark applied" pattern that was the root cause
  * of the ensureColumns band-aid sprawl (T632).
  *
+ * ## Eliminated-table tolerance (bug #2 · T11553)
+ *
+ * A `CREATE TABLE foo` whose `foo` is in `eliminatedTables` — i.e. a LATER
+ * migration in the same lineage permanently DROPs it (e.g. `release_manifests`,
+ * dropped by `t9686b2`) — is treated as ALREADY SATISFIED. On a DB that ran the
+ * whole lineage the table is *supposed* to be absent; without this tolerance the
+ * probe refuses to mark the creating migration applied, drizzle re-runs its bare
+ * `CREATE TABLE` and throws. See {@link computeEliminatedTables}.
+ *
+ * ## Zero-DDL discriminator (bug #2 follow-up · T11553)
+ *
+ * A migration with NO probe-able DDL targets (pure `INSERT`/`UPDATE`/`DELETE`
+ * backfill, `DROP TABLE`-only, `CREATE VIEW`, …) cannot be verified by schema
+ * inspection. The cutover decides:
+ *
+ *  - **at/before** the consolidation cutover → a PRE-consolidation legacy
+ *    migration, already subsumed and possibly NON-idempotent (`UPDATE`/plain
+ *    `INSERT`) → STAMP applied (do NOT re-run).
+ *  - **after** the cutover → a NEW post-consolidation migration whose effect has
+ *    NOT run yet → do NOT stamp (return false) so drizzle `migrate()` executes
+ *    it. New migrations are required to be idempotent (`INSERT OR IGNORE` /
+ *    `DROP … IF EXISTS` / `CREATE … IF NOT EXISTS`), so running them is correct
+ *    and harmless on re-run; they journal normally afterwards.
+ *
+ * Migrations WITH DDL targets keep the probe-tolerance behaviour unchanged
+ * (including post-cutover ones like t11538/t11649 that must be probe-stampable
+ * once already applied).
+ *
  * @param nativeDb - Native SQLite database handle
  * @param migration - One entry from drizzle's readMigrationFiles
  * @param logSubsystem - Logger subsystem name
+ * @param eliminatedTables - Final table names a later migration permanently DROPs
+ *   (from {@link computeEliminatedTables}); their CREATE targets count as
+ *   satisfied. Defaults to empty (no tolerance) for callers that do not supply it.
+ * @param consolidationCutoverPrefix - The cutover timestamp-prefix from
+ *   {@link resolveConsolidationCutoverPrefix}; gates the zero-DDL stamp/run
+ *   decision. Defaults to {@link CONSOLIDATION_CUTOVER_PREFIX}.
  * @returns true if the journal entry was inserted; false if migration must run
  */
 function probeAndMarkApplied(
   nativeDb: DatabaseSync,
   migration: { hash: string; folderMillis: number; name?: string; sql?: string | string[] },
   logSubsystem: string,
+  eliminatedTables: ReadonlySet<string> = new Set(),
+  consolidationCutoverPrefix: string = CONSOLIDATION_CUTOVER_PREFIX,
 ): boolean {
   const sqlStatements = Array.isArray(migration.sql) ? migration.sql : [migration.sql ?? ''];
-  const fullSql = sqlStatements.join('\n');
+  // Strip SQL line (`--`) and block (`/* */`) comments BEFORE any DDL-target
+  // extraction. Prose comments routinely contain phrases like "the project-side
+  // CREATE TABLE half of that move", which would otherwise make createTableRegex
+  // capture a phantom target (`half`) → tableExists(phantom) false → the
+  // migration is wrongly left un-journaled → Drizzle re-runs its bare CREATE
+  // TABLE against an existing table and crashes (root-cause of the
+  // "Task database not initialized" poison). Mirrors the same idiom already used
+  // by reconcileBrainMigrationsForConsolidatedDb and Scenario 3 below.
+  const fullSql = stripSqlComments(sqlStatements.join('\n'));
 
   // Extract DDL targets we can probe.
   const alterColumnRegex = /ALTER\s+TABLE\s+[`"]?(\w+)[`"]?\s+ADD\s+COLUMN\s+[`"]?(\w+)[`"]?/gi;
@@ -192,10 +418,25 @@ function probeAndMarkApplied(
   // migrations (no rename, no rebuild) still probe their indexes normally.
   const performsTableRebuild = renameMap.size > 0;
 
+  // Capture `CREATE INDEX <name> ON <table>` so the probe can skip indexes that
+  // live on an ELIMINATED table (bug #2): when `release_manifests` is dropped by
+  // a later migration, SQLite drops `idx_release_manifests_*` with it — probing
+  // for them would wrongly report the creating migration un-applied.
+  const createIndexWithTableRegex =
+    /CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"]?(\w+)[`"]?\s+ON\s+[`"]?(\w+)[`"]?/gi;
+  const indexOnTable = new Map<string, string>();
+  for (const m of fullSql.matchAll(createIndexWithTableRegex)) {
+    indexOnTable.set(m[1] as string, m[2] as string);
+  }
+
   const indexTargets: string[] = [];
   if (!isRebuildOnlyMigration && !performsTableRebuild) {
     for (const m of fullSql.matchAll(createIndexRegex)) {
-      indexTargets.push(m[1] as string);
+      const idx = m[1] as string;
+      // Skip indexes on a permanently-eliminated table — they are expected to be
+      // gone once that table was dropped.
+      if (eliminatedTables.has(indexOnTable.get(idx) ?? '')) continue;
+      indexTargets.push(idx);
     }
   }
 
@@ -207,7 +448,23 @@ function probeAndMarkApplied(
   const totalTargets =
     alterTargets.length + tableTargets.length + indexTargets.length + triggerTargets.length;
   if (totalTargets === 0) {
-    // No probable DDL — could be UPDATE/INSERT/DELETE/etc. Leave for migrate().
+    // No probe-able DDL — pure DML (INSERT/UPDATE/DELETE), DROP-only, CREATE VIEW,
+    // etc. Schema inspection can't verify it, so the consolidation cutover decides
+    // (bug #2 follow-up · T11553):
+    if (isAtOrBeforeCutover(migration.name, consolidationCutoverPrefix)) {
+      // PRE-consolidation legacy migration — already subsumed by the consolidation
+      // snapshot and possibly NON-idempotent (UPDATE / plain INSERT). Re-running it
+      // would double-apply or fail, so STAMP applied without running.
+      insertJournalEntry(nativeDb, migration.hash, migration.folderMillis, migration.name ?? '');
+      getLogger(logSubsystem).debug(
+        { migration: migration.name },
+        `Zero-DDL pre-consolidation migration ${migration.name} stamped applied (subsumed; not re-run).`,
+      );
+      return true;
+    }
+    // POST-consolidation migration (e.g. a new INSERT-OR-IGNORE backfill or
+    // DROP-IF-EXISTS) whose effect has NOT run yet — DO NOT stamp; let drizzle
+    // migrate() execute it. New migrations are required to be idempotent.
     return false;
   }
 
@@ -219,7 +476,12 @@ function probeAndMarkApplied(
     }>;
     return cols.some((c) => c.name === column);
   });
-  const allTablesPresent = tableTargets.every((t) => tableExists(nativeDb, t));
+  // A CREATE-TABLE target is satisfied if it exists OR if a later migration in
+  // the lineage permanently eliminated it (bug #2 — e.g. `release_manifests`,
+  // dropped by t9686b2). Its absence on a fully-migrated DB is expected.
+  const allTablesPresent = tableTargets.every(
+    (t) => tableExists(nativeDb, t) || eliminatedTables.has(t),
+  );
   const allIndexesPresent = indexTargets.every((idx) => {
     const rows = nativeDb
       .prepare(`SELECT name FROM sqlite_master WHERE type='index' AND name=?`)
@@ -280,6 +542,21 @@ export function reconcileJournal(
   existenceTable: string,
   logSubsystem: string,
 ): void {
+  // bug #2 (T11553): pre-compute the tables this lineage CREATEs and a LATER
+  // migration permanently ELIMINATES (DROP TABLE, no recreate — e.g.
+  // `release_manifests`, dropped by t9686b2). The DDL probe treats a CREATE of an
+  // eliminated table (and its indexes) as already satisfied, so a fully-migrated
+  // DB — where that table is correctly absent — doesn't make drizzle re-run the
+  // creating migration's bare `CREATE TABLE` and crash.
+  const eliminatedTables = computeEliminatedTables(readMigrationFiles({ migrationsFolder }));
+
+  // bug #2 follow-up (T11553): the consolidation cutover timestamp-prefix gates
+  // the zero-DDL stamp/run decision in probeAndMarkApplied — pre-cutover legacy
+  // DML/DROP migrations are stamped (subsumed, possibly non-idempotent), new
+  // post-cutover ones are left for migrate() to RUN. Resolved from the sibling
+  // consolidation migration on disk.
+  const cutoverPrefix = resolveConsolidationCutoverPrefix(migrationsFolder);
+
   // Scenario 1: Tables exist but no migration journal — bootstrap baseline
   if (tableExists(nativeDb, existenceTable) && !tableExists(nativeDb, '__drizzle_migrations')) {
     const migrations = readMigrationFiles({ migrationsFolder });
@@ -369,7 +646,7 @@ export function reconcileJournal(
         );
         for (const m of localMigrations) {
           if (journaledHashesAfter.has(m.hash)) continue;
-          probeAndMarkApplied(nativeDb, m, logSubsystem);
+          probeAndMarkApplied(nativeDb, m, logSubsystem, eliminatedTables, cutoverPrefix);
         }
       }
     }
@@ -436,12 +713,10 @@ export function reconcileJournal(
       // than running the comment SQL. The "all DDL targets present" check reduces to:
       // strip comments → empty string → no targets at all → baseline already satisfied.
       if (alterMatches.length === 0) {
-        // Check for comment-only baseline marker: strip SQL line comments and block comments,
-        // then check if any non-whitespace DDL remains.
-        const stripped = fullSql
-          .replace(/--[^\n]*/g, '') // strip line comments
-          .replace(/\/\*[\s\S]*?\*\//g, '') // strip block comments
-          .trim();
+        // Check for comment-only baseline marker: strip SQL line + block comments
+        // (shared {@link stripSqlComments} helper), then check if any
+        // non-whitespace DDL remains.
+        const stripped = stripSqlComments(fullSql).trim();
         if (stripped === '') {
           // Comment-only baseline marker — mark applied immediately on existing DBs.
           const log = getLogger(logSubsystem);
@@ -462,7 +737,7 @@ export function reconcileJournal(
         const createTableRe = /CREATE\s+TABLE/i;
         const createTriggerRe = /CREATE\s+TRIGGER/i;
         if (renameRe.test(fullSql) && createTableRe.test(fullSql)) {
-          probeAndMarkApplied(nativeDb, migration, logSubsystem);
+          probeAndMarkApplied(nativeDb, migration, logSubsystem, eliminatedTables, cutoverPrefix);
         } else if (createTableRe.test(fullSql) || createTriggerRe.test(fullSql)) {
           // Pure CREATE TABLE migration (no ALTER, no RENAME). Delegate to
           // probeAndMarkApplied which checks if all CREATE TABLE targets already
@@ -470,7 +745,15 @@ export function reconcileJournal(
           // This handles signaldock's initial migration (pure schema bootstrap) when
           // the DB has tables but the journal entry is missing (e.g., after a journal
           // reset or bare-SQL-to-drizzle migration path upgrade).
-          probeAndMarkApplied(nativeDb, migration, logSubsystem);
+          probeAndMarkApplied(nativeDb, migration, logSubsystem, eliminatedTables, cutoverPrefix);
+        } else {
+          // Zero-DDL migration (pure DML backfill, DROP-only, CREATE VIEW, …) with
+          // no journal entry. Delegate to probeAndMarkApplied, whose zero-target
+          // path applies the consolidation cutover (T11553): a PRE-cutover legacy
+          // migration is stamped (subsumed, possibly non-idempotent), while a NEW
+          // POST-cutover one is left un-stamped so drizzle migrate() RUNS its
+          // effect (e.g. the cutover agent's INSERT-OR-IGNORE backfill / DROP).
+          probeAndMarkApplied(nativeDb, migration, logSubsystem, eliminatedTables, cutoverPrefix);
         }
         continue;
       }
@@ -660,6 +943,11 @@ export function reconcileBrainMigrationsForConsolidatedDb(
       nativeDb.prepare('SELECT hash FROM "__drizzle_migrations"').all() as Array<{ hash: string }>
     ).map((r) => r.hash),
   );
+  // bug #2 (T11553): tables this brain lineage CREATEs and a LATER migration
+  // permanently ELIMINATES — their absence is expected on a fully-migrated DB and
+  // must count as "satisfied" so the creating migration is journaled rather than
+  // re-run. (Mirrors the reconcileJournal eliminated-table tolerance.)
+  const eliminatedTables = computeEliminatedTables(localMigrations);
   const createTableRegex = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"]?(\w+)[`"]?/gi;
   const renameRegex = /ALTER\s+TABLE\s+[`"]?(\w+)[`"]?\s+RENAME\s+TO\s+[`"]?(\w+)[`"]?/gi;
   const addColumnRegex = /ALTER\s+TABLE\s+[`"]?(\w+)[`"]?\s+ADD\s+COLUMN\s+[`"]?(\w+)[`"]?/gi;
@@ -668,13 +956,11 @@ export function reconcileBrainMigrationsForConsolidatedDb(
     const cols = nativeDb.prepare(`PRAGMA table_info("${table}")`).all() as Array<{ name: string }>;
     return cols.some((c) => c.name === column);
   };
-  // Strip SQL line (`-- …`) and block (`/* … */`) comments before scanning for
-  // DDL targets. A migration's prose comments routinely contain phrases like
-  // "CREATE TABLE IF NOT EXISTS ensures it exists", which would otherwise make
-  // the CREATE-TABLE regex capture bogus "table" names (`IF`, `ensures`) and
-  // wrongly classify a satisfied migration as missing.
-  const stripSqlComments = (sql: string): string =>
-    sql.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  // Strip SQL comments before scanning for DDL targets (shared module helper —
+  // see {@link stripSqlComments}). A migration's prose comments routinely contain
+  // phrases like "CREATE TABLE IF NOT EXISTS ensures it exists", which would
+  // otherwise make the CREATE-TABLE regex capture bogus "table" names and wrongly
+  // classify a satisfied migration as missing.
   let marked = 0;
   let applied = 0;
   for (const m of localMigrations) {
@@ -700,7 +986,8 @@ export function reconcileBrainMigrationsForConsolidatedDb(
     }
 
     const tablesSatisfied =
-      resultTables.size > 0 && [...resultTables].every((t) => tableExists(nativeDb, t));
+      resultTables.size > 0 &&
+      [...resultTables].every((t) => tableExists(nativeDb, t) || eliminatedTables.has(t));
     const altersSatisfied =
       resultTables.size === 0 &&
       addColumns.length > 0 &&
@@ -749,23 +1036,54 @@ export function reconcileBrainMigrationsForConsolidatedDb(
 }
 
 /**
+ * Collect the `.message` of an Error and every nested `.cause` (recursively).
+ *
+ * Drizzle wraps the underlying node:sqlite error in a `DrizzleError` whose own
+ * `.message` is generic ("Failed to run the query …") while the real SQLite
+ * message ("table nexus_nodes already exists") lives in `.cause.message`. Error
+ * predicates that only test the top-level `.message` miss the wrapped case and
+ * rethrow — defeating the migrateWithRetry reconcile path. Walking the cause
+ * chain (with a depth guard against pathological cycles) lets the predicates see
+ * the real message regardless of how many layers wrap it.
+ *
+ * @param err - The thrown value (Error, wrapped Error, or anything else)
+ * @returns All messages found along the cause chain, joined with `\n`
+ */
+function collectErrorMessages(err: unknown): string {
+  const messages: string[] = [];
+  let current: unknown = err;
+  // Depth guard: cap the walk so a self-referential cause cannot loop forever.
+  for (let depth = 0; current instanceof Error && depth < 16; depth++) {
+    messages.push(current.message);
+    current = (current as { cause?: unknown }).cause;
+  }
+  return messages.join('\n');
+}
+
+/**
  * Check whether an error is a SQLite "duplicate column name" error.
  *
  * These are thrown when an ALTER TABLE ADD COLUMN statement is re-executed
  * after the column was already added (Scenario 3 in reconcileJournal).
+ *
+ * Inspects the full `.cause` chain so a Drizzle-wrapped error (whose real SQLite
+ * message lives in `.cause.message`) is still recognised.
  */
 export function isDuplicateColumnError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
-  return /duplicate column name/i.test(err.message);
+  return /duplicate column name/i.test(collectErrorMessages(err));
 }
 
 /**
  * T9174: Check for "table X already exists" SQLite error.
  * Occurs when migration SQL lacks IF NOT EXISTS but startup DDL already ran.
+ *
+ * Inspects the full `.cause` chain so a Drizzle-wrapped error (whose real SQLite
+ * message lives in `.cause.message`) is still recognised.
  */
 export function isTableAlreadyExistsError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
-  return /table .+ already exists/i.test(err.message);
+  return /table .+ already exists/i.test(collectErrorMessages(err));
 }
 
 /**
