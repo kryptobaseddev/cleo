@@ -225,6 +225,9 @@ export {
   tempWorktreeDirForSlug,
   validatePublishSlug,
 } from './publish-pr.js';
+// ── T11825 — docs.read core-SDK API (body + frontmatter + base64 blobs) ───────
+export type { ReadDocOptions } from './read-doc.js';
+export { DocNotFoundError, readDoc } from './read-doc.js';
 // ── T11181 — version SSoT (canonical version identifiers) ────────────────────
 export type { VersionAuditResult } from './version-ssot.js';
 export {
@@ -235,3 +238,10 @@ export {
   VERSION_SSOT_MIGRATION_SQL,
   versionInRange,
 } from './version-ssot.js';
+// ── T11826 — docs_wikilinks derived edge table + bidirectional query ─────────
+export type {
+  RebuildDocsWikilinksOptions,
+  RebuildDocsWikilinksResult,
+  WikilinkEdge,
+} from './wikilinks.js';
+export { deriveWikilinkEdges, getDocsWikilinks, rebuildDocsWikilinks } from './wikilinks.js';

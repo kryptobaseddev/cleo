@@ -5,6 +5,7 @@
  * @task T796
  */
 
+import { sql } from 'drizzle-orm';
 import {
   type AnySQLiteColumn,
   index,
@@ -220,9 +221,84 @@ export const attachmentRefs = sqliteTable(
   ],
 );
 
+/**
+ * Allowed relations for a `docs_wikilinks` edge.
+ *
+ * A wikilink is a DERIVED, slug-addressed edge between two docs (or a doc and a
+ * task) reconstructed from the authoritative provenance columns on
+ * `attachments` — there is no hand-authored edge here. The relation enumerates
+ * which source column produced the edge:
+ *
+ *   - `supersedes`     — `attachments.supersedes` (newer → older)
+ *   - `superseded-by`  — `attachments.superseded_by` (older → newer)
+ *   - `related-task`   — `attachments.related_tasks` JSON membership (doc → T####)
+ *   - `topic`          — `attachments.topics` JSON co-membership (doc ↔ doc sharing a topic)
+ *
+ * Kept slug-primary so the edge table is Obsidian-grade (vault links are
+ * slug-addressed) and survives attachment-id churn across versions.
+ *
+ * @task T11826 (Epic T11781 / Saga T11778)
+ */
+export const DOCS_WIKILINK_RELATIONS = [
+  'supersedes',
+  'superseded-by',
+  'related-task',
+  'topic',
+] as const;
+
+/** Discriminated union of `docs_wikilinks.relation` values. */
+export type DocsWikilinkRelation = (typeof DOCS_WIKILINK_RELATIONS)[number];
+
+/**
+ * `docs_wikilinks` — DERIVED, slug-addressed edge table for the docs graph.
+ *
+ * Per the ratified Docs-SSoT model (saga T11778): `cleo.db` is the SOLE doc
+ * authority, and `docs_wikilinks` is a *minimal edge table derived from*
+ * `supersedes` + `relatedTasks` + `topics` on `attachments`. It is NOT an
+ * authoritative input surface — it is rebuilt idempotently from the provenance
+ * columns by {@link import('../../docs/wikilinks.js').rebuildDocsWikilinks}.
+ *
+ * The table makes the bidirectional backlink graph queryable in O(edges)
+ * without recomputing the BFS, which is what the Obsidian plugin (T11827)
+ * renders. `cleo docs graph` (T10164) continues to compute the provenance BFS
+ * but hydrates persisted backlinks from this table when present.
+ *
+ * Edges are slug-primary; `to_slug` carries a doc slug for `topic` /
+ * `supersedes` / `superseded-by` edges and a `T####` task id for `related-task`
+ * edges (`to_is_task = 1`). No markdown body `[[link]]` parsing is performed
+ * (AC4) — the edges derive purely from structured provenance columns.
+ *
+ * @task T11826 (Epic T11781 / Saga T11778)
+ */
+export const docsWikilinks = sqliteTable(
+  'docs_wikilinks',
+  {
+    /** Source doc slug (→ `attachments.slug`). Always a doc. */
+    fromSlug: text('from_slug').notNull(),
+    /** Target slug — a doc slug, or a `T####` task id when `toIsTask = 1`. */
+    toSlug: text('to_slug').notNull(),
+    /** Which provenance column produced this edge — dispatch-validated, no SQL CHECK. */
+    relation: text('relation', { enum: DOCS_WIKILINK_RELATIONS }).notNull(),
+    /** 1 when `to_slug` is a task id (`related-task` edges); 0 for doc→doc edges. */
+    toIsTask: integer('to_is_task', { mode: 'boolean' }).notNull().default(false),
+    /** ISO-8601 UTC instant this edge was last (re)derived. */
+    derivedAt: text('derived_at').notNull().default(sql`(datetime('now'))`),
+  },
+  (table) => [
+    primaryKey({ columns: [table.fromSlug, table.toSlug, table.relation] }),
+    index('idx_docs_wikilinks_from').on(table.fromSlug),
+    index('idx_docs_wikilinks_to').on(table.toSlug),
+    index('idx_docs_wikilinks_relation').on(table.relation),
+  ],
+);
+
 // === TYPE EXPORTS ===
 
 export type AttachmentRow = typeof attachments.$inferSelect;
 export type NewAttachmentRow = typeof attachments.$inferInsert;
 export type AttachmentRefRow = typeof attachmentRefs.$inferSelect;
 export type NewAttachmentRefRow = typeof attachmentRefs.$inferInsert;
+/** Row type for `docs_wikilinks` SELECT queries. */
+export type DocsWikilinkRow = typeof docsWikilinks.$inferSelect;
+/** Row type for `docs_wikilinks` INSERT operations. */
+export type NewDocsWikilinkRow = typeof docsWikilinks.$inferInsert;
