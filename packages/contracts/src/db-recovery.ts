@@ -142,3 +142,68 @@ export interface BackupRecoverResult {
    */
   dryRun: boolean;
 }
+
+/**
+ * Per-role outcome of a `cleo doctor repair` pass (T11829 · DHQ-060).
+ *
+ * `doctor repair` first PROBES each role's live DB via `PRAGMA quick_check`
+ * (the same probe the recovery pipeline runs on snapshot candidates) and only
+ * invokes the {@link recoverMalformedDb} → quarantine → restore-from-snapshot →
+ * verify pipeline for roles that are actually malformed. This record captures
+ * what was observed and done for one role.
+ *
+ * @task T11829
+ * @epic T11833
+ * @saga T11242
+ * @public
+ */
+export interface DoctorRepairRoleResult {
+  /** Canonical role inspected. */
+  role: DbRole;
+  /** Absolute path to the role's live DB file (resolved from `DB_INVENTORY`). */
+  dbPath: string;
+  /** `true` when the live DB file exists on disk. */
+  present: boolean;
+  /**
+   * `true` when the live DB passed `PRAGMA quick_check` (or was absent) — i.e.
+   * NO repair was needed. `false` when corruption was detected.
+   */
+  healthy: boolean;
+  /**
+   * `'skipped'` — healthy or absent, nothing done;
+   * `'would-repair'` — `--dry-run`, corruption detected, repair NOT performed;
+   * `'repaired'` — corruption detected and snapshot restore succeeded;
+   * `'failed'` — corruption detected but recovery could not complete.
+   */
+  action: 'skipped' | 'would-repair' | 'repaired' | 'failed';
+  /** Absolute path to the snapshot restored (or that would be), when applicable. */
+  restoredFrom: string | null;
+  /** Absolute path to the quarantined corrupt DB, when a repair was performed. */
+  quarantinedTo: string | null;
+  /** Approximate data-loss window in hours, when a snapshot timestamp was parsed. */
+  dataLossWindowHours: number | null;
+  /** Human-readable detail (probe outcome, error reason, or restore summary). */
+  detail: string;
+}
+
+/**
+ * Aggregate result of a `cleo doctor repair` invocation across one or more roles
+ * (T11829 · DHQ-060).
+ *
+ * @task T11829
+ * @epic T11833
+ * @saga T11242
+ * @public
+ */
+export interface DoctorRepairResult {
+  /** `true` when the run was a `--dry-run` (no files mutated). */
+  dryRun: boolean;
+  /** Per-role outcomes. */
+  roles: DoctorRepairRoleResult[];
+  /** Count of roles found malformed (`!healthy`). */
+  malformedCount: number;
+  /** Count of roles actually repaired this run. */
+  repairedCount: number;
+  /** Count of roles where a needed repair FAILED. */
+  failedCount: number;
+}

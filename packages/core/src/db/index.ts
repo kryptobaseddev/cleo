@@ -16,6 +16,9 @@
  * - {@link resolveDualScopeDbPath} — resolve the absolute DB file path.
  * - {@link insertIdempotent} — retry-safe insert (ON CONFLICT DO NOTHING).
  * - {@link upsertIdempotent} — retry-safe upsert (ON CONFLICT DO UPDATE).
+ * - {@link assertWriteDurable} — guard a mutation path against an aborted
+ *   exodus-on-open (T11828 · DHQ-059).
+ * - {@link ExodusAbortWriteUnsafeError} — thrown by `assertWriteDurable`.
  * - {@link _resetDualScopeDbCache} — test helper: clear singleton cache.
  *
  * ## Usage
@@ -35,12 +38,15 @@
 
 export {
   _resetDualScopeDbCache,
+  assertWriteDurable,
   type CleoGlobalDb,
   type CleoProjectDb,
   type DualScope,
   type DualScopeDbHandle,
+  ExodusAbortWriteUnsafeError,
   insertIdempotent,
   openDualScopeDb,
   resolveDualScopeDbPath,
   upsertIdempotent,
 } from '../store/dual-scope-db.js';
+export { type ExodusAbortDetail, exodusAbortEvents } from '../store/exodus/abort-events.js';
