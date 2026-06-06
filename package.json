@@ -17,6 +17,7 @@
     "pretypecheck": "node scripts/preemit-skill-root-dts.mjs",
     "typecheck": "tsc -b",
     "test": "vitest run",
+    "test:safe": "bash scripts/safe-test.sh -- vitest run",
     "test:watch": "vitest",
     "test:pkg": "vitest run --project",
     "test:changed": "pnpm --filter \"...[HEAD~1]\" run test",

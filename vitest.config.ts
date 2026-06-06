@@ -3,30 +3,42 @@ import { svelte, vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig } from 'vitest/config';
 
 // ---------------------------------------------------------------------------
-// Memory-safe fork concurrency (session-crash fix · T11839).
+// Memory-safe fork concurrency (session-crash fix · T11839 · hardened T11860).
 //
 // `pool: 'forks'` with the default `maxWorkers` (CPU-1) spawned ~23 fork
 // processes on a 24-core box, each loading the heavy @cleocode/core graph
-// (sqlite/vec0 native + the full SDK) → ~23 × ~2.7 GB ≈ 62 GB → an OOM that
-// froze the whole machine and killed the session. CI never hit it (GitHub
-// runners have 2-4 cores → ≤3 forks).
+// (sqlite/vec0 native + the full SDK) → an OOM that froze the whole machine.
+// CI never hits it (GitHub runners have 2-4 cores → ≤3 forks).
 //
-// Bound concurrency by BOTH cpu AND physical RAM (with a hard ceiling) so a
-// large local box can never exceed memory, and cap each fork's V8 heap so a
-// single leaky/heavy test OOMs only its OWN fork (failing that one test)
-// instead of freezing the machine.
+// HARDENING (T11860, measured 2026-06-06): `--max-old-space-size` below caps
+// only the V8 *heap*. It does NOT bound a fork's NATIVE/external memory
+// (node:sqlite + the vec0 extension + Buffers). Real per-fork peak measured at
+// ~6.2 GB = 4 GB heap cap + ~2.2 GB native baseline — NOT the ~2.7 GB the
+// original estimate assumed. So the per-fork RAM budget is raised to 7 GB and
+// the hard worker ceiling lowered 6 → 4, giving a hard ~4 × 6.5 ≈ 26 GB bound
+// (vs the prior 6 × 6.5 ≈ 39 GB that, combined with a second concurrent agent
+// running the suite AND other apps, still froze a 62 GB box).
+//
+// IMPORTANT — this single-process cap CANNOT prevent a cross-process freeze
+// (two agents each running the suite = 2 × ~26 GB). For local heavy runs use
+// `scripts/safe-test.sh` — it adds (a) a machine-wide `flock` so only ONE
+// vitest runs at a time, and (b) a cgroup-INDEPENDENT memory watchdog that
+// kills the run if MemAvailable drops too low. NB: `systemd-run --user --scope
+// -p MemoryMax` is a NO-OP on a user manager with `Delegate=no` (memory.max is
+// never set on the leaf scope) — do not rely on it; use safe-test.sh.
 // ---------------------------------------------------------------------------
 const GB = 1024 ** 3;
-const RAM_BUDGET_PER_FORK_GB = 6;
+/** Realistic per-fork peak: 4 GB heap cap + ~2.2 GB native sqlite/vec0 (T11860). */
+const RAM_BUDGET_PER_FORK_GB = 7;
 const MEMORY_SAFE_MAX_WORKERS = Math.max(
   1,
   Math.min(
     Math.max(1, cpus().length - 1),
     Math.floor(totalmem() / (RAM_BUDGET_PER_FORK_GB * GB)),
-    6,
+    4,
   ),
 );
-/** Per-fork V8 old-space cap (MB) — bounds a single runaway/leaky test fork. */
+/** Per-fork V8 old-space cap (MB) — bounds a single runaway/leaky test fork's heap. */
 const FORK_HEAP_MB = 4096;
 
 export default defineConfig({
