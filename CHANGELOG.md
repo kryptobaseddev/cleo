@@ -1,5 +1,11 @@
 # Changelog
 
+## [2026.6.9] (2026-06-06)
+
+### Added
+
+- ADR display aliases now have real storage decoupled from the slug: a nullable `attachments.display_alias` column (forward-only migration) + a `cleo docs set-alias <slug> <number>` verb (ADR-scoped uniqueness → `E_ALIAS_TAKEN`, `--clear`), surfaced as `displayNumber` in `cleo docs fetch`/`list`. `numbering.ts` now prefers a stored alias over the slug-derived number, falling back to slug-derived when null — resolving the collision where multiple distinct `adr-051-*` decisions all rendered "051". _(provenance: [T11875](https://github.com/kryptobaseddev/cleo/search?q=T11875&type=commits); [#984](https://github.com/kryptobaseddev/cleo/pull/984))_
+
 ## [2026.6.8] (2026-06-06)
 
 ### Added
