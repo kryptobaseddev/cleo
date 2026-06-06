@@ -66,6 +66,91 @@ export function stripSqlComments(sql: string): string {
 }
 
 /**
+ * Compute the set of tables that a migration lineage CREATEs and a LATER
+ * migration permanently ELIMINATES (DROP TABLE with no subsequent recreate).
+ *
+ * ## Why (bug #2)
+ *
+ * The DDL probe ({@link probeAndMarkApplied}) marks a `CREATE TABLE foo`
+ * migration applied only if `foo` exists in the live schema. That breaks when a
+ * later migration DROPs `foo` for good: e.g. `t033`/`initial` create
+ * `release_manifests`, which `t9686b2` later DROPs (superseded by `releases`).
+ * On a DB that has run the WHOLE lineage, `release_manifests` is correctly
+ * absent — but the probe then refuses to mark `t033`/`initial` applied, so
+ * drizzle's `migrate()` re-runs their bare `CREATE TABLE release_manifests`
+ * against the live DB and throws ("table already exists" / cascade) — surfacing
+ * as the opaque E_NOT_INITIALIZED / E_INTERNAL on a consolidated `cleo.db`.
+ *
+ * Pre-computing the eliminated set lets the probe treat a CREATE-of-an-
+ * eliminated-table as already satisfied: the table is *supposed* to be gone, so
+ * its absence is evidence the lineage ran, not that it didn't.
+ *
+ * ## Disposition tracking
+ *
+ * Walks migrations in `folderMillis` order and, WITHIN each migration, processes
+ * statements IN ORDER so the SQLite rebuild/recreate idioms resolve correctly:
+ *
+ *  - `CREATE TABLE x` (or `… RENAME TO x`) → `x` is present.
+ *  - `DROP TABLE x`                        → `x` is dropped.
+ *
+ * The rebuild idiom (`CREATE __new_x; DROP x; ALTER __new_x RENAME TO x`) and the
+ * drop-then-recreate idiom (`DROP x; CREATE x`) both end with `x` PRESENT because
+ * the final in-order statement for `x` is a create/rename. A table is
+ * "eliminated" only if the LAST statement touching it across the whole lineage is
+ * a DROP. Transient intermediates (`__new_*`) are naturally classified by the
+ * same rule and are irrelevant to the probe (which already redirects renames to
+ * the final name).
+ *
+ * @param migrations - All local migrations of one lineage (from readMigrationFiles)
+ * @returns The set of permanently-eliminated final table names
+ * @task T11553
+ */
+export function computeEliminatedTables(
+  migrations: ReadonlyArray<{ folderMillis: number; sql?: string | string[] }>,
+): Set<string> {
+  const createTableRegex = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"]?(\w+)[`"]?/i;
+  const dropTableRegex = /DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?[`"]?(\w+)[`"]?/i;
+  const renameRegex = /ALTER\s+TABLE\s+[`"]?(\w+)[`"]?\s+RENAME\s+TO\s+[`"]?(\w+)[`"]?/i;
+
+  // Final disposition per table: true = present, false = dropped.
+  const disposition = new Map<string, boolean>();
+
+  const ordered = [...migrations].sort((a, b) => a.folderMillis - b.folderMillis);
+  for (const migration of ordered) {
+    const statements = Array.isArray(migration.sql) ? migration.sql : [migration.sql ?? ''];
+    for (const rawStatement of statements) {
+      // Split on `;` so multiple DDL statements joined in one `.sql` array entry
+      // are still evaluated IN ORDER (drizzle usually splits on
+      // statement-breakpoint, but a migration may carry several `;`-separated
+      // statements in a single chunk).
+      const stripped = stripSqlComments(rawStatement);
+      for (const clause of stripped.split(';')) {
+        const create = createTableRegex.exec(clause);
+        if (create) {
+          disposition.set(create[1] as string, true);
+          continue;
+        }
+        const rename = renameRegex.exec(clause);
+        if (rename) {
+          disposition.set(rename[2] as string, true);
+          continue;
+        }
+        const drop = dropTableRegex.exec(clause);
+        if (drop) {
+          disposition.set(drop[1] as string, false);
+        }
+      }
+    }
+  }
+
+  const eliminated = new Set<string>();
+  for (const [table, present] of disposition) {
+    if (!present) eliminated.add(table);
+  }
+  return eliminated;
+}
+
+/**
  * Check whether a table exists in a SQLite database.
  */
 export function tableExists(nativeDb: DatabaseSync, tableName: string): boolean {
@@ -142,15 +227,28 @@ function insertJournalEntry(
  * Replaces the broken "wholesale mark applied" pattern that was the root cause
  * of the ensureColumns band-aid sprawl (T632).
  *
+ * ## Eliminated-table tolerance (bug #2 · T11553)
+ *
+ * A `CREATE TABLE foo` whose `foo` is in `eliminatedTables` — i.e. a LATER
+ * migration in the same lineage permanently DROPs it (e.g. `release_manifests`,
+ * dropped by `t9686b2`) — is treated as ALREADY SATISFIED. On a DB that ran the
+ * whole lineage the table is *supposed* to be absent; without this tolerance the
+ * probe refuses to mark the creating migration applied, drizzle re-runs its bare
+ * `CREATE TABLE` and throws. See {@link computeEliminatedTables}.
+ *
  * @param nativeDb - Native SQLite database handle
  * @param migration - One entry from drizzle's readMigrationFiles
  * @param logSubsystem - Logger subsystem name
+ * @param eliminatedTables - Final table names a later migration permanently DROPs
+ *   (from {@link computeEliminatedTables}); their CREATE targets count as
+ *   satisfied. Defaults to empty (no tolerance) for callers that do not supply it.
  * @returns true if the journal entry was inserted; false if migration must run
  */
 function probeAndMarkApplied(
   nativeDb: DatabaseSync,
   migration: { hash: string; folderMillis: number; name?: string; sql?: string | string[] },
   logSubsystem: string,
+  eliminatedTables: ReadonlySet<string> = new Set(),
 ): boolean {
   const sqlStatements = Array.isArray(migration.sql) ? migration.sql : [migration.sql ?? ''];
   // Strip SQL line (`--`) and block (`/* */`) comments BEFORE any DDL-target
@@ -224,10 +322,25 @@ function probeAndMarkApplied(
   // migrations (no rename, no rebuild) still probe their indexes normally.
   const performsTableRebuild = renameMap.size > 0;
 
+  // Capture `CREATE INDEX <name> ON <table>` so the probe can skip indexes that
+  // live on an ELIMINATED table (bug #2): when `release_manifests` is dropped by
+  // a later migration, SQLite drops `idx_release_manifests_*` with it — probing
+  // for them would wrongly report the creating migration un-applied.
+  const createIndexWithTableRegex =
+    /CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"]?(\w+)[`"]?\s+ON\s+[`"]?(\w+)[`"]?/gi;
+  const indexOnTable = new Map<string, string>();
+  for (const m of fullSql.matchAll(createIndexWithTableRegex)) {
+    indexOnTable.set(m[1] as string, m[2] as string);
+  }
+
   const indexTargets: string[] = [];
   if (!isRebuildOnlyMigration && !performsTableRebuild) {
     for (const m of fullSql.matchAll(createIndexRegex)) {
-      indexTargets.push(m[1] as string);
+      const idx = m[1] as string;
+      // Skip indexes on a permanently-eliminated table — they are expected to be
+      // gone once that table was dropped.
+      if (eliminatedTables.has(indexOnTable.get(idx) ?? '')) continue;
+      indexTargets.push(idx);
     }
   }
 
@@ -251,7 +364,12 @@ function probeAndMarkApplied(
     }>;
     return cols.some((c) => c.name === column);
   });
-  const allTablesPresent = tableTargets.every((t) => tableExists(nativeDb, t));
+  // A CREATE-TABLE target is satisfied if it exists OR if a later migration in
+  // the lineage permanently eliminated it (bug #2 — e.g. `release_manifests`,
+  // dropped by t9686b2). Its absence on a fully-migrated DB is expected.
+  const allTablesPresent = tableTargets.every(
+    (t) => tableExists(nativeDb, t) || eliminatedTables.has(t),
+  );
   const allIndexesPresent = indexTargets.every((idx) => {
     const rows = nativeDb
       .prepare(`SELECT name FROM sqlite_master WHERE type='index' AND name=?`)
@@ -312,6 +430,14 @@ export function reconcileJournal(
   existenceTable: string,
   logSubsystem: string,
 ): void {
+  // bug #2 (T11553): pre-compute the tables this lineage CREATEs and a LATER
+  // migration permanently ELIMINATES (DROP TABLE, no recreate — e.g.
+  // `release_manifests`, dropped by t9686b2). The DDL probe treats a CREATE of an
+  // eliminated table (and its indexes) as already satisfied, so a fully-migrated
+  // DB — where that table is correctly absent — doesn't make drizzle re-run the
+  // creating migration's bare `CREATE TABLE` and crash.
+  const eliminatedTables = computeEliminatedTables(readMigrationFiles({ migrationsFolder }));
+
   // Scenario 1: Tables exist but no migration journal — bootstrap baseline
   if (tableExists(nativeDb, existenceTable) && !tableExists(nativeDb, '__drizzle_migrations')) {
     const migrations = readMigrationFiles({ migrationsFolder });
@@ -401,7 +527,7 @@ export function reconcileJournal(
         );
         for (const m of localMigrations) {
           if (journaledHashesAfter.has(m.hash)) continue;
-          probeAndMarkApplied(nativeDb, m, logSubsystem);
+          probeAndMarkApplied(nativeDb, m, logSubsystem, eliminatedTables);
         }
       }
     }
@@ -492,7 +618,7 @@ export function reconcileJournal(
         const createTableRe = /CREATE\s+TABLE/i;
         const createTriggerRe = /CREATE\s+TRIGGER/i;
         if (renameRe.test(fullSql) && createTableRe.test(fullSql)) {
-          probeAndMarkApplied(nativeDb, migration, logSubsystem);
+          probeAndMarkApplied(nativeDb, migration, logSubsystem, eliminatedTables);
         } else if (createTableRe.test(fullSql) || createTriggerRe.test(fullSql)) {
           // Pure CREATE TABLE migration (no ALTER, no RENAME). Delegate to
           // probeAndMarkApplied which checks if all CREATE TABLE targets already
@@ -500,7 +626,7 @@ export function reconcileJournal(
           // This handles signaldock's initial migration (pure schema bootstrap) when
           // the DB has tables but the journal entry is missing (e.g., after a journal
           // reset or bare-SQL-to-drizzle migration path upgrade).
-          probeAndMarkApplied(nativeDb, migration, logSubsystem);
+          probeAndMarkApplied(nativeDb, migration, logSubsystem, eliminatedTables);
         }
         continue;
       }
@@ -690,6 +816,11 @@ export function reconcileBrainMigrationsForConsolidatedDb(
       nativeDb.prepare('SELECT hash FROM "__drizzle_migrations"').all() as Array<{ hash: string }>
     ).map((r) => r.hash),
   );
+  // bug #2 (T11553): tables this brain lineage CREATEs and a LATER migration
+  // permanently ELIMINATES — their absence is expected on a fully-migrated DB and
+  // must count as "satisfied" so the creating migration is journaled rather than
+  // re-run. (Mirrors the reconcileJournal eliminated-table tolerance.)
+  const eliminatedTables = computeEliminatedTables(localMigrations);
   const createTableRegex = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"]?(\w+)[`"]?/gi;
   const renameRegex = /ALTER\s+TABLE\s+[`"]?(\w+)[`"]?\s+RENAME\s+TO\s+[`"]?(\w+)[`"]?/gi;
   const addColumnRegex = /ALTER\s+TABLE\s+[`"]?(\w+)[`"]?\s+ADD\s+COLUMN\s+[`"]?(\w+)[`"]?/gi;
@@ -728,7 +859,8 @@ export function reconcileBrainMigrationsForConsolidatedDb(
     }
 
     const tablesSatisfied =
-      resultTables.size > 0 && [...resultTables].every((t) => tableExists(nativeDb, t));
+      resultTables.size > 0 &&
+      [...resultTables].every((t) => tableExists(nativeDb, t) || eliminatedTables.has(t));
     const altersSatisfied =
       resultTables.size === 0 &&
       addColumns.length > 0 &&
