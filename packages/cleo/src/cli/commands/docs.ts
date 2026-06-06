@@ -22,6 +22,7 @@ import {
   ExitCode,
 } from '@cleocode/contracts';
 import { pushWarning } from '@cleocode/core';
+import { createDocsReadModel } from '@cleocode/core/docs/docs-read-model';
 import {
   CleoError,
   CounterMismatchError,
@@ -73,6 +74,25 @@ async function dispatchDocsRaw(
   const response = await dispatchRaw(gateway, 'docs', operation, params);
   handleRawError(response, { command: 'docs', operation: `docs.${operation}` });
   return response.data;
+}
+
+/**
+ * Read a document body from stdin for `cleo docs add --content -` (T10965).
+ *
+ * Drains piped stdin fully and strips a single trailing newline (the shell
+ * convention for here-docs / `echo`), preserving all internal whitespace so
+ * the stored blob byte-matches the piped source. When stdin is a TTY (no
+ * pipe) the caller would block forever; we short-circuit to an empty string
+ * so the downstream "no source" validation produces an actionable error.
+ */
+async function readDocBodyFromStdin(): Promise<string> {
+  if (process.stdin.isTTY) return '';
+  process.stdin.setEncoding('utf-8');
+  let buf = '';
+  for await (const chunk of process.stdin) {
+    buf += chunk;
+  }
+  return buf.replace(/\r?\n$/, '');
 }
 
 /** Drift detection result. */
@@ -223,9 +243,10 @@ const addCommand = defineCommand({
       'Use --slug to set a human-friendly alias (unique per project) (T9636).\n\n' +
       'Positional arguments:\n' +
       '  <owner-id>             Owner entity ID (T###, ses_*, O-*) — required\n' +
-      '  [file]                 Local file path to attach — optional when --url is set\n\n' +
+      '  [file]                 Local file path to attach — optional when --url/--content is set\n\n' +
       'Named arguments:\n' +
       '  --url <url>            Remote URL to attach (instead of a local file)\n' +
+      "  --content <text>       Inline document body — author without a file (T10965); '-' reads stdin\n" +
       '  --desc <text>          Free-text description of this attachment\n' +
       '  --labels <csv>         Comma-separated labels (e.g. rfc,spec)\n' +
       '  --attached-by <name>   Agent identity that created the attachment (default: "human")\n' +
@@ -259,6 +280,12 @@ const addCommand = defineCommand({
     url: {
       type: 'string',
       description: 'Remote URL to attach (instead of a local file)',
+    },
+    content: {
+      type: 'string',
+      description:
+        'Inline document body — author a doc without a pre-existing file (T10965). ' +
+        "Pass '-' to read the body from stdin. Mutually exclusive with the file positional and --url.",
     },
     desc: {
       type: 'string',
@@ -329,14 +356,33 @@ const addCommand = defineCommand({
     const ownerId = args['owner-id'];
     const fileArg = args.file ?? undefined;
     const url = args.url ?? undefined;
+    const contentArg = typeof args.content === 'string' ? args.content : undefined;
     const allowSimilar = args['allow-similar'] === true;
 
-    if (!fileArg && !url) {
-      cliError('provide a file path (positional argument) or --url <url>', 6, {
+    // T10965 — inline authoring. Exactly one source must be supplied; the
+    // three write distinct attachment kinds so they cannot be combined.
+    const sourceCount = (fileArg ? 1 : 0) + (url ? 1 : 0) + (contentArg !== undefined ? 1 : 0);
+    if (sourceCount === 0) {
+      cliError('provide a file path (positional), --url <url>, or --content <text>', 6, {
         name: 'E_VALIDATION',
-        fix: 'Example: cleo docs add T123 docs/rfc.md --desc "RFC draft" — or — cleo docs add T123 --url https://example.com/spec',
+        fix: 'Example: cleo docs add T123 docs/rfc.md --desc "RFC draft" — or — cleo docs add T123 --content "# Note" --slug my-note',
       });
       process.exit(6);
+    }
+    if (sourceCount > 1) {
+      cliError('the file positional, --url, and --content are mutually exclusive', 6, {
+        name: 'E_VALIDATION',
+        fix: 'Pass exactly one source: a file path, --url <url>, or --content <text>.',
+      });
+      process.exit(6);
+    }
+
+    // T10965 — `--content -` reads the document body from stdin so large or
+    // multi-line bodies can be piped in (e.g. `cat draft.md | cleo docs add
+    // T1 --content - --slug draft`).
+    let content = contentArg;
+    if (content === '-') {
+      content = await readDocBodyFromStdin();
     }
 
     // T10360 — `--type adr` without `--slug` requires `--title` for the
@@ -510,6 +556,7 @@ const addCommand = defineCommand({
         ownerId,
         ...(resolvedFile ? { file: resolvedFile } : {}),
         ...(url ? { url } : {}),
+        ...(content !== undefined ? { content } : {}),
         ...(args.desc ? { desc: args.desc } : {}),
         ...(args.labels ? { labels: args.labels } : {}),
         ...(args['attached-by'] ? { attachedBy: args['attached-by'] } : {}),
@@ -663,15 +710,31 @@ const fetchCommand = defineCommand({
   meta: {
     name: 'fetch',
     description:
-      'Retrieve attachment metadata and bytes by attachment ID (att_*) or SHA-256 hex. ' +
+      'Retrieve attachment metadata and bytes by slug, attachment ID (att_*), or SHA-256 hex. ' +
       'Files <= 1 MB are returned base64-encoded inline; larger files report the storage path only. ' +
+      'Pass --content (alias --decoded) to emit the decoded UTF-8 document body to stdout instead ' +
+      'of the LAFS envelope — the agent-friendly shortcut over piping bytesBase64 through base64 -d (T10970). ' +
       'Output flags: --json and --output envelope|id|table|count|silent are accepted consistently.',
   },
   args: {
     'attachment-ref': {
       type: 'positional',
-      description: 'Attachment ID (att_*) or SHA-256 hex',
+      description: 'Slug, attachment ID (att_*), or SHA-256 hex',
       required: true,
+    },
+    // T10970 — decoded-text content mode. An explicit opt-out from the
+    // default envelope contract (ADR-086) that streams the raw UTF-8 body
+    // to stdout, mirroring the other text-payload commands (export,
+    // llm-output, view --render markdown).
+    content: {
+      type: 'boolean',
+      description:
+        'Emit the decoded UTF-8 document body to stdout instead of the LAFS envelope (text docs only). ' +
+        'Replaces the `--field /data/bytesBase64 | base64 -d` two-step (T10970).',
+    },
+    decoded: {
+      type: 'boolean',
+      description: 'Alias for --content (T10970).',
     },
     // T9922 — MVI record projection opt-out flags (surfaced for --help).
     verbose: {
@@ -686,11 +749,45 @@ const fetchCommand = defineCommand({
     ...docsOutputArgs,
   },
   async run({ args }) {
+    const ref = String(args['attachment-ref']);
+
+    // T10970 — decoded-text content mode. Resolve through the canonical
+    // DocsReadModel (same surface the envelope path uses) and write the raw
+    // UTF-8 body to stdout. This is an explicit opt-out from the one-envelope
+    // ADR-086 contract, treated like the other raw-payload text modes
+    // (`docs export`, `docs llm-output`, `docs view --render markdown`).
+    if (args.content === true || args.decoded === true) {
+      const model = createDocsReadModel();
+      const result = await model.fetchDecoded(ref);
+      if (!result.ok) {
+        if (result.reason === 'not-found') {
+          cliError(`Doc not found: ${ref}`, ExitCode.NOT_FOUND, {
+            name: 'E_NOT_FOUND',
+            fix: 'List available docs with: cleo docs list',
+          });
+        } else {
+          cliError(`Content not retrievable: ${ref}`, ExitCode.NOT_FOUND, {
+            name: 'E_NOT_FOUND',
+            fix: 'The doc metadata exists but its blob may be missing. Try: cleo docs publish <slug>',
+          });
+        }
+        process.exit(ExitCode.NOT_FOUND);
+      }
+
+      // Raw document body is the user-requested output of this mode —
+      // emitted to stdout for piping. Not chrome.
+      process.stdout.write(result.content); // stdout-discipline-allowed: decoded-text fetch payload (T10970) // stdout-write-allowed: decoded-text fetch payload (T10970)
+      if (!result.content.endsWith('\n')) {
+        process.stdout.write('\n'); // stdout-discipline-allowed: trailing newline for decoded payload (T10970) // stdout-write-allowed: trailing newline for decoded payload (T10970)
+      }
+      return;
+    }
+
     await dispatchFromCli(
       'query',
       'docs',
       'fetch',
-      { attachmentRef: args['attachment-ref'] },
+      { attachmentRef: ref },
       { command: 'docs fetch' },
     );
   },
