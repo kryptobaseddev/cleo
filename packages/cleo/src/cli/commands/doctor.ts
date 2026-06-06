@@ -35,6 +35,7 @@ import { doctorExodusResidueCommand } from './doctor-exodus-residue.js';
 import { doctorLegacyBackupsCommand } from './doctor-legacy-backups.js';
 import { runDoctorProjects } from './doctor-projects.js';
 import { doctorReleaseReadinessCommand } from './doctor-release-readiness.js';
+import { doctorRepairCommand } from './doctor-repair.js';
 import { readMigrationConflicts } from './migrate-agents-v2.js';
 
 // ============================================================================
@@ -237,6 +238,8 @@ export const doctorCommand = defineCommand({
     'exodus-residue': doctorExodusResidueCommand,
     // T11837 / Saga T11242 / Epic T11833 — read-only exodus health report
     'exodus-health': doctorExodusCommand,
+    // T11829 / Saga T11242 / Epic T11833 — DHQ-060 malformed-DB repair entry point
+    repair: doctorRepairCommand,
     // T10458 / Saga T10431 / Epic T10436 — Release-readiness preflight
     'release-readiness': doctorReleaseReadinessCommand,
   },

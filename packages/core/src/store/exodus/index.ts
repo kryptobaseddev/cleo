@@ -10,6 +10,13 @@
  */
 
 export {
+  clearExodusAborts,
+  type ExodusAbortDetail,
+  emitExodusAbort,
+  exodusAbortEvents,
+  getRecordedExodusAbort,
+} from './abort-events.js';
+export {
   type ArchivedSourceResult,
   type ArchiveMigratedSourcesResult,
   archiveMigratedSources,

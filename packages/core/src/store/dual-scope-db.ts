@@ -57,6 +57,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { getLogger } from '../logger.js';
 import { getCleoHome, resolveCleoDir } from '../paths.js';
+import { type ExodusAbortDetail, getRecordedExodusAbort } from './exodus/abort-events.js';
 import { migrateWithRetry, reconcileJournal } from './migration-manager.js';
 import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
 import type * as CleoGlobalSchemaTypes from './schema/cleo-global/index.js';
@@ -94,6 +95,17 @@ export interface DualScopeDbHandle<TScope extends DualScope = DualScope> {
   /** Absolute path to the underlying SQLite file. */
   readonly dbPath: string;
   /**
+   * Set ONLY when the exodus-on-open data-continuity gate ABORTED the first-open
+   * auto-migration for this scope (T11828 · DHQ-059). When present, the handle is
+   * live and the consolidated `cleo.db` is internally consistent but EMPTY — the
+   * user's real data is still in the legacy fleet, which was kept as the source
+   * of truth. A read-only caller may safely ignore this marker; a MUTATING caller
+   * MUST treat its write as not-durable-against-source and react (see
+   * {@link assertWriteDurable}). `undefined` on every normal (migrated / skipped /
+   * fresh-install) open.
+   */
+  readonly exodusAbort?: ExodusAbortDetail;
+  /**
    * Close the underlying native handle and evict this entry from the
    * singleton cache. Safe to call multiple times (idempotent).
    */
@@ -117,6 +129,107 @@ export interface OpenDualScopeAtPathOptions {
    * @default false
    */
   readonly dedicated?: boolean;
+}
+
+/**
+ * Thrown by {@link assertWriteDurable} when a MUTATING caller is about to write
+ * through a {@link DualScopeDbHandle} whose first-open exodus auto-migration
+ * ABORTED (T11828 · DHQ-059).
+ *
+ * The consolidated `cleo.db` is internally consistent but EMPTY: the user's real
+ * data is still in the legacy fleet (kept as the source of truth). Writing here
+ * would land in a DB that does not reflect that data, so the write is NOT durable
+ * against the source of truth. Read paths never raise this — they intentionally
+ * skip {@link assertWriteDurable} and operate on the empty-but-consistent DB.
+ *
+ * Self-contained (mirrors `BackupRecoverError`) rather than a `CleoError` subclass
+ * so the store layer does not need a new numeric `ExitCode` in `@cleocode/contracts`
+ * for a condition that is surfaced structurally on the handle.
+ *
+ * @task T11828
+ * @epic T11833
+ * @saga T11242
+ * @public
+ */
+export class ExodusAbortWriteUnsafeError extends Error {
+  /** Stable string error code for envelope `codeName` / log correlation. */
+  readonly codeName = 'E_EXODUS_ABORT_WRITE_UNSAFE' as const;
+  /** The structured abort detail carried by the handle. */
+  readonly detail: ExodusAbortDetail;
+  /** Remediation hint surfaced to the operator. */
+  readonly fix: string;
+
+  /**
+   * @param detail - The {@link ExodusAbortDetail} stamped on the handle.
+   */
+  constructor(detail: ExodusAbortDetail) {
+    super(
+      `Refusing to write to consolidated ${detail.scope} cleo.db — exodus-on-open ABORTED ` +
+        `(${detail.reason}). The DB is empty; legacy data is the source of truth. ` +
+        `Run \`cleo doctor exodus-health\` then \`cleo exodus migrate\` (or restore via ` +
+        `\`cleo doctor repair --role ${detail.scope === 'project' ? 'tasks' : 'nexus'}\`) before writing.`,
+    );
+    this.name = 'ExodusAbortWriteUnsafeError';
+    this.detail = detail;
+    this.fix =
+      'Resolve the aborted migration (`cleo doctor exodus-health` → `cleo exodus migrate`) ' +
+      'so the consolidated cleo.db carries your data before mutating it.';
+  }
+}
+
+/**
+ * Assert that a {@link DualScopeDbHandle} is safe to WRITE through.
+ *
+ * Call this at the head of a MUTATING code path (insert/update/delete) that holds
+ * a dual-scope handle. If the handle carries an {@link DualScopeDbHandle.exodusAbort}
+ * marker — i.e. the first-open auto-migration aborted and the consolidated DB is
+ * empty with legacy kept as source — this throws {@link ExodusAbortWriteUnsafeError}
+ * so the write is rejected with a non-zero signal rather than silently landing in
+ * a DB that does not hold the user's data.
+ *
+ * READ-only callers MUST NOT call this — they are expected to operate on the
+ * empty-but-consistent consolidated DB without error, exactly as before T11828.
+ *
+ * @param handle - The handle returned by {@link openDualScopeDb}.
+ * @throws {ExodusAbortWriteUnsafeError} When `handle.exodusAbort` is set.
+ *
+ * @example
+ * ```ts
+ * const h = await openDualScopeDb('project', cwd);
+ * assertWriteDurable(h);            // throws if a prior exodus-on-open aborted
+ * await h.db.insert(table).values(row);
+ * ```
+ *
+ * @task T11828 (DHQ-059)
+ * @epic T11833
+ * @saga T11242
+ * @public
+ */
+export function assertWriteDurable(handle: DualScopeDbHandle): void {
+  if (handle.exodusAbort) {
+    throw new ExodusAbortWriteUnsafeError(handle.exodusAbort);
+  }
+}
+
+/**
+ * Throw {@link ExodusAbortWriteUnsafeError} when ANY exodus-on-open abort is
+ * recorded for this process (across either scope).
+ *
+ * Used by the consolidated-schema MUTATION primitives ({@link insertIdempotent} /
+ * {@link upsertIdempotent}) which do not receive the originating
+ * {@link DualScopeDbHandle} — they consult the process-local registry recorded by
+ * {@link emitExodusAbort} instead. Read paths never call these primitives, so the
+ * guard is write-only.
+ *
+ * @throws {ExodusAbortWriteUnsafeError} When a recorded abort exists.
+ * @internal
+ * @task T11828
+ */
+function assertNoRecordedExodusAbort(): void {
+  const detail = getRecordedExodusAbort();
+  if (detail) {
+    throw new ExodusAbortWriteUnsafeError(detail);
+  }
 }
 
 // ── Internal singleton state ─────────────────────────────────────────────────
@@ -528,17 +641,39 @@ export async function openDualScopeDbAtPath(
         const { maybeRunExodusOnOpen } = await import('./exodus/on-open.js');
         const result = await maybeRunExodusOnOpen(scope, dbPath, nativeDb, exodusCwd);
         if (result.outcome === 'migrated' || result.outcome === 'aborted') {
-          if (result.outcome === 'aborted') {
-            log.warn(
-              { scope, reason: result.reason },
-              'exodus-on-open aborted; consolidated cleo.db left empty, legacy kept as source',
-            );
-          }
           // The migrate engine closed our handle — re-open fresh (un-armed) so the
           // caller receives a valid, live handle bound to the now-(de)populated DB.
-          return scope === 'project'
-            ? openDualScopeDbAtPath('project', dbPath)
-            : openDualScopeDbAtPath('global', dbPath);
+          const reopened =
+            scope === 'project'
+              ? await openDualScopeDbAtPath('project', dbPath)
+              : await openDualScopeDbAtPath('global', dbPath);
+          if (result.outcome === 'aborted') {
+            // T11828 (DHQ-059): the data-continuity gate aborted — the consolidated
+            // DB is empty + consistent, legacy kept as source. Surface this to a
+            // MUTATING caller (read-only callers ignore it) by (a) stamping a
+            // structured marker on the returned handle and (b) broadcasting a typed
+            // event. The non-zero error itself is raised on the write path via
+            // `assertWriteDurable(handle)` — NOT here, so read opens never throw.
+            const abort: ExodusAbortDetail = {
+              scope,
+              dbPath,
+              reason: result.reason,
+              at: Date.now(),
+            };
+            log.warn(
+              { scope, reason: result.reason },
+              'exodus-on-open aborted; consolidated cleo.db left empty, legacy kept as source — ' +
+                'mutating callers must check handle.exodusAbort / call assertWriteDurable (T11828)',
+            );
+            const { emitExodusAbort } = await import('./exodus/abort-events.js');
+            emitExodusAbort(abort);
+            return { ...reopened, exodusAbort: abort };
+          }
+          // A subsequent SUCCESSFUL migration resolves any prior abort recorded
+          // for this scope, so writes are no longer rejected (T11828).
+          const { clearExodusAborts } = await import('./exodus/abort-events.js');
+          clearExodusAborts(scope);
+          return reopened;
         }
       } catch (err) {
         // Best-effort safety net: a hook failure must not make the DB
@@ -634,6 +769,11 @@ import type { SQLiteTableWithColumns, TableConfig } from 'drizzle-orm/sqlite-cor
  *   Pass the column name as a hint for documentation purposes.
  * @returns The number of rows actually inserted (0 or 1).
  *
+ * Refuses the write (throws {@link ExodusAbortWriteUnsafeError}) when a prior
+ * exodus-on-open aborted in this process (T11828 · DHQ-059) — these helpers are
+ * the consolidated-schema MUTATION primitives, so the guard is write-only and
+ * never affects read paths.
+ *
  * @example
  * ```ts
  * import { tasksTasksTable } from '@cleocode/core/store/schema/cleo-project';
@@ -641,6 +781,7 @@ import type { SQLiteTableWithColumns, TableConfig } from 'drizzle-orm/sqlite-cor
  * ```
  *
  * @task T11513 (E4-T2)
+ * @task T11828 (write-side exodus-abort guard)
  * @epic T11247 (E4)
  * @saga T11242
  */
@@ -652,6 +793,7 @@ export async function insertIdempotent<TTable extends SQLiteTableWithColumns<Tab
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _keyColumn: string,
 ): Promise<number> {
+  assertNoRecordedExodusAbort();
   const result = await db.insert(table).values(row).onConflictDoNothing().returning();
   return result.length;
 }
@@ -674,6 +816,9 @@ export async function insertIdempotent<TTable extends SQLiteTableWithColumns<Tab
  *   in `row` are used as the update set.
  * @returns The number of rows inserted or updated (always 1).
  *
+ * Refuses the write (throws {@link ExodusAbortWriteUnsafeError}) when a prior
+ * exodus-on-open aborted in this process (T11828 · DHQ-059) — write-only guard.
+ *
  * @example
  * ```ts
  * await upsertIdempotent(db, tasksTasksTable, updatedTask, 'idempotencyKey',
@@ -681,6 +826,7 @@ export async function insertIdempotent<TTable extends SQLiteTableWithColumns<Tab
  * ```
  *
  * @task T11513 (E4-T2)
+ * @task T11828 (write-side exodus-abort guard)
  * @epic T11247 (E4)
  * @saga T11242
  */
@@ -695,6 +841,7 @@ export async function upsertIdempotent<TTable extends SQLiteTableWithColumns<Tab
   conflictTarget: any,
   set?: Partial<InferInsertModel<TTable>>,
 ): Promise<number> {
+  assertNoRecordedExodusAbort();
   const updateSet = set ?? row;
   const result = await db
     .insert(table)

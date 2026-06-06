@@ -346,6 +346,8 @@ export type {
   BackupRecoverResult,
   DbRecoveredRowCounts,
   DbRecoveryResult,
+  DoctorRepairResult,
+  DoctorRepairRoleResult,
 } from './db-recovery.js';
 // === Dependency Registry Contracts ===
 export type {
