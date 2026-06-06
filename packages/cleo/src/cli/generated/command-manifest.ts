@@ -409,6 +409,13 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
         .doctorReleaseReadinessCommand as CommandDef,
   },
   {
+    exportName: 'doctorRepairCommand',
+    name: 'repair',
+    description: 'Detect malformed CLEO databases (PRAGMA quick_check) and restore each from its ',
+    load: async () =>
+      (await import('../commands/doctor-repair.js')).doctorRepairCommand as CommandDef,
+  },
+  {
     exportName: 'doctorCommand',
     name: 'doctor',
     description: 'Run system diagnostics and health checks',
