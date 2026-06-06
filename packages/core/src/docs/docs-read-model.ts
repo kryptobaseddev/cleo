@@ -32,6 +32,7 @@ import { createAttachmentStore } from '../store/attachment-store.js';
 import type { BlobListEntry } from '../store/blob-ops.js';
 import { blobList, blobRead } from '../store/blob-ops.js';
 import type { AttachmentLifecycleStatus } from '../store/schema/attachments.js';
+import { resolveDisplayNumber } from './numbering.js';
 
 // ---------------------------------------------------------------------------
 // Re-use the publications types from docs-ops via dynamic import to avoid
@@ -74,6 +75,13 @@ export interface ResolvedDoc {
   readonly title: string | null;
   /** Stable human-readable slug from attachments.slug. Null for slug-less blobs. */
   readonly slug: string | null;
+  /**
+   * The DISPLAY number to render for this doc (e.g. ADR "051"), decoupled from
+   * the slug (T11875). Resolved via {@link resolveDisplayNumber}: the stored
+   * `attachments.display_alias` wins when set, else the slug-derived number, else
+   * `null` for non-numbered / slug-less docs.
+   */
+  readonly displayNumber: number | null;
   /** Owner entity ID (task/session/observation ID). */
   readonly ownerId: string;
   /** Owner entity type. */
@@ -207,6 +215,7 @@ export class DocsReadModel {
       type: row.type,
       summary: row.summary,
       lifecycleStatus: row.lifecycleStatus,
+      displayAlias: row.displayAlias,
     });
   }
 
@@ -261,13 +270,14 @@ export class DocsReadModel {
     const store = createAttachmentStore();
     const meta = await store.getMetadata(id, this.projectRoot);
     if (meta) {
-      // Fetch extras (slug, type) from the row
+      // Fetch extras (slug, type, displayAlias) from the row
       const extras = await store.getExtras(id, this.projectRoot);
       return this.enrichFromTasksDb(meta, {
         slug: extras?.slug ?? null,
         type: extras?.type ?? null,
         summary: null,
         lifecycleStatus: 'active',
+        displayAlias: extras?.displayAlias ?? null,
       });
     }
 
@@ -601,6 +611,7 @@ export class DocsReadModel {
         type: extras?.type ?? null,
         summary: null,
         lifecycleStatus: 'active',
+        displayAlias: extras?.displayAlias ?? null,
       });
       results.push(doc);
     }
@@ -623,6 +634,7 @@ export class DocsReadModel {
         kind: (row.type as DocKind) ?? null,
         title: row.slug ?? name ?? null,
         slug: row.slug,
+        displayNumber: resolveDisplayNumber(row.slug, row.displayAlias),
         ownerId: row.ownerId,
         ownerType: row.ownerType,
         blobName: name ?? row.slug ?? row.metadata.id,
@@ -706,12 +718,15 @@ export class DocsReadModel {
   private buildResolvedDocFromBlob(ownerId: string, entry: BlobListEntry): ResolvedDoc {
     // Derive kind from known taxonomy types
     const kind = inferDocKind(entry.name);
+    const blobSlug = kind ? entry.name.replace(/\.md$/, '') : null;
     return {
       id: entry.sha256,
       sha256: entry.sha256,
       kind,
       title: entry.name,
-      slug: kind ? entry.name.replace(/\.md$/, '') : null,
+      slug: blobSlug,
+      // manifest.db blobs carry no display_alias column — derive from slug only.
+      displayNumber: resolveDisplayNumber(blobSlug, null),
       ownerId,
       ownerType: detectOwnerType(ownerId),
       blobName: entry.name,
@@ -748,6 +763,7 @@ export class DocsReadModel {
       type: string | null;
       summary: string | null;
       lifecycleStatus: AttachmentLifecycleStatus | string | null;
+      displayAlias: number | null;
     },
   ): Promise<ResolvedDoc> {
     const blobName = extractBlobName(meta);
@@ -772,6 +788,7 @@ export class DocsReadModel {
       kind: (extras.type as DocKind) ?? null,
       title: extras.slug ?? blobName ?? null,
       slug: extras.slug,
+      displayNumber: resolveDisplayNumber(extras.slug, extras.displayAlias),
       ownerId,
       ownerType: detectOwnerType(ownerId),
       blobName: blobName ?? extras.slug ?? meta.id,

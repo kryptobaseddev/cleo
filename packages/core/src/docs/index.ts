@@ -34,6 +34,14 @@ export {
   DocProvenanceRootNotFoundError,
   renderProvenanceGraphAsDot,
 } from './build-provenance-graph.js';
+// ── T11875 — display-alias storage (decoupled from slug; ADR reconcile T11676) ─
+export type { SetDisplayAliasParams, SetDisplayAliasResult } from './display-alias.js';
+export {
+  SET_ALIAS_INVALID_CODE,
+  SET_ALIAS_NOT_FOUND_CODE,
+  SET_ALIAS_TAKEN_CODE,
+  setDisplayAlias,
+} from './display-alias.js';
 export type { GenerateDocsOptions, GenerateDocsResult } from './docs-generator.js';
 export { generateDocsLlmsTxt } from './docs-generator.js';
 export type {
@@ -73,7 +81,6 @@ export {
   statusDocs,
   syncFromGit,
 } from './docs-ops.js';
-
 export type { ExportDocumentOptions, ExportDocumentResult } from './export-document.js';
 export { exportDocument } from './export-document.js';
 // ── T10361 — slug similarity warn at docs add write-time ────────────────────

@@ -137,6 +137,20 @@ export interface DocsAttachmentRow {
    */
   type?: DocsType;
   /**
+   * Optional DISPLAY number for the doc (e.g. ADR "051"), decoupled from the
+   * slug string (T11875 · ADR reconcile T11676).
+   *
+   * Resolved by the read model via `resolveDisplayNumber`: the stored
+   * `attachments.display_alias` wins when set, otherwise the number derived
+   * from the slug, otherwise omitted for non-numbered / slug-less docs. Set via
+   * `cleo docs set-alias <slug> <number>`. Surfaced so renderers and the
+   * Obsidian plugin display a STABLE number even when several docs share a
+   * slug-derived number.
+   *
+   * @task T11875 (Epic T11781 / Saga T11778)
+   */
+  displayNumber?: number;
+  /**
    * When the attachment is project-scoped (no specific entity owner), this
    * row's owner ID / type still reflect how the attachment was registered.
    * The `--project` list view simply unions all owner-types.

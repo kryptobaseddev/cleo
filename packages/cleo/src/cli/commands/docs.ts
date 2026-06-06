@@ -47,6 +47,8 @@ import { cliError, cliOutput, humanInfo } from '../renderers/index.js';
 import { auditCommand } from './docs/audit.js';
 // T10164 — DocProvenanceResponse-typed graph verb (`--root <slug>|<taskId>`).
 import { graphCommand as provenanceGraphCommand } from './docs/graph.js';
+// T11875 — display-alias assignment verb (`set-alias <slug> <number>`).
+import { setAliasCommand } from './docs/set-alias.js';
 import { docsViewerSubcommands } from './docs-viewer.js';
 
 const docsOutputFlagHelp =
@@ -2861,6 +2863,8 @@ export const docsCommand = defineCommand({
     merge: mergeCommand,
     // T10164 — DocProvenanceResponse-typed graph (`--root <slug>|<taskId>`).
     graph: provenanceGraphCommand,
+    // T11875 — display-alias assignment (`set-alias <slug> <number>`), decoupled from slug.
+    'set-alias': setAliasCommand,
     // Legacy aliases (use `query` for new work — retained for backward compatibility)
     search: searchCommand,
     find: findCommand,

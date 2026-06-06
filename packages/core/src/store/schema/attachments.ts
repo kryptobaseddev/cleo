@@ -184,11 +184,41 @@ export const attachments = sqliteTable(
      * @task T11181 (Epic T10518 / Saga T10516)
      */
     docVersion: integer('doc_version').notNull().default(1),
+    /**
+     * Optional explicit display-alias NUMBER for the doc, DECOUPLED from the
+     * slug string.
+     *
+     * Background (T11875 · ADR reconcile T11676): under the ratified
+     * slug-primary model the kebab `slug` is the canonical handle and the
+     * displayed number (e.g. ADR "051") is a DISPLAY ALIAS only. Previously
+     * that number was DERIVED by parsing the digits out of the slug
+     * (`adr-051-*` → 051), so three distinct ADRs that all slug as `adr-051-*`
+     * collided on the rendered number with no way to disambiguate.
+     *
+     * When non-null, this column is the authoritative display number and is
+     * PREFERRED over the slug-derived number by
+     * {@link import('../../docs/numbering.js').resolveDisplayNumber}. When null,
+     * rendering falls back to the slug-derived number unchanged — so docs that
+     * never had an alias assigned keep their historical behaviour.
+     *
+     * Uniqueness among `type='adr'` docs is enforced at the dispatch layer (not
+     * via a SQL UNIQUE constraint) by
+     * {@link import('../../docs/display-alias.js').setDisplayAlias}, mirroring
+     * the dispatch-validated discipline used for `lifecycle_status` /
+     * `relation` so future taxonomy changes never require a schema migration.
+     *
+     * @task T11875 (Epic T11781 / Saga T11778)
+     */
+    displayAlias: integer('display_alias'),
   },
   (table) => [
     index('idx_attachments_sha256').on(table.sha256),
     index('idx_attachments_lifecycle_status').on(table.lifecycleStatus),
     index('idx_attachments_supersedes').on(table.supersedes),
+    // Speeds the per-type uniqueness scan in `setDisplayAlias` (T11875). Not a
+    // UNIQUE index — uniqueness is scoped to `type='adr'` and enforced at the
+    // dispatch layer so non-adr kinds may reuse numbers freely.
+    index('idx_attachments_display_alias').on(table.displayAlias),
   ],
 );
 

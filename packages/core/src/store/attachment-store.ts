@@ -307,6 +307,8 @@ export interface AttachmentStore {
     type: string | null;
     summary: string | null;
     lifecycleStatus: AttachmentLifecycleStatus;
+    /** Stored display-alias number (T11875), or `null` when unset. */
+    displayAlias: number | null;
   } | null>;
 
   /**
@@ -332,6 +334,8 @@ export interface AttachmentStore {
       ownerId: string;
       summary: string | null;
       lifecycleStatus: AttachmentLifecycleStatus;
+      /** Stored display-alias number (T11875), or `null` when unset. */
+      displayAlias: number | null;
     }>
   >;
 
@@ -346,7 +350,7 @@ export interface AttachmentStore {
   getExtras(
     attachmentId: string,
     cwd?: string,
-  ): Promise<{ slug: string | null; type: string | null } | null>;
+  ): Promise<{ slug: string | null; type: string | null; displayAlias: number | null } | null>;
 
   /**
    * List all attachments associated with a given owner entity.
@@ -836,6 +840,7 @@ export function createAttachmentStore(): AttachmentStore {
         type: row.type ?? null,
         summary: row.summary ?? null,
         lifecycleStatus: row.lifecycleStatus,
+        displayAlias: row.displayAlias ?? null,
       };
     },
 
@@ -843,7 +848,11 @@ export function createAttachmentStore(): AttachmentStore {
       const db = await getDb(cwd);
       const row = await db.select().from(attachments).where(eq(attachments.id, attachmentId)).get();
       if (!row) return null;
-      return { slug: row.slug ?? null, type: row.type ?? null };
+      return {
+        slug: row.slug ?? null,
+        type: row.type ?? null,
+        displayAlias: row.displayAlias ?? null,
+      };
     },
 
     async listAllInProject(cwd, filter) {
@@ -870,6 +879,7 @@ export function createAttachmentStore(): AttachmentStore {
         ownerId: string;
         summary: string | null;
         lifecycleStatus: AttachmentLifecycleStatus;
+        displayAlias: number | null;
       }> = [];
       for (const refRow of rows) {
         const row = await db
@@ -887,6 +897,7 @@ export function createAttachmentStore(): AttachmentStore {
           ownerId: refRow.ownerId,
           summary: row.summary ?? null,
           lifecycleStatus: row.lifecycleStatus,
+          displayAlias: row.displayAlias ?? null,
         });
       }
       return out;

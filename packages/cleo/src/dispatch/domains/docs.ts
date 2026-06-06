@@ -547,6 +547,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         refCount: doc.refCount,
         ...(doc.slug ? { slug: doc.slug } : {}),
         ...(doc.kind ? { type: doc.kind as DocsType } : {}),
+        ...(doc.displayNumber !== null ? { displayNumber: doc.displayNumber } : {}),
         ownerId: doc.ownerId,
         ownerType: doc.ownerType as AttachmentRef['ownerType'],
       }));
@@ -603,6 +604,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       refCount: doc.refCount,
       ...(doc.slug ? { slug: doc.slug } : {}),
       ...(doc.kind ? { type: doc.kind as DocsType } : {}),
+      ...(doc.displayNumber !== null ? { displayNumber: doc.displayNumber } : {}),
     }));
 
     projectedOwner.sort((a, b) =>
@@ -837,6 +839,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           refCount: 0,
           ...(doc.slug ? { slug: doc.slug } : {}),
           ...(doc.kind ? { type: doc.kind as DocsType } : {}),
+          ...(doc.displayNumber !== null ? { displayNumber: doc.displayNumber } : {}),
         },
         path: storagePath,
         sizeBytes: contentBytes.length,
