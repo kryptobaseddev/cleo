@@ -1,5 +1,21 @@
 # Changelog
 
+## [2026.6.8] (2026-06-06)
+
+### Added
+
+- `cleo doctor repair [--role <role>] [--dry-run]` — malformed-DB recovery entry point that wraps the existing recover pipeline (`quick_check` → quarantine → restore-from-VACUUM-snapshot → re-`quick_check`), including the `*.db-wal` malformed case, giving operators a single repair verb (DHQ-060). _(provenance: [T11829](https://github.com/kryptobaseddev/cleo/search?q=T11829&type=commits); [#980](https://github.com/kryptobaseddev/cleo/pull/980))_
+- docs.read core-SDK API — `readDoc(slug)` → typed `DocReadResponse` (decoded body + full provenance frontmatter; UTF-8 or base64 for binary blobs), a derived `docs_wikilinks` edge table (supersedes + relatedTasks + topics), and bidirectional `cleo docs graph --backlinks` with `shares-topic` doc↔doc edges — the live-view foundation for the docs SSoT. _(provenance: [T11825](https://github.com/kryptobaseddev/cleo/search?q=T11825&type=commits); [#981](https://github.com/kryptobaseddev/cleo/pull/981))_
+- `cleo docs fetch <slug> --content` (alias `--decoded`) emits the decoded UTF-8 document body to stdout (default still returns the LAFS envelope), and `cleo docs add --content "<text>"` / `--content -` enable inline & stdin authoring without a pre-existing file (DHQ-017 / DHQ-056). _(provenance: [T10970](https://github.com/kryptobaseddev/cleo/search?q=T10970&type=commits); [#982](https://github.com/kryptobaseddev/cleo/pull/982))_
+
+### Changed
+
+- Exodus on-open data-continuity gate now surfaces an abort to mutating callers: an `exodusAbort` marker + typed event on the re-opened handle, and `assertWriteDurable()` / `ExodusAbortWriteUnsafeError` (`E_EXODUS_ABORT_WRITE_UNSAFE`) reject on the write path while read opens never throw — closing the silent write-rollback gap where a rolled-back mutation returned success-shaped output (DHQ-059). _(provenance: [T11828](https://github.com/kryptobaseddev/cleo/search?q=T11828&type=commits); [#979](https://github.com/kryptobaseddev/cleo/pull/979))_
+
+### Docs
+
+- ADR cross-store reconciliation: 20 disk-only ADRs, the canonical ADR-policy `adr-090-canonical-adr-policy`, and `adr-076` + amendment AMD-002 ingested into the cleo.db docs SSoT; the two `adr-079-r1` / `adr-079-r2` tombstone forwarding stubs removed. _(provenance: [T11676](https://github.com/kryptobaseddev/cleo/search?q=T11676&type=commits); [#977](https://github.com/kryptobaseddev/cleo/pull/977))_
+
 ## [2026.6.7] (2026-06-05)
 
 ### Added
