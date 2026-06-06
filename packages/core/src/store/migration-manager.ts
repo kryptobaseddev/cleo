@@ -42,6 +42,30 @@ const MIGRATION_RETRY_BASE_DELAY_MS = 100;
 const MIGRATION_RETRY_MAX_DELAY_MS = 2000;
 
 /**
+ * Strip SQL line (`-- …`) and block (`/* … *​/`) comments from a migration's SQL
+ * before scanning it for DDL targets.
+ *
+ * Migration files routinely carry prose comments describing the change — phrases
+ * like "the project-side CREATE TABLE half of that move" or "CREATE TABLE IF NOT
+ * EXISTS ensures it exists". A DDL-extraction regex run over the RAW SQL captures
+ * bogus "table" names from those comments (`half`, `IF`, `ensures`), making a
+ * fully-satisfied migration look un-applied. The journal then omits it, Drizzle
+ * re-runs its bare `CREATE TABLE …` against a DB where the table already exists,
+ * and the open fails (root cause of the "Task database not initialized" poison).
+ *
+ * Always strip comments via this helper BEFORE any `createTableRegex` /
+ * `createIndexRegex` / `alterColumnRegex` scan. The pair of replaces matches the
+ * idiom already used by {@link isExecutableStatement} and Scenario 3's
+ * comment-only baseline detection.
+ *
+ * @param sql - Raw migration SQL (one statement or many joined with `\n`)
+ * @returns The SQL with all `--` line comments and `/* … *​/` block comments removed
+ */
+export function stripSqlComments(sql: string): string {
+  return sql.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+}
+
+/**
  * Check whether a table exists in a SQLite database.
  */
 export function tableExists(nativeDb: DatabaseSync, tableName: string): boolean {
@@ -129,7 +153,15 @@ function probeAndMarkApplied(
   logSubsystem: string,
 ): boolean {
   const sqlStatements = Array.isArray(migration.sql) ? migration.sql : [migration.sql ?? ''];
-  const fullSql = sqlStatements.join('\n');
+  // Strip SQL line (`--`) and block (`/* */`) comments BEFORE any DDL-target
+  // extraction. Prose comments routinely contain phrases like "the project-side
+  // CREATE TABLE half of that move", which would otherwise make createTableRegex
+  // capture a phantom target (`half`) → tableExists(phantom) false → the
+  // migration is wrongly left un-journaled → Drizzle re-runs its bare CREATE
+  // TABLE against an existing table and crashes (root-cause of the
+  // "Task database not initialized" poison). Mirrors the same idiom already used
+  // by reconcileBrainMigrationsForConsolidatedDb and Scenario 3 below.
+  const fullSql = stripSqlComments(sqlStatements.join('\n'));
 
   // Extract DDL targets we can probe.
   const alterColumnRegex = /ALTER\s+TABLE\s+[`"]?(\w+)[`"]?\s+ADD\s+COLUMN\s+[`"]?(\w+)[`"]?/gi;
@@ -436,12 +468,10 @@ export function reconcileJournal(
       // than running the comment SQL. The "all DDL targets present" check reduces to:
       // strip comments → empty string → no targets at all → baseline already satisfied.
       if (alterMatches.length === 0) {
-        // Check for comment-only baseline marker: strip SQL line comments and block comments,
-        // then check if any non-whitespace DDL remains.
-        const stripped = fullSql
-          .replace(/--[^\n]*/g, '') // strip line comments
-          .replace(/\/\*[\s\S]*?\*\//g, '') // strip block comments
-          .trim();
+        // Check for comment-only baseline marker: strip SQL line + block comments
+        // (shared {@link stripSqlComments} helper), then check if any
+        // non-whitespace DDL remains.
+        const stripped = stripSqlComments(fullSql).trim();
         if (stripped === '') {
           // Comment-only baseline marker — mark applied immediately on existing DBs.
           const log = getLogger(logSubsystem);
@@ -668,13 +698,11 @@ export function reconcileBrainMigrationsForConsolidatedDb(
     const cols = nativeDb.prepare(`PRAGMA table_info("${table}")`).all() as Array<{ name: string }>;
     return cols.some((c) => c.name === column);
   };
-  // Strip SQL line (`-- …`) and block (`/* … */`) comments before scanning for
-  // DDL targets. A migration's prose comments routinely contain phrases like
-  // "CREATE TABLE IF NOT EXISTS ensures it exists", which would otherwise make
-  // the CREATE-TABLE regex capture bogus "table" names (`IF`, `ensures`) and
-  // wrongly classify a satisfied migration as missing.
-  const stripSqlComments = (sql: string): string =>
-    sql.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  // Strip SQL comments before scanning for DDL targets (shared module helper —
+  // see {@link stripSqlComments}). A migration's prose comments routinely contain
+  // phrases like "CREATE TABLE IF NOT EXISTS ensures it exists", which would
+  // otherwise make the CREATE-TABLE regex capture bogus "table" names and wrongly
+  // classify a satisfied migration as missing.
   let marked = 0;
   let applied = 0;
   for (const m of localMigrations) {
@@ -749,23 +777,54 @@ export function reconcileBrainMigrationsForConsolidatedDb(
 }
 
 /**
+ * Collect the `.message` of an Error and every nested `.cause` (recursively).
+ *
+ * Drizzle wraps the underlying node:sqlite error in a `DrizzleError` whose own
+ * `.message` is generic ("Failed to run the query …") while the real SQLite
+ * message ("table nexus_nodes already exists") lives in `.cause.message`. Error
+ * predicates that only test the top-level `.message` miss the wrapped case and
+ * rethrow — defeating the migrateWithRetry reconcile path. Walking the cause
+ * chain (with a depth guard against pathological cycles) lets the predicates see
+ * the real message regardless of how many layers wrap it.
+ *
+ * @param err - The thrown value (Error, wrapped Error, or anything else)
+ * @returns All messages found along the cause chain, joined with `\n`
+ */
+function collectErrorMessages(err: unknown): string {
+  const messages: string[] = [];
+  let current: unknown = err;
+  // Depth guard: cap the walk so a self-referential cause cannot loop forever.
+  for (let depth = 0; current instanceof Error && depth < 16; depth++) {
+    messages.push(current.message);
+    current = (current as { cause?: unknown }).cause;
+  }
+  return messages.join('\n');
+}
+
+/**
  * Check whether an error is a SQLite "duplicate column name" error.
  *
  * These are thrown when an ALTER TABLE ADD COLUMN statement is re-executed
  * after the column was already added (Scenario 3 in reconcileJournal).
+ *
+ * Inspects the full `.cause` chain so a Drizzle-wrapped error (whose real SQLite
+ * message lives in `.cause.message`) is still recognised.
  */
 export function isDuplicateColumnError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
-  return /duplicate column name/i.test(err.message);
+  return /duplicate column name/i.test(collectErrorMessages(err));
 }
 
 /**
  * T9174: Check for "table X already exists" SQLite error.
  * Occurs when migration SQL lacks IF NOT EXISTS but startup DDL already ran.
+ *
+ * Inspects the full `.cause` chain so a Drizzle-wrapped error (whose real SQLite
+ * message lives in `.cause.message`) is still recognised.
  */
 export function isTableAlreadyExistsError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
-  return /table .+ already exists/i.test(err.message);
+  return /table .+ already exists/i.test(collectErrorMessages(err));
 }
 
 /**

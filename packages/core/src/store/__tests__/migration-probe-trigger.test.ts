@@ -33,6 +33,10 @@ function getTasksMigrationsFolder(): string {
   return join(__dirname, '..', '..', '..', 'migrations', 'drizzle-tasks');
 }
 
+function getProjectMigrationsFolder(): string {
+  return join(__dirname, '..', '..', '..', 'migrations', 'drizzle-cleo-project');
+}
+
 describe('reconcileJournal — CREATE TRIGGER probe', () => {
   let tempDir: string;
 
@@ -112,6 +116,111 @@ describe('reconcileJournal — CREATE TRIGGER probe', () => {
     expect(
       afterRow,
       'probeAndMarkApplied must journal trigger-only migration when triggers exist',
+    ).toBeDefined();
+
+    nativeDb.close();
+  });
+});
+
+describe('reconcileJournal — strips SQL comments before DDL-target extraction', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'cleo-probe-comment-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('marks t11538 applied even though its prose comment contains "CREATE TABLE half"', async () => {
+    // Root-cause regression (fix/T-migration-probe-comment-strip):
+    //
+    // t11538's header comment reads "…the project-side CREATE TABLE half of that
+    // move…". Pre-fix, probeAndMarkApplied scanned the RAW SQL, so createTableRegex
+    // captured the phantom table `half`. tableExists('half') is false →
+    // allTablesPresent false → the migration was NEVER journaled even though its
+    // real tables (nexus_nodes, …) already exist → Drizzle re-ran its bare
+    // `CREATE TABLE nexus_nodes` → "table already exists" → poisoned open →
+    // "Task database not initialized". The fix strips comments first.
+    const { openNativeDatabase } = await import('../sqlite.js');
+    const { reconcileJournal } = await import('../migration-manager.js');
+    const { readMigrationFiles } = await import('drizzle-orm/migrator');
+
+    const migrationsFolder = getProjectMigrationsFolder();
+    const allMigrations = readMigrationFiles({ migrationsFolder });
+    const nexusMig = allMigrations.find((m) => m.name?.includes('t11538'));
+    expect(nexusMig, 'expected t11538 nexus-graph migration to exist').toBeDefined();
+
+    // Sanity-check the fixture still carries the phantom-trigger comment text.
+    const migSql = (Array.isArray(nexusMig!.sql) ? nexusMig!.sql : [nexusMig!.sql ?? '']).join(
+      '\n',
+    );
+    expect(
+      /CREATE\s+TABLE\s+half/i.test(migSql),
+      'fixture precondition: t11538 prose comment must contain "CREATE TABLE half"',
+    ).toBe(true);
+
+    const dbPath = join(tempDir, 'cleo-project.db');
+    const nativeDb = openNativeDatabase(dbPath);
+
+    // The project-scope existence table reconcileJournal checks for is tasks_tasks.
+    nativeDb.exec(`CREATE TABLE IF NOT EXISTS tasks_tasks (id text PRIMARY KEY);`);
+
+    // Fully apply the migration's DDL (it is purely additive CREATE TABLE +
+    // CREATE INDEX — no rename, no trigger) so the schema genuinely already
+    // contains every table AND index the probe checks for. This mirrors the live
+    // poisoned state: the DDL ran but the journal entry was never written.
+    const stmts = Array.isArray(nexusMig!.sql) ? nexusMig!.sql : [nexusMig!.sql ?? ''];
+    for (const stmt of stmts) {
+      if (/CREATE\s+(TABLE|(?:UNIQUE\s+)?INDEX)/i.test(stmt)) {
+        nativeDb.exec(stmt);
+      }
+    }
+    expect(
+      nativeDb
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='nexus_nodes'")
+        .get(),
+      'fixture: nexus_nodes must exist before reconcile',
+    ).toBeDefined();
+    // …and the phantom `half` table must NOT exist (it never gets created).
+    expect(
+      nativeDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='half'").get(),
+      'fixture: phantom "half" table must never exist',
+    ).toBeUndefined();
+
+    // Journal every migration EXCEPT t11538 so it is the only un-applied one.
+    nativeDb.exec(`
+      CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        hash text NOT NULL,
+        created_at numeric,
+        name text,
+        applied_at TEXT
+      )
+    `);
+    for (const m of allMigrations) {
+      if (m.hash === nexusMig!.hash) continue;
+      nativeDb.exec(
+        `INSERT INTO "__drizzle_migrations" ("hash", "created_at", "name") VALUES ('${m.hash}', ${m.folderMillis}, '${m.name ?? ''}')`,
+      );
+    }
+
+    const before = nativeDb
+      .prepare('SELECT hash FROM "__drizzle_migrations" WHERE hash=?')
+      .get(nexusMig!.hash);
+    expect(before, 't11538 must NOT be journaled before reconcile').toBeUndefined();
+
+    reconcileJournal(nativeDb, migrationsFolder, 'tasks_tasks', 'dual-scope-db[project]');
+
+    const after = nativeDb
+      .prepare('SELECT hash FROM "__drizzle_migrations" WHERE hash=?')
+      .get(nexusMig!.hash);
+    // With the comment-strip fix this is journaled (phantom `half` ignored);
+    // WITHOUT the fix it stays undefined (phantom `half` probe fails).
+    expect(
+      after,
+      'probeAndMarkApplied must journal t11538 once SQL comments are stripped (phantom "half" ignored)',
     ).toBeDefined();
 
     nativeDb.close();
