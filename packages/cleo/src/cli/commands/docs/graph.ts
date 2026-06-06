@@ -56,14 +56,22 @@ export const graphCommand = defineCommand({
       type: 'string',
       description: 'Output format: json (default) | dot.',
     },
+    backlinks: {
+      type: 'boolean',
+      description:
+        'Hydrate the persisted docs_wikilinks backlink graph (T11826) — adds ' +
+        'bidirectional shares-topic doc↔doc edges and any persisted backlinks ' +
+        'not surfaced by the on-the-fly BFS. Obsidian-grade graph on existing data.',
+    },
   },
   async run({ args }) {
     const root = String(args.root);
     const depth = parseDepth(args.depth);
     const format = parseFormat(args.format);
+    const hydrateWikilinks = Boolean(args.backlinks);
 
     try {
-      const graph = await buildDocProvenanceGraph({ root, depth });
+      const graph = await buildDocProvenanceGraph({ root, depth, hydrateWikilinks });
       const payload: Record<string, unknown> = { ...graph };
       if (format === 'dot') {
         payload['dot'] = renderProvenanceGraphAsDot(graph);
