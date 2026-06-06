@@ -35,6 +35,7 @@ import type {
 } from '@cleocode/contracts';
 import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import { getProjectRoot } from '../paths.js';
+import { docsWikilinks } from '../store/schema/attachments.js';
 import { getDb } from '../store/sqlite.js';
 import { attachmentRefs, attachments } from '../store/tasks-schema.js';
 
@@ -60,6 +61,18 @@ export interface BuildDocProvenanceGraphOptions {
    * Project root for DB resolution. Defaults to {@link getProjectRoot}().
    */
   readonly projectRoot?: string;
+  /**
+   * When `true`, hydrate the BFS result with the persisted `docs_wikilinks`
+   * backlink edges (T11826) incident to the visited doc nodes — adding
+   * `shares-topic` doc↔doc edges (which the on-the-fly BFS does not compute)
+   * plus any persisted supersedes / related-task backlinks not already present.
+   * The persisted edge table is the Obsidian-grade graph; this folds it into
+   * the same envelope without a second query path.
+   *
+   * @default false
+   * @task T11826
+   */
+  readonly hydrateWikilinks?: boolean;
 }
 
 /**
@@ -242,12 +255,76 @@ export async function buildDocProvenanceGraph(
     frontier = nextFrontier;
   }
 
+  if (options.hydrateWikilinks) {
+    await hydrateFromWikilinks(db, nodes, edges);
+  }
+
   return {
     nodes,
     edges,
     totalNodes: nodes.length,
     totalEdges: edges.length,
   };
+}
+
+/**
+ * Fold the persisted `docs_wikilinks` backlink edges (T11826) into an
+ * already-built provenance graph.
+ *
+ * For every doc node currently in the graph, pull its incident wikilink edges
+ * (both directions) and append any that connect to another doc node already in
+ * the graph and are not already present. This surfaces `shares-topic` doc↔doc
+ * edges — which the on-the-fly BFS does not compute — without re-deriving the
+ * graph. Edges to nodes outside the visited set are skipped so the BFS depth
+ * bound is respected.
+ *
+ * @internal
+ * @task T11826
+ */
+async function hydrateFromWikilinks(
+  db: Awaited<ReturnType<typeof getDb>>,
+  nodes: ProvenanceNode[],
+  edges: ProvenanceEdge[],
+): Promise<void> {
+  const docSlugs = new Set(nodes.filter((n) => n.kind === 'doc').map((n) => n.id));
+  if (docSlugs.size === 0) return;
+
+  const rows = await db
+    .select()
+    .from(docsWikilinks)
+    .where(
+      or(
+        inArray(docsWikilinks.fromSlug, [...docSlugs]),
+        inArray(docsWikilinks.toSlug, [...docSlugs]),
+      ),
+    )
+    .all();
+
+  // Dedupe against existing edges by (relation, from, to).
+  const existing = new Set(edges.map((e) => `${e.relation}|${e.from}|${e.to}`));
+
+  for (const row of rows) {
+    // Only fold edges whose endpoints are both already visited doc nodes —
+    // related-task edges are already emitted by the BFS, and topic links to
+    // unvisited docs would breach the depth bound.
+    if (row.relation === 'related-task') continue;
+    if (!docSlugs.has(row.fromSlug) || !docSlugs.has(row.toSlug)) continue;
+
+    const relation: ProvenanceEdgeRelation =
+      row.relation === 'topic' ? 'shares-topic' : (row.relation as ProvenanceEdgeRelation);
+    const key = `${relation}|${row.fromSlug}|${row.toSlug}`;
+    if (existing.has(key)) continue;
+    existing.add(key);
+
+    edges.push({
+      relation,
+      from: row.fromSlug,
+      fromKind: 'doc',
+      to: row.toSlug,
+      toKind: 'doc',
+      addedAt: row.derivedAt,
+    });
+  }
 }
 
 /**
