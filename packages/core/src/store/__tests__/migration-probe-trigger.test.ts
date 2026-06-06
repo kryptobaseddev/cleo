@@ -20,7 +20,7 @@
  *    empty so the table rebuild still completes.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -422,6 +422,168 @@ describe('reconcileJournal — eliminated-table probe tolerance (bug #2)', () =>
         .prepare('SELECT hash FROM "__drizzle_migrations" WHERE hash=?')
         .get(triggerMig!.hash),
       'trigger-only migration must be journaled when its triggers exist',
+    ).toBeDefined();
+
+    nativeDb.close();
+  });
+});
+
+describe('reconcileJournal — zero-DDL cutover discriminator (bug #2 follow-up)', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'cleo-zero-ddl-cutover-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  /**
+   * Build a self-contained fixture migrations layout under `tempDir`:
+   *   <root>/drizzle-fixture-tasks/<prefix>_<name>/migration.sql  (the lineage)
+   *   <root>/drizzle-cleo-project/20260531000001_…-consolidation-cleo-project/  (cutover marker sibling)
+   * so resolveConsolidationCutoverPrefix() finds the real cutover prefix.
+   */
+  function buildFixture(migrations: Array<{ prefix: string; name: string; sql: string }>): string {
+    const lineage = join(tempDir, 'drizzle-fixture-tasks');
+    for (const m of migrations) {
+      const dir = join(lineage, `${m.prefix}_${m.name}`);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'migration.sql'), m.sql);
+    }
+    // Sibling consolidation folder so the cutover prefix resolves to 20260531000001.
+    const consolidationDir = join(
+      tempDir,
+      'drizzle-cleo-project',
+      '20260531000001_tfix-consolidation-cleo-project',
+    );
+    mkdirSync(consolidationDir, { recursive: true });
+    writeFileSync(
+      join(consolidationDir, 'migration.sql'),
+      'CREATE TABLE IF NOT EXISTS tasks_tasks (id text PRIMARY KEY);',
+    );
+    return lineage;
+  }
+
+  it('resolveConsolidationCutoverPrefix derives the prefix from the sibling consolidation migration', async () => {
+    const { resolveConsolidationCutoverPrefix, CONSOLIDATION_CUTOVER_PREFIX } = await import(
+      '../migration-manager.js'
+    );
+    const lineage = buildFixture([{ prefix: '20260101000000', name: 'noop', sql: '-- noop' }]);
+    expect(resolveConsolidationCutoverPrefix(lineage)).toBe('20260531000001');
+    // Falls back to the constant when no sibling consolidation folder exists.
+    const orphanLineage = join(tempDir, 'standalone', 'drizzle-x');
+    mkdirSync(join(orphanLineage, '20260101000000_x'), { recursive: true });
+    writeFileSync(join(orphanLineage, '20260101000000_x', 'migration.sql'), '-- x');
+    expect(resolveConsolidationCutoverPrefix(orphanLineage)).toBe(CONSOLIDATION_CUTOVER_PREFIX);
+  });
+
+  it('(b) PRE-cutover zero-DDL migration is STAMPED applied (not re-run)', async () => {
+    // A pre-consolidation legacy DML migration (e.g. a non-idempotent UPDATE
+    // backfill) is subsumed by the consolidation snapshot. reconcileJournal must
+    // STAMP it without running it (re-running could double-apply / fail).
+    const { openNativeDatabase } = await import('../sqlite.js');
+    const { reconcileJournal } = await import('../migration-manager.js');
+    const { readMigrationFiles } = await import('drizzle-orm/migrator');
+
+    const lineage = buildFixture([
+      // Pre-cutover, non-idempotent DML (UPDATE). If it RAN it would bump counter.
+      {
+        prefix: '20260101000000',
+        name: 'pre-update-backfill',
+        sql: 'UPDATE counter SET n = n + 1 WHERE id = 1;',
+      },
+    ]);
+    const preMig = readMigrationFiles({ migrationsFolder: lineage })[0]!;
+
+    const dbPath = join(tempDir, 'cleo.db');
+    const nativeDb = openNativeDatabase(dbPath);
+    nativeDb.exec(`
+      CREATE TABLE IF NOT EXISTS tasks_tasks (id text PRIMARY KEY);
+      CREATE TABLE IF NOT EXISTS tasks (id text PRIMARY KEY);
+      CREATE TABLE counter (id integer PRIMARY KEY, n integer NOT NULL);
+      INSERT INTO counter (id, n) VALUES (1, 0);
+      CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        hash text NOT NULL, created_at numeric, name text, applied_at TEXT
+      )
+    `);
+
+    reconcileJournal(nativeDb, lineage, 'tasks', 'sqlite');
+
+    // Stamped applied …
+    expect(
+      nativeDb.prepare('SELECT hash FROM "__drizzle_migrations" WHERE hash=?').get(preMig.hash),
+      'pre-cutover zero-DDL migration must be stamped applied',
+    ).toBeDefined();
+    // … and its UPDATE must NOT have executed (counter stays 0).
+    expect(
+      (nativeDb.prepare('SELECT n FROM counter WHERE id=1').get() as { n: number }).n,
+      'pre-cutover zero-DDL migration must NOT be re-run',
+    ).toBe(0);
+
+    nativeDb.close();
+  });
+
+  it('(a) POST-cutover pure-DML migration is NOT stamped → migrate() RUNS it', async () => {
+    // The cutover agent's E4 backfill class: a NEW post-consolidation INSERT-OR-
+    // IGNORE migration. reconcileJournal must NOT stamp it (no DDL to probe);
+    // drizzle migrate() must then RUN its effect.
+    const { openNativeDatabase } = await import('../sqlite.js');
+    const { reconcileJournal, migrateWithRetry } = await import('../migration-manager.js');
+    const { readMigrationFiles } = await import('drizzle-orm/migrator');
+    const { drizzle } = await import('drizzle-orm/node-sqlite');
+
+    const lineage = buildFixture([
+      // Post-cutover (> 20260531000001), idempotent backfill.
+      {
+        prefix: '20260601000000',
+        name: 'post-backfill',
+        sql: "INSERT OR IGNORE INTO backfill_target (id, label) VALUES ('row1', 'filled');",
+      },
+    ]);
+    const postMig = readMigrationFiles({ migrationsFolder: lineage })[0]!;
+
+    const dbPath = join(tempDir, 'cleo.db');
+    const nativeDb = openNativeDatabase(dbPath);
+    nativeDb.exec(`
+      CREATE TABLE IF NOT EXISTS tasks_tasks (id text PRIMARY KEY);
+      CREATE TABLE IF NOT EXISTS tasks (id text PRIMARY KEY);
+      CREATE TABLE backfill_target (id text PRIMARY KEY, label text);
+      CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        hash text NOT NULL, created_at numeric, name text, applied_at TEXT
+      )
+    `);
+    // Backfill target starts EMPTY — the migration's effect is observable.
+    expect(
+      (nativeDb.prepare('SELECT COUNT(*) AS n FROM backfill_target').get() as { n: number }).n,
+    ).toBe(0);
+
+    reconcileJournal(nativeDb, lineage, 'tasks', 'sqlite');
+
+    // NOT stamped by reconcile (left for migrate to run).
+    expect(
+      nativeDb.prepare('SELECT hash FROM "__drizzle_migrations" WHERE hash=?').get(postMig.hash),
+      'post-cutover zero-DDL migration must NOT be stamped by reconcile',
+    ).toBeUndefined();
+
+    // drizzle migrate() now RUNS the backfill and journals it.
+    const db = drizzle({ client: nativeDb });
+    migrateWithRetry(db, lineage, nativeDb, 'tasks', 'sqlite');
+
+    expect(
+      (
+        nativeDb.prepare("SELECT label FROM backfill_target WHERE id='row1'").get() as
+          | { label: string }
+          | undefined
+      )?.label,
+      'post-cutover backfill effect must have executed via migrate()',
+    ).toBe('filled');
+    expect(
+      nativeDb.prepare('SELECT hash FROM "__drizzle_migrations" WHERE hash=?').get(postMig.hash),
+      'post-cutover migration must be journaled after migrate()',
     ).toBeDefined();
 
     nativeDb.close();

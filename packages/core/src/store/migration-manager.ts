@@ -12,6 +12,7 @@
  */
 
 import { copyFileSync, existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { MigrationConfig, MigrationMeta } from 'drizzle-orm/migrator';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
@@ -151,6 +152,78 @@ export function computeEliminatedTables(
 }
 
 /**
+ * The timestamp-prefix of the consolidation cutover migration
+ * (`20260531000001_t11363-consolidation-cleo-{project,global}`), used as the
+ * fallback when the consolidation migration cannot be located on disk.
+ *
+ * Migration folder names start with a 14-char numeric timestamp prefix
+ * (`YYYYMMDDHHMMSS`). Comparing those prefixes lexicographically is equivalent
+ * to comparing the encoded timestamps, so this string is the cutover boundary.
+ *
+ * @task T11553
+ */
+export const CONSOLIDATION_CUTOVER_PREFIX = '20260531000001';
+
+/**
+ * Length of a drizzle migration folder's leading `YYYYMMDDHHMMSS` timestamp.
+ */
+const MIGRATION_TIMESTAMP_PREFIX_LEN = 14;
+
+/**
+ * Resolve the consolidation cutover timestamp-prefix for a lineage being
+ * reconciled, by locating the `*-consolidation-cleo-*` migration in the SIBLING
+ * consolidated folders (`drizzle-cleo-project` / `drizzle-cleo-global`) next to
+ * the supplied `migrationsFolder`.
+ *
+ * The legacy lineages (`drizzle-tasks` / `drizzle-brain`) do NOT themselves
+ * contain the consolidation migration — it lives in the consolidated folders —
+ * so we scan the siblings. Best-effort: if neither sibling is present/readable
+ * (partial install) the function returns {@link CONSOLIDATION_CUTOVER_PREFIX}.
+ *
+ * @param migrationsFolder - Absolute path to the lineage folder being reconciled
+ * @returns The 14-char timestamp prefix of the consolidation cutover migration
+ * @task T11553
+ */
+export function resolveConsolidationCutoverPrefix(migrationsFolder: string): string {
+  const parent = dirname(migrationsFolder);
+  for (const setName of ['drizzle-cleo-project', 'drizzle-cleo-global']) {
+    const folder = join(parent, setName);
+    if (!existsSync(folder)) continue;
+    try {
+      const consolidation = readMigrationFiles({ migrationsFolder: folder }).find((m) =>
+        /-consolidation-cleo-/.test(m.name ?? ''),
+      );
+      if (consolidation?.name) {
+        return consolidation.name.slice(0, MIGRATION_TIMESTAMP_PREFIX_LEN);
+      }
+    } catch {
+      // Best-effort — fall through to the next sibling / the constant fallback.
+    }
+  }
+  return CONSOLIDATION_CUTOVER_PREFIX;
+}
+
+/**
+ * Whether a migration's `YYYYMMDDHHMMSS` timestamp prefix is at or before the
+ * consolidation cutover — i.e. it is a PRE-consolidation legacy migration
+ * subsumed by the consolidation snapshot (vs a NEW post-consolidation migration
+ * that must run normally).
+ *
+ * @param migrationName - The migration folder name (e.g. `20260321000000_t033-…`)
+ * @param cutoverPrefix - The cutover prefix from {@link resolveConsolidationCutoverPrefix}
+ * @returns true if at/before the cutover (pre-consolidation), false if after
+ * @task T11553
+ */
+function isAtOrBeforeCutover(migrationName: string | undefined, cutoverPrefix: string): boolean {
+  const prefix = (migrationName ?? '').slice(0, MIGRATION_TIMESTAMP_PREFIX_LEN);
+  // A name without a parseable prefix is treated as pre-cutover (legacy/unknown):
+  // safer to stamp-and-skip than to re-run an unknown legacy migration. Real
+  // post-consolidation migrations always carry a valid prefix.
+  if (prefix.length < MIGRATION_TIMESTAMP_PREFIX_LEN) return true;
+  return prefix <= cutoverPrefix;
+}
+
+/**
  * Check whether a table exists in a SQLite database.
  */
 export function tableExists(nativeDb: DatabaseSync, tableName: string): boolean {
@@ -236,12 +309,34 @@ function insertJournalEntry(
  * probe refuses to mark the creating migration applied, drizzle re-runs its bare
  * `CREATE TABLE` and throws. See {@link computeEliminatedTables}.
  *
+ * ## Zero-DDL discriminator (bug #2 follow-up · T11553)
+ *
+ * A migration with NO probe-able DDL targets (pure `INSERT`/`UPDATE`/`DELETE`
+ * backfill, `DROP TABLE`-only, `CREATE VIEW`, …) cannot be verified by schema
+ * inspection. The cutover decides:
+ *
+ *  - **at/before** the consolidation cutover → a PRE-consolidation legacy
+ *    migration, already subsumed and possibly NON-idempotent (`UPDATE`/plain
+ *    `INSERT`) → STAMP applied (do NOT re-run).
+ *  - **after** the cutover → a NEW post-consolidation migration whose effect has
+ *    NOT run yet → do NOT stamp (return false) so drizzle `migrate()` executes
+ *    it. New migrations are required to be idempotent (`INSERT OR IGNORE` /
+ *    `DROP … IF EXISTS` / `CREATE … IF NOT EXISTS`), so running them is correct
+ *    and harmless on re-run; they journal normally afterwards.
+ *
+ * Migrations WITH DDL targets keep the probe-tolerance behaviour unchanged
+ * (including post-cutover ones like t11538/t11649 that must be probe-stampable
+ * once already applied).
+ *
  * @param nativeDb - Native SQLite database handle
  * @param migration - One entry from drizzle's readMigrationFiles
  * @param logSubsystem - Logger subsystem name
  * @param eliminatedTables - Final table names a later migration permanently DROPs
  *   (from {@link computeEliminatedTables}); their CREATE targets count as
  *   satisfied. Defaults to empty (no tolerance) for callers that do not supply it.
+ * @param consolidationCutoverPrefix - The cutover timestamp-prefix from
+ *   {@link resolveConsolidationCutoverPrefix}; gates the zero-DDL stamp/run
+ *   decision. Defaults to {@link CONSOLIDATION_CUTOVER_PREFIX}.
  * @returns true if the journal entry was inserted; false if migration must run
  */
 function probeAndMarkApplied(
@@ -249,6 +344,7 @@ function probeAndMarkApplied(
   migration: { hash: string; folderMillis: number; name?: string; sql?: string | string[] },
   logSubsystem: string,
   eliminatedTables: ReadonlySet<string> = new Set(),
+  consolidationCutoverPrefix: string = CONSOLIDATION_CUTOVER_PREFIX,
 ): boolean {
   const sqlStatements = Array.isArray(migration.sql) ? migration.sql : [migration.sql ?? ''];
   // Strip SQL line (`--`) and block (`/* */`) comments BEFORE any DDL-target
@@ -352,7 +448,23 @@ function probeAndMarkApplied(
   const totalTargets =
     alterTargets.length + tableTargets.length + indexTargets.length + triggerTargets.length;
   if (totalTargets === 0) {
-    // No probable DDL — could be UPDATE/INSERT/DELETE/etc. Leave for migrate().
+    // No probe-able DDL — pure DML (INSERT/UPDATE/DELETE), DROP-only, CREATE VIEW,
+    // etc. Schema inspection can't verify it, so the consolidation cutover decides
+    // (bug #2 follow-up · T11553):
+    if (isAtOrBeforeCutover(migration.name, consolidationCutoverPrefix)) {
+      // PRE-consolidation legacy migration — already subsumed by the consolidation
+      // snapshot and possibly NON-idempotent (UPDATE / plain INSERT). Re-running it
+      // would double-apply or fail, so STAMP applied without running.
+      insertJournalEntry(nativeDb, migration.hash, migration.folderMillis, migration.name ?? '');
+      getLogger(logSubsystem).debug(
+        { migration: migration.name },
+        `Zero-DDL pre-consolidation migration ${migration.name} stamped applied (subsumed; not re-run).`,
+      );
+      return true;
+    }
+    // POST-consolidation migration (e.g. a new INSERT-OR-IGNORE backfill or
+    // DROP-IF-EXISTS) whose effect has NOT run yet — DO NOT stamp; let drizzle
+    // migrate() execute it. New migrations are required to be idempotent.
     return false;
   }
 
@@ -437,6 +549,13 @@ export function reconcileJournal(
   // DB — where that table is correctly absent — doesn't make drizzle re-run the
   // creating migration's bare `CREATE TABLE` and crash.
   const eliminatedTables = computeEliminatedTables(readMigrationFiles({ migrationsFolder }));
+
+  // bug #2 follow-up (T11553): the consolidation cutover timestamp-prefix gates
+  // the zero-DDL stamp/run decision in probeAndMarkApplied — pre-cutover legacy
+  // DML/DROP migrations are stamped (subsumed, possibly non-idempotent), new
+  // post-cutover ones are left for migrate() to RUN. Resolved from the sibling
+  // consolidation migration on disk.
+  const cutoverPrefix = resolveConsolidationCutoverPrefix(migrationsFolder);
 
   // Scenario 1: Tables exist but no migration journal — bootstrap baseline
   if (tableExists(nativeDb, existenceTable) && !tableExists(nativeDb, '__drizzle_migrations')) {
@@ -527,7 +646,7 @@ export function reconcileJournal(
         );
         for (const m of localMigrations) {
           if (journaledHashesAfter.has(m.hash)) continue;
-          probeAndMarkApplied(nativeDb, m, logSubsystem, eliminatedTables);
+          probeAndMarkApplied(nativeDb, m, logSubsystem, eliminatedTables, cutoverPrefix);
         }
       }
     }
@@ -618,7 +737,7 @@ export function reconcileJournal(
         const createTableRe = /CREATE\s+TABLE/i;
         const createTriggerRe = /CREATE\s+TRIGGER/i;
         if (renameRe.test(fullSql) && createTableRe.test(fullSql)) {
-          probeAndMarkApplied(nativeDb, migration, logSubsystem, eliminatedTables);
+          probeAndMarkApplied(nativeDb, migration, logSubsystem, eliminatedTables, cutoverPrefix);
         } else if (createTableRe.test(fullSql) || createTriggerRe.test(fullSql)) {
           // Pure CREATE TABLE migration (no ALTER, no RENAME). Delegate to
           // probeAndMarkApplied which checks if all CREATE TABLE targets already
@@ -626,7 +745,15 @@ export function reconcileJournal(
           // This handles signaldock's initial migration (pure schema bootstrap) when
           // the DB has tables but the journal entry is missing (e.g., after a journal
           // reset or bare-SQL-to-drizzle migration path upgrade).
-          probeAndMarkApplied(nativeDb, migration, logSubsystem, eliminatedTables);
+          probeAndMarkApplied(nativeDb, migration, logSubsystem, eliminatedTables, cutoverPrefix);
+        } else {
+          // Zero-DDL migration (pure DML backfill, DROP-only, CREATE VIEW, …) with
+          // no journal entry. Delegate to probeAndMarkApplied, whose zero-target
+          // path applies the consolidation cutover (T11553): a PRE-cutover legacy
+          // migration is stamped (subsumed, possibly non-idempotent), while a NEW
+          // POST-cutover one is left un-stamped so drizzle migrate() RUNS its
+          // effect (e.g. the cutover agent's INSERT-OR-IGNORE backfill / DROP).
+          probeAndMarkApplied(nativeDb, migration, logSubsystem, eliminatedTables, cutoverPrefix);
         }
         continue;
       }
