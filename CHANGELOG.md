@@ -1,5 +1,11 @@
 # Changelog
 
+## [2026.6.12] (2026-06-07)
+
+### Fixed
+
+- **Release-provenance writes are now FK-free — kills the DHQ-051 `cleo release plan`/`reconcile` FK class.** On the consolidated `cleo.db` the release/provenance drizzle symbols (`commits`, `task_commits`, `releases`, `release_commits`, `pr_*`, `release_*`, `brain_release_links`) were bound to the bare legacy tables, whose `task_id`/`epic_id` carried a cross-domain FK into the bare `tasks` table — empty after consolidation — so a release upsert aborted on `FOREIGN KEY constraint failed`. This release completes the task-family cutover: (1) the runtime provenance symbols are **rebound onto the PREFIXED consolidated tables** (`tasks_commits`, …), whose `task_id`/`epic_id` are plain text with **no cross-domain FK**, so provenance writes succeed directly; (2) the `ensureProvenanceTaskFkParents` FK-parent shim and its NULL-on-unresolvable fallback are **retired**; (3) the task **invariant + handoff triggers** are restored on the prefixed tables; (4) the missing **`UNIQUE` index on `tasks_releases.version`** (dropped during the consolidation build) is repaired so the release upsert's `ON CONFLICT` resolves. A latent enum bug is also fixed: `task_commits.link_source` now emits the valid `'commit-subject'` member (the no-CHECK legacy table had silently accepted the out-of-enum `'commit-message'`). _(provenance: [T11883](https://github.com/kryptobaseddev/cleo/search?q=T11883&type=commits); [#987](https://github.com/kryptobaseddev/cleo/pull/987), [#992](https://github.com/kryptobaseddev/cleo/pull/992))_
+
 ## [2026.6.11] (2026-06-06)
 
 ### Fixed
