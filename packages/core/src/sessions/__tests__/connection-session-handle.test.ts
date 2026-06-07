@@ -94,12 +94,70 @@ describe('connection-session-handle — AsyncLocalStorage scoping (T11640)', () 
 
   it('honours a late binding made while a dispatch is already running', () => {
     // Models routeFrame binding the session AFTER runWithConnectionHandle opened
-    // the scope (the registry is read on demand, not snapshotted at scope entry).
+    // the scope for a frame that declared NO session of its own (no per-frame
+    // snapshot), so the registry is read on demand, not snapshotted at entry.
     const resolved = runWithConnectionHandle('conn-late', () => {
       bindConnectionSession('conn-late', 'ses_late');
       return getCurrentConnectionSessionId();
     });
     expect(resolved).toBe('ses_late');
+  });
+
+  it('prefers the per-frame session snapshot over the registry binding', () => {
+    // A frame that declared its own session resolves THAT session even when the
+    // connId's registry binding points elsewhere.
+    bindConnectionSession('conn-1', 'ses_registry');
+    const resolved = runWithConnectionHandle(
+      'conn-1',
+      () => getCurrentConnectionSessionId(),
+      'ses_frame',
+    );
+    expect(resolved).toBe('ses_frame');
+  });
+
+  it('falls back to the registry when the frame declared no session snapshot', () => {
+    bindConnectionSession('conn-1', 'ses_registry');
+    // undefined snapshot → registry lookup wins (the late-binding/anonymous path).
+    const resolved = runWithConnectionHandle(
+      'conn-1',
+      () => getCurrentConnectionSessionId(),
+      undefined,
+    );
+    expect(resolved).toBe('ses_registry');
+  });
+
+  it('isolates two different-session frames pipelined on ONE connId (no bleed)', async () => {
+    // Models the RPC server firing two concurrent frames on the same connection
+    // with DIFFERENT declared sessions: Frame A starts dispatching, Frame B then
+    // re-binds the shared connId (last-write-wins). Frame A must still resolve its
+    // OWN session — the per-frame snapshot shields it from B's late re-bind.
+    bindConnectionSession('conn-shared', 'ses_A');
+
+    const [a, b] = await Promise.all([
+      runWithConnectionHandle(
+        'conn-shared',
+        async () => {
+          // Yield so Frame B can interleave and re-bind the connId mid-flight.
+          await Promise.resolve();
+          await Promise.resolve();
+          return getCurrentConnectionSessionId();
+        },
+        'ses_A',
+      ),
+      runWithConnectionHandle(
+        'conn-shared',
+        async () => {
+          // Frame B re-binds the shared connId to its own session.
+          bindConnectionSession('conn-shared', 'ses_B');
+          await Promise.resolve();
+          return getCurrentConnectionSessionId();
+        },
+        'ses_B',
+      ),
+    ]);
+
+    expect(a).toBe('ses_A');
+    expect(b).toBe('ses_B');
   });
 
   it('isolates concurrent connection scopes', async () => {

@@ -41,14 +41,30 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 /**
  * The in-flight connection context threaded through {@link AsyncLocalStorage}.
  *
- * Carries only the connection id; the bound session id is resolved on demand
- * from {@link connectionSessionRegistry} so a late {@link bindConnectionSession}
- * (a connection that declares its session AFTER its first frame) is honoured by
- * already-running dispatches on the same connection.
+ * Carries the connection id and, when the dispatched frame declared one, a
+ * per-frame `sessionId` SNAPSHOT.
+ *
+ * Resolution precedence inside {@link getCurrentConnectionSessionId}:
+ *  1. the per-frame `sessionId` snapshot, when present — this is what dissolves
+ *     INTRA-connection session bleed. Frames are dispatched concurrently on one
+ *     connection and binding into {@link connectionSessionRegistry} is
+ *     last-write-wins, so a still-in-flight Frame A must resolve the session it
+ *     was dispatched WITH, not the session a later Frame B just bound. Snapshotting
+ *     the frame's own session at dispatch entry makes Frame A immune to Frame B.
+ *  2. otherwise an on-demand registry lookup by `connId` — so a frame that
+ *     declared NO session of its own still honours a {@link bindConnectionSession}
+ *     made (even late) on the connection.
  */
 export interface ConnectionHandleContext {
   /** Opaque per-connection identifier (stable for the life of the socket). */
   readonly connId: string;
+  /**
+   * Per-frame session-id snapshot, captured at dispatch entry. When set it is
+   * authoritative for this dispatch and shields it from concurrent last-write-wins
+   * re-bindings of the same `connId` by sibling frames. `undefined` for frames
+   * that declared no session (those fall through to the registry lookup).
+   */
+  readonly sessionId?: string;
 }
 
 /**
@@ -128,21 +144,34 @@ export function connectionRegistrySize(): number {
  * execution of `fn` and torn down automatically when `fn` settles — concurrent
  * dispatches on different connections never see each other's handle.
  *
+ * When `sessionId` is supplied it is SNAPSHOTTED into the per-frame handle so the
+ * dispatch resolves THAT session regardless of any later last-write-wins re-bind
+ * of the same `connId` by a sibling frame — the fix for intra-connection session
+ * bleed (see {@link ConnectionHandleContext}). Omit it for frames that declared
+ * no session of their own; those fall through to the registry lookup, preserving
+ * the late-binding path.
+ *
  * @typeParam T - The return type of `fn`.
  * @param connId - The connection id to install for the duration of `fn`.
  * @param fn - The work to run within the connection-handle scope.
+ * @param sessionId - Optional per-frame session-id snapshot for this dispatch.
  * @returns Whatever `fn` returns.
  * @task T11640
  */
-export function runWithConnectionHandle<T>(connId: string, fn: () => T): T {
-  return connectionHandleStore.run({ connId }, fn);
+export function runWithConnectionHandle<T>(connId: string, fn: () => T, sessionId?: string): T {
+  return connectionHandleStore.run({ connId, sessionId: sessionId || undefined }, fn);
 }
 
 /**
  * Resolve the session id of the connection currently being served, if any.
  *
  * Reads the {@link AsyncLocalStorage} channel to find the in-flight connection
- * handle, then resolves its bound session via {@link connectionSessionRegistry}.
+ * handle, then resolves the session in this precedence:
+ *  1. the handle's per-frame `sessionId` snapshot, when present — authoritative
+ *     for this dispatch and immune to concurrent re-binds of the same `connId`
+ *     by sibling frames (the intra-connection bleed fix);
+ *  2. an on-demand registry lookup by `connId` — so a frame that declared no
+ *     session of its own still honours a (possibly late) connection binding.
  * Returns `null` outside any connection-handle scope (the single-process CLI
  * path, or daemon code running outside a request frame), so callers
  * transparently fall through to their next resolution tier.
@@ -156,6 +185,7 @@ export function runWithConnectionHandle<T>(connId: string, fn: () => T): T {
 export function getCurrentConnectionSessionId(): string | null {
   const ctx = connectionHandleStore.getStore();
   if (!ctx) return null;
+  if (ctx.sessionId) return ctx.sessionId;
   return getConnectionSessionId(ctx.connId);
 }
 

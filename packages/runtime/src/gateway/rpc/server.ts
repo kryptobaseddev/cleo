@@ -64,14 +64,25 @@ import type { RpcServerHandle, RpcServerOptions } from './types.js';
  * ## Connection-scoped session binding (T11640 · Epic T11638)
  *
  * The daemon serves many connections over one process, so it cannot rely on the
- * single-process session-context singleton for identity. Instead, the first
- * frame on a connection that declares a `sessionId` binds it into the
- * `{connId → sessionId}` registry, and the whole dispatch runs inside
- * {@link runWithConnectionHandle} so `core`'s `resolveCurrentSession` resolves
- * THIS connection's session (its highest-precedence tier) rather than
- * "whoever wrote the DB last". When a frame carries no `sessionId`, no binding
- * is performed and resolution transparently falls through to the env / active
- * tiers — preserving existing behavior for anonymous frames.
+ * single-process session-context singleton for identity. Instead, a frame on a
+ * connection that declares a `sessionId` binds it into the `{connId → sessionId}`
+ * registry, and the whole dispatch runs inside {@link runWithConnectionHandle}
+ * so `core`'s `resolveCurrentSession` resolves THIS connection's session (its
+ * highest-precedence tier) rather than "whoever wrote the DB last". When a frame
+ * carries no `sessionId`, no binding is performed and resolution transparently
+ * falls through to the env / active tiers — preserving existing behavior for
+ * anonymous frames.
+ *
+ * ### Intra-connection bleed safety
+ *
+ * Frames on one connection are dispatched CONCURRENTLY (each `routeFrame` is
+ * fired without awaiting the prior one), and registry binding is last-write-wins.
+ * To stop a still-in-flight Frame A from resolving a sibling Frame B's session,
+ * the frame's OWN declared `sessionId` is snapshotted into the per-frame
+ * connection handle ({@link runWithConnectionHandle}'s third arg) — that snapshot
+ * is authoritative for the dispatch, so a later re-bind of the same `connId`
+ * cannot retroactively change who Frame A is. The registry binding remains only
+ * for the late-binding path used by frames that declare no session of their own.
  *
  * @param handler - The injected transport-neutral gateway handler.
  * @param frame - A validated, version-matched request frame.
@@ -93,16 +104,23 @@ export async function routeFrame(
     requestId: frame.request.requestId,
   };
 
-  // Bind this connection to the session the frame declared (last-write-wins;
-  // empty/absent ids are ignored by the registry). This is the accept-time
-  // identity seam: the connection's session is now authoritative for any
-  // identity-meaning resolution reached during this dispatch.
+  // Bind this connection to the session the frame declared (empty/absent ids are
+  // ignored by the registry). This feeds the late-binding path for any sibling
+  // frame that declares no session of its own. The per-frame snapshot below — not
+  // this mutable registry — is what THIS dispatch resolves against, so a
+  // concurrent sibling frame's re-bind cannot bleed into it.
   if (request.sessionId) {
     bindConnectionSession(connId, request.sessionId);
   }
 
   try {
-    const response = await runWithConnectionHandle(connId, () => handler.handle(request));
+    // Snapshot the frame's own session into the per-frame handle so this dispatch
+    // is immune to concurrent last-write-wins re-binds of the same connId.
+    const response = await runWithConnectionHandle(
+      connId,
+      () => handler.handle(request),
+      request.sessionId,
+    );
     return {
       protocol_version: GATEWAY_RPC_PROTOCOL_VERSION,
       id: frame.id,
