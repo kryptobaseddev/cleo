@@ -107,10 +107,11 @@ describe('cleoGo driver (T11494)', () => {
     mockIvtrRunner.mockResolvedValue({ taskId: 'T999', runId: 'pbr_999' });
     mockArmGoalLoop.mockResolvedValue({ id: 'g-armed-1', status: 'active' });
     mockStartIvtr.mockResolvedValue({ taskId: 'T999', currentPhase: 'implement' });
-    // The cantbook seam is flag-gated and defaults OFF. Most fan-out tests
-    // exercise the seam path, so enable it by default; the dedicated
-    // fallback-path tests below clear it explicitly.
-    process.env[CLEO_GO_VIA_PLAYBOOK_ENV] = '1';
+    // The cantbook seam defaults ON (T11896) — leaving the env unset already
+    // exercises the seam path. We clear it here so the default-ON behaviour is
+    // what the fan-out tests assert; the dedicated kill-switch test below sets
+    // `CLEO_GO_VIA_PLAYBOOK=0` explicitly to exercise the legacy fallback.
+    delete process.env[CLEO_GO_VIA_PLAYBOOK_ENV];
   });
 
   afterEach(() => {
@@ -336,8 +337,10 @@ describe('cleoGo driver (T11494)', () => {
 
     // ---- Risk #1 mitigation: feature flag gates the cantbook seam ----------
 
-    it('flag OFF (default): falls back to startIvtr even when a runner IS injected', async () => {
-      delete process.env[CLEO_GO_VIA_PLAYBOOK_ENV];
+    it('kill-switch CLEO_GO_VIA_PLAYBOOK=0: falls back to startIvtr even when a runner IS injected', async () => {
+      // T11896 — the seam defaults ON; the explicit `=0` kill-switch restores
+      // the legacy startIvtr seed for one deprecation cycle.
+      process.env[CLEO_GO_VIA_PLAYBOOK_ENV] = '0';
       mockSagaNext.mockResolvedValue({
         success: true,
         data: makeSagaNextResult({
