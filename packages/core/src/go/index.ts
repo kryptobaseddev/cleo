@@ -11,6 +11,7 @@
  */
 
 export {
+  CLEO_GO_VIA_PLAYBOOK_ENV,
   type CleoGoAction,
   type CleoGoParams,
   type CleoGoResult,

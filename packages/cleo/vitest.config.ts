@@ -412,6 +412,15 @@ export default defineConfig({
         '../../packages/runtime/src/daemon/index.ts',
         import.meta.url,
       ).pathname,
+      // T11805: @cleocode/runtime/gateway — go-ivtr-runner.ts dynamically
+      // imports orchestrateSpawnExecute from the gateway subpath. Alias to the
+      // source tree (mirrors the daemon subpath) so vitest can resolve — and
+      // therefore vi.mock can intercept — it without the dist build. Must
+      // precede the root `@cleocode/runtime` alias so the subpath matches first.
+      '@cleocode/runtime/gateway': new URL(
+        '../../packages/runtime/src/gateway/index.ts',
+        import.meta.url,
+      ).pathname,
       // T11257 R6: @cleocode/runtime root alias for runtime index.
       '@cleocode/runtime': new URL('../../packages/runtime/src/index.ts', import.meta.url)
         .pathname,

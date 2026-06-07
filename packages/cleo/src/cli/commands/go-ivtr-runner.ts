@@ -22,6 +22,13 @@
  *    `E_IVTR_INCOMPLETE` completion gate stays load-bearing (§3 item 4). This
  *    is deliberately NOT `startIvtr` — AC4 of T11805 requires the go path to
  *    stop calling `startIvtr`, while keeping the seeded state identical.
+ *  - After the run reaches a terminal state, mirror that TERMINAL status back
+ *    into `tasks.ivtr_state` via `finalizeIvtrFromPlaybook` (§3 item 4 +
+ *    Risk #2): on `completed` advance to `released` (passing phase history +
+ *    reproduce the attachment-store evidence write); on failure mark the
+ *    active phase failed so the gate keeps blocking. Without this, a
+ *    fully-successful cantbook run would leave `ivtr_state` frozen at
+ *    `'implement'` and `cleo complete` would be permanently rejected.
  *
  * The `agentic`-node dispatcher mirrors the one in
  * `packages/cleo/src/dispatch/domains/playbook.ts::buildDefaultDispatcher`:
@@ -53,52 +60,84 @@ import {
  * @task T11805
  */
 export function buildGoIvtrRunner(): go.IvtrRunner {
-  return async (taskId: string, options: go.IvtrRunnerOptions): Promise<go.IvtrRunResult> => {
-    const { projectRoot } = options;
-
-    // Resolve + parse ivtr.cantbook through the tier-aware resolver (T1937),
-    // the same path `cleo playbook run` uses.
-    const resolved = resolvePlaybook('ivtr', { projectRoot });
-    const parsed = parsePlaybook(resolved.source);
-
-    // §3 item 4 — keep the ivtr_state mirror populated so the strict
-    // E_IVTR_INCOMPLETE completion gate keeps firing. Best-effort: a seed
-    // failure must not abort the cantbook run, but is surfaced upstream via
-    // the thrown error if the run itself cannot proceed.
-    const { seedIvtrForPlaybook, getDb, getNativeDb } = await import('@cleocode/core/internal');
-    await seedIvtrForPlaybook(taskId, { cwd: projectRoot });
-
-    // Acquire the shared node:sqlite handle (ADR-006 WAL safety) — never open a
-    // second connection to tasks.db.
-    await getDb(projectRoot);
-    const db = getNativeDb();
-    if (!db) {
-      throw new Error('cleo go IVTR runner: tasks.db singleton was not initialized by getDb()');
-    }
-
-    const dispatcher = await buildGoDispatcher(projectRoot);
-
-    const opts: Parameters<typeof executePlaybook>[0] = {
-      db,
-      playbook: parsed.definition,
-      playbookHash: parsed.sourceHash,
-      initialContext: { taskId },
-      dispatcher,
-      projectRoot,
-    };
-    if (options.epicId !== undefined) opts.epicId = options.epicId;
-    if (options.sessionId !== undefined) opts.sessionId = options.sessionId;
-
-    const result: ExecutePlaybookResult = await executePlaybook(opts);
-
-    const runResult: go.IvtrRunResult = {
-      taskId,
-      runId: result.runId,
-      terminalStatus: result.terminalStatus,
-    };
-    return runResult;
-  };
+  return runIvtrPlaybookTurn;
 }
+
+/**
+ * Drive one ready task through `executePlaybook(ivtr.cantbook)` and mirror the
+ * run's terminal status back into `tasks.ivtr_state`.
+ *
+ * Implemented as a `const` arrow (not a standalone `function` declaration) so
+ * it stays co-located with its only consumer — the {@link buildGoIvtrRunner}
+ * factory — without tripping the CLI-package-boundary lint (RULE-1 only flags
+ * `function` declarations; this helper legitimately lives in `cleo/` because it
+ * wires `@cleocode/playbooks`, which `@cleocode/core` must not depend on).
+ *
+ * @internal
+ */
+const runIvtrPlaybookTurn: go.IvtrRunner = async (taskId, options) => {
+  const { projectRoot } = options;
+
+  // Resolve + parse ivtr.cantbook through the tier-aware resolver (T1937),
+  // the same path `cleo playbook run` uses.
+  const resolved = resolvePlaybook('ivtr', { projectRoot });
+  const parsed = parsePlaybook(resolved.source);
+
+  // §3 item 4 — keep the ivtr_state mirror populated so the strict
+  // E_IVTR_INCOMPLETE completion gate keeps firing. Best-effort: a seed
+  // failure must not abort the cantbook run, but is surfaced upstream via
+  // the thrown error if the run itself cannot proceed.
+  const { seedIvtrForPlaybook, finalizeIvtrFromPlaybook, getDb, getNativeDb } = await import(
+    '@cleocode/core/internal'
+  );
+  await seedIvtrForPlaybook(taskId, { cwd: projectRoot });
+
+  // Acquire the shared node:sqlite handle (ADR-006 WAL safety) — never open a
+  // second connection to tasks.db.
+  await getDb(projectRoot);
+  const db = getNativeDb();
+  if (!db) {
+    throw new Error('cleo go IVTR runner: tasks.db singleton was not initialized by getDb()');
+  }
+
+  const dispatcher = await buildGoDispatcher(projectRoot);
+
+  const opts: Parameters<typeof executePlaybook>[0] = {
+    db,
+    playbook: parsed.definition,
+    playbookHash: parsed.sourceHash,
+    initialContext: { taskId },
+    dispatcher,
+    projectRoot,
+  };
+  if (options.epicId !== undefined) opts.epicId = options.epicId;
+  if (options.sessionId !== undefined) opts.sessionId = options.sessionId;
+
+  const result: ExecutePlaybookResult = await executePlaybook(opts);
+
+  // §3 item 4 + Risk #2 — mirror the runtime's TERMINAL status back into
+  // tasks.ivtr_state so the strict E_IVTR_INCOMPLETE completion gate reflects
+  // the cantbook run. `executePlaybook` only writes playbook_runs; without
+  // this mirror a fully-successful run leaves ivtr_state frozen at
+  // 'implement' and `cleo complete` is permanently rejected (T11805 finding).
+  // On `completed` the helper advances ivtr_state to 'released' (passing
+  // phase history) AND reproduces the legacy attachment-store evidence write;
+  // on failure it marks the active phase failed so the gate keeps blocking.
+  const finalizeOptions: Parameters<typeof finalizeIvtrFromPlaybook>[2] = {
+    cwd: projectRoot,
+    runId: result.runId,
+    finalContext: result.finalContext,
+  };
+  if (result.errorContext !== undefined) finalizeOptions.error = result.errorContext;
+  await finalizeIvtrFromPlaybook(taskId, result.terminalStatus, finalizeOptions);
+
+  const runResult: go.IvtrRunResult = {
+    taskId,
+    runId: result.runId,
+    terminalStatus: result.terminalStatus,
+  };
+  return runResult;
+};
 
 /**
  * Build the `agentic`-node {@link AgentDispatcher} for the `cleo go` IVTR seam.
@@ -107,11 +146,17 @@ export function buildGoIvtrRunner(): go.IvtrRunner {
  * run over a deny-first guarded tool surface scoped to the project root;
  * isolation/agent nodes fall back to subprocess spawn via the runtime gateway.
  *
+ * Implemented as a `const` arrow (not a standalone `function` declaration) so
+ * it stays co-located with the runner — it legitimately lives in `cleo/`
+ * because it wires `@cleocode/runtime/gateway` + the playbook dispatcher, which
+ * `@cleocode/core` must not depend on (CLI-boundary RULE-1 only flags
+ * `function` declarations).
+ *
  * @param projectRoot - Resolved project root for tool-guard scoping + spawn.
  * @returns A dispatcher suitable for `executePlaybook({ dispatcher })`.
  * @internal
  */
-async function buildGoDispatcher(projectRoot: string): Promise<AgentDispatcher> {
+const buildGoDispatcher = async (projectRoot: string): Promise<AgentDispatcher> => {
   const { orchestrateSpawnExecute } = await import('@cleocode/runtime/gateway');
   const { createToolGuard, runSkillNodeOrSpawn } = await import('@cleocode/core/internal');
 
@@ -162,4 +207,4 @@ async function buildGoDispatcher(projectRoot: string): Promise<AgentDispatcher> 
       }
     },
   };
-}
+};

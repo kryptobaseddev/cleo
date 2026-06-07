@@ -20,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   advanceIvtr,
   E_IVTR_MAX_RETRIES,
+  finalizeIvtrFromPlaybook,
   getIvtrState,
   type ImplEvidenceSummary,
   loopBackIvtr,
@@ -135,6 +136,117 @@ describe('IVTR happy path', () => {
 
     expect(second.startedAt).toBe(first.startedAt);
     expect(second.phaseHistory).toHaveLength(1);
+  });
+
+  // T11805 — terminal-mirror: the `cleo go` cantbook seam mirrors the playbook
+  // run's TERMINAL status back into ivtr_state so the strict E_IVTR_INCOMPLETE
+  // gate reflects an autonomous run (collapse-plan §3 item 4 + Risk #2).
+  describe('finalizeIvtrFromPlaybook (T11805 terminal mirror)', () => {
+    it("on 'completed' advances seeded implement state to released with passing phase history", async () => {
+      // Seam seeds at implement (passed: null) — this is the frozen state the
+      // bug left behind. finalize must drive it to released.
+      const seeded = await seedIvtrForPlaybook('T999', { cwd: testDir });
+      expect(seeded.currentPhase).toBe('implement');
+      expect(seeded.phaseHistory[0]?.passed).toBeNull();
+
+      const result = await finalizeIvtrFromPlaybook('T999', 'completed', {
+        cwd: testDir,
+        runId: 'pbr_999',
+        finalContext: { taskId: 'T999', testsPassed: true, __lastError: 'should-be-stripped' },
+      });
+
+      expect(result.state?.currentPhase).toBe('released');
+      // implement/validate/audit/test all have a passing entry → gate passes.
+      for (const phase of ['implement', 'validate', 'audit', 'test'] as const) {
+        const hasPassed = result.state?.phaseHistory.some(
+          (e) => e.phase === phase && e.passed === true,
+        );
+        expect(hasPassed).toBe(true);
+      }
+      // No in-progress entry remains (gate's active-entry check passes).
+      expect(result.state?.phaseHistory.every((e) => e.completedAt !== null)).toBe(true);
+
+      // Persisted: read back as released.
+      const readBack = await getIvtrState('T999', { cwd: testDir });
+      expect(readBack?.currentPhase).toBe('released');
+    });
+
+    it("on 'completed' reproduces the attachment-store evidence write (sha256 recorded)", async () => {
+      await seedIvtrForPlaybook('T999', { cwd: testDir });
+      const result = await finalizeIvtrFromPlaybook('T999', 'completed', {
+        cwd: testDir,
+        runId: 'pbr_evidence',
+        finalContext: { taskId: 'T999', diff: 'abc' },
+      });
+
+      // A provenance evidence ref (sha256) is produced and recorded.
+      expect(result.evidenceRef).toMatch(/^[0-9a-f]{64}$/);
+      const allRefs = result.state?.phaseHistory.flatMap((e) => e.evidenceRefs) ?? [];
+      expect(allRefs).toContain(result.evidenceRef);
+    });
+
+    it("on 'failed' marks the active phase failed and leaves currentPhase un-advanced (gate blocks)", async () => {
+      await seedIvtrForPlaybook('T999', { cwd: testDir });
+      const result = await finalizeIvtrFromPlaybook('T999', 'failed', {
+        cwd: testDir,
+        runId: 'pbr_fail',
+        error: 'implement node exceeded retries',
+      });
+
+      expect(result.state?.currentPhase).toBe('implement'); // NOT released
+      const implEntry = result.state?.phaseHistory.find((e) => e.phase === 'implement');
+      expect(implEntry?.passed).toBe(false);
+      expect(implEntry?.reason).toMatch(/Playbook failed/);
+
+      // The strict gate (currentPhase !== 'released') would still block complete.
+      const readBack = await getIvtrState('T999', { cwd: testDir });
+      expect(readBack?.currentPhase).not.toBe('released');
+    });
+
+    it("on 'exceeded_iteration_cap' marks failed and does not release", async () => {
+      await seedIvtrForPlaybook('T999', { cwd: testDir });
+      const result = await finalizeIvtrFromPlaybook('T999', 'exceeded_iteration_cap', {
+        cwd: testDir,
+      });
+      expect(result.state?.currentPhase).toBe('implement');
+      const implEntry = result.state?.phaseHistory.find((e) => e.phase === 'implement');
+      expect(implEntry?.passed).toBe(false);
+    });
+
+    it("on 'pending_approval' is a no-op (run awaits HITL; later resume finalizes)", async () => {
+      await seedIvtrForPlaybook('T999', { cwd: testDir });
+      const result = await finalizeIvtrFromPlaybook('T999', 'pending_approval', { cwd: testDir });
+      expect(result.state?.currentPhase).toBe('implement');
+      // Seed entry stays in-progress (passed: null) — nothing was finalized.
+      expect(result.state?.phaseHistory[0]?.passed).toBeNull();
+    });
+
+    it('returns null state when no ivtr_state was seeded (defensive no-op)', async () => {
+      const result = await finalizeIvtrFromPlaybook('T999', 'completed', { cwd: testDir });
+      expect(result.state).toBeNull();
+    });
+
+    it('is idempotent when already released', async () => {
+      await seedIvtrForPlaybook('T999', { cwd: testDir });
+      await finalizeIvtrFromPlaybook('T999', 'completed', { cwd: testDir, runId: 'r1' });
+      const second = await finalizeIvtrFromPlaybook('T999', 'completed', {
+        cwd: testDir,
+        runId: 'r2',
+      });
+      expect(second.state?.currentPhase).toBe('released');
+    });
+
+    it('end-to-end: seed → finalize(completed) yields a state the strict gate accepts', async () => {
+      // Mirror the gate's own check (complete.ts:1400): ivtrState !== null &&
+      // currentPhase !== 'released' → reject. After finalize, this must pass.
+      await seedIvtrForPlaybook('T999', { cwd: testDir });
+      await finalizeIvtrFromPlaybook('T999', 'completed', { cwd: testDir, runId: 'pbr_gate' });
+
+      const state = await getIvtrState('T999', { cwd: testDir });
+      expect(state).not.toBeNull();
+      const gateWouldBlock = state !== null && state.currentPhase !== 'released';
+      expect(gateWouldBlock).toBe(false);
+    });
   });
 
   it('advanceIvtr transitions implement → validate', async () => {
