@@ -17,10 +17,21 @@
  *       research | specification | decomposition
  *         → { action: 'lifecycleHop', sagaId, epicId, currentStage }
  *       implementation | validation | testing | release | contribution
- *         → fan-out startIvtr over readyFrontier tasks
- *         → { action: 'ivtrFanOut', sagaId, epicId, tasks: string[] }
+ *         → fan-out the injected IVTR runner over readyFrontier tasks
+ *         → { action: 'ivtrFanOut', sagaId, epicId, tasks: string[], runIds: string[] }
  *   → return ONE LAFS-compatible EngineResult envelope
  * ```
+ *
+ * ## IVTR seam (T11805 · E-ORCH-STATE-MACHINE-COLLAPSE / T11764)
+ *
+ * The implementation+ branch no longer seeds the hand-rolled IVTR phase walk
+ * (`startIvtr`). Instead it fans out an injected {@link IvtrRunner} — supplied
+ * by the CLI `cleo go` handler — that drives each task through
+ * `executePlaybook(ivtr.cantbook)` (the cantbook runtime, the survivor state
+ * machine). The runtime's `on_failure.inject_into: implement` edge reproduces
+ * the IVTR loop-back walk. The driver stays in `@cleocode/core` and must NOT
+ * import `@cleocode/playbooks` (that would invert the package dependency), so
+ * the runtime call is injected as a callback rather than referenced directly.
  *
  * ## Design constraints
  *
@@ -39,7 +50,6 @@
 import type { TaskViewPipelineStage } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { armGoalLoop } from '../goal/arm.js';
-import { startIvtr } from '../lifecycle/ivtr-loop.js';
 import { orchestrateReady } from '../orchestrate/query-ops.js';
 import { getProjectRoot } from '../paths.js';
 import { sagaNext } from '../sagas/next.js';
@@ -47,6 +57,67 @@ import { sagaNext } from '../sagas/next.js';
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+/**
+ * Outcome of a single IVTR playbook run started by the seam (T11805).
+ *
+ * Returned by {@link IvtrRunner} so the driver can both report the started
+ * task and surface the `playbook_runs.run_id` for resume-on-next-turn.
+ *
+ * @task T11805 — E-ORCH-STATE-MACHINE-COLLAPSE / T11764
+ */
+export interface IvtrRunResult {
+  /** The task whose `ivtr.cantbook` run was started. */
+  taskId: string;
+  /**
+   * The `playbook_runs.run_id` of the started run, when the runtime created
+   * one. Absent only when the runner cannot reach a run id (e.g. a pre-flight
+   * failure before the run row is written).
+   */
+  runId?: string;
+  /**
+   * Terminal status reported by the cantbook runtime for this turn, when the
+   * run reached a terminal node (`completed | failed | pending_approval |
+   * exceeded_iteration_cap`). Absent when the runner only seeded the run.
+   */
+  terminalStatus?: string;
+}
+
+/**
+ * Options handed to an {@link IvtrRunner} for a single task.
+ *
+ * @task T11805
+ */
+export interface IvtrRunnerOptions {
+  /** Resolved project root for playbook resolution + audit writes. */
+  projectRoot: string;
+  /**
+   * Session id persisted onto `playbook_runs.session_id` (evidence/provenance
+   * gate parameter). Absent when no session is active.
+   */
+  sessionId?: string;
+  /** Parent epic id persisted onto `playbook_runs.epic_id` for dashboards. */
+  epicId?: string;
+}
+
+/**
+ * Injected callback that drives one task's IVTR loop through the cantbook
+ * runtime (`executePlaybook(ivtr.cantbook)`).
+ *
+ * The driver lives in `@cleocode/core`, which must not depend on
+ * `@cleocode/playbooks`; the runtime call is therefore injected by the CLI
+ * `cleo go` handler (which already imports `@cleocode/playbooks`). The runner
+ * is responsible for:
+ *   - resolving + parsing `ivtr.cantbook`,
+ *   - seeding `initialContext = { taskId }`,
+ *   - calling `executePlaybook` with `taskId` (via context) + `sessionId` +
+ *     the evidence-gate parameters the cantbook encodes,
+ *   - keeping `tasks.ivtr_state` populated so the strict `E_IVTR_INCOMPLETE`
+ *     completion gate stays load-bearing (collapse-plan §3 item 4).
+ *
+ * @task T11805
+ */
+export type IvtrRunner = (taskId: string, options: IvtrRunnerOptions) => Promise<IvtrRunResult>;
 
 /**
  * Input parameters for {@link cleoGo}.
@@ -66,6 +137,19 @@ export interface CleoGoParams {
   headless?: boolean;
   /** Override project root (useful in tests). */
   projectRoot?: string;
+  /**
+   * Required for the implementation+ branch (T11805). Drives each ready task
+   * through `executePlaybook(ivtr.cantbook)`. Injected by the CLI handler so
+   * the core driver never imports the playbooks runtime. When omitted, the
+   * driver still selects the IVTR branch but reports each task as a failed
+   * start (no behaviour is silently skipped).
+   */
+  ivtrRunner?: IvtrRunner;
+  /**
+   * Session id forwarded to {@link IvtrRunner} for `playbook_runs.session_id`
+   * provenance. Best-effort; absent when no session is active.
+   */
+  sessionId?: string;
 }
 
 /**
@@ -95,13 +179,25 @@ export type CleoGoAction =
       readyFrontier: string[];
     }
   | {
-      /** Fan-out: IVTR started for each task on the ready frontier. */
+      /**
+       * Fan-out: an IVTR cantbook run was started for each task on the ready
+       * frontier (T11805 — `executePlaybook(ivtr.cantbook)`, no longer
+       * `startIvtr`).
+       */
       action: 'ivtrFanOut';
       sagaId: string;
       epicId: string;
       currentStage: TaskViewPipelineStage;
-      /** Task IDs for which IVTR was initiated (non-empty). */
+      /** Task IDs for which an IVTR playbook run was initiated. */
       tasks: string[];
+      /**
+       * `playbook_runs.run_id` for each started run, positionally aligned to
+       * the tasks that produced one. Lets the autopilot resume paused runs on
+       * the next turn.
+       *
+       * @task T11805
+       */
+      runIds: string[];
     }
   | {
       /** No non-terminal sagas remain — the workgraph is complete. */
@@ -157,9 +253,9 @@ const PRE_IMPLEMENTATION_STAGES = new Set<TaskViewPipelineStage>([
  * Run one turn of the `cleo go` autopilot pipeline.
  *
  * Returns a single LAFS-compatible {@link EngineResult} wrapping a
- * {@link CleoGoResult}. Each call is stateless (side effects — IVTR writes,
- * lifecycle progression — happen inside the called engines); the driver itself
- * carries no mutable state.
+ * {@link CleoGoResult}. Each call is stateless (side effects — IVTR cantbook
+ * runs via the injected {@link IvtrRunner}, lifecycle progression — happen
+ * inside the called engines); the driver itself carries no mutable state.
  *
  * @param params - Input parameters controlling the saga scope and mode.
  * @returns EngineResult with {@link CleoGoResult}.
@@ -276,12 +372,47 @@ export async function cleoGo(params: CleoGoParams = {}): Promise<EngineResult<Cl
     });
   }
 
-  // 7. Implementation+ → fan-out IVTR over the ready frontier.
+  // 7. Implementation+ → fan-out the IVTR cantbook runner over the ready
+  //    frontier (T11805). Each ready task is driven through
+  //    `executePlaybook(ivtr.cantbook)` via the injected runner instead of the
+  //    hand-rolled `startIvtr` phase walk. The runner is injected by the CLI
+  //    handler so the core driver never imports `@cleocode/playbooks`.
   const ivtrStarted: string[] = [];
+  const ivtrRunIds: string[] = [];
+
+  if (!params.ivtrRunner) {
+    // No runner injected — the IVTR branch was selected but cannot execute.
+    // Surface this explicitly rather than silently skipping (AC3 ethos).
+    diagnostics.push(
+      `IVTR runner not provided — cannot drive ${readyFrontier.length} task(s) through ivtr.cantbook`,
+    );
+    return engineSuccess<CleoGoResult>({
+      outcome: {
+        action: 'ivtrFanOut',
+        sagaId,
+        epicId,
+        currentStage,
+        tasks: ivtrStarted,
+        runIds: ivtrRunIds,
+      },
+      diagnostics,
+      armedGoalId,
+    });
+  }
+
+  const runnerOptions: IvtrRunnerOptions = { projectRoot: root, epicId };
+  if (params.sessionId !== undefined) runnerOptions.sessionId = params.sessionId;
+
   for (const taskId of readyFrontier) {
     try {
-      await startIvtr(taskId, { cwd: root });
-      ivtrStarted.push(taskId);
+      const runResult = await params.ivtrRunner(taskId, runnerOptions);
+      ivtrStarted.push(runResult.taskId);
+      if (runResult.runId !== undefined) ivtrRunIds.push(runResult.runId);
+      diagnostics.push(
+        `IVTR cantbook started for ${runResult.taskId}` +
+          `${runResult.runId ? ` (run ${runResult.runId})` : ''}` +
+          `${runResult.terminalStatus ? ` → ${runResult.terminalStatus}` : ''}`,
+      );
     } catch (err: unknown) {
       diagnostics.push(`IVTR start failed for ${taskId}: ${(err as Error).message}`);
     }
@@ -291,7 +422,9 @@ export async function cleoGo(params: CleoGoParams = {}): Promise<EngineResult<Cl
     // All IVTR starts failed — surface the errors but return gracefully.
     diagnostics.push(`All ${readyFrontier.length} IVTR starts failed — see diagnostics`);
   } else {
-    diagnostics.push(`IVTR started for ${ivtrStarted.length} task(s): ${ivtrStarted.join(', ')}`);
+    diagnostics.push(
+      `IVTR cantbook started for ${ivtrStarted.length} task(s): ${ivtrStarted.join(', ')}`,
+    );
   }
 
   return engineSuccess<CleoGoResult>({
@@ -301,6 +434,7 @@ export async function cleoGo(params: CleoGoParams = {}): Promise<EngineResult<Cl
       epicId,
       currentStage,
       tasks: ivtrStarted,
+      runIds: ivtrRunIds,
     },
     diagnostics,
     armedGoalId,

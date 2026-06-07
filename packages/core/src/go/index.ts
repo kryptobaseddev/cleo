@@ -15,4 +15,7 @@ export {
   type CleoGoParams,
   type CleoGoResult,
   cleoGo,
+  type IvtrRunner,
+  type IvtrRunnerOptions,
+  type IvtrRunResult,
 } from './driver.js';

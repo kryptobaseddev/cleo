@@ -194,17 +194,36 @@ export async function startIvtr(
     return existing;
   }
 
+  const state = buildInitialIvtrState(taskId, options?.agentIdentity ?? null);
+  await writeIvtrState(state, options?.cwd);
+  log.info({ taskId }, 'IVTR loop started at implement phase');
+  return state;
+}
+
+/**
+ * Build the canonical fresh {@link IvtrState} seeded at the `implement` phase.
+ *
+ * Shared between {@link startIvtr} (the manual/legacy walk) and
+ * {@link seedIvtrForPlaybook} (the `cleo go` cantbook seam, T11805) so both
+ * paths produce byte-identical initial state.
+ *
+ * @param taskId - Task the IVTR loop is seeded for.
+ * @param agentIdentity - Agent identity string for the first phase entry, or
+ *   `null` when unknown.
+ * @returns A fresh schema-v2 {@link IvtrState} at `currentPhase: 'implement'`.
+ */
+function buildInitialIvtrState(taskId: string, agentIdentity: string | null): IvtrState {
   const now = new Date().toISOString();
   const entry: IvtrPhaseEntry = {
     phase: 'implement',
-    agentIdentity: options?.agentIdentity ?? null,
+    agentIdentity,
     startedAt: now,
     completedAt: null,
     passed: null,
     evidenceRefs: [],
   };
 
-  const state: IvtrState = {
+  return {
     taskId,
     schemaVersion: 2,
     currentPhase: 'implement',
@@ -212,9 +231,42 @@ export async function startIvtr(
     startedAt: now,
     loopBackCount: { implement: 0, validate: 0, audit: 0, test: 0, released: 0 },
   };
+}
 
+/**
+ * Seed the `tasks.ivtr_state` mirror for a task whose IVTR loop is now driven
+ * by `executePlaybook(ivtr.cantbook)` rather than the hand-rolled phase walk
+ * (T11805 · collapse-plan §3 item 4).
+ *
+ * The strict completion gate `E_IVTR_INCOMPLETE` (`tasks/complete.ts`) fires
+ * **only when `ivtr_state !== null`**. The `cleo go` seam removed `startIvtr`
+ * — the historical sole writer of that column — from the autopilot path; this
+ * helper restores the writer so the gate stays load-bearing while the column
+ * is retained for one deprecation cycle. It is intentionally **not**
+ * `startIvtr`: AC4 of T11805 requires the go path to no longer call
+ * `startIvtr`, but the seeded state must remain identical, so both share
+ * {@link buildInitialIvtrState}.
+ *
+ * Idempotent: a task that already has IVTR state is left untouched and its
+ * existing state is returned.
+ *
+ * @param taskId - Task to seed `ivtr_state` for.
+ * @param options - Optional cwd and agent identity for the first phase entry.
+ * @returns The current (possibly newly seeded) {@link IvtrState}.
+ */
+export async function seedIvtrForPlaybook(
+  taskId: string,
+  options?: { cwd?: string; agentIdentity?: string },
+): Promise<IvtrState> {
+  const existing = await readIvtrStateRaw(taskId, options?.cwd);
+  if (existing) {
+    log.info({ taskId }, 'IVTR state already present; seam seed is a no-op');
+    return existing;
+  }
+
+  const state = buildInitialIvtrState(taskId, options?.agentIdentity ?? null);
   await writeIvtrState(state, options?.cwd);
-  log.info({ taskId }, 'IVTR loop started at implement phase');
+  log.info({ taskId }, 'IVTR state mirror seeded for cantbook-driven run');
   return state;
 }
 

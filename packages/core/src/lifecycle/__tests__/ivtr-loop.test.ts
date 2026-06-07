@@ -26,6 +26,7 @@ import {
   MAX_LOOP_BACKS_PER_PHASE,
   releaseIvtr,
   resolvePhasePrompt,
+  seedIvtrForPlaybook,
   startIvtr,
 } from '../ivtr-loop.js';
 
@@ -99,6 +100,41 @@ describe('IVTR happy path', () => {
   it('getIvtrState returns null before start', async () => {
     const state = await getIvtrState('T999', { cwd: testDir });
     expect(state).toBeNull();
+  });
+
+  // T11805 — the `cleo go` seam seeds ivtr_state via seedIvtrForPlaybook (NOT
+  // startIvtr) so the strict E_IVTR_INCOMPLETE completion gate stays
+  // load-bearing for cantbook-driven runs (collapse-plan §3 item 4).
+  it('seedIvtrForPlaybook produces the same implement-phase state as startIvtr', async () => {
+    const seeded = await seedIvtrForPlaybook('T999', { cwd: testDir });
+
+    expect(seeded.taskId).toBe('T999');
+    expect(seeded.currentPhase).toBe('implement');
+    expect(seeded.schemaVersion).toBe(2);
+    expect(seeded.phaseHistory).toHaveLength(1);
+    expect(seeded.phaseHistory[0]?.phase).toBe('implement');
+    expect(seeded.phaseHistory[0]?.passed).toBeNull();
+    expect(seeded.phaseHistory[0]?.completedAt).toBeNull();
+    expect(seeded.loopBackCount).toEqual({
+      implement: 0,
+      validate: 0,
+      audit: 0,
+      test: 0,
+      released: 0,
+    });
+
+    // Persisted: the strict gate reads it back as non-null.
+    const readBack = await getIvtrState('T999', { cwd: testDir });
+    expect(readBack).not.toBeNull();
+    expect(readBack?.currentPhase).toBe('implement');
+  });
+
+  it('seedIvtrForPlaybook is idempotent — second call returns existing state', async () => {
+    const first = await seedIvtrForPlaybook('T999', { cwd: testDir });
+    const second = await seedIvtrForPlaybook('T999', { cwd: testDir });
+
+    expect(second.startedAt).toBe(first.startedAt);
+    expect(second.phaseHistory).toHaveLength(1);
   });
 
   it('advanceIvtr transitions implement → validate', async () => {
