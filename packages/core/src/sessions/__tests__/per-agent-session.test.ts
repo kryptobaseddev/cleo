@@ -128,6 +128,50 @@ describe('resolveSessionIdFromEnv', () => {
 });
 
 // ---------------------------------------------------------------------------
+// resolveParentSessionIdFromEnv — fork-tree parent (supervisor-stamped, T11629)
+// ---------------------------------------------------------------------------
+
+describe('resolveParentSessionIdFromEnv (T11629)', () => {
+  afterEach(() => {
+    delete process.env['CLEO_PARENT_SESSION_ID'];
+    delete process.env['CLEO_SESSION_ID'];
+  });
+
+  it('returns null when CLEO_PARENT_SESSION_ID is unset (root process)', async () => {
+    const { resolveParentSessionIdFromEnv } = await import('../session-id.js');
+    expect(resolveParentSessionIdFromEnv()).toBeNull();
+  });
+
+  it('returns null when CLEO_PARENT_SESSION_ID is empty (treated as absent)', async () => {
+    process.env['CLEO_PARENT_SESSION_ID'] = '';
+    const { resolveParentSessionIdFromEnv } = await import('../session-id.js');
+    expect(resolveParentSessionIdFromEnv()).toBeNull();
+  });
+
+  it('returns the supervisor-stamped fork-tree parent session id', async () => {
+    process.env['CLEO_PARENT_SESSION_ID'] = 'ses_root_supervisor';
+    const { resolveParentSessionIdFromEnv } = await import('../session-id.js');
+    expect(resolveParentSessionIdFromEnv()).toBe('ses_root_supervisor');
+  });
+
+  it('is independent of the process own session id (child vs parent edge)', async () => {
+    // The fork-tree CHILD (this process) and its PARENT are distinct edges.
+    process.env['CLEO_SESSION_ID'] = 'ses_worker_child';
+    process.env['CLEO_PARENT_SESSION_ID'] = 'ses_root_parent';
+    const { resolveParentSessionIdFromEnv, resolveSessionIdFromEnv } = await import(
+      '../session-id.js'
+    );
+    expect(resolveSessionIdFromEnv()).toBe('ses_worker_child');
+    expect(resolveParentSessionIdFromEnv()).toBe('ses_root_parent');
+  });
+
+  it('exposes CLEO_PARENT_SESSION_ID as the canonical PARENT_SESSION_ENV_KEY', async () => {
+    const { PARENT_SESSION_ENV_KEY } = await import('../session-id.js');
+    expect(PARENT_SESSION_ENV_KEY).toBe('CLEO_PARENT_SESSION_ID');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // sessionStart — per-agent conflict scoping
 // ---------------------------------------------------------------------------
 

@@ -1222,10 +1222,13 @@ export {
   switchSession,
 } from './sessions/index.js';
 // Canonical env-first session/agent identity resolution (T11344 · T11343 · Epic T11284)
+// T11629 — fork-tree PARENT session resolution (supervisor-stamped)
 export {
   CANONICAL_SESSION_ENV_KEY,
   generateSessionId,
+  PARENT_SESSION_ENV_KEY,
   resolveAgentIdFromEnv,
+  resolveParentSessionIdFromEnv,
   resolveSessionIdFromEnv,
   SESSION_ENV_KEY_PRECEDENCE,
 } from './sessions/session-id.js';

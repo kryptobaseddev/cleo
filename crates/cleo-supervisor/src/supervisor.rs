@@ -42,6 +42,51 @@ use crate::ipc::{
 use crate::jobobject::JobObject;
 use crate::process;
 
+/// Canonical environment key carrying the active CLEO session id (T11347).
+///
+/// Mirror of `CANONICAL_SESSION_ENV_KEY` in
+/// `packages/core/src/sessions/session-id.ts`. The supervisor reads its OWN
+/// value of this key at startup to learn its root session id, and passes a
+/// child's value of this key through to the child VERBATIM (never rewriting it)
+/// so the worker resolves exactly ONE session via `resolveSessionIdFromEnv`
+/// with zero DB scan (T11629, DHQ-047 class).
+pub const SESSION_ID_ENV_KEY: &str = "CLEO_SESSION_ID";
+
+/// Canonical environment key carrying the active CLEO agent id (T11343).
+///
+/// Mirror of the `CLEO_AGENT_ID` key read by `resolveAgentIdFromEnv` in
+/// `packages/core/src/sessions/session-id.ts`. Passed through to spawned
+/// children VERBATIM alongside [`SESSION_ID_ENV_KEY`].
+pub const AGENT_ID_ENV_KEY: &str = "CLEO_AGENT_ID";
+
+/// Canonical environment key carrying the fork-tree PARENT session id (T11629).
+///
+/// The supervisor stamps this key into every child it spawns, set to the
+/// supervisor's OWN root session id (the value of [`SESSION_ID_ENV_KEY`] in the
+/// supervisor's environment at startup). The Node side reads it via
+/// `resolveParentSessionIdFromEnv` to build the session fork tree, attributing
+/// each worker session to the supervisor root that spawned it.
+///
+/// An explicit `CLEO_PARENT_SESSION_ID` already present on a [`SpawnRequest`]
+/// takes precedence — the caller may override the fork-tree parent (e.g. a
+/// nested orchestrator). The supervisor only stamps the default when the
+/// request did not supply one.
+pub const PARENT_SESSION_ID_ENV_KEY: &str = "CLEO_PARENT_SESSION_ID";
+
+/// Read the supervisor's own root session id from its process environment
+/// ([`SESSION_ID_ENV_KEY`]) (T11629).
+///
+/// An empty value is treated as absent (mirrors the TS
+/// `resolveSessionIdFromEnv`, which skips empty-string env vars), so a
+/// supervisor launched with `CLEO_SESSION_ID=""` stamps no fork-tree parent.
+#[must_use]
+fn read_root_session_from_env() -> Option<String> {
+    match std::env::var(SESSION_ID_ENV_KEY) {
+        Ok(v) if !v.is_empty() => Some(v),
+        _ => None,
+    }
+}
+
 /// Default grace window between SIGTERM and SIGKILL when stopping a child.
 ///
 /// Matches the 10-second grace period the TS `StudioSupervisor.stop()` uses.
@@ -459,16 +504,76 @@ pub struct ChildRegistry {
     children: Arc<Mutex<HashMap<String, ManagedChild>>>,
     events: UnboundedSender<LifecycleEvent>,
     started_at: std::time::Instant,
+    /// The supervisor's OWN root session id, captured at construction from the
+    /// [`SESSION_ID_ENV_KEY`] env var. Stamped as [`PARENT_SESSION_ID_ENV_KEY`]
+    /// (the fork-tree parent) onto every spawned child unless the request
+    /// already carries an explicit parent. `None` when the supervisor was
+    /// launched without a session id in its environment (T11629).
+    root_session_id: Option<String>,
 }
 
 impl ChildRegistry {
     /// Create an empty registry that publishes lifecycle events on `events`.
+    ///
+    /// Captures the supervisor's root session id from the process environment
+    /// ([`SESSION_ID_ENV_KEY`]) so it can be stamped as the fork-tree parent on
+    /// every child this registry spawns (T11629).
     #[must_use]
     pub fn new(events: UnboundedSender<LifecycleEvent>) -> Self {
+        Self::with_root_session(events, read_root_session_from_env())
+    }
+
+    /// Create an empty registry with an explicit root session id, bypassing the
+    /// process-environment read.
+    ///
+    /// This is the seam tests use to assert the stamped fork-tree parent
+    /// deterministically without mutating the shared process environment
+    /// (T11629). Production code uses [`ChildRegistry::new`].
+    #[must_use]
+    pub fn with_root_session(
+        events: UnboundedSender<LifecycleEvent>,
+        root_session_id: Option<String>,
+    ) -> Self {
         Self {
             children: Arc::new(Mutex::new(HashMap::new())),
             events,
             started_at: std::time::Instant::now(),
+            root_session_id,
+        }
+    }
+
+    /// The supervisor's root session id (the fork-tree parent stamped onto
+    /// children), if one was present in the environment at construction.
+    #[must_use]
+    pub fn root_session_id(&self) -> Option<&str> {
+        self.root_session_id.as_deref()
+    }
+
+    /// Stamp the fork-tree parent session ([`PARENT_SESSION_ID_ENV_KEY`]) into a
+    /// child's environment override list (T11629).
+    ///
+    /// Semantics:
+    ///
+    ///   * If the request ALREADY carries an explicit `CLEO_PARENT_SESSION_ID`
+    ///     override, it is left untouched — the caller's declared fork-tree
+    ///     parent wins (e.g. a nested orchestrator chains its own root through).
+    ///   * Otherwise, when the supervisor has a root session id, append
+    ///     `CLEO_PARENT_SESSION_ID=<root>` so the worker's session is attributed
+    ///     to the supervisor root that spawned it.
+    ///   * When the supervisor has no root session id, nothing is stamped.
+    ///
+    /// This NEVER mutates the verbatim pass-through keys (`CLEO_SESSION_ID` /
+    /// `CLEO_AGENT_ID`): those flow through unchanged so the worker resolves
+    /// exactly one session with no DB scan.
+    fn stamp_parent_session(&self, env: &mut Vec<(String, String)>) {
+        let already_present = env
+            .iter()
+            .any(|(k, _)| k == PARENT_SESSION_ID_ENV_KEY);
+        if already_present {
+            return;
+        }
+        if let Some(root) = &self.root_session_id {
+            env.push((PARENT_SESSION_ID_ENV_KEY.to_string(), root.clone()));
         }
     }
 
@@ -501,7 +606,12 @@ impl ChildRegistry {
             }
         }
 
-        let spec = ChildSpec::from(req);
+        let mut spec = ChildSpec::from(req);
+        // Stamp the fork-tree parent (the supervisor's root session) before the
+        // spec is stored, so it is reapplied verbatim on every restart too
+        // (T11629). The pass-through env keys (CLEO_SESSION_ID / CLEO_AGENT_ID)
+        // are NOT touched here — they flow through ChildSpec::from unmodified.
+        self.stamp_parent_session(&mut spec.env);
         let job = Arc::new(JobObject::new().map_err(|e| RegistryError::Spawn {
             child_id: child_id.clone(),
             source: anyhow::Error::new(e),
@@ -1085,5 +1195,243 @@ mod tests {
         let w = registry.spawn(&spawn_req_sleep("h", 30)).await.expect("spawn");
         assert_eq!(registry.child_count().await, 1);
         let _ = process::force_kill(w.pid);
+    }
+
+    // ── Session-env stamping + verbatim passthrough (T11629) ────────────────
+
+    /// Build a spawn request whose child dumps the three session env vars it
+    /// actually sees (one per line, in order: session, agent, parent) into
+    /// `out_path`, then exits. Reading the file back proves what env the
+    /// supervisor handed the child VERBATIM.
+    #[cfg(unix)]
+    fn spawn_req_dump_env(
+        child_id: &str,
+        out_path: &std::path::Path,
+        env: Vec<EnvPair>,
+    ) -> SpawnRequest {
+        let script = format!(
+            "printf '%s\\n%s\\n%s\\n' \"$CLEO_SESSION_ID\" \"$CLEO_AGENT_ID\" \"$CLEO_PARENT_SESSION_ID\" > {}",
+            out_path.display()
+        );
+        SpawnRequest {
+            child_id: child_id.into(),
+            program: "/bin/sh".into(),
+            args: vec!["-c".into(), script],
+            env,
+            cwd: None,
+        }
+    }
+
+    /// Wait (bounded) for the child's env-dump file to materialise, then return
+    /// its three lines: (session, agent, parent).
+    #[cfg(unix)]
+    async fn read_dumped_env(out_path: &std::path::Path) -> (String, String, String) {
+        for _ in 0..200 {
+            if let Ok(contents) = std::fs::read_to_string(out_path) {
+                let mut lines = contents.lines();
+                let session = lines.next().unwrap_or_default().to_string();
+                let agent = lines.next().unwrap_or_default().to_string();
+                let parent = lines.next().unwrap_or_default().to_string();
+                return (session, agent, parent);
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("child never wrote its env dump file at {}", out_path.display());
+    }
+
+    /// AC(a): the supervisor passes the stamped `CLEO_SESSION_ID` /
+    /// `CLEO_AGENT_ID` env block through to the spawned child VERBATIM — no
+    /// filtering, no rewrite. The child observes the EXACT values the request
+    /// carried.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn registry_passes_session_env_to_child_verbatim() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let out = dir.path().join("env.txt");
+        let (tx, _rx) = unbounded_channel();
+        // Registry with NO root session, so the parent stamp does not interfere
+        // with the verbatim-passthrough assertion.
+        let registry = ChildRegistry::with_root_session(tx, None);
+
+        let want_session = "ses_20260607150503_7962a8";
+        let want_agent = "agent-t11629";
+        let req = spawn_req_dump_env(
+            "verbatim",
+            &out,
+            vec![
+                EnvPair {
+                    key: "CLEO_SESSION_ID".into(),
+                    value: want_session.into(),
+                },
+                EnvPair {
+                    key: "CLEO_AGENT_ID".into(),
+                    value: want_agent.into(),
+                },
+            ],
+        );
+        registry.spawn(&req).await.expect("spawn");
+
+        let (session, agent, parent) = read_dumped_env(&out).await;
+        assert_eq!(
+            session, want_session,
+            "CLEO_SESSION_ID must reach the child byte-for-byte"
+        );
+        assert_eq!(
+            agent, want_agent,
+            "CLEO_AGENT_ID must reach the child byte-for-byte"
+        );
+        // No root session on the registry and no explicit parent on the request,
+        // so the child sees an empty parent.
+        assert_eq!(parent, "", "no parent should be stamped without a root session");
+    }
+
+    /// AC(b): the supervisor's OWN root session id is stamped onto the child as
+    /// `CLEO_PARENT_SESSION_ID` (the fork-tree parent), while the child's own
+    /// `CLEO_SESSION_ID` still passes through verbatim.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn registry_stamps_root_session_as_parent_on_child() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let out = dir.path().join("env.txt");
+        let (tx, _rx) = unbounded_channel();
+        let root = "ses_20260607150503_7962a8";
+        let registry = ChildRegistry::with_root_session(tx, Some(root.into()));
+        assert_eq!(registry.root_session_id(), Some(root));
+
+        let want_session = "ses_20260607151111_abcdef";
+        let req = spawn_req_dump_env(
+            "forked",
+            &out,
+            vec![EnvPair {
+                key: "CLEO_SESSION_ID".into(),
+                value: want_session.into(),
+            }],
+        );
+        registry.spawn(&req).await.expect("spawn");
+
+        let (session, _agent, parent) = read_dumped_env(&out).await;
+        assert_eq!(session, want_session, "worker session passes through verbatim");
+        assert_eq!(
+            parent, root,
+            "supervisor root session must become the child's CLEO_PARENT_SESSION_ID"
+        );
+    }
+
+    /// AC(b) override: an explicit `CLEO_PARENT_SESSION_ID` on the request takes
+    /// precedence — the supervisor does NOT clobber a caller-declared fork-tree
+    /// parent with its own root.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn registry_explicit_parent_session_overrides_root() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let out = dir.path().join("env.txt");
+        let (tx, _rx) = unbounded_channel();
+        let registry = ChildRegistry::with_root_session(tx, Some("ses_root_aaaa".into()));
+
+        let explicit_parent = "ses_explicit_bbbb";
+        let req = spawn_req_dump_env(
+            "explicit",
+            &out,
+            vec![EnvPair {
+                key: "CLEO_PARENT_SESSION_ID".into(),
+                value: explicit_parent.into(),
+            }],
+        );
+        registry.spawn(&req).await.expect("spawn");
+
+        let (_session, _agent, parent) = read_dumped_env(&out).await;
+        assert_eq!(
+            parent, explicit_parent,
+            "an explicit request parent must win over the supervisor root"
+        );
+    }
+
+    /// `stamp_parent_session` is a pure transform on the env override list: it
+    /// appends the parent only when absent, leaves the pass-through keys
+    /// untouched, and no-ops without a root session.
+    #[test]
+    fn stamp_parent_session_is_idempotent_and_non_destructive() {
+        let (tx, _rx) = unbounded_channel();
+
+        // With a root session: appends the parent, preserves existing keys.
+        let with_root = ChildRegistry::with_root_session(tx.clone(), Some("ses_root".into()));
+        let mut env = vec![
+            ("CLEO_SESSION_ID".to_string(), "ses_child".to_string()),
+            ("CLEO_AGENT_ID".to_string(), "agent-x".to_string()),
+        ];
+        with_root.stamp_parent_session(&mut env);
+        assert_eq!(
+            env,
+            vec![
+                ("CLEO_SESSION_ID".to_string(), "ses_child".to_string()),
+                ("CLEO_AGENT_ID".to_string(), "agent-x".to_string()),
+                ("CLEO_PARENT_SESSION_ID".to_string(), "ses_root".to_string()),
+            ]
+        );
+
+        // Explicit parent already present: left untouched (no duplicate).
+        let mut env2 = vec![(
+            "CLEO_PARENT_SESSION_ID".to_string(),
+            "ses_explicit".to_string(),
+        )];
+        with_root.stamp_parent_session(&mut env2);
+        assert_eq!(
+            env2,
+            vec![(
+                "CLEO_PARENT_SESSION_ID".to_string(),
+                "ses_explicit".to_string()
+            )]
+        );
+
+        // No root session: no stamp.
+        let no_root = ChildRegistry::with_root_session(tx, None);
+        let mut env3 = vec![("CLEO_SESSION_ID".to_string(), "ses_child".to_string())];
+        no_root.stamp_parent_session(&mut env3);
+        assert_eq!(
+            env3,
+            vec![("CLEO_SESSION_ID".to_string(), "ses_child".to_string())]
+        );
+    }
+
+    /// The fork-tree parent stamp survives a restart: the replacement
+    /// incarnation is spawned from the SAME stored spec (stamped once at the
+    /// initial spawn), so the parent env is reapplied verbatim.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn registry_parent_stamp_persists_across_restart() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let out = dir.path().join("env.txt");
+        let (tx, _rx) = unbounded_channel();
+        let root = "ses_root_restart";
+        let registry = ChildRegistry::with_root_session(tx, Some(root.into()));
+
+        // A long-lived child so the first incarnation is still around to restart.
+        let script = format!(
+            "printf '%s\\n%s\\n%s\\n' \"$CLEO_SESSION_ID\" \"$CLEO_AGENT_ID\" \"$CLEO_PARENT_SESSION_ID\" > {}; sleep 30",
+            out.display()
+        );
+        let req = SpawnRequest {
+            child_id: "restartable".into(),
+            program: "/bin/sh".into(),
+            args: vec!["-c".into(), script],
+            env: vec![EnvPair {
+                key: "CLEO_SESSION_ID".into(),
+                value: "ses_worker".into(),
+            }],
+            cwd: None,
+        };
+        registry.spawn(&req).await.expect("spawn");
+        let (_s1, _a1, parent1) = read_dumped_env(&out).await;
+        assert_eq!(parent1, root);
+
+        // Restart and re-read the (overwritten) dump file.
+        std::fs::remove_file(&out).ok();
+        let restarted = registry.restart("restartable").await.expect("restart");
+        let (_s2, _a2, parent2) = read_dumped_env(&out).await;
+        assert_eq!(
+            parent2, root,
+            "restarted incarnation must still carry the fork-tree parent"
+        );
+        let _ = process::force_kill(restarted.pid);
     }
 }
