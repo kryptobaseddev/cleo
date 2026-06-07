@@ -51,7 +51,10 @@ import {
   reconcileJournal,
   tableExists,
 } from './migration-manager.js';
-import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
+import {
+  resolveConsolidatedJournalSiblings,
+  resolveCorePackageMigrationsFolder,
+} from './resolve-migrations-folder.js';
 import { listSqliteBackups } from './sqlite-backup.js';
 import { assertDbPathIsNotWorktreeResident } from './worktree-isolation-guard.js';
 
@@ -572,8 +575,16 @@ function runMigrations(nativeDb: DatabaseSync, db: NodeSQLiteDatabase<typeof sch
     createSafetyBackup(_dbPath);
   }
 
-  // Bootstrap baseline + reconcile stale journal entries
-  reconcileJournal(nativeDb, migrationsFolder, 'tasks', 'sqlite');
+  // Bootstrap baseline + reconcile stale journal entries.
+  // T11829: the drizzle-tasks lineage runs against the SHARED consolidated cleo.db
+  // journal — pass the OTHER lineages so their rows are not deleted as orphans.
+  reconcileJournal(
+    nativeDb,
+    migrationsFolder,
+    'tasks',
+    'sqlite',
+    resolveConsolidatedJournalSiblings('drizzle-tasks'),
+  );
 
   // Pre-migration column safety: ensure sessions table has the columns that the
   // wave0-schema-hardening migration SELECTs during its table rebuild. Without

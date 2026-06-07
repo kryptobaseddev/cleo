@@ -368,16 +368,29 @@ function buildSystemdUnit(cleoExec, scope) {
       ? `CLEO Sentient Daemon (epic ${scope.scopeEpicId} scoped)`
       : 'CLEO Sentient Daemon (autonomous task hygiene + dream cycles)';
 
+  // T11829 (fleet OOM fail-safe): bound the daemon's blast radius.
+  //   - StartLimitIntervalSec/StartLimitBurst: cap a crash-loop. The prior unit
+  //     respawned every RestartSec=5 with NO ceiling, so — combined with the
+  //     never-converging migration journal — it stacked opens until the host
+  //     OOM-killed. systemd now stops restarting after 5 failures in 60 s.
+  //   - NODE_OPTIONS=--max-old-space-size: a runaway daemon tick throws a
+  //     recoverable single-process JS heap OOM instead of growing unbounded.
+  //   - MemoryMax: best-effort soft cgroup ceiling (enforced only when the user
+  //     manager has memory-cgroup delegation; harmless otherwise).
   return `[Unit]
 Description=${description}
 Documentation=https://github.com/kryptobaseddev/cleocode
 After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
 ExecStart=${cleoExec} daemon start --foreground
 Restart=on-failure
 RestartSec=5
+MemoryMax=2G
+Environment=NODE_OPTIONS=--max-old-space-size=1536
 StandardOutput=append:${logFile}
 StandardError=append:${logFile}
 Environment=CLEO_SENTIENT_DAEMON=1${scopeEnv}

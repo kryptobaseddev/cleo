@@ -153,6 +153,14 @@ export {
   DocProvenanceRootNotFoundError,
   renderProvenanceGraphAsDot,
 } from './docs/build-provenance-graph.js';
+// Display-alias storage (T11875 — decoupled from slug; ADR reconcile T11676)
+export type { SetDisplayAliasParams, SetDisplayAliasResult } from './docs/display-alias.js';
+export {
+  SET_ALIAS_INVALID_CODE,
+  SET_ALIAS_NOT_FOUND_CODE,
+  SET_ALIAS_TAKEN_CODE,
+  setDisplayAlias,
+} from './docs/display-alias.js';
 // ── T11139 — docs audit trail (Saga T10516) ──────────────────────────────────
 export type {
   AuditFinding,
@@ -295,6 +303,7 @@ export {
   allocateAutoSlugForDispatch,
   applyAutoSlug,
   parseSlugSequence,
+  resolveDisplayNumber,
   resolveNextDocNumber,
 } from './docs/numbering.js';
 // Docs publish-pr foundation + new-doc flow (T9716 + T9718 — T9644 / Epic T9630 / Saga T9625)

@@ -400,6 +400,14 @@ export {
   provenanceSessionNodeSchema,
   provenanceTaskNodeSchema,
 } from './docs/provenance.js';
+// === docs.read core-SDK Contract (T11825) ===
+export type { DocBody, DocFrontmatter, DocReadResponse } from './docs/read.js';
+export {
+  docBodySchema,
+  docFrontmatterSchema,
+  docReadResponseSchema,
+  isDocReadResponse,
+} from './docs/read.js';
 // === DocsAccessor Contracts (T9063) ===
 export type {
   DocExportFormat,

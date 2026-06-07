@@ -74,6 +74,7 @@ export const PROVENANCE_NODE_KINDS = [
  * - `related-task`    — child task is related (non-parent) to parent
  * - `linked-decision` — node references a BRAIN decision
  * - `derived-from`    — node was derived from a prior artifact
+ * - `shares-topic`    — two docs co-occur on a canonical topic slug (T11826)
  *
  * @task T10166
  */
@@ -83,7 +84,8 @@ export type ProvenanceEdgeRelation =
   | 'superseded-by'
   | 'related-task'
   | 'linked-decision'
-  | 'derived-from';
+  | 'derived-from'
+  | 'shares-topic';
 
 /**
  * Frozen const array backing {@link ProvenanceEdgeRelation} — used by the
@@ -98,6 +100,7 @@ export const PROVENANCE_EDGE_RELATIONS = [
   'related-task',
   'linked-decision',
   'derived-from',
+  'shares-topic',
 ] as const satisfies ReadonlyArray<ProvenanceEdgeRelation>;
 
 /**

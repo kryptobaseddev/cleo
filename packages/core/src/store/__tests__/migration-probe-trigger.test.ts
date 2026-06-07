@@ -20,7 +20,7 @@
  *    empty so the table rebuild still completes.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,6 +31,10 @@ const __dirname = dirname(__filename);
 
 function getTasksMigrationsFolder(): string {
   return join(__dirname, '..', '..', '..', 'migrations', 'drizzle-tasks');
+}
+
+function getProjectMigrationsFolder(): string {
+  return join(__dirname, '..', '..', '..', 'migrations', 'drizzle-cleo-project');
 }
 
 describe('reconcileJournal — CREATE TRIGGER probe', () => {
@@ -112,6 +116,474 @@ describe('reconcileJournal — CREATE TRIGGER probe', () => {
     expect(
       afterRow,
       'probeAndMarkApplied must journal trigger-only migration when triggers exist',
+    ).toBeDefined();
+
+    nativeDb.close();
+  });
+});
+
+describe('reconcileJournal — strips SQL comments before DDL-target extraction', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'cleo-probe-comment-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('marks t11538 applied even though its prose comment contains "CREATE TABLE half"', async () => {
+    // Root-cause regression (fix/T-migration-probe-comment-strip):
+    //
+    // t11538's header comment reads "…the project-side CREATE TABLE half of that
+    // move…". Pre-fix, probeAndMarkApplied scanned the RAW SQL, so createTableRegex
+    // captured the phantom table `half`. tableExists('half') is false →
+    // allTablesPresent false → the migration was NEVER journaled even though its
+    // real tables (nexus_nodes, …) already exist → Drizzle re-ran its bare
+    // `CREATE TABLE nexus_nodes` → "table already exists" → poisoned open →
+    // "Task database not initialized". The fix strips comments first.
+    const { openNativeDatabase } = await import('../sqlite.js');
+    const { reconcileJournal } = await import('../migration-manager.js');
+    const { readMigrationFiles } = await import('drizzle-orm/migrator');
+
+    const migrationsFolder = getProjectMigrationsFolder();
+    const allMigrations = readMigrationFiles({ migrationsFolder });
+    const nexusMig = allMigrations.find((m) => m.name?.includes('t11538'));
+    expect(nexusMig, 'expected t11538 nexus-graph migration to exist').toBeDefined();
+
+    // Sanity-check the fixture still carries the phantom-trigger comment text.
+    const migSql = (Array.isArray(nexusMig!.sql) ? nexusMig!.sql : [nexusMig!.sql ?? '']).join(
+      '\n',
+    );
+    expect(
+      /CREATE\s+TABLE\s+half/i.test(migSql),
+      'fixture precondition: t11538 prose comment must contain "CREATE TABLE half"',
+    ).toBe(true);
+
+    const dbPath = join(tempDir, 'cleo-project.db');
+    const nativeDb = openNativeDatabase(dbPath);
+
+    // The project-scope existence table reconcileJournal checks for is tasks_tasks.
+    nativeDb.exec(`CREATE TABLE IF NOT EXISTS tasks_tasks (id text PRIMARY KEY);`);
+
+    // Fully apply the migration's DDL (it is purely additive CREATE TABLE +
+    // CREATE INDEX — no rename, no trigger) so the schema genuinely already
+    // contains every table AND index the probe checks for. This mirrors the live
+    // poisoned state: the DDL ran but the journal entry was never written.
+    const stmts = Array.isArray(nexusMig!.sql) ? nexusMig!.sql : [nexusMig!.sql ?? ''];
+    for (const stmt of stmts) {
+      if (/CREATE\s+(TABLE|(?:UNIQUE\s+)?INDEX)/i.test(stmt)) {
+        nativeDb.exec(stmt);
+      }
+    }
+    expect(
+      nativeDb
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='nexus_nodes'")
+        .get(),
+      'fixture: nexus_nodes must exist before reconcile',
+    ).toBeDefined();
+    // …and the phantom `half` table must NOT exist (it never gets created).
+    expect(
+      nativeDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='half'").get(),
+      'fixture: phantom "half" table must never exist',
+    ).toBeUndefined();
+
+    // Journal every migration EXCEPT t11538 so it is the only un-applied one.
+    nativeDb.exec(`
+      CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        hash text NOT NULL,
+        created_at numeric,
+        name text,
+        applied_at TEXT
+      )
+    `);
+    for (const m of allMigrations) {
+      if (m.hash === nexusMig!.hash) continue;
+      nativeDb.exec(
+        `INSERT INTO "__drizzle_migrations" ("hash", "created_at", "name") VALUES ('${m.hash}', ${m.folderMillis}, '${m.name ?? ''}')`,
+      );
+    }
+
+    const before = nativeDb
+      .prepare('SELECT hash FROM "__drizzle_migrations" WHERE hash=?')
+      .get(nexusMig!.hash);
+    expect(before, 't11538 must NOT be journaled before reconcile').toBeUndefined();
+
+    reconcileJournal(nativeDb, migrationsFolder, 'tasks_tasks', 'dual-scope-db[project]');
+
+    const after = nativeDb
+      .prepare('SELECT hash FROM "__drizzle_migrations" WHERE hash=?')
+      .get(nexusMig!.hash);
+    // With the comment-strip fix this is journaled (phantom `half` ignored);
+    // WITHOUT the fix it stays undefined (phantom `half` probe fails).
+    expect(
+      after,
+      'probeAndMarkApplied must journal t11538 once SQL comments are stripped (phantom "half" ignored)',
+    ).toBeDefined();
+
+    nativeDb.close();
+  });
+});
+
+describe('reconcileJournal — eliminated-table probe tolerance (bug #2)', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'cleo-eliminated-table-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('computeEliminatedTables identifies a created-then-dropped table and ignores rebuild/recreate', async () => {
+    const { computeEliminatedTables } = await import('../migration-manager.js');
+
+    // Lineage A — created in mig 1, permanently dropped in mig 2 → eliminated.
+    const eliminated = computeEliminatedTables([
+      { folderMillis: 1, sql: ['CREATE TABLE release_manifests (id text);'] },
+      { folderMillis: 2, sql: ['DROP TABLE release_manifests;'] },
+    ]);
+    expect([...eliminated]).toEqual(['release_manifests']);
+
+    // Lineage B — DROP then CREATE in the SAME migration (recreate idiom) ⇒ the
+    // final in-order statement is a CREATE ⇒ NOT eliminated.
+    const recreated = computeEliminatedTables([
+      {
+        folderMillis: 1,
+        sql: ['DROP TABLE IF EXISTS brain_page_edges; CREATE TABLE brain_page_edges (id text);'],
+      },
+    ]);
+    expect(recreated.has('brain_page_edges')).toBe(false);
+
+    // Lineage C — rebuild idiom (CREATE __new; DROP x; RENAME __new->x) ⇒ x present.
+    const rebuilt = computeEliminatedTables([
+      {
+        folderMillis: 1,
+        sql: [
+          'CREATE TABLE tasks_new (id text);',
+          'DROP TABLE tasks;',
+          'ALTER TABLE tasks_new RENAME TO tasks;',
+        ],
+      },
+    ]);
+    expect(rebuilt.has('tasks')).toBe(false);
+  });
+
+  it('marks t033 + initial applied on a fully-migrated DB where release_manifests was eliminated (no throw)', async () => {
+    // Bug #2 (T11553): On a DB that ran the WHOLE drizzle-tasks lineage,
+    // `release_manifests` is correctly ABSENT — it was created by `initial`/`t033`
+    // and later permanently DROPPED by `t9686b2`. The per-migration DDL probe
+    // checked `tableExists('release_manifests')` → false → refused to mark
+    // `initial`/`t033` applied → drizzle's migrate() re-ran their bare
+    // `CREATE TABLE release_manifests` against the live DB and threw → masked as
+    // E_NOT_INITIALIZED / E_INTERNAL on a consolidated cleo.db. The eliminated-
+    // table probe tolerance treats that absent table (and its indexes) as
+    // satisfied. This test FAILS without the fix (t033/initial stay un-journaled).
+    const { openNativeDatabase } = await import('../sqlite.js');
+    const { reconcileJournal } = await import('../migration-manager.js');
+    const { readMigrationFiles } = await import('drizzle-orm/migrator');
+
+    const migrationsFolder = getTasksMigrationsFolder();
+    const allMigrations = readMigrationFiles({ migrationsFolder });
+    const t033 = allMigrations.find((m) => m.name?.includes('t033'));
+    const initial = allMigrations.find((m) => m.name?.includes('initial'));
+    expect(t033, 'expected t033 rebuild migration to exist').toBeDefined();
+    expect(initial, 'expected initial migration to exist').toBeDefined();
+
+    const dbPath = join(tempDir, 'cleo.db');
+    const nativeDb = openNativeDatabase(dbPath);
+
+    // ── Faithful "fully-migrated" fixture ────────────────────────────────────
+    // Apply every drizzle-tasks migration's DDL statement IN ORDER, but SKIP any
+    // statement that references `release_manifests` (the eliminated table). The
+    // result is exactly the live shape: every other table/index present,
+    // `release_manifests` absent. PRAGMA foreign_keys stays off so partial DDL
+    // ordering can't trip FK checks during the fixture build.
+    nativeDb.exec('PRAGMA foreign_keys=OFF;');
+    for (const m of allMigrations) {
+      const statements = Array.isArray(m.sql) ? m.sql : [m.sql ?? ''];
+      for (const stmt of statements) {
+        if (/release_manifests/i.test(stmt)) continue;
+        if (stmt.trim() === '') continue;
+        try {
+          nativeDb.exec(stmt);
+        } catch {
+          // Some statements (INSERT…SELECT backfills, FK-dependent rebuilds) may
+          // not apply cleanly against this skeletal fixture — irrelevant to the
+          // probe, which only inspects table/index/trigger PRESENCE.
+        }
+      }
+    }
+    // tasks_tasks is the consolidation marker; ensure both it and legacy tasks
+    // exist for the reconcileJournal existence/consolidation checks.
+    nativeDb.exec(`
+      CREATE TABLE IF NOT EXISTS tasks_tasks (id text PRIMARY KEY);
+      CREATE TABLE IF NOT EXISTS tasks (id text PRIMARY KEY);
+    `);
+    expect(
+      nativeDb
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='release_manifests'")
+        .get(),
+      'fixture: eliminated `release_manifests` must NOT exist',
+    ).toBeUndefined();
+
+    // Journal EVERY migration EXCEPT initial + t033 so they are the only un-applied
+    // ones the probe must mark.
+    nativeDb.exec(`
+      CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        hash text NOT NULL,
+        created_at numeric,
+        name text,
+        applied_at TEXT
+      )
+    `);
+    for (const m of allMigrations) {
+      if (m.hash === t033!.hash || m.hash === initial!.hash) continue;
+      nativeDb.exec(
+        `INSERT INTO "__drizzle_migrations" ("hash", "created_at", "name") VALUES ('${m.hash}', ${m.folderMillis}, '${m.name ?? ''}')`,
+      );
+    }
+
+    expect(
+      nativeDb.prepare('SELECT hash FROM "__drizzle_migrations" WHERE hash=?').get(t033!.hash),
+      't033 must NOT be journaled before reconcile',
+    ).toBeUndefined();
+
+    expect(() => reconcileJournal(nativeDb, migrationsFolder, 'tasks', 'sqlite')).not.toThrow();
+
+    // Eliminated-table tolerance journals both creating migrations.
+    expect(
+      nativeDb.prepare('SELECT hash FROM "__drizzle_migrations" WHERE hash=?').get(t033!.hash),
+      'probe must journal t033 (rebuild whose target release_manifests was eliminated)',
+    ).toBeDefined();
+    expect(
+      nativeDb.prepare('SELECT hash FROM "__drizzle_migrations" WHERE hash=?').get(initial!.hash),
+      'probe must journal initial (creates release_manifests + its indexes, later eliminated)',
+    ).toBeDefined();
+
+    nativeDb.close();
+  });
+
+  it('marks a trigger-only migration (no CREATE TABLE) applied when its triggers exist', async () => {
+    // Coordination requirement: a trigger-only migration (only CREATE TRIGGER,
+    // each preceded by DROP TRIGGER IF EXISTS — e.g. t11884) must be probe-marked
+    // applied on a consolidated DB, never failed for "nothing to probe". This pins
+    // that the probe treats trigger presence as sufficient evidence.
+    const { openNativeDatabase } = await import('../sqlite.js');
+    const { reconcileJournal } = await import('../migration-manager.js');
+    const { readMigrationFiles } = await import('drizzle-orm/migrator');
+
+    const migrationsFolder = getTasksMigrationsFolder();
+    const allMigrations = readMigrationFiles({ migrationsFolder });
+    // t877-pipeline-stage-invariants is the trigger-only migration in this lineage.
+    const triggerMig = allMigrations.find((m) => m.name?.includes('t877'));
+    expect(triggerMig, 'expected a trigger-only migration to exist').toBeDefined();
+    const triggerSql = (
+      Array.isArray(triggerMig!.sql) ? triggerMig!.sql : [triggerMig!.sql ?? '']
+    ).join('\n');
+    expect(/CREATE\s+TRIGGER/i.test(triggerSql), 'fixture: migration creates triggers').toBe(true);
+    expect(/CREATE\s+TABLE/i.test(triggerSql), 'fixture: migration has NO CREATE TABLE').toBe(
+      false,
+    );
+
+    const dbPath = join(tempDir, 'cleo.db');
+    const nativeDb = openNativeDatabase(dbPath);
+    nativeDb.exec(`
+      CREATE TABLE IF NOT EXISTS tasks_tasks (id text PRIMARY KEY);
+      CREATE TABLE IF NOT EXISTS tasks (
+        id text PRIMARY KEY, title text, status text DEFAULT 'pending', pipeline_stage text
+      );
+      CREATE TABLE IF NOT EXISTS lifecycle_stages (id text PRIMARY KEY, stage_name text);
+    `);
+    // Pre-create the triggers so the probe sees them as already present.
+    for (const stmt of Array.isArray(triggerMig!.sql) ? triggerMig!.sql : [triggerMig!.sql ?? '']) {
+      if (/CREATE\s+TRIGGER/i.test(stmt)) nativeDb.exec(stmt);
+    }
+    nativeDb.exec(`
+      CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        hash text NOT NULL, created_at numeric, name text, applied_at TEXT
+      )
+    `);
+    for (const m of allMigrations) {
+      if (m.hash === triggerMig!.hash) continue;
+      nativeDb.exec(
+        `INSERT INTO "__drizzle_migrations" ("hash", "created_at", "name") VALUES ('${m.hash}', ${m.folderMillis}, '${m.name ?? ''}')`,
+      );
+    }
+
+    expect(() => reconcileJournal(nativeDb, migrationsFolder, 'tasks', 'sqlite')).not.toThrow();
+    expect(
+      nativeDb
+        .prepare('SELECT hash FROM "__drizzle_migrations" WHERE hash=?')
+        .get(triggerMig!.hash),
+      'trigger-only migration must be journaled when its triggers exist',
+    ).toBeDefined();
+
+    nativeDb.close();
+  });
+});
+
+describe('reconcileJournal — zero-DDL cutover discriminator (bug #2 follow-up)', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'cleo-zero-ddl-cutover-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  /**
+   * Build a self-contained fixture migrations layout under `tempDir`:
+   *   <root>/drizzle-fixture-tasks/<prefix>_<name>/migration.sql  (the lineage)
+   *   <root>/drizzle-cleo-project/20260531000001_…-consolidation-cleo-project/  (cutover marker sibling)
+   * so resolveConsolidationCutoverPrefix() finds the real cutover prefix.
+   */
+  function buildFixture(migrations: Array<{ prefix: string; name: string; sql: string }>): string {
+    const lineage = join(tempDir, 'drizzle-fixture-tasks');
+    for (const m of migrations) {
+      const dir = join(lineage, `${m.prefix}_${m.name}`);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'migration.sql'), m.sql);
+    }
+    // Sibling consolidation folder so the cutover prefix resolves to 20260531000001.
+    const consolidationDir = join(
+      tempDir,
+      'drizzle-cleo-project',
+      '20260531000001_tfix-consolidation-cleo-project',
+    );
+    mkdirSync(consolidationDir, { recursive: true });
+    writeFileSync(
+      join(consolidationDir, 'migration.sql'),
+      'CREATE TABLE IF NOT EXISTS tasks_tasks (id text PRIMARY KEY);',
+    );
+    return lineage;
+  }
+
+  it('resolveConsolidationCutoverPrefix derives the prefix from the sibling consolidation migration', async () => {
+    const { resolveConsolidationCutoverPrefix, CONSOLIDATION_CUTOVER_PREFIX } = await import(
+      '../migration-manager.js'
+    );
+    const lineage = buildFixture([{ prefix: '20260101000000', name: 'noop', sql: '-- noop' }]);
+    expect(resolveConsolidationCutoverPrefix(lineage)).toBe('20260531000001');
+    // Falls back to the constant when no sibling consolidation folder exists.
+    const orphanLineage = join(tempDir, 'standalone', 'drizzle-x');
+    mkdirSync(join(orphanLineage, '20260101000000_x'), { recursive: true });
+    writeFileSync(join(orphanLineage, '20260101000000_x', 'migration.sql'), '-- x');
+    expect(resolveConsolidationCutoverPrefix(orphanLineage)).toBe(CONSOLIDATION_CUTOVER_PREFIX);
+  });
+
+  it('(b) PRE-cutover zero-DDL migration is STAMPED applied (not re-run)', async () => {
+    // A pre-consolidation legacy DML migration (e.g. a non-idempotent UPDATE
+    // backfill) is subsumed by the consolidation snapshot. reconcileJournal must
+    // STAMP it without running it (re-running could double-apply / fail).
+    const { openNativeDatabase } = await import('../sqlite.js');
+    const { reconcileJournal } = await import('../migration-manager.js');
+    const { readMigrationFiles } = await import('drizzle-orm/migrator');
+
+    const lineage = buildFixture([
+      // Pre-cutover, non-idempotent DML (UPDATE). If it RAN it would bump counter.
+      {
+        prefix: '20260101000000',
+        name: 'pre-update-backfill',
+        sql: 'UPDATE counter SET n = n + 1 WHERE id = 1;',
+      },
+    ]);
+    const preMig = readMigrationFiles({ migrationsFolder: lineage })[0]!;
+
+    const dbPath = join(tempDir, 'cleo.db');
+    const nativeDb = openNativeDatabase(dbPath);
+    nativeDb.exec(`
+      CREATE TABLE IF NOT EXISTS tasks_tasks (id text PRIMARY KEY);
+      CREATE TABLE IF NOT EXISTS tasks (id text PRIMARY KEY);
+      CREATE TABLE counter (id integer PRIMARY KEY, n integer NOT NULL);
+      INSERT INTO counter (id, n) VALUES (1, 0);
+      CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        hash text NOT NULL, created_at numeric, name text, applied_at TEXT
+      )
+    `);
+
+    reconcileJournal(nativeDb, lineage, 'tasks', 'sqlite');
+
+    // Stamped applied …
+    expect(
+      nativeDb.prepare('SELECT hash FROM "__drizzle_migrations" WHERE hash=?').get(preMig.hash),
+      'pre-cutover zero-DDL migration must be stamped applied',
+    ).toBeDefined();
+    // … and its UPDATE must NOT have executed (counter stays 0).
+    expect(
+      (nativeDb.prepare('SELECT n FROM counter WHERE id=1').get() as { n: number }).n,
+      'pre-cutover zero-DDL migration must NOT be re-run',
+    ).toBe(0);
+
+    nativeDb.close();
+  });
+
+  it('(a) POST-cutover pure-DML migration is NOT stamped → migrate() RUNS it', async () => {
+    // The cutover agent's E4 backfill class: a NEW post-consolidation INSERT-OR-
+    // IGNORE migration. reconcileJournal must NOT stamp it (no DDL to probe);
+    // drizzle migrate() must then RUN its effect.
+    const { openNativeDatabase } = await import('../sqlite.js');
+    const { reconcileJournal, migrateWithRetry } = await import('../migration-manager.js');
+    const { readMigrationFiles } = await import('drizzle-orm/migrator');
+    const { drizzle } = await import('drizzle-orm/node-sqlite');
+
+    const lineage = buildFixture([
+      // Post-cutover (> 20260531000001), idempotent backfill.
+      {
+        prefix: '20260601000000',
+        name: 'post-backfill',
+        sql: "INSERT OR IGNORE INTO backfill_target (id, label) VALUES ('row1', 'filled');",
+      },
+    ]);
+    const postMig = readMigrationFiles({ migrationsFolder: lineage })[0]!;
+
+    const dbPath = join(tempDir, 'cleo.db');
+    const nativeDb = openNativeDatabase(dbPath);
+    nativeDb.exec(`
+      CREATE TABLE IF NOT EXISTS tasks_tasks (id text PRIMARY KEY);
+      CREATE TABLE IF NOT EXISTS tasks (id text PRIMARY KEY);
+      CREATE TABLE backfill_target (id text PRIMARY KEY, label text);
+      CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        hash text NOT NULL, created_at numeric, name text, applied_at TEXT
+      )
+    `);
+    // Backfill target starts EMPTY — the migration's effect is observable.
+    expect(
+      (nativeDb.prepare('SELECT COUNT(*) AS n FROM backfill_target').get() as { n: number }).n,
+    ).toBe(0);
+
+    reconcileJournal(nativeDb, lineage, 'tasks', 'sqlite');
+
+    // NOT stamped by reconcile (left for migrate to run).
+    expect(
+      nativeDb.prepare('SELECT hash FROM "__drizzle_migrations" WHERE hash=?').get(postMig.hash),
+      'post-cutover zero-DDL migration must NOT be stamped by reconcile',
+    ).toBeUndefined();
+
+    // drizzle migrate() now RUNS the backfill and journals it.
+    const db = drizzle({ client: nativeDb });
+    migrateWithRetry(db, lineage, nativeDb, 'tasks', 'sqlite');
+
+    expect(
+      (
+        nativeDb.prepare("SELECT label FROM backfill_target WHERE id='row1'").get() as
+          | { label: string }
+          | undefined
+      )?.label,
+      'post-cutover backfill effect must have executed via migrate()',
+    ).toBe('filled');
+    expect(
+      nativeDb.prepare('SELECT hash FROM "__drizzle_migrations" WHERE hash=?').get(postMig.hash),
+      'post-cutover migration must be journaled after migrate()',
     ).toBeDefined();
 
     nativeDb.close();

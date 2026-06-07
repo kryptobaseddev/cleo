@@ -59,7 +59,10 @@ import { getLogger } from '../logger.js';
 import { getCleoHome, resolveCleoDir } from '../paths.js';
 import { type ExodusAbortDetail, getRecordedExodusAbort } from './exodus/abort-events.js';
 import { migrateWithRetry, reconcileJournal } from './migration-manager.js';
-import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
+import {
+  resolveConsolidatedJournalSiblings,
+  resolveCorePackageMigrationsFolder,
+} from './resolve-migrations-folder.js';
 import type * as CleoGlobalSchemaTypes from './schema/cleo-global/index.js';
 import type * as CleoProjectSchemaTypes from './schema/cleo-project/index.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
@@ -350,6 +353,44 @@ function existenceTable(scope: DualScope): string {
   return scope === 'project' ? 'tasks_tasks' : 'nexus_project_registry';
 }
 
+// ── Per-connection memory bounding (T11829) ────────────────────────────────────
+
+/**
+ * Per-open pragma overrides that bound a connection's memory footprint for
+ * one-shot CLI invocations and short-lived daemon-tick opens (T11829).
+ *
+ * The canonical SSoT pragmas reserve `cache_size=-64000` (64 MB page cache) +
+ * `mmap_size=268435456` (256 MB mmap window) + `temp_store=MEMORY` per connection
+ * ≈ 320-550 MB of address space PER PROCESS. With many concurrent uncapped
+ * processes (queued `cleo` opens + a respawning daemon + parallel agents), that sum
+ * blows past host RAM and the OOM-killer fires. A one-shot `cleo` command opens,
+ * does a small read/write, and exits — it gains nothing from a 256 MB mmap window
+ * or a 64 MB cache, so we shrink BOTH for these short-lived opens:
+ *
+ *   - `mmap_size = 0`   — disable the memory-mapped read window entirely.
+ *   - `cache_size = -8000` (8 MB) — a modest page cache, plenty for CLI queries.
+ *
+ * The SSoT default in `specs/sqlite-pragmas.json` is UNCHANGED (the long-lived
+ * daemon may legitimately want the larger cache/mmap for its working set). This is
+ * a per-OPEN override only. Neither `cache_size` nor `mmap_size` is in the
+ * `cleo doctor` pragma-drift list (`pragma-ssot.ts#driftPragmas` checks only
+ * journal_mode/busy_timeout/foreign_keys/synchronous/page_size/application_id), so
+ * shrinking them here does NOT trip the drift gate.
+ *
+ * The daemon (`CLEO_SENTIENT_DAEMON=1`) keeps the full SSoT footprint — it is a
+ * single long-lived process whose working set benefits from the larger cache.
+ *
+ * @returns Pragma overrides to pass to {@link applyPerfPragmas}, or `{}` for the
+ *   daemon (full SSoT footprint).
+ */
+function memoryBoundedPragmaOverrides(): { mmapSizeBytes?: number; cacheSizeKb?: number } {
+  // The long-lived sentient daemon keeps the full SSoT footprint.
+  if (process.env.CLEO_SENTIENT_DAEMON === '1') return {};
+  // Allow an explicit opt-out for any caller that wants the full footprint.
+  if (process.env.CLEO_DB_FULL_MEM === '1') return {};
+  return { mmapSizeBytes: 0, cacheSizeKb: 8000 };
+}
+
 // ── Core open logic ──────────────────────────────────────────────────────────
 
 /**
@@ -429,7 +470,8 @@ async function openDedicatedDualScopeDb(
   const DatabaseSyncCtor = getDatabaseSyncCtor();
   const nativeDb = new DatabaseSyncCtor(dbPath, { allowExtension: true });
 
-  applyPerfPragmas(nativeDb);
+  // T11829: bound per-connection memory for one-shot/CLI opens (full SSoT for daemon).
+  applyPerfPragmas(nativeDb, memoryBoundedPragmaOverrides());
 
   const schema = scope === 'project' ? await loadProjectSchema() : await loadGlobalSchema();
   const drizzle = getDrizzle();
@@ -437,7 +479,19 @@ async function openDedicatedDualScopeDb(
   const db = drizzle({ client: nativeDb, schema }) as NodeSQLiteDatabase<any>;
 
   const migrationsFolder = resolveCorePackageMigrationsFolder(migrationsSetName(scope));
-  reconcileJournal(nativeDb, migrationsFolder, existenceTable(scope), `dual-scope-db[${scope}]`);
+  // T11829: pass the OTHER lineages that share this scope's consolidated cleo.db
+  // journal so their rows are never deleted as cross-lineage orphans. Both scopes
+  // are consolidated single-file substrates with multiple coexisting lineages
+  // (project: tasks/cleo-project/nexus/conduit/brain; global:
+  // cleo-global/agent-registry/…). Over-inclusion across scopes is safe — a
+  // sibling hash absent from this file's journal contributes nothing.
+  reconcileJournal(
+    nativeDb,
+    migrationsFolder,
+    existenceTable(scope),
+    `dual-scope-db[${scope}]`,
+    resolveConsolidatedJournalSiblings(migrationsSetName(scope)),
+  );
   migrateWithRetry(
     db,
     migrationsFolder,
@@ -566,8 +620,9 @@ export async function openDualScopeDbAtPath(
     const DatabaseSyncCtor = getDatabaseSyncCtor();
     const nativeDb = new DatabaseSyncCtor(dbPath, { allowExtension: true });
 
-    // Apply canonical pragma set (specs/sqlite-pragmas.json SSoT).
-    applyPerfPragmas(nativeDb);
+    // Apply canonical pragma set (specs/sqlite-pragmas.json SSoT), bounding
+    // per-connection memory for one-shot/CLI opens (full SSoT for daemon) — T11829.
+    applyPerfPragmas(nativeDb, memoryBoundedPragmaOverrides());
 
     // Load the schema barrel for this scope.
     const schema = scope === 'project' ? await loadProjectSchema() : await loadGlobalSchema();
@@ -583,7 +638,17 @@ export async function openDualScopeDbAtPath(
 
     // Reconcile the migration journal (handles WAL/journal divergence across
     // SQLite version upgrades — same pattern as sqlite.ts / memory-sqlite.ts).
-    reconcileJournal(nativeDb, migrationsFolder, existenceTable(scope), `dual-scope-db[${scope}]`);
+    // T11829: pass the OTHER lineages that share this scope's consolidated cleo.db
+    // journal so their rows are not deleted as cross-lineage orphans (the confirmed
+    // OOM root cause: each lineage previously deleted the others' rows so the shared
+    // journal never converged).
+    reconcileJournal(
+      nativeDb,
+      migrationsFolder,
+      existenceTable(scope),
+      `dual-scope-db[${scope}]`,
+      resolveConsolidatedJournalSiblings(migrationsSetName(scope)),
+    );
 
     // Run any pending migrations.
     migrateWithRetry(
@@ -699,6 +764,22 @@ export async function openDualScopeDbAtPath(
     // biome-ignore lint/suspicious/noExplicitAny: nativeDb not available yet
     nativeDb: null as any,
     initPromise,
+  });
+
+  // Defense-in-depth: if init REJECTS, evict the placeholder so a transient open
+  // failure (e.g. a one-shot migration crash) does not POISON the cache. Without
+  // this, the rejected promise stays in `_cache` and every later caller hits
+  // `return existing.initPromise` (above) and re-receives the same rejection —
+  // which the engine's bare catch then surfaces as "Task database not
+  // initialized" forever. Only evict if the SAME placeholder entry is still
+  // present (a successful init replaces `initPromise` with `null`, so this guard
+  // never clobbers a healthy cached handle). Returns the original (rejecting)
+  // promise unchanged so callers still see the real error.
+  initPromise.catch(() => {
+    const entry = _cache.get(key);
+    if (entry && entry.initPromise === initPromise) {
+      _cache.delete(key);
+    }
   });
 
   return initPromise;

@@ -1,5 +1,39 @@
 # Changelog
 
+## [2026.6.11] (2026-06-06)
+
+### Fixed
+
+- **Cold-open OOM + non-converging migration journal on consolidated DBs.** A consolidated `cleo.db` keeps one shared `__drizzle_migrations` journal but is reconciled on every open by four migration lineages (tasks/project/nexus/brain); `reconcileJournal` built its orphan set from only the calling lineage, so each lineage **deleted the others' journal rows** as "orphans" → the journal never converged (oscillated) and every open re-ran a delete→re-probe→migrate write-transaction under a 30s lock (multi-minute, lock-blocked opens). Combined with per-connection SQLite reservations (`mmap 256MB + cache 64MB + temp MEMORY`) across uncapped concurrent processes (the auto-respawning daemon + queued opens), this exhausted host memory → OOM/SIGKILL. Fixes: (1) **union-guard reconcile** — a journal row is a true orphan only if its hash belongs to *no* lineage sharing the DB (sibling-lineage rows are preserved), so all lineages converge to a stable journal in one pass; (2) **`UNIQUE(hash)` index + `INSERT OR IGNORE`** make re-probes idempotent (structural convergence); (3) **per-connection memory bounded for one-shot/CLI opens** (`mmap_size=0`, small `cache_size`) — the daemon keeps the full hot-page window; (4) fleet fail-safes — `--max-old-space-size` on the `cleo` + daemon Node processes, a single-flight lock around cold-open reconcile, and daemon `StartLimitIntervalSec`/`StartLimitBurst`. Verified on a 707 MB copy: journal converges and stays stable, cold-open 3m45s→~20ms, peak RSS multi-GB→~93 MB. _(provenance: [T11829](https://github.com/kryptobaseddev/cleo/search?q=T11829&type=commits); [#990](https://github.com/kryptobaseddev/cleo/pull/990))_
+
+## [2026.6.10] (2026-06-06)
+
+### Fixed
+
+- **Migration journal reconciler — consolidated-DB self-heal.** A cold open of a consolidated/sealed `cleo.db` could hang or fail with `E_NOT_INITIALIZED` ("Task database not initialized"). Root cause: `probeAndMarkApplied` ran its `CREATE TABLE` regex over raw migration SQL **including prose comments**, capturing phantom table targets (e.g. "…the project-side CREATE TABLE **half** of that move…") → the migration was never marked applied → Drizzle re-ran a bare `CREATE TABLE` against an existing table → threw (wrapped in `.cause`, so the "table already exists" retry guard missed it) → the rejected init-promise poisoned the connection cache → surfaced as a masked `E_NOT_INITIALIZED`. Fixes: (1) strip SQL line/block comments before DDL-target extraction (reusing the existing `stripSqlComments` idiom); (2) probe-tolerance for **eliminated tables** — a `CREATE` of a table a later migration permanently `DROP`s (e.g. `release_manifests` → superseded by `releases`) now counts as satisfied via a `computeEliminatedTables()` disposition walk; (3) **zero-DDL migrations** (pure-DML backfills, `DROP`-only, index/trigger-only) are gated by the consolidation cutover — pre-consolidation ones are stamped applied, post-consolidation ones are run-once by `migrate()` (so new backfills/drops actually execute); (4) retry predicates now walk the full `err.cause` chain; (5) a rejected init-promise is evicted from the connection cache so a transient open failure no longer poisons later callers. _(provenance: [T11829](https://github.com/kryptobaseddev/cleo/search?q=T11829&type=commits); [#986](https://github.com/kryptobaseddev/cleo/pull/986))_
+
+## [2026.6.9] (2026-06-06)
+
+### Added
+
+- ADR display aliases now have real storage decoupled from the slug: a nullable `attachments.display_alias` column (forward-only migration) + a `cleo docs set-alias <slug> <number>` verb (ADR-scoped uniqueness → `E_ALIAS_TAKEN`, `--clear`), surfaced as `displayNumber` in `cleo docs fetch`/`list`. `numbering.ts` now prefers a stored alias over the slug-derived number, falling back to slug-derived when null — resolving the collision where multiple distinct `adr-051-*` decisions all rendered "051". _(provenance: [T11875](https://github.com/kryptobaseddev/cleo/search?q=T11875&type=commits); [#984](https://github.com/kryptobaseddev/cleo/pull/984))_
+
+## [2026.6.8] (2026-06-06)
+
+### Added
+
+- `cleo doctor repair [--role <role>] [--dry-run]` — malformed-DB recovery entry point that wraps the existing recover pipeline (`quick_check` → quarantine → restore-from-VACUUM-snapshot → re-`quick_check`), including the `*.db-wal` malformed case, giving operators a single repair verb (DHQ-060). _(provenance: [T11829](https://github.com/kryptobaseddev/cleo/search?q=T11829&type=commits); [#980](https://github.com/kryptobaseddev/cleo/pull/980))_
+- docs.read core-SDK API — `readDoc(slug)` → typed `DocReadResponse` (decoded body + full provenance frontmatter; UTF-8 or base64 for binary blobs), a derived `docs_wikilinks` edge table (supersedes + relatedTasks + topics), and bidirectional `cleo docs graph --backlinks` with `shares-topic` doc↔doc edges — the live-view foundation for the docs SSoT. _(provenance: [T11825](https://github.com/kryptobaseddev/cleo/search?q=T11825&type=commits); [#981](https://github.com/kryptobaseddev/cleo/pull/981))_
+- `cleo docs fetch <slug> --content` (alias `--decoded`) emits the decoded UTF-8 document body to stdout (default still returns the LAFS envelope), and `cleo docs add --content "<text>"` / `--content -` enable inline & stdin authoring without a pre-existing file (DHQ-017 / DHQ-056). _(provenance: [T10970](https://github.com/kryptobaseddev/cleo/search?q=T10970&type=commits); [#982](https://github.com/kryptobaseddev/cleo/pull/982))_
+
+### Changed
+
+- Exodus on-open data-continuity gate now surfaces an abort to mutating callers: an `exodusAbort` marker + typed event on the re-opened handle, and `assertWriteDurable()` / `ExodusAbortWriteUnsafeError` (`E_EXODUS_ABORT_WRITE_UNSAFE`) reject on the write path while read opens never throw — closing the silent write-rollback gap where a rolled-back mutation returned success-shaped output (DHQ-059). _(provenance: [T11828](https://github.com/kryptobaseddev/cleo/search?q=T11828&type=commits); [#979](https://github.com/kryptobaseddev/cleo/pull/979))_
+
+### Docs
+
+- ADR cross-store reconciliation: 20 disk-only ADRs, the canonical ADR-policy `adr-090-canonical-adr-policy`, and `adr-076` + amendment AMD-002 ingested into the cleo.db docs SSoT; the two `adr-079-r1` / `adr-079-r2` tombstone forwarding stubs removed. _(provenance: [T11676](https://github.com/kryptobaseddev/cleo/search?q=T11676&type=commits); [#977](https://github.com/kryptobaseddev/cleo/pull/977))_
+
 ## [2026.6.7] (2026-06-05)
 
 ### Added

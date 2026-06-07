@@ -232,6 +232,51 @@ export function parseSlugSequence(
   return null;
 }
 
+// ─── Display-number resolution (T11875) ───────────────────────────────────────
+
+/**
+ * Resolve the DISPLAY number to render for a doc, preferring the explicitly
+ * stored {@link import('../store/schema/attachments.js').attachments.displayAlias}
+ * over the number derived from the slug string.
+ *
+ * ## Why this exists (T11875 · ADR reconcile T11676)
+ *
+ * Under the slug-primary model the kebab slug is the canonical handle and the
+ * rendered number (e.g. ADR "051") is a DISPLAY ALIAS only. Historically that
+ * number was DERIVED from the slug via {@link parseSlugSequence} — so three
+ * DISTINCT ADRs slugged `adr-051-*` all rendered "051" with no way to
+ * disambiguate. T11875 added a real `display_alias` column; this resolver makes
+ * the stored alias authoritative while preserving byte-for-byte legacy
+ * behaviour for docs that never had one assigned.
+ *
+ * Precedence:
+ *   1. `storedAlias` — when a non-null positive integer is supplied, it wins
+ *      unconditionally (the alias is the decoupled SSoT).
+ *   2. Slug-derived — otherwise parse the numeric portion out of `slug` via the
+ *      canonical numbering patterns ({@link parseSlugSequence}).
+ *   3. `null` — when neither yields a number (non-numbered kind / no alias).
+ *
+ * @param slug - The doc's canonical slug (e.g. `adr-051-override-patterns`), or
+ *   `null` for slug-less docs.
+ * @param storedAlias - The value of `attachments.display_alias` for this doc, or
+ *   `null` when unset.
+ * @returns The display number to render, or `null` when none can be resolved.
+ */
+export function resolveDisplayNumber(
+  slug: string | null | undefined,
+  storedAlias: number | null | undefined,
+): number | null {
+  // (1) Stored alias is the decoupled SSoT — it wins over the slug-derived
+  // number whenever it is a usable positive integer.
+  if (typeof storedAlias === 'number' && Number.isInteger(storedAlias) && storedAlias >= 1) {
+    return storedAlias;
+  }
+  // (2) Fall back to the slug-derived number — unchanged legacy behaviour.
+  if (typeof slug !== 'string' || slug.length === 0) return null;
+  const parsed = parseSlugSequence(slug);
+  return parsed ? parsed.sequence : null;
+}
+
 // ─── DB inspection (atomic) ───────────────────────────────────────────────────
 
 /**

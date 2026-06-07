@@ -32,6 +32,7 @@ import { createAttachmentStore } from '../store/attachment-store.js';
 import type { BlobListEntry } from '../store/blob-ops.js';
 import { blobList, blobRead } from '../store/blob-ops.js';
 import type { AttachmentLifecycleStatus } from '../store/schema/attachments.js';
+import { resolveDisplayNumber } from './numbering.js';
 
 // ---------------------------------------------------------------------------
 // Re-use the publications types from docs-ops via dynamic import to avoid
@@ -74,6 +75,13 @@ export interface ResolvedDoc {
   readonly title: string | null;
   /** Stable human-readable slug from attachments.slug. Null for slug-less blobs. */
   readonly slug: string | null;
+  /**
+   * The DISPLAY number to render for this doc (e.g. ADR "051"), decoupled from
+   * the slug (T11875). Resolved via {@link resolveDisplayNumber}: the stored
+   * `attachments.display_alias` wins when set, else the slug-derived number, else
+   * `null` for non-numbered / slug-less docs.
+   */
+  readonly displayNumber: number | null;
   /** Owner entity ID (task/session/observation ID). */
   readonly ownerId: string;
   /** Owner entity type. */
@@ -108,6 +116,18 @@ export interface ResolvedDoc {
   /** Which backing store this doc was resolved from. */
   readonly source: 'tasks-db' | 'manifest-db' | 'merged';
 }
+
+/**
+ * Discriminated result of {@link DocsReadModel.fetchDecoded}.
+ *
+ * The success arm carries both the resolved doc record and its decoded
+ * UTF-8 body; the failure arms distinguish a missing reference from a
+ * resolvable doc whose blob could not be read.
+ */
+export type DecodedDocResult =
+  | { readonly ok: true; readonly doc: ResolvedDoc; readonly content: string }
+  | { readonly ok: false; readonly reason: 'not-found' }
+  | { readonly ok: false; readonly reason: 'no-content'; readonly doc: ResolvedDoc };
 
 /**
  * Filters for {@link DocsReadModel.listProjectDocs}.
@@ -195,6 +215,7 @@ export class DocsReadModel {
       type: row.type,
       summary: row.summary,
       lifecycleStatus: row.lifecycleStatus,
+      displayAlias: row.displayAlias,
     });
   }
 
@@ -249,13 +270,14 @@ export class DocsReadModel {
     const store = createAttachmentStore();
     const meta = await store.getMetadata(id, this.projectRoot);
     if (meta) {
-      // Fetch extras (slug, type) from the row
+      // Fetch extras (slug, type, displayAlias) from the row
       const extras = await store.getExtras(id, this.projectRoot);
       return this.enrichFromTasksDb(meta, {
         slug: extras?.slug ?? null,
         type: extras?.type ?? null,
         summary: null,
         lifecycleStatus: 'active',
+        displayAlias: extras?.displayAlias ?? null,
       });
     }
 
@@ -398,6 +420,36 @@ export class DocsReadModel {
     }
 
     return null;
+  }
+
+  /**
+   * Resolve a reference (slug, attachment ID, or SHA-256) and return its
+   * decoded UTF-8 body in a single call.
+   *
+   * Convenience wrapper around the resolve → {@link fetchContent} two-step
+   * used by agent-facing surfaces (e.g. `cleo docs fetch --content`) that
+   * want the raw document text without first hand-decoding the base64
+   * `bytesBase64` field from the LAFS fetch envelope (T10970).
+   *
+   * Resolution order mirrors the canonical fetch path: slug first (the
+   * common agent ergonomic), then attachment ID / SHA-256 content address.
+   *
+   * @param ref - Slug, attachment UUID, or 64-char hex SHA-256.
+   * @returns A discriminated result:
+   *   - `{ ok: true, doc, content }` when the ref resolved AND content was
+   *     retrievable.
+   *   - `{ ok: false, reason: 'not-found' }` when no doc carries the ref.
+   *   - `{ ok: false, reason: 'no-content', doc }` when the doc metadata
+   *     exists but its blob could not be read (e.g. purged or unpublished).
+   */
+  async fetchDecoded(ref: string): Promise<DecodedDocResult> {
+    const doc = (await this.resolveBySlug(ref)) ?? (await this.resolveByAttachmentId(ref));
+    if (!doc) return { ok: false, reason: 'not-found' };
+
+    const content = await this.fetchContent(doc);
+    if (content === null) return { ok: false, reason: 'no-content', doc };
+
+    return { ok: true, doc, content };
   }
 
   /**
@@ -559,6 +611,7 @@ export class DocsReadModel {
         type: extras?.type ?? null,
         summary: null,
         lifecycleStatus: 'active',
+        displayAlias: extras?.displayAlias ?? null,
       });
       results.push(doc);
     }
@@ -581,6 +634,7 @@ export class DocsReadModel {
         kind: (row.type as DocKind) ?? null,
         title: row.slug ?? name ?? null,
         slug: row.slug,
+        displayNumber: resolveDisplayNumber(row.slug, row.displayAlias),
         ownerId: row.ownerId,
         ownerType: row.ownerType,
         blobName: name ?? row.slug ?? row.metadata.id,
@@ -664,12 +718,15 @@ export class DocsReadModel {
   private buildResolvedDocFromBlob(ownerId: string, entry: BlobListEntry): ResolvedDoc {
     // Derive kind from known taxonomy types
     const kind = inferDocKind(entry.name);
+    const blobSlug = kind ? entry.name.replace(/\.md$/, '') : null;
     return {
       id: entry.sha256,
       sha256: entry.sha256,
       kind,
       title: entry.name,
-      slug: kind ? entry.name.replace(/\.md$/, '') : null,
+      slug: blobSlug,
+      // manifest.db blobs carry no display_alias column — derive from slug only.
+      displayNumber: resolveDisplayNumber(blobSlug, null),
       ownerId,
       ownerType: detectOwnerType(ownerId),
       blobName: entry.name,
@@ -706,6 +763,7 @@ export class DocsReadModel {
       type: string | null;
       summary: string | null;
       lifecycleStatus: AttachmentLifecycleStatus | string | null;
+      displayAlias: number | null;
     },
   ): Promise<ResolvedDoc> {
     const blobName = extractBlobName(meta);
@@ -730,6 +788,7 @@ export class DocsReadModel {
       kind: (extras.type as DocKind) ?? null,
       title: extras.slug ?? blobName ?? null,
       slug: extras.slug,
+      displayNumber: resolveDisplayNumber(extras.slug, extras.displayAlias),
       ownerId,
       ownerType: detectOwnerType(ownerId),
       blobName: blobName ?? extras.slug ?? meta.id,
