@@ -157,7 +157,7 @@ not locally.
 | `crates/cant-core` | Active — SSoT | Parser, validator, 42 static-analysis rules, pipeline executor |
 | `crates/cant-napi` | Active | napi-rs cdylib binding wrapping cant-core + cant-runtime |
 | `crates/cant-runtime` | Active | Deterministic pipeline execution engine (Path B) |
-| `crates/cant-router` | Retired from napi surface (E8 T11432) | Model-tier classifier — preserved in workspace but NOT linked into the published binary |
+| `crates/cant-router` | DELETED (T11807) | Model-tier classifier — removed in the state-machine collapse (T11764); model selection owned by the E9 chokepoint |
 | `crates/cant-lsp` | Shelved from default build (E8 T11434) | Language Server Protocol for `.cant` files — kept in workspace, build with `cargo build -p cant-lsp` |
 
 ## Related

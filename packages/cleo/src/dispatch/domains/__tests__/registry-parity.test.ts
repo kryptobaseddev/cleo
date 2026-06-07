@@ -385,32 +385,11 @@ vi.mock('../../../../../core/src/sessions/session-grade.js', () => ({
   readGrades: vi.fn().mockResolvedValue([]),
 }));
 
-// Chain validation
-vi.mock('../../../../../core/src/validation/chain-validation.js', () => ({
-  validateChain: vi.fn(() => ({ errors: [], warnings: [] })),
-}));
-
-// Chain store
-vi.mock('../../../../../core/src/lifecycle/chain-store.js', () => ({
-  showChain: vi.fn().mockResolvedValue({ id: 'chain1', stages: [] }),
-  listChains: vi.fn().mockResolvedValue([]),
-  addChain: vi.fn().mockResolvedValue(undefined),
-  createInstance: vi.fn().mockResolvedValue({ id: 'inst1' }),
-  advanceInstance: vi.fn().mockResolvedValue({ id: 'inst1' }),
-}));
-
 // Release channel
 vi.mock('../../../../../core/src/release/channel.js', () => ({
   resolveChannelFromBranch: vi.fn(() => 'latest'),
   channelToDistTag: vi.fn(() => 'latest'),
   describeChannel: vi.fn(() => 'Stable releases'),
-}));
-
-// Tessera engine
-vi.mock('../../../../../core/src/lifecycle/tessera-engine.js', () => ({
-  showTessera: vi.fn(() => ({ id: 'tpl1', name: 'test', stages: [] })),
-  listTesseraTemplates: vi.fn(() => []),
-  instantiateTessera: vi.fn().mockResolvedValue({ id: 'inst1' }),
 }));
 
 // Session memory
@@ -587,7 +566,6 @@ const MINIMAL_PARAMS: Record<string, Record<string, Record<string, unknown>>> = 
     'gate.status': { taskId: 'T001' },
     'gate.run': { taskId: 'T001' },
     grade: { sessionId: 'sess1' },
-    'chain.validate': { chain: { id: 'c1', stages: [] } },
     'compliance.record': { taskId: 'T001', result: 'pass' },
     'gate.set': { taskId: 'T001' },
   },
@@ -644,10 +622,6 @@ const MINIMAL_PARAMS: Record<string, Record<string, Record<string, unknown>>> = 
     'phase.set': { phaseId: 'p1' },
     'phase.rename': { oldName: 'old', newName: 'new' },
     'phase.delete': { phaseId: 'p1' },
-    'chain.show': { chainId: 'c1' },
-    'chain.add': { chain: { id: 'c1', stages: [] } },
-    'chain.instantiate': { chainId: 'c1', epicId: 'T001' },
-    'chain.advance': { instanceId: 'i1', nextStage: 's1' },
   },
   orchestrate: {
     next: { epicId: 'T001' },
@@ -660,7 +634,6 @@ const MINIMAL_PARAMS: Record<string, Record<string, Record<string, unknown>>> = 
     'spawn.execute': { taskId: 'T001' },
     validate: { taskId: 'T001' },
     parallel: { action: 'start', epicId: 'T001', wave: 1 },
-    'tessera.instantiate': { templateId: 'tpl1', epicId: 'T001' },
     // Wave 7a (T379)
     classify: { request: 'implement auth feature' },
     'fanout.status': { manifestEntryId: 'fanout-123' },

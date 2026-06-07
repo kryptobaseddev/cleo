@@ -611,7 +611,6 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1
       "validate",
       "pivot",
       "parallel",
-      "tessera.instantiate",
     ],
     "query": [
       "status",
@@ -625,7 +624,6 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1
       "plan",
       "bootstrap",
       "unblock.opportunities",
-      "tessera.list",
     ],
   },
   "pipeline": {
@@ -828,7 +826,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1
 }
 `;
 
-exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1 — operation count snapshot > tier-1-operationCount 1`] = `299`;
+exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1 — operation count snapshot > tier-1-operationCount 1`] = `297`;
 
 exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — domain-grouped operations snapshot > tier-2-groupedOperations 1`] = `
 {
@@ -910,7 +908,6 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
       "archive.stats",
       "grade",
       "grade.list",
-      "chain.validate",
       "canon",
       "canon.docs",
       "workflow.compliance",
@@ -1119,7 +1116,6 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
       "validate",
       "pivot",
       "parallel",
-      "tessera.instantiate",
       "fanout",
       "approve",
       "reject",
@@ -1139,7 +1135,6 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
       "plan",
       "bootstrap",
       "unblock.opportunities",
-      "tessera.list",
       "classify",
       "fanout.status",
       "pending",
@@ -1158,9 +1153,6 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
       "phase.advance",
       "phase.rename",
       "phase.delete",
-      "chain.add",
-      "chain.instantiate",
-      "chain.advance",
       "release.cancel",
       "release.rollback",
       "release.rollback.full",
@@ -1176,8 +1168,6 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
       "manifest.list",
       "manifest.find",
       "manifest.stats",
-      "chain.show",
-      "chain.list",
       "release.list",
       "release.show",
       "release.channel.show",
@@ -1390,4 +1380,4 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
 }
 `;
 
-exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — operation count snapshot (full surface) > tier-2-operationCount 1`] = `419`;
+exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — operation count snapshot (full surface) > tier-2-operationCount 1`] = `411`;

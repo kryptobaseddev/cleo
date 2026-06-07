@@ -24,7 +24,6 @@ vi.mock('@cleocode/core/internal', () => ({
   checkTestCoverage: vi.fn(),
   checkTestRun: vi.fn(),
   checkTestStatus: vi.fn(),
-  checkValidateChain: vi.fn(),
   checkValidateManifest: vi.fn(),
   checkValidateOutput: vi.fn(),
   checkValidateProtocol: vi.fn(),

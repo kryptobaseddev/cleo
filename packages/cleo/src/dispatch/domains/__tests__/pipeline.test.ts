@@ -13,11 +13,6 @@ vi.mock('@cleocode/core/internal', () => ({
   resolveChannelFromBranch: vi.fn(() => 'stable'),
   channelToDistTag: vi.fn(() => 'latest'),
   describeChannel: vi.fn(() => 'Stable channel'),
-  showChain: vi.fn(),
-  listChains: vi.fn(),
-  addChain: vi.fn(),
-  createInstance: vi.fn(),
-  advanceInstance: vi.fn(),
   paginate: vi.fn((items: unknown[], limit?: number, offset?: number) => {
     const l = limit ?? items.length;
     const o = offset ?? 0;
@@ -65,47 +60,15 @@ vi.mock('../../lib/engine.js', () => ({
   pipelineManifestArchive: vi.fn(),
 }));
 
-import { addChain, createInstance, listChains, showChain } from '@cleocode/core/internal';
 import { phaseList, releaseList } from '../../lib/engine.js';
 import { PipelineHandler } from '../pipeline.js';
 
-describe('PipelineHandler chain operations', () => {
+describe('PipelineHandler operations', () => {
   let handler: PipelineHandler;
 
   beforeEach(() => {
     vi.clearAllMocks();
     handler = new PipelineHandler();
-  });
-
-  it('includes chain operations in supported operations', () => {
-    const ops = handler.getSupportedOperations();
-    expect(ops.query).toContain('chain.show');
-    expect(ops.query).toContain('chain.list');
-    expect(ops.mutate).toContain('chain.add');
-    expect(ops.mutate).toContain('chain.instantiate');
-    expect(ops.mutate).toContain('chain.advance');
-  });
-
-  it('keeps chain.list behavior intact', async () => {
-    vi.mocked(listChains).mockResolvedValue([{ id: 'chain-1' }, { id: 'chain-2' }] as any);
-
-    const result = await handler.query('chain.list', { limit: 1, offset: 1 });
-    expect(result.success).toBe(true);
-    expect(listChains).toHaveBeenCalledWith('/mock/project');
-    expect(result.data).toEqual({
-      chains: [{ id: 'chain-2' }],
-      total: 2,
-      filtered: 2,
-    });
-    expect(result.page).toEqual({ mode: 'offset', limit: 1, offset: 1, hasMore: false, total: 2 });
-  });
-
-  it('keeps chain.show behavior intact', async () => {
-    vi.mocked(showChain).mockResolvedValue({ id: 'chain-1' } as any);
-
-    const result = await handler.query('chain.show', { chainId: 'chain-1' });
-    expect(result.success).toBe(true);
-    expect(showChain).toHaveBeenCalledWith('chain-1', '/mock/project');
   });
 
   it('returns canonical phase.list envelope while preserving summary', async () => {
@@ -168,38 +131,6 @@ describe('PipelineHandler chain operations', () => {
       filtered: 2,
     });
     expect(result.page).toEqual({ mode: 'offset', limit: 1, offset: 1, hasMore: false, total: 2 });
-  });
-
-  it('keeps chain.add behavior intact', async () => {
-    const chain = {
-      id: 'chain-1',
-      name: 'Chain 1',
-      version: '1.0.0',
-      description: 'desc',
-      shape: { stages: [], links: [], entryPoint: 'a', exitPoints: ['a'] },
-      gates: [],
-    };
-
-    const result = await handler.mutate('chain.add', { chain });
-    expect(result.success).toBe(true);
-    expect(addChain).toHaveBeenCalledWith(chain, '/mock/project');
-  });
-
-  it('translates FK constraint errors for chain.instantiate', async () => {
-    vi.mocked(createInstance).mockRejectedValue(
-      new Error('SQLITE_CONSTRAINT_FOREIGNKEY: FOREIGN KEY constraint failed'),
-    );
-
-    const result = await handler.mutate('chain.instantiate', {
-      chainId: 'chain-404',
-      epicId: 'T1',
-    });
-
-    expect(result.success).toBe(false);
-    expect(result.error).toMatchObject({
-      code: 'E_NOT_FOUND',
-      message: 'Chain "chain-404" not found',
-    });
   });
 
   it('surfaces release.list page metadata and filters', async () => {

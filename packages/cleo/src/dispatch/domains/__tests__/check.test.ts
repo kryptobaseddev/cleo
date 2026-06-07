@@ -32,40 +32,7 @@ vi.mock('../../../../../core/src/paths.js', async () => {
   };
 });
 
-vi.mock('../../../../../core/src/validation/chain-validation.js', () => ({
-  validateChain: vi.fn(),
-}));
-
-import { validateChain } from '@cleocode/core/internal';
 import { CheckHandler } from '../check.js';
-
-function makeForkJoinChain() {
-  return {
-    id: 'fork-join-chain',
-    name: 'Fork Join Chain',
-    version: '1.0.0',
-    description: 'Fork-join chain fixture',
-    shape: {
-      stages: [
-        { id: 'start', name: 'start', category: 'custom', skippable: false },
-        { id: 'fork-left', name: 'fork-left', category: 'custom', skippable: false },
-        { id: 'fork-right', name: 'fork-right', category: 'custom', skippable: false },
-        { id: 'join', name: 'join', category: 'custom', skippable: false },
-        { id: 'finish', name: 'finish', category: 'custom', skippable: false },
-      ],
-      links: [
-        { from: 'start', to: 'fork-left', type: 'fork' },
-        { from: 'start', to: 'fork-right', type: 'fork' },
-        { from: 'fork-left', to: 'join', type: 'linear' },
-        { from: 'fork-right', to: 'join', type: 'linear' },
-        { from: 'join', to: 'finish', type: 'linear' },
-      ],
-      entryPoint: 'start',
-      exitPoints: ['finish'],
-    },
-    gates: [],
-  };
-}
 
 describe('CheckHandler operations', () => {
   let handler: CheckHandler;
@@ -75,33 +42,13 @@ describe('CheckHandler operations', () => {
     handler = new CheckHandler();
   });
 
-  it('includes grade and chain.validate in supported query operations', () => {
+  it('includes grade in supported query operations', () => {
     const ops = handler.getSupportedOperations();
-    expect(ops.query).toContain('chain.validate');
     expect(ops.query).toContain('grade');
     expect(ops.query).toContain('grade.list');
-    // chain.gate was removed
+    // chain.validate / chain.gate removed in T11807 (Tessera/WarpChain collapse, T11764).
+    expect(ops.query).not.toContain('chain.validate');
     expect(ops.query).not.toContain('chain.gate');
-  });
-
-  it('validates fork-join chain through check.chain.validate route', async () => {
-    vi.mocked(validateChain).mockReturnValue({
-      wellFormed: true,
-      gateSatisfiable: true,
-      errors: [],
-      warnings: [],
-    } as any);
-
-    const result = await handler.query('chain.validate', {
-      chain: makeForkJoinChain(),
-    });
-
-    expect(result.success).toBe(true);
-    expect(result.data).toMatchObject({
-      wellFormed: true,
-      gateSatisfiable: true,
-      errors: [],
-    });
   });
 
   it('returns E_INTERNAL for chain.gate (removed from check)', async () => {

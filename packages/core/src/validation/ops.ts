@@ -20,8 +20,6 @@ import type {
   GateEvidence,
   ValidateArchiveStatsParams,
   ValidateArchiveStatsResult,
-  ValidateChainParams,
-  ValidateChainResult,
   ValidateCoherenceParams,
   ValidateCoherenceResult,
   ValidateComplianceRecordParams,
@@ -54,7 +52,6 @@ import type {
   ValidateWorkflowComplianceResult,
 } from '@cleocode/contracts';
 import { revalidateEvidence } from '../tasks/evidence.js';
-import { validateChain } from './chain-validation.js';
 import {
   coreBatchValidate,
   coreCoherenceCheck,
@@ -98,30 +95,6 @@ export interface CheckRevalidateEvidenceResult {
     atom: GateEvidence['atoms'][number];
     reason: string;
   }>;
-}
-
-// ---------------------------------------------------------------------------
-// Chain validate
-// ---------------------------------------------------------------------------
-
-/**
- * Validate a WarpChain definition.
- *
- * Normalized wrapper over {@link validateChain} conforming to ADR-057 D1.
- * The underlying function is a pure validator and does not use `projectRoot`,
- * but the wrapper accepts it to satisfy the uniform dispatch contract.
- *
- * @param _projectRoot - Absolute path to the project root (unused — pure fn).
- * @param params       - Chain validation parameters (`params.chain`).
- * @returns Unified chain validation result.
- *
- * @task T1452
- */
-export function checkValidateChain(
-  _projectRoot: string,
-  params: ValidateChainParams,
-): ValidateChainResult {
-  return validateChain(params.chain);
 }
 
 // ---------------------------------------------------------------------------

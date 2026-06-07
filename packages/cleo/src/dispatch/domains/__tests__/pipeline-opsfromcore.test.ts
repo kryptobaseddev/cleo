@@ -75,12 +75,12 @@ describe('pipeline dispatch OpsFromCore inference', () => {
     expect(source).toContain("'phase.rename'");
     expect(source).toContain("'phase.delete'");
 
-    // Chain ops
-    expect(source).toContain("'chain.show'");
-    expect(source).toContain("'chain.list'");
-    expect(source).toContain("'chain.add'");
-    expect(source).toContain("'chain.instantiate'");
-    expect(source).toContain("'chain.advance'");
+    // Chain ops removed in T11807 (Tessera/WarpChain state-machine collapse, T11764).
+    expect(source).not.toContain("'chain.show'");
+    expect(source).not.toContain("'chain.list'");
+    expect(source).not.toContain("'chain.add'");
+    expect(source).not.toContain("'chain.instantiate'");
+    expect(source).not.toContain("'chain.advance'");
   });
 
   it('preserves getSupportedOperations list', async () => {
@@ -89,10 +89,10 @@ describe('pipeline dispatch OpsFromCore inference', () => {
     // Spot-check required query ops
     expect(source).toContain("'stage.guidance'");
     expect(source).toContain("'release.channel.show'");
-    expect(source).toContain("'chain.list'");
+    expect(source).toContain("'phase.list'");
     // Spot-check required mutate ops — T9540 removed release.ship; pick a
     // representative release mutate that survived.
     expect(source).toContain("'release.cancel'");
-    expect(source).toContain("'chain.advance'");
+    expect(source).toContain("'phase.delete'");
   });
 });

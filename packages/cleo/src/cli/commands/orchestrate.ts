@@ -14,7 +14,6 @@
  *   cleo orchestrate context <epicId>     — orchestrator context summary
  *   cleo orchestrate ivtr <taskId>        — IVTR phased loop
  *   cleo orchestrate parallel <action> <epicId> — parallel wave execution
- *   cleo orchestrate tessera              — tessera template operations
  *   cleo orchestrate unblock              — unblocking opportunities
  *   cleo orchestrate bootstrap            — brain state for agent bootstrap
  *   cleo orchestrate classify <request>   — CANT prompt-based routing
@@ -656,92 +655,6 @@ const parallelCommand = defineCommand({
   },
 });
 
-/** cleo orchestrate tessera list — list available tessera templates */
-const tesseraListCommand = defineCommand({
-  meta: { name: 'list', description: 'List available tessera templates' },
-  args: {
-    id: {
-      type: 'string',
-      description: 'Show details for a specific template',
-    },
-    limit: {
-      type: 'string',
-      description: 'Max results to return',
-    },
-    offset: {
-      type: 'string',
-      description: 'Results offset for pagination',
-    },
-  },
-  async run({ args }) {
-    await dispatchFromCli(
-      'query',
-      'orchestrate',
-      'tessera.list',
-      {
-        id: args.id,
-        limit: args.limit !== undefined ? Number.parseInt(args.limit, 10) : undefined,
-        offset: args.offset !== undefined ? Number.parseInt(args.offset, 10) : undefined,
-      },
-      { command: 'orchestrate' },
-    );
-  },
-});
-
-/** cleo orchestrate tessera instantiate — instantiate a tessera template for an epic */
-const tesseraInstantiateCommand = defineCommand({
-  meta: { name: 'instantiate', description: 'Instantiate a tessera template for an epic' },
-  args: {
-    templateId: {
-      type: 'positional',
-      description: 'Template ID to instantiate',
-      required: true,
-    },
-    epicId: {
-      type: 'positional',
-      description: 'Epic ID to instantiate template for',
-      required: true,
-    },
-    var: {
-      type: 'string',
-      description: 'Comma-separated key=value variable overrides (e.g. foo=bar,baz=qux)',
-    },
-  },
-  async run({ args }) {
-    const variables: Record<string, string> = {};
-    const raw = args.var;
-    if (typeof raw === 'string') {
-      for (const pair of raw.split(',')) {
-        const eqIdx = pair.indexOf('=');
-        if (eqIdx > 0) {
-          variables[pair.slice(0, eqIdx).trim()] = pair.slice(eqIdx + 1).trim();
-        }
-      }
-    }
-    await dispatchFromCli(
-      'mutate',
-      'orchestrate',
-      'tessera.instantiate',
-      { templateId: args.templateId, epicId: args.epicId, variables },
-      { command: 'orchestrate' },
-    );
-  },
-});
-
-/**
- * cleo orchestrate tessera — tessera template operations for multi-agent orchestration.
- */
-const tesseraCommand = defineCommand({
-  meta: {
-    name: 'tessera',
-    description: 'Tessera template operations for multi-agent orchestration',
-  },
-  subCommands: {
-    list: tesseraListCommand,
-    instantiate: tesseraInstantiateCommand,
-  },
-});
-
 /** cleo orchestrate unblock — analyze dependency graph for unblocking opportunities */
 const unblockCommand = defineCommand({
   meta: { name: 'unblock', description: 'Analyze dependency graph for unblocking opportunities' },
@@ -1217,7 +1130,6 @@ export const orchestrateCommand = defineCommand({
     context: contextCommand,
     ivtr: ivtrCommand,
     parallel: parallelCommand,
-    tessera: tesseraCommand,
     unblock: unblockCommand,
     bootstrap: bootstrapCommand,
     classify: classifyCommand,

@@ -519,13 +519,6 @@ export {
 // BEFORE INSERT/UPDATE triggers enforcing the invariants going forward.
 // No runtime-callable API is needed anymore; the migration runs once via
 // drizzle's __drizzle_migrations journal.
-export {
-  addChain,
-  advanceInstance,
-  createInstance,
-  listChains,
-  showChain,
-} from './lifecycle/chain-store.js';
 // Lifecycle engine ops (ENG-MIG-9 / T1576 — EngineResult wrappers + scope guard)
 // Imported from engine-ops.ts directly (not via index.js) to avoid circular deps.
 export {
@@ -590,7 +583,6 @@ export {
   startIvtr,
 } from './lifecycle/ivtr-loop.js';
 export { STAGE_DEFINITIONS } from './lifecycle/stages.js';
-export { instantiateTessera, showTessera } from './lifecycle/tessera-engine.js';
 // Lifecycle — verify explain (T1013 / T1541 / ADR-051 / ADR-057)
 export {
   checkExplainVerification,
@@ -1697,8 +1689,6 @@ export {
 export type { DiagnoseFinding, DiagnoseResult, UpgradeSummary } from './upgrade.js';
 // Upgrade
 export { diagnoseUpgrade, runUpgrade } from './upgrade.js';
-// Validation — chain validation
-export { validateChain } from './validation/chain-validation.js';
 // Validation — engine operations (ENG-MIG-7 / T1574)
 export type {
   GateVerifyParams,
@@ -1775,7 +1765,6 @@ export {
   checkTestCoverage,
   checkTestRun,
   checkTestStatus,
-  checkValidateChain,
   checkValidateManifest,
   checkValidateOutput,
   checkValidateProtocol,
@@ -1870,8 +1859,6 @@ export {
 // Additional flat exports (TS2724 resolution for @cleocode/cleo)
 // ---------------------------------------------------------------------------
 
-// Lifecycle (additional)
-export { listTesseraTemplates } from './lifecycle/tessera-engine.js';
 // Orchestration (additional)
 export { buildBrainState } from './orchestration/bootstrap.js';
 // OTel (additional)

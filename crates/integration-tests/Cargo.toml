@@ -10,7 +10,6 @@ publish = false
 lafs-core = { path = "../lafs-core" }
 cleo-conduit-core = { path = "../cleo-conduit-core" }
 cant-core = { path = "../cant-core" }
-cant-router = { path = "../cant-router" }
 serde_json = "1.0"
 
 [lints]

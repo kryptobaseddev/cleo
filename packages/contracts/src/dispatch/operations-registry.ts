@@ -1462,37 +1462,6 @@ export const OPERATIONS: OperationDef[] = [
     requiredParams: [],
     params: [],
   },
-  // T5405: WarpChain pipeline operations
-  {
-    gateway: 'query',
-    domain: 'pipeline',
-    operation: 'chain.show',
-    description: 'pipeline.chain.show (query) — get chain definition by ID',
-    tier: 2,
-    idempotent: true,
-    sessionRequired: false,
-    requiredParams: ['chainId'],
-    params: [
-      {
-        name: 'chainId',
-        type: 'string',
-        required: true,
-        description: 'chainId parameter',
-        cli: { positional: true },
-      },
-    ] satisfies ParamDef[],
-  },
-  {
-    gateway: 'query',
-    domain: 'pipeline',
-    operation: 'chain.list',
-    description: 'pipeline.chain.list (query) — list all chain definitions',
-    tier: 2,
-    idempotent: true,
-    sessionRequired: false,
-    requiredParams: [],
-    params: [],
-  },
   {
     gateway: 'query',
     domain: 'check',
@@ -1689,26 +1658,6 @@ export const OPERATIONS: OperationDef[] = [
         description: 'Skip this many grade entries before returning results',
       },
     ],
-  },
-  // T5405: WarpChain validation query
-  {
-    gateway: 'query',
-    domain: 'check',
-    operation: 'chain.validate',
-    description: 'check.chain.validate (query) — validate a WarpChain definition',
-    tier: 2,
-    idempotent: true,
-    sessionRequired: false,
-    requiredParams: ['chain'],
-    params: [
-      {
-        name: 'chain',
-        type: 'string',
-        required: true,
-        description: 'chain parameter',
-        cli: { positional: true },
-      },
-    ] satisfies ParamDef[],
   },
   // T646: Canon drift detection — CI gate
   {
@@ -4248,77 +4197,6 @@ export const OPERATIONS: OperationDef[] = [
       { name: 'force', type: 'boolean', required: false, description: 'Required safety flag' },
     ],
   },
-  // T5405: WarpChain pipeline mutate operations
-  {
-    gateway: 'mutate',
-    domain: 'pipeline',
-    operation: 'chain.add',
-    description: 'pipeline.chain.add (mutate) — store a validated chain definition',
-    tier: 2,
-    idempotent: false,
-    sessionRequired: false,
-    requiredParams: ['chain'],
-    params: [
-      {
-        name: 'chain',
-        type: 'string',
-        required: true,
-        description: 'chain parameter',
-        cli: { positional: true },
-      },
-    ] satisfies ParamDef[],
-  },
-  {
-    gateway: 'mutate',
-    domain: 'pipeline',
-    operation: 'chain.instantiate',
-    description: 'pipeline.chain.instantiate (mutate) — create chain instance for epic',
-    tier: 2,
-    idempotent: false,
-    sessionRequired: false,
-    requiredParams: ['chainId', 'epicId'],
-    params: [
-      {
-        name: 'chainId',
-        type: 'string',
-        required: true,
-        description: 'chainId parameter',
-        cli: { positional: true },
-      },
-      {
-        name: 'epicId',
-        type: 'string',
-        required: true,
-        description: 'epicId parameter',
-        cli: { positional: true },
-      },
-    ] satisfies ParamDef[],
-  },
-  {
-    gateway: 'mutate',
-    domain: 'pipeline',
-    operation: 'chain.advance',
-    description: 'pipeline.chain.advance (mutate) — advance instance to next stage',
-    tier: 2,
-    idempotent: false,
-    sessionRequired: false,
-    requiredParams: ['instanceId', 'nextStage'],
-    params: [
-      {
-        name: 'instanceId',
-        type: 'string',
-        required: true,
-        description: 'instanceId parameter',
-        cli: { positional: true },
-      },
-      {
-        name: 'nextStage',
-        type: 'string',
-        required: true,
-        description: 'nextStage parameter',
-      },
-    ] satisfies ParamDef[],
-  },
   {
     gateway: 'mutate',
     domain: 'check',
@@ -6599,54 +6477,6 @@ export const OPERATIONS: OperationDef[] = [
         type: 'string',
         required: true,
         description: 'stickyId parameter',
-        cli: { positional: true },
-      },
-    ] satisfies ParamDef[],
-  },
-  // orchestrate — tessera template operations (T5411)
-  // tessera.show removed — merged into tessera.list via optional id param (T5615)
-  {
-    gateway: 'query',
-    domain: 'orchestrate',
-    operation: 'tessera.list',
-    description:
-      'orchestrate.tessera.list (query) — list Tessera templates; absorbs tessera.show via optional id param',
-    tier: 1,
-    idempotent: true,
-    sessionRequired: false,
-    requiredParams: [],
-    params: [
-      {
-        name: 'id',
-        type: 'string',
-        required: false,
-        description: 'Optional template ID for single-item lookup (replaces tessera.show)',
-      },
-    ],
-  },
-  {
-    gateway: 'mutate',
-    domain: 'orchestrate',
-    operation: 'tessera.instantiate',
-    description:
-      'orchestrate.tessera.instantiate (mutate) — instantiate a Tessera template into a chain instance',
-    tier: 1,
-    idempotent: false,
-    sessionRequired: false,
-    requiredParams: ['templateId', 'epicId'],
-    params: [
-      {
-        name: 'templateId',
-        type: 'string',
-        required: true,
-        description: 'templateId parameter',
-        cli: { positional: true },
-      },
-      {
-        name: 'epicId',
-        type: 'string',
-        required: true,
-        description: 'epicId parameter',
         cli: { positional: true },
       },
     ] satisfies ParamDef[],

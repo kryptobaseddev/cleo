@@ -3,7 +3,6 @@ members = [
     "crates/cant-core",
     "crates/cant-lsp",
     "crates/cant-napi",
-    "crates/cant-router",
     "crates/cant-runtime",
     "crates/cleo-conduit-core",
     "crates/cleo-supervisor",
@@ -25,7 +24,6 @@ default-members = [
     #   cargo build -p cant-lsp [--release]
     # A full editor-client roadmap is tracked in T11434.
     "crates/cant-napi",
-    "crates/cant-router",
     "crates/cant-runtime",
     "crates/cleo-conduit-core",
     "crates/cleo-supervisor",
