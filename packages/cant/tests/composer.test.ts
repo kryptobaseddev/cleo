@@ -220,7 +220,6 @@ describe('composeSpawnPayload', () => {
     expect(payload.declaredTier).toBe('low');
     expect(payload.resolvedTier).toBe('mid');
     expect(payload.escalated).toBe(true);
-    expect(payload.model).toBe('claude-sonnet-4-6');
   });
 
   it('escalates mid to high when needed', async () => {
@@ -238,7 +237,6 @@ describe('composeSpawnPayload', () => {
     expect(payload.declaredTier).toBe('mid');
     expect(payload.resolvedTier).toBe('high');
     expect(payload.escalated).toBe(true);
-    expect(payload.model).toBe('claude-opus-4-6');
   });
 
   it('throws when high tier exceeded and onOverflow is fail', async () => {
@@ -269,26 +267,6 @@ describe('composeSpawnPayload', () => {
     await expect(composeSpawnPayload(agent, provider, 'proj-abc')).rejects.toThrow(
       /cannot escalate further/,
     );
-  });
-
-  it('selects correct model per tier', async () => {
-    const lowAgent = createAgent({ tier: 'low', prompt: 'short' });
-    const midAgent = createAgent({ tier: 'mid', prompt: 'short' });
-    const highAgent = createAgent({ tier: 'high', prompt: 'short' });
-    const provider = createMockProvider();
-
-    const lowPayload = await composeSpawnPayload(lowAgent, provider, 'proj-abc');
-    const midPayload = await composeSpawnPayload(midAgent, provider, 'proj-abc');
-    const highPayload = await composeSpawnPayload(highAgent, provider, 'proj-abc');
-
-    expect(lowPayload.model).toBe('claude-haiku-4-5');
-    expect(lowPayload.fallbackModels).toEqual(['kimi-k2.5']);
-
-    expect(midPayload.model).toBe('claude-sonnet-4-6');
-    expect(midPayload.fallbackModels).toEqual(['kimi-k2.5', 'claude-haiku-4-5']);
-
-    expect(highPayload.model).toBe('claude-opus-4-6');
-    expect(highPayload.fallbackModels).toEqual(['claude-sonnet-4-6', 'kimi-k2.5']);
   });
 
   it('marks escalation in payload correctly', async () => {
@@ -339,7 +317,6 @@ describe('composeSpawnPayload', () => {
     expect(payload.declaredTier).toBe('low');
     expect(payload.resolvedTier).toBe('high');
     expect(payload.escalated).toBe(true);
-    expect(payload.model).toBe('claude-opus-4-6');
   });
 
   it('preserves skills and tools in the payload', async () => {

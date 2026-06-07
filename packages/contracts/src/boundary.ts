@@ -267,25 +267,6 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
       'napi binding shim for cant-core + cant-runtime. Loaded via packages/cant/src/native-loader.ts and packages/core/src/system/dependencies.ts. Internal-only — shipped via per-platform packages/cant-napi-* npm packages, not crates.io. cant-router bindings removed (E8 T11432).',
   },
   {
-    module: 'cant-router',
-    intent: 'cpu-bound',
-    rustCore: 'crates/cant-router',
-    canonicalHome: 'cleocode',
-    perfBudget: {
-      latency_p50_ms: 5,
-      latency_p99_ms: 50,
-    },
-    safetyBudget: {
-      panic_unwind: 'forbidden',
-      root_escape: 'forbidden',
-    },
-    amendments: [],
-    rationale:
-      'Cant Router (984 LOC) — RETIRED from cant-napi dep-set (E8 T11432: zero live TS consumers). ' +
-      'Preserved in the workspace for reference; not linked into the published napi binary. ' +
-      'publish=false. Relocation/deletion tracked in T11432.',
-  },
-  {
     module: 'cant-runtime',
     intent: 'cpu-bound',
     rustCore: 'crates/cant-runtime',
@@ -368,7 +349,7 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
     },
     amendments: [],
     rationale:
-      'Internal Rust test harness (241 LOC) over lafs-core/cleo-conduit-core/cant-core/cant-router/signaldock-core. publish=false intentional — test code never ships.',
+      'Internal Rust test harness over lafs-core/cleo-conduit-core/cant-core. publish=false intentional — test code never ships.',
   },
   {
     module: 'lafs-core',

@@ -198,15 +198,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cant-router"
-version = "2026.5.105"
-dependencies = [
- "criterion",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "cant-runtime"
 version = "2026.5.105"
 dependencies = [
@@ -1046,7 +1037,6 @@ name = "integration-tests"
 version = "2026.5.105"
 dependencies = [
  "cant-core",
- "cant-router",
  "cleo-conduit-core",
  "lafs-core",
  "serde_json",
