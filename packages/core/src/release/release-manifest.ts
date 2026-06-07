@@ -1324,7 +1324,9 @@ export async function markReleaseShipped(
     // (composite PK: task_id, commit_sha, link_kind).
     try {
       await db.run(
-        sql`INSERT OR IGNORE INTO task_commits
+        // T11883 (E3): write to the PREFIXED provenance table (task_id is plain
+        // text there — no FK into the bare `tasks` table).
+        sql`INSERT OR IGNORE INTO tasks_task_commits
           (task_id, commit_sha, link_kind, link_source, created_at)
           VALUES
           (${taskId}, ${commitSha}, ${'implements'}, ${'manual'}, ${now})`,

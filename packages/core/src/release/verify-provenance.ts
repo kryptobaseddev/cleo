@@ -268,14 +268,14 @@ async function verifyOneRelease(
 ): Promise<VerifyProvenanceReleaseResult> {
   // 1. releaseExists — count rows in releases where version=<version>.
   const releaseCountRows = await db.all<{ cnt: number }>(
-    sql`SELECT COUNT(*) AS cnt FROM releases WHERE version = ${version}`,
+    sql`SELECT COUNT(*) AS cnt FROM tasks_releases WHERE version = ${version}`,
   );
   const releaseCount = releaseCountRows[0]?.cnt ?? 0;
   const releaseExists = { passed: releaseCount > 0, count: releaseCount };
 
   // Look up the release id once — most downstream queries scope to it.
   const releaseIdRows = await db.all<{ id: string }>(
-    sql`SELECT id FROM releases WHERE version = ${version} LIMIT 1`,
+    sql`SELECT id FROM tasks_releases WHERE version = ${version} LIMIT 1`,
   );
   const releaseId = releaseIdRows[0]?.id ?? null;
 
@@ -303,8 +303,8 @@ async function verifyOneRelease(
   const commitOrphans = await fetchOrphans(
     db,
     sql`SELECT rc.commit_sha AS v
-        FROM release_commits rc
-        LEFT JOIN commits c ON c.sha = rc.commit_sha
+        FROM tasks_release_commits rc
+        LEFT JOIN tasks_commits c ON c.sha = rc.commit_sha
         WHERE rc.release_id = ${releaseId}
           AND c.sha IS NULL`,
   );
@@ -314,10 +314,10 @@ async function verifyOneRelease(
   const taskCommitOrphans = await fetchOrphans(
     db,
     sql`SELECT tc.task_id AS v
-        FROM task_commits tc
-        LEFT JOIN tasks t ON t.id = tc.task_id
+        FROM tasks_task_commits tc
+        LEFT JOIN tasks_tasks t ON t.id = tc.task_id
         WHERE tc.commit_sha IN (
-          SELECT commit_sha FROM release_commits WHERE release_id = ${releaseId}
+          SELECT commit_sha FROM tasks_release_commits WHERE release_id = ${releaseId}
         )
           AND t.id IS NULL`,
   );
@@ -327,13 +327,13 @@ async function verifyOneRelease(
   const prCommitOrphans = await fetchOrphans(
     db,
     sql`SELECT pc.commit_sha AS v
-        FROM pr_commits pc
-        LEFT JOIN commits c ON c.sha = pc.commit_sha
+        FROM tasks_pr_commits pc
+        LEFT JOIN tasks_commits c ON c.sha = pc.commit_sha
         WHERE pc.pr_id IN (
           SELECT DISTINCT pc2.pr_id
-          FROM pr_commits pc2
+          FROM tasks_pr_commits pc2
           WHERE pc2.commit_sha IN (
-            SELECT commit_sha FROM release_commits WHERE release_id = ${releaseId}
+            SELECT commit_sha FROM tasks_release_commits WHERE release_id = ${releaseId}
           )
         )
           AND c.sha IS NULL`,
@@ -344,13 +344,13 @@ async function verifyOneRelease(
   const prTaskOrphans = await fetchOrphans(
     db,
     sql`SELECT pt.task_id AS v
-        FROM pr_tasks pt
-        LEFT JOIN tasks t ON t.id = pt.task_id
+        FROM tasks_pr_tasks pt
+        LEFT JOIN tasks_tasks t ON t.id = pt.task_id
         WHERE pt.pr_id IN (
           SELECT DISTINCT pc2.pr_id
-          FROM pr_commits pc2
+          FROM tasks_pr_commits pc2
           WHERE pc2.commit_sha IN (
-            SELECT commit_sha FROM release_commits WHERE release_id = ${releaseId}
+            SELECT commit_sha FROM tasks_release_commits WHERE release_id = ${releaseId}
           )
         )
           AND t.id IS NULL`,
@@ -364,8 +364,8 @@ async function verifyOneRelease(
   const releaseChangesOrphans = await fetchOrphans(
     db,
     sql`SELECT rc.id AS v
-        FROM release_changes rc
-        LEFT JOIN tasks t ON t.id = rc.task_id
+        FROM tasks_release_changes rc
+        LEFT JOIN tasks_tasks t ON t.id = rc.task_id
         WHERE rc.release_id = ${releaseId}
           AND rc.task_id IS NOT NULL
           AND t.id IS NULL`,
@@ -378,8 +378,8 @@ async function verifyOneRelease(
   const releaseArtifactsOrphans = await fetchOrphans(
     db,
     sql`SELECT ra.identifier AS v
-        FROM release_artifacts ra
-        LEFT JOIN releases r ON r.id = ra.release_id
+        FROM tasks_release_artifacts ra
+        LEFT JOIN tasks_releases r ON r.id = ra.release_id
         WHERE ra.release_id = ${releaseId}
           AND r.id IS NULL`,
   );
@@ -456,7 +456,7 @@ async function resolveVersions(
   const limit =
     typeof opts.limit === 'number' && opts.limit > 0 ? Math.floor(opts.limit) : DEFAULT_ALL_LIMIT;
   const rows = await db.all<{ version: string }>(
-    sql`SELECT version FROM releases
+    sql`SELECT version FROM tasks_releases
         ORDER BY COALESCE(published_at, reconciled_at, created_at) DESC
         LIMIT ${limit}`,
   );
