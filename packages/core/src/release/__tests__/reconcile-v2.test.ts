@@ -338,13 +338,13 @@ describe('releaseReconcileV2 — Phase 1 (T9526)', () => {
     // that baseline. `task_commits` is NOT touched by the backfill — none
     // of the legacy SHAs carry T#### tokens that would seed task_commits —
     // so its count remains a clean 2.
-    expect(await countRows(projectRoot, 'commits')).toBe(LEGACY_BACKFILL_COMMIT_COUNT + 2);
-    expect(await countRows(projectRoot, 'commit_files')).toBeGreaterThanOrEqual(2);
-    expect(await countRows(projectRoot, 'task_commits')).toBe(2);
-    expect(await countRows(projectRoot, 'releases')).toBe(1);
-    expect(await countRows(projectRoot, 'release_commits')).toBe(2);
-    expect(await countRows(projectRoot, 'release_changes')).toBe(2);
-    expect(await countRows(projectRoot, 'release_artifacts')).toBe(1);
+    expect(await countRows(projectRoot, 'tasks_commits')).toBe(LEGACY_BACKFILL_COMMIT_COUNT + 2);
+    expect(await countRows(projectRoot, 'tasks_commit_files')).toBeGreaterThanOrEqual(2);
+    expect(await countRows(projectRoot, 'tasks_task_commits')).toBe(2);
+    expect(await countRows(projectRoot, 'tasks_releases')).toBe(1);
+    expect(await countRows(projectRoot, 'tasks_release_commits')).toBe(2);
+    expect(await countRows(projectRoot, 'tasks_release_changes')).toBe(2);
+    expect(await countRows(projectRoot, 'tasks_release_artifacts')).toBe(1);
   });
 
   it('archives only plan-scoped shipped changeset files after successful reconcile', async () => {
@@ -380,9 +380,9 @@ describe('releaseReconcileV2 — Phase 1 (T9526)', () => {
     const first = await releaseReconcileV2(VERSION, { projectRoot });
     expect(first.success).toBe(true);
 
-    const commitsAfterFirst = await countRows(projectRoot, 'commits');
-    const taskCommitsAfterFirst = await countRows(projectRoot, 'task_commits');
-    const changesAfterFirst = await countRows(projectRoot, 'release_changes');
+    const commitsAfterFirst = await countRows(projectRoot, 'tasks_commits');
+    const taskCommitsAfterFirst = await countRows(projectRoot, 'tasks_task_commits');
+    const changesAfterFirst = await countRows(projectRoot, 'tasks_release_changes');
 
     // Plan file is archived on success — restore for the second run.
     writePlan(projectRoot, VERSION, TASK_IDS);
@@ -393,9 +393,9 @@ describe('releaseReconcileV2 — Phase 1 (T9526)', () => {
     // Second run should report re-reconciliation.
     expect(second.data.reReconciled).toBe(true);
 
-    expect(await countRows(projectRoot, 'commits')).toBe(commitsAfterFirst);
-    expect(await countRows(projectRoot, 'task_commits')).toBe(taskCommitsAfterFirst);
-    expect(await countRows(projectRoot, 'release_changes')).toBe(changesAfterFirst);
+    expect(await countRows(projectRoot, 'tasks_commits')).toBe(commitsAfterFirst);
+    expect(await countRows(projectRoot, 'tasks_task_commits')).toBe(taskCommitsAfterFirst);
+    expect(await countRows(projectRoot, 'tasks_release_changes')).toBe(changesAfterFirst);
   });
 
   it('unknown T#### tokens are reported in meta.unknownTokens (non-fatal)', async () => {
@@ -409,7 +409,7 @@ describe('releaseReconcileV2 — Phase 1 (T9526)', () => {
     if (!result.success) return;
     expect(result.data.unknownTokens).toContain('T99999');
     // Real token still linked.
-    expect(await countRows(projectRoot, 'task_commits')).toBeGreaterThan(0);
+    expect(await countRows(projectRoot, 'tasks_task_commits')).toBeGreaterThan(0);
   });
 
   it('orphan commits (no T#### token) are surfaced in data.orphanCommits', async () => {
@@ -614,7 +614,7 @@ describe('releaseReconcileV2 — Phase 1 (T9526)', () => {
     const { sql } = await import('drizzle-orm');
     const db = await getDb(projectRoot);
     const rows = await db.all<{ change_type: string }>(
-      sql`SELECT change_type FROM release_changes WHERE task_id = ${taskId}`,
+      sql`SELECT change_type FROM tasks_release_changes WHERE task_id = ${taskId}`,
     );
     expect(rows[0]?.change_type).toBe('hotfix');
   });

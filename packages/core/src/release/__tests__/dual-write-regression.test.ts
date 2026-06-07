@@ -106,7 +106,7 @@ async function insertManifest(
   const id = `${generateProjectHash(projectRoot)}:${version}`;
   const { sql } = await import('drizzle-orm');
   await db.run(
-    sql`INSERT INTO releases (id, version, status, tasks_json, created_at)
+    sql`INSERT INTO tasks_releases (id, version, status, tasks_json, created_at)
         VALUES (${id}, ${version}, 'prepared', ${JSON.stringify(taskIds)}, datetime('now'))`,
   );
 }
@@ -119,7 +119,7 @@ async function countTaskCommits(projectRoot: string, commitSha: string): Promise
   const { sql } = await import('drizzle-orm');
   const db = await getDb(projectRoot);
   const rows = await db.all<{ cnt: number }>(
-    sql`SELECT COUNT(*) AS cnt FROM task_commits WHERE commit_sha = ${commitSha}`,
+    sql`SELECT COUNT(*) AS cnt FROM tasks_task_commits WHERE commit_sha = ${commitSha}`,
   );
   return rows[0]?.cnt ?? 0;
 }
@@ -133,7 +133,7 @@ async function readTasksJson(projectRoot: string, version: string): Promise<stri
   const { sql } = await import('drizzle-orm');
   const db = await getDb(projectRoot);
   const rows = await db.all<{ tasks_json: string }>(
-    sql`SELECT tasks_json FROM releases WHERE version = ${version}`,
+    sql`SELECT tasks_json FROM tasks_releases WHERE version = ${version}`,
   );
   return rows[0]?.tasks_json ?? '[]';
 }

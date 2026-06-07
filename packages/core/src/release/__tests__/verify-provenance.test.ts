@@ -213,7 +213,7 @@ describe('verifyProvenance — Phase 2 (T9529)', () => {
     const { getDb, getNativeDb } = await import('../../store/sqlite.js');
     const db = await getDb(projectRoot);
     const releaseRow = await db.all<{ id: string }>(
-      sql`SELECT id FROM releases WHERE version = 'v2.1.0'`,
+      sql`SELECT id FROM tasks_releases WHERE version = 'v2.1.0'`,
     );
     expect(releaseRow[0]).toBeDefined();
     const releaseId = releaseRow[0]?.id ?? '';
@@ -222,7 +222,7 @@ describe('verifyProvenance — Phase 2 (T9529)', () => {
     if (!native) throw new Error('native db not initialized');
     native.exec('PRAGMA foreign_keys = OFF');
     native.exec(
-      `INSERT INTO release_commits (release_id, commit_sha, position, is_first, is_last, is_release_chore)
+      `INSERT INTO tasks_release_commits (release_id, commit_sha, position, is_first, is_last, is_release_chore)
        VALUES ('${releaseId.replace(/'/g, "''")}', '0000000000000000000000000000000000000000', 99, 0, 0, 0)`,
     );
     native.exec('PRAGMA foreign_keys = ON');
@@ -254,7 +254,7 @@ describe('verifyProvenance — Phase 2 (T9529)', () => {
     const { getDb, getNativeDb } = await import('../../store/sqlite.js');
     const db = await getDb(projectRoot);
     const commitRow = await db.all<{ sha: string }>(
-      sql`SELECT commit_sha AS sha FROM release_commits LIMIT 1`,
+      sql`SELECT commit_sha AS sha FROM tasks_release_commits LIMIT 1`,
     );
     expect(commitRow[0]).toBeDefined();
     const commitSha = commitRow[0]?.sha ?? '';
@@ -263,8 +263,8 @@ describe('verifyProvenance — Phase 2 (T9529)', () => {
     if (!native) throw new Error('native db not initialized');
     native.exec('PRAGMA foreign_keys = OFF');
     native.exec(
-      `INSERT INTO task_commits (task_id, commit_sha, link_kind, link_source)
-       VALUES ('T-DOES-NOT-EXIST', '${commitSha.replace(/'/g, "''")}', 'implements', 'commit-message')`,
+      `INSERT INTO tasks_task_commits (task_id, commit_sha, link_kind, link_source)
+       VALUES ('T-DOES-NOT-EXIST', '${commitSha.replace(/'/g, "''")}', 'implements', 'commit-subject')`,
     );
     native.exec('PRAGMA foreign_keys = ON');
 
@@ -291,7 +291,7 @@ describe('verifyProvenance — Phase 2 (T9529)', () => {
     const { getDb, getNativeDb } = await import('../../store/sqlite.js');
     const db = await getDb(projectRoot);
     const releaseRow = await db.all<{ id: string }>(
-      sql`SELECT id FROM releases WHERE version = 'v2.3.0'`,
+      sql`SELECT id FROM tasks_releases WHERE version = 'v2.3.0'`,
     );
     expect(releaseRow[0]).toBeDefined();
     const releaseId = releaseRow[0]?.id ?? '';
@@ -300,8 +300,8 @@ describe('verifyProvenance — Phase 2 (T9529)', () => {
     if (!native) throw new Error('native db not initialized');
     native.exec('PRAGMA foreign_keys = OFF');
     native.exec(
-      `INSERT INTO release_changes (id, release_id, task_id, change_type, summary, impact, classified_by, classified_at)
-       VALUES ('orphan-rc-1', '${releaseId.replace(/'/g, "''")}', 'T-NOT-A-REAL-TASK', 'feat', 'orphan row', 'patch', 'auto', datetime('now'))`,
+      `INSERT INTO tasks_release_changes (id, release_id, task_id, change_type, summary, impact, classified_by, classified_at)
+       VALUES ('orphan-rc-1', '${releaseId.replace(/'/g, "''")}', 'T-NOT-A-REAL-TASK', 'feature', 'orphan row', 'patch', 'auto', datetime('now'))`,
     );
     native.exec('PRAGMA foreign_keys = ON');
 
