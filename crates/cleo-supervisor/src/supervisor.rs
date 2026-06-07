@@ -50,6 +50,21 @@ use crate::process;
 /// child's value of this key through to the child VERBATIM (never rewriting it)
 /// so the worker resolves exactly ONE session via `resolveSessionIdFromEnv`
 /// with zero DB scan (T11629, DHQ-047 class).
+///
+/// # Inheritance hazard (T11629 review fix)
+///
+/// A spawned [`Child`] inherits the supervisor's WHOLE environment, including
+/// the supervisor's own `CLEO_SESSION_ID` (its root session). If a worker
+/// [`SpawnRequest`] omits its own `CLEO_SESSION_ID`, the child would otherwise
+/// SILENTLY inherit the supervisor's root session as its OWN session — and
+/// because the supervisor also stamps [`PARENT_SESSION_ID_ENV_KEY`] = root, the
+/// worker would resolve `parent == child == root`: exactly the DHQ-047
+/// session-bleed class this work dissolves. To close that latent hazard the
+/// supervisor ACTIVELY NEUTRALISES the inherited value to the empty string when
+/// the request carries no explicit session id AND the supervisor itself has a
+/// root session (see [`ChildRegistry::stamp_fork_tree_session_env`]). An empty
+/// value is treated as ABSENT by the TS `resolveSessionIdFromEnv`, so the worker
+/// falls through to its own DB-resolved identity instead of inheriting the root.
 pub const SESSION_ID_ENV_KEY: &str = "CLEO_SESSION_ID";
 
 /// Canonical environment key carrying the active CLEO agent id (T11343).
@@ -549,10 +564,15 @@ impl ChildRegistry {
         self.root_session_id.as_deref()
     }
 
-    /// Stamp the fork-tree parent session ([`PARENT_SESSION_ID_ENV_KEY`]) into a
-    /// child's environment override list (T11629).
+    /// Resolve the fork-tree session environment a child must see, stamping the
+    /// parent edge AND closing the inherited-session bleed hazard (T11629).
     ///
-    /// Semantics:
+    /// A spawned [`Child`] inherits the supervisor's whole environment, so the
+    /// supervisor's own `CLEO_SESSION_ID` (root session) leaks into every child
+    /// unless explicitly overridden. This method mutates the child's env override
+    /// list to enforce BOTH halves of the fork-tree contract:
+    ///
+    /// ## Parent edge ([`PARENT_SESSION_ID_ENV_KEY`])
     ///
     ///   * If the request ALREADY carries an explicit `CLEO_PARENT_SESSION_ID`
     ///     override, it is left untouched — the caller's declared fork-tree
@@ -562,18 +582,35 @@ impl ChildRegistry {
     ///     to the supervisor root that spawned it.
     ///   * When the supervisor has no root session id, nothing is stamped.
     ///
-    /// This NEVER mutates the verbatim pass-through keys (`CLEO_SESSION_ID` /
-    /// `CLEO_AGENT_ID`): those flow through unchanged so the worker resolves
-    /// exactly one session with no DB scan.
-    fn stamp_parent_session(&self, env: &mut Vec<(String, String)>) {
-        let already_present = env
-            .iter()
-            .any(|(k, _)| k == PARENT_SESSION_ID_ENV_KEY);
-        if already_present {
-            return;
-        }
-        if let Some(root) = &self.root_session_id {
+    /// ## Child session anti-bleed (review fix)
+    ///
+    /// The verbatim pass-through key `CLEO_SESSION_ID` is NEVER rewritten when the
+    /// request supplies it — an explicit worker session flows through byte-for-
+    /// byte. But when the request OMITS `CLEO_SESSION_ID` and the supervisor HAS a
+    /// root session, the child would otherwise inherit the supervisor's root as
+    /// its OWN session (yielding `parent == child == root` — the DHQ-047 bleed).
+    /// To prevent that the supervisor appends `CLEO_SESSION_ID=""` (empty), which
+    /// `resolveSessionIdFromEnv` treats as ABSENT, so the worker resolves its own
+    /// DB-backed identity instead of silently adopting the supervisor's session.
+    ///
+    /// `CLEO_AGENT_ID` is left to flow through unchanged either way: agent
+    /// identity is not the bleed vector and an inherited agent id is benign.
+    fn stamp_fork_tree_session_env(&self, env: &mut Vec<(String, String)>) {
+        // --- Parent edge ---
+        let parent_present = env.iter().any(|(k, _)| k == PARENT_SESSION_ID_ENV_KEY);
+        if !parent_present
+            && let Some(root) = &self.root_session_id
+        {
             env.push((PARENT_SESSION_ID_ENV_KEY.to_string(), root.clone()));
+        }
+
+        // --- Child session anti-bleed ---
+        // Only neutralise the inherited root when (a) the supervisor actually has
+        // a root session that WOULD leak, and (b) the request did not declare its
+        // own session. An explicit worker `CLEO_SESSION_ID` is honoured verbatim.
+        let session_present = env.iter().any(|(k, _)| k == SESSION_ID_ENV_KEY);
+        if !session_present && self.root_session_id.is_some() {
+            env.push((SESSION_ID_ENV_KEY.to_string(), String::new()));
         }
     }
 
@@ -607,11 +644,13 @@ impl ChildRegistry {
         }
 
         let mut spec = ChildSpec::from(req);
-        // Stamp the fork-tree parent (the supervisor's root session) before the
-        // spec is stored, so it is reapplied verbatim on every restart too
-        // (T11629). The pass-through env keys (CLEO_SESSION_ID / CLEO_AGENT_ID)
-        // are NOT touched here — they flow through ChildSpec::from unmodified.
-        self.stamp_parent_session(&mut spec.env);
+        // Resolve the fork-tree session env before the spec is stored, so it is
+        // reapplied verbatim on every restart too (T11629). This stamps the
+        // parent edge AND, when the request omits its own session, neutralises
+        // the supervisor's inherited CLEO_SESSION_ID so the worker cannot bleed
+        // the root as its own identity. An explicit worker CLEO_SESSION_ID /
+        // CLEO_AGENT_ID flows through ChildSpec::from unmodified.
+        self.stamp_fork_tree_session_env(&mut spec.env);
         let job = Arc::new(JobObject::new().map_err(|e| RegistryError::Spawn {
             child_id: child_id.clone(),
             source: anyhow::Error::new(e),
@@ -1317,6 +1356,60 @@ mod tests {
         );
     }
 
+    /// Review-fix regression END-TO-END (T11629, DHQ-047 class): the supervisor
+    /// HAS a root session and the worker request OMITS its own `CLEO_SESSION_ID`.
+    /// The spawned child must NOT silently inherit the supervisor's root session
+    /// as its own — the observed `CLEO_SESSION_ID` must be EMPTY (neutralised),
+    /// distinct from the `CLEO_PARENT_SESSION_ID` (which is the root). This is the
+    /// exact interaction the prior verbatim test side-stepped with
+    /// `with_root_session(tx, None)`.
+    ///
+    /// The neutralising stamp (`CLEO_SESSION_ID=""`) is applied as an explicit env
+    /// override on the child [`Command`]; an explicit override always wins over
+    /// the inherited value, so the child observes the empty string regardless of
+    /// what `CLEO_SESSION_ID` the supervisor process itself carries. The test
+    /// therefore does not (and must not — the crate forbids `unsafe`) mutate this
+    /// process's global environment; the pure-transform companion test
+    /// `stamp_fork_tree_session_env_neutralises_inherited_root_when_request_omits_session`
+    /// proves the override is appended, and this test proves it reaches the child.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn registry_does_not_bleed_root_session_into_child_omitting_session() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let out = dir.path().join("env.txt");
+        let (tx, _rx) = unbounded_channel();
+        let root = "ses_20260607150503_7962a8";
+
+        let registry = ChildRegistry::with_root_session(tx, Some(root.into()));
+        // Request carries NO CLEO_SESSION_ID (only an agent id), mirroring a
+        // fork-tree worker spawn that forgot to declare its own session.
+        let req = spawn_req_dump_env(
+            "no-session",
+            &out,
+            vec![EnvPair {
+                key: "CLEO_AGENT_ID".into(),
+                value: "agent-z".into(),
+            }],
+        );
+        registry.spawn(&req).await.expect("spawn");
+
+        let (session, agent, parent) = read_dumped_env(&out).await;
+
+        assert_eq!(
+            session, "",
+            "child must NOT inherit the supervisor root as its own session (DHQ-047 bleed)"
+        );
+        assert_ne!(
+            session, root,
+            "neutralised child session must differ from the supervisor root"
+        );
+        assert_eq!(agent, "agent-z", "explicit agent id still flows through");
+        assert_eq!(
+            parent, root,
+            "the root is the fork-tree PARENT, not the child's own session"
+        );
+    }
+
     /// AC(b) override: an explicit `CLEO_PARENT_SESSION_ID` on the request takes
     /// precedence — the supervisor does NOT clobber a caller-declared fork-tree
     /// parent with its own root.
@@ -1346,20 +1439,21 @@ mod tests {
         );
     }
 
-    /// `stamp_parent_session` is a pure transform on the env override list: it
-    /// appends the parent only when absent, leaves the pass-through keys
-    /// untouched, and no-ops without a root session.
+    /// `stamp_fork_tree_session_env` is a pure transform on the env override
+    /// list: it appends the parent only when absent, honours an explicit worker
+    /// session verbatim, and no-ops the parent stamp without a root session.
     #[test]
-    fn stamp_parent_session_is_idempotent_and_non_destructive() {
+    fn stamp_fork_tree_session_env_is_idempotent_and_non_destructive() {
         let (tx, _rx) = unbounded_channel();
 
-        // With a root session: appends the parent, preserves existing keys.
+        // With a root session AND an explicit worker session: appends the parent,
+        // preserves existing keys, and does NOT neutralise the explicit session.
         let with_root = ChildRegistry::with_root_session(tx.clone(), Some("ses_root".into()));
         let mut env = vec![
             ("CLEO_SESSION_ID".to_string(), "ses_child".to_string()),
             ("CLEO_AGENT_ID".to_string(), "agent-x".to_string()),
         ];
-        with_root.stamp_parent_session(&mut env);
+        with_root.stamp_fork_tree_session_env(&mut env);
         assert_eq!(
             env,
             vec![
@@ -1369,27 +1463,61 @@ mod tests {
             ]
         );
 
-        // Explicit parent already present: left untouched (no duplicate).
-        let mut env2 = vec![(
-            "CLEO_PARENT_SESSION_ID".to_string(),
-            "ses_explicit".to_string(),
-        )];
-        with_root.stamp_parent_session(&mut env2);
+        // Explicit parent already present: left untouched (no duplicate). The
+        // request also carries its own session, so no neutralising stamp.
+        let mut env2 = vec![
+            ("CLEO_SESSION_ID".to_string(), "ses_child".to_string()),
+            (
+                "CLEO_PARENT_SESSION_ID".to_string(),
+                "ses_explicit".to_string(),
+            ),
+        ];
+        with_root.stamp_fork_tree_session_env(&mut env2);
         assert_eq!(
             env2,
-            vec![(
-                "CLEO_PARENT_SESSION_ID".to_string(),
-                "ses_explicit".to_string()
-            )]
+            vec![
+                ("CLEO_SESSION_ID".to_string(), "ses_child".to_string()),
+                (
+                    "CLEO_PARENT_SESSION_ID".to_string(),
+                    "ses_explicit".to_string()
+                ),
+            ]
         );
 
-        // No root session: no stamp.
+        // No root session: no parent stamp AND no neutralising stamp (nothing
+        // would leak, so the inherited session — if any — is the caller's own).
         let no_root = ChildRegistry::with_root_session(tx, None);
-        let mut env3 = vec![("CLEO_SESSION_ID".to_string(), "ses_child".to_string())];
-        no_root.stamp_parent_session(&mut env3);
+        let mut env3 = vec![("CLEO_AGENT_ID".to_string(), "agent-x".to_string())];
+        no_root.stamp_fork_tree_session_env(&mut env3);
         assert_eq!(
             env3,
-            vec![("CLEO_SESSION_ID".to_string(), "ses_child".to_string())]
+            vec![("CLEO_AGENT_ID".to_string(), "agent-x".to_string())]
+        );
+    }
+
+    /// Review-fix regression (T11629, DHQ-047 class): when the supervisor HAS a
+    /// root session and the worker request OMITS its own `CLEO_SESSION_ID`, the
+    /// supervisor MUST neutralise the inherited root to an empty string so the
+    /// child cannot silently resolve `parent == child == root`. The pure
+    /// transform exercises the env mutation without spawning a process.
+    #[test]
+    fn stamp_fork_tree_session_env_neutralises_inherited_root_when_request_omits_session() {
+        let (tx, _rx) = unbounded_channel();
+        let with_root = ChildRegistry::with_root_session(tx, Some("ses_root".into()));
+
+        // Request omits CLEO_SESSION_ID entirely (only an agent id present).
+        let mut env = vec![("CLEO_AGENT_ID".to_string(), "agent-y".to_string())];
+        with_root.stamp_fork_tree_session_env(&mut env);
+        assert_eq!(
+            env,
+            vec![
+                ("CLEO_AGENT_ID".to_string(), "agent-y".to_string()),
+                // Parent edge stamped to the root...
+                ("CLEO_PARENT_SESSION_ID".to_string(), "ses_root".to_string()),
+                // ...and the inherited root session NEUTRALISED to empty so the
+                // worker does not adopt the supervisor's session as its own.
+                ("CLEO_SESSION_ID".to_string(), String::new()),
+            ]
         );
     }
 
