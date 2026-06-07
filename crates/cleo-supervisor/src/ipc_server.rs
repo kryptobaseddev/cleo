@@ -37,6 +37,10 @@ use crate::ipc::{
     IPC_PROTOCOL_VERSION,
 };
 use crate::ipc_transport::Fanout;
+use crate::lease_handler::{LeaseArbiter, request_kind};
+use crate::lease_ipc::{
+    LEASE_IPC_PROTOCOL_VERSION, LeaseEnvelope, LeasePayload, LeaseResponse,
+};
 use crate::process;
 use crate::supervisor::{ChildRegistry, RegistryError};
 
@@ -159,6 +163,40 @@ fn error_response(err: &RegistryError) -> IpcResponse {
     })
 }
 
+/// A version-only peek at an inbound NDJSON line.
+///
+/// Both the frozen v1.0 [`IpcEnvelope`] and the parallel v1.1 [`LeaseEnvelope`]
+/// carry `protocol_version` as their first-class field, so the accept-loop
+/// version router reads ONLY that field to decide which union to parse the line
+/// through — without committing to (or failing on) either union's inner shape.
+#[derive(serde::Deserialize)]
+struct VersionPeek {
+    /// The wire protocol version (`"1.0.0"` → v1.0 dispatch, `"1.1.0"` → lease).
+    protocol_version: String,
+}
+
+/// Dispatch a parsed v1.1 [`crate::lease_ipc::LeaseRequest`] through the lease
+/// arbiter (ST-5), returning the correlated [`LeaseResponse`].
+///
+/// The arbiter runs the SAME `BEGIN IMMEDIATE` claim transaction the Node engine
+/// runs in `local` mode against the SAME persisted `_writer_leases` row — the
+/// supervisor is just a second caller of one shared primitive. The synchronous
+/// `rusqlite` claim runs on a blocking thread so it never blocks the reactor.
+async fn dispatch_lease(arbiter: &LeaseArbiter, request: crate::lease_ipc::LeaseRequest) -> LeaseResponse {
+    let kind = request_kind(&request);
+    let arbiter = arbiter.clone();
+    let response = tokio::task::spawn_blocking(move || arbiter.handle(request))
+        .await
+        .unwrap_or_else(|join_err| {
+            LeaseResponse::Error(crate::ipc::ErrorResult {
+                code: "E_LEASE_CLAIM_FAILED".to_string(),
+                message: format!("lease claim task panicked: {join_err}"),
+            })
+        });
+    tracing::trace!(verb = kind, "dispatched lease request");
+    response
+}
+
 /// Drive the per-client read loop: parse one [`IpcEnvelope`] request per NDJSON
 /// line, dispatch it, and write the correlated response back over `writer`.
 ///
@@ -166,8 +204,12 @@ fn error_response(err: &RegistryError) -> IpcResponse {
 /// that is not recoverable. Parse errors on a single line are answered with an
 /// `IpcResponse::Error` and the loop continues, so one malformed line does not
 /// drop an otherwise-healthy client.
-async fn client_read_loop<R, W>(read: R, writer: SharedWriter<W>, registry: ChildRegistry)
-where
+async fn client_read_loop<R, W>(
+    read: R,
+    writer: SharedWriter<W>,
+    registry: ChildRegistry,
+    lease: Option<LeaseArbiter>,
+) where
     R: tokio::io::AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
 {
@@ -185,6 +227,54 @@ where
         if line.trim().is_empty() {
             continue;
         }
+
+        // ── Version router (ST-5) ───────────────────────────────────────────
+        // Peek ONLY the protocol_version, then route the line through the
+        // matching union. The v1.0 path below is byte-identical to the frozen
+        // behaviour; the v1.1 path is additive and never touches v1.0 framing.
+        let version = match serde_json::from_str::<VersionPeek>(&line) {
+            Ok(peek) => peek.protocol_version,
+            Err(e) => {
+                // Not even a versioned envelope — answer on the v1.0 framing
+                // (unchanged from the frozen behaviour) and continue.
+                let reply = IpcEnvelope::response(
+                    "unparseable",
+                    IpcResponse::Error(crate::ipc::ErrorResult {
+                        code: "E_BAD_REQUEST".to_string(),
+                        message: format!("could not parse IPC envelope: {e}"),
+                    }),
+                );
+                if write_envelope(&mut writer, &reply).await.is_err() {
+                    break;
+                }
+                continue;
+            }
+        };
+
+        if version == LEASE_IPC_PROTOCOL_VERSION {
+            // ── v1.1 → LeaseRequest dispatch ────────────────────────────────
+            if handle_lease_line(&line, lease.as_ref(), &mut writer).await.is_err() {
+                break;
+            }
+            continue;
+        }
+        if version != IPC_PROTOCOL_VERSION {
+            // Unknown version — reject with a lease-protocol bad-version error on
+            // the lease framing so a v1.1-aware client can correlate it.
+            let reply = LeaseEnvelope::response(
+                "bad-version",
+                LeaseResponse::Error(crate::ipc::ErrorResult {
+                    code: "E_LEASE_BAD_VERSION".to_string(),
+                    message: format!("unsupported protocol_version: {version}"),
+                }),
+            );
+            if write_lease_envelope(&mut writer, &reply).await.is_err() {
+                break;
+            }
+            continue;
+        }
+
+        // ── v1.0 → IpcRequest dispatch (UNCHANGED — frozen behaviour) ───────
         match IpcEnvelope::from_ndjson(&line) {
             Ok(env) => match env.payload {
                 IpcPayload::Request { request } => {
@@ -216,10 +306,74 @@ where
     }
 }
 
+/// Parse + dispatch a v1.1 lease line, writing the correlated lease response.
+///
+/// Returns `Err(())` only when the write half is broken (the caller drops the
+/// client); a malformed lease frame or an absent arbiter is answered with a
+/// lease-framed error and is NOT fatal to the connection.
+async fn handle_lease_line<W>(
+    line: &str,
+    lease: Option<&LeaseArbiter>,
+    writer: &mut SharedWriter<W>,
+) -> Result<(), ()>
+where
+    W: AsyncWrite + Unpin + Send,
+{
+    let env = match LeaseEnvelope::from_ndjson(line) {
+        Ok(env) => env,
+        Err(e) => {
+            let reply = LeaseEnvelope::response(
+                "unparseable",
+                LeaseResponse::Error(crate::ipc::ErrorResult {
+                    code: "E_LEASE_BAD_REQUEST".to_string(),
+                    message: format!("could not parse lease envelope: {e}"),
+                }),
+            );
+            return write_lease_envelope(writer, &reply).await.map_err(|_| ());
+        }
+    };
+    let LeasePayload::Request { request } = env.payload else {
+        // Clients do not send responses; ignore defensively (non-fatal).
+        tracing::debug!("ignoring unexpected response-direction lease envelope from client");
+        return Ok(());
+    };
+    let response = match lease {
+        Some(arbiter) => dispatch_lease(arbiter, request).await,
+        // No arbiter wired (the daemon-on fast path is opt-in): a v1.1 client
+        // gets a clear unavailable error rather than a silent drop.
+        None => LeaseResponse::Error(crate::ipc::ErrorResult {
+            code: "E_LEASE_UNAVAILABLE".to_string(),
+            message: "supervisor lease arbiter is not enabled".to_string(),
+        }),
+    };
+    let reply = LeaseEnvelope::response(env.id, response);
+    write_lease_envelope(writer, &reply).await.map_err(|_| ())
+}
+
 /// Serialize and write one envelope as an NDJSON line + flush.
 async fn write_envelope<W>(
     writer: &mut SharedWriter<W>,
     envelope: &IpcEnvelope,
+) -> std::io::Result<()>
+where
+    W: AsyncWrite + Unpin + Send,
+{
+    let mut line = envelope
+        .to_ndjson()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    line.push('\n');
+    writer.write_all(line.as_bytes()).await?;
+    writer.flush().await
+}
+
+/// Serialize and write one v1.1 [`LeaseEnvelope`] as an NDJSON line + flush.
+///
+/// Identical framing to [`write_envelope`] (single NDJSON line + flush) — the
+/// v1.1 wire bytes match the v1.0 framing; only the version string and inner
+/// union differ.
+async fn write_lease_envelope<W>(
+    writer: &mut SharedWriter<W>,
+    envelope: &LeaseEnvelope,
 ) -> std::io::Result<()>
 where
     W: AsyncWrite + Unpin + Send,
@@ -271,6 +425,7 @@ mod unix_serve {
         listener: UnixListener,
         registry: ChildRegistry,
         events: UnboundedReceiver<LifecycleEvent>,
+        lease: Option<LeaseArbiter>,
     ) -> std::io::Result<()> {
         let fanout: Fanout<SharedWriter<tokio::net::unix::OwnedWriteHalf>> = Fanout::new();
         tokio::spawn(event_pump(events, fanout.clone()));
@@ -280,7 +435,12 @@ mod unix_serve {
             let (read, write) = stream.into_split();
             let shared = SharedWriter::new(write);
             fanout.add_client(shared.clone()).await;
-            tokio::spawn(client_read_loop(read, shared, registry.clone()));
+            tokio::spawn(client_read_loop(
+                read,
+                shared,
+                registry.clone(),
+                lease.clone(),
+            ));
         }
     }
 }
@@ -303,6 +463,30 @@ pub async fn serve(
     registry: ChildRegistry,
     events: UnboundedReceiver<LifecycleEvent>,
 ) -> std::io::Result<()> {
+    // v1.0-only accept loop: no lease arbiter wired, so v1.1 frames are answered
+    // with E_LEASE_UNAVAILABLE. v1.0 dispatch is byte-identical to the frozen
+    // behaviour. The daemon-on fast path uses `serve_with_lease`.
+    serve_with_lease(socket_path, registry, events, None).await
+}
+
+/// Bind the supervisor IPC listener and run the accept loop with an OPTIONAL
+/// v1.1 lease arbiter wired into the version router (ST-5 — the daemon-on fast
+/// path).
+///
+/// When `lease` is `Some`, `"1.1.0"` frames are dispatched through the arbiter's
+/// `BEGIN IMMEDIATE` claim transaction; `"1.0.0"` frames route to the unchanged
+/// v1.0 dispatch. When `lease` is `None` this is byte-identical to [`serve`].
+///
+/// # Errors
+///
+/// Returns an I/O error if the socket cannot be bound or the accept loop fails.
+#[cfg(unix)]
+pub async fn serve_with_lease(
+    socket_path: &std::path::Path,
+    registry: ChildRegistry,
+    events: UnboundedReceiver<LifecycleEvent>,
+    lease: Option<LeaseArbiter>,
+) -> std::io::Result<()> {
     use tokio::net::UnixListener;
 
     if let Some(parent) = socket_path.parent() {
@@ -318,7 +502,7 @@ pub async fn serve(
     }
     let listener = UnixListener::bind(socket_path)?;
     tracing::info!(socket = %socket_path.display(), "supervisor IPC listening");
-    unix_serve::run(listener, registry, events).await
+    unix_serve::run(listener, registry, events, lease).await
 }
 
 /// Windows IPC is not yet implemented in this crate (named-pipe server lands
@@ -333,6 +517,25 @@ pub async fn serve(
     _socket_path: &std::path::Path,
     _registry: ChildRegistry,
     _events: UnboundedReceiver<LifecycleEvent>,
+) -> std::io::Result<()> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "named-pipe IPC transport is not yet implemented for Windows in cleo-supervisor",
+    ))
+}
+
+/// Windows variant of [`serve_with_lease`]. The named-pipe transport is not yet
+/// implemented in this crate, so this returns an error (matching [`serve`]).
+///
+/// # Errors
+///
+/// Always returns `ErrorKind::Unsupported` on Windows.
+#[cfg(not(unix))]
+pub async fn serve_with_lease(
+    _socket_path: &std::path::Path,
+    _registry: ChildRegistry,
+    _events: UnboundedReceiver<LifecycleEvent>,
+    _lease: Option<LeaseArbiter>,
 ) -> std::io::Result<()> {
     Err(std::io::Error::new(
         std::io::ErrorKind::Unsupported,

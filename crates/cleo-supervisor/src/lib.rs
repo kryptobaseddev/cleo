@@ -33,6 +33,7 @@ pub mod ipc;
 pub mod ipc_server;
 pub mod ipc_transport;
 pub mod jobobject;
+pub mod lease_handler;
 pub mod lease_ipc;
 pub mod logging;
 pub mod paths;

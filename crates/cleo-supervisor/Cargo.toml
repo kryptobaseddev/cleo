@@ -40,6 +40,16 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
+# Synchronous SQLite driver for the writer-lease claim transaction (T11894 / ST-5).
+# The supervisor `LeaseAcquire` handler runs the SAME `BEGIN IMMEDIATE` claim txn
+# against the SAME persisted `_writer_leases` row that the Node engine arbitrates
+# in `local` mode (packages/core/src/store/writer-lease.ts `tryClaimOnce`) — one
+# shared arbitration primitive, one row format. `rusqlite` gives byte-identical
+# synchronous semantics to Node's `node:sqlite`; the bundled feature compiles
+# SQLite in so the standalone binary carries no external libsqlite3 requirement.
+# Claims run on a blocking thread (`tokio::task::spawn_blocking`) so the sync API
+# never blocks the tokio reactor.
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 [target.'cfg(unix)'.dependencies]
 nix = { workspace = true }
