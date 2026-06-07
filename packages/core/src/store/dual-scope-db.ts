@@ -66,6 +66,7 @@ import {
 import type * as CleoGlobalSchemaTypes from './schema/cleo-global/index.js';
 import type * as CleoProjectSchemaTypes from './schema/cleo-project/index.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
+import { activeScope, withColdOpenLease, withWriterLease } from './writer-lease.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -636,53 +637,79 @@ export async function openDualScopeDbAtPath(
     // Resolve the migrations folder for this scope.
     const migrationsFolder = resolveCorePackageMigrationsFolder(migrationsSetName(scope));
 
-    // Reconcile the migration journal (handles WAL/journal divergence across
-    // SQLite version upgrades — same pattern as sqlite.ts / memory-sqlite.ts).
-    // T11829: pass the OTHER lineages that share this scope's consolidated cleo.db
-    // journal so their rows are not deleted as cross-lineage orphans (the confirmed
-    // OOM root cause: each lineage previously deleted the others' rows so the shared
-    // journal never converged).
-    reconcileJournal(
-      nativeDb,
-      migrationsFolder,
-      existenceTable(scope),
-      `dual-scope-db[${scope}]`,
-      resolveConsolidatedJournalSiblings(migrationsSetName(scope)),
-    );
-
-    // Run any pending migrations.
-    migrateWithRetry(
-      db,
-      migrationsFolder,
-      nativeDb,
-      existenceTable(scope),
-      `dual-scope-db[${scope}]`,
-    );
-
-    log.debug({ scope, dbPath }, 'dual-scope cleo.db ready');
-
-    const handle: DualScopeDbHandle = {
-      db,
+    // ── Seam 0 — cold-open critical section (THE T5158 HEAL · T11627 ST-3) ────
+    // Lease the migrate/reconcile cold-open write-txn against the just-opened
+    // native handle so EXACTLY ONE process per scope runs it while concurrent
+    // cold-open peers BEGIN IMMEDIATE-queue and then observe a ready DB. This heals
+    // the T5158 `E_NOT_INITIALIZED` / `E_INTERNAL` corruption (concurrent cold-open
+    // migrate write-txns racing the consolidated cleo.db's single shared
+    // `__drizzle_migrations` journal) WITH the supervisor daemon disabled (`local`
+    // mode default). `off` mode is a pass-through → byte-identical to pre-lease
+    // behaviour (busy_timeout=30000 still serializes the write-txn).
+    // `withColdOpenLease` also records the scope in the Seam-1 active-scope registry
+    // so chokepoint write primitives lease correctly.
+    //
+    // The lease wraps ONLY reconcileJournal + migrateWithRetry — the precise write-
+    // txn that races in T5158. The exodus-on-open hook runs AFTER the lease releases
+    // (below): it owns its OWN single-flight lock + dedicated migrate connections,
+    // and `runExodusMigrate` CLOSES + re-opens the scope handles, which would
+    // close the very handle the lease row lives on mid-section. Releasing first is
+    // both correct (exodus is already serialized) and necessary (no close-under-lease).
+    const handle = await withColdOpenLease(
       scope,
-      dbPath,
-      close() {
-        _cache.delete(key);
-        try {
-          nativeDb.close();
-        } catch {
-          // Idempotent — ignore double-close errors.
+      nativeDb,
+      async (): Promise<DualScopeDbHandle> => {
+        // Reconcile the migration journal (handles WAL/journal divergence across
+        // SQLite version upgrades — same pattern as sqlite.ts / memory-sqlite.ts).
+        // T11829: pass the OTHER lineages that share this scope's consolidated cleo.db
+        // journal so their rows are not deleted as cross-lineage orphans (the confirmed
+        // OOM root cause: each lineage previously deleted the others' rows so the shared
+        // journal never converged).
+        reconcileJournal(
+          nativeDb,
+          migrationsFolder,
+          existenceTable(scope),
+          `dual-scope-db[${scope}]`,
+          resolveConsolidatedJournalSiblings(migrationsSetName(scope)),
+        );
+
+        // Run any pending migrations.
+        migrateWithRetry(
+          db,
+          migrationsFolder,
+          nativeDb,
+          existenceTable(scope),
+          `dual-scope-db[${scope}]`,
+        );
+
+        log.debug({ scope, dbPath }, 'dual-scope cleo.db ready');
+
+        const built: DualScopeDbHandle = {
+          db,
+          scope,
+          dbPath,
+          close() {
+            _cache.delete(key);
+            try {
+              nativeDb.close();
+            } catch {
+              // Idempotent — ignore double-close errors.
+            }
+          },
+        };
+
+        // Update the cache entry to mark init complete.
+        const entry = _cache.get(key);
+        if (entry) {
+          entry.initPromise = null;
+          entry.handle = built;
         }
+
+        return built;
       },
-    };
+    );
 
-    // Update the cache entry to mark init complete.
-    const entry = _cache.get(key);
-    if (entry) {
-      entry.initPromise = null;
-      entry.handle = handle;
-    }
-
-    // ── Exodus-on-open (E6 · T11553) ────────────────────────────────────────
+    // ── Exodus-on-open (E6 · T11553) — runs AFTER the cold-open lease releases ──
     // Data-continuity safety net: on a canonical open where the consolidated
     // cleo.db is empty but the legacy fleet (tasks.db/brain.db/…) has rows for
     // THIS scope, lazily auto-migrate ONCE — gated by a parity verify, serialised
@@ -694,9 +721,9 @@ export async function openDualScopeDbAtPath(
     // when it finishes, so after a `migrated`/`aborted` outcome the `handle`
     // built above (and its `nativeDb`) is CLOSED. We therefore re-open this scope
     // fresh (cache-miss, NOT armed — no `exodusCwd`) and return the new live
-    // handle. The re-open is a no-op trigger because the DB is now populated
-    // (migrated) or empty-with-legacy-already-attempted (aborted leaves it empty
-    // but the un-armed re-open never fires the hook).
+    // handle. That re-open flows through the cold-open lease again on a FRESH handle
+    // (cheap claim/release — the DB is now migrated), with no contention against the
+    // already-released outer lease.
     //
     // Armed ONLY when `exodusCwd` was threaded through the canonical
     // `openDualScopeDb` AND `dbPath` is the canonical path for that scope+cwd —
@@ -875,8 +902,15 @@ export async function insertIdempotent<TTable extends SQLiteTableWithColumns<Tab
   _keyColumn: string,
 ): Promise<number> {
   assertNoRecordedExodusAbort();
-  const result = await db.insert(table).values(row).onConflictDoNothing().returning();
-  return result.length;
+  // Seam 1 (T11627 ST-3): gate the chokepoint write through the writer lease so
+  // it serializes with the leased cold-open (Seam 0) and every other chokepoint
+  // write in the process. The scope comes from the process-local active-scope
+  // registry recorded at cold-open ({@link activeScope}) — no signature change.
+  // `off` mode is a pass-through (busy_timeout=30000 still serializes the write).
+  return withWriterLease(activeScope(), 'tasks', async () => {
+    const result = await db.insert(table).values(row).onConflictDoNothing().returning();
+    return result.length;
+  });
 }
 
 /**
@@ -923,15 +957,19 @@ export async function upsertIdempotent<TTable extends SQLiteTableWithColumns<Tab
   set?: Partial<InferInsertModel<TTable>>,
 ): Promise<number> {
   assertNoRecordedExodusAbort();
-  const updateSet = set ?? row;
-  const result = await db
-    .insert(table)
-    .values(row)
-    .onConflictDoUpdate({
-      target: conflictTarget,
-      // biome-ignore lint/suspicious/noExplicitAny: updateSet shape varies by table; type-safe at call sites
-      set: updateSet as any,
-    })
-    .returning();
-  return result.length;
+  // Seam 1 (T11627 ST-3): gate the chokepoint upsert through the writer lease —
+  // same active-scope-registry path as insertIdempotent, no signature change.
+  return withWriterLease(activeScope(), 'tasks', async () => {
+    const updateSet = set ?? row;
+    const result = await db
+      .insert(table)
+      .values(row)
+      .onConflictDoUpdate({
+        target: conflictTarget,
+        // biome-ignore lint/suspicious/noExplicitAny: updateSet shape varies by table; type-safe at call sites
+        set: updateSet as any,
+      })
+      .returning();
+    return result.length;
+  });
 }

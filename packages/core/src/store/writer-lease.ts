@@ -44,11 +44,23 @@
  * {@link openDualScopeDb} (no new raw `new DatabaseSync(`) and runs raw
  * `BEGIN IMMEDIATE` claim/reclaim/release transactions on it.
  *
+ * ## Cold-open seam (T11627 ST-3 · Seam 0 — the T5158 heal)
+ *
+ * {@link withColdOpenLease} leases the `dual-scope-db.ts` cold-open critical
+ * section (`reconcileJournal` + `migrateWithRetry` + the exodus-on-open hook)
+ * against the SAME native handle the open just created — it does NOT route through
+ * the default resolver (which would re-enter `openDualScopeDb` and recurse). It
+ * idempotently bootstraps the lease tables on that handle FIRST (the full
+ * migration that creates them runs INSIDE the leased section), so exactly one
+ * process per scope runs the migrate/reconcile write-txn while peers
+ * `BEGIN IMMEDIATE`-queue and then observe a ready DB. This is the heal that ships
+ * with the supervisor daemon disabled.
+ *
  * @module
  * @task T11627
  * @epic T11625
  * @see ./writer-lease-schema.ts — the drizzle table decls + bootstrap index assertion
- * @see ./dual-scope-db.ts — the open chokepoint this engine routes through
+ * @see ./dual-scope-db.ts — the open chokepoint this engine routes through (Seams 0 & 1)
  */
 
 import { randomUUID } from 'node:crypto';
@@ -58,6 +70,7 @@ import { getLogger } from '../logger.js';
 import { openDualScopeDb } from './dual-scope-db.js';
 import {
   assertWriterLeaseActiveIndexPresent,
+  WRITER_LEASES_ACTIVE_INDEX,
   WRITER_LEASES_TABLE,
   WRITER_QUEUE_TABLE,
 } from './writer-lease-schema.js';
@@ -196,6 +209,7 @@ export function _resetWriterLeaseStateForTest(): void {
   _supervisorDemotionLogged = false;
   _grantMemo.clear();
   _nativeDbResolver = defaultNativeDbResolver;
+  _activeScope = null;
 }
 
 // ── Native handle resolution (test-injectable) ────────────────────────────────
@@ -241,6 +255,62 @@ const _grantMemo = new Map<string, GrantEntry>();
 
 function memoKey(scope: LeaseScope, lane: LeaseLane): string {
   return `${scope}::${lane}`;
+}
+
+// ── Active-scope registry (ST-3 · Seam 1 — process-local, no signature change) ──
+
+/**
+ * The scope of the most-recent canonical cold-open in this process.
+ *
+ * The chokepoint write primitives ({@link insertIdempotent} /
+ * {@link upsertIdempotent} in `dual-scope-db.ts`) receive only a drizzle handle —
+ * NOT the scope or a {@link LeaseHandle}. To gate them through the writer lease
+ * (Seam 1) WITHOUT a signature change, the cold-open path records its scope here
+ * (mirroring the `getRecordedExodusAbort` registry pattern already used by those
+ * primitives) and the primitive reads it back via {@link activeScope}.
+ *
+ * `null` until the first canonical cold-open records a scope.
+ */
+let _activeScope: LeaseScope | null = null;
+
+/**
+ * Record the scope of the cold-open currently in progress / most recently opened.
+ * Called by `dual-scope-db.ts` at the head of its cold-open critical section
+ * (Seam 0). Idempotent — last writer wins; a project open after a global open
+ * makes `'project'` the active scope, which is correct because the chokepoint
+ * write primitives only ever write the project-tier `tasks_*` tables.
+ *
+ * @param scope - The scope of the in-progress cold-open.
+ * @internal
+ * @task T11627
+ */
+export function setActiveScope(scope: LeaseScope): void {
+  _activeScope = scope;
+}
+
+/**
+ * The scope the chokepoint write primitives should lease against. Defaults to
+ * `'project'` (the tasks chokepoint is project-tier) when no cold-open has
+ * recorded a scope yet — a write before any open is degenerate, but `'project'`
+ * is the only correct lease scope for `tasks_*` mutations.
+ *
+ * @returns The active {@link LeaseScope}.
+ * @internal
+ * @task T11627
+ */
+export function activeScope(): LeaseScope {
+  return _activeScope ?? 'project';
+}
+
+/**
+ * Clear the recorded active scope. Tests only — production records once per
+ * cold-open and never clears (the scope of the last canonical open remains the
+ * lease target for subsequent writes).
+ *
+ * @internal
+ */
+export function _clearActiveScopeForTest(): void {
+  _activeScope = null;
 }
 
 // ── Small helpers ─────────────────────────────────────────────────────────────
@@ -675,5 +745,170 @@ export async function withWriterLease<T>(
     return await fn(handle);
   } finally {
     await handle.release();
+  }
+}
+
+// ── Cold-open lease (ST-3 · Seam 0 — the T5158 heal) ──────────────────────────
+
+/**
+ * The lease-table bootstrap DDL, applied idempotently to a native handle BEFORE
+ * the cold-open claim txn. It is byte-equivalent (modulo `IF NOT EXISTS`) to the
+ * `_t11891-writer-leases` migration so the claim can run before the full migration
+ * (which is what creates these tables) executes inside the leased section. The
+ * partial-unique index is identical to the migration's — AC1 holds whether the
+ * tables came from here or from the migration.
+ */
+const COLD_OPEN_LEASE_BOOTSTRAP_DDL: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS ${WRITER_LEASES_TABLE} (
+     id INTEGER PRIMARY KEY,
+     scope TEXT NOT NULL,
+     lane TEXT NOT NULL,
+     holder_id TEXT NOT NULL,
+     holder_pid INTEGER NOT NULL,
+     epoch INTEGER NOT NULL,
+     acquired_at INTEGER NOT NULL,
+     heartbeat_at INTEGER NOT NULL,
+     ttl_ms INTEGER NOT NULL,
+     reentrancy_depth INTEGER NOT NULL DEFAULT 1,
+     active INTEGER NOT NULL DEFAULT 1
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS ${WRITER_LEASES_ACTIVE_INDEX} ON ${WRITER_LEASES_TABLE} (scope, lane) WHERE active = 1`,
+  `CREATE TABLE IF NOT EXISTS ${WRITER_QUEUE_TABLE} (
+     ticket INTEGER PRIMARY KEY AUTOINCREMENT,
+     scope TEXT NOT NULL,
+     lane TEXT NOT NULL,
+     holder_id TEXT NOT NULL,
+     priority INTEGER NOT NULL DEFAULT 100,
+     enqueued_at INTEGER NOT NULL,
+     deadline_at INTEGER NOT NULL
+   )`,
+  `CREATE INDEX IF NOT EXISTS ix_writer_queue_order ON ${WRITER_QUEUE_TABLE} (scope, lane, priority ASC, ticket ASC)`,
+];
+
+/**
+ * Idempotently create the lease tables + the raw partial-unique active index on
+ * `nativeDb`. Safe to call before any migration has run (the migration that
+ * normally creates these tables executes INSIDE the leased cold-open section, so
+ * the claim txn needs the tables present first). Each statement is `IF NOT EXISTS`
+ * so a re-open over an already-migrated DB is a no-op.
+ */
+function ensureColdOpenLeaseTables(nativeDb: DatabaseSync): void {
+  for (const stmt of COLD_OPEN_LEASE_BOOTSTRAP_DDL) {
+    nativeDb.exec(stmt);
+  }
+}
+
+/**
+ * Lease the dual-scope-db COLD-OPEN critical section (Seam 0 — the T5158 heal).
+ *
+ * This is the high-value gate: it serializes the cold-open `reconcileJournal` +
+ * `migrateWithRetry` write-txn — the precise span that races in T5158 — so EXACTLY
+ * ONE process per scope runs it while peers `BEGIN IMMEDIATE`-queue and then observe
+ * a ready DB. It heals the T5158 `E_NOT_INITIALIZED` / `E_INTERNAL` corruption
+ * **with the supervisor daemon disabled** (`local` mode default). The caller
+ * (`dual-scope-db.ts`) runs the exodus-on-open hook AFTER this lease releases — the
+ * exodus engine owns its own single-flight lock + dedicated connections and
+ * closes/re-opens handles, so it must not run under this row lease.
+ *
+ * Unlike {@link withWriterLease} it operates DIRECTLY on the already-opened native
+ * handle — it never routes through the default resolver (which would re-enter
+ * `openDualScopeDb` and recurse) and it bootstraps the lease tables first (the full
+ * migration that creates them runs inside `fn`). It also records the scope in the
+ * Seam-1 active-scope registry ({@link setActiveScope}) so chokepoint write
+ * primitives lease against the right scope.
+ *
+ * Mode semantics mirror {@link withWriterLease}:
+ * - `off` → pass-through: runs `fn` under today's `busy_timeout=30000`, byte-
+ *   identical to pre-lease cold-open behaviour.
+ * - `local` / `supervisor` (demoted) → claim the row via `BEGIN IMMEDIATE`; on a
+ *   contended live holder, spin under the busy-timeout-backstopped deadline, then
+ *   degrade to running `fn` (busy_timeout still serializes the migrate write-txn).
+ * - `require` → throw {@link LeaseUnavailableError} if the row cannot be taken.
+ *
+ * @param scope - The cleo.db scope being cold-opened.
+ * @param nativeDb - The native handle the cold-open just created (pragmas applied).
+ * @param fn - The cold-open body to run while holding the lease.
+ * @param opts - Priority / TTL options. Cold-open defaults to highest priority
+ *   ({@link SCHEMA_BOOTSTRAP_PRIORITY}) and a 60s TTL (schema bootstrap can be slow).
+ * @returns The resolved value of `fn`.
+ *
+ * @task T11627
+ */
+export async function withColdOpenLease<T>(
+  scope: LeaseScope,
+  nativeDb: DatabaseSync,
+  fn: () => Promise<T>,
+  opts?: { priority?: number; ttlMs?: number },
+): Promise<T> {
+  // Seam 1 wiring: record the scope of this cold-open so chokepoint write
+  // primitives (insertIdempotent/upsertIdempotent) lease against the right scope.
+  setActiveScope(scope);
+
+  const mode = effectiveMode();
+
+  // `off` mode — pure pass-through. busy_timeout=30000 on the connection still
+  // serializes the migrate/reconcile write-txn exactly as before the lease.
+  if (mode === 'off') {
+    return fn();
+  }
+
+  // The lease tables MUST exist before the claim txn — the migration that creates
+  // them runs inside `fn`, so bootstrap them idempotently here first.
+  ensureColdOpenLeaseTables(nativeDb);
+  // Defensive: the partial-unique active index MUST be present or AC1 is unenforced.
+  assertWriterLeaseActiveIndexPresent(nativeDb);
+
+  const lane: LeaseLane = 'tasks';
+  const holderId = makeHolderId(lane);
+  const ttlMs = opts?.ttlMs ?? 60_000;
+  const priority = opts?.priority ?? SCHEMA_BOOTSTRAP_PRIORITY;
+
+  // Bounded acquire window — never wait longer than the lease TTL. busy_timeout on
+  // the IMMEDIATE lock backstops every individual claim attempt.
+  const acquireWindowMs = Math.min(ACQUIRE_DEADLINE_MS, Math.max(1, ttlMs));
+  const deadline = Date.now() + acquireWindowMs;
+  let enqueued = false;
+  let epoch: number | null = null;
+  for (;;) {
+    epoch = tryClaimOnce(nativeDb, scope, lane, holderId, ttlMs);
+    if (epoch !== null) {
+      if (enqueued) dequeueWaiter(nativeDb, scope, lane, holderId);
+      break;
+    }
+    if (!enqueued) {
+      enqueueWaiter(nativeDb, scope, lane, holderId, priority, ttlMs);
+      enqueued = true;
+    }
+    if (Date.now() >= deadline) {
+      if (enqueued) dequeueWaiter(nativeDb, scope, lane, holderId);
+      if (mode === 'require') {
+        throw new LeaseUnavailableError(
+          scope,
+          lane,
+          'cold-open: live holder did not release within deadline',
+        );
+      }
+      // local/supervisor: degrade to today's behaviour — run the cold-open under
+      // busy_timeout, which still serializes the migrate write-txn.
+      log.warn(
+        { scope },
+        'cold-open writer-lease acquire deadline exceeded; proceeding under ' +
+          'busy_timeout fallback (degraded)',
+      );
+      return fn();
+    }
+    await sleepAsync(CLAIM_RETRY_DELAY_MS);
+  }
+
+  // Held — run the cold-open body, then free the row (epoch-guarded) on the way out.
+  try {
+    return await fn();
+  } finally {
+    nativeDb
+      .prepare(
+        `UPDATE ${WRITER_LEASES_TABLE} SET active = 0, reentrancy_depth = 0 ` +
+          `WHERE scope = ? AND lane = ? AND holder_id = ? AND epoch = ? AND active = 1`,
+      )
+      .run(scope, lane, holderId, epoch);
   }
 }
