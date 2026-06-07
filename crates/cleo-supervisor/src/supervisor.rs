@@ -766,6 +766,17 @@ mod tests {
         if cfg!(windows) { "cmd" } else { "/bin/sh" }
     }
 
+    /// Path to the always-available `true` binary on the host. macOS ships it at
+    /// `/usr/bin/true` (no `/bin/true`), Linux at `/bin/true`; probe the
+    /// canonical macOS path first and fall back to the Linux path.
+    fn true_cmd() -> &'static str {
+        if std::path::Path::new("/usr/bin/true").exists() {
+            "/usr/bin/true"
+        } else {
+            "/bin/true"
+        }
+    }
+
     fn sleep_spec(id: &str, secs: u64) -> ChildSpec {
         // A portable short-lived child: `sh -c 'sleep N'` on unix.
         if cfg!(windows) {
@@ -884,7 +895,7 @@ mod tests {
         } else {
             SpawnRequest {
                 child_id: child_id.into(),
-                program: "/bin/true".into(),
+                program: true_cmd().into(),
                 args: vec![],
                 env: vec![],
                 cwd: None,
@@ -956,7 +967,7 @@ mod tests {
         let (tx, mut rx) = unbounded_channel();
         let registry = ChildRegistry::new(tx);
         registry.spawn(&spawn_req_true("quick")).await.expect("spawn");
-        // /bin/true exits immediately — expect a child_exited event.
+        // `true` exits immediately — expect a child_exited event.
         let event = next_event(&mut rx).await;
         assert_eq!(event.event, LifecycleEventKind::ChildExited);
         assert_eq!(event.child_id, "quick");

@@ -11,7 +11,7 @@
 //!   1. Bind the supervisor IPC `UnixListener` at a temp socket path and run the
 //!      accept loop ([`cleo_supervisor::ipc_server::serve`]).
 //!   2. Connect a client `UnixStream`.
-//!   3. Send a `Spawn` request for a trivial child (`/bin/true`) as one NDJSON
+//!   3. Send a `Spawn` request for a trivial child (`true`) as one NDJSON
 //!      [`IpcEnvelope`] line.
 //!   4. Observe the correlated `Spawned` response AND the unsolicited
 //!      `child_exited` [`LifecycleEvent`] broadcast over the same channel.
@@ -35,12 +35,23 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc::unbounded_channel;
 
+/// Path to the always-available `true` binary on the host. macOS ships it at
+/// `/usr/bin/true` (no `/bin/true`), Linux at `/bin/true`; probe the canonical
+/// macOS path first and fall back to the Linux path.
+fn true_cmd() -> &'static str {
+    if std::path::Path::new("/usr/bin/true").exists() {
+        "/usr/bin/true"
+    } else {
+        "/bin/true"
+    }
+}
+
 /// A trivial, always-available child that exits immediately so the smoke test
 /// observes a `child_exited` event deterministically and fast.
 fn trivial_spawn(child_id: &str) -> SpawnRequest {
     SpawnRequest {
         child_id: child_id.into(),
-        program: "/bin/true".into(),
+        program: true_cmd().into(),
         args: vec![],
         env: vec![],
         cwd: None,
@@ -97,7 +108,7 @@ async fn bind_accept_spawn_observe_lifecycle_event() {
     let (read, mut write) = stream.into_split();
     let mut lines = BufReader::new(read).lines();
 
-    // ── Send a Spawn request for /bin/true ──────────────────────────────────
+    // ── Send a Spawn request for the trivial `true` child ───────────────────
     let request = IpcEnvelope::request(
         "req-spawn-1",
         IpcRequest::Spawn(trivial_spawn("smoke-child")),

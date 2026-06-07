@@ -346,10 +346,21 @@ mod tests {
     use crate::ipc::{IpcResponse, MonitorRequest, SpawnRequest};
     use tokio::sync::mpsc::unbounded_channel;
 
+    /// Path to the always-available `true` binary. macOS ships it at
+    /// `/usr/bin/true` (no `/bin/true`), Linux at `/bin/true`; probe the
+    /// canonical macOS path first and fall back to the Linux path.
+    fn true_cmd() -> &'static str {
+        if std::path::Path::new("/usr/bin/true").exists() {
+            "/usr/bin/true"
+        } else {
+            "/bin/true"
+        }
+    }
+
     fn true_spawn(child_id: &str) -> SpawnRequest {
         SpawnRequest {
             child_id: child_id.into(),
-            program: "/bin/true".into(),
+            program: true_cmd().into(),
             args: vec![],
             env: vec![],
             cwd: None,
