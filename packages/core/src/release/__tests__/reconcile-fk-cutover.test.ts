@@ -317,6 +317,13 @@ describe('releaseReconcileV2 — post-cutover FK safety (DHQ-051 · T11659)', ()
     const native = getNativeDb();
     if (!native) throw new Error('native db not initialized');
     native.exec('PRAGMA foreign_keys = OFF');
+    // T11884: the T877 invariant is now ALSO enforced on tasks_tasks, so a
+    // done-with-null-stage row can no longer be inserted there directly. Drop the
+    // prefixed-table guard just for this deliberately-malformed seed (modeling a
+    // pre-enforcement / grandfathered row) — the point of the test is that the
+    // SHIM copy into the bare `tasks` parent still fails (bare T877), so the
+    // single link is skipped-with-warn and the reconcile still succeeds.
+    native.exec('DROP TRIGGER IF EXISTS trg_tasks_tasks_status_pipeline_insert');
     await db.run(
       sql`INSERT OR IGNORE INTO tasks_tasks (id, title, status, priority, role, scope)
           VALUES (${badId}, ${'done task'}, 'done', 'medium', 'work', 'feature')`,

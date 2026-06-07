@@ -98,6 +98,12 @@ async function createRawTestDb(): Promise<{
   // task_relations_non_containment trigger now rejects it on insert). (T11280)
   sqlite.exec('DROP TRIGGER IF EXISTS task_relations_non_containment_insert');
   sqlite.exec('DROP TRIGGER IF EXISTS task_relations_non_containment_update');
+  // T11884: the non-containment guard was restored on the PREFIXED table
+  // (`tasks_task_relations`) where these fixtures actually seed legacy `groups`
+  // edges — the bare-table drops above are now no-ops, so drop the prefixed
+  // guard too (this stale containment shape is exactly what the migration cleans up).
+  sqlite.exec('DROP TRIGGER IF EXISTS tasks_task_relations_non_containment_insert');
+  sqlite.exec('DROP TRIGGER IF EXISTS tasks_task_relations_non_containment_update');
 
   const db: DbHandle = {
     exec: (sql: string) => sqlite.exec(sql),

@@ -47,6 +47,11 @@ interface NativeDbForTest {
 function neutralizeSagaStructuralGuards(db: NativeDbForTest): void {
   db.exec('DROP TRIGGER IF EXISTS tasks_parent_type_matrix_insert');
   db.exec('DROP TRIGGER IF EXISTS tasks_parent_type_matrix_update');
+  // T11884: the invariant guards were restored on the PREFIXED runtime table
+  // (`tasks_tasks`) that this fixture actually writes to — the bare-table drops
+  // above are now no-ops, so the prefixed-table guards must be dropped here too.
+  db.exec('DROP TRIGGER IF EXISTS tasks_tasks_parent_type_matrix_insert');
+  db.exec('DROP TRIGGER IF EXISTS tasks_tasks_parent_type_matrix_update');
 
   // Disable CHECK-constraint enforcement (incl. chk_tasks_saga_no_parent) on
   // THIS connection so the audit fixtures can seed deliberately
