@@ -30,12 +30,14 @@
 --   the migration.
 -- • Column lists are the bare∩prefixed intersection; no prefixed-only NOT NULL
 --   column exists, so no synthetic defaults are needed.
+-- • Statements are separated by the drizzle statement-breakpoint marker so the
+--   migration runner prepares one statement per chunk (no statement is dropped).
 --
 -- @task T11883
 -- @saga T11242
 
 PRAGMA defer_foreign_keys = ON;
-
+--> statement-breakpoint
 -- 1. releases (parent of release_*) — no coercion; all stranded values in-enum.
 INSERT OR IGNORE INTO `tasks_releases` (
   id, version, scheme, channel, epic_id, release_kind, status, previous_version,
@@ -51,7 +53,7 @@ SELECT
   failure_reason, rolled_back_by, project_hash, tasks_json, changelog, notes, git_tag,
   prepared_at, committed_at, tagged_at, pushed_at
 FROM `releases`;
-
+--> statement-breakpoint
 -- 2. commits — coerce out-of-enum conventional_type to NULL (the column is nullable).
 INSERT OR IGNORE INTO `tasks_commits` (
   sha, short_sha, author_name, author_email, authored_at, committer_name,
@@ -64,14 +66,14 @@ SELECT
   committer_email, committed_at, message, subject,
   CASE
     WHEN conventional_type IN (
-      'feat','fix','chore','docs','refactor','test','build','ci','perf','revert','breaking'
+      'feat', 'fix', 'chore', 'docs', 'refactor', 'test', 'build', 'ci', 'perf', 'revert', 'breaking'
     ) THEN conventional_type
     ELSE NULL
   END,
   is_release_commit, is_merge_commit, parent_shas, signature_verified,
   branch_at_commit, project_hash, created_at
 FROM `commits`;
-
+--> statement-breakpoint
 -- 3. commit_files — change_type values (A/D/M/R) are all in-enum; no coercion.
 INSERT OR IGNORE INTO `tasks_commit_files` (
   commit_sha, path, old_path, change_type, lines_added, lines_deleted, is_binary
@@ -79,7 +81,7 @@ INSERT OR IGNORE INTO `tasks_commit_files` (
 SELECT
   commit_sha, path, old_path, change_type, lines_added, lines_deleted, is_binary
 FROM `commit_files`;
-
+--> statement-breakpoint
 -- 4. task_commits — coerce legacy link_source 'commit-message' → 'commit-subject'
 --    (the valid COMMIT_LINK_SOURCES member); any other out-of-enum value → 'manual'.
 INSERT OR IGNORE INTO `tasks_task_commits` (
@@ -89,14 +91,14 @@ SELECT
   task_id, commit_sha, link_kind,
   CASE
     WHEN link_source IN (
-      'commit-trailer','commit-subject','pr-title','pr-body','branch-name','manual'
+      'commit-trailer', 'commit-subject', 'pr-title', 'pr-body', 'branch-name', 'manual'
     ) THEN link_source
     WHEN link_source = 'commit-message' THEN 'commit-subject'
     ELSE 'manual'
   END,
   created_at
 FROM `task_commits`;
-
+--> statement-breakpoint
 -- 5. release_commits (child of releases) — guard FK on tasks_releases.
 INSERT OR IGNORE INTO `tasks_release_commits` (
   release_id, commit_sha, position, is_first, is_last, is_release_chore
@@ -105,7 +107,7 @@ SELECT
   rc.release_id, rc.commit_sha, rc.position, rc.is_first, rc.is_last, rc.is_release_chore
 FROM `release_commits` rc
 WHERE EXISTS (SELECT 1 FROM `tasks_releases` r WHERE r.id = rc.release_id);
-
+--> statement-breakpoint
 -- 6. release_changes (child of releases) — guard FK.
 INSERT OR IGNORE INTO `tasks_release_changes` (
   id, release_id, task_id, change_type, summary, description, impact, classified_by, classified_at
@@ -114,7 +116,7 @@ SELECT
   c.id, c.release_id, c.task_id, c.change_type, c.summary, c.description, c.impact, c.classified_by, c.classified_at
 FROM `release_changes` c
 WHERE EXISTS (SELECT 1 FROM `tasks_releases` r WHERE r.id = c.release_id);
-
+--> statement-breakpoint
 -- 7. release_artifacts (child of releases) — guard FK.
 INSERT OR IGNORE INTO `tasks_release_artifacts` (
   release_id, artifact_type, identifier, version, url, published_at, metadata
@@ -123,7 +125,7 @@ SELECT
   a.release_id, a.artifact_type, a.identifier, a.version, a.url, a.published_at, a.metadata
 FROM `release_artifacts` a
 WHERE EXISTS (SELECT 1 FROM `tasks_releases` r WHERE r.id = a.release_id);
-
+--> statement-breakpoint
 -- 8. brain_release_links (child of releases) — guard FK.
 INSERT OR IGNORE INTO `tasks_brain_release_links` (
   brain_entry_id, release_id, link_type, created_at, created_by
