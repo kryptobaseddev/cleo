@@ -37,6 +37,40 @@ export type {
 } from './schema/chain-schema.js';
 // Re-export WarpChain schema tables so drizzle-kit picks them up for migrations.
 export { warpChainInstances, warpChains } from './schema/chain-schema.js';
+// ── COMPLETE-CUTOVER provenance rebind (T11883 · E3) ──────────────────────────
+// Shadow the legacy un-prefixed PROVENANCE drizzle symbols (otherwise exported
+// via `export * from './schema/index.js'` below) onto the PREFIXED consolidated
+// tables. This retires the DHQ-051 FK class: the prefixed provenance tables carry
+// task_id/epic_id as PLAIN TEXT (no cross-domain FK into the bare `tasks` table),
+// so `cleo release plan`/`reconcile` write FK-free — the
+// `ensureProvenanceTaskFkParents` shim is removed in the same change. Mirrors the
+// task-core rebind block above; an explicit named re-export shadows the `export *`.
+// (Satellite symbols — tokenUsage/lifecyclePipelines/agentInstances/experiments/
+// adrTaskLinks/warpChainInstances — are rebound later with the E5 full-family drop;
+// they're not on the release-plan/reconcile write path that DHQ-051 blocks.)
+export {
+  tasksCommitFiles as commitFiles,
+  tasksCommits as commits,
+  tasksTaskCommits as taskCommits,
+} from './schema/cleo-project/provenance-commits.js';
+export { tasksBrainReleaseLinks as brainReleaseLinks } from './schema/cleo-project/provenance-orphans.js';
+// Provenance Row types consumed by the release module (plan.ts) — repoint to the
+// prefixed insert/select types so consumers keep compiling against the new tables.
+export type {
+  NewTasksReleaseChangesetRow as NewReleaseChangesetRow,
+  NewTasksReleaseRow as NewReleaseRow,
+  TasksReleaseRow as ReleaseRow,
+} from './schema/cleo-project/provenance-rest.js';
+export {
+  tasksPrCommits as prCommits,
+  tasksPrTasks as prTasks,
+  tasksPullRequests as pullRequests,
+  tasksReleaseArtifacts as releaseArtifacts,
+  tasksReleaseChanges as releaseChanges,
+  tasksReleaseChangesets as releaseChangesets,
+  tasksReleaseCommits as releaseCommits,
+  tasksReleases as releases,
+} from './schema/cleo-project/provenance-rest.js';
 // Row types follow the prefixed tables so `converters.ts` / `db-helpers.ts`
 // and AC/session/link stores operate on the consolidated row shape.
 export type {

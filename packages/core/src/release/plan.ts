@@ -58,7 +58,7 @@ import { isSagaShape } from '../sagas/enforcement.js';
 import { resolveSagaMemberIds } from '../sagas/storage.js';
 import { atomicWrite } from '../store/atomic.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { getDb, getNativeDb } from '../store/sqlite.js';
+import { getDb } from '../store/sqlite.js';
 import {
   type NewReleaseChangesetRow,
   type NewReleaseRow,
@@ -69,7 +69,6 @@ import {
 import { resolveToolCommand } from '../tasks/tool-resolver.js';
 import { aggregateChangesetsForRelease } from './changesets-aggregator.js';
 import { runGitWithLockRetry } from './engine-ops.js';
-import { ensureProvenanceTaskFkParents } from './provenance-fk.js';
 import { loadReleaseConfig } from './release-config.js';
 
 const log = getLogger('release:plan');
@@ -1202,12 +1201,10 @@ function escapeChangelogRegex(str: string): string {
  * saga id. Any of those exist only in `tasks_tasks`, so inserting them straight
  * into `epic_id` violates the FK at INSERT time and aborts the whole plan.
  *
- * We mirror reconcile's fix: backfill the FK parent in FK order via
- * {@link ensureProvenanceTaskFkParents} (copies the referenced task from
- * `tasks_tasks` into the bare `tasks` table when needed), then NULL `epic_id`
- * only if the FK still cannot resolve it — never hard-fail. The literal
- * `'explicit-tasks'` fallback id (no parent + no resolvable task) is not a real
- * task and is NULLed silently.
+ * Post-cutover (T11883 · E3) `releases` binds the PREFIXED `tasks_releases`
+ * table, whose `epic_id` is plain text (no cross-domain FK), so the epic id is
+ * written directly — the DHQ-051 FK-parent shim and its NULL-on-unresolvable
+ * fallback are retired.
  *
  * @internal
  */
@@ -1223,24 +1220,11 @@ async function upsertReleasesRow(
   const scheme = plan.scheme === 'calver-suffix' ? 'calver-suffix' : plan.scheme;
   const releaseKind = plan.releaseKind;
 
-  // FK safety (DHQ-051 · T11818): make `releases.epic_id` satisfiable before the
-  // UPSERT. The plan row's only `tasks.id` FK is `epic_id`; the bare `tasks`
-  // parent is empty post-cutover, so backfill it from `tasks_tasks` in FK order
-  // and NULL the column when the epic remains unresolvable.
-  let safeEpicId: string | null = plan.epicId;
-  if (plan.epicId) {
-    const nativeDb = getNativeDb();
-    if (nativeDb) {
-      const resolution = ensureProvenanceTaskFkParents(nativeDb, new Set([plan.epicId]));
-      if (!resolution.resolvableIds.has(plan.epicId)) {
-        safeEpicId = null;
-        log.warn(
-          { epicId: plan.epicId, version: plan.resolvedVersion, table: 'releases' },
-          'plan: epic_id unresolvable by FK parent — nulling releases.epic_id (DHQ-051 · T11818)',
-        );
-      }
-    }
-  }
+  // T11883 (E3): `releases` now binds the PREFIXED `tasks_releases` table, whose
+  // `epic_id` is PLAIN TEXT (no cross-domain FK into the bare `tasks` table), so
+  // the epic id is written directly — the DHQ-051 `ensureProvenanceTaskFkParents`
+  // shim is retired (the FK class it papered over no longer exists).
+  const safeEpicId: string | null = plan.epicId;
 
   const row: NewReleaseRow = {
     id,

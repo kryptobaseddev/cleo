@@ -31,7 +31,11 @@ import type {
 } from '@cleocode/contracts';
 import type { Column, Table } from 'drizzle-orm';
 import { getTableColumns, getTableName } from 'drizzle-orm';
-import * as schema from '../store/schema/index.js';
+// T11883 (E3): describe via the tasks-schema barrel (NOT schema/index.js) so the
+// described task-domain symbols reflect the PREFIXED consolidated tables the
+// runtime actually reads/writes — schema/index.js still exposes the legacy
+// bare-name tables that the cutover retires.
+import * as schema from '../store/tasks-schema.js';
 import { defineSdkTool } from './sdk-tool.js';
 
 /** Internal drizzle symbol that holds the extra-config builder (indexes, checks, FKs). */
