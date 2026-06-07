@@ -1600,8 +1600,6 @@ export type {
   ValidateCanonDocsResult,
   ValidateCanonParams,
   ValidateCanonResult,
-  ValidateChainParams,
-  ValidateChainResult,
   ValidateCoherenceParams,
   ValidateCoherenceResult,
   ValidateComplianceRecordParams,
@@ -2271,12 +2269,6 @@ export {
   TEMPLATE_UPDATE_STRATEGIES,
   TemplateManifestEntrySchema,
 } from './templates/manifest.js';
-// === Tessera Types ===
-export type {
-  TesseraInstantiationInput,
-  TesseraTemplate,
-  TesseraVariable,
-} from './tessera.js';
 export type { FetchBrainEntriesInput, FetchBrainEntriesOutput } from './tools/brain-fetch.js';
 export type { ObserveBrainInput, ObserveBrainOutput } from './tools/brain-observe.js';
 // === SDK Tool Contracts (T10068 / T10070 / T9835) ===
@@ -2342,21 +2334,6 @@ export {
   validatorRejectionSchema,
   validatorVerdictSchema,
 } from './validator/index.js';
-// === WarpChain Types ===
-export type {
-  ChainShape,
-  ChainValidation,
-  GateCheck,
-  GateContract,
-  GateName,
-  GateResult,
-  ProtocolType,
-  WarpChain,
-  WarpChainExecution,
-  WarpChainInstance,
-  WarpLink,
-  WarpStage,
-} from './warp-chain.js';
 export type {
   TasksFrontierParamsInput,
   TasksRollupParamsInput,

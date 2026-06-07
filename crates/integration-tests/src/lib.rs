@@ -1,7 +1,7 @@
 //! Integration tests for the CLEO Rust crate ecosystem
 //!
-//! Tests the interaction between lafs-core, conduit-core, cant-core, and
-//! cant-router to ensure they work together correctly.
+//! Tests the interaction between lafs-core, conduit-core, and cant-core
+//! to ensure they work together correctly.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 #[cfg(test)]
@@ -85,78 +85,6 @@ mod tests {
         // Verify pipeline worked
         assert!(response.success);
         assert_eq!(cant_result.directive.as_deref(), Some("done"));
-    }
-
-    // ── cant-router integration tests ────────────────────────────────
-
-    #[test]
-    fn test_cant_router_low_tier_prompt() {
-        // A short, simple prompt should classify as Low tier and select haiku.
-        let prompt = "What is two plus two?";
-        let features = cant_router::extract_features(prompt);
-        let classification = cant_router::classify(features);
-        let selection = cant_router::route(classification.clone());
-
-        assert_eq!(classification.tier, cant_router::Tier::Low);
-        assert_eq!(selection.tier, cant_router::Tier::Low);
-        assert_eq!(selection.primary_model, "claude-haiku-4-5");
-    }
-
-    #[test]
-    fn test_cant_router_high_tier_prompt() {
-        // Use an explicit feature vector that deterministically scores >= 0.75 (High).
-        // Classifier weights (ULTRAPLAN §11.1):
-        //   token_count      0.15 * (tokens / 1000)
-        //   syntactic_compl  0.25 * complexity
-        //   reasoning_depth  0.30 * (depth / 10)
-        //   domain_specific  0.20 * specificity
-        //   touches_files    0.10 * (files / 20)
-        //
-        // Using: tokens=2000 (→1.0), complexity=1.0, depth=20 (→1.0),
-        //        domain=1.0, files=30 (→1.0) → score = 1.00 >= 0.75
-        let features = cant_router::PromptFeatures {
-            token_count: 2000,
-            syntactic_complexity: 1.0,
-            reasoning_depth: 20,
-            domain_specificity: 1.0,
-            touches_files_count: 30,
-        };
-        let classification = cant_router::classify(features);
-        let selection = cant_router::route(classification.clone());
-
-        assert_eq!(classification.tier, cant_router::Tier::High);
-        assert_eq!(selection.tier, cant_router::Tier::High);
-        assert_eq!(selection.primary_model, "claude-opus-4-6");
-    }
-
-    #[test]
-    fn test_cant_router_downgrade_chain() {
-        // Start at High, walk down to Low, confirm None at the bottom.
-        let classification = cant_router::Classification {
-            score: 0.9,
-            tier: cant_router::Tier::High,
-            features: cant_router::PromptFeatures {
-                token_count: 0,
-                syntactic_complexity: 0.0,
-                reasoning_depth: 0,
-                domain_specificity: 0.0,
-                touches_files_count: 0,
-            },
-        };
-        let high_sel = cant_router::route(classification);
-        assert_eq!(high_sel.tier, cant_router::Tier::High);
-        assert_eq!(high_sel.primary_model, "claude-opus-4-6");
-
-        let mid_sel = cant_router::downgrade_for_cost(high_sel).expect("High -> Mid");
-        assert_eq!(mid_sel.tier, cant_router::Tier::Mid);
-        assert_eq!(mid_sel.primary_model, "claude-sonnet-4-6");
-
-        let low_sel = cant_router::downgrade_for_cost(mid_sel).expect("Mid -> Low");
-        assert_eq!(low_sel.tier, cant_router::Tier::Low);
-        assert_eq!(low_sel.primary_model, "claude-haiku-4-5");
-
-        let none = cant_router::downgrade_for_cost(low_sel);
-        assert!(none.is_none(), "Low -> None (no further downgrade)");
     }
 
     #[test]

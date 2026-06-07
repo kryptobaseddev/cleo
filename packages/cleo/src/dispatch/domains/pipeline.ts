@@ -10,7 +10,6 @@
  *   release.*  - Release lifecycle (prepare, changelog, commit, tag, push)
  *   manifest.* - Research manifest (JSONL) operations
  *   phase.*    - Project phase management
- *   chain.*    - Warp-chain operations (T5405)
  *
  * Uses typed-handler pattern (Wave D · T975) for compile-time param narrowing.
  * Param extraction is type-safe via OpsFromCore<typeof coreOps> inference.
@@ -22,25 +21,19 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import type { GateResult, WarpChain } from '@cleocode/contracts';
 import {
-  addChain,
-  advanceInstance,
   buildStageGuidance,
   channelToDistTag,
-  createInstance,
   describeChannel,
   formatStageGuidance,
   getLogger,
   getProjectRoot,
   isValidStage,
   type ListPhasesResult,
-  listChains,
   paginate,
   type ReleaseListOptions,
   resolveChannelFromBranch,
   type Stage,
-  showChain,
 } from '@cleocode/core/internal';
 import {
   lifecycleCheck,
@@ -148,19 +141,6 @@ type PhaseSetParams = {
 type PhaseAdvanceParams = { force?: boolean };
 type PhaseRenameParams = { oldName: string; newName: string };
 type PhaseDeleteParams = { phaseId: string; reassignTo?: string; force?: boolean };
-
-// ---- Chain wrapper types ---------------------------------------------------
-
-type ChainShowParams = { chainId: string };
-type ChainListParams = { limit?: number; offset?: number };
-type ChainAddParams = { chain: WarpChain };
-type ChainInstantiateParams = {
-  chainId: string;
-  epicId: string;
-  variables?: Record<string, unknown>;
-  stageToTask?: Record<string, string>;
-};
-type ChainAdvanceParams = { instanceId: string; nextStage: string; gateResults?: GateResult[] };
 
 // ---------------------------------------------------------------------------
 // Core op wrappers — single-param functions for OpsFromCore inference
@@ -346,44 +326,6 @@ async function phaseDeleteOp(params: PhaseDeleteParams) {
   );
 }
 
-async function chainShowOp(params: ChainShowParams) {
-  const chain = await showChain(params.chainId, getProjectRoot());
-  // Return both chain and chainId so typed handler can produce E_NOT_FOUND.
-  return { _chain: chain, _chainId: params.chainId };
-}
-
-async function chainListOp(_params: ChainListParams) {
-  // Return raw chains; outer query() applies pagination to avoid LAFSPage type conflicts.
-  const chains = await listChains(getProjectRoot());
-  return { _chains: chains };
-}
-
-async function chainAddOp(params: ChainAddParams) {
-  await addChain(params.chain, getProjectRoot());
-  return { id: params.chain.id };
-}
-
-async function chainInstantiateOp(params: ChainInstantiateParams) {
-  return createInstance(
-    {
-      chainId: params.chainId,
-      epicId: params.epicId,
-      variables: params.variables,
-      stageToTask: params.stageToTask,
-    },
-    getProjectRoot(),
-  );
-}
-
-async function chainAdvanceOp(params: ChainAdvanceParams) {
-  return advanceInstance(
-    params.instanceId,
-    params.nextStage,
-    params.gateResults ?? [],
-    getProjectRoot(),
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Core ops registry
 // ---------------------------------------------------------------------------
@@ -417,11 +359,6 @@ const coreOps = {
   'phase.advance': phaseAdvanceOp,
   'phase.rename': phaseRenameOp,
   'phase.delete': phaseDeleteOp,
-  'chain.show': chainShowOp,
-  'chain.list': chainListOp,
-  'chain.add': chainAddOp,
-  'chain.instantiate': chainInstantiateOp,
-  'chain.advance': chainAdvanceOp,
 } as const;
 
 /** Inferred typed operation record for the pipeline domain (Wave D · T1441). */
@@ -706,63 +643,6 @@ const _pipelineTypedHandler = defineTypedHandler<PipelineOps>('pipeline', {
     }
     return wrapCoreResult(await coreOps['phase.delete'](params), 'phase.delete');
   },
-
-  // -------------------------------------------------------------------------
-  // Chain queries
-  // -------------------------------------------------------------------------
-
-  'chain.show': async (params: PipelineOps['chain.show'][0]) => {
-    if (!params.chainId) {
-      return lafsError('E_INVALID_INPUT', 'chainId is required', 'chain.show');
-    }
-    const { _chain, _chainId } = await coreOps['chain.show'](params);
-    if (!_chain) {
-      return lafsError('E_NOT_FOUND', `Chain "${_chainId}" not found`, 'chain.show');
-    }
-    return lafsSuccess(_chain, 'chain.show');
-  },
-
-  'chain.list': async (params: PipelineOps['chain.list'][0]) => {
-    // Returns raw chains; pagination is applied in PipelineHandler.query().
-    return lafsSuccess(await coreOps['chain.list'](params), 'chain.list');
-  },
-
-  // -------------------------------------------------------------------------
-  // Chain mutations
-  // -------------------------------------------------------------------------
-
-  'chain.add': async (params: PipelineOps['chain.add'][0]) => {
-    if (!params.chain) {
-      return lafsError('E_INVALID_INPUT', 'chain is required', 'chain.add');
-    }
-    return lafsSuccess(await coreOps['chain.add'](params), 'chain.add');
-  },
-
-  'chain.instantiate': async (params: PipelineOps['chain.instantiate'][0]) => {
-    if (!params.chainId || !params.epicId) {
-      return lafsError('E_INVALID_INPUT', 'chainId and epicId are required', 'chain.instantiate');
-    }
-    try {
-      return lafsSuccess(await coreOps['chain.instantiate'](params), 'chain.instantiate');
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (
-        message.includes(`Chain "${params.chainId}" not found`) ||
-        message.includes('FOREIGN KEY constraint failed') ||
-        message.includes('SQLITE_CONSTRAINT_FOREIGNKEY')
-      ) {
-        return lafsError('E_NOT_FOUND', `Chain "${params.chainId}" not found`, 'chain.instantiate');
-      }
-      throw error;
-    }
-  },
-
-  'chain.advance': async (params: PipelineOps['chain.advance'][0]) => {
-    if (!params.instanceId || !params.nextStage) {
-      return lafsError('E_INVALID_INPUT', 'instanceId and nextStage are required', 'chain.advance');
-    }
-    return lafsSuccess(await coreOps['chain.advance'](params), 'chain.advance');
-  },
 });
 
 // ---------------------------------------------------------------------------
@@ -791,25 +671,6 @@ function pipelinePhaseListResponse(
     meta: dispatchMeta('query', 'pipeline', operation, startTime),
     success: true,
     data: { ...listData, phases: page.items, total, filtered: total },
-    page: page.page,
-  };
-}
-
-/** Apply chain.list pagination to a typed-dispatch envelope. */
-function pipelineChainListResponse(
-  envelope: { data?: unknown },
-  params: Record<string, unknown> | undefined,
-  operation: string,
-  startTime: number,
-): DispatchResponse {
-  const rawData = (envelope.data as { _chains: unknown[] } | undefined) ?? { _chains: [] };
-  const chains = rawData._chains ?? [];
-  const { limit, offset } = getListParams(params);
-  const page = paginate(chains, limit, offset);
-  return {
-    meta: dispatchMeta('query', 'pipeline', operation, startTime),
-    success: true,
-    data: { chains: page.items, total: chains.length, filtered: chains.length },
     page: page.page,
   };
 }
@@ -848,7 +709,7 @@ function pipelineEnvelopeResponse(
  * Delegates all operations to the typed inner handler via `typedDispatch`.
  * Special cases:
  * - `stage.guidance` — resolved in the typed handler (stage-from-epicId logic).
- * - `phase.list` / `chain.list` — pagination applied in this outer handler;
+ * - `phase.list` — pagination applied in this outer handler;
  *   LAFSPage now imports from `@cleocode/contracts` (T11423).
  *
  * @task T1441 — OpsFromCore inference migration (Wave D · T1435)
@@ -876,8 +737,6 @@ export class PipelineHandler implements DomainHandler {
       'release.pr-status',
       'phase.show',
       'phase.list',
-      'chain.show',
-      'chain.list',
     ]);
 
     if (!queryOps.has(operation)) {
@@ -909,11 +768,9 @@ export class PipelineHandler implements DomainHandler {
         };
       }
 
-      // phase.list / chain.list — pagination applied via helpers (ADR-058 T1492/P1-1)
+      // phase.list — pagination applied via helper (ADR-058 T1492/P1-1)
       if (operation === 'phase.list')
         return pipelinePhaseListResponse(envelope, params, operation, startTime);
-      if (operation === 'chain.list')
-        return pipelineChainListResponse(envelope, params, operation, startTime);
       // All other ops — extract _enginePage from envelope (manifest.list, release.list, etc.)
       return pipelineEnvelopeResponse(envelope, operation, startTime);
     } catch (error) {
@@ -943,9 +800,6 @@ export class PipelineHandler implements DomainHandler {
       'phase.advance',
       'phase.rename',
       'phase.delete',
-      'chain.add',
-      'chain.instantiate',
-      'chain.advance',
     ]);
 
     if (!mutateOps.has(operation)) {
@@ -1004,8 +858,6 @@ export class PipelineHandler implements DomainHandler {
         'release.channel.show',
         'phase.show',
         'phase.list',
-        'chain.show',
-        'chain.list',
       ],
       mutate: [
         'stage.record',
@@ -1022,9 +874,6 @@ export class PipelineHandler implements DomainHandler {
         'phase.advance',
         'phase.rename',
         'phase.delete',
-        'chain.add',
-        'chain.instantiate',
-        'chain.advance',
       ],
     };
   }

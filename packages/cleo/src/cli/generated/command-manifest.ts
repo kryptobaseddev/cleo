@@ -178,12 +178,6 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/cant.js')).cantCommand as CommandDef,
   },
   {
-    exportName: 'chainCommand',
-    name: 'chain',
-    description: 'WarpChain pipeline management (tier-2 orchestrator)',
-    load: async () => (await import('../commands/chain.js')).chainCommand as CommandDef,
-  },
-  {
     exportName: 'changesetCommand',
     name: 'changeset',
     description: 'Author + list task-anchored changeset entries — dual-writes go to ',

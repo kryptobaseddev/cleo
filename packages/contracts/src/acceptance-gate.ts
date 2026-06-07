@@ -325,9 +325,8 @@ export type GateResultDetails =
  * Persisted to `lifecycle_gate_results` and summarised in
  * `task.verification.gateResults`.
  *
- * NOTE: Named `AcceptanceGateResult` (not `GateResult`) to avoid collision
- * with the existing {@link GateResult} from `./warp-chain.js` which describes
- * WarpChain LOOM-gate evaluation outcomes.
+ * NOTE: Named `AcceptanceGateResult` (not `GateResult`) for historical
+ * clarity — it describes acceptance-criterion gate outcomes specifically.
  */
 export interface AcceptanceGateResult {
   /** Zero-based index in the task's acceptance array. */

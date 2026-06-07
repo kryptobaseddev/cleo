@@ -20,15 +20,7 @@
  */
 
 import type { EngineResult } from '@cleocode/core';
-import {
-  getLogger,
-  getProjectRoot,
-  instantiateTessera,
-  listTesseraTemplates,
-  paginate,
-  pivotTask,
-  showTessera,
-} from '@cleocode/core/internal';
+import { getLogger, getProjectRoot, pivotTask } from '@cleocode/core/internal';
 import {
   CLEO_DIR_NAME,
   orchestrateAnalyze,
@@ -55,7 +47,7 @@ import {
 } from '@cleocode/runtime/gateway';
 import type { OpsFromCore } from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
-import { errorResult, getListParams, handleErrorResult, wrapResult } from './_base.js';
+import { errorResult, handleErrorResult, wrapResult } from './_base.js';
 import { dispatchMeta } from './_meta.js';
 import { routeByParam } from './_routing.js';
 import { IvtrHandler } from './ivtr.js';
@@ -142,12 +134,6 @@ interface OrchestrateBootstrapParams {
 
 type OrchestrateUnblockParams = Record<string, never>;
 
-interface OrchestrateTesseraListParams {
-  id?: string;
-  limit?: number;
-  offset?: number;
-}
-
 interface OrchestrateIvtrStatusParams {
   taskId?: string;
   [key: string]: unknown;
@@ -231,12 +217,6 @@ interface OrchestrateParallelParams {
 
 interface OrchestrateFanoutParams {
   items: Array<{ team: string; taskId: string; skill?: string }>;
-}
-
-interface OrchestrateTesseraInstantiateParams {
-  templateId: string;
-  epicId: string;
-  variables?: Record<string, unknown>;
 }
 
 interface OrchestrateApproveParams {
@@ -403,10 +383,6 @@ async function orchestrateUnblockOp(_params: OrchestrateUnblockParams) {
   return orchestrateUnblockOpportunities(getProjectRoot());
 }
 
-async function orchestrateTesseraListOp(params: OrchestrateTesseraListParams) {
-  return Promise.resolve({ success: true, data: params }); // sentinel — handled inline
-}
-
 async function orchestrateIvtrStatusOp(params: OrchestrateIvtrStatusParams) {
   return ivtrHandler.query('status', params);
 }
@@ -507,10 +483,6 @@ async function orchestrateFanoutOp(params: OrchestrateFanoutParams) {
   return orchestrateFanoutImpl(params.items, getProjectRoot());
 }
 
-async function orchestrateTesseraInstantiateOp(params: OrchestrateTesseraInstantiateParams) {
-  return Promise.resolve({ success: true, data: params }); // sentinel — handled inline
-}
-
 async function orchestrateApproveOp(params: OrchestrateApproveParams) {
   return Promise.resolve({ success: true, data: params }); // sentinel — handled inline
 }
@@ -541,7 +513,6 @@ const coreOps = {
   plan: orchestratePlanOp,
   bootstrap: orchestrateBootstrapOp,
   'unblock.opportunities': orchestrateUnblockOp,
-  'tessera.list': orchestrateTesseraListOp,
   'ivtr.status': orchestrateIvtrStatusOp,
   pending: orchestratePendingOp,
   start: orchestrateStartOp,
@@ -555,7 +526,6 @@ const coreOps = {
   'worktree.prune': orchestrateWorktreePruneOp,
   parallel: orchestrateParallelOp,
   fanout: orchestrateFanoutOp,
-  'tessera.instantiate': orchestrateTesseraInstantiateOp,
   approve: orchestrateApproveOp,
   reject: orchestrateRejectOp,
 } as const;
@@ -765,41 +735,6 @@ export class OrchestrateHandler implements DomainHandler {
             operation,
             startTime,
           );
-
-        case 'tessera.list': {
-          const id = params?.id as string | undefined;
-          if (id) {
-            const template = showTessera(id);
-            if (!template)
-              return errorResult(
-                'query',
-                'orchestrate',
-                'tessera.list',
-                'E_NOT_FOUND',
-                `Tessera template "${id}" not found`,
-                startTime,
-              );
-            return {
-              meta: dispatchMeta('query', 'orchestrate', 'tessera.list', startTime),
-              success: true,
-              data: template,
-            };
-          }
-          const templates = listTesseraTemplates();
-          const { limit, offset } = getListParams(params);
-          const page = paginate(templates, limit, offset);
-          return {
-            meta: dispatchMeta('query', 'orchestrate', 'tessera.list', startTime),
-            success: true,
-            data: {
-              templates: page.items,
-              count: templates.length,
-              total: templates.length,
-              filtered: templates.length,
-            },
-            page: page.page,
-          };
-        }
 
         case 'ivtr.status':
           return ivtrHandler.query('status', params);
@@ -1147,53 +1082,6 @@ export class OrchestrateHandler implements DomainHandler {
           );
         }
 
-        case 'tessera.instantiate': {
-          if (!params?.templateId)
-            return errorResult(
-              'mutate',
-              'orchestrate',
-              operation,
-              'E_INVALID_INPUT',
-              'templateId is required',
-              startTime,
-            );
-          if (!params?.epicId)
-            return errorResult(
-              'mutate',
-              'orchestrate',
-              operation,
-              'E_INVALID_INPUT',
-              'epicId is required',
-              startTime,
-            );
-          const template = showTessera(params.templateId as string);
-          if (!template)
-            return errorResult(
-              'mutate',
-              'orchestrate',
-              operation,
-              'E_NOT_FOUND',
-              `Tessera template "${params.templateId}" not found`,
-              startTime,
-            );
-          const variables = (params.variables as Record<string, unknown>) ?? {};
-          const epicId = params.epicId as string;
-          const instance = await instantiateTessera(
-            template,
-            {
-              templateId: params.templateId as string,
-              epicId,
-              variables: { epicId, ...variables },
-            },
-            getProjectRoot(),
-          );
-          return {
-            meta: dispatchMeta('mutate', 'orchestrate', operation, startTime),
-            success: true,
-            data: instance,
-          };
-        }
-
         case 'ivtr.start':
           return ivtrHandler.mutate('start', params);
         case 'ivtr.next':
@@ -1239,7 +1127,6 @@ export class OrchestrateHandler implements DomainHandler {
         'plan',
         'bootstrap',
         'unblock.opportunities',
-        'tessera.list',
         'classify',
         'fanout.status',
         'ivtr.status',
@@ -1253,7 +1140,6 @@ export class OrchestrateHandler implements DomainHandler {
         'validate',
         'pivot',
         'parallel',
-        'tessera.instantiate',
         'fanout',
         'ivtr.start',
         'ivtr.next',

@@ -107,10 +107,6 @@ export interface SpawnPayload {
   systemPrompt: string;
   /** Token count of the system prompt. */
   systemPromptTokens: number;
-  /** The model to use (from the tier matrix). */
-  model: string;
-  /** Fallback models. */
-  fallbackModels: string[];
   /** Skills to load. */
   skills: string[];
   /** Tools allowed. */
@@ -222,16 +218,11 @@ export interface AgentDefinition {
   filePermissions?: PathPermissions;
 }
 
-// ---------------------------------------------------------------------------
-// Model selection per tier (mirrors cant-router section 11)
-// ---------------------------------------------------------------------------
-
-/** Model selection per tier. */
-const TIER_MODELS: Record<Tier, { primary: string; fallbacks: string[] }> = {
-  low: { primary: 'claude-haiku-4-5', fallbacks: ['kimi-k2.5'] },
-  mid: { primary: 'claude-sonnet-4-6', fallbacks: ['kimi-k2.5', 'claude-haiku-4-5'] },
-  high: { primary: 'claude-opus-4-6', fallbacks: ['claude-sonnet-4-6', 'kimi-k2.5'] },
-};
+// TIER_MODELS removed in T11807 (state-machine collapse, T11764): the dead
+// tier→model matrix duplicated the E9 chokepoint (resolveLLMForSystem) and was
+// the last consumer of the retired cant-router routing concept. The orphaned
+// `composeSpawnPayload` no longer emits model/fallbackModels; model selection
+// is owned exclusively by the Gate-13 LLM chokepoint (rebind tracked in T11767).
 
 // ---------------------------------------------------------------------------
 // Mental model validation prefix (ULTRAPLAN section 12.3)
@@ -346,7 +337,6 @@ export async function composeSpawnPayload(
   }
 
   const systemPrompt = parts.join('');
-  const model = TIER_MODELS[currentTier];
 
   return {
     agentName: agent.name,
@@ -355,8 +345,6 @@ export async function composeSpawnPayload(
     declaredTier: agent.tier,
     systemPrompt,
     systemPromptTokens: estimateTokens(systemPrompt),
-    model: model.primary,
-    fallbackModels: model.fallbacks,
     skills: agent.skills,
     tools: agent.tools,
     injectedContextSources: contextSlices.map((s) => s.source),

@@ -2,10 +2,8 @@
  * Validate / Check Domain Operations
  *
  * T982 extension: Added new types for gate, archive, coherence, compliance-sync,
- * chain, grade, canon, workflow-compliance, verify-explain, and all protocol subtypes.
+ * grade, canon, workflow-compliance, verify-explain, and all protocol subtypes.
  */
-
-import type { WarpChain } from '../warp-chain.js';
 
 export type ValidationSeverity = 'error' | 'warning' | 'info';
 
@@ -242,16 +240,6 @@ export interface ValidateArchiveStatsParams {
 }
 export type ValidateArchiveStatsResult = Record<string, unknown>;
 
-export interface ValidateChainParams {
-  chain: WarpChain;
-}
-export interface ValidateChainResult {
-  wellFormed: boolean;
-  gateSatisfiable: boolean;
-  errors: string[];
-  warnings: string[];
-}
-
 export interface ValidateGradeParams {
   sessionId: string;
 }
@@ -379,7 +367,6 @@ export type CheckOps = {
   readonly 'gate.set': readonly [ValidateGateParams, ValidateGateResult];
   readonly 'verify.explain': readonly [ValidateVerifyExplainParams, ValidateVerifyExplainResult];
   readonly 'archive.stats': readonly [ValidateArchiveStatsParams, ValidateArchiveStatsResult];
-  readonly 'chain.validate': readonly [ValidateChainParams, ValidateChainResult];
   readonly grade: readonly [ValidateGradeParams, ValidateGradeResult];
   readonly 'grade.list': readonly [ValidateGradeListParams, ValidateGradeListResult];
   readonly canon: readonly [ValidateCanonParams, ValidateCanonResult];
