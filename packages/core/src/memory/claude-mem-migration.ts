@@ -16,6 +16,7 @@ import { getClaudeMemDbPath } from '../paths.js';
 import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
 import type { BRAIN_OBSERVATION_TYPES } from '../store/schema/memory-schema.js';
 import { applyPerfPragmas } from '../store/sqlite-pragmas.js';
+import { acquireWriterLease, type LeaseHandle } from '../store/writer-lease.js';
 import type { BrainIdCheckRow } from './brain-row-types.js';
 import { ensureFts5Tables, rebuildFts5Index } from './brain-search.js';
 
@@ -173,6 +174,11 @@ export async function migrateClaudeMem(
     );
   }
 
+  // Seam 3 (T11627): the project `bulk` lease held across the whole write body
+  // (released in `finally`). Declared here so the finally can release it even if
+  // a phase throws after acquire.
+  let brainBulkLease: LeaseHandle | null = null;
+
   try {
     // Initialize brain.db (ensures tables exist via migrations)
     await getBrainDb(projectRoot);
@@ -180,6 +186,14 @@ export async function migrateClaudeMem(
     if (!nativeDb) {
       throw new Error('Failed to initialize brain.db — getBrainNativeDb() returned null');
     }
+
+    // Seam 3 (T11627): this one-shot migration writes brain rows directly via the
+    // raw `nativeDb` handle (project-tier consolidated cleo.db), bypassing the
+    // brain writer-thread chokepoint AND the tasks lease. Hold the project `bulk`
+    // lease (acquire-once / write-all-phases / release) so it serializes against
+    // other writers. `dryRun` writes nothing; the lease is still held for the
+    // read-side BEGIN IMMEDIATE batches' consistency. `off` mode → no-op handle.
+    brainBulkLease = await acquireWriterLease('project', 'bulk', { priority: 50 });
 
     // Ensure FTS5 tables exist for the rebuild at the end
     ensureFts5Tables(nativeDb);
@@ -397,6 +411,14 @@ export async function migrateClaudeMem(
       }
     }
   } finally {
+    // Release the brain `bulk` lease (Seam 3) before closing the source DB.
+    if (brainBulkLease) {
+      try {
+        await brainBulkLease.release();
+      } catch {
+        // Ignore release errors — the row is epoch-guarded and reclaimable.
+      }
+    }
     // Close source DB (read-only, safe to close)
     try {
       sourceDb.close();

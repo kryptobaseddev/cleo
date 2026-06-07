@@ -445,6 +445,68 @@ export class LeaseUnavailableError extends Error {
   }
 }
 
+/**
+ * Thrown when a write primitive opens the WRITE handle without a held lease
+ * (T11627 ST-4 · Seam 2 · AC4). The brain worker (and any other dedicated-handle
+ * writer outside the chokepoint) MUST hold its lane's grant before it writes — a
+ * lease-less write is exactly the multi-writer race the lease exists to kill.
+ *
+ * Enforced (not merely advised): the brain writer bootstrap calls
+ * {@link assertWriterLeaseHeld} before draining, and a lease-less drain throws
+ * this. `off` mode (the rollback escape hatch) is exempt — there is no lease to
+ * hold and the underlying `busy_timeout` serializes writes as before.
+ *
+ * @public
+ * @task T11627
+ */
+export class WriterLeaseRequiredError extends Error {
+  /** Stable string error code for envelope `codeName` / log correlation. */
+  readonly codeName = 'E_WRITER_LEASE_REQUIRED' as const;
+  constructor(scope: LeaseScope, lane: LeaseLane) {
+    super(
+      `E_WRITER_LEASE_REQUIRED: cannot open the ${scope}/${lane} writer handle ` +
+        'without a held writer lease (AC4) — wrap the write in withWriterLease/' +
+        'acquireWriterLease, or set CLEO_WRITER_LEASE_MODE=off to bypass.',
+    );
+    this.name = 'WriterLeaseRequiredError';
+  }
+}
+
+/**
+ * Whether THIS process currently holds an active grant for `(scope, lane)` in the
+ * process-local grant memo. Used by dedicated-handle writers (the brain worker) to
+ * assert AC4 without re-running the claim txn.
+ *
+ * @param scope - The cleo.db scope.
+ * @param lane - The write lane.
+ * @returns `true` iff a memoized grant with `refcount > 0` exists for the key.
+ *
+ * @task T11627
+ */
+export function hasActiveGrant(scope: LeaseScope, lane: LeaseLane): boolean {
+  const entry = _grantMemo.get(memoKey(scope, lane));
+  return entry !== undefined && entry.refcount > 0;
+}
+
+/**
+ * AC4 guard. Assert this process holds the `(scope, lane)` writer lease before it
+ * opens a dedicated WRITE handle. In `off` mode the assertion is a no-op (there is
+ * no lease; `busy_timeout` serializes). In every other mode a missing grant throws
+ * {@link WriterLeaseRequiredError}.
+ *
+ * @param scope - The cleo.db scope the handle writes to.
+ * @param lane - The write lane that must be held.
+ * @throws {WriterLeaseRequiredError} when no grant is held and mode is not `off`.
+ *
+ * @task T11627
+ */
+export function assertWriterLeaseHeld(scope: LeaseScope, lane: LeaseLane): void {
+  if (effectiveMode() === 'off') return;
+  if (!hasActiveGrant(scope, lane)) {
+    throw new WriterLeaseRequiredError(scope, lane);
+  }
+}
+
 // ── Claim transaction (shared primitive — local mode) ─────────────────────────
 
 /**

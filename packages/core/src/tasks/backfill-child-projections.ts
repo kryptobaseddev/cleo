@@ -15,6 +15,7 @@
 
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
+import { withWriterLease } from '../store/writer-lease.js';
 import {
   auditChildProjectionAcRows,
   type ChildProjectionAuditInput,
@@ -179,14 +180,18 @@ export async function backfillChildProjections(
       // buildDbTransactionAccessor implements the subset of TransactionAccessor
       // that rebuildChildProjectionAc actually calls at runtime (getAcRows,
       // insertAcRows, deleteAcRowsForTask, appendAcHistory, updateTaskFields).
-      db.exec('BEGIN');
-      try {
-        await rebuildChildProjectionAc(tx as any, parentId, children, now);
-        db.exec('COMMIT');
-      } catch (e) {
-        db.exec('ROLLBACK');
-        throw e;
-      }
+      // Seam 3 (T11627): this raw tasks.db writer sidesteps the chokepoint, so
+      // hold the project `bulk` lease around the write txn. `off` → pass-through.
+      await withWriterLease('project', 'bulk', async () => {
+        db.exec('BEGIN');
+        try {
+          await rebuildChildProjectionAc(tx as any, parentId, children, now);
+          db.exec('COMMIT');
+        } catch (e) {
+          db.exec('ROLLBACK');
+          throw e;
+        }
+      });
 
       // Re-audit
       const rebuiltDbRows = acRowsStmt.all(parentId) as AcDbRow[];

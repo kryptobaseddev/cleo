@@ -49,6 +49,12 @@ import { fileURLToPath } from 'node:url';
 import type { ObserveBrainParams, ObserveBrainResult } from '@cleocode/contracts';
 import { getLogger } from '../logger.js';
 import type { NewBrainDecisionRow, NewBrainLearningRow } from '../store/schema/memory-schema.js';
+import {
+  acquireWriterLease,
+  assertWriterLeaseHeld,
+  type LeaseHandle,
+  resolveLeaseMode,
+} from '../store/writer-lease.js';
 
 // ============================================================================
 // Discriminated union — BrainWriteOp
@@ -370,6 +376,70 @@ class BrainWriterManager {
 }
 
 // ============================================================================
+// Writer-lease (T11627 ST-4 · Seam 2 · AC4)
+// ============================================================================
+
+/**
+ * The cleo.db scope the brain WRITE handle targets. `getBrainDb()` routes through
+ * `openDualScopeDb('project')` (memory-sqlite.ts T11522) — the `brain_*` tables
+ * live in the consolidated PROJECT `cleo.db`, co-located with `tasks_*`. So the
+ * brain lane is leased in the `'project'` scope.
+ */
+const BRAIN_LEASE_SCOPE = 'project' as const;
+
+/** The dedicated brain write lane (AC4 — held independently of the `tasks` chokepoint). */
+const BRAIN_LEASE_LANE = 'brain' as const;
+
+/**
+ * The process-local brain-batch grant. The brain worker serializes every op
+ * through one consumer; the lease is taken ONCE per drain batch (acquire → drain
+ * N → release) rather than per-op, which is both cheaper and starvation-safe
+ * because the chokepoint already serializes internally. Concurrent
+ * `enqueueBrainWrite` callers in this process re-enter the SAME grant (refcount++,
+ * no second claim txn) for the duration of the in-flight batch; the grant is
+ * released when the batch quiesces (no callers left in flight).
+ */
+let _brainBatchHandle: LeaseHandle | null = null;
+let _brainBatchRefcount = 0;
+
+/**
+ * Acquire (or re-enter) the batch-granularity `brain` lease for the duration of a
+ * single `enqueueBrainWrite`. The first in-flight call acquires the lease;
+ * concurrent calls share it (refcount). The lease is released when the last
+ * in-flight call finishes (refcount → 0). In `off` mode this is a no-op
+ * pass-through (no lease, `busy_timeout` serializes as before).
+ *
+ * @returns A release callback the caller MUST invoke (in a `finally`) when its
+ *   write completes; the underlying row is freed only when the batch quiesces.
+ */
+async function enterBrainBatchLease(): Promise<() => Promise<void>> {
+  if (resolveLeaseMode() === 'off') {
+    // No lease in off-mode — pass-through (busy_timeout serializes).
+    return async () => {};
+  }
+  if (_brainBatchHandle === null) {
+    // Re-entrant by default so this acquire shares any grant a manual
+    // `acquireWriterLease('project','brain')` batch holder already took.
+    _brainBatchHandle = await acquireWriterLease(BRAIN_LEASE_SCOPE, BRAIN_LEASE_LANE, {
+      priority: 50,
+    });
+  }
+  _brainBatchRefcount += 1;
+  let released = false;
+  return async () => {
+    if (released) return;
+    released = true;
+    _brainBatchRefcount -= 1;
+    if (_brainBatchRefcount <= 0 && _brainBatchHandle !== null) {
+      const handle = _brainBatchHandle;
+      _brainBatchHandle = null;
+      _brainBatchRefcount = 0;
+      await handle.release();
+    }
+  };
+}
+
+// ============================================================================
 // Inline-mode fallback (bypass + worker-unavailable cases)
 // ============================================================================
 
@@ -398,6 +468,10 @@ function runInline(op: BrainWriteOp): Promise<BrainWriteResult> {
  * so behaviour is identical except for the thread of execution.
  */
 async function executeInline(op: BrainWriteOp): Promise<BrainWriteResult> {
+  // AC4 guard: a lease-less write must NOT open the brain WRITE handle. This is
+  // enforcement, not convention — `enqueueBrainWrite` holds the batch lease before
+  // it reaches here, so a held grant exists in every mode except `off` (exempt).
+  assertWriterLeaseHeld(BRAIN_LEASE_SCOPE, BRAIN_LEASE_LANE);
   const { handleWriteOp } = await import('./brain-writer-handlers.js');
   return handleWriteOp(op);
 }
@@ -455,22 +529,31 @@ function getManager(): BrainWriterManager {
  * @returns Worker result for the op.
  */
 export async function enqueueBrainWrite(op: BrainWriteOp): Promise<BrainWriteResult> {
-  // Bypass mode — log audit warn and run inline.
-  if (bypassEnabled()) {
-    return runInline(op);
-  }
-
+  // Seam 2 (AC4): hold the `brain` lease for the duration of this write. The lease
+  // is batch-granular (acquire-once / drain-N / release) via the process-local
+  // refcount — concurrent callers share one grant, freed when the batch quiesces.
+  // The lease-less path is blocked at the write primitive by `assertWriterLeaseHeld`.
+  const releaseBatch = await enterBrainBatchLease();
   try {
-    return await getManager().enqueue(op);
-  } catch (err) {
-    // Worker was unavailable (tests, esbuild bundle, etc.). Fall back to
-    // inline mode — still serialized via the inline mutex.
-    const msg = err instanceof Error ? err.message : String(err);
-    getLogger('brain-writer').debug(
-      { err: msg },
-      'Brain writer-thread unavailable — falling back to inline serialized executor',
-    );
-    return runInline(op);
+    // Bypass mode — log audit warn and run inline.
+    if (bypassEnabled()) {
+      return await runInline(op);
+    }
+
+    try {
+      return await getManager().enqueue(op);
+    } catch (err) {
+      // Worker was unavailable (tests, esbuild bundle, etc.). Fall back to
+      // inline mode — still serialized via the inline mutex.
+      const msg = err instanceof Error ? err.message : String(err);
+      getLogger('brain-writer').debug(
+        { err: msg },
+        'Brain writer-thread unavailable — falling back to inline serialized executor',
+      );
+      return await runInline(op);
+    }
+  } finally {
+    await releaseBatch();
   }
 }
 
@@ -493,4 +576,6 @@ export async function shutdownBrainWriter(): Promise<void> {
 export function _resetBrainWriterForTests(): void {
   _manager = null;
   inlineQueueTail = Promise.resolve();
+  _brainBatchHandle = null;
+  _brainBatchRefcount = 0;
 }
