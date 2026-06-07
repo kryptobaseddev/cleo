@@ -1658,6 +1658,7 @@ export type {
   PlaybookDefinition,
   PlaybookDeterministicNode,
   PlaybookEdge,
+  PlaybookEdgeCondition,
   PlaybookEnsures,
   PlaybookErrorHandler,
   PlaybookInput,

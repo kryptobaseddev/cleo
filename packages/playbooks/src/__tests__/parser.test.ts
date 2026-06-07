@@ -453,4 +453,115 @@ nodes:
       }
     });
   });
+
+  describe('T11806: edge.when branch guard', () => {
+    const base = `
+version: "1.0"
+name: branch
+nodes:
+  - id: classify
+    type: agentic
+    skill: x
+  - id: a
+    type: agentic
+    skill: y
+  - id: b
+    type: agentic
+    skill: z
+`;
+
+    it('parses an equals/notEquals guarded branch', () => {
+      const { definition } = parsePlaybook(`${base}edges:
+  - from: classify
+    to: a
+    when:
+      field: needsResearch
+      equals: true
+  - from: classify
+    to: b
+    when:
+      field: needsResearch
+      notEquals: true
+`);
+      expect(definition.edges).toHaveLength(2);
+      expect(definition.edges[0]?.when).toEqual({ field: 'needsResearch', equals: true });
+      expect(definition.edges[1]?.when).toEqual({ field: 'needsResearch', notEquals: true });
+    });
+
+    it('parses exists / truthy / in operators', () => {
+      const { definition } = parsePlaybook(`${base}edges:
+  - from: classify
+    to: a
+    when:
+      field: route
+      in: [x, y, z]
+  - from: classify
+    to: b
+    when:
+      field: route
+      exists: false
+`);
+      expect(definition.edges[0]?.when).toEqual({ field: 'route', in: ['x', 'y', 'z'] });
+      expect(definition.edges[1]?.when).toEqual({ field: 'route', exists: false });
+    });
+
+    it('rejects a when guard with no operator', () => {
+      expect(() =>
+        parsePlaybook(`${base}edges:
+  - from: classify
+    to: a
+    when:
+      field: route
+`),
+      ).toThrow(/must declare exactly one of/);
+    });
+
+    it('rejects a when guard with multiple operators', () => {
+      expect(() =>
+        parsePlaybook(`${base}edges:
+  - from: classify
+    to: a
+    when:
+      field: route
+      equals: x
+      exists: true
+`),
+      ).toThrow(/declares multiple operators/);
+    });
+
+    it('rejects a when guard with a missing field', () => {
+      expect(() =>
+        parsePlaybook(`${base}edges:
+  - from: classify
+    to: a
+    when:
+      equals: x
+`),
+      ).toThrow(/field must be a non-empty string/);
+    });
+
+    it('rejects a non-boolean exists operator', () => {
+      expect(() =>
+        parsePlaybook(`${base}edges:
+  - from: classify
+    to: a
+    when:
+      field: route
+      exists: "yes"
+`),
+      ).toThrow(/exists must be a boolean/);
+    });
+
+    it('rejects an empty in array', () => {
+      expect(() =>
+        parsePlaybook(`${base}edges:
+  - from: classify
+    to: a
+    when:
+      field: route
+      in: []
+`),
+      ).toThrow(/in must be a non-empty array/);
+    });
+  });
 });

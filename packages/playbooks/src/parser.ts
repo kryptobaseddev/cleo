@@ -34,6 +34,7 @@ import type {
   PlaybookDefinition,
   PlaybookDeterministicNode,
   PlaybookEdge,
+  PlaybookEdgeCondition,
   PlaybookEnsures,
   PlaybookErrorHandler,
   PlaybookInput,
@@ -499,7 +500,114 @@ function parseEdge(raw: unknown, index: number, ids: ReadonlySet<string>): Playb
     contract = { requires, ensures };
   }
 
-  return { from: raw.from, to: raw.to, contract };
+  const when = parseEdgeCondition(raw.when, `edges[${index}].when`);
+
+  const edge: PlaybookEdge = { from: raw.from, to: raw.to, contract };
+  if (when !== undefined) edge.when = when;
+  return edge;
+}
+
+/**
+ * Recognised comparison operators on a {@link PlaybookEdgeCondition}. Exactly
+ * one MUST be present so a guarded edge is unambiguous (T11806).
+ */
+const EDGE_CONDITION_OPERATORS = ['equals', 'notEquals', 'exists', 'in', 'truthy'] as const;
+
+/**
+ * Parse the optional `when` branch guard on an edge into a validated
+ * {@link PlaybookEdgeCondition}. Returns `undefined` for an absent guard
+ * (the edge is unconditional).
+ *
+ * Validation:
+ *  - `field` MUST be a non-empty string.
+ *  - Exactly ONE comparison operator (`equals` | `notEquals` | `exists` | `in`
+ *    | `truthy`) MUST be supplied — zero is ambiguous, more than one is
+ *    contradictory, both rejected at parse time so the runtime never has to
+ *    disambiguate.
+ *  - `exists` / `truthy` MUST be boolean; `in` MUST be a non-empty array.
+ *
+ * @param raw - Raw YAML value for `edge.when`.
+ * @param field - Field path for diagnostics (e.g. `"edges[2].when"`).
+ * @returns The validated condition, or `undefined` when absent.
+ * @throws {PlaybookParseError} On any structural violation.
+ *
+ * @task T11806 — cantbook runtime branching
+ */
+function parseEdgeCondition(raw: unknown, field: string): PlaybookEdgeCondition | undefined {
+  if (raw === undefined) return undefined;
+  if (!isRecord(raw)) {
+    throw new PlaybookParseError(`${field} must be an object`, field, raw);
+  }
+  if (typeof raw.field !== 'string' || raw.field.length === 0) {
+    throw new PlaybookParseError(
+      `${field}.field must be a non-empty string`,
+      `${field}.field`,
+      raw.field,
+    );
+  }
+
+  const present = EDGE_CONDITION_OPERATORS.filter((op) => Object.hasOwn(raw, op));
+  if (present.length === 0) {
+    throw new PlaybookParseError(
+      `${field} must declare exactly one of ${EDGE_CONDITION_OPERATORS.join(' | ')}`,
+      field,
+      raw,
+    );
+  }
+  if (present.length > 1) {
+    throw new PlaybookParseError(
+      `${field} declares multiple operators (${present.join(', ')}); exactly one is allowed`,
+      field,
+      raw,
+    );
+  }
+
+  const condition: PlaybookEdgeCondition = { field: raw.field };
+  const [op] = present;
+  switch (op) {
+    case 'equals':
+      condition.equals = raw.equals;
+      break;
+    case 'notEquals':
+      condition.notEquals = raw.notEquals;
+      break;
+    case 'in':
+      if (!Array.isArray(raw.in) || raw.in.length === 0) {
+        throw new PlaybookParseError(
+          `${field}.in must be a non-empty array`,
+          `${field}.in`,
+          raw.in,
+        );
+      }
+      condition.in = [...raw.in];
+      break;
+    case 'exists':
+      if (typeof raw.exists !== 'boolean') {
+        throw new PlaybookParseError(
+          `${field}.exists must be a boolean`,
+          `${field}.exists`,
+          raw.exists,
+        );
+      }
+      condition.exists = raw.exists;
+      break;
+    case 'truthy':
+      if (typeof raw.truthy !== 'boolean') {
+        throw new PlaybookParseError(
+          `${field}.truthy must be a boolean`,
+          `${field}.truthy`,
+          raw.truthy,
+        );
+      }
+      condition.truthy = raw.truthy;
+      break;
+    default: {
+      // Exhaustiveness guard — EDGE_CONDITION_OPERATORS is the SSoT.
+      const exhaustive: never = op;
+      throw new PlaybookParseError(`${field} unknown operator ${String(exhaustive)}`, field, raw);
+    }
+  }
+  return condition;
 }
 
 function parseInputs(raw: unknown): PlaybookInput[] | undefined {

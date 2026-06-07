@@ -77,6 +77,55 @@ export interface PlaybookApprovalNode extends PlaybookNodeBase {
 
 export type PlaybookNode = PlaybookAgenticNode | PlaybookDeterministicNode | PlaybookApprovalNode;
 
+/**
+ * Declarative, eval-free predicate over the playbook run `context` used to
+ * guard a conditional branch edge (T11806).
+ *
+ * The predicate is intentionally a *pure data* description — never an
+ * arbitrary expression — so the runtime stays deterministic and sandbox-safe.
+ * The named `field` is resolved against the accumulated run context
+ * (`context[field]`) and compared by exactly one of the optional operators
+ * below. When a `PlaybookEdge` carries a `when` predicate, the runtime only
+ * traverses that edge if the predicate evaluates to `true`.
+ *
+ * Exactly one comparison operator (`equals`, `notEquals`, `exists`, `in`, or
+ * `truthy`) should be supplied; the parser enforces this so an ambiguous
+ * predicate is rejected at parse time rather than mis-routing at runtime.
+ *
+ * @example
+ * ```yaml
+ * edges:
+ *   - from: classify
+ *     to: deep-research        # taken when context.needsResearch === true
+ *     when: { field: needsResearch, equals: true }
+ *   - from: classify
+ *     to: skip-research        # taken when context.needsResearch !== true
+ *     when: { field: needsResearch, notEquals: true }
+ * ```
+ *
+ * @task T11806 — cantbook runtime branching
+ */
+export interface PlaybookEdgeCondition {
+  /** Context key whose value the predicate is evaluated against. */
+  field: string;
+  /** Edge is satisfied when `context[field]` strictly equals this value. */
+  equals?: unknown;
+  /** Edge is satisfied when `context[field]` strictly does NOT equal this value. */
+  notEquals?: unknown;
+  /**
+   * When `true`, edge is satisfied iff `field` is present in context;
+   * when `false`, satisfied iff `field` is absent from context.
+   */
+  exists?: boolean;
+  /** Edge is satisfied when `context[field]` is one of these values. */
+  in?: unknown[];
+  /**
+   * When `true`, edge is satisfied iff `context[field]` is truthy;
+   * when `false`, satisfied iff `context[field]` is falsy.
+   */
+  truthy?: boolean;
+}
+
 export interface PlaybookEdge {
   from: string;
   to: string;
@@ -84,6 +133,18 @@ export interface PlaybookEdge {
     requires?: string[];
     ensures?: string[];
   };
+  /**
+   * Optional declarative branch guard (T11806). When present, the edge is
+   * only traversed if the {@link PlaybookEdgeCondition} predicate over the
+   * run `context` is satisfied. Edges without `when` are unconditional.
+   *
+   * A node may have multiple outgoing edges as long as every additional
+   * edge carries a `when` guard — the runtime evaluates them against the
+   * current context and routes to the single satisfied successor. More than
+   * one *unconditional* successor remains a fail-closed error (genuine
+   * ambiguity).
+   */
+  when?: PlaybookEdgeCondition;
 }
 
 export interface PlaybookErrorHandler {

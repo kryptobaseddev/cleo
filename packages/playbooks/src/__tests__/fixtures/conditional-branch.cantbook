@@ -1,0 +1,50 @@
+version: "1.0"
+name: conditional-branch
+description: >
+  T11806 branching fixture — a single classify node fans out to two mutually
+  exclusive successors via `when` guards. When context.needsResearch is true the
+  run routes through branch-A (deep-research); otherwise it routes through
+  branch-B (skip-research). Both branches converge on a final ship node so the
+  run always reaches a single terminal state.
+
+inputs:
+  - name: taskId
+    required: true
+    description: Task id being executed.
+
+nodes:
+  - id: classify
+    type: agentic
+    skill: ct-research-agent
+    description: Classify whether the task needs research; emits needsResearch.
+
+  - id: deep-research
+    type: agentic
+    skill: ct-research-agent
+    description: Branch-A — taken when needsResearch is true.
+
+  - id: skip-research
+    type: agentic
+    skill: ct-task-executor
+    description: Branch-B — taken when needsResearch is not true.
+
+  - id: ship
+    type: agentic
+    skill: ct-task-executor
+    description: Converge — runs after whichever branch was taken.
+
+edges:
+  - from: classify
+    to: deep-research
+    when:
+      field: needsResearch
+      equals: true
+  - from: classify
+    to: skip-research
+    when:
+      field: needsResearch
+      notEquals: true
+  - from: deep-research
+    to: ship
+  - from: skip-research
+    to: ship
