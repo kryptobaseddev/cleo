@@ -26,6 +26,13 @@ vi.mock('@cleocode/core', () => ({
   getLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
 
+// T11640 — stub the connection-session handle imports the RPC server now uses.
+vi.mock('@cleocode/core/internal', () => ({
+  bindConnectionSession: vi.fn(),
+  unbindConnectionSession: vi.fn(),
+  runWithConnectionHandle: <T>(_connId: string, fn: () => T): T => fn(),
+}));
+
 const { LineBuffer } = await import('../codec.js');
 const { startRpcServer } = await import('../server.js');
 

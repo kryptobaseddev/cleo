@@ -273,9 +273,26 @@ export async function pivotTask(
   }
 
   // ---------------------------------------------------------------------------
-  // Resolve session + agent identity for the audit row
+  // Resolve session + agent identity for the audit row. T11640 — identity
+  // resolution (connection-handle → CLEO_SESSION_ID → most-recent-active) so the
+  // pivot is attributed to the agent that issued it, not the last DB writer.
+  //
+  // The session id is a purely INFORMATIONAL audit field (it only annotates the
+  // forensic trail). resolveCurrentSession() does extra DB round-trips (getDb +
+  // getSession(connId) + getSession(envId) + getActiveSession) that, under the
+  // shared DB-singleton / background-ops contamination this codebase fights
+  // (T10490), can intermittently surface a WriterLeaseRequiredError via the
+  // brain hooks path. That MUST NOT abort an otherwise-successful pivot, so —
+  // exactly like the memory-observation lookup below — this best-effort identity
+  // resolution degrades to `null` on failure rather than propagating.
   // ---------------------------------------------------------------------------
-  const session = await acc.getActiveSession();
+  let session: Awaited<ReturnType<DataAccessor['resolveCurrentSession']>> = null;
+  try {
+    session = await acc.resolveCurrentSession();
+  } catch {
+    // best-effort identity lookup — never block the pivot on a session-resolve
+    // failure; the audit row's sessionId is informational only.
+  }
   const sessionId = session?.id ?? null;
   const agentId = process.env['CLEO_AGENT_ID'] ?? 'local';
   const timestamp = new Date().toISOString();

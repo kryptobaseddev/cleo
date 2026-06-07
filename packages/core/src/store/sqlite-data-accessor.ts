@@ -40,6 +40,7 @@ import {
   upsertSession,
   upsertTask,
 } from './db-helpers.js';
+import { resolveCurrentSession } from './session-store.js';
 import { closeDb, getDb, getNativeTasksDb } from './sqlite.js';
 import { TERMINAL_TASK_STATUSES } from './status-registry.js';
 import * as schema from './tasks-schema.js';
@@ -607,6 +608,13 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
         .all();
       if (rows.length === 0 || !rows[0]) return null;
       return rowToSession(rows[0]);
+    },
+
+    async resolveCurrentSession(): Promise<Session | null> {
+      // T11640 — identity-meaning resolution (connection-handle → env → active).
+      // Delegates to the canonical resolver so accessor-based callers share the
+      // same precedence as bare `resolveCurrentSession()` consumers.
+      return resolveCurrentSession(cwd);
     },
 
     async upsertSingleSession(session: Session): Promise<void> {

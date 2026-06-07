@@ -32,6 +32,7 @@
  * @saga T11243
  */
 
+import { randomUUID } from 'node:crypto';
 import { existsSync, unlinkSync } from 'node:fs';
 import { createServer, type Socket } from 'node:net';
 import type { DispatchRequest } from '@cleocode/contracts/gateway';
@@ -41,6 +42,11 @@ import type {
 } from '@cleocode/contracts/gateway/rpc';
 import { GATEWAY_RPC_PROTOCOL_VERSION } from '@cleocode/contracts/gateway/rpc';
 import { getLogger } from '@cleocode/core';
+import {
+  bindConnectionSession,
+  runWithConnectionHandle,
+  unbindConnectionSession,
+} from '@cleocode/core/internal';
 import type { GatewayHandler } from '../index.js';
 import { buildErrorFrame, decodeLine, encodeFrame, LineBuffer } from './codec.js';
 import type { RpcServerHandle, RpcServerOptions } from './types.js';
@@ -55,13 +61,41 @@ import type { RpcServerHandle, RpcServerOptions } from './types.js';
  * handler errors are caught and rendered as a protocol-level `E_RPC_INTERNAL`
  * error frame — never propagated as an unhandled rejection or `process.exit`.
  *
+ * ## Connection-scoped session binding (T11640 · Epic T11638)
+ *
+ * The daemon serves many connections over one process, so it cannot rely on the
+ * single-process session-context singleton for identity. Instead, a frame on a
+ * connection that declares a `sessionId` binds it into the `{connId → sessionId}`
+ * registry, and the whole dispatch runs inside {@link runWithConnectionHandle}
+ * so `core`'s `resolveCurrentSession` resolves THIS connection's session (its
+ * highest-precedence tier) rather than "whoever wrote the DB last". When a frame
+ * carries no `sessionId`, no binding is performed and resolution transparently
+ * falls through to the env / active tiers — preserving existing behavior for
+ * anonymous frames.
+ *
+ * ### Intra-connection bleed safety
+ *
+ * Frames on one connection are dispatched CONCURRENTLY (each `routeFrame` is
+ * fired without awaiting the prior one), and registry binding is last-write-wins.
+ * To stop a still-in-flight Frame A from resolving a sibling Frame B's session,
+ * the frame's OWN declared `sessionId` is snapshotted into the per-frame
+ * connection handle ({@link runWithConnectionHandle}'s third arg) — that snapshot
+ * is authoritative for the dispatch, so a later re-bind of the same `connId`
+ * cannot retroactively change who Frame A is. The registry binding remains only
+ * for the late-binding path used by frames that declare no session of their own.
+ *
  * @param handler - The injected transport-neutral gateway handler.
  * @param frame - A validated, version-matched request frame.
+ * @param connId - The opaque per-connection id (bound at accept-time). Omitted
+ *   only by direct/test callers that route a single frame outside a socket; a
+ *   fresh ephemeral id is minted so the call still runs in an isolated
+ *   connection-handle scope.
  * @returns The response or error frame to write back on the same connection.
  */
 export async function routeFrame(
   handler: GatewayHandler,
   frame: GatewayRpcRequestFrame,
+  connId: string = randomUUID(),
 ): Promise<GatewayRpcResponseFrame | ReturnType<typeof buildErrorFrame>> {
   const request: DispatchRequest = {
     ...frame.request,
@@ -70,8 +104,23 @@ export async function routeFrame(
     requestId: frame.request.requestId,
   };
 
+  // Bind this connection to the session the frame declared (empty/absent ids are
+  // ignored by the registry). This feeds the late-binding path for any sibling
+  // frame that declares no session of its own. The per-frame snapshot below — not
+  // this mutable registry — is what THIS dispatch resolves against, so a
+  // concurrent sibling frame's re-bind cannot bleed into it.
+  if (request.sessionId) {
+    bindConnectionSession(connId, request.sessionId);
+  }
+
   try {
-    const response = await handler.handle(request);
+    // Snapshot the frame's own session into the per-frame handle so this dispatch
+    // is immune to concurrent last-write-wins re-binds of the same connId.
+    const response = await runWithConnectionHandle(
+      connId,
+      () => handler.handle(request),
+      request.sessionId,
+    );
     return {
       protocol_version: GATEWAY_RPC_PROTOCOL_VERSION,
       id: frame.id,
@@ -93,6 +142,14 @@ export async function routeFrame(
  * each correlated response carries the originating frame `id`, so the client
  * can demultiplex out-of-order completions.
  *
+ * ## Accept-time session binding (T11640)
+ *
+ * A fresh opaque `connId` is minted per accepted socket and threaded into every
+ * {@link routeFrame} call so the connection's declared session is bound into the
+ * `{connId → sessionId}` registry and made the authoritative identity for that
+ * dispatch (see {@link routeFrame}). On socket `close` the binding is removed so
+ * the registry never grows unbounded across a long-lived daemon process.
+ *
  * @param handler - The injected gateway handler.
  * @param socket - The accepted `node:net` connection.
  * @param log - The adapter's pino logger.
@@ -104,6 +161,7 @@ function handleConnection(
 ): void {
   socket.setEncoding('utf8');
   const lines = new LineBuffer();
+  const connId = randomUUID();
 
   socket.on('data', (chunk: string) => {
     for (const line of lines.push(chunk)) {
@@ -112,7 +170,7 @@ function handleConnection(
         socket.write(encodeFrame(decoded.frame));
         continue;
       }
-      routeFrame(handler, decoded.frame)
+      routeFrame(handler, decoded.frame, connId)
         .then((out) => {
           if (!socket.destroyed) socket.write(encodeFrame(out));
         })
@@ -129,6 +187,12 @@ function handleConnection(
 
   socket.on('error', (err) => {
     log.warn({ err }, 'rpc connection error');
+  });
+
+  // Release the connection→session binding when the socket goes away so the
+  // in-memory registry stays bounded across the daemon's lifetime (T11640).
+  socket.on('close', () => {
+    unbindConnectionSession(connId);
   });
 }
 

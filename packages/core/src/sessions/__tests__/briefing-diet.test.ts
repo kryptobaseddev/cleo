@@ -168,6 +168,10 @@ function setupMockAccessor(tasks = makeTasks()) {
       id: 'sess-001',
       activePeerId: 'global',
     }),
+    resolveCurrentSession: vi.fn().mockResolvedValue({
+      id: 'sess-001',
+      activePeerId: 'global',
+    }),
     upsertSingleSession: vi.fn().mockResolvedValue(undefined),
     removeSingleSession: vi.fn().mockResolvedValue(undefined),
     queryTasks: vi.fn().mockResolvedValue({ tasks, total: tasks.length }),
@@ -272,6 +276,7 @@ describe('briefing diet (T9974)', () => {
     (getTaskAccessor as ReturnType<typeof vi.fn>).mockResolvedValue({
       loadSessions: vi.fn().mockResolvedValue([]),
       getActiveSession: vi.fn().mockResolvedValue({ id: 'sess-001', activePeerId: 'global' }),
+      resolveCurrentSession: vi.fn().mockResolvedValue({ id: 'sess-001', activePeerId: 'global' }),
       queryTasks: vi.fn().mockResolvedValue({ tasks: makeTasks(), total: 6 }),
       getMetaValue: vi.fn().mockImplementation((key: string) => {
         if (key === 'focus_state')
@@ -310,6 +315,7 @@ describe('briefing diet (T9974)', () => {
     (getTaskAccessor as ReturnType<typeof vi.fn>).mockResolvedValue({
       loadSessions: vi.fn().mockResolvedValue([]),
       getActiveSession: vi.fn().mockResolvedValue({ id: 'sess-001', activePeerId: 'global' }),
+      resolveCurrentSession: vi.fn().mockResolvedValue({ id: 'sess-001', activePeerId: 'global' }),
       queryTasks: vi.fn().mockResolvedValue({ tasks, total: tasks.length }),
       getMetaValue: vi.fn().mockImplementation((key: string) => {
         if (key === 'focus_state')
@@ -353,6 +359,7 @@ describe('briefing diet (T9974)', () => {
     (getTaskAccessor as ReturnType<typeof vi.fn>).mockResolvedValue({
       loadSessions: vi.fn().mockResolvedValue([]),
       getActiveSession: vi.fn().mockResolvedValue({ id: 'sess-001', activePeerId: 'global' }),
+      resolveCurrentSession: vi.fn().mockResolvedValue({ id: 'sess-001', activePeerId: 'global' }),
       queryTasks: vi.fn().mockResolvedValue({ tasks, total: tasks.length }),
       getMetaValue: vi.fn().mockImplementation((key: string) => {
         if (key === 'focus_state')
@@ -410,6 +417,7 @@ describe('briefing diet (T9974)', () => {
     (getTaskAccessor as ReturnType<typeof vi.fn>).mockResolvedValue({
       loadSessions: vi.fn().mockResolvedValue([]),
       getActiveSession: vi.fn().mockResolvedValue({ id: 'sess-001', activePeerId: 'global' }),
+      resolveCurrentSession: vi.fn().mockResolvedValue({ id: 'sess-001', activePeerId: 'global' }),
       queryTasks: vi.fn().mockResolvedValue({ tasks, total: tasks.length }),
       getMetaValue: vi.fn().mockResolvedValue(null),
       setMetaValue: vi.fn().mockResolvedValue(undefined),
@@ -646,6 +654,7 @@ describe('briefing diet (T9974)', () => {
     vi.mocked(getTaskAccessor).mockResolvedValue({
       loadSessions: vi.fn().mockResolvedValue([]),
       getActiveSession: vi.fn().mockResolvedValue({ id: 'sess-001', activePeerId: 'global' }),
+      resolveCurrentSession: vi.fn().mockResolvedValue({ id: 'sess-001', activePeerId: 'global' }),
       queryTasks: vi.fn().mockResolvedValue({ tasks, total: tasks.length }),
       getMetaValue: vi.fn().mockImplementation((key: string) => {
         if (key === 'focus_state')

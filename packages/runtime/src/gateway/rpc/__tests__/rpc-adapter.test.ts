@@ -33,11 +33,27 @@ import {
   type GatewayRpcRequestFrame,
   type GatewayRpcResponseFrame,
 } from '@cleocode/contracts/gateway/rpc';
-import { afterAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GatewayHandler } from '../../index.js';
 
 vi.mock('@cleocode/core', () => ({
   getLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
+}));
+
+// T11640 — stub the connection-session handle registry so the adapter's
+// accept-time binding is exercised hermetically (the real registry lives in
+// @cleocode/core/internal). bind/unbind are spied; runWithConnectionHandle
+// invokes its callback inline so dispatch still runs.
+const connectionRegistry = new Map<string, string>();
+const bindSpy = vi.fn((connId: string, sessionId: string) => {
+  connectionRegistry.set(connId, sessionId);
+});
+const unbindSpy = vi.fn((connId: string) => connectionRegistry.delete(connId));
+const runWithHandleSpy = vi.fn(<T>(_connId: string, fn: () => T): T => fn());
+vi.mock('@cleocode/core/internal', () => ({
+  bindConnectionSession: (connId: string, sessionId: string) => bindSpy(connId, sessionId),
+  unbindConnectionSession: (connId: string) => unbindSpy(connId),
+  runWithConnectionHandle: <T>(connId: string, fn: () => T): T => runWithHandleSpy(connId, fn),
 }));
 
 const { decodeLine, encodeFrame, LineBuffer } = await import('../codec.js');
@@ -192,6 +208,80 @@ describe('R3-T5 RPC routeFrame — gateway routing', () => {
     if (out.direction === 'error') {
       expect((out as GatewayRpcErrorFrame).error.code).toBe('E_RPC_INTERNAL');
       expect((out as GatewayRpcErrorFrame).error.message).toContain('boom');
+    }
+  });
+});
+
+describe('T11640 RPC routeFrame — connection-scoped session binding', () => {
+  beforeEach(() => {
+    bindSpy.mockClear();
+    unbindSpy.mockClear();
+    runWithHandleSpy.mockClear();
+    connectionRegistry.clear();
+  });
+
+  it('binds the frame sessionId into the registry under the supplied connId', async () => {
+    const { handler } = fakeHandler();
+    await routeFrame(handler, requestFrame({ sessionId: 'ses_abc' }), 'conn-1');
+    expect(bindSpy).toHaveBeenCalledWith('conn-1', 'ses_abc');
+    expect(connectionRegistry.get('conn-1')).toBe('ses_abc');
+  });
+
+  it('runs the dispatch inside the connection-handle scope', async () => {
+    const { handler, calls } = fakeHandler();
+    await routeFrame(handler, requestFrame({ sessionId: 'ses_abc' }), 'conn-1');
+    expect(runWithHandleSpy).toHaveBeenCalledTimes(1);
+    expect(runWithHandleSpy.mock.calls[0][0]).toBe('conn-1');
+    // The handler still received the dispatch (the scoped callback executed).
+    expect(calls).toHaveLength(1);
+  });
+
+  it('does NOT bind when the frame carries no sessionId', async () => {
+    const { handler } = fakeHandler();
+    await routeFrame(handler, requestFrame({ sessionId: undefined }), 'conn-1');
+    expect(bindSpy).not.toHaveBeenCalled();
+    // Dispatch still runs inside an (anonymous) handle scope.
+    expect(runWithHandleSpy).toHaveBeenCalledWith('conn-1', expect.any(Function));
+  });
+
+  it('mints an ephemeral connId when omitted (backward-compatible 2-arg call)', async () => {
+    const { handler } = fakeHandler();
+    await routeFrame(handler, requestFrame({ sessionId: 'ses_eph' }));
+    expect(bindSpy).toHaveBeenCalledTimes(1);
+    const [connId, sessionId] = bindSpy.mock.calls[0];
+    expect(typeof connId).toBe('string');
+    expect(connId.length).toBeGreaterThan(0);
+    expect(sessionId).toBe('ses_eph');
+  });
+});
+
+describe('T11640 RPC server — accept-time bind + close unbind round-trip', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cleo-rpc-bind-'));
+  const socketPath = join(dir, 'gw.sock');
+
+  beforeEach(() => {
+    bindSpy.mockClear();
+    unbindSpy.mockClear();
+    connectionRegistry.clear();
+  });
+
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('binds on the first frame and unbinds when the socket closes', async () => {
+    const { handler } = fakeHandler();
+    const srv = await startRpcServer(handler, { socketPath });
+    try {
+      await roundTrip(socketPath, requestFrame({ sessionId: 'ses_socket' }));
+      expect(bindSpy).toHaveBeenCalledWith(expect.any(String), 'ses_socket');
+      // Allow the server-side 'close' event to fire after the client ended.
+      await new Promise((r) => setTimeout(r, 50));
+      expect(unbindSpy).toHaveBeenCalledTimes(1);
+      const boundConnId = bindSpy.mock.calls[0][0];
+      expect(unbindSpy).toHaveBeenCalledWith(boundConnId);
+    } finally {
+      await srv.close();
     }
   });
 });

@@ -27,7 +27,7 @@ import type {
 } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getProjectRoot } from '../paths.js';
-import { getActiveSession } from '../store/session-store.js';
+import { resolveCurrentSession } from '../store/session-store.js';
 import { getForceBypassPath } from '../tasks/gate-audit.js';
 import { getPipelineStageOrder, isPipelineTransitionForward } from '../tasks/pipeline-stage.js';
 import {
@@ -105,11 +105,14 @@ export async function enforceScopeForLifecycleMutation(
   epicId: string,
   projectRoot?: string,
 ): Promise<EngineResult | null> {
-  // Resolve the active session. If there is no active session, allow the
-  // operation — session enforcement is handled separately by requireActiveSession().
-  let session: Awaited<ReturnType<typeof getActiveSession>>;
+  // Resolve the CALLER's session (T11640 — connection-handle → env → active),
+  // NOT the most-recent active row: the scope guard must authorise the agent
+  // that actually issued this lifecycle mutation, not whoever wrote the DB last.
+  // If there is no resolvable session, allow the operation — session enforcement
+  // is handled separately by requireActiveSession().
+  let session: Awaited<ReturnType<typeof resolveCurrentSession>>;
   try {
-    session = await getActiveSession(projectRoot);
+    session = await resolveCurrentSession(projectRoot);
   } catch {
     // DB not available or not initialised — let the downstream operation
     // surface its own error rather than blocking here.

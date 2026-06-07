@@ -65,6 +65,7 @@ function buildMockAccessor(tasks: unknown[] = []) {
     queryTasks: vi.fn().mockResolvedValue({ tasks, total: tasks.length }),
     getMetaValue: vi.fn().mockResolvedValue(null),
     getActiveSession: vi.fn().mockResolvedValue(null),
+    resolveCurrentSession: vi.fn().mockResolvedValue(null),
     close: vi.fn().mockResolvedValue(undefined),
     findLearnings: vi.fn().mockResolvedValue([]),
     getDeadlines: vi.fn().mockResolvedValue([]),

@@ -82,9 +82,12 @@ vi.mock('../index.js', () => ({
   failGate: mocks.failGate,
 }));
 
-// Mock the session store (engine-ops.ts imports getActiveSession from here)
+// Mock the session store. T11640 — engine-ops.ts now resolves the caller's
+// session via `resolveCurrentSession`; point it at the same hoisted spy so the
+// existing `mocks.getActiveSession.mockResolvedValue(...)` setups drive it.
 vi.mock('../../store/session-store.js', () => ({
   getActiveSession: mocks.getActiveSession,
+  resolveCurrentSession: mocks.getActiveSession,
   createSession: vi.fn(),
 }));
 
