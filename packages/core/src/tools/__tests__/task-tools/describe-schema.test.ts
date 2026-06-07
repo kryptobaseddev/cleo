@@ -13,9 +13,13 @@ describe('describeSchema', () => {
     expect(names).toEqual([...names].sort());
   });
 
-  it('snapshot — tasks table shape', () => {
+  // T11883 (E3): describe-schema imports the tasks-schema barrel, whose
+  // task-domain symbols are SHADOWED onto the PREFIXED consolidated tables the
+  // runtime reads/writes — so the described physical name is `tasks_tasks` and
+  // its indexes are `idx_tasks_tasks_*`, not the legacy bare `tasks`.
+  it('snapshot — tasks_tasks table shape', () => {
     const { tables } = describeSchema();
-    const tasks = tables.find((t) => t.name === 'tasks');
+    const tasks = tables.find((t) => t.name === 'tasks_tasks');
     expect(tasks).toBeDefined();
 
     const idCol = tasks!.columns.find((c) => c.name === 'id');
@@ -29,13 +33,13 @@ describe('describeSchema', () => {
 
     expect(tasks!.indexes.length).toBeGreaterThan(0);
     const indexNames = tasks!.indexes.map((i) => i.name);
-    expect(indexNames).toContain('idx_tasks_status');
-    expect(indexNames).toContain('idx_tasks_priority');
+    expect(indexNames).toContain('idx_tasks_tasks_status');
+    expect(indexNames).toContain('idx_tasks_tasks_priority');
   });
 
-  it('snapshot — sessions table shape', () => {
+  it('snapshot — tasks_sessions table shape', () => {
     const { tables } = describeSchema();
-    const sessions = tables.find((t) => t.name === 'sessions');
+    const sessions = tables.find((t) => t.name === 'tasks_sessions');
     expect(sessions).toBeDefined();
 
     const idCol = sessions!.columns.find((c) => c.name === 'id');

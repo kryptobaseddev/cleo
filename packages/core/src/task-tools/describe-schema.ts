@@ -15,9 +15,11 @@
  *
  * const descriptor = describeSchema();
  * console.log(descriptor.tables.map((t) => t.name));
- * // => ['tasks', 'task_dependencies', 'sessions', ...]
+ * // => ['tasks_tasks', 'tasks_task_dependencies', 'tasks_sessions', ...]
  *
- * const tasksCols = descriptor.tables.find((t) => t.name === 'tasks')?.columns;
+ * // Task-domain symbols are rebound to the PREFIXED consolidated tables
+ * // (T11883 · E3), so the described physical name is `tasks_tasks`.
+ * const tasksCols = descriptor.tables.find((t) => t.name === 'tasks_tasks')?.columns;
  * console.log(tasksCols?.map((c) => c.name));
  * // => ['id', 'title', 'status', ...]
  * ```
