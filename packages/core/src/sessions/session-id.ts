@@ -162,6 +162,45 @@ export function resolveAgentIdFromEnv(): string | null {
   return value !== undefined && value !== '' ? value : null;
 }
 
+/**
+ * Canonical environment key carrying the fork-tree PARENT session id (T11629).
+ *
+ * The native supervisor (`crates/cleo-supervisor`) stamps this key onto every
+ * worker it spawns, set to the supervisor's OWN root session id (the value of
+ * {@link CANONICAL_SESSION_ENV_KEY} in the supervisor's environment). It is the
+ * fork-tree edge: a worker's own session ({@link CANONICAL_SESSION_ENV_KEY})
+ * resolved by {@link resolveSessionIdFromEnv} is the CHILD; the value of this
+ * key is its PARENT. Reading both lets the session subsystem reconstruct the
+ * orchestrator→worker fork tree without a DB scan.
+ *
+ * The Rust constant of the same name lives in
+ * `crates/cleo-supervisor/src/supervisor.rs` (`PARENT_SESSION_ID_ENV_KEY`).
+ *
+ * @task T11629
+ */
+export const PARENT_SESSION_ENV_KEY = 'CLEO_PARENT_SESSION_ID' as const;
+
+/**
+ * Resolve the fork-tree PARENT session id from the environment (T11629).
+ *
+ * Returns the {@link PARENT_SESSION_ENV_KEY} (`CLEO_PARENT_SESSION_ID`) value
+ * stamped by the supervisor when it spawned this process, or `null` when
+ * unset/empty (e.g. a top-level/root process with no supervisor parent). The
+ * companion of {@link resolveSessionIdFromEnv}: that resolves THIS process's own
+ * session (the fork-tree child); this resolves the session that spawned it (the
+ * fork-tree parent).
+ *
+ * Like the other env resolvers this NEVER reads the database — it is synchronous
+ * and safe in hot paths. Empty-string values are treated as absent.
+ *
+ * @returns The parent session id string when set, otherwise `null`.
+ * @task T11629
+ */
+export function resolveParentSessionIdFromEnv(): string | null {
+  const value = process.env[PARENT_SESSION_ENV_KEY];
+  return value !== undefined && value !== '' ? value : null;
+}
+
 function parseCompactTimestamp(ts: string): Date | null {
   if (ts.length !== 14) return null;
   const year = ts.substring(0, 4);

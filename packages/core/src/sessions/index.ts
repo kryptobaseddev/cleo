@@ -614,9 +614,12 @@ export { getContextDrift } from './session-drift.js';
 export type { SessionHistoryEntry, SessionHistoryParams } from './session-history.js';
 export { getSessionHistory } from './session-history.js';
 // T9975 / T11344 — env-precedence session + agent resolution
+// T11629 — fork-tree PARENT session resolution (supervisor-stamped)
 export {
   CANONICAL_SESSION_ENV_KEY,
+  PARENT_SESSION_ENV_KEY,
   resolveAgentIdFromEnv,
+  resolveParentSessionIdFromEnv,
   resolveSessionIdFromEnv,
   SESSION_ENV_KEY_PRECEDENCE,
 } from './session-id.js';
