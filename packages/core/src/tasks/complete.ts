@@ -24,7 +24,7 @@ import { requireActiveSession } from '../sessions/session-enforcement.js';
 import { trackBackgroundOp } from '../store/background-ops.js';
 import type { DataAccessor, TransactionAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { getActiveSession } from '../store/session-store.js';
+import { resolveCurrentSession } from '../store/session-store.js';
 import {
   appendAcCoverageForceBypass,
   appendAcWaiverAudit,
@@ -1274,15 +1274,11 @@ export async function taskComplete(
     // Best-effort — failure here must not roll back the completion that already landed.
     try {
       const agentId = process.env['CLEO_AGENT_ID'] ?? 'cleo';
-      let sessionId: string | null =
-        typeof process.env['CLEO_SESSION_ID'] === 'string' &&
-        process.env['CLEO_SESSION_ID'].length > 0
-          ? process.env['CLEO_SESSION_ID']
-          : null;
-      const activeSession = await getActiveSession(projectRoot);
-      if (activeSession?.id) {
-        sessionId = activeSession.id;
-      }
+      // T11640 — stamp the CALLER's session (connection-handle → CLEO_SESSION_ID
+      // → most-recent-active). This collapses the prior hand-rolled
+      // "env-then-active-override" — which let the most-recent active row shadow
+      // the caller's explicit CLEO_SESSION_ID — onto the canonical precedence.
+      const sessionId = (await resolveCurrentSession(projectRoot))?.id ?? null;
       await accessor.updateTaskFields(taskId, { modifiedBy: agentId, sessionId });
     } catch {
       // Provenance write failure is non-fatal.

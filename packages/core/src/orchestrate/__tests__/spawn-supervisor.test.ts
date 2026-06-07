@@ -80,6 +80,7 @@ vi.mock('../../store/data-accessor.js', () => ({
 
 vi.mock('../../store/session-store.js', () => ({
   getActiveSession: (...args: unknown[]) => getActiveSessionMock(...args),
+  resolveCurrentSession: (...args: unknown[]) => getActiveSessionMock(...args),
 }));
 
 vi.mock('../../paths.js', async () => {

@@ -37,8 +37,11 @@ export async function switchSession(projectRoot: string, sessionId: string): Pro
 
   const now = new Date().toISOString();
 
-  // Suspend the current active session (if different from target)
-  const currentActive = await accessor.getActiveSession();
+  // Suspend the CALLER's current session (if different from target). T11640 —
+  // identity resolution (connection-handle → CLEO_SESSION_ID → most-recent-
+  // active) so a switch suspends the agent's OWN session, not whoever wrote the
+  // DB last.
+  const currentActive = await accessor.resolveCurrentSession();
   if (currentActive && currentActive.id !== sessionId) {
     currentActive.status = 'suspended';
     Object.assign(currentActive, { suspendedAt: now });

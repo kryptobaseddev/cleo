@@ -317,6 +317,12 @@ export class SafetyDataAccessor implements DataAccessor {
     return this.inner.getActiveSession();
   }
 
+  async resolveCurrentSession(): Promise<Session | null> {
+    // Interface pass-through (T11640) — the umbrella safety wrapper forwards
+    // identity resolution to the inner accessor unchanged.
+    return this.inner.resolveCurrentSession();
+  }
+
   async upsertSingleSession(session: import('@cleocode/contracts').Session): Promise<void> {
     return this.inner.upsertSingleSession(session);
   }

@@ -352,6 +352,12 @@ export class UmbrellaDataAccessor implements DataAccessor {
     return (await this.tasks()).getActiveSession();
   }
 
+  async resolveCurrentSession(): Promise<Session | null> {
+    // Interface pass-through (T11640) — identity resolution lives in the
+    // tasks-scope accessor; the umbrella only forwards.
+    return (await this.tasks()).resolveCurrentSession();
+  }
+
   async upsertSingleSession(session: Session): Promise<void> {
     return (await this.tasks()).upsertSingleSession(session);
   }

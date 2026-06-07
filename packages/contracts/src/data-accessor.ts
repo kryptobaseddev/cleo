@@ -468,8 +468,29 @@ export interface DataAccessor {
 
   // ---- Fine-grained session operations ----
 
-  /** Get the currently active session (status='active', most recent). */
+  /**
+   * Get the currently active session (status='active', most recent).
+   *
+   * SCAN-meaning: answers "is there any active session?" — NOT "who am I".
+   * Identity-meaning callers MUST use {@link DataAccessor.resolveCurrentSession}
+   * (T11640), which resolves the caller's OWN session via the
+   * connection-handle → `CLEO_SESSION_ID` → most-recent-active precedence.
+   */
   getActiveSession(): Promise<Session | null>;
+
+  /**
+   * Resolve the CALLER's current session (T11640 · Epic T11638).
+   *
+   * Identity-meaning resolution for accessor-based consumers, mirroring the
+   * standalone `resolveCurrentSession` in `@cleocode/core`. Precedence:
+   *   1. daemon connection handle (the connection bound at accept-time),
+   *   2. env-named session (`CLEO_SESSION_ID`),
+   *   3. most-recent-active row (legacy single-process fallback).
+   *
+   * Use this — NOT {@link DataAccessor.getActiveSession} — anywhere the meaning
+   * is "the session of whoever issued THIS request".
+   */
+  resolveCurrentSession(): Promise<Session | null>;
 
   /** Upsert a single session (targeted write). */
   upsertSingleSession(session: Session): Promise<void>;

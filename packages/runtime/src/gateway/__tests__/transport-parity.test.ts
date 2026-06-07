@@ -64,6 +64,15 @@ vi.mock('@cleocode/core', () => ({
   getProjectRoot: () => process.cwd(),
 }));
 
+// T11640 — the RPC adapter binds connection→session via @cleocode/core/internal.
+// Stub it (bind/unbind are no-ops, runWithConnectionHandle runs inline) so the
+// parity suite stays off the full core runtime.
+vi.mock('@cleocode/core/internal', () => ({
+  bindConnectionSession: vi.fn(),
+  unbindConnectionSession: vi.fn(),
+  runWithConnectionHandle: <T>(_connId: string, fn: () => T): T => fn(),
+}));
+
 const { createGatewayHandler } = await import('../index.js');
 type GatewayHandler = import('../index.js').GatewayHandler;
 const { callTool } = await import('../mcp/server.js');

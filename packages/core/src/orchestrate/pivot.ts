@@ -273,9 +273,11 @@ export async function pivotTask(
   }
 
   // ---------------------------------------------------------------------------
-  // Resolve session + agent identity for the audit row
+  // Resolve session + agent identity for the audit row. T11640 — identity
+  // resolution (connection-handle → CLEO_SESSION_ID → most-recent-active) so the
+  // pivot is attributed to the agent that issued it, not the last DB writer.
   // ---------------------------------------------------------------------------
-  const session = await acc.getActiveSession();
+  const session = await acc.resolveCurrentSession();
   const sessionId = session?.id ?? null;
   const agentId = process.env['CLEO_AGENT_ID'] ?? 'local';
   const timestamp = new Date().toISOString();

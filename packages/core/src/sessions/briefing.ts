@@ -364,17 +364,20 @@ export async function computeBriefing(
   try {
     const { buildRetrievalBundle } = await import('../memory/brain-retrieval.js');
 
-    // T9975: Resolve active session ID via explicit param → most-recent active.
-    // The env-precedence (CLEO_SESSION_ID → CLAUDE_SESSION_ID → AIDER_SESSION_ID)
-    // is resolved in the engine layer before calling computeBriefing; here we
-    // honour whatever `params.activeSessionId` was passed down.
+    // T9975/T11640: Resolve the CALLER's session via explicit param → identity
+    // resolution (connection-handle → CLEO_SESSION_ID → most-recent-active).
+    // `resolveCurrentSession` honours the env-named session in the engine layer
+    // before calling computeBriefing; here we prefer whatever
+    // `params.activeSessionId` was passed down, then fall back to the resolver.
     let activeSessionObj = params.activeSessionId
       ? await (async () => {
           const sessions = await accessor.loadSessions();
           return sessions.find((s) => s.id === params.activeSessionId) ?? null;
         })()
-      : await accessor.getActiveSession();
-    // Fallback: if the pinned session is ended/missing, revert to most-recent active.
+      : await accessor.resolveCurrentSession();
+    // Display fallback (SCAN-meaning): if the resolved/pinned session is
+    // ended/missing, revert to the most-recent ACTIVE row so the briefing still
+    // surfaces *a* live session rather than an ended one.
     if (!activeSessionObj || activeSessionObj.status !== 'active') {
       activeSessionObj = await accessor.getActiveSession();
     }
@@ -533,15 +536,16 @@ export async function computeBriefing(
 
 /**
  * Parse scope string into filter config.
- * Uses getActiveSession() to auto-detect scope when no explicit scope is provided.
+ * Uses resolveCurrentSession() to auto-detect the CALLER's scope when no
+ * explicit scope is provided (T11640 — identity, not most-recent-active).
  */
 async function parseScope(
   scopeStr: string | undefined,
   accessor: DataAccessor,
 ): Promise<{ type: 'global' | 'epic'; epicId?: string } | undefined> {
   if (!scopeStr) {
-    // Auto-detect from active session
-    const activeSession = await accessor.getActiveSession();
+    // Auto-detect from the caller's resolved session
+    const activeSession = await accessor.resolveCurrentSession();
     if (activeSession?.scope?.type === 'epic') {
       return { type: 'epic', epicId: activeSession.scope.rootTaskId };
     }

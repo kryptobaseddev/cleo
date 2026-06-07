@@ -533,6 +533,105 @@ describe('SQLite session-store', () => {
     });
   });
 
+  // === resolveCurrentSession precedence (T11640 · Epic T11638) ===
+  //
+  // Identity resolution precedence: daemon connection handle > CLEO_SESSION_ID
+  // env > most-recent-active fallback. Each tier is honoured even for a
+  // non-active session row, and a tier that names a non-existent session falls
+  // through to the next.
+
+  describe('resolveCurrentSession precedence', () => {
+    afterEach(async () => {
+      const { resetConnectionSessionRegistry } = await import(
+        '../../sessions/connection-session-handle.js'
+      );
+      resetConnectionSessionRegistry();
+      delete process.env['CLEO_SESSION_ID'];
+    });
+
+    it('falls back to most-recent active when no handle/env is set', async () => {
+      const { createSession, resolveCurrentSession } = await import('../session-store.js');
+      await createSession(makeSession({ id: 'sess-active', status: 'active' }));
+
+      const resolved = await resolveCurrentSession();
+      expect(resolved!.id).toBe('sess-active');
+    });
+
+    it('prefers the CLEO_SESSION_ID env-named session over most-recent active', async () => {
+      const { createSession, resolveCurrentSession } = await import('../session-store.js');
+      // The most-recent active row is NOT the caller's session.
+      await createSession(
+        makeSession({
+          id: 'sess-other',
+          status: 'active',
+          startedAt: '2026-02-02T00:00:00.000Z',
+        }),
+      );
+      // The caller's own session — older, but explicitly named via env.
+      await createSession(
+        makeSession({
+          id: 'sess-mine',
+          status: 'active',
+          startedAt: '2026-01-01T00:00:00.000Z',
+        }),
+      );
+      process.env['CLEO_SESSION_ID'] = 'sess-mine';
+
+      const resolved = await resolveCurrentSession();
+      expect(resolved!.id).toBe('sess-mine');
+    });
+
+    it('prefers the connection handle over both env and most-recent active', async () => {
+      const { createSession, resolveCurrentSession } = await import('../session-store.js');
+      const { bindConnectionSession, runWithConnectionHandle } = await import(
+        '../../sessions/connection-session-handle.js'
+      );
+      await createSession(makeSession({ id: 'sess-active', status: 'active' }));
+      await createSession(makeSession({ id: 'sess-env', status: 'active' }));
+      await createSession(makeSession({ id: 'sess-conn', status: 'active' }));
+      process.env['CLEO_SESSION_ID'] = 'sess-env';
+      bindConnectionSession('conn-1', 'sess-conn');
+
+      const resolved = await runWithConnectionHandle('conn-1', () => resolveCurrentSession());
+      expect(resolved!.id).toBe('sess-conn');
+    });
+
+    it('honours an env-named session even when its status is not active', async () => {
+      const { createSession, resolveCurrentSession } = await import('../session-store.js');
+      await createSession(makeSession({ id: 'sess-active', status: 'active' }));
+      await createSession(makeSession({ id: 'sess-ended', status: 'ended' }));
+      process.env['CLEO_SESSION_ID'] = 'sess-ended';
+
+      const resolved = await resolveCurrentSession();
+      expect(resolved!.id).toBe('sess-ended');
+    });
+
+    it('falls through to active when the connection handle names a missing session', async () => {
+      const { createSession, resolveCurrentSession } = await import('../session-store.js');
+      const { bindConnectionSession, runWithConnectionHandle } = await import(
+        '../../sessions/connection-session-handle.js'
+      );
+      await createSession(makeSession({ id: 'sess-active', status: 'active' }));
+      bindConnectionSession('conn-1', 'sess-does-not-exist');
+
+      const resolved = await runWithConnectionHandle('conn-1', () => resolveCurrentSession());
+      expect(resolved!.id).toBe('sess-active');
+    });
+
+    it('resolveCurrentSessionId shares the same precedence', async () => {
+      const { createSession, resolveCurrentSessionId } = await import('../session-store.js');
+      const { bindConnectionSession, runWithConnectionHandle } = await import(
+        '../../sessions/connection-session-handle.js'
+      );
+      await createSession(makeSession({ id: 'sess-active', status: 'active' }));
+      await createSession(makeSession({ id: 'sess-conn', status: 'active' }));
+      bindConnectionSession('conn-1', 'sess-conn');
+
+      const id = await runWithConnectionHandle('conn-1', () => resolveCurrentSessionId());
+      expect(id).toBe('sess-conn');
+    });
+  });
+
   describe('gcSessions', () => {
     it('marks ended sessions as orphaned', async () => {
       const { createSession, gcSessions, getSession } = await import('../session-store.js');

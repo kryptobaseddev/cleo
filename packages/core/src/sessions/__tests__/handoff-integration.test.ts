@@ -122,6 +122,17 @@ function createMockStore() {
           );
         return Promise.resolve(active[0] ?? null);
       }),
+      // T11640 — identity resolver mirrors most-recent-active in this fixture
+      // (no CLEO_SESSION_ID / connection handle is set by the handoff tests).
+      resolveCurrentSession: vi.fn().mockImplementation(() => {
+        const active = sessions
+          .filter((s: Session) => s.status === 'active')
+          .sort(
+            (a: Session, b: Session) =>
+              new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
+          );
+        return Promise.resolve(active[0] ?? null);
+      }),
       upsertSingleSession: vi.fn().mockImplementation((session: Session) => {
         const idx = sessions.findIndex((s: Session) => s.id === session.id);
         if (idx >= 0) sessions[idx] = session;
