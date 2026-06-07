@@ -194,17 +194,36 @@ export async function startIvtr(
     return existing;
   }
 
+  const state = buildInitialIvtrState(taskId, options?.agentIdentity ?? null);
+  await writeIvtrState(state, options?.cwd);
+  log.info({ taskId }, 'IVTR loop started at implement phase');
+  return state;
+}
+
+/**
+ * Build the canonical fresh {@link IvtrState} seeded at the `implement` phase.
+ *
+ * Shared between {@link startIvtr} (the manual/legacy walk) and
+ * {@link seedIvtrForPlaybook} (the `cleo go` cantbook seam, T11805) so both
+ * paths produce byte-identical initial state.
+ *
+ * @param taskId - Task the IVTR loop is seeded for.
+ * @param agentIdentity - Agent identity string for the first phase entry, or
+ *   `null` when unknown.
+ * @returns A fresh schema-v2 {@link IvtrState} at `currentPhase: 'implement'`.
+ */
+function buildInitialIvtrState(taskId: string, agentIdentity: string | null): IvtrState {
   const now = new Date().toISOString();
   const entry: IvtrPhaseEntry = {
     phase: 'implement',
-    agentIdentity: options?.agentIdentity ?? null,
+    agentIdentity,
     startedAt: now,
     completedAt: null,
     passed: null,
     evidenceRefs: [],
   };
 
-  const state: IvtrState = {
+  return {
     taskId,
     schemaVersion: 2,
     currentPhase: 'implement',
@@ -212,10 +231,290 @@ export async function startIvtr(
     startedAt: now,
     loopBackCount: { implement: 0, validate: 0, audit: 0, test: 0, released: 0 },
   };
+}
 
+/**
+ * Seed the `tasks.ivtr_state` mirror for a task whose IVTR loop is now driven
+ * by `executePlaybook(ivtr.cantbook)` rather than the hand-rolled phase walk
+ * (T11805 · collapse-plan §3 item 4).
+ *
+ * The strict completion gate `E_IVTR_INCOMPLETE` (`tasks/complete.ts`) fires
+ * **only when `ivtr_state !== null`**. The `cleo go` seam removed `startIvtr`
+ * — the historical sole writer of that column — from the autopilot path; this
+ * helper restores the writer so the gate stays load-bearing while the column
+ * is retained for one deprecation cycle. It is intentionally **not**
+ * `startIvtr`: AC4 of T11805 requires the go path to no longer call
+ * `startIvtr`, but the seeded state must remain identical, so both share
+ * {@link buildInitialIvtrState}.
+ *
+ * Idempotent: a task that already has IVTR state is left untouched and its
+ * existing state is returned.
+ *
+ * @param taskId - Task to seed `ivtr_state` for.
+ * @param options - Optional cwd and agent identity for the first phase entry.
+ * @returns The current (possibly newly seeded) {@link IvtrState}.
+ */
+export async function seedIvtrForPlaybook(
+  taskId: string,
+  options?: { cwd?: string; agentIdentity?: string },
+): Promise<IvtrState> {
+  const existing = await readIvtrStateRaw(taskId, options?.cwd);
+  if (existing) {
+    log.info({ taskId }, 'IVTR state already present; seam seed is a no-op');
+    return existing;
+  }
+
+  const state = buildInitialIvtrState(taskId, options?.agentIdentity ?? null);
   await writeIvtrState(state, options?.cwd);
-  log.info({ taskId }, 'IVTR loop started at implement phase');
+  log.info({ taskId }, 'IVTR state mirror seeded for cantbook-driven run');
   return state;
+}
+
+/**
+ * Terminal status reported by the cantbook runtime (`executePlaybook`) for an
+ * IVTR run. Mirrors `PlaybookTerminalStatus` in `@cleocode/playbooks` but is
+ * declared locally so `@cleocode/core` never imports the runtime package
+ * (the dependency runs the other way — collapse-plan §3).
+ */
+export type IvtrPlaybookTerminalStatus =
+  | 'completed'
+  | 'failed'
+  | 'pending_approval'
+  | 'exceeded_iteration_cap';
+
+/**
+ * Outcome of {@link finalizeIvtrFromPlaybook}.
+ */
+export interface FinalizeIvtrResult {
+  /** The IVTR state after the terminal mirror, or `null` if no state existed. */
+  state: IvtrState | null;
+  /**
+   * sha256 of the content-addressed provenance blob written when the run
+   * `completed` (reproduces the legacy walk's attachment-store evidence
+   * write — collapse-plan §3 mapping row "evidence refs"). Absent when the run
+   * did not complete or no state was present.
+   */
+  evidenceRef?: string;
+}
+
+/**
+ * Mirror the terminal status of a cantbook-driven IVTR run back into
+ * `tasks.ivtr_state` (T11805 · collapse-plan §3 item 4 + Risk #2).
+ *
+ * The `cleo go` seam seeds `ivtr_state` at the `implement` phase via
+ * {@link seedIvtrForPlaybook} but the cantbook runtime (`executePlaybook`)
+ * only writes `playbook_runs` — it never touches `ivtr_state`. Without this
+ * mirror a fully-successful autonomous run leaves `ivtr_state.currentPhase`
+ * frozen at `'implement'`, so the strict `E_IVTR_INCOMPLETE` completion gate
+ * (`tasks/complete.ts`) permanently rejects `cleo complete`. This function
+ * closes that gap by translating the runtime's terminal status into the
+ * equivalent `ivtr_state` transition:
+ *
+ *  - **`completed`** → walk every required phase to a passing
+ *    {@link IvtrPhaseEntry} and set `currentPhase = 'released'`, so the gate
+ *    passes exactly as the legacy `advanceIvtr`→`releaseIvtr` walk did. A
+ *    content-addressed provenance blob (runId + terminalStatus + a bounded
+ *    `finalContext` snapshot) is written to the attachment store and its
+ *    sha256 recorded on the released entry's `evidenceRefs`, reproducing the
+ *    per-phase evidence write the old walk produced (collapse-plan §3
+ *    "evidence refs (sha256 attachments)").
+ *  - **`failed` / `exceeded_iteration_cap`** → mark the active phase entry
+ *    `passed: false` with the runtime error as the `reason`, leaving
+ *    `currentPhase` un-advanced so the gate correctly blocks completion.
+ *  - **`pending_approval`** → no-op (the run is awaiting a HITL gate; a later
+ *    resume turn finalizes it).
+ *
+ * Idempotent: a state already at `'released'` is returned untouched.
+ *
+ * @param taskId - Task whose `ivtr_state` mirror is being finalized.
+ * @param terminalStatus - Terminal status from the cantbook run.
+ * @param options - Optional cwd, agent identity, runId, error reason, and a
+ *   bounded `finalContext` snapshot for the provenance blob.
+ * @returns The finalized state + optional provenance evidence ref.
+ *
+ * @task T11805 — E-ORCH-STATE-MACHINE-COLLAPSE / T11764
+ */
+export async function finalizeIvtrFromPlaybook(
+  taskId: string,
+  terminalStatus: IvtrPlaybookTerminalStatus,
+  options?: {
+    cwd?: string;
+    agentIdentity?: string;
+    runId?: string;
+    error?: string;
+    finalContext?: Record<string, unknown>;
+  },
+): Promise<FinalizeIvtrResult> {
+  const state = await readIvtrStateRaw(taskId, options?.cwd);
+  if (!state) {
+    log.warn(
+      { taskId, terminalStatus },
+      'finalizeIvtrFromPlaybook: no ivtr_state to mirror (seed step skipped?)',
+    );
+    return { state: null };
+  }
+
+  // Already released — nothing to do (idempotent re-finalization).
+  if (state.currentPhase === 'released') {
+    return { state };
+  }
+
+  const now = new Date().toISOString();
+  const agentIdentity = options?.agentIdentity ?? null;
+
+  if (terminalStatus === 'pending_approval') {
+    // The run paused on a HITL gate; a later resume turn finalizes it.
+    log.info(
+      { taskId },
+      'finalizeIvtrFromPlaybook: run pending approval — leaving ivtr_state as-is',
+    );
+    return { state };
+  }
+
+  if (terminalStatus === 'failed' || terminalStatus === 'exceeded_iteration_cap') {
+    // Mark the active phase entry as failed so the gate blocks completion and
+    // the failure is auditable; do NOT advance currentPhase.
+    const reason = options?.error ?? `cantbook run ${terminalStatus}`;
+    const activeEntry = state.phaseHistory.findLast((e) => e.completedAt === null);
+    if (activeEntry) {
+      activeEntry.completedAt = now;
+      activeEntry.passed = false;
+      activeEntry.reason = `Playbook ${terminalStatus}: ${reason}`;
+    }
+    await writeIvtrState(state, options?.cwd);
+    log.info(
+      { taskId, terminalStatus, currentPhase: state.currentPhase },
+      'finalizeIvtrFromPlaybook: marked active phase failed (gate stays blocking)',
+    );
+    return { state };
+  }
+
+  // terminalStatus === 'completed' — write the provenance evidence blob first
+  // so its sha256 can be recorded on the released phase history (reproduces the
+  // legacy attachment-store write). Best-effort: a store failure must not block
+  // the terminal mirror, since the gate-passability fix is the load-bearing
+  // half — but we surface the failure in logs.
+  let evidenceRef: string | undefined;
+  try {
+    evidenceRef = await writeIvtrPlaybookProvenance(
+      taskId,
+      terminalStatus,
+      options?.runId,
+      options?.finalContext,
+      agentIdentity,
+      options?.cwd,
+    );
+  } catch (err) {
+    log.warn(
+      { taskId, err: err instanceof Error ? err.message : String(err) },
+      'finalizeIvtrFromPlaybook: provenance attachment write failed (non-fatal)',
+    );
+  }
+
+  // Walk every required phase to a passing entry, then mark released. The
+  // E_IVTR_INCOMPLETE gate (complete.ts) requires implement/validate/test to
+  // each have a passing entry AND currentPhase === 'released'.
+  const required: Array<Exclude<IvtrPhase, 'released'>> = [
+    'implement',
+    'validate',
+    'audit',
+    'test',
+  ];
+
+  // Close any in-progress entry as passed (the active implement seed).
+  const activeEntry = state.phaseHistory.findLast((e) => e.completedAt === null);
+  if (activeEntry) {
+    activeEntry.completedAt = now;
+    activeEntry.passed = true;
+    if (evidenceRef) activeEntry.evidenceRefs = [...activeEntry.evidenceRefs, evidenceRef];
+  }
+
+  // Ensure every required phase has at least one passing entry. Append a
+  // synthetic passing entry for any phase the seeded state lacks (the cantbook
+  // seed only writes the implement entry).
+  for (const phase of required) {
+    const hasPassed = state.phaseHistory.some((e) => e.phase === phase && e.passed === true);
+    if (!hasPassed) {
+      const entry: IvtrPhaseEntry = {
+        phase,
+        agentIdentity,
+        startedAt: now,
+        completedAt: now,
+        passed: true,
+        evidenceRefs: evidenceRef ? [evidenceRef] : [],
+        reason: `Cantbook run ${options?.runId ?? '(unknown run)'} completed — phase mirrored from playbook terminal status`,
+      };
+      state.phaseHistory.push(entry);
+    }
+  }
+
+  state.currentPhase = 'released';
+  await writeIvtrState(state, options?.cwd);
+  log.info(
+    { taskId, runId: options?.runId, evidenceRef },
+    'finalizeIvtrFromPlaybook: ivtr_state mirrored to released (gate now passes)',
+  );
+
+  const result: FinalizeIvtrResult = { state };
+  if (evidenceRef !== undefined) result.evidenceRef = evidenceRef;
+  return result;
+}
+
+/**
+ * Write a content-addressed provenance blob for a completed cantbook IVTR run
+ * to the attachment store and return its sha256.
+ *
+ * This reproduces the attachment-store write the legacy `autoRunGatesAndRecord`
+ * / `advanceIvtr` walk performed (collapse-plan §3 mapping row "evidence refs
+ * (sha256 attachments)"), so downstream observers (`cleo show --ivtr-history`,
+ * release observation reads) still find content-addressed evidence for
+ * autonomously-driven tasks.
+ *
+ * The `finalContext` snapshot is bounded to its top-level keys' JSON to avoid
+ * persisting an unbounded agent context.
+ *
+ * @internal
+ */
+async function writeIvtrPlaybookProvenance(
+  taskId: string,
+  terminalStatus: IvtrPlaybookTerminalStatus,
+  runId: string | undefined,
+  finalContext: Record<string, unknown> | undefined,
+  agentIdentity: string | null,
+  cwd?: string,
+): Promise<string> {
+  const provenance = {
+    kind: 'ivtr-playbook-provenance' as const,
+    taskId,
+    runId: runId ?? null,
+    terminalStatus,
+    finalizedAt: new Date().toISOString(),
+    // Snapshot only the bindings the cantbook nodes emitted (bounded). Internal
+    // bookkeeping keys (prefixed `__`) are stripped to keep the blob auditable.
+    bindings: finalContext
+      ? Object.fromEntries(Object.entries(finalContext).filter(([k]) => !k.startsWith('__')))
+      : {},
+  };
+  const outputJson = JSON.stringify(provenance, null, 2);
+  const attachmentSha256 = createHash('sha256').update(outputJson).digest('hex');
+
+  const store = createAttachmentStore();
+  type AttachmentInput = Parameters<typeof store.put>[1];
+  await store.put(
+    outputJson,
+    {
+      kind: 'blob',
+      storageKey: '',
+      mime: 'application/json',
+      size: Buffer.byteLength(outputJson),
+    } as AttachmentInput,
+    'task',
+    taskId,
+    agentIdentity ?? 'ivtr-playbook-seam',
+    cwd,
+  );
+
+  return attachmentSha256;
 }
 
 /**

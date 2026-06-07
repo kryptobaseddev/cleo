@@ -579,11 +579,14 @@ export {
   advanceIvtr,
   autoRunGatesAndRecord,
   E_IVTR_MAX_RETRIES,
+  finalizeIvtrFromPlaybook,
   getIvtrState,
+  type IvtrPlaybookTerminalStatus,
   loopBackIvtr,
   MAX_LOOP_BACKS_PER_PHASE,
   releaseIvtr,
   resolvePhasePrompt,
+  seedIvtrForPlaybook,
   startIvtr,
 } from './lifecycle/ivtr-loop.js';
 export { STAGE_DEFINITIONS } from './lifecycle/stages.js';

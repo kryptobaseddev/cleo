@@ -21,6 +21,7 @@ import type {
 } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { approveGate, rejectGate } from '../approval.js';
+import { parsePlaybook } from '../parser.js';
 import {
   type AgentDispatcher,
   type AgentDispatchInput,
@@ -45,6 +46,7 @@ const MIGRATION_SQL = resolve(
   __dirname,
   '../../../core/migrations/drizzle-tasks/20260417220000_t889-playbook-tables/migration.sql',
 );
+const CONDITIONAL_BRANCH_CANTBOOK = resolve(__dirname, 'fixtures/conditional-branch.cantbook');
 
 function applyMigration(db: DatabaseSync, sql: string): void {
   const statements = sql
@@ -359,7 +361,7 @@ describe('W4-10 / T930: playbook runtime state machine', () => {
   });
 
   // 6 ------------------------------------------------------------------------
-  it('invalid node: multi-successor fan-out throws runtime invariant error', async () => {
+  it('invalid node: unconditional multi-successor fan-out throws runtime invariant error', async () => {
     const playbook: PlaybookDefinition = {
       version: '1.0',
       name: 'fanout',
@@ -379,7 +381,7 @@ describe('W4-10 / T930: playbook runtime state machine', () => {
         initialContext: {},
         dispatcher,
       }),
-    ).rejects.toThrow(/has 2 successors/);
+    ).rejects.toThrow(/has 2 unconditional successors/);
   });
 
   // 7 ------------------------------------------------------------------------
@@ -674,5 +676,219 @@ describe('W4-10 / T930: playbook runtime state machine', () => {
       .prepare("SELECT completed_at FROM playbook_runs WHERE playbook_name = 'clock'")
       .all() as Array<{ completed_at: string }>;
     expect(runs[0]?.completed_at).toBe('2026-04-17T22:30:00.000Z');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T11806 — guarded conditional branching
+// ---------------------------------------------------------------------------
+
+describe('T11806: cantbook runtime guarded branching', () => {
+  let db: DatabaseSync;
+
+  beforeEach(() => {
+    db = new DatabaseSync(':memory:');
+    db.exec('PRAGMA foreign_keys=ON');
+    applyMigration(db, readFileSync(MIGRATION_SQL, 'utf8'));
+  });
+  afterEach(() => db.close());
+
+  // B1 -----------------------------------------------------------------------
+  it('2-branch .cantbook fixture: condition-true routes branch-A (deep-research)', async () => {
+    const { definition, sourceHash } = parsePlaybook(
+      readFileSync(CONDITIONAL_BRANCH_CANTBOOK, 'utf8'),
+    );
+    // classify emits needsResearch=true → deep-research branch taken.
+    const dispatcher = makeRecordingDispatcher((input) => {
+      if (input.nodeId === 'classify') {
+        return { status: 'success', output: { needsResearch: true } };
+      }
+      return { status: 'success', output: { [`${input.nodeId}_done`]: true } };
+    });
+
+    const result = await executePlaybook({
+      db,
+      playbook: definition,
+      playbookHash: sourceHash,
+      initialContext: { taskId: 'T-A' },
+      dispatcher,
+    });
+
+    expect(result.terminalStatus).toBe('completed');
+    const visited = dispatcher.calls.map((c) => c.nodeId);
+    expect(visited).toEqual(['classify', 'deep-research', 'ship']);
+    // Branch-B (skip-research) was NOT executed.
+    expect(visited).not.toContain('skip-research');
+    expect(result.finalContext).toMatchObject({
+      taskId: 'T-A',
+      needsResearch: true,
+      'deep-research_done': true,
+      ship_done: true,
+    });
+  });
+
+  // B2 -----------------------------------------------------------------------
+  it('2-branch .cantbook fixture: condition-false routes branch-B (skip-research)', async () => {
+    const { definition, sourceHash } = parsePlaybook(
+      readFileSync(CONDITIONAL_BRANCH_CANTBOOK, 'utf8'),
+    );
+    // classify emits needsResearch=false → skip-research branch taken.
+    const dispatcher = makeRecordingDispatcher((input) => {
+      if (input.nodeId === 'classify') {
+        return { status: 'success', output: { needsResearch: false } };
+      }
+      return { status: 'success', output: { [`${input.nodeId}_done`]: true } };
+    });
+
+    const result = await executePlaybook({
+      db,
+      playbook: definition,
+      playbookHash: sourceHash,
+      initialContext: { taskId: 'T-B' },
+      dispatcher,
+    });
+
+    expect(result.terminalStatus).toBe('completed');
+    const visited = dispatcher.calls.map((c) => c.nodeId);
+    expect(visited).toEqual(['classify', 'skip-research', 'ship']);
+    // Branch-A (deep-research) was NOT executed.
+    expect(visited).not.toContain('deep-research');
+    expect(result.finalContext).toMatchObject({
+      taskId: 'T-B',
+      needsResearch: false,
+      'skip-research_done': true,
+      ship_done: true,
+    });
+  });
+
+  // B3 -----------------------------------------------------------------------
+  it('fail-closed: all branch predicates unsatisfiable throws no-reachable-default', async () => {
+    // Both edges are guarded; neither matches when needsResearch is undefined.
+    const playbook: PlaybookDefinition = {
+      version: '1.0',
+      name: 'dead-branch',
+      nodes: [agenticNode('classify'), agenticNode('a'), agenticNode('b')],
+      edges: [
+        { from: 'classify', to: 'a', when: { field: 'route', equals: 'x' } },
+        { from: 'classify', to: 'b', when: { field: 'route', equals: 'y' } },
+      ],
+    };
+    const dispatcher = makeRecordingDispatcher(() => ({
+      status: 'success',
+      output: { route: 'z' }, // matches neither guard
+    }));
+
+    await expect(
+      executePlaybook({
+        db,
+        playbook,
+        playbookHash: 'hash-b3',
+        initialContext: {},
+        dispatcher,
+      }),
+    ).rejects.toThrow(/no .*when.* predicate is satisfied|no reachable default/);
+  });
+
+  // B4 -----------------------------------------------------------------------
+  it('ambiguous: more than one satisfied guarded successor throws mutually-exclusive', async () => {
+    const playbook: PlaybookDefinition = {
+      version: '1.0',
+      name: 'ambiguous-branch',
+      nodes: [agenticNode('classify'), agenticNode('a'), agenticNode('b')],
+      edges: [
+        { from: 'classify', to: 'a', when: { field: 'flag', truthy: true } },
+        { from: 'classify', to: 'b', when: { field: 'flag', exists: true } },
+      ],
+    };
+    const dispatcher = makeRecordingDispatcher(() => ({
+      status: 'success',
+      output: { flag: 1 }, // satisfies BOTH guards (truthy AND exists)
+    }));
+
+    await expect(
+      executePlaybook({
+        db,
+        playbook,
+        playbookHash: 'hash-b4',
+        initialContext: {},
+        dispatcher,
+      }),
+    ).rejects.toThrow(/satisfied successors|mutually exclusive/);
+  });
+
+  // B5 -----------------------------------------------------------------------
+  it('regression: linear playbook (all edges unconditional) unchanged by branching', async () => {
+    const playbook = linearPlaybook('linear-regress', ['a', 'b', 'c']);
+    const dispatcher = makeRecordingDispatcher((input) => ({
+      status: 'success',
+      output: { [`${input.nodeId}_ok`]: true },
+    }));
+
+    const result = await executePlaybook({
+      db,
+      playbook,
+      playbookHash: 'hash-b5',
+      initialContext: { taskId: 'T-LIN' },
+      dispatcher,
+    });
+
+    expect(result.terminalStatus).toBe('completed');
+    expect(dispatcher.calls.map((c) => c.nodeId)).toEqual(['a', 'b', 'c']);
+  });
+
+  // B6 -----------------------------------------------------------------------
+  it('mixed: one unconditional default + one guarded edge routes guarded when satisfied', async () => {
+    // classify has an unconditional fallback (to b) plus a guarded fast-path
+    // (to a). When the guard holds, exactly two successors are "satisfied"
+    // (the guarded one + the unconditional fallback) → ambiguous, so a sound
+    // authoring requires the fallback ALSO be guarded. This test asserts the
+    // fail-closed ambiguity guard fires for the unsound mixed shape.
+    const playbook: PlaybookDefinition = {
+      version: '1.0',
+      name: 'mixed-default',
+      nodes: [agenticNode('classify'), agenticNode('a'), agenticNode('b')],
+      edges: [
+        { from: 'classify', to: 'a', when: { field: 'fast', truthy: true } },
+        { from: 'classify', to: 'b' }, // unconditional default
+      ],
+    };
+    const dispatcher = makeRecordingDispatcher(() => ({
+      status: 'success',
+      output: { fast: true },
+    }));
+
+    await expect(
+      executePlaybook({
+        db,
+        playbook,
+        playbookHash: 'hash-b6',
+        initialContext: {},
+        dispatcher,
+      }),
+    ).rejects.toThrow(/satisfied successors|mutually exclusive/);
+  });
+
+  // B7 -----------------------------------------------------------------------
+  it('guarded single sole-successor: unsatisfied guard on the only edge fails closed', async () => {
+    const playbook: PlaybookDefinition = {
+      version: '1.0',
+      name: 'sole-guarded',
+      nodes: [agenticNode('a'), agenticNode('b')],
+      edges: [{ from: 'a', to: 'b', when: { field: 'go', equals: 'never' } }],
+    };
+    const dispatcher = makeRecordingDispatcher(() => ({
+      status: 'success',
+      output: { go: 'stop' },
+    }));
+
+    await expect(
+      executePlaybook({
+        db,
+        playbook,
+        playbookHash: 'hash-b7',
+        initialContext: {},
+        dispatcher,
+      }),
+    ).rejects.toThrow(/no reachable default/);
   });
 });
