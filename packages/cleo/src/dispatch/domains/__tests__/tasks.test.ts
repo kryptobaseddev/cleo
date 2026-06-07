@@ -793,7 +793,7 @@ describe('TasksHandler', () => {
             currentPhase: 'validate',
             failedPhases: ["Phase 'implement' has no passing entry"],
           },
-          fix: "Advance the IVTR loop to 'released' via 'cleo orchestrate ivtr T001 --next'",
+          fix: "Drive the IVTR loop to 'released' via the cantbook runtime (T11764): 'cleo go' (autonomous, default) or 'cleo playbook run ivtr --context '{\"taskId\":\"T001\"}'' (single manual run). Evidence-based bypass: CLEO_OWNER_OVERRIDE=1 on 'cleo verify' (audited, see ADR-051).",
         },
       });
 

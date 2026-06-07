@@ -1425,7 +1425,7 @@ export async function completeTaskStrict(
           `Task ${taskId} IVTR loop is not complete — currentPhase='${ivtrState.currentPhase}', not 'released'`,
           {
             details: { taskId, currentPhase: ivtrState.currentPhase, failedPhases },
-            fix: `Advance the IVTR loop to 'released' via 'cleo orchestrate ivtr ${taskId} --next'. Evidence-based bypass: CLEO_OWNER_OVERRIDE=1 on 'cleo verify' (audited, see ADR-051).`,
+            fix: `Drive the IVTR loop to 'released' via the cantbook runtime (T11764): 'cleo go' (autonomous, default) or 'cleo playbook run ivtr --context '{"taskId":"${taskId}"}'' (single manual run). Evidence-based bypass: CLEO_OWNER_OVERRIDE=1 on 'cleo verify' (audited, see ADR-051).`,
           },
         );
       }
