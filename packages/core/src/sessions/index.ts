@@ -23,6 +23,7 @@ import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import type { AgentSessionHandle } from './agent-session-adapter.js';
 import { closeAgentSession, openAgentSession } from './agent-session-adapter.js';
+import { resolveParentSessionIdFromEnv } from './session-id.js';
 
 // Auto-register hook handlers
 import '../hooks/handlers/index.js';
@@ -151,6 +152,11 @@ export async function startSession(
     // Provider detection is best-effort
   }
 
+  // Fork-tree PARENT session edge (T11639 · T11629): the supervisor stamps
+  // CLEO_PARENT_SESSION_ID on every worker it spawns (PR #996). Capture it at
+  // start so the session row records the orchestrator→worker spawn edge.
+  const parentSessionId = resolveParentSessionIdFromEnv();
+
   const session: Session = {
     id: generateSessionId(),
     name: params.name ?? `session-${Date.now()}`,
@@ -164,6 +170,7 @@ export async function startSession(
     notes: [],
     tasksCompleted: [],
     tasksCreated: [],
+    parentSessionId: parentSessionId ?? null,
   };
 
   // If grade mode enabled, mark session and set env vars for audit middleware
@@ -176,6 +183,19 @@ export async function startSession(
 
   sessions.push(session);
   await accessor.upsertSingleSession(session);
+
+  // T11639: best-effort mirror this session into the GLOBAL session_manifest, then
+  // reconcile-on-start (re-read the authoritative project row → overwrite the
+  // manifest so it can never drift into authority). Both swallow all errors — a
+  // mirror failure NEVER fails session start (AC3/AC4). Fire-and-forget.
+  import('./session-manifest-mirror.js')
+    .then(async ({ mirrorSessionToManifest, reconcileSessionManifestOnStart }) => {
+      await mirrorSessionToManifest(projectRoot, session);
+      await reconcileSessionManifestOnStart(projectRoot, session.id);
+    })
+    .catch(() => {
+      /* mirror is best-effort — never block session start */
+    });
 
   // T947 Step 2: open a corresponding llmtxt AgentSession for audit
   // receipts. Best-effort — peer-dep absence yields `null` and leaves
@@ -364,6 +384,15 @@ export async function endSession(projectRoot: string, params: SessionEndParams):
   }
 
   await accessor.upsertSingleSession(session);
+
+  // T11639: best-effort mirror the ENDED session into the GLOBAL session_manifest
+  // (status/endedAt now reflect the close). Swallows all errors — NEVER fails
+  // session end (AC3). Fire-and-forget.
+  import('./session-manifest-mirror.js')
+    .then(({ mirrorSessionToManifest }) => mirrorSessionToManifest(projectRoot, session))
+    .catch(() => {
+      /* mirror is best-effort — never block session end */
+    });
 
   // T947 Step 2: close the matching llmtxt AgentSession (if any) and
   // persist the ContributionReceipt to `.cleo/audit/receipts.jsonl`.
@@ -623,6 +652,14 @@ export {
   resolveSessionIdFromEnv,
   SESSION_ENV_KEY_PRECEDENCE,
 } from './session-id.js';
+// T11639 — GLOBAL session_manifest mirror (EP-SESSION-MANIFEST · epic T11638)
+export {
+  ensureGlobalSignaldockDb,
+  mirrorSessionToManifest,
+  readSessionManifestRow,
+  reconcileSessionManifestOnStart,
+  resolveGlobalManifestDbPath,
+} from './session-manifest-mirror.js';
 export type { SessionBridgeData, SessionBridgeResult } from './session-memory-bridge.js';
 export { bridgeSessionToMemory } from './session-memory-bridge.js';
 // Re-export extended session modules (engine-compatible)

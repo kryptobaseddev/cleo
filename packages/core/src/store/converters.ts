@@ -156,6 +156,8 @@ export function rowToSession(row: SessionRow): Session {
     // Session chain fields (T4959)
     previousSessionId: row.previousSessionId ?? null,
     nextSessionId: row.nextSessionId ?? null,
+    // Fork-tree parent edge (T11639)
+    parentSessionId: row.parentSessionId ?? null,
     agentIdentifier: row.agentIdentifier ?? null,
     handoffConsumedAt: row.handoffConsumedAt ?? null,
     handoffConsumedBy: row.handoffConsumedBy ?? null,

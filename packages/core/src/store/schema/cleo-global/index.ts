@@ -95,5 +95,6 @@
 export * from '../cleo-shared/index.js';
 export * from './agent-registry.js';
 export * from './nexus.js';
+export * from './session-manifest.js';
 export * from './skills.js';
 export * from './telemetry.js';

@@ -422,6 +422,19 @@ export const tasksSessions = sqliteTable(
     nextSessionId: text('next_session_id').references((): AnySQLiteColumn => tasksSessions.id, {
       onDelete: 'set null',
     }),
+    /**
+     * Fork-tree PARENT session pointer (self-FK). Distinct from
+     * `previousSessionId` (the linear resume chain): `parentSessionId` is the
+     * orchestrator→worker spawn edge, sourced from `CLEO_PARENT_SESSION_ID`
+     * (stamped by the supervisor — T11629 / PR #996) at session start. NULL for a
+     * root session with no spawning parent. Nullable, `ON DELETE SET NULL`.
+     *
+     * @task T11639
+     * @epic T11638
+     */
+    parentSessionId: text('parent_session_id').references((): AnySQLiteColumn => tasksSessions.id, {
+      onDelete: 'set null',
+    }),
     /** Agent identifier. */
     agentIdentifier: text('agent_identifier'),
     /** ISO-8601 UTC handoff-consumed instant (canonical TEXT, §4). */
@@ -455,6 +468,7 @@ export const tasksSessions = sqliteTable(
   (table) => [
     index('idx_tasks_sessions_status').on(table.status),
     index('idx_tasks_sessions_previous').on(table.previousSessionId),
+    index('idx_tasks_sessions_parent').on(table.parentSessionId),
     index('idx_tasks_sessions_agent_identifier').on(table.agentIdentifier),
     index('idx_tasks_sessions_started_at').on(table.startedAt),
     index('idx_tasks_sessions_status_started_at').on(table.status, table.startedAt),
