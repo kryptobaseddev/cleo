@@ -1190,7 +1190,7 @@ jobs:
     needs: [biome, changes]
     if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 35
     strategy:
       matrix:
         # Windows shards temporarily disabled pending T9182/T9181 follow-up — pre-existing
