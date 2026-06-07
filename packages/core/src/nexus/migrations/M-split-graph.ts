@@ -19,6 +19,7 @@ import { copyFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { getCleoHome } from '../../paths.js';
+import { withWriterLease } from '../../store/writer-lease.js';
 
 // ---------------------------------------------------------------------------
 // Version file
@@ -118,66 +119,72 @@ export async function migrateToSplit(
     return { status: 'dry-run', projectCount, durationMs: Date.now() - startTime };
   }
 
-  // Step 2: Create nexus-registry.db
-  await mkdir(graphDir, { recursive: true });
-  const registryDb = new DatabaseSync(registryDbPath, { open: true }); // db-open-allowed: one-shot migration creates nexus-registry.db (not a CLEO metadata DB)
-  registryDb.exec(`ATTACH DATABASE '${legacyDbPath}' AS legacy`);
-  // Copy registry tables
-  for (const table of [
-    'project_registry',
-    'project_id_aliases',
-    'nexus_audit_log',
-    'nexus_schema_meta',
-    'user_profile',
-    'sigils',
-  ]) {
-    const tableExists =
-      (registryDb
-        .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`)
-        .get(table) as { name: string } | null) !== null;
-    if (!tableExists) {
-      // Create from legacy schema
-      const schemaRow = legacyDb
-        .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name=?`)
-        .get(table) as { sql: string } | null;
-      if (schemaRow?.sql) {
-        registryDb.exec(schemaRow.sql);
-      }
-    }
-    try {
-      registryDb.exec(`INSERT OR IGNORE INTO main.${table} SELECT * FROM legacy.${table}`);
-    } catch {
-      // table may not exist in legacy — skip
-    }
-  }
-  registryDb.exec(`DETACH DATABASE legacy`);
-  registryDb.close();
-
-  // Step 3: Per-project graph DBs
-  for (const { project_id: projectId } of projects) {
-    const graphDbPath = join(graphDir, `${projectId}.db`);
-    const graphDb = new DatabaseSync(graphDbPath, { open: true }); // db-open-allowed: one-shot migration creates per-project graph DB (not a CLEO metadata DB)
-    graphDb.exec(`ATTACH DATABASE '${legacyDbPath}' AS legacy`);
-    for (const table of ['nexus_nodes', 'nexus_relations', 'nexus_contracts']) {
-      const schemaRow = legacyDb
-        .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name=?`)
-        .get(table) as { sql: string } | null;
-      if (schemaRow?.sql) {
-        try {
-          graphDb.exec(schemaRow.sql);
-          graphDb
-            .prepare(
-              `INSERT OR IGNORE INTO main.${table} SELECT * FROM legacy.${table} WHERE project_id=?`,
-            )
-            .run(projectId);
-        } catch {
-          // skip tables that don't have project_id or don't exist
+  // Seam 3 (T11627): this one-shot split migration writes standalone nexus
+  // registry + per-project graph DBs (global-infra, outside the consolidated
+  // cleo.db). Hold the global `bulk` lease for the whole write phase so it
+  // serializes against other writers. `off` mode → pass-through.
+  await withWriterLease('global', 'bulk', async () => {
+    // Step 2: Create nexus-registry.db
+    await mkdir(graphDir, { recursive: true });
+    const registryDb = new DatabaseSync(registryDbPath, { open: true }); // db-open-allowed: one-shot migration creates nexus-registry.db (not a CLEO metadata DB)
+    registryDb.exec(`ATTACH DATABASE '${legacyDbPath}' AS legacy`);
+    // Copy registry tables
+    for (const table of [
+      'project_registry',
+      'project_id_aliases',
+      'nexus_audit_log',
+      'nexus_schema_meta',
+      'user_profile',
+      'sigils',
+    ]) {
+      const tableExists =
+        (registryDb
+          .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`)
+          .get(table) as { name: string } | null) !== null;
+      if (!tableExists) {
+        // Create from legacy schema
+        const schemaRow = legacyDb
+          .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name=?`)
+          .get(table) as { sql: string } | null;
+        if (schemaRow?.sql) {
+          registryDb.exec(schemaRow.sql);
         }
       }
+      try {
+        registryDb.exec(`INSERT OR IGNORE INTO main.${table} SELECT * FROM legacy.${table}`);
+      } catch {
+        // table may not exist in legacy — skip
+      }
     }
-    graphDb.exec(`DETACH DATABASE legacy`);
-    graphDb.close();
-  }
+    registryDb.exec(`DETACH DATABASE legacy`);
+    registryDb.close();
+
+    // Step 3: Per-project graph DBs
+    for (const { project_id: projectId } of projects) {
+      const graphDbPath = join(graphDir, `${projectId}.db`);
+      const graphDb = new DatabaseSync(graphDbPath, { open: true }); // db-open-allowed: one-shot migration creates per-project graph DB (not a CLEO metadata DB)
+      graphDb.exec(`ATTACH DATABASE '${legacyDbPath}' AS legacy`);
+      for (const table of ['nexus_nodes', 'nexus_relations', 'nexus_contracts']) {
+        const schemaRow = legacyDb
+          .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name=?`)
+          .get(table) as { sql: string } | null;
+        if (schemaRow?.sql) {
+          try {
+            graphDb.exec(schemaRow.sql);
+            graphDb
+              .prepare(
+                `INSERT OR IGNORE INTO main.${table} SELECT * FROM legacy.${table} WHERE project_id=?`,
+              )
+              .run(projectId);
+          } catch {
+            // skip tables that don't have project_id or don't exist
+          }
+        }
+      }
+      graphDb.exec(`DETACH DATABASE legacy`);
+      graphDb.close();
+    }
+  });
 
   legacyDb.close();
 

@@ -28,6 +28,7 @@ import type { BrainNodeType } from '../store/schema/memory-schema.js';
 import { brainPageEdges, brainPageNodes } from '../store/schema/memory-schema.js';
 import { applyPerfPragmas } from '../store/sqlite-pragmas.js';
 import { typedAll } from '../store/typed-query.js';
+import { withWriterLease } from '../store/writer-lease.js';
 
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
@@ -1406,62 +1407,68 @@ export async function linkConduitMessagesToSymbols(
       const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
       let edgesCreated = 0;
 
-      // For each message, scan content and attachments for symbol mentions
-      for (const msg of messages) {
-        const corpus = `${msg.content}`;
+      // Seam 3 (T11627): the brain page-graph edge writes below bypass the brain
+      // writer-thread chokepoint with a direct `brainNative` handle (project-tier
+      // consolidated cleo.db). Hold the project `bulk` lease for the whole write
+      // batch so they serialize against other writers. `off` → pass-through.
+      await withWriterLease('project', 'bulk', async () => {
+        // For each message, scan content and attachments for symbol mentions
+        for (const msg of messages) {
+          const corpus = `${msg.content}`;
 
-        for (const [symbolName, nexusNode] of symbolMap.entries()) {
-          // Case-insensitive check: does the symbol name appear in the message?
-          const corpusLower = corpus.toLowerCase();
-          const nameLower = symbolName.toLowerCase();
+          for (const [symbolName, nexusNode] of symbolMap.entries()) {
+            // Case-insensitive check: does the symbol name appear in the message?
+            const corpusLower = corpus.toLowerCase();
+            const nameLower = symbolName.toLowerCase();
 
-          if (corpusLower.includes(nameLower)) {
-            const messageNodeId = `conduit:${msg.id}`;
+            if (corpusLower.includes(nameLower)) {
+              const messageNodeId = `conduit:${msg.id}`;
 
-            try {
-              // Upsert a stub node for the message in brain_page_nodes (idempotent)
-              brainNative
-                .prepare(`
+              try {
+                // Upsert a stub node for the message in brain_page_nodes (idempotent)
+                brainNative
+                  .prepare(`
                   INSERT OR IGNORE INTO brain_page_nodes
                     (id, node_type, label, quality_score, content_hash, metadata_json, last_activity_at, created_at, updated_at)
                   VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, ?)
                 `)
-                .run(
-                  messageNodeId,
-                  'observation',
-                  `Conduit message: ${msg.id}`,
-                  0.5,
-                  now,
-                  now,
-                  now,
-                );
+                  .run(
+                    messageNodeId,
+                    'observation',
+                    `Conduit message: ${msg.id}`,
+                    0.5,
+                    now,
+                    now,
+                    now,
+                  );
 
-              // Write the conduit_mentions_symbol edge (idempotent via INSERT OR IGNORE)
-              brainNative
-                .prepare(`
+                // Write the conduit_mentions_symbol edge (idempotent via INSERT OR IGNORE)
+                brainNative
+                  .prepare(`
                   INSERT OR IGNORE INTO brain_page_edges
                     (from_id, to_id, edge_type, weight, provenance, created_at)
                   VALUES (?, ?, ?, ?, ?, ?)
                 `)
-                .run(
-                  messageNodeId,
-                  nexusNode.id,
-                  'conduit_mentions_symbol',
-                  1.0,
-                  'auto:conduit-fts',
-                  now,
-                );
+                  .run(
+                    messageNodeId,
+                    nexusNode.id,
+                    'conduit_mentions_symbol',
+                    1.0,
+                    'auto:conduit-fts',
+                    now,
+                  );
 
-              edgesCreated++;
-            } catch (edgeErr) {
-              console.warn('[graph-memory-bridge] conduit edge insert failed:', edgeErr);
+                edgesCreated++;
+              } catch (edgeErr) {
+                console.warn('[graph-memory-bridge] conduit edge insert failed:', edgeErr);
+              }
+
+              // Only link once per message per symbol (continue to next symbol)
+              break;
             }
-
-            // Only link once per message per symbol (continue to next symbol)
-            break;
           }
         }
-      }
+      });
 
       result.linked = edgesCreated;
     } finally {
