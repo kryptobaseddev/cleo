@@ -1180,6 +1180,19 @@ export { allocateNextTaskId, repairSequence } from './sequence/index.js';
 export { recordAssumption } from './sessions/assumptions.js';
 export type { SessionBriefing } from './sessions/briefing.js';
 export { computeBriefing } from './sessions/briefing.js';
+// T11640 — daemon connection-scoped session handle registry (epic T11638).
+// The runtime RPC transport writes this at accept-time; resolveCurrentSession
+// reads it as the highest-precedence identity tier.
+export type { ConnectionHandleContext } from './sessions/connection-session-handle.js';
+export {
+  bindConnectionSession,
+  connectionRegistrySize,
+  getConnectionSessionId,
+  getCurrentConnectionSessionId,
+  resetConnectionSessionRegistry,
+  runWithConnectionHandle,
+  unbindConnectionSession,
+} from './sessions/connection-session-handle.js';
 export {
   getCurrentExecutionSessionId,
   getCurrentOriginSessionId,

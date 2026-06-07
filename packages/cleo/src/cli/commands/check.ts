@@ -424,15 +424,16 @@ const checkProvenanceCommand = defineCommand({
 });
 
 /**
- * cleo check arch — run all 5 SG-ARCH-SOLID architectural lint gates and
+ * cleo check arch — run all SG-ARCH-SOLID architectural lint gates and
  * emit a LAFS-compliant summary envelope.
  *
  * Gates (Saga T9831 · Epic T9837):
- *   Gate 1 (T9837a): lint-no-raw-define-command.mjs   — no defineCommand() outside lib factory
- *   Gate 2 (T9837b): lint-no-direct-db-open.mjs       — no DatabaseSync outside core/store
+ *   Gate 1 (T9837a): lint-no-raw-define-command.mjs    — no defineCommand() outside lib factory
+ *   Gate 2 (T9837b): lint-no-direct-db-open.mjs        — no DatabaseSync outside core/store
  *   Gate 3 (T9837c): lint-contracts-fan-out.mjs        — no inline types imported by >2 files
  *   Gate 4 (T9837d): lint-no-ssot-exempt.mjs           — no SSoT-EXEMPT without task ID
  *   Gate 5 (T9837e): lint-cli-package-boundary.mjs     — no helper > 30 LOC in CLI commands
+ *   Gate 6 (T11640): lint-no-bare-get-active-session.mjs — no NEW bare getActiveSession() callsites
  *
  * Each gate is run in --check mode (baseline tolerance). A gate whose script
  * does not yet exist on disk is reported as "skipped" (non-blocking) to allow
@@ -502,6 +503,12 @@ const checkArchCommand = defineCommand({
         task: 'T9837e',
         script: 'scripts/lint-cli-package-boundary.mjs',
         description: 'No business-logic helper > 30 LOC in CLI commands',
+      },
+      {
+        id: 'gate-6',
+        task: 'T11640',
+        script: 'scripts/lint-no-bare-get-active-session.mjs',
+        description: 'No NEW bare getActiveSession() callsites (use resolveCurrentSession)', // get-active-session-allowed: gate description string, not a callsite
       },
     ] as const;
 

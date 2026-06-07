@@ -592,6 +592,17 @@ export type {
   SessionBriefing,
 } from './briefing.js';
 export { computeBriefing } from './briefing.js';
+// T11640 — daemon connection-scoped session handle (EP-SESSION-MANIFEST · epic T11638)
+export type { ConnectionHandleContext } from './connection-session-handle.js';
+export {
+  bindConnectionSession,
+  connectionRegistrySize,
+  getConnectionSessionId,
+  getCurrentConnectionSessionId,
+  resetConnectionSessionRegistry,
+  runWithConnectionHandle,
+  unbindConnectionSession,
+} from './connection-session-handle.js';
 export { getDecisionLog, recordDecision } from './decisions.js';
 export type {
   DetectSessionDriftOptions,

@@ -33,6 +33,7 @@ vi.mock('../complete.js', async (importActual) => {
 
 vi.mock('../../store/session-store.js', () => ({
   getActiveSession: vi.fn().mockResolvedValue(null),
+  resolveCurrentSession: vi.fn().mockResolvedValue(null),
   createSession: vi.fn(),
 }));
 
@@ -66,7 +67,7 @@ vi.mock('../../logger.js', () => ({
 import { loadConfig } from '../../config.js';
 import { getIvtrState } from '../../lifecycle/ivtr-loop.js';
 import { getAccessor, getTaskAccessor } from '../../store/data-accessor.js';
-import { getActiveSession } from '../../store/session-store.js';
+import { getActiveSession, resolveCurrentSession } from '../../store/session-store.js';
 import { completeTaskStrict, completeTask as coreCompleteTask, taskComplete } from '../complete.js';
 
 // ---------------------------------------------------------------------------
@@ -79,6 +80,10 @@ const mockGetTaskAccessor = vi.mocked(getTaskAccessor);
 const mockGetIvtrState = vi.mocked(getIvtrState);
 const mockLoadConfig = vi.mocked(loadConfig);
 const mockGetActiveSession = vi.mocked(getActiveSession);
+// T11640 — complete.ts now stamps session_id via resolveCurrentSession
+// (connection-handle → CLEO_SESSION_ID → most-recent-active), so identity
+// tests drive THIS spy.
+const mockResolveCurrentSession = vi.mocked(resolveCurrentSession);
 
 /**
  * Build a minimal DataAccessor mock for completeTaskStrict tests.
@@ -276,11 +281,13 @@ describe('taskComplete', () => {
     );
 
     const sessionId = 'ses_20260424_test_session';
-    mockGetActiveSession.mockResolvedValue({
+    mockResolveCurrentSession.mockResolvedValue({
       id: sessionId,
       status: 'active',
       startedAt: '2026-01-01T00:00:00Z',
-    } as ReturnType<typeof getActiveSession> extends Promise<infer T> ? Exclude<T, null> : never);
+    } as ReturnType<typeof resolveCurrentSession> extends Promise<infer T>
+      ? Exclude<T, null>
+      : never);
 
     const result = await taskComplete(projectRoot, 'T201');
 

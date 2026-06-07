@@ -33,6 +33,7 @@ vi.mock('../../store/data-accessor.js', () => ({
       upsertSingleSession: mockUpsertSingleSession,
       removeSingleSession: mockRemoveSingleSession,
       getActiveSession: mockGetActiveSession,
+      resolveCurrentSession: mockGetActiveSession,
       getMetaValue: mockGetMetaValue,
       setMetaValue: mockSetMetaValue,
     }),

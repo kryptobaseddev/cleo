@@ -87,6 +87,7 @@ function setupMockAccessor(tasks: unknown[] = [], focusTaskId: string | null = n
     loadSessions: vi.fn().mockResolvedValue([]),
     saveSessions: vi.fn().mockResolvedValue(undefined),
     getActiveSession: vi.fn().mockResolvedValue(null),
+    resolveCurrentSession: vi.fn().mockResolvedValue(null),
     upsertSingleSession: vi.fn().mockResolvedValue(undefined),
     removeSingleSession: vi.fn().mockResolvedValue(undefined),
     queryTasks: vi.fn().mockResolvedValue({ tasks, total: tasks.length }),

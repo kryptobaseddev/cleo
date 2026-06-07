@@ -112,6 +112,7 @@ function setupMockAccessor(sessions: Session[], tasks: unknown[] = makeMockTasks
     loadSessions: vi.fn().mockResolvedValue(sessions),
     saveSessions: vi.fn().mockResolvedValue(undefined),
     getActiveSession: vi.fn().mockResolvedValue(null),
+    resolveCurrentSession: vi.fn().mockResolvedValue(null),
     upsertSingleSession: vi.fn().mockResolvedValue(undefined),
     removeSingleSession: vi.fn().mockResolvedValue(undefined),
     queryTasks: vi.fn().mockImplementation(() => Promise.resolve({ tasks, total: tasks.length })),

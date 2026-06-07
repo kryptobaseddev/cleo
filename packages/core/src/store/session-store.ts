@@ -10,6 +10,7 @@
 
 import type { Session } from '@cleocode/contracts';
 import { and, desc, eq, isNull } from 'drizzle-orm';
+import { getCurrentConnectionSessionId } from '../sessions/connection-session-handle.js';
 import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import { rowToSession } from './converters.js';
 import { getDb } from './sqlite.js';
@@ -291,7 +292,35 @@ export async function gcSessions(maxAgeDays: number = 30, cwd?: string): Promise
   return toUpdate.length;
 }
 
-/** Get the currently active session (if any). */
+/**
+ * Get the currently active session — the most-recent `status='active'` row.
+ *
+ * @internal LEGACY single-process TTY fallback ONLY (T11640 · Epic T11638).
+ *
+ * This resolves "whoever wrote an active session to the DB most recently",
+ * which is the WRONG identity in any multi-tenant context: under the warm
+ * daemon (many concurrent connections) and under multi-agent spawn isolation
+ * (many worktrees writing the same DB) it collapses every caller's identity
+ * onto the last writer, causing session-bleed and memory scope-leakage.
+ *
+ * Identity-meaning callers — anything that means "the session of whoever is
+ * calling THIS request" — MUST use {@link resolveCurrentSession} /
+ * {@link resolveCurrentSessionId}, which resolve, in order:
+ *   1. the daemon connection handle ({@link getCurrentConnectionSessionId}),
+ *   2. the env-named session (`CLEO_SESSION_ID`, via
+ *      {@link resolveSessionIdFromEnv}),
+ *   3. and only THEN fall back to this most-recent-active row.
+ *
+ * `getActiveSession` survives as that final tier-3 fallback and for genuine
+ * SCAN-meaning callers (e.g. "is there any active session at all?",
+ * `gcSessions`, the data-accessor pass-throughs). The
+ * `lint-no-bare-get-active-session.mjs` gate bans NEW bare callsites so the
+ * identity-vs-scan split cannot silently regress — annotate a justified scan
+ * callsite with a trailing `// get-active-session-allowed: <reason>`.
+ *
+ * @param cwd - Working directory for DB resolution.
+ * @returns The most-recent active session, or `null`.
+ */
 export async function getActiveSession(cwd?: string): Promise<Session | null> {
   const db = await getDb(cwd);
   const rows = await db
@@ -307,30 +336,45 @@ export async function getActiveSession(cwd?: string): Promise<Session | null> {
 }
 
 /**
- * Resolve the CALLER's current session, env-first (T11344 · Epic T11284).
+ * Resolve the CALLER's current session (T11344/T11640 · Epics T11284, T11638).
  *
- * THE canonical identity-resolution helper. Replaces bare `getActiveSession()`
- * for any consumer that means "the session of whoever is calling THIS process":
+ * THE canonical identity-resolution helper. Replaces bare {@link getActiveSession}
+ * for any consumer that means "the session of whoever is calling THIS request".
+ * Resolution precedence (first hit wins):
  *
- * 1. If `resolveSessionIdFromEnv()` returns an id AND a session row with that
- *    id exists, return it — this is the spawned agent's OWN session
- *    (`CLEO_SESSION_ID` injected by spawn isolation, T11343).
- * 2. Otherwise fall back to `getActiveSession()` (most-recent active row).
+ * 1. **Daemon connection handle** ({@link getCurrentConnectionSessionId}) — when
+ *    dispatching a request frame on a warm-daemon connection, the connection's
+ *    accept-time-bound session is authoritative. A row with that id is honoured
+ *    when present; when the bound id has no row yet, resolution proceeds (the
+ *    connection asserted an identity that the env/active tiers may still
+ *    satisfy). This is the seam that gives the multi-connection daemon a stable
+ *    per-connection identity (T11640).
+ * 2. **Env-named session** — `resolveSessionIdFromEnv()` (`CLEO_SESSION_ID`
+ *    injected by spawn isolation, T11343); the spawned agent's OWN session.
+ * 3. **Most-recent active row** — {@link getActiveSession}, the legacy
+ *    single-process fallback.
  *
  * Making most-recent-active the FALLBACK rather than the default identity is
  * what dissolves multi-agent session-bleed AND memory scope-leakage: a
  * short-lived `cleo` call in agent A's worktree no longer resolves agent B's
  * session just because B wrote to the DB more recently.
  *
- * The env-named session is honoured even when its status is not `active`
- * (the caller explicitly set `CLEO_SESSION_ID`), so callers that need an
- * active-only guarantee should check `.status` on the result.
+ * The connection-handle and env-named sessions are honoured even when their
+ * status is not `active` (the caller explicitly asserted that id), so callers
+ * that need an active-only guarantee should check `.status` on the result.
  *
  * @param cwd - Working directory for DB resolution.
  * @returns The resolved session, or `null` when none can be resolved.
  * @task T11344
+ * @task T11640
  */
 export async function resolveCurrentSession(cwd?: string): Promise<Session | null> {
+  const connId = getCurrentConnectionSessionId();
+  if (connId) {
+    const byConn = await getSession(connId, cwd);
+    if (byConn) return byConn;
+    // connection named a session with no row yet — fall through to env/active.
+  }
   const envId = resolveSessionIdFromEnv();
   if (envId) {
     const byEnv = await getSession(envId, cwd);
@@ -341,16 +385,23 @@ export async function resolveCurrentSession(cwd?: string): Promise<Session | nul
 }
 
 /**
- * Resolve the CALLER's current session id, env-first (T11344).
+ * Resolve the CALLER's current session id (T11344/T11640).
  *
- * Thin id-only convenience over {@link resolveCurrentSession}. Prefer this over
+ * Thin id-only convenience over {@link resolveCurrentSession} sharing its
+ * connection-handle → env → most-recent-active precedence. Prefer this over
  * `(await getActiveSession())?.id` in identity-resolution hot paths.
  *
  * @param cwd - Working directory for DB resolution.
  * @returns The resolved session id, or `null`.
  * @task T11344
+ * @task T11640
  */
 export async function resolveCurrentSessionId(cwd?: string): Promise<string | null> {
+  const connId = getCurrentConnectionSessionId();
+  if (connId) {
+    const byConn = await getSession(connId, cwd);
+    if (byConn) return byConn.id;
+  }
   const envId = resolveSessionIdFromEnv();
   if (envId) {
     const byEnv = await getSession(envId, cwd);

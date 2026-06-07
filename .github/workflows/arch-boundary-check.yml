@@ -265,3 +265,35 @@ jobs:
           node-version: '24'
       - name: Lint LLM chokepoint (baseline mode)
         run: node scripts/lint-llm-chokepoint.mjs
+
+  no-bare-get-active-session:
+    # T11640 · Epic T11638 EP-SESSION-MANIFEST · Saga T11243
+    #
+    # `getActiveSession()` resolves "the most-recent active session row" — i.e.
+    # whoever wrote the DB last. Under the warm daemon (many concurrent
+    # connections sharing one process) and multi-agent spawn isolation (many
+    # worktrees writing one DB) that is the WRONG identity: it collapses every
+    # caller onto the last writer, causing session-bleed and memory
+    # scope-leakage. Identity-meaning callers MUST use resolveCurrentSession() /
+    # resolveCurrentSessionId() (connection-handle → CLEO_SESSION_ID →
+    # most-recent-active precedence). This gate freezes the current bare-callsite
+    # set in scripts/.lint-no-bare-get-active-session-baseline.json and FAILS on
+    # any NET-NEW bare getActiveSession( callsite. Per-line opt-out for a
+    # justified SCAN-meaning callsite: append
+    # `// get-active-session-allowed: <reason>` on the call line.
+    #
+    # After migrating a callsite to resolveCurrentSession:
+    #   node scripts/lint-no-bare-get-active-session.mjs --update-baseline
+    #   git add scripts/.lint-no-bare-get-active-session-baseline.json && git commit
+    #
+    # Pure static analysis of checked-in source — no untrusted user input.
+    name: No-Bare-getActiveSession Guard (T11640)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Lint no NET-NEW bare getActiveSession callsites (baseline mode)
+        run: node scripts/lint-no-bare-get-active-session.mjs --check
