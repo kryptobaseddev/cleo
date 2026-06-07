@@ -67,7 +67,7 @@ import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import type { LeaseLane, LeaseScope } from '@cleocode/contracts';
 import { getLogger } from '../logger.js';
-import { openDualScopeDb } from './dual-scope-db.js';
+import { openDualScopeDb, openDualScopeDbAtPath, resolveDualScopeDbPath } from './dual-scope-db.js';
 import {
   assertWriterLeaseActiveIndexPresent,
   WRITER_LEASES_ACTIVE_INDEX,
@@ -121,12 +121,21 @@ export interface LeaseAcquireOptions {
   /** Lease time-to-live in milliseconds. Default {@link DEFAULT_TTL_MS}. */
   ttlMs?: number;
   /**
-   * When true (default), a nested same-(scope,lane) acquire in this process
+   * When true (default), a nested same-(scope,dbPath,lane) acquire in this process
    * re-enters the existing grant (refcount++) instead of contending. When false,
    * a nested acquire is forced to take a fresh row (used only by tests exercising
    * cross-holder contention within one process).
    */
   reentrant?: boolean;
+  /**
+   * Pin the lease to a SPECIFIC cleo.db file (its resolved on-disk path) instead
+   * of the cwd-default canonical path the scope→path resolver returns. The
+   * chokepoint write primitives pass the dbPath recorded at cold-open
+   * ({@link activeScopeDbPath}) so the lease row lands in the SAME file the write
+   * targets — correct when more than one project's cleo.db is open in one process
+   * (Finding 1). When omitted, the canonical scope→path resolution is used.
+   */
+  dbPath?: string;
 }
 
 /** Default lease TTL — aligned to `busy_timeout=30000` (specs/sqlite-pragmas.json). */
@@ -208,40 +217,114 @@ export function _resetWriterLeaseStateForTest(): void {
   _cachedMode = null;
   _supervisorDemotionLogged = false;
   _grantMemo.clear();
+  _inflightAcquire.clear();
   _nativeDbResolver = defaultNativeDbResolver;
+  _dbPathResolver = resolveDualScopeDbPath;
   _activeScope = null;
 }
 
 // ── Native handle resolution (test-injectable) ────────────────────────────────
 
-/** Resolver that yields the native `DatabaseSync` for a scope's `cleo.db`. */
-export type NativeDbResolver = (scope: LeaseScope) => Promise<DatabaseSync>;
+/**
+ * A resolved lease target: the native `cleo.db` handle for a scope PLUS the
+ * absolute on-disk path that physically distinguishes it.
+ *
+ * The lease scope key is the EXISTING `cacheKey(scope, dbPath)` composite
+ * (`${scope}::${dbPath}`), so two DIFFERENT project files opened in one process
+ * are DISTINCT lease scopes (spec §6 Seam 0). Keying the grant memo + the
+ * resolver on the abstract scope LABEL alone would mis-share an in-process grant
+ * across two projects and route the second project's lease writes to the
+ * cwd-default file. `dbPath` closes that latent cross-project gap.
+ */
+export interface LeaseTarget {
+  /** The native `DatabaseSync` handle for the scope's `cleo.db`. */
+  readonly native: DatabaseSync;
+  /** The absolute on-disk path of that `cleo.db` (the lease-scope discriminator). */
+  readonly dbPath: string;
+}
+
+/**
+ * Resolver that yields the native handle + path for a scope's `cleo.db`. When
+ * `dbPath` is supplied the resolver MUST open THAT file (an explicit-path lease,
+ * e.g. a second project's cleo.db); otherwise it resolves the cwd-default
+ * canonical path for the scope.
+ */
+export type NativeDbResolver = (scope: LeaseScope, dbPath?: string) => Promise<LeaseTarget>;
 
 /**
  * Default resolver: route through the dual-scope chokepoint so the lease
  * migration is applied (tables + raw partial-unique index), then extract the
- * native handle drizzle holds on `$client`.
+ * native handle drizzle holds on `$client` together with the handle's resolved
+ * `dbPath` (the lease-scope discriminator). When an explicit `dbPath` is supplied
+ * the cached path-aware opener is used so the lease row lands in THAT file (the
+ * multi-project-in-one-process case — Finding 1).
  */
-const defaultNativeDbResolver: NativeDbResolver = async (scope) => {
-  const handle =
-    scope === 'project' ? await openDualScopeDb('project') : await openDualScopeDb('global');
+const defaultNativeDbResolver: NativeDbResolver = async (scope, dbPath) => {
+  let handle: { db: unknown; dbPath: string };
+  if (dbPath !== undefined && dbPath !== resolveDualScopeDbPath(scope)) {
+    // Explicit non-canonical path → open (cached) at that exact file.
+    handle =
+      scope === 'project'
+        ? await openDualScopeDbAtPath('project', dbPath)
+        : await openDualScopeDbAtPath('global', dbPath);
+  } else {
+    handle =
+      scope === 'project' ? await openDualScopeDb('project') : await openDualScopeDb('global');
+  }
   const native = (handle.db as unknown as { $client: DatabaseSync }).$client;
-  return native;
+  // `handle.dbPath` is the path this open resolved; fall back to the scope→path
+  // resolver defensively (the handle always carries it in practice).
+  const resolvedPath = handle.dbPath ?? dbPath ?? resolveDualScopeDbPath(scope);
+  return { native, dbPath: resolvedPath };
 };
 
 let _nativeDbResolver: NativeDbResolver = defaultNativeDbResolver;
 
 /**
- * Override how the engine obtains a scope's native `cleo.db` handle. Tests inject
- * a temp-dir handle here so arbitration runs against an isolated fixture with no
- * supervisor and no canonical-path side effects.
+ * Override how the engine obtains a scope's native `cleo.db` handle + path. Tests
+ * inject a temp-dir handle here so arbitration runs against an isolated fixture
+ * with no supervisor and no canonical-path side effects.
+ *
+ * For backward-compatibility a resolver that returns a bare `DatabaseSync` is
+ * accepted and adapted to a {@link LeaseTarget} whose `dbPath` is a stable
+ * synthetic per-scope token (`test://<scope>`) — sufficient for single-file test
+ * fixtures, which key one file per scope.
  *
  * @param resolver - The resolver to use, or `undefined` to restore the default.
  * @internal
  */
-export function _setNativeDbResolverForTest(resolver: NativeDbResolver | undefined): void {
-  _nativeDbResolver = resolver ?? defaultNativeDbResolver;
+export function _setNativeDbResolverForTest(
+  resolver:
+    | ((scope: LeaseScope, dbPath?: string) => Promise<DatabaseSync | LeaseTarget>)
+    | undefined,
+): void {
+  if (resolver === undefined) {
+    _nativeDbResolver = defaultNativeDbResolver;
+    return;
+  }
+  _nativeDbResolver = async (scope, dbPath) => {
+    const out = await resolver(scope, dbPath);
+    // Adapt a bare native handle to a LeaseTarget with a stable synthetic path.
+    return 'native' in out ? out : { native: out, dbPath: dbPath ?? scopePathToken(scope) };
+  };
+  // Keep the (I/O-free) path resolver consistent with the injected native one so
+  // the memo key derived before the resolver await matches the resolved target.
+  _dbPathResolver = (scope) => scopePathToken(scope);
 }
+
+/** Stable synthetic dbPath token for a scope under a test resolver injection. */
+function scopePathToken(scope: LeaseScope): string {
+  return `test://${scope}`;
+}
+
+/**
+ * Resolve the absolute dbPath for a scope WITHOUT opening the handle. Used to
+ * build the memo key on the re-entrant fast path (before the native resolver
+ * await). Defaults to the canonical scope→path resolver (deterministic, no I/O);
+ * a test native-resolver injection swaps in the matching synthetic token so the
+ * key built here equals the {@link LeaseTarget.dbPath} the resolver returns.
+ */
+let _dbPathResolver: (scope: LeaseScope) => string = resolveDualScopeDbPath;
 
 // ── Process-local grant memo (C1 graft · refcounted re-entrancy) ───────────────
 
@@ -250,42 +333,79 @@ interface GrantEntry {
   refcount: number;
 }
 
-/** `Map<\`${scope}::${lane}\`, GrantEntry>` — the active grant per scope+lane. */
+/**
+ * `Map<\`${scope}::${dbPath}::${lane}\`, GrantEntry>` — the active grant per
+ * (scope, dbPath, lane). Keyed on the EXISTING `cacheKey(scope, dbPath)` composite
+ * (spec §6 Seam 0) so two DIFFERENT project files in one process are distinct
+ * lease scopes — the in-process grant is NEVER mis-shared across projects.
+ */
 const _grantMemo = new Map<string, GrantEntry>();
 
-function memoKey(scope: LeaseScope, lane: LeaseLane): string {
-  return `${scope}::${lane}`;
+/**
+ * In-flight FIRST-acquisition promises per memo key (Finding 2 — single-flight).
+ *
+ * The re-entrant fast path memoizes the active grant, but the FIRST acquisition
+ * resolves the native handle (`await _nativeDbResolver`) BEFORE writing the memo
+ * entry. Two callers racing the first acquire would both observe an empty memo
+ * across that await and both run the full claim path — the loser then spins the
+ * whole acquire window and degrades to a lease-less write. This map makes the
+ * first acquisition single-flight: concurrent callers await the SAME in-flight
+ * acquire and share the resulting grant (refcount++), exactly like a nested
+ * same-frame re-entry.
+ */
+const _inflightAcquire = new Map<string, Promise<LeaseHandle>>();
+
+/**
+ * Build the lease-scope memo key. Keyed on `${scope}::${dbPath}::${lane}` — the
+ * `${scope}::${dbPath}` prefix is byte-equal to `cacheKey(scope, dbPath)` in
+ * `dual-scope-db.ts` so the lease scope and the handle cache agree on identity.
+ */
+function memoKey(scope: LeaseScope, dbPath: string, lane: LeaseLane): string {
+  return `${scope}::${dbPath}::${lane}`;
 }
 
 // ── Active-scope registry (ST-3 · Seam 1 — process-local, no signature change) ──
 
 /**
- * The scope of the most-recent canonical cold-open in this process.
+ * The scope + resolved dbPath of the most-recent canonical cold-open in this
+ * process.
  *
  * The chokepoint write primitives ({@link insertIdempotent} /
  * {@link upsertIdempotent} in `dual-scope-db.ts`) receive only a drizzle handle —
  * NOT the scope or a {@link LeaseHandle}. To gate them through the writer lease
- * (Seam 1) WITHOUT a signature change, the cold-open path records its scope here
- * (mirroring the `getRecordedExodusAbort` registry pattern already used by those
- * primitives) and the primitive reads it back via {@link activeScope}.
+ * (Seam 1) WITHOUT a signature change, the cold-open path records its scope AND
+ * dbPath here (mirroring the `getRecordedExodusAbort` registry pattern already
+ * used by those primitives) and the primitive reads them back via
+ * {@link activeScope} / {@link activeScopeDbPath}.
+ *
+ * Recording the dbPath (not just the abstract scope LABEL) means the chokepoint
+ * leases against the lease ROW in the SAME file the open targeted — so two
+ * different projects opened in one process lease in their OWN cleo.db, never the
+ * cwd-default file (Finding 1).
  *
  * `null` until the first canonical cold-open records a scope.
  */
 let _activeScope: LeaseScope | null = null;
+let _activeScopeDbPath: string | null = null;
 
 /**
- * Record the scope of the cold-open currently in progress / most recently opened.
- * Called by `dual-scope-db.ts` at the head of its cold-open critical section
- * (Seam 0). Idempotent — last writer wins; a project open after a global open
- * makes `'project'` the active scope, which is correct because the chokepoint
- * write primitives only ever write the project-tier `tasks_*` tables.
+ * Record the scope (and optionally the resolved dbPath) of the cold-open
+ * currently in progress / most recently opened. Called by `dual-scope-db.ts` at
+ * the head of its cold-open critical section (Seam 0). Idempotent — last writer
+ * wins; a project open after a global open makes `'project'` the active scope,
+ * which is correct because the chokepoint write primitives only ever write the
+ * project-tier `tasks_*` tables.
  *
  * @param scope - The scope of the in-progress cold-open.
+ * @param dbPath - The resolved on-disk path of that scope's cleo.db. When
+ *   omitted, the active dbPath is cleared so {@link activeScopeDbPath} falls back
+ *   to the canonical scope→path resolver.
  * @internal
  * @task T11627
  */
-export function setActiveScope(scope: LeaseScope): void {
+export function setActiveScope(scope: LeaseScope, dbPath?: string): void {
   _activeScope = scope;
+  _activeScopeDbPath = dbPath ?? null;
 }
 
 /**
@@ -303,14 +423,28 @@ export function activeScope(): LeaseScope {
 }
 
 /**
- * Clear the recorded active scope. Tests only — production records once per
- * cold-open and never clears (the scope of the last canonical open remains the
- * lease target for subsequent writes).
+ * The dbPath the chokepoint write primitives should lease their row in. Returns
+ * the path recorded by the most-recent cold-open, or — defensively — the
+ * canonical scope→path resolution for {@link activeScope} when none was recorded.
+ *
+ * @returns The active cleo.db on-disk path.
+ * @internal
+ * @task T11627
+ */
+export function activeScopeDbPath(): string {
+  return _activeScopeDbPath ?? _dbPathResolver(activeScope());
+}
+
+/**
+ * Clear the recorded active scope + dbPath. Tests only — production records once
+ * per cold-open and never clears (the scope of the last canonical open remains
+ * the lease target for subsequent writes).
  *
  * @internal
  */
 export function _clearActiveScopeForTest(): void {
   _activeScope = null;
+  _activeScopeDbPath = null;
 }
 
 // ── Small helpers ─────────────────────────────────────────────────────────────
@@ -363,6 +497,8 @@ class InternalLeaseHandle implements LeaseHandle {
   readonly lane: LeaseLane;
   readonly epoch: number;
   readonly holderId: string;
+  /** The resolved on-disk path of the cleo.db this lease's row lives in. */
+  readonly dbPath: string;
   private readonly nativeDb: DatabaseSync;
   private readonly ttlMs: number;
   private heartbeatTimer: NodeJS.Timeout | null = null;
@@ -373,6 +509,7 @@ class InternalLeaseHandle implements LeaseHandle {
     lane: LeaseLane;
     epoch: number;
     holderId: string;
+    dbPath: string;
     nativeDb: DatabaseSync;
     ttlMs: number;
   }) {
@@ -380,6 +517,7 @@ class InternalLeaseHandle implements LeaseHandle {
     this.lane = args.lane;
     this.epoch = args.epoch;
     this.holderId = args.holderId;
+    this.dbPath = args.dbPath;
     this.nativeDb = args.nativeDb;
     this.ttlMs = args.ttlMs;
     this.startHeartbeat();
@@ -395,13 +533,34 @@ class InternalLeaseHandle implements LeaseHandle {
 
   heartbeat(): void {
     if (this.released) return;
-    // Epoch guard: a reclaimed holder (new epoch) updates 0 rows → no-op.
-    this.nativeDb
-      .prepare(
-        `UPDATE ${WRITER_LEASES_TABLE} SET heartbeat_at = ? ` +
-          `WHERE scope = ? AND lane = ? AND holder_id = ? AND epoch = ? AND active = 1`,
-      )
-      .run(Date.now(), this.scope, this.lane, this.holderId, this.epoch);
+    // The heartbeat fires from an unref'd timer; if the underlying native handle
+    // was closed out from under a still-held lease (cache eviction / shutdown /
+    // test teardown), `prepare()` throws `database is not open` INSIDE the timer
+    // callback — an UNCAUGHT exception that would crash Node. Tolerate a closed
+    // handle the same way `tryClaimOnce` tolerates a rolled-back txn: stop the
+    // timer, mark released, and no-op. A reclaimed holder (new epoch) updates 0
+    // rows → no-op via the epoch guard.
+    try {
+      this.nativeDb
+        .prepare(
+          `UPDATE ${WRITER_LEASES_TABLE} SET heartbeat_at = ? ` +
+            `WHERE scope = ? AND lane = ? AND holder_id = ? AND epoch = ? AND active = 1`,
+        )
+        .run(Date.now(), this.scope, this.lane, this.holderId, this.epoch);
+    } catch (err) {
+      // Closed handle (or any heartbeat-write failure): stop heartbeating rather
+      // than throw on every subsequent tick. The row is freed by whoever closed
+      // the DB (close drops the file lock) or reclaimed via TTL by a peer.
+      this.released = true;
+      if (this.heartbeatTimer) {
+        clearInterval(this.heartbeatTimer);
+        this.heartbeatTimer = null;
+      }
+      log.debug(
+        { scope: this.scope, lane: this.lane, err: err instanceof Error ? err.message : err },
+        'writer-lease heartbeat failed (native handle likely closed); stopping heartbeat',
+      );
+    }
   }
 
   /** Free the row (`active = 0`) under the epoch guard, stop the heartbeat. */
@@ -412,16 +571,26 @@ class InternalLeaseHandle implements LeaseHandle {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
-    this.nativeDb
-      .prepare(
-        `UPDATE ${WRITER_LEASES_TABLE} SET active = 0, reentrancy_depth = 0 ` +
-          `WHERE scope = ? AND lane = ? AND holder_id = ? AND epoch = ? AND active = 1`,
-      )
-      .run(this.scope, this.lane, this.holderId, this.epoch);
+    // Tolerate a closed native handle on release (same race as the heartbeat):
+    // the lease row is freed implicitly when the DB closes / dies, so a failed
+    // free-row UPDATE must not throw out of `release()`.
+    try {
+      this.nativeDb
+        .prepare(
+          `UPDATE ${WRITER_LEASES_TABLE} SET active = 0, reentrancy_depth = 0 ` +
+            `WHERE scope = ? AND lane = ? AND holder_id = ? AND epoch = ? AND active = 1`,
+        )
+        .run(this.scope, this.lane, this.holderId, this.epoch);
+    } catch (err) {
+      log.debug(
+        { scope: this.scope, lane: this.lane, err: err instanceof Error ? err.message : err },
+        'writer-lease releaseRow failed (native handle likely closed); row freed by close/TTL',
+      );
+    }
   }
 
   async release(): Promise<void> {
-    await releaseGrant(this.scope, this.lane);
+    await releaseGrant(this.scope, this.dbPath, this.lane);
   }
 }
 
@@ -484,7 +653,7 @@ export class WriterLeaseRequiredError extends Error {
  * @task T11627
  */
 export function hasActiveGrant(scope: LeaseScope, lane: LeaseLane): boolean {
-  const entry = _grantMemo.get(memoKey(scope, lane));
+  const entry = _grantMemo.get(memoKey(scope, _dbPathResolver(scope), lane));
   return entry !== undefined && entry.refcount > 0;
 }
 
@@ -666,14 +835,23 @@ export async function acquireWriterLease(
     return makeNoopHandle(scope, lane);
   }
 
-  // Re-entrant fast path: an existing same-process grant for this scope+lane is
-  // shared (refcount++ + durable depth++) without a second claim txn.
+  // Build the lease-scope key up front from the explicit pinned dbPath (when the
+  // chokepoint pins a non-cwd-default file) or the I/O-free path resolver, so the
+  // re-entrant fast path AND the single-flight guard are decided SYNCHRONOUSLY,
+  // before any `await` yields the event loop. Keying on `${scope}::${dbPath}::
+  // ${lane}` means two different project files in one process are distinct lease
+  // scopes (Finding 1) and that the same (scope,dbPath,lane) never double-claims.
+  const dbPath = opts?.dbPath ?? _dbPathResolver(scope);
+  const key = memoKey(scope, dbPath, lane);
+
+  // Re-entrant fast path: an existing same-(scope,dbPath,lane) grant is shared
+  // (refcount++ + durable depth++) without a second claim txn.
   if (reentrant) {
-    const existing = _grantMemo.get(memoKey(scope, lane));
+    const existing = _grantMemo.get(key);
     if (existing) {
       existing.refcount += 1;
       // Reflect the re-entry in the durable row depth (best-effort under epoch guard).
-      const native = await _nativeDbResolver(scope);
+      const { native } = await _nativeDbResolver(scope, dbPath);
       native
         .prepare(
           `UPDATE ${WRITER_LEASES_TABLE} SET reentrancy_depth = reentrancy_depth + 1 ` +
@@ -682,9 +860,75 @@ export async function acquireWriterLease(
         .run(scope, lane, existing.handle.holderId, existing.handle.epoch);
       return existing.handle;
     }
+
+    // Single-flight FIRST acquisition (Finding 2): if another caller is already
+    // mid-acquire for this key, await its in-flight promise and share the grant
+    // (refcount++) instead of racing a second full claim that would spin the whole
+    // acquire window and degrade to a lease-less write. Decided synchronously here
+    // — no `await` has run since the memo check above, so the two checks are atomic.
+    const inflight = _inflightAcquire.get(key);
+    if (inflight) {
+      const shared = await inflight;
+      // Re-check the memo: the in-flight acquire may have already released (e.g.
+      // immediate withWriterLease) or degraded to a no-op (not memoized).
+      const entry = _grantMemo.get(key);
+      if (entry && entry.handle === shared) {
+        entry.refcount += 1;
+        // `entry.handle` is the concrete InternalLeaseHandle (holderId/epoch).
+        const { native } = await _nativeDbResolver(scope, dbPath);
+        native
+          .prepare(
+            `UPDATE ${WRITER_LEASES_TABLE} SET reentrancy_depth = reentrancy_depth + 1 ` +
+              `WHERE scope = ? AND lane = ? AND holder_id = ? AND epoch = ? AND active = 1`,
+          )
+          .run(scope, lane, entry.handle.holderId, entry.handle.epoch);
+        return entry.handle;
+      }
+      // The shared acquire is no longer active — fall through to a fresh acquire.
+    }
   }
 
-  const native = await _nativeDbResolver(scope);
+  // First acquisition for this key. Register the in-flight promise BEFORE the
+  // first `await` so a concurrent reentrant caller (above) can single-flight onto
+  // it. Only the reentrant path participates; reentrant:false callers (test cross-
+  // holder contention) deliberately bypass the memo + single-flight.
+  const acquirePromise = performFirstAcquire(scope, dbPath, lane, mode, key, opts);
+  if (reentrant) {
+    _inflightAcquire.set(key, acquirePromise);
+  }
+  try {
+    return await acquirePromise;
+  } finally {
+    // Always clear our in-flight entry. A degraded acquire resolves to a no-op
+    // handle (never memoized) and `require` mode rejects — in both cases the
+    // single-flight followers re-check the memo, find nothing, and acquire freshly,
+    // so a stale in-flight entry must never linger.
+    if (reentrant && _inflightAcquire.get(key) === acquirePromise) {
+      _inflightAcquire.delete(key);
+    }
+  }
+}
+
+/**
+ * Run ONE full first-acquisition for `(scope, dbPath, lane)` against the persisted
+ * row: resolve the native handle, claim/queue/backoff under the bounded acquire
+ * window, and on success memoize the grant. Returns a degraded no-op handle on
+ * deadline (local) or throws {@link LeaseUnavailableError} (`require`).
+ *
+ * Factored out of {@link acquireWriterLease} so the single-flight guard can wrap a
+ * single in-flight promise per key — the resolved handle (a memoized
+ * {@link InternalLeaseHandle}, or a no-op handle on degrade) is what concurrent
+ * reentrant followers re-check the memo against before sharing.
+ */
+async function performFirstAcquire(
+  scope: LeaseScope,
+  dbPath: string,
+  lane: LeaseLane,
+  mode: Exclude<LeaseMode, 'supervisor' | 'off'>,
+  key: string,
+  opts?: LeaseAcquireOptions,
+): Promise<LeaseHandle> {
+  const { native } = await _nativeDbResolver(scope, dbPath);
   // Defensive bootstrap assert: the partial-unique active index MUST exist or AC1
   // is unenforced. Cheap single-row sqlite_master lookup, runs on first acquire.
   assertWriterLeaseActiveIndexPresent(native);
@@ -708,10 +952,11 @@ export async function acquireWriterLease(
         lane,
         epoch,
         holderId,
+        dbPath,
         nativeDb: native,
         ttlMs,
       });
-      _grantMemo.set(memoKey(scope, lane), { handle, refcount: 1 });
+      _grantMemo.set(key, { handle, refcount: 1 });
       return handle;
     }
 
@@ -726,8 +971,10 @@ export async function acquireWriterLease(
       if (mode === 'require') {
         throw new LeaseUnavailableError(scope, lane, 'live holder did not release within deadline');
       }
-      // local/supervisor: degrade to today's behaviour — proceed without a lease.
-      // busy_timeout on the connection still serializes the actual write.
+      // local: degrade to today's behaviour — proceed without a lease. busy_timeout
+      // on the connection still serializes the actual write. A no-op handle writes
+      // no row, starts no heartbeat, and is never memoized — so single-flight
+      // followers find no memo entry and acquire freshly.
       log.warn(
         { scope, lane },
         'writer-lease acquire deadline exceeded; proceeding under busy_timeout fallback (degraded)',
@@ -739,14 +986,16 @@ export async function acquireWriterLease(
 }
 
 /** Decrement the memoized grant; free the row at depth 0. */
-async function releaseGrant(scope: LeaseScope, lane: LeaseLane): Promise<void> {
-  const key = memoKey(scope, lane);
+async function releaseGrant(scope: LeaseScope, dbPath: string, lane: LeaseLane): Promise<void> {
+  const key = memoKey(scope, dbPath, lane);
   const entry = _grantMemo.get(key);
   if (!entry) return; // off-mode / no-op handle / already released
   entry.refcount -= 1;
   if (entry.refcount > 0) {
-    // Still re-entered above this frame — decrement the durable depth only.
-    const native = await _nativeDbResolver(scope);
+    // Still re-entered above this frame — decrement the durable depth only. Pin the
+    // resolver at the grant's own dbPath so the depth-write lands in the SAME file
+    // the lease row lives in (matches the memo key, not the cwd-default).
+    const { native } = await _nativeDbResolver(scope, dbPath);
     native
       .prepare(
         `UPDATE ${WRITER_LEASES_TABLE} SET reentrancy_depth = reentrancy_depth - 1 ` +
@@ -890,8 +1139,12 @@ function ensureColdOpenLeaseTables(nativeDb: DatabaseSync): void {
  * @param scope - The cleo.db scope being cold-opened.
  * @param nativeDb - The native handle the cold-open just created (pragmas applied).
  * @param fn - The cold-open body to run while holding the lease.
- * @param opts - Priority / TTL options. Cold-open defaults to highest priority
- *   ({@link SCHEMA_BOOTSTRAP_PRIORITY}) and a 60s TTL (schema bootstrap can be slow).
+ * @param opts - Priority / TTL options + the resolved `dbPath` of this cold-open.
+ *   `dbPath` is recorded in the Seam-1 active-scope registry so the chokepoint
+ *   write primitives lease their row in the SAME file this open targeted (correct
+ *   when more than one project is open in one process — Finding 1). Cold-open
+ *   defaults to highest priority ({@link SCHEMA_BOOTSTRAP_PRIORITY}) and a 60s TTL
+ *   (schema bootstrap can be slow).
  * @returns The resolved value of `fn`.
  *
  * @task T11627
@@ -900,11 +1153,12 @@ export async function withColdOpenLease<T>(
   scope: LeaseScope,
   nativeDb: DatabaseSync,
   fn: () => Promise<T>,
-  opts?: { priority?: number; ttlMs?: number },
+  opts?: { priority?: number; ttlMs?: number; dbPath?: string },
 ): Promise<T> {
-  // Seam 1 wiring: record the scope of this cold-open so chokepoint write
-  // primitives (insertIdempotent/upsertIdempotent) lease against the right scope.
-  setActiveScope(scope);
+  // Seam 1 wiring: record the scope + resolved dbPath of this cold-open so
+  // chokepoint write primitives (insertIdempotent/upsertIdempotent) lease against
+  // the right scope AND the right file.
+  setActiveScope(scope, opts?.dbPath);
 
   const mode = effectiveMode();
 

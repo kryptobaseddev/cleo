@@ -31,6 +31,7 @@ import {
   _setNativeDbResolverForTest,
   acquireWriterLease,
   type LeaseScope,
+  type LeaseTarget,
   LeaseUnavailableError,
   resolveLeaseMode,
   withWriterLease,
@@ -439,4 +440,198 @@ describe('T16 — starvation / aging (deadline-based queue promotion)', () => {
     expect(countQueue(projectNative, 'project', 'tasks')).toBe(0);
     await waiter.release();
   }, 35_000);
+});
+
+// ── Finding 1 — distinct project files are distinct lease scopes ───────────────
+
+/**
+ * Two DIFFERENT project cleo.db FILES opened in ONE process must be DISTINCT lease
+ * scopes (spec §6 Seam 0 keys on `${scope}::${dbPath}`). Before the fix the memo
+ * was keyed on the abstract scope LABEL only, so project-A and project-B shared
+ * the `project::tasks` grant — re-entrancy refcounts and grant-sharing crossed
+ * between projects, and lease writes routed to the cwd-default file. This proves
+ * the two projects' grants are independent (no cross-account sharing).
+ */
+describe('Finding 1 — two project files in one process are distinct lease scopes', () => {
+  let projA: DatabaseSync;
+  let projB: DatabaseSync;
+  let pathA: string;
+  let pathB: string;
+  let crossProjectRoot: string;
+
+  beforeEach(async () => {
+    crossProjectRoot = join(
+      tmpdir(),
+      `writer-lease-xproj-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    pathA = join(crossProjectRoot, 'projA', '.cleo', 'cleo.db');
+    pathB = join(crossProjectRoot, 'projB', '.cleo', 'cleo.db');
+    mkdirSync(join(crossProjectRoot, 'projA', '.cleo'), { recursive: true });
+    mkdirSync(join(crossProjectRoot, 'projB', '.cleo'), { recursive: true });
+    projA = (
+      (await openDualScopeDbAtPath('project', pathA)) as unknown as {
+        db: { $client: DatabaseSync };
+      }
+    ).db.$client;
+    projB = (
+      (await openDualScopeDbAtPath('project', pathB)) as unknown as {
+        db: { $client: DatabaseSync };
+      }
+    ).db.$client;
+
+    delete process.env.CLEO_WRITER_LEASE_MODE;
+    _resetWriterLeaseStateForTest();
+    // Path-aware resolver: route by the EXPLICIT dbPath the engine passes (the
+    // chokepoint pins it). Same scope label 'project', two physical files.
+    _setNativeDbResolverForTest(async (scope, dbPath): Promise<LeaseTarget> => {
+      void scope;
+      if (dbPath === pathB) return { native: projB, dbPath: pathB };
+      return { native: projA, dbPath: pathA };
+    });
+  });
+
+  afterEach(() => {
+    _resetWriterLeaseStateForTest();
+    _setNativeDbResolverForTest(undefined);
+    _resetDualScopeDbCache();
+    delete process.env.CLEO_WRITER_LEASE_MODE;
+    try {
+      rmSync(crossProjectRoot, { recursive: true, force: true });
+    } catch {
+      /* best-effort */
+    }
+  });
+
+  it('holding project-A tasks lease does NOT share the grant with project-B (distinct dbPath)', async () => {
+    const a = await acquireWriterLease('project', 'tasks', { dbPath: pathA });
+    expect(countActive(projA, 'project', 'tasks')).toBe(1);
+
+    const b = await acquireWriterLease('project', 'tasks', { dbPath: pathB });
+    // B claims its OWN active row in ITS OWN file — not A's.
+    expect(countActive(projB, 'project', 'tasks')).toBe(1);
+    expect(countActive(projA, 'project', 'tasks')).toBe(1); // A still its own single row
+    // Distinct grants → distinct handles (NOT the shared one A returned).
+    expect(b).not.toBe(a);
+
+    await a.release();
+    // Releasing A must NOT free B (independent lease scopes).
+    expect(countActive(projB, 'project', 'tasks')).toBe(1);
+    expect(countActive(projA, 'project', 'tasks')).toBe(0);
+    await b.release();
+    expect(countActive(projB, 'project', 'tasks')).toBe(0);
+  }, 20_000);
+
+  it('a nested re-entrant acquire shares the grant ONLY within the same dbPath', async () => {
+    const a1 = await acquireWriterLease('project', 'tasks', { dbPath: pathA });
+    const a2 = await acquireWriterLease('project', 'tasks', { dbPath: pathA });
+    expect(a2).toBe(a1); // same file → re-entered (shared grant)
+    expect(countActive(projA, 'project', 'tasks')).toBe(1);
+
+    // Different file → a fresh grant, NOT a re-entry of A's.
+    const b1 = await acquireWriterLease('project', 'tasks', { dbPath: pathB });
+    expect(b1).not.toBe(a1);
+    expect(countActive(projB, 'project', 'tasks')).toBe(1);
+
+    await a2.release();
+    await a1.release();
+    expect(countActive(projA, 'project', 'tasks')).toBe(0);
+    await b1.release();
+    expect(countActive(projB, 'project', 'tasks')).toBe(0);
+  }, 20_000);
+});
+
+// ── Finding 2 — concurrent first-acquire single-flight ─────────────────────────
+
+/**
+ * Two callers racing the FIRST acquisition of the same (scope, dbPath, lane) must
+ * single-flight onto ONE acquire and SHARE the resulting grant — NOT each run a
+ * full claim where the loser spins the whole acquire window and degrades to a
+ * lease-less write. The resolver yields a macrotask so the two callers genuinely
+ * interleave across the resolver await (the exact non-atomic window in the RCA).
+ */
+describe('Finding 2 — concurrent first-acquire single-flights onto one grant', () => {
+  it('two concurrent reentrant acquires share ONE grant; neither degrades, fast', async () => {
+    // Resolver yields a macrotask so both callers cross the await with an empty memo
+    // (the exact non-atomic window in the RCA — without single-flight the second
+    // caller would run a full claim, contend its own row, spin the acquire window,
+    // and degrade to a lease-less no-op handle with epoch 0).
+    _setNativeDbResolverForTest(async (scope): Promise<LeaseTarget> => {
+      await new Promise((r) => setTimeout(r, 5));
+      return {
+        native: scope === 'project' ? projectNative : globalNative,
+        dbPath: `test://${scope}`,
+      };
+    });
+
+    const started = Date.now();
+    const [h1, h2] = await Promise.all([
+      acquireWriterLease('project', 'tasks'),
+      acquireWriterLease('project', 'tasks'),
+    ]);
+    const elapsed = Date.now() - started;
+
+    // Single-flight → both share ONE grant (same memoized handle), exactly one row.
+    expect(h2).toBe(h1);
+    expect(h1.epoch).toBeGreaterThan(0); // a REAL grant, not the degraded no-op (epoch 0)
+    expect(h2.epoch).toBe(h1.epoch);
+    expect(countActive(projectNative, 'project', 'tasks')).toBe(1);
+    // Fast — nowhere near the 30s degrade window the non-single-flight loser hit.
+    expect(elapsed).toBeLessThan(5_000);
+
+    // First release decrements the shared refcount (still held); second frees it.
+    await h1.release();
+    expect(countActive(projectNative, 'project', 'tasks')).toBe(1);
+    await h2.release();
+    expect(countActive(projectNative, 'project', 'tasks')).toBe(0);
+  }, 35_000);
+});
+
+// ── Finding 3 — heartbeat tolerates a closed native handle ─────────────────────
+
+/**
+ * If the underlying native handle is closed while a lease is still held, the
+ * unref'd heartbeat timer's `prepare().run()` throws `database is not open`
+ * INSIDE the timer callback — an UNCAUGHT exception that crashes Node. The fix
+ * wraps heartbeat() (and releaseRow()) in try/catch: on a closed-DB error it
+ * stops the timer and marks released rather than throwing.
+ */
+describe('Finding 3 — heartbeat does not throw when the native handle is closed', () => {
+  it('a heartbeat tick after the DB is closed is swallowed (no uncaught exception)', async () => {
+    // Dedicated DB we control the lifecycle of (so we can close it mid-lease).
+    const dir = join(testRoot, 'hb-closed', '.cleo');
+    mkdirSync(dir, { recursive: true });
+    const dbPath = join(dir, 'cleo.db');
+    const native = (
+      (await openDualScopeDbAtPath('project', dbPath)) as unknown as {
+        db: { $client: DatabaseSync };
+      }
+    ).db.$client;
+
+    _resetWriterLeaseStateForTest();
+    _setNativeDbResolverForTest(async (): Promise<LeaseTarget> => ({ native, dbPath }));
+
+    // Capture any uncaught exception the heartbeat timer would raise.
+    const uncaught: unknown[] = [];
+    const onUncaught = (err: unknown): void => {
+      uncaught.push(err);
+    };
+    process.on('uncaughtException', onUncaught);
+    try {
+      // Short TTL → ~30ms heartbeat interval (ttl/3).
+      const h = await acquireWriterLease('project', 'tasks', { ttlMs: 90 });
+      expect(h.epoch).toBeGreaterThan(0);
+      // Close the native handle out from under the still-held lease.
+      native.close();
+      // Wait past several heartbeat ticks — the timer fires against the closed DB.
+      await new Promise((r) => setTimeout(r, 250));
+      // Calling heartbeat() directly must also be tolerated (not throw).
+      expect(() => h.heartbeat()).not.toThrow();
+      // release() (which runs releaseRow → prepare on the closed DB) must not throw.
+      await expect(h.release()).resolves.toBeUndefined();
+    } finally {
+      process.off('uncaughtException', onUncaught);
+    }
+    // No heartbeat tick crashed the process.
+    expect(uncaught, JSON.stringify(uncaught.map(String))).toHaveLength(0);
+  }, 20_000);
 });

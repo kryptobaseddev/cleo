@@ -401,13 +401,25 @@ const BRAIN_LEASE_LANE = 'brain' as const;
  */
 let _brainBatchHandle: LeaseHandle | null = null;
 let _brainBatchRefcount = 0;
+/**
+ * In-flight FIRST brain-batch acquire promise (single-flight — companion to the
+ * writer-lease engine's own single-flight guard). Without it, two concurrent
+ * `enqueueBrainWrite` callers racing the very first acquire both observe
+ * `_brainBatchHandle === null` across the `await acquireWriterLease(...)` and each
+ * runs a full acquire — the second stalls the whole acquire window then writes
+ * lease-less. The documented hot path (STDP loop + dialectic hook + propose-tick
+ * reconciler all calling `enqueueBrainWrite` concurrently) is exactly that race.
+ */
+let _brainBatchInflight: Promise<LeaseHandle> | null = null;
 
 /**
  * Acquire (or re-enter) the batch-granularity `brain` lease for the duration of a
  * single `enqueueBrainWrite`. The first in-flight call acquires the lease;
- * concurrent calls share it (refcount). The lease is released when the last
- * in-flight call finishes (refcount → 0). In `off` mode this is a no-op
- * pass-through (no lease, `busy_timeout` serializes as before).
+ * concurrent calls share it (refcount) — including callers that race the FIRST
+ * acquire, which single-flight onto the same in-flight promise rather than each
+ * running a full acquire. The lease is released when the last in-flight call
+ * finishes (refcount → 0). In `off` mode this is a no-op pass-through (no lease,
+ * `busy_timeout` serializes as before).
  *
  * @returns A release callback the caller MUST invoke (in a `finally`) when its
  *   write completes; the underlying row is freed only when the batch quiesces.
@@ -418,11 +430,25 @@ async function enterBrainBatchLease(): Promise<() => Promise<void>> {
     return async () => {};
   }
   if (_brainBatchHandle === null) {
-    // Re-entrant by default so this acquire shares any grant a manual
-    // `acquireWriterLease('project','brain')` batch holder already took.
-    _brainBatchHandle = await acquireWriterLease(BRAIN_LEASE_SCOPE, BRAIN_LEASE_LANE, {
-      priority: 50,
-    });
+    // Single-flight the first acquire: concurrent racers await the SAME promise
+    // and share the resulting grant instead of each running a full acquire (which
+    // would stall one caller the whole acquire window, then run it lease-less).
+    if (_brainBatchInflight === null) {
+      // Re-entrant by default so this acquire shares any grant a manual
+      // `acquireWriterLease('project','brain')` batch holder already took.
+      _brainBatchInflight = acquireWriterLease(BRAIN_LEASE_SCOPE, BRAIN_LEASE_LANE, {
+        priority: 50,
+      });
+    }
+    try {
+      const handle = await _brainBatchInflight;
+      // The first finisher installs the shared handle; later finishers observe it.
+      if (_brainBatchHandle === null) {
+        _brainBatchHandle = handle;
+      }
+    } finally {
+      _brainBatchInflight = null;
+    }
   }
   _brainBatchRefcount += 1;
   let released = false;
@@ -578,4 +604,5 @@ export function _resetBrainWriterForTests(): void {
   inlineQueueTail = Promise.resolve();
   _brainBatchHandle = null;
   _brainBatchRefcount = 0;
+  _brainBatchInflight = null;
 }

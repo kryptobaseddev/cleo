@@ -66,7 +66,12 @@ import {
 import type * as CleoGlobalSchemaTypes from './schema/cleo-global/index.js';
 import type * as CleoProjectSchemaTypes from './schema/cleo-project/index.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
-import { activeScope, withColdOpenLease, withWriterLease } from './writer-lease.js';
+import {
+  activeScope,
+  activeScopeDbPath,
+  withColdOpenLease,
+  withWriterLease,
+} from './writer-lease.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -707,6 +712,10 @@ export async function openDualScopeDbAtPath(
 
         return built;
       },
+      // Record this open's resolved dbPath in the Seam-1 registry so the chokepoint
+      // write primitives lease their row in THIS file — not the cwd-default — when
+      // more than one project's cleo.db is open in this process (T11627 Finding 1).
+      { dbPath },
     );
 
     // ── Exodus-on-open (E6 · T11553) — runs AFTER the cold-open lease releases ──
@@ -904,13 +913,20 @@ export async function insertIdempotent<TTable extends SQLiteTableWithColumns<Tab
   assertNoRecordedExodusAbort();
   // Seam 1 (T11627 ST-3): gate the chokepoint write through the writer lease so
   // it serializes with the leased cold-open (Seam 0) and every other chokepoint
-  // write in the process. The scope comes from the process-local active-scope
-  // registry recorded at cold-open ({@link activeScope}) — no signature change.
-  // `off` mode is a pass-through (busy_timeout=30000 still serializes the write).
-  return withWriterLease(activeScope(), 'tasks', async () => {
-    const result = await db.insert(table).values(row).onConflictDoNothing().returning();
-    return result.length;
-  });
+  // write in the process. The scope AND dbPath come from the process-local
+  // active-scope registry recorded at cold-open ({@link activeScope} /
+  // {@link activeScopeDbPath}) — no signature change. Pinning the dbPath keeps the
+  // lease row in the SAME file this write targets when multiple projects are open
+  // (T11627 Finding 1). `off` mode is a pass-through (busy_timeout serializes).
+  return withWriterLease(
+    activeScope(),
+    'tasks',
+    async () => {
+      const result = await db.insert(table).values(row).onConflictDoNothing().returning();
+      return result.length;
+    },
+    { dbPath: activeScopeDbPath() },
+  );
 }
 
 /**
@@ -958,18 +974,24 @@ export async function upsertIdempotent<TTable extends SQLiteTableWithColumns<Tab
 ): Promise<number> {
   assertNoRecordedExodusAbort();
   // Seam 1 (T11627 ST-3): gate the chokepoint upsert through the writer lease —
-  // same active-scope-registry path as insertIdempotent, no signature change.
-  return withWriterLease(activeScope(), 'tasks', async () => {
-    const updateSet = set ?? row;
-    const result = await db
-      .insert(table)
-      .values(row)
-      .onConflictDoUpdate({
-        target: conflictTarget,
-        // biome-ignore lint/suspicious/noExplicitAny: updateSet shape varies by table; type-safe at call sites
-        set: updateSet as any,
-      })
-      .returning();
-    return result.length;
-  });
+  // same active-scope-registry path as insertIdempotent (scope + pinned dbPath),
+  // no signature change.
+  return withWriterLease(
+    activeScope(),
+    'tasks',
+    async () => {
+      const updateSet = set ?? row;
+      const result = await db
+        .insert(table)
+        .values(row)
+        .onConflictDoUpdate({
+          target: conflictTarget,
+          // biome-ignore lint/suspicious/noExplicitAny: updateSet shape varies by table; type-safe at call sites
+          set: updateSet as any,
+        })
+        .returning();
+      return result.length;
+    },
+    { dbPath: activeScopeDbPath() },
+  );
 }
