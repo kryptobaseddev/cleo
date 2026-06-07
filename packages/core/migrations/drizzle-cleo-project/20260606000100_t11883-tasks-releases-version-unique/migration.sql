@@ -1,0 +1,21 @@
+-- T11883 (E2) — Repair the missing UNIQUE index on tasks_releases.version.
+--
+-- The drizzle schema declares `version: text('version').notNull().unique()`
+-- (packages/core/src/store/schema/cleo-project/provenance-rest.ts:201), but the
+-- T11363 consolidation migration that built `tasks_releases` emitted only a
+-- NON-unique `idx_tasks_releases_version` — the UNIQUE was dropped during the
+-- exodus build. `cleo release plan` upserts with
+-- `onConflictDoUpdate({ target: releases.version })`, which REQUIRES a physical
+-- unique index on `version`; once the provenance `releases` symbol is rebound to
+-- `tasks_releases` (E3) the upsert would otherwise throw "ON CONFLICT clause
+-- does not match any PRIMARY KEY or UNIQUE constraint". This is a pure
+-- drift-repair (schema↔physical), so it ships as a custom migration rather than
+-- a generated one (generate has no committed snapshot to diff an index against).
+--
+-- Safe: the live corpus has 0 duplicate versions (74 rows), and fresh/test DBs
+-- are empty. IF NOT EXISTS keeps it idempotent under the reconciler's re-probe.
+--
+-- @task T11883
+-- @saga T11242
+
+CREATE UNIQUE INDEX IF NOT EXISTS `uq_tasks_releases_version` ON `tasks_releases` (`version`);

@@ -47,13 +47,6 @@ import { generateProjectHash } from '../nexus/hash.js';
 import { getProjectRoot } from '../paths.js';
 import { getDb, getNativeDb } from '../store/sqlite.js';
 import * as schema from '../store/tasks-schema.js';
-import { ensureProvenanceTaskFkParents, type FkParentTaskResolution } from './provenance-fk.js';
-
-// Re-export the FK-parent reconciliation surface so existing consumers of
-// `reconcile.js` keep working after the DRY hoist into `provenance-fk.ts`
-// (T11818). The implementation now lives in the shared module, used by both
-// `cleo release reconcile` and `cleo release plan`.
-export { ensureProvenanceTaskFkParents, type FkParentTaskResolution };
 
 const log = getLogger('release:reconcile-v2');
 const execFileAsync = promisify(execFile);
@@ -571,9 +564,16 @@ const CC_RE =
  * Parse the conventional-commits prefix from a commit subject. Returns the
  * normalised lowercased type or `null` when the subject is not CC-formatted.
  */
-function parseConventionalType(subject: string): string | null {
+function parseConventionalType(subject: string): schema.CommitConventionalType | null {
   const m = subject.match(CC_RE);
-  return m?.[1] ? m[1].toLowerCase() : null;
+  const raw = m?.[1]?.toLowerCase();
+  // T11883 (E3): the prefixed `tasks_commits.conventional_type` is enum-CHECK'd
+  // to COMMIT_CONVENTIONAL_TYPES, but CC_RE also matches `style` (not in the
+  // enum). Return only valid enum members; anything else (e.g. `style`) → null,
+  // so reconcile never writes an out-of-enum value that the CHECK would reject.
+  return raw && (schema.COMMIT_CONVENTIONAL_TYPES as readonly string[]).includes(raw)
+    ? (raw as schema.CommitConventionalType)
+    : null;
 }
 
 /** Detect the `chore(release): vX.Y.Z` release-chore pattern. */
@@ -887,13 +887,12 @@ export function sanitisePrShasForFk(
   };
 }
 
-// ─── Helpers — FK-safe task-id resolution (DHQ-051 · T11659 / T11818) ───────
+// ─── Helpers — task-id resolution (post-cutover, T11883 · E3) ───────────────
 //
-// `ensureProvenanceTaskFkParents` + `FkParentTaskResolution` were hoisted to
-// the shared `./provenance-fk.ts` module (T11818) so `cleo release plan` can
-// reuse the identical FK-ordered parent backfill. They are imported and
-// re-exported at the top of this file — reconcile's public surface and runtime
-// behavior are unchanged.
+// The DHQ-051 `ensureProvenanceTaskFkParents` FK-parent shim (T11659/T11818) was
+// RETIRED in T11883 (E3): provenance now binds the PREFIXED tables whose task_id
+// / epic_id are plain text (no cross-domain FK), so referenced VALID task ids are
+// written directly and refs to absent tasks are skipped-with-warn / NULLed.
 
 // ─── Main reconcile entrypoint ──────────────────────────────────────────────
 
@@ -963,14 +962,12 @@ export async function releaseReconcileV2(
     }
   }
 
-  // `fkResolvableTaskIds` (DHQ-051 · T11659) holds the IDs the provenance
-  // `task_id` FKs can resolve. On a consolidated `cleo.db` those FKs reference
-  // the bare `tasks` table (empty post-cutover) while runtime data lives in
-  // `tasks_tasks`. It is FILLED inside the transaction by
-  // `ensureProvenanceTaskFkParents`, which inserts the needed FK-parent rows in
-  // FK order (parent-before-child) so the links can be written; any task that
-  // exists in neither table stays unresolvable and its single link is
-  // skipped-with-warn / NULLed by the writers below — never the whole reconcile.
+  // `fkResolvableTaskIds` (post-cutover, T11883 · E3) holds the VALID task ids a
+  // provenance link may reference. The prefixed provenance tables carry task_id /
+  // epic_id as plain text (no FK), so it is filled directly from the referenced
+  // VALID task ids inside the transaction; a ref to a task absent from the runtime
+  // store stays out of the set and its single link is skipped-with-warn / NULLed
+  // by the writers below — never aborting the whole reconcile.
   const fkResolvableTaskIds = new Set<string>();
   /** Task IDs dropped from a provenance link because the FK could not resolve them. */
   const skippedTaskRefs = new Set<string>();
@@ -1051,19 +1048,12 @@ export async function releaseReconcileV2(
 
   try {
     await withTransaction(async () => {
-      // ── FK-parent reconciliation (DHQ-051 · T11659) — MUST run first so the
-      //    provenance `task_id` FKs resolve under strict enforcement. Inserts
-      //    any missing FK-parent rows in FK order (parent-before-child) and
-      //    records which ids the FK can now satisfy. ──
-      try {
-        const nativeDbForFk = getNativeDb();
-        if (nativeDbForFk) {
-          const resolution = ensureProvenanceTaskFkParents(nativeDbForFk, referencedTaskIds);
-          for (const id of resolution.resolvableIds) fkResolvableTaskIds.add(id);
-        }
-      } catch (err) {
-        throw new ProvenanceTableError('tasks (fk-parent backfill)', err);
-      }
+      // T11883 (E3): provenance now binds the PREFIXED tables, whose task_id /
+      // epic_id are PLAIN TEXT (no cross-domain FK into the bare `tasks` table),
+      // so every referenced VALID task id is directly writable — the DHQ-051
+      // FK-parent shim is retired. Refs to a task ABSENT from the runtime store
+      // are still skipped-with-warn / NULLed below, so no dangling link is written.
+      for (const id of referencedTaskIds) fkResolvableTaskIds.add(id);
 
       // ── commits + commit_files ──
       try {
@@ -1082,8 +1072,8 @@ export async function releaseReconcileV2(
               message: c.message,
               subject: c.subject,
               conventionalType: parseConventionalType(c.subject),
-              isReleaseCommit: isReleaseChoreSubject(c.subject) ? 1 : 0,
-              isMergeCommit: c.parents.length > 1 ? 1 : 0,
+              isReleaseCommit: isReleaseChoreSubject(c.subject),
+              isMergeCommit: c.parents.length > 1,
               parentShas: JSON.stringify(c.parents),
               projectHash,
             })
@@ -1094,8 +1084,8 @@ export async function releaseReconcileV2(
                 subject: c.subject,
                 message: c.message,
                 conventionalType: parseConventionalType(c.subject),
-                isReleaseCommit: isReleaseChoreSubject(c.subject) ? 1 : 0,
-                isMergeCommit: c.parents.length > 1 ? 1 : 0,
+                isReleaseCommit: isReleaseChoreSubject(c.subject),
+                isMergeCommit: c.parents.length > 1,
                 parentShas: JSON.stringify(c.parents),
               },
             })
@@ -1158,7 +1148,10 @@ export async function releaseReconcileV2(
               );
               continue;
             }
-            const linkSource = c.subject.includes(tok) ? 'commit-message' : 'commit-trailer';
+            // T11883 (E3): 'commit-subject' is the valid COMMIT_LINK_SOURCES enum
+            // member (the legacy column had no CHECK so the prior 'commit-message'
+            // literal — not in the enum — slipped through; the prefixed table rejects it).
+            const linkSource = c.subject.includes(tok) ? 'commit-subject' : 'commit-trailer';
             await db
               .insert(schema.taskCommits)
               .values({
@@ -1220,9 +1213,9 @@ export async function releaseReconcileV2(
               openedAt: pr.openedAt,
               mergedAt: pr.mergedAt,
               closedAt: pr.closedAt,
-              isReleasePr: isBumpPr ? 1 : 0,
+              isReleasePr: isBumpPr,
               releaseVersion: isBumpPr ? version : null,
-              isBumpOnly: isBumpPr ? 1 : 0,
+              isBumpOnly: isBumpPr,
               projectHash,
               updatedAt: nowIso,
             })
@@ -1236,9 +1229,9 @@ export async function releaseReconcileV2(
                 mergeCommitSha: safePr.mergeCommitSha,
                 mergedAt: pr.mergedAt,
                 closedAt: pr.closedAt,
-                isReleasePr: isBumpPr ? 1 : 0,
+                isReleasePr: isBumpPr,
                 releaseVersion: isBumpPr ? version : null,
-                isBumpOnly: isBumpPr ? 1 : 0,
+                isBumpOnly: isBumpPr,
                 updatedAt: nowIso,
               },
             })
@@ -1364,9 +1357,9 @@ export async function releaseReconcileV2(
       try {
         for (let pos = 0; pos < commits.length; pos++) {
           const c = commits[pos];
-          const isFirst = pos === 0 ? 1 : 0;
-          const isLast = pos === commits.length - 1 ? 1 : 0;
-          const isChore = isReleaseChoreSubject(c.subject) ? 1 : 0;
+          const isFirst = pos === 0;
+          const isLast = pos === commits.length - 1;
+          const isChore = isReleaseChoreSubject(c.subject);
           await db
             .insert(schema.releaseCommits)
             .values({
@@ -1374,7 +1367,7 @@ export async function releaseReconcileV2(
               commitSha: c.sha,
               position: pos,
               isFirst,
-              isLast: isChore ? 0 : isLast, // chore-flag is exclusive with isLast
+              isLast: isChore ? false : isLast, // chore-flag is exclusive with isLast
               isReleaseChore: isChore,
             })
             .onConflictDoUpdate({
@@ -1382,7 +1375,7 @@ export async function releaseReconcileV2(
               set: {
                 position: pos,
                 isFirst,
-                isLast: isChore ? 0 : isLast,
+                isLast: isChore ? false : isLast,
                 isReleaseChore: isChore,
               },
             })

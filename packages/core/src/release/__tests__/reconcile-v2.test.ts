@@ -45,14 +45,6 @@ const { DatabaseSync } = _require('node:sqlite') as {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-/**
- * Number of legacy v5.x ship/merge commits backfilled by the T9755 migration
- * (`20260520163324_t9755-backfill-legacy-ship-commits`). Every fresh tasks.db
- * starts with these rows already in the `commits` table, so tests that assert
- * absolute counts must shift by this baseline.
- */
-const LEGACY_BACKFILL_COMMIT_COUNT = 18;
-
 /** Resolve path to the drizzle-tasks migrations folder. */
 function migrationsDir(): string {
   return join(__dirname, '..', '..', '..', 'migrations', 'drizzle-tasks');
@@ -321,6 +313,12 @@ describe('releaseReconcileV2 — Phase 1 (T9526)', () => {
     gitCommit(projectRoot, 'b.txt', '2', `feat(${TASK_IDS[1]}): ship b\n\nRefs: ${TASK_IDS[1]}`);
     gitTag(projectRoot, VERSION);
 
+    // Baseline BEFORE reconcile: `tasks_commits` may already hold the T9755
+    // legacy bare-`commits` rows that exodus-on-open copies into the prefixed
+    // table (present on a normal open; absent under CLEO_DISABLE_EXODUS_ON_OPEN).
+    // Assert the DELTA this reconcile adds, not an env-dependent absolute count.
+    const commitsBaseline = await countRows(projectRoot, 'tasks_commits');
+
     const result = await releaseReconcileV2(VERSION, { projectRoot });
     expect(result.success).toBe(true);
     if (!result.success) return;
@@ -332,19 +330,17 @@ describe('releaseReconcileV2 — Phase 1 (T9526)', () => {
     expect(result.data.artifactCount).toBe(1);
     expect(result.data.orphanCommits).toHaveLength(0);
 
-    // Verify table populations. The T9755 migration backfills
-    // LEGACY_BACKFILL_COMMIT_COUNT legacy ship commits into the `commits`
-    // table on init; the 2 commits written by this reconcile sit on top of
-    // that baseline. `task_commits` is NOT touched by the backfill — none
-    // of the legacy SHAs carry T#### tokens that would seed task_commits —
-    // so its count remains a clean 2.
-    expect(await countRows(projectRoot, 'commits')).toBe(LEGACY_BACKFILL_COMMIT_COUNT + 2);
-    expect(await countRows(projectRoot, 'commit_files')).toBeGreaterThanOrEqual(2);
-    expect(await countRows(projectRoot, 'task_commits')).toBe(2);
-    expect(await countRows(projectRoot, 'releases')).toBe(1);
-    expect(await countRows(projectRoot, 'release_commits')).toBe(2);
-    expect(await countRows(projectRoot, 'release_changes')).toBe(2);
-    expect(await countRows(projectRoot, 'release_artifacts')).toBe(1);
+    // Verify table populations. This reconcile walked exactly 2 git commits, so
+    // `tasks_commits` grows by +2 over whatever baseline exodus seeded (the
+    // T9755 legacy bare-`commits` rows are copied into the prefixed table on a
+    // normal open) — see `commitsBaseline` above.
+    expect(await countRows(projectRoot, 'tasks_commits')).toBe(commitsBaseline + 2);
+    expect(await countRows(projectRoot, 'tasks_commit_files')).toBeGreaterThanOrEqual(2);
+    expect(await countRows(projectRoot, 'tasks_task_commits')).toBe(2);
+    expect(await countRows(projectRoot, 'tasks_releases')).toBe(1);
+    expect(await countRows(projectRoot, 'tasks_release_commits')).toBe(2);
+    expect(await countRows(projectRoot, 'tasks_release_changes')).toBe(2);
+    expect(await countRows(projectRoot, 'tasks_release_artifacts')).toBe(1);
   });
 
   it('archives only plan-scoped shipped changeset files after successful reconcile', async () => {
@@ -380,9 +376,9 @@ describe('releaseReconcileV2 — Phase 1 (T9526)', () => {
     const first = await releaseReconcileV2(VERSION, { projectRoot });
     expect(first.success).toBe(true);
 
-    const commitsAfterFirst = await countRows(projectRoot, 'commits');
-    const taskCommitsAfterFirst = await countRows(projectRoot, 'task_commits');
-    const changesAfterFirst = await countRows(projectRoot, 'release_changes');
+    const commitsAfterFirst = await countRows(projectRoot, 'tasks_commits');
+    const taskCommitsAfterFirst = await countRows(projectRoot, 'tasks_task_commits');
+    const changesAfterFirst = await countRows(projectRoot, 'tasks_release_changes');
 
     // Plan file is archived on success — restore for the second run.
     writePlan(projectRoot, VERSION, TASK_IDS);
@@ -393,9 +389,9 @@ describe('releaseReconcileV2 — Phase 1 (T9526)', () => {
     // Second run should report re-reconciliation.
     expect(second.data.reReconciled).toBe(true);
 
-    expect(await countRows(projectRoot, 'commits')).toBe(commitsAfterFirst);
-    expect(await countRows(projectRoot, 'task_commits')).toBe(taskCommitsAfterFirst);
-    expect(await countRows(projectRoot, 'release_changes')).toBe(changesAfterFirst);
+    expect(await countRows(projectRoot, 'tasks_commits')).toBe(commitsAfterFirst);
+    expect(await countRows(projectRoot, 'tasks_task_commits')).toBe(taskCommitsAfterFirst);
+    expect(await countRows(projectRoot, 'tasks_release_changes')).toBe(changesAfterFirst);
   });
 
   it('unknown T#### tokens are reported in meta.unknownTokens (non-fatal)', async () => {
@@ -409,7 +405,7 @@ describe('releaseReconcileV2 — Phase 1 (T9526)', () => {
     if (!result.success) return;
     expect(result.data.unknownTokens).toContain('T99999');
     // Real token still linked.
-    expect(await countRows(projectRoot, 'task_commits')).toBeGreaterThan(0);
+    expect(await countRows(projectRoot, 'tasks_task_commits')).toBeGreaterThan(0);
   });
 
   it('orphan commits (no T#### token) are surfaced in data.orphanCommits', async () => {
@@ -614,7 +610,7 @@ describe('releaseReconcileV2 — Phase 1 (T9526)', () => {
     const { sql } = await import('drizzle-orm');
     const db = await getDb(projectRoot);
     const rows = await db.all<{ change_type: string }>(
-      sql`SELECT change_type FROM release_changes WHERE task_id = ${taskId}`,
+      sql`SELECT change_type FROM tasks_release_changes WHERE task_id = ${taskId}`,
     );
     expect(rows[0]?.change_type).toBe('hotfix');
   });

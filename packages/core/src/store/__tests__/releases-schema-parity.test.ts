@@ -445,11 +445,14 @@ describe('T9686-B2 unification invariants', () => {
     expect(cols).toContain('tasksJson'); // legacy pipeline
   });
 
-  it('`releases` Drizzle table targets SQL table name "releases"', () => {
+  it('`releases` Drizzle binding targets the prefixed SQL table "tasks_releases" (T11883 cutover)', () => {
     const tableName =
       // @ts-expect-error — accessing internal Drizzle table name for test validation
       releases[Symbol.for('drizzle:Name')] ?? (releases as { _: { name: string } })._.name;
-    expect(tableName).toBe('releases');
+    // T11883 (E3) rebinds the runtime `releases` symbol from the bare `releases`
+    // table onto the consolidated, FK-free prefixed `tasks_releases`. The bare
+    // table is retired in E5; the runtime SSoT is now the prefixed table.
+    expect(tableName).toBe('tasks_releases');
   });
 });
 

@@ -41,14 +41,6 @@ const { DatabaseSync } = _require('node:sqlite') as {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-/**
- * Number of legacy v5.x ship/merge commits backfilled by the T9755 migration
- * (`20260520163324_t9755-backfill-legacy-ship-commits`). Every fresh tasks.db
- * starts with these rows already in the `commits` table, so tests that assert
- * absolute counts must shift by this baseline.
- */
-const LEGACY_BACKFILL_COMMIT_COUNT = 18;
-
 /** Resolve path to the drizzle-tasks migrations folder. */
 function migrationsDir(): string {
   return join(__dirname, '..', '..', '..', 'migrations', 'drizzle-tasks');
@@ -271,13 +263,13 @@ describe('provenanceBackfill — Phase 2 (T9528)', () => {
     expect(result.data.failedTags.length).toBe(0);
 
     // Table populations
-    expect(await countRows(projectRoot, 'commits')).toBeGreaterThanOrEqual(6);
-    expect(await countRows(projectRoot, 'commit_files')).toBeGreaterThanOrEqual(6);
-    expect(await countRows(projectRoot, 'task_commits')).toBeGreaterThanOrEqual(3);
-    expect(await countRows(projectRoot, 'releases')).toBe(3);
-    expect(await countRows(projectRoot, 'release_commits')).toBeGreaterThanOrEqual(6);
-    expect(await countRows(projectRoot, 'release_changes')).toBeGreaterThanOrEqual(3);
-    expect(await countRows(projectRoot, 'release_artifacts')).toBe(3);
+    expect(await countRows(projectRoot, 'tasks_commits')).toBeGreaterThanOrEqual(6);
+    expect(await countRows(projectRoot, 'tasks_commit_files')).toBeGreaterThanOrEqual(6);
+    expect(await countRows(projectRoot, 'tasks_task_commits')).toBeGreaterThanOrEqual(3);
+    expect(await countRows(projectRoot, 'tasks_releases')).toBe(3);
+    expect(await countRows(projectRoot, 'tasks_release_commits')).toBeGreaterThanOrEqual(6);
+    expect(await countRows(projectRoot, 'tasks_release_changes')).toBeGreaterThanOrEqual(3);
+    expect(await countRows(projectRoot, 'tasks_release_artifacts')).toBe(3);
 
     // Audit log written per tag.
     const auditRows = await countRows(projectRoot, 'audit_log');
@@ -292,16 +284,16 @@ describe('provenanceBackfill — Phase 2 (T9528)', () => {
     const first = await provenanceBackfill({ since: '', projectRoot });
     expect(first.success).toBe(true);
 
-    const commitsAfter1 = await countRows(projectRoot, 'commits');
-    const releasesAfter1 = await countRows(projectRoot, 'releases');
-    const taskCommitsAfter1 = await countRows(projectRoot, 'task_commits');
+    const commitsAfter1 = await countRows(projectRoot, 'tasks_commits');
+    const releasesAfter1 = await countRows(projectRoot, 'tasks_releases');
+    const taskCommitsAfter1 = await countRows(projectRoot, 'tasks_task_commits');
 
     const second = await provenanceBackfill({ since: '', projectRoot, resetCheckpoint: true });
     expect(second.success).toBe(true);
 
-    expect(await countRows(projectRoot, 'commits')).toBe(commitsAfter1);
-    expect(await countRows(projectRoot, 'releases')).toBe(releasesAfter1);
-    expect(await countRows(projectRoot, 'task_commits')).toBe(taskCommitsAfter1);
+    expect(await countRows(projectRoot, 'tasks_commits')).toBe(commitsAfter1);
+    expect(await countRows(projectRoot, 'tasks_releases')).toBe(releasesAfter1);
+    expect(await countRows(projectRoot, 'tasks_task_commits')).toBe(taskCommitsAfter1);
   });
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -332,7 +324,7 @@ describe('provenanceBackfill — Phase 2 (T9528)', () => {
     // All 3 should now be marked completed, only 1 actual reconcile happened.
     expect(result.data.completedTags.sort()).toEqual(['v1.0.0', 'v1.1.0', 'v1.2.0']);
     // Releases table should have just one row (only v1.2.0 was actually reconciled).
-    expect(await countRows(projectRoot, 'releases')).toBe(1);
+    expect(await countRows(projectRoot, 'tasks_releases')).toBe(1);
   });
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -359,7 +351,7 @@ describe('provenanceBackfill — Phase 2 (T9528)', () => {
     expect(result.success).toBe(true);
     if (!result.success) return;
     // With checkpoint cleared the walk re-runs every tag → releases table = 3.
-    expect(await countRows(projectRoot, 'releases')).toBe(3);
+    expect(await countRows(projectRoot, 'tasks_releases')).toBe(3);
     // After successful run with no failures, checkpoint is cleared.
     expect(loadCheckpoint(projectRoot)).toBeNull();
   });
@@ -369,6 +361,11 @@ describe('provenanceBackfill — Phase 2 (T9528)', () => {
   // ─────────────────────────────────────────────────────────────────────────
   it('dryRun enumerates tags but writes nothing to the provenance tables', async () => {
     await seedThreeReleases(projectRoot, ['T1001', 'T1002', 'T1003']);
+    // Baseline BEFORE the dry-run: `tasks_commits` may already hold the T9755
+    // legacy bare-`commits` rows that exodus-on-open copies into the prefixed
+    // table (absent under CLEO_DISABLE_EXODUS_ON_OPEN). A dry-run writes nothing,
+    // so the count must be unchanged from this baseline — env-independent.
+    const commitsBaseline = await countRows(projectRoot, 'tasks_commits');
     const result = await provenanceBackfill({ since: '', projectRoot, dryRun: true });
     expect(result.success).toBe(true);
     if (!result.success) return;
@@ -378,11 +375,10 @@ describe('provenanceBackfill — Phase 2 (T9528)', () => {
     expect(result.data.results.every((r) => r.status === 'skipped')).toBe(true);
 
     // Zero releases written.
-    expect(await countRows(projectRoot, 'releases')).toBe(0);
-    // The T9755 migration backfills LEGACY_BACKFILL_COMMIT_COUNT legacy ship
-    // commits on every fresh DB; the dry-run walks tags but writes no new
-    // commits, so the count stays at exactly the baked-in baseline.
-    expect(await countRows(projectRoot, 'commits')).toBe(LEGACY_BACKFILL_COMMIT_COUNT);
+    expect(await countRows(projectRoot, 'tasks_releases')).toBe(0);
+    // A write-free dry-run leaves `tasks_commits` unchanged from its baseline,
+    // whether or not exodus seeded the legacy rows.
+    expect(await countRows(projectRoot, 'tasks_commits')).toBe(commitsBaseline);
   });
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -395,7 +391,7 @@ describe('provenanceBackfill — Phase 2 (T9528)', () => {
     const first = await provenanceBackfill({ since: '', projectRoot });
     expect(first.success).toBe(true);
 
-    const releasesBefore = await countRows(projectRoot, 'releases');
+    const releasesBefore = await countRows(projectRoot, 'tasks_releases');
     const auditBefore = await countRows(projectRoot, 'audit_log');
 
     // Second run with forceOverwrite — should still no-op on row counts
@@ -408,7 +404,7 @@ describe('provenanceBackfill — Phase 2 (T9528)', () => {
     });
     expect(second.success).toBe(true);
 
-    expect(await countRows(projectRoot, 'releases')).toBe(releasesBefore);
+    expect(await countRows(projectRoot, 'tasks_releases')).toBe(releasesBefore);
     expect(await countRows(projectRoot, 'audit_log')).toBeGreaterThan(auditBefore);
   });
 
