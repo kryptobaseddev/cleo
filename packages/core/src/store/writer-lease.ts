@@ -153,7 +153,26 @@ const ACQUIRE_DEADLINE_MS = 30_000;
 /** Backoff between contended claim retries (ms). */
 const CLAIM_RETRY_DELAY_MS = 25;
 
-const log = getLogger('writer-lease');
+/**
+ * Lazily-memoized module logger.
+ *
+ * Constructed on first use rather than at import time. A top-level
+ * `getLogger(...)` call executes the `'../logger.js'` factory during module
+ * initialization, which — when this module is pulled into a test's mocked
+ * import graph via `dual-scope-db.ts` → `writer-lease.ts` — reaches a
+ * `vi.mock('../../logger.js')` factory before its module-scoped spy `const` has
+ * been initialized, throwing a TDZ `ReferenceError`. Deferring the call to the
+ * first log site keeps import-time side-effect-free and matches the
+ * call-inside-function pattern used by `dual-scope-db.ts` and
+ * `brain-writer-thread.ts`.
+ *
+ * @task T11627
+ */
+let _log: ReturnType<typeof getLogger> | null = null;
+function log(): ReturnType<typeof getLogger> {
+  if (_log === null) _log = getLogger('writer-lease');
+  return _log;
+}
 
 // ── Mode resolution ───────────────────────────────────────────────────────────
 
@@ -197,7 +216,7 @@ function effectiveMode(): Exclude<LeaseMode, 'supervisor'> {
   if (mode === 'supervisor') {
     if (!_supervisorDemotionLogged) {
       _supervisorDemotionLogged = true;
-      log.info(
+      log().info(
         'CLEO_WRITER_LEASE_MODE=supervisor but no IPC client is wired (ST-2); ' +
           'demoting to local-mode arbitration for the process lifetime.',
       );
@@ -556,7 +575,7 @@ class InternalLeaseHandle implements LeaseHandle {
         clearInterval(this.heartbeatTimer);
         this.heartbeatTimer = null;
       }
-      log.debug(
+      log().debug(
         { scope: this.scope, lane: this.lane, err: err instanceof Error ? err.message : err },
         'writer-lease heartbeat failed (native handle likely closed); stopping heartbeat',
       );
@@ -582,7 +601,7 @@ class InternalLeaseHandle implements LeaseHandle {
         )
         .run(this.scope, this.lane, this.holderId, this.epoch);
     } catch (err) {
-      log.debug(
+      log().debug(
         { scope: this.scope, lane: this.lane, err: err instanceof Error ? err.message : err },
         'writer-lease releaseRow failed (native handle likely closed); row freed by close/TTL',
       );
@@ -975,7 +994,7 @@ async function performFirstAcquire(
       // on the connection still serializes the actual write. A no-op handle writes
       // no row, starts no heartbeat, and is never memoized — so single-flight
       // followers find no memo entry and acquire freshly.
-      log.warn(
+      log().warn(
         { scope, lane },
         'writer-lease acquire deadline exceeded; proceeding under busy_timeout fallback (degraded)',
       );
@@ -1070,6 +1089,30 @@ export async function withWriterLease<T>(
  * tables came from here or from the migration.
  */
 const COLD_OPEN_LEASE_BOOTSTRAP_DDL: readonly string[] = [
+  // Reserve rootpage 2 for drizzle's migration journal — the FIRST table drizzle
+  // `migrate()` creates on a fresh DB — BEFORE the lease tables claim it.
+  //
+  // SQLite assigns b-tree rootpages sequentially: the first `CREATE TABLE` on an
+  // empty file takes page 2. Bootstrapping the lease tables here (a prerequisite of
+  // the cold-open claim txn, which runs BEFORE the data migrations inside `fn`)
+  // would otherwise plant the EMPTY `_writer_leases` table at page 2. After the
+  // cold-open lease releases (`active = 0`), that page is an empty leaf — so a DB
+  // whose page-2 bytes are later scribbled is NOT flagged by `PRAGMA
+  // integrity_check` (no cells to traverse), silently masking real corruption that
+  // `cleo doctor` / project-health probes must detect. Pre-creating the journal
+  // table (identical DDL to migration-manager's reconcile path) keeps page 2 owned
+  // by the always-populated `__drizzle_migrations` table exactly as on a lease-free
+  // open — the corruption-detection contract is preserved and the heal is unchanged.
+  // `IF NOT EXISTS` → a no-op re-running over an already-migrated DB.
+  //
+  // @task T11627
+  `CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
+     id INTEGER PRIMARY KEY,
+     hash text NOT NULL,
+     created_at numeric,
+     name text,
+     applied_at TEXT
+   )`,
   `CREATE TABLE IF NOT EXISTS ${WRITER_LEASES_TABLE} (
      id INTEGER PRIMARY KEY,
      scope TEXT NOT NULL,
@@ -1206,7 +1249,7 @@ export async function withColdOpenLease<T>(
       }
       // local/supervisor: degrade to today's behaviour — run the cold-open under
       // busy_timeout, which still serializes the migrate write-txn.
-      log.warn(
+      log().warn(
         { scope },
         'cold-open writer-lease acquire deadline exceeded; proceeding under ' +
           'busy_timeout fallback (degraded)',
