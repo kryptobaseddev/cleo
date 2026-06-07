@@ -29,7 +29,8 @@
  * state machine and `cleo go` drives IVTR through it. The flag is retained for
  * **one deprecation cycle** as an opt-OUT kill-switch — set
  * `CLEO_GO_VIA_PLAYBOOK=0` (or `false`/`no`/`off`) to restore the legacy
- * `startIvtr` seed for a single release if a cantbook-path regression surfaces.
+ * `ivtr_state` seed (`seedIvtrForPlaybook`, byte-identical to the retired
+ * `startIvtr`) for a single release if a cantbook-path regression surfaces.
  *
  * - **Flag ON (default)** — fan out an injected {@link IvtrRunner} — supplied
  *   by the CLI `cleo go` handler — that drives each task through
@@ -39,9 +40,9 @@
  *   gate reflects the cantbook run. The runtime's
  *   `on_failure.inject_into: implement` edge reproduces the IVTR loop-back walk.
  * - **Flag OFF (opt-out kill-switch)** OR **no runner injected** — seed each
- *   ready task via the legacy `startIvtr` phase walk (byte-identical to the
- *   pre-T11805 behaviour); the seam is a no-op. This fallback is retained for
- *   one release so a regression in the cantbook path can never strand autopilot.
+ *   ready task's `ivtr_state` via `seedIvtrForPlaybook` (byte-identical to the
+ *   retired `startIvtr` seed); the seam is a no-op. This fallback is retained
+ *   for one release so a cantbook-path regression can never strand autopilot.
  *
  * The driver stays in `@cleocode/core` and must NOT import `@cleocode/playbooks`
  * (that would invert the package dependency), so the runtime call is injected
@@ -64,7 +65,7 @@
 import type { TaskViewPipelineStage } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { armGoalLoop } from '../goal/arm.js';
-import { startIvtr } from '../lifecycle/ivtr-loop.js';
+import { seedIvtrForPlaybook } from '../lifecycle/ivtr-loop.js';
 import { orchestrateReady } from '../orchestrate/query-ops.js';
 import { getProjectRoot } from '../paths.js';
 import { sagaNext } from '../sagas/next.js';
@@ -78,8 +79,8 @@ import { sagaNext } from '../sagas/next.js';
  * opt-OUT kill-switch. When unset (or any truthy value) the implementation-stage
  * branch drives the injected {@link IvtrRunner}
  * (`executePlaybook(ivtr.cantbook)`). Set `CLEO_GO_VIA_PLAYBOOK=0` (or
- * `false`/`no`/`off`) to restore the legacy {@link startIvtr} phase seed
- * (byte-identical to the pre-T11805 behaviour) for a single release if a
+ * `false`/`no`/`off`) to restore the legacy `seedIvtrForPlaybook` seed
+ * (byte-identical to the retired `startIvtr`) for a single release if a
  * cantbook-path regression surfaces. The kill-switch is removed in a follow-up
  * once the cantbook path has baked.
  */
@@ -191,8 +192,8 @@ export interface CleoGoParams {
    * shipped default path (T11896) gated by {@link CLEO_GO_VIA_PLAYBOOK_ENV}.
    * Injected by the CLI handler so the core driver never imports the playbooks
    * runtime. When the kill-switch is set (`CLEO_GO_VIA_PLAYBOOK=0`) or this is
-   * omitted, the driver falls back to the legacy `startIvtr` seed for the
-   * implementation+ branch (no behaviour is silently skipped).
+   * omitted, the driver falls back to the legacy `seedIvtrForPlaybook` seed for
+   * the implementation+ branch (no behaviour is silently skipped).
    */
   ivtrRunner?: IvtrRunner;
   /**
@@ -434,30 +435,34 @@ export async function cleoGo(params: CleoGoParams = {}): Promise<EngineResult<Cl
   //      injected by the CLI handler so the core driver never imports
   //      `@cleocode/playbooks`. This is the shipped autopilot hot path.
   //    - Flag OFF (kill-switch `CLEO_GO_VIA_PLAYBOOK=0`) OR no runner injected →
-  //      seed each ready task via the hand-rolled `startIvtr` phase walk
-  //      (byte-identical to the pre-T11805 behaviour), retained for one release.
+  //      seed each ready task's `ivtr_state` via `seedIvtrForPlaybook`
+  //      (byte-identical to the retired `startIvtr` seed), retained one release.
   const ivtrStarted: string[] = [];
   const ivtrRunIds: string[] = [];
 
   const seamEnabled = isPlaybookSeamEnabled();
 
   if (!seamEnabled || !params.ivtrRunner) {
-    // Fallback path: legacy `startIvtr` seed (kill-switch set or no runner).
+    // Fallback path: legacy `ivtr_state` seed (kill-switch set or no runner).
     if (params.ivtrRunner && !seamEnabled) {
       diagnostics.push(
-        `IVTR cantbook seam disabled (${CLEO_GO_VIA_PLAYBOOK_ENV}=0 kill-switch) — using legacy startIvtr seed`,
+        `IVTR cantbook seam disabled (${CLEO_GO_VIA_PLAYBOOK_ENV}=0 kill-switch) — using legacy fallback seed`,
       );
     } else if (!params.ivtrRunner) {
-      diagnostics.push('IVTR runner not provided — using legacy startIvtr seed');
+      diagnostics.push('IVTR runner not provided — using legacy fallback seed');
     }
 
     for (const taskId of readyFrontier) {
       try {
-        await startIvtr(taskId, { cwd: root });
+        // The legacy seed is now `seedIvtrForPlaybook` — byte-identical to the
+        // retired `startIvtr` (both share `buildInitialIvtrState`), so the
+        // kill-switch fallback produces the same `ivtr_state` row while the
+        // hand-rolled `startIvtr` walk function is deleted (T11896 AC3).
+        await seedIvtrForPlaybook(taskId, { cwd: root });
         ivtrStarted.push(taskId);
-        diagnostics.push(`IVTR started for ${taskId} (startIvtr seed)`);
+        diagnostics.push(`IVTR seeded for ${taskId} (legacy fallback seed)`);
       } catch (err: unknown) {
-        diagnostics.push(`IVTR start failed for ${taskId}: ${(err as Error).message}`);
+        diagnostics.push(`IVTR seed failed for ${taskId}: ${(err as Error).message}`);
       }
     }
 

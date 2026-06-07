@@ -9,8 +9,10 @@
  *
  * The test stubs out the imported engines (sagaNext, orchestrateReady,
  * armGoalLoop) so no DB or filesystem is touched. The IVTR seam (T11805) is now
- * an *injected* runner — `cleoGo` no longer imports `startIvtr` — so the fan-out
- * scenarios pass a mock {@link go.IvtrRunner} via `params.ivtrRunner`.
+ * an *injected* runner — the default cantbook path (T11896) — so the fan-out
+ * scenarios pass a mock {@link go.IvtrRunner} via `params.ivtrRunner`. The
+ * kill-switch (`CLEO_GO_VIA_PLAYBOOK=0`) fallback seeds via the retained
+ * `seedIvtrForPlaybook` (byte-identical to the deleted `startIvtr`).
  *
  * @task T11494 — E2-CLEO-GO
  * @task T11805 — IVTR seam: injected `executePlaybook(ivtr.cantbook)` runner
@@ -29,7 +31,7 @@ const mockSagaNext = vi.fn();
 const mockOrchestrateReady = vi.fn();
 const mockIvtrRunner = vi.fn();
 const mockArmGoalLoop = vi.fn();
-const mockStartIvtr = vi.fn();
+const mockSeedIvtr = vi.fn();
 
 /** Injected IVTR runner under test (T11805). */
 const ivtrRunner: IvtrRunner = (...args) => mockIvtrRunner(...args);
@@ -50,10 +52,11 @@ vi.mock('../../paths.js', () => ({
   getProjectRoot: (_p?: string) => _p ?? '/test/root',
 }));
 
-// T11805 — the driver now imports `startIvtr` for the flag-OFF fallback path
-// (Risk #1 mitigation). Stub it so the fallback never touches a real DB.
+// T11896 — the kill-switch fallback now seeds `ivtr_state` via the retained
+// `seedIvtrForPlaybook` (byte-identical to the deleted `startIvtr`). Stub it so
+// the fallback path never touches a real DB.
 vi.mock('../../lifecycle/ivtr-loop.js', () => ({
-  startIvtr: (...args: unknown[]) => mockStartIvtr(...args),
+  seedIvtrForPlaybook: (...args: unknown[]) => mockSeedIvtr(...args),
 }));
 
 // ---------------------------------------------------------------------------
@@ -106,7 +109,7 @@ describe('cleoGo driver (T11494)', () => {
     vi.clearAllMocks();
     mockIvtrRunner.mockResolvedValue({ taskId: 'T999', runId: 'pbr_999' });
     mockArmGoalLoop.mockResolvedValue({ id: 'g-armed-1', status: 'active' });
-    mockStartIvtr.mockResolvedValue({ taskId: 'T999', currentPhase: 'implement' });
+    mockSeedIvtr.mockResolvedValue({ taskId: 'T999', currentPhase: 'implement' });
     // The cantbook seam defaults ON (T11896) — leaving the env unset already
     // exercises the seam path. We clear it here so the default-ON behaviour is
     // what the fan-out tests assert; the dedicated kill-switch test below sets
@@ -295,7 +298,7 @@ describe('cleoGo driver (T11494)', () => {
       });
     });
 
-    it('falls back to startIvtr when no runner is injected (no silent skip)', async () => {
+    it('falls back to the legacy seed when no runner is injected (no silent skip)', async () => {
       mockSagaNext.mockResolvedValue({
         success: true,
         data: makeSagaNextResult({
@@ -319,27 +322,27 @@ describe('cleoGo driver (T11494)', () => {
         makeReadyResult([{ id: 'T102', pipelineStage: 'implementation', parentId: 'T101' }]),
       );
 
-      // Flag ON but no runner → fallback to startIvtr (no silent skip).
+      // Flag ON but no runner → fallback to the legacy seed (no silent skip).
       const result = await cleoGo({ sagaId: 'T100' });
       expect(result.success).toBe(true);
       const outcome = result.data?.outcome;
       expect(outcome?.action).toBe('ivtrFanOut');
       if (outcome?.action === 'ivtrFanOut') {
-        // Fallback path seeds via startIvtr — the task IS surfaced.
+        // Fallback path seeds via seedIvtrForPlaybook — the task IS surfaced.
         expect(outcome.tasks).toEqual(['T102']);
         expect(outcome.runIds).toEqual([]);
       }
-      expect(mockStartIvtr).toHaveBeenCalledTimes(1);
-      expect(mockStartIvtr.mock.calls[0]?.[0]).toBe('T102');
+      expect(mockSeedIvtr).toHaveBeenCalledTimes(1);
+      expect(mockSeedIvtr.mock.calls[0]?.[0]).toBe('T102');
       expect(mockIvtrRunner).not.toHaveBeenCalled();
       expect(result.data?.diagnostics.some((d) => d.includes('runner not provided'))).toBe(true);
     });
 
     // ---- Risk #1 mitigation: feature flag gates the cantbook seam ----------
 
-    it('kill-switch CLEO_GO_VIA_PLAYBOOK=0: falls back to startIvtr even when a runner IS injected', async () => {
+    it('kill-switch CLEO_GO_VIA_PLAYBOOK=0: falls back to the legacy seed even when a runner IS injected', async () => {
       // T11896 — the seam defaults ON; the explicit `=0` kill-switch restores
-      // the legacy startIvtr seed for one deprecation cycle.
+      // the legacy seedIvtrForPlaybook seed for one deprecation cycle.
       process.env[CLEO_GO_VIA_PLAYBOOK_ENV] = '0';
       mockSagaNext.mockResolvedValue({
         success: true,
@@ -377,11 +380,11 @@ describe('cleoGo driver (T11494)', () => {
       }
       // The injected cantbook runner is NOT called when the flag is OFF.
       expect(mockIvtrRunner).not.toHaveBeenCalled();
-      expect(mockStartIvtr).toHaveBeenCalledTimes(2);
+      expect(mockSeedIvtr).toHaveBeenCalledTimes(2);
       expect(result.data?.diagnostics.some((d) => d.includes('seam disabled'))).toBe(true);
     });
 
-    it('flag ON: drives the injected cantbook runner instead of startIvtr', async () => {
+    it('flag ON: drives the injected cantbook runner instead of the legacy seed', async () => {
       process.env[CLEO_GO_VIA_PLAYBOOK_ENV] = 'true';
       mockSagaNext.mockResolvedValue({
         success: true,
@@ -419,7 +422,7 @@ describe('cleoGo driver (T11494)', () => {
         expect(outcome.runIds).toEqual(['pbr_102']);
       }
       expect(mockIvtrRunner).toHaveBeenCalledTimes(1);
-      expect(mockStartIvtr).not.toHaveBeenCalled();
+      expect(mockSeedIvtr).not.toHaveBeenCalled();
     });
 
     it('gracefully handles IVTR start failures and reports in diagnostics', async () => {
