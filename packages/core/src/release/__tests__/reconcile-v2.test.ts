@@ -313,6 +313,12 @@ describe('releaseReconcileV2 — Phase 1 (T9526)', () => {
     gitCommit(projectRoot, 'b.txt', '2', `feat(${TASK_IDS[1]}): ship b\n\nRefs: ${TASK_IDS[1]}`);
     gitTag(projectRoot, VERSION);
 
+    // Baseline BEFORE reconcile: `tasks_commits` may already hold the T9755
+    // legacy bare-`commits` rows that exodus-on-open copies into the prefixed
+    // table (present on a normal open; absent under CLEO_DISABLE_EXODUS_ON_OPEN).
+    // Assert the DELTA this reconcile adds, not an env-dependent absolute count.
+    const commitsBaseline = await countRows(projectRoot, 'tasks_commits');
+
     const result = await releaseReconcileV2(VERSION, { projectRoot });
     expect(result.success).toBe(true);
     if (!result.success) return;
@@ -324,12 +330,11 @@ describe('releaseReconcileV2 — Phase 1 (T9526)', () => {
     expect(result.data.artifactCount).toBe(1);
     expect(result.data.orphanCommits).toHaveLength(0);
 
-    // Verify table populations. Post-cutover (T11883 · E3) the runtime reads
-    // the PREFIXED `tasks_commits` table. The T9755 migration backfills 18
-    // legacy ship commits into the BARE `commits` table only (its INSERT
-    // targets `commits`, not `tasks_commits`), so the prefixed table carries no
-    // legacy baseline — it holds exactly the 2 commits this reconcile walked.
-    expect(await countRows(projectRoot, 'tasks_commits')).toBe(2);
+    // Verify table populations. This reconcile walked exactly 2 git commits, so
+    // `tasks_commits` grows by +2 over whatever baseline exodus seeded (the
+    // T9755 legacy bare-`commits` rows are copied into the prefixed table on a
+    // normal open) — see `commitsBaseline` above.
+    expect(await countRows(projectRoot, 'tasks_commits')).toBe(commitsBaseline + 2);
     expect(await countRows(projectRoot, 'tasks_commit_files')).toBeGreaterThanOrEqual(2);
     expect(await countRows(projectRoot, 'tasks_task_commits')).toBe(2);
     expect(await countRows(projectRoot, 'tasks_releases')).toBe(1);

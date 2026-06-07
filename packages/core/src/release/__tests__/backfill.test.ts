@@ -361,6 +361,11 @@ describe('provenanceBackfill — Phase 2 (T9528)', () => {
   // ─────────────────────────────────────────────────────────────────────────
   it('dryRun enumerates tags but writes nothing to the provenance tables', async () => {
     await seedThreeReleases(projectRoot, ['T1001', 'T1002', 'T1003']);
+    // Baseline BEFORE the dry-run: `tasks_commits` may already hold the T9755
+    // legacy bare-`commits` rows that exodus-on-open copies into the prefixed
+    // table (absent under CLEO_DISABLE_EXODUS_ON_OPEN). A dry-run writes nothing,
+    // so the count must be unchanged from this baseline — env-independent.
+    const commitsBaseline = await countRows(projectRoot, 'tasks_commits');
     const result = await provenanceBackfill({ since: '', projectRoot, dryRun: true });
     expect(result.success).toBe(true);
     if (!result.success) return;
@@ -371,11 +376,9 @@ describe('provenanceBackfill — Phase 2 (T9528)', () => {
 
     // Zero releases written.
     expect(await countRows(projectRoot, 'tasks_releases')).toBe(0);
-    // Post-cutover (T11883 · E3) the runtime reads the PREFIXED `tasks_commits`
-    // table. The T9755 legacy backfill targets the BARE `commits` table only,
-    // so the prefixed table has no baked-in baseline; a write-free dry-run
-    // therefore leaves it empty.
-    expect(await countRows(projectRoot, 'tasks_commits')).toBe(0);
+    // A write-free dry-run leaves `tasks_commits` unchanged from its baseline,
+    // whether or not exodus seeded the legacy rows.
+    expect(await countRows(projectRoot, 'tasks_commits')).toBe(commitsBaseline);
   });
 
   // ─────────────────────────────────────────────────────────────────────────
