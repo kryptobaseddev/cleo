@@ -121,6 +121,17 @@ export interface Session {
   previousSessionId?: string | null;
   /** ID of the session that follows this one. @defaultValue undefined */
   nextSessionId?: string | null;
+  /**
+   * ID of the fork-tree PARENT session that spawned this one (T11639).
+   *
+   * Sourced from `CLEO_PARENT_SESSION_ID` (stamped by the supervisor — T11629).
+   * Distinct from {@link Session.previousSessionId} (the linear resume chain):
+   * `parentSessionId` is the orchestrator→worker spawn edge. NULL/undefined for a
+   * root session with no spawning parent.
+   *
+   * @defaultValue undefined
+   */
+  parentSessionId?: string | null;
   /** Provider-specific agent identifier string. @defaultValue undefined */
   agentIdentifier?: string | null;
   /** ISO 8601 timestamp of when the handoff was consumed. @defaultValue undefined */

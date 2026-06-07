@@ -262,6 +262,18 @@ export async function persistHandoff(
     }
     throw err;
   }
+
+  // T11639: best-effort refresh the GLOBAL session_manifest on handoff (a session-
+  // state event). Re-reads the authoritative project row → re-projects the mirror.
+  // Swallows all errors — a mirror failure NEVER fails handoff persistence (AC3).
+  // Fire-and-forget.
+  import('./session-manifest-mirror.js')
+    .then(({ reconcileSessionManifestOnStart }) =>
+      reconcileSessionManifestOnStart(projectRoot, sessionId),
+    )
+    .catch(() => {
+      /* mirror is best-effort — never block handoff persistence */
+    });
 }
 
 /**
