@@ -188,7 +188,6 @@ name = "cant-napi"
 version = "2026.5.105"
 dependencies = [
  "cant-core",
- "cant-router",
  "cant-runtime",
  "napi",
  "napi-build 1.2.1",

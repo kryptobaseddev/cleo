@@ -21,6 +21,7 @@ import { join } from 'node:path';
 import { and, count, desc, gt, lt, sql } from 'drizzle-orm';
 import { getCleoHome } from '../paths.js';
 import { telemetryEvents } from '../store/schema/telemetry-schema.js';
+import { withWriterLease } from '../store/writer-lease.js';
 import { getTelemetryDb } from './sqlite.js';
 
 // ---------------------------------------------------------------------------
@@ -59,10 +60,15 @@ async function _flushTelemetryBuffer(): Promise<void> {
   _flushInProgress = true;
   const batch = _telemetryBuffer.splice(0, _telemetryBuffer.length);
   try {
-    const db = await getTelemetryDb();
-    for (const row of batch) {
-      await db.insert(telemetryEvents).values(row).run();
-    }
+    // Seam 3 (T11627): telemetry.db is a raw bypass writer (global-tier, sidesteps
+    // the tasks chokepoint). Hold the global `bulk` lease for the whole flush batch
+    // so the writes serialize against other writers. `off` mode → pass-through.
+    await withWriterLease('global', 'bulk', async () => {
+      const db = await getTelemetryDb();
+      for (const row of batch) {
+        await db.insert(telemetryEvents).values(row).run();
+      }
+    });
   } catch {
     // Non-fatal — telemetry flush must never surface errors.
   } finally {

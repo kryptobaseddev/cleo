@@ -28,6 +28,7 @@ import type {
 } from '@cleocode/contracts';
 import { resolveOrCwd } from '../paths.js';
 import { getConduitDbPath, openFreshConduitDb } from '../store/conduit-sqlite.js';
+import { withWriterLease } from '../store/writer-lease.js';
 
 /**
  * Parse an A2A topic name into its epic_id and optional wave_id components.
@@ -167,19 +168,22 @@ export class LocalTransport implements Transport {
     // TEXT ISO-8601 (CHECK enforces the ISO GLOB) — write ISO, not epoch.
     const nowIso = new Date().toISOString();
 
-    if (options?.conversationId) {
-      db.prepare(
-        `INSERT INTO conduit_messages (id, conversation_id, from_agent_id, to_agent_id, content, content_type, status, created_at)
+    // Seam 3 (T11627): hold the project `bulk` lease for the conduit write.
+    await this.runWrite(() => {
+      if (options?.conversationId) {
+        db.prepare(
+          `INSERT INTO conduit_messages (id, conversation_id, from_agent_id, to_agent_id, content, content_type, status, created_at)
          VALUES (?, ?, ?, ?, ?, 'text', 'pending', ?)`,
-      ).run(messageId, options.conversationId, agentId, to, content, nowIso);
-    } else {
-      // Direct message — create or reuse a DM conversation
-      const convId = this.ensureDmConversation(agentId, to);
-      db.prepare(
-        `INSERT INTO conduit_messages (id, conversation_id, from_agent_id, to_agent_id, content, content_type, status, created_at)
+        ).run(messageId, options.conversationId, agentId, to, content, nowIso);
+      } else {
+        // Direct message — create or reuse a DM conversation
+        const convId = this.ensureDmConversation(agentId, to);
+        db.prepare(
+          `INSERT INTO conduit_messages (id, conversation_id, from_agent_id, to_agent_id, content, content_type, status, created_at)
          VALUES (?, ?, ?, ?, ?, 'text', 'pending', ?)`,
-      ).run(messageId, convId, agentId, to, content, nowIso);
-    }
+        ).run(messageId, convId, agentId, to, content, nowIso);
+      }
+    });
 
     // Notify local subscribers
     this.notifySubscribers({
@@ -259,9 +263,12 @@ export class LocalTransport implements Transport {
     const nowIso = new Date().toISOString();
 
     const placeholders = messageIds.map(() => '?').join(', ');
-    db.prepare(
-      `UPDATE conduit_messages SET status = 'delivered', delivered_at = ? WHERE id IN (${placeholders})`,
-    ).run(nowIso, ...messageIds);
+    // Seam 3 (T11627): hold the project `bulk` lease for the conduit write.
+    await this.runWrite(() => {
+      db.prepare(
+        `UPDATE conduit_messages SET status = 'delivered', delivered_at = ? WHERE id IN (${placeholders})`,
+      ).run(nowIso, ...messageIds);
+    });
   }
 
   /**
@@ -318,24 +325,27 @@ export class LocalTransport implements Transport {
     const { epicId, waveId } = parseTopicName(topicName);
     const topicId = randomUUID();
 
-    // Create topic if absent
-    db.prepare(
-      `INSERT INTO conduit_topics (id, name, epic_id, wave_id, created_by, created_at)
+    // Seam 3 (T11627): hold the project `bulk` lease for the conduit writes.
+    await this.runWrite(() => {
+      // Create topic if absent
+      db.prepare(
+        `INSERT INTO conduit_topics (id, name, epic_id, wave_id, created_by, created_at)
        VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(name) DO NOTHING`,
-    ).run(topicId, topicName, epicId, waveId ?? null, agentId, nowIso);
+      ).run(topicId, topicName, epicId, waveId ?? null, agentId, nowIso);
 
-    // Resolve the actual topic id (might have been inserted above or pre-existing)
-    const topic = db.prepare('SELECT id FROM conduit_topics WHERE name = ?').get(topicName) as
-      | { id: string }
-      | undefined;
-    if (!topic) return; // Should not happen; inserted above
+      // Resolve the actual topic id (might have been inserted above or pre-existing)
+      const topic = db.prepare('SELECT id FROM conduit_topics WHERE name = ?').get(topicName) as
+        | { id: string }
+        | undefined;
+      if (!topic) return; // Should not happen; inserted above
 
-    db.prepare(
-      `INSERT INTO conduit_topic_subscriptions (topic_id, agent_id, subscribed_at)
+      db.prepare(
+        `INSERT INTO conduit_topic_subscriptions (topic_id, agent_id, subscribed_at)
        VALUES (?, ?, ?)
        ON CONFLICT(topic_id, agent_id) DO NOTHING`,
-    ).run(topic.id, agentId, nowIso);
+      ).run(topic.id, agentId, nowIso);
+    });
   }
 
   /**
@@ -370,31 +380,35 @@ export class LocalTransport implements Transport {
     // Ensure topic exists (auto-create if publisher subscribes lazily)
     const { epicId, waveId } = parseTopicName(topicName);
     const topicInsertId = randomUUID();
-    db.prepare(
-      `INSERT INTO conduit_topics (id, name, epic_id, wave_id, created_by, created_at)
+
+    // Seam 3 (T11627): hold the project `bulk` lease for the conduit writes.
+    await this.runWrite(() => {
+      db.prepare(
+        `INSERT INTO conduit_topics (id, name, epic_id, wave_id, created_by, created_at)
        VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(name) DO NOTHING`,
-    ).run(topicInsertId, topicName, epicId, waveId ?? null, agentId, nowIso);
+      ).run(topicInsertId, topicName, epicId, waveId ?? null, agentId, nowIso);
 
-    const topic = db.prepare('SELECT id FROM conduit_topics WHERE name = ?').get(topicName) as
-      | { id: string }
-      | undefined;
-    if (!topic) {
-      throw new Error(`LocalTransport.publishToTopic: could not resolve topic "${topicName}"`);
-    }
+      const topic = db.prepare('SELECT id FROM conduit_topics WHERE name = ?').get(topicName) as
+        | { id: string }
+        | undefined;
+      if (!topic) {
+        throw new Error(`LocalTransport.publishToTopic: could not resolve topic "${topicName}"`);
+      }
 
-    db.prepare(
-      `INSERT INTO conduit_topic_messages (id, topic_id, from_agent_id, kind, content, payload, created_at)
+      db.prepare(
+        `INSERT INTO conduit_topic_messages (id, topic_id, from_agent_id, kind, content, payload, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-      messageId,
-      topic.id,
-      agentId,
-      kind,
-      content,
-      options?.payload != null ? JSON.stringify(options.payload) : null,
-      nowIso,
-    );
+      ).run(
+        messageId,
+        topic.id,
+        agentId,
+        kind,
+        content,
+        options?.payload != null ? JSON.stringify(options.payload) : null,
+        nowIso,
+      );
+    });
 
     // Notify in-process topic handlers immediately
     this.notifyTopicHandlers(topicName, {
@@ -477,10 +491,13 @@ export class LocalTransport implements Transport {
       | undefined;
     if (!topic) return; // Topic doesn't exist — nothing to do
 
-    db.prepare('DELETE FROM conduit_topic_subscriptions WHERE topic_id = ? AND agent_id = ?').run(
-      topic.id,
-      agentId,
-    );
+    // Seam 3 (T11627): hold the project `bulk` lease for the conduit write.
+    await this.runWrite(() => {
+      db.prepare('DELETE FROM conduit_topic_subscriptions WHERE topic_id = ? AND agent_id = ?').run(
+        topic.id,
+        agentId,
+      );
+    });
   }
 
   /**
@@ -665,5 +682,20 @@ export class LocalTransport implements Transport {
     if (!this.state) {
       throw new Error('LocalTransport not connected. Call connect() first.');
     }
+  }
+
+  /**
+   * Seam 3 (T11627): conduit.db is a raw bypass writer (project-tier, sidesteps
+   * the tasks chokepoint via its own `openFreshConduitDb` handle). Hold the
+   * project `bulk` lease around a synchronous write block so conduit writes
+   * serialize against other writers on the same scope. `off` mode → pass-through
+   * (busy_timeout serializes as before). The wrapped `fn` is synchronous because
+   * every conduit write is a synchronous `db.prepare(...).run(...)`.
+   *
+   * @param fn - The synchronous write block to run under the lease.
+   * @returns The value returned by `fn`.
+   */
+  private runWrite<T>(fn: () => T): Promise<T> {
+    return withWriterLease('project', 'bulk', async () => fn());
   }
 }
