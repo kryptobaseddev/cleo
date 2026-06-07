@@ -525,6 +525,15 @@ export const sessions = sqliteTable(
     nextSessionId: text('next_session_id').references((): AnySQLiteColumn => sessions.id, {
       onDelete: 'set null',
     }),
+    /**
+     * Fork-tree PARENT session pointer (self-FK · T11639). The orchestrator→worker
+     * spawn edge, sourced from `CLEO_PARENT_SESSION_ID` (stamped by the supervisor,
+     * T11629). Distinct from `previousSessionId` (the linear resume chain). NULL for
+     * a root session. Nullable, `ON DELETE SET NULL`.
+     */
+    parentSessionId: text('parent_session_id').references((): AnySQLiteColumn => sessions.id, {
+      onDelete: 'set null',
+    }),
     agentIdentifier: text('agent_identifier'),
     handoffConsumedAt: text('handoff_consumed_at'),
     handoffConsumedBy: text('handoff_consumed_by'),
@@ -550,6 +559,7 @@ export const sessions = sqliteTable(
   (table) => [
     index('idx_sessions_status').on(table.status),
     index('idx_sessions_previous').on(table.previousSessionId),
+    index('idx_sessions_parent').on(table.parentSessionId),
     index('idx_sessions_agent_identifier').on(table.agentIdentifier),
     index('idx_sessions_started_at').on(table.startedAt),
     // T033 composite index: getActiveSession hot path

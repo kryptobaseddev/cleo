@@ -214,6 +214,8 @@ export async function upsertSession(db: DrizzleDb, session: Session): Promise<vo
     // Session chain fields (T4959)
     previousSessionId: session.previousSessionId ?? null,
     nextSessionId: session.nextSessionId ?? null,
+    // Fork-tree parent edge (T11639) — sourced from CLEO_PARENT_SESSION_ID at start.
+    parentSessionId: session.parentSessionId ?? null,
     agentIdentifier: session.agentIdentifier ?? null,
     handoffConsumedAt: session.handoffConsumedAt ?? null,
     handoffConsumedBy: session.handoffConsumedBy ?? null,

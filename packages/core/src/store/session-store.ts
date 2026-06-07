@@ -35,6 +35,8 @@ export async function createSession(session: Session, cwd?: string): Promise<Ses
       tasksCreatedJson: session.tasksCreated ? JSON.stringify(session.tasksCreated) : '[]',
       startedAt: session.startedAt,
       endedAt: session.endedAt,
+      // Fork-tree parent edge (T11639) — sourced from CLEO_PARENT_SESSION_ID at start.
+      parentSessionId: session.parentSessionId ?? null,
     })
     .run();
 
@@ -80,6 +82,8 @@ export async function updateSession(
   if (updates.previousSessionId !== undefined)
     updateRow.previousSessionId = updates.previousSessionId;
   if (updates.nextSessionId !== undefined) updateRow.nextSessionId = updates.nextSessionId;
+  // Fork-tree parent edge (T11639)
+  if (updates.parentSessionId !== undefined) updateRow.parentSessionId = updates.parentSessionId;
   if (updates.agentIdentifier !== undefined) updateRow.agentIdentifier = updates.agentIdentifier;
   if (updates.handoffConsumedAt !== undefined)
     updateRow.handoffConsumedAt = updates.handoffConsumedAt;
