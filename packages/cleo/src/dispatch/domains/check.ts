@@ -20,7 +20,6 @@ import type {
   ValidateArchiveStatsParams,
   ValidateCanonDocsParams,
   ValidateCanonParams,
-  ValidateChainParams,
   ValidateCoherenceParams,
   ValidateComplianceRecordParams,
   ValidateComplianceSummaryParams,
@@ -50,7 +49,6 @@ import {
   checkTestCoverage,
   checkTestRun,
   checkTestStatus,
-  checkValidateChain,
   checkValidateManifest,
   checkValidateOutput,
   checkValidateProtocol,
@@ -490,16 +488,6 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     }
   },
 
-  'chain.validate': async (params: ValidateChainParams) => {
-    if (!params.chain) {
-      return lafsError('E_INVALID_INPUT', 'chain is required', 'chain.validate');
-    }
-    // chain.validate is a pure-function check (no project state); pass empty
-    // projectRoot string to satisfy the normalized (projectRoot, params) shape.
-    const chainResult = checkValidateChain('', params);
-    return lafsSuccess(chainResult, 'chain.validate');
-  },
-
   grade: async (params: ValidateGradeParams) => {
     const projectRoot = getProjectRoot();
     if (!params.sessionId) {
@@ -794,7 +782,6 @@ export class CheckHandler implements DomainHandler {
         'archive.stats',
         'grade',
         'grade.list',
-        'chain.validate',
         'canon',
         'canon.docs',
         'verify.explain',

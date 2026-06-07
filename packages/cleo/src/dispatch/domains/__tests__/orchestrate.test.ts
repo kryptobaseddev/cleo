@@ -30,17 +30,6 @@ vi.mock('../../../../../core/src/paths.js', async () => {
   };
 });
 
-vi.mock('../../../../../core/src/lifecycle/tessera-engine.js', () => ({
-  showTessera: vi.fn(),
-  listTesseraTemplates: vi.fn(() => []),
-  instantiateTessera: vi.fn(),
-}));
-
-vi.mock('../../../../../core/src/lifecycle/chain-store.js', () => ({
-  showChain: vi.fn(),
-}));
-
-import { listTesseraTemplates } from '@cleocode/core/internal';
 import { OrchestrateHandler } from '../orchestrate.js';
 
 describe('OrchestrateHandler operations', () => {
@@ -51,33 +40,16 @@ describe('OrchestrateHandler operations', () => {
     handler = new OrchestrateHandler();
   });
 
-  it('does not include chain.plan in supported query operations (removed)', () => {
+  it('does not include chain.plan or tessera ops in supported operations (removed)', () => {
     const ops = handler.getSupportedOperations();
     expect(ops.query).not.toContain('chain.plan');
     // Verify expected ops are present
     expect(ops.query).toContain('status');
     expect(ops.query).toContain('analyze');
-    expect(ops.query).toContain('tessera.list');
     expect(ops.mutate).toContain('parallel');
-    expect(ops.mutate).toContain('tessera.instantiate');
-  });
-
-  it('returns canonical tessera list envelope', async () => {
-    vi.mocked(listTesseraTemplates).mockReturnValue([
-      { id: 'tessera-1', name: 'One' },
-      { id: 'tessera-2', name: 'Two' },
-    ] as any);
-
-    const result = await handler.query('tessera.list', { limit: 1, offset: 1 });
-
-    expect(result.success).toBe(true);
-    expect(result.data).toEqual({
-      templates: [{ id: 'tessera-2', name: 'Two' }],
-      count: 2,
-      total: 2,
-      filtered: 2,
-    });
-    expect(result.page).toEqual({ mode: 'offset', limit: 1, offset: 1, hasMore: false, total: 2 });
+    // tessera.* removed in T11807 (Tessera/WarpChain collapse, T11764).
+    expect(ops.query).not.toContain('tessera.list');
+    expect(ops.mutate).not.toContain('tessera.instantiate');
   });
 
   it('returns E_INVALID_OPERATION for chain.plan (removed from orchestrate)', async () => {

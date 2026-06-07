@@ -1,10 +1,10 @@
 /**
  * CLI check command group — dispatches to the check domain.
  *
- * Subcommands: schema, coherence, task, output, chain-validate, canon, protocol, provenance
+ * Subcommands: schema, coherence, task, output, canon, protocol, provenance
  * @task T132
  * @task T260 — generic protocol subcommand exposing all 12 protocols
- * @task T476 — output and chain-validate subcommands
+ * @task T476 — output subcommand
  * @task T864 — check.schema args derived from registry (SSoT proof-of-concept)
  * @task T1136 — provenance subcommand: audit git log for untagged commits
  */
@@ -97,42 +97,6 @@ const checkOutputCommand = defineCommand({
       'output',
       { filePath: args.filePath as string, taskId: args['task-id'] as string | undefined },
       { command: 'check', operation: 'check.output' },
-    );
-  },
-});
-
-/** cleo check chain-validate — validate a WarpChain definition from a JSON file */
-const checkChainValidateCommand = defineCommand({
-  meta: {
-    name: 'chain-validate',
-    description: 'Validate a WarpChain definition from a JSON file',
-  },
-  args: {
-    file: {
-      type: 'positional',
-      description: 'JSON file containing the WarpChain definition',
-      required: true,
-    },
-  },
-  async run({ args }) {
-    const { readFileSync } = await import('node:fs');
-    let chain: unknown;
-    try {
-      chain = JSON.parse(readFileSync(args.file as string, 'utf8'));
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      cliError(`Failed to read or parse chain file: ${message}`, 2, {
-        name: 'E_FILE_READ',
-        fix: 'Verify the file exists and contains valid JSON.',
-      });
-      process.exit(2);
-    }
-    await dispatchFromCli(
-      'query',
-      'check',
-      'chain.validate',
-      { chain },
-      { command: 'check', operation: 'check.chain.validate' },
     );
   },
 });
@@ -654,7 +618,7 @@ const checkArchCommand = defineCommand({
  * Root check command group — validation and compliance checks.
  *
  * Dispatches to the check domain. Supports schema validation, coherence,
- * task checks, output validation, WarpChain validation, canon drift
+ * task checks, output validation, canon drift
  * detection, and RCASD-IVTR+C protocol checks.
  */
 export const checkCommand = defineCommand({
@@ -664,7 +628,6 @@ export const checkCommand = defineCommand({
     coherence: checkCoherenceCommand,
     task: checkTaskCommand,
     output: checkOutputCommand,
-    'chain-validate': checkChainValidateCommand,
     canon: checkCanonCommand,
     protocol: checkProtocolCommand,
     provenance: checkProvenanceCommand,

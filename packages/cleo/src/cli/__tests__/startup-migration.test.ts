@@ -202,7 +202,6 @@ vi.mock('../commands/code.js', () => ({ codeCommand: {} }));
 vi.mock('../commands/adapter.js', () => ({ adapterCommand: {} }));
 vi.mock('../commands/add-batch.js', () => ({ addBatchCommand: {} }));
 vi.mock('../commands/cancel.js', () => ({ cancelCommand: {} }));
-vi.mock('../commands/chain.js', () => ({ chainCommand: {} }));
 vi.mock('../commands/claim.js', () => ({ claimCommand: {}, unclaimCommand: {} }));
 vi.mock('../commands/complexity.js', () => ({ complexityCommand: {} }));
 vi.mock('../commands/daemon.js', () => ({ daemonCommand: {} }));

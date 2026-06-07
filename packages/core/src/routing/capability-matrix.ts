@@ -704,13 +704,6 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
     mode: 'native',
     preferredChannel: 'either',
   },
-  {
-    domain: 'check',
-    operation: 'chain.validate',
-    gateway: 'query',
-    mode: 'native',
-    preferredChannel: 'either',
-  },
   // Mutate operations
   {
     domain: 'check',
@@ -799,13 +792,6 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
     mode: 'native',
     preferredChannel: 'either',
   },
-  {
-    domain: 'orchestrate',
-    operation: 'tessera.list',
-    gateway: 'query',
-    mode: 'native',
-    preferredChannel: 'either',
-  },
   // Mutate operations
   {
     domain: 'orchestrate',
@@ -845,13 +831,6 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
   {
     domain: 'orchestrate',
     operation: 'parallel',
-    gateway: 'mutate',
-    mode: 'native',
-    preferredChannel: 'either',
-  },
-  {
-    domain: 'orchestrate',
-    operation: 'tessera.instantiate',
     gateway: 'mutate',
     mode: 'native',
     preferredChannel: 'either',
@@ -1127,42 +1106,6 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
   {
     domain: 'pipeline',
     operation: 'phase.delete',
-    gateway: 'mutate',
-    mode: 'native',
-    preferredChannel: 'either',
-  },
-  // Chain sub-domain (T5405)
-  {
-    domain: 'pipeline',
-    operation: 'chain.show',
-    gateway: 'query',
-    mode: 'native',
-    preferredChannel: 'either',
-  },
-  {
-    domain: 'pipeline',
-    operation: 'chain.list',
-    gateway: 'query',
-    mode: 'native',
-    preferredChannel: 'either',
-  },
-  {
-    domain: 'pipeline',
-    operation: 'chain.add',
-    gateway: 'mutate',
-    mode: 'native',
-    preferredChannel: 'either',
-  },
-  {
-    domain: 'pipeline',
-    operation: 'chain.instantiate',
-    gateway: 'mutate',
-    mode: 'native',
-    preferredChannel: 'either',
-  },
-  {
-    domain: 'pipeline',
-    operation: 'chain.advance',
     gateway: 'mutate',
     mode: 'native',
     preferredChannel: 'either',

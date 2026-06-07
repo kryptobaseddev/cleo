@@ -63,15 +63,6 @@ vi.mock('../../../../../core/src/release/channel.js', () => ({
   describeChannel: vi.fn(() => 'Stable channel'),
 }));
 
-// Mock chain-store
-vi.mock('../../../../../core/src/lifecycle/chain-store.js', () => ({
-  showChain: vi.fn(),
-  listChains: vi.fn(() => []),
-  addChain: vi.fn(),
-  createInstance: vi.fn(),
-  advanceInstance: vi.fn(),
-}));
-
 import {
   pipelineManifestAppend,
   pipelineManifestArchive,
