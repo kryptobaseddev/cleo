@@ -1,0 +1,679 @@
+/**
+ * **DbWriterLease** — single in-process writer-lease arbitration over a persisted
+ * SQLite row (T11627 ST-2 · local-mode engine).
+ *
+ * Heals the T5158 multi-writer corruption (`E_NOT_INITIALIZED` / `E_INTERNAL` on
+ * the consolidated `cleo.db`) **while the supervisor daemon stays DISABLED in
+ * production** by serializing writers through a `BEGIN IMMEDIATE` claim transaction
+ * against a persisted `_writer_leases` row, fenced by an epoch-CAS. The supervisor
+ * (ST-5, daemon-on) and Node (this module, daemon-off) share the SAME arbitration
+ * primitive and row format — IPC is a coordination optimization over the persisted
+ * source-of-truth, never a second source.
+ *
+ * ## Modes ({@link resolveLeaseMode})
+ *
+ * `CLEO_WRITER_LEASE_MODE` ∈ `{ supervisor | local | off | require }`, default
+ * `local`:
+ *
+ * - `local` — Node arbitrates the row directly. No IPC. **Heals T5158 with the
+ *   daemon off** (the shipping config). DEFAULT.
+ * - `supervisor` — would prefer IPC to the supervisor; in ST-2 (no IPC client
+ *   wired) it transparently behaves as `local`, logging the demotion once.
+ * - `off` — pure pass-through: {@link withWriterLease} just runs `fn` under the
+ *   existing `busy_timeout=30000`. Byte-identical to pre-lease behaviour. Rollback
+ *   escape hatch.
+ * - `require` — strict: an acquire that cannot take the row throws
+ *   `E_LEASE_UNAVAILABLE`. No fallback.
+ *
+ * `busy_timeout=30000` (SSoT in `specs/sqlite-pragmas.json`) backstops every
+ * `BEGIN IMMEDIATE`, so a contended claim degrades to today's bounded wait rather
+ * than a hang in any mode.
+ *
+ * ## Re-entrancy
+ *
+ * A process-local grant memo (`Map<\`${scope}::${lane}\`, { handle, refcount }>`)
+ * memoizes the active grant so a nested same-lane write in the SAME process shares
+ * one lease (`refcount++` + the row's `reentrancy_depth++`) instead of re-running
+ * the claim txn — no second `BEGIN IMMEDIATE`, no IPC. `release()` decrements; the
+ * row is freed (`active = 0`) at depth 0.
+ *
+ * ## DB Open Guard (Gate 3)
+ *
+ * This module lives under `packages/core/src/store/**`, which is inside the Gate-3
+ * raw-open allowlist (the DB chokepoint). It obtains the native handle via
+ * {@link openDualScopeDb} (no new raw `new DatabaseSync(`) and runs raw
+ * `BEGIN IMMEDIATE` claim/reclaim/release transactions on it.
+ *
+ * @module
+ * @task T11627
+ * @epic T11625
+ * @see ./writer-lease-schema.ts — the drizzle table decls + bootstrap index assertion
+ * @see ./dual-scope-db.ts — the open chokepoint this engine routes through
+ */
+
+import { randomUUID } from 'node:crypto';
+import type { DatabaseSync } from 'node:sqlite';
+import type { LeaseLane, LeaseScope } from '@cleocode/contracts';
+import { getLogger } from '../logger.js';
+import { openDualScopeDb } from './dual-scope-db.js';
+import {
+  assertWriterLeaseActiveIndexPresent,
+  WRITER_LEASES_TABLE,
+  WRITER_QUEUE_TABLE,
+} from './writer-lease-schema.js';
+
+// Re-export the canonical scope/lane types so consumers can import them from the
+// engine surface without reaching into @cleocode/contracts directly.
+export type { LeaseLane, LeaseScope } from '@cleocode/contracts';
+
+/**
+ * The writer-lease arbitration mode. Resolved once at process start from
+ * `CLEO_WRITER_LEASE_MODE`; default `'local'`.
+ */
+export type LeaseMode = 'supervisor' | 'local' | 'off' | 'require';
+
+/**
+ * A held writer-lease grant. Returned by {@link acquireWriterLease}; passed to the
+ * callback of {@link withWriterLease}.
+ */
+export interface LeaseHandle {
+  /** The cleo.db scope this lease arbitrates within. */
+  readonly scope: LeaseScope;
+  /** The write lane this lease arbitrates within the scope. */
+  readonly lane: LeaseLane;
+  /**
+   * The epoch fence assigned to this grant. A write whose epoch no longer matches
+   * the row (the lease was reclaimed) must fail rather than corrupt
+   * (`E_WRITER_LEASE_STALE`).
+   */
+  readonly epoch: number;
+  /**
+   * Release the lease. Decrements the process-local refcount and the row's
+   * `reentrancy_depth`; frees the row (`active = 0`) and stops the heartbeat at
+   * depth 0. Idempotent — a second call is a no-op.
+   */
+  release(): Promise<void>;
+  /**
+   * Advance the lease heartbeat (`heartbeat_at = now`) under the epoch guard. A
+   * reclaimed holder's heartbeat no-ops. Called automatically by the internal
+   * timer; exposed for callers that want to assert liveness mid-batch.
+   */
+  heartbeat(): void;
+}
+
+/** Options accepted by {@link withWriterLease} / {@link acquireWriterLease}. */
+export interface LeaseAcquireOptions {
+  /** Advisory priority — lower acquires sooner. `0` = highest. Default `100`. */
+  priority?: number;
+  /** Lease time-to-live in milliseconds. Default {@link DEFAULT_TTL_MS}. */
+  ttlMs?: number;
+  /**
+   * When true (default), a nested same-(scope,lane) acquire in this process
+   * re-enters the existing grant (refcount++) instead of contending. When false,
+   * a nested acquire is forced to take a fresh row (used only by tests exercising
+   * cross-holder contention within one process).
+   */
+  reentrant?: boolean;
+}
+
+/** Default lease TTL — aligned to `busy_timeout=30000` (specs/sqlite-pragmas.json). */
+export const DEFAULT_TTL_MS = 30_000;
+
+/** Default advisory priority (lower acquires sooner). */
+const DEFAULT_PRIORITY = 100;
+
+/** The cold-open schema-bootstrap priority (highest). */
+export const SCHEMA_BOOTSTRAP_PRIORITY = 0;
+
+/** Max wall-clock a single acquire will spin before giving up (ms). */
+const ACQUIRE_DEADLINE_MS = 30_000;
+
+/** Backoff between contended claim retries (ms). */
+const CLAIM_RETRY_DELAY_MS = 25;
+
+const log = getLogger('writer-lease');
+
+// ── Mode resolution ───────────────────────────────────────────────────────────
+
+let _cachedMode: LeaseMode | null = null;
+let _supervisorDemotionLogged = false;
+
+/**
+ * Resolve the writer-lease mode from `CLEO_WRITER_LEASE_MODE`, once per process.
+ *
+ * Unknown / unset values resolve to `'local'` — the production-safe default while
+ * the supervisor daemon is disabled.
+ *
+ * @returns The resolved {@link LeaseMode}.
+ *
+ * @task T11627
+ */
+export function resolveLeaseMode(): LeaseMode {
+  if (_cachedMode !== null) return _cachedMode;
+  const raw = process.env.CLEO_WRITER_LEASE_MODE;
+  switch (raw) {
+    case 'supervisor':
+    case 'local':
+    case 'off':
+    case 'require':
+      _cachedMode = raw;
+      break;
+    default:
+      _cachedMode = 'local';
+      break;
+  }
+  return _cachedMode;
+}
+
+/**
+ * The mode actually used for arbitration. `supervisor` demotes to `local` in ST-2
+ * because the IPC client is not wired yet — a dead/absent arbiter must never
+ * deadlock a write. Logged once.
+ */
+function effectiveMode(): Exclude<LeaseMode, 'supervisor'> {
+  const mode = resolveLeaseMode();
+  if (mode === 'supervisor') {
+    if (!_supervisorDemotionLogged) {
+      _supervisorDemotionLogged = true;
+      log.info(
+        'CLEO_WRITER_LEASE_MODE=supervisor but no IPC client is wired (ST-2); ' +
+          'demoting to local-mode arbitration for the process lifetime.',
+      );
+    }
+    return 'local';
+  }
+  return mode;
+}
+
+/**
+ * Reset cached process-global state (mode + demotion flag + grant memo). Tests
+ * only — production resolves these once and never resets.
+ *
+ * @internal
+ */
+export function _resetWriterLeaseStateForTest(): void {
+  _cachedMode = null;
+  _supervisorDemotionLogged = false;
+  _grantMemo.clear();
+  _nativeDbResolver = defaultNativeDbResolver;
+}
+
+// ── Native handle resolution (test-injectable) ────────────────────────────────
+
+/** Resolver that yields the native `DatabaseSync` for a scope's `cleo.db`. */
+export type NativeDbResolver = (scope: LeaseScope) => Promise<DatabaseSync>;
+
+/**
+ * Default resolver: route through the dual-scope chokepoint so the lease
+ * migration is applied (tables + raw partial-unique index), then extract the
+ * native handle drizzle holds on `$client`.
+ */
+const defaultNativeDbResolver: NativeDbResolver = async (scope) => {
+  const handle =
+    scope === 'project' ? await openDualScopeDb('project') : await openDualScopeDb('global');
+  const native = (handle.db as unknown as { $client: DatabaseSync }).$client;
+  return native;
+};
+
+let _nativeDbResolver: NativeDbResolver = defaultNativeDbResolver;
+
+/**
+ * Override how the engine obtains a scope's native `cleo.db` handle. Tests inject
+ * a temp-dir handle here so arbitration runs against an isolated fixture with no
+ * supervisor and no canonical-path side effects.
+ *
+ * @param resolver - The resolver to use, or `undefined` to restore the default.
+ * @internal
+ */
+export function _setNativeDbResolverForTest(resolver: NativeDbResolver | undefined): void {
+  _nativeDbResolver = resolver ?? defaultNativeDbResolver;
+}
+
+// ── Process-local grant memo (C1 graft · refcounted re-entrancy) ───────────────
+
+interface GrantEntry {
+  handle: InternalLeaseHandle;
+  refcount: number;
+}
+
+/** `Map<\`${scope}::${lane}\`, GrantEntry>` — the active grant per scope+lane. */
+const _grantMemo = new Map<string, GrantEntry>();
+
+function memoKey(scope: LeaseScope, lane: LeaseLane): string {
+  return `${scope}::${lane}`;
+}
+
+// ── Small helpers ─────────────────────────────────────────────────────────────
+
+/**
+ * Asynchronously wait `ms` between contended claim retries. MUST be async (not
+ * `Atomics.wait`): the claim transaction itself is synchronous, but the BETWEEN-
+ * retry gap has to yield the event loop so a concurrent holder in THIS process can
+ * run its `release()` (which frees the row this waiter is spinning for). A
+ * synchronous spin would deadlock single-process re-entrant contention.
+ */
+function sleepAsync(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, Math.round(ms))));
+}
+
+/** No-throw pid-liveness probe (`process.kill(pid, 0)`), mirrors gc/daemon.ts. */
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // ESRCH => no such process (dead). EPERM => process exists, not ours (alive).
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/** This process's stable holder identity for a lane. */
+function makeHolderId(lane: LeaseLane): string {
+  return `pid-${process.pid}:${lane}:${randomUUID().slice(0, 8)}`;
+}
+
+interface ActiveLeaseRow {
+  id: number;
+  holder_id: string;
+  holder_pid: number;
+  epoch: number;
+  heartbeat_at: number;
+  ttl_ms: number;
+  reentrancy_depth: number;
+}
+
+// ── Internal handle ───────────────────────────────────────────────────────────
+
+/**
+ * Concrete {@link LeaseHandle} bound to a native handle + holder identity. Owns
+ * the heartbeat timer and the epoch-guarded release/heartbeat SQL.
+ */
+class InternalLeaseHandle implements LeaseHandle {
+  readonly scope: LeaseScope;
+  readonly lane: LeaseLane;
+  readonly epoch: number;
+  readonly holderId: string;
+  private readonly nativeDb: DatabaseSync;
+  private readonly ttlMs: number;
+  private heartbeatTimer: NodeJS.Timeout | null = null;
+  private released = false;
+
+  constructor(args: {
+    scope: LeaseScope;
+    lane: LeaseLane;
+    epoch: number;
+    holderId: string;
+    nativeDb: DatabaseSync;
+    ttlMs: number;
+  }) {
+    this.scope = args.scope;
+    this.lane = args.lane;
+    this.epoch = args.epoch;
+    this.holderId = args.holderId;
+    this.nativeDb = args.nativeDb;
+    this.ttlMs = args.ttlMs;
+    this.startHeartbeat();
+  }
+
+  /** Start the heartbeat timer at `ttl/3` (unref'd so it never holds the event loop open). */
+  private startHeartbeat(): void {
+    const interval = Math.max(1, Math.floor(this.ttlMs / 3));
+    this.heartbeatTimer = setInterval(() => this.heartbeat(), interval);
+    // Never keep the process alive solely for a heartbeat.
+    this.heartbeatTimer.unref?.();
+  }
+
+  heartbeat(): void {
+    if (this.released) return;
+    // Epoch guard: a reclaimed holder (new epoch) updates 0 rows → no-op.
+    this.nativeDb
+      .prepare(
+        `UPDATE ${WRITER_LEASES_TABLE} SET heartbeat_at = ? ` +
+          `WHERE scope = ? AND lane = ? AND holder_id = ? AND epoch = ? AND active = 1`,
+      )
+      .run(Date.now(), this.scope, this.lane, this.holderId, this.epoch);
+  }
+
+  /** Free the row (`active = 0`) under the epoch guard, stop the heartbeat. */
+  releaseRow(): void {
+    if (this.released) return;
+    this.released = true;
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+    this.nativeDb
+      .prepare(
+        `UPDATE ${WRITER_LEASES_TABLE} SET active = 0, reentrancy_depth = 0 ` +
+          `WHERE scope = ? AND lane = ? AND holder_id = ? AND epoch = ? AND active = 1`,
+      )
+      .run(this.scope, this.lane, this.holderId, this.epoch);
+  }
+
+  async release(): Promise<void> {
+    await releaseGrant(this.scope, this.lane);
+  }
+}
+
+// ── Error ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Thrown when `require` mode cannot acquire the lease, or (future) when a
+ * supervisor explicitly denies. Carries a stable `codeName` for envelope mapping.
+ *
+ * @public
+ */
+export class LeaseUnavailableError extends Error {
+  /** Stable string error code for envelope `codeName` / log correlation. */
+  readonly codeName = 'E_LEASE_UNAVAILABLE' as const;
+  constructor(scope: LeaseScope, lane: LeaseLane, reason: string) {
+    super(
+      `E_LEASE_UNAVAILABLE: could not acquire ${scope}/${lane} writer lease ` +
+        `(mode=require): ${reason}`,
+    );
+    this.name = 'LeaseUnavailableError';
+  }
+}
+
+// ── Claim transaction (shared primitive — local mode) ─────────────────────────
+
+/**
+ * Attempt ONE `BEGIN IMMEDIATE` claim against the active row. Returns the granted
+ * epoch on success, or `null` if a live holder owns the row (caller backs off and
+ * retries; the queue row was enqueued on the first miss).
+ */
+function tryClaimOnce(
+  nativeDb: DatabaseSync,
+  scope: LeaseScope,
+  lane: LeaseLane,
+  holderId: string,
+  ttlMs: number,
+): number | null {
+  const now = Date.now();
+  nativeDb.exec('BEGIN IMMEDIATE TRANSACTION');
+  try {
+    const active = nativeDb
+      .prepare(
+        `SELECT id, holder_id, holder_pid, epoch, heartbeat_at, ttl_ms, reentrancy_depth ` +
+          `FROM ${WRITER_LEASES_TABLE} WHERE scope = ? AND lane = ? AND active = 1`,
+      )
+      .get(scope, lane) as ActiveLeaseRow | undefined;
+
+    if (active === undefined) {
+      // No active holder — take a fresh row with the next epoch.
+      const nextEpoch =
+        (
+          nativeDb
+            .prepare(
+              `SELECT COALESCE(MAX(epoch), 0) + 1 AS e FROM ${WRITER_LEASES_TABLE} WHERE scope = ? AND lane = ?`,
+            )
+            .get(scope, lane) as { e: number } | undefined
+        )?.e ?? 1;
+      nativeDb
+        .prepare(
+          `INSERT INTO ${WRITER_LEASES_TABLE} ` +
+            `(scope, lane, holder_id, holder_pid, epoch, acquired_at, heartbeat_at, ttl_ms, reentrancy_depth, active) ` +
+            `VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1)`,
+        )
+        .run(scope, lane, holderId, process.pid, nextEpoch, now, now, ttlMs);
+      nativeDb.exec('COMMIT');
+      return nextEpoch;
+    }
+
+    if (active.holder_id === holderId) {
+      // Same holder (defensive — same-process re-entrancy is handled by the memo
+      // before reaching here). Bump the durable depth and re-assert the epoch.
+      nativeDb
+        .prepare(
+          `UPDATE ${WRITER_LEASES_TABLE} SET reentrancy_depth = reentrancy_depth + 1, heartbeat_at = ? ` +
+            `WHERE id = ?`,
+        )
+        .run(now, active.id);
+      nativeDb.exec('COMMIT');
+      return active.epoch;
+    }
+
+    // A different holder owns the row. Reclaim IFF it is stale (TTL expired AND
+    // its pid is dead) — SQLite serializes this inside BEGIN IMMEDIATE so two
+    // reclaimers cannot both win; the loser sees the new epoch and re-queues.
+    const stale = now - active.heartbeat_at > active.ttl_ms && !isPidAlive(active.holder_pid);
+    if (stale) {
+      const reclaimedEpoch = active.epoch + 1;
+      nativeDb
+        .prepare(
+          `UPDATE ${WRITER_LEASES_TABLE} ` +
+            `SET holder_id = ?, holder_pid = ?, epoch = ?, acquired_at = ?, heartbeat_at = ?, ttl_ms = ?, reentrancy_depth = 1 ` +
+            `WHERE id = ? AND epoch = ?`,
+        )
+        .run(holderId, process.pid, reclaimedEpoch, now, now, ttlMs, active.id, active.epoch);
+      nativeDb.exec('COMMIT');
+      return reclaimedEpoch;
+    }
+
+    // Live holder — give up this attempt.
+    nativeDb.exec('ROLLBACK');
+    return null;
+  } catch (err) {
+    try {
+      nativeDb.exec('ROLLBACK');
+    } catch {
+      // already rolled back / no active txn — ignore
+    }
+    throw err;
+  }
+}
+
+/** Enqueue a waiter row (idempotent per holder) for FIFO+priority ordering / aging. */
+function enqueueWaiter(
+  nativeDb: DatabaseSync,
+  scope: LeaseScope,
+  lane: LeaseLane,
+  holderId: string,
+  priority: number,
+  ttlMs: number,
+): void {
+  const now = Date.now();
+  const existing = nativeDb
+    .prepare(
+      `SELECT ticket FROM ${WRITER_QUEUE_TABLE} WHERE scope = ? AND lane = ? AND holder_id = ?`,
+    )
+    .get(scope, lane, holderId) as { ticket: number } | undefined;
+  if (existing) return;
+  nativeDb
+    .prepare(
+      `INSERT INTO ${WRITER_QUEUE_TABLE} (scope, lane, holder_id, priority, enqueued_at, deadline_at) ` +
+        `VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .run(scope, lane, holderId, priority, now, now + ttlMs);
+}
+
+/** Remove this holder's waiter row once granted (or on give-up). */
+function dequeueWaiter(
+  nativeDb: DatabaseSync,
+  scope: LeaseScope,
+  lane: LeaseLane,
+  holderId: string,
+): void {
+  nativeDb
+    .prepare(`DELETE FROM ${WRITER_QUEUE_TABLE} WHERE scope = ? AND lane = ? AND holder_id = ?`)
+    .run(scope, lane, holderId);
+}
+
+// ── Acquire / release surface ─────────────────────────────────────────────────
+
+/**
+ * Acquire (or re-enter) the writer lease for `(scope, lane)`. Caller MUST call
+ * `release()` on the returned handle (use {@link withWriterLease} to do so
+ * automatically).
+ *
+ * - `off` mode → returns a no-op handle (pass-through; no row written).
+ * - `local`/`supervisor` mode → arbitrates over the persisted row via
+ *   `BEGIN IMMEDIATE` (+ epoch-CAS). A nested same-(scope,lane) acquire in this
+ *   process re-enters the memoized grant (refcount++).
+ * - `require` mode → throws {@link LeaseUnavailableError} if the row cannot be
+ *   taken within the acquire window (`min(ACQUIRE_DEADLINE_MS, ttlMs)`).
+ *
+ * @param scope - The cleo.db scope.
+ * @param lane - The write lane within the scope.
+ * @param opts - Priority / TTL / re-entrancy options.
+ * @returns A held {@link LeaseHandle}.
+ *
+ * @task T11627
+ */
+export async function acquireWriterLease(
+  scope: LeaseScope,
+  lane: LeaseLane,
+  opts?: LeaseAcquireOptions,
+): Promise<LeaseHandle> {
+  const mode = effectiveMode();
+  const reentrant = opts?.reentrant ?? true;
+
+  // `off` mode — pure pass-through. No row written, no memo entry; busy_timeout on
+  // the underlying connection serializes writes exactly as before the lease.
+  if (mode === 'off') {
+    return makeNoopHandle(scope, lane);
+  }
+
+  // Re-entrant fast path: an existing same-process grant for this scope+lane is
+  // shared (refcount++ + durable depth++) without a second claim txn.
+  if (reentrant) {
+    const existing = _grantMemo.get(memoKey(scope, lane));
+    if (existing) {
+      existing.refcount += 1;
+      // Reflect the re-entry in the durable row depth (best-effort under epoch guard).
+      const native = await _nativeDbResolver(scope);
+      native
+        .prepare(
+          `UPDATE ${WRITER_LEASES_TABLE} SET reentrancy_depth = reentrancy_depth + 1 ` +
+            `WHERE scope = ? AND lane = ? AND holder_id = ? AND epoch = ? AND active = 1`,
+        )
+        .run(scope, lane, existing.handle.holderId, existing.handle.epoch);
+      return existing.handle;
+    }
+  }
+
+  const native = await _nativeDbResolver(scope);
+  // Defensive bootstrap assert: the partial-unique active index MUST exist or AC1
+  // is unenforced. Cheap single-row sqlite_master lookup, runs on first acquire.
+  assertWriterLeaseActiveIndexPresent(native);
+
+  const holderId = makeHolderId(lane);
+  const ttlMs = opts?.ttlMs ?? DEFAULT_TTL_MS;
+  const priority = opts?.priority ?? DEFAULT_PRIORITY;
+
+  // Wait at most the lease TTL (but never longer than the hard cap): a caller must
+  // not block for a grant longer than the lease itself would live. busy_timeout on
+  // the IMMEDIATE lock still backstops every individual claim attempt.
+  const acquireWindowMs = Math.min(ACQUIRE_DEADLINE_MS, Math.max(1, ttlMs));
+  const deadline = Date.now() + acquireWindowMs;
+  let enqueued = false;
+  for (;;) {
+    const epoch = tryClaimOnce(native, scope, lane, holderId, ttlMs);
+    if (epoch !== null) {
+      if (enqueued) dequeueWaiter(native, scope, lane, holderId);
+      const handle = new InternalLeaseHandle({
+        scope,
+        lane,
+        epoch,
+        holderId,
+        nativeDb: native,
+        ttlMs,
+      });
+      _grantMemo.set(memoKey(scope, lane), { handle, refcount: 1 });
+      return handle;
+    }
+
+    // Contended by a live holder. Enqueue once for ordering/aging, then back off.
+    if (!enqueued) {
+      enqueueWaiter(native, scope, lane, holderId, priority, ttlMs);
+      enqueued = true;
+    }
+
+    if (Date.now() >= deadline) {
+      if (enqueued) dequeueWaiter(native, scope, lane, holderId);
+      if (mode === 'require') {
+        throw new LeaseUnavailableError(scope, lane, 'live holder did not release within deadline');
+      }
+      // local/supervisor: degrade to today's behaviour — proceed without a lease.
+      // busy_timeout on the connection still serializes the actual write.
+      log.warn(
+        { scope, lane },
+        'writer-lease acquire deadline exceeded; proceeding under busy_timeout fallback (degraded)',
+      );
+      return makeNoopHandle(scope, lane);
+    }
+    await sleepAsync(CLAIM_RETRY_DELAY_MS);
+  }
+}
+
+/** Decrement the memoized grant; free the row at depth 0. */
+async function releaseGrant(scope: LeaseScope, lane: LeaseLane): Promise<void> {
+  const key = memoKey(scope, lane);
+  const entry = _grantMemo.get(key);
+  if (!entry) return; // off-mode / no-op handle / already released
+  entry.refcount -= 1;
+  if (entry.refcount > 0) {
+    // Still re-entered above this frame — decrement the durable depth only.
+    const native = await _nativeDbResolver(scope);
+    native
+      .prepare(
+        `UPDATE ${WRITER_LEASES_TABLE} SET reentrancy_depth = reentrancy_depth - 1 ` +
+          `WHERE scope = ? AND lane = ? AND holder_id = ? AND epoch = ? AND active = 1`,
+      )
+      .run(scope, lane, entry.handle.holderId, entry.handle.epoch);
+    return;
+  }
+  // Depth 0 — free the row and evict the memo.
+  _grantMemo.delete(key);
+  entry.handle.releaseRow();
+}
+
+/**
+ * A no-op handle for `off` mode and degraded-fallback returns: it holds no row,
+ * starts no heartbeat, and `release()` is a no-op. `epoch` is `0` (sentinel).
+ */
+function makeNoopHandle(scope: LeaseScope, lane: LeaseLane): LeaseHandle {
+  return {
+    scope,
+    lane,
+    epoch: 0,
+    async release(): Promise<void> {
+      /* pass-through */
+    },
+    heartbeat(): void {
+      /* pass-through */
+    },
+  };
+}
+
+/**
+ * Primary surface: acquire → run `fn` → release (always, even on throw).
+ *
+ * Refcounted + re-entrant by `(scope, lane)`: a nested same-lane write in the same
+ * process re-enters the memoized grant rather than re-running the claim txn.
+ *
+ * - `off` mode → pass-through (runs `fn` under today's busy_timeout, no row).
+ * - `require` mode → an unacquirable lease throws {@link LeaseUnavailableError}
+ *   before `fn` runs.
+ *
+ * @param scope - The cleo.db scope.
+ * @param lane - The write lane.
+ * @param fn - The work to run while holding the lease; receives the handle.
+ * @param opts - Priority / TTL / re-entrancy options.
+ * @returns The resolved value of `fn`.
+ *
+ * @task T11627
+ */
+export async function withWriterLease<T>(
+  scope: LeaseScope,
+  lane: LeaseLane,
+  fn: (h: LeaseHandle) => Promise<T>,
+  opts?: LeaseAcquireOptions,
+): Promise<T> {
+  const handle = await acquireWriterLease(scope, lane, opts);
+  try {
+    return await fn(handle);
+  } finally {
+    await handle.release();
+  }
+}
