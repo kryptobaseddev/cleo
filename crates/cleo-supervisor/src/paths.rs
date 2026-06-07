@@ -41,6 +41,13 @@ pub const LOG_SUBDIR: &str = "logs";
 /// Filename of the supervisor pidfile written under the CLEO home.
 pub const PIDFILE_NAME: &str = "cleo-supervisor.pid";
 
+/// Filename of the supervisor IPC Unix-domain socket written under the CLEO home.
+///
+/// On Unix the supervisor binds a `UnixListener` here (see
+/// [`crate::ipc_server`]); on Windows a named pipe derived from
+/// [`crate::ipc::IPC_CHANNEL_BASENAME`] is used instead and this path is unused.
+pub const SOCKET_NAME: &str = "cleo-supervisor.sock";
+
 /// Resolve the user's home directory in an OS-appropriate way.
 ///
 /// Returns `None` only when neither `$HOME` (Unix) nor the Windows user-profile
@@ -205,6 +212,19 @@ pub fn pidfile_path() -> anyhow::Result<PathBuf> {
     Ok(cleo_home()?.join(PIDFILE_NAME))
 }
 
+/// Returns the absolute supervisor IPC socket path: `<cleo_home>/cleo-supervisor.sock`.
+///
+/// This is the Unix-domain socket the supervisor binds for the IPC fan-out
+/// channel (T11253). On Windows the transport is a named pipe and this path is
+/// not used.
+///
+/// # Errors
+///
+/// Propagates the error from [`cleo_home`].
+pub fn socket_path() -> anyhow::Result<PathBuf> {
+    Ok(cleo_home()?.join(SOCKET_NAME))
+}
+
 /// Returns the napi binary cache directory: `<cache>/napi-bin`.
 ///
 /// Mirrors the picker target documented in T11340 AC4
@@ -243,6 +263,7 @@ mod tests {
         let home = cleo_home_with_override(Some(&raw)).expect("home");
         assert_eq!(home.join(LOG_SUBDIR), tmp.join(LOG_SUBDIR));
         assert_eq!(home.join(PIDFILE_NAME), tmp.join(PIDFILE_NAME));
+        assert_eq!(home.join(SOCKET_NAME), tmp.join(SOCKET_NAME));
     }
 
     #[test]
