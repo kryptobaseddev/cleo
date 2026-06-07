@@ -516,6 +516,63 @@ function probeAndMarkApplied(
 }
 
 /**
+ * Read the set of migration hashes for a SIBLING lineage folder (T11829).
+ *
+ * Used to build the cross-lineage orphan-deletion union in {@link reconcileJournal}.
+ * Defensive: a missing/unreadable/empty sibling folder yields an empty set rather
+ * than throwing — a sibling that does not exist in this install simply contributes
+ * no hashes to the union (the reconcile is conservative: fewer known hashes can
+ * only mean MORE deletions, so we never over-delete by failing safe to empty, but
+ * we also never crash the caller's open on a missing sibling).
+ *
+ * @param siblingFolder - Absolute path to a sibling drizzle migrations folder.
+ * @returns The set of migration hashes declared by that folder (empty on failure).
+ */
+function readSiblingMigrationHashes(siblingFolder: string): Set<string> {
+  try {
+    return new Set(readMigrationFiles({ migrationsFolder: siblingFolder }).map((m) => m.hash));
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * Ensure a UNIQUE index on `__drizzle_migrations(hash)` exists so the shared
+ * consolidated journal converges idempotently (T11829).
+ *
+ * With the UNIQUE index in place, the `INSERT OR IGNORE` emitted by
+ * {@link insertJournalEntry} becomes a true no-op on a re-probe (rather than
+ * appending a duplicate row), so any residual cross-lineage re-probe cannot grow
+ * the journal. Creation is guarded behind a one-time dedup: the live consolidated
+ * journal currently has no duplicate hashes, but a historically-thrashed journal
+ * could, and `CREATE UNIQUE INDEX` would fail on duplicates. We therefore collapse
+ * any duplicate-hash rows (keeping the lowest `id`) BEFORE creating the index.
+ *
+ * Idempotent and cheap: once the index exists, `CREATE UNIQUE INDEX IF NOT EXISTS`
+ * is a no-op and the dedup pass finds nothing.
+ *
+ * @param nativeDb - Native SQLite database handle.
+ */
+function ensureJournalHashUnique(nativeDb: DatabaseSync): void {
+  if (!tableExists(nativeDb, '__drizzle_migrations')) return;
+  try {
+    // One-time dedup: keep the lowest id per hash, delete the rest. A no-op once
+    // the journal is already unique (the live journal has no dups today).
+    nativeDb.exec(
+      'DELETE FROM "__drizzle_migrations" WHERE id NOT IN ' +
+        '(SELECT MIN(id) FROM "__drizzle_migrations" GROUP BY hash)',
+    );
+    nativeDb.exec(
+      'CREATE UNIQUE INDEX IF NOT EXISTS "idx_drizzle_migrations_hash" ON "__drizzle_migrations" ("hash")',
+    );
+  } catch {
+    // Best-effort convergence aid — never block an open on the index/dedup.
+    // INSERT OR IGNORE already guards duplicate inserts at the row level even
+    // without the index (it just cannot enforce uniqueness without it).
+  }
+}
+
+/**
  * Bootstrap and reconcile the Drizzle migration journal.
  *
  * Handles four scenarios:
@@ -531,16 +588,42 @@ function probeAndMarkApplied(
  *    applied migrations to be re-run and fail with "duplicate column name". Backfills
  *    the name from the local migration file matched by hash.
  *
+ * ## Cross-lineage orphan-deletion guard (T11829 — OOM root fix)
+ *
+ * The consolidated `cleo.db` carries ONE shared `__drizzle_migrations` journal but
+ * is reconciled by MULTIPLE physically-coexisting migration lineages
+ * (`drizzle-tasks`, `drizzle-cleo-project`, `drizzle-nexus`, `drizzle-brain`,
+ * `drizzle-agent-registry`, `drizzle-conduit`). Each lineage only knows its OWN
+ * folder, so a naive Sub-case B classified EVERY sibling lineage's journal rows as
+ * "true orphans" and DELETEd them — the next sibling open then deleted THIS
+ * lineage's rows, so the journal NEVER converged (it oscillated and re-ran
+ * BEGIN/COMMIT migrate transactions on every open, holding the WAL writer lock and
+ * stacking 300-550 MB-per-connection opens until the host OOM-killed).
+ *
+ * The fix: an entry is a TRUE orphan only when its hash belongs to NO lineage that
+ * physically shares this DB. Callers that share the journal pass
+ * `siblingMigrationsFolders` (the OTHER lineages' folders); the orphan-DELETE
+ * decision then uses the UNION of every sibling lineage's hashes plus this
+ * lineage's own. A hash present in any sibling is preserved (it is that sibling's
+ * legitimately-applied migration, not an orphan). Standalone DBs (a single
+ * lineage) pass no siblings and behave exactly as before.
+ *
  * @param nativeDb - Native SQLite database handle
  * @param migrationsFolder - Path to the drizzle migrations folder
  * @param existenceTable - A table name used to detect if the DB has data (e.g., 'tasks' or 'brain_decisions')
  * @param logSubsystem - Logger subsystem name for reconciliation warnings
+ * @param siblingMigrationsFolders - OTHER migration-lineage folders that share this
+ *   `__drizzle_migrations` journal inside the same consolidated `cleo.db` (T11829).
+ *   Their hashes are added to the orphan-deletion union so a sibling lineage's rows
+ *   are never deleted as cross-lineage orphans. Omit (or pass `[]`) for a DB with a
+ *   single lineage. Unreadable/empty sibling folders are skipped defensively.
  */
 export function reconcileJournal(
   nativeDb: DatabaseSync,
   migrationsFolder: string,
   existenceTable: string,
   logSubsystem: string,
+  siblingMigrationsFolders: readonly string[] = [],
 ): void {
   // bug #2 (T11553): pre-compute the tables this lineage CREATEs and a LATER
   // migration permanently ELIMINATES (DROP TABLE, no recreate — e.g.
@@ -575,6 +658,11 @@ export function reconcileJournal(
     }
   }
 
+  // T11829: enforce UNIQUE(hash) so the shared consolidated journal converges
+  // idempotently — any residual re-probe's INSERT OR IGNORE becomes a true no-op.
+  // Runs once the journal table exists (Scenario 1 / a prior open created it).
+  ensureJournalHashUnique(nativeDb);
+
   // Scenario 2: Journal has orphaned entries from a previous CLEO version
   //
   // Two distinct sub-cases require different handling:
@@ -604,12 +692,28 @@ export function reconcileJournal(
     const localMigrations = readMigrationFiles({ migrationsFolder });
     const localHashes = new Set(localMigrations.map((m) => m.hash));
 
+    // T11829 (OOM root fix): the orphan-DELETE decision must use the UNION of
+    // every migration lineage that physically shares this DB's `__drizzle_migrations`
+    // journal — NOT just this lineage's folder. A hash belonging to a sibling
+    // lineage (e.g. drizzle-cleo-project's rows seen from the drizzle-tasks open)
+    // is that sibling's legitimately-applied migration, not an orphan. Deleting it
+    // is what made the shared journal oscillate and never converge → host OOM.
+    const knownHashes = new Set(localHashes);
+    for (const siblingFolder of siblingMigrationsFolders) {
+      if (siblingFolder === migrationsFolder) continue;
+      for (const m of readSiblingMigrationHashes(siblingFolder)) {
+        knownHashes.add(m);
+      }
+    }
+
     type JournalRow = { id: number; hash: string };
     const dbEntries = nativeDb
       .prepare('SELECT id, hash FROM "__drizzle_migrations"')
       .all() as JournalRow[];
 
-    const orphanedEntries = dbEntries.filter((e) => !localHashes.has(e.hash));
+    // A row is an orphan ONLY when its hash is unknown to THIS lineage AND every
+    // sibling lineage sharing this journal (T11829 cross-lineage guard).
+    const orphanedEntries = dbEntries.filter((e) => !knownHashes.has(e.hash));
     const hasOrphanedEntries = orphanedEntries.length > 0;
 
     if (hasOrphanedEntries) {
@@ -626,8 +730,9 @@ export function reconcileJournal(
           `Migration journal has ${orphanedEntries.length} entries for migrations not known to this install (DB is ahead). Skipping reconciliation.`,
         );
       } else {
-        // Sub-case B: TRUE ORPHANS — entries whose hash has no local match.
-        // Delete them and re-probe local migrations via DDL.
+        // Sub-case B: TRUE ORPHANS — entries whose hash matches NO known lineage
+        // (this one or any sibling sharing the journal). Delete them and re-probe
+        // local migrations via DDL.
         log.warn(
           { orphaned: orphanedEntries.length },
           `Detected ${orphanedEntries.length} true-orphan journal entries from a previous CLEO lineage. Reconciling via DDL probe.`,

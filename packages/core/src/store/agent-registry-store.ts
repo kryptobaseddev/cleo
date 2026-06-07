@@ -64,7 +64,10 @@ import { getCleoHome } from '../paths.js';
 // health-probe ledger via the drizzle-agent-registry forward migration.
 import { _resetDualScopeDbCache, openDualScopeDb } from './dual-scope-db.js';
 import { migrateSanitized, reconcileJournal } from './migration-manager.js';
-import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
+import {
+  resolveConsolidatedJournalSiblings,
+  resolveCorePackageMigrationsFolder,
+} from './resolve-migrations-folder.js';
 import * as agentRegistrySchema from './schema/cleo-global/agent-registry.js';
 
 /**
@@ -212,7 +215,15 @@ function runAgentRegistryMigrations(nativeDb: DatabaseSync): void {
   // Reconcile the Drizzle journal before running migrations. Sentinel =
   // `_agent_registry_meta` (created by this domain's forward migration), so
   // Scenario 2 orphan-deletion stays dormant on a fresh consolidated open.
-  reconcileJournal(nativeDb, migrationsFolder, '_agent_registry_meta', 'agent-registry');
+  // T11829: agent-registry shares the consolidated GLOBAL cleo.db journal — pass
+  // the OTHER lineages so their rows are not deleted as cross-lineage orphans.
+  reconcileJournal(
+    nativeDb,
+    migrationsFolder,
+    '_agent_registry_meta',
+    'agent-registry',
+    resolveConsolidatedJournalSiblings('drizzle-agent-registry'),
+  );
 
   // Create the drizzle ORM wrapper and run any pending migrations (the
   // health-probe ledger tables). The schema is the prefixed consolidated shape.
