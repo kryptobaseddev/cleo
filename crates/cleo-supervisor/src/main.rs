@@ -9,7 +9,15 @@
 //! when run with no flags, boots the supervisor runtime: acquire the pidfile
 //! under the CLEO home, initialize rolling-file logging, bind the IPC listener +
 //! accept loop feeding the multi-child registry (R2, T11253), and install the
-//! SIGTERM/SIGINT graceful-shutdown + SIGCHLD reaping signal loop (T11338 AC3).
+//! SIGTERM/SIGINT graceful-shutdown signal loop (T11338 AC3).
+//!
+//! NOTE (T11626): every supervised child is a [`tokio::process::Child`] whose
+//! exit is observed via `Child::wait()` (registry monitor tasks + the stop
+//! cascade). tokio's process driver installs its own `SIGCHLD` handler and owns
+//! reaping for those pids. Running an additional global `waitpid(-1, WNOHANG)`
+//! reaper here would race tokio's driver and steal exit statuses, surfacing as
+//! spurious `ECHILD` from `Child::wait()` (lost exit codes, false stop
+//! failures). The signal loop therefore does NOT reap; tokio owns it.
 
 // Tests in this binary may freely unwrap/expect/panic (matches the lib crate).
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
@@ -141,31 +149,25 @@ async fn serve_until_shutdown(socket_path: &std::path::Path) -> anyhow::Result<(
     Ok(())
 }
 
-/// Wait for a shutdown signal (SIGTERM/SIGINT on Unix, Ctrl-C on Windows),
-/// reaping any zombie children on SIGCHLD in the meantime (Unix).
+/// Wait for a shutdown signal (SIGTERM/SIGINT on Unix, Ctrl-C on Windows).
+///
+/// This loop deliberately does NOT install a `SIGCHLD` reaper (T11626). Every
+/// supervised child is a [`tokio::process::Child`] reaped by tokio's own
+/// process driver; a competing global `waitpid(-1, WNOHANG)` would steal those
+/// exit statuses and make `Child::wait()` fail with `ECHILD`. Letting tokio own
+/// reaping keeps exit codes intact and the stop cascade correct.
 async fn signal_loop() -> anyhow::Result<()> {
     #[cfg(unix)]
     {
         use tokio::signal::unix::{SignalKind, signal};
         let mut sigterm = signal(SignalKind::terminate())?;
         let mut sigint = signal(SignalKind::interrupt())?;
-        let mut sigchld = signal(SignalKind::child())?;
-        loop {
-            tokio::select! {
-                _ = sigterm.recv() => {
-                    tracing::info!("received SIGTERM");
-                    break;
-                }
-                _ = sigint.recv() => {
-                    tracing::info!("received SIGINT");
-                    break;
-                }
-                _ = sigchld.recv() => {
-                    let reaped = cleo_supervisor::process::reap_zombies();
-                    if reaped > 0 {
-                        tracing::debug!(reaped, "reaped zombie children on SIGCHLD");
-                    }
-                }
+        tokio::select! {
+            _ = sigterm.recv() => {
+                tracing::info!("received SIGTERM");
+            }
+            _ = sigint.recv() => {
+                tracing::info!("received SIGINT");
             }
         }
     }

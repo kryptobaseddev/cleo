@@ -15,9 +15,15 @@
 //! The child is spawned with [`tokio::process::Command`]. On Unix the child is
 //! placed in its own process group and signalled via [`crate::process`]; on
 //! Windows it is assigned to the supervisor's [`crate::jobobject::JobObject`] so
-//! it dies when the supervisor exits. SIGCHLD-driven zombie reaping is wired in
-//! the binary's signal loop ([`crate::run`]); this module exposes
-//! [`Supervisor::reap`] for it to call.
+//! it dies when the supervisor exits.
+//!
+//! Reaping is owned exclusively by tokio's process driver. Every supervised
+//! child is a [`tokio::process::Child`] whose exit is observed via
+//! `Child::wait()` (the monitor tasks + the stop cascade); tokio registers its
+//! own `SIGCHLD` handler and reaps those pids. The supervisor therefore does
+//! NOT run a global `waitpid(-1)` reaper alongside `Child::wait()` — doing so
+//! would race tokio's driver and steal exit statuses, surfacing as spurious
+//! `ECHILD` (lost exit codes, false stop failures). See T11626.
 
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -230,7 +236,18 @@ impl Supervisor {
         Ok(status.code())
     }
 
-    /// Reap any zombie children (Unix). No-op on Windows. Returns the count.
+    /// Reap any zombie children via a global `waitpid(-1, WNOHANG)` (Unix).
+    /// No-op on Windows. Returns the count.
+    ///
+    /// # Caution (T11626)
+    ///
+    /// This is a global reaper: it harvests ANY exited child of this process,
+    /// not just this supervisor's. It MUST NOT be invoked while a
+    /// [`tokio::process::Child::wait`] is outstanding for the same children —
+    /// tokio's process driver owns reaping for the children it spawned, and a
+    /// competing `waitpid(-1)` will steal their exit status and surface as
+    /// `ECHILD` from `Child::wait()`. It is retained only for reaping
+    /// inadvertently-inherited grandchildren that are not tokio-managed.
     pub fn reap(&self) -> usize {
         process::reap_zombies()
     }
@@ -339,8 +356,13 @@ impl Supervisor {
                 // Phase 3: grace expired — force kill.
                 tracing::warn!(pid, "grace window expired; sending SIGKILL");
                 let _ = process::force_kill(pid);
-                // Best-effort final reap.
-                let _ = self.reap();
+                // Let tokio's process driver reap the killed child: await its
+                // exit instead of a global waitpid(-1), which would race the
+                // driver and steal exit statuses (T11626). The child is dead, so
+                // this resolves promptly. If the wait future above already took
+                // the child out of the slot it was dropped (kill_on_drop) and
+                // this returns Ok(None) immediately.
+                let _ = self.wait().await;
             }
         }
         Ok(())
@@ -401,6 +423,12 @@ struct ChildBook {
     state: ChildState,
     /// Total restarts observed for this child.
     restart_count: u32,
+    /// Monotonic incarnation token (T11626). Incremented on every (re)spawn so
+    /// each monitor task can identify the exact incarnation it supervises. A
+    /// monitor only writes its exit into the book when `generation` still equals
+    /// the value captured at its spawn — otherwise a newer incarnation already
+    /// replaced it, and the stale monitor must not clobber the live child.
+    generation: u64,
 }
 
 /// One supervised child in a [`ChildRegistry`].
@@ -478,10 +506,13 @@ impl ChildRegistry {
             child_id: child_id.clone(),
             source: anyhow::Error::new(e),
         })?);
+        // Generation 0 is the initial incarnation; each restart bumps it.
+        let generation = 0u64;
         let book = Arc::new(Mutex::new(ChildBook {
             pid: 0,
             state: ChildState::Running,
             restart_count: 0,
+            generation,
         }));
 
         let child = Self::spawn_process(&spec, &job).map_err(|source| RegistryError::Spawn {
@@ -498,7 +529,7 @@ impl ChildRegistry {
         };
         self.children.lock().await.insert(child_id.clone(), managed);
 
-        self.spawn_monitor(child_id.clone(), child, Arc::clone(&book));
+        self.spawn_monitor(child_id.clone(), child, Arc::clone(&book), generation);
         tracing::info!(child_id = %child_id, pid, "registry spawned child");
         Ok(SpawnResult { child_id, pid })
     }
@@ -546,15 +577,19 @@ impl ChildRegistry {
         })?;
         let pid = child.id().unwrap_or(0);
 
-        let restart_count = {
+        let (restart_count, generation) = {
             let mut guard = book.lock().await;
             guard.restart_count = guard.restart_count.saturating_add(1);
             guard.pid = pid;
             guard.state = ChildState::Running;
-            guard.restart_count
+            // Bump the incarnation so the new monitor owns a fresh generation and
+            // the old monitor (still blocked on the killed child's wait()) can no
+            // longer write into the book (T11626).
+            guard.generation = guard.generation.saturating_add(1);
+            (guard.restart_count, guard.generation)
         };
 
-        self.spawn_monitor(child_id.to_string(), child, Arc::clone(&book));
+        self.spawn_monitor(child_id.to_string(), child, Arc::clone(&book), generation);
 
         let _ = self.events.send(LifecycleEvent {
             event: LifecycleEventKind::ChildRestarted,
@@ -652,29 +687,62 @@ impl ChildRegistry {
     /// The task ends after a single exit; a restart spawns a fresh monitor for
     /// the replacement incarnation, so each task supervises exactly one OS
     /// process lifetime.
-    fn spawn_monitor(&self, child_id: String, mut child: Child, book: Arc<Mutex<ChildBook>>) {
+    ///
+    /// `generation` is the incarnation token captured when this monitor was
+    /// spawned (T11626). The monitor only writes the `Stopped`/`pid = 0`
+    /// transition when the book still carries that same generation. A concurrent
+    /// `restart` bumps the generation before this (now-stale) monitor's
+    /// `child.wait()` returns, so the late exit of the killed incarnation cannot
+    /// clobber the freshly-restarted child to `Stopped`/`pid = 0`. Comparing the
+    /// generation (not the coarse `state` enum) is what makes the guard
+    /// incarnation-aware: the new incarnation's state is also `Running`, so a
+    /// state-only check would mis-fire.
+    fn spawn_monitor(
+        &self,
+        child_id: String,
+        mut child: Child,
+        book: Arc<Mutex<ChildBook>>,
+        generation: u64,
+    ) {
         let events = self.events.clone();
         tokio::spawn(async move {
             let status = child.wait().await;
             let code = status.ok().and_then(|s| s.code());
-            // If a restart already moved the book to Restarting/Running for a new
-            // incarnation, do not clobber it; only mark Stopped when this task is
-            // still the owner of the recorded pid.
-            {
+            // Only record the exit when this monitor still owns the live
+            // incarnation. If a restart already bumped the generation, a newer
+            // monitor owns the book and this stale exit must not touch it.
+            let is_current = {
                 let mut guard = book.lock().await;
-                if matches!(guard.state, ChildState::Running) {
-                    guard.state = ChildState::Stopped;
-                    guard.pid = 0;
+                if guard.generation == generation {
+                    if matches!(guard.state, ChildState::Running) {
+                        guard.state = ChildState::Stopped;
+                        guard.pid = 0;
+                    }
+                    true
+                } else {
+                    false
                 }
+            };
+            if is_current {
+                let _ = events.send(LifecycleEvent {
+                    event: LifecycleEventKind::ChildExited,
+                    child_id: child_id.clone(),
+                    exit_code: code,
+                    signal: None,
+                    restart_delay_ms: None,
+                });
+                tracing::info!(child_id = %child_id, code = ?code, "registry child exited");
+            } else {
+                // Stale incarnation exit (superseded by a restart) — record it
+                // for diagnostics but do not emit a child_exited event or mutate
+                // the book; the live incarnation continues running.
+                tracing::debug!(
+                    child_id = %child_id,
+                    code = ?code,
+                    generation,
+                    "ignoring exit of superseded child incarnation"
+                );
             }
-            let _ = events.send(LifecycleEvent {
-                event: LifecycleEventKind::ChildExited,
-                child_id: child_id.clone(),
-                exit_code: code,
-                signal: None,
-                restart_delay_ms: None,
-            });
-            tracing::info!(child_id = %child_id, code = ?code, "registry child exited");
         });
     }
 }
@@ -931,6 +999,46 @@ mod tests {
             .await
             .expect_err("unknown child restart must error");
         assert_eq!(err.code(), "E_UNKNOWN_CHILD");
+    }
+
+    /// Regression (T11626): after a restart, the OLD monitor task (still blocked
+    /// on the SIGKILL-ed first incarnation's `wait()`) must not clobber the live
+    /// NEW incarnation to `Stopped`/pid=0. The incarnation generation guard makes
+    /// the stale exit a no-op. Repeated restarts maximise the chance the stale
+    /// monitor wins the book lock after the generation bump; the live child must
+    /// always be reported `Running` with the current pid.
+    #[tokio::test]
+    async fn registry_restart_does_not_let_stale_monitor_clobber_new_child() {
+        let (tx, _rx) = unbounded_channel();
+        let registry = ChildRegistry::new(tx);
+        registry
+            .spawn(&spawn_req_sleep("race", 30))
+            .await
+            .expect("spawn");
+
+        let mut last_pid = 0u32;
+        for _ in 0..5 {
+            let restarted = registry.restart("race").await.expect("restart");
+            last_pid = restarted.pid;
+
+            // Give the stale old monitor ample opportunity to observe its killed
+            // child's exit and (incorrectly) try to write into the book.
+            for _ in 0..10 {
+                let snap = registry.monitor(Some("race")).await.expect("monitor");
+                let row = &snap.children[0];
+                assert_eq!(
+                    row.state,
+                    ChildState::Running,
+                    "live restarted child must stay Running, not be clobbered by the stale monitor"
+                );
+                assert_eq!(
+                    row.pid, restarted.pid,
+                    "live restarted child pid must not be zeroed by the stale monitor"
+                );
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        }
+        let _ = process::force_kill(last_pid);
     }
 
     #[tokio::test]
