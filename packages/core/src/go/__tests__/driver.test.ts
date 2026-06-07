@@ -7,15 +7,19 @@
  * 3. `lifecycleHop`       — pre-implementation stage (research/specification/decomposition)
  * 4. `ivtrFanOut`         — implementation stage, IVTR fan-out
  *
- * The test stubs out the three imported engines (sagaNext, orchestrateReady, startIvtr)
- * so no DB or filesystem is touched.
+ * The test stubs out the imported engines (sagaNext, orchestrateReady,
+ * armGoalLoop) so no DB or filesystem is touched. The IVTR seam (T11805) is now
+ * an *injected* runner — `cleoGo` no longer imports `startIvtr` — so the fan-out
+ * scenarios pass a mock {@link go.IvtrRunner} via `params.ivtrRunner`.
  *
  * @task T11494 — E2-CLEO-GO
+ * @task T11805 — IVTR seam: injected `executePlaybook(ivtr.cantbook)` runner
  * @saga T11492 — SG-AUTOPILOT
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SagaNextResult } from '../../sagas/next.js';
+import type { IvtrRunner } from '../driver.js';
 
 // ---------------------------------------------------------------------------
 // Module mocks — must come before importing the system-under-test
@@ -23,8 +27,12 @@ import type { SagaNextResult } from '../../sagas/next.js';
 
 const mockSagaNext = vi.fn();
 const mockOrchestrateReady = vi.fn();
-const mockStartIvtr = vi.fn();
+const mockIvtrRunner = vi.fn();
 const mockArmGoalLoop = vi.fn();
+const mockStartIvtr = vi.fn();
+
+/** Injected IVTR runner under test (T11805). */
+const ivtrRunner: IvtrRunner = (...args) => mockIvtrRunner(...args);
 
 vi.mock('../../sagas/next.js', () => ({
   sagaNext: (...args: unknown[]) => mockSagaNext(...args),
@@ -32,10 +40,6 @@ vi.mock('../../sagas/next.js', () => ({
 
 vi.mock('../../orchestrate/query-ops.js', () => ({
   orchestrateReady: (...args: unknown[]) => mockOrchestrateReady(...args),
-}));
-
-vi.mock('../../lifecycle/ivtr-loop.js', () => ({
-  startIvtr: (...args: unknown[]) => mockStartIvtr(...args),
 }));
 
 vi.mock('../../goal/arm.js', () => ({
@@ -46,11 +50,17 @@ vi.mock('../../paths.js', () => ({
   getProjectRoot: (_p?: string) => _p ?? '/test/root',
 }));
 
+// T11805 — the driver now imports `startIvtr` for the flag-OFF fallback path
+// (Risk #1 mitigation). Stub it so the fallback never touches a real DB.
+vi.mock('../../lifecycle/ivtr-loop.js', () => ({
+  startIvtr: (...args: unknown[]) => mockStartIvtr(...args),
+}));
+
 // ---------------------------------------------------------------------------
 // Import SUT after mocks are registered
 // ---------------------------------------------------------------------------
 
-const { cleoGo } = await import('../driver.js');
+const { cleoGo, CLEO_GO_VIA_PLAYBOOK_ENV } = await import('../driver.js');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -94,12 +104,18 @@ function makeReadyResult(
 describe('cleoGo driver (T11494)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockStartIvtr.mockResolvedValue({ taskId: 'T999', currentPhase: 'implement' });
+    mockIvtrRunner.mockResolvedValue({ taskId: 'T999', runId: 'pbr_999' });
     mockArmGoalLoop.mockResolvedValue({ id: 'g-armed-1', status: 'active' });
+    mockStartIvtr.mockResolvedValue({ taskId: 'T999', currentPhase: 'implement' });
+    // The cantbook seam is flag-gated and defaults OFF. Most fan-out tests
+    // exercise the seam path, so enable it by default; the dedicated
+    // fallback-path tests below clear it explicitly.
+    process.env[CLEO_GO_VIA_PLAYBOOK_ENV] = '1';
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    delete process.env[CLEO_GO_VIA_PLAYBOOK_ENV];
   });
 
   // ---- Outcome: complete ---------------------------------------------------
@@ -200,7 +216,7 @@ describe('cleoGo driver (T11494)', () => {
   // ---- Outcome: ivtrFanOut ------------------------------------------------
 
   describe('outcome: ivtrFanOut', () => {
-    it('returns ivtrFanOut and starts IVTR for each ready task at implementation stage', async () => {
+    it('returns ivtrFanOut and drives each ready task through the injected IVTR runner', async () => {
       mockSagaNext.mockResolvedValue({
         success: true,
         data: makeSagaNextResult({
@@ -226,19 +242,181 @@ describe('cleoGo driver (T11494)', () => {
           { id: 'T103', pipelineStage: 'implementation', parentId: 'T101' },
         ]),
       );
-      mockStartIvtr
-        .mockResolvedValueOnce({ taskId: 'T102', currentPhase: 'implement' })
-        .mockResolvedValueOnce({ taskId: 'T103', currentPhase: 'implement' });
+      mockIvtrRunner
+        .mockResolvedValueOnce({ taskId: 'T102', runId: 'pbr_102', terminalStatus: 'completed' })
+        .mockResolvedValueOnce({ taskId: 'T103', runId: 'pbr_103', terminalStatus: 'completed' });
 
-      const result = await cleoGo({ sagaId: 'T100' });
+      const result = await cleoGo({ sagaId: 'T100', ivtrRunner });
       expect(result.success).toBe(true);
       const outcome = result.data?.outcome;
       expect(outcome?.action).toBe('ivtrFanOut');
       if (outcome?.action === 'ivtrFanOut') {
         expect(outcome.tasks).toEqual(['T102', 'T103']);
+        expect(outcome.runIds).toEqual(['pbr_102', 'pbr_103']);
         expect(outcome.currentStage).toBe('implementation');
       }
+      expect(mockIvtrRunner).toHaveBeenCalledTimes(2);
+      // AC2: runner receives taskId + the run options (projectRoot, epicId).
+      expect(mockIvtrRunner.mock.calls[0]?.[0]).toBe('T102');
+      expect(mockIvtrRunner.mock.calls[0]?.[1]).toMatchObject({ epicId: 'T101' });
+    });
+
+    it('forwards the sessionId to the IVTR runner (evidence/provenance gate param)', async () => {
+      mockSagaNext.mockResolvedValue({
+        success: true,
+        data: makeSagaNextResult({
+          sagaId: 'T100',
+          memberEpics: [
+            {
+              id: 'T101',
+              title: 'Implementation epic',
+              status: 'active',
+              descendantTaskCount: 1,
+              descendantDone: 0,
+              descendantActive: 1,
+              descendantBlocked: 0,
+              descendantPending: 0,
+              descendantCompletionPct: 0,
+            },
+          ],
+        }),
+      });
+      mockOrchestrateReady.mockResolvedValue(
+        makeReadyResult([{ id: 'T102', pipelineStage: 'implementation', parentId: 'T101' }]),
+      );
+      mockIvtrRunner.mockResolvedValueOnce({ taskId: 'T102', runId: 'pbr_102' });
+
+      const result = await cleoGo({ sagaId: 'T100', ivtrRunner, sessionId: 'ses_abc' });
+      expect(result.success).toBe(true);
+      expect(mockIvtrRunner.mock.calls[0]?.[1]).toMatchObject({
+        epicId: 'T101',
+        sessionId: 'ses_abc',
+      });
+    });
+
+    it('falls back to startIvtr when no runner is injected (no silent skip)', async () => {
+      mockSagaNext.mockResolvedValue({
+        success: true,
+        data: makeSagaNextResult({
+          sagaId: 'T100',
+          memberEpics: [
+            {
+              id: 'T101',
+              title: 'Implementation epic',
+              status: 'active',
+              descendantTaskCount: 1,
+              descendantDone: 0,
+              descendantActive: 1,
+              descendantBlocked: 0,
+              descendantPending: 0,
+              descendantCompletionPct: 0,
+            },
+          ],
+        }),
+      });
+      mockOrchestrateReady.mockResolvedValue(
+        makeReadyResult([{ id: 'T102', pipelineStage: 'implementation', parentId: 'T101' }]),
+      );
+
+      // Flag ON but no runner → fallback to startIvtr (no silent skip).
+      const result = await cleoGo({ sagaId: 'T100' });
+      expect(result.success).toBe(true);
+      const outcome = result.data?.outcome;
+      expect(outcome?.action).toBe('ivtrFanOut');
+      if (outcome?.action === 'ivtrFanOut') {
+        // Fallback path seeds via startIvtr — the task IS surfaced.
+        expect(outcome.tasks).toEqual(['T102']);
+        expect(outcome.runIds).toEqual([]);
+      }
+      expect(mockStartIvtr).toHaveBeenCalledTimes(1);
+      expect(mockStartIvtr.mock.calls[0]?.[0]).toBe('T102');
+      expect(mockIvtrRunner).not.toHaveBeenCalled();
+      expect(result.data?.diagnostics.some((d) => d.includes('runner not provided'))).toBe(true);
+    });
+
+    // ---- Risk #1 mitigation: feature flag gates the cantbook seam ----------
+
+    it('flag OFF (default): falls back to startIvtr even when a runner IS injected', async () => {
+      delete process.env[CLEO_GO_VIA_PLAYBOOK_ENV];
+      mockSagaNext.mockResolvedValue({
+        success: true,
+        data: makeSagaNextResult({
+          sagaId: 'T100',
+          memberEpics: [
+            {
+              id: 'T101',
+              title: 'Implementation epic',
+              status: 'active',
+              descendantTaskCount: 2,
+              descendantDone: 0,
+              descendantActive: 2,
+              descendantBlocked: 0,
+              descendantPending: 0,
+              descendantCompletionPct: 0,
+            },
+          ],
+        }),
+      });
+      mockOrchestrateReady.mockResolvedValue(
+        makeReadyResult([
+          { id: 'T102', pipelineStage: 'implementation', parentId: 'T101' },
+          { id: 'T103', pipelineStage: 'implementation', parentId: 'T101' },
+        ]),
+      );
+
+      const result = await cleoGo({ sagaId: 'T100', ivtrRunner });
+      expect(result.success).toBe(true);
+      const outcome = result.data?.outcome;
+      expect(outcome?.action).toBe('ivtrFanOut');
+      if (outcome?.action === 'ivtrFanOut') {
+        expect(outcome.tasks).toEqual(['T102', 'T103']);
+        expect(outcome.runIds).toEqual([]);
+      }
+      // The injected cantbook runner is NOT called when the flag is OFF.
+      expect(mockIvtrRunner).not.toHaveBeenCalled();
       expect(mockStartIvtr).toHaveBeenCalledTimes(2);
+      expect(result.data?.diagnostics.some((d) => d.includes('seam disabled'))).toBe(true);
+    });
+
+    it('flag ON: drives the injected cantbook runner instead of startIvtr', async () => {
+      process.env[CLEO_GO_VIA_PLAYBOOK_ENV] = 'true';
+      mockSagaNext.mockResolvedValue({
+        success: true,
+        data: makeSagaNextResult({
+          sagaId: 'T100',
+          memberEpics: [
+            {
+              id: 'T101',
+              title: 'Implementation epic',
+              status: 'active',
+              descendantTaskCount: 1,
+              descendantDone: 0,
+              descendantActive: 1,
+              descendantBlocked: 0,
+              descendantPending: 0,
+              descendantCompletionPct: 0,
+            },
+          ],
+        }),
+      });
+      mockOrchestrateReady.mockResolvedValue(
+        makeReadyResult([{ id: 'T102', pipelineStage: 'implementation', parentId: 'T101' }]),
+      );
+      mockIvtrRunner.mockResolvedValueOnce({
+        taskId: 'T102',
+        runId: 'pbr_102',
+        terminalStatus: 'completed',
+      });
+
+      const result = await cleoGo({ sagaId: 'T100', ivtrRunner });
+      expect(result.success).toBe(true);
+      const outcome = result.data?.outcome;
+      if (outcome?.action === 'ivtrFanOut') {
+        expect(outcome.tasks).toEqual(['T102']);
+        expect(outcome.runIds).toEqual(['pbr_102']);
+      }
+      expect(mockIvtrRunner).toHaveBeenCalledTimes(1);
+      expect(mockStartIvtr).not.toHaveBeenCalled();
     });
 
     it('gracefully handles IVTR start failures and reports in diagnostics', async () => {
@@ -267,17 +445,18 @@ describe('cleoGo driver (T11494)', () => {
           { id: 'T103', pipelineStage: 'implementation', parentId: 'T101' },
         ]),
       );
-      mockStartIvtr
-        .mockResolvedValueOnce({ taskId: 'T102', currentPhase: 'implement' })
+      mockIvtrRunner
+        .mockResolvedValueOnce({ taskId: 'T102', runId: 'pbr_102' })
         .mockRejectedValueOnce(new Error('E_IVTR_LOCKED'));
 
-      const result = await cleoGo({ sagaId: 'T100' });
+      const result = await cleoGo({ sagaId: 'T100', ivtrRunner });
       expect(result.success).toBe(true);
       const outcome = result.data?.outcome;
       expect(outcome?.action).toBe('ivtrFanOut');
       if (outcome?.action === 'ivtrFanOut') {
         // Only T102 succeeded
         expect(outcome.tasks).toEqual(['T102']);
+        expect(outcome.runIds).toEqual(['pbr_102']);
       }
       // T103 failure is in diagnostics
       expect(result.data?.diagnostics.some((d) => d.includes('T103'))).toBe(true);

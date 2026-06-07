@@ -44,6 +44,7 @@ import type {
   PlaybookDefinition,
   PlaybookDeterministicNode,
   PlaybookEdge,
+  PlaybookEdgeCondition,
   PlaybookNode,
   PlaybookRun,
   PlaybookRunStatus,
@@ -237,6 +238,13 @@ interface EdgeIndex {
   readonly outgoing: ReadonlyMap<string, readonly string[]>;
   /** Map from node id → list of predecessor node ids in declaration order. */
   readonly incoming: ReadonlyMap<string, readonly string[]>;
+  /**
+   * Map from node id → list of outgoing {@link PlaybookEdge} objects in
+   * declaration order. Carries the optional `when` branch guard (T11806) so
+   * the runtime can route conditionally. `depends[]`-derived reverse edges
+   * are unconditional and represented here as `{ from: dep, to: node }`.
+   */
+  readonly outgoingEdges: ReadonlyMap<string, readonly PlaybookEdge[]>;
 }
 
 /**
@@ -282,13 +290,16 @@ export const E_PLAYBOOK_RESUME_BLOCKED = 'E_PLAYBOOK_RESUME_BLOCKED' as const;
 function buildEdgeIndex(def: PlaybookDefinition): EdgeIndex {
   const outgoing = new Map<string, string[]>();
   const incoming = new Map<string, string[]>();
+  const outgoingEdges = new Map<string, PlaybookEdge[]>();
   for (const n of def.nodes) {
     outgoing.set(n.id, []);
     incoming.set(n.id, []);
+    outgoingEdges.set(n.id, []);
   }
   for (const e of def.edges) {
     outgoing.get(e.from)?.push(e.to);
     incoming.get(e.to)?.push(e.from);
+    outgoingEdges.get(e.from)?.push(e);
   }
   for (const n of def.nodes) {
     if (!n.depends) continue;
@@ -299,11 +310,15 @@ function buildEdgeIndex(def: PlaybookDefinition): EdgeIndex {
       if (out && !out.includes(n.id)) out.push(n.id);
       const inc = incoming.get(n.id);
       if (inc && !inc.includes(dep)) inc.push(dep);
+      // depends-derived reverse edges are always unconditional.
+      const outE = outgoingEdges.get(dep);
+      if (outE && !outE.some((e) => e.to === n.id)) outE.push({ from: dep, to: n.id });
     }
   }
   return {
     outgoing: new Map([...outgoing].map(([k, v]) => [k, Object.freeze([...v])])),
     incoming: new Map([...incoming].map(([k, v]) => [k, Object.freeze([...v])])),
+    outgoingEdges: new Map([...outgoingEdges].map(([k, v]) => [k, Object.freeze([...v])])),
   };
 }
 
@@ -327,23 +342,136 @@ function resolveEntryNode(def: PlaybookDefinition, idx: EdgeIndex): PlaybookNode
 }
 
 /**
- * Return the single successor node id for `nodeId`, or `null` if `nodeId` is
- * terminal (no outgoing edges — the "end" state in the design contract).
+ * Evaluate a declarative {@link PlaybookEdgeCondition} against the run
+ * `context`. The predicate is pure data (no `eval`, no expression parsing) so
+ * routing stays deterministic and sandbox-safe (T11806).
  *
- * Throws on fan-out (> 1 successor) because the deterministic runtime does
- * not support branching without an explicit `decide`-node contract. A
- * follow-up task can add guarded branching here — see README.
+ * Exactly one operator is set on a parsed condition (the parser enforces
+ * this); each is checked in turn:
+ *  - `equals` / `notEquals` — strict `Object.is`-style equality on
+ *    `context[field]`.
+ *  - `exists` — `field` present-in / absent-from context.
+ *  - `in` — `context[field]` is one of the listed values (strict equality).
+ *  - `truthy` — JS truthiness of `context[field]`.
+ *
+ * A condition naming a field absent from context evaluates to `false` for
+ * value comparisons (`equals`/`in`), `true` for `notEquals` (absent ≠ value),
+ * and is handled explicitly by `exists`/`truthy`.
+ *
+ * @param condition - Parsed, validated branch guard.
+ * @param context - Current accumulated run context.
+ * @returns `true` when the edge should be traversed.
+ *
+ * @task T11806 — cantbook runtime branching
  */
-function resolveNextNodeId(nodeId: string, idx: EdgeIndex): string | null {
-  const outs = idx.outgoing.get(nodeId) ?? [];
-  if (outs.length === 0) return null;
-  if (outs.length > 1) {
+function evaluateEdgeCondition(
+  condition: PlaybookEdgeCondition,
+  context: Record<string, unknown>,
+): boolean {
+  const has = Object.hasOwn(context, condition.field);
+  const value = context[condition.field];
+
+  if (condition.exists !== undefined) {
+    return condition.exists ? has : !has;
+  }
+  if (condition.truthy !== undefined) {
+    return condition.truthy ? Boolean(value) : !value;
+  }
+  if (Object.hasOwn(condition, 'equals')) {
+    return has && Object.is(value, condition.equals);
+  }
+  if (Object.hasOwn(condition, 'notEquals')) {
+    // Absent field is, by definition, not equal to any concrete value.
+    return !has || !Object.is(value, condition.notEquals);
+  }
+  if (condition.in !== undefined) {
+    return has && condition.in.some((candidate) => Object.is(value, candidate));
+  }
+  // Parser guarantees one operator is set; unreachable in practice.
+  return false;
+}
+
+/**
+ * Resolve the next node id to traverse from `nodeId`, given the current run
+ * `context`, with support for guarded conditional branching (T11806).
+ *
+ * Routing rules (minimal, fail-closed, backward-compatible):
+ *  - **0 outgoing edges** → `null` (terminal "end" state).
+ *  - Edges are partitioned into *unconditional* (no `when`) and *guarded*
+ *    (`when` predicate satisfied against `context`).
+ *  - **>1 unconditional successor** → throw `E_PLAYBOOK_RUNTIME_INVALID`
+ *    (genuine ambiguity — author must add `when` guards). This preserves the
+ *    pre-T11806 guard for the un-guarded fan-out case.
+ *  - **Exactly 1 satisfied successor** (unconditional or guarded) → traverse
+ *    it. Linear playbooks are unchanged: their single un-guarded edge is the
+ *    sole candidate.
+ *  - **Outgoing edges exist but NONE is satisfied** → throw (fail-closed: a
+ *    branch must always have a reachable default; silently terminating would
+ *    mask an authoring bug).
+ *  - **>1 satisfied successor** → throw (ambiguous branch — predicates must be
+ *    mutually exclusive; parallel fan-out is a deferred follow-up).
+ *
+ * @param nodeId - Current node id.
+ * @param idx - Pre-computed edge index.
+ * @param context - Current accumulated run context (predicate evaluation).
+ * @returns The single successor node id, or `null` when terminal.
+ * @throws {Error} stamped {@link E_PLAYBOOK_RUNTIME_INVALID} on ambiguous or
+ *   unsatisfiable branching.
+ */
+function resolveNextNodeId(
+  nodeId: string,
+  idx: EdgeIndex,
+  context: Record<string, unknown>,
+): string | null {
+  const edges = idx.outgoingEdges.get(nodeId) ?? [];
+  if (edges.length === 0) return null;
+
+  // Fast path: a single unconditional edge (the linear, pre-T11806 shape).
+  if (edges.length === 1) {
+    const [only] = edges;
+    if (only === undefined) {
+      throw new Error(`${E_PLAYBOOK_RUNTIME_INVALID}: node ${nodeId} has undefined successor`);
+    }
+    if (only.when !== undefined && !evaluateEdgeCondition(only.when, context)) {
+      throw new Error(
+        `${E_PLAYBOOK_RUNTIME_INVALID}: node ${nodeId} sole successor "${only.to}" is guarded ` +
+          `by a "when" predicate that is not satisfied — branch has no reachable default`,
+      );
+    }
+    return only.to;
+  }
+
+  // Fan-out: reject >1 unconditional successor (genuine ambiguity).
+  const unconditional = edges.filter((e) => e.when === undefined);
+  if (unconditional.length > 1) {
     throw new Error(
-      `${E_PLAYBOOK_RUNTIME_INVALID}: node ${nodeId} has ${outs.length} successors; branching requires an approval/decide node`,
+      `${E_PLAYBOOK_RUNTIME_INVALID}: node ${nodeId} has ${unconditional.length} unconditional ` +
+        `successors; guarded branching requires every additional edge to carry a "when" predicate`,
     );
   }
-  // Safe: length === 1
-  const [next] = outs;
+
+  // Collect satisfied successors: unconditional edge (if any) + guarded edges
+  // whose predicate holds.
+  const satisfied: string[] = [];
+  for (const e of edges) {
+    if (e.when === undefined || evaluateEdgeCondition(e.when, context)) {
+      satisfied.push(e.to);
+    }
+  }
+
+  if (satisfied.length === 0) {
+    throw new Error(
+      `${E_PLAYBOOK_RUNTIME_INVALID}: node ${nodeId} has ${edges.length} successors but no ` +
+        `"when" predicate is satisfied — branch has no reachable default`,
+    );
+  }
+  if (satisfied.length > 1) {
+    throw new Error(
+      `${E_PLAYBOOK_RUNTIME_INVALID}: node ${nodeId} has ${satisfied.length} satisfied successors ` +
+        `(${satisfied.join(', ')}); branch predicates must be mutually exclusive`,
+    );
+  }
+  const [next] = satisfied;
   if (next === undefined) {
     throw new Error(`${E_PLAYBOOK_RUNTIME_INVALID}: node ${nodeId} has undefined successor`);
   }
@@ -962,7 +1090,9 @@ async function runFromNode(args: {
       if (failedNodeId !== undefined) break;
 
       // Validate outgoing edge contracts (edge.contract.requires on the FROM side).
-      const nextId = resolveNextNodeId(node.id, edgeIndex);
+      // Branch routing (T11806) reads the post-merge context so guard
+      // predicates can act on this node's freshly merged output.
+      const nextId = resolveNextNodeId(node.id, edgeIndex, context);
       if (nextId !== null) {
         const edge = resolveEdge(node.id, nextId, playbook.edges);
         if (edge?.contract?.requires) {
@@ -1241,10 +1371,29 @@ export async function resumePlaybook(
       `${E_PLAYBOOK_RESUME_BLOCKED}: approval node ${approval.nodeId} not found in playbook ${options.playbook.name}`,
     );
   }
-  const successor = resolveNextNodeId(approvalNode.id, edgeIndex);
+
+  const now = options.now ?? (() => new Date());
+  const maxIterationsDefault = options.maxIterationsDefault ?? 3;
+  const approvalSecret = options.approvalSecret ?? getPlaybookSecret();
+  const context: Record<string, unknown> = { ...run.bindings };
+  const iterationCounts: Record<string, number> = { ...run.iterationCounts };
+
+  // Log the approval decision into the context so downstream nodes can act on
+  // it. Set BEFORE resolving the successor so a gate can branch on the
+  // approver's decision via a `when: { field: __lastApproval... }` edge (T11806
+  // approval/resume branch parity).
+  context['__lastApproval'] = {
+    nodeId: approval.nodeId,
+    approvalId: approval.approvalId,
+    approver: approval.approver,
+    reason: approval.reason,
+    approvedAt: approval.approvedAt,
+  };
+
+  const successor = resolveNextNodeId(approvalNode.id, edgeIndex, context);
   if (successor === null) {
     // Approval at the tail of the graph completes the run immediately.
-    const completedAt = (options.now ?? (() => new Date()))().toISOString();
+    const completedAt = now().toISOString();
     updatePlaybookRun(options.db, run.runId, {
       status: 'completed',
       currentNode: null,
@@ -1264,21 +1413,6 @@ export async function resumePlaybook(
     currentNode: successor,
     errorContext: null,
   });
-
-  const now = options.now ?? (() => new Date());
-  const maxIterationsDefault = options.maxIterationsDefault ?? 3;
-  const approvalSecret = options.approvalSecret ?? getPlaybookSecret();
-  const context: Record<string, unknown> = { ...run.bindings };
-  const iterationCounts: Record<string, number> = { ...run.iterationCounts };
-
-  // Log the approval decision into the context so downstream nodes can act on it.
-  context['__lastApproval'] = {
-    nodeId: approval.nodeId,
-    approvalId: approval.approvalId,
-    approver: approval.approver,
-    reason: approval.reason,
-    approvedAt: approval.approvedAt,
-  };
 
   // Persist an approval trace row for audit purposes. createPlaybookApproval
   // is distinct from createApprovalGate — the latter generates the HMAC
