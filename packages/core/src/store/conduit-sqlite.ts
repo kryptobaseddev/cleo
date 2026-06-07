@@ -87,7 +87,10 @@ import type { drizzle as drizzleFn } from 'drizzle-orm/node-sqlite';
 // existing callers compile and run without change.
 import { openDualScopeDb, resolveDualScopeDbPath } from './dual-scope-db.js';
 import { migrateSanitized, reconcileJournal } from './migration-manager.js';
-import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
+import {
+  resolveConsolidatedJournalSiblings,
+  resolveCorePackageMigrationsFolder,
+} from './resolve-migrations-folder.js';
 import * as conduitSchema from './schema/cleo-project/conduit.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
 
@@ -255,7 +258,15 @@ function runConduitMigrations(nativeDb: DatabaseSync): void {
   // the schema already matches). Sentinel = `_conduit_meta` (created by the
   // conduit migration itself — see the doc note above on why it must NOT be a
   // consolidated-owned table).
-  reconcileJournal(nativeDb, migrationsFolder, '_conduit_meta', 'conduit');
+  // T11829: conduit shares the consolidated PROJECT cleo.db journal — pass the
+  // OTHER lineages so their rows are not deleted as cross-lineage orphans.
+  reconcileJournal(
+    nativeDb,
+    migrationsFolder,
+    '_conduit_meta',
+    'conduit',
+    resolveConsolidatedJournalSiblings('drizzle-conduit'),
+  );
 
   const db = _getDrizzle()({ client: nativeDb, schema: conduitSchema });
   migrateSanitized(db, { migrationsFolder });

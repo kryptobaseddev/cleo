@@ -58,6 +58,63 @@ function coreRootFromEntry(entryPath: string): string {
  * // → '/…/node_modules/@cleocode/core/migrations/drizzle-tasks'  (installed)
  * ```
  */
+/**
+ * Every migration lineage that can physically share a consolidated `cleo.db`
+ * `__drizzle_migrations` journal (T11829 · SG-DB-SUBSTRATE-V2).
+ *
+ * The consolidated single-file-per-scope substrate has ONE shared journal per file
+ * but is reconciled by every lineage whose tables coexist in that file. Each
+ * lineage's `reconcileJournal` must treat the OTHER lineages' rows as known (not
+ * orphans) — otherwise the journal never converges and every open re-thrashes the
+ * WAL writer lock under `busy_timeout`, stacking 300-550 MB connection opens until
+ * the host OOM-kills (the confirmed root cause).
+ *
+ * This is the SSoT for that union. It intentionally lists BOTH the project-scope
+ * lineages (`drizzle-tasks`, `drizzle-cleo-project`, `drizzle-nexus`,
+ * `drizzle-brain`, `drizzle-conduit`) and the global-scope lineages
+ * (`drizzle-cleo-global`, `drizzle-agent-registry`, `drizzle-skills`,
+ * `drizzle-telemetry`). Over-inclusion is SAFE and conservative: a sibling whose
+ * hash never appears in a given file's journal contributes nothing, and a hash that
+ * DOES appear can only be a legitimately-applied migration of that lineage — so
+ * adding it to the union only ever PREVENTS a wrongful deletion, never causes one.
+ * Listing a lineage absent from a given install is harmless —
+ * {@link resolveConsolidatedJournalSiblings}'s caller skips folders that read empty.
+ */
+export const CONSOLIDATED_JOURNAL_LINEAGES: readonly string[] = [
+  'drizzle-tasks',
+  'drizzle-cleo-project',
+  'drizzle-nexus',
+  'drizzle-brain',
+  'drizzle-conduit',
+  'drizzle-cleo-global',
+  'drizzle-agent-registry',
+  'drizzle-skills',
+  'drizzle-telemetry',
+] as const;
+
+/**
+ * Resolve the SIBLING migration folders that share the consolidated `cleo.db`
+ * journal with the given lineage (T11829).
+ *
+ * Pass the result as `siblingMigrationsFolders` to `reconcileJournal` so its
+ * cross-lineage orphan-deletion guard knows every hash that legitimately belongs
+ * to a coexisting lineage. The caller's OWN folder is excluded from the result.
+ *
+ * @param ownSetName - The lineage doing the reconcile, e.g. `'drizzle-tasks'`.
+ * @returns Absolute paths to the OTHER consolidated-journal lineage folders.
+ *
+ * @example
+ * ```ts
+ * reconcileJournal(nativeDb, folder, 'tasks', 'sqlite',
+ *   resolveConsolidatedJournalSiblings('drizzle-tasks'));
+ * ```
+ */
+export function resolveConsolidatedJournalSiblings(ownSetName: string): string[] {
+  return CONSOLIDATED_JOURNAL_LINEAGES.filter((name) => name !== ownSetName).map((name) =>
+    resolveCorePackageMigrationsFolder(name),
+  );
+}
+
 export function resolveCorePackageMigrationsFolder(setName: string): string {
   // Strategy 1: ESM-native import.meta.resolve() with parent URL.
   // The two-argument form was stabilised in Node 18.19.0 / 20.x and is the

@@ -82,7 +82,10 @@ import { getCleoHome } from '../paths.js';
 // existing callers (nexusSchema.* queries) compile and run without change.
 import { openDualScopeDb, resolveDualScopeDbPath } from './dual-scope-db.js';
 import { ensureColumns, migrateWithRetry, reconcileJournal } from './migration-manager.js';
-import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
+import {
+  resolveConsolidatedJournalSiblings,
+  resolveCorePackageMigrationsFolder,
+} from './resolve-migrations-folder.js';
 import * as nexusSchema from './schema/nexus-schema.js';
 // isSqliteBusy is a pure predicate with no node:sqlite dependency — import it
 // from its canonical leaf home (with-retry.ts) rather than sqlite.ts so this
@@ -638,7 +641,15 @@ function runNexusMigrations(
   // treated as true orphans (Sub-case B) rather than re-run. Sentinel =
   // `_nexus_meta` (created by the nexus delta migration itself — NOT a
   // consolidated-owned table; see the doc note above).
-  reconcileJournal(nativeDb, migrationsFolder, '_nexus_meta', 'nexus');
+  // T11829: nexus shares the consolidated PROJECT cleo.db journal (ADR-090 residency
+  // move) — pass the OTHER lineages so their rows are not deleted as orphans.
+  reconcileJournal(
+    nativeDb,
+    migrationsFolder,
+    '_nexus_meta',
+    'nexus',
+    resolveConsolidatedJournalSiblings('drizzle-nexus'),
+  );
 
   // Run the nexus DELTA migration (FTS5 quartet + nexus_relation_weights +
   // `_nexus_meta`). Wrapped in a busy retry — the GLOBAL `cleo.db` handle is
