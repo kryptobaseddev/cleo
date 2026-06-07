@@ -7,7 +7,8 @@
 //!
 //! Parses the minimal R1 CLI surface (`--version` / `--help`, T11337 AC5) and,
 //! when run with no flags, boots the supervisor runtime: acquire the pidfile
-//! under the CLEO home, initialize rolling-file logging, and install the
+//! under the CLEO home, initialize rolling-file logging, bind the IPC listener +
+//! accept loop feeding the multi-child registry (R2, T11253), and install the
 //! SIGTERM/SIGINT graceful-shutdown + SIGCHLD reaping signal loop (T11338 AC3).
 
 // Tests in this binary may freely unwrap/expect/panic (matches the lib crate).
@@ -70,12 +71,13 @@ fn parse_cli(args: &[String]) -> CliAction {
     }
 }
 
-/// Boot the supervisor runtime: pidfile, logging, signal loop.
+/// Boot the supervisor runtime: pidfile, logging, IPC accept loop, signal loop.
 ///
-/// R1 stands up the lifecycle primitives. The IPC command surface (spawning
-/// children on request) is consumed by R2 (T11253); here the process simply
-/// holds the pidfile and waits for a shutdown signal, demonstrating the
-/// pidfile + logging + graceful-shutdown integration end-to-end.
+/// R1 stood up the lifecycle primitives; R2 (T11253) finishes the IPC loop. After
+/// the pidfile + logging are in place this binds the IPC listener and runs its
+/// accept loop concurrently with the shutdown-signal loop: clients drive the
+/// multi-child registry over the supervisor-ipc fan-out channel until a
+/// SIGTERM/SIGINT (or Ctrl-C) requests a graceful stop.
 fn run() -> anyhow::Result<()> {
     // Acquire the pidfile before doing anything else — refuse double-launch.
     let pidfile_path = cleo_supervisor::paths::pidfile_path()?;
@@ -95,16 +97,47 @@ fn run() -> anyhow::Result<()> {
         "cleo-supervisor started"
     );
 
-    // Run the signal loop on a current-thread tokio runtime. The supervisor is
-    // I/O-bound and a single reactor is sufficient for R1.
+    // Run the IPC accept loop + signal loop on a current-thread tokio runtime.
+    // The supervisor is I/O-bound and a single reactor is sufficient.
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
-    runtime.block_on(signal_loop())?;
+    let socket_path = cleo_supervisor::paths::socket_path()?;
+    runtime.block_on(serve_until_shutdown(&socket_path))?;
 
     tracing::info!("cleo-supervisor shutting down");
+    // Best-effort: remove the IPC socket file so the next launch binds cleanly.
+    #[cfg(unix)]
+    {
+        let _ = std::fs::remove_file(&socket_path);
+    }
     // Dropping `pidfile` removes the pidfile; dropping `_log_guard` flushes logs.
     drop(pidfile);
+    Ok(())
+}
+
+/// Bind the IPC listener + accept loop and run it concurrently with the
+/// shutdown-signal loop, returning when a shutdown signal is received (or the
+/// accept loop fails irrecoverably).
+async fn serve_until_shutdown(socket_path: &std::path::Path) -> anyhow::Result<()> {
+    use cleo_supervisor::ipc_server;
+    use cleo_supervisor::supervisor::ChildRegistry;
+
+    // Lifecycle events flow registry -> IPC fan-out over this channel.
+    let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel();
+    let registry = ChildRegistry::new(event_tx);
+
+    tokio::select! {
+        // The accept loop only returns on an unrecoverable transport error;
+        // surface it so the process exits non-zero.
+        res = ipc_server::serve(socket_path, registry, event_rx) => {
+            res.map_err(|e| anyhow::anyhow!("supervisor IPC serve loop failed: {e}"))?;
+        }
+        // Graceful shutdown wins the race on SIGTERM/SIGINT/Ctrl-C.
+        res = signal_loop() => {
+            res?;
+        }
+    }
     Ok(())
 }
 

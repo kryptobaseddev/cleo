@@ -17,6 +17,7 @@
 //!   * [`logging`]    — `tracing-appender` rolling file logs under the cleo log dir.
 //!   * [`ipc`]        — FROZEN v1.0 supervisor-ipc contract (mirror of the Zod schemas).
 //!   * [`ipc_transport`] — Unix-socket / Windows-pipe NDJSON fan-out.
+//!   * [`ipc_server`] — bind + accept loop + request dispatch into the registry (R2).
 //!
 //! The binary ([`main`](../main.rs)) is distributed as a standalone executable via
 //! the worktree-napi-style cross-compile + GitHub-Release packaging (T11340),
@@ -29,6 +30,7 @@
 
 pub mod backoff;
 pub mod ipc;
+pub mod ipc_server;
 pub mod ipc_transport;
 pub mod jobobject;
 pub mod logging;
