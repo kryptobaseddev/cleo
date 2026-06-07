@@ -1,5 +1,11 @@
 # Changelog
 
+## [2026.6.11] (2026-06-06)
+
+### Fixed
+
+- **Cold-open OOM + non-converging migration journal on consolidated DBs.** A consolidated `cleo.db` keeps one shared `__drizzle_migrations` journal but is reconciled on every open by four migration lineages (tasks/project/nexus/brain); `reconcileJournal` built its orphan set from only the calling lineage, so each lineage **deleted the others' journal rows** as "orphans" → the journal never converged (oscillated) and every open re-ran a delete→re-probe→migrate write-transaction under a 30s lock (multi-minute, lock-blocked opens). Combined with per-connection SQLite reservations (`mmap 256MB + cache 64MB + temp MEMORY`) across uncapped concurrent processes (the auto-respawning daemon + queued opens), this exhausted host memory → OOM/SIGKILL. Fixes: (1) **union-guard reconcile** — a journal row is a true orphan only if its hash belongs to *no* lineage sharing the DB (sibling-lineage rows are preserved), so all lineages converge to a stable journal in one pass; (2) **`UNIQUE(hash)` index + `INSERT OR IGNORE`** make re-probes idempotent (structural convergence); (3) **per-connection memory bounded for one-shot/CLI opens** (`mmap_size=0`, small `cache_size`) — the daemon keeps the full hot-page window; (4) fleet fail-safes — `--max-old-space-size` on the `cleo` + daemon Node processes, a single-flight lock around cold-open reconcile, and daemon `StartLimitIntervalSec`/`StartLimitBurst`. Verified on a 707 MB copy: journal converges and stays stable, cold-open 3m45s→~20ms, peak RSS multi-GB→~93 MB. _(provenance: [T11829](https://github.com/kryptobaseddev/cleo/search?q=T11829&type=commits); [#990](https://github.com/kryptobaseddev/cleo/pull/990))_
+
 ## [2026.6.10] (2026-06-06)
 
 ### Fixed
