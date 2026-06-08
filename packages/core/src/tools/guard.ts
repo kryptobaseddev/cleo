@@ -51,7 +51,8 @@ import type {
   WriteFileResult,
 } from '@cleocode/contracts/tools/atomic';
 import { getLogger } from '../logger.js';
-import { pathExists, readFileText, readJson, writeFileAtomic } from './fs.js';
+import { scrubSubprocessEnv } from './env-scrub.js';
+import { canonicalizePath, pathExists, readFileText, readJson, writeFileAtomic } from './fs.js';
 import { executeShell, runGit, type ShellExecutor } from './shell.js';
 
 const log = getLogger('tool-guard');
@@ -147,6 +148,13 @@ export class GuardDeniedError extends Error {
 
 /** The guarded primitive surface returned by {@link createToolGuard}. */
 export interface ToolGuard {
+  /**
+   * The resolved enforcement posture this guard was constructed with. Exposed so
+   * a security-sensitive consumer (e.g. the Pi adapter) can ASSERT it received an
+   * `enforce`-mode guard before handing it untrusted work — in `warn` mode the
+   * allowlist/denylist are advisory (log-and-proceed) and provide no boundary.
+   */
+  readonly mode: GuardMode;
   readFileText(input: ReadFileInput): Promise<ReadFileResult>;
   readJson<T>(path: string): Promise<T>;
   writeFileAtomic(input: WriteFileInput): Promise<WriteFileResult>;
@@ -155,13 +163,32 @@ export interface ToolGuard {
   runGit(input: RunGitInput, executor?: ShellExecutor): Promise<ExecuteShellResult>;
 }
 
-/** True when `path` resolves under one of `roots`. */
-function isPathAllowed(path: string, roots: readonly string[]): boolean {
-  const abs = isAbsolute(path) ? path : resolvePath(path);
+/** True when the resolved absolute `abs` is equal to or under one of `roots`. */
+function isUnderRoots(abs: string, roots: readonly string[]): boolean {
   return roots.some((root) => {
     const r = resolvePath(root);
     return abs === r || abs.startsWith(`${r}/`);
   });
+}
+
+/**
+ * Whether `path` is allowed under `roots` after SYMLINK RESOLUTION.
+ *
+ * Both the candidate path AND each allowed root are canonicalized via
+ * {@link canonicalizePath} (which follows every symlink component, including a
+ * symlinked parent of a not-yet-existing write target) BEFORE the containment
+ * comparison. A purely lexical check is symlink-blind — a symlink planted inside
+ * an allowed root that points outside it would pass, then the underlying fs
+ * primitive would follow it. Resolving first closes that escape.
+ *
+ * @param path - The candidate path.
+ * @param roots - The allowed roots.
+ * @returns `true` when the real target is contained.
+ */
+async function isPathAllowed(path: string, roots: readonly string[]): Promise<boolean> {
+  const realAbs = await canonicalizePath(isAbsolute(path) ? path : resolvePath(path));
+  const realRoots = await Promise.all(roots.map((r) => canonicalizePath(resolvePath(r))));
+  return isUnderRoots(realAbs, realRoots);
 }
 
 /** The denied command name matched by the policy, or null when allowed. */
@@ -187,10 +214,12 @@ export function createToolGuard(policy: ToolGuardPolicy = {}): ToolGuard {
   // (held at 'warn' behind the owner-gated flip — T11474 · AC4).
   const mode: GuardMode = policy.mode ?? resolveDefaultGuardMode();
 
-  const denyFs = (op: string, path: string): boolean => {
+  const denyFs = async (op: string, path: string): Promise<boolean> => {
     if (!policy.allowedRoots || policy.allowedRoots.length === 0) return false;
-    if (isPathAllowed(path, policy.allowedRoots)) return false;
-    const msg = `tool-guard: fs.${op} path "${path}" is outside the allowed roots`;
+    // Symlink-resolving containment — a lexically-inside path whose REAL target
+    // (via a symlinked component) escapes the roots is rejected here.
+    if (await isPathAllowed(path, policy.allowedRoots)) return false;
+    const msg = `tool-guard: fs.${op} path "${path}" resolves outside the allowed roots`;
     if (mode === 'enforce') throw new GuardDeniedError(msg);
     log.warn({ op, path, allowedRoots: policy.allowedRoots }, msg);
     return false; // warn-then-proceed
@@ -211,25 +240,32 @@ export function createToolGuard(policy: ToolGuardPolicy = {}): ToolGuard {
   // surfaces as a REJECTED promise (not a synchronous throw) — the API contract
   // is `Promise<…>`, and callers (+ vitest `.rejects`) expect rejection.
   return {
+    mode,
     async readFileText(input) {
-      denyFs('readFileText', input.path);
+      await denyFs('readFileText', input.path);
       return readFileText(input);
     },
     async readJson<T>(path: string) {
-      denyFs('readJson', path);
+      await denyFs('readJson', path);
       return readJson<T>(path);
     },
     async writeFileAtomic(input) {
-      denyFs('writeFileAtomic', input.path);
+      await denyFs('writeFileAtomic', input.path);
       return writeFileAtomic(input);
     },
     async pathExists(input) {
-      denyFs('pathExists', input.path);
+      await denyFs('pathExists', input.path);
       return pathExists(input);
     },
     async executeShell(input, executor) {
       denyShell('executeShell', input.command);
-      return executeShell(input, executor);
+      // Scrub the child env at the chokepoint: never inherit the daemon's
+      // secrets, never forward a Pi-controlled loader hook / PATH. The
+      // caller-supplied `env` is merged ON TOP but itself scrubbed (a forbidden
+      // key — loader hook, PATH, secret — is dropped here). `defaultShellExecutor`
+      // also scrubs as a redundant net, but the guard is the policy point.
+      const env = scrubSubprocessEnv({ extra: input.env });
+      return executeShell({ ...input, env }, executor);
     },
     async runGit(input, executor) {
       denyShell('runGit', 'git');

@@ -25,6 +25,7 @@ import type {
   ExecuteShellResult,
   RunGitInput,
 } from '@cleocode/contracts/tools/atomic';
+import { scrubSubprocessEnv } from './env-scrub.js';
 
 /**
  * The process layer behind {@link executeShell}. Injecting a custom executor in
@@ -38,12 +39,24 @@ export type ShellExecutor = (input: ExecuteShellInput) => Promise<ExecuteShellRe
  * stderr and resolving `{ stdout, stderr, code }`. A `timeoutMs` kills the
  * process (code resolves to `null` on signal/timeout). Never rejects on a
  * non-zero exit — the exit code is the result, not an error.
+ *
+ * ## Environment is SCRUBBED, never inherited (T11897 · security)
+ *
+ * The child runs under a MINIMAL, explicitly-constructed environment built by
+ * {@link scrubSubprocessEnv} — it does NOT inherit the parent `process.env`.
+ * This is load-bearing: the parent (the Cleo daemon) holds resolved provider
+ * credentials (`ANTHROPIC_API_KEY`, vault material, OAuth headers); blindly
+ * forwarding the full env into a child spawned on behalf of an in-process Pi
+ * loop would let a single `env`/`printenv` exfiltrate them, and would forward a
+ * Pi-poisoned `LD_PRELOAD`/`PATH`/`NODE_OPTIONS` into the loader. The
+ * caller-supplied `input.env` is merged on top but itself scrubbed (forbidden
+ * keys dropped, `PATH` pinned). Benign vars (locale/term/home) pass through.
  */
 export const defaultShellExecutor: ShellExecutor = (input) =>
   new Promise<ExecuteShellResult>((resolve, reject) => {
     const child = spawn(input.command, [...(input.args ?? [])], {
       cwd: input.cwd,
-      env: input.env ? { ...process.env, ...input.env } : process.env,
+      env: scrubSubprocessEnv({ extra: input.env }),
       timeout: input.timeoutMs,
       shell: false,
     });
