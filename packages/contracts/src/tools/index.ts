@@ -7,6 +7,30 @@
  * @epic T9835
  */
 
+// === Agent-facing tool families (T1741 / T11456) ===
+export type {
+  ApplyPatchInput,
+  ApplyPatchResult,
+  GitCommitInput,
+  GitCommitResult,
+  GitDiffInput,
+  GitDiffResult,
+  GitLogEntry,
+  GitLogInput,
+  GitLogResult,
+  GitStatusEntry,
+  GitStatusInput,
+  GitStatusResult,
+  GitToolBase,
+  ReadFilePagedInput,
+  ReadFilePagedResult,
+  RunShellInput,
+  RunShellResult,
+  SearchFilesInput,
+  SearchFilesMatch,
+  SearchFilesResult,
+  ShellRunMode,
+} from './agent-tools.js';
 export type { FetchBrainEntriesInput, FetchBrainEntriesOutput } from './brain-fetch.js';
 export type { ObserveBrainInput, ObserveBrainOutput } from './brain-observe.js';
 // === BrainTools (T10070 / T9835c) ===

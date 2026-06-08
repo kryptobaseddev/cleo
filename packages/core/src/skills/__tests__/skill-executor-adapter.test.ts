@@ -72,6 +72,10 @@ function makeGuardSpy(): { tools: GuardedToolSurface; calls: string[] } {
       calls.push('executeShell');
       return { stdout: '', stderr: '', code: 0 };
     },
+    async executePty() {
+      calls.push('executePty');
+      return { stdout: '', stderr: '', code: 0, mode: 'spawn' as const, ptyFellBack: false };
+    },
     async runGit() {
       calls.push('runGit');
       return { stdout: '', stderr: '', code: 0 };

@@ -146,10 +146,13 @@ describe('AgentToolRegistry — toolset grouping (AC4)', () => {
     expect(Object.keys(grouped).sort()).toEqual(
       ['agent', 'file', 'media', 'terminal', 'web'].sort(),
     );
-    expect(grouped.file.map((t) => t.name).sort()).toEqual(
-      ['path_exists', 'read_file', 'write_file'].sort(),
-    );
-    expect(grouped.terminal.map((t) => t.name).sort()).toEqual(['run_command', 'run_git'].sort());
+    // The thin built-ins (T1739) PLUS the richer T1741 families share the file
+    // and terminal toolsets — assert the built-ins are present (superset check)
+    // rather than an exact list, so adding families doesn't break this test.
+    const fileNames = grouped.file.map((t) => t.name);
+    expect(fileNames).toEqual(expect.arrayContaining(['path_exists', 'read_file', 'write_file']));
+    const terminalNames = grouped.terminal.map((t) => t.name);
+    expect(terminalNames).toEqual(expect.arrayContaining(['run_command', 'run_git']));
     // No net/notebook primitives implemented yet — empty but present.
     expect(grouped.web).toEqual([]);
     expect(grouped.media).toEqual([]);
@@ -200,10 +203,14 @@ describe('AgentToolRegistry — frozen-after-init + single-flight (AC6)', () => 
   });
 
   it('concurrent init() calls coalesce into one (single-flight)', async () => {
+    // Control: a single init() establishes the canonical built-in count.
+    const control = new AgentToolRegistry();
+    await control.init();
     const r = new AgentToolRegistry();
     await Promise.all([r.init(), r.init(), r.init()]);
-    // Built-ins registered exactly once despite 3 concurrent inits.
-    expect(r.size).toBe(5);
+    // Built-ins registered exactly once despite 3 concurrent inits — same count
+    // as a single init (no duplicate registration race).
+    expect(r.size).toBe(control.size);
   });
 
   it('list() returns a defensive copy (mutating it does not affect the registry)', async () => {

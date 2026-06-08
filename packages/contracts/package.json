@@ -22,6 +22,10 @@
       "types": "./dist/tools/atomic.d.ts",
       "import": "./dist/tools/atomic.js"
     },
+    "./tools/agent-tools": {
+      "types": "./dist/tools/agent-tools.d.ts",
+      "import": "./dist/tools/agent-tools.js"
+    },
     "./tools/composite": {
       "types": "./dist/tools/composite.d.ts",
       "import": "./dist/tools/composite.js"

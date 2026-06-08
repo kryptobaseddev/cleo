@@ -98,6 +98,21 @@ export {
   createAgentToolRegistry,
   type ToolAvailabilityContext,
 } from './agent-registry.js';
+// Agent-facing tool families (T1741 · epic T11456) — terminal `run_shell` (PTY +
+// non-PTY spawn fallback), paginated `read_file_paged`, atomic `write_file_atomic`,
+// fuzzy `apply_patch`, ripgrep `search_files`, and the git family. Pure helpers
+// (pagination, fuzzy patch, rg/git output parsing) are exported for direct unit
+// testing; every executable routes side effects through the guarded surface.
+export {
+  applyFuzzyPatch,
+  type FuzzyPatchOutcome,
+  GIT_LOG_FORMAT,
+  paginateLines,
+  parseGitLog,
+  parseGitStatus,
+  parseRipgrepOutput,
+  registerAgentToolFamilies,
+} from './agent-tool-families.js';
 export { registerBuiltinAgentTools } from './builtin-agent-tools.js';
 // Subprocess env scrubbing (T11897 · security) — the chokepoint builds a minimal,
 // allowlisted child env so daemon secrets never leak and a Pi-controlled loader
@@ -120,6 +135,9 @@ export {
   type ToolGuard,
   type ToolGuardPolicy,
 } from './guard.js';
+// PTY shell runner (T1741) — the terminal toolset's execution backend; lazily +
+// optionally loads `node-pty`, transparently degrading to non-PTY `spawn`.
+export { runPty } from './pty.js';
 export { type ZodSchemaTool, zodSchemaToOpenAITool } from './schema-gen.js';
 // Injectable shell executor (E3 · T11406) — threaded into the guard's
 // executeShell/runGit; substitutes the subprocess layer in tests/sandboxes.

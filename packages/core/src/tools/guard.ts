@@ -39,6 +39,7 @@
  */
 
 import { isAbsolute, resolve as resolvePath } from 'node:path';
+import type { RunShellInput, RunShellResult } from '@cleocode/contracts/tools/agent-tools';
 import type {
   ExecuteShellInput,
   ExecuteShellResult,
@@ -53,6 +54,7 @@ import type {
 import { getLogger } from '../logger.js';
 import { scrubSubprocessEnv } from './env-scrub.js';
 import { canonicalizePath, pathExists, readFileText, readJson, writeFileAtomic } from './fs.js';
+import { runPty } from './pty.js';
 import { executeShell, runGit, type ShellExecutor } from './shell.js';
 
 const log = getLogger('tool-guard');
@@ -160,6 +162,13 @@ export interface ToolGuard {
   writeFileAtomic(input: WriteFileInput): Promise<WriteFileResult>;
   pathExists(input: PathExistsInput): Promise<PathExistsResult>;
   executeShell(input: ExecuteShellInput, executor?: ShellExecutor): Promise<ExecuteShellResult>;
+  /**
+   * Run a command under a PTY (or a non-PTY spawn fallback) through the guard.
+   * The command basename is checked against the denylist BEFORE any process is
+   * spawned and the child env is scrubbed — same policy point as
+   * {@link ToolGuard.executeShell}.
+   */
+  executePty(input: RunShellInput): Promise<RunShellResult>;
   runGit(input: RunGitInput, executor?: ShellExecutor): Promise<ExecuteShellResult>;
 }
 
@@ -266,6 +275,14 @@ export function createToolGuard(policy: ToolGuardPolicy = {}): ToolGuard {
       // also scrubs as a redundant net, but the guard is the policy point.
       const env = scrubSubprocessEnv({ extra: input.env });
       return executeShell({ ...input, env }, executor);
+    },
+    async executePty(input) {
+      // Same policy point as executeShell: deny-check the command basename
+      // BEFORE spawning any PTY/process. `runPty` re-scrubs the env internally
+      // (PTY + spawn paths both use `scrubSubprocessEnv`), so the daemon's
+      // secrets and any Pi-controlled loader hook can never reach the child.
+      denyShell('executePty', input.command);
+      return runPty(input);
     },
     async runGit(input, executor) {
       denyShell('runGit', 'git');
