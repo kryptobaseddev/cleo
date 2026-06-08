@@ -80,8 +80,9 @@ import type {
 // registry is never CONSULTED — populated-but-unused, the accepted inert side
 // effect, not a leak.
 import { createAssistantMessageEventStream } from '@earendil-works/pi-ai';
-import { z } from 'zod';
+import type { z } from 'zod';
 import { getLogger } from '../../logger.js';
+import { zodSchemaToOpenAITool } from '../../tools/schema-gen.js';
 import { ModelRunner } from '../model-runner.js';
 import { resolveLLMForSystem } from '../system-resolver.js';
 import { wrapPiError } from './pi-errors.js';
@@ -108,23 +109,18 @@ export interface PiZodTool {
 /**
  * Convert a Cleo Zod-schema tool into a JSON-schema {@link TransportTool}.
  *
- * Uses Zod v4's native `z.toJSONSchema` — no `zod-to-json-schema` dependency and,
- * crucially, NO typebox value-import. The resulting `inputSchema` is a plain JSON
- * Schema object the transport passes through verbatim.
+ * Thin wrapper over the SINGLE shared generator
+ * {@link zodSchemaToOpenAITool} (`core/src/tools/schema-gen.ts`) so the Pi bridge
+ * and the agent registry (T1739 · AC3) share ONE conversion doctrine and cannot
+ * drift (DRY). Uses Zod v4's native `z.toJSONSchema` — no `zod-to-json-schema`
+ * dependency and, crucially, NO typebox value-import. The resulting `inputSchema`
+ * is a plain JSON Schema object the transport passes through verbatim.
  *
  * @param tool - The Cleo Zod tool.
  * @returns The transport-shaped JSON-schema tool.
  */
 export function zodToolToTransportTool(tool: PiZodTool): TransportTool {
-  // Zod v4's native `z.toJSONSchema` renders a plain JSON Schema object — NO
-  // `zod-to-json-schema` dep and NO typebox value-import at this boundary, so
-  // the cleo↔Pi tool surface carries zero typebox (Gate 10).
-  const inputSchema = z.toJSONSchema(tool.parameters) as Record<string, unknown>;
-  return {
-    name: tool.name,
-    description: tool.description,
-    inputSchema,
-  };
+  return zodSchemaToOpenAITool(tool);
 }
 
 const logger = getLogger('pi-stream-fn');
