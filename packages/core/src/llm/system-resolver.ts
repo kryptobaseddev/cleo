@@ -188,6 +188,11 @@ export async function resolveLLMForSystem(
   try {
     base = await resolveLLMForRole(roleForResolution, {
       projectRoot: opts?.projectRoot,
+      // E9 · T11748: thread the system label as the `llm.systems[key]` lookup
+      // key so the per-system granular-override tier is consulted between the
+      // explicit-arg lane and the global `defaultProfile`. The flat label IS the
+      // encoded key for role-mapped subsystems (`'sentient'`, `'memory'`, …).
+      systemKey: system,
     });
   } catch (err) {
     // Mirror role-resolver's never-throw contract: return a null-credential

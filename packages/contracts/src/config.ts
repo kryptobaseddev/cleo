@@ -476,6 +476,29 @@ export interface LlmProfileTuning {
 }
 
 /**
+ * Capability lane a named profile occupies — the hermes "global-base +
+ * granular-override" tiering model (E9 · T11745 · T11748).
+ *
+ * A profile's `tier` is a coarse capability hint a runner can use to pick the
+ * right lane for a turn independently of the role/system axis:
+ *
+ * | Tier         | Meaning                                                          |
+ * |--------------|------------------------------------------------------------------|
+ * | `prime`      | The flagship reasoning lane — orchestration / hard turns.         |
+ * | `aux`        | The auxiliary lane — cheap background subsystems (the hermes      |
+ * |              | `_AUX_TASKS` default model bucket; see {@link LlmProfileConfig.defaultAuxModel}). |
+ * | `background` | The lowest lane — fire-and-forget background work (titles, etc.). |
+ *
+ * Advisory metadata only: it does NOT alter the provider/model resolution
+ * chain in {@link LlmConfig} — it lets callers and diagnostics reason about
+ * which lane a profile belongs to without re-deriving it from the model id.
+ *
+ * @task T11748
+ * @epic T11745
+ */
+export type LlmProfileTier = 'prime' | 'aux' | 'background';
+
+/**
  * A named, reusable LLM profile.
  *
  * A profile names a `provider` + `model` (+ optional credential label and
@@ -503,6 +526,67 @@ export interface LlmProfileConfig {
   credentialLabel?: string;
   /** Optional tuning parameters (max tokens, temperature). */
   params?: LlmProfileTuning;
+  /**
+   * Optional capability lane this profile occupies (see {@link LlmProfileTier}).
+   *
+   * Advisory metadata only — does NOT participate in provider/model resolution.
+   * Lets callers/diagnostics reason about a profile's lane (prime/aux/background)
+   * without re-deriving it from the model id. The hermes tiering model.
+   *
+   * @task T11748
+   */
+  tier?: LlmProfileTier;
+  /**
+   * Optional default auxiliary model for this profile — the hermes
+   * `auxiliary.defaultModel` analog (E9 · T11748).
+   *
+   * When this profile is a `prime`/global-base binding, `defaultAuxModel` names
+   * the cheaper model an aux-tier subsystem should use instead of {@link model}
+   * when it has no more-specific binding. Advisory metadata; consumers that want
+   * an aux-tier model read this rather than re-selecting a profile.
+   *
+   * @task T11748
+   */
+  defaultAuxModel?: string;
+}
+
+/**
+ * A per-system LLM binding — the granular override half of the hermes
+ * "global-base + granular-override" model (E9 · T11745 · T11748).
+ *
+ * A {@link LlmConfig.systems} entry pins the provider/model (or a named
+ * {@link LlmProfileConfig}) for ONE encoded system-of-use key (e.g.
+ * `'sentient'`, `'tool:web-search'`, `'skill:ct-cleo'`). It is consulted in the
+ * resolution chain AFTER an explicit role/argument override but BEFORE the
+ * global {@link LlmConfig.defaultProfile} — giving each subsystem a targeted
+ * override without touching the global base.
+ *
+ * Either `profile` (a key of {@link LlmConfig.profiles}) OR an inline
+ * `provider` + `model` tuple supplies the binding; `profile` wins when both are
+ * present. An entry that supplies neither a resolvable `profile` nor a complete
+ * `provider`+`model` tuple is structurally incomplete and is skipped (resolution
+ * falls through to the next tier) — never an error.
+ *
+ * @task T11748
+ * @epic T11745
+ */
+export interface SystemBinding {
+  /**
+   * Optional reference to a named profile in {@link LlmConfig.profiles}. When
+   * set and resolvable, the named profile's provider/model/credentialLabel win
+   * over this entry's inline `provider`/`model`.
+   */
+  profile?: string;
+  /** Inline LLM provider transport for this system (used when `profile` absent). */
+  provider?: LlmProviderTransport;
+  /** Inline full model identifier for this system (used when `profile` absent). */
+  model?: string;
+  /**
+   * Optional credential label pinning this system to a specific credential pool
+   * entry. When omitted, the standard priority-based credential resolution
+   * applies (or the resolved profile's `credentialLabel`).
+   */
+  credentialLabel?: string;
 }
 
 /**
@@ -559,6 +643,26 @@ export interface LlmConfig {
    * @task T11617
    */
   defaultProfile?: string;
+  /**
+   * Per-system-of-use LLM overrides — the granular-override half of the hermes
+   * "global-base + granular-override" model (E9 · T11745 · T11748).
+   *
+   * Keyed by an encoded system-of-use key: a flat role-mapped label
+   * (`'sentient'`, `'memory'`, …) or an open-axis key
+   * (`'tool:<name>'` / `'skill:<name>'` / `'cantbook:<node>'` /
+   * `'spawn-unit:<id>'`). Each value is a {@link SystemBinding}.
+   *
+   * Resolution priority for a system-of-use call:
+   *   explicit-arg (role override) → `systems[key]` → `defaultProfile` →
+   *   implicit fallback.
+   *
+   * `systems[key]` is consulted AFTER any explicit role/argument override but
+   * BEFORE the global {@link defaultProfile}, so a subsystem can be pointed at a
+   * targeted model without disturbing the global base.
+   *
+   * @task T11748
+   */
+  systems?: Record<string, SystemBinding>;
 }
 
 /** SignalDock transport mode. */

@@ -264,6 +264,7 @@ export type {
   LlmConfig,
   LlmDefaultConfig,
   LlmProfileConfig,
+  LlmProfileTier,
   LlmProfileTuning,
   LlmProviderEntry,
   LlmProviderTransport,
@@ -282,6 +283,7 @@ export type {
   SharingMode,
   SignalDockConfig,
   SignalDockMode,
+  SystemBinding,
 } from './config.js';
 export type { AdapterContextMonitorProvider } from './context-monitor.js';
 // === Claude Code credential parsing (T9307 — pure helper, no core imports) ===

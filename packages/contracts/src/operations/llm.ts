@@ -242,10 +242,12 @@ export interface CredentialMetadataWire {
  *
  * @task T9306
  * @task T11617 (`profile`, `default-profile`)
+ * @task T11748 (`system`)
  */
 export type ResolutionSource =
   | 'role'
   | 'profile'
+  | 'system'
   | 'default'
   | 'default-profile'
   | 'implicit-fallback';
@@ -329,6 +331,19 @@ export interface ResolveLLMForRoleOptions {
    * Defaults to `process.cwd()`.
    */
   projectRoot?: string;
+  /**
+   * Optional encoded system-of-use key (e.g. `'sentient'`, `'tool:web-search'`)
+   * that activates the `llm.systems[key]` override tier in the resolution chain
+   * (E9 · T11748).
+   *
+   * When set, `llm.systems[systemKey]` is consulted AFTER any explicit
+   * role/argument override but BEFORE the global `llm.defaultProfile`. Threaded
+   * down by `resolveLLMForSystem`; direct role callers leave it unset and the
+   * system tier is skipped — preserving role-resolution behaviour unchanged.
+   *
+   * @task T11748
+   */
+  systemKey?: string;
 }
 
 // ============================================================================
