@@ -266,6 +266,36 @@ jobs:
       - name: Lint LLM chokepoint (baseline mode)
         run: node scripts/lint-llm-chokepoint.mjs
 
+  output-contract-coverage:
+    # T11762 ST-3b (T11904) · Epic T11679 · DHQ-057 · LAFS-envelope SSoT T10400 §8 item 6
+    #
+    # Asserts every operation in the 411-row OPERATIONS registry resolves a
+    # machine-readable output contract via getOutputContract (hand-authored
+    # OUTPUT_CONTRACTS → derived deriveOutputContract → generic fallback). This is
+    # the conformance enforcer the LAFS-envelope SSoT (T10400 §8 item 6) says
+    # SHOULD exist but did not. A deterministic static scan of the registry SOURCE
+    # files (no DB, no network); it also fail-closes on parse drift (the ordered
+    # triple regex disagreeing with the authoritative operation-entry count).
+    #
+    # Runs in --strict (zero-tolerance): coverage is currently 100% (baseline
+    # scripts/.lint-output-contract-coverage-baseline.json is empty), so any op
+    # that stops resolving a contract fails CI immediately. To intentionally waive
+    # an op (should be rare — prefer fixing deriveOutputContract):
+    #   node scripts/lint-output-contract-coverage.mjs --update-baseline
+    #   git add scripts/.lint-output-contract-coverage-baseline.json && git commit
+    #
+    # Pure static analysis of checked-in source — no untrusted user input.
+    name: Output-Contract Coverage Gate (T11762)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Lint per-op output-contract coverage (strict)
+        run: node scripts/lint-output-contract-coverage.mjs --strict
+
   no-bare-get-active-session:
     # T11640 · Epic T11638 EP-SESSION-MANIFEST · Saga T11243
     #
