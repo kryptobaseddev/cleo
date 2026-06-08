@@ -34,7 +34,7 @@
  * @epic T11745
  */
 
-import type { ResolveLLMForSystemOptions, RoleName, SystemOfUse } from '@cleocode/contracts';
+import type { ResolveLLMForSystemOptions, RoleName, SystemOfUseLabel } from '@cleocode/contracts';
 import { SYSTEM_ROLE_MAP } from '@cleocode/contracts';
 import { getLogger } from '../logger.js';
 import {
@@ -56,11 +56,11 @@ const logger = getLogger('llm-system-resolver');
  */
 export interface ResolvedLLMForSystem extends ResolvedLLM {
   /**
-   * The {@link SystemOfUse} label that initiated this resolution.
+   * The {@link SystemOfUseLabel} that initiated this resolution.
    *
    * Preserved verbatim from the call argument — not normalised or remapped.
    */
-  system: SystemOfUse;
+  system: SystemOfUseLabel;
 
   /**
    * The {@link RoleName} that was actually used for config lookup.
@@ -76,7 +76,7 @@ export interface ResolvedLLMForSystem extends ResolvedLLM {
 // ---------------------------------------------------------------------------
 
 /**
- * Map a {@link SystemOfUse} to the {@link RoleName} that `resolveLLMForRole`
+ * Map a {@link SystemOfUseLabel} to the {@link RoleName} that `resolveLLMForRole`
  * will use for config lookup.
  *
  * Priority:
@@ -85,7 +85,7 @@ export interface ResolvedLLMForSystem extends ResolvedLLM {
  *
  * Returns `null` when the system maps to the global default (no role entry).
  */
-function deriveRole(system: SystemOfUse, opts?: ResolveLLMForSystemOptions): RoleName | null {
+function deriveRole(system: SystemOfUseLabel, opts?: ResolveLLMForSystemOptions): RoleName | null {
   if (opts?.roleOverride) return opts.roleOverride;
   return SYSTEM_ROLE_MAP[system] ?? null;
 }
@@ -171,7 +171,7 @@ async function upgradeCatalogDefault(resolved: ResolvedLLM): Promise<ResolvedLLM
  * @epic T11745
  */
 export async function resolveLLMForSystem(
-  system: SystemOfUse,
+  system: SystemOfUseLabel,
   opts?: ResolveLLMForSystemOptions,
 ): Promise<ResolvedLLMForSystem> {
   const resolvedRole = deriveRole(system, opts);

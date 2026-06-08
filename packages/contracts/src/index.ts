@@ -846,10 +846,34 @@ export type { ResolvedCredential } from './llm/resolved-credential.js';
 export type { ModelCaps, ResolvedLLMDescriptor } from './llm/resolved-descriptor.js';
 // === E10 Sealed credential handle (T11752 / T11746) — on-demand decrypt at the wire ===
 export type { DecryptedToken, SealedCredential } from './llm/sealed-credential.js';
+// === E9 System-of-Use taxonomy + registry (T11747 · hermes _AUX_TASKS analog) ===
+export type {
+  AuxSystem,
+  AuxSystemId,
+  CantbookNodeSystem,
+  OpenSystemKind,
+  OrchestrationSystem,
+  RoleSystem,
+  SkillSystem,
+  SpawnUnitSystem,
+  SystemOfUse,
+  SystemOfUseKind,
+  ToolSystem,
+} from './llm/system-of-use.js';
+export {
+  AUX_SYSTEM_IDS,
+  BUILTIN_SYSTEMS_OF_USE,
+  isBuiltinSystemOfUse,
+  isOpenSystemKind,
+  isSystemOfUse,
+  OPEN_SYSTEM_KEY_PREFIXES,
+  ORCHESTRATION_TIER_IDS,
+  ROLE_SYSTEM_IDS,
+} from './llm/system-of-use.js';
 // === E9 System-of-Use chokepoint contract (T11749) ===
 export type {
   ResolveLLMForSystemOptions,
-  SystemOfUse,
+  SystemOfUseLabel,
 } from './llm/system-resolver.js';
 export { SYSTEM_ROLE_MAP } from './llm/system-resolver.js';
 // === Logger contract (T9766 — centralized from @cleocode/core) ===

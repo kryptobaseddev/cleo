@@ -13,7 +13,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { SystemOfUse } from '@cleocode/contracts';
+import type { SystemOfUseLabel } from '@cleocode/contracts';
 import { SYSTEM_ROLE_MAP } from '@cleocode/contracts';
 import { _resetCleoPlatformPathsCache } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -107,7 +107,7 @@ afterEach(() => {
 
 describe('SYSTEM_ROLE_MAP', () => {
   it('covers all SystemOfUse values and maps them to RoleName or null', () => {
-    const systems: SystemOfUse[] = [
+    const systems: SystemOfUseLabel[] = [
       'sentient',
       'memory',
       'task-executor',
@@ -123,7 +123,7 @@ describe('SYSTEM_ROLE_MAP', () => {
     // 'default' maps to null (global default path)
     expect(SYSTEM_ROLE_MAP['default']).toBeNull();
     // All other systems map to a non-null RoleName
-    const nonDefault: SystemOfUse[] = systems.filter((s) => s !== 'default');
+    const nonDefault: SystemOfUseLabel[] = systems.filter((s) => s !== 'default');
     for (const s of nonDefault) {
       expect(SYSTEM_ROLE_MAP[s]).not.toBeNull();
     }
@@ -308,7 +308,7 @@ describe('resolveLLMForSystem — SSoT-driven default model (catalog)', () => {
 describe('resolveLLMForSystem — result envelope shape', () => {
   it('always returns system label in the envelope', async () => {
     const { projectRoot } = isolate();
-    const systems: SystemOfUse[] = [
+    const systems: SystemOfUseLabel[] = [
       'sentient',
       'memory',
       'task-executor',
