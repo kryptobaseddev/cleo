@@ -182,6 +182,55 @@ export const evidenceSchema: ZodType = z.unknown().superRefine((value, ctx) => {
   });
 });
 
+// ─── passthrough — legacy starter `ensures.schema` names (R1 fail-closed) ──────
+
+/**
+ * Passthrough validator that accepts ANY value (including `undefined`).
+ *
+ * Used to register the legacy `ensures.schema` names already declared in the
+ * shipped starter `.cantbook` files ({@link LEGACY_PASSTHROUGH_SCHEMA_NAMES}).
+ *
+ * @remarks
+ * Before T11762, the runtime hardcoded ONLY `task_tree` / `evidence` and
+ * SILENTLY SKIPPED every other `ensures.schema` name. ST-2 flips that to
+ * fail-closed: an UNREGISTERED name is now a contract violation. To avoid
+ * regressing the in-repo starter playbooks (`release` / `rcasd` / `ivtr`),
+ * which declare a dozen descriptive schema names that were never actually
+ * shape-checked, each such name is registered here with this passthrough
+ * schema — preserving their historical "always pass" behavior EXACTLY while
+ * still failing-closed for genuinely-unknown names (Risk R1). Tightening any of
+ * these into a real shape is a follow-up; the name is the SSoT anchor.
+ *
+ * @public
+ */
+export const passthroughSchema: ZodType = z.unknown();
+
+/**
+ * The legacy `ensures.schema` names declared in the shipped starter
+ * `.cantbook` files that were SILENTLY SKIPPED pre-T11762. Registered with
+ * {@link passthroughSchema} so the fail-closed flip (ST-2) does not regress
+ * them. Kept as exported DATA so the parity test can assert the exact set.
+ *
+ * @public
+ */
+export const LEGACY_PASSTHROUGH_SCHEMA_NAMES: readonly string[] = [
+  // release.cantbook
+  'version_bump_report',
+  'changelog_entry',
+  'publish_report',
+  // rcasd.cantbook
+  'research_summary',
+  'consensus_decision',
+  'architecture_plan',
+  'specification_document',
+  // ivtr.cantbook
+  'implementation_diff',
+  'validation_report',
+  'audit_report',
+  'test_report',
+  'release_confirmation',
+];
+
 /**
  * The ensures-schema registry DATA — a `ReadonlyMap` from `ensures.schema` name
  * to its {@link EnsuresSchemaSpec}.
@@ -189,6 +238,12 @@ export const evidenceSchema: ZodType = z.unknown().superRefine((value, ctx) => {
  * This is a VALUE (data), not a bodied function, so it is Gate-10-safe in the
  * `@cleocode/contracts` leaf package. The bodied accessor layer in
  * `@cleocode/core` (ST-1b) reads this map.
+ *
+ * Two strict entries (`task_tree`, `evidence`) port the deleted bespoke
+ * validators; the remaining entries are the legacy starter names
+ * ({@link LEGACY_PASSTHROUGH_SCHEMA_NAMES}) registered with
+ * {@link passthroughSchema} so the ST-2 fail-closed flip does not regress the
+ * shipped playbooks (Risk R1).
  *
  * @public
  */
@@ -198,4 +253,8 @@ export const ENSURES_SCHEMA_REGISTRY: ReadonlyMap<string, EnsuresSchemaSpec> = n
 >([
   ['task_tree', { name: 'task_tree', contextKey: 'task_tree', schema: taskTreeSchema }],
   ['evidence', { name: 'evidence', contextKey: 'evidence', schema: evidenceSchema }],
+  ...LEGACY_PASSTHROUGH_SCHEMA_NAMES.map((name): [string, EnsuresSchemaSpec] => [
+    name,
+    { name, contextKey: name, schema: passthroughSchema },
+  ]),
 ]);

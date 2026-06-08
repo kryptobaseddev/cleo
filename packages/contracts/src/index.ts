@@ -1104,6 +1104,8 @@ export type { EnsuresSchemaSpec } from './operations/ensures-schema-registry.js'
 export {
   ENSURES_SCHEMA_REGISTRY,
   evidenceSchema,
+  LEGACY_PASSTHROUGH_SCHEMA_NAMES,
+  passthroughSchema,
   taskTreeEntrySchema,
   taskTreeSchema,
 } from './operations/ensures-schema-registry.js';

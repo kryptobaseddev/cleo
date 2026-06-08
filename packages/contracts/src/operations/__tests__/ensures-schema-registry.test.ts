@@ -19,6 +19,8 @@ import {
   ENSURES_SCHEMA_REGISTRY,
   type EnsuresSchemaSpec,
   evidenceSchema,
+  LEGACY_PASSTHROUGH_SCHEMA_NAMES,
+  passthroughSchema,
   taskTreeSchema,
 } from '../ensures-schema-registry.js';
 
@@ -29,17 +31,36 @@ function firstIssueMessage(schema: typeof taskTreeSchema, value: unknown): strin
 }
 
 describe('ensures-schema-registry — registry DATA', () => {
-  it('registers exactly task_tree and evidence', () => {
-    expect([...ENSURES_SCHEMA_REGISTRY.keys()].sort()).toEqual(['evidence', 'task_tree']);
+  it('registers the two strict schemas plus every legacy passthrough name', () => {
+    // T11762 ST-2 (R1): the two strict ports (`task_tree`, `evidence`) PLUS the
+    // legacy starter `.cantbook` schema names — registered with passthrough so
+    // the fail-closed flip does not regress the shipped playbooks.
+    expect([...ENSURES_SCHEMA_REGISTRY.keys()].sort()).toEqual(
+      ['task_tree', 'evidence', ...LEGACY_PASSTHROUGH_SCHEMA_NAMES].sort(),
+    );
   });
 
-  it('each spec carries name, contextKey (= name by default), and a schema', () => {
+  it('each strict spec carries name, contextKey (= name by default), and a schema', () => {
     for (const name of ['task_tree', 'evidence'] as const) {
       const spec = ENSURES_SCHEMA_REGISTRY.get(name) as EnsuresSchemaSpec;
       expect(spec).toBeDefined();
       expect(spec.name).toBe(name);
       expect(spec.contextKey).toBe(name);
       expect(typeof spec.schema.safeParse).toBe('function');
+    }
+  });
+
+  it('every legacy passthrough name is registered with the passthrough schema', () => {
+    // R1: passthrough accepts ANY value (including `undefined`) so the historical
+    // "silently skipped" behavior is preserved EXACTLY.
+    for (const name of LEGACY_PASSTHROUGH_SCHEMA_NAMES) {
+      const spec = ENSURES_SCHEMA_REGISTRY.get(name) as EnsuresSchemaSpec;
+      expect(spec).toBeDefined();
+      expect(spec.name).toBe(name);
+      expect(spec.schema).toBe(passthroughSchema);
+      expect(spec.schema.safeParse(undefined).success).toBe(true);
+      expect(spec.schema.safeParse({ anything: 1 }).success).toBe(true);
+      expect(spec.schema.safeParse(42).success).toBe(true);
     }
   });
 });

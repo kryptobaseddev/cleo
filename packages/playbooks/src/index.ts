@@ -59,7 +59,12 @@ export {
   type PolicyRule,
 } from './policy.js';
 // W4-10 / T930: playbook runtime state machine + HITL resume
-// T11499 E7-CLOSE-LOOPS AC3: schema validators exported for testing + external use
+// T11762 ST-2: the bespoke `validateDecompositionTaskTree` /
+// `validateIvtrEvidenceOutput` validators (and their barrel re-exports) were
+// deleted — their rules are now the `task_tree` / `evidence` Zod schemas in the
+// ensures-schema registry (`@cleocode/contracts` data + `@cleocode/core`
+// accessors). No cross-package consumer imported them, so dropping the
+// re-exports is safe.
 export {
   type AgentDispatcher,
   type AgentDispatchInput,
@@ -75,8 +80,6 @@ export {
   type PlaybookTerminalStatus,
   type ResumePlaybookOptions,
   resumePlaybook,
-  validateDecompositionTaskTree,
-  validateIvtrEvidenceOutput,
 } from './runtime.js';
 // W4-8: state layer CRUD for playbook_runs + playbook_approvals
 export {
