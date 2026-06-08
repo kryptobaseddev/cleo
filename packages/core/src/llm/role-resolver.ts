@@ -50,6 +50,7 @@ import { type CredentialResult, resolveCredentials } from './credentials.js';
 import { getCredentialByLabel, pickCredentialForProvider } from './credentials-store.js';
 import { IMPLICIT_FALLBACK_MODEL } from './fallback-model.js';
 import { makeSealedCredential, tokenPreview } from './sealed-credential.js';
+import { getRegisteredSystemDefault } from './system-of-use-registry.js';
 import { buildAnthropicClient } from './transports/anthropic-client-factory.js';
 import type { ModelTransport } from './types-config.js';
 
@@ -292,6 +293,53 @@ function resolveSystemBinding(
 }
 
 /**
+ * Resolve the runtime-registered default for `systemKey` (registerSystemOfUse —
+ * T11751) into a {@link SelectedProviderModel}, or `undefined` when no system is
+ * registered under that key (or its default is structurally incomplete).
+ *
+ * Consulted ONLY after every user-config tier in {@link selectProviderModel} is
+ * exhausted — so a `registerSystemOfUse` default can NEVER override user config
+ * (`systems[key]` / `default` / `defaultProfile`). A registered binding that
+ * names a `profile` resolves it against `llm.profiles` (the profile wins over an
+ * inline tuple); the resolution is stamped `source: 'registered-default'` for
+ * diagnostics.
+ *
+ * @param llm       - The LLM config block (may be undefined).
+ * @param systemKey - Encoded system-of-use key (may be undefined).
+ * @task T11751
+ */
+function resolveRegisteredSystemDefault(
+  llm: LlmConfig | undefined,
+  systemKey: string | undefined,
+): SelectedProviderModel | undefined {
+  const defaults = getRegisteredSystemDefault(systemKey);
+  if (!defaults) return undefined;
+
+  // 1. Default pinned to a named profile (wins over the inline tuple).
+  const profile = resolveNamedProfile(llm, defaults.profile, 'registered-default');
+  if (profile) {
+    return {
+      ...profile,
+      credentialLabel: defaults.credentialLabel ?? profile.credentialLabel,
+    };
+  }
+
+  // 2. Inline provider/model tuple on the default.
+  if (defaults.provider && defaults.model) {
+    return {
+      provider: defaults.provider as ModelTransport,
+      model: defaults.model,
+      credentialLabel: defaults.credentialLabel,
+      source: 'registered-default',
+    };
+  }
+
+  // Structurally incomplete (getRegisteredSystemDefault already filters these,
+  // but stay defensive) — fall through to implicit fallback.
+  return undefined;
+}
+
+/**
  * Pick provider/model/credentialLabel from the highest-priority configured
  * tier. Always returns a value because the implicit fallback is unconditional.
  *
@@ -302,20 +350,23 @@ function resolveSystemBinding(
  *      consulted when `systemKey` is set (threaded by `resolveLLMForSystem`).
  *   4. `default` (`source: 'default'`)
  *   5. `defaultProfile` → named profile (`source: 'default-profile'`)
- *   6. implicit fallback (`source: 'implicit-fallback'`)
+ *   6. `registerSystemOfUse` default (`source: 'registered-default'`) — runtime
+ *      registration, consulted strictly BELOW all user config (T11751).
+ *   7. implicit fallback (`source: 'implicit-fallback'`)
  *
  * Tiers 1–2 are the *explicit-arg* lane (per-role config / role override);
  * tier 3 is the hermes *granular override* — consulted after the explicit
  * choice but before the global base (`default` / `defaultProfile`), matching
  * the E9 priority `explicit-arg → llm.systems[key] → llm.defaultProfile →
- * implicit fallback` (T11748). The configurable `defaultProfile` is what lets
- * background roles resolve to a user-selectable provider WITHOUT hardcoding the
- * provider in code.
+ * registered-default → implicit fallback` (T11748 · T11751). The configurable
+ * `defaultProfile` is what lets background roles resolve to a user-selectable
+ * provider WITHOUT hardcoding the provider in code.
  *
  * @param llm       - The LLM config block (may be undefined).
  * @param role      - The role used for `roles[role]` lookup.
- * @param systemKey - Optional encoded system-of-use key activating tier 3.
+ * @param systemKey - Optional encoded system-of-use key activating tiers 3 + 6.
  * @task T11748 (`systems[systemKey]` tier)
+ * @task T11751 (`registered-default` tier)
  */
 function selectProviderModel(
   llm: LlmConfig | undefined,
@@ -357,7 +408,13 @@ function selectProviderModel(
   const defaultProfile = resolveNamedProfile(llm, llm?.defaultProfile, 'default-profile');
   if (defaultProfile) return defaultProfile;
 
-  // 6. Implicit fallback (last resort).
+  // 6. Runtime-registered default (registerSystemOfUse — T11751) — consulted
+  // strictly BELOW every user-config tier above, so the user ALWAYS wins. A
+  // plugin/extension default only binds when the user configured nothing.
+  const registeredDefault = resolveRegisteredSystemDefault(llm, systemKey);
+  if (registeredDefault) return registeredDefault;
+
+  // 7. Implicit fallback (last resort).
   return {
     provider: IMPLICIT_FALLBACK_PROVIDER,
     model: IMPLICIT_FALLBACK_MODEL,

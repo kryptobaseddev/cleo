@@ -256,6 +256,16 @@ export {
   StructuredOutputError,
   validateStructuredOutput,
 } from './structured-output.js';
+// E9 System-of-Use codec + runtime registry (T11751)
+export { formatSystemKey, parseSystemKey, systemKeyKind } from './system-key.js';
+export {
+  clearRegisteredSystemsOfUse,
+  getRegisteredSystemDefault,
+  isResolvableSystemDefault,
+  listSystemsOfUse,
+  registerSystemOfUse,
+  registerSystemOfUseDescriptor,
+} from './system-of-use-registry.js';
 // E9 System-of-Use chokepoint (T11749)
 export type { ResolvedLLMForSystem } from './system-resolver.js';
 export { resolveLLMForSystem } from './system-resolver.js';

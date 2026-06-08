@@ -46,7 +46,7 @@
  * @epic T11745
  */
 
-import type { RoleName } from '../config.js';
+import type { LlmProviderTransport, RoleName } from '../config.js';
 import type { ProviderTier } from './provider-profile.js';
 
 /**
@@ -415,4 +415,89 @@ export function isBuiltinSystemOfUse(value: unknown): value is SystemOfUse {
  */
 export function isOpenSystemKind(kind: SystemOfUseKind): kind is OpenSystemKind {
   return kind === 'tool' || kind === 'skill' || kind === 'cantbook-node' || kind === 'spawn-unit';
+}
+
+// ---------------------------------------------------------------------------
+// Runtime-registered systems-of-use (registerSystemOfUse — T11751)
+// ---------------------------------------------------------------------------
+
+/**
+ * The default provider/model binding a runtime-registered {@link SystemOfUse}
+ * advertises (T11751 · AC1).
+ *
+ * `registerSystemOfUse(key, displayName, defaults)` lets a plugin / extension /
+ * downstream package declare a NEW system-of-use without a registry edit and
+ * give it a default binding. That default is consulted strictly BELOW user
+ * config (`llm.systems[key]` / `llm.default` / `llm.defaultProfile`) so the user
+ * always wins — it only supplies a binding when the user has configured nothing
+ * for that key.
+ *
+ * Either `profile` (a key of `LlmConfig.profiles`) OR an inline `provider` +
+ * `model` tuple supplies the binding; `profile` wins when both are present. An
+ * entry that supplies neither a resolvable `profile` nor a complete
+ * `provider`+`model` tuple is structurally incomplete and is skipped at
+ * resolution time (the chain falls through to implicit-fallback) — never an
+ * error.
+ *
+ * @task T11751
+ * @epic T11745
+ */
+export interface SystemOfUseDefaults {
+  /**
+   * Optional reference to a named profile in `LlmConfig.profiles`. When set and
+   * resolvable, the named profile's provider/model/credentialLabel win over this
+   * entry's inline tuple.
+   */
+  readonly profile?: string;
+  /** Inline LLM provider transport (used when `profile` is absent/unresolvable). */
+  readonly provider?: LlmProviderTransport;
+  /** Inline full model identifier (used when `profile` is absent/unresolvable). */
+  readonly model?: string;
+  /**
+   * Optional credential label pinning this default to a specific credential pool
+   * entry. When omitted, standard priority-based credential resolution applies.
+   */
+  readonly credentialLabel?: string;
+}
+
+/**
+ * A runtime-registered system-of-use — the merged record surfaced by the
+ * profile-picker enumeration (T11751 · AC2).
+ *
+ * @task T11751
+ * @epic T11745
+ */
+export interface RegisteredSystemOfUse {
+  /** Encoded system-of-use key (e.g. `'sentient'`, `'tool:web-search'`). */
+  readonly key: string;
+  /** Human-readable display name for the picker surface. */
+  readonly displayName: string;
+  /** Default binding consulted strictly below user config (user wins). */
+  readonly defaults: SystemOfUseDefaults;
+}
+
+/**
+ * One enumerated entry in the merged profile-picker surface (T11751 · AC2).
+ *
+ * Combines the structured {@link SystemOfUse} identity with its display name and
+ * provenance so the TUI/Studio picker can render every well-known builtin AND
+ * every runtime-registered system in one list.
+ *
+ * @task T11751
+ * @epic T11745
+ */
+export interface SystemOfUsePickerEntry {
+  /** Encoded system-of-use key (the picker value). */
+  readonly key: string;
+  /** Human-readable display name. */
+  readonly displayName: string;
+  /** Discriminant axis of this system (see {@link SystemOfUseKind}). */
+  readonly kind: SystemOfUseKind;
+  /** Where this entry came from: a static builtin or a runtime registration. */
+  readonly source: 'builtin' | 'registered';
+  /**
+   * The default binding when `source === 'registered'`. Absent for builtins
+   * (their binding is resolved purely from user config + the role/aux mapping).
+   */
+  readonly defaults?: SystemOfUseDefaults;
 }
