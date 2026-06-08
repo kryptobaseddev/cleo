@@ -11,6 +11,7 @@
 
 import type { BuiltinProviderId, ProviderId } from '../llm/provider-id.js';
 import type { SealedCredential } from '../llm/sealed-credential.js';
+import type { SystemOfUseKind, SystemOfUsePickerEntry } from '../llm/system-of-use.js';
 
 /**
  * @deprecated since Phase 4 (ADR-072). Use {@link ProviderId} from
@@ -232,22 +233,28 @@ export interface CredentialMetadataWire {
  * Which configuration tier produced a {@link ResolvedLLM}.
  *
  * Resolution chain order:
- *   1. `role`               — `config.llm.roles[role]` (explicit override)
- *   2. `profile`            — `config.llm.profiles[roles[role].profile]`
- *   3. `default`            — `config.llm.default` (canonical default)
- *   4. `default-profile`    — `config.llm.profiles[config.llm.defaultProfile]`
- *   5. `implicit-fallback`  — hard-coded fallback inside the resolver
+ *   1. `role`                — `config.llm.roles[role]` (explicit override)
+ *   2. `profile`             — `config.llm.profiles[roles[role].profile]`
+ *   3. `system`              — `config.llm.systems[systemKey]` (granular override)
+ *   4. `default`             — `config.llm.default` (canonical default)
+ *   5. `default-profile`     — `config.llm.profiles[config.llm.defaultProfile]`
+ *   6. `registered-default`  — `registerSystemOfUse()` default (below user config)
+ *   7. `implicit-fallback`   — hard-coded fallback inside the resolver
  *
  * Useful for `cleo llm whoami` diagnostics.
  *
  * @task T9306
  * @task T11617 (`profile`, `default-profile`)
+ * @task T11748 (`system`)
+ * @task T11751 (`registered-default`)
  */
 export type ResolutionSource =
   | 'role'
   | 'profile'
+  | 'system'
   | 'default'
   | 'default-profile'
+  | 'registered-default'
   | 'implicit-fallback';
 
 /**
@@ -329,6 +336,19 @@ export interface ResolveLLMForRoleOptions {
    * Defaults to `process.cwd()`.
    */
   projectRoot?: string;
+  /**
+   * Optional encoded system-of-use key (e.g. `'sentient'`, `'tool:web-search'`)
+   * that activates the `llm.systems[key]` override tier in the resolution chain
+   * (E9 · T11748).
+   *
+   * When set, `llm.systems[systemKey]` is consulted AFTER any explicit
+   * role/argument override but BEFORE the global `llm.defaultProfile`. Threaded
+   * down by `resolveLLMForSystem`; direct role callers leave it unset and the
+   * system tier is skipped — preserving role-resolution behaviour unchanged.
+   *
+   * @task T11748
+   */
+  systemKey?: string;
 }
 
 // ============================================================================
@@ -619,6 +639,32 @@ export interface LlmWhoamiParams {
 export interface LlmWhoamiResult {
   /** One entry per role resolved (filtered by `params.role` when set). */
   entries: LlmWhoamiEntry[];
+}
+
+/**
+ * Parameters for `llm.systems-of-use` (query — the profile-picker enumeration).
+ *
+ * Reserved for future filters (e.g. by {@link SystemOfUsePickerEntry.kind}).
+ *
+ * @task T11751
+ */
+export interface LlmSystemsOfUseParams {
+  /** Optional kind filter — when set, only that axis is enumerated. */
+  kind?: SystemOfUseKind;
+}
+
+/**
+ * Result envelope for `llm.systems-of-use` (query · T11751 · AC2).
+ *
+ * The merged picker surface: every builtin {@link SystemOfUse} plus every
+ * runtime-registered system (`registerSystemOfUse`), so the TUI / Studio
+ * profile picker can enumerate them from ONE op.
+ *
+ * @task T11751
+ */
+export interface LlmSystemsOfUseResult {
+  /** One entry per builtin or registered system-of-use. */
+  entries: SystemOfUsePickerEntry[];
 }
 
 // ProviderProfile interface lives in ./llm/provider-profile.ts (T9262).

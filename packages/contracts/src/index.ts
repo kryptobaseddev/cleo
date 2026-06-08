@@ -264,6 +264,7 @@ export type {
   LlmConfig,
   LlmDefaultConfig,
   LlmProfileConfig,
+  LlmProfileTier,
   LlmProfileTuning,
   LlmProviderEntry,
   LlmProviderTransport,
@@ -282,6 +283,7 @@ export type {
   SharingMode,
   SignalDockConfig,
   SignalDockMode,
+  SystemBinding,
 } from './config.js';
 export type { AdapterContextMonitorProvider } from './context-monitor.js';
 // === Claude Code credential parsing (T9307 — pure helper, no core imports) ===
@@ -846,10 +848,40 @@ export type { ResolvedCredential } from './llm/resolved-credential.js';
 export type { ModelCaps, ResolvedLLMDescriptor } from './llm/resolved-descriptor.js';
 // === E10 Sealed credential handle (T11752 / T11746) — on-demand decrypt at the wire ===
 export type { DecryptedToken, SealedCredential } from './llm/sealed-credential.js';
+// === E9 System-of-Use taxonomy + registry (T11747 · hermes _AUX_TASKS analog) ===
+export type {
+  AuxSystem,
+  AuxSystemId,
+  CantbookNodeSystem,
+  OpenSystemKind,
+  OrchestrationSystem,
+  RegisteredSystemOfUse,
+  RoleSystem,
+  SkillSystem,
+  SpawnUnitSystem,
+  SystemOfUse,
+  SystemOfUseDefaults,
+  SystemOfUseKind,
+  SystemOfUsePickerEntry,
+  ToolSystem,
+  WhoamiRoleId,
+} from './llm/system-of-use.js';
+export {
+  AUX_SYSTEM_IDS,
+  BUILTIN_SYSTEMS_OF_USE,
+  isBuiltinSystemOfUse,
+  isOpenSystemKind,
+  isSystemOfUse,
+  OPEN_SYSTEM_KEY_PREFIXES,
+  ORCHESTRATION_TIER_IDS,
+  ROLE_SYSTEM_IDS,
+  WHOAMI_ROLE_IDS,
+} from './llm/system-of-use.js';
 // === E9 System-of-Use chokepoint contract (T11749) ===
 export type {
   ResolveLLMForSystemOptions,
-  SystemOfUse,
+  SystemOfUseLabel,
+  SystemResolverInput,
 } from './llm/system-resolver.js';
 export { SYSTEM_ROLE_MAP } from './llm/system-resolver.js';
 // === Logger contract (T9766 — centralized from @cleocode/core) ===
@@ -1177,6 +1209,8 @@ export type {
   LlmRemoveResult,
   LlmStatusResult,
   LlmStoredCredentialView,
+  LlmSystemsOfUseParams,
+  LlmSystemsOfUseResult,
   LlmTestParams,
   LlmTestResult,
   LlmUseParams,

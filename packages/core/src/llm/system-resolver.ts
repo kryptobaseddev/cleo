@@ -34,7 +34,12 @@
  * @epic T11745
  */
 
-import type { ResolveLLMForSystemOptions, RoleName, SystemOfUse } from '@cleocode/contracts';
+import type {
+  ResolveLLMForSystemOptions,
+  RoleName,
+  RoleSystem,
+  SystemResolverInput,
+} from '@cleocode/contracts';
 import { SYSTEM_ROLE_MAP } from '@cleocode/contracts';
 import { getLogger } from '../logger.js';
 import {
@@ -56,11 +61,13 @@ const logger = getLogger('llm-system-resolver');
  */
 export interface ResolvedLLMForSystem extends ResolvedLLM {
   /**
-   * The {@link SystemOfUse} label that initiated this resolution.
+   * The {@link SystemResolverInput} that initiated this resolution — either the
+   * flat {@link SystemOfUseLabel} or the structured {@link RoleSystem}
+   * descriptor (`{ kind: 'role', id }`) the caller passed.
    *
    * Preserved verbatim from the call argument — not normalised or remapped.
    */
-  system: SystemOfUse;
+  system: SystemResolverInput;
 
   /**
    * The {@link RoleName} that was actually used for config lookup.
@@ -76,18 +83,39 @@ export interface ResolvedLLMForSystem extends ResolvedLLM {
 // ---------------------------------------------------------------------------
 
 /**
- * Map a {@link SystemOfUse} to the {@link RoleName} that `resolveLLMForRole`
- * will use for config lookup.
+ * Type guard: is `input` the structured {@link RoleSystem} descriptor form
+ * (`{ kind: 'role', id: RoleName }`) rather than a flat {@link SystemOfUseLabel}?
+ *
+ * A flat label is always a `string`; the descriptor is the only object form the
+ * chokepoint accepts — so a single `typeof === 'object'` test is sufficient and
+ * narrows `input` to {@link RoleSystem}.
+ *
+ * @task T11750
+ */
+function isRoleSystem(input: SystemResolverInput): input is RoleSystem {
+  return typeof input === 'object' && input !== null && input.kind === 'role';
+}
+
+/**
+ * Map a {@link SystemResolverInput} to the {@link RoleName} that
+ * `resolveLLMForRole` will use for config lookup.
  *
  * Priority:
- *   1. `opts.roleOverride` — explicit caller override.
- *   2. {@link SYSTEM_ROLE_MAP} — static default for the system label.
+ *   1. `opts.roleOverride` — explicit caller override (both input forms).
+ *   2. Structured {@link RoleSystem} descriptor → its `id` IS the role (T11750).
+ *   3. {@link SYSTEM_ROLE_MAP} — static default for the flat system label.
  *
- * Returns `null` when the system maps to the global default (no role entry).
+ * Returns `null` when a flat label maps to the global default (no role entry).
+ * The descriptor form always carries a concrete {@link RoleName}, so it never
+ * returns `null`.
  */
-function deriveRole(system: SystemOfUse, opts?: ResolveLLMForSystemOptions): RoleName | null {
+function deriveRole(
+  input: SystemResolverInput,
+  opts?: ResolveLLMForSystemOptions,
+): RoleName | null {
   if (opts?.roleOverride) return opts.roleOverride;
-  return SYSTEM_ROLE_MAP[system] ?? null;
+  if (isRoleSystem(input)) return input.id;
+  return SYSTEM_ROLE_MAP[input] ?? null;
 }
 
 /**
@@ -139,15 +167,29 @@ async function upgradeCatalogDefault(resolved: ResolvedLLM): Promise<ResolvedLLM
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the LLM client + credential for a semantic system-of-use label.
+ * Resolve the LLM client + credential for a semantic system-of-use label OR a
+ * structured {@link RoleSystem} descriptor.
  *
  * This is the single DRY chokepoint for all LLM resolution in CLEO (E9 ·
  * T11745). It wraps `resolveLLMForRole` with:
  *
- *   - System label → role mapping (via {@link SYSTEM_ROLE_MAP}).
+ *   - System label → role mapping (via {@link SYSTEM_ROLE_MAP}); OR direct
+ *     `{ kind: 'role', id }` descriptor resolution (T11750 · AC1).
  *   - SSoT default model from the provider registry when `implicit-fallback`
  *     is reached (the hardcoded haiku literal is NOT used as the final model).
  *   - Full CredentialPool (E3) binding via `resolveLLMForRole` delegation.
+ *
+ * ## Role equivalence (T11750 · AC1)
+ *
+ * `resolveLLMForSystem({ kind: 'role', id })` is the chokepoint expression of a
+ * direct role resolution — identical to `resolveLLMForRole(id)` for every
+ * resolution-relevant field (`provider` / `model` / `source` / `credential` /
+ * `sealedCredential` / `apiMode` / …), differing ONLY by the additive `system`
+ * + `resolvedRole` envelope fields. There is exactly ONE resolution
+ * implementation (`resolveLLMForRole`); both input forms funnel through it with
+ * ZERO duplicated logic. The descriptor form does NOT thread a `systemKey`
+ * (there is no flat label to key the `llm.systems[key]` override tier on), so it
+ * walks the same tier chain a bare `resolveLLMForRole(id)` call walks.
  *
  * Like `resolveLLMForRole`, this function **never throws**: when no credential
  * is reachable the caller receives `{ credential: null, client: null, … }` and
@@ -155,45 +197,62 @@ async function upgradeCatalogDefault(resolved: ResolvedLLM): Promise<ResolvedLLM
  *
  * @example
  * ```ts
- * const resolved = await resolveLLMForSystem('sentient', { projectRoot });
- * if (!resolved.sealedCredential || !resolved.client) {
+ * // Flat label (background subsystem):
+ * const a = await resolveLLMForSystem('sentient', { projectRoot });
+ * // Structured role descriptor (T11750 · AC1) — equivalent to
+ * // resolveLLMForRole('consolidation'):
+ * const b = await resolveLLMForSystem({ kind: 'role', id: 'consolidation' }, { projectRoot });
+ * if (!a.sealedCredential || !a.client) {
  *   return null; // graceful no-op — no credential available
  * }
  * // Use resolved.model, resolved.client, resolved.credential (metadata only);
  * // materialize the secret at the wire via resolved.sealedCredential.fetch().
  * ```
  *
- * @param system - Semantic label for the subsystem requesting an LLM client.
+ * @param system - Flat {@link SystemOfUseLabel} or {@link RoleSystem} descriptor.
  * @param opts   - Optional overrides (project root, role override, skipCatalogDefault).
  * @returns A {@link ResolvedLLMForSystem} envelope; never throws.
  *
  * @task T11749
+ * @task T11750
  * @epic T11745
  */
 export async function resolveLLMForSystem(
-  system: SystemOfUse,
+  system: SystemResolverInput,
   opts?: ResolveLLMForSystemOptions,
 ): Promise<ResolvedLLMForSystem> {
   const resolvedRole = deriveRole(system, opts);
 
-  // When the role is null (system === 'default'), fall back to treating it as
-  // the 'consolidation' role — this exercises the same config tiers as all
-  // other roles (roles[role] → default → defaultProfile → implicit-fallback)
+  // When the role is null (flat `system === 'default'`), fall back to treating
+  // it as the 'consolidation' role — this exercises the same config tiers as
+  // all other roles (roles[role] → default → defaultProfile → implicit-fallback)
   // and avoids a special code path. If `config.llm.roles['consolidation']` is
   // not set, resolution cascades to `config.llm.default` and then the catalog
-  // default exactly as desired.
+  // default exactly as desired. The descriptor form always carries a concrete
+  // role id, so `resolvedRole` is never null there.
   const roleForResolution: RoleName = resolvedRole ?? 'consolidation';
+
+  // Thread the flat label as the `llm.systems[key]` granular-override key (E9 ·
+  // T11748). The structured `{ kind: 'role', id }` descriptor carries NO label
+  // to key that tier on, so it omits `systemKey` and walks the same tier chain
+  // a bare `resolveLLMForRole(id)` call walks — preserving the AC1 equivalence.
+  const systemKey: string | undefined = isRoleSystem(system) ? undefined : system;
 
   let base: ResolvedLLM;
   try {
     base = await resolveLLMForRole(roleForResolution, {
       projectRoot: opts?.projectRoot,
+      systemKey,
     });
   } catch (err) {
     // Mirror role-resolver's never-throw contract: return a null-credential
     // envelope on unexpected failure.
     logger.warn(
-      { err: err instanceof Error ? err.message : String(err), system, role: roleForResolution },
+      {
+        err: err instanceof Error ? err.message : String(err),
+        system,
+        role: roleForResolution,
+      },
       'system-resolver: resolveLLMForRole threw unexpectedly; returning null-credential envelope',
     );
     base = {

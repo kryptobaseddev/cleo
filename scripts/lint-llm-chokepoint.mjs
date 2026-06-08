@@ -37,6 +37,12 @@
  *      / registry / metadata SSoT files are exempt — they ARE the model data).
  *   6. `direct-resolve-credentials` — `resolveCredentials(` called for inline
  *      client construction outside the resolver layer.
+ *   7. `divergent-resolver-definition` — a NEW exported `resolveLLMFor*`
+ *      resolution function DEFINED outside the two canonical chokepoint files
+ *      (`role-resolver.ts` = the SSoT core impl, `system-resolver.ts` = the
+ *      public E9 chokepoint). The whole point of E9 is ONE resolution chokepoint
+ *      (T11751 · AC3): a second `resolveLLMForX` is a divergent resolver by
+ *      definition. Refactor it to DELEGATE to `resolveLLMForSystem` instead.
  *
  * Allowlist = the chokepoint
  * --------------------------
@@ -156,6 +162,18 @@ const RESOLVER_LAYER_ALLOW = [
 ];
 
 /**
+ * The TWO canonical files allowed to DEFINE a `resolveLLMFor*` resolver (the
+ * `divergent-resolver-definition` rule). `role-resolver.ts` is the SSoT core
+ * implementation; `system-resolver.ts` is the public E9 chokepoint that
+ * delegates to it. Any OTHER `export …resolveLLMForX` is a divergent resolver
+ * (T11751 · AC3) — refactor it to delegate to `resolveLLMForSystem`.
+ */
+const RESOLVER_DEFINITION_ALLOW = [
+  'packages/core/src/llm/role-resolver.ts',
+  'packages/core/src/llm/system-resolver.ts',
+];
+
+/**
  * Scan-scope for the value-smell rules (`hardcoded-model-literal`,
  * `direct-resolve-credentials`). The transport/client-construction rules (1-3)
  * scan ALL of `packages`; these two scan only LLM-adjacent code, where a model
@@ -229,6 +247,16 @@ const RULES = [
     pattern: /\bresolveCredentials\s*\(/,
     allow: RESOLVER_LAYER_ALLOW,
     scope: LLM_ADJACENT_SCOPE,
+  },
+  {
+    // A NEW exported `resolveLLMFor*` resolver DEFINITION outside the two
+    // canonical chokepoint files (T11751 · AC3) — `export [async] function
+    // resolveLLMForX(` or `export const resolveLLMForX =`. Exactly ONE
+    // resolution chokepoint: `resolveLLMForSystem` → `resolveLLMForRole`.
+    id: 'divergent-resolver-definition',
+    pattern:
+      /export\s+(?:async\s+)?(?:function\s+resolveLLMFor\w+\s*\(|const\s+resolveLLMFor\w+\s*=)/,
+    allow: RESOLVER_DEFINITION_ALLOW,
   },
 ];
 

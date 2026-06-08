@@ -2224,6 +2224,7 @@ export {
   llmList,
   llmProfile,
   llmRemove,
+  llmSystemsOfUse,
   llmTest,
   llmUse,
   llmWhoami,
@@ -2267,6 +2268,16 @@ export {
   IMPLICIT_FALLBACK_PROVIDER,
   resolveLLMForRole,
 } from './llm/role-resolver.js';
+// E9 System-of-Use codec + runtime registry (T11751)
+export { formatSystemKey, parseSystemKey, systemKeyKind } from './llm/system-key.js';
+export {
+  clearRegisteredSystemsOfUse,
+  getRegisteredSystemDefault,
+  isResolvableSystemDefault,
+  listSystemsOfUse,
+  registerSystemOfUse,
+  registerSystemOfUseDescriptor,
+} from './llm/system-of-use-registry.js';
 // Memory — auto-extract (additional)
 export { extractFromTranscript } from './memory/auto-extract.js';
 // Memory — brain embedding (additional)
