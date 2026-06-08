@@ -168,6 +168,21 @@ function execErr(code: string, message: string): PiResult<never, PiExecutionErro
   return { ok: false, error: { code, message } };
 }
 
+/**
+ * Whether `err` is a "file does not exist" failure (`ENOENT`). Used by
+ * {@link GuardedExecutionEnv.appendFile} to treat append-to-missing as
+ * append-creates (empty prefix) while still propagating every OTHER failure
+ * (guard denial, permission, …).
+ */
+function isMissingFileError(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'code' in err &&
+    (err as { code?: unknown }).code === 'ENOENT'
+  );
+}
+
 // ---------------------------------------------------------------------------
 // GuardedExecutionEnv
 // ---------------------------------------------------------------------------
@@ -319,13 +334,38 @@ export class GuardedExecutionEnv implements PiExecutionEnv {
    * Append to a file. The atomic surface offers only whole-file atomic writes,
    * so this reads-then-writes the concatenation (still confined + guarded). A
    * missing file is treated as empty.
+   *
+   * Confinement happens EXACTLY ONCE here, then the read + write delegate
+   * straight to the guard with the already-resolved `abs`. Re-entering the
+   * public `readTextFile`/`writeFile` would re-`#confine` the value `#confine`
+   * just returned — and because `#confine` yields the SYMLINK-RESOLVED real path
+   * (e.g. macOS `/tmp`→`/private/tmp`, or a symlinked workspace root), that real
+   * path is `../`-outside the lexical `workspaceRoot`, so the second lexical
+   * gate would spuriously reject it (`E_PI_FS_DENIED`). Reading once through the
+   * guard — whose own allowlist canonicalizes both sides — avoids the
+   * double-confine while keeping the symlink-escape denial intact.
    */
   async appendFile(path: string, content: string): Promise<PiResult<void, PiFileError>> {
     const abs = await this.#confine(path);
     if (abs === null) return fsErr('E_PI_FS_DENIED', 'path escapes workspace boundary', path);
-    const existing = await this.readTextFile(abs);
-    const prefix = existing.ok ? existing.value : '';
-    return this.writeFile(abs, prefix + content);
+    // Read existing content directly via the guard (a missing file → ENOENT,
+    // treated as empty). Do NOT route through readTextFile: that would re-confine
+    // the resolved real path against the lexical root and falsely reject it.
+    let prefix = '';
+    try {
+      const res = await this.#guard.readFileText({ path: abs });
+      prefix = res.content;
+    } catch (err) {
+      // A missing file is the only non-fatal case (append-creates). Any other
+      // failure (guard denial, permission, …) propagates as the Pi error.
+      if (!isMissingFileError(err)) return this.#toFsErr(err, abs);
+    }
+    try {
+      await this.#guard.writeFileAtomic({ path: abs, content: prefix + content });
+      return ok(undefined);
+    } catch (err) {
+      return this.#toFsErr(err, abs);
+    }
   }
 
   // --- metadata ------------------------------------------------------------

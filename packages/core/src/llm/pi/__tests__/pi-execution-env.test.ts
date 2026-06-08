@@ -6,7 +6,7 @@
  * @task T11897
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -20,7 +20,13 @@ import {
 let root: string;
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'cleo-pi-env-'));
+  // `realpathSync` so the root is the REAL on-disk path. On macOS the OS tmpdir
+  // is reached through a symlink (`/var`→`/private/var`, `/tmp`→`/private/tmp`),
+  // so `mkdtempSync` returns a symlinked path; the symlink-resolving boundary
+  // (`#confine`/`canonicalPath`) returns the REAL location, and expectations that
+  // build paths from `root` must therefore anchor on the real root too — else
+  // they diverge by the `/private` prefix on macOS only. (No-op on Linux.)
+  root = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-pi-env-')));
 });
 afterEach(() => {
   rmSync(root, { recursive: true, force: true });
@@ -102,6 +108,82 @@ describe('file ops inside the workspace (allowed)', () => {
     const env = enforcedEnv();
     const r = await env.canonicalPath('sub/x.txt');
     expect(r).toEqual({ ok: true, value: join(root, 'sub', 'x.txt') });
+  });
+});
+
+describe('symlinked workspace root (macOS /tmp→/private/tmp parity)', () => {
+  // On macOS the OS tmpdir (`/var/folders/...`, and `/tmp`) is reached through a
+  // symlink (`/var`→`/private/var`, `/tmp`→`/private/tmp`), so `mkdtempSync` hands
+  // back a path whose realpath has a DIFFERENT prefix. The symlink-resolving
+  // boundary (`#confine`) returns that REAL path; any op that fed the resolved
+  // path back through a second confinement (e.g. `appendFile`'s read-then-write)
+  // would see it as `../`-outside the lexical root and falsely deny it. This
+  // block reproduces that on Linux by making the workspace root itself a symlink
+  // to a sibling dir with a different prefix.
+  let base: string;
+  let symlinkedRoot: string;
+
+  beforeEach(() => {
+    base = mkdtempSync(join(tmpdir(), 'cleo-pi-symroot-'));
+    const realStore = join(base, 'realstore');
+    mkdirSync(realStore);
+    symlinkedRoot = join(base, 'link');
+    symlinkSync(realStore, symlinkedRoot); // root → realstore (prefix differs, like /var→/private/var)
+  });
+  afterEach(() => {
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  /** Env whose workspaceRoot is a symlink to a different-prefix real dir. */
+  function symlinkedEnv() {
+    const guard = createToolGuard({ allowedRoots: [symlinkedRoot], mode: 'enforce' });
+    return createGuardedExecutionEnv({ guard, workspaceRoot: symlinkedRoot });
+  }
+
+  it('appendFile concatenates onto existing content under a symlinked root', async () => {
+    const env = symlinkedEnv();
+    const target = join(symlinkedRoot, 'log.txt');
+    expect((await env.writeFile(target, 'one')).ok).toBe(true);
+    expect((await env.appendFile(target, '-two')).ok).toBe(true);
+    expect(await env.readTextFile(target)).toEqual({ ok: true, value: 'one-two' });
+  });
+
+  it('appendFile creates a missing file under a symlinked root', async () => {
+    const env = symlinkedEnv();
+    const fresh = join(symlinkedRoot, 'fresh.txt');
+    expect((await env.appendFile(fresh, 'first')).ok).toBe(true);
+    expect(await env.readTextFile(fresh)).toEqual({ ok: true, value: 'first' });
+  });
+
+  it('canonicalPath resolves to the REAL (symlink-followed) path, not the link path', async () => {
+    // `canonicalPath` is symlink-RESOLVING by contract — under a symlinked root it
+    // returns the real on-disk location (the `/private`-prefixed path on macOS),
+    // NOT the symlinked input. This locks the exact divergence the macOS CI hit.
+    const env = symlinkedEnv();
+    const realRoot = realpathSync(symlinkedRoot);
+    const r = await env.canonicalPath('sub/x.txt');
+    expect(r).toEqual({ ok: true, value: join(realRoot, 'sub', 'x.txt') });
+    // Sanity: the resolved value is genuinely different from the lexical link path.
+    expect(r.ok === true && r.value).not.toBe(join(symlinkedRoot, 'sub', 'x.txt'));
+  });
+
+  it('still DENIES a symlink that escapes the (symlinked) workspace root', async () => {
+    // Symlink-escape protection must survive the symlinked-root fix: a symlink
+    // planted inside the workspace whose real target leaves the root is denied.
+    const env = symlinkedEnv();
+    const outside = join(base, 'outside');
+    mkdirSync(outside);
+    writeFileSync(join(outside, 'secret.txt'), 'TOPSECRET');
+    symlinkSync(outside, join(symlinkedRoot, 'evil')); // dir symlink escaping the root
+
+    for (const r of [
+      await env.readTextFile(join(symlinkedRoot, 'evil', 'secret.txt')),
+      await env.writeFile(join(symlinkedRoot, 'evil', 'pwned.txt'), 'x'),
+      await env.appendFile(join(symlinkedRoot, 'evil', 'pwned2.txt'), 'x'),
+    ]) {
+      expect(r.ok).toBe(false);
+      expect(r.ok === false && r.error.code).toBe('E_PI_FS_DENIED');
+    }
   });
 });
 
