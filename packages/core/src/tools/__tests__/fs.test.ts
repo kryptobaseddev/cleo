@@ -6,11 +6,11 @@
  * @saga T11387
  */
 
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { pathExists, readFileText, readJson, writeFileAtomic } from '../fs.js';
+import { canonicalizePath, pathExists, readFileText, readJson, writeFileAtomic } from '../fs.js';
 
 let dir: string;
 
@@ -63,6 +63,40 @@ describe('readJson', () => {
     const path = join(dir, 'bad.json');
     await writeFileAtomic({ path, content: '{ not json' });
     await expect(readJson(path)).rejects.toThrow();
+  });
+});
+
+describe('canonicalizePath (symlink-resolving)', () => {
+  it('resolves a file symlink to its REAL target', async () => {
+    const outside = mkdtempSync(join(tmpdir(), 'cleo-fs-outside-'));
+    try {
+      const realTarget = join(outside, 'secret.txt');
+      await writeFileAtomic({ path: realTarget, content: 's' });
+      const link = join(dir, 'link.txt');
+      symlinkSync(realTarget, link);
+      // realpathSync(outside) normalizes /var → /private/var on macOS etc.
+      expect(await canonicalizePath(link)).toBe(realpathSync(realTarget));
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('resolves a symlinked PARENT for a not-yet-existing child', async () => {
+    const outside = mkdtempSync(join(tmpdir(), 'cleo-fs-outside-'));
+    try {
+      const linkedDir = join(dir, 'sub');
+      symlinkSync(outside, linkedDir);
+      // sub/new.txt does not exist yet; canonicalize must reveal it lands OUTSIDE.
+      const resolved = await canonicalizePath(join(linkedDir, 'new.txt'));
+      expect(resolved).toBe(join(realpathSync(outside), 'new.txt'));
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('returns the real path of a plain existing dir unchanged (no symlink)', async () => {
+    mkdirSync(join(dir, 'plain'));
+    expect(await canonicalizePath(join(dir, 'plain'))).toBe(realpathSync(join(dir, 'plain')));
   });
 });
 

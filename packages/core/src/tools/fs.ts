@@ -19,8 +19,8 @@
  * @saga T11387
  */
 
-import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { mkdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, resolve as resolvePath } from 'node:path';
 import type {
   PathExistsInput,
   PathExistsResult,
@@ -29,6 +29,59 @@ import type {
   WriteFileInput,
   WriteFileResult,
 } from '@cleocode/contracts/tools/atomic';
+
+/**
+ * Symlink-resolving canonicalization of a (possibly not-yet-existing) path.
+ *
+ * A purely LEXICAL path check (`resolve` + `relative`) is symlink-BLIND: a
+ * symlink planted inside an allowed root can point anywhere on the host, so the
+ * lexical path stays "inside" while the real target is outside. This is the
+ * classic symlink/TOCTOU escape. {@link canonicalizePath} resolves the REAL
+ * filesystem location so a containment check can be made against it:
+ *
+ * - If the path EXISTS, its own realpath is returned (every symlink component,
+ *   including the final one, is followed to its real target).
+ * - If the path does NOT exist (a fresh write target), the nearest existing
+ *   ANCESTOR directory is realpath'd and the not-yet-existing tail segments are
+ *   re-appended. This prevents a symlinked PARENT directory from redirecting a
+ *   write outside the boundary while still allowing legitimate new files.
+ *
+ * The returned path is always absolute. Containment MUST be re-checked against
+ * THIS value, not the lexical one.
+ *
+ * @param path - The path to canonicalize (absolute or relative to `process.cwd()`).
+ * @returns The symlink-resolved absolute path.
+ *
+ * @example
+ * ```ts
+ * // root/innocent.txt -> /tmp/secret  ⇒  canonicalizePath('root/innocent.txt')
+ * // returns '/tmp/secret', revealing the escape to the containment check.
+ * const real = await canonicalizePath(join(root, 'innocent.txt'));
+ * ```
+ */
+export async function canonicalizePath(path: string): Promise<string> {
+  const abs = isAbsolute(path) ? resolvePath(path) : resolvePath(path);
+  // Walk up to the nearest existing ancestor, realpath THAT, then re-attach the
+  // non-existing tail. This catches a symlinked parent directory AND a symlinked
+  // final component (when it exists, realpath(abs) follows it directly).
+  const tail: string[] = [];
+  let cursor = abs;
+  for (;;) {
+    try {
+      const real = await realpath(cursor);
+      return tail.length === 0 ? real : join(real, ...tail);
+    } catch {
+      const parent = dirname(cursor);
+      if (parent === cursor) {
+        // Reached the filesystem root with nothing existing — return the lexical
+        // resolution (no symlink could have been involved on a missing chain).
+        return abs;
+      }
+      tail.unshift(basename(cursor));
+      cursor = parent;
+    }
+  }
+}
 
 /**
  * Read a file as text.
