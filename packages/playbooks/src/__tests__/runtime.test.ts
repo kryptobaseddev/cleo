@@ -8,9 +8,10 @@
  * @task T930 — Playbook Runtime State Machine
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import type {
@@ -890,5 +891,286 @@ describe('T11806: cantbook runtime guarded branching', () => {
         dispatcher,
       }),
     ).rejects.toThrow(/no reachable default/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T11762 ST-2: registry-driven ensures.schema enforcement
+// ---------------------------------------------------------------------------
+
+/**
+ * These tests cover the de-hardcoded `ensures.schema` runtime path (T11762):
+ *
+ *  - a KNOWN registered schema (`task_tree` / `evidence`) is ENFORCED via the
+ *    ensures-schema Zod registry and a failing shape is routed through the
+ *    EXISTING `contract_violation` handler — `abort` / `hitl_escalate` /
+ *    `inject_hint` all produce their pre-existing terminal/continue behavior;
+ *  - an UNKNOWN schema name now FAILS CLOSED (previously silently skipped) and
+ *    is audited to `.cleo/audit/contract-violations.jsonl`;
+ *  - a VALID shape passes through with no violation.
+ *
+ * The runtime re-applies the historical `ensures.schema[<name>] on <nodeId>: `
+ * prefix to the first Zod issue message, so the end-to-end violation strings
+ * stay parity-identical to the deleted bespoke validators.
+ *
+ * @task T11902 — ST-2
+ * @epic T11762
+ */
+describe('T11762 ST-2: registry-driven ensures.schema enforcement', () => {
+  let db: DatabaseSync;
+  let tmpRoot: string;
+
+  beforeEach(() => {
+    db = new DatabaseSync(':memory:');
+    db.exec('PRAGMA foreign_keys=ON');
+    applyMigration(db, readFileSync(MIGRATION_SQL, 'utf8'));
+    tmpRoot = mkdtempSync(join(tmpdir(), 'cleo-ensures-schema-'));
+  });
+  afterEach(() => {
+    db.close();
+    rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  /** Read the contract-violation audit log as parsed NDJSON rows (or `[]`). */
+  function readAuditLog(root: string): Array<Record<string, unknown>> {
+    const file = join(root, '.cleo', 'audit', 'contract-violations.jsonl');
+    if (!existsSync(file)) return [];
+    return readFileSync(file, 'utf8')
+      .split('\n')
+      .filter((l) => l.trim().length > 0)
+      .map((l) => JSON.parse(l) as Record<string, unknown>);
+  }
+
+  /**
+   * Single agentic node that emits `output` and declares `ensures.schema`.
+   * The optional `errorHandlerAction` wires a `contract_violation` handler.
+   */
+  function ensuresSchemaPlaybook(
+    schema: string,
+    errorHandlerAction?: 'abort' | 'hitl_escalate' | 'inject_hint',
+  ): PlaybookDefinition {
+    return {
+      version: '1.0',
+      name: `ensures-${schema}`,
+      nodes: [agenticNode('emit', { ensures: { schema } })],
+      edges: [],
+      ...(errorHandlerAction
+        ? { error_handlers: [{ on: 'contract_violation', action: errorHandlerAction }] }
+        : {}),
+    };
+  }
+
+  // 1 ------------------------------------------------------------------------
+  it('valid task_tree shape passes — no violation, run completes', async () => {
+    const playbook = ensuresSchemaPlaybook('task_tree');
+    const dispatcher = makeRecordingDispatcher(() => ({
+      status: 'success',
+      output: { task_tree: [{ title: 'Build X', acceptance: ['does X'] }] },
+    }));
+
+    const result = await executePlaybook({
+      db,
+      playbook,
+      playbookHash: 'hash-es-1',
+      initialContext: {},
+      dispatcher,
+      projectRoot: tmpRoot,
+    });
+
+    expect(result.terminalStatus).toBe('completed');
+    expect(result.finalContext['__ensuresSchemaViolation']).toBeUndefined();
+    expect(readAuditLog(tmpRoot)).toHaveLength(0);
+  });
+
+  // 2 ------------------------------------------------------------------------
+  it('invalid task_tree (empty array) + abort handler → failed, parity message, audited', async () => {
+    const playbook = ensuresSchemaPlaybook('task_tree', 'abort');
+    const dispatcher = makeRecordingDispatcher(() => ({
+      status: 'success',
+      output: { task_tree: [] },
+    }));
+
+    const result = await executePlaybook({
+      db,
+      playbook,
+      playbookHash: 'hash-es-2',
+      initialContext: {},
+      dispatcher,
+      projectRoot: tmpRoot,
+    });
+
+    expect(result.terminalStatus).toBe('failed');
+    expect(result.failedNodeId).toBe('emit');
+    // Parity: prefix re-applied around the ported Zod issue message.
+    expect(result.errorContext).toBe(
+      'ensures.schema[task_tree] on emit: task_tree is an empty array — decomposition produced no tasks',
+    );
+    const audit = readAuditLog(tmpRoot);
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({ nodeId: 'emit', field: 'ensures', key: 'task_tree' });
+  });
+
+  // 3 ------------------------------------------------------------------------
+  it('invalid task_tree (missing title) → parity message carries the path suffix', async () => {
+    const playbook = ensuresSchemaPlaybook('task_tree', 'abort');
+    const dispatcher = makeRecordingDispatcher(() => ({
+      status: 'success',
+      output: { task_tree: [{ acceptance: ['ac1'] }] },
+    }));
+
+    const result = await executePlaybook({
+      db,
+      playbook,
+      playbookHash: 'hash-es-3',
+      initialContext: {},
+      dispatcher,
+      projectRoot: tmpRoot,
+    });
+
+    expect(result.terminalStatus).toBe('failed');
+    // First Zod issue is at path [0, 'title']; the runtime appends ` at 0.title`.
+    expect(result.errorContext).toBe(
+      'ensures.schema[task_tree] on emit: title must be a non-empty string at 0.title',
+    );
+  });
+
+  // 4 ------------------------------------------------------------------------
+  it('invalid evidence ({}) + hitl_escalate handler → exceeded_iteration_cap, stashed, audited', async () => {
+    const playbook = ensuresSchemaPlaybook('evidence', 'hitl_escalate');
+    const dispatcher = makeRecordingDispatcher(() => ({
+      status: 'success',
+      output: { evidence: {} },
+    }));
+
+    const result = await executePlaybook({
+      db,
+      playbook,
+      playbookHash: 'hash-es-4',
+      initialContext: {},
+      dispatcher,
+      projectRoot: tmpRoot,
+    });
+
+    // hitl_escalate sets exceededNodeId (NOT failedNodeId) — preserved behavior.
+    // `errorContext` is only mirrored on the `abort` path (it sets `lastError`),
+    // so for hitl_escalate the violation surfaces via the stashed context key.
+    expect(result.terminalStatus).toBe('exceeded_iteration_cap');
+    expect(result.exceededNodeId).toBe('emit');
+    // hitl_escalate stashes the violation in context (does not abort).
+    expect(result.finalContext['__ensuresSchemaViolation']).toBe(
+      'ensures.schema[evidence] on emit: evidence object must have at least one key (got {})',
+    );
+    expect(readAuditLog(tmpRoot)).toHaveLength(1);
+  });
+
+  // 5 ------------------------------------------------------------------------
+  it('invalid evidence (numeric) + inject_hint handler → run completes, hint stashed', async () => {
+    const playbook = ensuresSchemaPlaybook('evidence', 'inject_hint');
+    const dispatcher = makeRecordingDispatcher(() => ({
+      status: 'success',
+      output: { evidence: 42 },
+    }));
+
+    const result = await executePlaybook({
+      db,
+      playbook,
+      playbookHash: 'hash-es-5',
+      initialContext: {},
+      dispatcher,
+      projectRoot: tmpRoot,
+    });
+
+    // inject_hint does not abort/escalate — the run continues to completion.
+    expect(result.terminalStatus).toBe('completed');
+    expect(result.finalContext['__ensuresSchemaViolation']).toBe(
+      'ensures.schema[evidence] on emit: evidence must be a string, array, or object (got number)',
+    );
+    expect(readAuditLog(tmpRoot)).toHaveLength(1);
+  });
+
+  // 6 ------------------------------------------------------------------------
+  it('UNKNOWN schema name now FAILS CLOSED (was silently skipped) + audited', async () => {
+    const playbook = ensuresSchemaPlaybook('not_a_registered_schema', 'abort');
+    const dispatcher = makeRecordingDispatcher(() => ({
+      status: 'success',
+      output: { whatever: true },
+    }));
+
+    const result = await executePlaybook({
+      db,
+      playbook,
+      playbookHash: 'hash-es-6',
+      initialContext: {},
+      dispatcher,
+      projectRoot: tmpRoot,
+    });
+
+    expect(result.terminalStatus).toBe('failed');
+    expect(result.failedNodeId).toBe('emit');
+    expect(result.errorContext).toMatch(
+      /^ensures\.schema\[not_a_registered_schema\] on emit: unknown schema name\. Registered: /,
+    );
+    // The valid registered set is listed for the author.
+    expect(result.errorContext).toContain('task_tree');
+    expect(result.errorContext).toContain('evidence');
+    const audit = readAuditLog(tmpRoot);
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({ nodeId: 'emit', key: 'not_a_registered_schema' });
+  });
+
+  // 7 ------------------------------------------------------------------------
+  it('UNKNOWN schema name with NO handler also fails closed (default null → continue, hint stashed)', async () => {
+    // With no contract_violation handler, handleContractErrorHandler returns
+    // null → the violation is stashed and the run continues to completion. This
+    // confirms fail-closed surfaces the violation even without a handler wired.
+    const playbook = ensuresSchemaPlaybook('ghost_schema');
+    const dispatcher = makeRecordingDispatcher(() => ({
+      status: 'success',
+      output: {},
+    }));
+
+    const result = await executePlaybook({
+      db,
+      playbook,
+      playbookHash: 'hash-es-7',
+      initialContext: {},
+      dispatcher,
+      projectRoot: tmpRoot,
+    });
+
+    expect(result.terminalStatus).toBe('completed');
+    expect(result.finalContext['__ensuresSchemaViolation']).toMatch(
+      /^ensures\.schema\[ghost_schema\] on emit: unknown schema name\./,
+    );
+    expect(readAuditLog(tmpRoot)).toHaveLength(1);
+  });
+
+  // 8 ------------------------------------------------------------------------
+  it('R1: legacy starter schema names (passthrough) still pass — no regression', async () => {
+    // These names were SILENTLY SKIPPED pre-T11762; they are registered with the
+    // passthrough schema so the fail-closed flip does not break the shipped
+    // starter playbooks. Run a representative one with no context value present —
+    // passthrough accepts `undefined`, so the run must complete cleanly.
+    for (const schema of ['version_bump_report', 'specification_document', 'test_report']) {
+      const playbook = ensuresSchemaPlaybook(schema, 'abort');
+      const dispatcher = makeRecordingDispatcher(() => ({
+        status: 'success',
+        output: {},
+      }));
+
+      const result = await executePlaybook({
+        db,
+        playbook,
+        playbookHash: `hash-es-8-${schema}`,
+        initialContext: {},
+        dispatcher,
+        projectRoot: tmpRoot,
+      });
+
+      expect(result.terminalStatus).toBe('completed');
+      expect(result.finalContext['__ensuresSchemaViolation']).toBeUndefined();
+    }
+    // No passthrough name produced a violation.
+    expect(readAuditLog(tmpRoot)).toHaveLength(0);
   });
 });
