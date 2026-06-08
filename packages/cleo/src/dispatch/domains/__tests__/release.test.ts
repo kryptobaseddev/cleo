@@ -70,7 +70,7 @@ const gateFailedResult = {
     code: 'E_IVTR_INCOMPLETE',
     message: `IVTR gate FAILED for epic ${EPIC_ID}. 1 task(s) not yet released: ${TASK_ID}.`,
     exitCode: 83,
-    fix: `cleo orchestrate ivtr ${TASK_ID} --release`,
+    fix: `cleo playbook run ivtr --context '{"taskId":"${TASK_ID}"}'`,
     details: {
       blocked: [TASK_ID],
       unchecked: [],
@@ -239,7 +239,7 @@ describe('ReleaseHandler', () => {
       const result = await handler.query('gate', { epicId: EPIC_ID });
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_IVTR_INCOMPLETE');
-      expect(result.error?.fix).toBe(`cleo orchestrate ivtr ${TASK_ID} --release`);
+      expect(result.error?.fix).toBe(`cleo playbook run ivtr --context '{"taskId":"${TASK_ID}"}'`);
     });
 
     it('passes force=true when params.force is true', async () => {
