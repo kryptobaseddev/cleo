@@ -43,6 +43,9 @@ const fakeTools: GuardedToolSurface = {
   async executeShell(_input): Promise<ExecuteShellResult> {
     return { stdout: '', stderr: '', code: 0 };
   },
+  async executePty(_input) {
+    return { stdout: '', stderr: '', code: 0, mode: 'spawn', ptyFellBack: false };
+  },
   async runGit(_input): Promise<ExecuteShellResult> {
     return { stdout: '', stderr: '', code: 0 };
   },

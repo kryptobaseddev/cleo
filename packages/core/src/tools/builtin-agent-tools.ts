@@ -26,6 +26,7 @@
 import { z } from 'zod';
 import type { AgentToolRegistry, AvailabilityCheck } from './agent-registry.js';
 import { ALWAYS_AVAILABLE } from './agent-registry.js';
+import { registerAgentToolFamilies } from './agent-tool-families.js';
 
 /** Available only when the named binary is known on PATH (AC5 example). */
 function binaryAvailable(name: string): AvailabilityCheck {
@@ -140,4 +141,10 @@ export function registerBuiltinAgentTools(registry: AgentToolRegistry): void {
   // in `core/src/tools/*` (only their contracts exist in atomic.ts). Those
   // toolsets are intentionally empty until S3+ ships their primitives; the
   // registry already supports them (AC4) so registration is a one-liner then.
+
+  // The richer agent-facing tool families (T1741): terminal `run_shell` (PTY +
+  // spawn), paginated `read_file_paged`, atomic `write_file_atomic`, fuzzy
+  // `apply_patch`, ripgrep `search_files`, and the git family
+  // (status/diff/log/commit). All route through the same guarded surface.
+  registerAgentToolFamilies(registry);
 }
