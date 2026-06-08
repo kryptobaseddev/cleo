@@ -19,6 +19,7 @@ import { execFileSync } from 'node:child_process';
 import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'node:crypto';
 import { chmod, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { getGlobalSalt } from '../store/global-salt.js';
 
 /** AES-256-GCM constants. */
 const ALGORITHM = 'aes-256-gcm' as const;
@@ -235,6 +236,129 @@ export async function decrypt(ciphertext: string, projectPath: string): Promise<
       'Cannot decrypt credentials. Machine key mismatch or corrupted data. ' +
         'If this database was moved from another machine, re-register agents: ' +
         'cleo agent register --id <id> --api-key <key>',
+    );
+  }
+}
+
+// ============================================================================
+// Global (project-independent) KDF — ADR-037 §5
+// ============================================================================
+
+/**
+ * Derive a per-identity, machine-bound encryption key that is independent of
+ * any project path.
+ *
+ * Implements the ADR-037 §5 KDF:
+ * ```
+ * key = HMAC-SHA256(machine-key || globalSalt, id)
+ * ```
+ *
+ * Unlike {@link deriveProjectKey}, the derived key is bound to the machine
+ * (via the 32-byte machine-key) AND a machine-local 32-byte global salt, but
+ * NOT to a project directory. This lets globally-scoped credentials (e.g. LLM
+ * API keys stored in the global signaldock) decrypt consistently from any
+ * project on the same machine.
+ *
+ * The global salt is sourced from the existing {@link getGlobalSalt}
+ * subsystem (`store/global-salt.ts`) — it is never re-implemented here.
+ *
+ * @param id - The stable identity binding the ciphertext (e.g. an agentId or
+ *   credential id). The same `id` MUST be supplied to {@link decryptGlobal};
+ *   a different `id` yields a different key and fails the GCM auth tag.
+ * @returns A 32-byte AES-256 key derived from machine-key + global-salt + id.
+ *
+ * @see ADR-037 §5 — KDF design (`HMAC-SHA256(machine-key || globalSalt, id)`)
+ * @see getGlobalSalt — global-salt source of truth (store/global-salt.ts)
+ * @task T11710
+ */
+async function deriveGlobalKey(id: string): Promise<Buffer> {
+  const machineKey = await getMachineKey();
+  const globalSalt = getGlobalSalt();
+  // HMAC key = machine-key || globalSalt (concatenation); message = id.
+  const hmacKey = Buffer.concat([machineKey, globalSalt]);
+  return createHmac('sha256', hmacKey).update(id).digest();
+}
+
+/**
+ * Encrypt a plaintext string using AES-256-GCM with a global, machine-bound key.
+ *
+ * Output format is byte-identical to {@link encrypt}:
+ * base64(version + iv + ciphertext + authTag)
+ *   - version: 1 byte (0x01 = AES-256-GCM)
+ *   - iv: 12 bytes
+ *   - ciphertext: variable length
+ *   - authTag: 16 bytes
+ *
+ * The encryption key is derived via {@link deriveGlobalKey} (machine-key +
+ * global-salt + `id`), so the resulting ciphertext decrypts from any project
+ * on the same machine — unlike the project-bound {@link encrypt}.
+ *
+ * @param plaintext - The string to encrypt (e.g. an LLM API key).
+ * @param id - The stable identity used for key derivation (e.g. an agentId).
+ * @returns Base64-encoded ciphertext.
+ *
+ * @see decryptGlobal — the inverse operation.
+ * @task T11710
+ */
+export async function encryptGlobal(plaintext: string, id: string): Promise<string> {
+  const key = await deriveGlobalKey(id);
+  const iv = randomBytes(IV_LENGTH);
+  const cipher = createCipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
+
+  const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+
+  // Pack: version + iv + ciphertext + authTag (matches encrypt() format exactly).
+  const version = Buffer.from([CIPHERTEXT_VERSION]);
+  const packed = Buffer.concat([version, iv, encrypted, authTag]);
+  return packed.toString('base64');
+}
+
+/**
+ * Decrypt a base64-encoded ciphertext produced by {@link encryptGlobal} using
+ * the global, machine-bound key derived from `id`.
+ *
+ * @param ciphertext - Base64-encoded string from {@link encryptGlobal}.
+ * @param id - The identity used at encryption time. A mismatched `id` derives a
+ *   different key and fails the GCM auth tag (throws).
+ * @returns The original plaintext string.
+ * @throws If decryption fails (wrong id, corrupted data, or machine-key/
+ *   global-salt mismatch).
+ *
+ * @see encryptGlobal — the inverse operation.
+ * @task T11710
+ */
+export async function decryptGlobal(ciphertext: string, id: string): Promise<string> {
+  const key = await deriveGlobalKey(id);
+  const packed = Buffer.from(ciphertext, 'base64');
+
+  if (packed.length < 1 + IV_LENGTH + AUTH_TAG_LENGTH) {
+    throw new Error('Cannot decrypt credentials: ciphertext too short');
+  }
+
+  const version = packed[0];
+  if (version !== CIPHERTEXT_VERSION) {
+    throw new Error(
+      `Unknown ciphertext version (${version}). Expected ${CIPHERTEXT_VERSION}. ` +
+        'Re-register agents to re-encrypt with the current format.',
+    );
+  }
+
+  const iv = packed.subarray(1, 1 + IV_LENGTH);
+  const authTag = packed.subarray(packed.length - AUTH_TAG_LENGTH);
+  const encrypted = packed.subarray(1 + IV_LENGTH, packed.length - AUTH_TAG_LENGTH);
+
+  const decipher = createDecipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
+  decipher.setAuthTag(authTag);
+
+  try {
+    const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+    return decrypted.toString('utf8');
+  } catch {
+    throw new Error(
+      'Cannot decrypt global credentials. Machine key / global-salt mismatch, ' +
+        'wrong id, or corrupted data. If this database was moved from another ' +
+        'machine, re-register the credential under its original id.',
     );
   }
 }
