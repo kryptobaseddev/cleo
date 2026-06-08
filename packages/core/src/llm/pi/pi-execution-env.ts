@@ -9,15 +9,22 @@
  * allowlisted roots and runs no command on the denylist.
  *
  * Two layers of confinement (deny-first):
- * 1. **Workspace boundary** — every fs path is resolved and MUST fall under the
- *    injected `workspaceRoot`; a `../` escape or an absolute path outside the
- *    root is rejected as a Pi `Result.err(FileError)` BEFORE the guard is even
- *    consulted. (The guard's own `allowedRoots` is a second, redundant net.)
+ * 1. **Workspace boundary** — every fs path is canonicalized with SYMLINK
+ *    RESOLUTION (`fs.realpath` on the nearest existing ancestor) and the REAL
+ *    target MUST fall under the injected `workspaceRoot`; a `../` escape, an
+ *    out-of-root absolute path, OR a symlink (file or parent dir) whose real
+ *    target leaves the root is rejected as a Pi `Result.err(FileError)` BEFORE
+ *    the guard is consulted. A purely lexical check is symlink-blind, so the
+ *    boundary resolves symlinks first. (The guard's own `allowedRoots` is a
+ *    second, ALSO-symlink-resolving net.)
  * 2. **ToolGuard** — the allowed operations delegate to the `ToolGuard` surface
  *    (`readFileText`/`writeFileAtomic`/`pathExists`/`executeShell`/`runGit`),
- *    which applies the project's path allowlist + shell denylist. A
- *    `GuardDeniedError` from enforce-mode is CAUGHT and converted to a Pi
- *    `Result.err` — Pi's `FileSystem`/`Shell` ops must NEVER throw.
+ *    which applies the project's symlink-resolved path allowlist + shell
+ *    denylist + subprocess-env scrub. A `GuardDeniedError` from enforce-mode is
+ *    CAUGHT and converted to a Pi `Result.err` — Pi's `FileSystem`/`Shell` ops
+ *    must NEVER throw. The guard MUST be constructed in `enforce` mode (the
+ *    factory asserts it) — in `warn` mode its allowlist/denylist are advisory
+ *    and confinement would collapse to the workspace boundary alone.
  *
  * Every other capability (binary reads, raw temp/dir mutation, listing, …) for
  * which there is no atomic primitive in v0 is DENIED with a typed error rather
@@ -35,7 +42,9 @@
  */
 
 import { isAbsolute, relative, resolve as resolvePath } from 'node:path';
-import { GuardDeniedError, type ToolGuard } from '../../tools/guard.js';
+import { scrubSubprocessEnv } from '../../tools/env-scrub.js';
+import { canonicalizePath } from '../../tools/fs.js';
+import { GuardDeniedError, type GuardMode, type ToolGuard } from '../../tools/guard.js';
 
 // ---------------------------------------------------------------------------
 // Structural Pi seam (local declarations — replaced by type-only pi imports in S2)
@@ -207,16 +216,41 @@ export class GuardedExecutionEnv implements PiExecutionEnv {
   }
 
   /**
-   * Resolve a (possibly relative) path against the workspace root and assert it
-   * stays inside the boundary. Returns the absolute path, or `null` when the
-   * path escapes (`../` traversal or an out-of-root absolute path).
+   * Lexically resolve a (possibly relative) path against the workspace root and
+   * assert it does not climb out. This is the fast FIRST gate only — it is
+   * symlink-blind, so {@link #confine} additionally re-checks the REAL target.
+   *
+   * @returns the lexically-resolved absolute path, or `null` on a `../`/absolute
+   *   escape.
    */
-  #confine(path: string): string | null {
+  #lexicalConfine(path: string): string | null {
     const abs = isAbsolute(path) ? resolvePath(path) : resolvePath(this.#root, path);
     const rel = relative(this.#root, abs);
-    // Inside the root iff the relative path does not climb out (`..`) and is not
-    // itself an absolute path (different drive / root on the platform).
     if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) return abs;
+    return null;
+  }
+
+  /**
+   * Resolve a (possibly relative) path against the workspace root and assert its
+   * REAL filesystem target stays inside the boundary. Two gates:
+   * 1. lexical (`#lexicalConfine`) — rejects `../` / out-of-root absolute paths;
+   * 2. SYMLINK resolution (`canonicalizePath`) — follows every symlink component
+   *    (incl. a symlinked parent of a fresh write target) and re-checks
+   *    containment against the REAL path, defeating the classic symlink/TOCTOU
+   *    escape that a purely lexical check is blind to.
+   *
+   * @returns the symlink-resolved absolute path, or `null` when it escapes.
+   */
+  async #confine(path: string): Promise<string | null> {
+    const lexical = this.#lexicalConfine(path);
+    if (lexical === null) return null;
+    const real = await canonicalizePath(lexical);
+    // Compare against the REAL root too, so a workspace whose own path traverses
+    // a symlink does not spuriously reject its own contained files.
+    const realRoot = await canonicalizePath(this.#root);
+    const rel = relative(realRoot, real);
+    // The REAL target must not climb out of the (also-real) root.
+    if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) return real;
     return null;
   }
 
@@ -241,7 +275,7 @@ export class GuardedExecutionEnv implements PiExecutionEnv {
 
   /** Read a file's text, confined to the workspace + guarded. */
   async readTextFile(path: string): Promise<PiResult<string, PiFileError>> {
-    const abs = this.#confine(path);
+    const abs = await this.#confine(path);
     if (abs === null) return fsErr('E_PI_FS_DENIED', 'path escapes workspace boundary', path);
     try {
       const res = await this.#guard.readFileText({ path: abs });
@@ -271,7 +305,7 @@ export class GuardedExecutionEnv implements PiExecutionEnv {
 
   /** Atomically write a file, confined to the workspace + guarded. */
   async writeFile(path: string, content: string): Promise<PiResult<void, PiFileError>> {
-    const abs = this.#confine(path);
+    const abs = await this.#confine(path);
     if (abs === null) return fsErr('E_PI_FS_DENIED', 'path escapes workspace boundary', path);
     try {
       await this.#guard.writeFileAtomic({ path: abs, content });
@@ -287,7 +321,7 @@ export class GuardedExecutionEnv implements PiExecutionEnv {
    * missing file is treated as empty.
    */
   async appendFile(path: string, content: string): Promise<PiResult<void, PiFileError>> {
-    const abs = this.#confine(path);
+    const abs = await this.#confine(path);
     if (abs === null) return fsErr('E_PI_FS_DENIED', 'path escapes workspace boundary', path);
     const existing = await this.readTextFile(abs);
     const prefix = existing.ok ? existing.value : '';
@@ -298,7 +332,7 @@ export class GuardedExecutionEnv implements PiExecutionEnv {
 
   /** Report whether a path is a file or directory, confined + guarded. */
   async fileInfo(path: string): Promise<PiResult<PiFileInfo, PiFileError>> {
-    const abs = this.#confine(path);
+    const abs = await this.#confine(path);
     if (abs === null) return fsErr('E_PI_FS_DENIED', 'path escapes workspace boundary', path);
     try {
       const res = await this.#guard.pathExists({ path: abs });
@@ -311,7 +345,7 @@ export class GuardedExecutionEnv implements PiExecutionEnv {
 
   /** Whether a path exists, confined + guarded. */
   async exists(path: string): Promise<PiResult<boolean, PiFileError>> {
-    const abs = this.#confine(path);
+    const abs = await this.#confine(path);
     if (abs === null) return fsErr('E_PI_FS_DENIED', 'path escapes workspace boundary', path);
     try {
       const res = await this.#guard.pathExists({ path: abs });
@@ -321,9 +355,14 @@ export class GuardedExecutionEnv implements PiExecutionEnv {
     }
   }
 
-  /** Canonicalize a path inside the workspace (pure resolve, no symlink walk). */
+  /**
+   * Canonicalize a path inside the workspace. SYMLINK-RESOLVING: `#confine`
+   * follows every symlink component via `fs.realpath`, so the returned value is
+   * the REAL on-disk location (matching Pi's `NodeExecutionEnv.canonicalPath`
+   * contract), and a path whose real target escapes the workspace is denied.
+   */
   async canonicalPath(path: string): Promise<PiResult<string, PiFileError>> {
-    const abs = this.#confine(path);
+    const abs = await this.#confine(path);
     if (abs === null) return fsErr('E_PI_FS_DENIED', 'path escapes workspace boundary', path);
     return ok(abs);
   }
@@ -361,22 +400,38 @@ export class GuardedExecutionEnv implements PiExecutionEnv {
    * Execute a command through the guard's shell surface (denylist applies). The
    * Pi `command` string is a bare executable name (args are passed by Pi via the
    * loop, but the v0 seam takes only `command`); we forward it as the guard's
-   * `command` with empty args. `cwd` is confined to the workspace.
+   * `command` with empty args. `cwd` is symlink-confined to the workspace.
+   *
+   * ## Env is SCRUBBED before it leaves this seam (T11897 · security)
+   *
+   * Pi's `options.env` is UNTRUSTED model-driven input. Forwarding it verbatim
+   * would let Pi set `LD_PRELOAD`/`NODE_OPTIONS`/`GIT_SSH_COMMAND` (arbitrary
+   * native code execution outside any allowlist) or hijack `PATH` to make a
+   * workspace-resident impostor satisfy an allowed command basename. So the env
+   * is run through {@link scrubSubprocessEnv} HERE — forbidden keys (loader
+   * hooks, `PATH`, secrets) are dropped and `PATH` is pinned to a trusted value
+   * — before it reaches the guard (which scrubs again as a redundant net, as
+   * does `defaultShellExecutor`). This also prevents the daemon's own secrets
+   * from leaking into the child (the scrubbed env never inherits `process.env`).
    */
   async exec(
     command: string,
     options?: PiExecOptions,
   ): Promise<PiResult<PiExecResult, PiExecutionError>> {
-    const cwd = options?.cwd ? this.#confine(options.cwd) : this.#root;
+    const cwd = options?.cwd ? await this.#confine(options.cwd) : this.#root;
     if (cwd === null) {
       return execErr('E_PI_EXEC_DENIED', 'cwd escapes workspace boundary');
     }
+    // Scrub Pi-supplied env to a minimal allowlist at the seam (defense in depth
+    // — the guard + executor scrub again). Pi can NOT inject a loader hook,
+    // hijack PATH, or read inherited daemon secrets through this channel.
+    const env = scrubSubprocessEnv({ extra: options?.env });
     try {
       const res = await this.#guard.executeShell({
         command,
         cwd,
+        env,
         ...(options?.timeout !== undefined ? { timeoutMs: options.timeout } : {}),
-        ...(options?.env !== undefined ? { env: options.env } : {}),
       });
       return ok({ stdout: res.stdout, stderr: res.stderr, exitCode: res.code });
     } catch (err) {
@@ -412,16 +467,50 @@ export class GuardedExecutionEnv implements PiExecutionEnv {
 }
 
 /**
+ * Thrown by {@link createGuardedExecutionEnv} when the injected guard is NOT in
+ * `enforce` mode. In `warn` mode the guard's path allowlist + command denylist
+ * are advisory (log-and-proceed), so the second confinement net does not exist
+ * and the boundary would collapse to the workspace check alone. The Pi adapter
+ * therefore REFUSES a non-enforce guard rather than running untrusted Pi work
+ * behind an advisory boundary.
+ */
+export class PiGuardModeError extends Error {
+  /** Machine-readable code. */
+  readonly code = 'E_PI_GUARD_NOT_ENFORCING';
+  /**
+   * @param mode - The (non-enforce) mode the guard was constructed with.
+   */
+  constructor(mode: GuardMode) {
+    super(
+      `Pi ExecutionEnv requires an enforce-mode ToolGuard; got "${mode}". ` +
+        'In warn mode the path allowlist + command denylist are advisory and provide no boundary.',
+    );
+    this.name = 'PiGuardModeError';
+  }
+}
+
+/**
  * Construct a deny-first {@link GuardedExecutionEnv}.
+ *
+ * REQUIRES an `enforce`-mode guard: a `warn`-mode guard's allowlist/denylist are
+ * advisory, so handing untrusted Pi work behind one would leave confinement to
+ * the workspace boundary alone. The factory ASSERTS the mode and throws
+ * {@link PiGuardModeError} otherwise — the Pi adapter never silently degrades to
+ * an advisory boundary.
  *
  * @param deps - The guard surface + the workspace root to confine to.
  * @returns A {@link PiExecutionEnv} safe to hand to Pi's agent loop.
+ * @throws {PiGuardModeError} When `deps.guard.mode !== 'enforce'`.
  *
  * @example
  * ```ts
+ * const guard = createToolGuard({ allowedRoots: [projectRoot], mode: 'enforce' });
  * const env = createGuardedExecutionEnv({ guard, workspaceRoot: projectRoot });
  * ```
  */
 export function createGuardedExecutionEnv(deps: GuardedExecutionEnvDeps): PiExecutionEnv {
+  if (deps.guard.mode !== 'enforce') {
+    throw new PiGuardModeError(deps.guard.mode);
+  }
   return new GuardedExecutionEnv(deps);
 }

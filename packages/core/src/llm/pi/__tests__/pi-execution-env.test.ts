@@ -11,7 +11,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createToolGuard } from '../../../tools/guard.js';
-import { createGuardedExecutionEnv, GuardedExecutionEnv } from '../pi-execution-env.js';
+import {
+  createGuardedExecutionEnv,
+  GuardedExecutionEnv,
+  PiGuardModeError,
+} from '../pi-execution-env.js';
 
 let root: string;
 
@@ -212,8 +216,32 @@ describe('cleanup is a best-effort no-op', () => {
 
 describe('factory + class parity', () => {
   it('createGuardedExecutionEnv yields a GuardedExecutionEnv instance', () => {
-    const guard = createToolGuard({ allowedRoots: [root] });
+    const guard = createToolGuard({ allowedRoots: [root], mode: 'enforce' });
     const env = createGuardedExecutionEnv({ guard, workspaceRoot: root });
     expect(env).toBeInstanceOf(GuardedExecutionEnv);
+  });
+});
+
+describe('factory REQUIRES an enforce-mode guard (warn-mode is rejected)', () => {
+  it('throws PiGuardModeError when the guard is in warn mode', () => {
+    // A warn-mode guard's allowlist/denylist are advisory — the Pi adapter must
+    // refuse it rather than run untrusted work behind an advisory boundary.
+    const warnGuard = createToolGuard({ allowedRoots: [root], mode: 'warn' });
+    expect(() => createGuardedExecutionEnv({ guard: warnGuard, workspaceRoot: root })).toThrow(
+      PiGuardModeError,
+    );
+  });
+
+  it('throws when no explicit mode is given (live default is warn)', () => {
+    // The live default posture is `warn` (GUARD_ENFORCE_FLIP_ENABLED=false), so a
+    // guard built without an explicit mode must also be rejected.
+    const defaultGuard = createToolGuard({ allowedRoots: [root] });
+    try {
+      createGuardedExecutionEnv({ guard: defaultGuard, workspaceRoot: root });
+      expect.unreachable('expected PiGuardModeError');
+    } catch (err) {
+      expect(err).toBeInstanceOf(PiGuardModeError);
+      expect((err as PiGuardModeError).code).toBe('E_PI_GUARD_NOT_ENFORCING');
+    }
   });
 });

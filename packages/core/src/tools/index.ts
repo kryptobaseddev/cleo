@@ -82,6 +82,15 @@ export { scaffoldProject } from '../scaffold/scaffold-project.js';
 export * from '../sdk/index.js';
 // TaskTools (Category B) — pure-functional task graph SDK tools (T10068 / T9835)
 export * from '../task-tools/index.js';
+// Subprocess env scrubbing (T11897 · security) — the chokepoint builds a minimal,
+// allowlisted child env so daemon secrets never leak and a Pi-controlled loader
+// hook / PATH can never reach a spawned process.
+export {
+  isForbiddenEnvName,
+  type ScrubEnvOptions,
+  scrubSubprocessEnv,
+  TRUSTED_PATH,
+} from './env-scrub.js';
 // Atomic-tool guard chokepoint (E3 · T11407 · T11474) — the ONLY public route to
 // the fs/shell primitives. Raw primitives are intentionally not re-exported.
 export {

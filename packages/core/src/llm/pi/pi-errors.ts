@@ -4,12 +4,22 @@
  * The Pi agent loop runs **in-process** inside the Cleo daemon with ZERO
  * authority. Two library packages are in the safe import set
  * (`@earendil-works/pi-agent-core` + `@earendil-works/pi-ai`) and both are
- * verified exit-clean, but the daemon MUST be structurally immune to a process
- * termination originating from ANY Pi code path — present or future. This module
- * is the containment boundary: it converts a `process.exit()` call or a
- * `process.exitCode` mutation attempted while running Pi code into a typed
- * {@link PiContainmentError} thrown back to the caller, and it restores the real
- * process hooks in a `finally` so the trap never leaks past the wrapped call.
+ * verified exit-clean, but the daemon MUST be protected from a process
+ * termination originating from a Pi code path. This module is the containment
+ * boundary: it converts a `process.exit()` call or a `process.exitCode` mutation
+ * attempted while running Pi code into a typed {@link PiContainmentError} thrown
+ * back to the caller.
+ *
+ * ## Containment scope (honest guarantee)
+ *
+ * The `process.exit` trap is process-global and REF-COUNTED across overlapping
+ * {@link wrapPiCall} scopes, so it covers the synchronous body, every awaited
+ * continuation, AND any deferred/detached exit (`setTimeout`, un-awaited
+ * promise, microtask) that fires while ANY Pi call is still active. The ONLY
+ * residual window is an exit fired AFTER the last active call has settled. To
+ * close that too — a daemon-lifetime guarantee covering ANY present/future Pi
+ * exit, synchronous or detached — the daemon calls {@link installDaemonExitGuard}
+ * once at startup to PIN the trap for its whole lifetime.
  *
  * Scope discipline (S1): NO `pi-ai`/`pi-agent-core` imports, NO DB access, NO
  * LLM calls. Import-time side-effect free — the logger is resolved lazily
@@ -102,93 +112,169 @@ export function wrapPiError(err: unknown): PiContainmentError {
 }
 
 /**
- * The scoped process-exit guard installed for the duration of one wrapped Pi
- * call. The two concerns have DIFFERENT lifecycles (see {@link
- * installProcessExitGuard}):
- * - {@link checkExitCode} is invoked SYNCHRONOUSLY immediately after the wrapped
- *   `fn` settles (before the outer `await` resolves) — this is the instant the
- *   mutated value is still observable.
- * - {@link restoreExit} is invoked in the `finally`.
+ * The scoped process-exit guard for the duration of one wrapped Pi call.
+ *
+ * The `process.exit` TRAP itself is NOT per-call: it is installed
+ * process-globally and REF-COUNTED across overlapping {@link wrapPiCall} scopes
+ * (see {@link acquireExitTrap}/{@link releaseExitTrap}). This closes the async
+ * leak window — while ANY Pi call is active the trap stays installed, so a
+ * DEFERRED or DETACHED `process.exit()` (a `setTimeout`, an un-awaited promise,
+ * a microtask outliving the await) fired during the active window is still
+ * neutralized, not run against the real exit.
+ *
+ * Only {@link checkExitCode} is per-scope: it snapshots `process.exitCode` at
+ * acquire and is invoked SYNCHRONOUSLY the instant `fn` settles, while a mutated
+ * value is still observable.
  */
 interface ProcessExitGuard {
   /**
    * Detect + neutralize a `process.exitCode` mutation. Compares the live value
-   * against the pre-trap snapshot; on a difference, writes the snapshot back via
-   * the native setter (so the daemon's eventual exit is unaffected) and returns
-   * the offending value. Idempotent — a second call returns `undefined`.
+   * against this scope's acquire-time snapshot; on a difference, writes the
+   * snapshot back via the native setter (so the daemon's eventual exit is
+   * unaffected) and returns the offending value. Idempotent — a second call
+   * returns `undefined`.
    */
   checkExitCode(): { mutatedExitCode: typeof process.exitCode } | undefined;
-  /** Reassign the original `process.exit`. MUST run exactly once in a `finally`. */
-  restoreExit(): void;
+  /** Release this scope's hold on the ref-counted trap. MUST run exactly once in a `finally`. */
+  release(): void;
 }
 
 /**
- * Install scoped guards around `process.exit` and `process.exitCode`.
+ * The original `process.exit`, captured at the FIRST trap install and restored
+ * only when the ref-count returns to zero. `null` while no trap is installed.
+ */
+let originalProcessExit: typeof process.exit | null = null;
+
+/** Number of live {@link wrapPiCall} scopes currently holding the exit trap. */
+let exitTrapRefCount = 0;
+
+/** Whether the daemon has pinned the trap for its whole lifetime (never released). */
+let daemonExitTrapPinned = false;
+
+/** The trapped `process.exit` — throws instead of terminating. Built once, reused. */
+const trappedExit = ((code?: number): never => {
+  throw new PiContainmentError(
+    'E_PI_PROCESS_EXIT_TRAPPED',
+    `Pi attempted process.exit(${code ?? ''}) in-process; daemon-fatal exit neutralized`,
+  );
+}) as typeof process.exit;
+
+/**
+ * Install the process-global `process.exit` trap if it is not already installed.
+ * Idempotent — overlapping callers share ONE trap.
+ */
+function ensureExitTrapInstalled(): void {
+  if (originalProcessExit === null) {
+    originalProcessExit = process.exit;
+    process.exit = trappedExit;
+  }
+}
+
+/**
+ * Restore the real `process.exit` when (and only when) no scope holds the trap
+ * and the daemon has not pinned it. A no-op otherwise.
+ */
+function maybeRestoreExitTrap(): void {
+  if (exitTrapRefCount === 0 && !daemonExitTrapPinned && originalProcessExit !== null) {
+    process.exit = originalProcessExit;
+    originalProcessExit = null;
+  }
+}
+
+/**
+ * Pin the `process.exit` trap for the ENTIRE daemon lifetime.
  *
- * - `process.exit` is a plain writable function property, so it is REPLACED with
- *   a function that THROWS a {@link PiContainmentError} instead of terminating;
- *   {@link ProcessExitGuard.restoreExit} reassigns the original in the `finally`.
- * - `process.exitCode` is, on modern Node, a NON-CONFIGURABLE native accessor —
- *   it cannot be redefined to intercept writes (`Object.defineProperty`/`delete`
- *   both throw). It IS writable via its native setter. So the guard uses
- *   **snapshot + synchronous detect-and-restore** ({@link
- *   ProcessExitGuard.checkExitCode}): the caller invokes it the instant `fn`
- *   settles, while the mutated value is still observable, then writes the
- *   snapshot back and surfaces `E_PI_EXIT_CODE_MUTATION_TRAPPED`. (Detecting
- *   later — e.g. in `finally` after the outer `await` — is unreliable under some
- *   test harnesses that reset `exitCode` when `process.exit` is reassigned.)
+ * This is the durable, complete fix for the async-exit leak: once pinned, the
+ * trap is NEVER restored, so a `process.exit()` originating from ANY Pi code path
+ * — synchronous, awaited, deferred (`setTimeout`), detached (fire-and-forget),
+ * present or future — is neutralized for as long as the daemon runs. Call this
+ * once at daemon startup BEFORE any Pi-touching work is dispatched.
  *
- * Re-entrant-safe: a second overlapping wrapped call snapshots the
- * already-trapped `process.exit` and the live `exitCode`; restore is a plain
- * reassignment and compare — no `defineProperty` ever runs.
+ * Idempotent. The returned function un-pins (e.g. for a graceful shutdown that
+ * legitimately needs to exit); after un-pinning, the trap is restored when no
+ * {@link wrapPiCall} scope is active.
+ *
+ * @returns A function that un-pins the daemon-lifetime trap.
+ *
+ * @example
+ * ```ts
+ * // daemon bootstrap, before serving requests:
+ * const unpin = installDaemonExitGuard();
+ * // ... daemon runs; all Pi exits are trapped for the whole lifetime ...
+ * unpin(); // only if a controlled shutdown must reach the real process.exit
+ * ```
+ */
+export function installDaemonExitGuard(): () => void {
+  daemonExitTrapPinned = true;
+  ensureExitTrapInstalled();
+  return () => {
+    daemonExitTrapPinned = false;
+    maybeRestoreExitTrap();
+  };
+}
+
+/**
+ * Acquire the ref-counted process-exit guard for one wrapped Pi call.
+ *
+ * Increments the global ref-count and installs the shared `process.exit` trap on
+ * the 0→1 transition; snapshots `process.exitCode` for this scope. The trap is
+ * released (and, at the last release, restored — unless daemon-pinned) via
+ * {@link ProcessExitGuard.release}.
+ *
+ * `process.exitCode` is, on modern Node, a NON-CONFIGURABLE native accessor — it
+ * cannot be redefined to intercept writes. It IS writable via its native setter,
+ * so the guard uses **snapshot + synchronous detect-and-restore**
+ * ({@link ProcessExitGuard.checkExitCode}).
+ *
+ * Re-entrant-safe: overlapping calls share the single installed trap; each holds
+ * its own `exitCode` snapshot and `release` is an idempotent decrement.
  *
  * @returns A scoped guard handle.
  */
-function installProcessExitGuard(): ProcessExitGuard {
-  const originalExit = process.exit;
+function acquireExitTrap(): ProcessExitGuard {
   // Snapshot the value (NOT the descriptor — the property is non-configurable on
   // modern Node, so we never redefine it; we compare-and-write via its setter).
-  const originalExitCodeValue: typeof process.exitCode = process.exitCode;
+  const snapshotExitCode: typeof process.exitCode = process.exitCode;
   let exitCodeChecked = false;
+  let released = false;
 
-  // `process.exit(code?)` → throw, never terminate. `never` return type is
-  // preserved because the function always throws.
-  const trappedExit = ((code?: number): never => {
-    throw new PiContainmentError(
-      'E_PI_PROCESS_EXIT_TRAPPED',
-      `Pi attempted process.exit(${code ?? ''}) in-process; daemon-fatal exit neutralized`,
-    );
-  }) as typeof process.exit;
-  process.exit = trappedExit;
+  exitTrapRefCount += 1;
+  ensureExitTrapInstalled();
 
   return {
     checkExitCode(): { mutatedExitCode: typeof process.exitCode } | undefined {
       if (exitCodeChecked) return undefined;
       exitCodeChecked = true;
       const current = process.exitCode;
-      if (current !== originalExitCodeValue) {
-        process.exitCode = originalExitCodeValue;
+      if (current !== snapshotExitCode) {
+        process.exitCode = snapshotExitCode;
         return { mutatedExitCode: current };
       }
       return undefined;
     },
-    restoreExit(): void {
-      process.exit = originalExit;
+    release(): void {
+      if (released) return;
+      released = true;
+      exitTrapRefCount -= 1;
+      maybeRestoreExitTrap();
     },
   };
 }
 
 /**
- * Run a Pi-touching async function under full process-exit containment +
- * abort routing.
+ * Run a Pi-touching async function under process-exit containment + abort
+ * routing.
  *
  * Behaviour:
- * - Installs the {@link installProcessExitGuard} trap for the duration of `fn`
- *   and restores the real hooks in a `finally` — a `process.exit()` call becomes
- *   a thrown {@link PiContainmentError} immediately, and a `process.exitCode`
- *   mutation is detected-and-restored at teardown then surfaced as a thrown
- *   `E_PI_EXIT_CODE_MUTATION_TRAPPED` (the value never leaks into the daemon's
- *   eventual exit code). Either way the daemon survives.
+ * - Acquires the REF-COUNTED, process-global {@link acquireExitTrap} for the
+ *   duration of `fn` and releases it in a `finally`. A `process.exit()` call —
+ *   synchronous, awaited, OR deferred/detached but firing while ANY Pi call is
+ *   still active — becomes a thrown {@link PiContainmentError} (the daemon
+ *   survives). A `process.exitCode` mutation is detected-and-restored the instant
+ *   `fn` settles, then surfaced as a thrown `E_PI_EXIT_CODE_MUTATION_TRAPPED`.
+ *   For a guarantee that spans even an exit fired AFTER the last call settles,
+ *   the daemon should additionally pin the trap once at startup via
+ *   {@link installDaemonExitGuard}.
  * - If `signal` is already aborted, rejects with `E_PI_ABORTED` WITHOUT invoking
  *   `fn`. Otherwise the signal is propagated to `fn` (the caller threads it into
  *   Pi's agent loop); an abort that surfaces as a thrown `AbortError`/`DOMException`
@@ -221,7 +307,7 @@ export async function wrapPiCall<T>(
   const onExternalAbort = (): void => controller.abort(signal?.reason);
   if (signal) signal.addEventListener('abort', onExternalAbort, { once: true });
 
-  const guard = installProcessExitGuard();
+  const guard = acquireExitTrap();
   try {
     const value = await fn(controller.signal);
     // Detect a quiet `process.exitCode` mutation SYNCHRONOUSLY here — the instant
@@ -245,7 +331,7 @@ export async function wrapPiCall<T>(
     }
     throw wrapPiError(err);
   } finally {
-    guard.restoreExit();
+    guard.release();
     if (signal) signal.removeEventListener('abort', onExternalAbort);
     // Lazy logger — never resolved at import time (S1 import-side-effect rule).
     getLogger('pi-errors').debug({ aborted: controller.signal.aborted }, 'pi call boundary closed');

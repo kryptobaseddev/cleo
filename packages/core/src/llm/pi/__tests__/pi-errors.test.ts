@@ -7,7 +7,13 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isPiContainmentError, PiContainmentError, wrapPiCall, wrapPiError } from '../pi-errors.js';
+import {
+  installDaemonExitGuard,
+  isPiContainmentError,
+  PiContainmentError,
+  wrapPiCall,
+  wrapPiError,
+} from '../pi-errors.js';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -113,6 +119,58 @@ describe('wrapPiCall — process.exitCode mutation trap', () => {
     // and the property is writable again post-restore (legitimate writes work)
     process.exitCode = before ?? 0;
     expect(process.exitCode).toBe(before ?? 0);
+  });
+});
+
+describe('wrapPiCall — exit trap covers the async/deferred window (T11897)', () => {
+  it('a deferred process.exit() firing while ANOTHER Pi call is still active is trapped', async () => {
+    const realExit = process.exit;
+    let trapped: unknown;
+
+    // Outer long-lived call keeps the ref-counted trap installed.
+    const outer = wrapPiCall(
+      async () =>
+        await new Promise<string>((resolve) => {
+          // Schedule a "detached" exit that fires DURING the outer window.
+          setTimeout(() => {
+            try {
+              // Under the OLD per-call trap this would hit the real exit after the
+              // inner call restored it. Now the outer scope keeps it trapped.
+              (process.exit as (code?: number) => never)(7);
+            } catch (err) {
+              trapped = err;
+            }
+            resolve('outer-done');
+          }, 5);
+        }),
+    );
+
+    // A short inner call settles + releases its hold BEFORE the deferred exit
+    // fires — but the outer call still holds the ref-count.
+    await wrapPiCall(async () => 'inner-done');
+
+    await expect(outer).resolves.toBe('outer-done');
+    expect(isPiContainmentError(trapped)).toBe(true);
+    expect((trapped as PiContainmentError).piCode).toBe('E_PI_PROCESS_EXIT_TRAPPED');
+    // Once all scopes release, the real exit is restored.
+    expect(process.exit).toBe(realExit);
+  });
+
+  it('installDaemonExitGuard pins the trap so a post-call exit is STILL trapped', async () => {
+    const realExit = process.exit;
+    const unpin = installDaemonExitGuard();
+    try {
+      // No wrapPiCall active, yet the trap is pinned for the daemon lifetime.
+      expect(process.exit).not.toBe(realExit);
+      expect(() => (process.exit as (code?: number) => never)(9)).toThrowError(PiContainmentError);
+      // A wrapped call still works and does NOT un-pin on release.
+      await wrapPiCall(async () => 'ok');
+      expect(process.exit).not.toBe(realExit);
+    } finally {
+      unpin();
+    }
+    // After un-pinning (and no active scopes), the real exit is restored.
+    expect(process.exit).toBe(realExit);
   });
 });
 
