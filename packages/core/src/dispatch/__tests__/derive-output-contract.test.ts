@@ -20,6 +20,7 @@ import { OPERATIONS, OUTPUT_CONTRACTS } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
 import { deriveOutputContract } from '../contracts/derive-output-contract.js';
 import { getOutputContract } from '../contracts/output-contracts.js';
+import { MUTATE_PROJECTION_PLANS } from '../mutate-projection.js';
 
 describe('deriveOutputContract — per-op output contract derivation (T11762 ST-3)', () => {
   describe('workgraph read op (OPERATION_RESULT_SCHEMAS)', () => {
@@ -59,12 +60,35 @@ describe('deriveOutputContract — per-op output contract derivation (T11762 ST-
       expect(props['task']).toBeDefined();
     });
 
-    it('derives a path-rooted list contract for docs.list', () => {
+    it('derives a path-rooted list contract for docs.list with the doc-kind /slug pointer (NOT /title)', () => {
       // docs.list plan = { path: 'attachments', kind: 'doc', list: true }.
+      // Doc records have NO `title` — their handle is `slug` (AttachmentMetadata
+      // + the doc MVI field-set expose slug/description, never title). The
+      // secondary pointer MUST be /slug, else `--field …/title` is E_FIELD_NOT_FOUND.
       const contract = deriveOutputContract('docs.list');
       expect(contract).not.toBeNull();
       expect(contract?.fieldPointers).toContain('/data/attachments/0/id');
-      expect(contract?.fieldPointers).toContain('/data/attachments/0/title');
+      expect(contract?.fieldPointers).toContain('/data/attachments/0/slug');
+      expect(contract?.fieldPointers).not.toContain('/data/attachments/0/title');
+    });
+
+    it('derives the doc-kind /slug single-record pointer for docs.fetch (NOT /title)', () => {
+      // docs.fetch plan = { path: 'metadata', kind: 'doc', list: false }.
+      const contract = deriveOutputContract('docs.fetch');
+      expect(contract).not.toBeNull();
+      expect(contract?.fieldPointers).toContain('/data/metadata/id');
+      expect(contract?.fieldPointers).toContain('/data/metadata/slug');
+      expect(contract?.fieldPointers).not.toContain('/data/metadata/title');
+    });
+
+    it('keeps the task-kind /title pointer for task projection plans', () => {
+      // tasks.list plan = { path: 'tasks', kind: 'task', list: true } — tasks
+      // DO have a title, so the secondary pointer stays /title for task kinds.
+      const contract = deriveOutputContract('tasks.list');
+      expect(contract).not.toBeNull();
+      expect(contract?.fieldPointers).toContain('/data/tasks/0/id');
+      expect(contract?.fieldPointers).toContain('/data/tasks/0/title');
+      expect(contract?.fieldPointers).not.toContain('/data/tasks/0/slug');
     });
   });
 
@@ -79,7 +103,47 @@ describe('deriveOutputContract — per-op output contract derivation (T11762 ST-
       expect(required).toEqual(expect.arrayContaining(['count', 'created', 'updated', 'deleted']));
     });
 
-    it('derives a mutate contract for every gateway=mutate op', () => {
+    it('derives the minimal-mutate envelope ONLY for the planned mutate ops', () => {
+      // Exactly the 6 ops in MUTATE_PROJECTION_PLANS are rewritten into the
+      // {count, created[], updated[], deleted[]} envelope by the dispatch
+      // middleware. Each MUST advertise the /data/created/0 pointer.
+      const plannedMutateKeys = Object.keys(MUTATE_PROJECTION_PLANS);
+      expect(plannedMutateKeys.length).toBe(6);
+      for (const key of plannedMutateKeys) {
+        const contract = deriveOutputContract(key);
+        expect(contract, `expected a planned-mutate contract for ${key}`).not.toBeNull();
+        expect(contract?.fieldPointers, key).toContain('/data/count');
+        expect(contract?.fieldPointers, key).toContain('/data/created/0');
+      }
+    });
+
+    it('does NOT advertise minimal-mutate pointers for UNPLANNED mutate ops', () => {
+      // An unplanned gateway=mutate op (e.g. memory.observe, docs.add,
+      // release.plan) returns its own domain payload untouched — the dispatch
+      // middleware short-circuits via `if (!hasPlan) return response`. Deriving
+      // /data/created/0 for it would steer agents at a pointer that resolves
+      // nothing, perpetuating the DHQ-057 --field remediation loop.
+      const plannedMutateKeys = new Set(Object.keys(MUTATE_PROJECTION_PLANS));
+      const unplannedMutateOps = OPERATIONS.filter(
+        (op) => op.gateway === 'mutate' && !plannedMutateKeys.has(`${op.domain}.${op.operation}`),
+      );
+      expect(unplannedMutateOps.length).toBeGreaterThan(0);
+      for (const op of unplannedMutateOps) {
+        const key = `${op.domain}.${op.operation}`;
+        const contract = deriveOutputContract(key);
+        // Still non-null (generic object contract — coverage stays high)…
+        expect(contract, `expected a generic contract for ${key}`).not.toBeNull();
+        // …but it must NOT claim the minimal-mutate pointers.
+        expect(contract?.fieldPointers, key).not.toContain('/data/created/0');
+        expect(contract?.fieldPointers, key).not.toContain('/data/updated/0');
+        expect(contract?.fieldPointers, key).not.toContain('/data/deleted/0');
+        // Generic object contracts carry no specific --field pointers.
+        expect(contract?.fieldPointers, key).toEqual([]);
+        expect(contract?.dataSchema['type'], key).toBe('object');
+      }
+    });
+
+    it('still resolves a non-null contract for EVERY gateway=mutate op (planned or not)', () => {
       const mutateOps = OPERATIONS.filter((op) => op.gateway === 'mutate');
       expect(mutateOps.length).toBeGreaterThan(0);
       for (const op of mutateOps) {

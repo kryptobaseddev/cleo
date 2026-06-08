@@ -17,16 +17,19 @@
  * |------------------------|--------------------------|----------------------------------------------------------|
  * | {@link OPERATION_RESULT_SCHEMAS} | `@cleocode/contracts`  | precise top-level data keys for the 5 workgraph reads     |
  * | {@link PROJECTION_PLANS}         | `./mvi-projection.js`  | the data PATH (`tasks.show→task`, `docs.list→attachments`) for projected reads |
- * | {@link MinimalMutateEnvelope}    | `./mutate-projection.js` | the shared `{count, created, updated, deleted}` shape for ALL mutate ops |
+ * | {@link MUTATE_PROJECTION_PLANS}  | `./mutate-projection.js` | the shared `{count, created, updated, deleted}` shape — but ONLY for the 6 ops that actually project it |
  *
  * Resolution precedence inside {@link deriveOutputContract} (most-precise first):
  *
  *   1. workgraph result schema  → precise key-derived contract
  *   2. read op with projection plan → path-rooted contract
- *   3. mutate op (`gateway==='mutate'`) → shared minimal-mutate contract
- *   4. any other registered query op → a GENERIC object contract (data is an
- *      object; no specific `--field` pointers, but a `shapeNote` telling the
- *      agent to `--full`/`--describe`).
+ *   3. mutate op WITH a {@link MUTATE_PROJECTION_PLANS} entry → shared
+ *      minimal-mutate contract. An unplanned `gateway==='mutate'` op is NOT
+ *      rewritten by the dispatch middleware (it returns its raw domain payload),
+ *      so it must NOT advertise `/data/created/0` — it falls through to (4).
+ *   4. any other registered op (unplanned mutate or plain query) → a GENERIC
+ *      object contract (data is an object; no specific `--field` pointers, but a
+ *      `shapeNote` telling the agent to `--full`/`--describe`).
  *
  * A `null` return means the operation is NOT in {@link OPERATIONS} at all
  * (genuinely unknown). Per T10400 §6.3 R6.7 a `null` output contract is
@@ -54,7 +57,8 @@ import {
   type OperationDef,
   type OperationOutputContract,
 } from '@cleocode/contracts';
-import { PROJECTION_PLANS, type ProjectionPlan } from '../mvi-projection.js';
+import { MUTATE_PROJECTION_PLANS } from '../mutate-projection.js';
+import { PROJECTION_PLANS, type ProjectionKind, type ProjectionPlan } from '../mvi-projection.js';
 
 // ---------------------------------------------------------------------------
 // Operation-def resolution (mirrors describe-operation.ts:resolveOperationDef)
@@ -141,13 +145,37 @@ function deriveFromResultSchema(operation: string): OperationOutputContract | nu
 // ---------------------------------------------------------------------------
 
 /**
+ * Map a {@link ProjectionKind} to the secondary identity field that pairs with
+ * `id` in the derived field pointers.
+ *
+ * Task-shaped records (`task`/`epic`/`saga`) carry a `title`; doc-shaped records
+ * (`doc`) carry NO `title` — their human-readable handle is `slug` (see
+ * `AttachmentMetadata` and the doc MVI field-set in `mvi-projection.ts`, which
+ * expose `slug`/`description` but never `title`). Hardcoding `/title` for doc
+ * plans produced an invalid `--field /data/.../title` pointer that fails with
+ * `E_FIELD_NOT_FOUND` — the very class of failure this contract exists to
+ * prevent. `'unknown'` falls back to `title` (the generic record convention),
+ * matching the {@link GENERIC_MVI_FIELDS} routing keys.
+ *
+ * @internal
+ */
+function secondaryPointerField(kind: ProjectionKind): 'title' | 'slug' {
+  return kind === 'doc' ? 'slug' : 'title';
+}
+
+/**
  * Derive a contract for a read op that has a {@link PROJECTION_PLANS} entry.
  * The plan tells us WHERE the records live in `data` (`plan.path`) and whether
  * the payload at that path is a list. We root the field pointers there:
  *
- *   - list plan  → `/data/<path>/0/id`, `/data/<path>/0/title`
- *   - single plan → `/data/<path>/id`, `/data/<path>/title`
- *   - `$` path   → records are the data root itself.
+ *   - task-kind list plan  → `/data/<path>/0/id`, `/data/<path>/0/title`
+ *   - doc-kind list plan   → `/data/<path>/0/id`, `/data/<path>/0/slug`
+ *   - single plan          → `/data/<path>/id`, `/data/<path>/{title|slug}`
+ *   - `$` path             → records are the data root itself.
+ *
+ * The secondary pointer is chosen per {@link ProjectionKind}
+ * ({@link secondaryPointerField}): task-shaped records expose `title`, doc
+ * records expose `slug` (they have no `title`).
  *
  * @internal
  */
@@ -158,7 +186,8 @@ function deriveFromProjectionPlan(
   const atRoot = plan.path === '$';
   const base = atRoot ? '/data' : `/data/${plan.path}`;
   const recordPointer = plan.list ? `${base}/0` : base;
-  const fieldPointers = [`${recordPointer}/id`, `${recordPointer}/title`];
+  const secondaryField = secondaryPointerField(plan.kind);
+  const fieldPointers = [`${recordPointer}/id`, `${recordPointer}/${secondaryField}`];
 
   const recordSchema = {
     type: 'object' as const,
@@ -227,9 +256,18 @@ const MINIMAL_MUTATE_DATA_SCHEMA = {
 } as const;
 
 /**
- * Derive the shared minimal-mutate-envelope contract for any `gateway==='mutate'`
- * operation. All mutate ops share the `{count, created[], updated[], deleted[]}`
- * default projection (mutate-projection.ts), so one derived shape covers them.
+ * Derive the shared minimal-mutate-envelope contract for a mutate op that
+ * actually projects the `{count, created[], updated[], deleted[]}` shape.
+ *
+ * IMPORTANT: only the 6 ops with a {@link MUTATE_PROJECTION_PLANS} entry
+ * (`tasks.add`, `tasks.add-batch`, `tasks.saga.create`, `tasks.update`,
+ * `tasks.complete`, `tasks.delete`) are rewritten into the minimal envelope by
+ * the dispatch middleware — `applyMutateProjection` / `mutate-minimal-envelope`
+ * return the RAW domain payload untouched for every unplanned mutate op. The
+ * caller ({@link deriveOutputContract}) therefore gates this on plan presence;
+ * the ~169 unplanned mutate ops (`memory.observe`, `session.start`, `docs.add`,
+ * `release.plan`, …) fall through to {@link genericObjectContract} so we never
+ * advertise `/data/created/0` for a result that does not carry it.
  *
  * @internal
  */
@@ -283,7 +321,8 @@ function genericObjectContract(operation: string, kindHint = 'query'): Operation
  * the remaining ~404 ops without hand-authoring sprawl.
  *
  * Resolution precedence (most-precise first): workgraph result schema →
- * projection-plan read → mutate op → generic registered query op → `null`.
+ * projection-plan read → planned mutate op → generic registered op (unplanned
+ * mutate or plain query) → `null`.
  *
  * A `null` return MUST be treated as "no contract / unverified shape", NOT an
  * error (T10400 §6.3 R6.7).
@@ -295,8 +334,9 @@ function genericObjectContract(operation: string, kindHint = 'query'): Operation
  * ```ts
  * deriveOutputContract('tasks.tree');        // precise workgraph keys
  * deriveOutputContract('tasks.show');        // projection-plan path (`task`)
- * deriveOutputContract('tasks.add');         // shared minimal-mutate envelope
- * deriveOutputContract('sessions.start');    // generic object contract
+ * deriveOutputContract('tasks.add');         // shared minimal-mutate envelope (planned)
+ * deriveOutputContract('memory.observe');    // generic object (UNPLANNED mutate)
+ * deriveOutputContract('session.start');     // generic object contract
  * deriveOutputContract('does.not-exist');    // null
  * ```
  *
@@ -318,9 +358,18 @@ export function deriveOutputContract(operation: string): OperationOutputContract
   const plan = PROJECTION_PLANS[key];
   if (plan !== undefined) return deriveFromProjectionPlan(key, plan);
 
-  // 3. Mutate op → shared minimal-mutate envelope.
-  if (def.gateway === 'mutate') return deriveMutateContract(key);
+  // 3. Mutate op that ACTUALLY projects the minimal-mutate envelope. Only the
+  //    ops with a MUTATE_PROJECTION_PLANS entry are rewritten into
+  //    `{count, created[], updated[], deleted[]}` by the dispatch middleware;
+  //    every other `gateway==='mutate'` op returns its own domain-specific
+  //    result shape untouched, so advertising `/data/created/0` for them would
+  //    steer agents at a pointer that resolves nothing (DHQ-057 loop).
+  if (def.gateway === 'mutate' && MUTATE_PROJECTION_PLANS[key] !== undefined) {
+    return deriveMutateContract(key);
+  }
 
-  // 4. Any other registered query op → generic object contract.
+  // 4. Any other registered op (unplanned mutate or plain query) → generic
+  //    object contract: honest "shape not individually contracted" rather than
+  //    a misleading pointer set.
   return genericObjectContract(key);
 }
