@@ -31,11 +31,16 @@ function generateRequestId(): string {
 // family barrels via the core entry point also triggers their side-effect
 // `registerRenderer` calls so the B5 registry is populated before the
 // dispatcher hands off to it.
+// T11762 ST-4 — output-contract accessor for the E_FIELD_NOT_FOUND remediation
+// loop. `getOutputContract` resolves a per-op OUTPUT contract (hand-authored
+// OR derived) so a failed `--field` JSON pointer can emit the valid pointer set
+// as `fix` + `alternatives` instead of a bare "did not resolve" (DHQ-057).
 import {
   drainWarnings,
   extractByJsonPointer,
   type FormatOptions,
   formatSuccess,
+  getOutputContract,
   isJsonPointer,
   metaFooter,
   pagerFooter,
@@ -384,7 +389,29 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
     const envelope = buildEnvelopeForPointer(data, opts);
     const value = extractByJsonPointer(envelope, fieldCtx.field);
     if (value === undefined) {
-      cliError(`Pointer "${fieldCtx.field}" did not resolve`, 4, { name: 'E_FIELD_NOT_FOUND' });
+      // T11762 ST-4 — close the DHQ-057 loop: a failed JSON pointer used to
+      // raise a BARE `E_FIELD_NOT_FOUND` ("did not resolve") with zero
+      // guidance, even when the operation HAS an output contract (reachable
+      // only via the opt-in `--describe` call). Enrich the failure branch with
+      // the contract's valid pointers as `fix` + `alternatives`, converting the
+      // contract from manual-before-the-fact into automatic post-failure
+      // remediation. Ops without a contract degrade to the `--describe` hint.
+      const contract = opts.operation ? getOutputContract(opts.operation) : null;
+      const fix = contract
+        ? `Valid pointers for ${opts.operation}: ${contract.fieldPointers.join(', ')}` +
+          (contract.shapeNote ? ` — ${contract.shapeNote}` : '')
+        : `Run: cleo ${opts.command} --describe`;
+      const alternatives = contract
+        ? contract.fieldPointers.slice(0, 5).map((pointer) => ({
+            action: `extract ${pointer}`,
+            command: `cleo ${opts.command} --field ${pointer}`,
+          }))
+        : undefined;
+      cliError(`Pointer "${fieldCtx.field}" did not resolve`, 4, {
+        name: 'E_FIELD_NOT_FOUND',
+        fix,
+        alternatives,
+      });
       process.exit(4);
     }
     process.stdout.write(`${serializePointerValue(value)}\n`);

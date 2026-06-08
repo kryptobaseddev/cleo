@@ -238,6 +238,49 @@ describe('cliError signature compatibility (T4808 regression)', () => {
     expect('details' in output.error).toBe(false);
   });
 
+  // -----------------------------------------------------------------------
+  // T11762 ST-4: the `alternatives` remediation array (the DHQ-057 fix in
+  // cliOutput's E_FIELD_NOT_FOUND branch) flows through cliError as a
+  // structured `{action, command}[]` — each entry preserved verbatim, in
+  // order, with both keys intact (no flattening / stringification).
+  // -----------------------------------------------------------------------
+  it('preserves the alternatives {action,command}[] shape verbatim through cliError', () => {
+    let written = '';
+    const origWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (chunk: unknown): boolean => {
+      written += String(chunk);
+      return true;
+    };
+
+    const alternatives: Array<{ action: string; command: string }> = [
+      { action: 'extract /data/task/id', command: 'cleo show --field /data/task/id' },
+      { action: 'extract /data/task/title', command: 'cleo show --field /data/task/title' },
+    ];
+
+    try {
+      cliError('Pointer "/data/title" did not resolve', 4, {
+        name: 'E_FIELD_NOT_FOUND',
+        fix: 'Valid pointers for tasks.show: /data/task/id, /data/task/title',
+        alternatives,
+      });
+    } finally {
+      process.stdout.write = origWrite;
+    }
+
+    const output = JSON.parse(written);
+    expect(output.success).toBe(false);
+    expect(output.error.codeName).toBe('E_FIELD_NOT_FOUND');
+    // The array is emitted as-is: same length, same order, both keys per entry.
+    expect(Array.isArray(output.error.alternatives)).toBe(true);
+    expect(output.error.alternatives).toEqual(alternatives);
+    expect(output.error.alternatives).toHaveLength(2);
+    for (const alt of output.error.alternatives) {
+      expect(Object.keys(alt).sort()).toEqual(['action', 'command']);
+      expect(typeof alt.action).toBe('string');
+      expect(typeof alt.command).toBe('string');
+    }
+  });
+
   it('prints Fix hint on second line in human format', () => {
     vi.mocked(getFormatContext).mockReturnValueOnce({
       format: 'human',
