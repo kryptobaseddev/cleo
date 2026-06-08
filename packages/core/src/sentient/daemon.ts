@@ -33,6 +33,7 @@ import { type FileHandle, open as fsOpen, mkdir, readFile } from 'node:fs/promis
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import cron from 'node-cron';
+import { installDaemonExitGuard } from '../llm/pi/pi-errors.js';
 import { reVerifyWorkerReport } from '../orchestrate/worker-verify.js';
 import { safeRunCrossProjectHygiene } from './cross-project-hygiene.js';
 import { type ProposeTickOptions, safeRunProposeTick } from './propose-tick.js';
@@ -694,6 +695,21 @@ export async function bootstrapDaemon(
   });
 
   // ---------------------------------------------------------------------------
+  // Pi exit-guard pin (T11761 · S2 · T11898)
+  // ---------------------------------------------------------------------------
+  // The in-process Pi agent loop runs inside THIS daemon process with ZERO
+  // authority. `wrapPiCall` ref-counts a process.exit trap for the duration of
+  // each active Pi call, but a detached/deferred exit fired AFTER the last call
+  // settles would escape that ref-counted window. Pinning the trap here — once,
+  // for the whole daemon lifetime — closes that residual window: a `process.exit`
+  // from ANY Pi code path (sync, awaited, deferred, detached, present/future) is
+  // neutralized for as long as the daemon runs. This MUST be installed before any
+  // Pi-touching work is dispatched (i.e. before the flag is ever enabled). The
+  // returned un-pin is called in `shutdown()` so the daemon's own graceful exit
+  // still reaches the real `process.exit`.
+  const unpinExitGuard = installDaemonExitGuard();
+
+  // ---------------------------------------------------------------------------
   // Studio supervision (T1683)
   // ---------------------------------------------------------------------------
 
@@ -776,6 +792,10 @@ export async function bootstrapDaemon(
     } catch {
       // ignore
     }
+    // Un-pin the Pi exit guard so this controlled shutdown reaches the REAL
+    // process.exit (the trap would otherwise convert it into a thrown error and
+    // the daemon would never terminate).
+    unpinExitGuard();
     process.exit(0);
   };
   process.on('SIGTERM', () => {

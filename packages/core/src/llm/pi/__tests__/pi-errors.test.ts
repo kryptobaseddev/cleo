@@ -11,6 +11,7 @@ import {
   installDaemonExitGuard,
   isPiContainmentError,
   PiContainmentError,
+  releaseDaemonExitGuard,
   wrapPiCall,
   wrapPiError,
 } from '../pi-errors.js';
@@ -170,6 +171,36 @@ describe('wrapPiCall — exit trap covers the async/deferred window (T11897)', (
       unpin();
     }
     // After un-pinning (and no active scopes), the real exit is restored.
+    expect(process.exit).toBe(realExit);
+  });
+
+  it('releaseDaemonExitGuard un-pins WITHOUT the install closure (daemon-entry fatal path · T11898)', () => {
+    const realExit = process.exit;
+    // Pin as the production daemon does, then DISCARD the closure to model the
+    // daemon-entry catch handler that only has the global un-pin (different module).
+    installDaemonExitGuard();
+    expect(process.exit).not.toBe(realExit);
+    // The global un-pin restores the real exit (no active wrapPiCall scope).
+    releaseDaemonExitGuard();
+    expect(process.exit).toBe(realExit);
+    // Idempotent — a second call is a harmless no-op.
+    expect(() => releaseDaemonExitGuard()).not.toThrow();
+    expect(process.exit).toBe(realExit);
+  });
+
+  it('releaseDaemonExitGuard does NOT strip the trap while a wrapPiCall scope is active', async () => {
+    const realExit = process.exit;
+    installDaemonExitGuard();
+    let exitStillTrappedDuringCall = false;
+    await wrapPiCall(async () => {
+      // Un-pin mid-call: the ref-counted scope must keep the trap installed so a
+      // detached exit during this window is still neutralized.
+      releaseDaemonExitGuard();
+      exitStillTrappedDuringCall = process.exit !== realExit;
+      return 'ok';
+    });
+    expect(exitStillTrappedDuringCall).toBe(true);
+    // Once the scope releases AND the pin is gone, the real exit is restored.
     expect(process.exit).toBe(realExit);
   });
 });
