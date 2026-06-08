@@ -48,7 +48,7 @@ import { CredentialPool } from './credential-pool.js';
 import { type CredentialResult, resolveCredentials } from './credentials.js';
 import { getCredentialByLabel, pickCredentialForProvider } from './credentials-store.js';
 import { IMPLICIT_FALLBACK_MODEL } from './fallback-model.js';
-import { makeSealedCredential } from './sealed-credential.js';
+import { makeSealedCredential, tokenPreview } from './sealed-credential.js';
 import { buildAnthropicClient } from './transports/anthropic-client-factory.js';
 import type { ModelTransport } from './types-config.js';
 
@@ -495,6 +495,10 @@ export async function resolveLLMForRole(
     sealedCredential = makeSealedCredential({
       provider: credential.provider,
       account: usedLabel ?? 'default',
+      // Non-secret redacted preview (≤ last 4 chars) computed ONCE at seal time
+      // — the only token-derived string allowed on a log/envelope/diagnostic
+      // (E10 · T11754 · AC3). The full plaintext is NOT retained for it.
+      tokenPreview: tokenPreview(token, wireAuthType),
       // The already-resolved plaintext is captured in this closure and handed
       // out ONLY when a wire boundary invokes fetch(); it is never surfaced on
       // the envelope. T11754 swaps this thunk for an on-demand vault decrypt.

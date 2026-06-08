@@ -22,8 +22,10 @@ import type { DecryptedToken, SealedCredential } from '../llm/sealed-credential.
 import type { ResolvedLLM } from '../operations/llm.js';
 
 describe('SealedCredential shape (AC1)', () => {
-  it('is exactly { provider, account, fetch } — pins the field set', () => {
-    expectTypeOf<keyof SealedCredential>().toEqualTypeOf<'provider' | 'account' | 'fetch'>();
+  it('is exactly { provider, account, tokenPreview, fetch } — pins the field set', () => {
+    expectTypeOf<keyof SealedCredential>().toEqualTypeOf<
+      'provider' | 'account' | 'tokenPreview' | 'fetch'
+    >();
   });
 
   it('provider is a ProviderId', () => {
@@ -32,6 +34,10 @@ describe('SealedCredential shape (AC1)', () => {
 
   it('account is a plain (loggable) string', () => {
     expectTypeOf<SealedCredential['account']>().toEqualTypeOf<string>();
+  });
+
+  it('tokenPreview is a plain (loggable, non-secret) string (T11754)', () => {
+    expectTypeOf<SealedCredential['tokenPreview']>().toEqualTypeOf<string>();
   });
 
   it('fetch resolves to a DecryptedToken (never a bare string)', () => {
@@ -44,6 +50,7 @@ describe('SealedCredential shape (AC1)', () => {
     expectTypeOf<SealedCredential>().toEqualTypeOf<{
       readonly provider: ProviderId;
       readonly account: string;
+      readonly tokenPreview: string;
       readonly fetch: () => Promise<DecryptedToken>;
     }>();
   });

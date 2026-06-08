@@ -108,11 +108,13 @@ export type DecryptedToken = {
  *
  * @example
  * ```ts
- * // At the wire boundary (session-factory.ts) — the ONLY place fetch() runs:
- * const token = await sealed.fetch();
- * const headers = buildAuthHeaders(sealed.provider, token);
- * // token.value is used to construct the transport, then goes out of scope.
- * // It is NEVER returned, logged, or serialized.
+ * // At the wire boundary (session-factory.ts) — the ONLY place fetch() runs.
+ * // Prefer `authHeadersFromSealed` (core), which invokes fetch() internally so
+ * // the plaintext is never bound to a caller-visible variable:
+ * const headers = await authHeadersFromSealed(sealed, authType);
+ * // …or, for diagnostics, name the credential WITHOUT materializing it:
+ * log.info({ provider: sealed.provider, preview: sealed.tokenPreview });
+ * // The full token is NEVER returned, logged, or serialized.
  * ```
  *
  * @task T11752
@@ -126,6 +128,22 @@ export interface SealedCredential {
    * without revealing its secret — safe to log and serialize.
    */
   readonly account: string;
+  /**
+   * Non-secret, redacted preview of the underlying credential (e.g. `'…6789'`
+   * or `'oat-…6789'` for OAuth). The SOLE token-derived value safe to place on
+   * a log line, LAFS envelope, or `cleo llm whoami` diagnostic.
+   *
+   * SECURITY: this is computed ONCE at seal time from at most the last 4 token
+   * characters via the core redaction chokepoint (`tokenPreviewOf`) — it can
+   * never be reversed into the plaintext. Diagnostics that need to *name* a
+   * credential without materializing it MUST read this field, never call
+   * {@link fetch}. The E10 redaction test (T11754 · AC3) asserts that the
+   * preview, not the full token, is the only credential-derived string that
+   * crosses any logging/diagnostic boundary.
+   *
+   * @task T11754
+   */
+  readonly tokenPreview: string;
   /**
    * Materialize the plaintext secret on demand.
    *

@@ -39,6 +39,32 @@
 import type { DecryptedToken, ProviderId, SealedCredential } from '@cleocode/contracts';
 
 /**
+ * Build the non-secret, redacted preview of a credential string.
+ *
+ * SECURITY: this is the SOLE token→preview redaction chokepoint for the sealed
+ * handle. It reveals at most the last 4 characters of the token plus an
+ * auth-scheme marker (`oat-…` for OAuth, `…` otherwise) — never enough to
+ * reconstruct the secret. It is computed ONCE at seal time and stored on the
+ * handle's {@link SealedCredential.tokenPreview}; the full plaintext is NOT
+ * retained for it.
+ *
+ * The preview is the ONLY credential-derived string that may cross a
+ * logging/diagnostic/envelope boundary (E10 · T11754 · AC3); everything else
+ * goes through {@link SealedCredential.fetch} at the wire and is discarded.
+ *
+ * @param token - The plaintext secret (read transiently; not retained).
+ * @param authType - Auth scheme, used only to pick the cosmetic prefix.
+ * @returns A redacted preview safe to log and serialize.
+ * @task T11754
+ */
+export function tokenPreview(token: string, authType: 'api_key' | 'oauth'): string {
+  const prefix = authType === 'oauth' ? 'oat-…' : '…';
+  if (!token) return prefix;
+  if (token.length <= 4) return `${prefix}${token}`;
+  return `${prefix}${token.slice(-4)}`;
+}
+
+/**
  * Mint a {@link DecryptedToken} from a raw plaintext secret.
  *
  * SECURITY: this is the ONE chokepoint that produces a branded
@@ -77,6 +103,15 @@ export interface MakeSealedCredentialParams {
    */
   readonly account: string;
   /**
+   * Non-secret redacted preview (e.g. `'…6789'` / `'oat-…6789'`) computed once
+   * by the resolver via {@link tokenPreview}. Carried on the handle so
+   * diagnostics can *name* the credential without invoking {@link SealedCredential.fetch}.
+   * NEVER the full token.
+   *
+   * @task T11754
+   */
+  readonly tokenPreview: string;
+  /**
    * On-demand plaintext resolver. Invoked ONLY inside {@link SealedCredential.fetch}
    * — i.e. at the wire / daemon worker-injection boundary. May be synchronous
    * (today's in-process credential pool, which already holds the plaintext) or
@@ -107,12 +142,12 @@ export interface MakeSealedCredentialParams {
  * const sealed = makeSealedCredential({
  *   provider: 'anthropic',
  *   account: usedLabel ?? 'default',
+ *   tokenPreview: tokenPreview(token, authType), // non-secret; safe to log
  *   resolveToken: () => token, // captured, not surfaced
  * });
- * // At the wire — the ONLY place fetch() runs:
- * const { value } = await sealed.fetch();
- * const headers = authHeaders({ provider: sealed.provider, apiKey: value, ... });
- * // value goes out of scope here; never returned, logged, or serialized.
+ * // At the wire — the ONLY place fetch() runs (via authHeadersFromSealed):
+ * const headers = await authHeadersFromSealed(sealed, authType);
+ * // the plaintext never escapes authHeadersFromSealed; only headers come out.
  * ```
  *
  * @param params - Provider, account label, and the on-demand token resolver.
@@ -120,10 +155,11 @@ export interface MakeSealedCredentialParams {
  * @task T11753
  */
 export function makeSealedCredential(params: MakeSealedCredentialParams): SealedCredential {
-  const { provider, account, resolveToken } = params;
+  const { provider, account, tokenPreview: preview, resolveToken } = params;
   return {
     provider,
     account,
+    tokenPreview: preview,
     fetch: async (): Promise<DecryptedToken> => {
       // The SOLE decrypt/materialize point. `resolveToken` re-obtains (or, in
       // T11754, decrypts) the plaintext on demand; we brand it and hand it to

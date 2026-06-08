@@ -61,6 +61,7 @@ import {
   type StoredCredential,
 } from './credentials-store.js';
 import { IMPLICIT_FALLBACK_MODEL, resolveLLMForRole } from './role-resolver.js';
+import { tokenPreview } from './sealed-credential.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -93,13 +94,14 @@ const ALL_ROLES = ['extraction', 'consolidation', 'derivation', 'hygiene', 'judg
  * NEVER returns the full token. This is the only redaction code path
  * used by `cleo llm` result envelopes.
  *
+ * Delegates to the SSoT redaction chokepoint {@link tokenPreview}
+ * (`sealed-credential.ts`, shared with the E10 handle · T11754). `aws_sdk`
+ * collapses to the non-OAuth `'…'` prefix, identical to the prior behaviour.
+ *
  * @task T9258 (S-11)
  */
 function tokenPreviewOf(token: string, authType: StoredAuthTypeWire): string {
-  const prefix = authType === 'oauth' ? 'oat-…' : '…';
-  if (!token) return prefix;
-  if (token.length <= 4) return `${prefix}${token}`;
-  return `${prefix}${token.slice(-4)}`;
+  return tokenPreview(token, authType === 'oauth' ? 'oauth' : 'api_key');
 }
 
 /**

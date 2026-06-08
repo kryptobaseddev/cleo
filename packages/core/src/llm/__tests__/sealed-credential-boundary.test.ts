@@ -123,15 +123,25 @@ const SECRET = 'sk-ant-SECRET-boundary-do-not-leak-0123456789';
  */
 function envelopeDataSurface(llm: {
   client?: unknown;
-  sealedCredential?: { provider: string; account: string; fetch: unknown } | null;
+  sealedCredential?: {
+    provider: string;
+    account: string;
+    tokenPreview?: string;
+    fetch: unknown;
+  } | null;
   [k: string]: unknown;
 }): Record<string, unknown> {
   const { client: _client, sealedCredential, ...rest } = llm;
   return {
     ...rest,
-    // Keep the handle's NON-secret identity fields; drop the fetch closure.
+    // Keep the handle's NON-secret identity fields (incl. the redacted
+    // tokenPreview); drop the fetch closure.
     sealedCredential: sealedCredential
-      ? { provider: sealedCredential.provider, account: sealedCredential.account }
+      ? {
+          provider: sealedCredential.provider,
+          account: sealedCredential.account,
+          tokenPreview: sealedCredential.tokenPreview,
+        }
       : sealedCredential,
   };
 }
@@ -207,6 +217,21 @@ describe('E10 resolver boundary — no bare secret crosses the resolver (T11753 
     expect(llm.sealedCredential).toBeNull();
   });
 
+  it('the resolver surfaces a non-secret tokenPreview on the handle, never the full token (T11754)', async () => {
+    const { projectRoot } = isolate();
+    seedProjectConfig(projectRoot, { default: { provider: 'anthropic', model: 'mx' } });
+    process.env['ANTHROPIC_API_KEY'] = SECRET;
+
+    const llm = await resolveLLMForRole('consolidation', { projectRoot });
+    // Preview is present, redacted to the last 4 chars, and is NOT the secret.
+    expect(llm.sealedCredential?.tokenPreview).toBe(`…${SECRET.slice(-4)}`);
+    expect(llm.sealedCredential?.tokenPreview).not.toContain(SECRET);
+    // The preview is reachable on the data surface (safe); the secret is not.
+    const surface = envelopeDataSurface(llm);
+    expect(reachableStrings(surface)).toContain(`…${SECRET.slice(-4)}`);
+    expect(reachableStrings(surface)).not.toContain(SECRET);
+  });
+
   it('a cred-store token is also fully sealed (not just the env tier)', async () => {
     const { projectRoot } = isolate();
     seedProjectConfig(projectRoot, { default: { provider: 'anthropic', model: 'mx' } });
@@ -228,6 +253,7 @@ describe('makeSealedCredential — the handle does not expose the secret structu
     const sealed = makeSealedCredential({
       provider: 'anthropic',
       account: 'work',
+      tokenPreview: '…leak',
       resolveToken: () => SECRET,
     });
     // Provider + account are non-secret and safe to surface…
@@ -245,6 +271,7 @@ describe('makeSealedCredential — the handle does not expose the secret structu
     const sealed = makeSealedCredential({
       provider: 'openai',
       account: 'default',
+      tokenPreview: '…CRET',
       resolveToken: async () => {
         await Promise.resolve();
         return SECRET;
@@ -257,6 +284,7 @@ describe('makeSealedCredential — the handle does not expose the secret structu
     const sealed = makeSealedCredential({
       provider: 'anthropic',
       account: 'broken',
+      tokenPreview: '…oken',
       resolveToken: () => {
         throw new Error('vault unreachable');
       },
