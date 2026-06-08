@@ -844,6 +844,8 @@ export type {
 export type { ResolvedCredential } from './llm/resolved-credential.js';
 // === E9 SSoT resolution descriptor (T11745 / T11761) ===
 export type { ModelCaps, ResolvedLLMDescriptor } from './llm/resolved-descriptor.js';
+// === E10 Sealed credential handle (T11752 / T11746) — on-demand decrypt at the wire ===
+export type { DecryptedToken, SealedCredential } from './llm/sealed-credential.js';
 // === E9 System-of-Use chokepoint contract (T11749) ===
 export type {
   ResolveLLMForSystemOptions,

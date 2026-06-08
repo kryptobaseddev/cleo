@@ -10,6 +10,7 @@
  */
 
 import type { BuiltinProviderId, ProviderId } from '../llm/provider-id.js';
+import type { SealedCredential } from '../llm/sealed-credential.js';
 
 /**
  * @deprecated since Phase 4 (ADR-072). Use {@link ProviderId} from
@@ -258,8 +259,30 @@ export interface ResolvedLLM {
   /**
    * Resolved credential. `null` when no tier produced a token. Callers
    * MUST handle this case.
+   *
+   * @deprecated E10 (T11746) — carries the secret INLINE as
+   * {@link CredentialResultWire.apiKey}, which travels up the resolver stack
+   * where it can be logged/serialized. T11753 swaps the resolver to populate
+   * {@link sealedCredential} instead and removes the inline `apiKey`. Prefer
+   * {@link sealedCredential} for new consumers; this field is retained for the
+   * one-task migration window so existing call-sites keep compiling.
    */
   credential: CredentialResultWire | null;
+  /**
+   * Sealed credential handle — the E10 on-demand-decrypt replacement for the
+   * inline {@link credential}/`apiKey` (T11752 · T11746). `null` when no tier
+   * produced a credential.
+   *
+   * The plaintext token is materialized ONLY by calling
+   * {@link SealedCredential.fetch} at the wire (`transportForProvider` /
+   * `session-factory.ts`) or daemon worker-injection — never returned up this
+   * envelope. Until T11753 wires the resolver to populate it, this field is
+   * optional; once populated it becomes the canonical credential surface and
+   * the inline {@link credential} is removed.
+   *
+   * @task T11752
+   */
+  sealedCredential?: SealedCredential | null;
   /** Which config path produced this resolution. */
   source: ResolutionSource;
   /** When `roles[role].credentialLabel` was set, the label that was used. */
