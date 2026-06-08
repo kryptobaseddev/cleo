@@ -677,6 +677,16 @@ export { getInputContract, INPUT_CONTRACTS } from './dispatch/contracts/input-co
 // registry + the SDK describeOperation() introspection surface behind
 // `cleo <op> --describe`. OUTPUT-side mirror of getInputContract.
 export { getOutputContract, OUTPUT_CONTRACTS } from './dispatch/contracts/output-contracts.js';
+// T11762 (T11901 ST-1b · Lane A) — bodied accessors over the cantbook
+// ensures.schema Zod registry (registry DATA lives in @cleocode/contracts ST-1).
+// The playbook runtime resolves a schema name → validator via these instead of
+// hardcoding `if (schema === 'task_tree') … else if (=== 'evidence')`.
+export {
+  defineEnsuresSchema,
+  type EnsuresSchemaSpec,
+  getEnsuresSchema,
+  listEnsuresSchemaNames,
+} from './dispatch/contracts/ensures-schema.js';
 export {
   describeOperation,
   type OperationDescriptor,
