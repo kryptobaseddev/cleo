@@ -148,7 +148,7 @@ export async function executeForRole(
   opts: ExecuteForRoleOptions = {},
 ): Promise<ExecuteForRoleResult | null> {
   const llm = await resolveLLMForRole(role, { projectRoot: opts.projectRoot });
-  if (!llm.credential?.apiKey) {
+  if (!llm.sealedCredential || !llm.credential) {
     // No usable credential for this role's resolved provider. Surface ONE
     // actionable re-auth hint per (role, provider) tuple instead of a silent
     // skip — the caller still degrades gracefully via the null return.
@@ -185,14 +185,16 @@ export async function executeForRole(
     // anthropic block hardcoded the OAuth beta header; the others omitted it).
     const authType: 'api_key' | 'oauth' = llm.credential.authType === 'oauth' ? 'oauth' : 'api_key';
 
+    // E10 (T11753): materialize the plaintext from the sealed handle ONLY here,
+    // at the wire — immediately before building the transport. The token is used
+    // for the kimi-code diagnostic and the transport credential, then goes out
+    // of scope; it is never returned, logged, or serialized.
+    const token = (await llm.sealedCredential.fetch()).value;
+
     // Diagnostic (preserved): a non-`sk-kimi-`, non-OAuth key routed to
     // kimi-code will likely fail — the legacy Moonshot `mk-*` path lives on the
     // separate `moonshot` provider.
-    if (
-      llm.provider === 'kimi-code' &&
-      authType !== 'oauth' &&
-      !isKimiCodeApiKey(llm.credential.apiKey)
-    ) {
+    if (llm.provider === 'kimi-code' && authType !== 'oauth' && !isKimiCodeApiKey(token)) {
       console.warn(
         `[role-executor] kimi-code credential is not sk-kimi- prefixed and not OAuth; ` +
           `the request may fail. Configure a coding-plan key from kimi.com/code or ` +
@@ -204,7 +206,7 @@ export async function executeForRole(
     const resolvedCredential: ResolvedCredential = {
       provider: llm.provider,
       label: llm.credentialLabel ?? 'default',
-      token: llm.credential.apiKey,
+      token,
       authType,
       expiresAt: null,
       refreshToken: null,

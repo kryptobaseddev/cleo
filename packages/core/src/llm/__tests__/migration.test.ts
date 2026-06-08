@@ -251,7 +251,7 @@ describe('Phase 1 → Phase 2 migration — additive upgrade', () => {
 
     const llm = await resolveLLMForRole('consolidation', { projectRoot });
     expect(llm.credential?.source).toBe('cred-file');
-    expect(llm.credential?.apiKey).toBe('sk-ant-api03-NEW');
+    expect((await llm.sealedCredential?.fetch())?.value).toBe('sk-ant-api03-NEW');
     expect(llm.credentialLabel).toBe('personal');
   });
 });

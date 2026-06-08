@@ -69,11 +69,18 @@ describe('DecryptedToken branding (AC2 — never serialized / never fabricated)'
   });
 });
 
-describe('ResolvedLLM.sealedCredential (AC2)', () => {
-  it('is typed as SealedCredential | null | undefined', () => {
-    expectTypeOf<ResolvedLLM['sealedCredential']>().toEqualTypeOf<
-      SealedCredential | null | undefined
-    >();
+describe('ResolvedLLM.sealedCredential (AC2 · T11753)', () => {
+  it('is the required (non-optional) canonical credential surface', () => {
+    // T11753 promotes the field from optional to required: the resolver ALWAYS
+    // populates it (a handle when a credential resolved, `null` otherwise).
+    expectTypeOf<ResolvedLLM['sealedCredential']>().toEqualTypeOf<SealedCredential | null>();
+  });
+
+  it('the inline credential metadata carries NO plaintext apiKey (T11753)', () => {
+    // The secret-bearing `apiKey` field is structurally removed from the inline
+    // credential — the plaintext crosses ONLY through `sealedCredential.fetch()`.
+    type Cred = NonNullable<ResolvedLLM['credential']>;
+    expectTypeOf<Cred>().not.toHaveProperty('apiKey');
   });
 });
 

@@ -189,7 +189,7 @@ async function produce(
   const resolved = await resolveLLMForSystem(ctx.system, {
     ...(ctx.projectRoot !== undefined ? { projectRoot: ctx.projectRoot } : {}),
   });
-  if (!resolved.credential?.apiKey && resolved.authType !== 'aws_sdk') {
+  if (!resolved.sealedCredential && resolved.authType !== 'aws_sdk') {
     // No credential reachable — surface a typed terminal error (graceful: the
     // loop sees an error AssistantMessage and stops, the daemon is unharmed).
     emitError(out, model, `no credential resolved for system "${ctx.system}"`);
@@ -197,8 +197,10 @@ async function produce(
   }
 
   // 2. Clean descriptor from resolved fields (NO model literal here — the model
-  //    is whatever the resolver/registry produced).
-  const descriptor = toDescriptor(resolved);
+  //    is whatever the resolver/registry produced). The plaintext token is
+  //    materialized from the sealed handle ONLY here, at the wire boundary that
+  //    feeds ModelRunner — never carried inline on the resolver envelope (E10).
+  const descriptor = await toDescriptor(resolved);
 
   // 3. Single SSoT transport factory. The transport/client construction lives
   //    inside ModelRunner — this file constructs nothing.
@@ -292,19 +294,27 @@ async function produce(
  * boundary. The `model` comes from the resolver (registry/role-config), never a
  * literal.
  *
+ * E10 (T11753): the plaintext token is materialized HERE — at the wire boundary
+ * that feeds `ModelRunner` — by invoking `resolved.sealedCredential.fetch()`.
+ * It is written into the descriptor's `credential.apiKey` (consumed only inside
+ * the `ModelRunner` chokepoint) and never returned up the resolver stack. This
+ * is async because `fetch()` is the on-demand decrypt point.
+ *
  * @param resolved - The `resolveLLMForSystem` envelope.
  * @returns A clean descriptor for `ModelRunner.build`.
  */
-function toDescriptor(
+async function toDescriptor(
   resolved: Awaited<ReturnType<typeof resolveLLMForSystem>>,
-): ResolvedLLMDescriptor {
+): Promise<ResolvedLLMDescriptor> {
+  // Materialize the plaintext from the sealed handle ONLY at this wire boundary.
+  const apiKey = resolved.sealedCredential ? (await resolved.sealedCredential.fetch()).value : null;
   return {
     provider: resolved.provider,
     model: resolved.model,
     credential: resolved.credential
       ? {
           provider: resolved.credential.provider,
-          apiKey: resolved.credential.apiKey,
+          apiKey,
           source: resolved.credential.source,
           authType: resolved.credential.authType,
         }

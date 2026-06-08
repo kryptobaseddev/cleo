@@ -28,7 +28,9 @@ let hasCredential = false;
 beforeAll(async () => {
   try {
     const resolved = await resolveLLMForSystem('task-executor');
-    hasCredential = Boolean(resolved.credential?.apiKey) || resolved.authType === 'aws_sdk';
+    // E10 (T11753): the sealed-handle presence is the credential-availability
+    // signal — the inline plaintext apiKey no longer exists on the envelope.
+    hasCredential = Boolean(resolved.sealedCredential) || resolved.authType === 'aws_sdk';
   } catch {
     hasCredential = false;
   }

@@ -461,7 +461,7 @@ async function buildRealLlmCallFn(projectRoot: string): Promise<LlmEscalateCallF
 
     const llm = await resolveLLMForRole('hygiene', { projectRoot });
 
-    if (!llm.credential?.apiKey) {
+    if (!llm.sealedCredential || !llm.credential) {
       return null;
     }
 
@@ -471,17 +471,30 @@ async function buildRealLlmCallFn(projectRoot: string): Promise<LlmEscalateCallF
         ? HYGIENE_FALLBACK_MODEL
         : llm.model;
 
-    const cred = llm.credential;
+    const credMeta = llm.credential;
     const transport = llm.provider;
-
-    // TODO(T9292 W3): migrate to ConcreteSession/LlmTransport when executor lands.
-    const extraHeaders = cred.authType === 'oauth' ? authHeaders(cred) : undefined;
+    const sealed = llm.sealedCredential;
 
     return async (findingText: string, taskContext: string): Promise<HygieneEscalationResult> => {
+      // E10 (T11753): materialize the plaintext from the sealed handle ONLY here,
+      // inside the per-call closure (the wire boundary). The token builds the
+      // request credential + OAuth headers, then goes out of scope — never
+      // returned, logged, or serialized.
+      const token = (await sealed.fetch()).value;
+      // TODO(T9292 W3): migrate to ConcreteSession/LlmTransport when executor lands.
+      const extraHeaders =
+        credMeta.authType === 'oauth'
+          ? authHeaders({
+              provider: transport,
+              apiKey: token,
+              source: credMeta.source,
+              authType: credMeta.authType,
+            })
+          : undefined;
       const modelConfig = {
         transport,
         model,
-        apiKey: cred.apiKey,
+        apiKey: token,
         extraHeaders,
       };
 

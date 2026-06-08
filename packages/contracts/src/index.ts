@@ -1157,6 +1157,7 @@ export type {
 // === LLM Credential + Role-Resolver Wire Types (T-LLM-CRED Phase 1/2 — T9255) ===
 export type {
   AuthTypeWire,
+  CredentialMetadataWire,
   CredentialResultWire,
   CredentialSourceWire,
   CredentialsStoreStrategyWire,

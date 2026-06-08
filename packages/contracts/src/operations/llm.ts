@@ -197,6 +197,33 @@ export interface CredentialResultWire {
   authType: AuthTypeWire;
 }
 
+/**
+ * Non-secret credential metadata — the E10 (T11753) redacted view of a resolved
+ * credential that {@link ResolvedLLM} carries inline.
+ *
+ * This is {@link CredentialResultWire} with the secret-bearing `apiKey` field
+ * **structurally removed**. The resolver returns this metadata so consumers can
+ * branch on `authType` / `source` / `provider` (e.g. choose OAuth-vs-api_key
+ * header style, surface `cleo llm whoami` diagnostics) WITHOUT any plaintext
+ * crossing the resolver boundary. The plaintext is reachable ONLY via
+ * {@link ResolvedLLM.sealedCredential}'s `fetch()` at the wire.
+ *
+ * @task T11753
+ * @epic T11746
+ */
+export interface CredentialMetadataWire {
+  /** Provider transport this credential is for. */
+  provider: ModelTransport;
+  /**
+   * Which tier produced this credential. `undefined` only when no credential
+   * was resolved (in which case both this and {@link ResolvedLLM.sealedCredential}
+   * are `null`).
+   */
+  source: CredentialSourceWire | undefined;
+  /** Scheme used to present the credential to the provider. */
+  authType: AuthTypeWire;
+}
+
 // ============================================================================
 // Role-based LLM resolution wire types (T9255 — Phase 2 T-llm-1)
 // ============================================================================
@@ -257,32 +284,33 @@ export interface ResolvedLLM {
    */
   client: unknown;
   /**
-   * Resolved credential. `null` when no tier produced a token. Callers
-   * MUST handle this case.
+   * Resolved credential **metadata** — provider / source / authType only.
+   * `null` when no tier produced a credential (in which case
+   * {@link sealedCredential} is also `null`). Callers MUST handle this case.
    *
-   * @deprecated E10 (T11746) — carries the secret INLINE as
-   * {@link CredentialResultWire.apiKey}, which travels up the resolver stack
-   * where it can be logged/serialized. T11753 swaps the resolver to populate
-   * {@link sealedCredential} instead and removes the inline `apiKey`. Prefer
-   * {@link sealedCredential} for new consumers; this field is retained for the
-   * one-task migration window so existing call-sites keep compiling.
+   * E10 (T11753): the secret-bearing `apiKey` field has been **removed** — this
+   * is now a {@link CredentialMetadataWire}, NOT the old
+   * {@link CredentialResultWire}. The plaintext token never rides on this
+   * envelope; obtain it ONLY via {@link sealedCredential}'s `fetch()` at the
+   * wire. Branch on `authType` / `source` here for header-style / diagnostics.
    */
-  credential: CredentialResultWire | null;
+  credential: CredentialMetadataWire | null;
   /**
-   * Sealed credential handle — the E10 on-demand-decrypt replacement for the
-   * inline {@link credential}/`apiKey` (T11752 · T11746). `null` when no tier
-   * produced a credential.
+   * Sealed credential handle — the E10 on-demand-decrypt credential surface
+   * (T11752 · T11753 · T11746). `null` when no tier produced a credential
+   * (paired with `credential === null`); non-null exactly when a usable
+   * credential was resolved.
    *
    * The plaintext token is materialized ONLY by calling
    * {@link SealedCredential.fetch} at the wire (`transportForProvider` /
    * `session-factory.ts`) or daemon worker-injection — never returned up this
-   * envelope. Until T11753 wires the resolver to populate it, this field is
-   * optional; once populated it becomes the canonical credential surface and
-   * the inline {@link credential} is removed.
+   * envelope. This is the canonical credential surface; the old inline
+   * `credential.apiKey` plaintext is gone.
    *
    * @task T11752
+   * @task T11753
    */
-  sealedCredential?: SealedCredential | null;
+  sealedCredential: SealedCredential | null;
   /** Which config path produced this resolution. */
   source: ResolutionSource;
   /** When `roles[role].credentialLabel` was set, the label that was used. */

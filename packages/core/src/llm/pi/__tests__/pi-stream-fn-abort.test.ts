@@ -34,12 +34,17 @@ vi.mock('../../system-resolver.js', () => ({
     provider: 'anthropic',
     model: 'mock-model',
     client: null,
+    // E10 (T11753): non-secret metadata + a sealed handle whose fetch() the
+    // wire-side `toDescriptor` invokes to materialize the token.
     credential: {
       provider: 'anthropic',
-      apiKey: 'sk-mock',
       source: 'env',
       authType: 'api_key',
-      label: 'mock',
+    },
+    sealedCredential: {
+      provider: 'anthropic',
+      account: 'mock',
+      fetch: async () => ({ __decryptedToken: 'DecryptedToken' as const, value: 'sk-mock' }),
     },
     source: 'role-config',
     apiMode: 'anthropic_messages',

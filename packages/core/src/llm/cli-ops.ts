@@ -475,7 +475,9 @@ export async function llmWhoami(params: LlmWhoamiParams): Promise<EngineResult<L
         source: resolved.source,
         credentialLabel: resolved.credentialLabel,
         credentialSource: resolved.credential?.source,
-        hasCredential: !!resolved.credential?.apiKey,
+        // E10 (T11753): `hasCredential` is now the sealed-handle presence — a
+        // non-secret signal — so whoami never materializes the plaintext.
+        hasCredential: !!resolved.sealedCredential,
       });
     }
     return engineSuccess({ entries });

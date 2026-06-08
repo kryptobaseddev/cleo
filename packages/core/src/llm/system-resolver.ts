@@ -156,10 +156,11 @@ async function upgradeCatalogDefault(resolved: ResolvedLLM): Promise<ResolvedLLM
  * @example
  * ```ts
  * const resolved = await resolveLLMForSystem('sentient', { projectRoot });
- * if (!resolved.credential?.apiKey || !resolved.client) {
+ * if (!resolved.sealedCredential || !resolved.client) {
  *   return null; // graceful no-op — no credential available
  * }
- * // Use resolved.model, resolved.client, resolved.credential
+ * // Use resolved.model, resolved.client, resolved.credential (metadata only);
+ * // materialize the secret at the wire via resolved.sealedCredential.fetch().
  * ```
  *
  * @param system - Semantic label for the subsystem requesting an LLM client.
@@ -200,6 +201,9 @@ export async function resolveLLMForSystem(
       model: 'unknown',
       client: null,
       credential: null,
+      // E10 (T11753): no credential resolved → null sealed handle, paired with
+      // the null `credential` metadata above.
+      sealedCredential: null,
       source: 'implicit-fallback',
       // SSoT wire facts (E9 · T11745): the implicit-fallback provider is
       // anthropic and there is no credential, so the descriptor advertises the

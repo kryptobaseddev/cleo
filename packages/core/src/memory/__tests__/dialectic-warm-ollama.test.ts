@@ -126,6 +126,8 @@ describe('evaluateDialectic — warm tier resolves local Ollama (T11757 proof)',
       model: 'claude-sonnet-4-6',
       client: null,
       credential: null,
+      // E10 (T11753): no credential → null sealed handle.
+      sealedCredential: null,
       source: 'implicit-fallback',
     });
 

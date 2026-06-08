@@ -429,7 +429,7 @@ export async function callLlmDuplicateReasoning(
     // `llm.default` → `llm.daemon` → implicit fallback, preserving the
     // prior `config.llm.daemon.*` defaulting behaviour.
     const llm = await resolveLLMForRole('consolidation', { projectRoot: cwd });
-    if (!llm.credential?.apiKey) {
+    if (!llm.sealedCredential || !llm.credential) {
       // No credentials — skip LLM tier silently
       return null;
     }
@@ -443,14 +443,26 @@ export async function callLlmDuplicateReasoning(
       candidate.id,
     );
 
+    // E10 (T11753): materialize the plaintext from the sealed handle ONLY here,
+    // at the wire — immediately before the model call. The token builds the
+    // request credential + OAuth headers, then goes out of scope.
+    const token = (await llm.sealedCredential.fetch()).value;
     // Build ModelConfig for the resolved provider. For OAuth credentials, attach
     // the Bearer headers via extraHeaders so the registry constructs the SDK
     // with `authToken` instead of `apiKey` (avoids the 401 from `x-api-key`).
     const modelConfig = {
       transport: llm.provider,
       model: llm.model,
-      apiKey: llm.credential.apiKey,
-      extraHeaders: llm.credential.authType === 'oauth' ? authHeaders(llm.credential) : undefined,
+      apiKey: token,
+      extraHeaders:
+        llm.credential.authType === 'oauth'
+          ? authHeaders({
+              provider: llm.provider,
+              apiKey: token,
+              source: llm.credential.source,
+              authType: llm.credential.authType,
+            })
+          : undefined,
     };
 
     const { cleoLlmCall } = await import('../llm/api.js');
