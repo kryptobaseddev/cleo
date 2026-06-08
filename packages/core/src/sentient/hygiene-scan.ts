@@ -455,13 +455,13 @@ async function buildRealLlmCallFn(projectRoot: string): Promise<LlmEscalateCallF
     const { HYGIENE_FALLBACK_MODEL, IMPLICIT_FALLBACK_MODEL, resolveLLMForRole } = await import(
       '../llm/role-resolver.js'
     );
-    const { authHeaders } = await import('../llm/credentials.js');
+    const { authHeadersFromSealed } = await import('../llm/credentials.js');
     const { cleoLlmCall } = await import('../llm/api.js');
     const { repairResponseModelJson } = await import('../llm/structured-output.js');
 
     const llm = await resolveLLMForRole('hygiene', { projectRoot });
 
-    if (!llm.credential?.apiKey) {
+    if (!llm.sealedCredential || !llm.credential) {
       return null;
     }
 
@@ -471,17 +471,25 @@ async function buildRealLlmCallFn(projectRoot: string): Promise<LlmEscalateCallF
         ? HYGIENE_FALLBACK_MODEL
         : llm.model;
 
-    const cred = llm.credential;
+    const credMeta = llm.credential;
     const transport = llm.provider;
-
-    // TODO(T9292 W3): migrate to ConcreteSession/LlmTransport when executor lands.
-    const extraHeaders = cred.authType === 'oauth' ? authHeaders(cred) : undefined;
+    const sealed = llm.sealedCredential;
 
     return async (findingText: string, taskContext: string): Promise<HygieneEscalationResult> => {
+      // E10 (T11754 · AC2): build the OAuth wire headers DIRECTLY from the sealed
+      // handle — `authHeadersFromSealed` invokes fetch() internally and the
+      // plaintext never escapes it. For the SDK `apiKey` field (the sanctioned
+      // SDK-client path that authenticates the request) we still materialize the
+      // token once, inside this per-call closure, then let it go out of scope.
+      // TODO(T9292 W3): migrate to ConcreteSession/LlmTransport when executor lands.
+      const extraHeaders =
+        credMeta.authType === 'oauth'
+          ? await authHeadersFromSealed(sealed, credMeta.authType)
+          : undefined;
       const modelConfig = {
         transport,
         model,
-        apiKey: cred.apiKey,
+        apiKey: (await sealed.fetch()).value,
         extraHeaders,
       };
 

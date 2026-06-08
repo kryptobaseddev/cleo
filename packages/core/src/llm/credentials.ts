@@ -30,6 +30,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { SealedCredential } from '@cleocode/contracts';
 import { getCleoHome } from '@cleocode/paths';
 import { getCredentialPool } from './credential-pool.js';
 import { pickCredentialForProviderSync } from './credentials-store.js';
@@ -581,6 +582,59 @@ export function authHeaders(cred: CredentialResult): Record<string, string> {
 
   // openai / gemini / moonshot — all use Bearer auth for API keys.
   return { Authorization: `Bearer ${cred.apiKey}` };
+}
+
+/**
+ * Build the provider auth headers AT THE WIRE directly from a sealed credential
+ * handle — the E10 boundary primitive (T11754 · AC2).
+ *
+ * ## Why this exists
+ *
+ * The pre-E10 / interim pattern materialized the plaintext into a caller-visible
+ * variable first — `const token = (await sealed.fetch()).value;` — and only then
+ * called {@link authHeaders}. That intermediate `token` binding is a leak surface:
+ * any code added between the `fetch()` and the header build could log, serialize,
+ * or forward the bare secret.
+ *
+ * `authHeadersFromSealed` collapses those two steps into ONE chokepoint. It is
+ * the SOLE place (alongside daemon worker-injection) that invokes
+ * {@link SealedCredential.fetch} — the crypto decrypt happens inside the handle's
+ * `fetch()`, the materialized {@link DecryptedToken} is consumed in-place to build
+ * the `x-api-key` / `Authorization: Bearer` headers (per provider + scheme), and
+ * the plaintext goes out of scope WITHOUT ever being returned, logged, or bound
+ * to a caller variable. Callers receive ONLY the finished header bag.
+ *
+ * Invoke this ONLY at a wire boundary — `transportForProvider` /
+ * `session-factory.ts:56`, the raw-fetch consumers (hygiene-scan,
+ * duplicate-detector), or daemon worker-injection. Never to surface a key up the
+ * resolver stack.
+ *
+ * @param sealed - The opaque credential handle returned by the resolver.
+ * @param authType - The auth scheme to present the credential with (mirrors the
+ *   resolved `credential.authType`). `'aws_sdk'` yields an empty bag — the AWS
+ *   SDK injects credentials out-of-band, so there is no header to build.
+ * @returns The provider-specific auth headers. The plaintext token is consumed
+ *   internally and never escapes this function.
+ * @task T11754
+ */
+export async function authHeadersFromSealed(
+  sealed: SealedCredential,
+  authType: 'api_key' | 'oauth' | 'aws_sdk',
+): Promise<Record<string, string>> {
+  // The AWS SDK owns Bedrock auth out-of-band — no wire header to materialize,
+  // so we must NOT call fetch() (the token is empty for aws_sdk entries).
+  if (authType === 'aws_sdk') return {};
+
+  // The SOLE decrypt/materialize point at this boundary. The branded plaintext
+  // lives only for the synchronous authHeaders() call below, then goes out of
+  // scope. It is NEVER assigned to a caller-visible binding or returned.
+  const decrypted = await sealed.fetch();
+  return authHeaders({
+    provider: sealed.provider as ModelTransport,
+    apiKey: decrypted.value,
+    source: undefined,
+    authType: authType === 'oauth' ? 'oauth' : 'api_key',
+  });
 }
 
 // ---------------------------------------------------------------------------

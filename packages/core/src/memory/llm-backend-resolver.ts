@@ -369,7 +369,12 @@ async function tryUnifiedResolver(): Promise<ResolvedBackend | null> {
     const resolved = await resolveLLMForRole('extraction');
 
     // No credential reachable → let the legacy chain try local backends.
-    const apiKey = resolved.credential?.apiKey ?? null;
+    // E10 (T11753): materialize the plaintext from the sealed handle ONLY here,
+    // at the wire — immediately before constructing the AI-SDK provider. The
+    // token is scoped to this function and never returned up the stack.
+    const apiKey = resolved.sealedCredential
+      ? (await resolved.sealedCredential.fetch()).value
+      : null;
 
     if (resolved.provider === 'anthropic') {
       if (!apiKey) return null;

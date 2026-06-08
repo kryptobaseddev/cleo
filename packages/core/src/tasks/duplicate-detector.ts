@@ -420,7 +420,7 @@ export async function callLlmDuplicateReasoning(
   cwd?: string,
 ): Promise<DuplicateReasoning | null> {
   try {
-    const { authHeaders } = await import('../llm/credentials.js');
+    const { authHeadersFromSealed } = await import('../llm/credentials.js');
     const { resolveLLMForRole } = await import('../llm/role-resolver.js');
 
     // T9255: route through the role-based resolver. Duplicate-detection is a
@@ -429,7 +429,7 @@ export async function callLlmDuplicateReasoning(
     // `llm.default` → `llm.daemon` → implicit fallback, preserving the
     // prior `config.llm.daemon.*` defaulting behaviour.
     const llm = await resolveLLMForRole('consolidation', { projectRoot: cwd });
-    if (!llm.credential?.apiKey) {
+    if (!llm.sealedCredential || !llm.credential) {
       // No credentials — skip LLM tier silently
       return null;
     }
@@ -443,14 +443,22 @@ export async function callLlmDuplicateReasoning(
       candidate.id,
     );
 
-    // Build ModelConfig for the resolved provider. For OAuth credentials, attach
-    // the Bearer headers via extraHeaders so the registry constructs the SDK
-    // with `authToken` instead of `apiKey` (avoids the 401 from `x-api-key`).
+    // E10 (T11754 · AC2): build the OAuth wire headers DIRECTLY from the sealed
+    // handle — `authHeadersFromSealed` invokes fetch() internally and the
+    // plaintext never escapes it. The SDK `apiKey` field (the sanctioned
+    // SDK-client path) still needs the materialized token, taken once here and
+    // let go out of scope after the call.
+    // For OAuth credentials, attach the Bearer headers via extraHeaders so the
+    // registry constructs the SDK with `authToken` instead of `apiKey` (avoids
+    // the 401 from `x-api-key`).
     const modelConfig = {
       transport: llm.provider,
       model: llm.model,
-      apiKey: llm.credential.apiKey,
-      extraHeaders: llm.credential.authType === 'oauth' ? authHeaders(llm.credential) : undefined,
+      apiKey: (await llm.sealedCredential.fetch()).value,
+      extraHeaders:
+        llm.credential.authType === 'oauth'
+          ? await authHeadersFromSealed(llm.sealedCredential, llm.credential.authType)
+          : undefined,
     };
 
     const { cleoLlmCall } = await import('../llm/api.js');

@@ -30,11 +30,21 @@ function makeResolvedLLM(
   apiKey: string | null = 'sk-test',
   authType: 'api_key' | 'oauth' = 'api_key',
 ) {
+  // E10 (T11753): the resolver returns non-secret credential metadata + a sealed
+  // handle whose fetch() materializes the plaintext at the wire. The mock mirrors
+  // that shape so session-factory's `sealedCredential.fetch()` call resolves.
   return {
     provider,
     model: 'claude-haiku-4-5-20251001',
     client: null,
-    credential: apiKey ? { provider, apiKey, source: 'env' as const, authType } : null,
+    credential: apiKey ? { provider, source: 'env' as const, authType } : null,
+    sealedCredential: apiKey
+      ? {
+          provider,
+          account: 'default',
+          fetch: async () => ({ __decryptedToken: 'DecryptedToken' as const, value: apiKey }),
+        }
+      : null,
     source: 'implicit-fallback' as const,
     credentialLabel: undefined,
   };

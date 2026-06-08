@@ -78,21 +78,54 @@ import { _resetRoleWarnLatchForTests, executeForRole } from '../role-executor.js
 // Fixtures
 // ---------------------------------------------------------------------------
 
-/** Build a {@link ResolvedLLM}-shaped object for the mocked resolver. */
-function resolved(overrides: Partial<ResolvedLLM>): ResolvedLLM {
+/**
+ * Build a {@link ResolvedLLM}-shaped object for the mocked resolver.
+ *
+ * E10 (T11753): the resolver returns non-secret credential metadata plus a
+ * sealed handle whose `fetch()` materializes the plaintext at the wire. To keep
+ * the ergonomic test interface (overrides pass a `credential` carrying an
+ * `apiKey`), this helper accepts the secret inline and projects it into BOTH the
+ * redacted metadata `credential` and the `sealedCredential` handle the code
+ * under test consumes.
+ */
+function resolved(
+  overrides: Partial<Omit<ResolvedLLM, 'credential'>> & {
+    credential?: {
+      provider: string;
+      apiKey: string;
+      source: 'cred-file' | 'env' | 'claude-creds' | 'global-config' | 'project-config';
+      authType: 'api_key' | 'oauth';
+    } | null;
+  },
+): ResolvedLLM {
+  const { credential: credOverride, ...rest } = overrides;
+  const cred =
+    credOverride === undefined
+      ? {
+          provider: 'anthropic',
+          apiKey: 'sk-ant-test',
+          source: 'cred-file' as const,
+          authType: 'api_key' as const,
+        }
+      : credOverride;
+  const provider = (rest.provider as string | undefined) ?? cred?.provider ?? 'anthropic';
   return {
-    provider: 'anthropic',
+    provider,
     model: 'claude-haiku-4-5-20251001',
     client: null,
-    credential: {
-      provider: 'anthropic',
-      apiKey: 'sk-ant-test',
-      source: 'cred-file',
-      authType: 'api_key',
-    },
+    credential: cred
+      ? { provider: cred.provider, source: cred.source, authType: cred.authType }
+      : null,
+    sealedCredential: cred
+      ? {
+          provider: cred.provider,
+          account: 'default',
+          fetch: async () => ({ __decryptedToken: 'DecryptedToken' as const, value: cred.apiKey }),
+        }
+      : null,
     source: 'implicit-fallback',
     credentialLabel: 'claude-code',
-    ...overrides,
+    ...rest,
   } as ResolvedLLM;
 }
 

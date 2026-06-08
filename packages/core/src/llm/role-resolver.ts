@@ -30,6 +30,7 @@ import type { Anthropic } from '@anthropic-ai/sdk';
 import type {
   ApiMode,
   CleoConfig,
+  CredentialMetadataWire,
   LlmConfig,
   LlmDefaultConfig,
   LlmProfileConfig,
@@ -38,6 +39,7 @@ import type {
   ResolutionSource,
   ResolveLLMForRoleOptions,
   RoleName,
+  SealedCredential,
 } from '@cleocode/contracts';
 import type { OpenAI } from 'openai';
 import { resolveOrCwd } from '../paths.js';
@@ -46,6 +48,7 @@ import { CredentialPool } from './credential-pool.js';
 import { type CredentialResult, resolveCredentials } from './credentials.js';
 import { getCredentialByLabel, pickCredentialForProvider } from './credentials-store.js';
 import { IMPLICIT_FALLBACK_MODEL } from './fallback-model.js';
+import { makeSealedCredential, tokenPreview } from './sealed-credential.js';
 import { buildAnthropicClient } from './transports/anthropic-client-factory.js';
 import type { ModelTransport } from './types-config.js';
 
@@ -115,14 +118,24 @@ export type { ResolutionSource, ResolveLLMForRoleOptions };
  *
  * The contracts-level `ResolvedLLM` (from `@cleocode/contracts`) carries
  * `client: unknown` to stay SDK-free. This core variant tightens the same
- * envelope with the concrete SDK union (`LLMClient`) and the local
- * {@link CredentialResult} — same shape, narrower types.
+ * envelope with the concrete SDK union (`LLMClient`) — same shape, narrower
+ * `client` type.
  *
- * `client` is `null` only when `credential.apiKey` is also null — in which
+ * `client` is `null` only when {@link sealedCredential} is also null — in which
  * case the caller MUST fall back to its graceful-degradation path
  * (return null / skip / log warn).
  *
+ * ## E10 — no inline plaintext (T11753)
+ *
+ * The secret-bearing `credential.apiKey` field is **gone**. `credential` is now
+ * non-secret {@link CredentialMetadataWire} metadata (provider / source /
+ * authType) so callers can still branch on auth scheme and surface diagnostics.
+ * The plaintext token is reachable ONLY via {@link sealedCredential}'s `fetch()`
+ * at the wire (`transportForProvider` / `session-factory.ts`) or daemon
+ * worker-injection — it never crosses this envelope.
+ *
  * @task T9255
+ * @task T11753
  */
 export interface ResolvedLLM {
   /** LLM provider transport that was resolved. */
@@ -136,10 +149,24 @@ export interface ResolvedLLM {
    */
   client: LLMClient | null;
   /**
-   * Resolved credential. `null` when none of the 6 credential tiers
-   * produced a token. Callers MUST handle this case.
+   * Resolved credential **metadata** (provider / source / authType) — NO
+   * plaintext. `null` when none of the 6 credential tiers produced a token
+   * (paired with `sealedCredential === null`). Callers MUST handle this case
+   * and obtain the secret via {@link sealedCredential}.
+   *
+   * @task T11753
    */
-  credential: CredentialResult | null;
+  credential: CredentialMetadataWire | null;
+  /**
+   * Sealed credential handle — the canonical, on-demand credential surface
+   * (E10 · T11752 · T11753). `null` exactly when `credential` is `null`.
+   *
+   * The plaintext is materialized ONLY by `sealedCredential.fetch()` at the
+   * wire / daemon worker-injection — never returned up this envelope.
+   *
+   * @task T11753
+   */
+  sealedCredential: SealedCredential | null;
   /** Which config path produced this resolution. */
   source: ResolutionSource;
   /** When `roles[role].credentialLabel` was set, the label that was used. */
@@ -356,18 +383,27 @@ async function resolveCredentialForRole(
  *
  * See module docs for the full resolution algorithm. Never throws — when
  * no credential is reachable the caller receives
- * `{ credential: null, client: null, ... }` and is responsible for its own
- * graceful-degradation path (the previous Phase 1 pattern was a `return null`
- * shortcut at the call-site).
+ * `{ credential: null, sealedCredential: null, client: null, ... }` and is
+ * responsible for its own graceful-degradation path (the previous Phase 1
+ * pattern was a `return null` shortcut at the call-site).
+ *
+ * E10 (T11753): the plaintext token never rides on the returned envelope.
+ * Materialize it ONLY at the wire by calling `llm.sealedCredential.fetch()`.
  *
  * @example
  * ```ts
  * const llm = await resolveLLMForRole('consolidation', { projectRoot });
- * if (!llm.credential?.apiKey || !llm.client) {
+ * if (!llm.sealedCredential || !llm.client) {
  *   return null; // graceful no-op
  * }
+ * // At the wire — the ONLY place the plaintext is materialized:
+ * const token = (await llm.sealedCredential.fetch()).value;
  * const response = await fetch('https://api.anthropic.com/v1/messages', {
- *   headers: { 'Content-Type': 'application/json', ...authHeaders(llm.credential) },
+ *   headers: {
+ *     'Content-Type': 'application/json',
+ *     ...authHeaders({ provider: llm.provider, apiKey: token,
+ *       source: llm.credential?.source, authType: llm.credential?.authType ?? 'api_key' }),
+ *   },
  *   body: JSON.stringify({ model: llm.model, ...rest }),
  * });
  * ```
@@ -377,6 +413,7 @@ async function resolveCredentialForRole(
  * @returns A {@link ResolvedLLM} envelope; never throws.
  *
  * @task T9255
+ * @task T11753
  */
 export async function resolveLLMForRole(
   role: RoleName,
@@ -440,11 +477,41 @@ export async function resolveLLMForRole(
   const authType: 'api_key' | 'oauth' | 'aws_sdk' | null = credential?.authType ?? null;
   const wire = deriveApiWire(provider, authType);
 
+  // Step 6 — E10 (T11753): seal the credential. The plaintext token is captured
+  // in the handle's `fetch()` closure but is NOT placed on the returned
+  // envelope. `credential` becomes non-secret metadata; consumers reach the
+  // secret ONLY via `sealedCredential.fetch()` at the wire. No-credential
+  // resolution yields `{ credential: null, sealedCredential: null }`.
+  let credentialMetadata: CredentialMetadataWire | null = null;
+  let sealedCredential: SealedCredential | null = null;
+  if (credential?.apiKey) {
+    const token = credential.apiKey;
+    const wireAuthType: 'api_key' | 'oauth' = credential.authType === 'oauth' ? 'oauth' : 'api_key';
+    credentialMetadata = {
+      provider: credential.provider,
+      source: credential.source,
+      authType: wireAuthType,
+    };
+    sealedCredential = makeSealedCredential({
+      provider: credential.provider,
+      account: usedLabel ?? 'default',
+      // Non-secret redacted preview (≤ last 4 chars) computed ONCE at seal time
+      // — the only token-derived string allowed on a log/envelope/diagnostic
+      // (E10 · T11754 · AC3). The full plaintext is NOT retained for it.
+      tokenPreview: tokenPreview(token, wireAuthType),
+      // The already-resolved plaintext is captured in this closure and handed
+      // out ONLY when a wire boundary invokes fetch(); it is never surfaced on
+      // the envelope. T11754 swaps this thunk for an on-demand vault decrypt.
+      resolveToken: () => token,
+    });
+  }
+
   return {
     provider,
     model,
     client,
-    credential,
+    credential: credentialMetadata,
+    sealedCredential,
     source,
     credentialLabel: usedLabel,
     apiMode: wire.apiMode,
@@ -490,7 +557,6 @@ export async function resolveAnthropicForRole(
 ): Promise<{
   client: Pick<Anthropic, 'messages'>;
   model: string;
-  credential: CredentialResult;
 } | null> {
   let llm: ResolvedLLM;
   try {
@@ -499,7 +565,13 @@ export async function resolveAnthropicForRole(
     return null;
   }
   if (llm.provider !== 'anthropic') return null;
-  if (!llm.credential?.apiKey || !llm.client) return null;
+  // E10 (T11753): gate on the sealed handle's presence — its existence is the
+  // post-resolution "a usable credential was found" signal, replacing the
+  // removed inline `credential.apiKey` truthiness check. The Anthropic SDK
+  // `client` was already wired from the plaintext inside `resolveLLMForRole`
+  // (the one allowed `new Anthropic(...)` chokepoint), so the secret does not
+  // need to cross this boundary again.
+  if (!llm.sealedCredential || !llm.client) return null;
   // Safe narrowing: provider === 'anthropic' and direct Anthropic construction
   // in resolveLLMForRole guarantees the client is an Anthropic SDK instance.
   // Pick<Anthropic, 'messages'> exposes only the surface needed by all 3
@@ -508,6 +580,5 @@ export async function resolveAnthropicForRole(
   return {
     client: llm.client as Anthropic,
     model: llm.model,
-    credential: llm.credential,
   };
 }

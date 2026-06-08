@@ -243,6 +243,9 @@ export {
 // Runtime
 export type { AttemptPlan } from './runtime.js';
 export { effectiveTemperature, makeAttemptRef, planAttempt } from './runtime.js';
+// Sealed credential handle — E10 on-demand-decrypt impl (T11753)
+export type { MakeSealedCredentialParams } from './sealed-credential.js';
+export { makeSealedCredential } from './sealed-credential.js';
 export type { StructuredOutputFailurePolicy } from './structured-output.js';
 // Structured output utilities
 export {

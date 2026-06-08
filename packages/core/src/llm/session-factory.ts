@@ -153,15 +153,19 @@ export class DefaultLlmSessionFactory implements LlmSessionFactory {
         opts.role as Parameters<typeof resolveLLMForRole>[0],
       );
 
-      if (!resolved.credential?.apiKey) {
+      if (!resolved.sealedCredential || !resolved.credential) {
         throw new Error(
           `No credential available for role '${opts.role}' / provider '${resolved.provider}'`,
         );
       }
 
+      // E10 (T11753): materialize the plaintext from the sealed handle ONLY here,
+      // at the wire — `transportForProvider` is one of the two sanctioned decrypt
+      // boundaries. The token is wired into the transport and never surfaced.
+      const token = (await resolved.sealedCredential.fetch()).value;
       const resolvedCredential = credentialResultToResolved({
         provider: resolved.provider,
-        apiKey: resolved.credential.apiKey,
+        apiKey: token,
         authType: resolved.credential.authType,
         label: resolved.credentialLabel,
       });
